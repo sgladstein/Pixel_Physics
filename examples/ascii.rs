@@ -2309,14 +2309,27 @@ fn nest_dig_scene() {
     // correct and answers a different question, which `CLAUDE.md` names as
     // this repo's worst-recurring failure. What the scene claims is that the
     // ants removed material from the bank, so what it counts is the bank:
-    // both forms of the ground, whether worked or loose.
+    // **all three** forms of the ground, whether worked in place, carried and
+    // set down, or loose.
+    //
+    // **`spoil` joined them on 2026-09-13 and it had to**, or this assertion
+    // is false by construction. A hauled pellet is its own material now
+    // (`assets/materials/spoil.ron`, `Reports/open-bugs-handoff.md` §Z18), so
+    // a bank census naming only the two it used to be books every pellet in
+    // the world as a cell that left it -- which is exactly the leak this
+    // scene exists to catch, arriving as a false positive. It read `3600 ->
+    // 3519 standing` against 3602 expected the first time, 83 cells of spoil
+    // lying on the surface in plain sight. **Both halves of an identity have
+    // to name the same set**, which is this file's own 2026-09-05 lesson one
+    // paragraph down.
     let packed = world.materials.id_of("packedsoil").expect("packedsoil");
+    let spoil = world.materials.id_of("spoil").expect("spoil");
     let bank = |world: &World| -> usize {
         (0..w)
             .flat_map(|x| (0..h).map(move |y| (x, y)))
             .filter(|&(x, y)| {
                 let m = world.get(x, y).material;
-                m == soil || m == packed
+                m == soil || m == packed || m == spoil
             })
             .count()
     };

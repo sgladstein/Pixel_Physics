@@ -150,7 +150,7 @@ pub(crate) fn creature_priority() -> bool {
 /// merely *less work*? Dropping the oldest line is less work -- the event
 /// still fired and is still counted -- and `RunLog::dropped` is what stops
 /// the trimming being silent.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LogEvent {
     /// The simulated frame it happened on.
     pub frame: u64,
@@ -180,6 +180,18 @@ pub struct LogEvent {
     /// the organism the line was about may already be gone by the time
     /// anything reads the log.
     pub generation: u16,
+    /// **The player action's own sentence, verbatim.** Every other kind is
+    /// about an organism or a lineage and can be worded from the fixed
+    /// fields above plus a small numeric code in `other` (`decode_milestone`,
+    /// `plainspeak::describe_record`); a player's own verbs — which dial, by
+    /// how much, which column, which jar — do not share one shape, so
+    /// `LogKind::PlayerAction` carries the words themselves rather than
+    /// inventing a bit-packed encoding for six unrelated things. Empty for
+    /// every other kind, which costs nothing: an unused `String` never
+    /// allocates. **This is the one field that took `LogEvent` off `Copy`**
+    /// (still `Clone`) — the two call sites that relied on `Copy` now say
+    /// `.cloned()`.
+    pub detail: String,
 }
 
 /// What kind of thing happened.
@@ -228,6 +240,19 @@ pub enum LogKind {
     /// end). Animals only for now: plant traits have no name table for a
     /// sentence to use.
     LineRecord,
+    /// **The player did something to the box** — placed a jar, walled,
+    /// poured, changed a dial, changed the speed, or rebuilt. Not about any
+    /// organism (`id`/`born_frame`/`lineage`/`generation` are all `0` and
+    /// `species` is `SpeciesId(0)`, a sentinel rather than a real species —
+    /// see [`LogEvent::detail`], which carries the actual sentence).
+    /// `RunLog::about` excludes this kind explicitly for exactly that
+    /// reason: a real organism can legitimately be `id 0, born_frame 0`, so
+    /// a player action must never be mistaken for a line in *its* timeline.
+    /// **Why this exists at all**: the owner plays real sessions and hands
+    /// the chronicle to an agent afterward, and today a jump in the census
+    /// can only be *guessed* at as an intervention. This is the fix — a
+    /// frame-stamped record of the intervention itself.
+    PlayerAction,
 }
 
 impl LogKind {
@@ -241,17 +266,29 @@ impl LogKind {
             LogKind::GroupSplit => "GROUP SPLIT",
             LogKind::LineMilestone => "LINE MILESTONE",
             LogKind::LineRecord => "LINE RECORD",
+            LogKind::PlayerAction => "ACTION",
         }
     }
 
-    /// **The chronicle, not the census.** These four are about a *lineage*
-    /// rather than an individual, and every one of them is bounded per
-    /// lineage (see each variant's own doc) rather than per birth — the
-    /// `LOG` page's `LINES` filter shows only these, so a 1,000-ant box still
-    /// has a readable history of what actually changed in it, not a scroll
-    /// of every hatch.
+    /// **The chronicle, not the census.** These five are the ones a reader
+    /// wants regardless of population: four are about a *lineage* rather
+    /// than an individual and are bounded per lineage (see each variant's
+    /// own doc) rather than per birth, and the fifth — `PlayerAction` — is
+    /// bounded per player gesture rather than per frame. The `LOG` page's
+    /// `LINES` filter shows only these, so a 1,000-ant box still has a
+    /// readable history of what actually changed in it, not a scroll of
+    /// every hatch — and, as of `PlayerAction`, not a guess at which of
+    /// those changes a person caused.
+    ///
+    /// **`RunLog` keeps this kind's events on their own ring**, separate
+    /// from `Born`/`Died`/`FirstFeed`/`FirstSeed` — see `RunLog`'s own doc.
+    /// A big colony's own birth/death churn must never be able to push a
+    /// line event or a player's own action out of the story.
     pub fn is_line_event(self) -> bool {
-        matches!(self, LogKind::LineEnded | LogKind::GroupSplit | LogKind::LineMilestone | LogKind::LineRecord)
+        matches!(
+            self,
+            LogKind::LineEnded | LogKind::GroupSplit | LogKind::LineMilestone | LogKind::LineRecord | LogKind::PlayerAction
+        )
     }
 }
 
@@ -286,26 +323,57 @@ pub fn decode_milestone(other: u16) -> (bool, u32) {
 /// and nothing provided: a phase that fast-forwards 45,000 frames has to be
 /// able to say what went on. Filter by identity for one individual's
 /// timeline; read it whole for the box's.
+///
+/// **Two rings, not one.** Round 31's own measurement: `RUN_LOG_CAP` sized
+/// at ~640 events per 90,000 frames held on the shipped 52-ant bed, where
+/// `Born`/`Died`/`FirstFeed`/`FirstSeed` and the rarer line events shared one
+/// ring in roughly that proportion. A played bed with hundreds of ants has
+/// far more births and deaths at the same frame count, and one shared ring
+/// meant that churn silently evicted the sparse `LineEnded`/`GroupSplit`/
+/// `LineMilestone`/`LineRecord`/`PlayerAction` rows the chronicle's own story
+/// is built from -- the colony's own size erased its history. `individuals`
+/// (capped by `RUN_LOG_CAP`) now holds only `Born`/`Died`/`FirstFeed`/
+/// `FirstSeed`; `lines` (capped by `LINE_LOG_CAP`) holds everything
+/// `LogKind::is_line_event` names. `push` routes on that predicate; every
+/// other method merges the two by frame so a reader still sees one ordered
+/// log.
 #[derive(Clone, Debug, Default)]
 pub struct RunLog {
-    events: std::collections::VecDeque<LogEvent>,
-    /// **How many lines have aged out.** Without it a trimmed early history
-    /// reads as *nothing happened*, which is the same failure as a zero body
-    /// count read as "chunks are working": the absence of evidence looks
-    /// exactly like evidence of absence. The page prints it.
-    dropped: u64,
+    individuals: std::collections::VecDeque<LogEvent>,
+    lines: std::collections::VecDeque<LogEvent>,
+    /// **How many individual-ring lines have aged out.** Without it a
+    /// trimmed early history reads as *nothing happened*, which is the same
+    /// failure as a zero body count read as "chunks are working": the
+    /// absence of evidence looks exactly like evidence of absence. The page
+    /// prints `dropped()`, the sum of this and `dropped_lines`.
+    dropped_individuals: u64,
+    /// How many line-ring lines have aged out -- see `dropped_individuals`.
+    /// Kept apart from it rather than summed at push time so a caller
+    /// auditing which ring is under pressure can still tell them apart,
+    /// even though `dropped()` itself does not.
+    dropped_lines: u64,
 }
 
-/// **How many lines the log holds**, set from measurement with headroom.
+/// **How many `Born`/`Died`/`FirstFeed`/`FirstSeed` lines the individuals'
+/// ring holds**, set from measurement with headroom.
 ///
 /// Roughly 640 notable events per 90,000 frames of the shipped bed (see
-/// `LogKind`), so this covers about 290,000 frames -- several sessions --
-/// before anything ages out at all.
+/// `LogKind`) split across both rings, so 2048 on this ring alone is several
+/// sessions of headroom even on a colony far bigger than the shipped one.
 ///
 /// **Not decimated**, unlike `lab::stats`' sample ring. A decimated *series*
 /// is the same shape at lower resolution; a decimated *narrative* is a story
 /// with every other sentence removed.
 pub const RUN_LOG_CAP: usize = 2048;
+
+/// **How many line events and player actions the line ring holds.** Same
+/// value as `RUN_LOG_CAP` and the same reasoning, on a ring that fills far
+/// slower -- these are bounded per lineage or per player gesture, never per
+/// birth, so 2048 of them is a very long run's worth even on a busy bed. A
+/// separate constant rather than reusing `RUN_LOG_CAP` directly: the two
+/// rings answer different pressure questions and a future re-measurement of
+/// one should not have to touch the other's name to touch its value.
+pub const LINE_LOG_CAP: usize = 2048;
 
 /// **One killing, with both parties and the moment.**
 ///
@@ -470,36 +538,87 @@ impl Graveyard {
     }
 }
 
+/// **Merges `RunLog`'s two rings, newest first.** Both `individuals` and
+/// `lines` are pushed in non-decreasing `frame` order (every push reads
+/// `World::frame`, which never goes backward), so each `.rev()` is
+/// non-increasing and a standard merge -- take whichever head has the larger
+/// frame -- reproduces one combined newest-first order without collecting
+/// either ring into a `Vec`. A tie is broken toward `individuals`
+/// arbitrarily; nothing here promises an order among same-frame events, and
+/// nothing downstream depends on one.
+struct MergedRecent<'a> {
+    individuals: std::iter::Peekable<std::iter::Rev<std::collections::vec_deque::Iter<'a, LogEvent>>>,
+    lines: std::iter::Peekable<std::iter::Rev<std::collections::vec_deque::Iter<'a, LogEvent>>>,
+}
+
+impl<'a> Iterator for MergedRecent<'a> {
+    type Item = &'a LogEvent;
+    fn next(&mut self) -> Option<Self::Item> {
+        match (self.individuals.peek(), self.lines.peek()) {
+            (Some(i), Some(l)) => {
+                if i.frame >= l.frame {
+                    self.individuals.next()
+                } else {
+                    self.lines.next()
+                }
+            }
+            (Some(_), None) => self.individuals.next(),
+            (None, Some(_)) => self.lines.next(),
+            (None, None) => None,
+        }
+    }
+}
+
 impl RunLog {
+    /// **Routes on `LogKind::is_line_event`** -- see `RunLog`'s own doc for
+    /// why the two rings exist and what each holds.
     pub fn push(&mut self, event: LogEvent) {
-        self.events.push_back(event);
-        while self.events.len() > RUN_LOG_CAP {
-            self.events.pop_front();
-            self.dropped += 1;
+        if event.kind.is_line_event() {
+            self.lines.push_back(event);
+            while self.lines.len() > LINE_LOG_CAP {
+                self.lines.pop_front();
+                self.dropped_lines += 1;
+            }
+        } else {
+            self.individuals.push_back(event);
+            while self.individuals.len() > RUN_LOG_CAP {
+                self.individuals.pop_front();
+                self.dropped_individuals += 1;
+            }
         }
     }
 
-    /// Newest first, which is the order a log is read in.
+    /// Newest first, which is the order a log is read in. Merges both rings
+    /// -- see `MergedRecent`.
     pub fn recent(&self) -> impl Iterator<Item = &LogEvent> {
-        self.events.iter().rev()
+        MergedRecent { individuals: self.individuals.iter().rev().peekable(), lines: self.lines.iter().rev().peekable() }
     }
 
     /// One individual's timeline, newest first.
+    ///
+    /// **Excludes `PlayerAction` explicitly, not merely by non-match.**
+    /// Every `PlayerAction` carries `id: 0, born_frame: 0` (it is not about
+    /// an organism at all -- see `LogKind::PlayerAction`'s own doc), and a
+    /// real organism can legitimately be the world's very first, itself
+    /// `id 0, born_frame 0`. Without this exclusion that organism's timeline
+    /// would silently pick up every player action in the run.
     pub fn about(&self, id: u16, born_frame: u64) -> impl Iterator<Item = &LogEvent> {
-        self.events.iter().rev().filter(move |e| e.id == id && e.born_frame == born_frame)
+        self.recent().filter(move |e| e.kind != LogKind::PlayerAction && e.id == id && e.born_frame == born_frame)
     }
 
     pub fn len(&self) -> usize {
-        self.events.len()
+        self.individuals.len() + self.lines.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.events.is_empty()
+        self.individuals.is_empty() && self.lines.is_empty()
     }
 
-    /// How many lines have aged out of the far end.
+    /// How many lines have aged out of the far end, summed across both
+    /// rings. `RunLog`'s own doc has the per-ring counts, for a caller that
+    /// needs to tell which ring is under pressure.
     pub fn dropped(&self) -> u64 {
-        self.dropped
+        self.dropped_individuals + self.dropped_lines
     }
 
     /// **Every line ever pushed, trimmed or not.** Monotonic within one run,
@@ -507,14 +626,16 @@ impl RunLog {
     /// before/after difference without holding a copy of the log or walking
     /// it every frame.
     pub fn total(&self) -> u64 {
-        self.events.len() as u64 + self.dropped
+        self.len() as u64 + self.dropped()
     }
 
     /// Start again. For a batch copy, which inherits its parent's log through
     /// `World`'s `Clone` and should not: a copy's history is its own run.
     pub fn clear(&mut self) {
-        self.events.clear();
-        self.dropped = 0;
+        self.individuals.clear();
+        self.lines.clear();
+        self.dropped_individuals = 0;
+        self.dropped_lines = 0;
     }
 }
 
@@ -635,6 +756,33 @@ impl World {
             other,
             lineage: who.lineage,
             generation: who.generation,
+            // Every kind pushed through here is about an organism, never a
+            // player action -- see `log_player_action` for the one kind
+            // that carries a sentence here instead of nothing.
+            detail: String::new(),
+        });
+    }
+
+    /// **Push one `LogKind::PlayerAction` line, the sentence written by the
+    /// caller that already knows exactly what happened.** `Lab`'s own
+    /// verbs — `release_at`, `wall_at`, a water pour, `adjust_param`, the
+    /// speed dial, `reset` — call this rather than `log`/`log_for`: none of
+    /// them are about an organism, so there is no `lineage`/`generation` to
+    /// read and nothing for `other`'s bit-packed encodings to carry. See
+    /// [`LogKind::PlayerAction`] for why `id`/`born_frame`/`species` are
+    /// sentinel zeros and why `RunLog::about` excludes this kind by name
+    /// rather than trusting that no organism is ever `id 0, born_frame 0`.
+    pub fn log_player_action(&mut self, detail: impl Into<String>) {
+        self.run_log.push(LogEvent {
+            frame: self.frame,
+            id: 0,
+            born_frame: 0,
+            species: organism::SpeciesId(0),
+            kind: LogKind::PlayerAction,
+            other: 0,
+            lineage: 0,
+            generation: 0,
+            detail: detail.into(),
         });
     }
 
@@ -1195,6 +1343,26 @@ pub struct CreatureStats {
     /// exists to make visible — matter that entered an animal and did not
     /// leave it — and neither counter alone can see it.
     pub spoil_dumped: u64,
+    /// **Of those, the ones the drop could not place beside the animal and
+    /// sent *up the column* instead** — and the largest such lift in rows.
+    ///
+    /// `spoil_dumped` sums both placement branches, so a pellet laid on the
+    /// ground beside an ant and one posted ninety rows into a canopy are the
+    /// same number today, which is why nothing had ever measured
+    /// `Reports/open-bugs-handoff.md` §Z18. The split is **PR #221's**
+    /// (`claude/creature-plant-pathfinding-rjzkqe`, open since 2026-09-03 and
+    /// never merged because its register letter collided); ported here with
+    /// its reasoning rather than re-derived.
+    ///
+    /// What it is for: `creature::act`'s spoil drop falls back to the first
+    /// cell **straight up** that has two of three filled beneath it, as far as
+    /// `SPOIL_LIFT` rows — **with no check that a path exists**. The ant never
+    /// climbs. A plant cell counts as filled, so a pellet can be set down on a
+    /// leaf far above the ground, and being worked soil it stays there. A
+    /// `spoil_lift_max` well above a single row is that rule firing.
+    pub spoil_lifted: u64,
+    /// See `spoil_lifted`. Rows, largest single lift in the run.
+    pub spoil_lift_max: u32,
     /// **Pellets that died with their carrier and had nowhere to land** —
     /// cells that genuinely left the world, and the only way one still can
     /// through this path.
@@ -1821,6 +1989,54 @@ pub struct SoilWaterStats {
     pub soil: u64,
     pub changed: u64,
 }
+
+/// **A circle of running time in a held world** — the player's verb, and the
+/// unit the whole held-world economy is priced in
+/// (`Reports/held-world-game-concept-2026-09-13.md`).
+///
+/// Radius and rate are the two dials the owner settled on 2026-09-13: you buy
+/// a wide slow circle or a narrow fast one out of one pool. Only the radius
+/// lives here — the rate is how many times a caller steps the world, per
+/// `sim::frame::step`'s standing rule that *more ticks is exact where faster
+/// subsystems is a behaviour change*.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Quickening {
+    pub x: i32,
+    pub y: i32,
+    pub r: i32,
+}
+
+/// **How far the player's own quickening reaches**, in cells.
+///
+/// Sized as *presence*, not as power: big enough that the ground he is
+/// standing on and the plant beside him are running, small enough that he
+/// cannot grow a wood by loitering. The placed quickenings are the ones with
+/// a radius the player buys.
+///
+/// A constant rather than a tunable until there is a game to tune it in —
+/// `Reports/design-philosophy.md` settles which of the two a number should be,
+/// and a knob nobody has played with yet is a knob with no evidence behind it.
+pub const CARRIED_RADIUS: i32 = 28;
+
+impl Quickening {
+    /// Squared-distance test, so nothing here needs a square root and the
+    /// boundary is exact in integers.
+    ///
+    /// **The drawn rim is deliberately not this circle.** A constant-level
+    /// disc reads as a soap bubble — the owner rejected exactly that shape on
+    /// sight for foliage (`Reports/dead-ends.md`), and the repair recorded
+    /// there is a coherent value noise keyed to *world* position so it does
+    /// not crawl with the camera. That belongs in the renderer; the
+    /// simulation's own membership stays a clean circle, because a ragged
+    /// gate would make every quantity measured across it depend on the
+    /// texture.
+    #[inline]
+    pub fn contains(&self, x: i32, y: i32) -> bool {
+        let (dx, dy) = (x - self.x, y - self.y);
+        dx * dx + dy * dy <= self.r * self.r
+    }
+}
+
 
 #[derive(Clone)]
 pub struct World {
@@ -3483,6 +3699,47 @@ pub struct World {
     ///
     /// Defaults **off**, so nothing changes until it is asked for.
     pub plant_size_cadence: bool,
+    /// **Whether the world is *held* — nothing grows, breeds, ages, rots or
+    /// weathers except inside a [`Quickening`].**
+    ///
+    /// The premise of the held-world game concept
+    /// (`Reports/held-world-game-concept-2026-09-13.md`): the land is not
+    /// running slowly, it is stopped, and the player carries the only time
+    /// there is. **Physics is untouched** — rock still falls, water still
+    /// flows, a pick still cuts — exactly as `sim::clock`'s five rate knobs
+    /// leave the CA sweep alone. What this gates is *life*: the active-site
+    /// schedule and the per-organism economy.
+    ///
+    /// Defaults **off**, so every existing world, test, harness and
+    /// acceptance scene is byte-identical to the tree before this existed.
+    pub held: bool,
+    /// **Where time is running**, when [`held`](Self::held) is set. Empty is
+    /// a legal and completely stopped world.
+    ///
+    /// A `Vec` rather than one circle because the concept's endgame is a map
+    /// of standing gardens, and because the cost of testing membership is
+    /// linear in a list the player is expected to keep short — the frame
+    /// budget is what caps it, which is the whole point of that design.
+    pub quickenings: Vec<Quickening>,
+    /// **The quickening the player carries** — small, slow and *free*, as
+    /// against the placed ones in [`quickenings`](Self::quickenings), which
+    /// are the economy.
+    ///
+    /// Owner's ruling 2026-09-13, direction (c): a druid is a walking spring
+    /// and cannot help it. It exists to solve a problem placed bubbles alone
+    /// have badly — **a held world is completely inert to walk through**, so
+    /// without this nothing answers the player until they have spent
+    /// something, and every interaction starts with a menu. It also hands the
+    /// scouting loop over for nothing: walk dead ground and see what the seed
+    /// bank still has in it.
+    ///
+    /// **Presence, not power.** Kept deliberately small and at the world's own
+    /// rate, so it makes the land respond to you without doing your work.
+    /// Separate from `quickenings` rather than pushed onto it because the two
+    /// are different resources: this one is what you *are* and is never
+    /// bought, and keeping them apart stops a later economy from accidentally
+    /// charging for it.
+    pub carried: Option<Quickening>,
     /// **Whether soil levels its water sideways as readily as it does when
     /// it is dry.** `update::update_soil_water`'s capillary exchange, and
     /// the reason the bed stands in visible columns under the moisture
@@ -4495,6 +4752,9 @@ impl World {
             soil_capillary_levels: false,
             plant_bending: true,
             plant_size_cadence: false,
+            held: false,
+            quickenings: Vec::new(),
+            carried: None,
             developmental_key: super::organism::DevelopmentalKey::default(),
             deepest_generation: 0,
             deepest_animal_generation: 0,
@@ -4580,6 +4840,51 @@ impl World {
     /// `scheduler::step` for why growth reads/writes go through the
     /// ordinary `World::get`/`set` rather than needing any of M5's
     /// parallel-sweep machinery.
+    /// **Does time run at this cell?** The one question every held-world
+    /// gate asks, and the only place the rule is written.
+    ///
+    /// `true` everywhere when the world is not [`held`](Self::held), which is
+    /// what keeps this free for every existing caller: one bool test, and the
+    /// `quickenings` list is never walked.
+    #[inline]
+    pub fn time_runs_at(&self, x: i32, y: i32) -> bool {
+        if !self.held {
+            return true;
+        }
+        self.carried.is_some_and(|q| q.contains(x, y)) || self.quickenings.iter().any(|q| q.contains(x, y))
+    }
+
+    /// [`time_runs_at`](Self::time_runs_at) for a whole organism, resolved at
+    /// **one** cell rather than by walking its body.
+    ///
+    /// A creature answers at its head, which is the cell its own tick is
+    /// keyed on anyway. A plant answers at whichever cell its map yields
+    /// first — arbitrary, but `PosMap` is `fxhash`-backed and unrandomised,
+    /// so it is the *same* arbitrary cell run to run, and a held plant does
+    /// not mutate, so the choice cannot wobble underneath the gate.
+    ///
+    /// **Known gap, deliberately not solved here: a plant straddling a rim
+    /// is all-in or all-out.** Whether a half-quickened tree should grow on
+    /// one side is a design question the concept has not answered, and
+    /// guessing at it in a resolver would bury the decision.
+    pub fn time_runs_for_organism(&self, organism: u16) -> bool {
+        if !self.held {
+            return true;
+        }
+        match self.organism(organism) {
+            // No cells anywhere is not "held" -- it is an empty slot on its
+            // way to reclamation, and it must not be gated out of reaching
+            // it. See `plant::step_organisms`.
+            Some(state) => state
+                .chain
+                .first()
+                .copied()
+                .or_else(|| state.cells.keys().next().copied())
+                .is_none_or(|(x, y)| self.time_runs_at(x, y)),
+            None => true,
+        }
+    }
+
     pub fn step_active_sites(&mut self) {
         scheduler::step(self);
         // Mature organism cells are no longer on that schedule at all --
@@ -9550,6 +9855,7 @@ mod tests {
             other: 0,
             lineage: 0,
             generation: 0,
+            detail: String::new(),
         };
 
         // Under the cap it drops nothing -- the specificity half, without
@@ -9576,6 +9882,143 @@ mod tests {
         assert!(log.is_empty() && log.dropped() == 0, "a cleared log still claims a past");
     }
 
+    /// **A big colony's own birth/death churn must not evict the story.**
+    /// Round 31's own finding: one shared ring meant `RUN_LOG_CAP` worth of
+    /// `Born`/`Died` from a busy bed pushed `LineEnded`/`GroupSplit`/
+    /// `LineMilestone`/`LineRecord`/`PlayerAction` out entirely, so the
+    /// chronicle's LINES view -- the one a reader gets by default -- went
+    /// silent on exactly the runs it exists for. Provable red by merging
+    /// `RunLog` back down to one `VecDeque` behind `RUN_LOG_CAP` alone: the
+    /// `LineEnded` pushed first would be long gone by the time this reads
+    /// `recent()`.
+    #[test]
+    fn a_colonys_own_churn_cannot_evict_a_line_event() {
+        let mut log = RunLog::default();
+        let individual = |frame: u64| LogEvent {
+            frame,
+            id: 1,
+            born_frame: 0,
+            species: organism::SpeciesId(0),
+            kind: LogKind::Born,
+            other: 0,
+            lineage: 0,
+            generation: 0,
+            detail: String::new(),
+        };
+        log.push(LogEvent {
+            frame: 0,
+            id: 2,
+            born_frame: 0,
+            species: organism::SpeciesId(0),
+            kind: LogKind::LineEnded,
+            other: 0,
+            lineage: 5,
+            generation: 3,
+            detail: String::new(),
+        });
+        // Many times the individuals' own cap -- a colony far busier than
+        // the shipped bed, sustained well past one ring's worth of history.
+        for f in 1..=(RUN_LOG_CAP as u64 * 4) {
+            log.push(individual(f));
+        }
+        assert!(
+            log.recent().any(|e| e.kind == LogKind::LineEnded && e.lineage == 5),
+            "births far outrunning the individuals' cap pushed the one LINE ENDED event out of the log"
+        );
+        // The individuals' ring is still bounded on its own terms -- this is
+        // a second ring, not an unbounded one wearing a new name.
+        assert_eq!(log.recent().filter(|e| e.kind == LogKind::Born).count(), RUN_LOG_CAP, "the individuals' ring stopped bounding its own writer");
+    }
+
+    /// **The line ring has its own cap and its own drop count, exactly the
+    /// way `the_run_log_reports_what_it_dropped` proves the individuals'
+    /// ring does.** Coordinator's own flag on this round: a guard written
+    /// against the old single shared `VecDeque` (that test, pushing only
+    /// `Born`) cannot tell a split ring from an unsplit one, because `Born`
+    /// only ever touches the individuals' side either way -- it is real and
+    /// stays, but it is not evidence about `lines`. This is the test that
+    /// actually is: push line events past `LINE_LOG_CAP` and check the
+    /// specificity half (nothing dropped under the cap) and the sensitivity
+    /// half (the oldest go, the count is exact) on the ring that
+    /// `PlayerAction` now shares with `LineEnded`/`GroupSplit`/
+    /// `LineMilestone`/`LineRecord`.
+    ///
+    /// Provable red by merging `RunLog` back down to one `VecDeque` behind
+    /// `RUN_LOG_CAP` alone (this test's own `LINE_LOG_CAP`-sized fill would
+    /// then report zero dropped, since nothing bounds it as `lines`), or by
+    /// dropping the `self.dropped_lines += 1` in `RunLog::push`'s line arm.
+    #[test]
+    fn the_line_ring_reports_what_it_dropped() {
+        let mut log = RunLog::default();
+        let line_event = |frame: u64| LogEvent {
+            frame,
+            id: 1,
+            born_frame: 0,
+            species: organism::SpeciesId(0),
+            kind: LogKind::LineEnded,
+            other: 0,
+            lineage: 0,
+            generation: 0,
+            detail: String::new(),
+        };
+        for f in 0..LINE_LOG_CAP as u64 {
+            log.push(line_event(f));
+        }
+        assert_eq!(log.recent().filter(|e| e.kind == LogKind::LineEnded).count(), LINE_LOG_CAP);
+        assert_eq!(log.dropped(), 0, "the line ring trimmed a story that fitted");
+
+        const OVER: u64 = 23;
+        for f in 0..OVER {
+            log.push(line_event(LINE_LOG_CAP as u64 + f));
+        }
+        assert_eq!(
+            log.recent().filter(|e| e.kind == LogKind::LineEnded).count(),
+            LINE_LOG_CAP,
+            "the line ring's own cap did not bound its own writer"
+        );
+        assert_eq!(log.dropped(), OVER, "the line ring lost lines without saying how many");
+        assert!(
+            log.recent().all(|e| e.frame >= OVER),
+            "the line ring trimmed from the wrong end -- the newest lines went instead of the oldest"
+        );
+    }
+
+    /// **A player action does not fall into a stranger's timeline.**
+    /// `PlayerAction` events carry `id: 0, born_frame: 0` because they are
+    /// not about any organism, and the world's very first organism is
+    /// itself legitimately `id 0, born_frame 0` -- so without an explicit
+    /// exclusion, `about(0, 0)` for that organism would silently pick up
+    /// every dial change and rebuild in the run. Provable red by dropping
+    /// the `e.kind != LogKind::PlayerAction` term from `RunLog::about`.
+    #[test]
+    fn a_player_action_never_joins_an_organisms_timeline() {
+        let mut log = RunLog::default();
+        log.push(LogEvent {
+            frame: 10,
+            id: 0,
+            born_frame: 0,
+            species: organism::SpeciesId(0),
+            kind: LogKind::Born,
+            other: 0,
+            lineage: 0,
+            generation: 0,
+            detail: String::new(),
+        });
+        log.push(LogEvent {
+            frame: 20,
+            id: 0,
+            born_frame: 0,
+            species: organism::SpeciesId(0),
+            kind: LogKind::PlayerAction,
+            other: 0,
+            lineage: 0,
+            generation: 0,
+            detail: "REBUILT".to_string(),
+        });
+        let timeline: Vec<LogKind> = log.about(0, 0).map(|e| e.kind).collect();
+        assert_eq!(timeline, vec![LogKind::Born], "a player action leaked into organism (id 0, born_frame 0)'s own timeline");
+    }
+
     /// **One individual's timeline is filtered by identity, not by handle.**
     ///
     /// `id` is a 12-bit slot plus a 4-bit generation and is reused after 16
@@ -9595,6 +10038,7 @@ mod tests {
             other: 0,
             lineage: 0,
             generation: 0,
+            detail: String::new(),
         };
         log.push(line(10, 10, LogKind::Born));
         log.push(line(90, 10, LogKind::Died));

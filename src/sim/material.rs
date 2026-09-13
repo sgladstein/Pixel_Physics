@@ -1043,6 +1043,43 @@ pub struct MaterialDef {
     /// cannot be worked", which is every other material.
     #[serde(default)]
     pub packs_into: String,
+    /// What this ground becomes when a burrowing creature **hauls it out and
+    /// sets it down** -- today `soil`/`packedsoil`/`spoil` -> `spoil`, and
+    /// nothing else. The sibling of `packs_into`, and the difference between
+    /// them is where the cell ends up: `packs_into` is ground worked *in
+    /// situ*, which has the bank around it; this is a pellet placed in the
+    /// open air, which has whatever the ant chose under it.
+    ///
+    /// **It exists because the two cannot share one material.** Both are
+    /// tamped and both are `self_supporting`, and `self_supporting` is the
+    /// rule that says a cell may not fall -- correct for a gallery roof held
+    /// by the bank at both ends, and a promise a dumped pellet has not
+    /// earned. See `assets/materials/spoil.ron`, and
+    /// `Reports/open-bugs-handoff.md` §Z18 for the three owner reports of
+    /// ground standing in open sky that this is the repair for.
+    ///
+    /// Read at `creature.rs`'s dig branch **in preference to** `packs_into`,
+    /// which stays the fallback, so any ground that does not name a spoil
+    /// material behaves exactly as it did before this field existed. Unset
+    /// reads as "hauling this out changes nothing", like every other name
+    /// reference here.
+    #[serde(default)]
+    pub spoils_into: String,
+    /// **A `self_supporting` cell of this material is a wall only while
+    /// something is directly beneath it.**
+    ///
+    /// `update_powder`'s crumb rule already reverts a worked cell that is
+    /// touching almost nothing; this says *touching is not enough*. Set on
+    /// `spoil` and on nothing else: a heap of tailings still stands as a heap,
+    /// and the parts of it with air underneath come down as loose dirt, a cell
+    /// at a time, which is the graded outcome `CLAUDE.md`'s first law asks for
+    /// where four attempts to read the lattice's *shape* produced a binary.
+    ///
+    /// **Must not be set on a lining material.** Every cell of a gallery roof
+    /// has air beneath it by definition, so this on `packedsoil` is the tunnel
+    /// collapse `self_supporting` was built to refuse.
+    #[serde(default)]
+    pub needs_footing: bool,
     /// Pairwise reactions with a specific other material — water quenching
     /// lava into stone and steam, that kind of thing. Order matters: `self`
     /// becomes `produces.0`, `with` becomes `produces.1`.
@@ -1743,6 +1780,9 @@ pub struct Material {
     pub reinforces_powder: bool,
     /// See `MaterialDef::self_supporting`.
     pub self_supporting: bool,
+    /// See `MaterialDef::needs_footing`. Read by `update_powder`'s crumb
+    /// rule, and only for a `self_supporting` cell with air beneath it.
+    pub needs_footing: bool,
     /// See `MaterialDef::climbable`.
     pub climbable: bool,
     /// See `MaterialDef::insubstantial`.
@@ -1833,6 +1873,7 @@ pub struct Material {
     decays_into_name: String,
     slumps_into_name: String,
     packs_into_name: String,
+    spoils_into_name: String,
     reactions_raw: Vec<ReactionDef>,
 
     /// Resolved by `resolve_references`. Unset (or naming something that
@@ -1864,6 +1905,9 @@ pub struct Material {
     /// See `MaterialDef::packs_into`. `Some` is also the gate deciding
     /// whether a dug cell's neighbour may be lined at all.
     pub packs_into: Option<MaterialId>,
+    /// See `MaterialDef::spoils_into`. Read only by `creature.rs`'s dig
+    /// branch, and only for ground an animal is strong enough to cut.
+    pub spoils_into: Option<MaterialId>,
     /// See `MaterialDef::reseed_chance`.
     pub reseed_chance: f32,
     /// See `MaterialDef::decay_chance_damp`. Always a real rate -- unset in
@@ -2101,6 +2145,7 @@ impl From<MaterialDef> for Material {
             worth_in_aux: def.worth_in_aux,
             reinforces_powder: def.reinforces_powder,
             self_supporting: def.self_supporting,
+            needs_footing: def.needs_footing,
             climbable: def.climbable,
             insubstantial: def.insubstantial,
             falls_through_organisms: def.falls_through_organisms,
@@ -2198,6 +2243,7 @@ impl From<MaterialDef> for Material {
             decays_into_name: def.decays_into,
             slumps_into_name: def.slumps_into,
             packs_into_name: def.packs_into,
+            spoils_into_name: def.spoils_into,
             breaks_into_name: def.breaks_into,
             severs_into_name: def.severs_into,
             reseed_chance: def.reseed_chance,
@@ -2214,6 +2260,7 @@ impl From<MaterialDef> for Material {
             decays_into: None,
             slumps_into: None,
             packs_into: None,
+            spoils_into: None,
             breaks_into: None,
             severs_into: None,
             reactions: Vec::new(),
@@ -2458,6 +2505,19 @@ const EMBEDDED: &[&str] = &[
     // `EMBEDDED` list, which this line completes: a species with no
     // material of its own name loads and places nothing.
     include_str!("../../assets/materials/flitter.ron"),
+    // **Appended at the end, per this list's own rule stated throughout** --
+    // ids are positional, so a new material may only ever go here. The pellet
+    // an ant hauls out of its own tunnel, as against the `packedsoil` wall it
+    // cut in place: see `assets/materials/spoil.ron` for why one material
+    // could not be both, and `Reports/open-bugs-handoff.md` §Z18 for the
+    // defect it repairs. Addressed by the resolved `Material::spoils_into` at
+    // the dig site and by `id_of("spoil")` in the censuses, never by number.
+    //
+    // **In this list rather than only on disk**, which `packedsoil`'s entry
+    // above records as the P-7 lesson: only the app's F5 reload reads
+    // `assets/materials`, so a material left out here exists in the editor and
+    // in no measurement at all.
+    include_str!("../../assets/materials/spoil.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.
@@ -2518,6 +2578,7 @@ impl MaterialRegistry {
             worth_in_aux: false,
             reinforces_powder: false,
             self_supporting: false,
+            needs_footing: false,
             climbable: false,
             insubstantial: false,
             falls_through_organisms: false,
@@ -2544,6 +2605,7 @@ impl MaterialRegistry {
             decays_into: String::new(),
             slumps_into: String::new(),
             packs_into: String::new(),
+            spoils_into: String::new(),
             reseed_chance: 0.0,
             // Never read -- `decays_into` is `None` here, which is the gate.
             // Set to the shared defaults rather than 0.0 so this cannot be
@@ -2598,6 +2660,7 @@ impl MaterialRegistry {
             worth_in_aux: false,
             reinforces_powder: false,
             self_supporting: false,
+            needs_footing: false,
             climbable: false,
             insubstantial: false,
             falls_through_organisms: false,
@@ -2624,6 +2687,7 @@ impl MaterialRegistry {
             decays_into: String::new(),
             slumps_into: String::new(),
             packs_into: String::new(),
+            spoils_into: String::new(),
             reseed_chance: 0.0,
             // Never read -- `decays_into` is `None` here, which is the gate.
             // Set to the shared defaults rather than 0.0 so this cannot be
@@ -2757,6 +2821,7 @@ impl MaterialRegistry {
             material.decays_into = resolve_if_set(&material.decays_into_name);
             material.slumps_into = resolve_if_set(&material.slumps_into_name);
             material.packs_into = resolve_if_set(&material.packs_into_name);
+            material.spoils_into = resolve_if_set(&material.spoils_into_name);
             material.reactions = material
                 .reactions_raw
                 .iter()

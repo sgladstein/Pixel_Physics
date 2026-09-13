@@ -147,18 +147,18 @@ point.
 | W6 | closed | 9870 | A plant EVOLVES root tips into shoot tips, and the shoot it then grows is made of root wood |
 | W7 | closed | 10262 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
 | Z6 | **OPEN** | 10368 | Every shipped bed starves its ant colony inside one play session |
-| Z7 | **OPEN** | 10511 | The trail-following gate saturates the signal it gates: the ant reads its own trail at ±0... |
-| Z8 | closed | 10663 | A fruit severed by ordinary structural failure lands as an ownerless windfall, and it can... |
-| Z9 | closed | 10784 | A hopping animal that comes down on water never lands: it hangs there, is charged the air... |
-| Z10 | closed | 10897 | The flitter's float never switches off on a bed that has flowers in it |
-| Z11 | closed | 10994 | At the widest zoom-out the view drew one cell in sixteen and dropped the rest, so thin th... |
-| Z12 | **OPEN** | 11089 | Most of what piles up in a long-run long-ant colony is one-cell ants, and they are bred t... |
-| Z13 | **OPEN** | 11169 | Resting is indistinguishable from stuck at play zoom, and on a long body it reads as stuc... |
-| Z14 | **OPEN** | 11267 | The played bed's 500,000-frame trajectory is chaotic, and scent_drift: 0.15 re-rolled it |
-| Z15 | **OPEN** | 11359 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
-| Z16 | closed | 11437 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
-| Z18 | **OPEN** | 11578 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
-| Z17 | **OPEN** | 11630 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
+| Z7 | **OPEN** | 10546 | The trail-following gate saturates the signal it gates: the ant reads its own trail at ±0... |
+| Z8 | closed | 10698 | A fruit severed by ordinary structural failure lands as an ownerless windfall, and it can... |
+| Z9 | closed | 10819 | A hopping animal that comes down on water never lands: it hangs there, is charged the air... |
+| Z10 | closed | 10932 | The flitter's float never switches off on a bed that has flowers in it |
+| Z11 | closed | 11029 | At the widest zoom-out the view drew one cell in sixteen and dropped the rest, so thin th... |
+| Z12 | **OPEN** | 11124 | Most of what piles up in a long-run long-ant colony is one-cell ants, and they are bred t... |
+| Z13 | **OPEN** | 11204 | Resting is indistinguishable from stuck at play zoom, and on a long body it reads as stuc... |
+| Z14 | **OPEN** | 11420 | The played bed's 500,000-frame trajectory is chaotic, and scent_drift: 0.15 re-rolled it |
+| Z15 | **OPEN** | 11512 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
+| Z16 | closed | 11590 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
+| Z18 | **OPEN** | 11731 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
+| Z17 | **OPEN** | 11941 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
 
 <!-- END GENERATED INDEX -->
 
@@ -10508,6 +10508,41 @@ and 5), every death starvation, both boxes failing the bar.
   digging when it has room — are still unbuilt**, so a colony's population is
   still bounded only by the larder's edge and this section stays OPEN.
 
+**2026-09-13, round 31 lane A — every number in this section was measured
+through a cull that no longer runs, and the headline claim does not
+reproduce. The section stays OPEN on a narrower claim.** #366 (merged
+2026-09-12) fixed a write site where an ant that ate a seed was overwritten
+by the seed; two fifths of colony deaths on this bed were that. The re-take is
+[`evolution-lab-lifespan-rederived-2026-09-13.md`](evolution-lab-lifespan-rederived-2026-09-13.md)
+— `latecensus scenario=played_bed frames=200000`, `RAYON_NUM_THREADS=1`,
+twelve seeds on the played bed and seeds 1–3 on the other five shipped beds,
+all from one binary. **The shipped arm ends 200,000 frames with a live colony
+on 26 of 27 runs**, against this section's 2 of 9:
+
+| bed | seeds | live at 200,000 | ants alive |
+|---|---|---|---|
+| `played_bed` | 1–12 | **12 of 12** | 1 – 408, median 117 |
+| `played_bed_longant` | 1–3 | 3 of 3 | 368 / 891 / 1,198 |
+| `played_bed_understory` | 1–3 | 2 of 3 | 0 / 65 / 250 |
+| `played_bed_flitter` | 1–3 | 3 of 3 | 101 / 118 / 140 |
+| `played_bed_scrambler` | 1–3 | 3 of 3 | 33 / 181 / 397 |
+| `played_bed_windfall_reach` | 1–3 | 3 of 3 | 2 / 69 / 203 |
+
+And *"every death in every run is starvation"* is no longer true either: on
+the played bed at 120,000 frames **age is 55% of colony deaths at the median**
+and outnumbers hunger on nine of twelve seeds.
+
+**Why it is not closed.** Three gaps, all of them this section's own bar
+rather than the new sweep's: the bar is written at **300,000 frames** and
+round 31's brief capped runs at 200,000; the bar names `labstats`'s **default
+box and full box**, which are not among the six shipped beds re-run here; and
+**"a colony" is not "an ant"** — three of the twenty-seven runs end in single
+figures (1, 2, 33), which passes the letter of the bar and not its spirit.
+**Do not quote the 2026-09-07 table again.** The reproduction to run is the
+two `labstats` boxes at 300,000 frames on a post-#366 trunk, and the claim to
+keep until it is run is the narrow one: *some shipped beds end a session with
+a colony too small to be one.*
+
 ### Z7. The trail-following gate saturates the signal it gates: the ant reads its own trail at ±0.003 per step — **HOMING HALF FIXED 2026-09-09 (units 0/1, channel A); the food half is deliberately STILL OPEN — the repair works and costs 25.0% of a mirrored race**
 
 *Filed 2026-09-09 from the creature-tools lane's positive control. Reproduction is arithmetic on the shipped species file plus one measured null; nothing tuned.*
@@ -11264,6 +11299,124 @@ at all. The laden ant at (363,155) with `since_nest` **4,386** is the sharper
 case: carrying, 4,386 ticks from the nest, three ways to walk, and not going.
 
 Full account: `Reports/lanes/evolution-lab-longant-pile.md`.
+
+**Round 31, lane E, 2026-09-13: the three candidates are built, priced, and
+on the owner's queue as one card — still OPEN, waiting on his eye.**
+`PIXEL_PHYSICS_IDLE_ANIM=head|antennae|shuffle` (default `off`, today's
+shipped look), entirely in `src/render.rs`: `head` pulses the head cell's
+brightness on a ~1.5 s cycle, `antennae` puts a brief bright tick just past
+the head on a ~0.8 s cycle, `shuffle` draws a reach one cell forward on a
+~4 s cycle. Render-side only, keyed off `OrganismState::chain`/`heading`/
+`life.moves`/`life.moves_blocked` that already exist — no change to the
+brain, the economy, `p_move`, or any file this round assigns to another
+lane. Verified byte-identical colony trajectories across all four arms on
+`played_bed_longant` seed 3 (same births, deaths, `alive` at every stop) —
+the selector cannot be steering the simulation, only the paint.
+
+**`shuffle` cannot truly relocate the body**, and this is a real
+architectural finding rather than a shortcut: `Renderer::draw` takes
+`&World`, not `&mut World`, so nothing in `render.rs` can move a creature's
+own cells for a few frames and back without leaving the true position
+looking exactly as occupied as ever (there is nothing else there to reveal
+underneath it). What ships instead is the same shape as `antennae` — an
+extra mark drawn where the reach lands — just slower and larger. A true
+relocate-and-return needs write access to the grid, which belongs to
+whichever lane owns `src/sim/creature.rs`.
+
+**Priced before posting, per this file's own instruction.** Worst-frame
+`Renderer::draw` alone (the `CLAUDE.md` animated-grain method), off vs each
+mode, 300 idle single-cell animals on a settled 512x320 floor,
+`RAYON_NUM_THREADS=4` pinned:
+
+| layout | off | head | antennae | shuffle |
+|---|---|---|---|---|
+| one row (cheapest) | 2.45 ms | 2.36 ms | 2.74 ms | 2.65 ms |
+| 60-row band (the shipped 40-row soil bed's own depth, with headroom) | 2.35 ms | 3.14 ms | 3.03 ms | 2.96 ms |
+| scattered top to bottom of the view | 2.23 ms | 4.91 ms | 7.57 ms | 5.98 ms |
+
+At a realistic colony depth all three add well under 1 ms worst-frame. The
+third row is the honest bad case, and it is **not particular to which
+candidate is chosen**: all three route idle cells through the same
+single-bounding-`Rect` dirty-region union `last_body_rects`/`last_moon_rect`
+already use, so animals found from the top of the view to the bottom of it
+fold the union into something close to a full redraw regardless of which
+animation is on. No candidate is disqualified by this — the shipped bed
+never looks like that — but it is a real cost characteristic of the
+mechanism, not of any one look, and is stated here so it is not discovered
+by surprise later. 1,500 idle animals at the 60-row band priced identically
+to 300 (3.18 ms), confirming the cost tracks the screen area touched, not
+the population.
+
+**Card posted**: `20260913T034419970Z-34d562`, board `lab`, four labelled
+22-frame sequences (off/head/antennae/shuffle) at the owner's own original
+crop and zoom (`zoom=4 crop=160,120,224,56`, `played_bed_longant` seed 3,
+frames 28,000-29,500) so the framing matches the card he already marked.
+`meta` carries the frame-cost table above and a real resting count for the
+window shown: **~58 of 107 ants** (`idle_with_room` 1,449 of `idle_with_room
++ moving` 2,673 = 54%, `labforage scenario=played_bed_longant seed=3
+frames=29500`). Whichever the owner picks ships as default per this
+round's standing instruction; if his verdict has not landed by the time
+another lane reads this, the selector stays at `off` and that is stated
+rather than assumed.
+
+Not done in this pass, and still open for whoever reads this next: the
+residual-move-bias probe this section already asked for (`outputs
+[BrainOutput::Move]` beside the probe's line, inside `creature_tick`) —
+still belongs to whoever owns `src/sim/creature.rs`.
+
+**Verdict day, 2026-09-13: all three failed, and the reason was a real bug
+in the clock, not the look.** Owner, verbatim: *"The creatures that I
+think look stuck are stuck in all of them. Although this is a very short
+gif to have to judge this on."* He also placed three markers on the card;
+those annotations had not synced at the time of this entry.
+
+Three explanations were on the table (fires-but-subtle, never-fired, or
+genuinely stuck) and the second was checked first because it needs no
+markers: **`IDLE_ANIM_DELAY` was counted in `Renderer::frame` — draw
+calls — not in world ticks.** `Lab::draw` is only called on a harness's
+*sampled* ticks (`labgif`'s `every=`), so the posted card's `every=10`
+meant 60 render-frames of delay was actually **600 world ticks**, eating
+40% of the card's 1,500-tick window before any animal could be flagged at
+all. A new probe drives the real scenario and counts directly
+(`src/render.rs`'s `probe_idle_anim_fired_on_long_ants_in_the_posted_window`,
+`#[ignore]`d): **8 of 22 full-length long ants ever animated in that
+window.** That is very likely why the fix read as doing nothing to the
+ants he pointed at — it mostly was not running on them. This also
+generalises past the harness: `App::update`'s own catch-up loop can run
+several world ticks before one `draw`, so the same undercount was live in
+the real game, not only in a capture tool.
+
+**Fixed**: `IDLE_ANIM_DELAY` and the per-mode periods now read `World::
+frame` instead of `Renderer::frame` — one counter swap in `refresh_idle_
+anim` and the `Head` pulse in `cell_colour`, no change to what any
+candidate draws. Same probe, same window, after the fix: **21 of 22**.
+The frame-cost table in the PR that landed this section is unaffected
+(re-measured, same numbers within noise) — the fix changes *when*
+animation starts, not what it costs once it has.
+
+**A second, 6,000-tick card (4x the first) is posted with the fix**:
+`20260913T052938222Z-c7bc21`, same scene, seed, crop and zoom as the
+first card, addressing the owner's own second point — a resting ant's
+idle streaks run tens of thousands of frames, and a card a fifth as long
+as the shortest of those can show neither the animation cycling nor the
+stillness it is meant to contrast with.
+
+**The coordinator checked the queue directly: the owner's three markers
+never reached it.** Both cards' stored responses read `annotations: []`.
+So explanation (c) — that the specific ants he pointed at are genuinely
+stuck (`moves_blocked` climbing) rather than resting, a different and
+bigger bug in the walk itself rather than the look — **cannot be checked
+from either card, and is left here as an open question rather than
+chased further this round.** What would settle it, for whoever picks this
+up: map his marker coordinates back through the card's own crop and zoom
+to world cells (`zoom=4 crop=160,120,224,56` on both cards posted so
+far), then probe those specific animals for `moves`, `moves_blocked`,
+`traffic_deferred`, `HeadBlock`/`head_block`'s open-heading count, and
+`crossing`/`flight`/`senescent` — the same pipeline §Z13's own first
+pass already ran on round 29's three markers. `head_block`
+(`src/sim/creature.rs`) is what that needs, and belongs to whoever holds
+that file. The second (6,000-tick) card is posted and unanswered; it does
+not need to be waited on, and can be collected in a later round.
 ### Z14. The played bed's 500,000-frame trajectory is chaotic, and `scent_drift: 0.15` re-rolled it — **OPEN as a method problem, not a colony bug, found 2026-09-12**
 
 **What it is.** Lane M found the played bed's control arm moving enormously
@@ -11626,6 +11779,164 @@ nothing under it; `latecensus`'s `mound`/`packed_above` count cells, supported
 or not. A census of unsupported worked-ground cells is the first thing this
 needs, and `CLAUDE.md`'s own warning applies to writing it: a *standing* count,
 not a creation rate, because the complaint is about what is still there.
+
+**2026-09-13, measured and half repaired — the lever was right, the population
+was not what anybody thought.** Round 31 lane B, branch
+`claude/lab-floating-spoil-r31`.
+
+**The instrument first: `examples/hangcensus`.** A standing census of worked
+ground with no path down to the world floor through ground, where *ground* is a
+non-organism `Powder` or `Solid` — a plant cell is not ground, which is the
+design report's §2c definition. Six controls, and they are why its numbers can
+be quoted: quiet on a lined gallery whose every roof cell has air beneath it
+(**specificity — the reading any shape rule fails**), exactly 4 in 1 piece on a
+hand-placed 2x2 floater, 5 in 2 when a pillar under a cap is deleted
+(**sensitivity**), and `anchors` on every line so a scene with no floor reads as
+a broken harness rather than a world of floating dirt. Its own corner-hung
+control was written wrong first — the cell sat squarely on the bank and every
+column read unchanged, which looked exactly like a pass.
+
+**The repair.** A dumped pellet is now `spoil`, a second worked soil identical
+to `packedsoil` in every field and palette byte but one: `needs_footing`. A
+pellet is a wall only while it is standing on *ground*. `packs_into:
+packedsoil` means an ant that works a pellet into the side of a passage through
+its own mound gets a real wall, so this is not "you cannot tunnel through your
+own spoil". Guard
+`update::a_pellet_needs_ground_under_it_and_a_wall_does_not`, four arms,
+watched red for both faults (the rule off; `needs_footing` put on
+`packedsoil`).
+
+**Forked from one bed so the arms cannot diverge** — `hangcensus mode=fork`,
+played_bed, 60,000 shared frames then 4,000 more per arm, `digs` within 1%
+across arms, one thread, one binary, four seeds:
+
+| seed | hang, main → repair | hanging *spoil* | pieces | roofed void | mound rows |
+|---|---|---|---|---|---|
+| 1 | 15 → **12** | 10 → 4 | 10 → 9 | 27 → 30 | 36 → 36 |
+| 3 | 79 → **68** | 41 → 25 | 17 → 16 | 215 → 184 | 39 → 39 |
+| 6 | 107 → **73** | 30 → 6 | 35 → 28 | 39 → 62 | 35 → 35 |
+| 12 | 21 → **6** | 15 → 0 | 4 → 2 | 79 → 62 | 16 → 16 |
+
+Down on 4 of 4 for the standing count, the hanging-spoil count and the piece
+count; **the towers are untouched on 4 of 4**, which is the one thing the owner
+likes that §3c's answer cost; and roofed void moves both ways (+3, −31, +23,
+−17) rather than the systematic −31%/−39% that rejected 3c.
+
+**But over a whole 60,000-frame run on twelve seeds it is a coin flip**, and
+this is the finding that matters more than the table. Better on 6, worse on 6,
+median `hang` **28 → 29**. The two are not in conflict: the arms of a whole run
+diverge from frame 100, and — the real reason — **most hanging worked ground on
+this bed is not stacked spoil.** The `why` probe (what is each hanging cell
+standing on) says so directly: of 16 hanging cells on seed 1, **zero stand on
+empty**. Five spoil rest on a `grassroot`, four on spoil above those, five
+lining cells on a root, one on an ant, one on water. So the dominant mechanism
+is **worked ground resting on plant tissue and on animals**, which is
+`packedsoil` cut in place as often as it is a pellet, and `needs_footing` on the
+pellet cannot reach the lining half at all.
+
+**And there is a sting the pooled count hides**: a pellet on a leaf slumps to
+loose soil *where it stands*, and loose soil rests on a plant cell like any
+other powder. Same pixels, different material. What would actually clear that
+class is `Material::falls_through_organisms` — the flag water, litter,
+windfall, pip and seed already carry — on the two soils, and it was measured on
+the same four forks as a fourth arm: `hang` 12 → 6, 68 → 58, 73 → 76, 6 → 6,
+i.e. almost nothing, while **`mound_high` collapses from 36/39/35/16 rows to
+11/11/36/9**. It flattens the anthill. Declined here on that number rather than
+argued about, and filed in `dead-ends.md`.
+
+**And then the picture overturned the section's own framing, which is why the
+card asks what it asks.** Card `20260913T044615016Z-4a2dbc` (board `lab`), three
+panes on one fixed camera, played_bed seed 3 at 150,000 frames and 74 ants — the
+most developed nest of the four beds measured. Panes one and two are the bed
+under the two rules and **they are indistinguishable by eye**: the repair moves
+22 cells out of roughly ninety thousand on screen, in dark brown against dark
+brown ground. Pane three is the same frame with every `self_supporting` cell
+painted flat orange, and **there is no worked ground in the sky at all** — the
+orange is a crust lying along the surface. The conspicuous pale lattice standing
+in open air over this bed, the thing that reads as *stuff floating in the air*
+at a glance, **is plant material.**
+
+So the owner's report may not be about spoil at all, and no measurement in this
+section could have said so: every census here counts worked ground, which is
+exactly the material that turns out not to be up there. `CLAUDE.md`'s *resolve
+an ambiguous complaint before building anything* — asked late rather than
+early, and it cost most of a lane. The card puts the fork to him directly:
+*is it the pale plant material you mean, or dirt?* **Read that verdict before
+taking this section any further**, because if the answer is "the plant", the
+repair below is still correct and the bug is somewhere in the plant line.
+
+**2026-09-13, owner verdict — THE BED DOES NOT REPRODUCE THE DEFECT, and every
+number above was taken on it.** Shown the card, he answered:
+
+> *"Everything looks normal is all these pictures. None of this reads as an ant
+> hill though it just looks like herbs growing in dirt which is fine"*
+
+He cannot see the defect in the frame at all — not as dirt and not as plant, so
+the fork the card asked is moot. **The scene does not contain the situation.**
+That card is `played_bed` seed 3 at 150,000 frames with **74 ants**, the most
+developed nest of the four beds measured here; he plays sessions with **1000+
+long ants**. Seventy-four ants in a herb patch is not the bed his complaint came
+from, and `CLAUDE.md` has the rule for precisely this: *when a mechanism appears
+inert, check the scene still contains the situation you think it does.*
+
+**So the honest standing of this section is: a real defect was found and fixed
+in the pellet drop, the fix is measurable and cheap and keeps the towers, and
+nobody has yet reproduced the thing the owner is actually looking at.** Every
+figure above — the 12-seed coin flip, the four-seed fork table, the 22-cell
+repair, the "zero stand on empty" — is true of a bed that does not show the
+phenomenon. **Do not tune, re-render or extend anything on `played_bed` for
+this bug.**
+
+**What a bed that would reproduce it needs**, as a starting guess for whoever
+builds it rather than a specification: **colony size first** — an order of
+magnitude more ants than 74, which is the variable his report and this bed
+differ by most; **`longant`**, since that is what he plays; **tall vegetation**,
+because of the lift below; and a horizon of **300,000+ frames**, since a spoil
+lattice is cumulative and nothing carries it away. The owner is sending a
+chronicle from a real played session once #374 lands; start from that file plus
+this list, not from nothing.
+
+**And the mechanism most likely behind it is not the one this section named —
+it is a 160-row teleport, and it is live on `main`.** Credit to **PR #221**
+(`claude/creature-plant-pathfinding-rjzkqe`, open since 2026-09-03, never merged
+because its register letter collided). `creature::act`'s spoil drop, when no
+neighbour will hold a pellet, scans **straight up the column** for the first
+cell with two of three filled beneath and clear air above, as far as
+`SPOIL_LIFT = 160` rows — **with no check that a path exists.** The ant never
+climbs. A plant cell counts as a filled cell beneath, so the taller the
+vegetation the higher a pellet may be set down, and worked soil then stays where
+it was put. A lattice satisfies "two of three beneath" *for itself*, so it
+bootstraps upward with no ant ever walking it.
+
+`CreatureStats::spoil_lifted` / `spoil_lift_max` are ported from #221 and are
+the split `spoil_dumped` cannot make — it sums both branches, which is why this
+went unmeasured for a fortnight. Measured on today's trunk, `played_bed` seed 3
+at 60,000 frames, one thread: **261 of 591 pellets — 44% — are placed by the
+up-the-column branch, and the tallest single lift is 43 rows**, on a bed with
+nothing taller than a herb on it. #221 measured the standing consequence on a
+bed with a tree: tallest standing pellet **+52 / +67 / +99 / +94** rows over four
+seeds, against **+4 / +3 / +2 / +2** with no tree.
+
+**This is the lever to test first**, and it is a different one from `needs_
+footing`: bounding the lift removes a free ride rather than re-litigating *where*
+a pellet may land, which is the question the owner closed. It is **not** shipped
+here and must not be until it is measured on a bed that reproduces the defect —
+changing where nearly half of all tailings go, judged on a bed that shows
+nothing, is the error this whole section has just paid for. `hangcensus
+mode=fork` prints both counters beside the standing census, so the next lane can
+take the two levers against each other in one command.
+
+**What is left of this section**, for whoever takes it next: worked ground *cut
+in place* that ends up standing on plant tissue or on an ant. It is a different
+mechanism from the one repaired here, the register's own diagnosis did not
+predict it, and the two candidate levers both look expensive — a support rule on
+the lining is the tunnel collapse `self_supporting` exists to refuse, and making
+dirt fall through plants costs the towers. `hangcensus`'s `hang_spoil` /
+`hang_lining` split is the column to read, and its third fork arm (every chunk
+woken every frame) is there so "the rule is wrong" and "the sweep never looked"
+can never again be confused — it was what found the first version of this repair
+computing its footing test inside a gate that already required the cell below to
+be empty, i.e. as dead code.
 
 ### Z17. `World::ground_datum` is built and wrong inside a sealed lab box, and it reads as "the whole box is underground" — **OPEN, found 2026-09-12**
 

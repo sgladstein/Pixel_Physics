@@ -816,6 +816,35 @@ fn crumb_rule() -> bool {
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_CRUMB").as_deref() != Ok("off"))
 }
 
+/// **The ablation switch for the footing rule** -- `Material::needs_footing`,
+/// on by default.
+///
+/// `PIXEL_PHYSICS_SPOIL_FOOTING=off` restores `main`'s behaviour up to
+/// 2026-09-13 **exactly**: `creature.rs`'s dig branch reads it too and falls
+/// back to `packs_into`, so the pellet is `packedsoil` again and the `spoil`
+/// material is never written. That completeness is deliberate and was
+/// measured: gating only the rule and leaving the pellet as `spoil` left
+/// `packs_into` on it, so `line_burrow` relabelled worked tailings as wall and
+/// the "off" arm was **not** `main` -- 19 hanging cells in 12 pieces against a
+/// pre-change baseline of 24 in 17 on the same seed and frame count. An
+/// ablation arm that is not the old behaviour is not a control, and the tell
+/// was that the arm disagreed with a baseline taken an hour earlier.
+///
+/// It exists because what this rule governs is a **standing** quantity -- how
+/// much ground a colony leaves hanging in open sky -- and a standing quantity
+/// has no baseline of its own (`lining_enabled`'s reasoning, and `CLAUDE.md`'s
+/// after the `relax_region` night: *the control is to hold the semantic rule
+/// fixed, not to add another metric*). `examples/hangcensus.rs` runs the same
+/// binary twice across this switch, which makes the two arms differ in one
+/// thing rather than in a rebuild.
+///
+/// Read once per process through a `OnceLock`: this sits in the powder sweep,
+/// where an `env::var` would be a syscall per cell.
+pub(crate) fn spoil_footing() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_SPOIL_FOOTING").as_deref() != Ok("off"))
+}
+
 fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, rightward: bool) -> bool {
     // Water first: a grain that is about to move should carry the moisture
     // it just absorbed with it, and `move_cell` copies the whole cell.
@@ -837,6 +866,10 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
     let holds_water = def.water_capacity > 0;
     let clings = def.clings_to_wood;
     let self_supporting = def.self_supporting;
+    // Copied out beside `self_supporting` rather than re-fetched below,
+    // because `def` borrows the registry and the crumb branch writes through
+    // `surface`. One `bool` off a cache line already loaded.
+    let needs_footing = def.needs_footing;
     // **Only in the control arm.** With the phase on, moisture is
     // `World::step_soil_water`'s business and running it here as well would
     // both double the transport rate and put every wetness change back on the
@@ -956,7 +989,63 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
         // Cheap by short-circuit and by the gate: only a `self_supporting`
         // powder reaches it, only one with air beneath pays the ring, and the
         // count stops at three.
-        let unsupported = crumb_rule() && surface.get(x, y + 1).material == material::EMPTY;
+        // **...and for a pellet, touching is not enough -- §Z18.**
+        //
+        // The contact count below is the survivor of four attempts to tell a
+        // wall from a heap by *shape*, and it cannot reach the thing the owner
+        // actually sees: a 2x2 block of spoil in mid-air sits at three contacts
+        // each and stands for ever, and so does every lattice built out of
+        // those. Raising the number cannot fix it either, because a gallery
+        // roof and a hanging slab **are the same shape** -- both are worked
+        // ground with air beneath -- which is exactly the finding `CLAUDE.md`
+        // records from those four models.
+        //
+        // So the difference is `needs_footing`, data on the material, set on
+        // `spoil` and on nothing else: ground an ant *placed* is a wall only
+        // while it is standing on ground.
+        //
+        // **And "under it" means *ground*, not merely a cell.** A pellet posted
+        // into a canopy is held up by leaves, and one on a pool by water;
+        // neither is a footing, and both read on screen as exactly the
+        // dirt-in-the-air being reported. `Reports/evolution-lab-soil-design-
+        // 2026-09-12.md` §2c counts spoil on leaves as hanging for the same
+        // reason. So the test is the censuses': a non-organism `Powder` or
+        // `Solid`.
+        //
+        // **Computed beside `unsupported` and not inside it, which is the whole
+        // of the first version's bug.** Nested under a condition that already
+        // requires the cell below to be `EMPTY`, the ground test is dead code
+        // -- it can only fire where the first clause has already fired -- and
+        // it read from outside as a rule that was merely never *reached*:
+        // `CLAUDE.md`'s *a gate can hide a second bug by making it
+        // unreachable*. What separated the two was `hangcensus mode=fork`'s
+        // third arm, which wakes every chunk every frame so that "the rule is
+        // wrong" and "the sweep never looked" cannot be confused (`World::
+        // wake_all`'s own documented job): **woken, the count still did not
+        // move**, and nine hanging cells resting on a `grassroot` were what it
+        // was refusing to see.
+        //
+        // Gated on `spoil_footing()` alone rather than on `crumb_rule()` too,
+        // so the two ablations stay independent. Free for every other material
+        // in the world -- `needs_footing` short-circuits first, and only a
+        // `needs_footing` cell pays the read.
+        //
+        // **Why this is graded and not the binary the first law warns about:**
+        // only the cells with nothing under them go, so a heap still stands as a
+        // heap and the towers the owner likes are still towers. An overhang
+        // erodes from its underside a cell at a time, and each cell that goes
+        // becomes loose dirt that falls and piles at the foot of the heap -- so
+        // undermining your own tailings has a visible consequence, which is the
+        // second law.
+        let no_footing = needs_footing
+            && spoil_footing()
+            && {
+                let under = surface.get(x, y + 1);
+                under.material == material::EMPTY
+                    || under.organism_id() != 0
+                    || !matches!(surface.materials().get(under.material).kind, MaterialKind::Powder | MaterialKind::Solid)
+            };
+        let unsupported = !no_footing && crumb_rule() && surface.get(x, y + 1).material == material::EMPTY;
         let contacts = if unsupported {
             crate::sim::structural::NEIGHBOURS_8
                 .iter()
@@ -966,7 +1055,7 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
         } else {
             usize::MAX
         };
-        if contacts < 3 {
+        if no_footing || contacts < 3 {
             let loose = surface.materials().get(here.material).slumps_into;
             if let Some(loose) = loose {
                 // Everything but the material rides across, for the reason
@@ -2840,6 +2929,111 @@ mod tests {
             "the unlined control must collapse, or the lined arm proves nothing about the lining: \
              {bare}/{total} cells left open"
         );
+    }
+
+    /// **A pellet is a wall only while it is standing on ground -- §Z18, and
+    /// the case the crumb rule above provably cannot reach.**
+    ///
+    /// Owner, judging a blind A/B of two anthills at 300,000 frames and not
+    /// answering the question the card asked: *"Both look bad and have lots of
+    /// stuff floating in the air."* Third report of the same thing, from the
+    /// third unrelated picture.
+    ///
+    /// **Four arms, and three of them exist to make this able to go red for the
+    /// replacement rather than only for the original.** A test of the falling
+    /// half alone is green for a change that puts `needs_footing` on
+    /// `packedsoil`, which is the tunnel collapse `self_supporting` was built to
+    /// refuse -- so the lining arms assert the identical geometry in the
+    /// identical place *holds*.
+    ///
+    /// * a **2x2 block of `spoil`** in mid-air comes down. Three contacts each,
+    ///   so the crumb rule leaves it standing for ever, and a lattice of these
+    ///   is what the three reports are of.
+    /// * the **same block in `packedsoil`** does not. If this arm ever goes red,
+    ///   worked *wall* has been given a footing requirement and every gallery
+    ///   roof in the world is coming down with it.
+    /// * a **`spoil` cell on a plant cell** stops being worked ground: a pellet
+    ///   posted into a canopy is held up by leaves, which is not a footing.
+    ///   **This is the arm the dead-code gate could not fail** -- the ground
+    ///   test was nested inside a gate that already required the cell below to
+    ///   be `EMPTY`, so it was unreachable, and nothing in the harness could
+    ///   tell that from a rule the sweep never reached.
+    ///
+    ///   It asserts the cell is **loose soil**, not that it is gone, and the
+    ///   difference is the mechanic rather than a detail of the test: `slumps_
+    ///   into` turns the pellet back into tilth *where it stands*, and tilth
+    ///   rests on a plant cell like any other powder. So a pellet on a leaf
+    ///   becomes dirt on a leaf, and a pellet over open air becomes dirt that
+    ///   falls -- which is the graded outcome, and the first version of this
+    ///   arm asserted `EMPTY` and failed on the engine being right.
+    /// * a **`spoil` cell on soil** does not. A heap standing on the bank is a
+    ///   heap, the towers the owner likes are towers, and without this arm the
+    ///   rule could be "all spoil dissolves" and read as a pass.
+    #[test]
+    fn a_pellet_needs_ground_under_it_and_a_wall_does_not() {
+        use super::super::chunk::Rect;
+        use super::super::world::World;
+
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let packed = w.materials.id_of("packedsoil").expect("packedsoil is compiled in");
+        let spoil = w.materials.id_of("spoil").expect("spoil is compiled in");
+        assert!(w.materials.get(spoil).needs_footing, "the whole rule is this field; if it is unset the four arms below are vacuous");
+        assert!(!w.materials.get(packed).needs_footing, "worked wall must not need a footing -- that is the tunnel collapse, not the repair");
+
+        // A floor to land on, well below everything.
+        for x in 0..64 {
+            w.set(x, 60, Cell::new(material::STONE, 0));
+        }
+        // The two blocks, far enough apart that neither can touch the other.
+        for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+            w.set(10 + dx, 20 + dy, Cell::new(spoil, 0));
+            w.set(30 + dx, 20 + dy, Cell::new(packed, 0));
+        }
+        // A plant cell with a pellet on it, and a pellet on the bank beside it.
+        // `organism_id` is what says *tissue* rather than mineral, exactly as
+        // `plant.rs`'s own mineral test reads it -- and the material has to be
+        // real tissue too: the first version used `soil` with an organism id,
+        // which is a `Powder` and simply fell out from under the pellet, so the
+        // arm failed for a reason that had nothing to do with the rule.
+        // `grassroot` is the material the measured cases were actually resting
+        // on (`hangcensus mode=fork`'s `why` probe, played_bed seed 1).
+        let root = w.materials.id_of("grassroot").expect("grassroot is compiled in");
+        w.set(50, 40, Cell::new(root, 0).with_organism_id(7));
+        w.set(50, 39, Cell::new(spoil, 0));
+        // **Wide and shallow, standing on the stone**, which is the lesson the
+        // crumb test below this one already paid for: a tall narrow column of
+        // loose soil spreads into a cone by repose and walks across the floor,
+        // so the cell the pellet was resting on empties and the arm fails on
+        // the bank rather than on the rule. The first version of this arm was
+        // an 8x10 block and did exactly that.
+        for x in 16..60 {
+            for y in 56..60 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        w.set(40, 55, Cell::new(spoil, 0));
+
+        for _ in 0..200 {
+            step(&mut w);
+        }
+
+        for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+            assert_eq!(
+                w.get(10 + dx, 20 + dy).material,
+                material::EMPTY,
+                "a 2x2 block of spoil in mid-air held itself up at three contacts each -- which is the lattice in every picture of this bed"
+            );
+            assert_eq!(
+                w.get(30 + dx, 20 + dy).material,
+                packed,
+                "worked *wall* was taken down by the footing rule: every gallery roof in the world has air beneath it, and this is that collapse"
+            );
+        }
+        assert_eq!(w.get(50, 39).material, soil, "a pellet resting on a plant cell is still worked ground -- a leaf is not a footing, and this arm is the one the dead-code gate could not fail");
+        assert!(!w.materials.get(w.get(50, 39).material).self_supporting, "...and what it became must not be self-supporting, or the lattice is legal again under another name");
+        assert_eq!(w.get(50, 40).material, root, "...and it must come down without eating the plant it was sitting on");
+        assert_eq!(w.get(40, 55).material, spoil, "a pellet standing on the bank is standing on something: if this arm goes red the rule is 'all spoil dissolves' and the heap is gone");
     }
 
     /// **A worked cell hanging on nothing is a crumb and falls; one that is

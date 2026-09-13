@@ -242,12 +242,20 @@ pub struct TimeControl {
     // ---- the box's own "look at this", added on top of the dial above.
     /// Which automatic reaction a notable event gets. See [`Reaction`].
     pub react: Reaction,
-    /// Bitmask over `LogKind`'s discriminant (`1 << kind as u8`), naming
+    /// Bitmask over `LogKind`'s discriminant (`1 << kind as u16`), naming
     /// which kinds count as notable for this box. Starts as exactly
     /// [`notable`]'s own set ([`default_react_on`]), computed once at
     /// construction rather than read live so a harness or a player can arm
     /// or disarm one kind at a time without re-deriving the whole mask.
-    pub react_on: u8,
+    ///
+    /// **`u16`, not `u8`.** `LogKind::PlayerAction` (round 31) is the ninth
+    /// variant, and `log_kind_bit` reads `kind as u16` as a shift amount --
+    /// a ninth bit does not fit an 8-bit mask, and the old `1u8 << 8` was a
+    /// shift-overflow panic in a debug build. `PlayerAction` is deliberately
+    /// left out of `default_react_on`'s own list below (see its doc), so
+    /// this widening changes no default; it only stops the ninth kind from
+    /// being unrepresentable at all.
+    pub react_on: u16,
     /// Real time left before a LINGER climbs back to `restore_requested`.
     /// `None` when no linger is in force -- distinct from `Duration::ZERO`,
     /// which `plan` would otherwise read as "restore this frame" on every
@@ -259,6 +267,16 @@ pub struct TimeControl {
     /// Real time left before another automatic reaction is allowed to
     /// fire. See [`REACTION_COOLDOWN`].
     cooldown_remaining: Duration,
+    /// **How many passes have skipped drawing (ticked but not shown), over
+    /// the whole run.** Round 31's own addition, for the chronicle's perf
+    /// columns (`census::PerfSample`) -- a session with a high, climbing
+    /// count spent its time simulating rather than painting, which is the
+    /// sim-bound/render-bound fork any perf work needs answered first and
+    /// today cannot be from a log alone. Incremented in `record`, once per
+    /// pass whose `Advance::draw` came back `false`; never reset, the same
+    /// shape as `RunLog::dropped` -- a running total a reader can difference
+    /// across two chronicle rows, not a per-frame flag.
+    draws_skipped: u64,
 }
 
 /// The simulation's own rate. One tick is 1/60th of a simulated second, on
@@ -364,11 +382,11 @@ pub fn notable(kind: LogKind) -> bool {
 }
 
 /// Bit `i` of [`TimeControl::react_on`] is the `LogKind` whose discriminant
-/// is `i`, in declaration order -- computed from `kind as u8` rather than
+/// is `i`, in declaration order -- computed from `kind as u16` rather than
 /// hand-assigned, so a `LogKind` that grows or reorders cannot silently
 /// misalign the bit and the kind it is supposed to name.
-fn log_kind_bit(kind: LogKind) -> u8 {
-    1u8 << (kind as u8)
+fn log_kind_bit(kind: LogKind) -> u16 {
+    1u16 << (kind as u16)
 }
 
 /// [`TimeControl::react_on`]'s starting value: [`notable`] applied to every
@@ -379,7 +397,15 @@ fn log_kind_bit(kind: LogKind) -> u8 {
 /// file split gives to a different lane (`CLAUDE.md`, *working alongside
 /// another session*). Grows the same day `notable`'s own doc comment says
 /// to.
-fn default_react_on() -> u8 {
+///
+/// **`PlayerAction` (round 31) is deliberately not in this list**, even
+/// though `notable(PlayerAction)` is `true` (`is_line_event()` says so). The
+/// clock reacting to the player's *own* action -- yanking the camera or
+/// pausing because they just changed the speed dial themselves -- has
+/// nothing to point at (`PlayerAction` carries no position) and nothing to
+/// tell the player that they do not already know. A player who wants the
+/// dial to react on it can still arm it by hand through `react_on` directly.
+fn default_react_on() -> u16 {
     [
         LogKind::Born,
         LogKind::Died,
@@ -392,7 +418,7 @@ fn default_react_on() -> u8 {
     ]
     .into_iter()
     .filter(|&k| notable(k))
-        .fold(0u8, |mask, k| mask | log_kind_bit(k))
+        .fold(0u16, |mask, k| mask | log_kind_bit(k))
 }
 
 impl Default for TimeControl {
@@ -425,6 +451,7 @@ impl TimeControl {
             linger_remaining: None,
             restore_requested: 1,
             cooldown_remaining: Duration::ZERO,
+            draws_skipped: 0,
         }
     }
 
@@ -564,8 +591,19 @@ impl TimeControl {
     /// calling `plan(ZERO)`, which silently consumed a display interval and
     /// zeroed the render-cost sample: exactly `CLAUDE.md`'s *a debug readout
     /// must not be a function of the thing it debugs*, one level down.
-    fn owed_ticks(&self) -> u32 {
+    ///
+    /// **`pub` as of round 31** for `census::PerfSample::debt_ticks` -- the
+    /// chronicle's own reason to read it is exactly this doc's own: telling
+    /// a frame that merely ran short from a box that has stopped keeping up
+    /// at all, which `ticks_per_frame` alone cannot.
+    pub fn owed_ticks(&self) -> u32 {
         (self.sim_debt.as_nanos() / TICK.as_nanos()) as u32
+    }
+
+    /// How many passes have skipped drawing, over the whole run. See
+    /// `draws_skipped`'s own field doc.
+    pub fn draws_skipped(&self) -> u64 {
+        self.draws_skipped
     }
 
     /// The wall-clock ceiling on one pass's tick loop.
@@ -594,6 +632,13 @@ impl TimeControl {
         if self.drawing {
             self.shown_ticks = self.pending_ticks;
             self.pending_ticks = 0;
+        } else {
+            // This pass ticked and did not draw -- `Advance::draw` below
+            // will read `false`. Counted here rather than by the caller
+            // summing `Advance::draw == false` across a run, because the
+            // chronicle's own row is the only reader today and a running
+            // total on `TimeControl` needs no caller-side bookkeeping.
+            self.draws_skipped += 1;
         }
 
         self.window_ticks += ticks as u64;
@@ -1047,6 +1092,37 @@ mod tests {
         for _ in 0..500 {
             assert!(m.pass(&mut t).draw, "a paused box must never skip a frame");
         }
+    }
+
+    /// **`draws_skipped` (round 31, for `census::PerfSample`) counts exactly
+    /// the passes whose `Advance::draw` came back `false`, over the whole
+    /// run.** At the top of the speed ladder the display rate drops well
+    /// below the pass rate (`display_rate_drops_as_speed_climbs` below), so
+    /// most passes tick without drawing -- this is the counter that lets a
+    /// chronicle row say so.
+    ///
+    /// Provable red by dropping the `self.draws_skipped += 1` line from
+    /// `record`'s `else` arm: `t.draws_skipped()` would then read `0` while
+    /// this test's own tally of undrawn passes is provably positive (a
+    /// paused box, per the test just above, would make this vacuous, which
+    /// is why this one runs at the fastest preset instead).
+    #[test]
+    fn draws_skipped_counts_exactly_the_undrawn_passes() {
+        let mut t = TimeControl::new();
+        t.set_preset(PRESETS.len() - 1);
+        let mut m = Machine::new(200, 3);
+        let mut passes = 0u64;
+        let mut drew = 0u64;
+        for _ in 0..5_000 {
+            let a = m.pass(&mut t);
+            passes += 1;
+            if a.draw {
+                drew += 1;
+            }
+        }
+        let skipped = passes - drew;
+        assert!(skipped > 0, "this test needs at least one skipped draw to mean anything -- {drew} of {passes} passes drew");
+        assert_eq!(t.draws_skipped(), skipped, "draws_skipped did not match the passes whose Advance::draw was false");
     }
 
     /// **Resuming must not pay off a backlog.** A box paused for a minute and
