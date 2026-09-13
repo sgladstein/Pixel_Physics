@@ -572,4 +572,22 @@ if [ "$unlanded" != "0" ]; then
   fi; }
 fi
 
+# **Does this branch add something a dead end is waiting for?**
+#
+# `deadendindex.py --touching` asks an *arrival* question -- does this diff add
+# an identifier some entry's `Re-test when:` clause names, to a tree that did
+# not have it. Run here because the PR's own finding was that conditions get
+# met in code and nobody tells the entry: nine of the register's clauses were
+# resolved in doc comments and never written back.
+#
+# **Recall is 2 of 5 on replay and silence is not evidence** -- it cannot see
+# an entry with no clause, nor a condition met by something that is not an
+# arrival. Specificity is why it is here at all: 0, 0, 0, 0, 1 hits over five
+# unrelated merged PRs. The looser form that catches all five controls scores
+# 43 hits against one true positive on a plant-line commit and is recorded as
+# a dead end.
+if [ -f scripts/deadendindex.py ] && [ -f Reports/data/dead-ends-index.tsv ]; then
+  python3 scripts/deadendindex.py --touching --brief 2>/dev/null || true
+fi
+
 exit "$fail"
