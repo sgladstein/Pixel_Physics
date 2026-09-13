@@ -104,7 +104,7 @@
         //                                ants burrow and roots go deep -- so
         //                                the bed is thick and the rock under
         //                                it is thin.
-        //   soil_slope_cutoff .8 -> 1.1  soil stays on steeper ground, so
+        //   soil_slope_cutoff .8 -> .85  soil stays on steeper ground, so
         //                                hillsides are plantable rather than
         //                                bare stone.
         //   vault_density   1.6 -> 0     no caving, so no cave systems.
@@ -120,6 +120,34 @@
         // read as geology and give a walk somewhere to stand -- and
         // `residual_density` is halved rather than zeroed, because tors and
         // stacks are the landmarks a five-screen walk navigates by.
+        //
+        // **Two values here were paid for by a red trunk, 2026-09-13.**
+        // Registering this preset enrolled it in every guard in
+        // `tests/worldgen.rs` that sweeps `presets()` -- nobody opted in and
+        // nothing warned -- and `generated_terrain_is_already_at_rest` went
+        // red on it. Both fixes are measured, and the second is the
+        // interesting one:
+        //
+        //   soil_slope_cutoff 1.1 -> 0.85   1.1 was 30% past the steepest in
+        //                                the file (wetland 0.85) and laid
+        //                                soil on slopes it could not hold:
+        //                                a diagonal run of 7 water cells
+        //                                walking down a bank, seed 2. 0.85
+        //                                clears it, and the sweep says it
+        //                                clears anywhere at or below 1.05,
+        //                                so this has real headroom.
+        //   settle_frames 0 -> 120       the residual was 1-2 cells at one
+        //                                seed and it MOVED under every
+        //                                perturbation -- a `world_age` sweep
+        //                                gave fail/pass/pass/pass/pass/fail/
+        //                                pass/fail/pass/fail/pass at three
+        //                                different seeds. That is a lottery,
+        //                                not a value that is wrong, so the
+        //                                fix is to stop handing over a world
+        //                                that has not stopped moving. 10
+        //                                frames already clears it; 120 is
+        //                                12x headroom. See
+        //                                `WorldgenParams::settle_frames`.
         "druid": (
             sky_rows: 190.0,
             relief_amplitude: 34.0,
@@ -138,7 +166,7 @@
             terrace_slope_lo: 0.6,
             terrace_slope_hi: 2.0,
             soil_depth: 210.0,
-            soil_slope_cutoff: 1.1,
+            soil_slope_cutoff: 0.85,
             bedrock_band: 4.0,
             strata_thickness: 9.0,
             strata_tilt: 0.06,
@@ -169,6 +197,8 @@
             tree_density: 0.50,
             grass_density: 0.72,
             life_cluster_wavelength: 70.0,
+            // The only preset that sets this. See the note above the block.
+            settle_frames: 120.0,
         ),
         // Benched country: bluffs over most of the relief instead of in
         // patches. The preset for judging whether terracing reads as geology
