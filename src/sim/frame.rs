@@ -84,6 +84,23 @@ pub fn step(
     // jump; see `App::update` and `bin/lab.rs`, which both clear it
     // after this returns.
     player::step(world, player_input, player_tuning);
+    // **The carried quickening follows the player, and it has to be updated
+    // between his step and the life phases below.** Before `step_active_sites`
+    // or the ground he has just walked onto is judged against where he stood
+    // last frame, which at running speed is a visible lag in what wakes up.
+    //
+    // Here rather than in `App::update` for the reason this whole module
+    // exists: the lab drives the same tick, and a second binary re-deriving
+    // the order would be a fork of the simulation wearing another name. Costs
+    // one `Option` check per tick in a world that is not held.
+    if world.held {
+        world.carried = world.player.as_ref().map(|p| {
+            let (x, y) = p.center();
+            crate::sim::world::Quickening { x, y, r: crate::sim::world::CARRIED_RADIUS }
+        });
+    } else {
+        world.carried = None;
+    }
     // M16 active sites after the CA sweep too, for the same reason as
     // particles below: a root deciding whether to drink an adjacent
     // water cell needs this frame's settled position, not last frame's.

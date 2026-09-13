@@ -1986,6 +1986,18 @@ pub struct Quickening {
     pub r: i32,
 }
 
+/// **How far the player's own quickening reaches**, in cells.
+///
+/// Sized as *presence*, not as power: big enough that the ground he is
+/// standing on and the plant beside him are running, small enough that he
+/// cannot grow a wood by loitering. The placed quickenings are the ones with
+/// a radius the player buys.
+///
+/// A constant rather than a tunable until there is a game to tune it in —
+/// `Reports/design-philosophy.md` settles which of the two a number should be,
+/// and a knob nobody has played with yet is a knob with no evidence behind it.
+pub const CARRIED_RADIUS: i32 = 28;
+
 impl Quickening {
     /// Squared-distance test, so nothing here needs a square root and the
     /// boundary is exact in integers.
@@ -3689,6 +3701,25 @@ pub struct World {
     /// linear in a list the player is expected to keep short — the frame
     /// budget is what caps it, which is the whole point of that design.
     pub quickenings: Vec<Quickening>,
+    /// **The quickening the player carries** — small, slow and *free*, as
+    /// against the placed ones in [`quickenings`](Self::quickenings), which
+    /// are the economy.
+    ///
+    /// Owner's ruling 2026-09-13, direction (c): a druid is a walking spring
+    /// and cannot help it. It exists to solve a problem placed bubbles alone
+    /// have badly — **a held world is completely inert to walk through**, so
+    /// without this nothing answers the player until they have spent
+    /// something, and every interaction starts with a menu. It also hands the
+    /// scouting loop over for nothing: walk dead ground and see what the seed
+    /// bank still has in it.
+    ///
+    /// **Presence, not power.** Kept deliberately small and at the world's own
+    /// rate, so it makes the land respond to you without doing your work.
+    /// Separate from `quickenings` rather than pushed onto it because the two
+    /// are different resources: this one is what you *are* and is never
+    /// bought, and keeping them apart stops a later economy from accidentally
+    /// charging for it.
+    pub carried: Option<Quickening>,
     /// **Whether soil levels its water sideways as readily as it does when
     /// it is dry.** `update::update_soil_water`'s capillary exchange, and
     /// the reason the bed stands in visible columns under the moisture
@@ -4703,6 +4734,7 @@ impl World {
             plant_size_cadence: false,
             held: false,
             quickenings: Vec::new(),
+            carried: None,
             developmental_key: super::organism::DevelopmentalKey::default(),
             deepest_generation: 0,
             deepest_animal_generation: 0,
@@ -4799,7 +4831,7 @@ impl World {
         if !self.held {
             return true;
         }
-        self.quickenings.iter().any(|q| q.contains(x, y))
+        self.carried.is_some_and(|q| q.contains(x, y)) || self.quickenings.iter().any(|q| q.contains(x, y))
     }
 
     /// [`time_runs_at`](Self::time_runs_at) for a whole organism, resolved at
