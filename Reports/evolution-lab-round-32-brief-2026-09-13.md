@@ -20,6 +20,12 @@ analysis in
 [`evolution-lab-playtest-2026-09-13.md`](evolution-lab-playtest-2026-09-13.md).
 Read that report before task 1.
 
+**Task order is his, not a queue.** Task 1 (performance) is *"our #1 priority
+by far"* in his words. **Task 6 (zoom-out) he has separately called a
+priority** — round 31 filed it as unscheduled and he corrected that, so it is a
+lane, not a note. Task 2 is small, gates every future log he sends, and should
+land early and on its own. Tasks 3, 4 and 5 are real but wait.
+
 **Trunk state this brief was written against.** Round 31 landed **#370, #371,
 #372, #373, #374, #375, #376, #379** (the dug pellet needs a footing) and
 **#380** (the idle-anim clock). So on
@@ -105,7 +111,41 @@ roofed chamber and confirm the repaired column reports it, then delete the
 chamber and confirm it drops. A column that reads 0 everywhere passes any test
 that only checks it does not crash.
 
-This is small and it gates every future log the owner sends, so do it early
+### And what the next log should carry that this one did not
+
+**The owner asked directly what would have helped.** Answering the round's
+first question took a hand-fitted lower envelope over 56 wall-clock differences
+because the file could not do it itself. These are in priority order and the
+first three would each have changed an answer:
+
+1. **Tick-time statistics measured inside the engine — min, median and max over
+   each census window.** This is the big one. The contention problem
+   (adjacent samples differing 12–14x) had to be worked around by fitting a
+   lower envelope by hand; **a per-window minimum is exactly that statistic,
+   and the engine can measure it properly.** It costs one comparison per tick.
+2. **Creature *cells*, not just creature count, and active against resting.**
+   `ants` is a head count, and a long-ant is multi-cell while §Z12 says most of
+   a long-run pile is one-cell ants — so **the 2.1 µs "per ant" may be
+   averaging two very different animals**. And a resting ant is nearly free
+   (§Z13 says they rest a great deal), so **cost per *active* creature could be
+   several times the headline**. Either would move the target this round is
+   aimed at, which makes them the two most valuable columns missing.
+3. **A coarse phase split sampled at census cadence** — creature pass, cell
+   sweep, field, render. #374 was right to keep stopwatches out of the live
+   loop, but **once per 10,000 frames is free**, and it would turn task 1's
+   central claim from an inference (cost tracks ants, not sites) into a
+   measurement.
+4. **Millisecond wall clock.** `wall` is whole seconds, so the early intervals
+   (11–13 s) carry ~8% quantisation. Free to fix.
+5. **Size the individual ring against a real colony.** This log dropped
+   **79,642** events and kept 664 of 15,905 births. The two-ring split worked —
+   every line event survived — but the individual ring is overrun by two orders
+   of magnitude at 3,000 ants.
+
+**Do not add per-phase timing to the live loop** and do not let this grow into
+a profiler. Everything above is a read or a counter at census cadence.
+
+This whole task is small and it gates every future log he sends, so do it early
 and land it on its own rather than behind task 1.
 
 ## Task 3 — recovery is slow, not absent. The premise changed; read this first.
@@ -248,52 +288,54 @@ ten days old and it just survived a round that read it and still did not land
 it. **Either land it this round or close it and file the mechanism as its own
 register section under a letter `bugindex.py --branches` says is free.**
 
-## Not scheduled — the owner's zoom-out question, and the answer with its numbers
+## Task 6 — zoom out should use the screen's pixels. The owner calls this a priority.
 
-**Raised in chat 2026-09-13, answered, and recorded here so the analysis is not
-re-derived. It is not a task and nobody is assigned to it** — the owner asked
-why zooming out has to be complicated, and the answer is short enough to be
-worth keeping.
+**Round 31's coordinator filed this as "not scheduled" because he asked a
+question rather than asked for work. That was wrong and he has said so.** It
+is a lane.
 
-> *"why my screen resolution can solve all of the pixels, why cannot there
-> just be more pixels when you zoom out?"*
+> *"I don't understand why the zoom out has to be complicated... why my screen
+> resolution can solve all of the pixels, why cannot there just be more pixels
+> when you zoom out?"*
 
-**He is right, and the constraint is not the monitor — it is that the renderer
-draws into a fixed 512x320 back-buffer** (`WIDTH`/`HEIGHT`, `src/app.rs:202`)
-which `Pixels::new(WIDTH, HEIGHT, surface)` then upscales to the window. The
-screen's real pixels magnify that image rather than carrying more of it. So at
+**He is right, and the constraint is not the monitor.** The renderer draws into
+a fixed **512x320 back-buffer** (`WIDTH`/`HEIGHT`, `src/app.rs:202`) which
+`Pixels::new(WIDTH, HEIGHT, surface)` upscales to the window, so the screen's
+real pixels *magnify* that image rather than carrying more of it. At
 `MAX_ZOOM_OUT_STRIDE = 4` the view spans **2048x1280 cells through a 512x320
 buffer** — sixteen world cells per buffer pixel, and something must be
 discarded. That is the whole of §Z11: `Stride` drew the block's top-left cell
 and dropped the other fifteen, so a one-cell-wide stem had three chances in
-four of vanishing.
+four of vanishing. The salience rule that closed §Z11 is a good answer to
+*"which of sixteen cells wins"*; **this removes the question instead.**
 
-**Make the buffer the screen and the problem disappears rather than being
-mitigated.** A 2560x1440 buffer holds that same 2048x1280 view at one cell per
-pixel with nothing discarded. The salience rule that fixed §Z11 is a good
-answer to *"which of sixteen cells wins"*; this removes the question.
+**The shape to build: grow the buffer only when zoomed out.** At the widest
+stride allocate 2048x1280 rather than 512x320; every cell gets a pixel, nothing
+is discarded, and it is still inside an ordinary monitor. **Normal zoom is
+untouched and pays nothing** — which matters, because at one cell per *physical*
+pixel the world reads sharp and small rather than chunky, and chunky is the
+house style. Only the zoom-out path should change.
 
-**What it costs, and why that is the real objection rather than the sampling.**
-The renderer works per buffer pixel: 512x320 is 164k, 2560x1440 is 3.7M — 22x
-per frame, and the dirty-rect skip that keeps a settled world cheap is also
-per-pixel. **The cheaper shape that keeps his reasoning: grow the buffer only
-at zoom-out.** At the widest stride allocate 2048x1280 rather than 512x320;
-normal zoom is untouched and pays nothing. A zoomed-out view is mostly settled
-terrain, which is exactly where the frame-skip earns its keep, so the true cost
-may be far below the pixel ratio — **but that is a hypothesis and `CLAUDE.md`
-requires the whole-frame figure, measured, before anyone quotes it.** `ascii`
-cannot answer it (headless, no render); this needs the real app's capture path
-or `scale_probe`.
+**The cost is the whole objection and it must be measured, not argued.** The
+renderer works per buffer pixel: 512x320 is 164k, 2048x1280 is 2.6M — 16x. A
+zoomed-out view is mostly settled terrain, which is exactly where the
+dirty-rect skip does its best work, **so the true cost may be far below the
+pixel ratio — but that is a hypothesis.** `CLAUDE.md` requires the whole-frame
+figure. `ascii` cannot answer it (headless, no render); use the real app's
+capture path or `scale_probe`, and quote worst-frame *and* mean so the ratio
+pins it.
 
-**For the lab specifically it is nearly free.** `MIN_BOX`/`MAX_BOX` are
-128–4096 (`src/lab/params.rs:330`) and the boxes actually played are far below
-the top, so a 2048x1280 buffer shows a typical box whole at one cell per pixel
-with no downsampling anywhere.
+**Acceptance is judge-by-eye and the card is the deliverable**: widest zoom-out,
+before and after, same scene and seed, **with the count of one-cell-wide
+features present in the world and the count actually drawn in the card's
+`meta`** — that number is what says thin things stopped vanishing, and a
+picture alone cannot.
 
-**Second-order, and the reason not to do this casually:** at one cell per
-*physical* pixel the world reads sharp and small rather than chunky, and the
-chunky look is the house style. That only bites at normal zoom, which is why
-the zoom-out-only version is the one worth costing.
+**For the lab this is nearly free**: `MIN_BOX`/`MAX_BOX` are 128–4096
+(`src/lab/params.rs:330`) and played boxes are far below the top, so a
+2048x1280 buffer shows a typical box whole at one cell per pixel with no
+downsampling anywhere. **The outdoor world is 8192x2560**, so it still needs
+stride past a point — this shrinks the problem there rather than removing it.
 
 ## Standing rulings this round paid for
 
