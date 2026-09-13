@@ -112,6 +112,28 @@ chronicle files behind, each a strict superset of the ones before it; taking
 the newest is always taking the whole story so far, and pruning older
 autosaves is not this round's job.
 
+**What it costs.** `write_chronicle` timed directly and repeatedly
+(`autosave_cost`, `src/lab/mod.rs`, `#[ignore]`d, `labstats.rs::cost`'s own
+paired shape) came back **~6.9 ms/call** at 86 organisms and 15 accumulated
+CENSUS rows, against an idle control reading `0.000 ms`. At the shipped
+10,000-frame cadence that amortises to under 0.001 ms/frame, and a real
+session hits it once every several minutes -- imperceptible against the
+whole-frame budget in the ordinary case. **The caveat**: the cost lands on
+whichever simulated tick happens to cross the cadence, and at a high speed-
+dial multiplier several thousand simulated ticks can run inside one drawn
+frame, so the ~7-13 ms this call actually took (a paired per-tick reading in
+the same test, small-sample and noisier, put a paying tick's *worst* frame
+at ~13 ms) can in principle land inside a single displayed frame at extreme
+dial settings. Nothing in this round changed that; riding the existing
+CENSUS cadence rather than adding a separate timer is the cheapest amortising
+choice available without changing what "autosave" means, and no further
+optimisation was needed to bring the common case under the frame budget.
+`ascii`'s worst-frame timing is silent on all of this: `ascii` drives
+`sim::frame::step` directly on a bare `World` and never reaches `Lab::tick`,
+which is where the autosave lives, so it is not the instrument for this
+number -- `autosave_cost` is the direct equivalent for the lab's own tick
+loop.
+
 **The two-ring log**: `RUN_LOG_CAP` (2048) used to bound one shared
 `VecDeque` holding `Born`/`Died`/`FirstFeed`/`FirstSeed` alongside
 `LineEnded`/`GroupSplit`/`LineMilestone`/`LineRecord`. On the shipped
@@ -124,7 +146,14 @@ reader ever saw them. `RunLog` now holds two `VecDeque`s: `individuals`
 value). `push` routes on that predicate; `recent()` merges both rings by
 frame so every other reader still sees one ordered log. Guarded by
 `a_colonys_own_churn_cannot_evict_a_line_event` in `src/sim/world.rs`,
-watched red first against the old single-ring shape.
+watched red first against the old single-ring shape. **The coordinator's own
+flag on this round**: the pre-existing `the_run_log_reports_what_it_dropped`
+only ever pushes `Born`, which lands on the `individuals` ring in both the
+old shared-queue shape and the new split one -- real, but not evidence about
+`lines`. `the_line_ring_reports_what_it_dropped` is the guard that actually
+exercises `LINE_LOG_CAP`'s own trim and drop count, mirroring the older
+test's shape on the ring `PlayerAction` now shares with `LineEnded`/
+`GroupSplit`/`LineMilestone`/`LineRecord`.
 
 **Guards, watched red first**: `examples/chronicle.rs` prints through
 `format_log_line`, so a run that exercises all six player-action sites shows
@@ -133,7 +162,16 @@ them in its own output -- this is the acceptance test the brief asked for.
 representative `PlayerAction` case near the longest real sentence rather
 than the shortest, since the width trap only bites a long one.
 `a_player_action_never_joins_an_organisms_timeline` is the guard for the
-`id 0, born_frame 0` collision above.
+`id 0, born_frame 0` collision above. Any test that runs `Lab::tick` past a
+real `CHRONICLE_CENSUS_EVERY` boundary now writes a file -- `chronicle_
+takes_one_census_row_per_cadence` and `line_events_are_bounded_per_lineage`
+both cross it and both now redirect `CHRONICLE_DIR_ENV` to a private scratch
+directory (`scratch_chronicle_dir`, the same tag-plus-pid shape `scenario.rs`
+and `scene.rs` already use), so `cargo test` never writes into the shared
+`assets/chronicles/` another lane's session could also be touching.
+`autosave_cost` (`src/lab/mod.rs`, `#[ignore]`) is the paired per-tick timing
+for the cost claim below, using `CHRONICLE_CENSUS_EVERY_ENV` to force the
+cadence every 200 ticks rather than waiting out the shipped 10,000.
 
 **One thing this touched that is not the chronicle**: `TimeControl::
 react_on` (`src/lab/time.rs`) was a `u8` bitmask over `LogKind`'s
