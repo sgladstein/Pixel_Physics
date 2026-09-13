@@ -9773,6 +9773,59 @@ mod tests {
         assert_eq!(log.recent().filter(|e| e.kind == LogKind::Born).count(), RUN_LOG_CAP, "the individuals' ring stopped bounding its own writer");
     }
 
+    /// **The line ring has its own cap and its own drop count, exactly the
+    /// way `the_run_log_reports_what_it_dropped` proves the individuals'
+    /// ring does.** Coordinator's own flag on this round: a guard written
+    /// against the old single shared `VecDeque` (that test, pushing only
+    /// `Born`) cannot tell a split ring from an unsplit one, because `Born`
+    /// only ever touches the individuals' side either way -- it is real and
+    /// stays, but it is not evidence about `lines`. This is the test that
+    /// actually is: push line events past `LINE_LOG_CAP` and check the
+    /// specificity half (nothing dropped under the cap) and the sensitivity
+    /// half (the oldest go, the count is exact) on the ring that
+    /// `PlayerAction` now shares with `LineEnded`/`GroupSplit`/
+    /// `LineMilestone`/`LineRecord`.
+    ///
+    /// Provable red by merging `RunLog` back down to one `VecDeque` behind
+    /// `RUN_LOG_CAP` alone (this test's own `LINE_LOG_CAP`-sized fill would
+    /// then report zero dropped, since nothing bounds it as `lines`), or by
+    /// dropping the `self.dropped_lines += 1` in `RunLog::push`'s line arm.
+    #[test]
+    fn the_line_ring_reports_what_it_dropped() {
+        let mut log = RunLog::default();
+        let line_event = |frame: u64| LogEvent {
+            frame,
+            id: 1,
+            born_frame: 0,
+            species: organism::SpeciesId(0),
+            kind: LogKind::LineEnded,
+            other: 0,
+            lineage: 0,
+            generation: 0,
+            detail: String::new(),
+        };
+        for f in 0..LINE_LOG_CAP as u64 {
+            log.push(line_event(f));
+        }
+        assert_eq!(log.recent().filter(|e| e.kind == LogKind::LineEnded).count(), LINE_LOG_CAP);
+        assert_eq!(log.dropped(), 0, "the line ring trimmed a story that fitted");
+
+        const OVER: u64 = 23;
+        for f in 0..OVER {
+            log.push(line_event(LINE_LOG_CAP as u64 + f));
+        }
+        assert_eq!(
+            log.recent().filter(|e| e.kind == LogKind::LineEnded).count(),
+            LINE_LOG_CAP,
+            "the line ring's own cap did not bound its own writer"
+        );
+        assert_eq!(log.dropped(), OVER, "the line ring lost lines without saying how many");
+        assert!(
+            log.recent().all(|e| e.frame >= OVER),
+            "the line ring trimmed from the wrong end -- the newest lines went instead of the oldest"
+        );
+    }
+
     /// **A player action does not fall into a stranger's timeline.**
     /// `PlayerAction` events carry `id: 0, born_frame: 0` because they are
     /// not about any organism, and the world's very first organism is

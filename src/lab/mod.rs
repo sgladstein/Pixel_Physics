@@ -2246,8 +2246,9 @@ impl Lab {
             self.spec.extra_walls.retain(|c| *c != w);
             let spec = self.spec.clone();
             spec.clear_wall(&mut self.world, w);
-            self.ui.say(format!("WALL AT {w} REMOVED"));
-            self.world.log_player_action(format!("WALL AT {w} REMOVED"));
+            let msg = format!("WALL AT {w} REMOVED");
+            self.ui.say(msg.clone());
+            self.world.log_player_action(msg);
             return;
         }
         let computed = self.spec.compartments > 1 && self.spec.partition_columns().contains(&x);
@@ -3696,6 +3697,68 @@ mod tests {
         assert_eq!(Lab::chronicle_census_every(), 5, "the env override was not read");
         std::env::remove_var(Lab::CHRONICLE_CENSUS_EVERY_ENV);
         assert_eq!(Lab::chronicle_census_every(), Lab::CHRONICLE_CENSUS_EVERY, "removing the override did not restore the default");
+    }
+
+    /// **What the autosave costs, on the one frame in `CHRONICLE_CENSUS_
+    /// EVERY` that pays it.** Not a correctness guard -- `#[ignore]`d and
+    /// run by hand (`cargo test --release -- --ignored --nocapture
+    /// autosave_cost`) the way `labstats.rs`'s own `cost()` is, because a
+    /// timing on a shared box is `CLAUDE.md`'s own warning: run it alone, or
+    /// pin `RAYON_NUM_THREADS`.
+    ///
+    /// **Paired inside one run, per-tick, not a mean over the whole run.**
+    /// `CHRONICLE_CENSUS_EVERY_ENV=200` (the coordinator's own flag on this
+    /// round -- no need for the shipped 10,000) makes the cadence fire nine
+    /// times in 2,000 ticks, so every tick is timed individually and split
+    /// into "paid the autosave" against "did not," which is `CLAUDE.md`'s
+    /// own rule against quoting a worst frame with nothing pinning it:
+    /// `mean(no-autosave) x frames` should reproduce the no-autosave total,
+    /// and it is printed so a reader can check that arithmetic rather than
+    /// trust the number.
+    #[test]
+    #[ignore]
+    fn autosave_cost() {
+        let _guard = CENSUS_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = scratch_chronicle_dir("cost");
+        std::env::set_var(Lab::CHRONICLE_DIR_ENV, &dir);
+        std::env::set_var(Lab::CHRONICLE_CENSUS_EVERY_ENV, "200");
+        let mut lab = Lab::new(scene::LabBox::default());
+        // Run past a couple of cadences unmeasured first, so the population
+        // (and the chronicle's own accumulated CENSUS/LOG history, which is
+        // what `write_chronicle` actually has to serialise) is representative
+        // of a played box rather than a fresh one -- a cost measured on an
+        // empty run log would understate every real session.
+        for _ in 0..1000 {
+            lab.tick();
+        }
+        const FRAMES: u32 = 2000;
+        let mut with_autosave = Vec::new();
+        let mut without_autosave = Vec::new();
+        let mut worst_ns = 0u128;
+        for _ in 0..FRAMES {
+            let paying = lab.world.frame.is_multiple_of(Lab::chronicle_census_every());
+            let t = std::time::Instant::now();
+            lab.tick();
+            let ns = t.elapsed().as_nanos();
+            worst_ns = worst_ns.max(ns);
+            if paying { with_autosave.push(ns) } else { without_autosave.push(ns) }
+        }
+        let mean_ns = |v: &[u128]| v.iter().sum::<u128>() as f64 / v.len().max(1) as f64;
+        let (paid_mean, idle_mean) = (mean_ns(&with_autosave), mean_ns(&without_autosave));
+        eprintln!(
+            "autosave_cost: {} organisms, {} chronicle rows, {} paying ticks of {FRAMES} -- \
+             idle {:.3} ms/frame, autosave-frame {:.3} ms/frame (+{:.3} ms), worst {:.3} ms",
+            lab.world.live_organism_count(),
+            lab.chronicle_census.len(),
+            with_autosave.len(),
+            idle_mean / 1e6,
+            paid_mean / 1e6,
+            (paid_mean - idle_mean) / 1e6,
+            worst_ns as f64 / 1e6
+        );
+        std::env::remove_var(Lab::CHRONICLE_CENSUS_EVERY_ENV);
+        std::env::remove_var(Lab::CHRONICLE_DIR_ENV);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// **The chronicle stays bounded per lineage, not per birth.** A colony
