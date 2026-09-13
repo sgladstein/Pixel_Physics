@@ -1363,6 +1363,20 @@ pub struct CreatureStats {
     pub spoil_lifted: u64,
     /// See `spoil_lifted`. Rows, largest single lift in the run.
     pub spoil_lift_max: u32,
+    /// See `spoil_lifted`. **Rows summed over every lift**, so the pair gives
+    /// a mean.
+    ///
+    /// A max alone cannot decide anything here, and that is the whole reason
+    /// this field exists. `CLAUDE.md`'s *an outcome is a distribution, not a
+    /// binary*: a colony whose every lift is one row, with a single freak of
+    /// 107, and one that routinely posts pellets fifty rows into the sky
+    /// report the **same `spoil_lift_max`** — and they want opposite verdicts,
+    /// because the first is an ant stepping up onto its own spoil heap and the
+    /// second is teleportation. Measured on `spoil_destination`, four seeded
+    /// beds with a tree in them, `RAYON_NUM_THREADS=1`: the tallest single lift
+    /// is **107 rows** and the mean over every lift is **5.6**. The extreme is
+    /// real and it is rare, and only the pair can say so.
+    pub spoil_lift_rows: u64,
     /// **Pellets that died with their carrier and had nowhere to land** —
     /// cells that genuinely left the world, and the only way one still can
     /// through this path.
