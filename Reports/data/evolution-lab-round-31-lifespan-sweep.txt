@@ -61,6 +61,114 @@ SUMMARY at_nest_crowding n=58841 buckets(0.0..1.0 by 0.1)=[980, 1241, 18389, 610
 SUMMARY roofed_engine=175 roofed_library=187 deaths_starved=88 deaths_killed=0 deaths_oldage=68 deaths_other=0
 SUMMARY mound_bare=23 mound_cols=89 digs_per_1k=5.24 roofed=187 packed_above=92 mound_high=37
 
+===== run A-s3 =====
+latecensus: scenario=played_bed seed=3 frames=200000 sample=20000 band=64 threads=1
+latecensus: ant scent_drift = Some(0.15)
+  ant life_half_life = 40000 frames (0 = immortal)
+  room_gate = true (target 2.00); PIXEL_PHYSICS_LAB_ROOM=unset
+  bed: 0 of 0 founders planted; scenario placed 0 cells, 18 plants, 0 animals
+  nests at [256]; band = +-64 columns of a nest
+STOP frame=0 ants=0 plants=0 bank=18 edible=18 starved=0 oldage=0 killed=0 other=0 born=0 died=0 digs=0 eats=0 deliveries=0 leaf_j=0 seed_j=2160 roofed=0 mound_high=0
+STOP frame=20000 ants=54 plants=202 bank=893 edible=1017 starved=10 oldage=2 killed=0 other=0 born=29 died=12 digs=130 eats=9221 deliveries=4351 leaf_j=0 seed_j=109560 roofed=27 mound_high=8
+STOP frame=40000 ants=62 plants=137 bank=549 edible=624 starved=14 oldage=18 killed=0 other=0 born=57 died=32 digs=313 eats=14358 deliveries=6087 leaf_j=0 seed_j=66240 roofed=80 mound_high=43
+STOP frame=60000 ants=22 plants=155 bank=415 edible=545 starved=43 oldage=40 killed=0 other=0 born=68 died=83 digs=484 eats=16014 deliveries=6137 leaf_j=0 seed_j=49800 roofed=83 mound_high=47
+STOP frame=80000 ants=37 plants=165 bank=443 edible=566 starved=54 oldage=47 killed=0 other=0 born=101 died=101 digs=524 eats=18067 deliveries=6174 leaf_j=0 seed_j=53400 roofed=61 mound_high=44
+STOP frame=100000 ants=66 plants=149 bank=399 edible=553 starved=59 oldage=60 killed=0 other=0 born=148 died=119 digs=588 eats=20899 deliveries=6279 leaf_j=0 seed_j=49080 roofed=82 mound_high=43
+STOP frame=120000 ants=135 plants=147 bank=313 edible=585 starved=64 oldage=90 killed=0 other=0 born=252 died=154 digs=875 eats=24735 deliveries=7152 leaf_j=0 seed_j=39000 roofed=152 mound_high=48
+STOP frame=140000 ants=166 plants=146 bank=297 edible=499 starved=117 oldage=141 killed=0 other=0 born=387 died=258 digs=1533 eats=29228 deliveries=7733 leaf_j=0 seed_j=37080 roofed=264 mound_high=48
+STOP frame=160000 ants=372 plants=108 bank=143 edible=277 starved=194 oldage=191 killed=0 other=0 born=720 died=385 digs=2654 eats=35915 deliveries=8627 leaf_j=0 seed_j=17280 roofed=448 mound_high=48
+STOP frame=180000 ants=496 plants=75 bank=41 edible=153 starved=309 oldage=310 killed=0 other=0 born=1078 died=619 digs=4416 eats=42983 deliveries=9446 leaf_j=0 seed_j=5400 roofed=509 mound_high=48
+STOP frame=200000 ants=408 plants=49 bank=20 edible=101 starved=636 oldage=460 killed=0 other=0 born=1467 died=1096 digs=7293 eats=50339 deliveries=9664 leaf_j=0 seed_j=3240 roofed=769 mound_high=48
+SUMMARY scenario=played_bed seed=3 frames=200000 born=1467 died=1096 eats=50339 digs=7293 spoil_dumped=7280 deliveries=9664 nectar_paid=1560 bare_seeds_spared=3965 bare_seeds_carried=2094 seeds_carried=2165 seeds_delivered=2149 pips_released_by_digestion=928 plants_from_pip=241 seed_bank=20 plants=49 ants=408 leaf_kj=0.0 litter_kj=3.0 seed_kj=3.2 lifespan=40000 oldage=460 starved=636 killed=0 seeds_lost_no_room=10
+SUMMARY room_gate=true room_target=2.00
+SUMMARY room_per_ant n=758 min=0.000 p10=0.593 med=1.185 mean=1.408 p90=3.043 max=4.375
+SUMMARY dig_input    n=758 min=0.314 p10=0.397 med=0.628 mean=0.623 p90=0.771 max=1.000
+SUMMARY dig_rolls=431907 digs=7293 at_nest_ticks=117619 dug_per_roll=0.017
+SUMMARY at_nest_crowding n=117619 buckets(0.0..1.0 by 0.1)=[0, 0, 0, 1721, 2049, 21107, 47614, 18636, 8611, 17881] top_bucket_share=0.152
+SUMMARY roofed_engine=690 roofed_library=769 deaths_starved=636 deaths_killed=0 deaths_oldage=460 deaths_other=0
+SUMMARY mound_bare=81 mound_cols=114 digs_per_1k=36.47 roofed=769 packed_above=1405 mound_high=48
+
+===== run A-s4 =====
+latecensus: scenario=played_bed seed=4 frames=200000 sample=20000 band=64 threads=1
+latecensus: ant scent_drift = Some(0.15)
+  ant life_half_life = 40000 frames (0 = immortal)
+  room_gate = true (target 2.00); PIXEL_PHYSICS_LAB_ROOM=unset
+  bed: 0 of 0 founders planted; scenario placed 0 cells, 18 plants, 0 animals
+  nests at [256]; band = +-64 columns of a nest
+STOP frame=0 ants=0 plants=0 bank=18 edible=18 starved=0 oldage=0 killed=0 other=0 born=0 died=0 digs=0 eats=0 deliveries=0 leaf_j=0 seed_j=2160 roofed=0 mound_high=0
+STOP frame=20000 ants=59 plants=186 bank=780 edible=905 starved=12 oldage=0 killed=0 other=0 born=31 died=12 digs=152 eats=10637 deliveries=4761 leaf_j=0 seed_j=96840 roofed=10 mound_high=14
+STOP frame=40000 ants=77 plants=182 bank=596 edible=688 starved=16 oldage=24 killed=0 other=0 born=77 died=40 digs=305 eats=21511 deliveries=7636 leaf_j=0 seed_j=69960 roofed=37 mound_high=21
+STOP frame=60000 ants=84 plants=139 bank=448 edible=541 starved=20 oldage=53 killed=0 other=0 born=117 died=73 digs=441 eats=30064 deliveries=9335 leaf_j=0 seed_j=53280 roofed=74 mound_high=28
+STOP frame=80000 ants=63 plants=85 bank=311 edible=399 starved=32 oldage=88 killed=0 other=0 born=143 died=120 digs=664 eats=33498 deliveries=9850 leaf_j=0 seed_j=37200 roofed=137 mound_high=30
+STOP frame=100000 ants=32 plants=102 bank=346 edible=458 starved=68 oldage=98 killed=0 other=0 born=158 died=166 digs=785 eats=35704 deliveries=9886 leaf_j=0 seed_j=41160 roofed=125 mound_high=46
+STOP frame=120000 ants=33 plants=93 bank=331 edible=455 starved=73 oldage=115 killed=0 other=0 born=181 died=188 digs=809 eats=38200 deliveries=9938 leaf_j=0 seed_j=39600 roofed=103 mound_high=39
+STOP frame=140000 ants=73 plants=104 bank=387 edible=574 starved=83 oldage=126 killed=0 other=0 born=242 died=209 digs=916 eats=41745 deliveries=10462 leaf_j=0 seed_j=46680 roofed=102 mound_high=46
+STOP frame=160000 ants=106 plants=95 bank=282 edible=445 starved=89 oldage=150 killed=0 other=0 born=305 died=239 digs=1095 eats=46303 deliveries=11050 leaf_j=0 seed_j=33720 roofed=90 mound_high=45
+STOP frame=180000 ants=158 plants=85 bank=172 edible=293 starved=103 oldage=192 killed=0 other=0 born=413 died=295 digs=1299 eats=52224 deliveries=11735 leaf_j=0 seed_j=20160 roofed=58 mound_high=43
+STOP frame=200000 ants=193 plants=78 bank=136 edible=477 starved=111 oldage=259 killed=0 other=0 born=523 died=370 digs=1637 eats=58574 deliveries=12100 leaf_j=0 seed_j=16080 roofed=69 mound_high=44
+SUMMARY scenario=played_bed seed=4 frames=200000 born=523 died=370 eats=58574 digs=1637 spoil_dumped=1631 deliveries=12100 nectar_paid=3360 bare_seeds_spared=6976 bare_seeds_carried=3659 seeds_carried=3759 seeds_delivered=3709 pips_released_by_digestion=1026 plants_from_pip=285 seed_bank=136 plants=78 ants=193 leaf_kj=0.0 litter_kj=39.4 seed_kj=16.1 lifespan=40000 oldage=259 starved=111 killed=0 seeds_lost_no_room=42
+SUMMARY room_gate=true room_target=2.00
+SUMMARY room_per_ant n=758 min=0.025 p10=0.207 med=0.887 mean=1.434 p90=3.700 max=5.577
+SUMMARY dig_input    n=758 min=0.264 p10=0.351 med=0.693 mean=0.662 p90=0.906 max=0.988
+SUMMARY dig_rolls=161786 digs=1637 at_nest_ticks=130988 dug_per_roll=0.010
+SUMMARY at_nest_crowding n=130988 buckets(0.0..1.0 by 0.1)=[0, 0, 0, 234, 3369, 7361, 13553, 19739, 47716, 39016] top_bucket_share=0.298
+SUMMARY roofed_engine=67 roofed_library=69 deaths_starved=111 deaths_killed=0 deaths_oldage=259 deaths_other=0
+SUMMARY mound_bare=74 mound_cols=127 digs_per_1k=8.19 roofed=69 packed_above=369 mound_high=44
+
+===== run A-s5 =====
+latecensus: scenario=played_bed seed=5 frames=200000 sample=20000 band=64 threads=1
+latecensus: ant scent_drift = Some(0.15)
+  ant life_half_life = 40000 frames (0 = immortal)
+  room_gate = true (target 2.00); PIXEL_PHYSICS_LAB_ROOM=unset
+  bed: 0 of 0 founders planted; scenario placed 0 cells, 18 plants, 0 animals
+  nests at [256]; band = +-64 columns of a nest
+STOP frame=0 ants=0 plants=0 bank=18 edible=18 starved=0 oldage=0 killed=0 other=0 born=0 died=0 digs=0 eats=0 deliveries=0 leaf_j=0 seed_j=2160 roofed=0 mound_high=0
+STOP frame=20000 ants=46 plants=175 bank=672 edible=943 starved=18 oldage=5 killed=0 other=0 born=33 died=23 digs=113 eats=10132 deliveries=4014 leaf_j=0 seed_j=87720 roofed=11 mound_high=20
+STOP frame=40000 ants=58 plants=173 bank=424 edible=606 starved=25 oldage=19 killed=0 other=0 born=66 died=44 digs=229 eats=18612 deliveries=6618 leaf_j=0 seed_j=53520 roofed=30 mound_high=37
+STOP frame=60000 ants=70 plants=200 bank=560 edible=754 starved=28 oldage=41 killed=0 other=0 born=103 died=69 digs=288 eats=27956 deliveries=7711 leaf_j=0 seed_j=66360 roofed=27 mound_high=37
+STOP frame=80000 ants=68 plants=196 bank=564 edible=669 starved=35 oldage=72 killed=0 other=0 born=139 died=107 digs=376 eats=35829 deliveries=8972 leaf_j=0 seed_j=69360 roofed=33 mound_high=38
+STOP frame=100000 ants=88 plants=173 bank=493 edible=625 starved=43 oldage=98 killed=0 other=0 born=193 died=141 digs=458 eats=44700 deliveries=10329 leaf_j=0 seed_j=61800 roofed=59 mound_high=38
+STOP frame=120000 ants=88 plants=140 bank=428 edible=483 starved=46 oldage=136 killed=1 other=0 born=235 died=183 digs=672 eats=51218 deliveries=12042 leaf_j=0 seed_j=50040 roofed=94 mound_high=39
+STOP frame=140000 ants=76 plants=170 bank=699 edible=762 starved=67 oldage=177 killed=1 other=0 born=285 died=245 digs=875 eats=57336 deliveries=13453 leaf_j=0 seed_j=81360 roofed=108 mound_high=47
+STOP frame=160000 ants=111 plants=134 bank=655 edible=747 starved=88 oldage=214 killed=16 other=0 born=393 died=318 digs=1045 eats=65821 deliveries=16721 leaf_j=0 seed_j=78360 roofed=149 mound_high=48
+STOP frame=180000 ants=81 plants=101 bank=535 edible=619 starved=116 oldage=257 killed=16 other=0 born=434 died=389 digs=1293 eats=70869 deliveries=18464 leaf_j=0 seed_j=63480 roofed=173 mound_high=48
+STOP frame=200000 ants=54 plants=78 bank=524 edible=607 starved=148 oldage=282 killed=16 other=0 born=464 died=446 digs=1479 eats=73029 deliveries=18743 leaf_j=0 seed_j=61920 roofed=280 mound_high=48
+SUMMARY scenario=played_bed seed=5 frames=200000 born=464 died=446 eats=73029 digs=1479 spoil_dumped=1476 deliveries=18743 nectar_paid=2400 bare_seeds_spared=11935 bare_seeds_carried=6256 seeds_carried=6288 seeds_delivered=6213 pips_released_by_digestion=1156 plants_from_pip=284 seed_bank=524 plants=78 ants=54 leaf_kj=0.0 litter_kj=7.1 seed_kj=61.9 lifespan=40000 oldage=282 starved=148 killed=16 seeds_lost_no_room=49
+SUMMARY room_gate=true room_target=2.00
+SUMMARY room_per_ant n=758 min=0.027 p10=0.267 med=0.750 mean=0.991 p90=2.152 max=4.870
+SUMMARY dig_input    n=758 min=0.291 p10=0.482 med=0.728 mean=0.712 p90=0.882 max=0.987
+SUMMARY dig_rolls=143753 digs=1479 at_nest_ticks=164161 dug_per_roll=0.010
+SUMMARY at_nest_crowding n=164161 buckets(0.0..1.0 by 0.1)=[0, 0, 25, 2157, 11652, 8901, 62241, 31810, 34902, 12473] top_bucket_share=0.076
+SUMMARY roofed_engine=263 roofed_library=280 deaths_starved=148 deaths_killed=16 deaths_oldage=282 deaths_other=0
+SUMMARY mound_bare=60 mound_cols=75 digs_per_1k=7.39 roofed=280 packed_above=61 mound_high=48
+
+===== run A-s6 =====
+latecensus: scenario=played_bed seed=6 frames=200000 sample=20000 band=64 threads=1
+latecensus: ant scent_drift = Some(0.15)
+  ant life_half_life = 40000 frames (0 = immortal)
+  room_gate = true (target 2.00); PIXEL_PHYSICS_LAB_ROOM=unset
+  bed: 0 of 0 founders planted; scenario placed 0 cells, 18 plants, 0 animals
+  nests at [256]; band = +-64 columns of a nest
+STOP frame=0 ants=0 plants=0 bank=18 edible=18 starved=0 oldage=0 killed=0 other=0 born=0 died=0 digs=0 eats=0 deliveries=0 leaf_j=0 seed_j=2160 roofed=0 mound_high=0
+STOP frame=20000 ants=18 plants=175 bank=782 edible=934 starved=14 oldage=1 killed=0 other=0 born=5 died=15 digs=258 eats=2298 deliveries=1106 leaf_j=0 seed_j=93120 roofed=49 mound_high=15
+STOP frame=40000 ants=13 plants=167 bank=548 edible=900 starved=21 oldage=7 killed=0 other=0 born=13 died=28 digs=418 eats=3802 deliveries=1654 leaf_j=0 seed_j=65400 roofed=79 mound_high=41
+STOP frame=60000 ants=10 plants=147 bank=403 edible=579 starved=22 oldage=13 killed=0 other=0 born=17 died=35 digs=443 eats=4537 deliveries=1690 leaf_j=0 seed_j=47880 roofed=133 mound_high=33
+STOP frame=80000 ants=16 plants=135 bank=363 edible=457 starved=24 oldage=15 killed=0 other=0 born=27 died=39 digs=461 eats=5864 deliveries=1728 leaf_j=0 seed_j=42960 roofed=136 mound_high=33
+STOP frame=100000 ants=10 plants=120 bank=188 edible=263 starved=25 oldage=23 killed=0 other=0 born=30 died=48 digs=501 eats=6696 deliveries=1728 leaf_j=0 seed_j=22680 roofed=145 mound_high=33
+STOP frame=120000 ants=6 plants=117 bank=180 edible=243 starved=29 oldage=26 killed=0 other=0 born=33 died=55 digs=523 eats=7061 deliveries=1728 leaf_j=0 seed_j=21480 roofed=153 mound_high=32
+STOP frame=140000 ants=4 plants=125 bank=285 edible=537 starved=32 oldage=29 killed=0 other=0 born=37 died=61 digs=530 eats=7366 deliveries=1728 leaf_j=0 seed_j=34080 roofed=163 mound_high=31
+STOP frame=160000 ants=3 plants=123 bank=333 edible=506 starved=35 oldage=31 killed=0 other=0 born=41 died=66 digs=534 eats=7768 deliveries=1728 leaf_j=0 seed_j=39600 roofed=156 mound_high=46
+STOP frame=180000 ants=2 plants=116 bank=309 edible=527 starved=35 oldage=33 killed=0 other=0 born=42 died=68 digs=536 eats=7904 deliveries=1728 leaf_j=0 seed_j=37440 roofed=145 mound_high=46
+STOP frame=200000 ants=1 plants=125 bank=340 edible=485 starved=37 oldage=34 killed=0 other=0 born=44 died=71 digs=538 eats=8024 deliveries=1728 leaf_j=0 seed_j=40800 roofed=142 mound_high=46
+SUMMARY scenario=played_bed seed=6 frames=200000 born=44 died=71 eats=8024 digs=538 spoil_dumped=536 deliveries=1728 nectar_paid=240 bare_seeds_spared=1375 bare_seeds_carried=586 seeds_carried=601 seeds_delivered=593 pips_released_by_digestion=241 plants_from_pip=70 seed_bank=340 plants=125 ants=1 leaf_kj=0.0 litter_kj=7.6 seed_kj=40.8 lifespan=40000 oldage=34 starved=37 killed=0 seeds_lost_no_room=4
+SUMMARY room_gate=true room_target=2.00
+SUMMARY room_per_ant n=758 min=0.000 p10=3.667 med=15.500 mean=29.728 p90=71.500 max=146.000
+SUMMARY dig_input    n=758 min=0.014 p10=0.027 med=0.116 mean=0.154 p90=0.353 max=1.000
+SUMMARY dig_rolls=16281 digs=538 at_nest_ticks=21925 dug_per_roll=0.033
+SUMMARY at_nest_crowding n=21925 buckets(0.0..1.0 by 0.1)=[0, 967, 1983, 6544, 4739, 2489, 1258, 1660, 1218, 1067] top_bucket_share=0.049
+SUMMARY roofed_engine=145 roofed_library=142 deaths_starved=37 deaths_killed=0 deaths_oldage=34 deaths_other=0
+SUMMARY mound_bare=53 mound_cols=85 digs_per_1k=2.69 roofed=142 packed_above=100 mound_high=46
+
 ===== run B-s1 =====
 latecensus: scenario=played_bed seed=1 frames=200000 sample=20000 band=64 threads=1
 latecensus: ant scent_drift = Some(0.15)
@@ -88,6 +196,114 @@ SUMMARY at_nest_crowding n=104671 buckets(0.0..1.0 by 0.1)=[0, 0, 0, 0, 389, 359
 SUMMARY roofed_engine=330 roofed_library=353 deaths_starved=405 deaths_killed=0 deaths_oldage=0 deaths_other=0
 SUMMARY mound_bare=67 mound_cols=69 digs_per_1k=19.41 roofed=353 packed_above=479 mound_high=47
 
+===== run B-s2 =====
+latecensus: scenario=played_bed seed=2 frames=200000 sample=20000 band=64 threads=1
+latecensus: ant scent_drift = Some(0.15)
+  ant life_half_life = 0 frames (0 = immortal)
+  room_gate = true (target 2.00); PIXEL_PHYSICS_LAB_ROOM=unset
+  bed: 0 of 0 founders planted; scenario placed 0 cells, 18 plants, 0 animals
+  nests at [256]; band = +-64 columns of a nest
+STOP frame=0 ants=0 plants=0 bank=18 edible=18 starved=0 oldage=0 killed=0 other=0 born=0 died=0 digs=0 eats=0 deliveries=0 leaf_j=0 seed_j=2160 roofed=0 mound_high=0
+STOP frame=20000 ants=25 plants=212 bank=842 edible=933 starved=6 oldage=0 killed=0 other=0 born=15 died=6 digs=49 eats=3764 deliveries=862 leaf_j=0 seed_j=101520 roofed=13 mound_high=7
+STOP frame=40000 ants=46 plants=185 bank=401 edible=501 starved=12 oldage=0 killed=0 other=0 born=42 died=12 digs=105 eats=7621 deliveries=994 leaf_j=0 seed_j=47880 roofed=25 mound_high=26
+STOP frame=60000 ants=47 plants=140 bank=273 edible=375 starved=25 oldage=0 killed=0 other=0 born=56 died=25 digs=219 eats=11402 deliveries=2205 leaf_j=0 seed_j=35400 roofed=61 mound_high=39
+STOP frame=80000 ants=49 plants=84 bank=190 edible=262 starved=32 oldage=0 killed=0 other=0 born=65 died=32 digs=535 eats=14803 deliveries=3754 leaf_j=0 seed_j=23760 roofed=137 mound_high=39
+STOP frame=100000 ants=40 plants=75 bank=128 edible=214 starved=49 oldage=0 killed=0 other=0 born=73 died=49 digs=716 eats=16672 deliveries=3950 leaf_j=0 seed_j=16320 roofed=143 mound_high=43
+STOP frame=120000 ants=34 plants=87 bank=159 edible=311 starved=73 oldage=0 killed=0 other=0 born=91 died=73 digs=796 eats=18364 deliveries=3951 leaf_j=0 seed_j=19800 roofed=101 mound_high=43
+STOP frame=140000 ants=63 plants=99 bank=182 edible=373 starved=78 oldage=0 killed=0 other=0 born=125 died=78 digs=851 eats=20713 deliveries=4159 leaf_j=0 seed_j=22920 roofed=106 mound_high=43
+STOP frame=160000 ants=85 plants=102 bank=216 edible=425 starved=87 oldage=0 killed=0 other=0 born=156 died=87 digs=921 eats=22899 deliveries=4163 leaf_j=0 seed_j=26400 roofed=150 mound_high=43
+STOP frame=180000 ants=99 plants=100 bank=192 edible=363 starved=92 oldage=0 killed=0 other=0 born=175 died=92 digs=1013 eats=24787 deliveries=4163 leaf_j=0 seed_j=23160 roofed=133 mound_high=43
+STOP frame=200000 ants=108 plants=100 bank=151 edible=262 starved=102 oldage=0 killed=0 other=0 born=194 died=102 digs=1086 eats=27074 deliveries=4163 leaf_j=0 seed_j=18600 roofed=146 mound_high=43
+SUMMARY scenario=played_bed seed=2 frames=200000 born=194 died=102 eats=27074 digs=1086 spoil_dumped=1084 deliveries=4163 nectar_paid=720 bare_seeds_spared=2443 bare_seeds_carried=1359 seeds_carried=1376 seeds_delivered=1371 pips_released_by_digestion=347 plants_from_pip=104 seed_bank=151 plants=100 ants=108 leaf_kj=0.0 litter_kj=5.9 seed_kj=18.6 lifespan=0 oldage=0 starved=102 killed=0 seeds_lost_no_room=2
+SUMMARY room_gate=true room_target=2.00
+SUMMARY room_per_ant n=758 min=0.171 p10=0.412 med=1.288 mean=1.665 p90=3.700 max=5.037
+SUMMARY dig_input    n=758 min=0.284 p10=0.351 med=0.609 mean=0.595 p90=0.829 max=0.921
+SUMMARY dig_rolls=107512 digs=1086 at_nest_ticks=37277 dug_per_roll=0.010
+SUMMARY at_nest_crowding n=37277 buckets(0.0..1.0 by 0.1)=[0, 0, 46, 3157, 2913, 8107, 6108, 6345, 8471, 2130] top_bucket_share=0.057
+SUMMARY roofed_engine=124 roofed_library=146 deaths_starved=102 deaths_killed=0 deaths_oldage=0 deaths_other=0
+SUMMARY mound_bare=32 mound_cols=80 digs_per_1k=5.43 roofed=146 packed_above=277 mound_high=43
+
+===== run B-s3 =====
+latecensus: scenario=played_bed seed=3 frames=200000 sample=20000 band=64 threads=1
+latecensus: ant scent_drift = Some(0.15)
+  ant life_half_life = 0 frames (0 = immortal)
+  room_gate = true (target 2.00); PIXEL_PHYSICS_LAB_ROOM=unset
+  bed: 0 of 0 founders planted; scenario placed 0 cells, 18 plants, 0 animals
+  nests at [256]; band = +-64 columns of a nest
+STOP frame=0 ants=0 plants=0 bank=18 edible=18 starved=0 oldage=0 killed=0 other=0 born=0 died=0 digs=0 eats=0 deliveries=0 leaf_j=0 seed_j=2160 roofed=0 mound_high=0
+STOP frame=20000 ants=57 plants=195 bank=899 edible=1023 starved=14 oldage=0 killed=0 other=0 born=34 died=14 digs=140 eats=9794 deliveries=4561 leaf_j=0 seed_j=109200 roofed=29 mound_high=7
+STOP frame=40000 ants=95 plants=165 bank=562 edible=652 starved=30 oldage=0 killed=0 other=0 born=88 died=30 digs=331 eats=17632 deliveries=5908 leaf_j=0 seed_j=66600 roofed=162 mound_high=45
+STOP frame=60000 ants=108 plants=133 bank=305 edible=479 starved=41 oldage=0 killed=0 other=0 born=112 died=41 digs=575 eats=22936 deliveries=6033 leaf_j=0 seed_j=36720 roofed=176 mound_high=45
+STOP frame=80000 ants=74 plants=146 bank=293 edible=558 starved=87 oldage=0 killed=0 other=0 born=124 died=87 digs=761 eats=25977 deliveries=6066 leaf_j=0 seed_j=35760 roofed=98 mound_high=42
+STOP frame=100000 ants=78 plants=141 bank=219 edible=396 starved=101 oldage=0 killed=0 other=0 born=142 died=101 digs=848 eats=30270 deliveries=6253 leaf_j=0 seed_j=27000 roofed=111 mound_high=45
+STOP frame=120000 ants=103 plants=100 bank=126 edible=394 starved=115 oldage=0 killed=0 other=0 born=181 died=115 digs=1053 eats=34233 deliveries=6502 leaf_j=0 seed_j=16680 roofed=212 mound_high=48
+STOP frame=140000 ants=147 plants=76 bank=53 edible=341 starved=131 oldage=0 killed=0 other=0 born=241 died=131 digs=1377 eats=39047 deliveries=6946 leaf_j=0 seed_j=7800 roofed=302 mound_high=48
+STOP frame=160000 ants=173 plants=59 bank=28 edible=171 starved=161 oldage=0 killed=0 other=0 born=297 died=161 digs=2112 eats=44898 deliveries=7712 leaf_j=0 seed_j=3840 roofed=411 mound_high=47
+STOP frame=180000 ants=174 plants=43 bank=21 edible=114 starved=198 oldage=0 killed=0 other=0 born=335 died=198 digs=2737 eats=48909 deliveries=8289 leaf_j=0 seed_j=3720 roofed=464 mound_high=48
+STOP frame=200000 ants=172 plants=44 bank=30 edible=144 starved=230 oldage=0 killed=0 other=0 born=365 died=230 digs=3264 eats=52166 deliveries=8818 leaf_j=0 seed_j=4320 roofed=408 mound_high=47
+SUMMARY scenario=played_bed seed=3 frames=200000 born=365 died=230 eats=52166 digs=3264 spoil_dumped=3260 deliveries=8818 nectar_paid=4680 bare_seeds_spared=4897 bare_seeds_carried=2526 seeds_carried=2620 seeds_delivered=2594 pips_released_by_digestion=847 plants_from_pip=264 seed_bank=30 plants=44 ants=172 leaf_kj=0.0 litter_kj=7.3 seed_kj=4.3 lifespan=0 oldage=0 starved=230 killed=0 seeds_lost_no_room=22
+SUMMARY room_gate=true room_target=2.00
+SUMMARY room_per_ant n=758 min=0.000 p10=0.906 med=1.728 mean=1.677 p90=2.552 max=2.986
+SUMMARY dig_input    n=758 min=0.401 p10=0.439 med=0.537 mean=0.568 p90=0.688 max=1.000
+SUMMARY dig_rolls=263044 digs=3264 at_nest_ticks=85446 dug_per_roll=0.012
+SUMMARY at_nest_crowding n=85446 buckets(0.0..1.0 by 0.1)=[0, 0, 0, 0, 26858, 21632, 9079, 5423, 6347, 16107] top_bucket_share=0.189
+SUMMARY roofed_engine=389 roofed_library=408 deaths_starved=230 deaths_killed=0 deaths_oldage=0 deaths_other=0
+SUMMARY mound_bare=63 mound_cols=104 digs_per_1k=16.32 roofed=408 packed_above=618 mound_high=47
+
+===== run B-s4 =====
+latecensus: scenario=played_bed seed=4 frames=200000 sample=20000 band=64 threads=1
+latecensus: ant scent_drift = Some(0.15)
+  ant life_half_life = 0 frames (0 = immortal)
+  room_gate = true (target 2.00); PIXEL_PHYSICS_LAB_ROOM=unset
+  bed: 0 of 0 founders planted; scenario placed 0 cells, 18 plants, 0 animals
+  nests at [256]; band = +-64 columns of a nest
+STOP frame=0 ants=0 plants=0 bank=18 edible=18 starved=0 oldage=0 killed=0 other=0 born=0 died=0 digs=0 eats=0 deliveries=0 leaf_j=0 seed_j=2160 roofed=0 mound_high=0
+STOP frame=20000 ants=59 plants=186 bank=780 edible=905 starved=12 oldage=0 killed=0 other=0 born=31 died=12 digs=152 eats=10637 deliveries=4761 leaf_j=0 seed_j=96840 roofed=10 mound_high=14
+STOP frame=40000 ants=78 plants=121 bank=620 edible=685 starved=17 oldage=0 killed=0 other=0 born=55 died=17 digs=366 eats=16915 deliveries=6248 leaf_j=0 seed_j=73080 roofed=75 mound_high=19
+STOP frame=60000 ants=46 plants=93 bank=563 edible=695 starved=61 oldage=0 killed=0 other=0 born=67 died=61 digs=715 eats=22465 deliveries=6334 leaf_j=0 seed_j=67680 roofed=131 mound_high=21
+STOP frame=80000 ants=44 plants=92 bank=488 edible=636 starved=72 oldage=0 killed=0 other=0 born=76 died=72 digs=822 eats=25358 deliveries=6334 leaf_j=0 seed_j=59280 roofed=132 mound_high=33
+STOP frame=100000 ants=66 plants=105 bank=525 edible=723 starved=82 oldage=0 killed=0 other=0 born=108 died=82 digs=856 eats=28633 deliveries=6367 leaf_j=0 seed_j=63600 roofed=95 mound_high=42
+STOP frame=120000 ants=83 plants=112 bank=452 edible=597 starved=93 oldage=0 killed=0 other=0 born=136 died=93 digs=900 eats=31099 deliveries=6373 leaf_j=0 seed_j=54840 roofed=84 mound_high=42
+STOP frame=140000 ants=52 plants=118 bank=492 edible=632 starved=137 oldage=0 killed=0 other=0 born=149 died=137 digs=974 eats=33933 deliveries=6373 leaf_j=0 seed_j=58920 roofed=47 mound_high=42
+STOP frame=160000 ants=89 plants=103 bank=399 edible=622 starved=143 oldage=0 killed=0 other=0 born=192 died=143 digs=1026 eats=36188 deliveries=6378 leaf_j=0 seed_j=48840 roofed=66 mound_high=43
+STOP frame=180000 ants=206 plants=95 bank=240 edible=404 starved=151 oldage=0 killed=0 other=0 born=317 died=151 digs=1174 eats=41611 deliveries=7253 leaf_j=0 seed_j=30120 roofed=88 mound_high=42
+STOP frame=200000 ants=584 plants=83 bank=252 edible=414 starved=160 oldage=0 killed=0 other=0 born=704 died=160 digs=1627 eats=50541 deliveries=8323 leaf_j=0 seed_j=30720 roofed=141 mound_high=47
+SUMMARY scenario=played_bed seed=4 frames=200000 born=704 died=160 eats=50541 digs=1627 spoil_dumped=1623 deliveries=8323 nectar_paid=8280 bare_seeds_spared=4821 bare_seeds_carried=2636 seeds_carried=2715 seeds_delivered=2673 pips_released_by_digestion=719 plants_from_pip=139 seed_bank=252 plants=83 ants=584 leaf_kj=0.0 litter_kj=14.5 seed_kj=30.7 lifespan=0 oldage=0 starved=160 killed=0 seeds_lost_no_room=34
+SUMMARY room_gate=true room_target=2.00
+SUMMARY room_per_ant n=758 min=0.025 p10=0.248 med=0.941 mean=1.246 p90=2.894 max=3.439
+SUMMARY dig_input    n=758 min=0.368 p10=0.409 med=0.680 mean=0.669 p90=0.890 max=0.988
+SUMMARY dig_rolls=254779 digs=1627 at_nest_ticks=129922 dug_per_roll=0.006
+SUMMARY at_nest_crowding n=129922 buckets(0.0..1.0 by 0.1)=[0, 0, 0, 77, 1629, 2152, 5880, 13370, 72814, 34000] top_bucket_share=0.262
+SUMMARY roofed_engine=139 roofed_library=141 deaths_starved=160 deaths_killed=0 deaths_oldage=0 deaths_other=0
+SUMMARY mound_bare=79 mound_cols=107 digs_per_1k=8.13 roofed=141 packed_above=352 mound_high=47
+
+===== run B-s5 =====
+latecensus: scenario=played_bed seed=5 frames=200000 sample=20000 band=64 threads=1
+latecensus: ant scent_drift = Some(0.15)
+  ant life_half_life = 0 frames (0 = immortal)
+  room_gate = true (target 2.00); PIXEL_PHYSICS_LAB_ROOM=unset
+  bed: 0 of 0 founders planted; scenario placed 0 cells, 18 plants, 0 animals
+  nests at [256]; band = +-64 columns of a nest
+STOP frame=0 ants=0 plants=0 bank=18 edible=18 starved=0 oldage=0 killed=0 other=0 born=0 died=0 digs=0 eats=0 deliveries=0 leaf_j=0 seed_j=2160 roofed=0 mound_high=0
+STOP frame=20000 ants=52 plants=151 bank=533 edible=760 starved=15 oldage=0 killed=0 other=0 born=31 died=15 digs=131 eats=10143 deliveries=4303 leaf_j=0 seed_j=68520 roofed=22 mound_high=22
+STOP frame=40000 ants=80 plants=167 bank=649 edible=798 starved=18 oldage=0 killed=0 other=0 born=62 died=18 digs=262 eats=16472 deliveries=5022 leaf_j=0 seed_j=77880 roofed=55 mound_high=28
+STOP frame=60000 ants=52 plants=130 bank=499 edible=784 starved=59 oldage=0 killed=0 other=0 born=75 died=59 digs=521 eats=19446 deliveries=5097 leaf_j=0 seed_j=59880 roofed=183 mound_high=22
+STOP frame=80000 ants=14 plants=113 bank=362 edible=588 starved=109 oldage=0 killed=0 other=0 born=87 died=109 digs=781 eats=20466 deliveries=5098 leaf_j=0 seed_j=42840 roofed=234 mound_high=35
+STOP frame=100000 ants=17 plants=108 bank=434 edible=734 starved=116 oldage=0 killed=0 other=0 born=97 died=116 digs=800 eats=21529 deliveries=5098 leaf_j=0 seed_j=51600 roofed=233 mound_high=35
+STOP frame=120000 ants=22 plants=137 bank=363 edible=446 starved=129 oldage=0 killed=0 other=0 born=115 died=129 digs=823 eats=23007 deliveries=5098 leaf_j=0 seed_j=43560 roofed=195 mound_high=34
+STOP frame=140000 ants=18 plants=138 bank=421 edible=537 starved=136 oldage=0 killed=0 other=0 born=118 died=136 digs=855 eats=24276 deliveries=5098 leaf_j=0 seed_j=50400 roofed=151 mound_high=34
+STOP frame=160000 ants=21 plants=133 bank=487 edible=572 starved=144 oldage=0 killed=0 other=0 born=129 died=144 digs=896 eats=25342 deliveries=5098 leaf_j=0 seed_j=58440 roofed=103 mound_high=34
+STOP frame=180000 ants=29 plants=104 bank=348 edible=479 starved=158 oldage=0 killed=0 other=0 born=151 died=158 digs=951 eats=27397 deliveries=5098 leaf_j=0 seed_j=42000 roofed=53 mound_high=33
+STOP frame=200000 ants=31 plants=81 bank=371 edible=499 starved=168 oldage=0 killed=0 other=0 born=163 died=168 digs=1133 eats=28344 deliveries=5098 leaf_j=0 seed_j=45000 roofed=58 mound_high=31
+SUMMARY scenario=played_bed seed=5 frames=200000 born=163 died=168 eats=28344 digs=1133 spoil_dumped=1132 deliveries=5098 nectar_paid=4920 bare_seeds_spared=4033 bare_seeds_carried=2035 seeds_carried=2042 seeds_delivered=2014 pips_released_by_digestion=377 plants_from_pip=97 seed_bank=371 plants=81 ants=31 leaf_kj=0.0 litter_kj=12.5 seed_kj=45.0 lifespan=0 oldage=0 starved=168 killed=0 seeds_lost_no_room=25
+SUMMARY room_gate=true room_target=2.00
+SUMMARY room_per_ant n=758 min=0.027 p10=0.456 med=3.978 mean=5.839 p90=14.438 max=21.182
+SUMMARY dig_input    n=758 min=0.086 p10=0.122 med=0.335 mean=0.410 p90=0.814 max=0.987
+SUMMARY dig_rolls=59628 digs=1133 at_nest_ticks=54903 dug_per_roll=0.019
+SUMMARY at_nest_crowding n=54903 buckets(0.0..1.0 by 0.1)=[0, 0, 0, 114, 381, 860, 3124, 20982, 14945, 14497] top_bucket_share=0.264
+SUMMARY roofed_engine=63 roofed_library=58 deaths_starved=168 deaths_killed=0 deaths_oldage=0 deaths_other=0
+SUMMARY mound_bare=9 mound_cols=103 digs_per_1k=5.67 roofed=58 packed_above=306 mound_high=31
+
 ===== run C-s1 =====
 latecensus: scenario=played_bed seed=1 frames=200000 sample=20000 band=64 threads=1
 latecensus: ant scent_drift = Some(0.15)
@@ -114,3 +330,111 @@ SUMMARY dig_rolls=62567 digs=858 at_nest_ticks=9923 dug_per_roll=0.014
 SUMMARY at_nest_crowding n=9923 buckets(0.0..1.0 by 0.1)=[5941, 1042, 1239, 465, 0, 386, 203, 267, 368, 12] top_bucket_share=0.001
 SUMMARY roofed_engine=0 roofed_library=144 deaths_starved=64 deaths_killed=0 deaths_oldage=155 deaths_other=0
 SUMMARY mound_bare=23 mound_cols=80 digs_per_1k=4.29 roofed=144 packed_above=60 mound_high=47
+
+===== run C-s2 =====
+latecensus: scenario=played_bed seed=2 frames=200000 sample=20000 band=64 threads=1
+latecensus: ant scent_drift = Some(0.15)
+  ant life_half_life = 40000 frames (0 = immortal)
+  room_gate = false (target 2.00); PIXEL_PHYSICS_LAB_ROOM=off
+  bed: 0 of 0 founders planted; scenario placed 0 cells, 18 plants, 0 animals
+  nests at [256]; band = +-64 columns of a nest
+STOP frame=0 ants=0 plants=0 bank=18 edible=18 starved=0 oldage=0 killed=0 other=0 born=0 died=0 digs=0 eats=0 deliveries=0 leaf_j=0 seed_j=2160 roofed=0 mound_high=0
+STOP frame=20000 ants=19 plants=211 bank=917 edible=978 starved=5 oldage=3 killed=0 other=0 born=11 died=8 digs=31 eats=1977 deliveries=275 leaf_j=0 seed_j=110160 roofed=6 mound_high=6
+STOP frame=40000 ants=37 plants=195 bank=666 edible=743 starved=19 oldage=7 killed=0 other=0 born=47 died=26 digs=135 eats=6957 deliveries=2006 leaf_j=0 seed_j=80400 roofed=33 mound_high=26
+STOP frame=60000 ants=56 plants=164 bank=462 edible=535 starved=33 oldage=20 killed=0 other=0 born=93 died=53 digs=286 eats=12378 deliveries=3143 leaf_j=0 seed_j=55200 roofed=98 mound_high=36
+STOP frame=80000 ants=51 plants=149 bank=529 edible=635 starved=48 oldage=37 killed=0 other=0 born=120 died=85 digs=446 eats=16189 deliveries=3417 leaf_j=0 seed_j=64080 roofed=106 mound_high=36
+STOP frame=100000 ants=53 plants=172 bank=498 edible=627 starved=69 oldage=55 killed=0 other=0 born=161 died=124 digs=630 eats=20280 deliveries=3671 leaf_j=0 seed_j=58920 roofed=100 mound_high=11
+STOP frame=120000 ants=81 plants=151 bank=423 edible=532 starved=76 oldage=85 killed=0 other=0 born=226 died=161 digs=696 eats=26401 deliveries=4129 leaf_j=0 seed_j=49800 roofed=82 mound_high=26
+STOP frame=140000 ants=105 plants=123 bank=297 edible=355 starved=83 oldage=116 killed=0 other=0 born=288 died=199 digs=790 eats=31555 deliveries=4629 leaf_j=0 seed_j=35400 roofed=120 mound_high=19
+STOP frame=160000 ants=94 plants=130 bank=209 edible=375 starved=94 oldage=163 killed=0 other=0 born=335 died=257 digs=962 eats=34511 deliveries=5056 leaf_j=0 seed_j=25800 roofed=190 mound_high=41
+STOP frame=180000 ants=103 plants=105 bank=173 edible=392 starved=101 oldage=206 killed=0 other=0 born=394 died=307 digs=1191 eats=38394 deliveries=5987 leaf_j=0 seed_j=22320 roofed=249 mound_high=42
+STOP frame=200000 ants=154 plants=94 bank=167 edible=290 starved=116 oldage=256 killed=0 other=0 born=510 died=372 digs=1497 eats=43793 deliveries=6861 leaf_j=0 seed_j=20760 roofed=303 mound_high=47
+SUMMARY scenario=played_bed seed=2 frames=200000 born=510 died=372 eats=43793 digs=1497 spoil_dumped=1493 deliveries=6861 nectar_paid=840 bare_seeds_spared=6208 bare_seeds_carried=2856 seeds_carried=2939 seeds_delivered=2907 pips_released_by_digestion=1223 plants_from_pip=318 seed_bank=167 plants=94 ants=154 leaf_kj=0.0 litter_kj=9.7 seed_kj=20.8 lifespan=40000 oldage=256 starved=116 killed=0 seeds_lost_no_room=22
+SUMMARY room_gate=false room_target=2.00
+SUMMARY room_per_ant n=0
+SUMMARY dig_input    n=0
+SUMMARY dig_rolls=169879 digs=1497 at_nest_ticks=123836 dug_per_roll=0.009
+SUMMARY at_nest_crowding n=123836 buckets(0.0..1.0 by 0.1)=[28273, 8833, 12029, 6113, 0, 5756, 5644, 6480, 11423, 39285] top_bucket_share=0.317
+SUMMARY roofed_engine=0 roofed_library=303 deaths_starved=116 deaths_killed=0 deaths_oldage=256 deaths_other=0
+SUMMARY mound_bare=21 mound_cols=58 digs_per_1k=7.49 roofed=303 packed_above=116 mound_high=47
+
+===== run C-s3 =====
+latecensus: scenario=played_bed seed=3 frames=200000 sample=20000 band=64 threads=1
+latecensus: ant scent_drift = Some(0.15)
+  ant life_half_life = 40000 frames (0 = immortal)
+  room_gate = false (target 2.00); PIXEL_PHYSICS_LAB_ROOM=off
+  bed: 0 of 0 founders planted; scenario placed 0 cells, 18 plants, 0 animals
+  nests at [256]; band = +-64 columns of a nest
+STOP frame=0 ants=0 plants=0 bank=18 edible=18 starved=0 oldage=0 killed=0 other=0 born=0 died=0 digs=0 eats=0 deliveries=0 leaf_j=0 seed_j=2160 roofed=0 mound_high=0
+STOP frame=20000 ants=51 plants=190 bank=908 edible=1019 starved=14 oldage=3 killed=0 other=0 born=31 died=17 digs=87 eats=9189 deliveries=4516 leaf_j=0 seed_j=110760 roofed=20 mound_high=7
+STOP frame=40000 ants=46 plants=126 bank=601 edible=653 starved=25 oldage=17 killed=0 other=0 born=51 died=42 digs=249 eats=12462 deliveries=4754 leaf_j=0 seed_j=72120 roofed=84 mound_high=35
+STOP frame=60000 ants=18 plants=126 bank=479 edible=571 starved=52 oldage=30 killed=0 other=0 born=63 died=82 digs=322 eats=14445 deliveries=4755 leaf_j=0 seed_j=57480 roofed=103 mound_high=35
+STOP frame=80000 ants=38 plants=190 bank=646 edible=764 starved=57 oldage=39 killed=0 other=0 born=97 died=96 digs=335 eats=17898 deliveries=4755 leaf_j=0 seed_j=76920 roofed=22 mound_high=35
+STOP frame=100000 ants=77 plants=143 bank=396 edible=482 starved=69 oldage=51 killed=0 other=0 born=160 died=120 digs=385 eats=20785 deliveries=4889 leaf_j=0 seed_j=46200 roofed=71 mound_high=36
+STOP frame=120000 ants=34 plants=115 bank=210 edible=482 starved=156 oldage=59 killed=0 other=0 born=212 died=215 digs=454 eats=23163 deliveries=5151 leaf_j=0 seed_j=24360 roofed=117 mound_high=44
+STOP frame=140000 ants=127 plants=69 bank=44 edible=182 starved=178 oldage=68 killed=6 other=0 born=342 died=252 digs=592 eats=28381 deliveries=6625 leaf_j=0 seed_j=5040 roofed=152 mound_high=48
+STOP frame=160000 ants=43 plants=35 bank=17 edible=115 starved=345 oldage=93 killed=9 other=0 born=453 died=447 digs=1051 eats=32190 deliveries=7491 leaf_j=0 seed_j=1560 roofed=340 mound_high=48
+STOP frame=180000 ants=87 plants=24 bank=11 edible=88 starved=368 oldage=106 killed=9 other=0 born=533 died=483 digs=1130 eats=33618 deliveries=7527 leaf_j=0 seed_j=720 roofed=313 mound_high=47
+STOP frame=200000 ants=84 plants=30 bank=29 edible=132 starved=423 oldage=124 killed=9 other=0 born=603 died=556 digs=1165 eats=35143 deliveries=7527 leaf_j=0 seed_j=3240 roofed=327 mound_high=47
+SUMMARY scenario=played_bed seed=3 frames=200000 born=603 died=556 eats=35143 digs=1165 spoil_dumped=1165 deliveries=7527 nectar_paid=3000 bare_seeds_spared=4429 bare_seeds_carried=1979 seeds_carried=1990 seeds_delivered=1968 pips_released_by_digestion=352 plants_from_pip=121 seed_bank=29 plants=30 ants=84 leaf_kj=0.0 litter_kj=1.1 seed_kj=3.2 lifespan=40000 oldage=124 starved=423 killed=9 seeds_lost_no_room=10
+SUMMARY room_gate=false room_target=2.00
+SUMMARY room_per_ant n=0
+SUMMARY dig_input    n=0
+SUMMARY dig_rolls=90315 digs=1165 at_nest_ticks=68123 dug_per_roll=0.013
+SUMMARY at_nest_crowding n=68123 buckets(0.0..1.0 by 0.1)=[32744, 9519, 11432, 4789, 0, 3701, 2893, 1372, 711, 962] top_bucket_share=0.014
+SUMMARY roofed_engine=0 roofed_library=327 deaths_starved=423 deaths_killed=9 deaths_oldage=124 deaths_other=0
+SUMMARY mound_bare=72 mound_cols=79 digs_per_1k=5.83 roofed=327 packed_above=335 mound_high=47
+
+===== run C-s4 =====
+latecensus: scenario=played_bed seed=4 frames=200000 sample=20000 band=64 threads=1
+latecensus: ant scent_drift = Some(0.15)
+  ant life_half_life = 40000 frames (0 = immortal)
+  room_gate = false (target 2.00); PIXEL_PHYSICS_LAB_ROOM=off
+  bed: 0 of 0 founders planted; scenario placed 0 cells, 18 plants, 0 animals
+  nests at [256]; band = +-64 columns of a nest
+STOP frame=0 ants=0 plants=0 bank=18 edible=18 starved=0 oldage=0 killed=0 other=0 born=0 died=0 digs=0 eats=0 deliveries=0 leaf_j=0 seed_j=2160 roofed=0 mound_high=0
+STOP frame=20000 ants=56 plants=184 bank=794 edible=907 starved=17 oldage=1 killed=0 other=0 born=34 died=18 digs=104 eats=8464 deliveries=2226 leaf_j=0 seed_j=94200 roofed=32 mound_high=13
+STOP frame=40000 ants=90 plants=211 bank=776 edible=901 starved=26 oldage=22 killed=0 other=0 born=98 died=48 digs=214 eats=20881 deliveries=3571 leaf_j=0 seed_j=92880 roofed=30 mound_high=32
+STOP frame=60000 ants=125 plants=137 bank=568 edible=677 starved=36 oldage=56 killed=0 other=0 born=177 died=92 digs=374 eats=32917 deliveries=5257 leaf_j=0 seed_j=70320 roofed=53 mound_high=34
+STOP frame=80000 ants=108 plants=119 bank=312 edible=625 starved=81 oldage=100 killed=0 other=0 born=249 died=181 digs=679 eats=44053 deliveries=7236 leaf_j=0 seed_j=38040 roofed=153 mound_high=35
+STOP frame=100000 ants=124 plants=101 bank=249 edible=545 starved=115 oldage=147 killed=0 other=0 born=346 died=262 digs=914 eats=50285 deliveries=8006 leaf_j=0 seed_j=29400 roofed=267 mound_high=35
+STOP frame=120000 ants=189 plants=87 bank=106 edible=367 starved=125 oldage=193 killed=0 other=0 born=467 died=318 digs=1074 eats=56341 deliveries=8441 leaf_j=0 seed_j=11880 roofed=248 mound_high=35
+STOP frame=140000 ants=316 plants=83 bank=74 edible=421 starved=135 oldage=285 killed=0 other=0 born=696 died=420 digs=1403 eats=66965 deliveries=9626 leaf_j=0 seed_j=8880 roofed=201 mound_high=43
+STOP frame=160000 ants=375 plants=54 bank=34 edible=399 starved=170 oldage=407 killed=0 other=0 born=912 died=577 digs=1705 eats=75404 deliveries=10788 leaf_j=0 seed_j=4080 roofed=238 mound_high=43
+STOP frame=180000 ants=320 plants=35 bank=26 edible=88 starved=269 oldage=528 killed=0 other=0 born=1077 died=797 digs=1955 eats=80449 deliveries=10966 leaf_j=0 seed_j=2880 roofed=343 mound_high=47
+STOP frame=200000 ants=348 plants=22 bank=21 edible=126 starved=374 oldage=647 killed=0 other=0 born=1329 died=1021 digs=2524 eats=86714 deliveries=11283 leaf_j=0 seed_j=2280 roofed=320 mound_high=48
+SUMMARY scenario=played_bed seed=4 frames=200000 born=1329 died=1021 eats=86714 digs=2524 spoil_dumped=2519 deliveries=11283 nectar_paid=6720 bare_seeds_spared=8319 bare_seeds_carried=4367 seeds_carried=4448 seeds_delivered=4394 pips_released_by_digestion=1192 plants_from_pip=362 seed_bank=21 plants=22 ants=348 leaf_kj=0.0 litter_kj=10.8 seed_kj=2.3 lifespan=40000 oldage=647 starved=374 killed=0 seeds_lost_no_room=43
+SUMMARY room_gate=false room_target=2.00
+SUMMARY room_per_ant n=0
+SUMMARY dig_input    n=0
+SUMMARY dig_rolls=357342 digs=2524 at_nest_ticks=195621 dug_per_roll=0.007
+SUMMARY at_nest_crowding n=195621 buckets(0.0..1.0 by 0.1)=[44542, 15603, 20276, 12289, 0, 12197, 8350, 9568, 13125, 59671] top_bucket_share=0.305
+SUMMARY roofed_engine=0 roofed_library=320 deaths_starved=374 deaths_killed=0 deaths_oldage=647 deaths_other=0
+SUMMARY mound_bare=29 mound_cols=29 digs_per_1k=12.62 roofed=320 packed_above=688 mound_high=48
+
+===== run C-s5 =====
+latecensus: scenario=played_bed seed=5 frames=200000 sample=20000 band=64 threads=1
+latecensus: ant scent_drift = Some(0.15)
+  ant life_half_life = 40000 frames (0 = immortal)
+  room_gate = false (target 2.00); PIXEL_PHYSICS_LAB_ROOM=off
+  bed: 0 of 0 founders planted; scenario placed 0 cells, 18 plants, 0 animals
+  nests at [256]; band = +-64 columns of a nest
+STOP frame=0 ants=0 plants=0 bank=18 edible=18 starved=0 oldage=0 killed=0 other=0 born=0 died=0 digs=0 eats=0 deliveries=0 leaf_j=0 seed_j=2160 roofed=0 mound_high=0
+STOP frame=20000 ants=49 plants=190 bank=669 edible=934 starved=21 oldage=5 killed=0 other=0 born=39 died=26 digs=98 eats=10403 deliveries=4529 leaf_j=0 seed_j=84960 roofed=8 mound_high=21
+STOP frame=40000 ants=71 plants=208 bank=464 edible=597 starved=30 oldage=21 killed=0 other=0 born=86 died=51 digs=252 eats=18283 deliveries=6864 leaf_j=0 seed_j=56640 roofed=35 mound_high=19
+STOP frame=60000 ants=92 plants=215 bank=711 edible=864 starved=36 oldage=38 killed=0 other=0 born=130 died=74 digs=342 eats=26367 deliveries=7321 leaf_j=0 seed_j=84000 roofed=51 mound_high=33
+STOP frame=80000 ants=105 plants=172 bank=419 edible=561 starved=42 oldage=84 killed=0 other=0 born=195 died=126 digs=437 eats=36383 deliveries=7464 leaf_j=0 seed_j=50400 roofed=103 mound_high=29
+STOP frame=100000 ants=105 plants=160 bank=435 edible=569 starved=64 oldage=127 killed=0 other=0 born=260 died=191 digs=536 eats=46286 deliveries=7668 leaf_j=0 seed_j=53040 roofed=109 mound_high=30
+STOP frame=120000 ants=112 plants=151 bank=466 edible=529 starved=84 oldage=172 killed=0 other=0 born=332 died=256 digs=676 eats=57814 deliveries=7800 leaf_j=0 seed_j=53280 roofed=100 mound_high=32
+STOP frame=140000 ants=164 plants=126 bank=277 edible=347 starved=102 oldage=223 killed=0 other=0 born=453 died=325 digs=782 eats=66225 deliveries=7967 leaf_j=0 seed_j=30360 roofed=151 mound_high=34
+STOP frame=160000 ants=144 plants=65 bank=97 edible=217 starved=168 oldage=278 killed=0 other=0 born=554 died=446 digs=1350 eats=70250 deliveries=8011 leaf_j=0 seed_j=10920 roofed=367 mound_high=34
+STOP frame=180000 ants=81 plants=43 bank=74 edible=131 starved=258 oldage=327 killed=0 other=0 born=630 died=585 digs=1861 eats=71926 deliveries=8012 leaf_j=0 seed_j=8160 roofed=525 mound_high=37
+STOP frame=200000 ants=12 plants=40 bank=78 edible=162 starved=326 oldage=337 killed=0 other=0 born=639 died=663 digs=2074 eats=72664 deliveries=8012 leaf_j=0 seed_j=8520 roofed=485 mound_high=37
+SUMMARY scenario=played_bed seed=5 frames=200000 born=639 died=663 eats=72664 digs=2074 spoil_dumped=2071 deliveries=8012 nectar_paid=5880 bare_seeds_spared=13535 bare_seeds_carried=6130 seeds_carried=6142 seeds_delivered=6062 pips_released_by_digestion=1081 plants_from_pip=430 seed_bank=78 plants=40 ants=12 leaf_kj=0.0 litter_kj=8.9 seed_kj=8.5 lifespan=40000 oldage=337 starved=326 killed=0 seeds_lost_no_room=49
+SUMMARY room_gate=false room_target=2.00
+SUMMARY room_per_ant n=0
+SUMMARY dig_input    n=0
+SUMMARY dig_rolls=93956 digs=2074 at_nest_ticks=50995 dug_per_roll=0.022
+SUMMARY at_nest_crowding n=50995 buckets(0.0..1.0 by 0.1)=[18185, 4859, 8860, 2966, 0, 3082, 2356, 2088, 1785, 6814] top_bucket_share=0.134
+SUMMARY roofed_engine=0 roofed_library=485 deaths_starved=326 deaths_killed=0 deaths_oldage=337 deaths_other=0
+SUMMARY mound_bare=40 mound_cols=40 digs_per_1k=10.37 roofed=485 packed_above=455 mound_high=37
