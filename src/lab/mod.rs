@@ -1845,6 +1845,24 @@ impl Lab {
             force_full,
         );
         self.time.draw(hc, frame_buf, &self.world);
+        // **A request the machine cannot meet has to say so**, which is the
+        // same principle `time::PRESETS` already states for the speed dial:
+        // *"the dial is a request, and a request the machine cannot meet is
+        // how the readout earns its keep."* The pixel budget is a request too,
+        // and it is refused silently in two different ways — the window is too
+        // small for it, or the zoom rung cannot divide it. Without this a
+        // player who sets x4 and sees x2 has no way to know which, or that
+        // anything was refused at all.
+        //
+        // Under the clock rather than on the bar: row 0 of the bar measures
+        // 508 of 508 pixels at its tightest spacing, so a widget there would
+        // overflow it. Drawn only when the request is *not* met, so the usual
+        // case costs one integer comparison and no pixels.
+        let (want, got) = (self.effective_pixel_budget().max(self.pixel_budget), self.pixel_scale());
+        if want != got {
+            let why = if self.pixel_budget > self.pixel_scale_cap { "WINDOW" } else { "THIS ZOOM" };
+            hc.text(frame_buf, 4, 14, &format!("PIXELS X{} -> X{got} ({why})", self.pixel_budget), [190, 170, 110, 255]);
+        }
         // The species chip's face and its explanation, read out of the world's
         // own table rather than written down here — a chip that named a
         // species while explaining a different one is the stale side table
@@ -3764,6 +3782,56 @@ mod tests {
             assert_eq!(lab.viewport(), (WIDTH, HEIGHT), "budget x{budget} grew the buffer on a bed that cannot zoom out");
             assert_eq!(lab.pixel_scale(), 1);
         }
+    }
+
+    /// **A refused request must say so on screen.** The pixel budget can be
+    /// refused two ways — the window is too small, or the zoom rung cannot
+    /// divide it — and both were silent, so a player who set x4 and saw x2 had
+    /// no way to know which, or that anything had been refused. Same principle
+    /// `time::PRESETS` states for the speed dial.
+    ///
+    /// **A paired diff at one buffer size, not an ink count.** The first
+    /// version of this counted opaque pixels in the notice's band and compared
+    /// x4 against x2 — which measured the *buffer size*, because the world is
+    /// drawn behind the notice so every pixel in the band is opaque either way.
+    /// It read 14,336 against 57,344 and said nothing about the notice at all.
+    /// Both arms here sit at scale 2, so the frames are the same size and the
+    /// only thing that differs is whether the request was met.
+    #[test]
+    fn a_refused_pixel_budget_says_so_under_the_clock() {
+        let mut lab = wide_bed();
+        lab.pixel_scale_cap = crate::app::MAX_PIXEL_SCALE;
+        lab.pixel_budget = 2;
+        lab.apply_pixel_budget();
+        let bounds = lab.world.bounds();
+        for _ in 0..8 {
+            lab.renderer.zoom_within(-1, (WIDTH, HEIGHT), bounds);
+        }
+        assert_eq!(lab.pixel_scale(), 2, "both arms must sit at scale 2 for the frames to be comparable");
+
+        let (w, h) = lab.viewport();
+        let mut met = vec![0u8; (w * h * 4) as usize];
+        lab.draw(&mut met, 60.0);
+
+        // Same scale, same buffer, but now the window refuses the request.
+        lab.pixel_budget = 4;
+        lab.pixel_scale_cap = 2;
+        assert_eq!(lab.pixel_scale(), 2, "the cap must hold the scale still, or this is not a paired comparison");
+        assert_eq!(lab.viewport(), (w, h));
+        let mut refused = vec![0u8; (w * h * 4) as usize];
+        lab.draw(&mut refused, 60.0);
+
+        let band = |buf: &[u8], y0: u32, y1: u32| -> usize {
+            (y0..y1).flat_map(|y| (0..w).map(move |x| ((y * w + x) * 4) as usize)).filter(|&i| buf[i..i + 4] != met[i..i + 4]).count()
+        };
+        let scale = lab.pixel_scale() as u32;
+        let notice = band(&refused, 14 * scale, (14 + crate::hud::GLYPH_HEIGHT as u32) * scale);
+        assert!(notice > 0, "a budget refused by the window must draw a notice under the clock");
+
+        // ...and it must not have repainted anything else: the world, the bar
+        // and the clock are identical between the two.
+        let elsewhere = band(&refused, (14 + crate::hud::GLYPH_HEIGHT as u32) * scale, h);
+        assert_eq!(elsewhere, 0, "the notice must be the only difference");
     }
 
     /// The window is the ceiling, and the player's choice survives being

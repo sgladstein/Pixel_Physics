@@ -163,12 +163,38 @@ is specific: a difference between two cards' *constructions* reads exactly like
 a difference in the thing being judged. If two cards are going to be compared
 against each other, give them the same menu.
 
-### Open
+### The bar verdict, and the fact hiding in its decode
 
-- Card `20260913T170211133Z-af41c9` (`board=zoom`), **pending**: the lab bar's
-  glyphs are drawn as blocks at a grown buffer, so they keep their size and go
-  chunkier. He has not judged that. If he dislikes it the answer is a finer font
-  for the bar, not a smaller HUD.
+Card `20260913T170211133Z-af41c9`: *"I think this is fine. If there are other
+better looking options, we can explore them"* — the block-drawn glyphs are
+**accepted**. The second clause is an opening, not a task; nobody should spend a
+lane on typography off it.
+
+**The fact worth carrying is in the decode, not the prose.** `blind_was: [1, 0]`
+puts the **x2** arm in front of him as pane A, because the card was rendered at
+the 1024x640 default window where `pixel_scale_cap` resolves a request of x4
+down to x2. **So x4 in the lab is unseen and, at that window, unreachable.**
+Do not report "the lab ships at x4" as though his eye has backed it: the default
+*asks* for x4, the cap gives x2 there, and x4 arrives if the window grows.
+
+That also qualifies the consistency claim in both directions, and the honest
+version is the one to state: both games **request** the same budget; what either
+**displays** depends on its window.
+
+**Acted on:** a refused request now says so on screen — a line under the lab's
+clock naming the request, what it resolved to, and whether the window or the
+zoom rung refused it, drawn only when the request is not met. Not on the bar:
+row 0 measures 508 of 508 pixels at its tightest spacing.
+
+Its guard is worth reading before writing another like it. The first version
+counted opaque pixels in the notice's band and compared x4 against x2 — which
+measured the **buffer size**, because the world is drawn behind the notice so
+every pixel in the band is opaque either way. It read 14,336 against 57,344 and
+said nothing about the notice. The version that works is a **paired diff at one
+buffer size**: both arms at scale 2, one meeting the request and one refused,
+asserting the notice band differs and everything else is byte-identical.
+
+### Open
 - **`src/lab/ui.rs` is the contested file** here — ~175 call sites went through a
   mechanical `hc` parameter. `claude/lab-chronicle-log-ring` also touches it
   (only `chronicle_text` and tests, so the overlap is small). Land promptly.

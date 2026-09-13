@@ -314,6 +314,31 @@ the full range, he picked the finest in both. **A comparison can only return a
 verdict about the options it contains** — which is the review-queue form of
 *ask what your number counts*, and it cost a wrong default in one game.
 
+**What he has actually seen is x2, and that distinction matters.** The lab-bar
+card (`20260913T170211133Z-af41c9`, *"I think this is fine. If there are other
+better looking options, we can explore them"*) was rendered at the **1024x640
+default window**, where `pixel_scale_cap` resolves a request of x4 down to x2 —
+`blind_was: [1, 0]` puts the x2 arm in front of him as pane A. So: **the default
+asks for x4, the cap gives x2 at that window, and x4 arrives only if the window
+grows.** Saying "the lab ships at x4" as though his eye has backed it would be a
+claim about a picture nobody has looked at.
+
+**The same qualification applies to the consistency argument, in both
+directions.** Both games now *request* the same budget; what either of them
+*displays* depends on the window it is in. That is the honest position and it is
+the right one — the alternative is two games that disagree by design — but a
+sentence implying they are pixel-identical would be wrong.
+
+**And a refused request now says so on screen.** The budget can be refused two
+ways — the window is too small, or the zoom rung cannot divide it — and both
+were silent, so a player who set x4 and saw x2 had no way to know which, or that
+anything had been refused. A line under the clock names the request, what it
+resolved to, and which of the two refused it. It is drawn only when the request
+is *not* met. That is `time::PRESETS`' own principle applied to a second dial:
+*"the dial is a request, and a request the machine cannot meet is how the
+readout earns its keep."* Not on the bar, because row 0 measures 508 of 508
+pixels at its tightest spacing and a widget there would overflow it.
+
 The numbers above are why x4 is defensible rather than merely obedient:
 
 - on the **shipped bed it is a no-op**, measured;
