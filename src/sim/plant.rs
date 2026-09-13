@@ -195,6 +195,110 @@ fn render_step(
     (best, owed)
 }
 
+/// **How much standing support deficit licenses one extra growing tip**, in
+/// the `q` units `accumulate_support` sums, or `None` for the shipped
+/// behaviour where a damaged plant gets no extra frontier at all.
+///
+/// `PIXEL_PHYSICS_RESPROUT=<deficit per tip>` turns it on. **Off by default,
+/// and it stays off: the owner judged it and the verdict was "looks
+/// identical"** (blind A/B, review card `20260912T170408642Z-07fc94`,
+/// 2026-09-12). The claim it makes is *"a felled tree has a middle between
+/// thriving and gone"*, which is judged by eye, and it did not land.
+///
+/// **Kept in the tree, off, because the negative is worth being able to
+/// reproduce** — and because the mechanism is right about the half nobody
+/// had measured: the bole deficit separates a cut plant from an uncut one
+/// cleanly (control p90 851 against a cut p50 of 2,307).
+///
+/// **What it got wrong is that frontier was the scarce thing.**
+/// `max_active_tips` gates `Grow` itself — a tip at the cap is skipped
+/// outright, see the `organism_active_tip_count` guard — so raising
+/// `supportable` converts more dormant buds into tips that then cannot all
+/// build. Measured: **+66% new shoots for under 1% more standing tissue**.
+/// The tell was there before the verdict and was read as a curiosity: the
+/// per-tip price is **inert**, 50 and 150 giving byte-identical results on
+/// seed 1, which only happens when something downstream binds first.
+/// `plants:124` carries the full account. Anything that only raises the
+/// supportable count is that entry again.
+///
+/// **The floor it measures against is `RESPROUT_DEFICIT_FLOOR`, and the two
+/// numbers do different jobs.** The floor says *is this plant damaged*; this
+/// says *how much frontier the damage buys*.
+fn resprout_deficit_per_tip() -> Option<f32> {
+    static ON: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_RESPROUT").ok().and_then(|v| v.parse().ok()).filter(|v: &f32| *v > 0.0)
+    })
+}
+
+/// **The standing bole deficit a healthy plant carries anyway**, below which
+/// a deficit says nothing about damage.
+///
+/// Measured, not chosen (2026-09-12, `examples/plant_severance.rs`, six seeds
+/// of `tree` over a full post-cut window): the **control** arm's bole deficit
+/// runs min 6, p50 95, **p90 851**, max 1,283, while a mid-crown cut puts the
+/// same plant at p50 2,307 and p90 2,984. The two separate cleanly and this
+/// is the control's p90.
+///
+/// **A p90 and not a mean, because abscission lowers `q_now` by design.** A
+/// healthy tree in steady shed carries a deficit that swings 6 → 1,283 across
+/// the cycle, so a threshold set from a mean would read every autumn as
+/// damage — `CLAUDE.md`'s divide-the-oscillator-out rule, which this number
+/// exists to obey.
+/// **Set above the control's *maximum*, not at its p90, and that correction
+/// was measured rather than reasoned.** At 851 — the p90 — the switch moved
+/// the **control** arm: total flushes over the same window went 475 → 403 →
+/// 527 → 519 on seed 1 and 391 → 473 → 435 → 404 on seed 2 as the
+/// per-tip constant varied, on plants that were never cut. The reason is in
+/// the distribution above: p90 leaves a tenth of the cycle over the line, and
+/// the control's own deficit reaches 1,283. An undamaged tree in its normal
+/// autumn was buying frontier, which is exactly the failure this floor exists
+/// to prevent. 1,500 is the control's measured maximum with headroom, per
+/// `CLAUDE.md`: never sitting on the measured value.
+///
+/// `PIXEL_PHYSICS_RESPROUT_FLOOR` overrides it, so the floor and the per-tip
+/// price can be swept from one binary.
+const RESPROUT_DEFICIT_FLOOR: f32 = 1_500.0;
+
+fn resprout_deficit_floor() -> f32 {
+    static F: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *F.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_RESPROUT_FLOOR")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(RESPROUT_DEFICIT_FLOOR)
+    })
+}
+
+/// **The standing support deficit at this organism's bole**, `q_peak - q_now`
+/// at the cell the anchor walk starts from, or `0.0` where there is no such
+/// cell.
+///
+/// **Once per organism, at the bole, and never per cell.**
+/// `accumulate_support` walks a *spanning tree*, and a thickened trunk is a
+/// blob, so `q_now == 0` across most of a trunk's girth means "not on this
+/// tick's path" rather than "carries no foliage". A per-cell rule keyed on
+/// exactly that took a stand from 3,437 cells to 704 — the die-back rule
+/// survived by being whole-plant, and so must this. At the bole (`support ==
+/// 0`, where the walk begins) the basipetal sum is the whole live crown and
+/// no path artifact exists; among the several anchored cells the bole is the
+/// one carrying the most.
+///
+/// **Identically zero for a plant that never had foliage**, which is the
+/// property `plants:124` waited on: `q_peak` is a high-water mark, so a plant
+/// that never grew a crown has `q_peak == q_now` and buys nothing here. That
+/// is what distinguishes it from a plant that lost one, and it is the whole
+/// reason this can be attempted at all.
+fn bole_deficit(world: &World, organism_id: u16) -> f32 {
+    let Some(st) = world.organism(organism_id) else { return 0.0 };
+    st.cells
+        .keys()
+        .filter_map(|&(x, y)| world.organism_cell(x, y))
+        .filter(|c| c.support == 0)
+        .max_by(|a, b| a.q_peak.total_cmp(&b.q_peak))
+        .map_or(0.0, |c| (c.q_peak - c.q_now).max(0.0))
+}
+
 fn stem_stiffness_override() -> Option<f32> {
     static OVERRIDE: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
     *OVERRIDE.get_or_init(|| std::env::var("STEM_STIFFNESS").ok().and_then(|v| v.parse().ok()))
@@ -9352,7 +9456,38 @@ fn break_buds(world: &mut World, organism_id: u16) {
     // comparing two noon-equivalent quantities.
     let maintenance = world.organism(organism_id).map_or(0.0, |s| s.maintenance);
     let surplus = (noon_income(world, organism_id, intercepted, leaf_cluster) - maintenance).max(0.0);
-    let supportable = ((surplus / step_cost).floor() as usize).min(max_active_tips as usize);
+    let mut supportable = ((surplus / step_cost).floor() as usize).min(max_active_tips as usize);
+    // **What a damaged plant is allowed to spend its reserves on** —
+    // `plants:124`, off unless `PIXEL_PHYSICS_RESPROUT` is set.
+    //
+    // The defect this answers, measured: a plant cut mid-crown flushes
+    // *fewer* buds than an uncut one, on every seed and in every window after
+    // the cut (7 against a control's 59 on the worst of three). `supportable`
+    // is driven by intercepted light, so losing foliage lowers it, and the
+    // event that should most urgently drive rebuilding instead reduces the
+    // drive to rebuild.
+    //
+    // **The deficit above the floor buys frontier, and nothing else changes.**
+    // Three properties make this bounded where adding stock to the numerator
+    // was not — the 1,723 → 38,605 slab this entry exists to record:
+    //
+    // 1. It is a *difference*, not a *level*. Stock grows with mass, so every
+    //    tip's share stayed high forever; `q_peak - q_now` shrinks as the
+    //    crown comes back and is zero for a plant that never had one.
+    // 2. It is whole-plant, read once at the bole, so it cannot be spent per
+    //    cell across a thickened trunk.
+    // 3. **It licenses a flush; it does not pay for one.** Every tip is still
+    //    bought from the richest cell below, and this function still returns
+    //    when that cell cannot afford `bud_cost`. So no carbon is
+    //    manufactured — a damaged plant may spend what it is holding, which
+    //    is what a real one resprouts from.
+    //
+    // `max_active_tips` still binds on top, as it does for the income term.
+    if let Some(per_tip) = resprout_deficit_per_tip() {
+        let excess = (bole_deficit(world, organism_id) - resprout_deficit_floor()).max(0.0);
+        let extra = (excess / per_tip).floor() as usize;
+        supportable = supportable.saturating_add(extra).min(max_active_tips as usize);
+    }
     if tips >= supportable {
         return;
     }
@@ -9380,6 +9515,11 @@ fn break_buds(world: &mut World, organism_id: u16) {
     let flush_becomes = fate_for(world, organism_id, species_id, CellType::DormantBud, organism::FateWhen::Flush, 0)
         .map_or(CellType::GrowingTip, |f| f.becomes);
     world.set(bx, by, cell.with_aux(organism::pack_cell_type(flush_becomes)));
+    // **Counted at the conversion, not at the budget.** `supportable` is how
+    // many flushes the plant could afford; this is how many it took, and the
+    // defect `plants:124` is about is exactly the case where the first is
+    // positive and the second is zero.
+    world.buds_flushed = world.buds_flushed.saturating_add(1);
     // The richest cell pays the flush price; the bud keeps its own stake.
     //
     // This used to `write_carbon(bx, by, bud_cost)` -- an assignment, which
@@ -11948,16 +12088,28 @@ fn buried_ground(world: &World, x: i32, y: i32) -> bool {
 /// at them, so without this they float forever.
 ///
 /// **Not `schedule_structural_check_around`, and the difference was
-/// measured at 26x.** The organism support search is hop-bounded, so a
-/// structural check fired mid-crown reads any branch further than the
-/// span limit from the roots as unsupported and converts it to deadwood —
-/// scheduling checks from abscission amputated every tree's upper crown,
-/// and the whole shedding mechanism measured as "collapses the stand at
-/// any setting" (772 cells against 20,213 at the same rate, the only
-/// difference being the check). Recorded here because Phase 3's damage
-/// work will meet the same landmine: any mid-crown disturbance today
-/// over-amputates, and that is the support model's bound, not the
-/// disturbance's size.
+/// measured at 26x.** When that was measured the organism support search
+/// was hop-bounded, so a structural check fired mid-crown read any branch
+/// further than the span limit from the roots as unsupported and converted
+/// it to deadwood — scheduling checks from abscission amputated every
+/// tree's upper crown, and the whole shedding mechanism measured as
+/// "collapses the stand at any setting" (772 cells against 20,213 at the
+/// same rate, the only difference being the check).
+///
+/// **The hop bound is gone** (plant-substrate-v2, 2026-08-22):
+/// `structural::organism_is_supported` no longer exists, and what decides
+/// whether a plant cell stays up is `anchor_support` — a Dijkstra from the
+/// anchors outward, eight-connected, with no span budget to run out of. So
+/// the 26x mechanism cannot fire today, and a Phase 3 damage result written
+/// while the old search was live is contaminated
+/// (`Reports/open-bugs-handoff.md` §0d).
+///
+/// **The prohibition stands anyway, for a different reason**: shedding is
+/// not a disturbance, and a `GrowingTip` is expected to be transiently
+/// unsupported until it reconnects, so checking here prunes ordinary plant
+/// life as if it were damage. `.claude/rules/src-sim-cells.md` carries that
+/// rule. What is owed is a positive control on the new search — a mid-crown
+/// cut removes the cut-off subtree and nothing else — not a re-run of this.
 ///
 /// A bounded component walk over *leaves only* asks exactly the question
 /// shedding raises — "does this spray still hang from anything" — and
@@ -14226,15 +14378,22 @@ mortality -- see the doc on this test"
         );
     }
 
-    /// **Shedding must not schedule a structural check**, and this is the one
-    /// guard standing between S4 and a measured 26x collapse.
+    /// **Shedding must not schedule a structural check.**
     ///
-    /// `CLAUDE.md` records it: the organism support search is hop-bounded, so
-    /// a check fired high in a crown reads everything past the span limit as
-    /// unsupported and converts it to deadwood. Growth deliberately schedules
-    /// none; an earlier abscission that scheduled one destroyed every shedding
-    /// sweep at every setting, and it read as "the mechanism is wrong" through
-    /// eight settings before anyone found the one line.
+    /// The measured reason was that the organism support search was
+    /// hop-bounded, so a check fired high in a crown read everything past the
+    /// span limit as unsupported and converted it to deadwood. An earlier
+    /// abscission that scheduled one destroyed every shedding sweep at every
+    /// setting, and it read as "the mechanism is wrong" through eight settings
+    /// before anyone found the one line.
+    ///
+    /// **That bound no longer exists** — `anchor_support` walks outward from
+    /// the anchors with no span budget (`open-bugs-handoff.md` §0d) — so this
+    /// guard is no longer the thing standing between S4 and the 26x. It stays
+    /// because the standing reason is separate and still holds: growth
+    /// deliberately schedules none, shedding is not a disturbance, and a
+    /// transiently unsupported tip is ordinary plant life rather than damage
+    /// (`.claude/rules/src-sim-cells.md`).
     ///
     /// S4 makes shedding *write a cell* where it used to erase one, which is
     /// exactly the kind of change that invites a helpful "shouldn't we tell
@@ -15342,6 +15501,69 @@ they are the same world. Got {median}, which means something other than the leve
 
         let (held, _) = arm(true);
         assert_eq!(held, 0.0, "a held plant must not draw water: {held} against an unheld {ran}");
+    }
+
+    /// **Placing a quickening lurches — the ground starts now, not in two
+    /// seconds.**
+    ///
+    /// A site on held ground is put back at `frame + HELD_RECHECK` rather
+    /// than dropped, which is right for ground nobody is looking at and wrong
+    /// the moment time actually arrives somewhere. Without `wake_region` a
+    /// placement trickles into life over about two seconds, on the one action
+    /// the concept says should feel like an event.
+    ///
+    /// **The third arm is the whole test.** Arms one and two would pass for a
+    /// version with no lurch at all, because the circle alone eventually
+    /// works; only "same circle, no wake, short window" separates the lurch
+    /// from the recheck. Put differently: it is the control that stops this
+    /// guard measuring the gate it already has a guard for.
+    #[test]
+    fn placing_a_quickening_wakes_its_ground_at_once() {
+        fn arm(circle: bool, lurch: bool, frames: usize) -> usize {
+            let mut w = test_world();
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            const PY: i32 = 120;
+            for x in 0..200 {
+                w.set(x, PY + 31, Cell::new(material::STONE, 0));
+                for dy in 1..=30 {
+                    w.set(x, PY + dy, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+                }
+            }
+            w.plant_tree(100, PY);
+            // Grown, then held: the shape the game itself uses, and the only
+            // way there is a plant here rather than a seed.
+            run_with_fields(&mut w, 1_500);
+            w.held = true;
+            // Long enough that every site has been examined once and pushed
+            // out to its recheck, so the arms below differ in the lurch and
+            // not in leftover scheduling.
+            run_with_fields(&mut w, 200);
+
+            let before = w.live_organism_ids().iter().filter_map(|&i| w.organism(i)).map(|st| st.cells.len()).sum::<usize>();
+            if circle {
+                w.quickenings = vec![crate::sim::world::Quickening { x: 100, y: PY, r: 60 }];
+                if lurch {
+                    w.wake_region(100, PY, 60);
+                }
+            }
+            run_with_fields(&mut w, frames);
+            let after = w.live_organism_ids().iter().filter_map(|&i| w.organism(i)).map(|st| st.cells.len()).sum::<usize>();
+            after.saturating_sub(before)
+        }
+
+        // Held, no circle, short window: nothing.
+        assert_eq!(arm(false, false, 60), 0, "held ground grew with no quickening over it");
+        // Circle AND lurch, same short window: the ground is already running.
+        let lurched = arm(true, true, 60);
+        assert!(lurched > 0, "placing a quickening and waking its ground grew nothing in 60 frames");
+        // The control: same circle, same window, no lurch. If this also grows,
+        // the wake is not what made the difference and this guard is measuring
+        // the gate rather than the lurch.
+        let trickled = arm(true, false, 60);
+        assert!(
+            trickled < lurched,
+            "the wake changed nothing: {trickled} cells without it against {lurched} with it, in the same window"
+        );
     }
 
     /// `World::time_runs_at` is true everywhere when the world is not held --
