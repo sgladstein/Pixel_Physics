@@ -92,6 +92,39 @@ Worth doing only if task 1 does not already dissolve it — **a pass spread over
 four cores has a different residency story**, so take this *after* task 1, not
 beside it.
 
+## Task 5 — make the land come back faster. The owner has ruled.
+
+**Asked at the close of round 32 and answered, 2026-09-13: *"I would like it to
+be faster."*** So this is no longer a judgement waiting on him; it is work.
+
+**What is settled**: the land *does* recover — bare ground outside the nest
+goes **2% → 56% → 6%** and plants end at **409 against an original peak of
+277** — and it takes about **320,000 frames** from the trough, more than half
+his 560,000-frame session. **He wants that shorter.** Do not re-open whether it
+recovers; that is measured.
+
+**`Reports/plant-reseeding-2026-09-03.md` already measured four causes ahead of
+dispersal, and dispersal is only a 1.4x effect. Treat them as one problem** —
+fixing dispersal alone buys 1.4x against a 2.8x predation loss:
+
+- the germination gate opens on **two materials in the whole set** (three now —
+  `spoil` declares `water_capacity: 1000`);
+- the grow lamps leave **32-column dead bands**;
+- the colony is a **seed predator**, cutting the stand **2.8x**;
+- the largest single sink is seeds stuck **on the parent plant** — 183 of 332
+  standing seeds, because a seed does not fall through branches while a
+  windfall does, **an inconsistency that was never designed**.
+
+**Use #376's method**: paired arms on the same seeds, a sign test over twelve,
+read at **200,000 frames** rather than 120,000 — the same comparison is 7 of 12
+and p = 0.77 at the shorter length. **And re-run the dig-gate arm with whatever
+you change**: the gate and these four causes all act on the same standing-plant
+count, so a fix measured against a trunk with the gate on is not measuring
+itself alone.
+
+**The bar is his, not a number**: the stand should read as coming back within a
+session he is actually playing, not within one he has to leave running.
+
 ## Standing, and not to be re-derived
 
 - **The creature cost is not linear.** ~0.3–0.5 µs/ant below ~400, **2.6–2.9
