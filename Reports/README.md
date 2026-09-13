@@ -3234,10 +3234,16 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   — **what one ant costs per tick, and why halving it is not a tuning
   problem.** The headless replay the playtest report asked for, on a quiet box
   with threads pinned and arms round-robin inside one run. **The played
-  session's model reproduces up to one scalar** — intercept and slope are both
-  ~2.5x this container's, so the transferable quantity is the *share*, and it
-  lands on **86% of the frame at 3,000 ants** against the played session's
-  independently-measured 86%. **One ant's decision costs 57,314 instructions,
+  session's curve has a knee and this bed sits past it from a hundred ants** —
+  refitted from the raw log, the owner's marginal cost is **0.53 µs/ant** below
+  ~400 ants and **2.66 µs/ant** above, so the report's single 2.1 figure
+  averages two regimes and describes neither. This harness measures 5.14, which
+  matches his *expensive* regime through the box scalar and misses his cheap one
+  by four — making it the defect in a box rather than a replica. The
+  transferable quantity is the **share**: **86.5% of the frame is the
+  creatures** at 2,709 ants, read straight off the log. Settles ant count
+  against session age from that log alone — frame 340,000 at 2,334 ants costs
+  6,300 µs against frame 410,000 at 1,252 ants at 3,500, and 51 such pairs. **One ant's decision costs 57,314 instructions,
   split five ways with no term over 31%**: `sense` 30%, `step_chain` 17%, the
   brain 14%, `tumble` 13%, `act` 11%. Two hypotheses that would each have given
   one big lever were refuted by measurement — the ants are not jammed (blocked

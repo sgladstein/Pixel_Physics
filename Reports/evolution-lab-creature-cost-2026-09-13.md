@@ -14,10 +14,15 @@ here rather than linked. This report is the headless replay it asked for, on a q
 
 **The three findings, before the evidence.**
 
-1. **The played session's cost model reproduces**, and the quantity that
-   transfers between machines is the *share*, not the microseconds: at 3,000
-   ants the creatures are **86% of the frame**, which §1 measured
-   independently from the other side.
+1. **The played session's curve has a knee, and this bed sits past it from a
+   hundred ants.** Below ~400 ants the owner's frame barely notices them
+   (**0.53 µs/ant**); above it each one costs five times as much (**2.66
+   µs/ant**). This harness measures **5.14 µs/ant** at 0–254, which matches
+   his *expensive* regime through the box scalar and misses his cheap one by
+   four. That makes it the defect in a box rather than a replica of his
+   session — better, for what the round is for. The quantity that transfers
+   between machines is the **share**: **86.5% of the frame is the creatures**
+   at 2,709 ants, read straight off his log rather than fitted through it.
 2. **The per-ant cost is real, it is inside `creature::tick`, and it is
    diffuse.** One ant decision costs **57,314 instructions**, split five ways
    with no term over 31%. Two hypotheses that would have given a single big
@@ -36,7 +41,7 @@ bed with 454 plants in it rather than over eight seedlings. The harness is
 [`examples/antcost.rs`](../examples/antcost.rs), new in this round and listed
 in [`instruments.md`](instruments.md).
 
-## 1. The played session's model reproduces, up to one scalar
+## 1. The played session's expensive regime reproduces; its cheap one does not
 
 | ants | µs/tick | creature ticks/frame | moves/frame | blocked % |
 |---|---|---|---|---|
@@ -48,21 +53,6 @@ in [`instruments.md`](instruments.md).
 **cost ≈ 2,518 µs/tick + 5.14 µs per ant per tick**, residuals **+32 −48 −14
 −7** on a ~3,000 µs frame. Linear, and messy enough at the ends to be a fit
 rather than an artifact.
-
-Against §1's **1,000 µs + 2.10 µs**: the intercept is **2.52x** and the slope
-is **2.45x**. **The two ratios agree, and that is the whole reading.** What
-differs between this container and the owner's machine is one scalar — it is
-uniformly slower per unit of work, background and creatures alike — rather
-than the creature pass doing something different here. So the microseconds do
-not transfer and **the share does**:
-
-> at 3,000 ants, `3000 x 5.14 / (2518 + 3000 x 5.14)` = **86.0% of the frame**,
-> against the **86%** §1 computed from the owner's own clock at the far end of
-> a range this harness never reached.
-
-Two independent measurements, on two machines, from opposite ends of the
-population range, agreeing on the number that matters. **That is the
-reproduction, and the µs/ant figure is not.**
 
 ### 1a. What the number's own noise is, stated before anything is built on it
 
@@ -76,6 +66,87 @@ optimisation worth less than about 20% of the per-ant term **cannot be
 measured on this wall clock**, however many reps it is given, and claiming one
 would be inventing a result. Where §4 lands a change, the gate is the
 instruction count, which is exactly reproducible.
+
+### 1b. The played session's curve is not straight, and that changes what reproduces
+
+**This section replaces a wrong reading, and the wrong reading is left visible
+because it is the instructive part.** Against the playtest report's
+`1,000 µs + 2.10 µs/ant`, the table above gives an intercept ratio of **2.52x**
+and a slope ratio of **2.45x**, and two ratios agreeing that closely reads as
+*one scalar — the machine is uniformly slower, nothing else differs*. It is
+also **exactly the tidiness `CLAUDE.md` names as the tell for an artifact**,
+and it was one.
+
+The R32 coordinator's refit of the raw log said the owner's curve has a knee.
+Refitted here independently from
+`Reports/data/playtest-2026-09-13-herb_longant-s1-560k.txt` — 56 census rows,
+55 intervals, µs/tick from the `wall` column, minimum in each ant band:
+
+| ant band | mean ants | min µs/tick | at frame |
+|---|---|---|---|
+| 0 | 0 | 1,000 | 30,000 |
+| 1–120 | 67 | 1,100 | 40,000 |
+| 120–300 | 230 | 1,100 | 190,000 |
+| 300–500 | 378 | 1,200 | 170,000 |
+| 500–800 | 691 | 1,900 | 250,000 |
+| 800–1,200 | 1,080 | 3,000 | 420,000 |
+| 1,200–1,700 | 1,331 | 3,500 | 410,000 |
+| 1,700–2,400 | 2,060 | 6,300 | 340,000 |
+| 2,400+ | 2,709 | 7,400 | 380,000 |
+
+**Two regimes, not one line.** Over 0 → 378 ants the envelope rises 1,000 →
+1,200 µs: a marginal **0.53 µs/ant**. Over 378 → 2,709 it rises 1,200 → 7,400:
+a marginal **2.66 µs/ant**, five times as steep. The single 2.10 figure is an
+average of the two and describes neither.
+
+**So the comparison that produced 2.45x was comparing this harness's slope to
+a cross-knee average**, and the arithmetic agreement was a coincidence of two
+numbers being wrong in the same direction. Done properly, against each regime
+separately and using the intercept ratio (**2.55x**, from a 2,550 µs empty bed
+against a measured 1,000 µs floor) as the box scalar:
+
+| the owner's regime | his marginal | x 2.55 = expected here | measured here |
+|---|---|---|---|
+| below the knee, 0–378 ants | 0.53 µs/ant | 1.35 | **5.14** ✗ |
+| above the knee, 378–2,709 ants | 2.66 µs/ant | 6.79 | **5.14** ✓ |
+
+**This bed reproduces his expensive regime and never shows his cheap one.**
+6.79 against 5.14 is a ratio of 1.32, inside §1a's 1.39x run-to-run spread;
+1.35 against 5.14 is out by a factor of four and no spread covers it. At a
+hundred ants this harness is already on the far side of a knee the owner does
+not reach until six or seven hundred.
+
+**That is a better result than the one it replaces**, for the reason the
+coordinator gives: the knee is more actionable than the coefficient, and a bed
+that sits past it at 100 ants is **the defect in a box you can instrument**.
+Everything in §3 is therefore a breakdown of the *expensive* regime, which is
+the only one worth profiling.
+
+**The share survives, and no longer needs an extrapolation to state.** At 2,709
+ants the owner measures 7,400 µs against his own measured 1,000 µs floor:
+**86.5% of the frame is the creatures**, read straight off his log rather than
+fitted through it.
+
+### 1c. It is ant count, not session age
+
+Ant count and session age are confounded in the played log — the population
+grows monotonically, so every high-ant sample is also a late one with a bigger
+mound and more dug ground. **The log settles it against itself**, and no
+headless sweep is needed:
+
+> **frame 340,000, 2,334 ants, 6,300 µs/tick.**
+> **frame 410,000, 1,252 ants, 3,500 µs/tick.**
+
+Seventy thousand frames *later*, with a larger mound and more worked soil, at
+**half the ant count**, the frame is **half the cost**. Age rises and cost falls;
+only ant count runs the right way. There are **51 such pairs** in the log
+(later frame, under three-quarters the ants, under three-quarters the cost) —
+the sharpest being frame 140,000 at 412 ants against frame 190,000 at 280 ants,
+where the later sample is cheaper by a factor of twelve.
+
+This harness agrees from the other side: its arms hold bed age nearly fixed
+(measured between frames 20,000 and 32,000, against the played log's 550,000
+of drift) and still show cost rising linearly in ants.
 
 ## 2. Two explanations that would each have given one big lever, and neither survives
 
@@ -294,6 +365,54 @@ ant's `tick_interval` is 6. The per-ant *per-frame* cost is one decision
 divided by that interval, so 12 halves it exactly and no code changes. That is
 not a speed-up, it is an ant that thinks half as often, and whether the colony
 still reads as alive is a judgement by eye rather than a number.
+
+## 5a. To the R32 coordinator: the three questions in the mid-round correction
+
+Answered here because a lane's only channel back is a file on its branch.
+
+**1. "Your step-1 control must sit above ~800 ants."** Agreed in principle,
+not reachable in practice: `found_colony_of` lays one row at a body-derived
+spacing, so a 512-wide bed saturates around **460 ants** — founders starve
+about as fast as they are added. §6 says what a harness that got past it would
+need. It turned out not to block the round, and §1b is why: **this bed is
+already past the knee at 100 ants**, so the sub-knee regime the warning was
+about is not a regime this harness has. The predicted failure mode — "a
+headless sweep at 100–500 ants will measure ~0.3 µs/ant and read like a broken
+harness" — did not occur; it measures 5.14, which is the *post*-knee figure.
+**That is worth knowing before the next lane spends a day building a bed that
+reaches 2,500.** It may not need to.
+
+**2. "The knee is more actionable than the coefficient."** Taken, and it is
+why §3's profile is worth what it is: a bed that sits past the knee at 100 ants
+is the expensive regime under an instrument. The candidates the correction
+lists can be struck off against §2 and §3 — **not** per-tick allocation that
+grows with the colony (nothing in `creature::tick` is sized by population;
+`CreatureDef::clone` and the body vectors are per-animal and constant),
+**not** the active-site list (`awake/f` is flat in ant count, 18.1 → 20.9 →
+19.3, and the scheduler's own budget does not bind at these populations),
+**not** an O(ants)-per-ant lookup (`adjacent_food_counted` walks a fixed body
+ring; the crowding scan is a fixed 5x5). What is left from that list, and what
+§3 cannot see because callgrind counts instructions and not misses, is
+**cache residency** — 57,314 instructions per decision touching ~150–200
+scattered `World::get` sites is exactly the shape that falls off a cliff when
+the live set stops fitting. **A `--cache-sim=yes` run at two populations either
+side of a knee is the next measurement**, and it is cheap; this round did not
+take it because it had no bed with a knee in it to straddle.
+
+**3. "Is the knee ant count or session age?"** **Ant count**, settled in §1c
+from the owner's own log rather than from a headless sweep: frame 340,000 at
+2,334 ants costs 6,300 µs and frame 410,000 at 1,252 ants costs 3,500 — later,
+larger mound, half the ants, half the cost — with **51 such pairs** in the
+file. The round's target does not move.
+
+**And one correction back.** The mid-round note says the report's own §1
+sits at "1.0 ms + 2.1 µs" and is a straight line through something that is
+not straight. That is right, and this report published the same error in its
+first commit: it compared a sub-knee headless slope against that cross-knee
+average, got 2.45x against an intercept ratio of 2.52x, and read the agreement
+as proof of a single machine scalar. Two ratios agreeing that neatly is
+`CLAUDE.md`'s tell for an artifact, and it was one. §1b is the repair and
+leaves the wrong reading visible.
 
 ## 6. Reproducing all of it
 
