@@ -191,6 +191,53 @@ ten days old and it just survived a round that read it and still did not land
 it. **Either land it this round or close it and file the mechanism as its own
 register section under a letter `bugindex.py --branches` says is free.**
 
+## Not scheduled — the owner's zoom-out question, and the answer with its numbers
+
+**Raised in chat 2026-09-13, answered, and recorded here so the analysis is not
+re-derived. It is not a task and nobody is assigned to it** — the owner asked
+why zooming out has to be complicated, and the answer is short enough to be
+worth keeping.
+
+> *"why my screen resolution can solve all of the pixels, why cannot there
+> just be more pixels when you zoom out?"*
+
+**He is right, and the constraint is not the monitor — it is that the renderer
+draws into a fixed 512x320 back-buffer** (`WIDTH`/`HEIGHT`, `src/app.rs:202`)
+which `Pixels::new(WIDTH, HEIGHT, surface)` then upscales to the window. The
+screen's real pixels magnify that image rather than carrying more of it. So at
+`MAX_ZOOM_OUT_STRIDE = 4` the view spans **2048x1280 cells through a 512x320
+buffer** — sixteen world cells per buffer pixel, and something must be
+discarded. That is the whole of §Z11: `Stride` drew the block's top-left cell
+and dropped the other fifteen, so a one-cell-wide stem had three chances in
+four of vanishing.
+
+**Make the buffer the screen and the problem disappears rather than being
+mitigated.** A 2560x1440 buffer holds that same 2048x1280 view at one cell per
+pixel with nothing discarded. The salience rule that fixed §Z11 is a good
+answer to *"which of sixteen cells wins"*; this removes the question.
+
+**What it costs, and why that is the real objection rather than the sampling.**
+The renderer works per buffer pixel: 512x320 is 164k, 2560x1440 is 3.7M — 22x
+per frame, and the dirty-rect skip that keeps a settled world cheap is also
+per-pixel. **The cheaper shape that keeps his reasoning: grow the buffer only
+at zoom-out.** At the widest stride allocate 2048x1280 rather than 512x320;
+normal zoom is untouched and pays nothing. A zoomed-out view is mostly settled
+terrain, which is exactly where the frame-skip earns its keep, so the true cost
+may be far below the pixel ratio — **but that is a hypothesis and `CLAUDE.md`
+requires the whole-frame figure, measured, before anyone quotes it.** `ascii`
+cannot answer it (headless, no render); this needs the real app's capture path
+or `scale_probe`.
+
+**For the lab specifically it is nearly free.** `MIN_BOX`/`MAX_BOX` are
+128–4096 (`src/lab/params.rs:330`) and the boxes actually played are far below
+the top, so a 2048x1280 buffer shows a typical box whole at one cell per pixel
+with no downsampling anywhere.
+
+**Second-order, and the reason not to do this casually:** at one cell per
+*physical* pixel the world reads sharp and small rather than chunky, and the
+chunky look is the house style. That only bites at normal zoom, which is why
+the zoom-out-only version is the one worth costing.
+
 ## Standing rulings this round paid for
 
 - **The review queue is for visual evaluations only.** Owner, 2026-09-13:
