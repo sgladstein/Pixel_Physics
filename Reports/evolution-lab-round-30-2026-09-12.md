@@ -805,8 +805,6 @@ keeps the bed alive, and the 40,000-frame lifespan arm.
   far higher — because there are ants alive to starve. Pooled over twelve
   neither moves reliably (7 of 12 each way), so this is a question, not a
   finding.
-- **Lane R2's PR** — the menu, plus deleting R1's corner line on the owner's
-  instruction.
 - **Floating soil is the soil brief**, not weathering. The design report is on
   `main` and the lane that wrote it is gone; a fresh lane starts from the
   report.
@@ -853,4 +851,11 @@ keeps the bed alive, and the 40,000-frame lifespan arm.
   set at birth, home resets it, and away from home it does not move. What does
   move is the nest's, about one tolerance radius per 120,000 frames. So the
   mechanic is half-built and running at session timescale rather than trip
-  timescale. A costed repair sits unbuilt in #349 because it is his call.
+  timescale.
+
+  **The arithmetic is on `main` now** (#368, round 29's record, Fission B1),
+  recovered from a branch whose PR was closed unmerged: a lineage that never
+  comes home needs **about 44 generations** to drift a tolerance radius at the
+  shipped 0.15, against the **5–11 a session reaches**. The costed repair —
+  gate `carry_nest_wander` on proximity, re-derive σ — is still the owner's
+  call and still unbuilt.

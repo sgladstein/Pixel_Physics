@@ -101,6 +101,10 @@ not mergeability**, and the harness rules this round paid for are in
 
 **Landed:** #344–#346, #352, #355, #359, #362, #363.
 
+**Round thirty-one's brief is written:**
+[`../evolution-lab-round-31-brief-2026-09-13.md`](../evolution-lab-round-31-brief-2026-09-13.md)
+— five tasks, ordered, checked against `16bab295`. Read it before the list below.
+
 **Round thirty-one, top two.** **Floating debris, §Z18** — named on two
 unrelated cards, no lane owns it, in every picture of this bed. **The MENU page
 reads as a list** — but the rows are **already clickable**; `Body::Choice` just
