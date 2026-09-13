@@ -5190,6 +5190,52 @@ impl World {
     /// Total pending active sites. The headline number for whether the
     /// scheduler's cost is actually proportional to "interesting cells"
     /// rather than world size — see the debug overlay.
+    /// **Pull every scheduled site inside a circle forward to now.**
+    ///
+    /// The held world's *lurch*. A site on held ground is not dropped — it is
+    /// put back at `frame + scheduler::HELD_RECHECK`, because rechecking the
+    /// whole map every frame is the unbounded cost the scheduler exists to
+    /// avoid. That is right for ground nobody is looking at and wrong the
+    /// instant time actually arrives somewhere: placing a quickening, or
+    /// founding a colony, would otherwise trickle into life over two seconds
+    /// instead of starting.
+    ///
+    /// **For discrete events only.** This walks both heaps, so it is
+    /// `O(n log n)` in the scheduled-site count — fine when a player presses
+    /// a key, ruinous every frame. The carried quickening calls it on a
+    /// *movement threshold* rather than continuously, for that reason.
+    ///
+    /// Returns how many sites were moved, because "the lurch fired" and "the
+    /// lurch found nothing" look identical on screen.
+    pub fn wake_region(&mut self, cx: i32, cy: i32, r: i32) -> usize {
+        let frame = self.frame;
+        let r2 = (r as i64) * (r as i64);
+        let inside = |s: &ActiveSite| {
+            let (dx, dy) = ((s.x - cx) as i64, (s.y - cy) as i64);
+            dx * dx + dy * dy <= r2
+        };
+        let mut moved = 0;
+        // Drained and rebuilt rather than mutated in place: a `BinaryHeap`
+        // has no way to re-key an entry, and re-pushing is what restores the
+        // ordering `ActiveSite`'s `Ord` guarantees. Both heaps, because
+        // creatures live in their own (see `World::creature_sites`).
+        for heap in [&mut self.active_sites, &mut self.creature_sites] {
+            let taken: Vec<_> = std::mem::take(heap).into_vec();
+            let rebuilt = taken.into_iter().map(|Reverse(mut site)| {
+                // **Only ever earlier.** A site already due sooner than now
+                // must not be pushed back by this, or waking a region would
+                // *delay* the work it exists to hurry.
+                if site.next_frame > frame && inside(&site) {
+                    site.next_frame = frame;
+                    moved += 1;
+                }
+                Reverse(site)
+            });
+            *heap = rebuilt.collect();
+        }
+        moved
+    }
+
     pub fn active_site_count(&self) -> usize {
         self.active_sites.len() + self.creature_sites.len()
     }

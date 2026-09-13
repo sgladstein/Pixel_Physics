@@ -15344,6 +15344,69 @@ they are the same world. Got {median}, which means something other than the leve
         assert_eq!(held, 0.0, "a held plant must not draw water: {held} against an unheld {ran}");
     }
 
+    /// **Placing a quickening lurches — the ground starts now, not in two
+    /// seconds.**
+    ///
+    /// A site on held ground is put back at `frame + HELD_RECHECK` rather
+    /// than dropped, which is right for ground nobody is looking at and wrong
+    /// the moment time actually arrives somewhere. Without `wake_region` a
+    /// placement trickles into life over about two seconds, on the one action
+    /// the concept says should feel like an event.
+    ///
+    /// **The third arm is the whole test.** Arms one and two would pass for a
+    /// version with no lurch at all, because the circle alone eventually
+    /// works; only "same circle, no wake, short window" separates the lurch
+    /// from the recheck. Put differently: it is the control that stops this
+    /// guard measuring the gate it already has a guard for.
+    #[test]
+    fn placing_a_quickening_wakes_its_ground_at_once() {
+        fn arm(circle: bool, lurch: bool, frames: usize) -> usize {
+            let mut w = test_world();
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            const PY: i32 = 120;
+            for x in 0..200 {
+                w.set(x, PY + 31, Cell::new(material::STONE, 0));
+                for dy in 1..=30 {
+                    w.set(x, PY + dy, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+                }
+            }
+            w.plant_tree(100, PY);
+            // Grown, then held: the shape the game itself uses, and the only
+            // way there is a plant here rather than a seed.
+            run_with_fields(&mut w, 1_500);
+            w.held = true;
+            // Long enough that every site has been examined once and pushed
+            // out to its recheck, so the arms below differ in the lurch and
+            // not in leftover scheduling.
+            run_with_fields(&mut w, 200);
+
+            let before = w.live_organism_ids().iter().filter_map(|&i| w.organism(i)).map(|st| st.cells.len()).sum::<usize>();
+            if circle {
+                w.quickenings = vec![crate::sim::world::Quickening { x: 100, y: PY, r: 60 }];
+                if lurch {
+                    w.wake_region(100, PY, 60);
+                }
+            }
+            run_with_fields(&mut w, frames);
+            let after = w.live_organism_ids().iter().filter_map(|&i| w.organism(i)).map(|st| st.cells.len()).sum::<usize>();
+            after.saturating_sub(before)
+        }
+
+        // Held, no circle, short window: nothing.
+        assert_eq!(arm(false, false, 60), 0, "held ground grew with no quickening over it");
+        // Circle AND lurch, same short window: the ground is already running.
+        let lurched = arm(true, true, 60);
+        assert!(lurched > 0, "placing a quickening and waking its ground grew nothing in 60 frames");
+        // The control: same circle, same window, no lurch. If this also grows,
+        // the wake is not what made the difference and this guard is measuring
+        // the gate rather than the lurch.
+        let trickled = arm(true, false, 60);
+        assert!(
+            trickled < lurched,
+            "the wake changed nothing: {trickled} cells without it against {lurched} with it, in the same window"
+        );
+    }
+
     /// `World::time_runs_at` is true everywhere when the world is not held --
     /// **including where a quickening would say otherwise**, which is what
     /// makes the list genuinely unread rather than incidentally agreeing.
