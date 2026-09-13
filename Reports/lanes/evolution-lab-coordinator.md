@@ -64,29 +64,25 @@ pheromone `roundf`, which is **not** behaviour-free. **Rebuild the baseline bina
 ## Round twenty-nine, 2026-09-12 — the bed comes back, and the colony learns to die
 
 *Record: [`../evolution-lab-round-29-2026-09-12.md`](../evolution-lab-round-29-2026-09-12.md);
-designs of record
-[`../evolution-lab-flight-design-2026-09-11.md`](../evolution-lab-flight-design-2026-09-11.md),
-[`../evolution-lab-late-game-design-2026-09-12.md`](../evolution-lab-late-game-design-2026-09-12.md),
-[`../evolution-lab-fission-design-2026-09-12.md`](../evolution-lab-fission-design-2026-09-12.md).
-Pointer and what binds.*
+designs of record `../evolution-lab-flight-design-2026-09-11.md`,
+`../evolution-lab-late-game-design-2026-09-12.md`,
+`../evolution-lab-fission-design-2026-09-12.md`. Eighteen PRs: the flitter
+flies; the seed is cargo; the nest door drains; one odour per nest with drift
+on; ants die of age.*
 
-**Landed:** eighteen PRs — the flitter flies; the seed is cargo; the nest door
-drains; one odour per nest with drift on; ants die of age.
-
-**What binds** (the round's detail is in its record; these are the rulings
-that outlive it). **The played bed's baseline moved on 2026-09-12**: nest
-scent drift at 0.15 changes the second half of every large-colony session, so
-**every played-bed population figure past ~100,000 frames taken before #347 is
-stale**, the late-game design's §0 among them. **The dial is inert on today's
-trunk** (peaks 12 / 12 / 212 on seeds 1–3), and **a control shorter than the
-mechanism's onset proves nothing.** **The nest is not where the colony lives**
-on two beds in three (#350): budding, cohesion and the owner's "time away
-turns enemy" all wait on that, and the shipped drift value is his call. **The
-flitter is caged by the canopy, not broken in flight** (§Z15) — a design lane
-from `climbable`. **Owner verdicts:** seed cargo and the lifespan arm chosen;
-**the long-ant pile is not visibly fixed** (the fix arm read worse), which is
-still open; a follow camera ruins a colony card. **A card paired against a
-census passes `rain=off`, and its `meta` is measured in the window it shows.**
+**What still binds.** **The played bed's baseline moved on 2026-09-12** — nest
+scent drift 0.15 — so **every played-bed figure past ~100,000 frames taken
+before #347 is stale**, the late-game design's §0 among them; **the dial is
+inert on today's trunk** (peaks 12 / 12 / 212, seeds 1–3) and **a control
+shorter than the mechanism's onset proves nothing.** **The nest is not where
+the colony lives** on two beds in three (#350): budding, cohesion and "time
+away turns enemy" all wait on that, and the shipped drift value is the owner's
+call. **The flitter is caged by the canopy, not broken in flight** (§Z15) — a
+design lane from `climbable`. **The long-ant pile is not visibly fixed** — the
+owner's verdict, and the fix arm read *worse*; §Z13 has since shown those ants
+are resting, not stuck, and the shipped two-cell ant rests just as long. **A
+card paired against a census passes `rain=off`, and its `meta` is measured in
+the window it shows.**
 
 ## Round thirty, 2026-09-12 — the screen quiets, and both colony lanes were counting the wrong thing
 
