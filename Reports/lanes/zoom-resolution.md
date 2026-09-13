@@ -1,6 +1,7 @@
 # Lane: zoom-out resolution (round 32)
 
-*Closed 2026-09-13. Two PRs, both open, coordinator owns the merge.*
+*Round 32 closed 2026-09-13 (#385, #389, both merged). Round 33 follow-on
+below: the lab half. Coordinator owns every merge.*
 
 Distinct from `evolution-lab-zoom-out.md`, which is round 31's lane about how
 *far* out the view may go. This one is about how many pixels the view is drawn
@@ -78,3 +79,77 @@ observe them in the agreeing order. Fixed by deriving `viewport()` from the
 authoritative pair so there is no ordering at all. Recorded here because the
 *shape* recurs: a value pushed from an owner into a consumer, read back from the
 consumer by a third party.
+
+
+---
+
+## Round 33: the lab half
+
+**Why it existed.** #392 flipping the sandbox default to x2 made the two games
+*diverge* rather than agree: `src/lab/mod.rs` re-exports the sandbox's
+`WIDTH`/`HEIGHT` and drives the same `Renderer`, so the lab had the identical
+15-in-16 discard and none of the fix — and the lab is where the owner picked the
+**finest** setting (*"C is best"* = x4, decoded through `blind_was: [1, 0, 2]`;
+I re-checked the decode rather than taking it on trust, and it holds).
+
+**Shipped:** `Lab::pixel_budget`, default **x4** — his pick, not overridden.
+`+` cycles it, the window caps it, `render::Hud` (from #389) keeps the bar at
+its logical size, and `Lab::to_logical` converts the cursor once at the window
+boundary.
+
+### The three things the next person should know
+
+1. **The shipped 512x320 bed cannot zoom out at all**, so the budget buys
+   nothing and costs nothing there — 1.00x achieved at every budget, measured.
+   Anyone reading "the lab defaults to x4" and expecting a cost on the default
+   bed is wrong. The feature is for beds bigger than the viewport, and beds up
+   to **2048x1280** show whole at one cell per pixel (`MAX_BOX` is 4096, so the
+   top of the range does not — the round-32 brief's claim needed that
+   qualification).
+
+2. **The speed dial does not amortise the render — it competes with it**, which
+   is the opposite of the round-33 brief's reasoning and the opposite of what I
+   expected. `TimeControl` gives each pass one wall-clock budget and the render
+   comes out of it: at dial 1 the bigger buffer is **free (1.00x)**, at
+   fast-forward it costs **0.45-0.65x** of the achieved rate. It costs most
+   exactly where it was expected to cost least. `examples/labzoom_cost.rs`, and
+   **`achieved` is the unit** — frame milliseconds answer the wrong question
+   about a box you run fast.
+
+3. **`visible_span`'s contract changed**: it takes the **logical** viewport and
+   multiplies by the *ladder* stride, where it used to take the buffer and use
+   the sampling stride. Same number whenever the two agree; still right when
+   they do not. Every camera function (`follow`, `pan`, `set_camera`,
+   `zoom_within`) now takes the logical viewport and touches `pixel_scale`
+   nowhere. If you are adding a camera call, pass `(WIDTH, HEIGHT)`, not the
+   buffer.
+
+### The failure worth carrying, because it is the same one twice
+
+Round 32's panic and round 33's silent bug are **one shape**: two sources of
+truth for a derived quantity, observed by different parties in different orders.
+Round 32, `viewport()` read the renderer's pushed copy while `draw` pushed it
+afterwards — it panicked. Round 33, `zoom_within` derived the scale from the
+renderer while its viewport came from the caller — it did not panic, it clamped
+the widest zoom-out to rung 2, and **the tell was a number that could not be
+true: the bigger buffer measured *faster*.** It was not faster; it was showing
+half as much world.
+
+Both fixes were the same: delete the ambiguity rather than order the operations.
+
+**And its guard had to be written twice.** The obvious one — assert on
+`Renderer` that the rung is budget-independent — **passed with the fault
+reinstated**, because the fault needs a caller whose viewport is derived from
+the budget. Blind, so replaced rather than widened, per `CLAUDE.md`. The one
+that works is at `Lab` level and pushes the budget at the renderer first,
+because that is the order the app runs in.
+
+### Open
+
+- Card `20260913T170211133Z-af41c9` (`board=zoom`), **pending**: the lab bar's
+  glyphs are drawn as blocks at a grown buffer, so they keep their size and go
+  chunkier. He has not judged that. If he dislikes it the answer is a finer font
+  for the bar, not a smaller HUD.
+- **`src/lab/ui.rs` is the contested file** here — ~175 call sites went through a
+  mechanical `hc` parameter. `claude/lab-chronicle-log-ring` also touches it
+  (only `chronicle_text` and tests, so the overlap is small). Land promptly.
