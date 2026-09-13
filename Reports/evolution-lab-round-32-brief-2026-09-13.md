@@ -124,6 +124,45 @@ must be long enough to show both the animation cycling and an animal that has
 not moved in 50,000 frames. Round 31's second card is 6,000 ticks and posted;
 collect its verdict before shooting another.
 
+## Task 5 — the spoil teleport, and PR #221, which must not go invisible twice
+
+**`SPOIL_LIFT = 160` is live on today's trunk and nothing this round removed
+it.** `src/sim/creature.rs`, in the dig-drop path: when no 8-neighbour will
+hold a pellet, the drop scans **straight up as far as 160 rows** for the first
+cell that is empty with two of three filled beneath, **with no check that a
+path exists**. The ant never climbs. The pellet is teleported, and it stays.
+Measured over four seeds on PR #221's own instrument: tallest standing pellet
+**+52 / +67 / +99 / +94** with a tree in the box against **+4 / +3 / +2 / +2**
+without.
+
+**#379 mitigates this and does not fix it.** A pellet is now `spoil`, which
+needs ground under it, so a pellet teleported onto plant tissue falls — which
+kills the lattice bootstrap, where each pellet satisfied "two of three beneath"
+against the previous one. But **the teleport itself is untouched**: a pellet
+that lands on real ground 160 rows up is still a cell that crossed the box
+without anything carrying it. Round 31 declined to widen #379 into this, which
+was right; it is its own task.
+
+**PR #221 (`claude/creature-plant-pathfinding-rjzkqe`) has been open since
+2026-09-03 and still carries work that is not on the trunk**:
+`examples/spoil_destination.rs`, with a **no-tree positive control**, and
+`CreatureStats::spoil_lifted` / `spoil_lift_max` — the split `spoil_dumped`
+cannot make, because it sums both placement branches. Round 31's Lane B read
+it and measured **44% of pellets going through the up-column branch**, but
+shipped none of the counters. **Land the instrument and the counters first**,
+then decide the mechanism with them running.
+
+**Why it went invisible, which is the part to carry forward.** Its register
+section was filed as **§Z4, a letter already used and closed on `main`**, so
+it is not in the register anyone reads — and `branchcheck --prs` lists its
+branch as *having a PR*, which reads as owned rather than stalled. Round 30's
+rule was *the PR list is not the work list*; this is the other half: **the PR
+list is not the landed list either**, and a ten-day-old open PR can hold the
+exact instrument a new lane is being told to build from scratch. It is now
+ten days old and it just survived a round that read it and still did not land
+it. **Either land it this round or close it and file the mechanism as its own
+register section under a letter `bugindex.py --branches` says is free.**
+
 ## Standing rulings this round paid for
 
 - **The review queue is for visual evaluations only.** Owner, 2026-09-13:
