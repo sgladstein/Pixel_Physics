@@ -127,6 +127,26 @@ pub fn step(world: &mut World) {
                 if !world.in_bounds(x, y) {
                     continue;
                 }
+                // **A held spring does not run**, per outlet column, at the
+                // cell it would emit into (`World::time_runs_at`). A spring
+                // is water crossing the plane of the world from off-screen
+                // — an ongoing process the world drives, not a thing the
+                // player struck — so it belongs with the weather rather
+                // than with the physics the held world deliberately leaves
+                // running. The `druid` preset sets `spring_flow: 7.0`, the
+                // highest of any preset, so this is the difference between
+                // a stopped country and a stopped country with a waterfall
+                // in it.
+                //
+                // **Before the throttle bookkeeping below**, deliberately:
+                // a held outlet is not throttled, it is stopped, and
+                // `spring_ledger.throttled` is the number that says a
+                // player's dam is working. Counting held columns in it
+                // would make the dam's own readout a function of where he
+                // is standing.
+                if !world.time_runs_at(x, y) {
+                    continue;
+                }
                 let outlet = world.get(x, y);
                 // Raw material check, not `is_empty()` — same reasoning as
                 // the renderer: the question is "is there material here".
@@ -150,6 +170,13 @@ pub fn step(world: &mut World) {
     for i in 0..world.drains.len() {
         let (x, y) = world.drains[i];
         if !world.in_bounds(x, y) {
+            continue;
+        }
+        // The drain half of the same gate. A drain is the spring run
+        // backwards -- water leaving the plane -- so a held one takes
+        // nothing, or a pool outside every circle would quietly empty into
+        // a valley that is not running either.
+        if !world.time_runs_at(x, y) {
             continue;
         }
         let cell = world.get(x, y);

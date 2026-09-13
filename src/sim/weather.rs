@@ -54,6 +54,31 @@
 //! * **Two things a storm does are deliberately outside the ledger**: the
 //!   field moisture write and the soil soak. Both are commented at their own
 //!   sites with why.
+//!
+//! # The sky is world-wide; what it *does* is not
+//!
+//! The held world (`cargo run --release --bin druid`,
+//! `Reports/held-world-game-concept-2026-09-13.md`) stops life everywhere
+//! except inside the circles of running time the player carries and places.
+//! Weather sat outside that gate until 2026-09-13, and a snowing held world
+//! is the whole premise falling over: drifts building, ponds freezing and a
+//! frost creeping across a country whose one claim is that nothing in it
+//! moves.
+//!
+//! **[`at`] is untouched, and that is the shape of the fix.** The sky above a
+//! held world still has weather — it is still a pure function of
+//! `(seed, frame)`, a forecast still answers, the renderer still draws the
+//! front — and every *write into the world* is gated per position on
+//! [`World::time_runs_at`]. Four of them, and they are easy to miss because
+//! only one of them looks like rain: the gust dipole in [`gust`], the
+//! sealed-box drip in `condense_under_a_lid`, the clear-night frost sweep in
+//! `hold_the_ground_cold`, and the precipitation columns in [`step`]. Each is
+//! commented at its own site with what the position means there.
+//!
+//! Per position rather than a switch on `World::held`, because a quickening
+//! is a circle of *running time* and rain falling inside one is the concept
+//! doc's own picture of the rim (§1c, §7) as well as its spell list (§6).
+//! Free when the world is not held: `time_runs_at` returns on one bool.
 
 use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::chunk::Rect;
@@ -1336,6 +1361,29 @@ pub fn planned_gust(world: &World, w: Weather) -> Option<Gust> {
 /// `organism::wind_lean_dir` leans trees, both off the field this writes to.
 fn gust(world: &mut World, w: Weather) {
     let Some(g) = planned_gust(world, w) else { return };
+    // **Held air does not move, and a gust is all-or-nothing across the
+    // rim.** The held-world gate (`World::time_runs_at`), asked at *both*
+    // poles of the dipole below rather than at the squall's centre — and
+    // that is a correctness requirement, not tidiness. Delivering one pole
+    // and gating the other is exactly the "lone positive impulse" the
+    // comment below records as measured-and-reverted: net pressure in a
+    // closed world that never reconverges, permanently unsettled field
+    // tiles, and a held world whose whole premise is that it draws for free
+    // paying `field::step`'s five-pass solve for ever.
+    //
+    // The consequence is graded rather than binary, which is what the ethos
+    // asks of it: a dipole spans `GUST_RADIUS * 2 + lead` — about 91 cells —
+    // so the player's own `CARRIED_RADIUS` 28 circle is smaller than any
+    // weather system and never catches one, while a large placed quickening
+    // does. A bubble you can walk around is smaller than the wind, and that
+    // reads as true rather than as a missing feature.
+    //
+    // `planned_gust` is deliberately left ungated: it is the forecast, and a
+    // harness asking what the sky intends should get the same answer held or
+    // not.
+    if !world.time_runs_at(g.x, g.y) || !world.time_runs_at(g.x + g.lead, g.y) {
+        return;
+    }
     // **A dipole, not a single blob.** A lone positive impulse injects net
     // pressure into a closed world, and there is nowhere for it to go: it
     // drives velocity, velocity drives advection, and the tiles around it
@@ -1444,6 +1492,16 @@ fn condense_under_a_lid(world: &mut World) {
         // this frame, which is the same all-or-nothing rule `spend_atmosphere`
         // imposes everywhere else.
         if !world.get(x, ceiling).is_empty() {
+            continue;
+        }
+        // Held ground gets no drip, asked per drop at the cell it would
+        // land in -- the same granularity `scheduler::step` gates at. A
+        // sealed box is the lab's shape and the lab is never held, so this
+        // is unreachable today and is here because the alternative is a
+        // gate that is *nearly* complete: `weather::step` has four ways to
+        // put water into the world and three of them being stopped is how a
+        // held world ends up mysteriously wet.
+        if !world.time_runs_at(x, ceiling) {
             continue;
         }
         if !world.spend_atmosphere(1.0) {
@@ -1579,6 +1637,43 @@ pub fn step(world: &mut World) {
         let Some(surface_y) = surface_under_sky(world, x, bounds.min_y, bounds.max_y) else {
             continue;
         };
+        // **Rain falls where time runs, and nowhere else.**
+        //
+        // The held-world gate (`World::time_runs_at`), asked once per
+        // column at the cell the drop actually meets — which is one test
+        // covering everything below it: the field moisture write, the soak
+        // walk, the snow chill and its five-column run, and the spawned
+        // water or snow cell. `weather::step` simulates precipitation
+        // *where it lands, not where it falls* (this function's own doc),
+        // so the landing cell is the only position this frame of weather
+        // has, and it is therefore the only place the question can be put.
+        //
+        // **Per cell rather than a switch on `world.held`**, and the
+        // concept doc settles which: *"Rain hangs in the air outside as
+        // beads and falls inside"* (§1c) and *"the rim is where the game
+        // reads"* (§7) both describe a rim rain crosses, and §6 makes the
+        // sky the druid's spell list — call rain on a bank to break its
+        // seed dormancy, call frost to kill back what is winning. A
+        // wholesale `if held { return }` deletes that list before it is
+        // built, and buys nothing: the branch below is already a loop over
+        // positions.
+        //
+        // **The rain a circle gets is the rain it would have got**, with no
+        // second constant to tune. The column budget is scaled by world
+        // *width* (see `MAX_COLUMNS_PER_FRAME`), so drops are uniform over
+        // the map and a circle keeps its own share of them — same density
+        // inside the rim as an unheld world of the same seed, just none
+        // outside it.
+        //
+        // **Filtering here cannot shift the weather.** Each column's
+        // position comes from `rng::stream(seed, tag, frame, i)`, keyed on
+        // the loop index rather than drawn from a running generator, so a
+        // rejected column leaves every other column of this frame exactly
+        // where it was. A gate placed before the draw would have made the
+        // storm itself a function of where the player is standing.
+        if !world.time_runs_at(x, surface_y) {
+            continue;
+        }
         // Rain only. Snow sits on the surface and wets nothing until it
         // melts -- at which point it becomes water and the ordinary
         // infiltration path takes over, which is both correct and one less
@@ -1737,6 +1832,16 @@ pub fn step(world: &mut World) {
                         break;
                     };
                     hint = cy;
+                    // The landing column's gate above does not cover its
+                    // neighbours: this run reaches `WATER_CHILL_RADIUS`
+                    // columns either side, so a drop landing just inside a
+                    // rim would otherwise freeze five columns of held pond
+                    // outside it. `continue`, not `break` -- the run is a
+                    // walk along the surface and a gap in the middle of it
+                    // is a gap, not the end.
+                    if !world.time_runs_at(cx, cy) {
+                        continue;
+                    }
                     hold_column_cold(world, cx, cy, bounds, snow, cold, water_cold, SNOW_CHILL_DEPTH, WATER_CHILL_DEPTH);
                 }
             }
@@ -1955,6 +2060,14 @@ fn hold_the_ground_cold(world: &mut World, w: Weather, bounds: Rect, snow: Optio
             continue;
         };
         hint = Some(y);
+        // **A held frost does not bite.** Per column, after `hint` is set:
+        // the hint is a pure read used to save the next column a full sky
+        // walk, so keeping it current across a skipped column costs nothing
+        // and stops a held world from paying a fresh walk on every column
+        // that follows a gated one.
+        if !world.time_runs_at(x, y) {
+            continue;
+        }
         hold_column_cold(world, x, y, bounds, snow, cold, water_cold, CRUST_CHILL_DEPTH, SWEEP_LIQUID_DEPTH);
     }
 }
