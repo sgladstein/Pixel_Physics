@@ -437,6 +437,11 @@
             // here is load-bearing, and it is the first thing to check if
             // trails ever stop adapting.
             (Crowding, Move, -0.3),
+            // **Rest with an end to it** -- see `ant.ron`'s note on this
+            // same row for the measurement and the arithmetic. Without it
+            // `p_move` clamps to an exact zero from which no roll can produce
+            // a step, and this species inherits that Move row unchanged.
+            (Stillness, Move, 1.5),
 
             // -- what gets laid down ---------------------------------
             // Laden ants lay the food trail; that is what makes a

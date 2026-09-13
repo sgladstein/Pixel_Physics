@@ -482,10 +482,52 @@ pub struct App {
     /// the window cannot display is remembered rather than clobbered, and
     /// comes back when the window grows.
     ///
-    /// **A runtime selector rather than a chosen constant**, per `CLAUDE.md`:
-    /// the two review cards this shipped with disagree — the lab plainly gains
-    /// and outdoor rock arguably loses its grain to smoothness — so the
-    /// default stays at today's look until the owner's verdict says otherwise.
+    /// **A runtime selector rather than a chosen constant**, per `CLAUDE.md`.
+    /// It shipped at 1 because the two cards it went out with disagreed — the
+    /// lab plainly gained, and outdoor rock arguably lost its grain to
+    /// smoothness — with the default held "until the owner's verdict says
+    /// otherwise".
+    ///
+    /// **The verdict arrived, 2026-09-13, and it is why this is 2 and not 1.**
+    /// On the real game at x1 against x2, HUD included, he chose **x2**:
+    /// *"much better wit A"* (card `20260913T100843436Z-de27a0`, A being the
+    /// x2 arm — the stored choice agrees, which is what a two-pane blind has
+    /// to be read off). On the lab bed at x1/x2/x4 he chose the finest:
+    /// *"C is best"*, C being **x4** (`20260913T083914900Z-764956`). The
+    /// outdoor card came back *"looks good"* naming no pane
+    /// (`20260913T083948135Z-0f4767`) — no preference, and, importantly, no
+    /// objection: the smoothed-grain worry that held this at 1 did not survive
+    /// his eye.
+    ///
+    /// **4, and it was briefly 2 — the correction is worth recording.** The
+    /// first reading of those verdicts set this to 2, on the grounds that x2
+    /// was the only value he had judged *in the real game*. He rejected that,
+    /// 2026-09-13: *"I am not sure what questions that I answered that suggests
+    /// zoom should be different between the games, but that doesn't seem like
+    /// what I want."*
+    ///
+    /// He is right, and the mistake is instructive: **the two cards offered
+    /// different options, so the apparent preference was an artifact of the
+    /// menu rather than of his eye.** The lab card offered x1/x2/x4 and he took
+    /// the finest; the real-game card was two panes, x1 against x2, so **x4 was
+    /// never on offer there.** Reading "x2 in the game, x4 in the lab" off that
+    /// pair is reading the cards' construction, not the player. Given the full
+    /// range he picked the finest, so the finest is the default, and **both
+    /// games get the same one.**
+    ///
+    /// **What it costs, stated because it is not free**: 1.66x the whole frame
+    /// against x2's 1.29x, for 16x the cells against 4x. It costs nothing at
+    /// ordinary zoom — at `zoom > 1`, at rung 1, and at budget 1 the scale is 1
+    /// and the frame is bit-identical by construction — so it is paid only
+    /// while pulled back. Outdoors that is every frame at the widest rung,
+    /// because the sky never stops moving and the dirty-rect skip never fires;
+    /// in the lab a settled box repaints 0 pixels and the same change measures
+    /// flat across a 16x pixel range. `+` still cycles down for anyone who
+    /// wants the cheaper rung.
+    ///
+    /// **`bin/lab.rs` does not carry this yet** — it has its own draw path and
+    /// HUD — so until it does, the two games *are* inconsistent, which is the
+    /// thing he objected to. That is being closed separately, to the same x4.
     pub pixel_budget: i32,
     /// The most buffer the *window* can actually show, in logical-pixel
     /// multiples — set by `main.rs` from the surface size, 1 until it is.
@@ -781,7 +823,7 @@ impl App {
             tool: Tool::Brush,
             drag_from: None,
             show_stress: false,
-            pixel_budget: 1,
+            pixel_budget: 4,
             pixel_scale_cap: 1,
             toast: None,
             shake_flash: None,
@@ -4314,13 +4356,27 @@ pub fn build_terrain_only(world: &mut World) {
 #[cfg(test)]
 mod tests {
 
-    /// The zoom-out pixel budget must be **invisible until asked for**: a
-    /// freshly built app draws into exactly the buffer it always did.
+    /// The zoom-out pixel budget must be **invisible until the view is
+    /// actually pulled back**: a freshly built app draws into exactly the
+    /// buffer it always did, *even though the budget now defaults to 2*.
+    ///
+    /// The budget changed from 1 to 4 on the owner's verdict (2026-09-13),
+    /// via a brief and corrected stop at 2. That moved this test's subject: the
+    /// invariant worth guarding was never *"the default is 1"* — it is **"an
+    /// ordinary frame is untouched"**, which holds because the scale is 1 at
+    /// `zoom > 1` and at rung 1 whatever the budget says. Asserting the
+    /// viewport is the claim; asserting the constant is only bookkeeping, and
+    /// it is kept here so a silent change to the shipped default is still
+    /// caught.
     #[test]
     fn the_default_app_draws_into_the_buffer_it_always_did() {
         let app = App::build(false, (256, 128), &mut |_, _| {});
-        assert_eq!(app.pixel_budget, 1);
-        assert_eq!(app.viewport(), (WIDTH, HEIGHT));
+        assert_eq!(app.pixel_budget, 4, "the shipped default, per the owner's verdict");
+        assert_eq!(
+            app.viewport(),
+            (WIDTH, HEIGHT),
+            "an app that is not zoomed out must draw into the buffer it always did"
+        );
     }
 
     /// The two terms, and which one wins. The player's choice is *remembered*
@@ -4396,6 +4452,12 @@ mod tests {
         let mut app = App::build(false, (256, 128), &mut |_, _| {});
         app.pixel_scale_cap = 4;
         app.renderer.zoom_out_stride = 4;
+        // Start from x1 explicitly rather than from whatever ships as the
+        // default. The claim here is that the key walks the ring 1 -> 2 -> 4
+        // -> 1; it is not a claim about where the ring is entered, and this
+        // test failed for that reason alone when the default moved 1 -> 2 on
+        // the owner's verdict (2026-09-13).
+        app.pixel_budget = 1;
         assert_eq!(app.cycle_pixel_budget(), 2);
         assert_eq!(app.cycle_pixel_budget(), 4);
         assert_eq!(app.cycle_pixel_budget(), 1);

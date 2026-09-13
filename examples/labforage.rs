@@ -593,7 +593,59 @@ struct Piles {
     idle_live_any: std::collections::HashMap<u16, u32>,
     idle_hist_any: std::collections::BTreeMap<u32, u64>,
     idle_max_streak_any: u32,
+    /// **Per *animal*, not pooled -- and the distinction is the whole
+    /// finding.** Owner, 2026-09-13, on being shown the 74-76% idle rate:
+    /// *"It seems to me though that 95% of the creatures on the screen are
+    /// not resting and then a few decide to rest for a large portion of the
+    /// entire gameplay. It doesn't read like a brief break that all creatures
+    /// do. It reads some creatures got frozen."*
+    ///
+    /// **He is describing a different world from the one a rate can rule out,
+    /// and both produce the same 75%**: every animal resting three-quarters
+    /// of the time in short bouts, or most animals never resting while a
+    /// quarter are frozen for the session. `CLAUDE.md`'s *a mean over events
+    /// is not a mean over the thing you care about*, one level up -- these
+    /// are a mean over *animals*, and the two tails are the claim.
+    ///
+    /// `seen`/`idle_stops` give each animal its own idle fraction;
+    /// `best_streak` its longest run; and the `came_back`/`never_came_back`
+    /// pair is the **latch test**: a rest the world can no longer end shows
+    /// up as *"once an animal goes quiet it is never seen moving again"*,
+    /// which no aggregate over the population can show.
+    seen: std::collections::HashMap<u16, u32>,
+    idle_stops: std::collections::HashMap<u16, u32>,
+    best_streak: std::collections::HashMap<u16, u32>,
+    /// Long runs (>= `LATCH_MIN` stops) that ended because the animal was
+    /// next seen somewhere else -- it came back.
+    long_runs_ended_by_moving: u64,
+    /// **Distinct animals that were ever observed moving *after* a long run
+    /// of their own, against those that had one and never were** -- and the
+    /// difference of the two sets is the latch count.
+    ///
+    /// Counted per *animal* rather than per run, which is the version of this
+    /// that answers the question: an animal with three long runs that came
+    /// back twice and then stopped for good is one latched animal, and a
+    /// per-run tally would score it 2/3 "fine".
+    came_back: std::collections::HashSet<u16>,
+    had_long_run: std::collections::HashSet<u16>,
+    /// **What tells a frozen animal from a busy one at the moment it is
+    /// frozen** -- the fourth thing the owner's reading asks for. Summed over
+    /// readings rather than animals, so they are weighted by how long each
+    /// state lasted, which is the honest weighting for "what is on screen".
+    deep_idle_energy_sum: f64,
+    deep_idle_n: u64,
+    deep_idle_laden: u64,
+    moving_energy_sum: f64,
+    moving_n: u64,
+    moving_laden: u64,
 }
+
+/// **How long a run has to be before it counts as "this animal went quiet"**,
+/// in census stops. Five stops is 4,500 frames at the shipped `sample=900` --
+/// comfortably past any ordinary pause and well inside the tens of thousands
+/// of frames `open-bugs-handoff.md` §Z13 measured, so it separates the two
+/// readings of the idle rate rather than sitting on the boundary of either.
+const LATCH_MIN: u32 = 5;
 
 impl Piles {
     /// One stop. Returns the largest clump at this instant, for the
@@ -633,11 +685,35 @@ impl Piles {
             if let Some(h) = head_now {
                 let stood = self.heads.get(&id) == Some(&h);
                 let long_body = world.organism(id).is_some_and(|st| st.chain.len() >= 3);
+                // **One reading of one animal** -- the per-animal denominator.
+                // Counted here rather than inside the `stood` branch so an
+                // animal that never rests still has a denominator; without
+                // that, an idle fraction is over the animals that idled,
+                // which is the question begging its own answer.
+                *self.seen.entry(id).or_default() += 1;
+                // Raw joules rather than a fraction of the founding grant:
+                // `start_energy` lives on `CreatureDef`, and looking it up
+                // per animal per stop would be a species hash in the census
+                // for a number the two populations are compared against each
+                // other on anyway.
+                let energy = world.organism(id).map_or(0.0, |st| st.energy as f64);
+                let laden = world.organism(id).is_some_and(|st| st.crop.is_some());
                 if stood {
                     if b.open > 0 {
                         self.idle_with_room += 1;
+                        *self.idle_stops.entry(id).or_default() += 1;
                         let any = self.idle_live_any.get(&id).copied().unwrap_or(0) + 1;
                         self.idle_max_streak_any = self.idle_max_streak_any.max(any);
+                        let best = self.best_streak.entry(id).or_default();
+                        *best = (*best).max(any);
+                        if any >= LATCH_MIN {
+                            self.had_long_run.insert(id);
+                            // Weighted by readings, so a state that lasts
+                            // longer counts for more -- see the field's doc.
+                            self.deep_idle_energy_sum += energy;
+                            self.deep_idle_n += 1;
+                            self.deep_idle_laden += u64::from(laden);
+                        }
                         next_idle_any.insert(id, any);
                         if long_body {
                             self.idle_with_room_long += 1;
@@ -648,6 +724,18 @@ impl Piles {
                     }
                 } else {
                     self.moving += 1;
+                    self.moving_energy_sum += energy;
+                    self.moving_n += 1;
+                    self.moving_laden += u64::from(laden);
+                    // **The latch test.** The animal is somewhere else, so
+                    // whatever run it was in has ended *by moving* rather
+                    // than by dying or by the run stopping. Read the live
+                    // counter before it is dropped: `next_idle_any` does not
+                    // get an entry this stop, which is how the streak ends.
+                    if self.idle_live_any.get(&id).copied().unwrap_or(0) >= LATCH_MIN {
+                        self.long_runs_ended_by_moving += 1;
+                        self.came_back.insert(id);
+                    }
                 }
                 next_heads.insert(id, h);
             }
@@ -2386,6 +2474,121 @@ fn main() {
         piles.idle_hist_any.values().sum::<u64>(),
         piles.idle_max_streak_any,
         piles.idle_streak_p90_any()
+    );
+    // **What the move drive itself was**, over every creature decision tick
+    // of the run -- the probe §Z13 named and left for whoever owns
+    // `src/sim/creature.rs`. Bucket 0 is the exact zero, and `p_move_zero_pct`
+    // is the share of decisions from which no roll could ever have produced a
+    // step. See `CreatureStats::p_move_hist`.
+    let ph = world.creature_stats.p_move_hist;
+    let ph_n: u64 = ph.iter().sum();
+    println!(
+        "SUMMARY p_move_hist n={ph_n} buckets(0=exactly_zero,1..10=(0,0.1]..(0.9,1.0])={ph:?} p_move_zero_pct={:.1}",
+        100.0 * ph[0] as f64 / ph_n.max(1) as f64
+    );
+    // **How long a rest actually lasted** -- the owner's own question,
+    // 2026-09-13, and the only readout here that can show whether the rest
+    // mechanism has a middle. See `CreatureStats::rest_bout_hist`; ticks, so
+    // multiply by the species' `tick_interval` (6 for an ant) for frames.
+    // `p50`/`p90`/`max_bucket` are read off the buckets, so they are the
+    // *lower edge* of the bucket the percentile falls in -- an order
+    // statistic, per `CLAUDE.md`, and deliberately not a mean over a
+    // distribution this skewed.
+    let rb = world.creature_stats.rest_bout_hist;
+    let rb_n: u64 = rb.iter().sum();
+    let edge = |b: usize| if b == 0 { 0u64 } else { 1u64 << (b - 1) };
+    let pct = |p: f64| {
+        let want = (rb_n as f64 * p) as u64;
+        let mut run = 0u64;
+        for (b, &c) in rb.iter().enumerate() {
+            run += c;
+            if run >= want {
+                return edge(b);
+            }
+        }
+        0
+    };
+    let longest = rb.iter().rposition(|&c| c > 0).unwrap_or(0);
+    println!(
+        "SUMMARY rest_bouts n={rb_n} ticks_hist(bucket i = 2^(i-1)..2^i ticks)={rb:?} \
+         rest_p50_ticks={} rest_p90_ticks={} rest_max_bucket_ticks={} rest_over_1024_ticks={}",
+        pct(0.5),
+        pct(0.9),
+        edge(longest),
+        rb[11..].iter().sum::<u64>()
+    );
+    // **The hole in the histogram above, closed.** A bout is counted when it
+    // *ends*, so an animal that stops and never moves again contributes
+    // nothing to it -- and that animal is precisely §Z13's complaint. This
+    // is the other side: how long the living have been standing at the
+    // moment the run stops. On the unchanged tree it is the same tens of
+    // thousands of frames `idle_streak_max_*` reports from the outside.
+    let mut standing: Vec<u16> = world
+        .live_organism_ids()
+        .iter()
+        .filter(|id| pixel_physics::sim::creature::head_block(&world, **id).is_some())
+        .filter_map(|id| world.organism(*id).map(|st| st.still_ticks))
+        .collect();
+    standing.sort_unstable();
+    let at = |p: f64| standing.get(((standing.len() as f64 * p) as usize).min(standing.len().saturating_sub(1))).copied().unwrap_or(0);
+    // **The per-animal distribution, which is what the pooled rate cannot
+    // give** -- see `Piles::seen`. Only animals with at least ten readings
+    // are scored: an animal seen twice has an idle fraction of 0, 0.5 or 1
+    // by construction, and a histogram of those is a histogram of short
+    // lives. `CLAUDE.md`'s *ask what your number counts when nothing is
+    // wrong*: on a bed where every animal rests in brief bouts this piles up
+    // in the middle deciles, and on one where a few are frozen it is bimodal.
+    let mut fracs: Vec<f64> = piles
+        .seen
+        .iter()
+        .filter(|(_, &n)| n >= 10)
+        .map(|(id, &n)| piles.idle_stops.get(id).copied().unwrap_or(0) as f64 / n as f64)
+        .collect();
+    fracs.sort_by(|a, b| a.partial_cmp(b).expect("no NaN: both are finite ratios"));
+    let mut deciles = [0u64; 10];
+    for f in &fracs {
+        deciles[((f * 10.0) as usize).min(9)] += 1;
+    }
+    let over90 = fracs.iter().filter(|f| **f >= 0.9).count();
+    let under10 = fracs.iter().filter(|f| **f < 0.1).count();
+    // **The latch test.** `never` is animals that had a long run and were
+    // never once seen elsewhere afterwards -- they went quiet and stayed
+    // quiet. A rest the world can end reads near 0 here; a latch reads near
+    // the whole of `had_long_run`.
+    let never: Vec<u16> = piles.had_long_run.difference(&piles.came_back).copied().collect();
+    // **The confound in `never`, closed.** An animal that goes quiet and then
+    // dies of old age a stop later is "never seen moving again" without
+    // anything having latched. What separates the two is **how long it stood
+    // there**: these are the longest runs those animals achieved, so a median
+    // in the tens of stops is an animal that was alive and frozen for tens of
+    // thousands of frames, not one that went quiet on its way out.
+    let mut never_streaks: Vec<u32> = never.iter().filter_map(|id| piles.best_streak.get(id).copied()).collect();
+    never_streaks.sort_unstable();
+    println!(
+        "SUMMARY per_animal n={} idle_fraction_deciles={deciles:?} over_90pct_idle={over90} under_10pct_idle={under10} \
+         idle_fraction_p50={:.3} idle_fraction_p90={:.3} \
+         animals_with_a_long_run={} of_those_never_seen_moving_again={} long_runs_ended_by_moving={} \
+         never_returned_best_streak_p50={} never_returned_best_streak_max={} \
+         deep_idle_mean_energy={:.0} deep_idle_pct_laden={:.1} moving_mean_energy={:.0} moving_pct_laden={:.1}",
+        fracs.len(),
+        fracs.get(fracs.len() / 2).copied().unwrap_or(0.0),
+        fracs.get(fracs.len() * 9 / 10).copied().unwrap_or(0.0),
+        piles.had_long_run.len(),
+        never.len(),
+        piles.long_runs_ended_by_moving,
+        never_streaks.get(never_streaks.len() / 2).copied().unwrap_or(0),
+        never_streaks.last().copied().unwrap_or(0),
+        piles.deep_idle_energy_sum / piles.deep_idle_n.max(1) as f64,
+        100.0 * piles.deep_idle_laden as f64 / piles.deep_idle_n.max(1) as f64,
+        piles.moving_energy_sum / piles.moving_n.max(1) as f64,
+        100.0 * piles.moving_laden as f64 / piles.moving_n.max(1) as f64,
+    );
+    println!(
+        "SUMMARY standing_now n={} still_ticks_p50={} still_ticks_p90={} still_ticks_max={}",
+        standing.len(),
+        at(0.5),
+        at(0.9),
+        standing.last().copied().unwrap_or(0)
     );
     if let Some(p) = probe.as_ref() {
         p.report();
