@@ -208,6 +208,7 @@ fn main() {
         // [RootTip, MatureBody, GrowingTip, Leaf, DormantBud, other-owned, UNOWNED]
         let mut grid_by_type = [0usize; 7];
         let mut grid_sod = 0usize;
+        let (mut shoot_above, mut shoot_above_rootlike) = (0usize, 0usize);
         let mut grid_sky = 0usize;
         let mut grid_hits: Vec<(i32, i32, i32, bool)> = Vec::new();
         // Resolved once per world, not per cell: `id_of` is a string hash.
@@ -217,6 +218,37 @@ fn main() {
                 let surf = surface_y(&world, x);
                 for y in b.min_y..=b.max_y {
                     let cell = world.get(x, y);
+                    // **All living tissue above the soil line, whatever it is
+                    // made of** -- and this census exists because the owner
+                    // asked the question the root-material count cannot
+                    // answer.
+                    //
+                    // The tissue-role fix does not refuse the conversion a
+                    // plant evolved, and does not stop the shoot growing: it
+                    // only changes what that shoot is *made of*. So
+                    // "root-material cells above the soil line: 761 -> 13" is
+                    // consistent with two very different worlds -- the shoot
+                    // still standing there in wood, or the shoot never having
+                    // grown at all. Both give the same number, and the
+                    // below-ground control does not separate them because it
+                    // looks the wrong way.
+                    //
+                    // This counts every organism-owned cell above the surface,
+                    // by material class rather than by role. If the fix works
+                    // the way it is claimed to, WOOD above ground rises by
+                    // about what root material lost, and the total barely
+                    // moves. `CLAUDE.md`: *look again after the fix, for what
+                    // you did not measure.*
+                    if cell.organism_id() != 0 {
+                        if let Some(surf) = surf {
+                            if surf - y > 2 {
+                                shoot_above += 1;
+                                if world.materials.get(cell.material).reinforces_powder {
+                                    shoot_above_rootlike += 1;
+                                }
+                            }
+                        }
+                    }
                     if !world.materials.get(cell.material).reinforces_powder
                         || !matches!(world.materials.kind(cell.material), MaterialKind::Plant)
                     {
@@ -289,6 +321,11 @@ fn main() {
                 }
             }
         }
+        println!(
+            "           ALL living tissue above the soil line: {shoot_above} cells, of which {shoot_above_rootlike} are root material \
+({} are not) -- the count that says whether the shoot is still THERE, not merely no longer pale",
+            shoot_above - shoot_above_rootlike
+        );
         let gpct = if grid_roots > 0 { 100.0 * grid_above as f64 / grid_roots as f64 } else { 0.0 };
         println!(
             "           GRID: {grid_roots:>6} root-tissue cells, {grid_above:>5} above the soil line ({gpct:>5.1}%), \
