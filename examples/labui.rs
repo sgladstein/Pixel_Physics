@@ -39,7 +39,11 @@ fn main() {
             // 1536 pixels wide and every viewer that opens it scales it down,
             // which is exactly the wrong thing to do to a page of 5x7 glyphs:
             // the sheet answers "is the bar right" and cannot answer "can you
-            // read this row". `only=` picks the tiles whose title contains it.
+            // read this row". `only=` picks the tiles whose title contains it,
+            // **case-sensitively, against the tile titles below (`PAGE:
+            // Log`, `{panel:?}`'s own debug spelling)** -- `only=LOG` matches
+            // nothing and prints nothing, where `only=Log` is what a title
+            // built from `{panel:?}` actually reads.
             Some(("split", v)) => split = v == "1",
             Some(("only", v)) => only = Some(v.to_string()),
             // **How many chambers the rack holds.** The tab strip is bar
@@ -1340,6 +1344,28 @@ fn main() {
 
     leave_open_panel(&mut lab);
 
+    // **LOG, after every writable dial has just been walked upward above.**
+    // Round 31's own gap: `LogKind::PlayerAction` writes into this page and
+    // nothing here had ever rendered it -- the loop at the top of this file
+    // covers PLANTS/ANTS/BOX and MENU has ten more rows, LOG among them, but
+    // `only=Log` came back a zero-height sheet because no tile existed to
+    // filter down to. The params sweep just above pushes one `PlayerAction`
+    // line per writable parameter it moved, so this tile shows the page
+    // under its realistic worst case for row width -- a real dial's name
+    // and value, not a synthetic long string -- rather than an empty log.
+    leave_open_panel(&mut lab);
+    {
+        let at = reach(&mut lab, Action::Panel(Panel::Log));
+        click(&mut lab, at);
+        fired.push(format!("click opened LOG: {}", lab.ui.panel == Some(Panel::Log)));
+        let player_actions =
+            lab.world.run_log.recent().filter(|e| e.kind == pixel_physics::sim::world::LogKind::PlayerAction).count();
+        fired.push(format!("LOG: {player_actions} player-action line(s) in the run log after the params sweep"));
+        lab.set_cursor(Some((at.0 + 20, pixel_physics::lab::ui::bar_top() - 60)));
+        tiles.push(("PAGE: Log".into(), shot(&mut lab)));
+    }
+    leave_open_panel(&mut lab);
+
     // **The specimen**, both kingdoms. The cell page grows the individual's
     // own rows under the cell's, and the two kingdoms carry different state —
     // a plant has a genotype and an allele set, an animal has body traits and
@@ -1461,6 +1487,19 @@ fn main() {
         Some(want) => tiles.into_iter().filter(|(t, _)| t.contains(want.as_str())).collect(),
         None => tiles,
     };
+    // **A refusal, not a panic three layers down.** `only=` matching nothing
+    // used to reach `write_sheet` with an empty `Vec` and fail inside the
+    // `image` crate as "Zero height not allowed" -- true, but it names the
+    // wrong problem and costs a search through code that never runs a
+    // zero-height image on purpose. `only=` is case-sensitive against the
+    // tile titles (see its own doc above), which is the usual reason for
+    // landing here.
+    if let Some(want) = &only {
+        if tiles.is_empty() {
+            eprintln!("labui: only={want:?} matched no tile -- titles are case-sensitive, e.g. `only=Log` not `only=LOG`");
+            std::process::exit(2);
+        }
+    }
     if split {
         let stem = out.strip_suffix(".png").unwrap_or(&out);
         for (title, frame) in &tiles {
