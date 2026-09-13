@@ -6,7 +6,7 @@ that survives.**
 
 ## Context
 
-`Reports/dead-ends.md` holds 773 entries recording approaches this project tried
+`Reports/dead-ends.md` holds 807 entries recording approaches this project tried
 and rejected. It stops sessions re-walking dead ends, and it works. It has no
 mechanism for noticing when a rejection has gone **stale** — and 97% of entries
 describe a world older than the 2026-09-06 coupling day.
@@ -22,10 +22,23 @@ was **confounded** (a creature test that failed because plants reacted), or the
 
 ## Landed so far — **screening is complete, and the tables are now true**
 
-**State 2026-09-12: the review's Part A is done except the adjudication of its
-blind re-rating; Part B shipped as `--touching`; Part C's instrument and both
-its baselines are on `claude/plants-124-crown` (PR #361).** The 2026-09-11
-figures below are kept in their own column, because every one of them moved.
+**State 2026-09-13: all four Parts of the review are done.** Part A complete
+including the blind re-rating and the adjudication of all 71 disagreements;
+Part B shipped as `--touching`; Part C's instrument, both its baselines, the
+mechanism and the owner's verdict on it are on `claude/plants-124-crown`
+(PR #361). The 2026-09-11 figures below are kept in their own column, because
+every one of them moved.
+
+**Every published count was reconciled against the file on 2026-09-13**, which
+was Part A step 5's last item and had been left undone. Four documents quoted
+these numbers and no two agreed: the revival report's "09-11" column was the
+table that page first published rather than its own data (wrong in five of ten
+rows), two documents were a commit stale, `Reports/README.md` said the register
+holds 546 entries, and the candidate chain was quoted as a single delta by three
+different numbers. **The register's own total is now generated** — `--check`
+sums the per-section `##` headings against the entries it parses and `docscheck`
+runs it, so a stale total is a red gate rather than a sentence nobody
+re-counts.
 
 All 807 register entries carry a verdict — 805 distinct keys, and the only two
 that share are the genuine duplicate pairs the register deliberately carries.
@@ -96,6 +109,17 @@ left:
    the **68 entries with no clause at all**, 50 of which name a source file:
    those are invisible to any name-matching rule by construction, and giving
    them a clause is the only thing that closes it.
+4. **One measurement is owed to a structural session, not to this lane.**
+   `destruction:050` is annotated rather than resolved: `CRACK_DETACH_DEPTH` is
+   **1** in `src/sim/structural.rs:4808` while the entry says "constants are
+   back at 3 and 2" and the constant's own doc comment argues against 1. Half
+   the rejected narrowing shipped in `fcc98739` for an unrelated reason and
+   nobody reconciled it. What is owed is the re-run §1b asked for — the
+   footprint experiment on `worldcrack`/`flat`, where there is no column for the
+   since-fixed column-moment defect to dominate — and it is now only the
+   `DETACH_DEPTH` half. Two other documents
+   (`Reports/destruction-plan.md:233`, `Reports/load-model-fit-review.md:527`)
+   still describe the crack depth as 2.
 
 ## What a later session must not re-derive
 
