@@ -2577,6 +2577,19 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   Carries the round's standing rulings: the review queue is for the eye only,
   Fable is twice Opus, and a conservation failure is a question about the
   ruler first.
+- [evolution-lab-round-32-2026-09-13.md](evolution-lab-round-32-2026-09-13.md)
+  — **record, 2026-09-13. IN PROGRESS while the round runs.** The coordinator's
+  account of round thirty-two, the performance round: the owner's stated #1
+  priority, sized before the round opened by his own 560,000-frame playtest.
+  Four lanes — the late-game creature cost, the five dead census columns, the
+  spoil teleport with §Z13, and zoom-out, which he raised to a priority
+  mid-round. What it overturned before any lane reported: **the cost is not
+  linear in ant count.** Refitting the raw log puts an ant at **0.27 µs below
+  ~450** and **2.6–2.9 µs above ~600**, so the handed-over `2.1 µs/ant` is an
+  average across a bend that describes neither side of it — and a lane
+  calibrating below the knee would have read its own harness as broken. Also
+  records two owner verdicts that existed only in the review queue, including
+  *"Are they resting or stuck?"* — the question asked back at us.
 - [evolution-lab-round-31-2026-09-13.md](evolution-lab-round-31-2026-09-13.md)
   — **record, 2026-09-13. IN PROGRESS while the round runs.** The coordinator's
   account of round thirty-one: five lanes on the brief's five tasks. What it
