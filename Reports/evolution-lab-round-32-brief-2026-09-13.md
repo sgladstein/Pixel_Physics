@@ -10,9 +10,19 @@ invalidates the premise of at least three open register sections.
 landed 2026-09-13 by another session). Read it for the spawn/poke/close
 mechanics; this brief carries only what is specific to round 32.
 
+**Round 32 is a performance round.** The owner, 2026-09-13: *"The biggest
+issue is the performance after the creature numbers get high and that is our
+#1 priority by far."* The tasks below are in his order, not round 31's — the
+bed-building task that used to be first is gone, because **he has since played
+a 560,000-frame session and handed the chronicle over**, and it is committed
+at `Reports/data/playtest-2026-09-13-herb_longant-s1-560k.txt` with its
+analysis in
+[`evolution-lab-playtest-2026-09-13.md`](evolution-lab-playtest-2026-09-13.md).
+Read that report before task 1.
+
 **Trunk state this brief was written against.** Round 31 landed **#370, #371,
-#372, #373, #374, #375, #376**, with **#379** (the dug pellet needs a footing)
-and **#380** (the idle-anim clock) reviewed and closing behind them. So on
+#372, #373, #374, #375, #376, #379** (the dug pellet needs a footing) and
+**#380** (the idle-anim clock). So on
 today's `main`: the chronicle records player actions and load and autosaves;
 the MENU rows draw as buttons; the ant lifespan and every played-bed number
 have been re-taken post-cull; and `spoil` is a distinct material from
@@ -20,67 +30,106 @@ have been re-taken post-cull; and `spoil` is a distinct material from
 1,664 / 0 / 70 at `047df5c6` and has grown since, and any played-bed figure in
 a report dated before 2026-09-13 was measured through the seed cull.
 
-## Task 1 — build a bed that looks like the owner's game
+## Task 1 — the late-game performance deep-dive. This is the round.
 
-**Everything else in this brief is downstream of this, and most of the open
-register is untrustworthy until it exists.**
+**The owner's words, 2026-09-13: *"The biggest issue is the performance after
+the creature numbers get high and that is our #1 priority by far."* Everything
+below task 2 is secondary to this.**
 
-Round 31 established, by measurement and then by the owner's own eye, that
-**no bed this project can currently generate resembles the one he plays.**
+**It is already sized, and you do not have to guess at a bed.** He played a
+560,000-frame session and handed the chronicle over; the analysis is
+[`evolution-lab-playtest-2026-09-13.md`](evolution-lab-playtest-2026-09-13.md)
+and the raw file is committed at
+`Reports/data/playtest-2026-09-13-herb_longant-s1-560k.txt`. **Read that report
+before opening the log.** What it establishes:
 
-| | ants |
-|---|---|
-| the owner's ordinary late game | **1000+ long ants** |
-| `played_bed`, shipped settings, 200,000 frames | median **111**, max **408** |
-| the largest single run in a 75-run sweep | **1,067**, once, `life_half_life: 80000` seed 8 |
+- **cost ≈ 1.0 ms/tick + ~2.1 µs per ant per tick**, fitted on the lower
+  envelope of his own wall clock. At 3,000 ants the creatures are **86% of the
+  frame** and everything else together is about a millisecond.
+- **It is not the cell sweep.** Cost rose 6.3x while `active sites` rose 2.2x,
+  and at one sample sites are at their session **minimum** while cost is flat.
+- **It is not the renderer.** `draws skipped` is **2 → 10 across all 560,000
+  frames**.
+- **`debt` and achieved-against-requested carry no information in that log** —
+  the dial asked 6,144 ticks/frame and the box did 95 with *zero ants*, so both
+  are saturated from the first sample. Read absolute throughput.
 
-His verdict on the most developed nest round 31 could render — `played_bed`
-seed 3, 150,000 frames, 74 ants — was *"None of this reads as an ant hill
-though it just looks like herbs growing in dirt."*
+**So the target is the per-creature pass and the number to beat is 2.1 µs per
+ant per tick.** Halving it roughly doubles the population he can play at.
 
-**The input you will have that round 31 did not: a real chronicle file.**
-#374 gave the chronicle player actions, autosave, and nine load/cost columns
-(wall clock, awake chunks, active sites, achieved against requested ticks,
-`sim_debt`, speed multiple, display rate, draws skipped). The owner has agreed
-to play a session to the point where it hurts and hand the file over. **Ask
-the coordinator for it; do not post a card asking him** (see the standing
-rulings below).
+**What the log cannot do, and do not try to make it**: localise the cost inside
+that pass. Adjacent samples at equal ant count differ **12–14x** because he was
+using the machine — `CLAUDE.md`'s *a timing number is only as trustworthy as
+the box was quiet*, and it means no single interval is evidence of anything.
+**Replay his bed headlessly on a quiet box**: `RAYON_NUM_THREADS` pinned,
+`scale_probe phases=` for the breakdown, arms compared inside one run. His
+scenario is `herb_longant` seed 1 with the box height raised to 512 and
+`PLANT_LOAD_FAILURE false`; the log's own header states all of it.
 
-From that file, build a scenario that reaches his scale, and **prove it does**
-before anything is measured on it. Then re-open, on that bed and not before:
-§Z18 (floating debris), §Z13 (resting reads as stuck), and the stripped-ground
-complaint in task 3.
+**Quote the whole-frame figure, never a sub-phase.** This repo has a measured
+case of a change that removed 91% of a phase's work, moved every per-pass
+timing, and made the frame **slower** — the cost relocated to cold misses. And
+`ascii` cannot answer anything Lab-side: it drives `sim::frame::step` on a bare
+`World` and never reaches `Lab::tick`.
 
-## Task 2 — the late-game performance deep-dive
+**The perf line's handed-forward list** is the ~21% in the kernel and rayon,
+then the moisture pass, then the pheromone `roundf` (which is *not*
+behaviour-free) — but that list predates this measurement and **the log says
+the creature pass dominates**, so treat the list as second.
 
-**The owner asked for this directly and it is the reason task 1 exists.** He
-reports the game struggling with 1000+ long ants.
+**Model: Opus, not Fable.** The difficulty is measurement discipline, not
+reasoning depth, and this repo's history of timing numbers that were correct
+and about the wrong thing is long.
 
-**Do not start it on a 400-ant bed.** With task 1's bed and his chronicle:
+## Task 2 — the chronicle cannot describe a nest, and five columns say so
 
-- read `sim_debt`, achieved-against-requested and `draws_skipped` out of his
-  own session first — that says whether he is sim-bound or render-bound, and
-  it is the fork everything else hangs on;
-- **read `speed_multiple` beside every one of those** — the same achieved rate
-  means opposite things at 1X and at the top of the ladder;
-- the perf line's handed-forward list is the **~21% in the kernel and rayon**,
-  then the moisture pass, then the pheromone `roundf` (which is *not*
-  behaviour-free);
-- per-phase timing belongs in `scale_probe phases=`, headless, **never in the
-  live loop** — round 31 deliberately kept stopwatches out of `Lab::tick`.
+**Five census columns are each a single constant across all 56 samples of a
+560,000-frame session with 2,982 ants and 356,688 digs:**
 
-**Model: Opus, not Fable.** See the rulings below — the difficulty here is
-measurement discipline, not reasoning depth, and this repo's history of
-timing numbers that were correct and about the wrong thing is long.
+| column | value in all 56 samples | what it should say |
+|---|---|---|
+| `roofed` | **0** | empty cells with ground over them — *a nest exists* |
+| `pit` | **0** | standing void that is not roofed |
+| `pack<` | **0** | worked soil below the surface — the gallery lining |
+| `mnd` | **48** | mound height in rows — reads 48 at **zero** mound cells |
+| nest band | **`0/0`** | the band every band-scoped column is measured over |
 
-## Task 3 — land recovery behind a colony
+`roofed` is the column `CLAUDE.md` names as *the* one to read for excavation —
+*"what a player calls a nest is roofed void"* — and it is answering nothing.
+**The likely common cause is the last row**: the nest band is empty, so
+everything scoped to it measures an empty set. That is probably one fix, not
+five. `pack^` works and is the only structural column that does.
 
-The owner's playtest report, 2026-09-13: ants find a herb patch, feed, breed,
-dig, **eat it clean**, and move on; the abandoned nest never regrows, though a
-hand-planted herb there grows fine.
+**Watch each one go red before you trust it**: construct a world with a known
+roofed chamber and confirm the repaired column reports it, then delete the
+chamber and confirm it drops. A column that reads 0 everywhere passes any test
+that only checks it does not crash.
 
-**Eating a patch clean and moving on is foraging, not a bug. The bug is that
-the land does not recover behind them** — and that is a plant problem.
+This is small and it gates every future log the owner sends, so do it early
+and land it on its own rather than behind task 1.
+
+## Task 3 — recovery is slow, not absent. The premise changed; read this first.
+
+**This task was written on a premise the owner's own 560,000-frame log
+refutes, and it is left here re-aimed rather than deleted.** The premise was
+his earlier report — *the abandoned nest never regrows, though a hand-planted
+herb there grows fine*. At session length the bed does come back:
+
+| frame | bare ground outside the nest | plants |
+|---|---|---|
+| 40,000 | **2%** | 277 |
+| 180,000 | **56%** | 24 |
+| 500,000 | **6%** | **409** |
+
+It strips to 56% bare and returns to 6%, ending with **more** plants than its
+original peak. **Recovery from the trough takes about 320,000 frames** — long
+enough that every earlier look at this question was taken before it happened,
+which is exactly how it read as "never".
+
+**So the question is no longer "does it recover" but "should it take that
+long", and that is the owner's call, not a bug to fix blind.** Put it to him
+through the coordinator before building anything. What follows is the measured
+cause list if he says it is too slow — do not act on it otherwise.
 `Reports/plant-reseeding-2026-09-03.md` already measured four causes ahead of
 dispersal, which is only a 1.4x effect:
 
@@ -149,7 +198,15 @@ queue"* from exactly that mistake, and told a lane the check was impossible.
 
 **And a resting ant's idle streaks run 33–83 stops of 900 frames**, so a card
 must be long enough to show both the animation cycling and an animal that has
-not moved in 50,000 frames. Round 31's second card is 6,000 ticks and posted;
+not moved in 50,000 frames.
+
+**One hard floor for any card of nest structure, now measured rather than
+guessed: 400,000+ frames.** The playtest log shows mound cells at **exactly
+zero for the first 350,000 frames**, then 33 at 360,000, reaching 8,352 by
+560,000. Round 31's §Z18 card drew *"none of this reads as an ant hill"* at
+**150,000 frames** — 210,000 frames before the first mound cell existed. The
+bed was not the whole problem; the card was taken before the thing it was
+meant to show had been built. Round 31's second card is 6,000 ticks and posted;
 collect its verdict before shooting another.
 
 ## Task 5 — the spoil teleport, and PR #221, which must not go invisible twice
