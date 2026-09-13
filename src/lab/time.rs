@@ -242,12 +242,20 @@ pub struct TimeControl {
     // ---- the box's own "look at this", added on top of the dial above.
     /// Which automatic reaction a notable event gets. See [`Reaction`].
     pub react: Reaction,
-    /// Bitmask over `LogKind`'s discriminant (`1 << kind as u8`), naming
+    /// Bitmask over `LogKind`'s discriminant (`1 << kind as u16`), naming
     /// which kinds count as notable for this box. Starts as exactly
     /// [`notable`]'s own set ([`default_react_on`]), computed once at
     /// construction rather than read live so a harness or a player can arm
     /// or disarm one kind at a time without re-deriving the whole mask.
-    pub react_on: u8,
+    ///
+    /// **`u16`, not `u8`.** `LogKind::PlayerAction` (round 31) is the ninth
+    /// variant, and `log_kind_bit` reads `kind as u16` as a shift amount --
+    /// a ninth bit does not fit an 8-bit mask, and the old `1u8 << 8` was a
+    /// shift-overflow panic in a debug build. `PlayerAction` is deliberately
+    /// left out of `default_react_on`'s own list below (see its doc), so
+    /// this widening changes no default; it only stops the ninth kind from
+    /// being unrepresentable at all.
+    pub react_on: u16,
     /// Real time left before a LINGER climbs back to `restore_requested`.
     /// `None` when no linger is in force -- distinct from `Duration::ZERO`,
     /// which `plan` would otherwise read as "restore this frame" on every
@@ -364,11 +372,11 @@ pub fn notable(kind: LogKind) -> bool {
 }
 
 /// Bit `i` of [`TimeControl::react_on`] is the `LogKind` whose discriminant
-/// is `i`, in declaration order -- computed from `kind as u8` rather than
+/// is `i`, in declaration order -- computed from `kind as u16` rather than
 /// hand-assigned, so a `LogKind` that grows or reorders cannot silently
 /// misalign the bit and the kind it is supposed to name.
-fn log_kind_bit(kind: LogKind) -> u8 {
-    1u8 << (kind as u8)
+fn log_kind_bit(kind: LogKind) -> u16 {
+    1u16 << (kind as u16)
 }
 
 /// [`TimeControl::react_on`]'s starting value: [`notable`] applied to every
@@ -379,7 +387,15 @@ fn log_kind_bit(kind: LogKind) -> u8 {
 /// file split gives to a different lane (`CLAUDE.md`, *working alongside
 /// another session*). Grows the same day `notable`'s own doc comment says
 /// to.
-fn default_react_on() -> u8 {
+///
+/// **`PlayerAction` (round 31) is deliberately not in this list**, even
+/// though `notable(PlayerAction)` is `true` (`is_line_event()` says so). The
+/// clock reacting to the player's *own* action -- yanking the camera or
+/// pausing because they just changed the speed dial themselves -- has
+/// nothing to point at (`PlayerAction` carries no position) and nothing to
+/// tell the player that they do not already know. A player who wants the
+/// dial to react on it can still arm it by hand through `react_on` directly.
+fn default_react_on() -> u16 {
     [
         LogKind::Born,
         LogKind::Died,
@@ -392,7 +408,7 @@ fn default_react_on() -> u8 {
     ]
     .into_iter()
     .filter(|&k| notable(k))
-        .fold(0u8, |mask, k| mask | log_kind_bit(k))
+        .fold(0u16, |mask, k| mask | log_kind_bit(k))
 }
 
 impl Default for TimeControl {

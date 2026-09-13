@@ -151,7 +151,9 @@ fn main() {
     }
 
     // Newest-first on the log; a story reads the other way.
-    let mut events: Vec<_> = world.run_log.recent().copied().collect();
+    // `.cloned()`, not `.copied()` -- `LogEvent` lost `Copy` when
+    // `LogKind::PlayerAction` (round 31) added a `detail: String` field.
+    let mut events: Vec<_> = world.run_log.recent().cloned().collect();
     events.reverse();
     let mut counts = std::collections::BTreeMap::<&'static str, u32>::new();
     let mut legend = std::collections::BTreeMap::<&'static str, String>::new();

@@ -1049,6 +1049,7 @@ mod tests {
             other: 0,
             lineage: 0,
             generation: 0,
+            detail: String::new(),
         };
         let mut parent = bed().build();
         crate::lab::earth_toned_nest(&mut parent);

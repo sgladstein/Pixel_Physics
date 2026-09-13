@@ -61,13 +61,24 @@ pub use crate::app::{HEIGHT, WIDTH};
 /// than in `ui`, because the downscale happens here.
 const THUMB_SHRINK: u32 = 4;
 
-/// **Today's date, as `YYYY-MM-DD`, UTC.** No date crate in this workspace
-/// (`Cargo.toml` carries nine dependencies and none of them tell time in
-/// calendar units), so this is Howard Hinnant's small, well-known
-/// days-since-epoch civil-calendar conversion rather than a new dependency
-/// for one filename. Proleptic Gregorian, correct for every date this build
-/// will ever see; `Lab::write_chronicle` is its only caller.
-fn today_utc() -> String {
+/// **This instant, as `YYYY-MM-DD-HHMMSS`, UTC.** No date crate in this
+/// workspace (`Cargo.toml` carries nine dependencies and none of them tell
+/// time in calendar units), so the date half is Howard Hinnant's small,
+/// well-known days-since-epoch civil-calendar conversion rather than a new
+/// dependency for one filename; the time-of-day half is the same
+/// UNIX-seconds value taken mod 86,400. Proleptic Gregorian, correct for
+/// every date this build will ever see; `Lab::write_chronicle` is its only
+/// caller.
+///
+/// **The time-of-day component is round 31's own addition**, and the reason
+/// is the autosave it exists for: a name of `YYYY-MM-DD` alone collided the
+/// moment a session wrote more than one chronicle in a day -- the autosave
+/// every `CHRONICLE_CENSUS_EVERY` frames, a `REBUILD`, a quit and a `9`
+/// press are all separate writes, and a played session hits several of them.
+/// Second resolution rather than millisecond: nothing here fires close
+/// enough together to need finer, and every extra digit is a name a person
+/// has to read past when they hand the file over.
+fn chronicle_timestamp() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -82,7 +93,9 @@ fn today_utc() -> String {
     let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
     let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
     let y = if m <= 2 { y + 1 } else { y };
-    format!("{y:04}-{m:02}-{d:02}")
+    let day_secs = secs % 86_400;
+    let (h, mi, s) = (day_secs / 3600, (day_secs % 3600) / 60, day_secs % 60);
+    format!("{y:04}-{m:02}-{d:02}-{h:02}{mi:02}{s:02}")
 }
 
 /// The whole lab: a world, the systems that live beside the cell grid, a view
@@ -552,9 +565,11 @@ impl Lab {
 
     /// **Write this run's chronicle to a text file, and say on the bar where
     /// it went.** Called from `reset()`, on the world about to be thrown
-    /// away, and from the binary's own shutdown hook -- `bin/lab.rs`'s
-    /// `exiting` -- so a run's history survives both ways a session ends:
-    /// pressing `REBUILD` and closing the window.
+    /// away; from the binary's own shutdown hook -- `bin/lab.rs`'s
+    /// `exiting`; from pressing `9` (`Action::WriteChronicle`); and, as of
+    /// round 31, from `tick()` on every CENSUS row -- so a run's history
+    /// survives a crash too, not only the three ways a session ends on
+    /// purpose. See `tick()`'s own call site for what that autosave costs.
     ///
     /// **Never blocks either.** A write failure is reported the same way a
     /// success is -- on the bar, through `ui.say` -- and the caller carries
@@ -566,6 +581,12 @@ impl Lab {
     /// `REBUILD`, including the very first one after loading a scenario
     /// (`load_scenario`'s own doc), and a chronicle of `FRAME 0` is a header
     /// with nothing under it -- clutter, not a record.
+    ///
+    /// **The filename carries a timestamp, not just a date, as of round
+    /// 31.** A player who never rebuilds or presses `9` used to get exactly
+    /// one save a day regardless of how many times something wrote one --
+    /// the autosave below and a quit on the same day would silently
+    /// overwrite each other, the very failure this feature exists to close.
     pub fn write_chronicle(&mut self) {
         if self.world.frame == 0 {
             return;
@@ -573,7 +594,7 @@ impl Lab {
         let dir = Self::chronicle_dir();
         let path = dir.join(format!(
             "chronicle-{}-{}-s{}.txt",
-            today_utc(),
+            chronicle_timestamp(),
             self.bed_slug(),
             self.spec.seed
         ));
@@ -617,6 +638,16 @@ impl Lab {
         let dials = params::Dials::from_world(&self.world);
         self.world = self.spec.build();
         dials.apply_to(&mut self.world);
+        // **The new run's own first line, round 31.** Frame 0 of the box
+        // that replaces the one just chronicled -- so a reader of the *next*
+        // chronicle sees, before anything else, that this run began with a
+        // rebuild rather than the box having always been this way. Named
+        // after its scenario when it has one, the same name `bed_label`
+        // gives the chronicle's own header.
+        self.world.log_player_action(match &self.scenario {
+            Some(s) => format!("REBUILT FROM SCENARIO {}", s.name.to_uppercase()),
+            None => "REBUILT".to_string(),
+        });
         // **The scenario is the same list, one entry further along.** A
         // rebuild is exactly the moment a player expects a loaded scenario
         // back -- pressing REBUILD to see the same starting box again is
@@ -1500,6 +1531,16 @@ impl Lab {
             let nest_cols = census::nest_columns(&self.spec, self.scenario.as_ref());
             let gut = census::ant_gut_bias(&self.world);
             self.chronicle_census.push(census::take_chronicle_row(&self.world, &self.spec, gut, &nest_cols, &ids, &self.spec.colony_species));
+            // **Autosave, round 31.** Today a crash between two `REBUILD`s
+            // (or between the last one and now) writes nothing at all, so
+            // the owner's own played sessions -- the ones this feature is
+            // for -- are exactly the ones a lost chronicle costs the most.
+            // Riding the CENSUS cadence rather than its own timer means one
+            // file write every `CHRONICLE_CENSUS_EVERY` frames (10,000 by
+            // default, minutes of played time), never per frame -- see the
+            // PR body for the measured worst-frame cost on that one frame in
+            // ten thousand.
+            self.write_chronicle();
         }
     }
 
@@ -1561,7 +1602,10 @@ impl Lab {
                 let mut hit = None;
                 for e in self.world.run_log.recent().take(grew) {
                     if self.time.reacts_to(e.kind) {
-                        hit = Some(*e);
+                        // `LogEvent` lost `Copy` when `PlayerAction` (round
+                        // 31) added a `String` field -- `.clone()` where
+                        // `*e` used to suffice, the only change at this site.
+                        hit = Some(e.clone());
                         break;
                     }
                 }
@@ -1845,6 +1889,15 @@ impl Lab {
     }
 
     fn begin_stroke(&mut self, at: (i32, i32), erase: bool) {
+        // **Once per gesture, at the press that starts it** -- a drag calls
+        // `paint_span` again on every pointer move, and logging there would
+        // fill the chronicle with one line per painted cell rather than one
+        // per pour. Water only: `Soil`/`Food`/`Scent` are not the player
+        // action round 31 asks for, and an erase stroke removes rather than
+        // pours.
+        if !erase && self.ui.tool() == ui::Tool::Water {
+            self.world.log_player_action("POURED WATER".to_string());
+        }
         self.paint_span(at, at, erase);
         self.stroke = Some(Stroke { last: at, erase });
     }
@@ -2193,7 +2246,9 @@ impl Lab {
             self.spec.extra_walls.retain(|c| *c != w);
             let spec = self.spec.clone();
             spec.clear_wall(&mut self.world, w);
-            self.ui.say(format!("WALL AT {w} REMOVED"));
+            let msg = format!("WALL AT {w} REMOVED");
+            self.ui.say(msg.clone());
+            self.world.log_player_action(msg);
             return;
         }
         let computed = self.spec.compartments > 1 && self.spec.partition_columns().contains(&x);
@@ -2208,6 +2263,7 @@ impl Lab {
         self.spec.extra_walls.push(x);
         let n = self.spec.partition_columns().len();
         self.ui.say(format!("WALL AT {x} -- {} COMPARTMENTS", n + 1));
+        self.world.log_player_action(format!("WALL ADDED AT {x} -- {} COMPARTMENTS", n + 1));
     }
 
     /// Put one seed of the selected species in at `(x, y)`.
@@ -2497,10 +2553,32 @@ impl Lab {
     /// through here too, and there is no second copy of "what SPACE does".
     pub fn act(&mut self, action: ui::Action) {
         match action {
-            ui::Action::TogglePhase => self.time.toggle_phase(),
-            ui::Action::Slower => self.time.slower(),
-            ui::Action::Faster => self.time.faster(),
-            ui::Action::Preset(i) => self.time.set_preset(i),
+            // **The speed dial, chronicled** (round 31). `self.time.phase`/
+            // `.requested` are read *after* the call, since every one of
+            // these can change either or both -- `TogglePhase` flips the
+            // phase alone, the other three land on `Phase::Running` at
+            // whatever the ladder now reads (`TimeControl::set_preset`'s own
+            // doc). One line each rather than a shared arm after the match:
+            // `TogglePhase` can pause, which the other three cannot do.
+            ui::Action::TogglePhase => {
+                self.time.toggle_phase();
+                self.world.log_player_action(match self.time.phase {
+                    time::Phase::Paused => "PAUSED".to_string(),
+                    time::Phase::Running => format!("RESUMED AT {}X", self.time.requested),
+                });
+            }
+            ui::Action::Slower => {
+                self.time.slower();
+                self.world.log_player_action(format!("SPEED {}X", self.time.requested));
+            }
+            ui::Action::Faster => {
+                self.time.faster();
+                self.world.log_player_action(format!("SPEED {}X", self.time.requested));
+            }
+            ui::Action::Preset(i) => {
+                self.time.set_preset(i);
+                self.world.log_player_action(format!("SPEED {}X", self.time.requested));
+            }
             // **One page at a time**, the rule this file already applies to
             // the key list against the biosphere page, extended to the bar's
             // three. The screen is 512x320, the biosphere page is a full-
@@ -3119,6 +3197,14 @@ impl Lab {
             (k, _) if moved == 0 => format!("RELEASED {k} OF {name} -- EVERY ONE AN EXACT {what}"),
             (k, _) => format!("RELEASED {k} OF {name} -- {broods} BROODS EACH, {moved} GENOME SLOTS MOVED IN ALL"),
         });
+        // **The chronicle's own record of the intervention** -- round 31,
+        // `LogKind::PlayerAction`. Only on an actual placement: a refusal
+        // (no room, no jar armed) changed nothing in the box, and logging it
+        // would tell a later reader an intervention happened when it did
+        // not.
+        if placed > 0 {
+            self.world.log_player_action(if placed == 1 { format!("PLACED {name}") } else { format!("PLACED {placed} OF {name}") });
+        }
     }
 
     /// **Breed the armed jar on the shelf**, without releasing it.
@@ -3283,6 +3369,10 @@ impl Lab {
         } else {
             format!("{name} = {shown}")
         });
+        // The chronicle's own record, round 31 -- shorter than the bar's own
+        // notice (no "TAKES EFFECT ON REBUILD" suffix): a reader of the
+        // saved file already sees whether a rebuild followed.
+        self.world.log_player_action(format!("{name} = {shown}"));
     }
 
     /// Write the highlighted parameter back to its asset file.
@@ -3543,6 +3633,24 @@ mod tests {
     /// assertion would fail on a totally correct `Lab`.
     static CENSUS_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    /// **A private chronicle directory for a test that crosses a real CENSUS
+    /// cadence.** Round 31's autosave (`tick()` calling `write_chronicle` on
+    /// every CENSUS row) means any test that runs `CHRONICLE_CENSUS_EVERY`
+    /// ticks or more now writes a real file -- and without this, it would
+    /// land in the shared, gitignored `assets/chronicles/` every other
+    /// session in this container also writes to (`CLAUDE.md`'s own warning
+    /// about `/tmp` applies here too: a test's own scratch state must not be
+    /// somewhere another lane's run could see or collide with). `tag` plus
+    /// the process id is `scenario.rs`/`scene.rs`/`params.rs`'s own existing
+    /// pattern for a scratch asset path, reused rather than invented here.
+    /// The caller sets `CHRONICLE_DIR_ENV` to the returned path before
+    /// running ticks and is responsible for removing the var and the
+    /// directory afterward -- see `chronicle_takes_one_census_row_per_
+    /// cadence` for the shape.
+    fn scratch_chronicle_dir(tag: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("pixel_physics_lab_chronicle_{tag}_{}", std::process::id()))
+    }
+
     /// **The chronicle's CENSUS section takes one row per cadence, and no
     /// more.** Runs exactly `Lab::CHRONICLE_CENSUS_EVERY` ticks on a small
     /// bed and asserts one row lands, naming that exact frame -- not "at
@@ -3560,6 +3668,10 @@ mod tests {
     fn chronicle_takes_one_census_row_per_cadence() {
         let _guard = CENSUS_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var(Lab::CHRONICLE_CENSUS_EVERY_ENV); // this test runs at the shipped default
+        // This run crosses the cadence twice, so round 31's autosave writes
+        // twice -- into a scratch directory, never the shared one.
+        let dir = scratch_chronicle_dir("cadence");
+        std::env::set_var(Lab::CHRONICLE_DIR_ENV, &dir);
         let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..rack_bed(1) });
         run(&mut lab, Lab::CHRONICLE_CENSUS_EVERY as u32);
         assert_eq!(lab.chronicle_census.len(), 1, "expected exactly one CENSUS row after one cadence, got {}", lab.chronicle_census.len());
@@ -3568,6 +3680,103 @@ mod tests {
         // -- the whole point of a CENSUS section being a table over time.
         run(&mut lab, Lab::CHRONICLE_CENSUS_EVERY as u32);
         assert_eq!(lab.chronicle_census.len(), 2, "a second cadence should append, not replace");
+        std::env::remove_var(Lab::CHRONICLE_DIR_ENV);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **The end-to-end acceptance test the brief asked for**: drive five of
+    /// the six player-action sites through `Lab`'s own verbs, write the
+    /// chronicle, and read the saved *file* back -- the same `chronicle_text`
+    /// (`ui::chronicle_text`) `Lab::write_chronicle` calls and
+    /// `examples/chronicle.rs` prints through, so this proves the pipeline
+    /// `Lab::act`/`wall_at`/`begin_stroke`/`adjust_param` -> `LogEvent::
+    /// detail` -> `RunLog` -> `chronicle_text` -> `format_log_line` -> disk,
+    /// not only that `format_log_line` alone can format one in isolation.
+    ///
+    /// **Jar placement (`release_at`) is not exercised here** -- arming one
+    /// needs a kept specimen and the shelf (`shelf_scratch`/`keep_at`), which
+    /// would roughly double this test for the one site whose call is
+    /// identical in shape to `wall_at`'s (`Lab::release_at`'s own source is
+    /// the check on that one). `wall_at`, `begin_stroke`, `act`'s speed arms
+    /// and `adjust_param` cover every other shape `LogEvent::detail` has to
+    /// carry: a plain string, one with a coordinate, and one with a name and
+    /// a value.
+    #[test]
+    fn a_chronicle_file_shows_player_actions_end_to_end() {
+        let _guard = CENSUS_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = scratch_chronicle_dir("player_actions");
+        std::env::set_var(Lab::CHRONICLE_DIR_ENV, &dir);
+        let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..rack_bed(1) });
+        run(&mut lab, 5); // past frame 0, so write_chronicle below does not skip
+
+        lab.wall_at(40); // "WALL ADDED AT 40 -- 2 COMPARTMENTS"
+        lab.wall_at(40); // "WALL AT 40 REMOVED"
+        lab.act(ui::Action::Faster); // "SPEED <N>X"
+        lab.act(ui::Action::Tool(ui::Tool::Water));
+        lab.begin_stroke((10, 10), false); // "POURED WATER"
+        let param = lab
+            .ui
+            .page_params(&lab.world, &lab.spec)
+            .iter()
+            .position(|p| p.writable())
+            .expect("at least one parameter is writable -- params::tests::every_writable_parameter_actually_moves already assumes this");
+        lab.adjust_param(param, 1); // "<NAME> = <VALUE>"
+
+        // One `write_chronicle` call, one file, no `reset()` in between --
+        // `reset()` starts a *second* run whose own autosave can land on the
+        // identical `chronicle_timestamp()` second and overwrite this one
+        // (see `a_rebuild_names_the_run_it_started`, kept separate for
+        // exactly that reason).
+        lab.write_chronicle();
+        let text = newest_chronicle_text(&dir);
+        assert!(text.contains("WALL ADDED AT 40"), "wall_at's placement line is missing:\n{text}");
+        assert!(text.contains("WALL AT 40 REMOVED"), "wall_at's removal line is missing:\n{text}");
+        assert!(text.contains("SPEED"), "the speed-dial line is missing:\n{text}");
+        assert!(text.contains("POURED WATER"), "the water-pour line is missing:\n{text}");
+        assert!(text.contains(" = "), "the dial-change line is missing:\n{text}");
+
+        std::env::remove_var(Lab::CHRONICLE_DIR_ENV);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **`reset()` names the run it started, in that new run's own log.**
+    /// Kept apart from the test above: `reset()` writes the *outgoing* run's
+    /// chronicle and then starts a new one, and its own autosave a moment
+    /// later can share `chronicle_timestamp()`'s one-second resolution with
+    /// that first write, silently overwriting it -- exactly the collision
+    /// this feature exists to close for a real player, at a timescale no
+    /// human rebuild-and-keep-playing ever produces. A headless test calling
+    /// both back to back is the one caller fast enough to hit it, which is
+    /// why this checks the new run alone rather than chaining onto the test
+    /// above.
+    #[test]
+    fn a_rebuild_names_the_run_it_started() {
+        let _guard = CENSUS_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = scratch_chronicle_dir("rebuilt");
+        std::env::set_var(Lab::CHRONICLE_DIR_ENV, &dir);
+        let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..rack_bed(1) });
+        run(&mut lab, 5);
+        lab.reset(); // pushes "REBUILT" as frame 0 of the world that replaces this one
+        run(&mut lab, 1); // past frame 0, so the write below does not skip
+        lab.write_chronicle();
+        let text = newest_chronicle_text(&dir);
+        assert!(text.contains("REBUILT"), "the rebuild line is missing from the new run's own chronicle:\n{text}");
+
+        std::env::remove_var(Lab::CHRONICLE_DIR_ENV);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The most recently written file in a scratch chronicle directory, read
+    /// back as text -- both chronicle-acceptance tests' shared helper.
+    fn newest_chronicle_text(dir: &std::path::Path) -> String {
+        let path = dir
+            .read_dir()
+            .expect("chronicle dir")
+            .filter_map(|e| e.ok())
+            .max_by_key(|e| e.metadata().and_then(|m| m.modified()).ok())
+            .expect("write_chronicle wrote a file")
+            .path();
+        std::fs::read_to_string(&path).expect("read the chronicle back")
     }
 
     /// **The cadence is overridable, `CLAUDE.md`'s build spec for this
@@ -3583,6 +3792,96 @@ mod tests {
         assert_eq!(Lab::chronicle_census_every(), 5, "the env override was not read");
         std::env::remove_var(Lab::CHRONICLE_CENSUS_EVERY_ENV);
         assert_eq!(Lab::chronicle_census_every(), Lab::CHRONICLE_CENSUS_EVERY, "removing the override did not restore the default");
+    }
+
+    /// **What the autosave costs.** Not a correctness guard -- `#[ignore]`d
+    /// and run by hand (`cargo test --release --lib -- --ignored --nocapture
+    /// autosave_cost`), pinned to one thread, the way `labstats.rs`'s own
+    /// `cost()` is: a timing on a shared box is `CLAUDE.md`'s own warning.
+    ///
+    /// **Two numbers, because the first attempt at this test found exactly
+    /// the trap `CLAUDE.md` names -- a paired per-tick split (`tick()`
+    /// timed individually, bucketed by whether that tick's frame paid the
+    /// autosave) came back with the paying bucket *faster* than the idle
+    /// one. That is not "the autosave is free," it is ten paying samples
+    /// against nineteen hundred idle ones on a box with 86 organisms: not a
+    /// null, not a positive, just too little signal for the bucket that
+    /// matters to say anything.** So the primary number here is
+    /// `write_chronicle` timed directly and repeatedly
+    /// (`labstats.rs::cost`'s own shape, `REPS` iterations, alternated
+    /// against nothing so machine drift lands on both readings) -- the exact
+    /// call the autosave adds to `tick()`, isolated from tick-to-tick noise
+    /// entirely. The per-tick split is kept second, labelled for what it is,
+    /// because a reader who only sees the clean number cannot tell it was
+    /// ever ambiguous in situ.
+    #[test]
+    #[ignore]
+    fn autosave_cost() {
+        let _guard = CENSUS_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = scratch_chronicle_dir("cost");
+        std::env::set_var(Lab::CHRONICLE_DIR_ENV, &dir);
+        std::env::set_var(Lab::CHRONICLE_CENSUS_EVERY_ENV, "200");
+        let mut lab = Lab::new(scene::LabBox::default());
+        // Run past a few cadences unmeasured first, so the population (and
+        // the chronicle's own accumulated CENSUS/LOG history, which is what
+        // `write_chronicle` actually has to serialise) is representative of
+        // a played box rather than a fresh one -- a cost measured on an
+        // empty run log would understate every real session.
+        for _ in 0..1000 {
+            lab.tick();
+        }
+
+        // **The direct number**: `write_chronicle` alone, repeatedly, same
+        // world throughout (no `tick()` between reps, so this is purely the
+        // serialise-and-write cost, not a moving population).
+        const REPS: u32 = 100;
+        let mut write_ns = 0u128;
+        let mut idle_ns = 0u128;
+        for _ in 0..REPS {
+            let t = std::time::Instant::now();
+            lab.write_chronicle();
+            write_ns += t.elapsed().as_nanos();
+            // Alternating no-op of comparable shape (a read with no write),
+            // `labstats.rs::cost`'s own control -- so a drift in machine
+            // state across the REPS falls on both readings.
+            let t = std::time::Instant::now();
+            std::hint::black_box(lab.world.live_organism_count());
+            idle_ns += t.elapsed().as_nanos();
+        }
+        let write_ms = write_ns as f64 / REPS as f64 / 1e6;
+        let idle_ms = idle_ns as f64 / REPS as f64 / 1e6;
+
+        // **The in-situ number, second and labelled**: per-tick, paired
+        // inside one run by whether that tick's frame paid the cadence.
+        const FRAMES: u32 = 2000;
+        let mut with_autosave = Vec::new();
+        let mut without_autosave = Vec::new();
+        let mut worst_ns = 0u128;
+        for _ in 0..FRAMES {
+            let paying = lab.world.frame.is_multiple_of(Lab::chronicle_census_every());
+            let t = std::time::Instant::now();
+            lab.tick();
+            let ns = t.elapsed().as_nanos();
+            worst_ns = worst_ns.max(ns);
+            if paying { with_autosave.push(ns) } else { without_autosave.push(ns) }
+        }
+        let mean_ns = |v: &[u128]| v.iter().sum::<u128>() as f64 / v.len().max(1) as f64;
+        let (paid_mean, idle_mean) = (mean_ns(&with_autosave), mean_ns(&without_autosave));
+        eprintln!(
+            "autosave_cost: {} organisms, {} chronicle rows -- \
+             write_chronicle direct: {write_ms:.3} ms/call ({REPS} reps, idle control {idle_ms:.3} ms) -- \
+             in situ ({} paying ticks of {FRAMES}, small-sample, not the number to quote): \
+             idle {:.3} ms/frame, autosave-frame {:.3} ms/frame, worst {:.3} ms",
+            lab.world.live_organism_count(),
+            lab.chronicle_census.len(),
+            with_autosave.len(),
+            idle_mean / 1e6,
+            paid_mean / 1e6,
+            worst_ns as f64 / 1e6
+        );
+        std::env::remove_var(Lab::CHRONICLE_CENSUS_EVERY_ENV);
+        std::env::remove_var(Lab::CHRONICLE_DIR_ENV);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// **The chronicle stays bounded per lineage, not per birth.** A colony
@@ -3605,8 +3904,18 @@ mod tests {
     /// test reports as evidence do move with it.
     #[test]
     fn line_events_are_bounded_per_lineage() {
+        // 20,000 ticks crosses `CHRONICLE_CENSUS_EVERY` twice, so round 31's
+        // autosave fires twice -- into a scratch directory, same reason as
+        // `chronicle_takes_one_census_row_per_cadence`. `CENSUS_ENV_LOCK`
+        // guards `CHRONICLE_DIR_ENV` too: it is the one lock every chronicle
+        // env mutation in this file already takes.
+        let _guard = CENSUS_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = scratch_chronicle_dir("line_events");
+        std::env::set_var(Lab::CHRONICLE_DIR_ENV, &dir);
         let mut lab = Lab::new(scene::LabBox { colonies: 1, founders: 8, ..rack_bed(7) });
         run(&mut lab, 20_000);
+        std::env::remove_var(Lab::CHRONICLE_DIR_ENV);
+        let _ = std::fs::remove_dir_all(&dir);
         let births = lab.world.creature_stats.births + lab.world.germinations;
         assert!(births > 0, "nothing bred or germinated in 20,000 ticks -- the rest of this test proves nothing");
         let lineages = lab.world.lineages_claimed();
