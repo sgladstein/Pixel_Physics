@@ -2612,6 +2612,26 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   warning that the dangerous merge is the conflict-free one: a clean
   `merge-tree` broke the build on a `ChunkSet` type alias neither side's lines
   touched.
+- [evolution-lab-rest-with-an-end-2026-09-13.md](evolution-lab-rest-with-an-end-2026-09-13.md)
+  — **record, 2026-09-13, round 33 lane F. `engine`, not `lab`** — it changes
+  every creature in both games. **§Z13 re-aimed and fixed**, on the owner
+  overruling his own *"rest is the absence of a reason to act"*: *"If they
+  never ask to move that is still stuck, it is just because the rest mechanism
+  needs fixing."* `p_move` is `squash(sum).clamp(0.0, 1.0)` and `squash`
+  returns a negative number for a negative sum, so **every** degree of "would
+  rather not" collapses onto the same exact zero, from which no roll can
+  produce a step — **48.7–64.0% of long-ant decision ticks and 54.4–77.5% of
+  *shipped two-cell ant* ticks** sat there. Per animal, **18.5% and 21.9% go quiet and
+  are never seen moving again**, having stood a median 8,100–13,500 frames and
+  up to 43,200: a latch, and the measurement that settles the owner's *"some
+  creatures got frozen"* against the pooled 75% that could not. Fixed with
+  `BrainInput::Stillness`, a **squared** ramp — the linear one repealed the
+  homing mechanism, because `Move`'s negative half is run-and-tumble
+  steering (deliveries 4,908 → 54) and that is the transferable lesson: **ask
+  what an output's existing low values are already used for before adding a
+  term to it.** Also carries §Z20, `labgif wire=` having been a silent no-op
+  for every card it ever produced. Owner's blind verdict on the fixed arm:
+  *"A looks way better"*.
 - [evolution-lab-round-31-brief-2026-09-13.md](evolution-lab-round-31-brief-2026-09-13.md)
   — **brief, 2026-09-13.** Round 31's ordered work, handed over at main
   `16bab295`: re-derive the ant lifespan and every played-bed number on the

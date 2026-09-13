@@ -139,6 +139,12 @@ is untouched.
   `follow_air=N` picks one that is up and holds it.
 - **`labgif` now has `wire=`** (a genome sweep is one binary) and defaults
   `rain=steady` over the scenario's own rate — pass `rain=off`.
+  **Correction, 2026-09-13: `wire=` was a silent no-op in `labgif` until that
+  day** — it wrote the genome before `load_scenario`, which rebuilds the world
+  and throws the override away, while still printing `wire= set …`. Any arm
+  this note's own round produced with it was the control wearing a label.
+  Fixed and recorded as `open-bugs-handoff.md` §Z20; re-run anything that
+  depended on it.
 - **A `carried <= 0.0` test can never fire**: air has a density too. Four
   sweep arms including the OFF arm came back byte-identical before it showed.
 - Divide a visit rate by the window the animals were **alive**.
