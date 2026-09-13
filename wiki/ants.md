@@ -1,7 +1,17 @@
 # Ants
 
-*Current as of: 2026-09-13, when **a colony's tailings stopped hanging in the
-air** — a dropped pellet is its own kind of ground now and holds only while
+*Current as of: 2026-09-13, when **a resting animal stopped being an animal
+that has stopped.** An ant that has held one spot for a while now grows
+restless: it shifts, takes a step and settles again, and the longer it has
+been still the sooner that happens. Before, a fed ant with food in reach and
+neighbours around it could reach a stillness it had no way out of at all —
+nothing it did could end it, only something happening to it — and the animals
+you pointed at as stuck on a crowded bed were in exactly that state, for tens
+of thousands of frames. The short pauses are deliberately unchanged; a
+well-fed ant still mostly stands still. It is only the standing that never
+ended that has gone, and it has gone for **every** animal in both games, not
+just the big ones you could see it in. The same day, **a colony's tailings
+stopped hanging in the air** — a dropped pellet is its own kind of ground now and holds only while
 something is under it, so undermining a heap brings the overhang down as loose
 dirt. Earlier, on 2026-09-12, when **an ant stopped planting the seed it had
 just eaten inside its own head.** When a meal that carried a seed was
@@ -44,7 +54,10 @@ and for those turning round is not a move. And **the ant you notice standing
 still is usually just resting**: the most conspicuous standing animals on a
 crowded bed have room to move and no reason to use it, the small shipped ants
 rest for just as long, and the real gap is that resting and stuck look
-identical. The same day, **a seed an ant bites is cargo, not a
+identical. **That last sentence was the wrong conclusion and it has been
+corrected** — an animal that goes tens of thousands of frames without ever
+asking to move is stuck whatever the reason, and the rest itself was the
+defect. See the top of this page. The same day, **a seed an ant bites is cargo, not a
 meal** -- a harvester became a sower. Bite a seed off the floor and most of
 the time it survives the mouth whole: the ant keeps only the small provision
 the seed carries for exactly that purpose, the seed itself rides home in the
@@ -1743,6 +1756,9 @@ runs are too few to sign the result. It is on the page so nobody reads
 
 An ant that is full mostly stands still now. It still wanders sometimes, it
 still answers an alarm, it still follows a smell, and as it empties it walks
-more, so the box is quieter when it is fed and busier when it is not.
+more, so the box is quieter when it is fed and busier when it is not. **And
+standing still is itself something it gets tired of** — the longer it holds
+one spot the more likely it is to shift, so a quiet box is a settled one
+rather than a frozen one.
 Digging follows the nest rather than the clock: a crowded nest gets dug out,
 an empty one is left alone.

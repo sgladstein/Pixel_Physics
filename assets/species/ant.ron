@@ -715,7 +715,7 @@
         // surface moved for every species on the shared scaffold regardless,
         // exactly as this file's copy of the comment above already says for
         // the append before this one.
-        mutation_rate: 0.0037589,
+        mutation_rate: 0.0036552,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --
@@ -1037,6 +1037,51 @@
             // here is load-bearing, and it is the first thing to check if
             // trails ever stop adapting.
             (Crowding, Move, -0.3),
+            // **Rest with an end to it, 2026-09-13.** The four weights above
+            // decide whether this ant has a reason to walk; this one decides
+            // what happens when it has had none for a long time. Owner, that
+            // day, overruling his own 2026-09-09 ruling: *"How long do they
+            // go without asking to move. If they never ask to move that is
+            // still stuck, it is just because the rest mechanism needs
+            // fixing."*
+            //
+            // **Without it, rest is absorbing.** `p_move` is
+            // `squash(sum).clamp(0.0, 1.0)`, and the row above sums to about
+            // **-0.91** for a fed ant beside food (`2.0 - 1.75 - 1.16`) and
+            // lower still with crowding -- every one of which the clamp turns
+            // into the *same exact zero*, from which no roll can ever produce
+            // a step. Measured over 120,000-frame beds
+            // (`CreatureStats::p_move_hist`, 2026-09-13): **54.4-77.5% of
+            // this species' decision ticks sat at that exact zero**, and the
+            // longest single run of standing in one cell reached **33,300
+            // frames**. The shipped two-cell ant's rests are as long as the
+            // seven-cell long ant's, which is why this is the general rest
+            // mechanism rather than a long-ant fix.
+            //
+            // **1.5, and the size is what it has to carry rather than a
+            // taste.** `Stillness` ramps 0 -> 1 over
+            // `creature::STILL_SATURATION` = 64 decision ticks, so 1.5 is the
+            // smallest round weight that lifts the worst standing sum
+            // (-0.91, and -1.21 at full crowding) back over zero before the
+            // ramp saturates: the sum crosses zero around tick 39-52 and
+            // reaches `squash(0.29..0.59)` = P(move) **0.22-0.37** at the
+            // top. So a rest lasts a few hundred frames, ends in a step, and
+            // begins again -- `CLAUDE.md`'s first law, a distribution with a
+            // middle instead of walking-or-frozen.
+            //
+            // **What it spends, named here because it is the constant this
+            // change reallocates.** One step per ~50 ticks against an idle
+            // bill of `idle_cost_per_cell * 2` per tick is **about +5% on a
+            // resting ant's burn**, and `start_energy` 200 /
+            // `idle_cost_per_cell` 0.05 / `life_half_life` 40000 were all
+            // derived (the A/B/B'/B'' table above) against a colony a large
+            // fraction of which was standing *permanently* still. The four-arm
+            // table's finding was that *rest* is what survives the founding
+            // cliff; this keeps the rest and prices its ending, which is a
+            // different thing from B'' diluting the rest itself. Measured
+            // rather than argued -- round 33's lane note carries the
+            // alive/born/starved columns across nine seeds.
+            (Stillness, Move, 1.5),
 
             // -- what gets laid down ---------------------------------
             // Laden ants lay the food trail; that is what makes a
