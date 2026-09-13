@@ -222,7 +222,7 @@
         // surface moved for every species on the shared scaffold regardless,
         // exactly as this file's copy of the comment above already says for
         // the append before this one.
-        mutation_rate: 0.0037589,
+        mutation_rate: 0.0036552,
 
         nest: "nest",
         // **The jaw price, derived at this animal's own constants** -- see
@@ -293,6 +293,11 @@
         sensor_offset: 6,
         instincts: [
             (Bias, Move, 2.0),
+            // **Rest with an end to it** -- see `ant.ron`'s note on this
+            // same row for the measurement and the arithmetic. Without it
+            // `p_move` clamps to an exact zero from which no roll can produce
+            // a step, and this species inherits that Move row unchanged.
+            (Stillness, Move, 1.5),
             (FoodAdjacent, Move, -2.0),
             (FoodAdjacent, Dig, 2.0),
             // The predator's whole verb, and before the Feed/Dig split it

@@ -1265,6 +1265,44 @@ pub struct CreatureStats {
     /// by census stops, so it is the distribution of what was *read* rather
     /// than of what was available to read.
     pub at_nest_crowding: [u64; 10],
+    /// **What the move drive actually was, bucketed** — the probe §Z13 asked
+    /// for and nobody built, and the one number that separates "the animal
+    /// declined to move" from "the animal was never asked".
+    ///
+    /// `p_move` is `outputs[BrainOutput::Move].clamp(0.0, 1.0)`, read once per
+    /// creature decision tick. Bucket **0 is exactly 0.0** and is not a
+    /// rounding of "very small": `squash` returns a genuinely negative number
+    /// for a negative weighted sum and the clamp turns every one of them into
+    /// the same zero, after which `draw.unit_f32() < p_move` can never be
+    /// true. An animal in bucket 0 is not unlikely to move, it **cannot**,
+    /// and nothing it does itself changes that — only the world moving one of
+    /// its inputs does. Buckets 1..=10 are `(0.0, 0.1] ..= (0.9, 1.0]`.
+    ///
+    /// Paired with `ticks` the way `CLAUDE.md` requires: `ticks` is "was it
+    /// asked", this is "what did it decide", `moves` is "what came of it".
+    pub p_move_hist: [u64; 11],
+    /// **How long each rest actually lasted**, in creature decision ticks,
+    /// bucketed by power of two: `bucket = floor(log2(ticks)) + 1`, so index
+    /// 1 is a one-tick pause, index 2 is 2-3 ticks, index 3 is 4-7, and index
+    /// 15 is everything from 16,384 ticks up. Index 0 is never written. One
+    /// bout is
+    /// counted when `OrganismState::still_ticks` resets — so a bout that is
+    /// still running when the world ends is never counted, which is the
+    /// conservative direction.
+    ///
+    /// **This is the number the owner asked for**, 2026-09-13: *"How long do
+    /// they go without asking to move."* Multiply a bucket by the species'
+    /// `tick_interval` for frames (6 for an ant). It is also the only
+    /// readout that shows `CLAUDE.md`'s first law being satisfied or not: a
+    /// rest mechanism with a **middle** puts mass across several buckets,
+    /// and one that is really a binary piles it at both ends.
+    ///
+    /// **`idle_with_room` in `examples/labforage.rs` cannot answer this and
+    /// is not a substitute.** It samples head position every `sample=`
+    /// frames, so at the shipped 900 it cannot see a rest shorter than a
+    /// stop, and it scores an animal that walked away and came back as
+    /// having stood still. This counts the animal's own ticks.
+    pub rest_bout_hist: [u64; 16],
     pub digs: u64,
     /// **What those digs cost**, in joules, and the far side of the counter
     /// above.
@@ -5570,6 +5608,7 @@ impl World {
             crossing: None,
             parted: Vec::new(),
             since_nest: 0,
+            still_ticks: 0,
             traffic_deferred: 0,
             forage_anchor: (0, 0),
             forage_max: 0,

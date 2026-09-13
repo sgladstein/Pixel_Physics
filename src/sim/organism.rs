@@ -5801,6 +5801,17 @@ pub struct OrganismState {
     /// nest — and a laden ant walking *up* that gradient is walking home.
     /// No creature ever queries the nest's position; the field knows.
     pub since_nest: u16,
+    /// **Consecutive decision ticks on which this animal's body has not
+    /// moved** — the odometer behind `brain::BrainInput::Stillness`, and the
+    /// thing that gives a rest an end. Reset to 0 by a step or a launch,
+    /// saturating rather than wrapping so a very long rest does not read as
+    /// a fresh one.
+    ///
+    /// Counts *decisions*, not frames, exactly as `since_nest` does — an
+    /// animal's `tick_interval` is what converts it (6 frames for an ant).
+    /// See `creature::STILL_SATURATION` for what the scale is worth, and
+    /// `open-bugs-handoff.md` §Z13 for what it cost to leave unbuilt.
+    pub still_ticks: u16,
     /// **Consecutive ticks on which this animal's flip has been withheld by
     /// the traffic gate** -- `creature::boxed_by_traffic`, §13g -- reset to
     /// 0 the moment it is not.

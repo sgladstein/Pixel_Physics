@@ -3770,6 +3770,15 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // steering toward the nest anywhere, because on a surface there is
     // nothing to steer on (`brain::BrainInput::PheroAAlong`).
     let p_move = outputs[brain::BrainOutput::Move as usize].clamp(0.0, 1.0);
+    // Set by either arm that actually puts the body somewhere else -- the
+    // walk and the launch. `moved` cannot serve: it gates the pheromone
+    // deposit and is held false for a creature in the air on purpose.
+    let mut left_the_spot = false;
+    // **The census `open-bugs-handoff.md` §Z13 asked for and nobody built.**
+    // One array index per decision tick, no branch on species and no lookup;
+    // bucket 0 is the exact zero the clamp manufactures, which is the whole
+    // question. See `CreatureStats::p_move_hist`.
+    world.creature_stats.p_move_hist[if p_move == 0.0 { 0 } else { ((p_move * 10.0).ceil() as usize).clamp(1, 10) }] += 1;
     let mut moved = false;
     if draw.unit_f32() < p_move {
         // **Hop, or walk.** `Impulse` is read raw and gated on strictly
@@ -3781,6 +3790,12 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
         // stream from the next line on, whether or not it can jump.
         let impulse = outputs[brain::BrainOutput::Impulse as usize].clamp(0.0, 1.0);
         if impulse > 0.0 && draw.unit_f32() < impulse && launch(world, organism, heading) {
+            // **A launch is a relocation even though it is deliberately not
+            // a `move`** -- see the `moved` note below. `Stillness` is about
+            // whether the body is in the same place, not about which verb
+            // put it elsewhere, so an animal that has just left the ground
+            // is not resting however `moved` reads.
+            left_the_spot = true;
             // Charged where it is decided, not inside `launch`, so the
             // energy ledger has one owner. The flight frames themselves
             // charge only pro-rated metabolism -- ballistics is free once
@@ -3885,8 +3900,28 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
         }
     }
 
+    let mut rest_bout_ended = 0u16;
     if let Some(state) = world.organism_mut(organism) {
         state.since_nest = state.since_nest.saturating_add(1);
+        // **The other odometer, and the one that gives a rest an end.**
+        // Reset by a step or a launch, counted up by anything else --
+        // including a refused step, which is correct: an animal shoving at a
+        // jam and losing is standing in the same cell, and the rising drive
+        // it gets is what turns a silent wedge into `moves_blocked` climbing
+        // where a census can see it. See `brain::BrainInput::Stillness`.
+        if left_the_spot || moved {
+            rest_bout_ended = std::mem::replace(&mut state.still_ticks, 0);
+        } else {
+            state.still_ticks = state.still_ticks.saturating_add(1);
+        }
+    }
+    if rest_bout_ended > 0 {
+        // **The bout that just finished** -- see `CreatureStats::
+        // rest_bout_hist`. `ilog2` buckets by power of two, which is the only
+        // scale on which a distribution spanning one tick and ten thousand is
+        // readable at all. Read outside the borrow above rather than inside
+        // it, which is why the value is carried out in a local.
+        world.creature_stats.rest_bout_hist[(rest_bout_ended.ilog2() as usize + 1).min(15)] += 1;
     }
 
     let (hx, hy) = world.organism(organism).and_then(|s| s.chain.first().copied()).unwrap_or((x, y));
@@ -4505,8 +4540,69 @@ fn sense(
         inputs[I::BloomBearing as usize] = error / std::f32::consts::PI;
     }
 
+    // **How long this body has been in one place**, the one input that is
+    // read off the animal rather than off the world. See
+    // `brain::BrainInput::Stillness` for why it exists and
+    // `STILL_SATURATION` for the scale. Zero for anything that has just
+    // moved, so a walking animal never pays this term any attention.
+    inputs[I::Stillness as usize] = world.organism(organism).map_or(0.0, |st| {
+        let t = (st.still_ticks as f32 / STILL_SATURATION as f32).clamp(0.0, 1.0);
+        t * t
+    });
+
     (inputs, seen_all, sight_reads, curvature_reads)
 }
+
+/// **Decision ticks of standing still at which `BrainInput::Stillness`
+/// reaches 1.0** — the scale of the ramp that ends a rest. The input is the
+/// **square** of the fraction, not the fraction, and that shape is the whole
+/// of what keeps this from breaking something else.
+///
+/// **Why a curve and not a straight line: the negative half of the `Move`
+/// row is load-bearing, and it is the homing mechanism.** `creature_tick`'s
+/// own comment says so — *"a laden ant walking away from the nest scent
+/// computes a low `Move`, fails the roll, and re-orients. That is the whole
+/// of the homing mechanism"*. So an animal that declines to move is doing
+/// one of two completely different things: **re-orienting** (tens of ticks,
+/// and the declining is the navigation), or **resting** (thousands of
+/// frames, and the declining is §Z13). A term that rises linearly cannot
+/// tell them apart and overrides the first to fix the second — measured
+/// 2026-09-13 at a linear ramp over 64 ticks, `played_bed_longant`:
+/// **deliveries 4,908 -> 54** on seed 1 and 13,054 -> 2,109 on seed 3. The
+/// colony survived (alive 202 -> 679) and stopped provisioning, which is
+/// exactly `CLAUDE.md`'s *a term in a weighted sum is not an independent
+/// knob*.
+///
+/// Squaring buys the separation without a threshold, so the outcome stays
+/// graded rather than acquiring a knee. At the shipped `(Stillness, Move,
+/// 1.5)` the term contributes **+0.016 at 20 ticks and +0.10 at 50** — under
+/// the noise of the gradient a tumbling ant is reading — and **+0.41 at 100,
+/// +0.92 at 150, +1.5 at 192**, which carries the worst standing sum in the
+/// shipped row (a fed ant beside food, `2.0 - 1.75 - 1.16` = about -0.91,
+/// and -1.21 at full crowding) back over zero.
+///
+/// **192, which is 1,152 frames at an ant's `tick_interval` of 6** — call it
+/// twenty seconds of holding one cell before the animal is fully restless,
+/// against the **17,100–33,300 frames** §Z13 measured. A typical bout ends
+/// around tick 100–180, a few hundred frames, and it ends *by a step*, after
+/// which the odometer resets and the animal settles again.
+///
+/// **What it costs the economy, which is the half to watch.** A stir every
+/// ~150 ticks adds one `move_cost_per_cell * body_cells` to a bill that is
+/// otherwise `idle_cost_per_cell * body_cells` every tick — for the shipped
+/// ant, 0.25 J per ~150 ticks against 0.10 J per tick, so **under 2% on a
+/// resting animal's burn**. That is still the constant this change
+/// reallocates: `start_energy`, `idle_cost_per_cell` and `life_half_life`
+/// were all derived (`ant.ron`'s four-arm A/B/B'/B'' table) against a colony
+/// a large fraction of which was standing *permanently* still, and
+/// `CLAUDE.md`'s *fixing a bug often exposes a constant that was
+/// compensating for it* is the live risk. It is re-derived by measurement —
+/// see the round-33 lane note.
+///
+/// **Sweep the weight, not this, and do it without rebuilding**:
+/// `labforage wire=Stillness:Move:<w>` overwrites the species weight in the
+/// live genome, so `w=0` is today's behaviour as an arm of the same binary.
+pub const STILL_SATURATION: u16 = 192;
 
 // ---------------------------------------------------------------------------
 // The creature pass's parallelism (round 33)
@@ -9987,6 +10083,11 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
         if frame.is_multiple_of(interval) {
             state.since_nest = state.since_nest.saturating_add(1);
         }
+        // **A creature in the air is not resting**, whatever the walk half
+        // of the tick did -- `BrainInput::Stillness` asks whether the body
+        // is where it was, and ballistics moves it without a step. Not
+        // pro-rated like the line above: this is a reset rather than a rate.
+        state.still_ticks = 0;
         // **The excursion depth has to see a hop, or the foraging-range
         // instrument understates exactly the creature it was built to
         // measure.** `forage_max` is measurement-only (see its own doc), and
@@ -21077,7 +21178,22 @@ mod tests {
             Larder::Unlimited => {
                 // // **`litter`, not `leaf`, since round 29's leaf dial** (`Reports/evolution-lab-late-game-design-2026-09-12.md` §1 item 1). A live leaf is `food_energy: 40`, which credits 10 J at the shipped neutral gut against `EAT_YIELD_THRESHOLD`'s 12, so a generalist cannot see one and a wall of them is not a larder. `litter` is the same tissue on the floor, still 480 and still `food_class: -1.0`, so every claim below is unchanged and the scene contains food again.
                 let leaf = w.materials.id_of("litter").expect("litter");
-                for x in 100..122 {
+                // **The litter spans the whole bank, not a 22-cell island in
+                // the middle of it, and that changed on 2026-09-13 with
+                // `BrainInput::Stillness`.** The island was enough while a
+                // fed animal beside food computed `p_move` = exactly 0 and
+                // could not leave it -- the arm's whole yield rested on the
+                // grazer being sessile *by accident of the clamp*. Give rest
+                // an end (`open-bugs-handoff.md` §Z13) and the ant walks out
+                // of the island along the 108/109 corridor into bare soil:
+                // measured that day, `larder_intake` **4,201 J -> 228 J**,
+                // below the moss lawn's 456 and failing this test's own
+                // ordering. That is the scene not containing the situation,
+                // not the ordering being wrong -- *"an inexhaustible larder"
+                // the animal can step out of is not inexhaustible*. The moss
+                // arm already spans 72..148, so this also makes the two
+                // larders the same size, which they never were.
+                for x in 70..150 {
                     for y in [104, 105, 106, 107, 110] {
                         w.set(x, y, Cell::new(leaf, 0).with_attached(true));
                     }

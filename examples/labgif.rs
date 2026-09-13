@@ -344,13 +344,28 @@ fn main() {
     // off first, and this one must too or the card is a picture of the help
     // page rather than the box.
     lab.show_help = false;
-    // **Before `load_scenario`, because that is what founds the colony** and
-    // `place_creature` copies the genome at placement -- the same ordering
-    // `labforage`'s own block states, and the same assertion, because an arm
-    // that matched nothing is the control wearing a label.
+    // **`wire=` is read here and applied after `load_scenario`, not before,
+    // and getting that backwards made this knob a silent no-op for every
+    // card this file has ever produced.** `labforage`'s block says "before
+    // founding, because `place_creature` copies the genome at placement",
+    // and that is true *there* -- but `Lab::load_scenario` calls `reset()`,
+    // whose second line is `self.world = self.spec.build()`: a brand-new
+    // `World` carrying the compiled species table, which discards any
+    // `set_genome` written before it. The assertion below could not catch it
+    // because it checks the genome it is about to overwrite, not the one the
+    // run will use. Measured 2026-09-13: two 4,800-frame arms of
+    // `played_bed_longant` seed 3, one wired and one not, produced
+    // **byte-identical PNGs at every sampled frame and an identical
+    // `COLONY` line** -- `CLAUDE.md`'s *identical output across a change
+    // that must have moved something*. The colony here is founded by the
+    // timeline at frame 6,000, i.e. during the advance loop below, so
+    // applying the override after the load is both correct and sufficient.
+    let wire_species = sc.bed.colony_species.clone();
     let wires = wire_rider();
+    let msg = lab.load_scenario(sc);
+    // ...and this is that application. See the note above `load_scenario`.
     if !wires.is_empty() {
-        let sid = lab.world.species.id_of(&sc.bed.colony_species).expect("the colony species is compiled in");
+        let sid = lab.world.species.id_of(&wire_species).expect("the colony species is compiled in");
         let mut genome = lab.world.species.get(sid).genome.clone();
         let mut moved = 0;
         for &(input, output, w) in &wires {
@@ -365,7 +380,7 @@ fn main() {
         println!(
             "  wire= set {moved} of {} weights on {}: {}",
             wires.len(),
-            sc.bed.colony_species,
+            wire_species,
             wires
                 .iter()
                 .map(|&(i, o, w)| format!("{}:{}:{w}", brain::INPUT_NAMES[i as usize], brain::OUTPUT_NAMES[o as usize]))
@@ -373,7 +388,6 @@ fn main() {
                 .join(",")
         );
     }
-    let msg = lab.load_scenario(sc);
     // **After `load_scenario`, not before**: `reset()` (which it calls)
     // replaces `self.stats` with a fresh `Stats::new()`, which opens
     // *showing* -- the biosphere overlay, covering most of the bed with
@@ -567,6 +581,13 @@ fn main() {
         }
         None => (0, 0, full_w, full_h),
     };
+    // **The card's own count, over the window the card shows.** `CLAUDE.md`
+    // and the review skill both require the discrete event count beside the
+    // picture, and for a card about *resting* the event is a rest ending.
+    // Zeroed here so the histogram covers the captured window exactly rather
+    // than the `start=` advance as well -- a rest bout that ran during the
+    // stocking phase is not what the owner is looking at.
+    lab.world.creature_stats.rest_bout_hist = [0; 16];
     let mut shots: Vec<image::RgbaImage> = Vec::new();
     for f in 0..=frames {
         if f % every == 0 {
@@ -887,6 +908,48 @@ fn main() {
     // `512x320`, `CLAUDE.md`'s own "ask what your number counts" shape.
     if follow_air > 0 {
         println!("  follow_air: camera changed animal {cuts} times over {} captured frames", frames / every + 1);
+    }
+    // **How long the animals in shot actually went without moving**, over
+    // this window and no other -- see the reset above the capture loop.
+    // `bouts` are rests that *ended*; `standing now` is the other side,
+    // because an animal that stops and never starts again contributes
+    // nothing to a histogram of endings and is precisely the complaint
+    // (`open-bugs-handoff.md` §Z13). Ticks, so x6 for frames on an ant.
+    {
+        let rb = lab.world.creature_stats.rest_bout_hist;
+        let n: u64 = rb.iter().sum();
+        let edge = |b: usize| if b == 0 { 0u64 } else { 1u64 << (b - 1) };
+        let pct = |p: f64| {
+            let want = (n as f64 * p) as u64;
+            let mut run = 0;
+            for (b, &c) in rb.iter().enumerate() {
+                run += c;
+                if run >= want {
+                    return edge(b);
+                }
+            }
+            0
+        };
+        let longest = rb.iter().rposition(|&c| c > 0).unwrap_or(0);
+        let mut standing: Vec<u16> = lab
+            .world
+            .live_organism_ids()
+            .iter()
+            .filter(|id| pixel_physics::sim::creature::head_block(&lab.world, **id).is_some())
+            .filter_map(|id| lab.world.organism(*id).map(|st| st.still_ticks))
+            .collect();
+        standing.sort_unstable();
+        println!(
+            "  rest bouts in this window: {n} | median {} ticks, p90 {} ticks, longest bucket {} ticks | \
+             bouts over 1,024 ticks: {} | standing right now: {} animals, median {} ticks, longest {} ticks",
+            pct(0.5),
+            pct(0.9),
+            edge(longest),
+            rb[11..].iter().sum::<u64>(),
+            standing.len(),
+            standing.get(standing.len() / 2).copied().unwrap_or(0),
+            standing.last().copied().unwrap_or(0)
+        );
     }
     let (shot_w, shot_h) = shots.first().map_or((w, h), |img| (img.width(), img.height()));
     let gif_frames: Vec<image::Frame> = shots.into_iter().map(|img| image::Frame::from_parts(img, 0, 0, delay)).collect();
