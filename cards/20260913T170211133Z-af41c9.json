@@ -1,0 +1,46 @@
+{
+  "id": "20260913T170211133Z-af41c9",
+  "created": "2026-09-13T17:02:11Z",
+  "board": "zoom",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/lab-zoom-out-pixels",
+    "commit": "349d13fb",
+    "agent": null,
+    "session_id": "0f29addc-d732-5b36-b056-bc32aba2ff6a",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The lab bar on a grown buffer — is the chunkier text alright?",
+  "question": "Same bed, same window, same apparent size. The bar's glyphs are drawn as blocks so they keep their size — does that read as part of the picture, or as too coarse next to a box that is now four times finer?",
+  "context_md": "",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "buffer x1 (the lab as it shipped)",
+      "files": [
+        "20260913T170211133Z-af41c9/000-lab_x1_up2.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "buffer x2 (this change; x4 asked for, capped by the window)",
+      "files": [
+        "20260913T170211133Z-af41c9/001-lab_b4.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
