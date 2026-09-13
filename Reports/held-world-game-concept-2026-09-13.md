@@ -637,12 +637,42 @@ cannot afford a colony for is worth zero.
 
 **The interface starts simple and must not be shut.** Owner: *"start simple
 but we leave the door open for expanding."* So: hand-verbs first, no rosters,
-no shelf. **The engineering consequence is the part that has a deadline** —
-the lab's instrument (rosters, specimen shelf, plain-speech genome, life
-record, lineage overlay) lives in `src/lab/`, and *leaving the door open* means
-not building these views in a way that welds them to one binary. Cheap to
-respect now, expensive to retrofit. Same lesson `sim::frame::step` already
-carries for the tick sequence.
+no shelf.
+
+**The engineering consequence is real but this document first named the wrong
+half of it, and the correction points the opposite way.** The draft said the
+lab's views are welded to one binary and must be unwelded. Checked, and they
+are not: **the data layer is already portable.** `roster::rows(&World, …)`,
+`plainspeak::describe(&World, id)`, `ui::history_summary(&World)`,
+`ui::ended_lines(&World)` and `ui::plantable_species(&World)` take a `&World`
+and nothing else, and would answer in the outdoor binary today. `render.rs`
+already anticipates being driven by either — `focus_lineage` sits on the
+renderer partly *"because the outdoor game has no roster: there it simply
+stays `None`"*.
+
+**The weld is the drawing layer, and the risk runs the other way.**
+`src/lab/ui.rs` is **11,283 lines (568 KB), the largest file in the tree** —
+panels, pages, layout, click targets, scrolling — and it is lab-shaped.
+Meanwhile **the outdoor game has no UI framework at all**: `src/hud.rs` is
+**266 lines** and is a bitmap font (`draw_text`, `text_width`, `has_glyph`).
+
+So the danger is not that the lab's pages cannot travel. It is that **the
+druid HUD has nowhere to live, will invent a second panel system inside
+`hud.rs`, and then bringing the lab's pages across means porting 11k lines
+onto whichever framework won.** `sim::frame::step` exists for exactly this
+shape one layer down — *"a second binary that re-typed the sequence would be a
+fork of the simulation wearing the name of a second game"* — and a second
+binary that re-types the interface is the same failure wearing the same name.
+
+**The cheap remedy, and it is deliberately not a refactor.** Do **not** go and
+split `lab/ui.rs` now: it is the largest file in the tree and it is contested
+by live lanes, which is the case `CLAUDE.md`'s collision census exists to warn
+about. Instead, when the druid HUD needs its *first* panel — a reserve meter, a
+rate dial, a bubble readout — put the generic part (row layout, a clickable
+target, a scrolling list) in a **new shared widget module** rather than in
+`hud.rs` or in `ui.rs`, and let `ui.rs` migrate onto it opportunistically or
+never. That costs one module at the moment the first panel is written, and
+nothing before then.
 
 **Base-versus-walk is deferred to playtest**, and the owner's reading that it
 *"doesn't hold anything up"* checks out: the held render, the regional tick,
