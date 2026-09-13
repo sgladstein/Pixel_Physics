@@ -84,6 +84,60 @@ const SIZE_ENV: &str = "PIXEL_PHYSICS_DRUID_SIZE";
 /// `PIXEL_PHYSICS_DRUID_GROW=N` — override [`GROW_FRAMES`].
 const GROW_ENV: &str = "PIXEL_PHYSICS_DRUID_GROW";
 
+/// **What the land is when you arrive.**
+///
+/// Owner's ruling, 2026-09-13: *"I actually want to start with a dead world.
+/// No living plants, but I can plant seeds."* That reverses this module's
+/// first answer, which grew a wood and held it alive, and it is the better
+/// game: a living wood you did not plant is scenery, and the verb the concept
+/// is built around is **putting something back**.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Start {
+    /// **The default.** The land lived, and then it died: grown for
+    /// [`GROW_FRAMES`], then every plant marked senescent, then held.
+    ///
+    /// **Senescent rather than deleted, and that is the whole trick.**
+    /// `World::mark_organism_senescent` is the engine's own kill path — it
+    /// sets the flag `plant::rot_remains` reads, and rot then carries the
+    /// body out at the species' own half-life. In a *held* world rot never
+    /// runs, so the bodies **stand**: a wood of dead trees, exactly the
+    /// "somewhere that died" the concept asks for, with no deadwood pass to
+    /// write. And the moment a quickening covers one it starts to rot, which
+    /// is the same rule the colony and the seed bank already obey and needs
+    /// no code of its own.
+    ///
+    /// It also leaves the **seed bank** the grown phase produced, stopped in
+    /// the soil. Those are not plants; they are what germinates the first
+    /// time you spend time on that ground.
+    #[default]
+    Dead,
+    /// Never grown at all — bare generated ground plus `life_scatter`'s
+    /// single seed cell per plant, held at frame 0.
+    ///
+    /// The literal reading of the owner's ask, kept because it is the other
+    /// half of an ambiguous instruction and rendering both is cheaper than
+    /// guessing (`CLAUDE.md`: *resolve an ambiguous complaint before building
+    /// anything*). Emptier than [`Start::Dead`]: no bones, no root systems,
+    /// and a much thinner seed bank, since nothing ever set seed.
+    Bare,
+    /// Grown and held **alive** — this module's first answer, kept as the
+    /// control. A living wood, stopped mid-life.
+    Grown,
+}
+
+impl Start {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Dead => "dead",
+            Self::Bare => "bare",
+            Self::Grown => "grown",
+        }
+    }
+}
+
+/// `PIXEL_PHYSICS_DRUID_START=dead|bare|grown` — see [`Start`].
+const START_ENV: &str = "PIXEL_PHYSICS_DRUID_START";
+
 /// The worldgen preset this game builds from — see `assets/worldgen.ron`,
 /// where the reasoning for each value that differs from `rolling` is written
 /// beside it.
@@ -104,6 +158,10 @@ const PRESET_ENV: &str = "PIXEL_PHYSICS_DRUID_PRESET";
 /// no-home control and would make "does a colony form at all" the question,
 /// which is the lab's question rather than this game's.
 const COLONY_SPECIES: &str = "ant";
+
+/// The one plant the engine sows by a path of its own — see the seed-kind
+/// list in [`Druid::new`] and the branch in [`Druid::plant_seed`].
+const MOSS: &str = "moss";
 
 /// How many animals a founding places.
 ///
@@ -213,6 +271,22 @@ pub struct Druid {
     /// repaint the dirty-rect skip would otherwise not know it owed. See
     /// [`hud::Interface`].
     last_ui: Option<hud::Interface>,
+    /// How the land arrived — see [`Start`]. Kept for the readout, so a
+    /// player can tell a dead world from a bare one without counting trees.
+    pub start: Start,
+    /// **What `T` plants**, and the kinds it can cycle through.
+    ///
+    /// Built at run time from the loaded species rather than written down:
+    /// every species with no `creature` block is a plant and can be sown, so
+    /// adding a species file adds a seed kind and nothing here has to know.
+    /// A hardcoded list is the side table that goes stale the day somebody
+    /// writes `assets/species/fern.ron`.
+    pub seed_kinds: Vec<String>,
+    pub seed_kind: usize,
+    /// How many seeds the player has sown, for the readout — *"did it fire at
+    /// all needs a counter"*, and a seed dropped outside a quickening does
+    /// nothing visible until time reaches it, so the picture cannot say.
+    pub sown: usize,
 }
 
 impl Default for Druid {
@@ -225,8 +299,12 @@ impl Druid {
     /// Generate a world, live in it for a while, then stop it.
     pub fn new() -> Self {
         let (w, h) = size_from_env();
-        let grow = grow_from_env();
-        println!("druid: world {w}x{h}, grown {grow} frames before holding");
+        let start = start_from_env();
+        // **`Bare` is the one that does not grow.** `Dead` still grows -- it
+        // has to, or there are no bodies to leave standing and no seed bank
+        // in the soil; it kills what it grew instead.
+        let grow = if start == Start::Bare { 0 } else { grow_from_env() };
+        println!("druid: world {w}x{h}, start {}, grown {grow} frames before holding", start.label());
 
         let mut world = World::new(Rect::new(0, 0, w as i32 - 1, h as i32 - 1));
 
@@ -275,6 +353,25 @@ impl Druid {
         let grown = world.live_organism_count();
         println!("druid: grew {grown} organisms in {:.1}s", t0.elapsed().as_secs_f32());
 
+        // --- ...and then it dies ---------------------------------------
+        //
+        // Only the plants. The animals are not touched, because there are
+        // none yet -- nothing in worldgen places one, and founding a colony
+        // is the player's verb.
+        if start == Start::Dead {
+            let plants: Vec<u16> = world
+                .live_organism_ids()
+                .into_iter()
+                .filter(|id| world.organism(*id).is_some_and(|st| world.species.get(st.species).creature.is_none()))
+                .collect();
+            let killed = plants.iter().filter(|id| world.mark_organism_senescent(**id)).count();
+            // **Counted, because the picture cannot tell you.** A wood of
+            // senescent trees and a wood of living ones are the same
+            // silhouette until something rots, and in a held world nothing
+            // ever will until the player spends time on it.
+            println!("druid: marked {killed} of {grown} organisms senescent — the wood is standing dead");
+        }
+
         // --- and then it stops -----------------------------------------
         //
         // The sky pin is not decoration and not an optimisation, though it is
@@ -284,6 +381,31 @@ impl Druid {
         // ground and reads as a bug rather than as a state.
         world.held = true;
         world.set_sky_hold(SkyPin::Noon.hold());
+
+        // **Every species this game knows how to sow**, in registry order, so
+        // a new species file becomes a seed kind with no edit here.
+        //
+        // **The predicate is measured, not guessed, and two obvious ones are
+        // wrong.** `creature.is_none()` admits the **worm**, which is an
+        // animal driven by `creature.rs` keyed on its species *name* and has
+        // no `creature` block at all. `has_economy()` excludes **moss**,
+        // which declares no `Photosynthesize` anywhere (its own file says
+        // so). Swept over all twenty loaded species, a declared `Seed` cell
+        // type is true for exactly the seven sowable plants -- tree, conifer,
+        // shrub, creeper, grass, herb, scrambler -- and false for moss, the
+        // worm and every ant.
+        //
+        // Moss is added because the engine has **two** sowing paths, not one:
+        // `plant_tree_species` needs a seed-shaped species and
+        // `World::plant_moss_seed` is moss-only. `Druid::plant_seed` branches
+        // on the same fact, so this mirrors the engine rather than keeping a
+        // list beside it.
+        let seed_kinds: Vec<String> = (0..world.species.len())
+            .map(|i| world.species.get(crate::sim::organism::SpeciesId(i as u16)))
+            .filter(|sp| is_sowable(sp))
+            .map(|sp| sp.name.clone())
+            .collect();
+        println!("druid: {} seed kinds — {}", seed_kinds.len(), seed_kinds.join(", "));
 
         if let Some((x, y)) = spawn_point(&world) {
             // `at_scaled`, not `at`: at any `cell_scale` other than 1 the
@@ -310,6 +432,10 @@ impl Druid {
             animals: 0,
             animals_awake: 0,
             last_ui: None,
+            start,
+            seed_kinds,
+            seed_kind: 0,
+            sown: 0,
         }
     }
 
@@ -343,8 +469,76 @@ impl Druid {
             held: self.world.held,
             paused: self.paused,
             look: self.renderer.held_look.label(),
+            seed_kind: self.seed_kind_name().to_string(),
+            sown: self.sown,
             message: self.message().map(str::to_string),
         }
+    }
+
+    /// **Sow a seed of the chosen kind where the player is standing.**
+    ///
+    /// The verb the whole concept is built on: *"you can plant seeds you
+    /// get"*. `World::plant_tree_species` places a `seed`-material cell,
+    /// which is a `Powder` and therefore falls to the ground on its own
+    /// rather than hanging where it was dropped — so the player aims at a
+    /// bank, not at a pixel.
+    ///
+    /// **A seed sown outside a quickening does nothing, and that is the
+    /// game rather than a bug.** Germination is a life process and the held
+    /// gate covers it, so a seed dropped on cold ground lies there until the
+    /// player spends time on it. Nothing here implements that; it falls out
+    /// of the gate, exactly as the rule that a colony must be founded inside
+    /// running time does.
+    ///
+    /// Returns whether a seed was actually placed. **`false` is a real
+    /// answer** and is reported: `plant_tree_species` declines when the cell
+    /// is occupied or the species is not loaded, and a silent no-op is
+    /// indistinguishable from a key that does not work — which is precisely
+    /// the complaint that produced this game's interface.
+    pub fn plant_seed(&mut self) -> bool {
+        let Some(player) = &self.world.player else {
+            return false;
+        };
+        let (x, y) = player.center();
+        let Some(kind) = self.seed_kinds.get(self.seed_kind).cloned() else {
+            self.note("no seed kinds are loaded");
+            return false;
+        };
+        // Moss is not tree-shaped and has its own planter; everything else
+        // goes through the species-named one.
+        let placed = if kind == MOSS {
+            self.world.plant_moss_seed(x, y);
+            // `plant_moss_seed` returns nothing, so ask the world instead of
+            // assuming -- the same reason the branch below reads a bool.
+            !self.world.is_empty(x, y)
+        } else {
+            self.world.plant_tree_species(x, y, &kind)
+        };
+        if placed {
+            self.sown += 1;
+            let running = self.world.time_runs_at(x, y);
+            println!("druid: sowed {kind} at {x},{y} (time {})", if running { "running" } else { "held" });
+            self.note(if running { format!("{kind} seed sown - it is growing") } else { format!("{kind} seed sown - it waits for time") });
+        } else {
+            println!("druid: {kind} seed REFUSED at {x},{y} - the cell is not empty, or the species is not loaded");
+            self.note(format!("no room for a {kind} seed here"));
+        }
+        placed
+    }
+
+    /// Step which kind `T` sows.
+    pub fn cycle_seed_kind(&mut self) {
+        if self.seed_kinds.is_empty() {
+            return;
+        }
+        self.seed_kind = (self.seed_kind + 1) % self.seed_kinds.len();
+        let kind = self.seed_kinds[self.seed_kind].clone();
+        self.note(format!("seed kind: {kind}"));
+    }
+
+    /// What `T` would sow, for the readout.
+    pub fn seed_kind_name(&self) -> &str {
+        self.seed_kinds.get(self.seed_kind).map_or("none", String::as_str)
     }
 
     /// **Found a colony at the player's feet.**
@@ -614,6 +808,28 @@ fn size_from_env() -> (u32, u32) {
     }
 }
 
+/// **Can this game sow this species?** See the seed-kind list in
+/// [`Druid::new`] for the measurement behind it and the two predicates that
+/// are wrong.
+fn is_sowable(species: &crate::sim::organism::Species) -> bool {
+    species.cell_types().iter().any(|(ct, _)| *ct == crate::sim::organism::CellType::Seed) || species.name == MOSS
+}
+
+fn start_from_env() -> Start {
+    let Ok(v) = std::env::var(START_ENV) else {
+        return Start::default();
+    };
+    match v.trim().to_ascii_lowercase().as_str() {
+        "dead" => Start::Dead,
+        "bare" => Start::Bare,
+        "grown" | "alive" => Start::Grown,
+        other => {
+            eprintln!("druid: {START_ENV}={other:?} is not dead|bare|grown; using {}", Start::default().label());
+            Start::default()
+        }
+    }
+}
+
 fn grow_from_env() -> u64 {
     match std::env::var(GROW_ENV) {
         Ok(v) => match v.trim().parse() {
@@ -630,6 +846,41 @@ fn grow_from_env() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **The seed list is plants, and nothing but plants.**
+    ///
+    /// The guard for a predicate this module got wrong **twice**, each time
+    /// plausibly: `creature.is_none()` admits the worm, which is an animal
+    /// with no `creature` block because `creature.rs` drives it by species
+    /// *name*; `has_economy()` drops moss, which declares no
+    /// `Photosynthesize` at all. Both compile, both read correctly, and both
+    /// put the wrong thing in the player's hand.
+    ///
+    /// Asserted against the **whole shipped species set** rather than a
+    /// sample, and in both directions — every plant present, every animal
+    /// absent — so adding a species file to `assets/species/` and forgetting
+    /// this fails here rather than in somebody's game.
+    #[test]
+    fn the_seed_kinds_are_every_plant_and_no_animal() {
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let _ = w.species.reload(organism::ASSET_DIR);
+        assert!(w.species.len() > 10, "the species set did not load; this guard would pass on nothing");
+
+        let sowable: Vec<&str> = (0..w.species.len())
+            .map(|i| w.species.get(organism::SpeciesId(i as u16)))
+            .filter(|sp| is_sowable(sp))
+            .map(|sp| sp.name.as_str())
+            .collect();
+
+        for plant in ["moss", "tree", "conifer", "shrub", "creeper", "grass", "herb", "scrambler"] {
+            assert!(sowable.contains(&plant), "{plant} is a plant the player should be able to sow, and it is not in {sowable:?}");
+        }
+        // The worm is the one that caught this: an animal with no `creature`
+        // block at all.
+        for animal in ["worm", "ant", "beetle", "hopper", "flitter", "longant", "ancestor"] {
+            assert!(!sowable.contains(&animal), "{animal} is an animal and must not be sowable, but it is in {sowable:?}");
+        }
+    }
 
     /// **A spawn point has to be on the ground**, which is the one thing this
     /// game needs that the sandbox never had to solve — it summons the gnome

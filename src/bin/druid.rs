@@ -226,6 +226,13 @@ impl Handler {
             KeyCode::KeyC => {
                 self.game.found_colony();
             }
+            // **The verb the whole game is built on.** A seed sown on held
+            // ground lies there until a circle reaches it -- see
+            // `Druid::plant_seed`.
+            KeyCode::KeyT => {
+                self.game.plant_seed();
+            }
+            KeyCode::Tab => self.game.cycle_seed_kind(),
             // The economy's verb: a circle that runs while you are elsewhere.
             KeyCode::Space => {
                 self.game.place_quickening();

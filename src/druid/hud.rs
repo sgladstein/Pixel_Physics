@@ -107,6 +107,8 @@ pub const KEYS: &[(&str, &str)] = &[
     ("SPACE", "PLACE A CIRCLE OF TIME"),
     ("X", "LIFT THE NEAREST CIRCLE"),
     ("Q E", "ITS RADIUS"),
+    ("T", "SOW A SEED WHERE YOU STAND"),
+    ("TAB", "WHICH SEED"),
     ("C", "FOUND A COLONY AT YOUR FEET"),
     ("H", "HOLD OR RELEASE THE WORLD"),
     ("L", "HOW HELD GROUND IS DRAWN"),
@@ -134,6 +136,8 @@ pub struct Readout {
     pub held: bool,
     pub paused: bool,
     pub look: &'static str,
+    pub seed_kind: String,
+    pub sown: usize,
     pub message: Option<String>,
 }
 
@@ -158,6 +162,10 @@ impl Readout {
         // reason to walk somewhere.
         lines.push((format!("ANIMALS {}   AWAKE {}", self.animals, self.animals_awake), TEXT));
         lines.push((format!("CIRCLES {}   NEXT R{}", self.circles, self.radius), TEXT));
+        // **What T would sow, and how many have gone in.** A seed dropped on
+        // held ground is invisible until time reaches it, so without the
+        // count a working key and a broken one look the same.
+        lines.push((format!("SEED {}   SOWN {}", self.seed_kind.to_uppercase(), self.sown), TEXT));
         lines.push((
             format!("WORLD {}   LOOK {}", if self.held { "HELD" } else { "RUNNING" }, self.look.to_uppercase()),
             if self.held { TEXT } else { WARN },
@@ -316,7 +324,12 @@ mod tests {
                 // `KeyA` .. `KeyZ` and the function keys read straight
                 // across; anything else added later shows up as itself and
                 // fails loudly rather than being silently skipped.
-                other => other.strip_prefix("Key").unwrap_or(other).to_string(),
+                // Upper-cased, because every legend entry is: the font is
+                // uppercase-only and `hud::draw_text` upper-cases anyway.
+                // Without this, binding `KeyCode::Tab` against a legend row
+                // reading `TAB` failed here -- which is the guard working,
+                // but on a spelling rather than on a missing row.
+                other => other.strip_prefix("Key").unwrap_or(other).to_uppercase(),
             };
             if !bound.contains(&shown) {
                 bound.push(shown);
@@ -361,6 +374,8 @@ mod tests {
                 held: true,
                 paused,
                 look: "one hue",
+                seed_kind: "conifer".to_string(),
+                sown: 3,
                 message: Some("no ground here - nothing founded".to_string()),
             };
             for (text, _) in readout.lines() {
@@ -397,6 +412,8 @@ mod tests {
             held: true,
             paused: true,
             look: "unchanged",
+            seed_kind: "scrambler".to_string(),
+            sown: 999,
             message: Some("out of power - a standing circle closed".to_string()),
         };
         let lines = readout.lines();
