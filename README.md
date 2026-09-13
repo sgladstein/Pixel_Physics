@@ -8189,13 +8189,15 @@ over that.
 
 ### What actually stops
 
-Two gates, at two different granularities, because the two systems are
-scheduled differently:
+Four gates, at three different granularities, because the systems behind them
+are scheduled differently:
 
 | Where | Granularity | Rule |
 |---|---|---|
 | `scheduler::step` | per cell | a site outside every circle is re-dated `HELD_RECHECK` (120) frames on and skipped |
 | `plant::step_organisms` | per organism | an organism whose first cell is outside every circle does not grow |
+| `weather::step` | per position | four sites — the gust dipole, the sealed-box drip, the frost sweep's swept column, and each drop's landing column — ask `time_runs_at` before writing |
+| `spring::step` | per cell | an outlet emits nothing and a drain takes nothing outside every circle |
 
 The organism gate tests `cell_count > 0` first, and that clause is
 load-bearing rather than defensive: slot reclamation for a dead organism lives
@@ -8218,6 +8220,81 @@ living plant tissue at frame 2,400:
 | unheld | **766** |
 | held, no circle | **4** |
 | held, one circle over two of four trees | **311** |
+
+### ...and the sky stops with it
+
+**Weather ran inside both CA drivers with no gate at all until 2026-09-13**, so
+a held world snowed. Drifts built, ponds froze, a frost crept across the map
+on `CHILL_REVISIT_FRAMES`' two-frame sweep, and the `druid` preset's
+`spring_flow: 7.0` — the highest of any preset — kept a waterfall pouring into
+a country whose one claim is that nothing in it moves. Owner's report:
+*"Rain/other environmental effects are not frozen outside the bubble."*
+
+Measured on `filmstrip scene=worldgen preset=druid seed=3` — whose sky opens
+on snow, so it is the worst case — at frame 800:
+
+| arm | cells of ice | pond columns iced over | chunks awake |
+|---|---|---|---|
+| before, held | **1,045** | 177 of 177 | 11 of 40 |
+| after, held, nothing placed | **0** | 0 of 177 | **0 of 40** |
+| after, held, one r=55 circle on the water | **650** | 109 of 177 | 3 of 40 |
+
+The whole pond skinned over inside about four seconds of play and there was
+no way to stop it. **`0 of 40` chunks awake** is the other half of the fix:
+"outside is a photograph and draws for free" is a promise about the
+dirty-rect skip, and weather was quietly keeping eleven chunks up.
+
+**`weather::at` is untouched, and that is the shape of the fix.** The sky
+above a held world still has weather — still a pure function of
+`(seed, frame)`, a forecast still answers, the renderer still draws the front
+— and every *write into the world* is gated per position. That is what makes
+rain inside a circle the concept doc's own picture (§1c *"Rain hangs in the
+air outside as beads and falls inside"*, §7 *"the rim is where the game
+reads"*) rather than a second mechanism, and it leaves §6's spell list — call
+rain, call frost — buildable on the gate rather than around it.
+
+**The circle gets the weather it would have got**, with no second constant to
+tune. The column budget is scaled by world *width*
+(`MAX_COLUMNS_PER_FRAME` against `REFERENCE_WIDTH`), so drops fall uniformly
+over the map and a circle keeps its own share: the r=55 circle above covers
+**110 of the pond's 177 columns and freezes 109 of them**. Filtering cannot
+shift the storm either — each column's position is `rng::stream(seed, tag,
+frame, i)`, keyed on the loop index rather than drawn from a running
+generator, so a rejected column leaves every other column of that frame
+exactly where it was.
+
+**Wind is the one thing a circle does not get, and the reason is altitude.**
+`planned_gust` fires in the upper air by construction — `y` in
+`[min_y + span/8, min_y + 3*span/8)`, 70 to 150 cells above a druid world's
+ground — and a quickening is centred on something standing on the ground, so
+it does not reach the band gusts fire in. The dipole is also ~91 cells across
+against `CARRIED_RADIUS` 28. **Gated anyway, and both poles together**:
+delivering one pole alone is the "lone positive impulse" `weather.rs` records
+as measured and reverted (net pressure in a closed world, tiles permanently
+unconverged), and an ungated gust clears `fields_settled` every
+`GUST_INTERVAL` frames, which is the single most expensive thing that can
+happen to a world whose promise is the row above. When §6's *"call a gale"*
+is built it will need the impulse **aimed**, not merely permitted: pinning
+`Pin::Gale` raises what a gust delivers and says nothing about where it lands.
+
+**What was deliberately left running, and why:**
+
+| left running | why |
+|---|---|
+| the CA sweep, `rigid::step_chunk_bodies`, blasts, particles, the player | physics, which the premise leaves alone: rock still falls, water still flows, a struck wall still comes down |
+| `fire::update`, inside that sweep | heat and phase change are physics too, and both consequences are wanted: nothing lights a fire in a held world but the player, and a temperature relaxes toward ambient and then *settles* (`THERMAL_SETTLE_EPSILON`), so a held world converges to still. The visible cost is that a sheet of ice standing when the world stopped thaws — and nothing can re-freeze it outside a circle now, because the frost sweep is gated |
+| `field::step` | it writes no cells — every `world.set` in `field.rs` is inside `#[cfg(test)]` — and it *converges*: with nothing writing into it a held world's field settles and goes quiet, which is the wanted behaviour rather than a gap |
+| `World::step_soil_water` | water moving under gravity through a porous medium is nearer "water still flows" than "weathers", and rain — its only outside source — is now gated. It is also the one phase whose dirty marks are **consumed** rather than re-dated, so a gate there would drop them for good and `wake_region` does not touch that channel. **It is not nothing**: on a settled soil bed under standing water, 244 cells change wetness per 600 held frames against 356 unheld, which is a pond recharging the ground beneath it |
+| `World::step_pheromones` | a whole-plane decay with no per-position hook and no render outside a debug overlay, monotone toward zero, so a held world converges to still rather than drifting |
+| lightning | `World::lightning_at` is a pure read with no world writes at all — the flash is drawn and nothing in the simulation ignites from it |
+
+`weather::tests::probe_what_still_moves_in_a_held_world` is the instrument
+behind that last table and re-answers it whenever a phase is added to
+`frame::step`: one settled soil-and-pond world forked into a held and an
+unheld arm, 600 frames, cells changed by channel. **It settles for 3,000
+frames before holding**, because the first version censused from frame 0 on a
+hand-filled bed and reported 1,450 wet cells moving — a real count of the
+initial condition relaxing, not of anything the held world does.
 
 ### The world is grown, and then stopped
 
