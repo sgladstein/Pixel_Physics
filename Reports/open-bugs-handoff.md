@@ -145,20 +145,20 @@ point.
 | W4 | **OPEN** | 9759 | A rooted bank now sheds *more* of its own soil than a bare one, because it still has the ... |
 | W5 | **OPEN** | 9819 | The lab's bed grows a water table on its stone floor, and it does not stop |
 | W6 | closed | 9870 | A plant EVOLVES root tips into shoot tips, and the shoot it then grows is made of root wood |
-| W7 | closed | 10196 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
-| Z6 | **OPEN** | 10302 | Every shipped bed starves its ant colony inside one play session |
-| Z7 | **OPEN** | 10445 | The trail-following gate saturates the signal it gates: the ant reads its own trail at ±0... |
-| Z8 | closed | 10597 | A fruit severed by ordinary structural failure lands as an ownerless windfall, and it can... |
-| Z9 | closed | 10718 | A hopping animal that comes down on water never lands: it hangs there, is charged the air... |
-| Z10 | closed | 10831 | The flitter's float never switches off on a bed that has flowers in it |
-| Z11 | closed | 10928 | At the widest zoom-out the view drew one cell in sixteen and dropped the rest, so thin th... |
-| Z12 | **OPEN** | 11023 | Most of what piles up in a long-run long-ant colony is one-cell ants, and they are bred t... |
-| Z13 | **OPEN** | 11103 | Resting is indistinguishable from stuck at play zoom, and on a long body it reads as stuc... |
-| Z14 | **OPEN** | 11201 | The played bed's 500,000-frame trajectory is chaotic, and scent_drift: 0.15 re-rolled it |
-| Z15 | **OPEN** | 11293 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
-| Z16 | closed | 11371 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
-| Z18 | **OPEN** | 11501 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
-| Z17 | **OPEN** | 11553 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
+| W7 | closed | 10262 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
+| Z6 | **OPEN** | 10368 | Every shipped bed starves its ant colony inside one play session |
+| Z7 | **OPEN** | 10511 | The trail-following gate saturates the signal it gates: the ant reads its own trail at ±0... |
+| Z8 | closed | 10663 | A fruit severed by ordinary structural failure lands as an ownerless windfall, and it can... |
+| Z9 | closed | 10784 | A hopping animal that comes down on water never lands: it hangs there, is charged the air... |
+| Z10 | closed | 10897 | The flitter's float never switches off on a bed that has flowers in it |
+| Z11 | closed | 10994 | At the widest zoom-out the view drew one cell in sixteen and dropped the rest, so thin th... |
+| Z12 | **OPEN** | 11089 | Most of what piles up in a long-run long-ant colony is one-cell ants, and they are bred t... |
+| Z13 | **OPEN** | 11169 | Resting is indistinguishable from stuck at play zoom, and on a long body it reads as stuc... |
+| Z14 | **OPEN** | 11267 | The played bed's 500,000-frame trajectory is chaotic, and scent_drift: 0.15 re-rolled it |
+| Z15 | **OPEN** | 11359 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
+| Z16 | closed | 11437 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
+| Z18 | **OPEN** | 11578 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
+| Z17 | **OPEN** | 11630 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
 
 <!-- END GENERATED INDEX -->
 
@@ -9867,7 +9867,7 @@ which fits the owner's stated direction — *"the world starts with nothing, but
 the user can add plants, creatures, water, food, soil"* — better than a
 constant would.
 
-### W6. A plant EVOLVES root tips into shoot tips, and the shoot it then grows is made of root wood — **FIXED 2026-09-08: a cell that changes role changes tissue. Root wood above the soil line 761 -> 13 cells, and shoot tissue in root material 251 -> 0. Awaiting the owner's eye on the recolour**
+### W6. A plant EVOLVES root tips into shoot tips, and the shoot it then grows is made of root wood — **FIXED 2026-09-08: a cell that changes role changes tissue. Evidence corrected 2026-09-13: the `761 -> 13` cited here cannot tell a shoot standing in wood from a shoot that never grew, and the six-seed sweep below is what carries the verdict — four of six byte-identical, and the one apparent cost was divergence. Awaiting the owner's eye on the recolour**
 
 Reported by the owner 2026-09-06, by eye, on the roots-on/off review card:
 *"There is an issue in option a where the roots are growing into the
@@ -10157,8 +10157,74 @@ The 13 that remain are at most 6 cells proud of the ground: a root flare.
 
 **It does not work by deleting roots**, which is the thing to check when a
 count falls by 98%. Total root tissue falls 6,399 -> 5,819, but *below*
-ground it **rises**, 5,638 -> 5,806. The drop is entirely the rootwood shoot
-ceasing to be root tissue.
+ground it **rises**, 5,638 -> 5,806.
+
+**"The drop is entirely the rootwood shoot ceasing to be root tissue" was
+written here and is NOT supported — the owner caught it, 2026-09-08.** The
+question they asked is the one this section could not answer: *if the plant's
+behaviour was legitimate, what did the fix change?* Nothing about the
+behaviour. `retissue_on_role_change` changes `material` and `shade` and
+preserves `organism_id` and `aux`, so the genome still retargets the root's
+grow rule, the tip still converts, and the shoot still grows — `growable` keys
+on the behaviour attached to the cell **type**, not on the material. Only the
+tissue changes.
+
+Which means **"root material above the soil line: 761 -> 13" is consistent
+with two different worlds** — the shoot still standing there in wood, or the
+shoot never having grown. Both give that number, and the below-ground control
+above looks the wrong way to separate them. Measured properly (all
+organism-owned cells more than 2 above the surface in their own column,
+`root_sky`, same paired run):
+
+| | OFF | ON |
+|---|---|---|
+| **all living tissue above the soil line** | **19,555** | **15,756** |
+| of which root material | 761 | 13 |
+| everything else | 18,794 | 15,743 |
+
+So the above-ground stand is **19% smaller**, and the non-root part fell by
+3,051 cells as well. The repaint reading is wrong as stated.
+
+**What that 19% is, is not answerable on one world**, and the sweep says it is
+**divergence, not damage.** The fix changes `reinforces_powder` on the
+converted tissue, so soil cohesion changes and the arms are different worlds
+within a frame or two of the first conversion. Six numbered seeds, paired, one
+binary, all living tissue above the soil line:
+
+| seed | OFF | ON | delta |
+|---|---|---|---|
+| 1 | 18,071 | 18,071 | **0** |
+| 2 | 20,889 | 20,889 | **0** |
+| 3 | 22,776 | **26,880** | **+4,104 (+18%)** |
+| 4 | 27,314 | 27,314 | **0** |
+| 5 | 27,729 | 27,729 | **0** |
+| 6 | 22,462 | 22,462 | **0** |
+
+**Four of six are byte-identical**, which is the positive control this change
+most needed: a seed with no role flip leaves the fix inert, so it provably
+touches nothing outside the path it is for.
+
+**Where it fires, the sign flips.** Seed 3 is 18% *larger* with the fix; the
+card seed was 19% *smaller*. Two worlds, opposite directions, near-identical
+magnitude — so neither is a cost or a benefit, and **the -19% above must not be
+read as the fix shrinking the stand.** n=2 on firing seeds is small and the
+claim is correspondingly narrow: it is that the single-world figure is not
+evidence of a cost, not that the change is free.
+
+**Two details from that sweep that a skim would misread.**
+
+- **On seed 3 root material above the soil line goes UP with the fix**, 33 ->
+  73, which reads like the fix failing and is the same divergence: that arm
+  grew a *bigger* stand (root cells 5,585 -> 6,694), so there is more of
+  everything. Read the arms as two worlds, not as a before and after of one.
+- **Root material above the soil line is not itself the defect.** Seed 1
+  carries **175 such cells in both arms identically** — the fix never fired
+  there, so those 175 are ordinary root flare and whatever else puts root
+  tissue at the surface. The defect is specifically *shoot* tissue made of
+  root wood, which is why the census splits by cell type and why
+  `MatureBody` is reported as AMBIGUOUS rather than counted.
+
+
 
 **The prediction filed above, before the run, held**: fixing only the
 unambiguous types drained the AMBIGUOUS `MatureBody` population too
@@ -11430,6 +11496,12 @@ half.
 site.** Found by round 29's coordinator reading the code, and verified here
 against the source line by line rather than taken on report.
 
+> **Superseded the same day by the block below** (#366 repaired it). Kept as
+> the diagnosis record, because the reasoning that found the write site is
+> worth more than the patch. **Read the code description here as past tense**
+> — `deliver_seed_passenger_with_material` no longer ends in an unconditional
+> write.
+
 **The digestion exit plants the pip into the ant's own head.** When a crop's
 last cell is eaten, `creature.rs` calls
 `plant::deliver_seed_passenger(world, hx, hy, passenger)` — and `(hx, hy)` is
@@ -11460,8 +11532,13 @@ constant that was compensating for it*, in its plainest form. Whoever takes
 this should budget the lifespan re-run into the same brief, on runs short
 enough to finish (≤200k frames).
 
-**It does not close the section.** §Z15 (the cage) is untouched, and the
-`empty` half below is still undiagnosed and still the larger one.
+**What this block got wrong, left visible rather than edited away.** It said
+the `empty` half was "still undiagnosed and still the larger one". It was
+neither: the block below shows it was **the same write seen later**, and the
+repair took it to zero on every seed. Predicting a second mechanism from a
+column an instrument could not attribute is exactly the *ask what your number
+counts* trap, and this is what it looks like when the prediction is wrong.
+§Z15 (the cage) is untouched and is the part that genuinely remains.
 
 **2026-09-12, closed by #366 — and the `empty` half was the same write seen
 later.** The planter (`deliver_seed_passenger_with_material`) now refuses an
