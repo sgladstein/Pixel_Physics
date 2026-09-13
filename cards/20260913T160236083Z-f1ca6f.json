@@ -1,0 +1,60 @@
+{
+  "id": "20260913T160236083Z-f1ca6f",
+  "created": "2026-09-13T16:02:36Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-a9f443684f61f23a4",
+    "branch": "worktree-agent-a9f443684f61f23a4",
+    "commit": "349d13fb",
+    "agent": null,
+    "session_id": "79abafe2-f617-546c-9fed-7bebff67abba",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-a9f443684f61f23a4"
+  },
+  "title": "The held world is now made of soil",
+  "question": "Is this the ground you meant — soil the whole way down, with rock only where a hill breaks through? Or is it still too much rock?",
+  "context_md": "Your note was *\"it should be mostly soil, little to no rock\"*. Both frames are the real game (`cargo run --release --bin druid`) at the shipped 2560x960, grown 8,000 frames and then held, same seed, same spawn rule — only the worldgen preset differs.\n\n**What was actually wrong.** Not the amount of soil the preset asked for. Soil is refused outright on any ground steeper than its own angle of repose, and the blanket is then only allowed to deepen about two-thirds of a cell per column away from bare ground — so **one crag thins the soil for two hundred columns either side of it**, whatever the soil depth says. Raising that depth from 210 to 1,000 moved the soil on screen from 8.4% to 8.5%. What moved it was taking the crags out: erosion off (it cuts the gullies and leaves the hard bands standing), hills and surface roughness down to long, gentle wavelengths, and the shape put back as broad swells the walk crosses instead of hills it climbs.\n\n**Two things I am unsure about and would rather you told me than have me guess.**\n\n1. **The soil is dark and fairly uniform.** The cross-section shading ramps a topsoil-to-subsoil profile over the blanket's own depth, so a deep blanket puts most of the visible cutaway in one tone. I pulled the depth back to 380 to keep two horizons in view rather than one; it may still want to be lighter or more varied.\n2. **This spot is a plain.** The gnome spawns on the first dry, level ground near the middle of the world, so this frame is flatter than the world is — there are broad hills and one bare crest elsewhere in the five screens. If you want more shape underfoot, say so and I will raise the swells rather than the roughness.\n\nWhat I would ignore: the trees form a hedge along the skyline because the whole world is now plantable, which is a plant-density question rather than a ground one.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before — what you rejected",
+      "files": [
+        "20260913T160236083Z-f1ca6f/000-card_before.png"
+      ],
+      "caption": "banded rock from the sandbox, a thin crust of soil on top",
+      "meta": {
+        "ground on screen that is rock": "79%",
+        "ground on screen that is soil": "8%",
+        "soil above the first rock, typical column": "22 cells",
+        "surface that is bare rock": "17% of columns",
+        "plants grown before the world was held": 3772,
+        "seconds to build the world": 56
+      },
+      "focus": null
+    },
+    {
+      "label": "after — this change",
+      "files": [
+        "20260913T160236083Z-f1ca6f/001-card_after.png"
+      ],
+      "caption": "soil past the bottom of the screen, roots visible in it",
+      "meta": {
+        "ground on screen that is rock": "32%",
+        "ground on screen that is soil": "57%",
+        "soil above the first rock, typical column": "135 cells",
+        "surface that is bare rock": "2% of columns",
+        "plants grown before the world was held": 4095,
+        "seconds to build the world": 107
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
