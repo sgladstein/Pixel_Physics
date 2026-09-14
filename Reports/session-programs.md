@@ -60,6 +60,31 @@ pull request even if it could push. The only recovery is to spawn it again
 correctly and archive the original, so two lanes are not building the same
 thing.
 
+**A lane's own `task_summary` is not evidence it has a checkout, and that is
+the half that will fool you.** Recurred 2026-09-14 — this section already
+existed and the coordinator dispatched four lanes without reading it, which is
+the first thing worth recording. The second is new and nastier. Of the four,
+**one inherited `sources` and three did not**, and of those three:
+
+| lane | `sources` | what its record said it was doing |
+|---|---|---|
+| A | absent | *"set up branch, reading render code for aura_disc_count baseline"* |
+| B | absent | *"setup release build, reading placement specs for lane B"* |
+| C | absent | *"let me know which one (a clone URL or org/repo) and I'll pick up the actual task"* |
+
+Only C was telling the truth. A and B produced summaries that read like
+ordinary progress against files that were not on their disks — so a
+coordinator glancing down a status list would have scored three of four as
+healthy and gone away. **The only signal that crosses the container is a
+pushed branch**: `git ls-remote origin 'refs/heads/claude/<prefix>-*'` was
+empty for all four, which settled it in one command. That is the same rule as
+*A lane being healthy is not evidence its work is durable* below, one step
+earlier — here the lane is not merely un-durable, it is working on nothing.
+
+Cost of the repeat: about a dollar and twenty minutes, because C stopped and
+the branch check was cheap. It would have been a session if the coordinator
+had trusted the summaries.
+
 **Carry the dead lane's findings into the relaunch.** The one that got seven
 minutes in had already found three stale line numbers in its own brief and
 confirmed what a just-merged PR did and did not touch. That is real work and
