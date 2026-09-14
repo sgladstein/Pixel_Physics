@@ -2293,6 +2293,8 @@ mod tests {
             world.materials.get(soil).base_shades,
             "the palette moved and the shade bound did not -- a random draw would lose soil's wet and dry families"
         );
+    }
+
     /// **A world out of organism slots says so, rather than blaming the
     /// ground.** §Z21's whole content: `found_colony_of` returns 0 for three
     /// unrelated reasons and the bar named the wrong one, confidently.
