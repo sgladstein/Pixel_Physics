@@ -201,5 +201,5 @@ it now says it does," which the tests above answer directly.
 
 ## Head
 
-See `PR_BODY_LANE_C.md` on this branch and the PR itself for the head SHA
-and link.
+PR [#435](https://github.com/sgladstein/Pixel_Physics/pull/435), head
+`245f28541a02c4db8a47c8e7bf156c0d97683c97`.
