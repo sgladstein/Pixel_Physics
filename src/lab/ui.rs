@@ -4287,7 +4287,7 @@ impl Ui {
         let ranked: Vec<String> = loads.iter().take(12).map(|n| n.to_string()).collect();
         let bands = hunger_bands(world, colony, species);
         let thin = bands[0] + bands[1];
-        vec![
+        let mut rows = vec![
             Row::value(
                 world.group_label(species, colony),
                 format!("{alive} ALIVE   {}", compact(income - outgo)),
@@ -4309,7 +4309,7 @@ impl Ui {
                 ),
                 VALUE,
                 format!(
-                    "WHERE THE FOOD CAME FROM. FORAGED IS ANYTHING WHOSE WORTH IS IN WHAT IT IS MADE OF -- LEAF, LITTER, SEED, NECTAR. MEAT IS SCAVENGED: A CORPSE CARRIES THE WORTH OF THE ANIMAL IT WAS, SO IT IS FOOD SOMETHING ELSE ALREADY PAID FOR, AND A COLONY LIVING ON IT IS EATING ITSELF. FED IS MOUTH TO MOUTH FROM ANOTHER ANT -- FAMILY IS DECIDED BY SMELL RATHER THAN BY WHICH COLONY YOU PUT DOWN, SO SOME OF IT CROSSES BETWEEN COLONIES: THIS ONE GAVE {} J AWAY, TOOK {} J OFF OTHER COLONIES' LIVING ANIMALS AND LOST {} J TO THEM.",
+                    "WHERE THE FOOD CAME FROM. FORAGED IS ANYTHING WHOSE WORTH IS IN WHAT IT IS MADE OF -- LEAF, LITTER, SEED, NECTAR, AND ALSO THE FLESH OF A LIVING ANIMAL THIS COLONY DOES NOT RECOGNISE, WHICH IS WHY A RIVALS ROW APPEARS BELOW WHEN THAT IS HAPPENING. MEAT IS SCAVENGED: A CORPSE CARRIES THE WORTH OF THE ANIMAL IT WAS, SO IT IS FOOD SOMETHING ELSE ALREADY PAID FOR, AND A COLONY LIVING ON IT IS EATING ITSELF. FED IS MOUTH TO MOUTH FROM ANOTHER ANT -- FAMILY IS DECIDED BY SMELL RATHER THAN BY WHICH COLONY YOU PUT DOWN, SO SOME OF IT CROSSES BETWEEN COLONIES: THIS ONE GAVE {} J AWAY, TOOK {} J OFF OTHER COLONIES' LIVING ANIMALS AND LOST {} J TO THEM.",
                     compact(shared_out),
                     compact(books.raided),
                     compact(books.raided_by_others)
@@ -4376,7 +4376,36 @@ impl Ui {
                 ),
             ),
             Row::gap(),
-        ]
+        ];
+        // **Only when it is happening, and it says so in the world's own
+        // words.** Round 35's conflict work (#417) made a stranger *food*:
+        // `ant` material carries `food_class: 1.0` against the shipped
+        // neutral gut, so two colonies outside each other's tolerance eat
+        // each other through the ordinary `Feed` path, with no `Attack`
+        // weight involved and nobody taught to fight. Those joules land in
+        // `FORAGED` above, because living flesh is not `worth_in_aux` --
+        // arithmetically right, and it reads as "they found some plants".
+        // This row is what lets the page say the true sentence instead.
+        //
+        // Inserted rather than appended: it belongs beside where the food
+        // came from, not after what the food was spent on. Third, so the
+        // block still reads top to bottom as bank, sources, bill, state.
+        if books.raided > 0.0 || books.raided_by_others > 0.0 {
+            rows.insert(
+                2,
+                Row::value(
+                    "  ATE RIVALS / EATEN BY",
+                    format!("{} / {}", compact(books.raided), compact(books.raided_by_others)),
+                    if books.raided_by_others > books.raided { POOR } else { VALUE },
+                    format!(
+                        "THIS COLONY IS EATING ANOTHER COLONY'S LIVING ANIMALS, AND BEING EATEN BY THEM. TWO COLONIES THAT DO NOT KNOW EACH OTHER'S SMELL ARE FOOD TO EACH OTHER THROUGH THE ORDINARY MOUTH -- NOTHING HAS TO BE TAUGHT TO FIGHT FOR THIS TO HAPPEN. THESE JOULES ARE ALSO COUNTED IN FORAGED ABOVE, BECAUSE THAT IS THE ACCOUNT THE MOUTHFUL WAS BOOKED TO; THIS ROW SAYS WHAT THE MOUTHFUL WAS. {} J TAKEN, {} J LOST.",
+                        compact(books.raided),
+                        compact(books.raided_by_others)
+                    ),
+                ),
+            );
+        }
+        rows
     }
 
     /// **The FOOD page: what each colony is living on.**
@@ -10969,7 +10998,13 @@ mod tests {
         for (i, id) in ids.into_iter().enumerate() {
             world.organism_mut(id).expect("live").colony = (i as u32 % n) + 1;
         }
+        // **Every colony raids its neighbour**, so the conditional rivals
+        // row is present in the blocks the fit test measures. A row that
+        // only appears on a bed where two colonies are strangers is exactly
+        // the row a page-height guard would otherwise never see, and it is
+        // the tallest the block gets.
         for colony in 1..=n {
+            world.book_raid(colony, colony % n + 1, 30.0 * colony as f64);
             world.book(colony, Account::Granted, 900.0);
             world.book_meal(colony, Account::HarvestedPlant, litter, 120.0 * colony as f64);
             world.book(colony, Account::Metabolized, 400.0);
@@ -11020,7 +11055,14 @@ mod tests {
                 "{colonies} colonies: the FOOD page is {height} px of rows against a budget of {}",
                 page_content_budget()
             );
+            // **The tall block is the one being measured.** `colonised`
+            // books a raid for every colony, so the conditional rivals row
+            // must be in every block drawn -- without this the fit test
+            // could be passing over the *short* block and saying nothing
+            // about the one a stranger bed actually draws.
             let named = rows.iter().filter(|r| matches!(&r.body, Body::Value { label, .. } if label.starts_with("ANT"))).count();
+            let rivals = rows.iter().filter(|r| matches!(&r.body, Body::Value { label, .. } if label.trim() == "ATE RIVALS / EATEN BY")).count();
+            assert_eq!(rivals, named, "{colonies} colonies: {named} blocks drawn but {rivals} carry the rivals row");
             let overflowed = rows.iter().any(|r| matches!(&r.body, Body::Value { label, .. } if label == "MORE COLONIES"));
             saw_overflow |= overflowed;
             assert!(
