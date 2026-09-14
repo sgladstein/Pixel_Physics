@@ -1,7 +1,9 @@
 # Lane B — the colony's books
 
 *Round 35, 2026-09-14. Brief: `Reports/colony-food-economy-design-2026-09-14.md`
-§3, Lane B. Branch `claude/evolution-lab-colony-books`.*
+§3, Lane B. Branch `claude/evolution-lab-colony-books`, **PR #419**, head
+`4254ba97`. The lane opened its own PR — it has the GitHub tools — so the
+coordinator owns only the merge.*
 
 ## What landed
 
