@@ -57,6 +57,7 @@
 
 mod common;
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::sim::material;
 use pixel_physics::sim::organism;
 use pixel_physics::sim::parallel;
@@ -139,12 +140,12 @@ fn measure(w: &World) -> Vec<Morph> {
     let Some(b) = w.bounds() else { return Vec::new() };
     // Per organism: root cells, shoot cells, topmost root row, topmost shoot
     // row, lowest shoot row, and the shoot cells in each row (for the width).
-    let mut root: BTreeMap<u16, usize> = BTreeMap::new();
-    let mut shoot: BTreeMap<u16, usize> = BTreeMap::new();
-    let mut plate_top: BTreeMap<u16, i32> = BTreeMap::new();
-    let mut shoot_top: BTreeMap<u16, i32> = BTreeMap::new();
-    let mut shoot_base: BTreeMap<u16, i32> = BTreeMap::new();
-    let mut row_width: BTreeMap<(u16, i32), usize> = BTreeMap::new();
+    let mut root: BTreeMap<OrganismId, usize> = BTreeMap::new();
+    let mut shoot: BTreeMap<OrganismId, usize> = BTreeMap::new();
+    let mut plate_top: BTreeMap<OrganismId, i32> = BTreeMap::new();
+    let mut shoot_top: BTreeMap<OrganismId, i32> = BTreeMap::new();
+    let mut shoot_base: BTreeMap<OrganismId, i32> = BTreeMap::new();
+    let mut row_width: BTreeMap<(OrganismId, i32), usize> = BTreeMap::new();
     for y in b.min_y..=b.max_y {
         for x in b.min_x..=b.max_x {
             let c = w.get(x, y);

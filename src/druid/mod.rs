@@ -25,6 +25,7 @@ pub mod founding;
 pub mod hud;
 pub mod menu;
 
+use crate::sim::cell::OrganismId;
 use crate::render::Renderer;
 use crate::sim::chunk::Rect;
 use crate::sim::clock::SkyPin;
@@ -614,7 +615,7 @@ pub struct Druid {
     /// organism dies, so the map is pruned to the ids seen on each pass —
     /// otherwise a dead ant's charge would be inherited by whatever is
     /// allocated its slot next.
-    pub reserves: std::collections::HashMap<u16, f32>,
+    pub reserves: std::collections::HashMap<OrganismId, f32>,
     /// Energy in flight from an animal to the player — see [`Draw`].
     pub draws: Vec<Draw>,
     /// **Which plane `G` writes to.** `Channel::A` by default — and that
@@ -666,6 +667,42 @@ pub struct Druid {
 impl Default for Druid {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Why a founding placed nobody, in the player's words.
+///
+/// **Three refusals used to wear one message and that was the bug.** `C` is
+/// the first thing a player presses and the only thing in the held world that
+/// makes an animal, so a refusal that names the wrong cause reads as the
+/// whole feature being broken. "nothing founded - no ground here" was said
+/// while standing plainly on ground, because the world was at the 4,095
+/// organism ceiling and every station reached the allocator and was turned
+/// away (`Reports/open-bugs-handoff.md` §Z21). The ground rule and the
+/// allocator are independent walls: with the thicket repair on, the same
+/// nine stands were offered **63 stations against 31** and placed the
+/// **identical 2** animals.
+///
+/// A free function taking the two facts rather than a method, so both
+/// founding paths -- `Druid::found_colony` at the player's feet and
+/// `found_from_offer` -- reach the same wording from the same inputs. Two
+/// call sites choosing their own strings is how the third case went unnamed
+/// in the first place.
+///
+/// `no_slots` is read from `World::organisms_refused` either side of the
+/// founding, never inferred: a stand that seats nobody because the ground
+/// refused it and one that seats nobody because the world is out of
+/// identities are the same number without that counter.
+fn refusal_note(stations_offered: usize, no_slots: bool) -> &'static str {
+    // Slots first, and deliberately: it is the only one of the three the
+    // player cannot act on by moving, which is what both other wordings
+    // tell them to do.
+    if no_slots {
+        "no room for another living thing - the world is full"
+    } else if stations_offered == 0 {
+        "no ground here - stand on something solid"
+    } else {
+        "no room - the ground here is full. try open ground"
     }
 }
 
@@ -747,7 +784,7 @@ impl Druid {
         // none yet -- nothing in worldgen places one, and founding a colony
         // is the player's verb.
         if start == Start::Dead {
-            let plants: Vec<u16> = world
+            let plants: Vec<OrganismId> = world
                 .live_organism_ids()
                 .into_iter()
                 .filter(|id| world.organism(*id).is_some_and(|st| world.species.get(st.species).creature.is_none()))
@@ -1190,7 +1227,7 @@ impl Druid {
         let (px, py) = player.center();
         let mut taken = 0.0;
         let mut from: Vec<((i32, i32), f32)> = Vec::new();
-        let ids: Vec<u16> = self.reserves.keys().copied().collect();
+        let ids: Vec<OrganismId> = self.reserves.keys().copied().collect();
         for id in ids {
             let held = self.reserves.get(&id).copied().unwrap_or(0.0);
             if held <= 0.0 {
@@ -1255,14 +1292,43 @@ impl Druid {
             return 0;
         };
         let (x, y) = player.center();
+        // **The slot ceiling is a *third* refusal and it has to be read, not
+        // inferred.** `found_colony_of` returns 0 for three unrelated
+        // reasons -- no ground, no nest material, and no organism slots --
+        // and this line said "no ground here" for all three. On a world at
+        // the ceiling that is a confident, specific and wrong cause: the
+        // ground is fine and the world is out of identities
+        // (`Reports/open-bugs-handoff.md` §Z21, measured at 4,095 of 4,095
+        // with 26 births refused over nine stands). `World::organisms_refused`
+        // is the engine's own counter, incremented inside `push_organism` on
+        // the far side of the call, so reading it either side of the
+        // founding is the one thing that tells the three apart -- and it is
+        // what the investigation itself needed before it could.
+        let refused_before = self.world.organisms_refused();
         let placed = self.world.found_colony_of(x, y, COLONY_SPECIES, COLONY_SIZE);
-        println!("druid: founded {placed} animals at {x},{y} (colony {})", if placed > 0 { "took" } else { "REFUSED - no ground, or no nest material" });
+        let no_slots = self.world.organisms_refused() > refused_before;
+        println!(
+            "druid: founded {placed} animals at {x},{y} (colony {})",
+            if placed > 0 {
+                "took"
+            } else if no_slots {
+                "REFUSED - no organism slots"
+            } else {
+                "REFUSED - no ground, or no nest material"
+            }
+        );
         // Counted here rather than waiting for the next economy pass: half a
         // second of a readout still saying zero, right after the key that was
         // meant to change it, reads as the key not working.
         self.animals += placed;
         match placed {
-            0 => self.note("nothing founded - no ground here"),
+            // Through the same classifier as `found_from_offer`, so the two
+            // verbs cannot drift apart in what they call the same refusal.
+            // `found_colony_of` does its own siting and hands back no
+            // station list, so the ground case is reported as "no ground"
+            // -- which is right, since that path declines for want of
+            // ground or nest material and nothing else.
+            0 => self.note(refusal_note(0, no_slots)),
             n => self.note(format!("founded {n} animals at your feet")),
         }
         placed
@@ -1491,6 +1557,13 @@ impl Druid {
         // joins it, so a founding in which nothing fits claims nothing.
         let mut colony: Option<u32> = None;
         let mut placed = 0;
+        // See `found_colony`: the refusal counter either side of the loop is
+        // the only thing that separates "every station is occupied" from
+        // "every station reached the allocator and was turned away". §Z21
+        // measured those two as *the same picture* -- 63 stations offered
+        // against 31 with the ground rule repaired, and the identical 2
+        // animals placed, because the wall was downstream of the ground.
+        let refused_before = self.world.organisms_refused();
         let stations = self.world.colony_stations(x, y, species_id, founders);
         for &(cx, cy) in &stations {
             let Some(organism) = creature::release_creature_specimen(&mut self.world, cx, cy, species, genome.clone(), traits, colony) else {
@@ -1530,12 +1603,18 @@ impl Druid {
             // Measured 2026-09-14 -- and it is the first thing a player
             // presses, so a refusal that does not say what to do about it is
             // the whole feature reading as broken.
-            self.note(if stations.is_empty() {
-                "no ground here - stand on something solid"
-            } else {
-                "no room - the ground here is full. try open ground"
-            });
-            println!("druid: founding REFUSED — {} stations offered, 0 took", stations.len());
+            // **Three refusals, three messages, and the third one is not a
+            // property of the ground at all.** "the ground here is full" is
+            // as wrong at the slot ceiling as "no ground here" was, and it
+            // sends the player walking somewhere else to get the same
+            // result.
+            let no_slots = self.world.organisms_refused() > refused_before;
+            self.note(refusal_note(stations.len(), no_slots));
+            println!(
+                "druid: founding REFUSED — {} stations offered, 0 took{}",
+                stations.len(),
+                if no_slots { " (out of organism slots)" } else { "" }
+            );
             return 0;
         }
         if !self.unlimited {
@@ -1696,7 +1775,7 @@ impl Druid {
         // Rebuilt rather than updated in place: organism slots are reused, so
         // an entry left behind by a dead animal would be inherited by
         // whatever is allocated its slot next.
-        let mut fresh: std::collections::HashMap<u16, f32> = std::collections::HashMap::with_capacity(self.reserves.len());
+        let mut fresh: std::collections::HashMap<OrganismId, f32> = std::collections::HashMap::with_capacity(self.reserves.len());
         for id in self.world.live_organism_ids() {
             let Some(state) = self.world.organism(id) else { continue };
             let Some((x, y)) = state.chain.first().copied().or_else(|| state.cells.keys().next().copied()) else {
@@ -2057,6 +2136,55 @@ fn grow_from_env() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A world out of organism slots says so, rather than blaming the
+    /// ground.** §Z21's whole content: `found_colony_of` returns 0 for three
+    /// unrelated reasons and the bar named the wrong one, confidently.
+    ///
+    /// **The `no_slots` arm is checked against a real ceiling rather than a
+    /// hand-set flag**, because the claim being guarded is that the counter
+    /// moves when the world is full -- a flag would guard the `if` and not
+    /// the mechanism. Filling every slot costs ~0.6 s, measured, which is
+    /// why it is done for real here.
+    #[test]
+    fn a_world_out_of_slots_says_so_instead_of_blaming_the_ground() {
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        let species = w.species.id_of("moss").expect("moss is compiled in");
+
+        // The control first: a world with slots free refuses nothing, so the
+        // counter is known to be quiet when nothing is wrong. Without this
+        // the assertion below cannot tell "the world is full" from "this
+        // counter is always non-zero".
+        let quiet = w.organisms_refused();
+        let id = w.push_organism(species).expect("a slot is free in a fresh world");
+        w.free_organism(id);
+        assert_eq!(w.organisms_refused(), quiet, "an allocation that succeeds must not count as a refusal");
+
+        // Now fill it. `push_organism` is the only allocator, so this is the
+        // same wall a germination or a founding hits.
+        while w.push_organism(species).is_some() {}
+        let before = w.organisms_refused();
+        assert!(w.push_organism(species).is_none(), "a full world must refuse, not wrap an index into the generation bits");
+        assert!(w.organisms_refused() > before, "a refused birth must be counted -- it is the only signal the message can read");
+
+        // And the wording follows the counter, not the ground. Both of the
+        // ground wordings tell the player to move, which is useless here.
+        let full = refusal_note(63, true);
+        assert!(full.contains("world is full"), "a slot refusal must name the world being full, not the ground: {full:?}");
+        assert!(!full.contains("ground"), "a slot refusal must not mention ground at all -- that is the wrong cause: {full:?}");
+    }
+
+    /// The other two arms still say what they used to, so the fix names a
+    /// third case rather than renaming the two that were already right.
+    #[test]
+    fn the_two_ground_refusals_are_unchanged_and_distinct() {
+        let none = refusal_note(0, false);
+        let full = refusal_note(63, false);
+        assert!(none.contains("no ground here"), "{none:?}");
+        assert!(full.contains("the ground here is full"), "{full:?}");
+        assert_ne!(none, full, "standing off ground and standing on crowded ground are different things to do about it");
+        assert_ne!(full, refusal_note(63, true), "the same station count must read differently when the refusal was the allocator");
+    }
 
     /// **A trail he lays has a slope, and the slope points at him.**
     ///

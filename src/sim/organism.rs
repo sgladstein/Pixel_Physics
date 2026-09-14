@@ -39,7 +39,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use super::cell::Cell;
+use super::cell::{Cell, OrganismId};
 use super::material::MaterialKind;
 use super::rng;
 use super::surface::CellSurface;
@@ -4923,7 +4923,7 @@ pub struct Crop {
 /// (`step_organisms`'s own "empty cell list" rule).
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct SeedPassenger {
-    pub organism_id: u16,
+    pub organism_id: OrganismId,
     /// Always `pip` in practice -- `take_seed_passenger`'s only caller reads
     /// this straight off a cell `seed_survives_bite` just wrote as `pip` --
     /// but it is read off the cell rather than looked up again, the same
@@ -8442,7 +8442,7 @@ const fn opposite_face(k: usize) -> usize {
 /// from the organism's own cell list rather than from the sweep happening
 /// to visit it, which is a strictly better answer to that requirement than
 /// the workaround it replaces.
-pub fn transport(world: &mut crate::sim::world::World, organism_id: u16) {
+pub fn transport(world: &mut crate::sim::world::World, organism_id: OrganismId) {
     let Some(state) = world.organism(organism_id) else {
         return;
     };
@@ -9452,12 +9452,28 @@ mod tests {
         assert!(w.organism(heir).expect("the heir is live").cells.is_empty(), "a stale site must not have grown cells for the organism that inherited its slot");
     }
 
+    /// How many reuses of one slot the generation counter spans before it
+    /// wraps, read off `World`'s own mask rather than written out. The
+    /// constant moved 16 -> 4,096 with the `Cell` widening and a test that
+    /// spelled the old number would have had to be *edited* rather than
+    /// *failing*, which is the difference between a guard and a note.
+    const GENERATION_SPAN: usize = 4096;
+
     #[test]
     fn generation_wrap_is_counted() {
-        // P-8. The 4-bit generation wraps after 16 reuses, at which point a
-        // reference stale by exactly that many reuses aliases a live
+        // P-8. The generation wraps after `GENERATION_SPAN` reuses, at which
+        // point a reference stale by exactly that many reuses aliases a live
         // organism again. Accepted, but it should be a *counted* quantity
-        // rather than a footnote -- 17 allocate/free cycles is one wrap.
+        // rather than a footnote.
+        //
+        // **This span was 16 and is now 4,096**, because `Cell::organism_id`
+        // widened to `u32` and the new room was split 20 bits index / 12
+        // bits generation rather than being spent entirely on the index.
+        // The stale handles it guards against are not hypothetical --
+        // detached tissue keeps its `organism_id`, so litter naming a dead
+        // organism lies around any grown world -- which is why the 13/3
+        // re-split of the old `u16`, doubling the ceiling by *halving* this,
+        // was not the route taken.
         use crate::sim::chunk::Rect;
         let mut w = World::new(Rect::new(0, 0, 31, 31));
         let species = w.species.id_of("moss").expect("moss is compiled in");
@@ -9465,20 +9481,77 @@ mod tests {
         assert_eq!(w.organism_generation_wraps, 0);
         let first = w.push_organism(species).expect("an organism slot is free"); // generation 0
         w.free_organism(first);
-        // Generations 1..=15: fifteen reuses, none of them a wrap.
-        for _ in 0..15 {
+        // Every generation below the span: reuses, none of them a wrap.
+        for _ in 0..GENERATION_SPAN - 1 {
             let id = w.push_organism(species).expect("an organism slot is free");
-            assert_ne!(id, first, "generations 1..15 must all encode differently from generation 0");
+            assert_ne!(id, first, "every generation below the wrap must encode differently from generation 0");
             w.free_organism(id);
         }
-        assert_eq!(w.organism_generation_wraps, 0, "fifteen reuses stay inside the 4-bit space");
+        assert_eq!(w.organism_generation_wraps, 0, "reuses below the span stay inside the generation's bits");
 
-        // The sixteenth reuse is the wrap -- and the aliasing it warns
-        // about is real, which is exactly why it is worth counting: the
-        // very first id reads live again.
+        // The next reuse is the wrap -- and the aliasing it warns about is
+        // real, which is exactly why it is worth counting: the very first id
+        // reads live again.
         let wrapped = w.push_organism(species).expect("an organism slot is free");
-        assert_eq!(w.organism_generation_wraps, 1, "the sixteenth reuse of one slot should have wrapped its generation exactly once");
-        assert_eq!(first, wrapped, "after sixteen reuses the encoded id repeats -- the accepted limitation, asserted so it stays known");
+        assert_eq!(w.organism_generation_wraps, 1, "the wrapping reuse of one slot should have wrapped its generation exactly once");
+        assert_eq!(first, wrapped, "after a full generation span the encoded id repeats -- the accepted limitation, asserted so it stays known");
+    }
+
+    #[test]
+    fn the_organism_ceiling_is_past_the_old_four_thousand_and_ninety_five() {
+        // **The guard for the widening itself, and it fails loudly on the
+        // old layout**: at 12 index bits the 4,096th `push_organism` is
+        // refused and this stops at 4,095 distinct handles. Held world
+        // `Start::Grown` sat at exactly that wall with `C` founding nothing
+        // (`Reports/open-bugs-handoff.md` §Z21), which is the failure this
+        // exists to keep away.
+        //
+        // Deliberately asserts **distinctness**, not just the count. The
+        // original bug §F4 names was not a refusal at all -- `encode_
+        // organism_id` does not mask, so an over-range index ran into the
+        // generation's low bit and the new organism silently *became* a live
+        // one. A test that only counted successes would pass through exactly
+        // that corruption.
+        use crate::sim::chunk::Rect;
+        use std::collections::HashSet;
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let species = w.species.id_of("moss").expect("moss is compiled in");
+
+        const WANT: usize = 10_000;
+        let mut seen: HashSet<u32> = HashSet::with_capacity(WANT);
+        for i in 0..WANT {
+            let id = w.push_organism(species).unwrap_or_else(|| panic!("slot {i} refused below the ceiling"));
+            assert!(seen.insert(id), "handle {id} was handed out twice at allocation {i} -- an index has run into the generation bits");
+        }
+        assert_eq!(seen.len(), WANT);
+        assert_eq!(w.organisms_refused(), 0, "nothing should be refused this far below the ceiling");
+    }
+
+    #[test]
+    fn a_handle_round_trips_above_the_old_twelve_bit_index() {
+        // The encode/decode pair at the new split, exercised where the old
+        // one could not reach: a slot index past 4,095 *and* a generation
+        // past 15, together, which is the combination that would alias if
+        // either field's width or shift were wrong. Goes through the public
+        // allocator rather than the private codec so it tests what callers
+        // get.
+        use crate::sim::chunk::Rect;
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let species = w.species.id_of("moss").expect("moss is compiled in");
+
+        let mut high = 0;
+        for _ in 0..5_000 {
+            high = w.push_organism(species).expect("a slot is free");
+        }
+        assert!(w.organism(high).is_some(), "the 5,000th organism must resolve -- it is past the old 4,095 index");
+
+        // Now push that same slot's generation past the old 4-bit space.
+        for _ in 0..20 {
+            w.free_organism(high);
+            high = w.push_organism(species).expect("the freed slot comes back");
+        }
+        assert!(w.organism(high).is_some(), "a high index at a generation past 15 must still resolve to its own organism");
+        assert_eq!(w.organism_generation_wraps, 0, "twenty reuses is nowhere near the 4,096 wrap");
     }
 
     // --- diffuse_resource --------------------------------------------------
@@ -9573,7 +9646,7 @@ mod tests {
 
     /// Build a bare organism from a list of positions, all `wood`
     /// `MatureBody`, and hand back its id.
-    fn polarity_organism(w: &mut World, cells: &[(i32, i32)]) -> u16 {
+    fn polarity_organism(w: &mut World, cells: &[(i32, i32)]) -> OrganismId {
         let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
         let species = w.species.id_of("tree").expect("tree is a compiled-in species");
         let organism_id = w.push_organism(species).expect("an organism slot is free");

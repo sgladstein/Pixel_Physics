@@ -43,6 +43,7 @@
 
 mod common;
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::sim::organism;
 use pixel_physics::sim::plant;
 use pixel_physics::sim::parallel;
@@ -229,8 +230,8 @@ fn main() {
     // 1% rate, P(0 of 989) is about 4e-5. `CLAUDE.md`'s "ask what your number
     // counts" -- the percentage was right and the denominator was a different
     // quantity from the one the question needs.
-    let mut ever_established: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
-    let mut ever_established_drifted: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+    let mut ever_established: std::collections::BTreeSet<OrganismId> = std::collections::BTreeSet::new();
+    let mut ever_established_drifted: std::collections::BTreeSet<OrganismId> = std::collections::BTreeSet::new();
     // **The denominators the two sets above do not have**, and without which
     // `ed / e` cannot be read as a viability rate at all: it is the share of
     // *establishers* that carried drift, and the null it has to beat is the
@@ -238,8 +239,8 @@ fn main() {
     // makes a 2x2 look like a rate. Both are distinct-individual sets on the
     // same footing as the two above, so the four divide cleanly into
     // establishment rate within the drifted and within the rest.
-    let mut ever_seen: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
-    let mut ever_drifted: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+    let mut ever_seen: std::collections::BTreeSet<OrganismId> = std::collections::BTreeSet::new();
+    let mut ever_drifted: std::collections::BTreeSet<OrganismId> = std::collections::BTreeSet::new();
 
     let mut samples: Vec<Sample> = Vec::new();
     println!("\npopulation mean of each slot's unit draw (-1..=1), one row per sample:");
@@ -262,13 +263,13 @@ fn main() {
         // harness can see -- the same approach `plant_probe`'s census
         // takes, and it counts an individual once however many cells it
         // holds.
-        let mut owners: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
-        let mut seed_owners: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+        let mut owners: std::collections::BTreeSet<OrganismId> = std::collections::BTreeSet::new();
+        let mut seed_owners: std::collections::BTreeSet<OrganismId> = std::collections::BTreeSet::new();
         // (body cells, of which MatureBody) per individual, for the phenotype
         // columns. Read off the grid rather than off `OrganismState::cells`
         // because `OrganismCell` carries resources and support distance and
         // *not* the cell type -- the type lives in the grid cell's `aux`.
-        let mut body: std::collections::BTreeMap<u16, (u32, u32)> = std::collections::BTreeMap::new();
+        let mut body: std::collections::BTreeMap<OrganismId, (u32, u32)> = std::collections::BTreeMap::new();
         for y in 0..height {
             for x in 0..width {
                 let c = w.get(x, y);

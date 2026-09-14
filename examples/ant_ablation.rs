@@ -90,6 +90,7 @@
 //! cargo run --release --example ant_ablation -- terrain=world food=trees
 //! ```
 
+use pixel_physics::sim::cell::OrganismId;
 use std::collections::HashSet;
 
 use pixel_physics::sim::brain::{BrainInput, BrainOutput, Instinct};
@@ -446,14 +447,14 @@ fn run_one(instincts: &[Instinct], frames: usize, seed: u64, rough: bool, world_
 
     // Per-ant tracking, keyed on the organism handle so a died-and-reused
     // slot is not silently averaged into its predecessor's path.
-    let mut path_len: std::collections::HashMap<u16, f32> = std::collections::HashMap::new();
-    let mut last_pos: std::collections::HashMap<u16, (i32, i32)> = std::collections::HashMap::new();
-    let mut start_pos: std::collections::HashMap<u16, (i32, i32)> = std::collections::HashMap::new();
-    let mut max_range: std::collections::HashMap<u16, f32> = std::collections::HashMap::new();
+    let mut path_len: std::collections::HashMap<OrganismId, f32> = std::collections::HashMap::new();
+    let mut last_pos: std::collections::HashMap<OrganismId, (i32, i32)> = std::collections::HashMap::new();
+    let mut start_pos: std::collections::HashMap<OrganismId, (i32, i32)> = std::collections::HashMap::new();
+    let mut max_range: std::collections::HashMap<OrganismId, f32> = std::collections::HashMap::new();
     // Silence the now-unused nest bounds without deleting them: they name
     // the scene's geometry and the next metric may well want them.
     let _ = (NEST_X0, NEST_X1);
-    let mut ever_carried: HashSet<u16> = HashSet::new();
+    let mut ever_carried: HashSet<OrganismId> = HashSet::new();
     let mut visited: HashSet<(i32, i32)> = HashSet::new();
     let mut first_pickup = -1.0f32;
 

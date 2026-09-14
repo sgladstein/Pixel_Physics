@@ -51,16 +51,56 @@ state:
 
 | # | item | where |
 |---|---|---|
-| 8 | her own circle vanished above 1x | **done**, PR #430 |
-| 10 | simplify the top-left readout | **done**, PR #430 |
-| 1, 6, 7 | bubbles merge + speed as colour, creature colours, lab overlays | Lane A, `claude/druid-look` |
-| 2, 5, 9 | the yellow bars, founding far away, the founding screen | Lane B, `claude/druid-founding` |
-| 3, 4, 11a | the stress setting, restart, one size dial | Lane C, `claude/druid-shell` |
-| 11b | longer gnome-laid trail, diffuse look | Lane D, `claude/druid-trail` |
+| 8 | her own circle vanished above 1x | **landed**, PR #430 |
+| 10 | simplify the top-left readout | **landed**, PR #430 |
+| 3, 4, 11a | the stress setting, restart, one size dial | **landed**, Lane C, PR #435 |
+| 1, 6, 7 | bubbles merge + speed as colour, creature colours, lab overlays | Lane A, **PR #437** open |
+| 11b | longer gnome-laid trail, diffuse look | Lane D, **PR #438** open |
+| 2, 5, 9 | the yellow bars, founding far away, the founding screen | Lane B, `claude/druid-founding` — **nothing pushed yet** |
+| — | the shrunk gnome moves too slowly (card verdict, not a playtest item) | coordinator's own, in flight |
+
+**Lane A and Lane D finished without the GitHub tools**, in the shape
+`CLAUDE.md` describes: branch pushed, `PR_BODY_LANE_*.md` written on it, head
+SHA reported. The coordinator opened both. **The tell that a lane is done is
+a last commit reading "lane note, PR body"** — there is no other signal, and a
+finished branch with no PR is invisible to everyone.
+
+**A merged lane's branch disappears from the remote.** Lane C's
+`claude/druid-shell` was gone from `git ls-remote` while the local
+remote-tracking ref still named it, which reads exactly like a branch deleted
+out from under finished work. It had merged as PR #435; `git fetch --prune`
+then `git branch -r --contains <sha>` settles it in one command. Pin the sha
+to a local branch *before* pruning, because the prune is what removes the only
+handle you have if the answer turns out to be the bad one.
 
 **Item 3 is a suspicion, not a confirmed bug**, and Lane C's brief says so: it
 may be working and merely invisible, which wants a different answer than a
 wiring fix.
+
+**Lane D's brief named the wrong dial and was corrected in flight.** PR #432
+(the lab's own pheromone lane) measured that **`pheromone::DECAY_RHO` is
+inert** — set to zero, trail life does not move — and that the lever is
+`DIFFUSE`, at 16.7% a pass against decay's 2.9%. The correction carries a
+constraint the original brief did not: **the dial is per *channel*, not per
+layer**, and the gnome lays on channel A, which is also the ants' road home.
+So turning channel A's diffusion down to lengthen her trail reaches the ants
+too, and the owner's split — her trail is ours, theirs is the lab's — is not
+automatically satisfied by staying out of `DECAY_RHO`.
+
+## Verdicts in hand
+
+- **The druid's zoom-out rungs: "get rid of stop 3"** (card
+  `20260914T084458895Z-ae1b01`, answered 13:46). Walking out you get crisp,
+  crisp, **blocky**, crisp; the blocky stop is the only one that fits the
+  world top to bottom. **Already in flight as PR #431** — checked before
+  routing it, which is the point: the rungs are `render::MAX_ZOOM_OUT_STRIDE`
+  and `src/app.rs`, shared with both other games (`src/lab/mod.rs` asserts
+  rung 4 at every pixel budget), so a druid-board verdict is not automatically
+  druid-program work. **Read the open PR list before dispatching a verdict**,
+  not only before dispatching a round.
+- **The shrink: "looks good. I want to move a bit faster though"** (card
+  `20260914T162644450Z-02b298`, answered 18:11). Taken by the coordinator —
+  see the round table. The finding it produced is below.
 
 ## Environment facts that have cost time here
 
@@ -85,6 +125,21 @@ wiring fix.
   software rasteriser one drawn frame is worth several ticks. A verb whose
   effect you want in the frame must **schedule its own shutter** — the absorb
   path and the shrink both do.
+- **…and it bites the GIF hook from the other side.** `_GIF=start,every,count`
+  tested its stride at *draw* time, so a run that draws several times inside
+  one player tick captured that tick over and over: measured 2026-09-14, 60
+  frames spanning **38 ticks**, and the walking speed read off that clip was a
+  third of the real one. Fixed — the capture now takes one frame per tick —
+  but the class stands for any hook whose condition is read in the draw path.
+- **A GIF of a walk cannot be read for speed**, because the camera follows
+  her and two speeds differ only in how fast the ground goes past. The clip is
+  still the right artifact for whether it *reads*; the number has to ride
+  beside it. `_GIF` now prints `gif walk: N cells in M ticks`, in plain cells
+  and in her own body-lengths, for exactly that.
+- **At zoom 1 a 2x3 gnome is six pixels and the legend covers the ground.**
+  Any shrink render wants `PIXEL_PHYSICS_DRUID_ZOOM=4` and
+  `PIXEL_PHYSICS_DRUID_KEYS=0` together; without both, the first contact sheet
+  of the feature is a picture of a hillside and reads as "it does nothing".
 
 ## Findings that outlived their round
 
@@ -104,3 +159,12 @@ wiring fix.
 - **`src/sim/creature.rs` is shared with the lab**, so any founding or
   placement change reaches it silently and wants a paired before/after on a
   lab bed as well as in the druid.
+- **When a size changes, measure the gait in the body's *own* lengths — that
+  is the number that says whether anything happened.** The first shrunk gnome
+  covered **0.043 of her own body-lengths a tick, the identical figure as the
+  14-tall one**, which is what a uniformly scaled *picture* does and not what
+  a small animal does. In plain cells per tick the same arm reads 0.129
+  against 0.600 and looks like an ordinary consequence of being small. The
+  generalisation past this game: when a transform scales a body against a
+  world that did not scale, the quantities that must stay constant are the
+  dimensionless ones, and a raw rate is not one of them.

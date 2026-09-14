@@ -130,6 +130,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use super::cell::OrganismId;
 use super::creature;
 use super::brain;
 use super::organism::{self, CellType, Fate, OrganismState, Species};
@@ -409,7 +410,7 @@ pub fn is_usable_name(name: &str) -> bool {
 /// Reads and never writes: the individual goes on living in the box. That
 /// is the point — a specimen is a *copy*, so keeping one is not a decision
 /// the player has to weigh against letting it breed.
-pub fn capture(world: &World, organism_id: u16, name: &str) -> Result<Specimen, ShelfError> {
+pub fn capture(world: &World, organism_id: OrganismId, name: &str) -> Result<Specimen, ShelfError> {
     if !is_usable_name(name) {
         return Err(ShelfError::BadName(name.to_string()));
     }
@@ -463,7 +464,7 @@ fn genetics_of(species: &Species, state: &OrganismState) -> Genetics {
 /// **A `Cell::organism_id` at a world position, if anything alive owns
 /// it.** The lab's `LOOK` and `CULL` both do this by hand; the take tool
 /// needs the same answer and it is one line worth having a name.
-pub fn organism_at(world: &World, x: i32, y: i32) -> Option<u16> {
+pub fn organism_at(world: &World, x: i32, y: i32) -> Option<OrganismId> {
     let id = world.get(x, y).organism_id();
     world.organism_state(id).map(|_| id)
 }
@@ -668,7 +669,7 @@ pub struct Released {
     /// The organism handle. A creature is alive immediately; a plant is a
     /// `CellType::Seed` that still has to fall and germinate, which is the
     /// same deal the `PLANT` tool offers.
-    pub organism: u16,
+    pub organism: OrganismId,
     pub at: (i32, i32),
     /// Genome slots the dial moved on the way in — zero for a clone, and
     /// the number to print beside the picture otherwise.
@@ -903,7 +904,7 @@ mod tests {
     /// A live ant whose genome and traits have been moved off the
     /// ancestral values, so a round trip that silently substituted the
     /// species' own genome would fail rather than pass.
-    fn distinctive_ant(w: &mut World) -> u16 {
+    fn distinctive_ant(w: &mut World) -> OrganismId {
         use crate::sim::brain::{self, BrainInput, BrainOutput, BRAIN_HIDDEN};
         let ant_id = w.species.id_of("ant").expect("ant species");
         let mut genome = w.species.get(ant_id).genome.clone();
@@ -921,7 +922,7 @@ mod tests {
     }
 
     /// A live plant whose genome has been moved off every default.
-    fn distinctive_plant(w: &mut World) -> u16 {
+    fn distinctive_plant(w: &mut World) -> OrganismId {
         assert!(w.plant_tree_species(120, 100, "herb"), "the herb seed did not go in");
         let id = w.get(120, 100).organism_id();
         assert_ne!(id, 0);
@@ -1247,7 +1248,7 @@ mod tests {
             organism
         };
 
-        let lowest = |w: &World, id: u16| {
+        let lowest = |w: &World, id: OrganismId| {
             w.organism(id).expect("alive").cells.keys().map(|(_, y)| *y).max().expect("a body has cells")
         };
         assert_eq!(lowest(&w, released), DROP, "the release did not start where it was put");

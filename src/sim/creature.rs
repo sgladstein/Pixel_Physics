@@ -59,7 +59,7 @@
 //! see the research file's section 4 and 5.
 
 use super::brain;
-use super::cell::{Cell, AMBIENT_TEMPERATURE};
+use super::cell::{Cell, OrganismId, AMBIENT_TEMPERATURE};
 use super::chunk::Rect;
 use super::contest;
 use super::field;
@@ -468,7 +468,7 @@ pub fn choose_weighted(scores: &[f32], k: f32, draw: f32) -> usize {
     scores.len() - 1
 }
 
-fn worm_tick(world: &mut World, x: i32, y: i32, organism: u16) -> Vec<ActiveSite> {
+fn worm_tick(world: &mut World, x: i32, y: i32, organism: OrganismId) -> Vec<ActiveSite> {
     // A stale handle: this worm's slot was freed, and may since have been
     // handed to something else entirely. Drop the site silently -- that is
     // precisely what the generational scheme exists to make safe, and it is
@@ -652,7 +652,7 @@ fn worm_tick(world: &mut World, x: i32, y: i32, organism: u16) -> Vec<ActiveSite
 /// for the life of the process. Here it costs one emptiness check, because
 /// `World::set`'s own seam already dropped the cell from the organism's
 /// list at the moment it changed hands.
-fn release_if_bodyless(world: &mut World, organism: u16) {
+fn release_if_bodyless(world: &mut World, organism: OrganismId) {
     if world.organism(organism).is_some_and(|state| state.cells.is_empty()) {
         world.free_organism(organism);
     }
@@ -675,7 +675,7 @@ fn release_if_bodyless(world: &mut World, organism: u16) {
 /// scheduled at. Losing a trailing segment is just an injury.
 ///
 /// Returns whether the creature is still alive.
-fn reconcile_chain(world: &mut World, organism: u16) -> bool {
+fn reconcile_chain(world: &mut World, organism: OrganismId) -> bool {
     let Some(state) = world.organism(organism) else {
         return false;
     };
@@ -936,7 +936,7 @@ fn move_cost(world: &World, x: i32, y: i32, target_material: material::MaterialI
 /// Apply an energy delta, then either reschedule the worm (if it survived)
 /// or kill it (turn its cell into a corpse, stop tracking it). `(x, y)` is
 /// the worm's *current* position — already moved, if this tick moved it.
-fn apply_energy_delta(world: &mut World, x: i32, y: i32, organism: u16, delta: f32) -> Vec<ActiveSite> {
+fn apply_energy_delta(world: &mut World, x: i32, y: i32, organism: OrganismId, delta: f32) -> Vec<ActiveSite> {
     let Some(state) = world.organism_mut(organism) else {
         return Vec::new(); // freed mid-tick; nothing left to charge
     };
@@ -957,7 +957,7 @@ fn apply_energy_delta(world: &mut World, x: i32, y: i32, organism: u16, delta: f
 /// creature-specific code. `World::set`'s seam drops the cell from the
 /// organism's list as that write lands, which is what leaves the list empty
 /// and the slot safe to release.
-fn die(world: &mut World, x: i32, y: i32, organism: u16) {
+fn die(world: &mut World, x: i32, y: i32, organism: OrganismId) {
     if let Some(corpse_id) = world.materials.id_of("corpse") {
         let shades = world.materials.get(corpse_id).palette.len().max(1) as u32;
         let shade = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_DEATH).below(shades) as u8;
@@ -1143,7 +1143,7 @@ pub fn release_creature_specimen(
     genome: Vec<f32>,
     traits: [f32; super::organism::CREATURE_TRAITS],
     colony: Option<u32>,
-) -> Option<u16> {
+) -> Option<OrganismId> {
     let species_id = world.species.id_of(species_name)?;
     let material_id = world.materials.id_of(species_name)?;
     let def = world.species.get(species_id).creature.as_ref()?.clone();
@@ -1187,7 +1187,7 @@ enum Origin {
     Founder { colony: Option<u32> },
     /// A child budded from a live parent, which pays for it.
     Bud {
-        parent: u16,
+        parent: OrganismId,
         genome: Vec<f32>,
         traits: [f32; super::organism::CREATURE_TRAITS],
         generation: u16,
@@ -1736,7 +1736,7 @@ fn body_shade(ranked: &[u8], i: usize, cells: usize, dy: i32, dy_min: i32, dy_ma
 /// Floored at 1. A zero here would make an animal mid-`reconcile_chain`
 /// briefly free, and free is the one value this must never take —
 /// `idle_cost_per_cell`'s doc has why.
-fn live_body_cells(world: &World, organism: u16, def: &CreatureDef) -> f32 {
+fn live_body_cells(world: &World, organism: OrganismId, def: &CreatureDef) -> f32 {
     world.organism(organism).map_or(def.body.len(), |s| s.chain.len()).max(1) as f32
 }
 
@@ -1833,7 +1833,7 @@ impl BodyMix {
     const NEUTRAL: BodyMix = BodyMix { head: BASELINE_HEAD_FRAC, leg: BASELINE_LEG_FRAC, gut: BASELINE_GUT_FRAC, armour: BASELINE_ARMOUR_FRAC };
 }
 
-fn body_mix(world: &World, organism: u16) -> BodyMix {
+fn body_mix(world: &World, organism: OrganismId) -> BodyMix {
     let Some(state) = world.organism(organism) else {
         return BodyMix::NEUTRAL;
     };
@@ -1904,7 +1904,7 @@ fn body_mix(world: &World, organism: u16) -> BodyMix {
 /// the crop, applied to the other thing an ant can have in its mandibles.
 /// It stays at the species default of 0.0 unless authored, so nothing that
 /// has not opted in changes by a bit.
-fn carried_cells(world: &World, organism: u16, def: &CreatureDef) -> f32 {
+fn carried_cells(world: &World, organism: OrganismId, def: &CreatureDef) -> f32 {
     if def.body_energy <= 0.0 {
         return 0.0;
     }
@@ -2336,7 +2336,7 @@ pub fn sight_range_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> i32
 /// mix folded in here reaches every reader — the cast gate, the cast
 /// itself, and the brain's own normalisation — instead of only whichever
 /// call site happened to be edited.
-pub fn organism_sight_range(world: &World, organism: u16, def: &CreatureDef) -> i32 {
+pub fn organism_sight_range(world: &World, organism: OrganismId, def: &CreatureDef) -> i32 {
     let Some(st) = world.organism(organism) else { return 0 };
     let base = sight_range_of(def, &expressed_traits(st, world.plasticity, world.trait_reach));
     // **A blind animal does not pay for the body walk that scales an eye it
@@ -2421,7 +2421,7 @@ pub fn reproduce_fraction(t: f32) -> f32 {
 /// shipped with exactly that split: a harness set the species vector and the
 /// standing animals kept their founded copies, and three alleles returned
 /// byte-identical counters.
-fn traits_of(world: &World, organism: u16, def: &CreatureDef) -> [f32; CREATURE_TRAITS] {
+fn traits_of(world: &World, organism: OrganismId, def: &CreatureDef) -> [f32; CREATURE_TRAITS] {
     world.organism(organism).map_or(def.traits, |st| expressed_traits(st, world.plasticity, world.trait_reach))
 }
 
@@ -2624,7 +2624,7 @@ pub fn crop_capacity_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> f
 /// re-floored after the mix, for the reason `crop_capacity_of`'s own doc
 /// gives: a mix below 1.0 can push an already-`CROP_MIN`-floored value back
 /// under it.
-pub fn organism_crop_capacity(world: &World, organism: u16, def: &CreatureDef) -> f32 {
+pub fn organism_crop_capacity(world: &World, organism: OrganismId, def: &CreatureDef) -> f32 {
     let base = crop_capacity_of(def, &traits_of(world, organism, def));
     if base <= 0.0 {
         return 0.0;
@@ -2656,7 +2656,7 @@ pub fn tick_interval_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> u
 /// mix above 1.0 has to shrink the number it is applied to — the same
 /// inversion `tick_interval_of`'s own doc explains for `TRAIT_PACE` against
 /// `ratio_factor`, on the composition axis instead of the trait one.
-pub fn organism_tick_interval(world: &World, organism: u16, def: &CreatureDef) -> u64 {
+pub fn organism_tick_interval(world: &World, organism: OrganismId, def: &CreatureDef) -> u64 {
     let base = world.organism(organism).map_or_else(|| def.tick_interval.max(1), |st| tick_interval_of(def, &expressed_traits(st, world.plasticity, world.trait_reach)));
     let mix = composition_mix(body_mix(world, organism).leg, BASELINE_LEG_FRAC);
     ((base as f32 / mix).round() as u64).max(1)
@@ -2674,7 +2674,7 @@ pub fn organism_tick_interval(world: &World, organism: u16, def: &CreatureDef) -
 /// scheduling from here would in fact work today — returning the site
 /// keeps the birth path independent of that, and is the same shape
 /// `apply_creature_energy` already uses for the parent's own next tick.
-fn try_bud(world: &mut World, organism: u16, def: &CreatureDef, provision: f32) -> Option<ActiveSite> {
+fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision: f32) -> Option<ActiveSite> {
     let state = world.organism(organism)?;
     let parent_traits = state.traits;
     // **This animal's bar, on two counts now.** `TRAIT_REPRODUCE_AT` scales
@@ -3504,7 +3504,7 @@ fn thicket_climb() -> i32 {
 /// succeeded (P-11) — a blocked agent that still reinforces is how
 /// congested dead ends accumulate trail and the colony ossifies pointing
 /// into a wall.
-fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, ahead: &SpecWindow) -> Vec<ActiveSite> {
+fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDef, ahead: &SpecWindow) -> Vec<ActiveSite> {
     // **No `String` clone here, and that is not tidiness.** `materials` and
     // `species` are separate fields of `World`, so both can be borrowed
     // immutably at once and the clone that used to stand between them was
@@ -4213,7 +4213,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
 /// costs one tick of recurrence accuracy in the readout and buys the
 /// guarantee that looking is free. (`CLAUDE.md`: a debug readout must not
 /// be a function of the thing it debugs — here, of itself.)
-pub fn probe(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef) -> ([f32; brain::BRAIN_INPUTS], [f32; brain::BRAIN_OUTPUTS], u32) {
+pub fn probe(world: &World, x: i32, y: i32, organism: OrganismId, def: &CreatureDef) -> ([f32; brain::BRAIN_INPUTS], [f32; brain::BRAIN_OUTPUTS], u32) {
     let Some(state) = world.organism(organism) else {
         return ([0.0; brain::BRAIN_INPUTS], [0.0; brain::BRAIN_OUTPUTS], 0);
     };
@@ -4240,7 +4240,7 @@ pub fn probe(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef) ->
 /// prices it: `sight_tax = sight_fraction * start_energy * sight_reads`, so
 /// authoring a `sight_fraction` needs a measured reads-per-cast at the reach
 /// in question and there was no way to ask for one.
-pub fn sighted(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef) -> (Sightings, u64) {
+pub fn sighted(world: &World, x: i32, y: i32, organism: OrganismId, def: &CreatureDef) -> (Sightings, u64) {
     let reach = organism_sight_range(world, organism, def);
     if reach <= 0 {
         return (Sightings::default(), 0);
@@ -4262,7 +4262,7 @@ fn sense(
     world: &World,
     x: i32,
     y: i32,
-    organism: u16,
+    organism: OrganismId,
     heading: u8,
     def: &CreatureDef,
 ) -> ([f32; brain::BRAIN_INPUTS], Sightings, u64, u64) {
@@ -5005,7 +5005,7 @@ fn sense_rect_margin() -> i32 {
 /// One creature's read phase, computed off `&World` before its site is
 /// dispatched.
 pub struct SensedAhead {
-    organism: u16,
+    organism: OrganismId,
     x: i32,
     y: i32,
     heading: u8,
@@ -5069,7 +5069,7 @@ fn sense_read_rects(
     world: &World,
     x: i32,
     y: i32,
-    organism: u16,
+    organism: OrganismId,
     def: &CreatureDef,
     state: &organism::OrganismState,
 ) -> SenseFootprint {
@@ -5178,7 +5178,7 @@ fn sense_ahead(world: &World, site: &ActiveSite) -> Option<SensedAhead> {
 /// touches 64 bytes, and the entry is then read once.
 #[derive(Default)]
 pub struct SpecWindow {
-    ids: Vec<u16>,
+    ids: Vec<OrganismId>,
     entries: Vec<SensedAhead>,
     /// The sites that survived the neighbour filter — reused, so the filter
     /// costs no allocation.
@@ -5203,7 +5203,7 @@ impl SpecWindow {
         self.entries.is_empty()
     }
 
-    fn find(&self, organism: u16) -> Option<&SensedAhead> {
+    fn find(&self, organism: OrganismId) -> Option<&SensedAhead> {
         let i = self.ids.iter().position(|&id| id == organism)?;
         Some(&self.entries[i])
     }
@@ -5256,7 +5256,7 @@ pub fn speculate_window(world: &World, sites: &[ActiveSite], out: &mut SpecWindo
 /// speculation has to be about this animal, it has to have been taken with the
 /// animal standing where and facing how it stands now, and **nothing inside
 /// the rectangle it read may have been written since**.
-fn sensed_ahead<'a>(world: &World, ahead: &'a SpecWindow, organism: u16, x: i32, y: i32, heading: u8) -> Option<&'a SensedAhead> {
+fn sensed_ahead<'a>(world: &World, ahead: &'a SpecWindow, organism: OrganismId, x: i32, y: i32, heading: u8) -> Option<&'a SensedAhead> {
     use std::sync::atomic::Ordering::Relaxed;
     let Some(a) = ahead.find(organism) else {
         MISS_ABSENT.fetch_add(1, Relaxed);
@@ -5490,7 +5490,7 @@ struct Gut {
 /// **Counting cells rather than animals** -- `contest::numbers`' own doc says
 /// what that costs and why `BrainInput::Crowding` already made the same
 /// choice.
-fn nearest_foe(world: &World, organism: u16, head: (i32, i32), gut: Gut) -> Option<Encounter> {
+fn nearest_foe(world: &World, organism: OrganismId, head: (i32, i32), gut: Gut) -> Option<Encounter> {
     let fallback = [head];
     let body: &[(i32, i32)] = world.organism(organism).map_or(&fallback[..], |s| &s.chain[..]);
     let mut found: Option<(i32, i32)> = None;
@@ -5504,7 +5504,7 @@ fn nearest_foe(world: &World, organism: u16, head: (i32, i32), gut: Gut) -> Opti
     // about is how many animals are on each side. Small linear scans rather
     // than a set: the ring is ten-odd cells for a two-cell body and a body
     // touches a handful of distinct animals at most.
-    let (mut kin, mut foes): (Vec<u16>, Vec<u16>) = (Vec::new(), Vec::new());
+    let (mut kin, mut foes): (Vec<OrganismId>, Vec<OrganismId>) = (Vec::new(), Vec::new());
     for (i, &(bx, by)) in body.iter().enumerate() {
         for &(dx, dy) in NEIGHBOURS_8.iter() {
             let (nx, ny) = (bx + dx, by + dy);
@@ -5581,7 +5581,7 @@ struct Encounter {
 /// be walking the ring twice for the one tick it needs the target. The two
 /// walks share one predicate, [`kin_deficit`], so the eye and the mouth
 /// cannot disagree about who is needy.
-fn neediest_kin(world: &World, organism: u16, head: (i32, i32), gut: Gut, start_energy: f32) -> Option<NeedyKin> {
+fn neediest_kin(world: &World, organism: OrganismId, head: (i32, i32), gut: Gut, start_energy: f32) -> Option<NeedyKin> {
     let fallback = [head];
     let body: &[(i32, i32)] = world.organism(organism).map_or(&fallback[..], |s| &s.chain[..]);
     let mut best: Option<NeedyKin> = None;
@@ -5635,7 +5635,7 @@ fn cry_alarm(world: &mut World, x: i32, y: i32) {
     world.deposit_pheromone(Channel::Alarm, x, y, pheromone::ALARM_DEPOSIT);
 }
 
-fn gut_of(world: &World, organism: u16, def: &CreatureDef) -> Gut {
+fn gut_of(world: &World, organism: OrganismId, def: &CreatureDef) -> Gut {
     let traits = traits_of(world, organism, def);
     let radius = tolerance_radius(&traits);
     Gut {
@@ -5682,7 +5682,7 @@ pub fn scent_of(traits: &[f32; CREATURE_TRAITS]) -> [f32; 3] {
 ///
 /// Returns whether a blend was applied, for the counter on the far side of
 /// the call.
-pub fn blend_with_nest(world: &mut World, organism: u16, x: i32, y: i32) -> bool {
+pub fn blend_with_nest(world: &mut World, organism: OrganismId, x: i32, y: i32) -> bool {
     let (beta, gamma) = (world.nest_blend, world.nest_uptake);
     let Some(i) = world.nearest_nest_site(x, y) else { return false };
     let Some(mine) = world.organism(organism).map(|s| scent_of(&s.traits)) else {
@@ -5737,7 +5737,7 @@ pub fn blend_with_nest(world: &mut World, organism: u16, x: i32, y: i32) -> bool
 ///
 /// This is a *second* path to cohesion and never the load-bearing one — see
 /// [`blend_with_nest`] for why cohesion may not depend on an allele.
-fn blend_with_kin(world: &mut World, a: u16, b: u16, beta: f32) {
+fn blend_with_kin(world: &mut World, a: OrganismId, b: OrganismId, beta: f32) {
     if beta <= 0.0 {
         return;
     }
@@ -6013,7 +6013,7 @@ fn reachable_provision(world: &World, x: i32, y: i32, gut: Gut) -> f32 {
 /// warn, because it is still the shortest way for a test to ask "is there
 /// food here" without caring about the kin-need side of the scan.
 #[cfg(test)]
-fn adjacent_food(world: &World, organism: u16, head: (i32, i32), gut: Gut) -> Option<(f32, i32, i32, material::MaterialId)> {
+fn adjacent_food(world: &World, organism: OrganismId, head: (i32, i32), gut: Gut) -> Option<(f32, i32, i32, material::MaterialId)> {
     // `start_energy` only scales `kin_need`, which this wrapper discards --
     // every caller here wants `.best` alone, so the value passed through is
     // never read.
@@ -6059,7 +6059,7 @@ struct FoodScan {
 #[derive(Clone, Copy)]
 struct NeedyKin {
     deficit: f32,
-    id: u16,
+    id: OrganismId,
     /// Where the neediest kin was found. Unread today — kept for whatever
     /// consumer wants the position rather than only the identity (a probe,
     /// or a future pair-drawing marker), which is the `CLAUDE.md` channel
@@ -6091,11 +6091,11 @@ struct NeedyKin {
 /// sharing this ships would fire on nearly every tick instead of the graded
 /// handful `ant.ron`'s weights are tuned against.
 #[inline]
-fn kin_deficit(world: &World, owner: u16, start_energy: f32) -> Option<f32> {
+fn kin_deficit(world: &World, owner: OrganismId, start_energy: f32) -> Option<f32> {
     world.organism(owner).map(|st| (1.0 - st.energy / start_energy.max(1.0)).clamp(0.0, 1.0))
 }
 
-fn adjacent_food_counted(world: &World, organism: u16, head: (i32, i32), gut: Gut, start_energy: f32) -> FoodScan {
+fn adjacent_food_counted(world: &World, organism: OrganismId, head: (i32, i32), gut: Gut, start_energy: f32) -> FoodScan {
     let mut best: Option<Mouthful> = None;
     let mut refused = 0u64;
     let mut kin_need: Option<NeedyKin> = None;
@@ -6402,7 +6402,7 @@ fn blocks_sight(world: &World, cell: Cell) -> bool {
 ///
 /// Its own body is excluded by owner, and a nestmate by `eats_kin` — the
 /// same two exemptions `adjacent_food` makes, for the same reasons.
-fn is_visible_prey(world: &World, cell: Cell, gut: Gut, self_organism: u16) -> bool {
+fn is_visible_prey(world: &World, cell: Cell, gut: Gut, self_organism: OrganismId) -> bool {
     if cell.organism_id() == self_organism || world.materials.kind(cell.material) != MaterialKind::Creature {
         return false;
     }
@@ -6430,7 +6430,7 @@ fn is_visible_prey(world: &World, cell: Cell, gut: Gut, self_organism: u16) -> b
 /// **Living, so a corpse is not home.** Carrion is a `Powder` with no
 /// organism, which `world.organism` refuses; a colony that aggregated on
 /// its own dead would be a graveyard with a gradient.
-fn is_visible_kin(world: &World, cell: Cell, gut: Gut, self_organism: u16) -> bool {
+fn is_visible_kin(world: &World, cell: Cell, gut: Gut, self_organism: OrganismId) -> bool {
     let other = cell.organism_id();
     other != 0 && other != self_organism && world.materials.kind(cell.material) == MaterialKind::Creature && is_living_kin(world, cell, gut)
 }
@@ -6482,7 +6482,7 @@ fn is_visible_bloom(world: &World, cell: Cell) -> bool {
 /// Returns `None` when nothing edible is in sight, which is also what an
 /// eyeless species gets — but an eyeless species never reaches here, since
 /// the caller tests `sight_range` before the call (`CreatureDef::sight_range`).
-fn sight(world: &World, x: i32, y: i32, organism: u16, gut: Gut, reach: i32, reads: &mut u64) -> Sightings {
+fn sight(world: &World, x: i32, y: i32, organism: OrganismId, gut: Gut, reach: i32, reads: &mut u64) -> Sightings {
     debug_assert!(reach > 0, "sight() called for a species with no eyes; the gate belongs at the call site");
 
     // The eye, lifted only through cells that do not themselves block.
@@ -6601,7 +6601,7 @@ fn sight(world: &World, x: i32, y: i32, organism: u16, gut: Gut, reach: i32, rea
 /// other side's `eats_kin` in `is_visible_prey` -- read against the
 /// *other's* tolerance, so an ant of a colony that has drifted out of
 /// mine is a threat to me exactly when I am food to it.
-fn is_visible_threat(world: &World, cell: Cell, self_organism: u16, self_head: Cell) -> bool {
+fn is_visible_threat(world: &World, cell: Cell, self_organism: OrganismId, self_head: Cell) -> bool {
     let other = cell.organism_id();
     if other == 0 || other == self_organism || world.materials.kind(cell.material) != MaterialKind::Creature {
         return false;
@@ -6820,7 +6820,7 @@ struct Did {
     shares: u32,
 }
 
-fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outputs: &[f32; brain::BRAIN_OUTPUTS], draw: &mut rng::Rng) -> Did {
+fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDef, outputs: &[f32; brain::BRAIN_OUTPUTS], draw: &mut rng::Rng) -> Did {
     let mut did = Did::default();
     use brain::BrainOutput as O;
     let crop = world.organism(organism).and_then(|s| s.crop);
@@ -8310,8 +8310,8 @@ fn breeder_index_enabled() -> bool {
 /// (`World::creature_stats.breeder_scan_visits`'s own doc) -- the "did it
 /// fire, and on how much" pairing `CLAUDE.md` asks for beside a claim that
 /// work got cheaper.
-fn colony_has_other_breeder(world: &World, exclude: u16, colony: u32, use_index: bool, visits: &mut u32) -> bool {
-    let is_other_breeder = |id: u16| id != exclude && world.organism(id).is_some_and(|s| s.colony == colony && s.children > 0);
+fn colony_has_other_breeder(world: &World, exclude: OrganismId, colony: u32, use_index: bool, visits: &mut u32) -> bool {
+    let is_other_breeder = |id: OrganismId| id != exclude && world.organism(id).is_some_and(|s| s.colony == colony && s.children > 0);
     if use_index {
         let Some(list) = world.colony_breeders.get(&colony) else { return false };
         for &id in list {
@@ -8371,9 +8371,9 @@ fn colony_has_other_breeder(world: &World, exclude: u16, colony: u32, use_index:
 /// Squared distance compares in the same order as the true distance, so
 /// the scan takes one `sqrt` total, on the eventual winner, rather than
 /// one per candidate.
-fn nearest_breeder(world: &World, exclude: u16, colony: u32, x: i32, y: i32, use_index: bool, visits: &mut u32) -> Option<f32> {
+fn nearest_breeder(world: &World, exclude: OrganismId, colony: u32, x: i32, y: i32, use_index: bool, visits: &mut u32) -> Option<f32> {
     let mut nearest_sq: Option<i64> = None;
-    let mut consider = |id: u16| {
+    let mut consider = |id: OrganismId| {
         if id == exclude {
             return;
         }
@@ -8428,7 +8428,7 @@ fn nearest_breeder(world: &World, exclude: u16, colony: u32, x: i32, y: i32, use
 /// rather than two so the signature stays inside clippy's argument count;
 /// `queen` never reads it (see `colony_has_other_breeder`'s own doc for
 /// why that regime needs no position at all).
-fn suppress_bar(regime: BreedingRegime, radius: i32, world: &World, organism: u16, colony: u32, pos: (i32, i32), bar: f32) -> (f32, u32) {
+fn suppress_bar(regime: BreedingRegime, radius: i32, world: &World, organism: OrganismId, colony: u32, pos: (i32, i32), bar: f32) -> (f32, u32) {
     let use_index = breeder_index_enabled();
     let mut visits = 0u32;
     let suppressed = match regime {
@@ -8543,7 +8543,7 @@ fn lining_enabled() -> bool {
 /// Move the whole chain one cell, snake-fashion. Returns whether it moved.
 fn step_chain(
     world: &mut World,
-    organism: u16,
+    organism: OrganismId,
     heading: u8,
     outputs: &[f32; brain::BRAIN_OUTPUTS],
     def: &CreatureDef,
@@ -9366,7 +9366,7 @@ fn body_is_supported(world: &World, cells: &[(i32, i32)]) -> bool {
 /// brain's own impulse output already uses, so a fling and a self-launch
 /// share every precondition (`body_is_supported`) and every physics
 /// (`body_drag`, `LAUNCH_WORK`) rather than a second copy of either.
-pub(crate) fn launch(world: &mut World, organism: u16, heading: u8) -> bool {
+pub(crate) fn launch(world: &mut World, organism: OrganismId, heading: u8) -> bool {
     let Some(cells) = world.organism(organism).map(|s| s.chain.clone()) else {
         return false;
     };
@@ -9423,7 +9423,7 @@ pub(crate) fn launch(world: &mut World, organism: u16, heading: u8) -> bool {
 /// landing that was clear when it went in may be under a rock by the time it
 /// comes out. Giving up leaves it where it started, which is the same
 /// position a blocked tick leaves it in.
-fn step_crossing(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<ActiveSite> {
+fn step_crossing(world: &mut World, organism: OrganismId, def: &CreatureDef) -> Vec<ActiveSite> {
     let Some(crossing) = world.organism(organism).and_then(|s| s.crossing) else {
         return Vec::new();
     };
@@ -9800,7 +9800,7 @@ const WANDER_PERIOD: u64 = 96;
 /// depends on, and this feeds a position. **Phased on the organism id** so
 /// a bed of fifty flitters does not beat in unison -- `* 37` is an odd
 /// stride across the period, nothing more.
-fn weave(organism: u16, aloft: u16, period: u64) -> f32 {
+fn weave(organism: OrganismId, aloft: u16, period: u64) -> f32 {
     let t = ((aloft as u64 + organism as u64 * 37) % period) as f32 / period as f32;
     if t < 0.5 {
         4.0 * t - 1.0
@@ -9861,7 +9861,7 @@ fn octant_of(vx: f32, vy: f32) -> u8 {
 /// so an animal thinks at one price wherever it is. The cost that is new is
 /// the lift itself (`CreatureDef::fly_cost_in_moves`), charged per frame by
 /// the caller.
-fn fly_brain_tick(world: &mut World, organism: u16, def: &CreatureDef, flight: &mut Flight, cells: &[(i32, i32)]) -> f32 {
+fn fly_brain_tick(world: &mut World, organism: OrganismId, def: &CreatureDef, flight: &mut Flight, cells: &[(i32, i32)]) -> f32 {
     let (hx, hy) = cells.first().copied().unwrap_or((0, 0));
     let heading = world.organism(organism).map_or(0, |s| s.heading);
     let (inputs, seen, sight_reads, curvature_reads) = sense(world, hx, hy, organism, heading, def);
@@ -10018,7 +10018,7 @@ fn fly_brain_tick(world: &mut World, organism: u16, def: &CreatureDef, flight: &
     synapse_tax + sight_tax + curvature_tax
 }
 
-fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<ActiveSite> {
+fn step_flight(world: &mut World, organism: OrganismId, def: &CreatureDef) -> Vec<ActiveSite> {
     let (Some(mut flight), Some(mut cells)) =
         (world.organism(organism).and_then(|s| s.flight), world.organism(organism).map(|s| s.chain.clone()))
     else {
@@ -10511,7 +10511,7 @@ fn axis_step(f: f32) -> i32 {
 /// re-roll lands straight back in the blocked state better than a third of
 /// the time — measured at 29,344 blocked ticks against 41,843 moves before
 /// this was narrowed.
-fn tumble(world: &mut World, organism: u16, def: &CreatureDef, draw: &mut rng::Rng) {
+fn tumble(world: &mut World, organism: OrganismId, def: &CreatureDef, draw: &mut rng::Rng) {
     let Some((hx, hy)) = world.organism(organism).and_then(|s| s.chain.first().copied()) else {
         return;
     };
@@ -11272,7 +11272,7 @@ impl HeadBlock {
 ///
 /// `None` for an organism that is not a creature, has no live body, or has
 /// gone since the caller listed it.
-pub fn head_block(world: &World, organism: u16) -> Option<HeadBlock> {
+pub fn head_block(world: &World, organism: OrganismId) -> Option<HeadBlock> {
     let state = world.organism(organism)?;
     let def = world.species.get(state.species).creature.clone()?;
     let chain = state.chain.clone();
@@ -11331,7 +11331,7 @@ pub fn head_block(world: &World, organism: u16) -> Option<HeadBlock> {
 /// short bodies cannot tell them apart. This against `chain.len()` can.
 ///
 /// `None` for anything that is not a creature or has gone.
-pub fn authored_body_cells(world: &World, organism: u16) -> Option<usize> {
+pub fn authored_body_cells(world: &World, organism: OrganismId) -> Option<usize> {
     let state = world.organism(organism)?;
     let def = world.species.get(state.species).creature.as_ref()?;
     let segments = segment_authored(def, state.fates);
@@ -11386,7 +11386,7 @@ fn step_clears_without_other_creatures(world: &World, def: &CreatureDef, body: B
 /// in the world at this instant -- the number the owner's report is
 /// about. Ids that no longer resolve contribute no cells and come back as
 /// singletons, which is what a census of a dead handle should say.
-pub fn piles_of(world: &World, members: &[u16]) -> Vec<Vec<u16>> {
+pub fn piles_of(world: &World, members: &[OrganismId]) -> Vec<Vec<OrganismId>> {
     let mut owner: std::collections::HashMap<(i32, i32), usize> = std::collections::HashMap::new();
     let mut bodies: Vec<Vec<(i32, i32)>> = Vec::with_capacity(members.len());
     for (i, &id) in members.iter().enumerate() {
@@ -11418,12 +11418,12 @@ pub fn piles_of(world: &World, members: &[u16]) -> Vec<Vec<u16>> {
             }
         }
     }
-    let mut groups: std::collections::HashMap<usize, Vec<u16>> = std::collections::HashMap::new();
+    let mut groups: std::collections::HashMap<usize, Vec<OrganismId>> = std::collections::HashMap::new();
     for (i, &id) in members.iter().enumerate() {
         let r = find(&mut parent, i);
         groups.entry(r).or_default().push(id);
     }
-    let mut out: Vec<Vec<u16>> = groups.into_values().collect();
+    let mut out: Vec<Vec<OrganismId>> = groups.into_values().collect();
     // Deterministic ordering: `HashMap` iteration order is not, and a
     // census that reorders between two runs of the same seed is a census
     // nobody can diff.
@@ -11907,7 +11907,7 @@ fn body_has_foothold(world: &World, def: &CreatureDef, landing: &[(i32, i32)], h
 /// rather than per candidate cell — `head_has_foothold` runs over eight
 /// neighbours for each of three candidates, and a species lookup inside
 /// that loop would be twenty-four of them for a `bool` that cannot change.
-fn kin_footing(world: &World, organism: u16, def: &CreatureDef) -> Option<Kin> {
+fn kin_footing(world: &World, organism: OrganismId, def: &CreatureDef) -> Option<Kin> {
     if !def.climbs_over_kin {
         return None;
     }
@@ -11976,7 +11976,7 @@ fn head_has_foothold(world: &World, (x, y): (i32, i32), kin: Option<Kin>) -> boo
 /// the animal.
 #[derive(Clone, Copy)]
 struct Kin {
-    organism: u16,
+    organism: OrganismId,
     species: SpeciesId,
 }
 
@@ -12041,7 +12041,7 @@ struct BodySide<'a> {
 /// back the colour it left"). `def`/`authored`/`organism` are only ever
 /// read on that path; every non-Segmented caller's `authored` is `&[]` and
 /// never gets there.
-fn relocate_chain(world: &mut World, organism: u16, def: &CreatureDef, authored: &[organism::Segment], from: BodySide, to: BodySide) {
+fn relocate_chain(world: &mut World, organism: OrganismId, def: &CreatureDef, authored: &[organism::Segment], from: BodySide, to: BodySide) {
     let (from, from_groups, to, to_groups) = (from.cells, from.groups, to.cells, to.groups);
     let (from_groups, to_groups): (Vec<u8>, Vec<u8>) = if from_groups.is_empty() && to_groups.is_empty() {
         (vec![1; from.len()], vec![1; to.len()])
@@ -12201,7 +12201,7 @@ fn relocate_chain(world: &mut World, organism: u16, def: &CreatureDef, authored:
 /// §7f(1)'s "comes back the colour it left". A lateral's key is its
 /// segment's spine key plus one, so the two never collide and both are
 /// stable for the segment's whole life.
-fn mint_lateral_cell(world: &World, def: &CreatureDef, organism: u16, material_id: material::MaterialId, cell_type: CellType, segment: usize) -> Cell {
+fn mint_lateral_cell(world: &World, def: &CreatureDef, organism: OrganismId, material_id: material::MaterialId, cell_type: CellType, segment: usize) -> Cell {
     let shades = world.materials.get(material_id).palette.len().max(1) as u32;
     let key = segment as u64 * 2 + 1;
     let shade = match def.shade_rule {
@@ -12237,7 +12237,7 @@ fn restore_parted(world: &mut World, entry: &organism::Parted) {
 /// laid only where there is room for it: a bush closes over an ant that
 /// dies inside it, which is both the right picture and the only ordering
 /// that cannot leave a leaf deleted.
-fn return_parted(world: &mut World, organism: u16) {
+fn return_parted(world: &mut World, organism: OrganismId) {
     let held = world.organism(organism).map_or(Vec::new(), |state| state.parted.clone());
     for entry in &held {
         restore_parted(world, entry);
@@ -12267,7 +12267,7 @@ fn parting_enabled() -> bool {
 
 /// Charge energy, reschedule or die. The chain-creature counterpart of
 /// `apply_energy_delta`.
-fn apply_creature_energy(world: &mut World, x: i32, y: i32, organism: u16, delta: f32, def: &CreatureDef) -> Vec<ActiveSite> {
+fn apply_creature_energy(world: &mut World, x: i32, y: i32, organism: OrganismId, delta: f32, def: &CreatureDef) -> Vec<ActiveSite> {
     let Some(state) = world.organism_mut(organism) else {
         return Vec::new();
     };
@@ -12461,7 +12461,7 @@ impl Carried {
 
 /// A species' `start_energy`, for scaling a corpse's shade ramp. Zero if the
 /// organism is gone, which only happens on a path that is not writing meat.
-fn def_start_energy(world: &World, organism: u16) -> f32 {
+fn def_start_energy(world: &World, organism: OrganismId) -> f32 {
     world
         .organism(organism)
         .and_then(|s| world.species.get(s.species).creature.as_ref().map(|d| d.start_energy))
@@ -12499,7 +12499,7 @@ pub fn slay(world: &mut World, x: i32, y: i32) -> bool {
     true
 }
 
-fn creature_dies(world: &mut World, organism: u16, cause: organism::DeathCause) {
+fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::DeathCause) {
     // **Give the foliage back before anything else happens.** An animal
     // that dies inside a bush is holding cells of it (`organism::Parted`),
     // and this is the death exit that doc names. First, deliberately: the
@@ -13032,7 +13032,7 @@ mod tests {
         // animals that have already walked, dug and fed is what puts a
         // non-trivial `life` into `dead_life` -- a death at frame 0 would
         // roll up nothing and test just as little.
-        let doomed: Vec<u16> = w.live_organism_ids().into_iter().take(8).collect();
+        let doomed: Vec<OrganismId> = w.live_organism_ids().into_iter().take(8).collect();
         assert!(doomed.len() >= 4, "too few animals to kill for the dead-side term to mean anything");
         for id in doomed {
             let at = w.organism(id).and_then(|s| s.chain.first().copied());
@@ -13272,7 +13272,7 @@ mod tests {
 
         // Kill animals that have already lived a little, so the death lines
         // carry a real identity rather than one that never did anything.
-        let doomed: Vec<u16> = w.live_organism_ids().into_iter().take(4).collect();
+        let doomed: Vec<OrganismId> = w.live_organism_ids().into_iter().take(4).collect();
         assert!(doomed.len() >= 4, "too few animals to kill for the death half to mean anything");
         for id in &doomed {
             let at = w.organism(*id).and_then(|s| s.chain.first().copied());
@@ -13320,7 +13320,7 @@ mod tests {
         // exactly `COLONY_ANT_SPACING`, which is what this checks: every
         // organism must have at least one of its own cells resting on
         // ground.
-        let mut footing: std::collections::BTreeMap<u16, (bool, (i32, i32))> = std::collections::BTreeMap::new();
+        let mut footing: std::collections::BTreeMap<OrganismId, (bool, (i32, i32))> = std::collections::BTreeMap::new();
         for x in 0..=255 {
             for y in 0..=199 {
                 let c = w.get(x, y);
@@ -14813,7 +14813,7 @@ mod tests {
     // --- partial body loss --------------------------------------------------
 
     /// Build a two-cell ant on a stone floor and hand back its handle.
-    fn ant_on_a_floor(w: &mut World, x: i32) -> u16 {
+    fn ant_on_a_floor(w: &mut World, x: i32) -> OrganismId {
         for cx in 0..200 {
             w.set(cx, 101, Cell::new(material::STONE, 0));
         }
@@ -16268,7 +16268,7 @@ mod tests {
     /// `eval_brain` entirely, so unlike `run()` it does not need the
     /// species genome wired at all -- every test below that calls this
     /// reads `def_of` rather than `wire_share`.
-    fn act_share(w: &mut World, organism: u16, def: &CreatureDef) -> Did {
+    fn act_share(w: &mut World, organism: OrganismId, def: &CreatureDef) -> Did {
         let (x, y) = w.organism(organism).expect("live").chain[0];
         let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
         outputs[brain::BrainOutput::Share as usize] = 1.0;
@@ -16291,7 +16291,7 @@ mod tests {
     /// zero transfers, not a wrong amount, until this was caught. A
     /// `Chain(2)`/`Rigid` species like `beetle` fits easily inside the same
     /// gap. Every call site moved with this number twice now.
-    fn share_pair(w: &mut World, species: &str, ax: i32, bx: i32, y: i32) -> (u16, u16) {
+    fn share_pair(w: &mut World, species: &str, ax: i32, bx: i32, y: i32) -> (OrganismId, OrganismId) {
         let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
         for x in (ax - 4)..(bx + 4) {
             w.set(x, y + 1, Cell::new(floor, 0).with_attached(true));
@@ -17202,7 +17202,7 @@ mod tests {
     ///
     /// **The floor is `STONE` and nothing else is on it**, so a sighting
     /// that fails in a derived scene fails because of what that scene added.
-    fn sight_bed(beetle_x: i32, ant_x: i32) -> (World, u16, CreatureDef) {
+    fn sight_bed(beetle_x: i32, ant_x: i32) -> (World, OrganismId, CreatureDef) {
         let mut w = test_world();
         for cx in 0..200 {
             w.set(cx, 101, Cell::new(material::STONE, 0));
@@ -17216,7 +17216,7 @@ mod tests {
     }
 
     /// `(PreyNear, PreyBearing)` as the beetle at `(x, 100)` reads them.
-    fn prey_inputs(w: &World, beetle: u16, x: i32, def: &CreatureDef) -> (f32, f32) {
+    fn prey_inputs(w: &World, beetle: OrganismId, x: i32, def: &CreatureDef) -> (f32, f32) {
         let (inputs, _, _) = probe(w, x, 100, beetle, def);
         (inputs[brain::BrainInput::PreyNear as usize], inputs[brain::BrainInput::PreyBearing as usize])
     }
@@ -17389,7 +17389,7 @@ mod tests {
     /// under the right condition. Driving both through one scene would make a
     /// failure in either look like a failure in the other, which is how a
     /// scene that contradicts the code comes to read as a dead mechanism.
-    fn ant_at_a_nest(roofed: u32, ants: u32) -> (World, u16, CreatureDef, i32) {
+    fn ant_at_a_nest(roofed: u32, ants: u32) -> (World, OrganismId, CreatureDef, i32) {
         let mut w = test_world();
         let ant = ant_on_a_floor(&mut w, 100);
         let def = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("ant").clone();
@@ -17662,7 +17662,7 @@ mod tests {
         );
     }
 
-    fn spawn(w: &mut World, species: &str, x: i32, y: i32) -> u16 {
+    fn spawn(w: &mut World, species: &str, x: i32, y: i32) -> OrganismId {
         plant_creature_seed(w, x, y, species).map(|site| {
             w.schedule_active_site(site);
             w.get(x, y).organism_id()
@@ -17747,7 +17747,7 @@ mod tests {
         // kind of second mechanism that turns a geometric claim into an
         // unfalsifiable one. The question here is only "does this body fit",
         // so nothing else is allowed in the scene.
-        let deepest = |w: &World, organism: u16| -> i32 {
+        let deepest = |w: &World, organism: OrganismId| -> i32 {
             w.organism(organism).map_or(0, |s| s.cells.keys().map(|&(x, _)| x).max().unwrap_or(0))
         };
 
@@ -17791,7 +17791,7 @@ mod tests {
         // final position of x=91, still short of the mouth's own far wall,
         // even though the walk demonstrably reaches the tunnel along the
         // way -- the max over the run does, reliably.
-        let run_tracking_deepest = |w: &mut World, organism: u16, frames: usize, start_x: i32| -> i32 {
+        let run_tracking_deepest = |w: &mut World, organism: OrganismId, frames: usize, start_x: i32| -> i32 {
             let mut high = start_x;
             for _ in 0..frames {
                 run(w, 1);
@@ -17904,7 +17904,7 @@ mod tests {
             // Pitch 8, not the shipped harness's 2: at three cells a
             // two-cell pitch overlaps consecutive bodies and silently
             // becomes a placement filter (that report, §4).
-            let placed: Vec<u16> = (0..8).map(|i| spawn(&mut w, "ant", 20 + i * 8, 100)).collect();
+            let placed: Vec<OrganismId> = (0..8).map(|i| spawn(&mut w, "ant", 20 + i * 8, 100)).collect();
             assert_eq!(placed.len(), 8, "the scene did not place the ants it is about");
             run(&mut w, 800);
 
@@ -18954,7 +18954,7 @@ mod tests {
         // Heads at 100, 94, 88, 82, 76, 70, each body running six cells
         // west of its own head, all facing east (`DIRS[0]`) into the blind
         // end at x = 101.
-        let mut ants: Vec<u16> = Vec::new();
+        let mut ants: Vec<OrganismId> = Vec::new();
         for k in 0..6i32 {
             let head_x = 100 - k * 6;
             let id = w.push_organism(species).expect("a free slot");
@@ -19478,7 +19478,7 @@ mod tests {
     /// which reads as "cohesion failed" and is the helper failing.
     fn blend_a_lifetime(w: &mut World, colony: Option<u32>, site: usize, contacts: usize) {
         let (nx, ny) = (w.nest_sites[site].x, w.nest_sites[site].y);
-        let ids: Vec<u16> = live_creature_ids(w).into_iter().filter(|id| colony.is_none_or(|c| w.organism(*id).is_some_and(|s| s.colony == c))).collect();
+        let ids: Vec<OrganismId> = live_creature_ids(w).into_iter().filter(|id| colony.is_none_or(|c| w.organism(*id).is_some_and(|s| s.colony == c))).collect();
         for _ in 0..contacts {
             for id in &ids {
                 blend_with_nest(w, *id, nx, ny);
@@ -19798,16 +19798,16 @@ mod tests {
             w.set(x, 101, Cell::new(material::STONE, 0));
         }
         assert_eq!(w.found_colony_of(60, 100, "ant", 6), 6, "the scene must hold six ants");
-        let ids: Vec<u16> = live_creature_ids(&w);
+        let ids: Vec<OrganismId> = live_creature_ids(&w);
         assert_eq!(ids.len(), 6);
         let label = w.organism(ids[0]).expect("ant").colony;
         // Control: one point, nothing to split.
         assert_eq!(w.regroup_by_scent(), 0, "at one scent the pass mints nothing");
         assert_eq!(w.live_creature_groups().len(), 1);
         // The three youngest founding lines drift away together.
-        let mut by_lineage: Vec<(u32, u16)> = ids.iter().map(|&id| (w.organism(id).expect("ant").lineage, id)).collect();
+        let mut by_lineage: Vec<(u32, OrganismId)> = ids.iter().map(|&id| (w.organism(id).expect("ant").lineage, id)).collect();
         by_lineage.sort_unstable();
-        let drifters: Vec<u16> = by_lineage.iter().skip(3).map(|&(_, id)| id).collect();
+        let drifters: Vec<OrganismId> = by_lineage.iter().skip(3).map(|&(_, id)| id).collect();
         for &id in &drifters {
             assert!(w.set_organism_trait(id, organism::TRAIT_SCENT_C, 1.0));
             assert!(w.set_organism_trait(id, TRAIT_TOLERANCE, -0.5));
@@ -20050,7 +20050,7 @@ mod tests {
         assert!(founder_colonies.iter().all(|&c| c != 0), "every founder has a colony");
         run(&mut w, 60);
         assert!(w.creature_stats.births > 0, "nothing was born, so nothing was inherited and this test proves nothing");
-        let children: Vec<u16> = live_creature_ids(&w).into_iter().filter(|id| !founders.contains(id)).collect();
+        let children: Vec<OrganismId> = live_creature_ids(&w).into_iter().filter(|id| !founders.contains(id)).collect();
         assert!(!children.is_empty(), "births fired but no child is live");
         for id in children {
             let state = w.organism(id).expect("a live child");
@@ -22413,7 +22413,7 @@ mod tests {
                     }
                 }
             }
-            let ants: Vec<u16> = (0..8).map(|i| spawn(&mut w, "ant", 70 + i * 6, floor - 1)).collect();
+            let ants: Vec<OrganismId> = (0..8).map(|i| spawn(&mut w, "ant", 70 + i * 6, floor - 1)).collect();
             assert!(ants.iter().all(|&a| a != 0), "test setup: the ants were not placed");
 
             let mut highest = floor;
@@ -22785,7 +22785,7 @@ mod tests {
     }
 
     /// A creature of `species` standing on a stone shelf, and its id.
-    fn creature_on_a_shelf(w: &mut World, species: &str, x: i32, y: i32) -> u16 {
+    fn creature_on_a_shelf(w: &mut World, species: &str, x: i32, y: i32) -> OrganismId {
         for sx in (x - 20)..(x + 20) {
             for sy in y..(y + 3) {
                 w.set(sx, sy, Cell::new(material::STONE, 0).with_attached(true));
@@ -22874,7 +22874,7 @@ mod tests {
         // step would overlap same-side neighbours, and every starting
         // position still has to clear the hedge itself (x 90..110) or the
         // spawn is refused outright -- leaf is not empty ground.
-        let ants: Vec<u16> = (0..6)
+        let ants: Vec<OrganismId> = (0..6)
             .map(|i| {
                 let side = i / 2; // 0, 1, 2: which ant on its side of the hedge
                 let x = if i % 2 == 0 { 74 + side * 6 } else { 126 - side * 6 };
@@ -23271,7 +23271,7 @@ mod tests {
     /// Returns the world and the founders' handles. Ants are spaced four
     /// apart, the `COLONY_ANT_SPACING` a founded colony uses, because
     /// shoulder-to-shoulder ants gridlock and a birth needs a free cell.
-    fn breeding_colony(n: i32, threshold: f32, mutation_rate: f32) -> (World, Vec<u16>) {
+    fn breeding_colony(n: i32, threshold: f32, mutation_rate: f32) -> (World, Vec<OrganismId>) {
         let mut w = test_world();
         for cx in 0..200 {
             w.set(cx, 101, Cell::new(material::STONE, 0));
@@ -23316,7 +23316,7 @@ mod tests {
     /// first version of this helper wrote the field directly and the
     /// identity opened by 13,320 joules — a scene that contradicts the code
     /// looking precisely like a bug in the code.
-    fn fund(w: &mut World, id: u16, to: f32) {
+    fn fund(w: &mut World, id: OrganismId, to: f32) {
         let Some(state) = w.organism_mut(id) else { return };
         let delta = to - state.energy;
         state.energy = to;
@@ -23573,7 +23573,7 @@ mod tests {
             }
         }
         let (a, b, c) = (founders[0], founders[1], founders[2]);
-        let pos_of = |w: &World, id: u16| *w.organism(id).expect("alive").chain.first().expect("has a body");
+        let pos_of = |w: &World, id: OrganismId| *w.organism(id).expect("alive").chain.first().expect("has a body");
         let radius = 24;
         let bar = 500.0;
 
@@ -23825,7 +23825,7 @@ mod tests {
         run(&mut w, 200);
         assert!(w.creature_stats.births > 0, "nothing bred over 200 frames from 8 funded founders -- this proves nothing about the index");
 
-        let breeders: Vec<u16> = live_creature_ids(&w).into_iter().filter(|&id| w.organism(id).is_some_and(|s| s.children > 0)).collect();
+        let breeders: Vec<OrganismId> = live_creature_ids(&w).into_iter().filter(|&id| w.organism(id).is_some_and(|s| s.children > 0)).collect();
         assert!(!breeders.is_empty(), "births fired but no live animal shows children > 0");
         let mut colonies_seen = std::collections::BTreeSet::new();
         for id in breeders {
@@ -24087,7 +24087,7 @@ mod tests {
         }
         run(&mut w, 60);
         assert!(w.creature_stats.births > 0, "nothing was born, so nothing was inherited and this test proves nothing");
-        let children: Vec<u16> = live_creature_ids(&w).into_iter().filter(|id| !founders.contains(id)).collect();
+        let children: Vec<OrganismId> = live_creature_ids(&w).into_iter().filter(|id| !founders.contains(id)).collect();
         assert!(!children.is_empty(), "births fired but no child is live");
         for id in children {
             let state = w.organism(id).expect("a live child");
@@ -24350,7 +24350,7 @@ mod tests {
     }
 
     /// Every live creature's handle, in slot order.
-    fn live_creature_ids(w: &World) -> Vec<u16> {
+    fn live_creature_ids(w: &World) -> Vec<OrganismId> {
         let mut out = Vec::new();
         for x in 0..200 {
             for y in 0..200 {
@@ -24379,7 +24379,7 @@ mod tests {
     /// is the idle charge -- otherwise a run that happened to move more
     /// would swamp the quantity under test, and the difference would be
     /// about the terrain rather than about the body.
-    fn priced_ant(cells: u8, idle_per_cell: f32) -> (World, u16) {
+    fn priced_ant(cells: u8, idle_per_cell: f32) -> (World, OrganismId) {
         use super::super::organism::BodyPlan;
         let mut w = test_world();
         for cx in 0..200 {

@@ -44,6 +44,7 @@
 //! touching dirt" case, and it is separable from plain shade only by asking
 //! what the cell below is made of.
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::sim::cell::Cell;
 use pixel_physics::sim::explosion::Blasts;
@@ -345,12 +346,12 @@ fn main() {
     // Its own stream, so the control's placement draws cannot be confused
     // with anything the world does.
     let mut rng = Rng::new(spec.seed ^ 0x5ca7_7e12);
-    let mut moved: std::collections::HashSet<u16> = std::collections::HashSet::new();
+    let mut moved: std::collections::HashSet<OrganismId> = std::collections::HashSet::new();
     let mut scattered = 0u64;
     // `seeds_set` lives on the parent and dies with it, so the running total
     // is a delta walk. Sampled ten times per report so a parent that dies
     // between reports still has its last count counted.
-    let mut seen: HashMap<u16, u32> = HashMap::new();
+    let mut seen: HashMap<OrganismId, u32> = HashMap::new();
     let mut seeds_set_total: u64 = 0;
     // **The independent counter, from the far side of the call.** The delta
     // walk over `seeds_set` above disagreed with `World::germinations` by
@@ -360,7 +361,7 @@ fn main() {
     // is now a single `CellType::Seed` cell is a seed that has just been
     // created, whoever made it. `CLAUDE.md`: pair every "it fired" counter
     // with an effect counter from the far side.
-    let mut live_last: std::collections::HashSet<u16> = std::collections::HashSet::new();
+    let mut live_last: std::collections::HashSet<OrganismId> = std::collections::HashSet::new();
     let mut seeds_born: u64 = 0;
 
     let interior = (spec.width / 16, spec.width - spec.width / 16);
@@ -472,7 +473,7 @@ fn main() {
             }
         }
         {
-            let mut live_now: std::collections::HashSet<u16> = std::collections::HashSet::new();
+            let mut live_now: std::collections::HashSet<OrganismId> = std::collections::HashSet::new();
             for id in world.live_organism_ids() {
                 live_now.insert(id);
                 if live_last.contains(&id) {

@@ -63,6 +63,7 @@
 //! 3.5-hour study in this repo produced eight byte-identical logs for
 //! exactly that reason.
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::lab::Lab;
 use pixel_physics::sim::creature;
@@ -110,7 +111,7 @@ fn set_genome_slot_on(lab: &mut Lab, species: &str, slot: usize, weight: f32) ->
     living.len()
 }
 
-fn ants_of(lab: &Lab, species: &str) -> Vec<u16> {
+fn ants_of(lab: &Lab, species: &str) -> Vec<OrganismId> {
     lab.world
         .live_organism_ids()
         .into_iter()
@@ -121,7 +122,7 @@ fn ants_of(lab: &Lab, species: &str) -> Vec<u16> {
 /// **Every living animal's head, with its expressed traits and colony.**
 /// Expressed rather than raw, because `is_living_kin` compares expressed
 /// vectors and a developmental channel can move a signature.
-fn standing(world: &World) -> Vec<(u16, i32, i32, u32, [f32; organism::CREATURE_TRAITS])> {
+fn standing(world: &World) -> Vec<(OrganismId, i32, i32, u32, [f32; organism::CREATURE_TRAITS])> {
     let mut out = Vec::new();
     for id in world.live_organism_ids() {
         let Some(st) = world.organism(id) else { continue };
@@ -444,7 +445,7 @@ fn main() {
             lab.world.species.set_creature(id, def);
         }
         let world_seed = lab.world.seed;
-        let living: Vec<(u16, u32)> = lab
+        let living: Vec<(OrganismId, u32)> = lab
             .world
             .live_organism_ids()
             .into_iter()
@@ -988,7 +989,7 @@ fn arena_at(apart: Apart, wired: bool, seed: u64) -> Option<Arm> {
         lab.world.species.set_creature(id, def);
     }
     let world_seed = lab.world.seed;
-    let pairs: Vec<(u16, u32)> =
+    let pairs: Vec<(OrganismId, u32)> =
         ants_of(&lab, "ant").into_iter().filter_map(|id| lab.world.organism(id).map(|st| (id, st.colony))).collect();
     for (id, col) in pairs {
         let off = creature::colony_scent_offset(world_seed, col, requested);

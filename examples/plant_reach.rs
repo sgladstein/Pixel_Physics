@@ -16,6 +16,7 @@
 
 mod common;
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::sim::organism;
 use pixel_physics::sim::parallel;
 use pixel_physics::sim::world::World;
@@ -109,7 +110,7 @@ fn main() {
 /// travels, the held arm says how far a *maintained* source pushes a front,
 /// which is the question about a living tree.
 fn reach(w: &mut World, ticks: usize, band: i32, hold: bool) {
-    let mut biggest: Option<(u16, usize)> = None;
+    let mut biggest: Option<(OrganismId, usize)> = None;
     for id in w.live_organism_ids() {
         let Some(st) = w.organism(id) else { continue };
         if biggest.is_none_or(|(_, n)| st.cells.len() > n) {

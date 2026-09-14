@@ -135,13 +135,31 @@ const FLAG_CRACK_DOWN: u8 = 0b1000_0000;
 /// this flag does not decide.
 const FLAG_ATTACHED: u8 = 0b0010_0000;
 
+/// A handle to an organism — the value stored in `Cell::organism_id` and
+/// threaded through every per-organism API in the engine.
+///
+/// **An alias rather than a newtype, deliberately.** `SpeciesId` is a
+/// newtype because a species id and a material id are both `u16` indices
+/// into different registries and swapping them must be a type error. An
+/// organism handle has no such twin: nothing else in the engine is an
+/// organism handle, and the 2,300-odd sites that pass one around gain
+/// nothing from a wrapper. What the alias buys is that the *next* widening
+/// is this line, rather than another sweep of the tree — which is what the
+/// 12-to-20-bit widening cost when the width was spelled `u16` at 88
+/// signatures.
+///
+/// `World`'s `encode_organism_id` splits it; see that function for the
+/// index/generation layout and why the split is where it is.
+pub type OrganismId = u32;
+
 /// Default temperature for a newly created cell, in Celsius. Room temperature;
 /// chosen so cells created before the M13 ambient field exists still hold a
 /// believable value instead of 0 or an extreme.
 pub const AMBIENT_TEMPERATURE: i16 = 20;
 
-/// One simulated pixel, widened from 8 to 12 bytes to give the burn timer and
-/// organism ownership their own fields instead of both aliasing `aux`.
+/// One simulated pixel, 16 bytes: widened 8 → 12 to give the burn timer and
+/// organism ownership their own fields instead of both aliasing `aux`, then
+/// 12 → 16 to lift the organism ceiling off 4,095.
 ///
 /// The 8-byte version aliased a burning cell's `aux` with its burn timer —
 /// harmless while `aux` only ever held a recomputable value (an anchor
@@ -152,12 +170,38 @@ pub const AMBIENT_TEMPERATURE: i16 = 20;
 /// same widening rather than a second one later — the planned
 /// organism-substrate rewrite will hit the identical aliasing problem for a
 /// burning `Plant` cell's cell-type tag, so both fields land together now
-/// rather than widening `Cell` twice. Same "irrelevant at this scale" cost
-/// argument the original 4→8 byte widening (M12) already made, illustrated
-/// there with a round 2048² world (32 MB → 48 MB). At the actual shipped
-/// 8192x2560 world and this file's real `Cell` size (12 bytes, asserted
-/// below), the cell grid itself is 8192 x 2560 x 12 ≈ 240 MiB — 160 MiB at
-/// the pre-M12 8-byte `Cell`.
+/// rather than widening `Cell` twice.
+///
+/// **The third widening, 12 → 16, bought organism headroom and is the one
+/// with a real price.** `organism_id` was a `u16` split 12 bits slot index
+/// / 4 bits generation, so the world could hold 4,095 living things —
+/// plants, creatures and ungerminated seeds together — and the held world's
+/// grown start sat at 4,095 of 4,095 with `C` founding nothing
+/// (`Reports/open-bugs-handoff.md` §Z21). At `u32` the split is 20/12:
+/// 1,048,575 slots, and the generation wrap that bounds stale-handle
+/// aliasing goes from 16 reuses to 4,096 — the widening makes that *safer*
+/// rather than trading it away.
+///
+/// **What it costs, measured rather than argued** (2026-09-14, paired
+/// alternating runs of two fixed binaries):
+///
+/// - **Memory: +33% of the cell grid.** At the shipped 8192x2560 world,
+///   8192 x 2560 x 16 ≈ **320 MiB against 240 MiB** at 12 bytes — and
+///   160 MiB at the pre-M12 8-byte `Cell`. This is the program's largest
+///   single allocation, so this is the number to weigh, not the frame cost.
+/// - **Frame cost: none the whole frame can see.** `frame_profile` on the
+///   shipped world, settled block, three alternating rounds: `ca_sweep` p50
+///   median **5.51 → 5.71 ms (+4%)**, and whole-**FRAME mean 19.05 → 18.96
+///   ms, i.e. unmoved** — the frame is 47% draw and 22% fields, so 0.2 ms
+///   on the sweep sits inside run-to-run spread. `examples/ascii`'s
+///   worst-frame could not separate the two arms at all (16-byte won 3 of 6
+///   pairs), which is exactly the order-statistic-is-noise case
+///   `CLAUDE.md` warns about — quote the mean and p50 here, not the worst.
+///
+/// The "irrelevant at this scale" cost argument the 4→8 widening (M12) made
+/// no longer applies unexamined at 16 bytes and a world that M10 streaming
+/// will grow; if `Cell` is ever widened a fourth time, measure the frame
+/// again rather than inheriting this result.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Cell {
     pub material: MaterialId,
@@ -225,7 +269,7 @@ pub struct Cell {
     /// here, unused until the organism-substrate rewrite gives it real
     /// readers/writers — added in this widening rather than a second one so
     /// `Cell` only grows once.
-    organism_id: u16,
+    organism_id: OrganismId,
 }
 
 impl Cell {
@@ -483,17 +527,17 @@ impl Cell {
     /// "the meaning lives with the caller, not the type" shape `aux`
     /// itself already has for `Solid` vs `Creature` vs everything else.
     #[inline]
-    pub fn organism_id(self) -> u16 {
+    pub fn organism_id(self) -> OrganismId {
         self.organism_id
     }
 
     #[inline]
-    pub fn set_organism_id(&mut self, id: u16) {
+    pub fn set_organism_id(&mut self, id: OrganismId) {
         self.organism_id = id;
     }
 
     #[inline]
-    pub fn with_organism_id(mut self, id: u16) -> Self {
+    pub fn with_organism_id(mut self, id: OrganismId) -> Self {
         self.set_organism_id(id);
         self
     }
@@ -519,10 +563,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cell_is_twelve_bytes() {
+    fn cell_is_sixteen_bytes() {
         // Guards the memory budget: 8 bytes plus a dedicated burn timer and
-        // organism-ownership field, both previously aliased into `aux`.
-        assert_eq!(std::mem::size_of::<Cell>(), 12);
+        // organism-ownership field (both previously aliased into `aux`),
+        // plus the 12 → 16 widening that took the organism ceiling off
+        // 4,095. At the shipped 8192x2560 world every byte here is 20 MiB
+        // of resident cell grid, so this number is a budget and not a
+        // detail -- see `Cell`'s own doc for the measured price.
+        assert_eq!(std::mem::size_of::<Cell>(), 16);
     }
 
     #[test]

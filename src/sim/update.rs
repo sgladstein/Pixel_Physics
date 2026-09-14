@@ -2845,6 +2845,7 @@ const SPLASH_MIN_FILL: u16 = material::LIQUID_FULL;
 
 #[cfg(test)]
 mod tests {
+    use super::super::cell::OrganismId;
 
     /// **A tunnel with a lining keeps its roof; the same tunnel without one
     /// does not.** Both halves are asserted in one test on purpose.
@@ -3949,7 +3950,7 @@ mod tests {
         // three arms pass whatever this rule does -- the scene would not
         // contain the situation it claims to measure, which `CLAUDE.md`
         // names as the way four conclusions in this project went wrong.
-        let branch = |w: &mut World, x: i32, y0: i32, y1: i32, id: u16| {
+        let branch = |w: &mut World, x: i32, y0: i32, y1: i32, id: OrganismId| {
             for y in y0..=y1 {
                 for dx in -1..=1 {
                     w.set(x + dx, y, Cell::new(wood, 0).with_organism_id(id));
@@ -4096,7 +4097,7 @@ mod tests {
                 }
             }
         };
-        let trunk = |w: &mut World, x: i32, y0: i32, id: u16| {
+        let trunk = |w: &mut World, x: i32, y0: i32, id: OrganismId| {
             for y in y0..=126 {
                 w.set(x, y, Cell::new(wood, 0).with_organism_id(id));
             }

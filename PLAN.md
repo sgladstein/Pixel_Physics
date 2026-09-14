@@ -816,9 +816,16 @@ What survives, at a different number and a different function:
 ceiling the index bleeds into the generation bits — silent organism
 identity corruption, and still invisible in **release play**, which is
 where a breeding run would actually hit it. The ceiling is
-**4,095 concurrently live organisms**, not 65,536 cumulative births — a
-sixteen-fold tighter bar against a live population that now includes every
-plant, and reclamation means it bounds concurrency rather than history.
+**1,048,575 concurrently live organisms** since 2026-09-14, not 65,536
+cumulative births — it bounds concurrency rather than history, and
+reclamation is what makes that true. **It was 4,095 and that bar was
+reached in play**, which is why it moved: the held world's grown start sat
+at 4,093 organisms and `C` founded nothing (`Reports/open-bugs-handoff.md`
+§Z21). `Cell` widened 12 → 16 bytes and the split went 12/4 → **20 bits
+index / 12 bits generation**, so the stale-handle wrap improved from 16
+reuses to 4,096 in the same change. Cost: +80 MiB of cell grid at the
+shipped world (240 → 320 MiB) and no movement in the whole frame, measured
+paired.
 A **release-mode** guard on that ceiling is a precondition of S6
 reproduction (`Reports/creature-evolution-plan.md`; population-dynamics
 acceptance 9g), and `Reports/open-bugs-handoff.md` §F4 records the live
