@@ -457,7 +457,16 @@ the hole is the mechanic.** A brief that proposes water as spatial structure is
 proposing something four measurements say is not there; a brief that puts food
 in the water first is proposing the only thing that would change that.
 
-### 1.10 The owner's sloped entrance, measured: it gives back 92% of the loss
+### 1.10 The owner's sloped entrance, measured — and the first reading of it was wrong
+
+> **CORRECTION, same session.** The table below races a **dry** sloped pit
+> against a **dry** vertical one, which is a clean pair for *wall shape* and is
+> **not the comparison the bed needs**, because the bed is a pond and has water
+> in it. Measured afterwards: a sloped bowl **with water in it** reads
+> `cols` **205.0** against the watered vertical pit's 199.5 — the 92% recovery
+> below **does not survive filling the pond**. §1.11 has that table and what it
+> means. Read this section as *what a slope does to a hole*, not as *what a
+> slope does to a pond*.
 
 §0a's second verdict — *"in nature it would need a sloped enterance or
 creatures will get stuck"* — arrived after §1.9 had independently measured the
