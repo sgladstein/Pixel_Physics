@@ -3949,21 +3949,6 @@ impl Renderer {
         self.aura_rate
     }
 
-    /// **How many circles this draw's haze was actually built from**, as
-    /// `(standing, carried)`.
-    ///
-    /// `CLAUDE.md`'s *"did it fire at all" needs a counter, not a picture*,
-    /// pointed at the one thing a contact sheet of a haze cannot say. A haze
-    /// drawn too faint and a haze never built look identical at the zoom a
-    /// card is read at, and they want opposite fixes — this separates them,
-    /// and it counts what the *renderer* holds rather than what the world
-    /// does, so a circle culled or a disc list left stale reads as the zero
-    /// it is.
-    pub fn aura_disc_count(&self) -> (usize, usize) {
-        let carried = self.aura_discs.iter().filter(|d| d.arm == 1).count();
-        (self.aura_discs.len() - carried, carried)
-    }
-
     /// Step how held ground is drawn — see [`HeldLook`].
     pub fn cycle_held_look(&mut self) {
         self.held_look = self.held_look.next();
@@ -7889,6 +7874,17 @@ impl Renderer {
                 None => d.bounds,
             });
         }
+    }
+
+    /// **How many aura discs this draw is painting, split standing/carried.**
+    ///
+    /// The counter half of `CLAUDE.md`'s *"did it fire at all" needs a
+    /// counter, not a picture*: a haze that is drawn but too faint and a
+    /// haze that was never built look identical on a contact sheet, and they
+    /// want opposite fixes.
+    pub fn aura_disc_count(&self) -> (usize, usize) {
+        let carried = self.aura_discs.iter().filter(|d| d.arm == 1).count();
+        (self.aura_discs.len() - carried, carried)
     }
 
     /// **Coherent value noise on the world grid**, in `-0.5..0.5`, used to
