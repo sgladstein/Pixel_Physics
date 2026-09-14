@@ -1924,6 +1924,64 @@ const MAX_ZOOM: i32 = 8;
 /// revisited here.
 const MAX_ZOOM_OUT_STRIDE: i32 = 4;
 
+/// The zoom-out stops a player actually walks through, in order. **3 is not on
+/// it, by the owner's ruling of 2026-09-14: _"get rid of stop 3"_.**
+///
+/// **Why 3 was the odd one.** The buffer budget is a power of two and
+/// [`Renderer::pixel_scale`] may only return a power of two that *divides* the
+/// stride, so at stride 3 the budget buys nothing — 3 has no power-of-two
+/// divisor above 1 — and a player walking outwards got sharp, sharp, *blocky*,
+/// sharp. It is not a bug and there is no cheap fix: the non-power-of-two
+/// budget that would have made rung 3 sharp was built, photographed from the
+/// shipped renderer, offered to him on blind card
+/// `20260914T000047337Z-693fcc`, and **rejected** — he took rung 4, sharp with
+/// a quarter of the screen in black bars, over both framings that fit the
+/// held world's full height. `Reports/dead-ends.md` `rendering:049`.
+///
+/// **That left one question open and it is now closed.** Asked in the
+/// coordinator's vocabulary he answered *"Keep rung 3 as a soft stop"* and
+/// then said he did not know what "soft stop" meant. Re-asked in plain words
+/// with four rendered panes — card `20260914T084458895Z-ae1b01`, board
+/// `druid`, *"Keep the blocky stop, or should zooming out jump straight from
+/// stop 2 to stop 4?"* — he answered **"get rid of stop 3"**. So the ladder is
+/// `1, 2, 4` in all three games: it is the renderer that makes 3 blocky, not
+/// any one world.
+///
+/// **3 is still a reachable *state*, and that is deliberate.**
+/// [`Renderer::zoom_within`] clamps the ladder to
+/// [`max_zoom_out_stride`], which is the box's own "do not zoom out past the
+/// world" bound and may land on 3 for a box that needs exactly three screens
+/// to cover. A **cap** is not a **stop**: arriving at 3 there is the
+/// alternative to not seeing the whole box, and three owner rulings sit on
+/// that cap. `src/main.rs`'s `PIXEL_PHYSICS_ZOOM_OUT` hook can still ask for
+/// it directly, which is what a debug hook is for.
+const ZOOM_OUT_RUNGS: [i32; 3] = [1, 2, MAX_ZOOM_OUT_STRIDE];
+
+/// The next zoom-out rung outwards (`step > 0`) or inwards (`step < 0`) from
+/// `stride`, clamped at the ends of [`ZOOM_OUT_RUNGS`].
+///
+/// **Takes an off-ladder `stride` rather than asserting against one**, because
+/// one is reachable: `zoom_within`'s cap can leave the renderer at 3. From
+/// there, outwards means the first rung strictly above and inwards the first
+/// strictly below, so a player who arrived at a capped 3 still walks back down
+/// the ladder rather than sticking.
+fn zoom_out_rung(stride: i32, step: i32) -> i32 {
+    if step > 0 {
+        ZOOM_OUT_RUNGS
+            .iter()
+            .copied()
+            .find(|&rung| rung > stride)
+            .unwrap_or(MAX_ZOOM_OUT_STRIDE)
+    } else {
+        ZOOM_OUT_RUNGS
+            .iter()
+            .copied()
+            .rev()
+            .find(|&rung| rung < stride)
+            .unwrap_or(1)
+    }
+}
+
 /// How the one screen pixel covering a `stride`x`stride` block of world cells
 /// at `zoom_out_stride > 1` chooses what to draw.
 ///
@@ -4284,10 +4342,14 @@ impl Renderer {
 
     /// reads as a single "more/less zoom" control, not two separate ones a
     /// player has to understand are different mechanisms.
+    ///
+    /// **The zoom-out half steps along [`ZOOM_OUT_RUNGS`], not by one**, so
+    /// stride 3 — the one rung no buffer budget can sharpen — is skipped in
+    /// both directions. Owner, 2026-09-14: *"get rid of stop 3."*
     pub fn adjust_zoom(&mut self, delta: i32) {
         if delta > 0 {
             if self.zoom_out_stride > 1 {
-                self.zoom_out_stride -= 1;
+                self.zoom_out_stride = zoom_out_rung(self.zoom_out_stride, -1);
             } else {
                 self.zoom = (self.zoom + 1).min(MAX_ZOOM);
             }
@@ -4295,7 +4357,7 @@ impl Renderer {
             if self.zoom > 1 {
                 self.zoom -= 1;
             } else {
-                self.zoom_out_stride = (self.zoom_out_stride + 1).min(MAX_ZOOM_OUT_STRIDE);
+                self.zoom_out_stride = zoom_out_rung(self.zoom_out_stride, 1);
             }
         }
     }
@@ -7780,6 +7842,17 @@ impl Renderer {
                 None => d.bounds,
             });
         }
+    }
+
+    /// **How many aura discs this draw is painting, split standing/carried.**
+    ///
+    /// The counter half of `CLAUDE.md`'s *"did it fire at all" needs a
+    /// counter, not a picture*: a haze that is drawn but too faint and a
+    /// haze that was never built look identical on a contact sheet, and they
+    /// want opposite fixes.
+    pub fn aura_disc_count(&self) -> (usize, usize) {
+        let carried = self.aura_discs.iter().filter(|d| d.arm == 1).count();
+        (self.aura_discs.len() - carried, carried)
     }
 
     /// **Coherent value noise on the world grid**, in `-0.5..0.5`, used to
@@ -11960,20 +12033,67 @@ mod tests {
         let mut r = Renderer::new();
         assert_eq!((r.zoom, r.zoom_out_stride), (1, 1));
 
-        // Zooming out first counts up zoom_out_stride, zoom staying at 1.
+        // Zooming out walks zoom_out_stride up the rungs, zoom staying at 1 --
+        // and the rungs are 1, 2, 4. Stride 3 was a stop until 2026-09-14;
+        // see ZOOM_OUT_RUNGS for the ruling that took it off.
         r.adjust_zoom(-1);
         assert_eq!((r.zoom, r.zoom_out_stride), (1, 2));
         r.adjust_zoom(-1);
-        assert_eq!((r.zoom, r.zoom_out_stride), (1, 3));
+        assert_eq!((r.zoom, r.zoom_out_stride), (1, 4));
 
-        // Zooming back in counts zoom_out_stride back down to 1 before
-        // zoom itself ever climbs above 1.
+        // Zooming back in walks the same rungs down to 1 before zoom itself
+        // ever climbs above 1.
         r.adjust_zoom(1);
         assert_eq!((r.zoom, r.zoom_out_stride), (1, 2));
         r.adjust_zoom(1);
         assert_eq!((r.zoom, r.zoom_out_stride), (1, 1));
         r.adjust_zoom(1);
         assert_eq!((r.zoom, r.zoom_out_stride), (2, 1));
+    }
+
+    /// **The blocky stop is off the ladder in both directions** — owner,
+    /// 2026-09-14, on card `20260914T084458895Z-ae1b01`: *"get rid of stop
+    /// 3."*
+    ///
+    /// Asserted over a walk rather than over one press, because the failure
+    /// this is named for is asymmetric: a fix that skips 3 going out and still
+    /// steps through it coming back in is one a single-press test passes and a
+    /// player notices immediately. Both halves were put back to `stride +/- 1`
+    /// and watched: each goes red here, printing the walk that contains the 3.
+    ///
+    /// **What it adds over the ladder test above, which was measured rather
+    /// than assumed**: that test also goes red for either half, because its
+    /// fixed walk happens to cross 3 both ways. What it does not cover at all
+    /// is the **off-ladder entry** below — a renderer left at 3 by
+    /// `zoom_within`'s cap — and that is the case a reader assumes away.
+    #[test]
+    fn stride_three_is_not_a_stop_in_either_direction() {
+        let mut r = Renderer::new();
+        let mut walked = vec![r.zoom_out_stride];
+        for _ in 0..8 {
+            r.adjust_zoom(-1);
+            walked.push(r.zoom_out_stride);
+        }
+        for _ in 0..8 {
+            r.adjust_zoom(1);
+            walked.push(r.zoom_out_stride);
+        }
+        assert!(
+            !walked.contains(&3),
+            "stride 3 is off the ladder; the walk out and back was {walked:?}"
+        );
+        assert!(walked.contains(&MAX_ZOOM_OUT_STRIDE), "the widest rung is still reachable");
+
+        // A stride the cap can still produce is not a trap: zoom_within's
+        // bound may leave the renderer at 3, and from there both directions
+        // move. This is the one place 3 is legitimate -- a cap, not a stop.
+        let mut capped = Renderer::new();
+        capped.zoom_out_stride = 3;
+        capped.adjust_zoom(1);
+        assert_eq!(capped.zoom_out_stride, 2, "zooming in from a capped 3 rejoins the ladder");
+        capped.zoom_out_stride = 3;
+        capped.adjust_zoom(-1);
+        assert_eq!(capped.zoom_out_stride, 4, "zooming out from a capped 3 rejoins the ladder");
     }
 
     #[test]

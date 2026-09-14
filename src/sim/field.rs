@@ -2312,6 +2312,53 @@ const SKY_TRANSMISSION: f32 = 0.2;
 /// The last entry is written as `SKY_TRANSMISSION` itself rather than as
 /// its value, because that endpoint is the compatibility promise: a fully
 /// opaque column passes exactly what a blocked block always passed.
+/// **How much light one cell of a `Liquid` swallows, in the same units the
+/// table below is indexed by** -- so `1.0` is "as opaque as a cell of rock"
+/// and `0.0`, the default, is the historical behaviour exactly: water is as
+/// clear as air and a pool has no bottom.
+///
+/// **A prototype dial, gated to keep the shipped behaviour byte-identical**,
+/// in the shape `LAND_AFLOAT` uses and for the same reason: the owner asked
+/// to see depth before deciding whether to have it
+/// (`Reports/aquatic-implementation-plan-2026-09-14.md` §0a), and an unset
+/// default that changes nothing is what makes the render an A/B rather than
+/// a claim.
+///
+/// **What "realistic" costs, since the card asked for it.** The table below
+/// is Beer-Lambert at optical depth `0.1006` per unit -- `0.904304^16 == 0.2
+/// == SKY_TRANSMISSION`. Real water absorbs about `0.05` per metre at its
+/// clearest, and a cell here is roughly 7 cm (the gnome is 14 cells tall), so
+/// one cell of honest water is `0.0035` of optical depth, i.e. **`0.035` in
+/// these units**. Over a 28-row pond that is a total of 0.97 units and
+/// **transmission 0.90: nine tenths of the light reaches the floor and there
+/// is no gradient to see.** To bring the floor to half light over the same 28
+/// rows you need `0.25` -- water about **seven times more absorbing than the
+/// real thing**. That tension is the finding; this dial exists so it can be
+/// looked at rather than argued.
+fn water_opacity() -> f32 {
+    static V: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_WATER_OPACITY").ok().and_then(|v| v.parse().ok()).unwrap_or(0.0))
+}
+
+/// [`COLUMN_TRANSMISSION`] read at a **fractional** depth.
+///
+/// The table is per whole opaque cell because, before water, every occluder
+/// was one whole cell or none. A liquid that swallows a fraction of a cell's
+/// worth needs the value between two entries, and linear interpolation is
+/// right enough for something whose own coefficient is a judgement call.
+/// Beyond the last entry the column is already at `SKY_TRANSMISSION` and
+/// cannot get darker, which is the compatibility promise the table's own doc
+/// makes -- so this saturates rather than extrapolating.
+fn column_transmission(depth: f32) -> f32 {
+    let d = depth.clamp(0.0, FIELD_SCALE as f32);
+    let i = d.floor() as usize;
+    if i >= FIELD_SCALE as usize {
+        return COLUMN_TRANSMISSION[FIELD_SCALE as usize];
+    }
+    let f = d - i as f32;
+    COLUMN_TRANSMISSION[i] * (1.0 - f) + COLUMN_TRANSMISSION[i + 1] * f
+}
+
 const COLUMN_TRANSMISSION: [f32; FIELD_SCALE as usize + 1] = [
     1.0,
     0.904_304,
@@ -2969,7 +3016,10 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], stale: &[u16], next: &m
                 // `FieldTile::transmission` for why depth per column, and
                 // not cells filled per block, is the quantity a downward
                 // ray cares about.
-                let mut column_depth = [0u8; FIELD_SCALE as usize];
+                // **A float, not a count, since water contributes a fraction of a
+                // cell's worth.** At the default `water_opacity() == 0.0` every value
+                // here is a whole number and the reads below are the old ones exactly.
+                let mut column_depth = [0f32; FIELD_SCALE as usize];
                 for dy in 0..FIELD_SCALE {
                     for dx in 0..FIELD_SCALE {
                         // `World::new` eagerly creates every chunk
@@ -2993,7 +3043,7 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], stale: &[u16], next: &m
                         // reads elsewhere: solid, so blocked.
                         if !world.in_bounds(bx0 + dx, by0 + dy) {
                             blocked = true;
-                            column_depth[dx as usize] += 1;
+                            column_depth[dx as usize] += 1.0;
                             continue;
                         }
                         let cell = chunk.get_world(bx0 + dx, by0 + dy);
@@ -3032,9 +3082,19 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], stale: &[u16], next: &m
                         let mat = world.materials.get(cell.material);
                         if matches!(mat.kind, super::material::MaterialKind::Solid | super::material::MaterialKind::Plant) {
                             blocked = true;
-                            column_depth[dx as usize] += 1;
+                            column_depth[dx as usize] += 1.0;
                         }
                         if mat.kind == super::material::MaterialKind::Liquid {
+                            // **Water dims the column without `blocked`, and that
+                            // separation is the whole design.** A blocked block is
+                            // skipped entirely by `step_diffusion`, which is the
+                            // measured cause of the bug at the top of this file --
+                            // 96.8% of grass cells reading moisture exactly 0.000
+                            // because the presence of fuel is what made the block
+                            // read bone dry. Water is the *moisture source*; marking
+                            // a pond blocked would make the pond read as having no
+                            // water in it. So it adds optical depth and nothing else.
+                            column_depth[dx as usize] += water_opacity();
                             moisture_level = 1.0;
                         } else {
                             // Damp soil is a weaker source than standing
@@ -3057,7 +3117,7 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], stale: &[u16], next: &m
                 // deep narrow occluder and a shallow wide one come out
                 // different — which is the entire reason this is per column.
                 let transmission =
-                    column_depth.iter().map(|&d| COLUMN_TRANSMISSION[d as usize]).sum::<f32>() / FIELD_SCALE as f32;
+                    column_depth.iter().map(|&d| column_transmission(d)).sum::<f32>() / FIELD_SCALE as f32;
                 tile.set_transmission_local(lx, ly, transmission);
                 tile.set_moisture_source_local(lx, ly, moisture_level);
                 tile.set_glow_local(lx, ly, glow_level);
@@ -5306,5 +5366,65 @@ mod glow_tests {
         assert!(after < 0.1, "light should decay away once the lining is gone: {after}");
         let tile = w.fields_ref().get(&ChunkCoord::new(1, 3)).expect("tile exists");
         assert!(!tile.has_glow, "has_glow must clear on the solve after the crystal goes");
+    }
+}
+
+#[cfg(test)]
+mod water_depth_tests {
+    use super::*;
+
+    /// **The compatibility promise**: at every whole depth the interpolated
+    /// read must be the table entry it replaced, or landing the fractional
+    /// column silently re-lights the whole world.
+    #[test]
+    fn column_transmission_is_the_table_at_whole_depths() {
+        for (d, &want) in COLUMN_TRANSMISSION.iter().enumerate() {
+            let got = column_transmission(d as f32);
+            assert!((got - want).abs() < 1e-6, "depth {d}: {got} != {want}");
+        }
+        // ...and saturates past the end rather than extrapolating into the
+        // dark, which is what the table's own doc promises for a full column.
+        assert_eq!(column_transmission(FIELD_SCALE as f32 + 5.0), COLUMN_TRANSMISSION[FIELD_SCALE as usize]);
+        // **The half-depths, which the whole-depth loop above cannot see.**
+        // A truncating implementation -- the obvious wrong one, and the one
+        // this replaced -- passes every assertion above it exactly, because
+        // at a whole depth floor() is the identity. A guard that green-lights
+        // the bug it exists to catch is worse than none, so the fractional
+        // read is asserted strictly between its neighbours.
+        for d in 0..FIELD_SCALE as usize {
+            let mid = column_transmission(d as f32 + 0.5);
+            assert!(
+                mid < COLUMN_TRANSMISSION[d] && mid > COLUMN_TRANSMISSION[d + 1],
+                "depth {d}.5 must fall strictly between {} and {}, got {mid}",
+                COLUMN_TRANSMISSION[d],
+                COLUMN_TRANSMISSION[d + 1]
+            );
+        }
+    }
+
+    /// **The number the owner's depth card turns on**, kept as a test rather
+    /// than as a sentence in a report, because it is the whole argument for
+    /// depth being an outdoor feature.
+    ///
+    /// The table is Beer-Lambert at optical depth `0.1006` per unit. Real
+    /// water absorbs about `0.05` per metre at its clearest; a cell here is
+    /// roughly 7 cm, so honest water is **`0.035` units per cell**. A
+    /// 28-row pond is about two field tiles deep, and at that coefficient it
+    /// passes nine tenths of its light -- there is no gradient to see. Seven
+    /// times more absorbing than reality is what it takes to halve it.
+    #[test]
+    fn realistic_water_leaves_a_shallow_pond_undarkened() {
+        let tile = |per_cell: f32| column_transmission(per_cell * FIELD_SCALE as f32);
+
+        // Honest water, two tiles (~32 rows, near enough the shipped 28).
+        let realistic = tile(0.035).powi(2);
+        assert!(realistic > 0.88, "realistic water should barely dim a shallow pond, got {realistic}");
+
+        // Seven times that, the same depth: about half the light reaches the
+        // floor, which is the shallowest setting a player could call "dark".
+        let legible = tile(0.25).powi(2);
+        assert!(legible < 0.5, "a legible gradient wants well under half light, got {legible}");
+
+        assert!(realistic / legible > 2.0, "the two settings must be far apart or there is no tension to show: {realistic} vs {legible}");
     }
 }

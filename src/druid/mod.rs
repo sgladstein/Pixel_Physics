@@ -388,6 +388,35 @@ const PLACE_RADIUS_START: i32 = 60;
 pub const PLACE_RADIUS_MIN: i32 = 20;
 pub const PLACE_RADIUS_MAX: i32 = 240;
 
+/// **What the carried circle should read, given the one shared dial.**
+///
+/// Owner's playtest, 2026-09-14: *"there should just be one bubble control
+/// size for the druid and placeable bubbles."* `Q`/`E` used to walk
+/// [`Druid::place_radius`] alone, with `[`/`]` walking `World::carried_radius`
+/// on its own separate scale — two dials for what reads, from outside the
+/// code, as one question ("how big is a bubble"). [`Druid::set_bubble_radius`]
+/// is the one place both are set now, and this is the rule it applies to the
+/// carried side.
+///
+/// **An offset from each circle's own base, not a shared absolute radius.**
+/// The two circles start at different sizes for reasons that are still true:
+/// [`PLACE_RADIUS_START`] is what a placed circle needs to be worth walking
+/// away from, [`CARRIED_RADIUS`] is deliberately small so presence stays
+/// free (`carried_cost`'s own doc). Sharing one absolute number would either
+/// start the carried circle already costing power at the dial's own default,
+/// or cap every placed circle at the carried one's much smaller ceiling.
+/// Sharing the *offset* keeps both: at the dial's own start
+/// (`place_radius == PLACE_RADIUS_START`) the offset is zero and this
+/// returns exactly [`CARRIED_RADIUS`] — `a_widened_carried_circle_costs_and_
+/// an_untouched_one_does_not`'s "the circle you already are must stay free"
+/// is unchanged. Above that, both circles grow together until the carried
+/// one hits its own lower ceiling and pins there while the placed one keeps
+/// going.
+fn carried_radius_for(place_radius: i32) -> i32 {
+    let offset = place_radius - PLACE_RADIUS_START;
+    (CARRIED_RADIUS + offset).clamp(CARRIED_RADIUS, CARRIED_RADIUS_MAX)
+}
+
 /// **How far the player walks before his carried circle wakes the ground
 /// ahead of him.**
 ///
@@ -859,12 +888,7 @@ impl Druid {
             rate: self.speed,
             carried_radius: self.world.carried_radius,
             carried_off: self.world.carried_off,
-            seeds: self.seeds_in_hand(),
-            held: self.world.held,
             paused: self.paused,
-            look: self.renderer.held_look.label(),
-            seed_kind: self.seed_kind_name().to_string(),
-            sown: self.sown,
             charge: self.charge_in_reach(),
             reserve_cap: RESERVE_CAP,
             power_full: POWER_START,
@@ -1529,6 +1553,18 @@ impl Druid {
         placed
     }
 
+    /// **The one bubble-size dial — `Q`/`E`.** Sets [`Self::place_radius`]
+    /// (clamped to [`PLACE_RADIUS_MIN`]..=[`PLACE_RADIUS_MAX`], what a placed
+    /// circle and its preview ring use) and, from the same number,
+    /// `World::carried_radius` (via [`carried_radius_for`], clamped to its
+    /// own narrower range). One key pair, both bubbles — see that function's
+    /// doc for why they share an *offset* rather than the same absolute
+    /// radius.
+    pub fn set_bubble_radius(&mut self, r: i32) {
+        self.place_radius = r.clamp(PLACE_RADIUS_MIN, PLACE_RADIUS_MAX);
+        self.world.carried_radius = carried_radius_for(self.place_radius);
+    }
+
     /// **Place a standing quickening where he is standing.**
     ///
     /// The economy's verb, as against the carried circle, which is free and
@@ -1608,6 +1644,25 @@ impl Druid {
             return;
         }
         let held_player = self.world.player.take();
+        // **Her circle is put back with her, and leaving it out was a bug the
+        // owner reported as *"my own circle disappears but still
+        // functions"*.** Removing the player is what keeps the carried circle
+        // out of these passes — that is the paragraph above and it is
+        // correct — but `frame::step` derives `world.carried` *from* the
+        // player, so a player-less pass sets it to `None` and the last extra
+        // pass is the last thing that touches it before the renderer reads
+        // it. This runs after the tick's own `frame::step`, so the circle was
+        // blanked on **every** frame at any speed above 1x with a standing
+        // circle on the map.
+        //
+        // **What made it read as a power bug is that it is invisible at 1x.**
+        // A player only reaches the dial once they have circles to run, and
+        // they only run out of power when the dial is up — so the symptom
+        // arrives alongside an empty pool and turning `UNLIMITED` on, which
+        // changes neither the dial nor the circle count, does nothing for it.
+        // The readout went on saying `YOUR CIRCLE R28` throughout, because it
+        // reads `carried_radius` and not `carried`.
+        let held_circle = self.world.carried;
         for _ in 1..self.speed {
             frame::step(
                 &mut self.world,
@@ -1618,6 +1673,7 @@ impl Druid {
             );
         }
         self.world.player = held_player;
+        self.world.carried = held_circle;
     }
 
     /// **Income and drain, and what the pool does about them.**
@@ -2079,6 +2135,49 @@ mod tests {
         assert!(last > 0.0, "the widest carried circle must cost something");
     }
 
+    /// **One dial, both bubbles — and the one it already costs power to
+    /// widen must not start pre-charged.** Owner's playtest, 2026-09-14:
+    /// *"there should just be one bubble control size for the druid and
+    /// placeable bubbles."* `Druid::set_bubble_radius` is the one place both
+    /// [`Druid::place_radius`] and `World::carried_radius` are set now
+    /// (`Q`/`E`, `src/bin/druid.rs`), and the property this guards is the
+    /// one the merge could quietly break: `a_widened_carried_circle_costs_
+    /// and_an_untouched_one_does_not`'s "the circle you already are must
+    /// stay free" is about `World::carried_radius` sitting at
+    /// [`CARRIED_RADIUS`] *by default*, and a naive merge (one shared
+    /// absolute radius) would start the carried circle at the placed
+    /// circle's own default of 60 instead — costing power from the very
+    /// first frame with nobody having touched the dial.
+    #[test]
+    fn the_one_dial_leaves_the_carried_circle_free_at_its_own_default_and_clamps_each_side_on_its_own_range() {
+        let mut d = Druid::bare_for_test();
+
+        // Untouched: the dial's own start reads back as each circle's own
+        // free default, not some shared number in between.
+        assert_eq!(d.place_radius, PLACE_RADIUS_START, "test setup: the dial starts where Q/E starts");
+        assert_eq!(d.world.carried_radius, CARRIED_RADIUS, "an untouched dial must leave the carried circle at its free default");
+
+        // Widen past the carried circle's own ceiling -- it pins there while
+        // the placed radius keeps climbing, rather than the dial being
+        // capped by the narrower of the two circles it drives.
+        d.set_bubble_radius(PLACE_RADIUS_MAX);
+        assert_eq!(d.place_radius, PLACE_RADIUS_MAX, "the placed circle must reach its own ceiling");
+        assert_eq!(d.world.carried_radius, CARRIED_RADIUS_MAX, "the carried circle must pin at its own, lower ceiling");
+
+        // Narrow past the carried circle's own floor -- it pins at
+        // `CARRIED_RADIUS` (never below "the circle you already are") while
+        // the placed radius keeps shrinking to its own, lower floor.
+        d.set_bubble_radius(PLACE_RADIUS_MIN);
+        assert_eq!(d.place_radius, PLACE_RADIUS_MIN, "the placed circle must reach its own floor");
+        assert_eq!(d.world.carried_radius, CARRIED_RADIUS, "the carried circle must not be driven below presence");
+
+        // Back to the start: the carried circle is free again, not stuck
+        // wherever the last extreme left it.
+        d.set_bubble_radius(PLACE_RADIUS_START);
+        assert_eq!(d.world.carried_radius, CARRIED_RADIUS, "returning the dial to its start must return the carried circle to free");
+        assert_eq!(carried_radius_for(PLACE_RADIUS_START), CARRIED_RADIUS, "the pure function agrees with the method");
+    }
+
     /// **Off is a state the dial cannot reach, and the flag is what reaches
     /// it.**
     ///
@@ -2133,6 +2232,42 @@ mod tests {
         let at = step(&mut w);
         assert!(w.carried.is_some(), "clearing carried_off must bring the circle back");
         assert!(w.time_runs_at(at.0, at.1), "time must run again where he stands");
+    }
+
+    /// **The speed dial must not take her own circle away.**
+    ///
+    /// Owner playtest, 2026-09-14: *"sometimes the druid's own time circle
+    /// disappears but still functions... I turn unlimited power on and it is
+    /// working but no visual."* The attribution to power was the correlation
+    /// rather than the cause, and that is why this guard is about the dial:
+    /// [`Druid::step_extra_ticks`] takes the player out so the carried circle
+    /// stays free, `frame::step` derives `world.carried` from the player, and
+    /// the extra passes run *after* the tick's own step — so the last thing
+    /// to touch `carried` before the renderer read it was a player-less pass
+    /// that set it to `None`. Power only ever ran out once the dial was up,
+    /// which is what put the two together.
+    ///
+    /// Swept over the whole dial rather than checked at one setting, because
+    /// the failure is "anything above 1x" and a spot check picks the setting
+    /// you were already thinking about. 1x is in the sweep as the arm that
+    /// was always fine.
+    #[test]
+    fn running_the_dial_up_does_not_take_her_own_circle_away() {
+        for speed in 1..=8 {
+            let mut g = Druid::bare_for_test();
+            g.speed = speed;
+            // The scene has to contain the situation: `step_extra_ticks`
+            // returns early with no standing circle, so without one this
+            // would pass at every setting and guard nothing.
+            g.world.quickenings.push(crate::sim::world::Quickening::at(32, 40, 16));
+            g.update();
+            let (x, y) = g.world.player.as_ref().expect("the test world keeps its player").center();
+            assert!(
+                g.world.carried.is_some(),
+                "at speed x{speed} her own circle is gone after a tick -- the readout would still say it is there"
+            );
+            assert!(g.world.time_runs_at(x, y), "at speed x{speed} time does not run where she stands");
+        }
     }
 
     /// **Sowing spends a seed, an empty pouch refuses, and gathering is what
