@@ -1,0 +1,64 @@
+{
+  "id": "20260914T202113978Z-80ad3b",
+  "created": "2026-09-14T20:21:13Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/druid-trail",
+    "commit": "9f9d9f0a",
+    "agent": null,
+    "session_id": "5e6d82e9-e32f-5d64-ad17-c922f2722624",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The gnome's scent trail: gone in 3.5s vs still there at 14s",
+  "question": "Is 14 seconds long enough, or should a trail you walk out survive until the ants you called have been there and back (about 37s)?",
+  "context_md": "Your playtest: *\"my pheramone trail should last way longer. it dissapears so much faster than an ant could even move... it should be more diffuse looking, not like a bunch of dots.\"*\n\nBoth halves turned out to be **one defect**. What removes a trail here is not the decay rate — it is **spreading**. Every cell bleeds a quarter of the way into its neighbours each pass, and a mark one cell wide has six empty neighbours out of nine, so it pours about **17% a pass** into bare ground while only 3% is actually being forgotten. That is also why there was no cloud to draw: a one-cell mark rounds away a cell or two out, so the picture was the spine of a cloud that did not exist.\n\nSo he now lays a **swath** at his feet rather than a dot at his chest — and it was at his chest, a body's half above the ground he had walked, which is the half no ant can ever smell.\n\nSame walk, same ground, same seed. Both strips step 0s / 3.5s / 8s / 14s after he stops laying.\n\n**What I am unsure of is the length, not the look.** I stopped where the swath stops paying: making it wider than this buys 4 more seconds for five times the work. Getting to a full round trip needs a different mechanic — the trail becoming a standing instruction he keeps paying power for, rather than one he lays and leaves — and that is a design decision, not a number, so I have not built it uninvited.\n\nNothing ant-laid was touched, per your ruling. Worth knowing for the lab: **ant trails have exactly this problem**, because the gnome's mark *was* an ant's mark — one cell, same strength. A route one scout lays and does not walk again is gone long before it can get home. What keeps ant trails alive is other ants re-walking them, and the fix there is not the decay rate either.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before",
+      "files": [
+        "20260914T202113978Z-80ad3b/000-before_0.png",
+        "20260914T202113978Z-80ad3b/001-before_3.5.png",
+        "20260914T202113978Z-80ad3b/002-before_8.png",
+        "20260914T202113978Z-80ad3b/003-before_14.png"
+      ],
+      "caption": "one cell wide, laid at his chest",
+      "meta": {
+        "seconds the trail stays on the ground": 3.5,
+        "how far an ant walks in that time, in cells": 35,
+        "route cells still smelling of him at 3.5s": "0 of 143",
+        "cells of route he walked and marked": 143,
+        "height above the ground he laid it, in cells": 3
+      },
+      "focus": null
+    },
+    {
+      "label": "after",
+      "files": [
+        "20260914T202113978Z-80ad3b/004-after_0.png",
+        "20260914T202113978Z-80ad3b/005-after_3.5.png",
+        "20260914T202113978Z-80ad3b/006-after_8.png",
+        "20260914T202113978Z-80ad3b/007-after_14.png"
+      ],
+      "caption": "a graded swath at his feet",
+      "meta": {
+        "seconds the trail stays on the ground": 14,
+        "how far an ant walks in that time, in cells": 135,
+        "route cells still smelling of him at 3.5s": "143 of 143",
+        "cells of route he walked and marked": 143,
+        "height above the ground he laid it, in cells": 0
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
