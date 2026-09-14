@@ -180,6 +180,29 @@ impl Handler {
         if std::env::var("PIXEL_PHYSICS_DRUID_FOUND").is_ok_and(|v| v != "0") {
             game.found_colony();
         }
+        // `PIXEL_PHYSICS_DRUID_SMALL=1` -- start small, because a headless
+        // run cannot press `R`. Same shape and same reason as every hook
+        // above, and it is also the **control arm**: the shrink is a
+        // judge-by-eye change, and two looks off one binary is what lets a
+        // before and an after be compared without rebuilding between them.
+        //
+        // It is not silent when it fails. `toggle_small` refuses if there is
+        // no room where she spawns, and a hook that quietly did nothing
+        // would read as "the feature is not wired" -- which is the
+        // disconnected-knob trap `CLAUDE.md` names by name.
+        if std::env::var("PIXEL_PHYSICS_DRUID_SMALL").is_ok_and(|v| v != "0") && !game.toggle_small() {
+            println!("druid: PIXEL_PHYSICS_DRUID_SMALL=1 could not shrink her -- no room where she stands");
+        }
+        // `PIXEL_PHYSICS_DRUID_ZOOM=N` -- start at that zoom rung, because a
+        // headless run cannot press `=`. Needed to render the shrink at all:
+        // at 2x3 she is six pixels at zoom 1, so a contact sheet of the
+        // feature at the default rung is a picture of the ground with
+        // nothing in it, which reads as "the feature does nothing".
+        if let Some(n) = std::env::var("PIXEL_PHYSICS_DRUID_ZOOM").ok().and_then(|v| v.trim().parse::<i32>().ok()) {
+            for _ in 1..n.max(1) {
+                game.renderer.adjust_zoom(1);
+            }
+        }
         // `PIXEL_PHYSICS_DRUID_MENU=1` -- open the options menu at startup,
         // and `=<n>` to put the cursor on the nth row. Same shape and same
         // reason as every hook here: a headless screenshot cannot press `M`,
@@ -696,6 +719,26 @@ impl Handler {
             // `G` is *held* here rather than armed, so a second press cannot
             // mean anything different from the first.
             KeyCode::KeyI => self.act(Action::CycleScent),
+            // **Small enough to go underground.** `R` for the shape she
+            // takes rather than for a word -- the free keys left were `R`,
+            // `N` and `B`, and this is the only verb among them that is
+            // about *her* rather than about the world. See
+            // `Druid::toggle_small`: the geometry decides whether it works,
+            // and growing back can be refused.
+            KeyCode::KeyR => self.act(Action::ToggleSmall),
+            // **Zoom, and it is part of the shrink rather than a nicety.**
+            // At her own size she is 7x14 pixels at play zoom; at 2x3 she is
+            // a six-pixel blob, and so is the gallery she is standing in.
+            // `Renderer::adjust_zoom` and the five magnify looks were built
+            // and reviewed for the lab already -- this game simply never
+            // bound them, so this is a binding and not a feature, and it
+            // touches no line of `render.rs`.
+            //
+            // `Equal` and `Minus` rather than `+`/`-`, because the unshifted
+            // key is what a player actually presses and the legend says
+            // `- =` for the same reason.
+            KeyCode::Equal => self.act(Action::Zoom(1)),
+            KeyCode::Minus => self.act(Action::Zoom(-1)),
             // The economy's verb: a circle that runs while you are elsewhere.
             KeyCode::Space => self.act(Action::PlaceCircle),
             KeyCode::KeyX => self.act(Action::LiftCircle),
