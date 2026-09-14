@@ -1,7 +1,8 @@
 # The world starts bare, and she is the one who plants it
 
 Two owner playtest items from 2026-09-14, both on the held world
-(`cargo run --release --bin druid`).
+(`cargo run --release --bin druid`). Lane B of a five-lane program; opened by
+the coordinator from the lane's own `PR_BODY_LANE_B.md`.
 
 **What this does, in the world's words.** The druid walks out into a land with
 nothing growing in it, carrying a pouch of seed. What comes up is what she put
@@ -163,7 +164,28 @@ an idle power bar reading as a fault.
 The key belongs to `src/bin/druid.rs`, which is Lane A's file.
 `Druid::toggle_carried_circle()` is the call, and
 `PIXEL_PHYSICS_DRUID_CIRCLE=off` is a headless control arm for judging the two
-states off one binary in the meantime.
+states off one binary in the meantime. **Lane A's screen brief merged before
+the call could be routed, so the key does not exist yet** — the verb and its
+state are here and ready, and binding it is one line in a file this lane does
+not own.
+
+---
+
+## One thing carried in from another lane, and acted on
+
+`Druid::speed`'s doc now records Lane E's diagnosis of the owner's *"absorbing
+destroys plants"* report, because it lands next door to this economy:
+absorbing never touches the world at all, and what eats a wood is ants grazing
+inside a quickening — which **the speed dial multiplies too**, 228 plant cells
+eaten at speed 1 against **2,217** at speed 8. The dial's doc and `drain_for`
+both price it honestly in *power* and the player is told nothing about the
+other half of what he just bought.
+
+Closing that wants the on-screen note the dial raises to name grazing as well
+as cost, and `Z`/`V` write `Druid::speed` directly from `src/bin/druid.rs` with
+no `Druid` method in between — so it is not a change this lane can make. The
+measurement is recorded where the next session to touch the dial will read it,
+rather than left as a silent gap.
 
 ---
 
