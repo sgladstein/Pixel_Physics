@@ -61,6 +61,7 @@
 use super::brain;
 use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::chunk::Rect;
+use super::contest;
 use super::field;
 use super::material::{self, MaterialKind};
 use super::organism::{self, pack_cell_type, BodyPlan, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, SCENT_SIDE_SLOTS, SCENT_SLOTS, TRAIT_BIRTH_GRANT, TRAIT_ARMOUR, TRAIT_CROP_CAPACITY, TRAIT_CURVATURE_RADIUS, TRAIT_DIGEST_RATE, TRAIT_DIG_FORCE, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE, TRAIT_TOLERANCE};
@@ -3378,18 +3379,115 @@ pub fn colony_surface(world: &World, cx: i32, cursor_y: i32) -> Option<i32> {
 /// question for the owner, and an ant that wanders onto a pond still stands
 /// on it.
 ///
-/// The cell above the ground must also be free. That is not a formality: in
-/// a wood it is the term that decides most refusals, because a column
-/// holding a trunk finds ground *under* the trunk and an ant cannot stand
-/// where the trunk is. A colony founded in a forest is therefore genuinely
-/// sparser than one founded on a beach, and that is the world being
-/// reported rather than a bug.
+/// The cell above the ground must also be free -- **but a floor of plants is
+/// a floor**, and that clause is the whole of the thicket repair.
+///
+/// **Which object does this rule evaluate? A column, answering with the row
+/// an ant would *stand on*.** Asked in advance because `CLAUDE.md` records
+/// this question being missed twice at real cost. The caller
+/// ([`World::colony_stations`]) derives the animal's head as `sy - 1`, and
+/// `place_creature` then evaluates the **body** through
+/// `founding_spine_walk`, which demands `World::is_empty` at the head. So
+/// this function's contract is not "where is the ground" -- that is
+/// [`colony_surface`] -- it is "where is there something to stand on with
+/// air above it", and the two are the same row only on bare ground.
+///
+/// **What it used to say, and why that read as the feature not working.**
+/// The rule was `is_empty(cx, sy - 1)` against the *mineral* surface, and a
+/// forest floor almost never has air directly over its soil: it has root,
+/// stem base, grass blade, moss or fallen leaf. Owner playtest, 2026-09-14:
+/// *"it should be easier to found a colony while standing in a thicket of
+/// plants."* Measured on the druid world at the gnome's own stand, 221
+/// columns censused (`examples/thicket_probe`): **86 sites on a grown start
+/// against 176 on a bare one**, and every one of the 135 refusals was a
+/// plant cell -- 53 wood, 51 leaf, 12 grassblade, 10 rootwood, 9 grassroot,
+/// nothing else. Not spoil, not litter, not a powder that fell, not water.
+/// The paragraph that stood here called that sparseness "the world being
+/// reported rather than a bug"; it was the bug, and it is why pressing `C`
+/// under a canopy seated two animals out of twelve.
+///
+/// **It was already inconsistent with the walk, which is what makes this a
+/// repair rather than a preference.** `step_chain`'s support test counts
+/// `MaterialKind::Plant` as something to stand on (8-neighbour, so ants
+/// climb), and `landing_is_placeable_through_tissue` lets a body step into
+/// non-woody tissue outright. An ant that could not be *founded* on a leaf
+/// could walk onto that same leaf one tick later. Founding was the only
+/// rule in the creature line still treating a plant as a wall.
+///
+/// So the search rises through plant tissue to the first genuinely free
+/// cell, and the row it returns -- the ant's footing -- may now be a plant
+/// cell rather than soil. **Contiguously**: every cell between the mineral
+/// surface and the free one must itself be `Plant`, so nothing here steps
+/// through rock, through a creature, or through water. The `Liquid` refusal
+/// above is untouched and still fires on its own line, which is
+/// `open-bugs-handoff.md` §R2 staying fixed.
+///
+/// **[`THICKET_CLIMB`] is a statement about what a floor is, not a work
+/// bound**, and it is named that way deliberately: `CLAUDE.md` warns that a
+/// cap whose exhaustion produces an *answer* is the shape to be suspicious
+/// of, and this one does answer (`None`). It is legitimate here only because
+/// the number is not about cost -- a column with forty rows of trunk over
+/// its soil is a **tree**, and an ant founded at the top of it is not at the
+/// gnome's feet, which is the rule `Druid::found_colony` is built on. See
+/// the const for how it was set.
 pub fn colony_ant_site(world: &World, cx: i32, cursor_y: i32) -> Option<i32> {
-    let sy = colony_surface(world, cx, cursor_y)?;
-    if !matches!(world.materials.kind(world.get(cx, sy).material), MaterialKind::Solid | MaterialKind::Powder) {
+    let ground = colony_surface(world, cx, cursor_y)?;
+    if !matches!(world.materials.kind(world.get(cx, ground).material), MaterialKind::Solid | MaterialKind::Powder) {
         return None;
     }
-    world.is_empty(cx, sy - 1).then_some(sy)
+    let climb = thicket_climb();
+    let mut sy = ground;
+    // `ground - sy` is how far the footing has risen; bounded by `climb`, and
+    // `climb == 0` collapses this loop to the shipped `is_empty` test exactly.
+    while !world.is_empty(cx, sy - 1) {
+        if ground - sy >= climb {
+            return None;
+        }
+        if world.materials.kind(world.get(cx, sy - 1).material) != MaterialKind::Plant {
+            return None;
+        }
+        sy -= 1;
+    }
+    Some(sy)
+}
+
+/// **How deep a mat of plants still counts as the floor of a thicket**, in
+/// rows above the mineral surface.
+///
+/// Set from the measured distribution with headroom, never from taste. The
+/// druid world's forest floor, over the 135 blocked columns of the census in
+/// [`colony_ant_site`]'s doc, counting **contiguous plant tissue** -- the
+/// quantity this bound is actually over, not "the first free cell at any
+/// height", which is a different and larger number: **min 2, p50 5, p90 14,
+/// max 35**. The tail is trunks; a 35 is a tree, and putting a founder up it
+/// is the thing this bound exists to refuse. 16 sits just past p90 and a
+/// long way short of the tail, so it takes the floor and leaves the canopy.
+///
+/// The recovery curve behind that choice, same census (columns of 221 that
+/// become sites): bound 0 → 86, 2 → 109, 4 → 147, 6 → 169, 8 → 183,
+/// **16 → 209**, 32 → 219, 64 → 220. It is a saturating curve with no knee
+/// to sit on, which is why the bound is set from the tail rather than from
+/// the shape.
+///
+/// `PIXEL_PHYSICS_THICKET_CLIMB=off` (or `=0`) restores the pre-2026-09-14
+/// rule exactly, which is the **paired arm** every measurement over this
+/// change is read against: one binary, two arms, the semantic rule held
+/// fixed and nothing else moved (`CLAUDE.md`, and the reason there is no
+/// second build sitting between the numbers). `=<n>` sets it directly, so
+/// the bound can be swept without a recompile.
+const THICKET_CLIMB: i32 = 16;
+
+fn thicket_climb() -> i32 {
+    static CLIMB: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    *CLIMB.get_or_init(|| match std::env::var("PIXEL_PHYSICS_THICKET_CLIMB").as_deref() {
+        Ok("off") => 0,
+        // A parse failure falls through to the default rather than to 0:
+        // `off` is how the arm is asked for, and a typo that silently
+        // reverted the mechanism would be a sweep in which one point is the
+        // control wearing another point's label.
+        Ok(v) => v.parse().unwrap_or(THICKET_CLIMB),
+        Err(_) => THICKET_CLIMB,
+    })
 }
 
 /// One decision by one chain creature.
@@ -5361,9 +5459,37 @@ struct Gut {
 /// they exist -- one predicate at the mouth, the eye, the kin sense and now
 /// the fist. `eats_kin` is deliberately *not* consulted: that gene is about
 /// what an animal will swallow in a hungry hour, and this is not eating.
-fn nearest_foe(world: &World, organism: u16, head: (i32, i32), gut: Gut) -> Option<(i32, i32)> {
+///
+/// **It also returns the local odds, and that is why it no longer
+/// short-circuits.** `contest::numbers` wants "how much of what is touching
+/// me is mine", which is the numerical asymmetry every account of ant
+/// warfare turns on -- Lanchester, and the *Myrmecocystus* tournament border
+/// that slides toward whichever colony is outnumbered. The ring walk is
+/// already here and already knows the answer, so counting both sides costs
+/// the rest of a walk that used to stop at the first stranger rather than a
+/// second scan of the neighbourhood. That is a real cost and it is bounded
+/// twice over: the ring is ten-odd cells for a two-cell body, and the whole
+/// function is behind `act`'s `attack_urge > 0.0` gate, which no shipped
+/// genome opens.
+///
+/// **Counting cells rather than animals** -- `contest::numbers`' own doc says
+/// what that costs and why `BrainInput::Crowding` already made the same
+/// choice.
+fn nearest_foe(world: &World, organism: u16, head: (i32, i32), gut: Gut) -> Option<Encounter> {
     let fallback = [head];
     let body: &[(i32, i32)] = world.organism(organism).map_or(&fallback[..], |s| &s.chain[..]);
+    let mut found: Option<(i32, i32)> = None;
+    // **Animals, not cells, and this was the other way round for one
+    // afternoon.** `a_maximally_armoured_ant_is_graded_only_when_the_reach_
+    // allows_it` went red at a median breach of 126 frames against a bar of
+    // 100 and a measured 18, and it was right to: counting cells makes a
+    // lone attacker facing one two-celled defender read as *outnumbered two
+    // to one*, so both sides of every duel in the world assessed themselves
+    // as the underdog and nobody committed. The quantity the literature is
+    // about is how many animals are on each side. Small linear scans rather
+    // than a set: the ring is ten-odd cells for a two-cell body and a body
+    // touches a handful of distinct animals at most.
+    let (mut kin, mut foes): (Vec<u16>, Vec<u16>) = (Vec::new(), Vec::new());
     for (i, &(bx, by)) in body.iter().enumerate() {
         for &(dx, dy) in NEIGHBOURS_8.iter() {
             let (nx, ny) = (bx + dx, by + dy);
@@ -5380,12 +5506,53 @@ fn nearest_foe(world: &World, organism: u16, head: (i32, i32), gut: Gut) -> Opti
                 continue;
             }
             if is_living_kin(world, cell, gut) {
+                if !kin.contains(&owner) {
+                    kin.push(owner);
+                }
                 continue;
             }
-            return Some((nx, ny));
+            // **First in ring order, exactly as before** -- the target rule
+            // did not change, only the point at which the walk stops. In
+            // particular it is still *any* living non-kin organism and not
+            // only an animal: this verb's own doc is explicit that an animal
+            // defending itself against something it cannot digest must be
+            // able to, and a plant is an organism.
+            found.get_or_insert((nx, ny));
+            // **The count is animals only, and that split cost a control to
+            // find.** Every plant cell in the world is a living non-kin
+            // organism, so counting foes the way the target rule finds them
+            // made a stand of herb read as an army: an ant standing in
+            // foliage would assess itself as hopelessly outnumbered and go
+            // timid in exactly the places a colony forages. Caught by
+            // `conflict_arena control=selftest`'s specificity arm, which
+            // reported 710 "contests" in a bed with no strangers in it at
+            // all -- `CLAUDE.md`'s worst-recurring failure, arriving as a
+            // counter that was arithmetically correct about the wrong
+            // question.
+            if world.materials.kind(cell.material) == MaterialKind::Creature && !foes.contains(&owner) {
+                foes.push(owner);
+            }
         }
     }
-    None
+    found.map(|target| Encounter { target, kin: kin.len() as u32, foes: foes.len() as u32 })
+}
+
+/// **What the ring walk found**: something to strike, and the local odds it
+/// stands in.
+///
+/// One struct rather than a tuple because the two counts are easy to read
+/// backwards and the whole point of them is a signed difference.
+#[derive(Clone, Copy, Debug)]
+struct Encounter {
+    /// The cell to strike -- first non-kin in ring order.
+    target: (i32, i32),
+    /// **Distinct kin animals** touching this body, this one excluded.
+    /// Never meaningful on its own: read it through `contest::numbers`,
+    /// which is also where the animal counts itself onto its own side.
+    kin: u32,
+    /// **Distinct non-kin animals** touching this body. Can be 0 while
+    /// `target` is set, because the target may be a plant.
+    foes: u32,
 }
 
 /// **The nearest kin worth feeding** — `Share`'s target rule, and the verb's
@@ -6682,16 +6849,114 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
         // builds a `Gut` for a verb it will not use, and the whole fight path
         // is one comparison for everything that ships.
         let gut = gut_of(world, organism, def);
-        if let Some((tx, ty)) = nearest_foe(world, organism, (x, y), gut) {
+        if let Some(met) = nearest_foe(world, organism, (x, y), gut) {
+            let (tx, ty) = met.target;
             let cell = world.get(tx, ty);
             // The same arithmetic the mouth uses, read from the same two
             // functions -- a second copy of `(bite/armour)^2` is how the
             // fight and the meal come to disagree about how hard a beetle is.
+            // Since 2026-09-14 that function is `contest::bite_progress`, so
+            // the assessment below and the bite that follows it cannot hold
+            // different opinions about how hard this cell is.
             let armour = armour_at(world, cell);
-            let ratio = if armour <= 0.0 { 1.0 } else { (gut.bite / armour).clamp(0.0, 1.0) };
-            let damage = ratio * ratio;
+            let damage = contest::bite_progress(gut.bite, armour);
             let victim = cell.organism_id();
-            if damage > 0.0 && victim != 0 {
+            // --- assessment, before commitment --------------------------
+            //
+            // **This is the encounter that does not have to become a
+            // fight.** Everything above decided *that* this animal is
+            // willing to fight; nothing until now looked at **what it is
+            // about to fight**, and the whole of the behavioural-ecology
+            // literature on contests says that is the decision -- escalation
+            // falls as the asymmetry between the two sides rises, and most
+            // encounters are settled without a blow. See `sim::contest` for
+            // the sourcing and `Reports/animal-conflict-research-2026-09-14.md`
+            // for the mapping.
+            //
+            // **Priced where the data already is.** The two extra reads --
+            // this animal's own plate and the other's jaw -- happen only on
+            // a tick that already rolled the urge, already built a `Gut` and
+            // already found somebody to hit, which is the deepest any tick
+            // gets into this verb. Everything that ships carries no weight
+            // on `Attack` and reaches none of it.
+            //
+            // **Assessment is between animals.** A plant cannot fight back,
+            // is not a rival, and is not what any of the contest literature
+            // is about -- so biting one is not an encounter, takes the old
+            // unconditional path, and is counted by neither of the two new
+            // counters. That keeps `contests`/`displays` meaning what their
+            // names say and keeps this change invisible to every animal that
+            // was already chewing on vegetation.
+            let is_animal = world.materials.kind(cell.material) == MaterialKind::Creature;
+            let assessing = victim != 0 && is_animal && contest::enabled();
+            let commit = if assessing {
+                let their_bite = world
+                    .organism(victim)
+                    .and_then(|st| world.species.get(st.species).creature.as_ref().map(|d| gut_of(world, victim, d).bite))
+                    .unwrap_or(0.0);
+                // **My own plate, read off my own head cell with the same
+                // function the attacker's bite is scored against.** Not
+                // `armour_of` on the traits: `armour_at` is the *defensive*
+                // reading and carries the composition axis, which is the
+                // whole of what a chitin soldier buys over an ant-flesh one.
+                let my_armour = armour_at(world, world.get(x, y));
+                let odds = contest::Assessment {
+                    mine: damage,
+                    theirs: contest::bite_progress(their_bite, my_armour),
+                    // **`+ 1` is this animal counting itself onto its own
+                    // side**, which is not a fudge: `met.kin` excludes the
+                    // animal doing the looking, so without it a fair duel
+                    // reads as 0 against 1 and both sides withdraw from each
+                    // other for ever.
+                    numbers: contest::numbers(met.kin + 1, met.foes),
+                };
+                contest::commitment(odds, contest::boldness(), contest::numbers_weight())
+            } else {
+                // **Exactly the old behaviour, not an approximation of it**
+                // -- a commitment of 1.0 bites on every encounter that used
+                // to bite. `PIXEL_PHYSICS_CONTEST=off` is therefore a true
+                // A/B arm out of one binary.
+                1.0
+            };
+            // The near side of the pair: how many times this animal stood in
+            // front of somebody it could have bitten. `attacks` is the far
+            // side, and `displays` is the difference -- which is the number
+            // the ethos's first law is about, since a mechanic with no
+            // middle reads `displays 0` however busy it looks.
+            if is_animal {
+                world.creature_stats.contests += 1;
+            }
+            // **Exactly the old behaviour when nothing is being assessed,
+            // down to the random stream** -- and that is why the roll is
+            // inside this expression rather than taken unconditionally
+            // against a commitment of 1.0. A draw consumed on a tick that
+            // used to consume none re-phases every later decision in the
+            // world, so an "off" arm that spent the draw anyway would
+            // diverge from `main` within a few hundred frames and the A/B
+            // would be measuring the shuffle rather than the mechanism.
+            // `PIXEL_PHYSICS_CONTEST=off`, and every bite at a plant,
+            // therefore run the original code path exactly.
+            let commits = !assessing || draw.unit_f32() < commit;
+            if !commits {
+                // **Withdrawing is not nothing happening.** The animal backs
+                // off and says so: a quiet mark on the alarm plane at its
+                // own cell, `contest::DISPLAY_DEPOSIT` against the 240 a
+                // wound writes. That is the low-intensity register real ants
+                // spend nearly all of their inter-colony contact in --
+                // antennation, jerking, the stilt-legged tournament display
+                // -- and it is what turns a scatter of encounters into a
+                // *border*, because `BrainInput::Alarm` is read by every
+                // genome that carries a weight on it and is today the only
+                // wired route to `Attack` at all.
+                //
+                // At the displaying animal's own cell rather than the
+                // target's, which is the opposite of `cry_alarm`'s choice
+                // and for the matching reason: a bite is a fact about the
+                // victim, a display is a fact about the displayer.
+                world.deposit_pheromone(Channel::Alarm, x, y, contest::display_deposit());
+                world.creature_stats.displays += 1;
+            }
+            if commits && damage > 0.0 && victim != 0 {
                 // Being bitten is being bitten, whichever verb did it.
                 cry_alarm(world, tx, ty);
                 world.creature_stats.attacks += 1;
@@ -13172,6 +13437,138 @@ mod tests {
         );
     }
 
+    /// A mineral floor with `mat` rows of `material` lying on it, at every
+    /// column, and nothing else. The thicket bed: one knob, so a guard can
+    /// state the depth it is about rather than build a scene around it.
+    fn matted_bed(material: &str, mat: i32) -> (World, i32) {
+        let mut w = World::new(Rect::new(0, 0, 63, 99));
+        const GROUND: i32 = 60;
+        let soil = w.materials.id_of("soil").expect("soil material");
+        let id = w.materials.id_of(material).unwrap_or_else(|| panic!("{material} material"));
+        for x in 0..=63 {
+            for y in GROUND..=99 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+            for d in 1..=mat {
+                w.set(x, GROUND - d, Cell::new(id, 0));
+            }
+        }
+        (w, GROUND)
+    }
+
+    /// **The thicket repair, stated as the owner stated it**: standing in a
+    /// mat of plants, there is somewhere to put an ant.
+    ///
+    /// Watched red against the predecessor, which is the only thing that
+    /// makes it a guard rather than a green line -- put `is_empty(cx, sy-1)`
+    /// back in `colony_ant_site` and this fails at every depth from 1 up,
+    /// because a forest floor never has air directly over its soil.
+    ///
+    /// **The row it returns is the ant's footing, and the cell above that is
+    /// what has to be free** -- `colony_stations` derives the head as
+    /// `sy - 1` and `founding_spine_walk` demands `World::is_empty` there,
+    /// so a site whose head is not free is a station nobody can ever be
+    /// placed at. Asserted here rather than assumed, because those are two
+    /// different functions and the first version of this change satisfied
+    /// only the first of them.
+    #[test]
+    fn a_mat_of_plants_is_a_floor_a_colony_can_stand_on() {
+        for mat in 1..=8 {
+            let (w, ground) = matted_bed("leaf", mat);
+            let site = colony_ant_site(&w, 32, 0).unwrap_or_else(|| panic!("a {mat}-row mat of leaf must still offer a site"));
+            assert_eq!(site, ground - mat, "the footing must be the top of the mat, not the soil under it ({mat} rows)");
+            assert!(w.is_empty(32, site - 1), "the cell the ant's head goes in must be free ({mat} rows)");
+        }
+    }
+
+    /// **The bound is a statement about what a floor is, and it has to
+    /// hold.** A column with a trunk's worth of tissue over its soil is a
+    /// tree; founding at the top of it would put an animal in the canopy,
+    /// nowhere near the gnome whose feet the colony is supposed to land at.
+    ///
+    /// Stated as a transition rather than as two magic numbers: whatever
+    /// `THICKET_CLIMB` is, a mat exactly that deep is a site and one row
+    /// deeper is not. A guard written against the literals would go green
+    /// the day the bound moved and stop testing the rule.
+    #[test]
+    fn the_climb_stops_before_it_becomes_a_tree() {
+        let climb = thicket_climb();
+        assert!(climb > 0, "this guard needs the mechanism on; PIXEL_PHYSICS_THICKET_CLIMB is set in this process");
+        let (w, ground) = matted_bed("leaf", climb);
+        assert_eq!(colony_ant_site(&w, 32, 0), Some(ground - climb), "a mat exactly at the bound must still be a floor");
+        let (w, _) = matted_bed("leaf", climb + 1);
+        assert_eq!(colony_ant_site(&w, 32, 0), None, "one row past the bound is a tree, not a floor");
+    }
+
+    /// **The climb goes through plants and nothing else.**
+    ///
+    /// **Which cells can the climb loop actually see? Far fewer than they
+    /// look**, and the first two versions of this guard were both scenes that
+    /// could not reach it. Worth writing down, because the obvious guard here
+    /// is the wrong one and the next person will write it too.
+    ///
+    /// The loop only runs on a cell that is (a) not `World::is_empty` and (b)
+    /// directly above the row [`colony_surface`] stopped on. But
+    /// `colony_surface` stops on the first cell that is **not**
+    /// `Empty | Gas | Plant` — so anything `Solid`, `Powder`, `Liquid` or
+    /// `Creature` sitting over the soil *becomes* the surface rather than
+    /// standing on it. A slab of stone lying on soil is not an overhang, it
+    /// is **higher ground**, and founding on top of it is correct; that is
+    /// what the first two attempts at this guard asserted was a refusal, and
+    /// the engine was right and the scene was wrong (`CLAUDE.md`'s *a scene
+    /// that contradicts the code will look like a bug in the code*).
+    ///
+    /// So the reachable non-plant blocker is a **`Gas`** — passable to the
+    /// surface scan, and not `is_empty`. Both cases below are built out of
+    /// one, and both were watched failing against a climb that tested
+    /// `!is_empty` alone instead of the material.
+    ///
+    /// Water gets its own case and is refused a row earlier, by the floor
+    /// rule rather than by the climb: `open-bugs-handoff.md` §R2, whose whole
+    /// finding is that an ant placed on water never moves again.
+    #[test]
+    fn the_climb_refuses_everything_that_is_not_a_plant() {
+        let (mut w, ground) = matted_bed("leaf", 0);
+        let smoke = w.materials.id_of("smoke").expect("smoke material");
+        for x in 0..=63 {
+            w.set(x, ground - 1, Cell::new(smoke, 0));
+        }
+        assert!(!w.is_empty(32, ground - 1), "smoke must read as occupied, or this case cannot reach the climb at all");
+        assert_eq!(colony_ant_site(&w, 32, 0), None, "a drift of smoke over the ground is not a floor to stand on");
+
+        let (mut w, ground) = matted_bed("leaf", 0);
+        for x in 0..=63 {
+            w.set(x, ground - 1, Cell::new(material::WATER, 0));
+        }
+        assert_eq!(colony_ant_site(&w, 32, 0), None, "§R2: an ant must not be founded standing on water");
+
+        // Soil, a leaf, a drift of smoke, then air. The case a naive "find
+        // the first free cell above" gets wrong: there *is* free space up
+        // there, and the climb must stop at the smoke rather than cross it.
+        let (mut w, ground) = matted_bed("leaf", 1);
+        let smoke = w.materials.id_of("smoke").expect("smoke material");
+        for x in 0..=63 {
+            w.set(x, ground - 2, Cell::new(smoke, 0));
+        }
+        assert_eq!(colony_surface(&w, 32, 0), Some(ground), "the surface scan must still land on the soil, or this case tests nothing");
+        assert!(w.is_empty(32, ground - 3), "the bed must have air above the drift, or this guard cannot fail");
+        assert_eq!(colony_ant_site(&w, 32, 0), None, "the climb must stop at the smoke, not cross it to the air beyond");
+    }
+
+    /// **Dead wood is still a floor.** `Start::Dead` is the held world's own
+    /// case -- every plant marked senescent and left standing -- and the
+    /// climb reads `MaterialKind::Plant` rather than `is_living_tissue` for
+    /// exactly that reason. A wood that died is somewhere you can still
+    /// found a colony, which is the entire premise of the game it is in.
+    #[test]
+    fn a_dead_mat_is_a_floor_too() {
+        // No organism id on any of these cells, which is what a detached or
+        // unowned plant cell looks like to every reader in the engine.
+        let (w, ground) = matted_bed("leaf", 3);
+        assert_eq!(w.get(32, ground - 1).organism_id(), 0, "the mat must be unowned, or this guard is about living tissue");
+        assert_eq!(colony_ant_site(&w, 32, 0), Some(ground - 3));
+    }
+
     /// The `Y` key's documented behaviour, which the rule above must not
     /// break: founding a colony from inside a cave lands it on the cave
     /// floor, never on the ground overhead.
@@ -15392,8 +15789,32 @@ mod tests {
         // follow the default around: `0.25 * 2 = 0.50` against a bite of 1.0.
         let (narrow, narrow_alive) = median_breach(1.0);
         let (wide, wide_alive) = median_breach(TRAIT_REACH_DEFAULT);
+        // **300, re-derived 2026-09-14 when `sim::contest` landed, and the
+        // re-derivation is the fix rather than scope creep** (`CLAUDE.md`:
+        // when a change moves what a number *means*, the constants reading
+        // it move with it). Measured the same afternoon, same binary, one
+        // env switch apart: **73 with assessment off and 126 with it on**,
+        // against the 18 this bar was originally written over and a bar that
+        // had already drifted to within 27% of its own value on `main`.
+        //
+        // **Nothing about the plate changed and the claim this bar makes is
+        // better satisfied than before.** At a reach of 1 the defender's
+        // armour is 0.50 against a bite of 1.00 and the *defender's* bite is
+        // 1.00 against the attacker's 0.25, so `bite_progress` saturates on
+        // both sides: the assessment reads an exact parity and returns a
+        // coin, which is what an evenly matched contest is supposed to be.
+        // Half the closures, so roughly twice the frames. The thing the bar
+        // is named for moved the *right* way -- `narrow_alive` fell from
+        // **2 of 6 to 1 of 6**, i.e. the useless plate now saves fewer
+        // defenders, not more -- and the contrast the test exists for is
+        // unharmed at **15.9x** (2,000 against 126) against a bar of 5.
+        //
+        // Headroom rather than a value: 300 is 2.4x the measured 126 and
+        // still 6.7x under `BUDGET`, which is what a scene whose ants never
+        // reach each other reports. That fault is what this bar is for and
+        // it still fires on it.
         assert!(
-            narrow < 100,
+            narrow < 300,
             "at a reach of 1 a maximally armoured ant must still fall almost at once, or this arm is measuring ants that never reached each other rather than a plate: median frame {narrow}"
         );
         // **`<= 2`, not `== 0`, since the mobility landing, 2026-09-11.**
