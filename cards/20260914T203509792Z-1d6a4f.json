@@ -1,0 +1,46 @@
+{
+  "id": "20260914T203509792Z-1d6a4f",
+  "created": "2026-09-14T20:35:09Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/druid-founding",
+    "commit": "9fd637a7",
+    "agent": null,
+    "session_id": "e1540bcb-9e00-52ac-ad9b-3aa57be21c20",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The founding menu, rebuilt as a menu",
+  "question": "Driving this with the arrows, WASD or the mouse — is anything still unreachable or unclear? (The blue bar in the margin is where the cursor is; the arrow on LINE 1 is which lineage is chosen.)",
+  "context_md": "Your playtest: *\"the found menu needs to be way improved. it should be fully controlled by arrow keys and/or wasd and/or mouse. When I change things they should stay as the default next time I open the menu. The game should pause when in the founding menu.\"*\n\nThe old screen bound six unrelated letters, one per dial — which is the shortcut list you objected to elsewhere, wearing a panel. It is a **list with a cursor** now: up and down walk it, left and right work whatever the cursor is on, ENTER chooses, and every row has a hit box so the pointer reaches all of it. The two dials wear their own `<` and `>` so the mouse has something to aim at. All the old letters still work.\n\n**The other two clauses are done and are not things a picture can show**, so here are their numbers instead:\n\n- **Pause.** With the screen open, twenty ticks of the game move the clock by **0**; with it shut the same twenty move it by **20**. Time stops because the screen is up, rather than by flipping your own pause — so closing it cannot accidentally un-pause a game you had deliberately stopped.\n- **Sticky.** Body, count, chosen lineage and cursor position all survive a close now. They did not before: the screen was rebuilt from scratch on every open. The same bug was eating the reroll — committing drew a fresh three and then threw them away, so \"committing costs you the other two\" had never once happened in the game. It does now.\n\nSame world, same crop, same scale.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before",
+      "files": [
+        "20260914T203509792Z-1d6a4f/000-C_menu_before.png"
+      ],
+      "caption": "six letters, no cursor, nothing the mouse can touch",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "after",
+      "files": [
+        "20260914T203509792Z-1d6a4f/001-C_menu_after.png"
+      ],
+      "caption": "a cursor over seven rows; arrows, WASD, ENTER and the pointer all reach every one",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
