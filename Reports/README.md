@@ -2785,6 +2785,30 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   behaviours as default* — with the knob kept, an `off` control kept for
   measurement, and the constants rivalry reallocates named and re-derived,
   since a correct mechanism at inherited constants is a regression.
+- [pheromone-lifetime-and-wiring-2026-09-14.md](pheromone-lifetime-and-wiring-2026-09-14.md)
+  — **measurement, 2026-09-14, round 36 lane C. `engine`.** The owner's two
+  questions about the trail planes, answered: *do they fade too fast* and *is
+  all of it wired*. **A trail here is a live map of where ants are standing,
+  not a memory of where they went.** The 255-pass ceiling is real and its
+  1.4x margin is not — 255 passes is what a cell *at 255* survives and
+  nothing writes 255, so a cell laid at `DEPOSIT` (40) has a **40-pass**
+  ceiling and dies in **12**: **144 frames against a 2,200-frame round trip,
+  0.065x**. **`DECAY_RHO` is inert** — setting it to zero leaves that 144
+  unchanged, because a one-cell-wide line loses **16.7% per pass to `DIFFUSE`
+  against decay's 2.9%**, putting the realised rate at ~0.19, *inside* the
+  literature band it is documented as sitting below. **`DEPOSIT` must not be
+  halved**: P-14's trigger has never fired, peak is 39–98 of 255 over six
+  seeds. The bed confirms it with the colony size as control — 52→46 ants
+  holds the network, 46→20 takes it from 342 cells to 35. **Wiring**: nothing
+  is broken in the Rust, and **four of seven reader slots are read by no
+  species** — the laterals deliberately, but `PheroAFront`/`PheroBFront` are
+  the only *concentration* inputs, so **nothing reads trail height**, which is
+  the sole justification `DIFFUSE`'s value was chosen on. **`ancestor.ron`
+  cannot hear the alarm** (Lane D), `flitter` neither lays nor reads a trail
+  (Lane D), and the **alarm plane's audible radius is two cells** — a display
+  deposit is inaudible to anyone but the displayer, which is the measurement
+  `contest.rs` asked for. Ships one dial (`set_channel_diffuse`) and two
+  harnesses; **no default moved**.
 - [evolution-lab-round-36-brief-2026-09-14.md](evolution-lab-round-36-brief-2026-09-14.md)
   — **brief, 2026-09-14, rewritten the same day. `lab`/`engine`.** What round 36
   is for. **The first version led with performance and was wrong at the top**:
@@ -3637,6 +3661,33 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   jamming, and contention. Carries the four rules any later population sweep
   inherits. Harness: `examples/antcost.rs`, which gains `age=`, `widths=`,
   `heights=`, `plants=` and `swept=1`.
+
+- [evolution-lab-ant-dirty-cells-2026-09-14.md](evolution-lab-ant-dirty-cells-2026-09-14.md)
+  — **what the 29.4 swept cells an ant dirties are made of, and the answer is
+  not about ants.** Round 36, lane B, the census the round asked for before
+  anything is proposed. An ant changes **0.76–0.82 cells a frame** and the
+  sweep is asked for 12–22 on its behalf; **three of those are the ant** and
+  the rest is one rule — a dirty mark is expanded sideways by the *largest*
+  `Material::sweep_reach` of any cell in its whole 4,096-cell chunk. Censused:
+  water sets that maximum to **24 for a majority of awake chunks, which hold
+  an average of 1.4 water cells**, against soil's own 2. Computing the same
+  guarantee **per mark** instead of per chunk — a superset of everything that
+  can reach it, so no conservatism is lost and `parallel.rs`'s box-stated
+  proof is untouched — cuts the region the sweep is *asked* for **4.8–5.7x**,
+  landing within 6–23% of the absolute floor, and it does it at zero ants
+  too: **an engine finding the ant census surfaced.** Explains
+  `PIXEL_PHYSICS_SWEEP=rows` measuring 1.05x on the tick: the two inflations
+  overlap, so per-row spans are worth 6% of the marginal cost and only cutting
+  the reach as well is worth 75%. Strikes off the pheromone trail (never marks
+  the sweep at all), stale wakefulness (1% of swept), the awake *count* (flat
+  at 0.01 chunks per ant) and adjacency as a marginal term. **Gated on §E2**,
+  not on economics — row spans are also strictly conservative and still
+  diverge at frame 4,330 — and carries **no timing at all** on purpose.
+  Harness: `examples/antdirt.rs`, new, whose two fixes generalise: an age pin
+  over a bed with no income is a starvation budget and must be derived from
+  the arms, and a grid-diff reconstruction of the dirty region needs the
+  moisture writes filtered out and the `touch_neighbours` marks put in before
+  its own control passes (0.98–1.06 here, 2.33–4.39 without).
 
 - [evolution-lab-creature-parallelism-2026-09-13.md](evolution-lab-creature-parallelism-2026-09-13.md)
   — **the build the report above asked for: it works exactly, and it does not
