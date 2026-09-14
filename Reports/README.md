@@ -3420,6 +3420,28 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   population that leaves ~86% of the frame single-threaded. Harness:
   `examples/antcost.rs`.
 
+- [evolution-lab-knee-2026-09-14.md](evolution-lab-knee-2026-09-14.md)
+  — **what changes at the knee: nothing, because there is no knee.** Round 34,
+  lane A, and a well-evidenced negative with a redirect under it. Once bed age
+  and plant load are held still, **one line fits 0 to 793 ants** on two bed
+  widths and two seeds — `925 + 3.94·ants`, residuals ±78 µs — and the chord
+  running through the 400–600 threshold reads **4.34 µs/ant** against 3.78
+  below it. **The cheap sub-knee regime is reproducible as an artifact**: on a
+  planted bed with arms left at their natural ages the same harness gives 1.04
+  µs/ant then 5.22, a 5.0x step, because ants eat and a plant costs 2.0–6.4 µs
+  against an ant's ~4 — the marginal cost of an ant in a planted bed is
+  **negative** over part of the range. The redirect for round 35: measured with
+  `SCHED_PASS` rather than by subtraction, **the creature pass is only 45% of
+  what an ant costs** and the cost of one decision is flat over a 17x
+  population range; the other 55% is the CA sweep over the **29.4 cells per ant
+  per frame** it leaves dirty, which is the same 0.35 share round 33 measured
+  as its parallel hit rate, and which makes round 32's 86% an over-attribution
+  rather than a measurement. Strikes off the scheduler (`lag` 0 to 793 ants),
+  density (4x bed width at fixed count does not lower the per-ant cost),
+  jamming, and contention. Carries the four rules any later population sweep
+  inherits. Harness: `examples/antcost.rs`, which gains `age=`, `widths=`,
+  `heights=`, `plants=` and `swept=1`.
+
 - [evolution-lab-creature-parallelism-2026-09-13.md](evolution-lab-creature-parallelism-2026-09-13.md)
   — **the build the report above asked for: it works exactly, and it does not
   pay.** `sense` and `eval_brain` are pure reads of an immutable `&World`, so
