@@ -226,6 +226,21 @@ pub struct FoodRoad {
     /// Cells to a side of one harvest tile. See the module doc on why this is
     /// 8 and not a chunk.
     pub tile: i32,
+    /// **Whether the empty-handed road is drawn at all.**
+    ///
+    /// A runtime selector rather than a decision, which is this repo's
+    /// standing convention for *"does this look right"*: five grain modes
+    /// behind one key settled in minutes a question no amount of argument or
+    /// still images had. The two readings it separates are real and the beds
+    /// disagree about which is right — on the played bed nearly every step is
+    /// laden (392 against 44 over 3,600 frames) and the cool channel is a few
+    /// marks of context, while on `far_larder` the colony wanders without
+    /// finding anything and the cool channel is most of what is on screen.
+    /// Which of those the owner wants is a question about the picture.
+    ///
+    /// `true` ships, because a road with no *"and here is where they went
+    /// empty-handed"* cannot show the difference the owner asked to see.
+    pub show_walked: bool,
     /// Frames for a road mark to halve. Ten seconds at the shipped 60 Hz —
     /// short, because the road's claim is *now*.
     pub road_half_life: f32,
@@ -282,6 +297,7 @@ impl FoodRoad {
             last_frame: None,
             last_bounds: None,
             tile: 8,
+            show_walked: true,
             road_half_life: 600.0,
             harvest_half_life: 3600.0,
             road_full: None,
@@ -582,7 +598,7 @@ impl FoodRoad {
         // the road exactly where it is busiest.
         if laden >= VISIBLE {
             Some(two_stop(ROAD_LADEN_LOW, ROAD_LADEN_HIGH, laden))
-        } else if walked >= VISIBLE {
+        } else if self.show_walked && walked >= VISIBLE {
             Some(two_stop(ROAD_WALKED_LOW, ROAD_WALKED_HIGH, walked))
         } else {
             None

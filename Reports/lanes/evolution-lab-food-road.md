@@ -89,13 +89,17 @@ tracking is stated rather than hidden — two sheets are not on one bar — and
 
 ## Two findings about the beds, not about the instrument
 
-**`far_larder` seed 1 never reaches its larder.** The colony is placed at
-`x: 107` and the heap at `x: 470`; measured over 4,000 frames, **39 bites,
-every one within 180 cells of the nest**, all at 480 face value — the corpse
-price. They are eating their own dead, and the colony falls 52 → 1 by frame
-12,000. The scenario's own header predicted a null here for a different
-reason (the carry-band gate); this is a stronger one, and the map is what
-makes it a picture rather than a hypothesis.
+**`far_larder` seed 1 takes not one bite east of `x: 180`.** The colony is
+placed at `x: 107` and the scenario's heap at `x: 470`; measured over 4,400
+frames, **39 bites, every one within 180 cells of the nest**, all at 480 face
+value — the corpse price. They are eating their own dead, and the colony falls
+52 → 1 by frame 12,000. **Stated as measured on purpose**: the harvest map
+says where food was *bitten*, so it establishes that nothing was taken at the
+larder's end and not why — whether the heap was still standing at that frame is
+a separate question this instrument cannot answer. The scenario's own header
+predicted a null here for a different reason (the carry-band gate); this is a
+stronger one, and the map is what makes it a picture rather than a
+hypothesis.
 
 **On the played bed the road has no length**, because the food grows where the
 colony lives: 35 animals, **33 of them carrying**, 392 laden steps against 44
@@ -108,7 +112,19 @@ one. Worth a scenario.
 
 *(Collect with `review.py get <id>`, never off `inbox`.)*
 
-CARDS_GO_HERE
+| card | asks | arms |
+|---|---|---|
+| `20260914T063034460Z-989679` | *"can you tell where the food is coming from and which way it travels?"* | played bed, 5,600 frames: overlay off against ROAD + HARVEST |
+| `20260914T063101470Z-06554c` | *"does it say at a glance that this colony only ever works the left end?"* | `far_larder`, 4,400 frames, whole bed: off against ROAD + HARVEST |
+| `20260914T063118804Z-711e5a` | **blind** — *"which reads better as a food road?"* | `far_larder`: both kinds of traffic against carrying-only (`show_walked`) |
+
+**Read the blind one through `blind_was` before believing a word of the
+prose** — the stored `choice_label` is already resolved, the owner's sentence
+is not.
+
+**The blind card's answer sets a default.** `FoodRoad::show_walked` ships
+`true`; if the verdict is carrying-only, flip that one field — the other arm
+stays reachable either way, which is why it is a field and not a decision.
 
 ## Head and gates
 

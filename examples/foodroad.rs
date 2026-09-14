@@ -176,6 +176,11 @@ fn main() {
     if let Some(v) = arg::<i32>("tile") {
         lab.renderer.food.tile = v;
     }
+    // `walked=0` draws the laden road alone -- the arm of the blind A/B that
+    // asks whether the empty-handed traffic is context or clutter.
+    if let Some(v) = arg::<u32>("walked") {
+        lab.renderer.food.show_walked = v == 1;
+    }
     if let Some(v) = arg::<f32>("roadhalf") {
         lab.renderer.food.road_half_life = v;
     }
@@ -198,9 +203,10 @@ fn main() {
     let f = &lab.renderer.food;
     println!(
         "foodroad: scenario={scenario_name} seed={seed} start={start} frames={frames} every={every} mode={} \
-         tile={} road_half_life={} harvest_half_life={} road_full={} harvest_full={} out={out}",
+         tile={} show_walked={} road_half_life={} harvest_half_life={} road_full={} harvest_full={} out={out}",
         f.mode.label(),
         f.tile,
+        f.show_walked,
         f.road_half_life,
         f.harvest_half_life,
         f.road_full.map_or_else(|| "tracked".into(), |v| v.to_string()),
