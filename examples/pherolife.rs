@@ -65,7 +65,7 @@
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::lab::Lab;
 use pixel_physics::sim::chunk::Rect;
-use pixel_physics::sim::pheromone::{self, Channel, Pheromones};
+use pixel_physics::sim::pheromone::{self, Channel, Pheromones, Spread};
 
 /// The ant's `sensor_offset` (`assets/species/ant.ron`). The along-input
 /// reads `here` and the cell this far ahead.
@@ -496,12 +496,19 @@ fn alarm(args: &Args) {
     println!("how far does an alarm carry, and for how long?");
     println!("(`input` is what BrainInput::Alarm reads: value/255. `->Attack` is that");
     println!(" times ant.ron's authored `(Alarm, Attack, 2.0)`.)");
+    // **`arm=diffuse` puts the old mechanism back**, which is what makes any
+    // claim about the new one checkable rather than asserted. Default is
+    // what ships.
+    let arm = std::env::args().find_map(|a| a.strip_prefix("arm=").map(str::to_string)).unwrap_or_else(|| "shipped".into());
+    let spread = if arm == "diffuse" { Spread::Diffuse } else { Spread::ActiveSpace { fall: pheromone::ALARM_FALL } };
+    println!("arm={arm} -> {spread:?}");
     for (label, deposit) in [("a wound  (ALARM_DEPOSIT 240)", pheromone::ALARM_DEPOSIT), ("a display (DISPLAY_DEPOSIT 40)", 40u8)] {
         println!();
         println!("{label}");
         println!("{:>7}  {:>6} {:>6} {:>6} {:>6} {:>6}", "frame", "d=0", "d=1", "d=2", "d=4", "d=8");
         let mut p = Pheromones::new(bounds());
         p.set_alarm_rho(pheromone::ALARM_RHO);
+        p.set_alarm_spread(spread);
         p.deposit(Channel::Alarm, TRAIL_X0, TRAIL_Y, deposit);
         let sample = |p: &Pheromones| -> Vec<u8> { [0, 1, 2, 4, 8].iter().map(|d| p.sample(Channel::Alarm, TRAIL_X0 + d, TRAIL_Y)).collect() };
         let mut rows = vec![(0u64, sample(&p))];
@@ -536,6 +543,7 @@ fn alarm(args: &Args) {
     println!("a SUSTAINED fight -- a wound every 6 frames over a 2-cell body, 40 bites");
     let mut p = Pheromones::new(bounds());
     p.set_alarm_rho(pheromone::ALARM_RHO);
+    p.set_alarm_spread(spread);
     let mut bites = 0u32;
     println!("{:>7}  {:>6} {:>6} {:>6} {:>6} {:>6}  {:>6}", "frame", "d=0", "d=1", "d=2", "d=4", "d=8", "bites");
     for frame in 1..=(args.interval * 22) {

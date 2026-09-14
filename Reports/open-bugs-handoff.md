@@ -11,7 +11,7 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 <!-- BEGIN GENERATED INDEX -- regenerate with scripts/bugindex.py -->
 
-**62 open, 120 bugs** (plus 20 landing-note items,
+**61 open, 120 bugs** (plus 20 landing-note items,
 marked `note`). Generated from the headings by
 `scripts/bugindex.py` -- a bug's verdict is written into its own heading, so
 this is derived, never maintained by hand. Entries are never moved when they
@@ -165,7 +165,7 @@ point.
 | Z22 | **OPEN** | 12436 | A colony inside a quickening eats about a sixth of the garden, and nothing on screen says so |
 | Z23 | **OPEN** | 12531 | nearest_foe counts a plant as a foe, so a fed colony quietly vandalises its own larder |
 | Z24 | **OPEN** | 12622 | A loop of plant_ant is a crowd of strangers, and nine harnesses still do it |
-| Z25 | **OPEN** | 12703 | Nothing can hear an alarm: the plane's audible radius is about two cells |
+| Z25 | closed | 12703 | Nothing can hear an alarm: the plane's audible radius is about two cells |
 
 <!-- END GENERATED INDEX -->
 
@@ -12700,7 +12700,7 @@ filed as a second bug, because the instruments row quotes two different lining
 figures (~750 and 416) for the same arm and the comparison is muddier than a
 bug entry should be.
 
-### Z25. Nothing can hear an alarm: the plane's audible radius is about two cells — **OPEN, measured 2026-09-14, round 36 lane C**
+### Z25. Nothing can hear an alarm: the plane's audible radius is about two cells — **FIXED 2026-09-14** (found and fixed the same day, round 36 lane C)
 
 `BrainInput::Alarm` is *"the one signal that lets a colony act as a colony in
 a fight -- recruit, swarm, flee -- rather than as fifty animals each deciding
@@ -12794,6 +12794,67 @@ so the recruitment argument for either answer buys nothing measurable today.
 The semantics can be decided on what the word should mean; if the answer is
 meant to *do* something, the constants have to move with it, which is this
 entry.
+
+**THE FIX, landed the same day.** The reach numbers above are not a tuning
+failure and no constant could have closed them — the ceiling is the *stencil*.
+A 3x3 mean attenuates by about nine per cell, so at `DIFFUSE = 1.0`, the
+largest the blend can be, a wound still reads only 20 at one cell and 1 at
+two. **The mistake was modelling a shout as a substance.** A mean filter
+conserves, which is exactly right for a trail (reinforcement against
+evaporation is the whole path-selection algorithm) and exactly wrong here:
+spreading one deposit over area makes every cell small, and a `u8` floors
+small at zero within two cells.
+
+So the alarm plane stopped conserving. `pheromone::Spread::ActiveSpace`
+propagates by **distance falloff** — a cell takes the louder of what it holds
+and its neighbour minus `ALARM_FALL` (12) — which is the *active space* of the
+real thing rather than a cloud of stuff. Real ants do not share a chemistry
+between the two either: a trail pheromone is heavy and substrate-bound, an
+alarm pheromone is a small volatile molecule, and what it makes is a volume
+around a source in which concentration is over the response threshold
+(Bossert & Wilson's term; about six body lengths for *Pogonomyrmex badius*).
+
+Measured in the engine, one wound, `examples/pherolife mode=alarm`:
+
+| | d=1 | d=2 | d=4 |
+|---|---|---|---|
+| before (`arm=diffuse`, still reachable) | 4 | **0** | 0 |
+| after | **148** | **88** | 24 |
+
+That is `->Attack` **+1.161** at one cell and **+0.690** at two, against
+`ant.ron`'s authored weight of 2.0, where it was +0.047 and exactly zero. A
+sustained fight carries further still. **And it ends**: the plane empties in
+**12 passes, 144 frames**, the second-and-a-half `ALARM_RHO`'s own doc asks
+for.
+
+**The falloff is also the grading**, which was not the point and may be the
+better half: an animal in the middle of a fight and one at its edge now read
+different numbers through the *same* weight, so the response is a
+distribution rather than a binary — `CLAUDE.md`'s first law, arriving for
+free, and what a concentration gradient does in a real colony.
+
+**`ALARM_RHO` moved 0.25 -> 0.35 as part of this, not as a second change.**
+At 0.25 that constant never was the alarm's forget rate: a lone deposit also
+lost about a fifth of itself per pass to the 3x3 mean, so diffusion was doing
+a share of decay's job and the doc's *"gone in about a hundred and fifty
+frames"* was right by accident. With the plane no longer spreading its value
+away, 0.25 left a bite audible for **204 frames**; 0.35 restores the
+documented 144. `CLAUDE.md`: fixing a bug often exposes a constant that was
+compensating for it, and re-deriving it is part of the fix. **The guard that
+caught this is `creature.rs`'s `the_alarm_forgets_faster_than_a_trail`** --
+it was calibrated on the old behaviour and went red rather than quiet, which
+is what a guard is for. It passes again untouched; no file of another lane's
+was edited.
+
+**Guarded by `an_alarm_carries_past_its_own_cell_and_still_ends`, which was
+found blind first and rewritten.** Both faults it is named for were injected
+and it stayed green: it called the dial on every arm, so the shipped default
+was never under test at all and reverting the whole change passed; and it
+credited termination to the `- fall` contraction, when `ALARM_RHO` is what
+does that (setting `fall` to 0 terminates fine). The rewrite tests an
+untouched `Pheromones::new` and asserts the actual invariant — the global
+maximum strictly falls every pass, because `decay_lut[v] < v` and propagation
+can never exceed the previous pass's maximum. Both faults now go red.
 
 **Related, same lane, not filed separately**: `ancestor.ron` carries no
 `Alarm` weight at all, so the lab's founding lineage cannot act on this plane

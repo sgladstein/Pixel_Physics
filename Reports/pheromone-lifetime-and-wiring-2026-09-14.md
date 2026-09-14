@@ -428,6 +428,105 @@ experiment is named and not run (§2a).
 
 ---
 
+## 3b. What was then done about it (same day, `claude/pheromone-trail-lifetime`)
+
+The owner read §3 and asked the question it deserved — *"are we fixing any of
+these?"* Two answers, and they are different because the two planes are.
+
+### The alarm is fixed
+
+**§2d's numbers are not a tuning failure and the fix is not a constant.** The
+ceiling is the *stencil*: a 3x3 mean attenuates about nine per cell, so at
+`DIFFUSE = 1.0` — the largest the blend can be — a wound still reads 20 at one
+cell and 1 at two. Nothing in the parameter space reaches.
+
+**The error was modelling a shout as a substance.** A mean filter conserves.
+That is exactly right for a trail, where a dozen ants' deposits adding up *is*
+the path-selection algorithm, and exactly wrong for an alarm: spreading one
+deposit over area makes every cell small and a `u8` floors small at zero. Real
+ants do not share a chemistry between the two — a trail pheromone is heavy and
+substrate-bound, an alarm pheromone is a small volatile molecule, and what it
+makes is an **active space**, the volume around a source in which
+concentration is over the response threshold (Bossert & Wilson's term; ~6 body
+lengths for *Pogonomyrmex badius*, gone inside a minute).
+
+`Spread::ActiveSpace` propagates by distance falloff — a cell takes the louder
+of what it holds and its neighbour minus `ALARM_FALL` (12). Measured:
+
+| one wound | d=1 | d=2 | d=4 |
+|---|---|---|---|
+| before (`arm=diffuse`, kept reachable) | 4 | **0** | 0 |
+| after | **148** | **88** | 24 |
+
+`->Attack` **+1.161** and **+0.690** against `ant.ron`'s weight of 2.0, where
+it was +0.047 and exactly zero; and the plane still empties in **12 passes,
+144 frames**, which is the second-and-a-half `ALARM_RHO`'s doc asks for. **The falloff is also
+the grading** — middle-of-the-fight and edge-of-the-fight now read different
+numbers through the same weight, so the response is a distribution rather than
+a binary, for free.
+
+**`ALARM_RHO` moved 0.25 -> 0.35 with it, and that is part of the fix.** At
+0.25 the constant never was the alarm's forget rate — a lone deposit also lost
+about a fifth of itself per pass to the 3x3 mean, so diffusion was doing a
+share of decay's job and the doc's *"gone in about a hundred and fifty
+frames"* was right by accident. With the plane no longer spreading its value
+away, 0.25 left a bite audible for **204 frames**; 0.35 restores the
+documented **144**. This is `CLAUDE.md`'s *fixing a bug often exposes a
+constant that was compensating for it* — and the thing that caught it was
+`creature.rs`'s `the_alarm_forgets_faster_than_a_trail` going **red rather
+than quiet**, which is the whole argument for that guard existing. It passes
+again untouched; no other lane's file was edited.
+
+**Reach and duration also separated, which may be the more useful outcome.**
+They were one quantity while the plane conserved. Now `ALARM_FALL` sets how
+far a cry carries and `ALARM_RHO` how long it lasts: sweeping the latter
+0.25 -> 0.50 moves clearing time **204 -> 96 frames** while one cell out only
+moves **171 -> 114**. Two dials the owner can turn independently, where
+before there were none that reached.
+
+### The trail is not, and the fix I proposed for it was wrong
+
+**Recorded because it was proposed in this report's own PR discussion.** The
+plan was to replace `build_decay_lut`'s `min(v - 1)` floor with a
+threshold snap-to-zero. Two things kill it:
+
+* **`dead-ends.md` already rejects half of it** — *"at small rho, or with
+  rounding instead of truncation, a low value maps to itself forever"*. The
+  rounding the snap needs is a recorded ghost-trail bug.
+* **It targets the wrong term anyway**, which is §1b's mistake repeated. The
+  floor is not what caps lifetime — **truncation** is. `(v * (1-rho)) as u8`
+  loses at least 1 whenever `v * rho < 1`, so **lifetime ≤ deposit in passes
+  for every rho**, and the explicit floor only binds at `rho = 0`.
+
+With that understood, the whole candidate space was measured rather than
+argued. Passes until an unreinforced line is gone, against a 183-pass round
+trip:
+
+| arm | passes | vs round trip |
+|---|---|---|
+| shipped | 11 | 0.06x |
+| `DEPOSIT` 120 | 16 | 0.09x |
+| diffuse every 4 passes | 22 | 0.12x |
+| decay every 4 passes | 17 | 0.09x |
+| `DEPOSIT` 120 + diffuse every 4 + decay every 4 | 61 | 0.33x |
+| `DEPOSIT` 240 + diffuse every 8 + decay every 4 | **117** | **0.64x** |
+
+**Stacking three behavioural changes at extreme settings still does not reach
+one round trip.** And the ceiling is not quantization: diffusion at 0.25 costs
+a one-cell line **16.7% of its peak per pass**, so even at infinite precision
+an unreinforced trail is gone in ~30 passes. **Diffusion and long trail life
+are the same knob pulling opposite ways**, and `DIFFUSE`'s own sweep prices
+what lowering it costs (0.623 on-trail at 0.10 against 0.817 at 0.25).
+
+So this one is **not a defect with a fix — it is a trade**, and by the
+standing direction it is the owner's to make rather than a lane's to settle.
+`set_channel_diffuse` (§3) is the dial for it; a *cadence* dial is the
+companion worth building, because rate and frequency reach the same 2x while
+trading different things — rate makes the spread permanently shallower,
+cadence keeps its shape and delays it.
+
+---
+
 ## 4. What would overturn this
 
 - §1 is measured at `PHEROMONE_INTERVAL = 12` unscaled. `World::step_

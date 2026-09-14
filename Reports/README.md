@@ -2808,7 +2808,26 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   (Lane D), and the **alarm plane's audible radius is two cells** — a display
   deposit is inaudible to anyone but the displayer, which is the measurement
   `contest.rs` asked for. Ships one dial (`set_channel_diffuse`) and two
-  harnesses; **no default moved**.
+  harnesses; **no default moved**. **§3b, added the same day after the owner
+  asked "are we fixing any of these?", is the fix and the correction.** The
+  alarm's two-cell reach was never a tuning failure — the ceiling is the
+  *stencil*, and even at `DIFFUSE = 1.0` a wound reads 20 at one cell and 1
+  at two. **The error was modelling a shout as a substance**: a mean filter
+  conserves, which is right for a trail and fatal for an alarm.
+  `Spread::ActiveSpace` propagates by distance falloff instead — the *active
+  space* of the real thing — taking one wound from **4/0/0** at one, two and
+  four cells to **148/88/24**, `->Attack` +1.161 where it was +0.031, and the
+  falloff gives the graded response free. **`ALARM_RHO` 0.25 → 0.35 came with
+  it**, because diffusion had been doing a share of decay's job; caught by
+  `the_alarm_forgets_faster_than_a_trail` going red rather than quiet. **The
+  trail is NOT fixed and §3b says why that is right**: no combination reaches
+  a round trip (best corner 0.64x, three stacked changes), and the ceiling is
+  not quantization — diffusion costs a one-cell line 16.7% of peak per pass,
+  so **diffusion and trail life are one knob pulling opposite ways**, the
+  owner's trade to make. It also records the fix first proposed for the trail
+  **and why it was wrong** (a `build_decay_lut` snap-to-zero: the rounding it
+  needs is already in `dead-ends.md`, and truncation rather than the floor is
+  what caps lifetime).
 - [evolution-lab-round-36-brief-2026-09-14.md](evolution-lab-round-36-brief-2026-09-14.md)
   — **brief, 2026-09-14, rewritten the same day. `lab`/`engine`.** What round 36
   is for. **The first version led with performance and was wrong at the top**:
