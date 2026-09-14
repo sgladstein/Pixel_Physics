@@ -1,0 +1,76 @@
+{
+  "id": "20260914T063118804Z-711e5a",
+  "created": "2026-09-14T06:31:18Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-food-road",
+    "commit": "33d09ea7",
+    "agent": null,
+    "session_id": "5b5b9407-c48e-5780-ab66-7933129bc360",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Should the food road show the empty-handed walking too?",
+  "question": "Which of these reads better as a food road?",
+  "context_md": "One choice inside the new `F7` view, on the far-larder bed. Both panes draw the same run; the only difference is whether ants walking with **nothing in their jaws** leave a mark.\n\n- one pane draws **red-orange where they walked carrying** and **blue where they walked empty**;\n- the other draws **only the carrying**.\n\nThe amber hatch — ground they took food out of — is the same in both.\n\nThis bed is the hard case on purpose: here the colony wanders a long way and hardly ever finds anything, so the empty-handed traffic is most of what there is. On the planted bed it is the other way round — nearly every step there is a laden one. **Whichever you pick becomes the default**, and the other stays available.",
+  "kind": "frames",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "both kinds of traffic",
+      "files": [
+        "20260914T063118804Z-711e5a/000-frame_0000.png",
+        "20260914T063118804Z-711e5a/001-frame_0001.png",
+        "20260914T063118804Z-711e5a/002-frame_0002.png",
+        "20260914T063118804Z-711e5a/003-frame_0003.png",
+        "20260914T063118804Z-711e5a/004-frame_0004.png",
+        "20260914T063118804Z-711e5a/005-frame_0005.png",
+        "20260914T063118804Z-711e5a/006-frame_0006.png",
+        "20260914T063118804Z-711e5a/007-frame_0007.png",
+        "20260914T063118804Z-711e5a/008-frame_0008.png",
+        "20260914T063118804Z-711e5a/009-frame_0009.png",
+        "20260914T063118804Z-711e5a/010-frame_0010.png",
+        "20260914T063118804Z-711e5a/011-frame_0011.png"
+      ],
+      "caption": "red-orange = walked carrying, blue = walked empty-handed",
+      "meta": {
+        "steps taken carrying food": 189,
+        "steps taken empty-handed": 2498,
+        "ground marked on screen": "600 cells"
+      },
+      "focus": null
+    },
+    {
+      "label": "carrying only",
+      "files": [
+        "20260914T063118804Z-711e5a/012-frame_0000.png",
+        "20260914T063118804Z-711e5a/013-frame_0001.png",
+        "20260914T063118804Z-711e5a/014-frame_0002.png",
+        "20260914T063118804Z-711e5a/015-frame_0003.png",
+        "20260914T063118804Z-711e5a/016-frame_0004.png",
+        "20260914T063118804Z-711e5a/017-frame_0005.png",
+        "20260914T063118804Z-711e5a/018-frame_0006.png",
+        "20260914T063118804Z-711e5a/019-frame_0007.png",
+        "20260914T063118804Z-711e5a/020-frame_0008.png",
+        "20260914T063118804Z-711e5a/021-frame_0009.png",
+        "20260914T063118804Z-711e5a/022-frame_0010.png",
+        "20260914T063118804Z-711e5a/023-frame_0011.png"
+      ],
+      "caption": "the empty-handed walking is not drawn",
+      "meta": {
+        "steps taken carrying food": 189,
+        "steps taken empty-handed": "2498, not drawn",
+        "ground marked on screen": "600 cells held, far fewer drawn"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
