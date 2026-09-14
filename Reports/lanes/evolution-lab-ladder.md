@@ -2,9 +2,10 @@
 
 *2026-09-14. Branch `claude/lab-zoom-rung-three`, **PR #406**, code at
 `39170d31`. **Deliverable: one blind review card,
-`20260914T000047337Z-693fcc`, board `druid`, still open.** Nothing is built on
-the answer and nothing should be until it lands. The coordinator owns the
-merge.*
+`20260914T000047337Z-693fcc`, board `druid` — answered 2026-09-14, and the
+answer is below.** Nothing is built on it and nothing should be until whoever
+takes the next step reads what it does and does not settle. The coordinator
+owns the merge.*
 
 The lane's whole job was to stop asking a look question in prose. It has been
 asked three times in writing — `Reports/held-world-zoom-plan-2026-09-13.md` §6
@@ -103,11 +104,37 @@ The card weighs 7.4 MB of PNG, which is heavy for the queue — the panes are
 2048x1280 because the question is sharpness and a smaller pane answers it
 wrongly.
 
+## The verdict — answered 2026-09-14T00:38Z
+
+**He chose rung 4: the wider view, sharp, with a quarter of the screen in black
+bars.** Not the rung that frames the land exactly, in either of its two forms.
+
+Decoded rather than read raw, because the panes were shuffled — he saw **A** as
+rung 4, **B** as rung 3 made sharp, **C** as rung 3 as it ships. He clicked A.
+`scripts/review.py get` prints this map itself under `blind_decoded`; do not
+hand-derive it.
+
+**No comment, no rating, no pins — this is the click alone.** What it settles
+and what it does not:
+
+- It settles that **the 25% letterboxing is not the problem I assumed it was**.
+  The plan's §2 reasoned that rung 4 "is no substitute" because it overshoots by
+  320 rows of void; the owner picked it over both full-height framings anyway.
+  Seeing 80% of the world's width beat framing 100% of its height.
+- It is therefore evidence **for §6's option 2, dropping rung 3 off the ladder**
+  (`1, 2, 4`), whose only stated cost was losing the full-height view he has
+  just declined twice — once soft and once sharp.
+- It is evidence **against option 3**, the non-power-of-two budget, which is the
+  expensive one: he was shown exactly what it buys, beside what it costs
+  nothing to have, and did not take it.
+- **What it does not settle is whether rung 3 should be *removed* or merely
+  passed through.** The card asked which picture he wants at rest, not what the
+  ladder should do on the way there. If dropping 3 is proposed, that is worth
+  one more card — two rungs against three, walked — rather than inferred from
+  this one.
+
 ## For whoever picks this up
 
-- **Read the verdict with `python3 scripts/review.py get 20260914T000047337Z-693fcc`,
-  never off `inbox`**, and translate the prose through `blind_was` before
-  believing a word of it — `_blind_decode` does it for you.
 - The three outcomes are priced in `Reports/held-world-zoom-plan-2026-09-13.md`
   §6. Nothing in this lane touched `src/render.rs`, `src/app.rs`, `src/lab/`
   or `src/bin/`; the shared-budget extraction of §5 is still the next lane and
