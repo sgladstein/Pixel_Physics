@@ -51,12 +51,27 @@ state:
 
 | # | item | where |
 |---|---|---|
-| 8 | her own circle vanished above 1x | **done**, PR #430 |
-| 10 | simplify the top-left readout | **done**, PR #430 |
-| 1, 6, 7 | bubbles merge + speed as colour, creature colours, lab overlays | Lane A, `claude/druid-look` |
-| 2, 5, 9 | the yellow bars, founding far away, the founding screen | Lane B, `claude/druid-founding` |
-| 3, 4, 11a | the stress setting, restart, one size dial | Lane C, `claude/druid-shell` |
-| 11b | longer gnome-laid trail, diffuse look | Lane D, `claude/druid-trail` |
+| 8 | her own circle vanished above 1x | **landed**, PR #430 |
+| 10 | simplify the top-left readout | **landed**, PR #430 |
+| 3, 4, 11a | the stress setting, restart, one size dial | **landed**, Lane C, PR #435 |
+| 1, 6, 7 | bubbles merge + speed as colour, creature colours, lab overlays | Lane A, **PR #437** open |
+| 11b | longer gnome-laid trail, diffuse look | Lane D, **PR #438** open |
+| 2, 5, 9 | the yellow bars, founding far away, the founding screen | Lane B, `claude/druid-founding` — **nothing pushed yet** |
+| — | the shrunk gnome moves too slowly (card verdict, not a playtest item) | coordinator's own, in flight |
+
+**Lane A and Lane D finished without the GitHub tools**, in the shape
+`CLAUDE.md` describes: branch pushed, `PR_BODY_LANE_*.md` written on it, head
+SHA reported. The coordinator opened both. **The tell that a lane is done is
+a last commit reading "lane note, PR body"** — there is no other signal, and a
+finished branch with no PR is invisible to everyone.
+
+**A merged lane's branch disappears from the remote.** Lane C's
+`claude/druid-shell` was gone from `git ls-remote` while the local
+remote-tracking ref still named it, which reads exactly like a branch deleted
+out from under finished work. It had merged as PR #435; `git fetch --prune`
+then `git branch -r --contains <sha>` settles it in one command. Pin the sha
+to a local branch *before* pruning, because the prune is what removes the only
+handle you have if the answer turns out to be the bad one.
 
 **Item 3 is a suspicion, not a confirmed bug**, and Lane C's brief says so: it
 may be working and merely invisible, which wants a different answer than a
@@ -72,16 +87,20 @@ So turning channel A's diffusion down to lengthen her trail reaches the ants
 too, and the owner's split — her trail is ours, theirs is the lab's — is not
 automatically satisfied by staying out of `DECAY_RHO`.
 
-## Verdicts in hand, not yet dispatched
+## Verdicts in hand
 
 - **The druid's zoom-out rungs: "get rid of stop 3"** (card
   `20260914T084458895Z-ae1b01`, answered 13:46). Walking out you get crisp,
   crisp, **blocky**, crisp; the blocky stop is the only one that fits the
-  world top to bottom. The owner's answer is to drop it and jump 2 → 4. **Not
-  this program's to land**: the rungs are `render::MAX_ZOOM_OUT_STRIDE` and
-  `src/app.rs`, shared with both other games (`src/lab/mod.rs` asserts rung 4
-  at every pixel budget), and a zoom lane is live over those files. Route it,
-  do not take it.
+  world top to bottom. **Already in flight as PR #431** — checked before
+  routing it, which is the point: the rungs are `render::MAX_ZOOM_OUT_STRIDE`
+  and `src/app.rs`, shared with both other games (`src/lab/mod.rs` asserts
+  rung 4 at every pixel budget), so a druid-board verdict is not automatically
+  druid-program work. **Read the open PR list before dispatching a verdict**,
+  not only before dispatching a round.
+- **The shrink: "looks good. I want to move a bit faster though"** (card
+  `20260914T162644450Z-02b298`, answered 18:11). Taken by the coordinator —
+  see the round table. The finding it produced is below.
 
 ## Environment facts that have cost time here
 
