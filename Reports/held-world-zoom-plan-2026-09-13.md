@@ -129,34 +129,72 @@ the renderer's copy is *stale by design*, and that sizing a buffer from it
 The authoritative pair must live in one place that owns both halves — not in
 the renderer with callers guessing when to push.
 
-## 6. Two things to settle before building
+## 6. The rung-3 hole — the card is answered; one half is still open
 
-**The rung-3 hole, which is not druid's and should be decided once.** The
-ladder is `1, 2, 3, 4` and the budget is a power of two, so **at rung 3 the
-budget buys nothing** — `pixel_scale_for` returns 1 because 3 has no power-of-
-two divisor above 1. `src/app.rs` already guards this ("rung 3 cannot absorb a
-power-of-two budget"). A player walking out from rung 1 therefore gets sharp,
-sharp, *blurry*, sharp. The held world is where this will be most visible, and
-§2's table says why it is worse there than a general blemish: **rung 3 is the
-rung that first shows the whole world top to bottom**, so it is at once the
-most useful rung and the only one the budget cannot reach.
+**Half of this section is settled by the owner's eye and half is not. Read
+which is which before acting on either.**
 
-Three ways out, and it is a look question rather than an argument:
+The defect, for the record. The ladder is `1, 2, 3, 4` and the budget is a
+power of two, so **at rung 3 the budget buys nothing** — `pixel_scale_for`
+returns 1 because 3 has no power-of-two divisor above 1, and `src/app.rs`
+already guards it ("rung 3 cannot absorb a power-of-two budget"). Walking out
+from rung 1 a player gets sharp, sharp, *soft*, sharp. In the held world rung 3
+spans `1536x960` against a 960-row world, so it is the only rung that frames
+the land exactly and the only soft one.
 
-- **Leave it.** Rung 3 stays a soft rung. Cheapest, and it is what ships in
-  two games already.
-- **Drop 3 from the ladder** (`1, 2, 4`). Every rung then absorbs the budget.
-  Costs the one view that frames this world's full height — the very thing §2
-  says a held-world player will want.
-- **Let the budget be non-power-of-two**, permitting 3 where the rung is 3.
-  The only option that keeps the useful view *and* makes it sharp, and the
-  largest change: `pixel_scale_for`'s power-of-two walk is load-bearing
-  elsewhere, and CLAUDE.md's shared-budget rule says to budget re-deriving
-  that as part of the work rather than discover it during.
+**The verdict, in two parts, because one question turned out to be two.**
 
-The cheap move is a blind A/B of rung 3 at scale 1 against rung 4 at scale 4:
-the question is which picture a player actually wants out of a five-screen
-world, and that is not answerable from the numbers.
+*Part one — which view he wants at rest.* Card
+`20260914T000047337Z-693fcc`, blind, three panes, all normalised to one
+on-screen size, answered 2026-09-14T00:38Z. **He chose rung 4 — sharp, with a
+quarter of the screen in black bars** — over both framings that fit the
+world's full height, including "rung 3 made sharp". Decoded through
+`blind_was [1,2,0]`; `choice` indexes `card["items"]` (the stored order) at
+`review_server.py:249`, so `choice_label` names the real option.
+
+**That overturns this report's own §2 reasoning**, which held that rung 4 "is
+no substitute" because it overshoots vertically by 320 rows of void. Seeing
+80% of the world's width beat framing 100% of its height. §2's *arithmetic*
+stands; its conclusion about what a player would want did not.
+
+*Part two — what the ladder should do on the way there. STILL OPEN.* The click
+carried no comment, rating or annotations, so it said which picture he wants
+**at rest** and nothing about the stops in between — a distinction first drawn
+by the lane that built the card, not by the coordinator reading it, who
+initially over-read the click as settling the whole question.
+
+Asked directly on 2026-09-14 whether rung 3 should remain a stop you pass
+through, the owner answered *"Keep rung 3 as a soft stop"* — **and then said he
+did not know what "soft stop" meant.** That is a fair complaint about the
+question: it was asked in the coordinator's vocabulary rather than the world's,
+and an answer to a question the reader could not parse is not a verdict.
+**So this half is recorded as ASKED AND NOT YET ANSWERED**, pending a re-ask in
+plain words: *zooming out has four steps, the third is blurry and the rest are
+sharp — leave it, or delete the third step so every step is sharp and you lose
+the one that fits the world's whole height?*
+
+**Where that leaves the three options:**
+
+| option | standing |
+|---|---|
+| Leave rung 3 a soft stop | **Provisional** — his answer, given to a question he then said he could not read. It is also the status quo, so it is what holds while the question is re-asked. |
+| Drop 3 from the ladder (`1, 2, 4`) | **Still live.** Small change if he wants it. |
+| Non-power-of-two budget | **Rejected** — he was shown it as a live pane and did not take it. `Reports/dead-ends.md`. |
+
+**So: nothing in `pixel_scale_for` changes either way**, and no work is blocked
+— both live options are `1,2,3,4` as it ships or a one-line ladder edit, and
+the held world's zoom can be built against the shared rungs regardless.
+
+**What `spend=any` proved on the way, and it is the reusable part.** The
+non-power-of-two option was *rendered from the shipped renderer rather than
+mocked up*, and needed no change to `pixel_scale_for` to do it: an
+unrestricted budget of 4 at rung 3 draws `1536x960` cells into `1536x960`
+buffer pixels — `sampling_stride` exactly 1 — which is what the renderer
+already does at `zoom_out_stride` 1 given a `1536x960` viewport. **A proposal
+that changes a constant can often be photographed by feeding the existing code
+the state the change would produce**, which is much cheaper than building it to
+find out whether it is wanted.
+
 
 **That card cannot be made with `zoomout_pixels`, which is the harness it looks
 like it wants.** Checked before promising it. `Arm::new` derives its stride as
