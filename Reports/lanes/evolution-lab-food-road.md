@@ -126,9 +126,14 @@ is not.
 `true`; if the verdict is carrying-only, flip that one field — the other arm
 stays reachable either way, which is why it is a field and not a decision.
 
+## Where the work is
+
+**PR [#420](https://github.com/sgladstein/Pixel_Physics/pull/420)**, branch
+`claude/evolution-lab-food-road`. The coordinator owns the merge.
+
 ## Head and gates
 
-Gates green at the head named in the PR: `cargo clippy --all-targets --release
+Gates green at `5772ea79`: `cargo clippy --all-targets --release
 --locked -- -D warnings`; `cargo test --release --lib` (1,759 passed, 0
 failed); `cargo test --release --test worldgen --test determinism` (44 passed,
 0 failed); `bash scripts/docscheck.sh` clean.
