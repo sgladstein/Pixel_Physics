@@ -61,10 +61,22 @@ drawn frame, and that *was* the animation speed being complained about. Hue
 runs `AURA_STANDING` → `AURA_FAST`, which is `druid::hud::speed_tint`'s own
 ramp, so a player who learned it on the ring reads it unchanged.
 
-`AuraTuning::fast_gain` (1.45) carries density beside the hue, **because hue
-alone measured as a mechanism that fires and cannot be seen**: the cold end is
-a pale blue against a pale blue sky. Recovered blend fraction x1→x8 is **1.37**
-with the density channel and **0.94** without.
+`AuraTuning::fast_gain` carries density beside the hue, **because hue alone
+measured as a mechanism that fires and cannot be seen**: the cold end is a
+pale blue against a pale blue sky.
+
+**Both halves were then widened on the owner's verdict** (card
+`20260914T195956622Z-357e6d`: *"This is the idea, but make the color change a
+little more visible. You are close."*) — `AURA_FAST` from `[255, 250, 225]` to
+`[255, 243, 185]`, and `fast_gain` from 1.45 to 2.0. Recovered blend fraction
+x1→x8, the quantity the guard reads: **1.72** now, against 1.37 before and
+**0.94** with the density channel switched off.
+
+**The hot end stops short of amber deliberately, and that ceiling is worth
+carrying.** `AURA_CARRIED` is `[255, 214, 140]`, so a hotter end makes a fast
+*placed* bubble read as the one he is *carrying* — one distinction bought by
+spending another. If more heat is wanted, the carried colour has to move
+first; `fast_gain` has no such ceiling and is the lever to reach for.
 
 `depth_per_step` defaults to `0.0` — a band that thickens with speed stacks to
 exactly the flat saturated block this change exists to avoid. Both withdrawn
@@ -109,8 +121,11 @@ recorded in the source rather than quietly fixed:
   blend fraction and reads it at a quantile — a *sum* is over the pixels that
   registered a change at all, and that set is itself a function of the hue;
 - the bar was then read back off `fast_gain`, so the fault moved the
-  expectation with it. Fixed bar of 1.20, in the measured gap between 1.37 and
-  0.94.
+  expectation with it. Fixed bar of 1.20, in the gap above the 0.94 the
+  channel reaches switched off and below every value it reaches switched on.
+  **It was deliberately not re-tightened when `fast_gain` went to 2.0** — a
+  bar that tracks the dial it guards is the original bug, not a stricter
+  version of the fix.
 
 `a_faster_quickening_hazes_deeper` asserted the channel the owner removed, so
 it is replaced rather than left passing. The dirty-rect guard read a single
@@ -144,18 +159,25 @@ Four cards on board `druid`:
 `20260914T200008969Z-75f7c5` (the animal colour),
 `20260914T200025758Z-8c5504` (the overlays).
 
-The second carries a live question: if the ramp is too weak the lever is
-`fast_gain` or the hue endpoints, **not** `depth_per_step`.
+Two are answered. **Speed colour**: *"This is the idea, but make the color
+change a little more visible. You are close"* — acted on above and re-posted
+as `20260914T223428380Z-a1c555`. **Overlays**: *"'there is no key or menu row
+to turn these on yet.' - this was the main issue, but the after does look
+better"* — the rendering half is accepted; the switch is what he wants, and
+`src/druid/menu.rs` and `src/bin/druid.rs` are held by an unlanded branch
+(`claude/druid-founding`), so the row is not this lane's to add. It is one
+menu row, and it is the difference between item 3 being done and not.
 
 ## Gates
 
-All run on the merged tree, after the second `origin/main` merge:
+All run on the merged tree, after the third `origin/main` merge:
 
 - `cargo clippy --all-targets --release --locked -- -D warnings` — clean
-- `cargo test --release` — **1,873 passed, 0 failed**, 103 ignored
-  (1,814 lib · 44 `tests/worldgen.rs` · 10 `main.rs` · 3 `tests/determinism.rs`
+- `cargo test --release` — **1,878 passed, 0 failed**, 103 ignored
+  (1,819 lib · 44 `tests/worldgen.rs` · 10 `main.rs` · 3 `tests/determinism.rs`
   · 2 doc). The full command, not `--lib`, so the preset and worldgen guards
   actually ran
+- and CI green on this head: all 9 checks, run `34904860288`
 - `bash scripts/docscheck.sh` — clean
 - `python3 scripts/deadendindex.py --touching` — one hit, this branch's own
   new entry naming `fast_gain`
