@@ -381,4 +381,8 @@ pressing the key shows nothing either way. Worth telling the owner before he
 spends the session looking for a difference that cannot be there yet — that,
 rather than another card, is what I would route.
 
-**Head SHA at the bottom of this section's PR.**
+**PR [#427](https://github.com/sgladstein/Pixel_Physics/pull/427)** (#414 was
+merged, so this is a fresh branch off `main` and a new PR, per the
+merged-PR rule — not commits stacked on merged history).
+
+**Head SHA: see the PR head; this note's own commit is the last one on it.**
