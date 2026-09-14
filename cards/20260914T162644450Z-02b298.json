@@ -1,0 +1,55 @@
+{
+  "id": "20260914T162644450Z-02b298",
+  "created": "2026-09-14T16:26:44Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/determined-ramanujan-c9szc5",
+    "commit": "3771cab1",
+    "agent": null,
+    "session_id": "79abafe2-f617-546c-9fed-7bebff67abba",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "She can make herself small enough to go underground",
+  "question": "R makes her 2x3 — the size an ant's tunnels actually clear. Small, most of a colony's nest is walkable; at her own height none of it is, not one cell. Two things to judge: does the change read at all when she is this small, and is the sprite the next thing you want?",
+  "context_md": "Step 2 of the held-world plan, in your order: *shrink and walk the nests*.\n\n**Measured before it was built.** `burrow_probe arms=colony box=2x3`, 12 seeds at frame 8,000: a 2x3 body reaches **54–92%** of the roofed void a colony digs, and on **11 of 12** seeds the largest single region *is* that whole reach — one connected run, not a scatter of pockets. The same probe at `box=7x14`, her own size, reads **0% at every sample on every seed**.\n\n**The caves turned out to be the bigger prize.** `cave_probe box=2x3` reads **99% median** over 16 seeds x 8 presets — shrinking opens the geology far more than it opens the ant nests.\n\n**The sprite is unchanged here and that is deliberate.** The authored 7x14 art is too sparse to resample — at 2x3 it is a coloured speck, and no scaling of that table is legible. It needs drawing rather than scaling, which is judge-by-eye work and its own change.\n\nBoth frames: the real app, zoom 4, same world, one binary.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "Her own size",
+      "files": [
+        "20260914T162644450Z-02b298/000-big.png"
+      ],
+      "caption": "7x14 — the authored gnome",
+      "meta": {
+        "body": "7x14",
+        "roofed nest void she can reach": "0% on 12 of 12 seeds",
+        "caves she can reach": "n/a"
+      },
+      "focus": null
+    },
+    {
+      "label": "Small",
+      "files": [
+        "20260914T162644450Z-02b298/001-small.png"
+      ],
+      "caption": "2x3 — SMALL latched, and she is the speck on the skyline",
+      "meta": {
+        "body": "2x3",
+        "roofed nest void she can reach": "54-92%, p50 83% over 12 seeds",
+        "caves she can reach": "99% median, 16 seeds x 8 presets",
+        "growing back": "refused where there is no room"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
