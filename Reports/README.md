@@ -2622,6 +2622,18 @@ was **no food verb** (there is one now: `E`) although hand-placed food is the on
 intervention measured to separate generation 13 from generation 0, and the plant mutation rates the
 design guide's §7b-i calls "already data" are Rust `const`s.
 
+- [druid-rounds-archive.md](druid-rounds-archive.md) — **record, 2026-09-14.**
+  Finished rounds of the **held world**'s coordinator note, moved out of
+  `Reports/lanes/druid-program-coordinator.md` so that note can stay a
+  standing one — the same split the lab made, and for the same reason: what a
+  round *overturned* is the part a later session cannot reconstruct, and also
+  the part nobody needs loaded to do today's work. Round 1 is the seven
+  playtest items of 2026-09-14 (five lanes, PRs #411, #413, #414, #415, #418),
+  including the two findings that outlived it — that four of the seven items
+  were sized off doc comments and two of those were wrong, and that a lane
+  overturned the coordinator's own brief. **A record, not a work order**: the
+  live round and the standing owner rulings are in the lane note.
+
 - [evolution-lab-rounds-archive.md](evolution-lab-rounds-archive.md) —
   **record, 2026-09-08.** Rounds one to nineteen of the lab's coordinator note,
   verbatim, moved out of `Reports/lanes/evolution-lab-coordinator.md` when that
