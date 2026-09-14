@@ -1731,6 +1731,52 @@ pub struct CreatureStats {
     /// bites a fight is taking, which is the quantity the arms-race reach
     /// moves and the one a bite count alone cannot report.
     pub attack_cells: u64,
+    /// **Of `attacks`, the swings whose target was not an animal** — a plant,
+    /// in every bed shipped today.
+    ///
+    /// The near side of the §Z23 pair. `attacks` has always been
+    /// arithmetically correct about "the `Attack` branch reached a target"
+    /// and has already been read as a fighting figure by one report; this
+    /// column is what separates the two readings without changing what
+    /// either counter means. `attacks - attacks_at_plants` is animals
+    /// fighting animals, which is the number a war wants.
+    ///
+    /// **Since the owner's 2026-09-14 ruling this must read 0 in every bed
+    /// for ever**, and it is kept for exactly that: it is the repair's own
+    /// standing guard, and the column that would say out loud if a later
+    /// change to `nearest_foe` put plants back in front of the fist.
+    pub attacks_at_plants: u64,
+    /// **Of `attack_cells`, the cells that came off a plant** — the far side
+    /// of the same pair, and the one a repair is judged on.
+    ///
+    /// This is the quantity §Z23 is about, and nothing counted it before:
+    /// `attack_cells` pools plant with animal and `plantkill` counts whole
+    /// organisms, so a stand being taken apart one cell at a time reads
+    /// zero on both. **Pure loss by construction** — the `Attack` path's
+    /// own comment is *"the cell comes off and nobody eats it"*, and
+    /// `wood`/`rootwood`/`grassroot` carry no `food_energy` at all, so
+    /// nothing in the world is fed by any of these.
+    pub attack_plant_cells: u64,
+    /// **Plant cells taken off a plant by the MOUTH** — the denominator
+    /// `attack_plant_cells` is read against, and the reason it had to be a
+    /// cell count rather than joules.
+    ///
+    /// Grazing and vandalism remove the same thing — one cell of standing
+    /// plant — and until this existed they were counted in different units:
+    /// `harvested_plant` is joules at the eater's gut, `eats` pools every
+    /// material, and `attack_cells` is cells. **A ratio between a joule
+    /// figure and a cell figure is not a share of anything**, which is
+    /// exactly `CLAUDE.md`'s worst-recurring failure in its *difference*
+    /// costume, so both halves are counted here in cells at the moment the
+    /// cell leaves the world.
+    ///
+    /// **A standing plant census cannot replace this**, and that was
+    /// measured rather than assumed: over three seeds of the played longant
+    /// bed the paired standing count moved −84, **+3,463** and +3,484 — one
+    /// arm reading *more* plant with the colony on it — because a stock
+    /// carries everything the bed did about the loss as well as the loss.
+    /// This is the flow.
+    pub eaten_plant_cells: u64,
     /// **Attacks that killed** — the effect counter from the far side of the
     /// call, paired with `attacks` for the reason `CLAUDE.md` insists on:
     /// a count of swings is not a count of hits, and this repo has already
@@ -1759,6 +1805,35 @@ pub struct CreatureStats {
     /// `displays / contests` is the withdrawal rate, which in real ants is
     /// nearly all of inter-colony contact — see `sim::contest`.
     pub displays: u64,
+    /// **Where the alarm plane's writes come from**, split three ways at the
+    /// three `cry_alarm` call sites: a bite landed by the `Attack` verb, and
+    /// the two feeding sites — an animal being eaten, and a plant being
+    /// grazed.
+    ///
+    /// Built for §Z23, which is the loop these three make between them:
+    /// grazing writes alarm, every armed genome ships `(Alarm, Attack, 2.0)`,
+    /// and the swing lands on the plant that was being grazed. The split is
+    /// what says which site feeds the loop — a single total cannot, and the
+    /// owner's own positive control (alarm signals in a box holding one
+    /// colony and nothing but trees) is exactly this column being non-zero
+    /// where the other two must be 0.
+    pub alarm_attack: u64,
+    /// See `alarm_attack`. An animal bitten by the feeding path (gnaw or
+    /// swallow) — being eaten, which from the victim's side is being
+    /// attacked.
+    pub alarm_eat_animal: u64,
+    /// See `alarm_attack`. A plant cell bitten by the feeding path — and
+    /// since the owner's 2026-09-14 ruling, **a cry that was suppressed**
+    /// rather than one that was made. It is deliberately still counted.
+    ///
+    /// **This is the §Z23 term**: ordinary, legitimate, universal foraging,
+    /// writing on the plane the fight verb listens to. `CLAUDE.md`, *a
+    /// repair can remove the picture and leave the mechanism: census the
+    /// mechanism, not its consequence* — a column that went to zero because
+    /// the call site was deleted cannot tell a repair that works from a bed
+    /// that stopped grazing, so this one keeps counting the bites and the
+    /// alarm plane keeps not hearing them.
+    pub alarm_eat_plant: u64,
     /// **Severing events**: a creature that lost a body cell and came apart
     /// at it, rather than merely shortening.
     ///
@@ -2606,6 +2681,13 @@ pub struct World {
     /// longer compiles.
     cell_scale: f32,
     pub materials: MaterialRegistry,
+    /// **A harness's override of the per-chunk sweep rule**, applied to every
+    /// chunk created after [`Self::set_sweep_rows`] was called so a late-born
+    /// chunk does not quietly run the other arm.
+    ///
+    /// `None` in the app and in every test that does not ask, which leaves
+    /// `Chunk::new`'s environment-variable default exactly as it was.
+    sweep_rows_override: Option<bool>,
     pub rng: Rng,
     /// The CA sweep's per-visit draw when `PIXEL_PHYSICS_RNG=positional`;
     /// inert under the default, where `rng` above is handed out unchanged.
@@ -5195,6 +5277,7 @@ impl World {
             frame: 0,
             clock: crate::sim::clock::Clock::default(),
             materials: MaterialRegistry::builtin(),
+            sweep_rows_override: None,
             rng: Rng::default(),
             visit_rng: super::surface::VisitRng::new(),
             chunk_bodies: Vec::new(),
@@ -5389,7 +5472,7 @@ impl World {
         for cy in c0.y..=c1.y {
             for cx in c0.x..=c1.x {
                 let coord = ChunkCoord::new(cx, cy);
-                self.chunks.get_or_insert_with(coord, || Chunk::new(coord));
+                self.chunks.get_or_insert_with(coord, || Self::new_chunk(coord, self.sweep_rows_override));
                 self.fields.entry(coord).or_insert_with(FieldTile::new);
             }
         }
@@ -8304,7 +8387,7 @@ impl World {
             let coord = ChunkCoord::containing(x, y);
             // The last row of this chunk, or the end of the run.
             let seg_end = hi.min(coord.origin().1 + CHUNK_SIZE - 1);
-            let chunk = self.chunks.get_or_insert_with(coord, || Chunk::new(coord));
+            let chunk = self.chunks.get_or_insert_with(coord, || Self::new_chunk(coord, self.sweep_rows_override));
             let mut pending: Vec<(i32, Cell, Cell)> = Vec::new();
             for cy in y..=seg_end {
                 let cell = make(cy);
@@ -8600,7 +8683,7 @@ impl World {
         let coord = ChunkCoord::containing(x, y);
         let reach = self.materials.get(cell.material).sweep_reach();
         let is_liquid = self.materials.kind(cell.material) == MaterialKind::Liquid;
-        let chunk = self.chunks.get_or_insert_with(coord, || Chunk::new(coord));
+        let chunk = self.chunks.get_or_insert_with(coord, || Self::new_chunk(coord, self.sweep_rows_override));
         let old = chunk.get_world(x, y);
         chunk.set_world(x, y, cell, reach, is_liquid);
         self.touch_neighbours(x, y, coord);
@@ -9011,6 +9094,39 @@ impl World {
 
     pub fn sweep_region(&self, coord: ChunkCoord) -> Option<Rect> {
         self.chunks.get(&coord).and_then(|c| c.sweep_region())
+    }
+
+    /// A fresh chunk, carrying any harness sweep-rule override the world is
+    /// running under. Without this a chunk born after
+    /// [`Self::set_sweep_rows`] would run the *other* arm, which is the shape
+    /// of bug a two-arm comparison cannot survive and cannot see.
+    fn new_chunk(coord: ChunkCoord, sweep_rows: Option<bool>) -> Chunk {
+        let mut chunk = Chunk::new(coord);
+        if let Some(on) = sweep_rows {
+            chunk.set_sweep_rows(on);
+        }
+        chunk
+    }
+
+    /// **Switch every chunk between the box sweep rule and the per-row-span
+    /// rule** — [`Chunk::set_sweep_rows`], fanned out, plus the default every
+    /// chunk created afterwards inherits.
+    ///
+    /// For an instrument holding both arms in one process
+    /// (`examples/sweepgap.rs`); the shipped default is the environment
+    /// variable's and this is never called by the app.
+    pub fn set_sweep_rows(&mut self, on: bool) {
+        self.sweep_rows_override = Some(on);
+        for chunk in self.chunks.values_mut() {
+            chunk.set_sweep_rows(on);
+        }
+    }
+
+    /// [`Chunk::dirty_marks_row`] — the raw marks of one row of one chunk,
+    /// for an instrument. See that function for why a reconstruction from a
+    /// grid diff will not do.
+    pub fn dirty_marks_row(&self, coord: ChunkCoord, row: i32) -> Option<(i32, i32)> {
+        self.chunks.get(&coord).and_then(|c| c.dirty_marks_row(row))
     }
 
     /// **Write a soil cell's new moisture without waking the CA sweep.**
@@ -11369,6 +11485,85 @@ mod tests {
         w.move_cell(10, 10, 10, 11, false);
         assert!(w.get(10, 10).is_empty());
         assert_eq!(w.get(10, 11).material, material::SAND);
+    }
+
+    #[test]
+    fn set_sweep_rows_narrows_the_plan_and_a_chunk_born_afterwards_inherits_it() {
+        // **The guard on the instrument seam `examples/sweepgap.rs` rests
+        // on**, and it has two halves because the seam has two ways to lie.
+        //
+        // Half one: the setter must actually change what `sweep_plan`
+        // returns. A no-op setter gives a two-arm comparison that silently
+        // runs one arm twice -- which reads as "the narrowing is safe", the
+        // most expensive wrong answer available here.
+        //
+        // **What this guard is measured to catch, and what it is measured
+        // NOT to catch.** Both were established by putting the fault back,
+        // 2026-09-14, which is the only thing that settles it:
+        //
+        // - `Chunk::set_sweep_rows` made a no-op -> **red** (`walked 2013,
+        //   box 2013`). So the guard is sensitive to the setter, which is the
+        //   fault that matters most: a no-op setter gives a two-arm
+        //   comparison that silently runs one arm twice, and that reads as
+        //   "the narrowing is safe" -- the most expensive wrong answer
+        //   available here.
+        // - `World::new_chunk`'s override dropped -> **still green**. So this
+        //   guard does NOT cover the late-born-chunk path, and `new_chunk`'s
+        //   own correctness rests on reading it rather than on this test.
+        //   Why it stays green is not understood; it is recorded as a known
+        //   hole rather than papered over, because citing this test's green
+        //   as cover for that path would be exactly the argument-from-a-blind
+        //   -guard `CLAUDE.md` warns about.
+        //
+        // **Two marks far apart on different ROWS, and the row part is what
+        // makes the guard able to discriminate at all.** Written first with
+        // both marks on one row, where it could not: a row span is the
+        // min..max *hull* of the marks on that row, so two marks on one row
+        // give the row rule and the box rule the identical region and the
+        // assertion read `walked 183, box 183` for a setter that was working
+        // perfectly. `CLAUDE.md`: check that a guard's inputs actually vary
+        // what it guards. Thirty rows apart, the box rule covers all thirty-
+        // three rows between them and the row rule covers six.
+        let mut w = World::new(Rect::new(0, 0, 255, 127));
+        w.set_sweep_rows(true);
+        // Both writes land in a chunk that did not exist when the override
+        // was set, which is what half two is about.
+        w.set(4, 70, Cell::new(material::SAND, 0));
+        w.set(60, 100, Cell::new(material::SAND, 0));
+        w.end_step();
+
+        let coord = ChunkCoord::containing(4, 70);
+        let region = w.sweep_region(coord).expect("the chunk has marks, so it has a region");
+        let plan = w.sweep_plan(coord).expect("and therefore a plan");
+        let walked: i32 = (region.min_y..=region.max_y)
+            .filter_map(|y| plan.row(y).map(|(lo, hi)| hi - lo + 1))
+            .sum();
+        let boxed = (region.max_x - region.min_x + 1) * (region.max_y - region.min_y + 1);
+        assert!(
+            walked < boxed,
+            "the row rule must walk strictly fewer cells than the box it sits in \
+             (walked {walked}, box {boxed}) -- equal means either the setter did nothing or \
+             the chunk was born without the override"
+        );
+
+        // And the box rule over the identical marks walks the whole box, so
+        // the difference above belongs to the rule and not to the geometry.
+        let mut b = World::new(Rect::new(0, 0, 255, 127));
+        b.set_sweep_rows(false);
+        b.set(4, 70, Cell::new(material::SAND, 0));
+        b.set(60, 100, Cell::new(material::SAND, 0));
+        b.end_step();
+        let bregion = b.sweep_region(coord).expect("same marks, same region");
+        let bplan = b.sweep_plan(coord).expect("same marks, same plan");
+        let bwalked: i32 = (bregion.min_y..=bregion.max_y)
+            .filter_map(|y| bplan.row(y).map(|(lo, hi)| hi - lo + 1))
+            .sum();
+        assert_eq!(
+            bwalked,
+            (bregion.max_x - bregion.min_x + 1) * (bregion.max_y - bregion.min_y + 1),
+            "the box rule walks every cell of its box"
+        );
+        assert_eq!(region, bregion, "narrowing the plan must not move the bounding box -- parallel.rs's write-disjointness proof is stated against that rect");
     }
 
     #[test]

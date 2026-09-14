@@ -294,3 +294,114 @@ not a licence to try.
   moves, and the material holds water. A future write of that shape that
   *does* mark the sweep would be misclassified, and `bbox/swept` drifting off
   1.0 is the tell.
+
+---
+
+## 9. The fix, attempted — 2026-09-14, after the owner read §6 and said "fix it"
+
+**The single-rect version of this fix cannot work, and the reason is
+arithmetic rather than tuning.** Built and measured first because it keeps the
+region's *shape* untouched and therefore stays clear of §E2:
+
+| rule | cells/frame at 440 ants | per ant per frame |
+|---|---|---|
+| `bbox` — today | 19,261 | 20.71 |
+| `bbox_rowband` — reach taken over the rows the region occupies, not all 64 | 18,904 | 20.30 |
+
+**1.9%.** And the mechanism is plain once looked at: `swept` is 19,261 over
+~17 awake chunks, about **64 wide by 18 rows** — at a reach of 24 on a 64-wide
+chunk the rect is *already clipped to the full chunk width*. Every
+single-rect rule is full-width, so **no reach narrowing can pay while the
+shape stays one rect**, whatever the reach is narrowed to. `cellloc`'s 4.8–5.7x
+is entirely a *shape* prize wearing a reach label, and §6 should be read that
+way.
+
+So the fix needs the narrower shape, and §E2 is the whole of what stands in
+front of it.
+
+### §E2, bisected to a cell
+
+**It had been bisected to a frame and never to a cell, and the reason was
+mechanical: the switch was a process-wide `OnceLock`.** Two settings meant two
+processes; two processes of a chaotic simulation are two different worlds; so
+the only available comparison was a world hash, which says *that* two runs
+differ and never *which cell*. `Chunk::sweep_rows` is now a per-chunk field
+with `World::set_sweep_rows` beside it — shipped default unchanged, read from
+the same environment variable at construction — which puts both arms in one
+process, as `CLAUDE.md` asks for.
+
+`examples/sweepgap.rs` then steps two `Lab`s on one spec and seed in lockstep,
+one per rule, and diffs them every frame. On the shipped lab bed at seed 1:
+
+```
+FIRST DIVERGENCE at frame 237 -- 4 differing cell(s)
+     x      y  arm A (box)   arm B    auxA   auxB   chunk  reach  distA  distB  in B?
+   371    160         soil    soil     795    875   5,2       24      0      0    yes
+   373    160         soil    soil     701    620   5,2       24      1      1    yes
+   371    161         soil    soil     736    763   5,2       24      -      -     NO
+   373    161         soil    soil     646    620   5,2       24      -      -     NO
+```
+
+**Every differing cell is `soil`, with the same material and the same organism
+id in both arms, and a different `aux`. So §E2's divergence is in the
+soil-moisture channel, not in what moved.** Nothing in the world has been
+displaced differently; the water held in four soil cells has.
+
+That is the second coupling §E2 records as unidentified, narrowed from "the
+spans are not a superset of every cell the rules can act on" to a named
+channel, four named cells, and **frame 237 instead of 4,330** — thirty seconds
+of runtime instead of a long bisect. Two of the four sat outside arm B's own
+narrowed region with no mark within one row of them; two sat inside it, which
+is the half that says the narrowing alone does not explain it.
+
+**What is not established**: why. The moisture pass walks
+`Chunk::take_moist_plan`'s own region over *every* chunk, not the awake set,
+and its seed (`pending_moist_rows`, unioned from the ordinary marks in
+`end_sweep`) is identical in both arms — so the obvious route is ruled out and
+the actual one is not found. Read this as a located fault, not a diagnosed
+one.
+
+### The controls, and one of them found a hole in the other
+
+- **`arm=box`** runs both arms on the shipped rule and must show no
+  divergence: **1,500 frames, none** — so a divergence under `arm=rows`
+  belongs to the rule and not to the lockstep comparison.
+- **Two classes of change are correctly outside every sweep region** and are
+  the entire answer if not excluded: soil-moisture writes
+  (`Chunk::set_world_quiet`, its own channel) were **82.85%** of the diff, and
+  organism writes (a different frame phase) **2,090 `ant` + 977 `empty`** of
+  the 2,871 that remained. Both are excluded at the seam rather than by
+  material name.
+- **The new guard
+  (`set_sweep_rows_narrows_the_plan_and_a_chunk_born_afterwards_inherits_it`)
+  is sensitive to one fault and measured blind to another.** Setter made a
+  no-op → red (`walked 2013, box 2013`). `World::new_chunk`'s override
+  dropped → **still green**. Recorded in the test itself as a known hole;
+  `new_chunk`'s correctness rests on reading it, not on that green. And the
+  guard's first geometry — two marks on one row — could not discriminate at
+  all, because a row span is the *hull* of the marks on its row, so both rules
+  gave the identical region and it read `walked 183, box 183` for a setter
+  that was working perfectly.
+
+### `parallel.rs`'s proof — verified, not asserted
+
+§6 claimed the write-disjointness proof is untouched because it rests on the
+bounding box and `touch_neighbours`' flat `MAX_REACH`. Checked:
+`concurrent_chunks_are_never_within_reach_of_each_other` (`parallel.rs`) is
+exhaustive **over chunk coordinates and the flat `MAX_REACH` alone** — it
+reads neither `sweep_region`, nor `sweep_plan`, nor a chunk's tracked `reach`.
+`parallel::step` consumes `chunk.sweep_plan()` and the module's own comment
+states the box is what the proof is stated against. **The claim holds.** The
+new guard asserts the bounding box is identical under both rules, so it stays
+held.
+
+### What this leaves
+
+**No frame-cost figure, because there is nothing yet to time.** The change
+that would earn one is the shape change, and shipping it means shipping a
+known divergence. The honest state: the prize is real and re-confirmed, the
+single-rect route to it is dead by arithmetic, and the blocker has moved from
+"unidentified coupling, bisected to a frame" to "the soil-moisture channel,
+four cells, frame 237, reproducible in thirty seconds". **The next job is
+`sweepgap` pointed at why those four cells' moisture differs**, and it is now
+a half-hour question rather than an evening.
