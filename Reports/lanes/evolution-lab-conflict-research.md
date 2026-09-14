@@ -127,6 +127,11 @@ for whoever picks this up:
   genome, which re-derives every species' `mutation_rate` and invalidates
   `main` as a control arm — round 33 paid that bill.
 
+## The PR
+
+**[#417](https://github.com/sgladstein/Pixel_Physics/pull/417)**, head
+`claude/evolution-lab-conflict-research`. The coordinator owns the merge.
+
 ## Gates run on this branch
 
 `cargo clippy --all-targets --release --locked -- -D warnings`,
