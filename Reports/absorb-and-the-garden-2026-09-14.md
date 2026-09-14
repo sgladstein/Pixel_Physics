@@ -2,7 +2,8 @@
 
 *2026-09-14. The stated cause is disproved by measurement; the real chain is
 measured and named. The owner's **observation** is reproduced and is real.
-Lane note: [`Reports/lanes/absorb-destroys-plants.md`](lanes/absorb-destroys-plants.md).*
+Lane note: [`Reports/lanes/absorb-destroys-plants.md`](lanes/absorb-destroys-plants.md);
+filed as `open-bugs-handoff.md` **§Z22**.*
 
 Owner report, verbatim: *"Absorbing creature energy, destroys plants around
 it. The energy particles need to be foreground and not interact with the
@@ -35,14 +36,18 @@ absorbing is *upstream* of that rather than the mechanism of it. Measured on
 the shipped `bare` start, 3,000 ticks, speed 8, one circle, the only
 difference being whether a colony stands in it:
 
-| | no colony | 33 ants |
-|---|---|---|
-| live plants at end | **352** | **177** |
-| plant cells | 5,811 | 5,163 |
-| plant energy eaten | 0 | **15,010** |
+| | no colony | with a colony | |
+|---|---|---|---|
+| live plants at end, `1024x512`, 33 ants | **352** | **177** | -50% |
+| ...`2560x960`, 31 ants (plants near) | **407** | **326** | -20% |
+| plant energy eaten, full scale | 0 | **19,732** | |
+| plants felled, full scale | 432 | **807** | |
 
-**The colony eats half the garden.** Card `20260914T043140244Z-b56729` is
-those two frames side by side; the difference is obvious by eye.
+**The colony eats between a fifth and a half of the garden.** Two worlds, one
+seed each, and the spread between them is why this is a range rather than a
+number — it is nowhere near a sweep and nothing should be tuned on it. Card
+`20260914T043140244Z-b56729` is the small-world pair side by side; the
+difference is obvious by eye.
 
 ---
 
@@ -60,17 +65,20 @@ effect from the chair.
    the same world and the same 2,000 ticks, the only difference being six
    presses of `F` worth 45 units of power:
 
-   | | quiet | absorb |
-   |---|---|---|
-   | plant energy eaten | 1,026 | **1,260** |
-   | plants felled | 122 | **126** |
-   | animals at end | 1 | 2 |
-   | power at end | 0 | 22 |
+   | | quiet | absorb | |
+   |---|---|---|---|
+   | eaten, `1024x512`, 1 ant, 45 power drawn | 1,026 | **1,260** | +23% |
+   | eaten, `2560x960`, 31 ants, 650 power drawn | 7,097 | **11,606** | **+64%** |
+   | felled, full scale | 380 | **528** | +39% |
+   | live plants, full scale | 544 | 608 | |
 
    Both arms ran out of power and closed their circle; the absorbing one
-   closed it later. **That is a real effect of absorbing on the plants, and it
-   is the whole of it** — 234 more units of plant eaten, bought with 45 units
-   of power, entirely through how long time was allowed to run.
+   closed it later. **That is a real effect of absorbing on the plants and it
+   is not a small one** — at full scale, ten presses of `F` worth 650 power
+   bought 4,509 more units of plant eaten. It buys *more growth* as well as
+   more grazing (544 → 608 live plants), which is the honest shape of it: what
+   absorbing buys is **more time running**, and more time running is more of
+   everything.
 3. **The speed dial multiplies it about tenfold.** Same colony, same world,
    only the dial moved.
 
@@ -200,13 +208,24 @@ scene's spread). **Bending is not it.**
 
 ## 5. Full scale
 
-The numbers above are `1024x512`; the shipped world is `2560x960`. The
-absorb null reproduces there — `START=grown`, 4,000 ticks, speed 1, 13
-absorbs drawing 195 units: **every column equal** (plant cells
-181,171 → 181,281 in both arms, felled 67 in both), with power 600 against
-795 the only difference in the world. A `bare` full-scale sweep at speed 8 was
-running when this was written; `scratchpad/arms-fullbare.txt` on the box, and
-§8 records whether it landed.
+The numbers above are `1024x512`; the shipped world is `2560x960`. Every finding
+reproduces there.
+
+- **The null.** `START=grown`, 4,000 ticks, speed 1, 13 absorbs drawing 195:
+  **every column equal** (plant cells 181,171 → 181,281 in both arms, felled
+  67 in both), power 600 against 795 the only difference in the world. Again
+  on `START=bare`, 3,000 ticks, speed 8, 31 ants, 10 absorbs drawing **779**:
+  every column equal (plant cells 5,325, live plants 610, eaten 19,732, felled
+  807 in both arms), power 600 against 1,379.
+- **The colony**, and the dial, and the economy coupling: the tables in §1 and
+  §2.2 carry the full-scale rows beside the small-world ones. The *direction*
+  is the same everywhere; the *size* moves a lot between worlds, which is the
+  §9 caveat.
+
+**One thing is larger at scale rather than the same**, and it is the one that
+matters: the economy coupling went from +23% of plant eaten to **+64%**. A
+bigger world with a real colony in it is a world where power is scarce enough
+for absorbing to be what decides how long the circle stands.
 
 ---
 

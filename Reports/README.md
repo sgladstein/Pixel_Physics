@@ -144,9 +144,12 @@ by somebody about to try it on creatures.
   on it (eaten 228 → 2,217, felled 28 → 274, everything else fixed).
   Absorbing is *upstream* of that twice over — you must stand in a running
   colony to press it, and with the economy live the power it buys keeps the
-  circle standing longer (eaten 1,026 → 1,260 from six presses worth 45
-  power) — which is why the misattribution is a fair reading and not a silly
-  one. **The generalisable half is the method**: the nulls are only readable
+  circle standing longer — which is why the misattribution is a fair reading
+  and not a silly one. **That second coupling is large at full scale and is
+  the one real cost absorbing has**: ten presses worth 650 power moved plant
+  energy eaten **7,097 → 11,606, +64%**, and plants felled 380 → 528. What it
+  buys is more *time running*, so it buys more growth too (544 → 608 live
+  plants). **The generalisable half is the method**: the nulls are only readable
   because the same harness was shown to move, both on a known-broken case
   (`control=selftest`, 100 cells erased and 100 reported) and on the one arm
   where absorbing *can* matter. Names `energy_ledger.harvested_plant` as the

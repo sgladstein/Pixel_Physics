@@ -20,17 +20,23 @@ it would be a no-op with the owner told his bug was addressed.
 **His observation is still correct.** What eats the garden is **ants grazing
 inside a quickening, multiplied by the speed dial**. On the shipped `bare`
 start, 3,000 ticks at speed 8, the only difference being whether a colony
-stands in the circle: live plants **352 against 177**, plant energy eaten **0
-against 15,010**. The colony eats half the garden. The dial sets the rate —
-eaten 228 → 2,217 from speed 1 to speed 8, felled 28 → 274.
+stands in the circle: live plants **352 against 177** at `1024x512` and **407
+against 326** at full scale, with **19,732** units of plant tissue eaten. The
+colony costs a fifth to a half of the garden (two worlds, one seed each — a
+range, not a number). The dial sets the rate: eaten 228 → 2,217 from speed 1
+to speed 8, felled 28 → 274.
 
 Absorbing is **upstream** of that rather than its mechanism, two ways: you must
 stand in a running colony to press `F` at all, and with the economy live the
-power it buys keeps the circle standing longer (eaten 1,026 → 1,260, felled
-122 → 126, from six presses worth 45 power).
+power it buys keeps the circle standing longer. **That second one is not
+small at scale** — full world, 31 ants, ten presses worth 650 power: plant
+energy eaten **7,097 → 11,606 (+64%)**, felled 380 → 528. What absorbing buys
+is more time running, and more time running is more of everything, growth
+included (544 → 608 live plants).
 
-Instrument: `examples/druid_garden.rs`, new on this branch, row in
-`Reports/instruments.md`. Card `20260914T043140244Z-b56729` puts the two
+Filed as `Reports/open-bugs-handoff.md` **§Z22** — open on the last clause
+(the cost is invisible), not the first. Instrument: `examples/druid_garden.rs`,
+new on this branch, row in `Reports/instruments.md`. Card `20260914T043140244Z-b56729` puts the two
 frames in front of the owner and asks whether that is what he saw.
 
 ## For the coordinator to route — neither file is this lane's
