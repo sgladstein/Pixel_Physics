@@ -138,6 +138,41 @@ matter the moment two colonies share a box, which is now the default. So the
 answer can wait without blocking anything — but it should not be settled by
 implementation.
 
+## Two instrument checks after the fix, and one of them is a hand-off
+
+**`conflict_arena control=selftest` — PASS, and it is the best specificity /
+sensitivity pair in the round.** One binary, the switch the only difference:
+
+| | plantbites | cells | eats | contests | fights | x-kills |
+|---|---|---|---|---|---|---|
+| strangers, plant-a-foe **on** | 54 | 32 | 505 | 33 | 18 | 9 |
+| strangers, plant-a-foe **off** | **0** | **0** | **695** | 33 | 18 | 9 |
+| one family, plant-a-foe **on** | 43 | 16 | 26 | 0 | 0 | 0 |
+| one family, plant-a-foe **off** | **0** | **0** | **127** | 0 | 0 | 0 |
+
+**Animal-against-animal fighting is byte-identical** — contests, fights,
+displays, escalation and cross-colony kills all unmoved. That is the
+sensitivity arm for ruling 1: the fight verb still works, it just no longer
+finds a tree. And the **one family** arm is the owner's own control in
+miniature: a bed with **no strangers in it at all** was taking 43 plant bites
+and 16 cells. Feeding rose on both arms (26 → 127 and 505 → 695).
+
+**`rivalry control=selftest` FAILS — and it is NOT this lane.** Byte-identical
+failure with the switch on and off (`shipped` arm: `cross 1 attacks 1` against
+expectations of 0; `wire-only`: `attacks 2` against 0), so it cannot be the
+plant rule. The cause is visible on the line: the `shipped` arm reads
+**`gap 1.744`, `between 100.00%`** — the two colonies are already mutual
+strangers on the shipped default, because #423 authored a live `scent_spread`.
+The selftest's expectations were written when the shipped default made
+everyone kin, so the arm named `shipped` is asserting about a default that no
+longer exists.
+
+**This is Lane D's file and Lane D's question** — it is the same shape as the
+brief's own warning that `spread=0` was not an off arm, and it means any
+`rivalry` baseline quoted from before #423 is a measurement of a different
+default. Flagged, not taken: `examples/rivalry.rs` is not this lane's, and
+fixing an expectation is a decision about what the arm is for.
+
 ## Ruled out before starting, per the brief — nothing re-derived
 
 `structural.rs` / `load.rs` / `rigid.rs` (zero commits in three days), plant
