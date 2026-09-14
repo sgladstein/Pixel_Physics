@@ -427,9 +427,27 @@ impl Interface {
 
         // **What he has told them.** Under the marks and motes, over the
         // rings: it is ground he has written on, not an event.
+        // **Blended by strength, not stamped.** Owner, 2026-09-14: *"The
+        // animation can be improved too. it should be more diffuse looking,
+        // not like a bunch of dots."* An opaque `put` gives every drawn cell
+        // a hard edge against its neighbour and the whole trail against the
+        // ground, which is what makes a cloud read as a sausage; the strength
+        // already varies the *green* and now it varies the alpha as well, so
+        // the rim of the cloud fades out instead of stopping.
+        //
+        // **This does not reinstate the failure `SCENT_FAINT` records.** The
+        // version that vanished blended *toward the panel colour* — a fixed
+        // navy, at an alpha set by a mark that could only ever be 40 of 255,
+        // so the strongest thing the trail ever had was a 16% wash of dark
+        // green over dark ground. Both halves of that are gone: the mark is a
+        // graded swath now (`druid::TRAIL_RADIUS`) and reaches 241, and the
+        // blend is over the *world*, so the core lands opaque and only the
+        // edge is translucent. `SCENT_FAINT`'s rule survives intact — how
+        // strong a mark is still varies the green first.
         let (faint, full) = if self.scent_b { (SCENT_B_FAINT, SCENT_B) } else { (SCENT_FAINT, SCENT) };
         for (x, y, band) in &self.scent {
-            hc.put(frame, *x, *y, lerp(faint, full, *band as f32 / (SCENT_BANDS - 1) as f32));
+            let t = *band as f32 / (SCENT_BANDS - 1) as f32;
+            hc.blend(frame, *x, *y, lerp(faint, full, t), t);
         }
 
         // **The event: energy on its way in.** Brighter and larger as it
@@ -643,11 +661,36 @@ fn scent(game: &Druid) -> Vec<(i32, i32, u8)> {
                 if !seen.insert((sx, sy)) {
                     continue;
                 }
-                out.push((sx, sy, (v as u16 * SCENT_BANDS as u16 / 256) as u8));
+                out.push((sx, sy, band_of(v)));
             }
         }
     }
     out
+}
+
+/// **Which brightness band a plane reading falls in — on a square root, not
+/// a straight scale.**
+///
+/// The straight `v * SCENT_BANDS / 256` this replaced put everything under 32
+/// in band 0, and until `druid::TRAIL_RADIUS` landed the plane never held
+/// more than about 31 along a walked route: **every mark of every trail drew
+/// in the same single colour, the dimmest one, and the other seven bands
+/// were unreachable.** A readout with one value is a readout with no
+/// gradient, which is half of what "a bunch of dots" was describing.
+///
+/// The swath fixed the range and the root fixes the *distribution*. What a
+/// cloud's edge is made of is small values — the rim of a diffused mark is
+/// single digits, and on a straight scale those all land in band 0 and draw
+/// identically, so the cloud still ends in a step. `sqrt` spends the bands
+/// where the picture needs them: a reading of 8 draws at band 1 rather than
+/// band 0, 32 at band 2 rather than 1, and only the core reaches the top.
+///
+/// Banded at all, rather than continuous, for the reason `Interface::scent`
+/// gives: this value decides whether the corner owes a repaint, and a raw
+/// strength would move on every frame and cost the dirty-rect skip its job.
+fn band_of(v: u8) -> u8 {
+    let t = (v as f32 / 255.0).sqrt();
+    (t * (SCENT_BANDS - 1) as f32).round() as u8
 }
 
 fn options(game: &Druid) -> Option<Options> {
