@@ -38,8 +38,28 @@
 // Holds: ~3,001 water cells resting on water at frame 16,000 against an
 // initial bowl volume of 2,944.
 //
+// **And it has a bed a root can hold, which is why it is also the Phase 1
+// bed.** Owner, card `20260914T161252082Z-c1f271`, on the first version of
+// this file: *"fine for creatures and floating plants, but anything that
+// needs roots in soil will fail. I think you need a thin stone liner with a
+// thicker soil bed?"* -- exactly right, and the two are not in tension:
+// **the stone only has to seal, the soil only has to be rootable**, so the
+// bottom four steps are sediment sitting on the liner. Water 2,592,000 units
+// at frame 0, and the sediment goes from `room 56` to `room 0` and stops --
+// `the_pond_sediment`'s measured behaviour, which is that a sealed bed drinks
+// its capacity once and then holds.
+//
 // **This is the Phase 2 bed.** A swim verb raced in any of the four boxed
 // ponds would be raced against a wall.
+//
+// **On why the boxed ponds stop an ant, since the obvious reading is wrong:**
+// it is not the stone. `creature::move_cost` returns `None` for `Solid` and
+// `Some` for `Powder`, which says an animal cannot *burrow into* rock and
+// says nothing about walking on it -- and the sloped arm that recovered the
+// range is made of **more** stone than the vertical pit it beat (8,576 cells
+// against 6,688). Ants walk across a stone bowl nearly as well as across flat
+// ground. What stops them is the **32-row vertical face**; the same stone
+// laid as 2-row steps is a road.
 (
     name: "the_pond_bowl",
     title: "THE POND, WITH A BANK",
@@ -111,6 +131,17 @@
         Fill(material: "stone", x: 276, y: 188, w: 4, h: 2),
         Fill(material: "stone", x: 236, y: 190, w: 4, h: 2),
         Fill(material: "stone", x: 272, y: 190, w: 4, h: 2),
+        // **The sediment: the bottom four steps are soil, not water.**
+        // Owner, card 20260914T161252082Z-c1f271: "fine for creatures and
+        // floating plants, but anything that needs roots in soil will fail. I
+        // think you need a thin stone liner with a thicker soil bed?" A bowl
+        // that is stone all the way round suits a swimmer and a floater and
+        // gives a ROOTED plant nothing to hold. The liner underneath is what
+        // stops this draining -- see the header.
+        Fill(material: "soil", x: 228, y: 184, w: 56, h: 2),
+        Fill(material: "soil", x: 232, y: 186, w: 48, h: 2),
+        Fill(material: "soil", x: 236, y: 188, w: 40, h: 2),
+        Fill(material: "soil", x: 240, y: 190, w: 32, h: 2),
         Fill(material: "water", x: 180, y: 160, w: 152, h: 2),
         Fill(material: "water", x: 184, y: 162, w: 144, h: 2),
         Fill(material: "water", x: 188, y: 164, w: 136, h: 2),
@@ -123,10 +154,6 @@
         Fill(material: "water", x: 216, y: 178, w: 80, h: 2),
         Fill(material: "water", x: 220, y: 180, w: 72, h: 2),
         Fill(material: "water", x: 224, y: 182, w: 64, h: 2),
-        Fill(material: "water", x: 228, y: 184, w: 56, h: 2),
-        Fill(material: "water", x: 232, y: 186, w: 48, h: 2),
-        Fill(material: "water", x: 236, y: 188, w: 40, h: 2),
-        Fill(material: "water", x: 240, y: 190, w: 32, h: 2),
         Plant(species: "herb", x: 60),
         Plant(species: "herb", x: 100),
         Plant(species: "herb", x: 400),

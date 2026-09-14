@@ -505,6 +505,17 @@ this whole document: `the_pond.ron`, `the_pond_sediment.ron`,
 every one of them is costing a third of the colony's range for reasons that
 have nothing to do with water.
 
+**It is not the stone, and the obvious reading is wrong.** Owner, card
+`…c1f271`: *"why can't ants walk on stone?"* — they can.
+`creature::move_cost` returns `None` for `Solid` and `Some` for `Powder`,
+which says an animal cannot **burrow into** rock and says nothing about
+walking on it. The control is already in the table: **the sloped arm is made
+of more stone than the vertical pit it beats** — 8,576 placed cells against
+6,688 — and reaches 272.5 columns against 196.5. Ants cross a stone bowl
+nearly as well as flat ground. What stops them is the **32-row vertical
+face**; the same material laid as 2-row steps is a road. Any wording that
+blames the material (this document's own card included) is wrong.
+
 **What this arm does *not* license, stated because the columns are right there
 and invite it.** The sloped arm places **8,576 cells against the vertical's
 6,688** — the ramp is made of stone, so it replaces soil the vertical wall left
@@ -570,6 +581,17 @@ comes first and it is not the bed anyone has been using**: the four shipped
 ponds are all stone boxes, and a Phase 2 race in any of them measures a wall.
 `shore_bowl` (sloped, thin-lined, soil-banked, holds water) is the shape that
 does not, and it should ship as the Phase 2 bed.
+
+**Shipped as `the_pond_bowl`, and it is the Phase 1 bed too.** Owner, same
+card: *"fine for creatures and floating plants, but anything that needs roots
+in soil will fail. I think you need a thin stone liner with a thicker soil
+bed?"* Correct, and the two requirements do not fight: **the stone only has to
+seal and the soil only has to be rootable**, so the bottom four steps are
+sediment lying on the liner. Water 2,592,000 units at frame 0 — the predicted
+volume exactly — and the sediment goes `room 56` → `room 0` and stops, which
+is §1.6's measured behaviour for a sealed bed. So one bed now carries a
+passable bank for Phase 2 *and* rootable ground under water for Phase 1,
+where before those were two files and neither had both.
 
 ---
 
