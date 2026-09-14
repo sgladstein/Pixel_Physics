@@ -2514,6 +2514,48 @@ fn group_losses(world: &World, species: SpeciesId, colony: Option<u32>) -> (u64,
     (killed, starved, killers)
 }
 
+/// **Is this colony feeding itself, and by how much?**
+///
+/// Returns the share of everything the colony has *spent* that it has found
+/// in the world for itself, and a word for it.
+///
+/// **This is the sentence the FOOD page did not say.** The owner read the
+/// first version of that page and answered *"Nope. I don't understand what
+/// these visuals are trying to tell"* — not a complaint about a chart type,
+/// but that no row on it said what it was **for**. Everything on the page was
+/// true and none of it was a question. This is the question.
+///
+/// **Found means out of the world, and that is why the numerator is
+/// `HarvestedPlant` alone.** A corpse carries the worth of the animal it was,
+/// so meat is food something else already paid for and a colony living on it
+/// is eating itself; the founding grant is not food it found; and
+/// trophallaxis is the colony's own joules going round again. Counting any of
+/// those would let a colony that has never brought a leaf home read as
+/// solvent — which is precisely the state the books were built to expose, and
+/// the state every colony in this bed turns out to be in (round 35 §4: they
+/// forage **2.6%** of what they are granted and eat **84–95%** corpse).
+/// Living flesh taken off a colony this one does not recognise *is* counted,
+/// because that is food arriving from outside it; the `ATE RIVALS` row below
+/// says when that is what is happening.
+///
+/// **Against what it spends, not against what it has taken in.** Intake
+/// includes the grant, so a colony that has eaten nothing but its endowment
+/// would score 100% of intake and starve on schedule. What it spends is its
+/// bill, and covering your own bill is what feeding yourself means.
+///
+/// **Graded, with a middle.** `CLAUDE.md`'s first law: an outcome is a
+/// distribution and a readout that can only say thriving or gone has the
+/// defect the uniform rubble had. A colony finding half its own keep is a
+/// real and common state and the page says so.
+fn feeding_itself(books: &world::ColonyBooks) -> (f64, &'static str) {
+    let outgo = books.outgo();
+    if outgo <= 0.0 {
+        return (0.0, "NOT YET");
+    }
+    let share = books.get(Account::HarvestedPlant) / outgo;
+    (share, if share >= 0.9 { "YES" } else if share >= 0.25 { "PART WAY" } else { "NO" })
+}
+
 /// **How many colonies the FOOD page draws in full.**
 ///
 /// Three blocks of six rows plus two charts is the page; a fourth overflows
@@ -4287,16 +4329,39 @@ impl Ui {
         let ranked: Vec<String> = loads.iter().take(12).map(|n| n.to_string()).collect();
         let bands = hunger_bands(world, colony, species);
         let thin = bands[0] + bands[1];
+        let (found, verdict) = feeding_itself(&books);
         let mut rows = vec![
+            // **`FINDS n%` leads this line, and it is the sentence the page
+            // did not say.** *Finds*, deliberately, and not *feeds*: `FED` on
+            // the row directly below is mouth-to-mouth between ants, and two
+            // words a letter apart meaning opposite things is how a dense
+            // page stops being read at all. The owner read the first version of the page and
+            // answered *"Nope. I don't understand what these visuals are
+            // trying to tell"* -- not a complaint about a chart type, but
+            // that every row was true and none of them was an *answer*. This
+            // one is: is the colony paying its own way? See `feeding_itself`
+            // for why the number is what it is.
+            //
+            // **On this row rather than on one of its own, and that is not
+            // tidiness.** The page budget is 228 px and a colony block with a
+            // rivals row is 49 of it, so a two-colony bed fits in exactly the
+            // 98 px left after the two charts -- measured, by rendering the
+            // page with and without. An extra row per block, or even an extra
+            // row on the page, drops the second colony to `MORE COLONIES +1`,
+            // and a page whose whole job is telling two colonies apart must
+            // not buy its headline with one of them.
             Row::value(
                 world.group_label(species, colony),
-                format!("{alive} ALIVE   {}", compact(income - outgo)),
+                format!("FINDS {:.0}%   {alive} ALIVE   {}", 100.0 * found, compact(income - outgo)),
                 tint,
                 format!(
-                    "THIS COLONY'S BANK, ALL TOLD: EVERYTHING IT HAS EVER TAKEN IN LESS EVERYTHING IT HAS SPENT, WHICH IS WHAT ITS LIVING ANIMALS ARE HOLDING BETWEEN THEM RIGHT NOW. IN {} J, OUT {} J. IT WAS PLACED WITH {} J OF THAT, WHICH IS NOT FOOD IT FOUND. A COLONY WITH NOTHING ALIVE STILL SHOWS ITS BOOKS -- THAT IS OFTEN THE ONE WORTH READING.",
-                    compact(income),
+                    "IS THIS COLONY FEEDING ITSELF? {verdict}. {:.0}% OF EVERYTHING IT HAS SPENT, IT FOUND IN THE WORLD FOR ITSELF -- {} J OF LEAF, LITTER, SEED, NECTAR AND RIVAL FLESH AGAINST A BILL OF {} J. NEITHER THE {} J IT WAS PLACED WITH NOR A CORPSE COUNTS: THE GRANT RUNS OUT ONCE, AND A CORPSE IS FOOD SOMETHING ELSE ALREADY PAID FOR. THEN THE BANK, ALL TOLD: EVERYTHING TAKEN IN LESS EVERYTHING SPENT, WHICH IS WHAT ITS LIVING ANIMALS ARE HOLDING BETWEEN THEM RIGHT NOW -- IN {} J, OUT {} J. A COLONY WITH NOTHING ALIVE STILL SHOWS ITS BOOKS, AND THAT IS OFTEN THE ONE WORTH READING.",
+                    100.0 * found,
+                    compact(books.get(Account::HarvestedPlant)),
                     compact(outgo),
-                    compact(books.get(Account::Granted))
+                    compact(books.get(Account::Granted)),
+                    compact(income),
+                    compact(outgo)
                 ),
             ),
             Row::value(
@@ -5686,6 +5751,25 @@ fn draw_lines(hc: render::Hud, frame: &mut [u8], area: Rect, series: &[(Vec<u32>
             }
             prev = Some((x, y));
         }
+    }
+    // **The top of the scale, written on the plot.**
+    //
+    // Every series here is normalised to the tallest sample across all of
+    // them and the number that sets the height was nowhere on the page, so
+    // the chart drew a *shape* and not a quantity: the same peaked line
+    // means six hundred joules on one bed and six on another, and a colony
+    // collapsing to a tenth of its intake redraws at exactly the same
+    // height. That is the whole of *"I don't understand what these visuals
+    // are trying to tell"* for the two charts, as distinct from the rows.
+    //
+    // Right-aligned inside the plot's own frame rather than under the
+    // caption, so it cannot be read as belonging to the chart below -- the
+    // same confusion the gap between the two plots was added to prevent.
+    // The floor is not labelled: it is zero on every chart this paints, and
+    // an axis that says 0 where nothing else could be is noise.
+    if peak > 0 {
+        let top = compact(peak as f64);
+        text(hc, frame, area.right() - hud::text_width(&top) - 2, area.y + 1, &top, FAINT);
     }
 }
 
@@ -11065,12 +11149,75 @@ mod tests {
             assert_eq!(rivals, named, "{colonies} colonies: {named} blocks drawn but {rivals} carry the rivals row");
             let overflowed = rows.iter().any(|r| matches!(&r.body, Body::Value { label, .. } if label == "MORE COLONIES"));
             saw_overflow |= overflowed;
+            // **Two colonies must both be on the screen, and this is a bar
+            // rather than an observation.** Telling two colonies apart is
+            // what the page is for -- the owner puts two down and asks which
+            // is doing better -- and the fit is exact rather than
+            // comfortable: two charts leave 98 px under them and a block
+            // carrying the rivals row is 49. So **one extra row anywhere on
+            // this page, per block or not, drops the second colony to
+            // `MORE COLONIES +1`**, and it does so silently and looks like a
+            // design choice. That happened while `FINDS n%` was being added:
+            // it went in as a row of its own plus a page headline, both
+            // blocks became one, and only rendering the page before and
+            // after showed it. The verdict now rides on the block's own
+            // first line and costs nothing, which is why this passes.
+            if colonies <= 2 {
+                assert!(
+                    !overflowed && named as u32 == colonies,
+                    "{colonies} colonies must both fit: {named} drawn, overflowed {overflowed}, page {height} px of {}",
+                    page_content_budget()
+                );
+            }
             assert!(
                 named as u32 == colonies || overflowed,
                 "{colonies} colonies: {named} drawn, and the page does not say the rest were left out"
             );
         }
         assert!(saw_overflow, "no colony count in this sweep overflowed the page, so the honest-cap half is untested");
+    }
+
+    /// **`FINDS n%` must not count food the colony did not find.**
+    ///
+    /// The three ways it could read solvent while starving, and all three are
+    /// live on a shipped bed: the founding grant (every colony is placed with
+    /// one and it is most of what they ever have), scavenged corpse (84-95%
+    /// of what they eat, round 35 §4), and trophallaxis, which is the
+    /// colony's own joules going round again. A row that counted any of them
+    /// would answer *yes* for the whole of this bed, and the page would be
+    /// back to being true and saying nothing — which is what it was.
+    #[test]
+    fn finding_your_own_food_does_not_count_the_grant_the_dead_or_a_handout() {
+        let mut world = peopled(0, 0);
+        let corpse = world.materials.id_of("corpse").or_else(|| world.materials.id_of("litter")).expect("a material to book meat against");
+        // Colony 1: a bill, and every source of food except going and
+        // finding some.
+        world.book(1, Account::Granted, 10_000.0);
+        world.book_meal(1, Account::HarvestedCorpse, corpse, 5_000.0);
+        world.book(1, Account::SharedIn, 2_000.0);
+        world.book(1, Account::Metabolized, 4_000.0);
+        assert_eq!(feeding_itself(&world.colony_books(1)), (0.0, "NO"), "a colony living on its grant, its dead and handouts has found nothing");
+
+        // Colony 2: the positive control — the same bill, paid out of the
+        // world. Without it the assertion above would pass on a function
+        // that returns zero unconditionally.
+        let litter = world.materials.id_of("litter").expect("litter must be loaded");
+        world.book(2, Account::Metabolized, 4_000.0);
+        world.book_meal(2, Account::HarvestedPlant, litter, 4_000.0);
+        let (share, verdict) = feeding_itself(&world.colony_books(2));
+        assert!((share - 1.0).abs() < 1e-9, "a colony that foraged its whole bill has found all of it, got {share}");
+        assert_eq!(verdict, "YES");
+
+        // Colony 3: the middle, because an outcome is a distribution and a
+        // readout that can only say thriving or gone has the defect the
+        // uniform rubble had. Half a bill is a real and common state.
+        world.book(3, Account::Metabolized, 4_000.0);
+        world.book_meal(3, Account::HarvestedPlant, litter, 2_000.0);
+        assert_eq!(feeding_itself(&world.colony_books(3)).1, "PART WAY");
+
+        // And a colony that has spent nothing cannot be scored — it must
+        // say so rather than divide by zero into a confident answer.
+        assert_eq!(feeding_itself(&world.colony_books(4)), (0.0, "NOT YET"));
     }
 
     /// **The page's numbers are the books', and the books' are the world's.**

@@ -156,3 +156,72 @@ remember?"*, blind A/B, ten seconds against a minute. Verdict: *pending*.
   answered **rating 4**, no comment. The box is accepted; nothing is asked
   for.
 
+## 5. The FOOD page: every row was true and none of them was an answer
+
+*"I don't understand what these visuals are trying to tell"* is not a
+complaint about a chart type. Reading the page cold, two things are wrong:
+
+- **No row says whether the colony is alright.** It lists what a colony has
+  eaten, spent and is holding, and never whether that adds up to a colony that
+  can keep itself alive.
+- **Neither chart has a scale anywhere on it.** `draw_lines` normalises every
+  series to the tallest sample across all of them, and that number appeared
+  nowhere — so the same peaked line means 600 J on one bed and 6 on another,
+  and a colony collapsing to a tenth of its intake redraws at exactly the same
+  height. It drew a shape, not a quantity.
+
+**Both fixes ride on lines that already existed.** Each colony's own first line
+now opens `FINDS n%` — the share of everything it has spent that it went out
+and found in the world for itself — and each chart prints its peak, top right.
+`FINDS` and not `FEEDS`, because `FED` on the row directly below is
+mouth-to-mouth and two words a letter apart meaning opposite things is how a
+dense page stops being read.
+
+`feeding_itself` excludes three things and each exclusion is load-bearing on a
+shipped bed: the **founding grant** (runs out once, and is most of what these
+colonies ever have), **scavenged corpse** (84–95% of what they eat), and
+**trophallaxis** (the colony's own joules going round again). Counting any of
+them would answer *yes* for the whole bed. Against **spend**, not intake:
+intake includes the grant, so a colony living on its endowment would score
+100% and starve on schedule.
+
+### The regression I nearly shipped, caught by rendering rather than by testing
+
+The first build put the verdict on a **row of its own** plus a page-wide
+headline row. Both colonies stopped fitting. Rendering the page from `HEAD`
+and from the branch on one bed showed it in two pictures:
+
+| | colony blocks drawn |
+|---|---|
+| `main` | **2** |
+| verdict as its own row + page headline | **1**, and `MORE COLONIES +1` |
+| verdict folded onto the block's first line | **2** |
+
+The arithmetic afterwards: the budget is **228 px**, two charts take 108, the
+`MORE COLONIES` row is held back at 9, and a colony block carrying the rivals
+row is **49** — so two colonies fit in exactly the 98 px left, with nothing
+spare. **One extra row anywhere on this page, per block or not, drops the
+second colony**, silently, and looks like a design choice. Telling two colonies
+apart is what the page is for.
+
+`the_food_page_stays_on_the_screen` now asserts both blocks are drawn at two
+colonies, and it was **watched going red** with a deliberate extra row in the
+block (`2 colonies must both fit: 1 drawn, overflowed true, page 188 px of
+228`). New guard
+`finding_your_own_food_does_not_count_the_grant_the_dead_or_a_handout` covers
+the three exclusions with a positive control (a colony that foraged its whole
+bill reads 100%), the middle band, and the no-spend case.
+
+**Card `20260914T205807355Z-12829d`** — *"The FOOD page, with the question it
+never asked"*, before/after. Verdict: *pending*.
+
+### One thing found and not fixed, because it is not this lane's
+
+`examples/labui frames=20000 colonies=2` panics with *"the interface has no
+button for RosterCompare"*; at `frames=6000` it does not. Reproduces on
+`origin/main`'s `src/lab/ui.rs` (checked by rendering the before-picture with
+exactly that file), so it predates this branch. It looks like the compare verb
+needing two pinned individuals on a bed whose colonies have died back. Not
+filed as a bug — it is a harness fragility, not engine behaviour — but it will
+waste somebody's twenty minutes.
+
