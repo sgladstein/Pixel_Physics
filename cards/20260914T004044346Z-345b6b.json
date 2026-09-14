@@ -1,0 +1,46 @@
+{
+  "id": "20260914T004044346Z-345b6b",
+  "created": "2026-09-14T00:40:44Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/determined-ramanujan-c9szc5",
+    "commit": "b047ad89",
+    "agent": null,
+    "session_id": "79abafe2-f617-546c-9fed-7bebff67abba",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The druid writes on the ground: a scent trail the ants can read",
+  "question": "Hold G and walk, and you write on the ground in the ants' own language. Does the mark read as something you put down deliberately — and is it too loud, too quiet, or right?",
+  "context_md": "**121 marks over a 130-cell walk.** Channel B, which is the 'there is food that way' trail: ant.ron's hidden units 2 and 3 carry it into Move gated on an ant that is *empty*. Channel A is the laden ant's road home and would be telling the colony where its own nest is.\n\n**Why a laid trail is followable at all**, and it is not obvious: an ant reads the *gradient*, so a trail of uniform strength says nothing. Decay supplies the slope — every mark starts fading the moment it is laid, so the freshest cell is the strongest and the slope points back along the route to wherever you are standing. You do not push them. You are the thing they walk toward. Stop, and the peak stays where you stopped.\n\n**Honest about what is not proven.** The trail is laid, it has the slope, and the ants' wiring reads that channel. That a laid trail actually *moves* a colony is not demonstrated — the first paired test was a bad scene, not a verdict: bare ground has no food, so the trail led to nothing; and the metric was the colony's mean position, which for a colony living at its nest is the nest whatever the animals do. Both arms came back identical to the digit. A real test needs food at the far end and a count near the trail head, not a mean.\n\n**A trail only commands where time runs.** Creatures tick on the schedule the held gate covers, so a trail leading out of every circle leads a colony that is not moving — the trail and the circle are paired verbs.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "the walk",
+      "files": [
+        "20260914T004044346Z-345b6b/000-trail_full.png"
+      ],
+      "caption": "G held for 400 ticks while walking east. 121 marks over 130 cells.",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "close up",
+      "files": [
+        "20260914T004044346Z-345b6b/001-trail_zoom.png"
+      ],
+      "caption": "4x. Freshest at his feet, faintest at the far end — the slope is what an ant can follow.",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
