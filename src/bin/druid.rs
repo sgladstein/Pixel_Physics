@@ -942,6 +942,10 @@ impl Handler {
             }
             return;
         }
+        // A press armed on the founding screen and never released there --
+        // the screen was closed with `X` while the button was held -- must
+        // not still be sitting armed the next time it opens.
+        self.offer_pressed = None;
         if pressed {
             self.bar_pressed = self.bar.hit(x, y);
         } else if let Some(action) = self.bar_pressed.take() {
