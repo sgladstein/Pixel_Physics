@@ -69,7 +69,7 @@ use super::pheromone::{self, Channel};
 use super::plant;
 use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
-use super::world::World;
+use super::world::{Account, World};
 
 /// Index 0 = east, then counterclockwise on screen (y grows downward, so
 /// `(1, -1)` is up-and-right). **The one heading table** — see
@@ -1520,6 +1520,12 @@ fn place_creature(
         let traits = world.organism(organism).map(|s| s.traits).unwrap_or([0.0; CREATURE_TRAITS]);
         world.seed_line_stats(founder_lineage, traits);
     }
+    // **Read once, here, for every booking below.** A `Bud` has already
+    // copied its parent's label (`OrganismState::colony`), so one lookup
+    // covers the founder arm and the birth arm alike -- and the birth arm's
+    // charges land on the parent's colony, which is the child's, which is
+    // why the two arms can share it.
+    let colony = world.colony_of(organism);
     let stamp = (def.body_energy * body_cells as f32) as f64;
     match origin {
         Origin::Founder { .. } | Origin::Stock { .. } => {
@@ -1528,8 +1534,8 @@ fn place_creature(
             // grants *here*, at the one seam where a creature appears out
             // of nothing, so the structural half is accounted rather than
             // conjured at the far end when the animal dies.
-            world.energy_ledger.granted += def.start_energy as f64;
-            world.energy_ledger.stamped += stamp;
+            world.book(colony, Account::Granted, def.start_energy as f64);
+            world.book(colony, Account::Stamped, stamp);
         }
         Origin::Bud { parent, generation, .. } => {
             world.creature_stats.births += 1;
@@ -1580,7 +1586,7 @@ fn place_creature(
             //
             // The parent is charged the whole of it one line down, so the
             // live identity closes by construction rather than by luck.
-            world.energy_ledger.stored_in_meat += stamp;
+            world.book(colony, Account::StoredInMeat, stamp);
             let cost = birth_cost_of(def, endowment);
             // **The parent pays what it has; food within reach pays the rest.**
             //
@@ -1647,10 +1653,11 @@ fn place_creature(
                         if !bite_outcome.survived() {
                             world.set(px, py, Cell::EMPTY);
                         }
+                        let material = world.get(px, py).material;
                         if banked {
-                            world.energy_ledger.harvested_corpse += yielded as f64;
+                            world.book_meal(colony, Account::HarvestedCorpse, material, yielded as f64);
                         } else {
-                            world.energy_ledger.harvested_plant += yielded as f64;
+                            world.book_meal(colony, Account::HarvestedPlant, material, yielded as f64);
                         }
                         if let Some(state) = world.organism_mut(parent) {
                             state.energy += yielded;
@@ -3794,7 +3801,10 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // metabolism, and a new sink would have to be added to
     // `EnergyLedger::expected_live_total` for no attribution the
     // `sight_cells_read` counter does not already give.
-    world.energy_ledger.metabolized += (idle + sight_tax + curvature_tax + force_tax + armour_tax + exposure) as f64;
+    // Read once for the whole tick rather than at each of the seven
+    // bookings below -- see `World::colony_of`.
+    let colony = world.colony_of(organism);
+    world.book(colony, Account::Metabolized, (idle + sight_tax + curvature_tax + force_tax + armour_tax + exposure) as f64);
     world.creature_stats.armour_energy += armour_tax as f64;
     world.creature_stats.force_energy += force_tax as f64;
     world.creature_stats.curvature_cells_read += curvature_reads;
@@ -3803,7 +3813,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     if unsheltered {
         world.creature_stats.exposed_ticks += 1;
     }
-    world.energy_ledger.synapse_tax += synapse_tax as f64;
+    world.book(colony, Account::SynapseTax, synapse_tax as f64);
 
     // --- the four verbs, before moving: an ant that is going to pick
     // --- something up should do it from where it can reach it.
@@ -3834,7 +3844,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     if gnaws > 0 && def.dig_cost_in_moves > 0.0 {
         let jaw = def.move_cost_per_cell * body_cells * def.dig_cost_in_moves * gnaws as f32;
         spent += jaw;
-        world.energy_ledger.metabolized += jaw as f64;
+        world.book(colony, Account::Metabolized, jaw as f64);
         world.creature_stats.gnaw_energy += jaw as f64;
     }
     // **Trophallaxis is mandible-to-mandible, priced through the same
@@ -3847,7 +3857,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     if shares > 0 && def.dig_cost_in_moves > 0.0 {
         let work = def.move_cost_per_cell * body_cells * def.dig_cost_in_moves * shares as f32;
         spent += work;
-        world.energy_ledger.metabolized += work as f64;
+        world.book(colony, Account::Metabolized, work as f64);
         world.creature_stats.share_energy += work as f64;
     }
     if dug > 0 && def.dig_cost_in_moves > 0.0 {
@@ -3856,7 +3866,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
         // Booked as metabolism for `sight_tax`'s stated reason: a new sink
         // would have to be added to the conservation identity for no
         // attribution `CreatureStats::digs` does not already give.
-        world.energy_ledger.metabolized += cost as f64;
+        world.book(colony, Account::Metabolized, cost as f64);
         world.creature_stats.dig_energy += cost as f64;
     }
 
@@ -3907,7 +3917,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
             // whole point of the window.
             let cost = def.move_cost_per_cell * (body_cells + carried_cells(world, organism, def)) * LAUNCH_COST_IN_MOVES;
             spent += cost;
-            world.energy_ledger.moved += cost as f64;
+            world.book(colony, Account::Moved, cost as f64);
             // **Deliberately not `moved`.** `moved` gates the pheromone
             // deposit (P-11) and a creature in the air is not touching the
             // ground it would be laying a trail on. It also keeps
@@ -3920,7 +3930,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
                 // gives: `act` is what changes a load, and it has already run.
                 let step = def.move_cost_per_cell * (body_cells + carried_cells(world, organism, def));
                 spent += step;
-                world.energy_ledger.moved += step as f64;
+                world.book(colony, Account::Moved, step as f64);
             }
         }
     } else if draw.unit_f32() < brain::unit_scale(outputs[brain::BrainOutput::Tumble as usize], 1.0) {
@@ -3992,7 +4002,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
             if laid > 0.0 {
                 let cost = def.move_cost_per_cell * body_cells * def.emit_cost_in_moves * laid;
                 spent += cost;
-                world.energy_ledger.metabolized += cost as f64;
+                world.book(colony, Account::Metabolized, cost as f64);
                 world.creature_stats.emit_energy += cost as f64;
             }
         }
@@ -4151,10 +4161,15 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
                     world.pip_digestion_release_x.push(hx);
                 }
             }
+            // **The diet band is booked on the same call that credits the
+            // animal**, so the two cannot report different meals -- see
+            // `ColonyBooks::intake_by_material`. `c.material` is what the
+            // crop swallowed, which is the source a player means by "what
+            // are they eating", not whatever is standing there now.
             if world.materials.get(c.material).worth_in_aux {
-                world.energy_ledger.harvested_corpse += gain as f64;
+                world.book_meal(colony, Account::HarvestedCorpse, c.material, gain as f64);
             } else {
-                world.energy_ledger.harvested_plant += gain as f64;
+                world.book_meal(colony, Account::HarvestedPlant, c.material, gain as f64);
             }
             world.creature_stats.digested_face += c.unit as f64;
             // **What the overhead ate, counted rather than inferred.** A loss
@@ -7064,6 +7079,20 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 did.shares += 1; // billed by `creature_tick`
                 world.creature_stats.shares += 1;
                 world.creature_stats.shared_j += amount as f64;
+                // **The one live-to-live flow in the engine, and the one
+                // that makes a per-colony ledger different from a copy of
+                // the world one.** World-wide it is invisible and rightly
+                // so -- nothing was created or destroyed. Per colony it is
+                // a real transfer whenever the pair straddles two labels,
+                // which a shipped bed allows: `neediest_kin` goes through
+                // `is_living_kin`, and that is species identity unless
+                // `World::colony_rivalry` is on. Booked as a matched pair
+                // so both colonies' live identities still close; see
+                // `Account::SharedOut`.
+                let donor = world.colony_of(organism);
+                let taker = world.colony_of(kin.id);
+                world.book(donor, Account::SharedOut, amount as f64);
+                world.book(taker, Account::SharedIn, amount as f64);
                 // **The odour rides the same contact the food did.** Free --
                 // the pair is already resolved and the transfer already
                 // billed -- and never the load-bearing path: see
@@ -7251,7 +7280,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                     if let Some(state) = world.organism_mut(organism) {
                         state.energy += credit;
                     }
-                    world.energy_ledger.harvested_plant += credit as f64;
+                    world.book_meal(world.colony_of(organism), Account::HarvestedPlant, bite.material, credit as f64);
                     return did;
                 }
                 // **A nectar-only mouth takes the hook or it takes nothing.**
@@ -7358,6 +7387,17 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // opened, and the half the seed-bank census is about.
                 if passenger.is_some() && seed_saved == plant::SeedBite::SurvivedBare {
                     world.bare_seeds_carried += 1;
+                }
+                // **Who is eating whom, in joules.** `tally_kill` below
+                // counts the deaths; this counts what the meals were worth,
+                // and a colony bled one cell at a time never reaches that
+                // tally at all. Read before `reconcile_chain`, which frees
+                // the victim's slot when the mouthful was the deciding cell.
+                // See `ColonyBooks::raided`.
+                if let (Some(v), Some(me)) = (victim_group, world.organism(organism).map(|s| s.colony)) {
+                    if v.1 != me {
+                        world.book_raid(me, v.1, worth as f64);
+                    }
                 }
                 if victim != 0 && victim != organism && !reconcile_chain(world, victim) {
                     // The bite killed. Booked here rather than at the death
@@ -9427,7 +9467,7 @@ fn step_crossing(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Act
     // walking the same distance in the open.
     let body_cells = live_body_cells(world, organism, def);
     let cost = def.move_cost_per_cell * (body_cells + carried_cells(world, organism, def)) * f32::from(crossing.thickness);
-    world.energy_ledger.moved += cost as f64;
+    world.book(world.colony_of(organism), Account::Moved, cost as f64);
     apply_creature_energy(world, hx, hy, organism, -cost, def)
 }
 
@@ -9968,8 +10008,9 @@ fn fly_brain_tick(world: &mut World, organism: u16, def: &CreatureDef, flight: &
     let synapse_tax = def.synapse_fraction * def.start_energy * active_synapses as f32;
     let sight_tax = def.sight_fraction * def.start_energy * sight_reads as f32;
     let curvature_tax = def.curvature_fraction * def.start_energy * curvature_reads as f32;
-    world.energy_ledger.synapse_tax += synapse_tax as f64;
-    world.energy_ledger.metabolized += (sight_tax + curvature_tax) as f64;
+    let colony = world.colony_of(organism);
+    world.book(colony, Account::SynapseTax, synapse_tax as f64);
+    world.book(colony, Account::Metabolized, (sight_tax + curvature_tax) as f64);
     world.creature_stats.curvature_cells_read += curvature_reads;
     world.creature_stats.curvature_energy += curvature_tax as f64;
     synapse_tax + sight_tax + curvature_tax
@@ -10372,7 +10413,8 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
     // the *rate* identical and leaves `LAUNCH_COST_IN_MOVES` as the only
     // thing the verb actually charges for.
     let idle = def.idle_cost_per_cell * live_body_cells(world, organism, def) / interval as f32;
-    world.energy_ledger.metabolized += idle as f64;
+    let colony = world.colony_of(organism);
+    world.book(colony, Account::Metabolized, idle as f64);
     // **What staying up costs, per airborne frame the verb was holding the
     // body** (design §1/§3). Charged here rather than inside the brain tick
     // because the lift is held between decisions exactly as a velocity is:
@@ -10411,7 +10453,7 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
     // behaviour is this expression at `fly == 1.0`.
     let lift = if fly_now > 0.0 {
         let cost = def.move_cost_per_cell * (live_body_cells(world, organism, def) + carried_cells(world, organism, def)) * def.fly_cost_in_moves * if flight29_enabled() { fly_now } else { 1.0 };
-        world.energy_ledger.moved += cost as f64;
+        world.book(colony, Account::Moved, cost as f64);
         world.creature_stats.fly_energy += cost as f64;
         cost
     } else {
@@ -12482,7 +12524,10 @@ fn creature_dies(world: &mut World, organism: u16, cause: organism::DeathCause) 
     // shortfall is booked as `overdrawn` so the live identity still closes.
     let bank = world.organism(organism).map_or(0.0, |s| s.energy);
     let leftover = bank.max(0.0);
-    world.energy_ledger.overdrawn += (leftover - bank) as f64;
+    // Read while the animal is still here: `free_organism` is what takes
+    // the state away, and it runs at the end of this function.
+    let colony = world.colony_of(organism);
+    world.book(colony, Account::Overdrawn, (leftover - bank) as f64);
     // **Only the cells it still owns, and this is a matter-conservation
     // bug that read as a feature.** `chain` is a separate sequence from
     // `cells` and is *stale* on the predation path: `act` empties the
@@ -12572,12 +12617,12 @@ fn creature_dies(world: &mut World, organism: u16, cause: organism::DeathCause) 
         let meat_written = aux as f64 * chain.len() as f64;
         let from_stamp = body_energy as f64 * chain.len() as f64;
         let from_live = (meat_written - from_stamp).clamp(0.0, leftover as f64);
-        world.energy_ledger.stored_in_meat += from_live;
-        world.energy_ledger.dissipated += leftover as f64 - from_live;
+        world.book(colony, Account::StoredInMeat, from_live);
+        world.book(colony, Account::Dissipated, leftover as f64 - from_live);
     } else {
         // No `corpse` material compiled in: there is nowhere to put the
         // remainder, so it is genuinely gone. Reads 0 in every real scene.
-        world.energy_ledger.dissipated += leftover as f64;
+        world.book(colony, Account::Dissipated, leftover as f64);
     }
     // Whatever it was carrying falls where it fell. Losing it would be a
     // silent material sink, and the census is about to care.
@@ -21355,6 +21400,227 @@ mod tests {
             previous = now;
         }
         assert!(previous < opening, "40,000 frames of metabolism have to cost something ({opening:.2} -> {previous:.2})");
+    }
+
+    // --- the per-colony books --------------------------------------------
+
+    /// **Two colonies in one bed, with food on the floor.**
+    ///
+    /// Two and not one, because a single colony makes every sum identity
+    /// below vacuous: one bucket agrees with the world ledger whatever the
+    /// label is doing. Food on the floor for the same reason on the other
+    /// axis -- a bed with nothing to eat never books a harvest account, and
+    /// a diet band that is permanently empty passes every test written over
+    /// it. `CLAUDE.md`'s positive control, built into the scene rather than
+    /// remembered: `the_books_are_not_all_zero` is what asserts the scene
+    /// still contains the situation the rest of these tests think it does.
+    ///
+    /// **Thirty cells apart and not a hundred and twenty, and that spacing
+    /// is load-bearing.** At the first spacing tried (40 and 160) the two
+    /// colonies never met, every share stayed inside one colony, and the
+    /// cross-colony transfer the split was designed around was untested
+    /// while its equality passed. At 85 and 115 they mix: measured over
+    /// 12,000 frames, colony 1 gave 1,122.75 J and took 1,207.65 J, so 84.9
+    /// J crossed the line -- which is the quantity `the_books_close_for_
+    /// every_colony` would be short by if `Account::SharedOut` did not
+    /// exist.
+    fn two_colony_bed() -> (World, u32, u32) {
+        let mut w = test_world();
+        for x in 10..190 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        assert!(w.found_colony_of(85, 100, "ant", 6) >= 2, "test setup: the left colony must stand");
+        assert!(w.found_colony_of(115, 100, "ant", 6) >= 2, "test setup: the right colony must stand");
+        let groups = w.live_creature_groups();
+        assert_eq!(groups.len(), 2, "the bed must hold two colonies: {groups:?}");
+        let (a, b) = (groups[0].colony, groups[1].colony);
+        assert_ne!(a, b, "test setup: two foundings, two labels");
+        // **`litter`, not `leaf`**, for round 29's leaf dial: a live leaf is
+        // `food_energy: 40`, which credits 10 J at the shipped neutral gut
+        // against `EAT_YIELD_THRESHOLD`'s 12, so a generalist cannot see one
+        // and a floor of them is not a larder. Laid only into cells that are
+        // already empty, so it cannot displace an ant the founding just put
+        // down and turn a scene error into a mystery.
+        let litter = w.materials.id_of("litter").expect("test setup: the bed needs a food material");
+        for x in 10..190 {
+            if w.get(x, 100).is_empty() {
+                w.set(x, 100, Cell::new(litter, 0));
+            }
+        }
+        (w, a, b)
+    }
+
+    /// **Every account sums over the colonies to the world ledger.**
+    ///
+    /// The guard that makes the split worth reading at all: a booking that
+    /// reached one set of books and not the other is a per-colony number
+    /// that is quietly wrong while the world ledger stays perfect, which is
+    /// the failure mode a split ledger has and a single one does not.
+    ///
+    /// Swept over `Account::ALL` rather than written out account by
+    /// account, so a new account is covered the day it is added --
+    /// `CLAUDE.md`'s registry rule working in the useful direction for
+    /// once. The two colony-only accounts are excluded by
+    /// `Account::world_wide` and get their own equality below.
+    #[test]
+    fn every_account_sums_over_the_colonies() {
+        let (mut w, _, _) = two_colony_bed();
+        run(&mut w, 12_000);
+        for account in Account::ALL {
+            if !account.world_wide() {
+                continue;
+            }
+            let split: f64 = w.all_colony_books().iter().map(|b| b.get(account)).sum();
+            let world = w.energy_ledger.get(account);
+            assert!(
+                (split - world).abs() <= 1e-6 * world.abs().max(1.0),
+                "{:?} ({}): the colonies book {split:.4} and the world ledger {world:.4}",
+                account,
+                account.label()
+            );
+        }
+    }
+
+    /// **And the two colony-only accounts are a matched pair.**
+    ///
+    /// Trophallaxis across a colony line is the one live-to-live flow in the
+    /// engine, and the whole reason the split needed designing rather than
+    /// copying (`Account::SharedOut`). If these two ever disagree, one side
+    /// of a transfer is being booked without the other -- which is the free
+    /// term the world ledger's own doc records costing 300 conjured joules.
+    #[test]
+    fn a_share_is_booked_on_both_sides() {
+        let (mut w, _, _) = two_colony_bed();
+        run(&mut w, 12_000);
+        let out: f64 = w.all_colony_books().iter().map(|b| b.get(Account::SharedOut)).sum();
+        let into: f64 = w.all_colony_books().iter().map(|b| b.get(Account::SharedIn)).sum();
+        assert!((out - into).abs() <= 1e-9 * out.abs().max(1.0), "{out:.6} shared out against {into:.6} shared in");
+        // **The two controls this equality needs, because `0 == 0` passes
+        // it.** The verb has to have fired at all, and it has to have fired
+        // *across the colony line* -- an equality over two within-colony
+        // sums would be arithmetic rather than evidence, and the crossing
+        // is the whole case the pair of accounts exists for.
+        assert!(out > 0.0, "no trophallaxis at all in this bed: the equality above is about nothing");
+        assert!(
+            w.all_colony_books().iter().any(|b| (b.get(Account::SharedOut) - b.get(Account::SharedIn)).abs() > 1e-6),
+            "every share in this bed stayed inside one colony, so the crossing these accounts exist for is untested"
+        );
+    }
+
+    /// **Each colony's live identity closes, exactly as the world's does.**
+    ///
+    /// The claim the split is actually making: every joule that entered or
+    /// left this colony's live stock was booked with this colony's label. A
+    /// charge landing on the wrong colony passes the sum test above -- the
+    /// total is still right -- and fails here, which is why both exist.
+    ///
+    /// The bar is the world ledger's own drift on the same run rather than
+    /// a constant: the identity is `f32` banks summed into `f64` accounts,
+    /// so it is exact only up to the rounding the world identity already
+    /// carries, and a per-colony bar set tighter than the whole is a bar
+    /// that fails for arithmetic.
+    #[test]
+    fn the_books_close_for_every_colony() {
+        let (mut w, _, _) = two_colony_bed();
+        run(&mut w, 12_000);
+        let live = w.live_creature_energy_by_colony();
+        let whole = (w.live_creature_energy() - w.energy_ledger.expected_live_total()).abs();
+        for (colony, books) in w.all_colony_books().iter().enumerate() {
+            let held = live.get(colony).copied().unwrap_or(0.0);
+            let expected = books.expected_live_total();
+            assert!(
+                (held - expected).abs() <= whole + 1e-3,
+                "colony {colony}: its animals hold {held:.4} against books of {expected:.4} (the world's own drift is {whole:.4})"
+            );
+        }
+    }
+
+    /// **The diet band sums to the harvest accounts, per colony.**
+    ///
+    /// The band is what the food panel draws, and it is booked on the same
+    /// call that credits the animal (`World::book_meal`) precisely so that
+    /// the picture cannot disagree with the verb. This is what says that
+    /// stayed true: an intake path added later that credits an account
+    /// without naming a material would leave the band short, and a band
+    /// that has quietly stopped tracking a food is a confident picture of
+    /// the wrong diet.
+    #[test]
+    fn the_diet_band_sums_to_the_harvest_accounts() {
+        let (mut w, _, _) = two_colony_bed();
+        run(&mut w, 12_000);
+        for (colony, books) in w.all_colony_books().iter().enumerate() {
+            let harvest = books.get(Account::HarvestedPlant) + books.get(Account::HarvestedCorpse);
+            let band = books.intake();
+            assert!(
+                (harvest - band).abs() <= 1e-6 * harvest.abs().max(1.0),
+                "colony {colony}: {harvest:.4} J harvested against a diet band of {band:.4} J"
+            );
+            assert!(
+                books.diet().iter().map(|(_, j)| j).sum::<f64>() <= band + 1e-9,
+                "colony {colony}: the ranked diet must not exceed the band it is a ranking of"
+            );
+        }
+    }
+
+    /// **The positive control for all four tests above**, and it is the one
+    /// that would have caught the whole set passing over an empty box.
+    ///
+    /// Every identity here is of the form "these two agree", which `0 == 0`
+    /// satisfies perfectly. So: the scene has to have fed somebody, spent
+    /// something, and put both colonies on the books, or the agreement is
+    /// about nothing. Kept as its own test rather than as four setup
+    /// assertions so that a red run says *which* half broke -- a scene that
+    /// stopped containing food, or an identity that stopped holding.
+    #[test]
+    fn the_books_are_not_all_zero() {
+        let (mut w, a, b) = two_colony_bed();
+        run(&mut w, 12_000);
+        for colony in [a, b] {
+            let books = w.colony_books(colony);
+            assert!(books.get(Account::Granted) > 0.0, "colony {colony} was placed with nothing");
+            assert!(books.get(Account::Metabolized) > 0.0, "colony {colony} has not spent a joule in 12,000 frames");
+            assert!(books.income() > 0.0 && books.outgo() > 0.0, "colony {colony}: income {:.2}, outgo {:.2}", books.income(), books.outgo());
+        }
+        let fed: f64 = [a, b].iter().map(|&c| w.colony_books(c).intake()).sum();
+        assert!(fed > 0.0, "nothing in this bed ate anything in 12,000 frames: the scene no longer contains food");
+        let eaten: Vec<_> = w.colony_books(a).diet().into_iter().map(|(m, j)| (w.materials.get(m).name.clone(), j)).collect();
+        assert!(!eaten.is_empty(), "the left colony's diet band is empty while the bed's intake is {fed:.2} J");
+    }
+
+    /// **A raid has two equal sides, and it fires.**
+    ///
+    /// `World::tally_kill` already counts who kills whom; `ColonyBooks::
+    /// raided` is what the meals were worth, which is the half a death
+    /// count cannot give -- a colony can be bled a cell at a time without
+    /// one death appearing in that tally.
+    ///
+    /// The scene is `a_predator_eats_a_creature_and_needs_no_predation_
+    /// code_to_do_it`'s sealed chamber, with the two animals given
+    /// different colony labels by hand: `spawn` leaves both at 0, and a
+    /// raid within one colony is not a raid. The bar is `> 0` on both sides
+    /// and equality between them, so it fails both for an instrument that
+    /// never fires and for one that books only one end.
+    #[test]
+    fn a_raid_is_booked_on_both_colonies() {
+        let mut w = test_world();
+        for x in 92..112 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+            w.set(x, 96, Cell::new(material::STONE, 0));
+        }
+        for y in 96..102 {
+            w.set(92, y, Cell::new(material::STONE, 0));
+            w.set(111, y, Cell::new(material::STONE, 0));
+        }
+        let ant = spawn(&mut w, "ant", 98, 100);
+        let beetle = spawn(&mut w, "beetle", 100, 100);
+        w.organism_mut(ant).expect("placed").colony = 7;
+        w.organism_mut(beetle).expect("placed").colony = 9;
+        run(&mut w, 4_000);
+        let took = w.colony_books(9).raided;
+        let lost = w.colony_books(7).raided_by_others;
+        assert!(took > 0.0, "the beetle ate nothing off the ant in 4,000 frames: this scene no longer contains a predation");
+        assert_eq!(took, lost, "{took:.4} J taken against {lost:.4} J lost -- a raid must be booked on both colonies");
+        assert_eq!(w.colony_books(9).raided_by_others, 0.0, "nothing ate the beetle");
     }
 
     /// **The standing meat never exceeds what was put into it.** The ledger
