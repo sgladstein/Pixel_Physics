@@ -89,10 +89,11 @@ runs and does not pin (mean x frames far exceeds it) — noise wearing a number.
 The counter beside it is **+1,176 px/frame, identical across all three runs and
 both sides of the merge**, which is why it is the one quoted.
 
-`examples/ascii`: 31 scenes, 0 skipped, worst render frame 0.468 ms —
-unchanged **by construction**, since no `ascii` scene holds a world and every
-path here returns on `!world.held`. The guard is what proves that, not the
-timing.
+`examples/ascii`: 31 scenes, 0 skipped, worst render frame **0.453 ms after
+the merge, 0.468 before it** — unchanged **by construction** rather than by
+luck, since no `ascii` scene holds a world and every path here returns on
+`!world.held`. The guard is what proves that, not the timing; a number that
+did not move is not evidence on its own.
 
 ## Guards
 
