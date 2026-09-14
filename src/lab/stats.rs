@@ -622,6 +622,19 @@ impl Stats {
     /// for harnesses (`examples/labstats.rs`) that render the page with no
     /// pointer in the world.
     pub fn draw_at(&self, hc: crate::render::Hud, frame: &mut [u8], world: &World, cursor: Option<(i32, i32)>) {
+        self.draw_at_floor(hc, frame, world, cursor, super::ui::bar_top());
+    }
+
+    /// **The page, stopped above a caller-chosen floor rather than the
+    /// lab's own control bar.**
+    ///
+    /// [`Stats::draw_at`] is `draw_at_floor(.., super::ui::bar_top())` —
+    /// this is that one assumption pulled out into a parameter, for a
+    /// caller that is not the lab and has no `lab::ui::Bar` to stop above.
+    /// The druid game's own button bar (`druid::hud::bar_top`) is the other
+    /// caller today; see `Reports/lanes/druid-screen.md` for why the page
+    /// needed this rather than a second copy of it.
+    pub fn draw_at_floor(&self, hc: crate::render::Hud, frame: &mut [u8], world: &World, cursor: Option<(i32, i32)>, floor: i32) {
         if !self.show {
             return;
         }
@@ -631,7 +644,7 @@ impl Stats {
         const ACCENT: [u8; 4] = [90, 170, 240, 255];
 
         let rows = self.rows(world);
-        let (left, top, right, bottom) = self.rect(world);
+        let (left, top, right, bottom) = self.rect(world, floor);
 
         for y in top..bottom {
             for x in left..right {
@@ -698,7 +711,16 @@ impl Stats {
     /// `the_biosphere_page_stays_inside_its_own_border` all measure the same
     /// rectangle — a test against a hand-copied literal is a test of the
     /// literal.
-    fn rect(&self, world: &World) -> (i32, i32, i32, i32) {
+    ///
+    /// **`pub` rather than private** so a caller with its own repaint
+    /// decision to make (`src/bin/druid.rs`'s `Handler`, a separate binary
+    /// crate that depends on this one — `pub(crate)` does not reach it) can
+    /// ask how big the page *would* draw without drawing it. The page's
+    /// height depends on its content, unlike the fixed strip a button bar
+    /// occupies, so a caller that skips a world repaint whenever nothing on
+    /// screen changed needs to know when this rectangle itself has changed
+    /// shape.
+    pub fn rect(&self, world: &World, floor: i32) -> (i32, i32, i32, i32) {
         let (left, top, width) = RECT;
         let content: i32 = self.rows(world).iter().map(Row::height).sum();
         // **Stops at the bar, not at the window.** Clamping to `HEIGHT - 6`
@@ -707,7 +729,7 @@ impl Stats {
         // see but cannot reach, which is worse than one plainly behind a
         // page. Found by the interface lane looking at a capture; no test saw
         // it, because both surfaces drew exactly what they were asked to.
-        (left, top, left + width, (top + HEADER + content + 6).min(super::ui::bar_top() - 6))
+        (left, top, left + width, (top + HEADER + content + 6).min(floor - 6))
     }
 
     /// The oldest sample within [`RATE_WINDOW`] frames of now, the newest
@@ -1865,7 +1887,7 @@ mod tests {
         let mut frame = blank_frame();
         stats.draw(hud(), &mut frame, &world);
 
-        let (left, top, right, bottom) = stats.rect(&world);
+        let (left, top, right, bottom) = stats.rect(&world, super::super::ui::bar_top());
         let content: i32 = stats.rows(&world).iter().map(Row::height).sum();
         assert_eq!(bottom, (top + HEADER + content + 6).min(super::super::ui::bar_top() - 6));
         let mut lit = 0;
@@ -1927,7 +1949,7 @@ mod tests {
     fn hovering_a_row_explains_it_and_hovering_off_the_page_does_not() {
         let world = bed(4, 1);
         let stats = censused(&world);
-        let (left, top, ..) = stats.rect(&world);
+        let (left, top, ..) = stats.rect(&world, super::super::ui::bar_top());
 
         let mut plain = blank_frame();
         stats.draw_at(hud(), &mut plain, &world, None);

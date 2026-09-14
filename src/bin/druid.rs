@@ -21,11 +21,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use pixel_physics::app::{HEIGHT, WIDTH};
+use pixel_physics::druid::hud::{self, Action};
 use pixel_physics::druid::{Druid, TICKS_PER_SECOND};
+use pixel_physics::lab::stats::Stats;
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, WindowEvent};
+use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
@@ -100,8 +102,38 @@ struct Handler {
     walk: (u64, u64),
     /// See `PIXEL_PHYSICS_DRUID_LAY`.
     lay: (u64, u64),
+    /// **The button bar's own state — not on `Druid`.** `src/druid/mod.rs`
+    /// is a different lane's file for the length of this program (see
+    /// `Reports/lanes/druid-screen.md`), so the cursor, the press-armed
+    /// action and last frame's laid-out bar live here instead. See
+    /// `hud`'s button-bar section doc for the full reasoning.
+    ///
+    /// Where the cursor is, in framebuffer pixels — `None` once it has left
+    /// the window. `pixels.window_pos_to_pixel` is the only conversion this
+    /// needs: `Druid` never zooms or resizes its buffer away from the
+    /// window (`hud::Interface::draw`'s own comment on `Hud::new(w, h, 1)`),
+    /// unlike `src/bin/lab.rs`'s `to_logical` divide.
+    cursor: Option<(i32, i32)>,
+    /// Last frame's laid-out bar — retained so a click arriving between
+    /// frames is tested against the bar the player was actually looking at,
+    /// the same reason `lab::ui::Ui::bar` is retained.
+    bar: hud::Bar,
+    /// The action a press armed, so a button fires on release over *itself*
+    /// rather than on press — see `Handler::act`'s call sites below.
+    bar_pressed: Option<Action>,
+    /// **The biosphere page (item 1 of the playtest)** — also not on
+    /// `Druid`, for the same reason the bar's own state is not.
+    stats: Stats,
+    /// Last frame's `(Stats::rect, cursor)`, `None` when the page was
+    /// closed — the repaint decision for the one piece of the interface
+    /// `Druid::draw`'s own `ui_changed` does not reach. See `Handler::frame`.
+    last_stats_state: Option<StatsState>,
     result: Result<(), Box<dyn std::error::Error>>,
 }
+
+/// A stats-page rectangle and the cursor at the time it was drawn — see
+/// `Handler::last_stats_state`.
+type StatsState = ((i32, i32, i32, i32), Option<(i32, i32)>);
 
 #[derive(Default)]
 struct HeldKeys {
@@ -289,6 +321,11 @@ impl Handler {
             gif,
             walk,
             lay,
+            cursor: None,
+            bar: hud::Bar::default(),
+            bar_pressed: None,
+            stats: Stats::new(),
+            last_stats_state: None,
             result: Ok(()),
         }
     }
@@ -407,6 +444,15 @@ impl Handler {
                 self.game.lay_trail();
             }
             self.game.update();
+            // **Per tick, not per drawn frame** — `lab::mod::Lab`'s own
+            // call site samples the same way (`self.stats.observe`'s own
+            // doc, which is stale about *why* but not about *when*: the
+            // gate inside is keyed on `World::frame`, so calling it more
+            // often than the interval only costs two integer comparisons).
+            // A catch-up frame can run several ticks; observing once at the
+            // end would silently thin the sample rate under load exactly
+            // when the box is busiest.
+            self.stats.observe(&self.game.world);
             self.accumulator -= TICK;
             ticks += 1;
         }
@@ -415,9 +461,102 @@ impl Handler {
             self.accumulator = Duration::ZERO;
         }
 
+        // **Laid out every frame, regardless of whether it is drawn.** Pure
+        // and cheap (a few dozen `hud::text_width` calls), and keeping it
+        // live even behind a modal means `self.bar` never goes stale for the
+        // click that arrives the instant the modal closes.
+        self.bar = hud::bar_layout(&self.game, self.stats.showing());
+        let show_overlay = self.game.menu.is_none() && self.game.offer.is_none();
+
+        // **The bar needs no repaint decision of its own — the biosphere
+        // page does, and that split is the measured reason.** The bar's
+        // outer plate is a fixed rectangle, unconditionally fully repainted
+        // every drawn frame regardless of hover or which widgets it holds
+        // (`hud::draw_bar` fills the whole strip before painting a single
+        // widget), so nothing under it can ever go stale — see `hud`'s
+        // button-bar section doc. Measured at 54 us/frame
+        // (`PIXEL_PHYSICS_DRUID_BENCH_BAR=1`), so drawing it every frame
+        // costs nothing worth avoiding.
+        //
+        // **The biosphere page is not that shape**, and folding it into the
+        // same "always paint, never force a repaint" rule would be a real
+        // bug rather than merely a missed optimisation: `Stats::rect`'s
+        // bottom edge tracks its content (`stats.rs`'s own doc on why it is
+        // not a fixed box), so a frame where the page gets *shorter* —
+        // fewer generation buckets, a species that stops standing anywhere
+        // — leaves old page pixels below the new, smaller bottom edge with
+        // nothing repainting them, exactly the smear `hud::Interface`'s own
+        // `last_ui` comparison exists to prevent. So this is that same
+        // comparison, aimed at the one piece of screen `Interface` does not
+        // own: force a full world repaint on any frame the page's own
+        // rectangle changed shape or came in or out of the game entirely.
+        // Measured 2026-09-14: the page's own paint is **1.11 ms/frame**
+        // (`PIXEL_PHYSICS_DRUID_BENCH_BAR=1`, same run) against 0.055 ms for
+        // the bar, which is exactly why it is not simply drawn unconditionally
+        // like the bar is — that cost only belongs on the handful of frames
+        // a world repaint would have happened anyway, not on every one of
+        // sixty a second while the page sits open and idle.
+        //
+        // **The cursor rides along in the same comparison, for the same
+        // reason.** `Stats::draw_at_floor` also draws a hover-note popup
+        // wherever the cursor sits over an explainable row
+        // (`stats.rs`'s own `draw_note`), and that popup's position is not
+        // a function of `Stats::rect` at all — it moves and vanishes with
+        // the cursor alone. The same smear the rect comparison guards
+        // against applies to it: a note drawn last frame and gone (or moved)
+        // this frame leaves its old pixels unrepainted unless something
+        // forces the world underneath it fresh. Comparing the cursor
+        // position whenever the page is open is the coarse, honest fix —
+        // costlier than tracking the note's own rectangle would be, but
+        // that rectangle is not exposed and re-deriving it a second time
+        // here would be the very side-table duplication this module's own
+        // doc warns against.
+        let stats_state = show_overlay.then(|| (self.stats.rect(&self.game.world, hud::bar_top()), self.cursor));
+        let stats_shape_changed = stats_state != self.last_stats_state;
+        self.last_stats_state = stats_state;
+
         let render_error = match &mut self.pixels {
             Some(pixels) => {
-                self.game.draw(pixels.frame_mut(), (WIDTH, HEIGHT), false);
+                self.game.draw(pixels.frame_mut(), (WIDTH, HEIGHT), stats_shape_changed);
+                // **Hidden while a modal owns the screen.** The options menu
+                // and the founding screen are centred over the world and
+                // (for the founding screen especially) can reach close to
+                // the bar's row — and both already own the keyboard
+                // exclusively while open, so the mouse should agree rather
+                // than let a click reach a button the player cannot see is
+                // live. See `Handler::mouse_button` for the matching input
+                // guard.
+                if show_overlay {
+                    hud::draw_bar(&self.bar, pixels.frame_mut(), (WIDTH, HEIGHT), self.cursor, self.bar_pressed);
+                    self.stats.draw_at_floor(
+                        pixel_physics::render::Hud::new(WIDTH, HEIGHT, 1),
+                        pixels.frame_mut(),
+                        &self.game.world,
+                        self.cursor,
+                        hud::bar_top(),
+                    );
+                }
+                // `PIXEL_PHYSICS_DRUID_BENCH_BAR=1` -- print what the bar and
+                // the biosphere page each cost to paint, once, ten ticks in.
+                // The instrument the repaint decision above is measured
+                // against: `examples/ascii.rs` does not reach this game, and
+                // a paint call is otherwise timed only by the frame it sits
+                // inside, which mixes it with everything else the frame did.
+                if self.game.ticks == 10 && std::env::var("PIXEL_PHYSICS_DRUID_BENCH_BAR").is_ok() {
+                    let n = 2000u32;
+                    let mut scratch = pixels.frame().to_vec();
+                    let t0 = std::time::Instant::now();
+                    for _ in 0..n {
+                        hud::draw_bar(&self.bar, &mut scratch, (WIDTH, HEIGHT), self.cursor, self.bar_pressed);
+                    }
+                    let bar_ns = t0.elapsed().as_nanos() as f64 / n as f64;
+                    let t1 = std::time::Instant::now();
+                    for _ in 0..n {
+                        self.stats.draw_at_floor(pixel_physics::render::Hud::new(WIDTH, HEIGHT, 1), &mut scratch, &self.game.world, self.cursor, hud::bar_top());
+                    }
+                    let stats_ns = t1.elapsed().as_nanos() as f64 / n as f64;
+                    eprintln!("druid: bar paint {:.3} us/frame, stats paint {:.3} us/frame, combined {:.3} us/frame", bar_ns / 1000.0, stats_ns / 1000.0, (bar_ns + stats_ns) / 1000.0);
+                }
                 // **Captured after the draw, before the present**, so the
                 // interface is in the frame -- the flow this exists to record
                 // is drawn by the HUD, not by the world.
@@ -514,69 +653,61 @@ impl Handler {
         }
         match code {
             KeyCode::Escape => event_loop.exit(),
-            KeyCode::KeyP => {
-                self.game.paused = !self.game.paused;
-            }
+            // Every arm below that used to act on `self.game` directly now
+            // goes through `Handler::act` — see its own doc for why that is
+            // the single dispatch point rather than `Druid::act` alone.
+            KeyCode::KeyP => self.act(Action::TogglePause),
             // The key list, and the only way back to it once it is off.
             // `F1` as well as `/` because `/` is a different physical key on
             // a non-US layout and this is the one binding a lost player needs.
+            // Not a bar button: it is the legend's own visibility switch, and
+            // a button for "show me more buttons" is not one of the *main*
+            // actions the owner asked to see.
             KeyCode::Slash | KeyCode::F1 => self.game.show_keys = !self.game.show_keys,
             // **How held ground is drawn.** A selector rather than a
             // decision, because this is precisely the question no amount of
             // argument settles -- see `render::HeldLook`.
-            KeyCode::KeyL => {
-                self.game.renderer.cycle_held_look();
-                let look = self.game.renderer.held_look.label();
-                self.game.note(format!("held ground drawn: {look}"));
-            }
+            KeyCode::KeyL => self.act(Action::CycleLook),
+            // **The options menu.** Settings rather than verbs -- see
+            // `druid::menu` for why they are not more keys.
+            KeyCode::KeyM => self.act(Action::ToggleOptions),
             // **Found a colony where you are standing.** It has to be inside
             // running time to tick at all, and the circle you carry is at
             // your feet -- see `Druid::found_colony`.
-            // **The options menu.** Settings rather than verbs -- see
-            // `druid::menu` for why they are not more keys.
-            KeyCode::KeyM => {
-                self.held = HeldKeys::default();
-                self.laying = false;
-                self.game.toggle_menu();
-            }
-            KeyCode::KeyC => {
-                // **Stop walking on the way in.** Otherwise a key held at the
-                // moment the screen opens stays held -- the release goes to
-                // the screen, which does not track it -- and he walks off the
-                // site he is founding on.
-                self.held = HeldKeys::default();
-                self.laying = false;
-                self.game.toggle_founding();
-            }
+            KeyCode::KeyC => self.act(Action::FoundColony),
             // **The verb the whole game is built on.** A seed sown on held
             // ground lies there until a circle reaches it -- see
             // `Druid::plant_seed`.
-            KeyCode::KeyT => {
-                self.game.plant_seed();
-            }
+            KeyCode::KeyT => self.act(Action::SowSeed),
             // **Draw the colony's charge.** The verb the economy is built on
             // -- see `Druid::absorb`.
-            KeyCode::KeyF => {
-                self.game.absorb();
-            }
-            KeyCode::Tab => self.game.cycle_seed_kind(),
+            KeyCode::KeyF => self.act(Action::Absorb),
+            // **Which seed `T` sows.** Moved off `TAB`, which now opens the
+            // biosphere page below -- matching the key the lab already uses
+            // for its own, so a player who has touched both games gets the
+            // same reflex.
+            KeyCode::KeyK => self.act(Action::CycleSeedKind),
+            // **The biosphere page (item 1 of the playtest)** -- births,
+            // deaths, population. Not routed through `Druid::act`: the page
+            // lives on `Handler`, not on `Druid` -- see `Handler::act`.
+            KeyCode::Tab => self.act(Action::ToggleStats),
             // **Which plane `G` writes to.** Its own key rather than a second
             // press of `G`, which is the lab's idiom for the same verb --
             // `G` is *held* here rather than armed, so a second press cannot
             // mean anything different from the first.
-            KeyCode::KeyI => self.game.cycle_scent(),
+            KeyCode::KeyI => self.act(Action::CycleScent),
             // The economy's verb: a circle that runs while you are elsewhere.
-            KeyCode::Space => {
-                self.game.place_quickening();
-            }
-            KeyCode::KeyX => {
-                self.game.lift_quickening();
-            }
+            KeyCode::Space => self.act(Action::PlaceCircle),
+            KeyCode::KeyX => self.act(Action::LiftCircle),
             // No note for these two: the radius is on the readout and the
             // preview ring at his feet resizes as he presses them, so a
-            // message would be a third copy of a fact already on screen twice.
-            // The speed dial. `Z`/`V` rather than more letters near the
-            // movement keys, and both are free.
+            // message would be a third copy of a fact already on screen
+            // twice. **Continuous dials, kept on the keyboard rather than
+            // given a button**: a button pressed dozens of times to walk a
+            // ladder is not a control (`lab::ui::STOCK_LADDER`'s own doc
+            // makes the same call for its stocking dial). The speed dial.
+            // `Z`/`V` rather than more letters near the movement keys, and
+            // both are free.
             KeyCode::KeyZ => self.game.speed = (self.game.speed - 1).max(pixel_physics::druid::SPEED_MIN),
             KeyCode::KeyV => self.game.speed = (self.game.speed + 1).min(pixel_physics::druid::SPEED_MAX),
             // **Your own circle.** `[`/`]` because that is brush size in the
@@ -595,22 +726,77 @@ impl Handler {
             // first guesses and nobody has played this, so being able to take
             // them out of the way is what makes the mechanics judgeable at
             // all -- the owner's own lab ruling, applied here.
-            KeyCode::KeyU => {
-                self.game.unlimited = !self.game.unlimited;
-                let state = if self.game.unlimited { "on" } else { "off" };
-                self.game.note(format!("unlimited power {state}"));
-            }
+            KeyCode::KeyU => self.act(Action::ToggleUnlimited),
             // **Release the world, or hold it again.** The single most useful
             // key for judging this game: the look the owner picked has no
             // colour tell, so whether "held" reads at all is a question you
             // answer by flipping it and watching, not by looking at a still.
-            KeyCode::KeyH => {
-                self.game.world.held = !self.game.world.held;
-                let hold = if self.game.world.held { pixel_physics::sim::clock::SkyPin::Noon.hold() } else { None };
-                self.game.world.set_sky_hold(hold);
-                self.game.note(if self.game.world.held { "the world is held" } else { "the world is running" });
-            }
+            KeyCode::KeyH => self.act(Action::ToggleHeld),
             _ => {}
+        }
+    }
+
+    /// **The single dispatch point this binary's controls actually route
+    /// through** — both `key` above and the bar's click handling in
+    /// `window_event` call this and nothing else.
+    ///
+    /// `hud::Druid::act` (`src/druid/hud.rs`) is the pure game-state half
+    /// of it and was meant to be the *whole* of it, matching
+    /// `lab::mod::Lab::act`'s own doc: *"the single place a control turns
+    /// into a change… there is no second copy of what SPACE does."* It
+    /// cannot be, here, for a reason worth recording rather than quietly
+    /// working around: `src/druid/mod.rs` is Lane B's file for the length
+    /// of this program, so `Druid` cannot gain the fields two of these
+    /// actions need — clearing this event loop's own held-movement keys
+    /// before a modal steals the keyboard (`ToggleOptions`, `FoundColony`),
+    /// and the biosphere page itself (`ToggleStats`), which lives on
+    /// `Handler` for the same reason the bar's cursor does. So this
+    /// function is the actual single dispatch point, and `Druid::act` is
+    /// what it calls for everything that does not need those two.
+    fn act(&mut self, action: Action) {
+        match action {
+            Action::ToggleOptions | Action::FoundColony => {
+                // **Stop walking on the way in.** Otherwise a key held at
+                // the moment a modal opens stays held -- the release goes to
+                // the modal, which does not track it -- and he walks off
+                // whatever he was standing on.
+                self.held = HeldKeys::default();
+                self.laying = false;
+                self.game.act(action);
+            }
+            Action::ToggleStats => self.stats.toggle(),
+            _ => self.game.act(action),
+        }
+    }
+
+    /// **The bar's press/release protocol** — `lab::ui::Ui::press`/`Ui::
+    /// release` in miniature. A button fires on *release over the same
+    /// button a press armed*, which is what lets a press be taken back by
+    /// sliding off it before letting go — the behaviour every other button
+    /// in the world has, and cheap here since [`hud::Bar::hit`] is a linear
+    /// scan over a dozen rectangles.
+    ///
+    /// **Suppressed entirely while a modal owns the screen**, matching the
+    /// guard in `Handler::frame` that stops the bar from being *painted*
+    /// then: the options menu and the founding screen already own the
+    /// keyboard exclusively while open, and a click reaching a button
+    /// nobody can see would be the mouse disagreeing with the keyboard
+    /// about who is in charge.
+    fn mouse_button(&mut self, pressed: bool) {
+        if self.game.menu.is_some() || self.game.offer.is_some() {
+            self.bar_pressed = None;
+            return;
+        }
+        let Some((x, y)) = self.cursor else {
+            self.bar_pressed = None;
+            return;
+        };
+        if pressed {
+            self.bar_pressed = self.bar.hit(x, y);
+        } else if let Some(action) = self.bar_pressed.take() {
+            if self.bar.hit(x, y) == Some(action) {
+                self.act(action);
+            }
         }
     }
 }
@@ -693,6 +879,25 @@ impl ApplicationHandler for Handler {
                         self.key(code, event_loop);
                     }
                 }
+            }
+            // **The bar's mouse plumbing.** The druid read no mouse at all
+            // before item 3 of the 2026-09-14 playtest — `window_event` had
+            // only the four arms above. **The mapping is 1:1 and needs no
+            // `to_logical` divide**, unlike `src/bin/lab.rs`'s own cursor
+            // handling: the druid never touches `zoom` or a `pixel_budget`,
+            // `hud::Interface::draw` hardcodes `Hud::new(w, h, 1)`, and the
+            // window is built at exactly `(WIDTH, HEIGHT)` above — so
+            // `window_pos_to_pixel` is the whole conversion.
+            WindowEvent::CursorMoved { position, .. } => {
+                self.cursor =
+                    self.pixels.as_ref().and_then(|p| p.window_pos_to_pixel((position.x as f32, position.y as f32)).ok()).map(|(x, y)| (x as i32, y as i32));
+            }
+            WindowEvent::CursorLeft { .. } => {
+                self.cursor = None;
+                self.bar_pressed = None;
+            }
+            WindowEvent::MouseInput { state, button: MouseButton::Left, .. } => {
+                self.mouse_button(state == ElementState::Pressed);
             }
             WindowEvent::RedrawRequested => self.frame(event_loop),
             _ => {}

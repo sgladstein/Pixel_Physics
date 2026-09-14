@@ -715,23 +715,6 @@ impl Druid {
         self.message.as_ref().filter(|(_, until)| self.ticks < *until).map(|(text, _)| text.as_str())
     }
 
-    /// **Where the charged animals are, in world cells, and how full each
-    /// is.** For the tell over their heads — see [`hud`].
-    ///
-    /// Only those with something worth taking: a mark over every ant in a
-    /// colony of two hundred is not a tell, it is a texture.
-    pub fn charged_animals(&self) -> Vec<((i32, i32), f32)> {
-        self.reserves
-            .iter()
-            .filter(|(_, held)| **held > RESERVE_CAP * 0.15)
-            .filter_map(|(id, held)| {
-                let state = self.world.organism(*id)?;
-                let at = state.chain.first().copied().or_else(|| state.cells.keys().next().copied())?;
-                Some((at, (held / RESERVE_CAP).clamp(0.0, 1.0)))
-            })
-            .collect()
-    }
-
     /// Everything the corner readout says, as numbers. See [`hud::Readout`].
     pub fn readout(&self) -> hud::Readout {
         hud::Readout {
