@@ -113,8 +113,16 @@ pub enum Start {
     /// the soil. Those are not plants; they are what germinates the first
     /// time you spend time on that ground.
     Dead,
-    /// Never grown at all — bare generated ground plus `life_scatter`'s
-    /// single seed cell per plant, held at frame 0.
+    /// Never grown at all, and since 2026-09-14 **nothing is scattered into
+    /// it either** — bare generated ground, held at frame 0, with not one
+    /// plant or seed cell anywhere in it.
+    ///
+    /// This used to read "plus `life_scatter`'s single seed cell per plant".
+    /// The owner's playtest took that out: *"The world should not start with
+    /// any seeds. The druid has her own seeds to plant and that populates the
+    /// world."* The change is three zeroed densities in the `druid` preset in
+    /// `assets/worldgen.ron` — see the note there — not code, because
+    /// `life_scatter` already early-outs on them.
     ///
     /// **The default, on the owner's second telling of it.** He asked for
     /// *"a dead world, no living plants, but I can plant seeds"* and got
@@ -242,6 +250,55 @@ const RESERVE_CAP: f32 = 40.0;
 /// **How near you have to be.** Deliberately smaller than
 /// [`CARRIED_RADIUS`]: you have to stand *in* the colony, not near it.
 const ABSORB_RADIUS: i32 = 60;
+
+/// **What the druid sets out with, of each kind she can sow.**
+///
+/// Owner playtest, 2026-09-14: *"The world should not start with any seeds.
+/// The druid has her own seeds to plant and that populates the world."* The
+/// world half of that is three zeroed densities in `assets/worldgen.ron`;
+/// this is the other half, and without it the first sentence just leaves an
+/// empty world and an unlimited key, which is a bare map rather than a
+/// mechanic.
+///
+/// **The pouch is per kind, not a single number**, so *"eight grass and no
+/// oak"* is a state the game can be in. That is what makes cycling the seed
+/// kind a decision rather than a preference.
+///
+/// Enough to establish a wood on bare ground and not enough to carpet it:
+/// eight of each over seven sowable kinds is 56 seeds against a world 2,560
+/// cells wide. A first guess, like every other number in this economy.
+const SEED_START: u32 = 8;
+
+/// **The most of one kind she can carry.** The pouch fills from the wood she
+/// is standing in (see [`Druid::step_economy`]) and a cap is what stops a
+/// mature wood quietly restoring the unlimited supply this replaced.
+const SEED_CAP: u32 = 24;
+
+/// **How big a plant has to be before it is worth seed to her**, in cells.
+///
+/// The middle the ethos asks for: a seedling you sowed a minute ago pays
+/// nothing, a grown tree pays, and the gap between them is the time you spent
+/// running the circle over it. Read off the cell count rather than the
+/// species' own `seed_maturity` fence deliberately — that fence is a plant's
+/// business and moves with the genome, and this is the *player's* question,
+/// which is "does this look like a tree yet".
+///
+/// 24 cells against a grown tree's 31-153 (`CLAUDE.md`'s own spread), so a
+/// young tree counts and a two-cell sprout does not.
+const SEED_FROM_CELLS: usize = 24;
+
+/// **Seeds per mature plant per second, while it stands in the circle she is
+/// carrying.**
+///
+/// **The carried circle, not a standing one, and that is the verb.** Gathering
+/// is *presence* — the same thing the carried circle already is — so the way
+/// to fill the pouch is to walk your own wood. A standing quickening left
+/// running over a wood while the player is elsewhere pays nothing, which is
+/// what stops the supply going back to unlimited by being left switched on.
+///
+/// At this rate a wood of twenty mature plants under her feet is one seed
+/// every ten seconds. A first guess.
+const SEED_PER_PLANT_SECOND: f32 = 0.005;
 
 /// How long the drawn energy takes to reach you, in player ticks. Long enough
 /// to read as a flow rather than a flash.
@@ -457,6 +514,31 @@ pub struct Druid {
     /// writes `assets/species/fern.ron`.
     pub seed_kinds: Vec<String>,
     pub seed_kind: usize,
+    /// **What is in the pouch**, index-parallel to `seed_kinds`.
+    ///
+    /// The supply used to be infinite: `plant_seed` read no resource and
+    /// decremented nothing, so sowing was the one verb in this game that cost
+    /// its player nothing at all. The owner took the world's own seeds away
+    /// (*"The druid has her own seeds to plant"*), and a free supply on a bare
+    /// map is just a slower way of painting one.
+    ///
+    /// Parallel `Vec`s rather than a map keyed by name because `seed_kind` is
+    /// already an index into `seed_kinds` and a second representation of the
+    /// same key is a second thing to keep in step. Both are built in
+    /// [`Druid::new`] at `seed_kinds`' length and nothing resizes them.
+    pub seeds: Vec<u32>,
+    /// **Seed being gathered but not yet whole**, index-parallel to
+    /// `seed_kinds`.
+    ///
+    /// Fractions rather than a probability roll per pass: a roll would make
+    /// the first seed of a session arrive at a random time, and this economy
+    /// is already hard enough to read. Whole seeds are taken out of here by
+    /// [`Druid::step_economy`] and the remainder carries.
+    seed_growth: Vec<f32>,
+    /// How many seeds she has gathered, for the readout and for the same
+    /// reason `sown` exists — gathering is slow and diffuse, and without a
+    /// number a working mechanic and a dead one look identical.
+    pub gathered: usize,
     /// **What each animal is holding**, keyed by organism id.
     ///
     /// On the game rather than on `OrganismState`, deliberately: this is the
@@ -687,9 +769,12 @@ impl Druid {
             animals_awake: 0,
             last_ui: None,
             start,
+            seeds: vec![SEED_START; seed_kinds.len()],
+            seed_growth: vec![0.0; seed_kinds.len()],
             seed_kinds,
             seed_kind: 0,
             sown: 0,
+            gathered: 0,
             scent: crate::sim::pheromone::Channel::default(),
             trail: std::collections::VecDeque::new(),
             menu: None,
@@ -745,6 +830,8 @@ impl Druid {
             radius: self.place_radius,
             rate: self.speed,
             carried_radius: self.world.carried_radius,
+            carried_off: self.world.carried_off,
+            seeds: self.seeds_in_hand(),
             held: self.world.held,
             paused: self.paused,
             look: self.renderer.held_look.label(),
@@ -786,6 +873,17 @@ impl Druid {
             self.note("no seed kinds are loaded");
             return false;
         };
+        // **The pouch is checked before the ground is.** An empty pouch and a
+        // blocked cell are different refusals and both are said out loud --
+        // the same rule the rest of this game's verbs follow -- but they are
+        // checked in this order so that "you have none" is never reported as
+        // "no room", which is the reading that would send a player looking
+        // for better ground with nothing to plant in it.
+        if self.seeds.get(self.seed_kind).copied().unwrap_or(0) == 0 {
+            println!("druid: {kind} seed REFUSED at {x},{y} - the pouch is empty");
+            self.note(format!("no {kind} seed left - stand in a grown wood to gather"));
+            return false;
+        }
         // Moss is not tree-shaped and has its own planter; everything else
         // goes through the species-named one.
         let placed = if kind == MOSS {
@@ -798,14 +896,83 @@ impl Druid {
         };
         if placed {
             self.sown += 1;
+            // **Spent only on a seed that is actually in the ground.** A
+            // refused placement above already returned; this is the branch
+            // where the cell took it, and charging for a no-op is the one
+            // way an inventory can be worse than no inventory at all.
+            if let Some(n) = self.seeds.get_mut(self.seed_kind) {
+                *n = n.saturating_sub(1);
+            }
             let running = self.world.time_runs_at(x, y);
-            println!("druid: sowed {kind} at {x},{y} (time {})", if running { "running" } else { "held" });
-            self.note(if running { format!("{kind} seed sown - it is growing") } else { format!("{kind} seed sown - it waits for time") });
+            let left = self.seeds_in_hand();
+            println!("druid: sowed {kind} at {x},{y} (time {}, {left} left)", if running { "running" } else { "held" });
+            // **The count that is left is on the message, not only the corner
+            // panel.** The pouch going from 1 to 0 is the moment the mechanic
+            // exists at all, and a player watching his own feet is not
+            // watching the readout.
+            self.note(if running {
+                format!("{kind} seed sown - it is growing ({left} left)")
+            } else {
+                format!("{kind} seed sown - it waits for time ({left} left)")
+            });
         } else {
             println!("druid: {kind} seed REFUSED at {x},{y} - the cell is not empty, or the species is not loaded");
             self.note(format!("no room for a {kind} seed here"));
         }
         placed
+    }
+
+    /// **A game with no world worth speaking of**, for guards over rules that
+    /// are about the player's own state rather than about the ground.
+    ///
+    /// [`Druid::new`] generates 2560x960 and then lives in it, which is about
+    /// a minute of wall clock — and `hud::Readout`'s own doc records why that
+    /// matters: *a guard that costs a minute is a guard nobody runs*. The
+    /// pouch rules need a `Druid` and a player, and nothing else.
+    ///
+    /// Test-only, and deliberately not a `Default`: every field it leaves at
+    /// zero is a field a real game sets, and a constructor that looks usable
+    /// would eventually be used.
+    #[cfg(test)]
+    fn bare_for_test() -> Self {
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        world.held = true;
+        world.player = Some(player::Player::at_scaled(32, 32, world.cell_scale()));
+        Self {
+            world,
+            particles: ParticleSystem::new(),
+            blasts: Blasts::with_tuning(explosion::Tuning::load()),
+            renderer: Renderer::new(),
+            player_tuning: player::Tuning::load(),
+            player_input: player::PlayerInput::default(),
+            paused: false,
+            power: POWER_START,
+            unlimited: false,
+            place_radius: PLACE_RADIUS_START,
+            speed: SPEED_MIN,
+            income: 0.0,
+            drain: 0.0,
+            last_wake: None,
+            show_keys: true,
+            message: None,
+            ticks: 0,
+            animals: 0,
+            animals_awake: 0,
+            last_ui: None,
+            start: Start::Bare,
+            seeds: Vec::new(),
+            seed_growth: Vec::new(),
+            seed_kinds: Vec::new(),
+            seed_kind: 0,
+            sown: 0,
+            gathered: 0,
+            scent: crate::sim::pheromone::Channel::default(),
+            trail: std::collections::VecDeque::new(),
+            menu: None,
+            offer: None,
+            reserves: std::collections::HashMap::new(),
+            draws: Vec::new(),
+        }
     }
 
     /// Step which kind `T` sows.
@@ -815,12 +982,70 @@ impl Druid {
         }
         self.seed_kind = (self.seed_kind + 1) % self.seed_kinds.len();
         let kind = self.seed_kinds[self.seed_kind].clone();
-        self.note(format!("seed kind: {kind}"));
+        // **The stock is on the label**, because with a per-kind pouch the
+        // whole reason to press this key is to find the kind you still have.
+        let held = self.seeds_in_hand();
+        self.note(format!("seed kind: {kind} ({held} in hand)"));
     }
 
     /// What `T` would sow, for the readout.
     pub fn seed_kind_name(&self) -> &str {
         self.seed_kinds.get(self.seed_kind).map_or("none", String::as_str)
+    }
+
+    /// **How many of the selected kind are in the pouch.** See [`Druid::seeds`].
+    pub fn seeds_in_hand(&self) -> u32 {
+        self.seeds.get(self.seed_kind).copied().unwrap_or(0)
+    }
+
+    /// **Switch the circle she carries off, or back on.** Returns whether it
+    /// is now *on*.
+    ///
+    /// Owner playtest, 2026-09-14: *"There should be an easy way to full turn
+    /// off the sphere around the druid so no power is being used."*
+    ///
+    /// **What the premise got right and what it did not, recorded here
+    /// because the next person to read this will assume the same thing.** The
+    /// carried circle at its base size already costs exactly zero —
+    /// [`carried_cost`] prices the area *added*, so an untouched circle is
+    /// free and there is a guard saying so. Nothing here is a saving unless
+    /// the player has widened it with `]`, and then it is the widening that
+    /// stops being billed. What was genuinely missing is the thing the words
+    /// say: a way to have the world **hold still** where she is standing.
+    /// That is what this is.
+    ///
+    /// **It is a real trade, which is what stops it being a free button.**
+    /// Off, the colony under her feet stores no charge, a seed she has sown
+    /// does not germinate, and the wood she is in stops growing — every one
+    /// of those falls out of `World::time_runs_at` and needed no code, the
+    /// same way the rest of this game's rules do.
+    ///
+    /// Sets `world.carried` to `None` on the spot rather than waiting for the
+    /// next `frame::step` to notice, so the screen and the readout agree
+    /// within the frame the key was pressed in.
+    pub fn toggle_carried_circle(&mut self) -> bool {
+        self.world.carried_off = !self.world.carried_off;
+        if self.world.carried_off {
+            self.world.carried = None;
+            println!("druid: carried circle OFF — time stands still where you stand");
+            self.note("your circle is off - time stands still here");
+        } else {
+            // **The wake tracker is cleared, not left.** `Druid::update` only
+            // wakes the ground when the circle has moved `CARRY_WAKE_STEP`
+            // from where it last woke it — so switching back on while
+            // standing still would match the old position and leave the
+            // ground she is on asleep until she walked away from it.
+            self.last_wake = None;
+            println!("druid: carried circle ON");
+            self.note("your circle is back - time runs where you stand");
+        }
+        !self.world.carried_off
+    }
+
+    /// Whether the carried circle is switched off — see
+    /// [`Druid::toggle_carried_circle`].
+    pub fn carried_off(&self) -> bool {
+        self.world.carried_off
     }
 
     /// **Total charge standing within reach**, for the readout and for the
@@ -1280,6 +1505,9 @@ impl Druid {
         let mut animals_running = 0.0f32;
         let mut animals_alive = 0usize;
         let mut plants_in_circles = 0.0f32;
+        // Accumulated here rather than written straight into `self.seed_growth`
+        // because the walk holds `self.world` borrowed; folded in below.
+        let mut gathered_by_kind = vec![0.0f32; self.seed_kinds.len()];
         // Rebuilt rather than updated in place: organism slots are reused, so
         // an entry left behind by a dead animal would be inherited by
         // whatever is allocated its slot next.
@@ -1319,10 +1547,30 @@ impl Druid {
                 if self.world.quickenings.iter().any(|q| q.contains(x, y)) {
                     plants_in_circles += 1.0;
                 }
+                // **And the pouch fills from the wood she is standing in.**
+                // The carried circle, not a standing one: gathering is
+                // presence, so the way to be paid in seed is to walk your own
+                // wood. A standing quickening left running over a wood while
+                // she is on the other side of the map pays nothing, which is
+                // what stops the supply drifting back to unlimited.
+                //
+                // `SEED_FROM_CELLS` is the middle the ethos asks for — a
+                // sprout sown a minute ago pays nothing and a grown tree
+                // pays, and the gap between them is time she spent on it.
+                if state.cells.len() >= SEED_FROM_CELLS && self.world.carried.is_some_and(|c| c.contains(x, y)) {
+                    // Credited to the *plant's own* kind, not the selected
+                    // one: standing in an oak wood fills you with oak. A
+                    // species the pouch has no slot for (one that is not
+                    // sowable, so never in `seed_kinds`) simply pays nothing.
+                    if let Some(k) = kind_index(&self.seed_kinds, &self.world.species.get(state.species).name) {
+                        gathered_by_kind[k] += SEED_PER_PLANT_SECOND * seconds;
+                    }
+                }
             }
         }
 
         self.reserves = fresh;
+        self.take_gathered_seed(&gathered_by_kind);
         // **Income is what you *drew*, per second, not what is out there.**
         // The readout has to answer "am I winning", and with an absorb-driven
         // economy the honest answer is a rate over the recent past rather
@@ -1355,6 +1603,49 @@ impl Druid {
                 println!("druid: out of power — a standing quickening set");
                 self.note("out of power - a standing circle closed");
             }
+        }
+    }
+
+    /// **Turn a pass's worth of gathered fractions into seeds in the pouch.**
+    ///
+    /// Split out of [`Druid::step_economy`] only because the walk there holds
+    /// `self.world` borrowed; the rule is the interesting part and it is here.
+    ///
+    /// **Whole seeds are announced and fractions are not.** Gathering pays
+    /// roughly one seed every ten seconds under a wood, which is far too slow
+    /// to read as an event unless the moment it lands is said out loud — and
+    /// a bar creeping in the corner is precisely the readout this game's own
+    /// economy doc rejects. A seed arriving is a thing that happened.
+    ///
+    /// The cap is per kind and the remainder is **dropped, not banked**, once
+    /// a kind is full: banking it would let a player park in a mature wood
+    /// and cash out the moment he sowed one, which is the unlimited supply
+    /// wearing a delay.
+    fn take_gathered_seed(&mut self, gathered_by_kind: &[f32]) {
+        for (k, add) in gathered_by_kind.iter().enumerate() {
+            if *add <= 0.0 {
+                continue;
+            }
+            let (Some(growth), Some(held)) = (self.seed_growth.get_mut(k), self.seeds.get(k).copied()) else {
+                continue;
+            };
+            if held >= SEED_CAP {
+                *growth = 0.0;
+                continue;
+            }
+            *growth += add;
+            let whole = growth.floor();
+            if whole < 1.0 {
+                continue;
+            }
+            *growth -= whole;
+            let taken = (whole as u32).min(SEED_CAP - held);
+            self.seeds[k] = held + taken;
+            self.gathered += taken as usize;
+            let kind = self.seed_kinds[k].clone();
+            let now = self.seeds[k];
+            println!("druid: gathered {taken} {kind} seed — {now} in hand");
+            self.note(format!("gathered {taken} {kind} seed - {now} in hand"));
         }
     }
 
@@ -1507,6 +1798,19 @@ fn carried_cost(world: &World) -> f32 {
     (ratio * ratio - 1.0).max(0.0)
 }
 
+/// **Which pouch slot a species name belongs to**, or `None` if it is not a
+/// kind the druid can carry.
+///
+/// A linear scan over seven strings, twice a second, per plant standing in
+/// the circle she is carrying — not per organism in the world, because the
+/// caller has already gated on the circle. A map keyed by `SpeciesId` was the
+/// first version and it is a second representation of `seed_kinds`' own
+/// ordering, which is exactly the side table [`Druid::seed_kinds`]' doc
+/// refuses to keep.
+fn kind_index(kinds: &[String], name: &str) -> Option<usize> {
+    kinds.iter().position(|k| k == name)
+}
+
 /// **What one second of running costs**, given the dial, how many standing
 /// circles there are, and how many plants stand inside them.
 ///
@@ -1629,6 +1933,111 @@ mod tests {
             last = c;
         }
         assert!(last > 0.0, "the widest carried circle must cost something");
+    }
+
+    /// **Off is a state the dial cannot reach, and the flag is what reaches
+    /// it.**
+    ///
+    /// Asserted on `frame::step`'s own rule rather than on the flag, because
+    /// the flag is trivially true and the interesting claim is that *nothing
+    /// else* produces a player with no circle. Two things this is watching
+    /// for, both of which the engine documents as deliberate and both of
+    /// which a later "simplification" would undo: `carried_radius = 0` is
+    /// read as the default size, and `Quickening::contains` is `<=`, so even
+    /// a genuinely zero radius still runs time for the cell underfoot.
+    #[test]
+    fn the_carried_circle_turns_off_by_the_flag_and_not_by_the_dial() {
+        use crate::sim::world::CARRIED_RADIUS;
+
+        let mut w = World::new(Rect::new(0, 0, 127, 127));
+        w.held = true;
+        w.player = Some(player::Player::at_scaled(64, 64, w.cell_scale()));
+
+        let mut particles = ParticleSystem::new();
+        let mut blasts = Blasts::with_tuning(explosion::Tuning::load());
+        let tuning = player::Tuning::load();
+        // Where he *is* after the step, not where he was placed: with no
+        // ground under him he falls, and an assertion pinned to 64,64 would
+        // be asking about a cell he has left.
+        let mut step = |w: &mut World| -> (i32, i32) {
+            frame::step(w, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
+            w.player.as_ref().expect("the player must survive a step").center()
+        };
+
+        let at = step(&mut w);
+        assert!(w.carried.is_some(), "a held world with a player must carry a circle");
+        assert!(w.time_runs_at(at.0, at.1), "time must run where he stands");
+
+        // **The dial at zero is NOT off** -- it is the default radius, and
+        // the engine's own doc calls that deliberate.
+        w.carried_radius = 0;
+        let at = step(&mut w);
+        let carried = w.carried.expect("a zero radius is the default size, never no circle");
+        assert_eq!(carried.r, CARRIED_RADIUS, "a zero radius must read as the default, not as 0");
+        assert!(w.time_runs_at(at.0, at.1), "a zero radius must still run time where he stands");
+
+        // The flag is off, and off means no circle at all.
+        w.carried_radius = CARRIED_RADIUS;
+        w.carried_off = true;
+        let at = step(&mut w);
+        assert!(w.carried.is_none(), "carried_off must leave no circle");
+        assert!(!w.time_runs_at(at.0, at.1), "with the circle off, time must not run where he stands");
+
+        // ...and back, in the same world, because a one-way switch would pass
+        // every assertion above and be useless.
+        w.carried_off = false;
+        let at = step(&mut w);
+        assert!(w.carried.is_some(), "clearing carried_off must bring the circle back");
+        assert!(w.time_runs_at(at.0, at.1), "time must run again where he stands");
+    }
+
+    /// **Sowing spends a seed, an empty pouch refuses, and gathering is what
+    /// puts one back.**
+    ///
+    /// The three halves of the mechanic that replaced an unlimited supply.
+    /// Asserted on `Druid`'s own state rather than on a generated world:
+    /// `Druid::new` generates 2560x960 and grows it, which is a minute of
+    /// wall clock, and the rules here are about the pouch and not about the
+    /// ground.
+    ///
+    /// **Every assertion below was watched failing** against the code as it
+    /// stood before this change -- an unlimited supply passes none of them,
+    /// which is the point.
+    #[test]
+    fn the_pouch_is_spent_by_sowing_and_refilled_by_gathering() {
+        // `take_gathered_seed` is the rule; the walk that feeds it needs a
+        // grown world and this does not.
+        let mut g = Druid::bare_for_test();
+        g.seed_kinds = vec!["tree".to_string(), "grass".to_string()];
+        g.seeds = vec![2, 0];
+        g.seed_growth = vec![0.0; 2];
+
+        assert_eq!(g.seeds_in_hand(), 2, "the selected kind starts at 2");
+
+        // A whole seed's worth arrives as one seed, and a fraction does not.
+        g.take_gathered_seed(&[0.4, 0.0]);
+        assert_eq!(g.seeds[0], 2, "four tenths of a seed is not a seed");
+        g.take_gathered_seed(&[0.7, 0.0]);
+        assert_eq!(g.seeds[0], 3, "the remainder must carry across passes");
+        assert_eq!(g.gathered, 1, "the counter says whether it fired at all");
+
+        // A kind she is not standing in gets nothing -- gathering is credited
+        // to the plant's own kind, so a grass pouch must not fill in a wood.
+        assert_eq!(g.seeds[1], 0, "no grass stood in the circle, so no grass seed");
+
+        // The cap holds, and the overflow is dropped rather than banked.
+        g.seeds[0] = SEED_CAP;
+        g.take_gathered_seed(&[5.0, 0.0]);
+        assert_eq!(g.seeds[0], SEED_CAP, "the pouch must not exceed its cap");
+        assert_eq!(g.seed_growth[0], 0.0, "a full pouch banks nothing for later");
+
+        // And the refusal: an empty pouch declines and says so, with no
+        // world needed to reach the check.
+        g.seed_kind = 1;
+        assert_eq!(g.seeds_in_hand(), 0);
+        assert!(!g.plant_seed(), "sowing with an empty pouch must refuse");
+        assert!(g.message().is_some_and(|m| m.contains("no grass seed left")), "the refusal must be said out loud, got {:?}", g.message());
+        assert_eq!(g.sown, 0, "a refused sowing is not a sowing");
     }
 
     /// **The dial is priced, and priced linearly.**
