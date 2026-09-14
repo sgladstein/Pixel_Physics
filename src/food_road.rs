@@ -45,6 +45,14 @@
 //! ant has ever crossed is lit and the picture says nothing about where the
 //! colony is working *now*. So both channels are exponential in age.
 //!
+//! **But the first setting of the road's half-life was far too short, and
+//! that was the whole of the owner's *"is it too much to track actual paths
+//! and make trail?"*.** At ten seconds the map holds the last ~350 cells
+//! anybody walked and draws as a scatter of specks; at a minute it holds
+//! ~900 and closes into one unbroken line. The paths were always being
+//! tracked — they were being forgotten. See [`FoodRoad::road_half_life`] for
+//! the measurement that says the longer memory is free.
+//!
 //! **Nothing is decayed on a timer.** Each entry stores the weight and the
 //! frame it was last written, and the decay is applied when it is *read* —
 //! so the per-tick cost is one hash write per animal and nothing else,
@@ -281,8 +289,36 @@ pub struct FoodRoad {
     /// rows of amber it stops drawing are seven rows that were burying the
     /// road underneath.
     pub harvest_on_ground: bool,
-    /// Frames for a road mark to halve. Ten seconds at the shipped 60 Hz —
-    /// short, because the road's claim is *now*.
+    /// **Frames for a road mark to halve — a minute of play, raised from ten
+    /// seconds because ten seconds is not a trail.**
+    ///
+    /// The owner's question on the round-35 card was *"is it too much to
+    /// track actual paths and make trail?"*, and the road was already
+    /// tracking actual paths, per cell, every tick. What it was not doing was
+    /// **remembering them**: at ten seconds the map holds about the last 350
+    /// cells anybody walked, which draws as a scatter of coloured specks
+    /// along the surface. At a minute it holds ~900 and draws as one
+    /// unbroken line — red-orange where they carried, blue where they came
+    /// back empty — which is the picture he asked for.
+    ///
+    /// **It is not free by luck; it was measured.** A map 87% larger cost
+    /// nothing the instrument could see on the settled bed where this
+    /// channel is most expensive (`examples/foodroad cost=4 settled=1
+    /// warm=6000`): the shipped memory came out **+0.82 ms** over its own
+    /// off arm at 623 cells and an unlimited memory **+0.69 and +0.71 ms**
+    /// at 1,165, twice. The positive control that says the instrument can
+    /// see drawing work at all is the second channel on the same bed, which
+    /// moves the same delta to **+1.17 ms**. What this view costs is having
+    /// it on at all — it decays every tick and so defeats the dirty-rect
+    /// skip — and that is paid the moment it is switched on, whatever it
+    /// remembers.
+    ///
+    /// **Not unlimited, and the module doc says why**: a road that never
+    /// fades is an all-time smear, and after an hour every cell an ant has
+    /// ever crossed is lit and the picture no longer says where the colony
+    /// is working *now*. A minute is where the line closes up — it is
+    /// already the harvest map's own half-life — and the sheets at a minute
+    /// and at no decay at all are hard to tell apart on the played bed.
     pub road_half_life: f32,
     /// Frames for a harvest mark to halve. A minute: where the food has been
     /// coming from is a slower question than where the traffic is, and a
@@ -339,7 +375,7 @@ impl FoodRoad {
             tile: 8,
             show_walked: true,
             harvest_on_ground: true,
-            road_half_life: 600.0,
+            road_half_life: 3600.0,
             harvest_half_life: 3600.0,
             road_full: None,
             harvest_full: None,
@@ -883,6 +919,41 @@ mod tests {
         m.add(1.0, 0, 100.0);
         m.add(1.0, 100, 100.0);
         assert!((m.read(100, 100.0) - 1.5).abs() < 1e-5, "got {}", m.read(100, 100.0));
+    }
+
+    #[test]
+    fn a_single_crossing_outlives_the_harvest_patch_it_leads_to() {
+        // **The two channels are read together, so the road has to last as
+        // long as the thing it leads to.** A harvest patch stays lit for a
+        // minute; a road that has faded out while that patch is still amber
+        // cannot say *this is how that food travelled*, and the picture
+        // falls back to a scatter of specks -- which is what the owner saw
+        // and asked about ("is it too much to track actual paths and make
+        // trail?").
+        //
+        // One crossing, laid once and never reinforced, is the hard case:
+        // it is what a forager walking out to a new patch leaves behind.
+        let mut road = FoodRoad::new();
+        road.mode = FoodOverlay::Road;
+        let hl = road.road_half_life;
+        road.trail.entry((7, 7)).or_default().laden.add(1.0, 0, hl);
+        let span = road.harvest_half_life as u64;
+        road.refresh(0);
+        road.refresh(span);
+        assert!(road.road_at(7, 7, span).is_some(), "a cell crossed once must still be road when the patch it leads to is still lit");
+
+        // **The fault put back.** At the ten-second memory that shipped in
+        // round 35 the same crossing is under `VISIBLE` against
+        // `ROAD_SCALE_MIN` long before the patch fades, so this test is
+        // about the memory and not about a channel that draws everything
+        // regardless.
+        let mut short = FoodRoad::new();
+        short.mode = FoodOverlay::Road;
+        short.road_half_life = 600.0;
+        short.trail.entry((7, 7)).or_default().laden.add(1.0, 0, short.road_half_life);
+        short.refresh(0);
+        short.refresh(span);
+        assert!(short.road_at(7, 7, span).is_none(), "at the old memory it is gone, which is what made the road a scatter rather than a trail");
     }
 
     #[test]

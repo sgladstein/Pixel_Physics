@@ -92,3 +92,67 @@ to move, so the first three cannot be green because the wash never fired.
 posted 2026-09-14 19:31Z, before/after frame sequences on the planted bed.
 Verdict: *pending*.
 
+## 3. "Is it too much to track actual paths?" — no, and it never was
+
+**The road was already tracking actual paths.** It marks the exact cell an
+animal stands on, every tick its `moves` counter advances. What it was doing
+wrong is **forgetting them after ten seconds**: `road_half_life` was 600
+frames, so what reached the screen was the last few hundred steps anybody
+took, drawn as a scatter of specks along the surface. Raised to **3,600** — a
+minute, which is already the harvest map's own half-life — the same run on the
+same seed draws one unbroken line, red-orange where they carried and blue
+where they came back empty.
+
+Measured on the played bed, seed 1, the overlay armed at frame 12,000 and read
+at 20,000: **279 road cells held at ten seconds against 1,024 at a minute**,
+from an identical 995 laden and 887 unladen steps.
+
+**And the longer memory is free**, which is the half of the answer he actually
+asked for. `examples/foodroad cost=4`, `RAYON_NUM_THREADS=4`, arms alternated
+inside each run and the order swapped every round:
+
+| bed | memory | road cells held | delta over its own `off` arm |
+|---|---|---|---|
+| settled (dearest — the dirty-rect skip can fire) | ten seconds | 623 | **+0.82 ms** (+62%) |
+| settled | no decay at all | 1,165 | **+0.69 / +0.71 ms** (twice) |
+| settled | a minute (shipped now) | 1,165 | **+0.73 ms** (+53%) |
+| whole running frame, tick **and** draw | ten seconds | 559 | **+0.56 ms** (+11%) |
+| whole running frame | a minute | 1,100 | **+0.47 ms** (+9%) |
+
+**The positive control that says the instrument can see drawing work at all:**
+the second channel on the same settled bed moves the same delta to **+1.17 ms
+(+87%)**, which reproduces round 35's +88% independently.
+
+So **what this view costs is being switched on** — both channels decay every
+tick and defeat the dirty-rect render skip — and that is paid whatever the map
+remembers. Map size is not a term in it: 87% more road, twice, cost nothing
+either instrument could see.
+
+### One confound caught on the way, and it is `CLAUDE.md`'s own tell
+
+The first pricing run reported the ten-second and the never-forgetting arms as
+holding **420 and 431 cells** — *identical output across a change that must
+have moved something*. `price`'s `off` arm **drops both maps by design**
+(`FoodRoad::observe`), so every arm re-warms from nothing, and at the old
+1,500-tick warm **every setting of `roadhalf` was priced on the same young
+map**. The number was arithmetically correct and about nothing. `warm` now
+defaults to 6,000 and the same two arms separate to 623 and 1,165.
+
+`examples/foodroad` also gained **`whole=1`**, which puts the tick inside the
+timed span. Without it the running row is a draw-only figure, and this repo has
+already had the same field change measure −50% in its own harness and −27%
+through the whole of `App::update`.
+
+Guard: `food_road::tests::a_single_crossing_outlives_the_harvest_patch_it_leads_to`
+— one cell crossed once must still be road when the harvest patch it leads to
+is still lit, with the **fault put back** as a second arm at the old 600.
+
+**Card `20260914T201530498Z-1a387e`** — *"How long should a food road
+remember?"*, blind A/B, ten seconds against a minute. Verdict: *pending*.
+
+## 4. Verdicts in
+
+- **`20260914T193144118Z-d8e147`** (the amber hatch, no longer a box) —
+  answered **rating 4**, no comment. The box is accepted; nothing is asked
+  for.
+
