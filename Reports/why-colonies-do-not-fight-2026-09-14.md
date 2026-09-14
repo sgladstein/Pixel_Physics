@@ -463,6 +463,196 @@ top is 1 would ship a mechanism a third of beds never show. Their column is
 the one to set it from, and the owner's standing bar applies to whoever does:
 six seeds is not a sweep, and gate an order statistic.
 
+## Postscript: the owner ruled, and it ships on
+
+**"You can ship it on"** — owner ruling 2026-09-14, relayed by the round
+coordinator, overturning the default-off this report recommends above. That
+recommendation is left standing rather than rewritten, because the reasoning
+behind it is still the honest reasoning and a report that quietly agrees with
+whatever was decided last is worth nothing. What follows is what shipping it
+on actually took.
+
+`assets/species/ant.ron` authors **`scent_spread: 2.0`**. One behavioural
+line; everything else below is consequence — including one wrong number of
+my own, kept on the record with the control that caught it.
+
+### The value, gated on an order statistic
+
+12 seeds x 24,000 frames on the played bed, **all three arms re-measured on
+the merged tree** (`main` after round 35 closed, so with Lane D's contest
+system live). Gated on **the share of seeds where the switch does anything
+visible**, not on a median — the per-seed outcome is binary, so a median
+hides exactly the beds where it does nothing.
+
+| `scent_spread` | seeds with a cross-colony killing | x-kills | median founding gap |
+|---|---|---|---|
+| **0 (off)** | **0 of 12** | 0 | 0.000 |
+| 1 | 9 of 12 | 86 | 1.62 |
+| **2 (shipped)** | **11 of 12** | 105 | 2.28 |
+
+**What the dial decides is how many seeds clear the recognition radius at
+founding, and nothing else.** `is_living_kin` is `distance_sq <=
+tolerance_sq`, a **boolean**, so two colonies already outside the radius are
+not made more hostile by being further outside it: going 1 → 2 leaves the kill
+count **identical on 10 of 12 seeds**, and the entire gain is the two seeds
+that cross the threshold. The worst seed is no worse at 2.0 (0.561 against
+0.566).
+
+**One seed in twelve never separates at any value.** Seed 9 is
+byte-identical to the unswitched bed on every column. `apply_colony_scent`
+clamps each slot to `[-1, 1]`, so past about 2 the draws fold onto the corners
+of that cube rather than spreading, and two colonies can land together.
+Structural, not tuning — drawing on a sphere or not clamping would fix it and
+both are design changes made nowhere here. Lane D's §8.3 saw the same
+saturation from a different bed; the clamp is the mechanism under it.
+
+### The measurement that was wrong, and the control that caught it
+
+**This value was briefly changed to 1.0 on a confounded sweep**, and the
+record is kept rather than tidied away because the way it was caught
+generalises.
+
+`rivalry.rs`'s `spread=` override **added** its offset to whatever scent an
+animal was already carrying. While the field defaulted to 0 that was identical
+to re-deriving it, and every measurement in this report above was taken that
+way and is sound. The moment the default went live the two stopped being the
+same thing: founding applied the authored offset and the override applied a
+**second** one, so every arm silently measured `authored + requested` — and
+`spread=0` was not an off arm at all, it left the authored offset standing
+while claiming to remove it. Read through that lens the sweep said *"1.0 and
+2.0 are equivalent and 2.0 has the worse tail"*, which is the reverse of the
+truth.
+
+**The control was the one this repo demands of every other knob: run the bed
+from the authored value and from the runtime override at the same seed and
+require them byte-identical.** They disagreed on `gap` **alone** — 1.817
+against 2.289 — while every outcome column matched. They matched only because
+both sat well past a threshold, so the doubled offset changed no decision, and
+it would have gone on changing none until some future arm sat near the
+boundary. **A confound that is invisible in every column you are looking at is
+still there**, and the paired authored-vs-override run is what makes it
+visible. `spread=` now re-derives from the species' ancestral point, so it
+means "founded at v" for any authored default including 0.
+
+A second finding fell out of it: **the founding draw is not stable across
+engine changes.** Seed 1's gap at an unchanged `spread=1` moved 0.907 → 2.170
+across the round-35 merge. The offsets are a pure hash of (world seed, colony
+label, slot), so what moved was which *labels* get claimed, upstream of this
+field entirely. **Tune this dial on the threshold argument, which is
+structural; never on a table of particular seeds' gaps, which is not.**
+
+### What it costs, paired
+
+Off (0) against shipped (2), same 12 seeds, which cancels everything the dial
+is not about:
+
+| | median | direction |
+|---|---|---|
+| deaths | **+99** | up on **11 of 12**, down on none |
+| starvation share | **−4.3 points** | down on 10 of 12 |
+| ants alive | 0.0 | up 4 / down 5 — no effect |
+| births | 0.0 | up 4 / down 5 — no effect |
+
+**Killing displaces starving rather than adding to it**, and neither
+population nor breeding moves. The bed carries it.
+
+**The constants this reallocates are named here and deliberately not
+re-derived**: the birth bar (`reproduce_at`, floored by the stamp),
+`colony_ants`, and the whole starvation balance were calibrated on a bed where
+**no ant is food**, and an ant is now food to another colony. *A correct
+mechanism at inherited constants is a regression* — so these numbers are put
+in front of whoever owns that economy rather than pre-empted by this lane.
+
+### What the default broke, and what one of them turned out to be
+
+**19 library tests went red.** They displace one ant's scent by a *controlled*
+amount and ask what the recognition radius does with it; a random founding
+offset underneath a controlled one is a confound, not a stricter test.
+
+**18 were one line**: `creature.rs`'s `test_world()` pins the ant's
+`scent_spread` to 0 — a property of the *world* a unit test wants, and the
+same move the file already makes for `scent_drift`. **Paired with a new test
+so the pin cannot silently stop the default being tested at all**, which is
+this repo's own *"a superseded mechanism's tests keep passing while testing
+nothing"*: `the_shipped_ant_founds_colonies_that_are_strangers` reads the
+species file rather than a constant and gates **20 of 28 colony pairs
+parting** across three seeds — an order statistic, because a single pair
+would be a coin flip wearing a gate.
+
+**The 19th was a real defect the default exposed.**
+`a_kept_creature_comes_back_the_same_animal` asserted an exact round-trip of
+all fourteen traits through a specimen jar. Releasing a jar **deliberately**
+adds the new label's founding offset to the three scent slots — *"the
+specimen's own drift is kept, the gesture's identity is added"* — so at a zero
+dial that offset was the zero vector and the assertion had been passing on a
+**coincidence**. Replaced rather than widened: the exact round-trip on the
+eleven slots the jar promises, the documented rule on the three it does not,
+and a control asserting the offset is non-zero so the new check cannot pass
+vacuously the way its predecessor did.
+
+**And it leaves a player-visible consequence that wants a ruling.** At a live
+dial, jarring an ant and releasing it beside its own nest makes it a
+**stranger to its former nestmates, who will eat it**. That follows from the
+documented release rule; it was invisible while the dial was 0; it is not this
+lane's to overturn.
+
+### What the live default broke outside the test suite
+
+`cargo run --release --example ascii` — a CI gate, and **the one my local set
+was missing** — went red. Exactly where a behavioural default change was always
+going to land.
+
+**Cause, verified rather than assumed.** Three scenes place their animals in a
+`world.plant_ant(..)` **loop**, and `plant_ant` goes through
+`Origin::Founder { colony: None }`, which claims a **fresh label per call**. So
+each scene held 55 or 60 one-ant colonies that only *looked* like a colony —
+inert while every label smelled identical, mutual strangers the moment the dial
+went live. And a stranger is *food* to the ordinary mouth before it is ever a
+target for the fight verb.
+
+**`examples/ascii.rs` had already ruled on this once**, in its own moisture
+scene: *"One colony, not fifty-five. `World::plant_ant` claims a fresh colony
+per call, so a loop of it builds a crowd of strangers that only looks like a
+colony… attributed drops 237 → 22 … they stopped foraging and started eating
+each other."* The repair is that precedent applied to the three loops that had
+never had it.
+
+| scene | before | after |
+|---|---|---|
+| excavation (the red one) | `digs 62`, roofed **0** | `digs 354`, roofed **42** |
+| foraging | **12** of 15 animals at 12k frames | **15** of 15, deliveries 703 → 849 |
+| double bridge | `deliveries` **1,076** | **13** |
+
+**Two of those want reading carefully, and neither says what it first looks
+like.** In the excavation scene `deaths` barely moved — **52 → 55**. It is not
+that more ants died; it is that they spent the run fighting instead of digging,
+so what moved was the *digging*. And the bridge scene's collapse is the **old**
+number being the artifact: sixty one-ant colonies each satisfied "a laden
+animal reaches its colony's nest" trivially, where one colony of sixty has to
+make the trip. `deaths` is 59 either way, so nothing there is animals eating
+each other. **13 is a real and rather low round-trip count over that bridge** —
+a finding about the bridge, not a regression.
+
+**And the reading this is not.** `plant_ant` is **not reachable from the
+game**: the sandbox's ant key goes through `World::found_colony`, which claims
+one label for the whole colony, and the only non-test caller of `plant_ant` is
+inside a `#[test]`. So *"a player sprinkling ants now gets a massacre"* is not
+supported by the code — this is a harness placement artifact, not a
+player-facing consequence of the default.
+
+### Scope, stated plainly
+
+Only **COMMON ANT** is switched on. The held world's five other foundable
+stocks — `hopper`, `ant_long`, `longant`, `ant_wide`, `chitin_pale` — still
+found as one family with themselves, so a druid player founding two HOPPER
+colonies gets the old behaviour and two COMMON ANT colonies the new. One line
+each to fix, but each deserves its own measurement and this lane has not made
+one.
+
+**Set `scent_spread` to 0 anywhere to get the previous bed back exactly** —
+`labstats spread=0`, `rivalry.rs spread=0`, or the species line. Every
+measurement in this report is reproducible against it.
+
 ## What this lane would do next, in order
 
 1. **Show the owner a fight and ask whether it is worth watching** (the card
