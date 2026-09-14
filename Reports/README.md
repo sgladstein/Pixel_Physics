@@ -2216,6 +2216,29 @@ drift that two of these documents still reflect.**
   bias) and states the composed Move row both lanes hit. Its first
   measurement is in README's "Trophallaxis status", and it is a null with a
   warning sign.
+- [why-colonies-do-not-fight-2026-09-14.md](why-colonies-do-not-fight-2026-09-14.md)
+  — **review of the owner's "why don't colonies fight or eat each other",
+  round 35, 2026-09-14. Nothing is proposed for landing.** The answer is one
+  number: `CreatureDef::scent_spread` ships at `0`, so every colony of a kind
+  founds at one point in scent space, `is_living_kin` is true for every
+  ant-to-ant pair, and `nearest_foe` returns `None` for every animal in the
+  bed — no eye and no brain wire can change that. Move it alone and colonies
+  kill each other with nothing else touched, on the seeds where the draw
+  separates them. **Corrects the standing account twice**: `held-world-game-
+  concept-2026-09-13.md` §10a names the blind ant and the retaliation-only
+  `Alarm` wire and neither is binding (closed together, attacks do not move);
+  and **initiation already exists and it is the mouth** — a stranger is food,
+  the swallow calls `cry_alarm`, and `ant.ron`'s shipped `(Alarm, Attack,
+  2.0)` does the rest, so predation is the ignition the combat layer was said
+  to lack. **Eating each other already happens**: a corpse is a `Powder` with
+  no colony, so any ant scavenges any dead, measured at 2–4% of intake and
+  100% of it in a plantless box — a readout gap (`harvested_corpse` is one
+  global `f64`), not a mechanism gap, and the account Lane B's per-colony
+  ledger would split. Files `open-bugs-handoff.md` §Z23: `nearest_foe` counts
+  a **plant** as a foe, so every one of the played bed's 344–475 "attacks" is
+  an ant biting a leaf, and `attacks` is not a fighting counter. Harness
+  `examples/rivalry.rs`, both controls in `control=selftest`, two of whose
+  four arms began as predictions it falsified
 - [plant-evolution-design.md](plant-evolution-design.md) — **design, all
   nine §8 calls signed off 2026-08-19; partly implemented.** The plant
   ecology: litter, decay, grass and the creeper; §4a's register holds the
