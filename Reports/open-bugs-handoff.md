@@ -11,7 +11,7 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 <!-- BEGIN GENERATED INDEX -- regenerate with scripts/bugindex.py -->
 
-**62 open, 120 bugs** (plus 20 landing-note items,
+**61 open, 120 bugs** (plus 20 landing-note items,
 marked `note`). Generated from the headings by
 `scripts/bugindex.py` -- a bug's verdict is written into its own heading, so
 this is derived, never maintained by hand. Entries are never moved when they
@@ -161,11 +161,11 @@ point.
 | Z19 | closed | 12127 | A pellet of spoil crosses up to 116 rows with nothing carrying it |
 | Z17 | **OPEN** | 12244 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
 | Z20 | closed | 12296 | labgif wire= was a silent no-op for every card it has ever produced (lab) |
-| Z21 | **OPEN** | 12337 | The held world's grown and dead starts fill every organism slot, so C founds nothing |
-| Z22 | **OPEN** | 12436 | A colony inside a quickening eats about a sixth of the garden, and nothing on screen says so |
-| Z23 | **OPEN** | 12531 | nearest_foe counts a plant as a foe, so a fed colony quietly vandalises its own larder |
-| Z24 | **OPEN** | 12622 | A loop of plant_ant is a crowd of strangers, and nine harnesses still do it |
-| Z25 | **OPEN** | 12703 | Nothing can hear an alarm: the plane's audible radius is about two cells |
+| Z21 | closed | 12337 | The held world's grown and dead starts fill every organism slot, so C founds nothing |
+| Z22 | **OPEN** | 12504 | A colony inside a quickening eats about a sixth of the garden, and nothing on screen says so |
+| Z23 | **OPEN** | 12599 | nearest_foe counts a plant as a foe, so a fed colony quietly vandalises its own larder |
+| Z24 | **OPEN** | 12690 | A loop of plant_ant is a crowd of strangers, and nine harnesses still do it |
+| Z25 | **OPEN** | 12771 | Nothing can hear an alarm: the plane's audible radius is about two cells |
 
 <!-- END GENERATED INDEX -->
 
@@ -12334,7 +12334,7 @@ affected: they set the genome on a world that is never rebuilt underneath them.
 
 ---
 
-### Z21. The held world's grown and dead starts fill every organism slot, so `C` founds nothing — and the game blames the ground (held) — **OPEN**
+### Z21. The held world's grown and dead starts fill every organism slot, so `C` founds nothing — and the game blames the ground (held) — **FIXED, 2026-09-14**
 
 **What it is.** `Druid::new` grows the world for `GROW_FRAMES` (8,000) on both
 `Start::Grown` and `Start::Dead`, and what it grows is **4,093 organisms**
@@ -12430,6 +12430,74 @@ grown 8,000 frames that counts animals, colonies or foraging. A held world at
 the ceiling silently refuses **every** birth, not only a founding, so budding
 and reproduction are gone too and a colony that cannot grow looks exactly
 like a colony that will not.
+
+---
+
+**FIXED 2026-09-14, and the fix is both halves rather than either one.** The
+entry above ends by naming three candidates and declining to choose; what
+landed is the first of them made unnecessary plus the message repair, because
+the two failures are independent and only one of them is about the druid.
+
+**The ceiling moved, 4,095 → 1,048,575.** `Cell::organism_id` was a `u16`
+split 12 bits slot index / 4 bits generation. It is a `u32` split **20 / 12**,
+so `Cell` goes 12 → 16 bytes. The generation half was widened deliberately in
+the same change rather than the index taking everything: the wrap that bounds
+stale-handle aliasing goes from **16 reuses to 4,096**, so the widening makes
+that safer rather than trading it. The cheap alternative — re-splitting the
+old `u16` as 13/3 for 8,191 slots — was rejected for exactly that reason and
+is recorded in `Reports/dead-ends.md`; the grow phase at 4,093 would have
+reached 8,191 after two more of them anyway.
+
+**What it cost, measured paired and alternating rather than argued.** Memory
+is the real price: the cell grid at the shipped 8192x2560 world goes **240 →
+320 MiB**, +33% on the program's largest allocation. Frame cost is not —
+`frame_profile` on the shipped world, settled block, three alternating rounds
+of two fixed binaries: `ca_sweep` p50 median **5.51 → 5.71 ms (+4%)** and
+whole-**FRAME mean 19.05 → 18.96 ms, unmoved**, the frame being 47% draw and
+22% fields. Worth recording that `examples/ascii`'s worst frame **could not
+separate the two arms at all** — the 16-byte build won 3 of 6 pairs — which
+is `CLAUDE.md`'s order-statistic-is-noise case; the mean and p50 are the
+numbers, not the worst.
+
+**The message says which refusal fired**, which the entry above asks for in
+its own words. `Druid::found_colony` and the offer-founding path both read
+`World::organisms_refused` either side of the founding and route through one
+`refusal_note(stations_offered, no_slots)`, so the two verbs cannot drift
+apart: *"no room for another living thing - the world is full"* when the
+allocator turned the births away, *"no ground here - stand on something
+solid"* when no station was offered, *"no room - the ground here is full"*
+when stations were offered and none took. The slot case is named first
+because it is the only one of the three the player cannot act on by moving,
+which is what both other wordings tell them to do.
+
+**Guarded, and each guard was watched going red under the fault it names.**
+`the_organism_ceiling_is_past_the_old_four_thousand_and_ninety_five` and
+`a_handle_round_trips_above_the_old_twelve_bit_index` (`organism.rs`) both
+fail with the split put back to 12/4; `a_world_out_of_slots_says_so_instead_
+of_blaming_the_ground` and `the_two_ground_refusals_are_unchanged_and_
+distinct` (`druid.rs`) both fail with the slot arm removed. The first of
+those fills every slot for real (~0.6 s, measured) rather than setting a
+flag, because the claim is that the counter moves when the world is full. The
+ceiling guard asserts **distinctness of handles**, not just a count: §F4's
+original bug was not a refusal but a silent aliasing, which a success count
+would pass straight through.
+
+**Two latent bugs fell out of the widening and are fixed with it.**
+`src/lab/mod.rs` and `examples/creature_probe.rs` both censused organisms by
+scanning `1..4096u16` by hand. That hardcoded the old ceiling — and was
+already wrong before it moved, because a bare slot index carries generation
+0, so `World::organism` resolved it only while the slot had never been
+reused and **every organism in a recycled slot was invisible to both
+censuses**. Both now iterate `World::live_organism_ids`. The lab's slot row
+also coloured amber at a spelled `>= 4000` and named `4095` in its help
+text; both now read `World::organism_slot_high_water`.
+
+**What this does not fix.** The grow phase still produces ~4,093 small
+organisms and a senescent plant still holds its slot in a held world where
+nothing rots — the ceiling is simply far enough away that neither is a
+failure now. The other two candidates above (fewer, larger organisms; freeing
+a senescent plant's slot on `Start::Dead`) remain open as *economy* questions
+rather than as bugs.
 
 ---
 

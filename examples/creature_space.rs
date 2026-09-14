@@ -52,6 +52,7 @@
 //! cargo run --release --example creature_space -- genomes=60 seeds=3 frames=6000
 //! ```
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::sim::brain::GENOME_LEN;
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::organism::CellType;
@@ -1023,13 +1024,13 @@ fn run_one(genome: &[f32], frames: usize, seed: u64, econ: Economy) -> Sample {
         }
     }
 
-    let mut path: std::collections::HashMap<u16, f32> = std::collections::HashMap::new();
-    let mut last: std::collections::HashMap<u16, (i32, i32)> = std::collections::HashMap::new();
-    let mut start: std::collections::HashMap<u16, (i32, i32)> = std::collections::HashMap::new();
-    let mut furthest: std::collections::HashMap<u16, f32> = std::collections::HashMap::new();
-    let mut fed: std::collections::HashSet<u16> = std::collections::HashSet::new();
-    let mut ate: std::collections::HashSet<u16> = std::collections::HashSet::new();
-    let mut seen: std::collections::HashSet<u16> = std::collections::HashSet::new();
+    let mut path: std::collections::HashMap<OrganismId, f32> = std::collections::HashMap::new();
+    let mut last: std::collections::HashMap<OrganismId, (i32, i32)> = std::collections::HashMap::new();
+    let mut start: std::collections::HashMap<OrganismId, (i32, i32)> = std::collections::HashMap::new();
+    let mut furthest: std::collections::HashMap<OrganismId, f32> = std::collections::HashMap::new();
+    let mut fed: std::collections::HashSet<OrganismId> = std::collections::HashSet::new();
+    let mut ate: std::collections::HashSet<OrganismId> = std::collections::HashSet::new();
+    let mut seen: std::collections::HashSet<OrganismId> = std::collections::HashSet::new();
     let (mut pop_sum, mut pop_samples, mut depth_sum, mut depth_n) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
     let mut placed = 0.0f32;
 
@@ -1391,7 +1392,7 @@ fn set_ant_gut(world: &mut World, bias: f32) {
 /// Returns the organism ids per cohort — traits are byte-copied at spawn,
 /// so re-authoring the def between spawns is the seam that makes two
 /// cohorts of one species possible at all.
-fn diet_place_ants(world: &mut World, surface_at: &[i32], start_x: i32, biases: &[f32]) -> Vec<std::collections::HashSet<u16>> {
+fn diet_place_ants(world: &mut World, surface_at: &[i32], start_x: i32, biases: &[f32]) -> Vec<std::collections::HashSet<OrganismId>> {
     let w = 512i32;
     let mut cohorts = vec![std::collections::HashSet::new(); biases.len()];
     let mut planted = 0usize;
@@ -1415,11 +1416,11 @@ fn diet_place_ants(world: &mut World, surface_at: &[i32], start_x: i32, biases: 
 /// definitions verbatim (mean live heads over the run against the heads
 /// the scene actually stood up; "ever above start energy" as the species-
 /// specific did-it-eat detector).
-fn diet_meter(world: &mut World, surface_at: &[i32], frames: usize, _cohorts: &[std::collections::HashSet<u16>]) -> Sample {
+fn diet_meter(world: &mut World, surface_at: &[i32], frames: usize, _cohorts: &[std::collections::HashSet<OrganismId>]) -> Sample {
     let (w, h) = (512i32, 160i32);
     let ant_material = world.materials.id_of("ant").expect("ant");
-    let mut seen: std::collections::HashSet<u16> = std::collections::HashSet::new();
-    let mut ate: std::collections::HashSet<u16> = std::collections::HashSet::new();
+    let mut seen: std::collections::HashSet<OrganismId> = std::collections::HashSet::new();
+    let mut ate: std::collections::HashSet<OrganismId> = std::collections::HashSet::new();
     let (mut pop_sum, mut pop_samples) = (0.0f64, 0.0f64);
     let mut placed = 0.0f32;
     let _ = surface_at;

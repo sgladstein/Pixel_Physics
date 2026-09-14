@@ -46,6 +46,7 @@
 
 mod common;
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::sim::cell::Cell;
 use pixel_physics::sim::organism::{self, CellType};
 use pixel_physics::sim::parallel;
@@ -88,8 +89,8 @@ struct Row {
 /// **Established, not registered**: an ungerminated seed is a live organism
 /// with one cell, and counting those as plants is how `seedbed_probe`'s
 /// first version reported 168 plants of which 143 had done nothing.
-fn census(w: &World) -> Vec<(u16, Row)> {
-    let mut out: Vec<(u16, Row)> = Vec::new();
+fn census(w: &World) -> Vec<(OrganismId, Row)> {
+    let mut out: Vec<(OrganismId, Row)> = Vec::new();
     for id in w.live_organism_ids() {
         let Some(st) = w.organism(id) else { continue };
         if st.cells.len() < 2 {
@@ -188,7 +189,7 @@ fn sever(w: &mut World, ground_y: i32, rows: i32) -> usize {
 /// This is also the instrument `structural:074` asks for -- a mid-crown
 /// disturbance, to run the positive control on `anchor_support`'s
 /// replacement of the hop-bounded search. Built once, used by both.
-fn crown(w: &mut World, ground_y: i32, rows: i32, cut_frac: f32) -> (usize, Vec<(u16, usize)>) {
+fn crown(w: &mut World, ground_y: i32, rows: i32, cut_frac: f32) -> (usize, Vec<(OrganismId, usize)>) {
     let mut doomed: Vec<(i32, i32)> = Vec::new();
     // **Cells strictly above the cut line, per organism**, counted before
     // the cut. This is what makes `structural:074`'s control an answer
@@ -199,7 +200,7 @@ fn crown(w: &mut World, ground_y: i32, rows: i32, cut_frac: f32) -> (usize, Vec<
     // these rows is a median over the tracked plants, and a world total
     // beside a per-plant median describes no plant that exists (the same
     // mistake `fill` records below, made one row further up).
-    let mut above: Vec<(u16, usize)> = Vec::new();
+    let mut above: Vec<(OrganismId, usize)> = Vec::new();
     for id in w.live_organism_ids() {
         let Some(st) = w.organism(id) else { continue };
         if st.cells.len() < 2 {
@@ -364,7 +365,7 @@ fn median(v: &mut [f32]) -> f32 {
 
 /// Sum a field over the plants that were alive at the cut, so an arm is not
 /// flattered by plants that germinated afterwards.
-fn tracked(rows: &[(u16, Row)], live: &[u16], f: impl Fn(&Row) -> f32) -> Vec<f32> {
+fn tracked(rows: &[(OrganismId, Row)], live: &[OrganismId], f: impl Fn(&Row) -> f32) -> Vec<f32> {
     rows.iter().filter(|(id, _)| live.contains(id)).map(|(_, r)| f(r)).collect()
 }
 
@@ -451,7 +452,7 @@ fn main() {
             // The claim is about a grown plant with a trunk to cut.
             let mut ranked = before.clone();
             ranked.sort_unstable_by_key(|&(_, r)| std::cmp::Reverse(r.cells));
-            let live: Vec<u16> = ranked.iter().take(track).map(|&(id, _)| id).collect();
+            let live: Vec<OrganismId> = ranked.iter().take(track).map(|&(id, _)| id).collect();
             // **The scene check, before the treatment rather than after.**
             // An arm applied to a bed that grew nothing reports a clean
             // "no effect" and is measuring an empty world.
@@ -465,7 +466,7 @@ fn main() {
                 );
             }
 
-            let mut above_cut: Vec<(u16, usize)> = Vec::new();
+            let mut above_cut: Vec<(OrganismId, usize)> = Vec::new();
             let removed = match arm {
                 "control" => 0,
                 "sever" => sever(&mut w, ground_y, rows),

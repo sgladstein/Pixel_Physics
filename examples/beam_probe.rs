@@ -19,6 +19,7 @@
 //! ```
 mod common;
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::sim::organism;
 use pixel_physics::sim::world::World;
 use std::collections::HashMap;
@@ -41,7 +42,7 @@ fn main() {
 
     // The biggest organism in the world, by owned cell count.
     let b = w.bounds().expect("bounded world");
-    let mut counts: HashMap<u16, usize> = HashMap::new();
+    let mut counts: HashMap<OrganismId, usize> = HashMap::new();
     for y in b.min_y..=b.max_y {
         for x in b.min_x..=b.max_x {
             let id = w.get(x, y).organism_id();
@@ -216,7 +217,7 @@ fn main() {
     }
 }
 
-fn is_anchor(w: &World, x: i32, y: i32, id: u16) -> bool {
+fn is_anchor(w: &World, x: i32, y: i32, id: OrganismId) -> bool {
     use pixel_physics::sim::material::MaterialKind;
     let cell = w.get(x, y);
     if cell.organism_id() != id {
@@ -233,7 +234,7 @@ fn is_anchor(w: &World, x: i32, y: i32, id: u16) -> bool {
 /// The run of woody same-organism cells through `(x, y)` perpendicular to
 /// the local stem axis -- the stem's true cross-section, the same quantity
 /// `plant::thicken`'s pipe-model gate already measures.
-fn section_width(w: &World, x: i32, y: i32, id: u16) -> u32 {
+fn section_width(w: &World, x: i32, y: i32, id: OrganismId) -> u32 {
     let (ax, ay) = organism::supply_direction(w, x, y).unwrap_or((0.0, -1.0));
     let (px, py) = (-ay, ax);
     const T: f32 = 0.383;
@@ -259,11 +260,11 @@ fn section_width(w: &World, x: i32, y: i32, id: u16) -> u32 {
 /// axis pairs. A failure section is the narrowest place a break can run, and
 /// taking the axis-perpendicular chord alone reports a wide bole as thin
 /// whenever `supply_direction` comes back diagonal.
-fn min_section(w: &World, x: i32, y: i32, id: u16) -> u32 {
+fn min_section(w: &World, x: i32, y: i32, id: OrganismId) -> u32 {
     [(1, 0), (0, 1), (1, 1), (1, -1)].iter().map(|&(sx, sy)| run_along(w, x, y, id, sx, sy)).min().unwrap_or(1)
 }
 
-fn run_along(w: &World, x: i32, y: i32, id: u16, sx: i32, sy: i32) -> u32 {
+fn run_along(w: &World, x: i32, y: i32, id: OrganismId, sx: i32, sy: i32) -> u32 {
     let mut n = 1;
     for dir in [-1, 1] {
         let mut step = 1;
