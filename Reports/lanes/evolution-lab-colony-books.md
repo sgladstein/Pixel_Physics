@@ -93,6 +93,48 @@ Every guard here was written after the code, so each had the fault put back:
   of a matched pair stop matching; `CreatureStats::attack_cells` is that
   number.
 
+## After #417 landed — a stranger is food, and the page says so
+
+The coordinator's sequencing message arrived after this branch had already
+merged `main` at `c5a77513`, so the merge it asked for was done (that merge
+is where the README conflict below came from). What was **not** done was the
+question inside it, and it was a real gap.
+
+**#417 makes a stranger edible through the ordinary mouth** — `ant` material
+carries `food_class: 1.0` against the shipped neutral gut, so two colonies
+outside each other's tolerance eat each other with no `Attack` weight
+involved. In these books that lands in **`HarvestedPlant`**, because living
+flesh is not `worth_in_aux`. Arithmetically right, and on the page it read as
+*"they found some plants"*.
+
+Two things came out of checking rather than assuming:
+
+- **`raided` does fire on the new path**, and the guard for it is a different
+  door from the beetle one: there `is_living_kin` is false because a beetle is
+  not an ant, here both are ants and the predicate turns on **smell**.
+  `a_stranger_colonys_ant_is_booked_as_a_raid_and_as_food` asserts the pair
+  *and* that the mouthful is filed under the `ant` material, which is the half
+  the page needs — a raid that books joules without naming its source draws as
+  an unexplained rise.
+- **The obvious scene was the wrong one.** Making the eater hungry, on the
+  reasoning that `Feed` is an urge, starved it: at a quarter bank it walked off
+  looking for food and was dead inside the window, and the null read as
+  "strangers do not eat each other". The hunger wire makes a *full* ant rest,
+  so two rich strangers stay adjacent long enough for the mouth to find flesh
+  that is already touching it — 163 eats and 54 cells taken, against zero.
+
+The page gains one conditional row, `ATE RIVALS / EATEN BY`, inserted third so
+the block still reads bank → sources → bill → state. It is only drawn when it
+is happening, and the page guards book a raid for every colony precisely so
+the fit test measures the **tall** block rather than the short one.
+
+**And a stale reference this found, which is the more useful half.**
+`World::colony_rivalry` is **retired** — the live mechanism is the narrow end
+of `Behavior::scent_spread`. Three doc comments named the retired switch as
+the live rule, one of them `OrganismState::colony`'s own, which is the doc
+anybody asking "what is a colony" reads first. All three now say what actually
+decides it, with the switch kept only as history.
+
 ## The review card
 
 `20260914T063026275Z-e7b8f3` (board `lab`) — the FOOD page at rest, asking

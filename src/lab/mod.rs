@@ -1558,6 +1558,18 @@ impl Lab {
         self.world.regroup_by_scent();
         self.stats.observe(&self.world);
         self.ui.observe(&self.world);
+        // **The food road, sampled per simulated tick and not per displayed
+        // frame**, for the same reason the two series above moved here: at
+        // 256x one displayed frame is 256 ticks, and a road read once per
+        // frame would put a laden ant's mark wherever it happened to be when
+        // the screen was painted -- which on a fast box is usually the nest,
+        // so the map would say the food comes from the nest. `CLAUDE.md`'s
+        // "ask what your number counts": a plausible picture of the wrong
+        // thing looks exactly like a result.
+        //
+        // Free while the overlay is off: `observe` returns on one enum
+        // compare before touching the world at all.
+        self.renderer.food.observe(&self.world);
         // **The chronicle's own census, on its own cadence.** `CHRONICLE_
         // CENSUS_EVERY` frames -- independent of `stats::SAMPLE_INTERVAL`/
         // `STANDING_INTERVAL` above, which feed the bar's population strip
