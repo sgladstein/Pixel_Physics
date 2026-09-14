@@ -1,0 +1,77 @@
+{
+  "id": "20260914T052317396Z-d3ddba",
+  "created": "2026-09-14T05:23:17Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "HEAD",
+    "commit": "79c0b639",
+    "agent": null,
+    "session_id": "d4356c9c-62fb-5b4d-9012-42ef486e9a14",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Two ant colonies meeting at a border",
+  "question": "Does this read as two colonies holding a line against each other, rather than one crowd of ants -- and does the way they meet feel like rivalry, or just like traffic?",
+  "context_md": "Round 35 lane D. **Yellow is one colony, blue is the other.** They were founded 58 cells apart on a bare bed and have walked into each other. 4,000 frames, one seed, 24 ants each. Scrub the slider.\n\n**Until tonight an encounter and a fight were the same event** -- an ant that met a stranger bit it, every time. Now it reads the odds first (how hard each of them is to hurt, and how many of each colony are touching it) and mostly backs off with a quiet alarm mark instead. That is what almost all real inter-colony contact is: ants antennating and stepping back, with the fight as the rare end of the range.\n\n**I am only asking about what is on screen** -- whether two colours meeting in the middle of a bed reads as two colonies, and whether it has the feel of a border. The counts are below so you can see the mechanism fired; they are not the question.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "two colonies in contact",
+      "files": [
+        "20260914T052317396Z-d3ddba/000-f0000.png",
+        "20260914T052317396Z-d3ddba/001-f0001.png",
+        "20260914T052317396Z-d3ddba/002-f0002.png",
+        "20260914T052317396Z-d3ddba/003-f0003.png",
+        "20260914T052317396Z-d3ddba/004-f0004.png",
+        "20260914T052317396Z-d3ddba/005-f0005.png",
+        "20260914T052317396Z-d3ddba/006-f0006.png",
+        "20260914T052317396Z-d3ddba/007-f0007.png",
+        "20260914T052317396Z-d3ddba/008-f0008.png",
+        "20260914T052317396Z-d3ddba/009-f0009.png",
+        "20260914T052317396Z-d3ddba/010-f0010.png",
+        "20260914T052317396Z-d3ddba/011-f0011.png",
+        "20260914T052317396Z-d3ddba/012-f0012.png",
+        "20260914T052317396Z-d3ddba/013-f0013.png",
+        "20260914T052317396Z-d3ddba/014-f0014.png",
+        "20260914T052317396Z-d3ddba/015-f0015.png",
+        "20260914T052317396Z-d3ddba/016-f0016.png",
+        "20260914T052317396Z-d3ddba/017-f0017.png",
+        "20260914T052317396Z-d3ddba/018-f0018.png",
+        "20260914T052317396Z-d3ddba/019-f0019.png",
+        "20260914T052317396Z-d3ddba/020-f0020.png",
+        "20260914T052317396Z-d3ddba/021-f0021.png",
+        "20260914T052317396Z-d3ddba/022-f0022.png",
+        "20260914T052317396Z-d3ddba/023-f0023.png",
+        "20260914T052317396Z-d3ddba/024-f0024.png",
+        "20260914T052317396Z-d3ddba/025-f0025.png",
+        "20260914T052317396Z-d3ddba/026-f0026.png",
+        "20260914T052317396Z-d3ddba/027-f0027.png",
+        "20260914T052317396Z-d3ddba/028-f0028.png",
+        "20260914T052317396Z-d3ddba/029-f0029.png",
+        "20260914T052317396Z-d3ddba/030-f0030.png",
+        "20260914T052317396Z-d3ddba/031-f0031.png"
+      ],
+      "caption": "yellow colony left, blue colony right, 4,000 frames",
+      "meta": {
+        "encounters assessed": 31,
+        "became a bite": 8,
+        "ended in a display and a step back": 23,
+        "escalation rate": 0.258,
+        "kills": 6,
+        "ants alive at the end (yellow/blue)": "13 / 3",
+        "frames": 4000,
+        "seed": 0
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
