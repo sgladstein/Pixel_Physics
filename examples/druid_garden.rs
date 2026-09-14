@@ -51,6 +51,7 @@
 //! species and material files are `include_str!`d, and a stale example
 //! prints plausible numbers from a world nobody asked for.
 
+use pixel_physics::app::{HEIGHT, WIDTH};
 use pixel_physics::druid::Druid;
 use pixel_physics::sim::cell::Cell;
 use pixel_physics::sim::material::MaterialKind;
@@ -65,6 +66,15 @@ use std::collections::BTreeMap;
 /// different one by construction.
 const WINDOW: i32 = 200;
 
+/// **The tight window: `ABSORB_RADIUS` itself.**
+///
+/// A second window rather than a narrower one, because the two answer
+/// different questions and the wide one can hide the narrow one. "Plants
+/// around it" is a claim about the ground the player is standing on, and at
+/// full scale the wide window holds ~35,000 plant cells — a local loss of
+/// fifty would not round to a visible digit in it.
+const TIGHT: i32 = 60;
+
 /// One reading of the world. Everything here is a standing quantity, so two
 /// of these subtract.
 struct Census {
@@ -72,6 +82,8 @@ struct Census {
     cells: BTreeMap<String, usize>,
     /// ...and the same, inside [`WINDOW`] of the colony.
     near: BTreeMap<String, usize>,
+    /// ...and inside [`TIGHT`], which is the reach of the `F` key itself.
+    tight: usize,
     /// Live organisms whose species has no `creature` block.
     plants: usize,
     /// ...of which, rooted inside the window.
@@ -108,6 +120,7 @@ fn census(world: &World, at: (i32, i32)) -> Census {
     let bounds = world.bounds().expect("bounded world");
     let mut cells: BTreeMap<String, usize> = BTreeMap::new();
     let mut near: BTreeMap<String, usize> = BTreeMap::new();
+    let mut tight = 0usize;
     for y in bounds.min_y..=bounds.max_y {
         for x in bounds.min_x..=bounds.max_x {
             let cell = world.get(x, y);
@@ -118,6 +131,9 @@ fn census(world: &World, at: (i32, i32)) -> Census {
             *cells.entry(name.clone()).or_default() += 1;
             if (x - at.0).abs() <= WINDOW && (y - at.1).abs() <= WINDOW {
                 *near.entry(name).or_default() += 1;
+            }
+            if (x - at.0).abs() <= TIGHT && (y - at.1).abs() <= TIGHT {
+                tight += 1;
             }
         }
     }
@@ -139,6 +155,7 @@ fn census(world: &World, at: (i32, i32)) -> Census {
     Census {
         cells,
         near,
+        tight,
         plants,
         plants_near,
         animals,
@@ -168,6 +185,7 @@ fn report(label: &str, a: &Census, b: &Census) {
     }
     println!("  {:<12} {:>10} {:>10} {:>+10}", "WORLD", a.total(), b.total(), b.total() as i64 - a.total() as i64);
     println!("  {:<12} {:>10} {:>10} {:>+10}", "near colony", a.total_near(), b.total_near(), b.total_near() as i64 - a.total_near() as i64);
+    println!("  {:<12} {:>10} {:>10} {:>+10}", "within r60", a.tight, b.tight, b.tight as i64 - a.tight as i64);
     println!("  {:<12} {:>10} {:>10} {:>+10}", "plants", a.plants, b.plants, b.plants as i64 - a.plants as i64);
     println!("  {:<12} {:>10} {:>10} {:>+10}", "plants near", a.plants_near, b.plants_near, b.plants_near as i64 - a.plants_near as i64);
     println!("  {:<12} {:>10} {:>10} {:>+10}", "animals", a.animals, b.animals, b.animals as i64 - a.animals as i64);
@@ -228,6 +246,30 @@ fn selftest() {
     println!("selftest: PASS - the census sees {erased} erased cells as {moved}");
 }
 
+/// Render one frame of the real game to `<prefix>-<when>.png`, or do nothing
+/// when no prefix was asked for.
+///
+/// The same `Druid::draw` the window calls, into a plain RGBA buffer — so
+/// what lands in the file is the picture, interface and all, rather than a
+/// debug view of it.
+fn shoot(game: &mut Druid, prefix: &str, when: &str) {
+    if prefix.is_empty() {
+        return;
+    }
+    // **The key legend off, because it covers half the ground.** It is the
+    // game's own default and right for a player who has just started; a card
+    // asking "what happened to this hillside" cannot spend 40% of its pixels
+    // on a list of bindings.
+    game.show_keys = false;
+    let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+    game.draw(&mut frame, (WIDTH, HEIGHT), true);
+    let path = format!("{prefix}-{when}.png");
+    match image::save_buffer(&path, &frame, WIDTH, HEIGHT, image::ColorType::Rgba8) {
+        Ok(()) => println!("druid_garden: wrote {path}"),
+        Err(e) => eprintln!("druid_garden: {path}: {e}"),
+    }
+}
+
 fn main() {
     // `quiet` is the pure control: same world, same elapsed, same speed, and
     // the `F` key never pressed.
@@ -247,6 +289,11 @@ fn main() {
     let mut unlimited = true;
     let mut absorb_every: u64 = 300;
     let mut control = String::new();
+    // **A picture, because the report is about what the ground looks like.**
+    // `filmstrip` cannot drive this game and `bin/druid.rs`'s capture hooks
+    // need a surface; `Druid::draw` needs neither, so an example can render
+    // the same frame the player sees straight into a buffer.
+    let mut png = String::new();
     for a in std::env::args().skip(1) {
         let Some((k, v)) = a.split_once('=') else { continue };
         match k {
@@ -266,6 +313,7 @@ fn main() {
             "unlimited" => unlimited = v != "0",
             "absorbevery" => absorb_every = v.parse::<u64>().expect("absorbevery=N").max(1),
             "control" => control = v.to_string(),
+            "png" => png = v.to_string(),
             _ => panic!("unknown argument {a:?}"),
         }
     }
@@ -299,6 +347,7 @@ fn main() {
     );
 
     let before = census(&game.world, at);
+    shoot(&mut game, &png, "before");
     let mut absorbs = 0usize;
     let mut drawn = 0.0f32;
     for t in 1..=ticks {
@@ -310,6 +359,7 @@ fn main() {
         }
     }
     let after = census(&game.world, at);
+    shoot(&mut game, &png, "after");
 
     report(&format!("{arm} speed={} colony={placed} circle={} unlimited={unlimited}", game.speed, circle as u8), &before, &after);
     // **The discrete event count, beside the numbers it is meant to explain.**

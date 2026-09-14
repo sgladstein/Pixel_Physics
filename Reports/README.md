@@ -127,6 +127,35 @@ by somebody about to try it on creatures.
   things it makes reachable that nothing else has: alarm without paying every
   ant the measured 4%-of-a-life eye, and a real reason for `Caution`, a
   shipped working lever **no species has ever authored**.
+- [absorb-and-the-garden-2026-09-14.md](absorb-and-the-garden-2026-09-14.md)
+  — **diagnosis, held world, nothing shipped.** The owner reported that
+  absorbing creature energy destroys nearby plants and proposed that the
+  energy particles are colliding with the world. **The `F` key does not touch
+  the world**: five paired arms differing only in whether it is pressed came
+  back equal in every column — every plant material, every organism count,
+  every death cause, every unit of `harvested_plant` — with `Druid::power` the
+  only thing in the world that differed. The proposed fix is *already true*
+  (the motes are screen-pixel values painted into the finished frame), so
+  shipping it would be a no-op with the report marked addressed. **His
+  observation is nonetheless real and is reproduced**: on the shipped `bare`
+  start at speed 8, the same circle holds **352 live plants with no colony in
+  it and 177 with one**, and the ants eat **15,010** units of plant tissue —
+  the colony eats half the garden, and the speed dial is a **9.7x** multiplier
+  on it (eaten 228 → 2,217, felled 28 → 274, everything else fixed).
+  Absorbing is *upstream* of that twice over — you must stand in a running
+  colony to press it, and with the economy live the power it buys keeps the
+  circle standing longer (eaten 1,026 → 1,260 from six presses worth 45
+  power) — which is why the misattribution is a fair reading and not a silly
+  one. **The generalisable half is the method**: the nulls are only readable
+  because the same harness was shown to move, both on a known-broken case
+  (`control=selftest`, 100 cells erased and 100 reported) and on the one arm
+  where absorbing *can* matter. Names `energy_ledger.harvested_plant` as the
+  counter a "did something eat this" question wants — a death count cannot
+  answer it, because a grazed plant usually survives being grazed — and rules
+  out `plant_bending` (269 against 274) and `step_extra_ticks`'s
+  `player.take()` by measurement. The prescription is legibility, not a patch:
+  the player has a number for what a circle costs him in *power* and none at
+  all for what it costs him in *plants*. Instrument: `examples/druid_garden.rs`.
 - [held-world-zoom-plan-2026-09-13.md](held-world-zoom-plan-2026-09-13.md)
   — **plan, not built.** How the held world gets a zoom control, on the owner's
   instruction that it should have one. The number that makes it worth
