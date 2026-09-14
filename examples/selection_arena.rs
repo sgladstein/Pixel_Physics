@@ -80,6 +80,7 @@
 
 mod common;
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::sim::organism::{CellType, FateGenome, FateWhen};
 use pixel_physics::sim::parallel;
 use pixel_physics::sim::plant;
@@ -501,7 +502,7 @@ fn bed_census(
         applied || handicap == Handicap::Same,
         "arm matched no rule, so this census would describe the unmutated plant"
     );
-    let mut founder_ids: Vec<u16> = Vec::new();
+    let mut founder_ids: Vec<OrganismId> = Vec::new();
     for y in 0..w_height {
         for x in 0..w_width {
             let id = w.get(x, y).organism_id();
@@ -636,7 +637,7 @@ fn run_world(
     // in index order, but `Relief::Varied` shoves each one, so x order and
     // plant order are not the same thing -- and it is x order that decides
     // who neighbours whom, which is what the mirror has to invert.
-    let mut founder_cells: Vec<(i32, u16)> = Vec::new();
+    let mut founder_cells: Vec<(i32, OrganismId)> = Vec::new();
     for y in 0..w_height {
         for x in 0..w_width {
             let id = w.get(x, y).organism_id();
@@ -682,7 +683,7 @@ fn run_world(
         }
         let mut a = Tally::default();
         let mut b = Tally::default();
-        let mut counted: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+        let mut counted: std::collections::BTreeSet<OrganismId> = std::collections::BTreeSet::new();
         let (mut gen_sum, mut gen_n) = (0u64, 0u64);
         for y in 0..w_height {
             for x in 0..w_width {
@@ -699,10 +700,10 @@ fn run_world(
                     t.seeds_set += state.seeds_set as u64;
                     gen_sum += state.generation as u64;
                     gen_n += 1;
-                    // `u16` handles are recycled, so an id is only unique
+                    // Slot handles are recycled, so an id is only unique
                     // among the live; pair it with the lineage so a reused
                     // handle in a different arm cannot be double-counted.
-                    let key = (u32::from(id) << 1) | u32::from(is_b);
+                    let key = (id << 1) | u32::from(is_b);
                     if is_b {
                         ever_b.insert(key);
                     } else {

@@ -4685,7 +4685,7 @@ pub fn woody_budget(site: &Site) -> f32 {
 /// that package landed, `plant::is_foliage` gated both abscission rules on
 /// `CellType::Leaf` and grass has no leaf stage, so a grass plant could not
 /// die of anything — a plantable grass that cannot die is an organism-slot
-/// leak ending in silent id corruption at the 4,095 ceiling
+/// leak ending in silent id corruption at the organism ceiling (4,095 then; 1,048,575 since 2026-09-14)
 /// (`Reports/plant-project-review-2026-08-23.md` §F4). P3 closed both halves:
 /// shade now kills a blade, and the seed bank decays on an 18,000-frame
 /// half-life. Both of those change *where* grass can be put, which is why
@@ -4805,7 +4805,7 @@ const GRASS_SALT: i32 = 19;
 /// **Grass is deliberately not sown here.** It has no mortality path
 /// (`Reports/plant-project-review-2026-08-23.md` §F4/A2): a plantable grass
 /// that cannot die is an organism-slot leak that ends in silent id
-/// corruption at the 4,095 ceiling, so it waits on that fix rather than on
+/// corruption at the organism ceiling (4,095 then), so it waits on that fix rather than on
 /// anything in this pass.
 ///
 /// Seeds, not grown plants. What comes up, how tall it gets and how it leans

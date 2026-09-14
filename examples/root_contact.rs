@@ -43,6 +43,7 @@
 
 mod common;
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::sim::material;
 use pixel_physics::sim::organism::{self, CellType};
 use pixel_physics::sim::world::World;
@@ -60,9 +61,9 @@ struct Contact {
     walled_in: usize,
 }
 
-fn census(world: &World, soil: material::MaterialId) -> BTreeMap<u16, Contact> {
+fn census(world: &World, soil: material::MaterialId) -> BTreeMap<OrganismId, Contact> {
     let bounds = world.bounds().expect("bounded world");
-    let mut out: BTreeMap<u16, Contact> = BTreeMap::new();
+    let mut out: BTreeMap<OrganismId, Contact> = BTreeMap::new();
     for y in bounds.min_y..=bounds.max_y {
         for x in bounds.min_x..=bounds.max_x {
             let cell = world.get(x, y);

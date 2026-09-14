@@ -18,6 +18,7 @@
 //! straight through, so its own doc comment (the columns, the selftest, the
 //! command lines) is still the reference for what each field means.
 
+use crate::sim::cell::OrganismId;
 use crate::lab::scenario::{Placement, Scenario};
 use crate::lab::scene::LabBox;
 use crate::sim::creature::{diet_yield, EAT_YIELD_THRESHOLD};
@@ -133,7 +134,7 @@ pub struct Sample {
     pub corpses: usize,
 }
 
-fn is_waiting_seed(world: &World, id: u16, state: &organism::OrganismState) -> bool {
+fn is_waiting_seed(world: &World, id: OrganismId, state: &organism::OrganismState) -> bool {
     // **A seed riding in an ant's crop is still bank, and owns no cell at
     // all while it rides** -- round 29, Brief 1. `plant::take_seed_passenger`
     // lifts the seed's one cell out of the world and keeps the organism live

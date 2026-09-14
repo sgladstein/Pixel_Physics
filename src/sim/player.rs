@@ -21,6 +21,7 @@
 //! which is what the determinism requirement means for an entity that
 //! only exists when a player summons it.
 
+use super::cell::OrganismId;
 use super::material::MaterialKind;
 use super::world::World;
 
@@ -3246,7 +3247,7 @@ pub fn shake(world: &mut World, at: (i32, i32), tuning: &Tuning) -> Option<Shake
 /// `HashSet` iteration order is per-process and was a live determinism bug
 /// in `plant.rs` (5877 / 5872 / 5881 cells across three runs of one
 /// binary).
-fn shaken_component(world: &World, from: (i32, i32), organism_id: u16) -> Vec<(i32, i32)> {
+fn shaken_component(world: &World, from: (i32, i32), organism_id: OrganismId) -> Vec<(i32, i32)> {
     let mut seen = std::collections::HashSet::from([from]);
     let mut queue = std::collections::VecDeque::from([from]);
     let mut out = Vec::new();

@@ -76,6 +76,7 @@
 //! over that spread is not a result. Per-seed shares are printed and the
 //! direction statistic sits under them.
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::sim::brain;
 use pixel_physics::sim::explosion::Blasts;
@@ -687,7 +688,7 @@ fn run_world(spec: &LabBox, frames: u64, arm: &Arm, mirror: bool, arm_seed: u64)
     // whom and where the nest patch is relative to each animal, and it is
     // what the mirror has to invert. `found_colony_of` hands back a count
     // and not handles, so they are recovered from the grid.
-    let mut founders: Vec<(i32, u16)> = Vec::new();
+    let mut founders: Vec<(i32, OrganismId)> = Vec::new();
     for y in 0..spec.height {
         for x in 0..spec.width {
             let id = w.get(x, y).organism_id();
