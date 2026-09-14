@@ -162,9 +162,9 @@ point.
 | Z17 | **OPEN** | 12243 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
 | Z20 | closed | 12295 | labgif wire= was a silent no-op for every card it has ever produced (lab) |
 | Z21 | **OPEN** | 12336 | The held world's grown and dead starts fill every organism slot, so C founds nothing |
-| Z22 | **OPEN** | 12435 | A colony inside a quickening eats about a sixth of the garden, and nothing on screen says so |
-| Z23 | **OPEN** | 12530 | nearest_foe counts a plant as a foe, so a fed colony quietly vandalises its own larder |
-| Z24 | **OPEN** | 12621 | A loop of plant_ant is a crowd of strangers, and nine harnesses still do it |
+| Z22 | **OPEN** | 12476 | A colony inside a quickening eats about a sixth of the garden, and nothing on screen says so |
+| Z23 | **OPEN** | 12571 | nearest_foe counts a plant as a foe, so a fed colony quietly vandalises its own larder |
+| Z24 | **OPEN** | 12662 | A loop of plant_ant is a crowd of strangers, and nine harnesses still do it |
 
 <!-- END GENERATED INDEX -->
 
@@ -12333,7 +12333,48 @@ affected: they set the genome on a world that is never rebuilt underneath them.
 
 ---
 
-### Z21. The held world's grown and dead starts fill every organism slot, so `C` founds nothing — and the game blames the ground (held) — **OPEN**
+### Z21. The held world's grown and dead starts fill every organism slot, so `C` founds nothing — and the game blames the ground (held) — **OPEN, but the reproduction below is STALE — read the 2026-09-14 correction first**
+
+> **Correction, 2026-09-14, by the lane that filed this.** **The reproduction
+> below no longer reproduces on `main`, on any start.** Zeroing the druid
+> preset's `moss_density`, `tree_density` and `grass_density` (PR #412) took
+> `life_scatter` to nothing, and the grow phase grows *the scatter's seeds* —
+> so with no seeds there is nothing to grow. Measured on `main` at
+> `20628c10`, all three starts, `examples/thicket_probe`:
+>
+> | | grown | dead | bare |
+> |---|---|---|---|
+> | organisms after the grow phase | **0** | **0** | **0** |
+> | live of 4,095, during a 6-stand sweep | 47 | 47 | 47 |
+> | births refused for want of a slot | **0** | **0** | **0** |
+> | animals placed, per stand with ground | **12 of 12** | 12 of 12 | 12 of 12 |
+>
+> `Start::Dead` now prints *"marked 0 of 0 organisms senescent"*.
+>
+> **This also corrects a cross-lane note, and the correction matters more
+> than the entry.** `Reports/lanes/druid-program-coordinator.md` records that
+> the density change *"relieves §Z21 where the owner meets it while leaving
+> grown and dead untouched"*. Grown and dead are **not** untouched — they are
+> relieved hardest, because their entire 4,093 organisms came from growing
+> the scatter. Reasonable at the time and wrong: the grow phase looks like an
+> independent source of plants and is not.
+>
+> **What survives, and why this stays OPEN rather than closed.** Two things,
+> neither of them the reproduction:
+>
+> 1. **The ceiling is real and is now purely latent.** 4,095 is a property of
+>    how many organisms are *alive*, not of how they got there, and a druid
+>    who plants and quickens for long enough arrives at the same wall with no
+>    grow phase involved. That was flagged as unmeasured when this was filed
+>    and it is **still unmeasured** — nobody has played a world into the
+>    ceiling. It is now the only route to this bug.
+> 2. **The message is still wrong and still shipped.** *"nothing founded - no
+>    ground here"* names one of three refusals and cannot tell them apart. A
+>    latent bug behind a misleading error is exactly the pair that costs a day
+>    when it finally fires.
+>
+> Anything below this line is a true record of a world that no longer exists.
+> Do not spend a session reproducing it.
 
 **What it is.** `Druid::new` grows the world for `GROW_FRAMES` (8,000) on both
 `Start::Grown` and `Start::Dead`, and what it grows is **4,093 organisms**

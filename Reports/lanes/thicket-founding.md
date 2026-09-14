@@ -306,3 +306,79 @@ opened it myself had it not existed.
 **Head SHA: `27d72abc358cbee23e47bab2ccaa0699c7b825dc`** (this note's own
 commit; the code and every measurement above are unchanged since
 `58f2ac1e`).
+
+---
+
+## 2026-09-14, later → coordinator. The verdict came back, and the world moved under all of it
+
+PR #414 merged. Three things since, two of which correct something.
+
+### 1. The owner could not judge the card, and he is right
+
+`20260914T050513804Z-623a4b`: **choice `null`**, comment *"Cannot tell from
+the image. need to playtest"*.
+
+That is a defect in my card, not a verdict on the change. I asked whether ants
+standing on a mat of plants read as settled undergrowth or as floating —
+and **whether something looks perched rather than stuck in the air is a fact
+about what it does next.** A single frame has no next. The review skill says
+this in as many words (*GIF or frame sequence when the question is feel*) and
+I posted a still anyway, because the still was what I had.
+
+`thicket_probe` now has `seq=`/`every=`, which founds and then ticks the real
+`Druid::update` and writes a numbered sequence. **It is built and it works —
+and I have not posted a second card, because there is nothing left to point it
+at. See below.**
+
+### 2. §Z21 no longer reproduces, on ANY start — and that corrects you as well as me
+
+Lane B's density change landed (PR #412). `life_scatter` is what seeds the
+world, and **the grow phase grows the scatter's seeds** — so with the
+densities at zero there is nothing to grow. Measured on `main` at `20628c10`,
+all three starts:
+
+| | grown | dead | bare |
+|---|---|---|---|
+| organisms after the grow phase | **0** | **0** | **0** |
+| births refused for want of a slot | **0** | **0** | **0** |
+| animals placed per stand with ground | **12 of 12** | 12 of 12 | 12 of 12 |
+
+`Start::Dead` prints *"marked 0 of 0 organisms senescent"*.
+
+**Your note says the density change "relieves §Z21 where the owner meets it
+while leaving grown and dead untouched".** Grown and dead are not untouched —
+they are relieved *hardest*, because their whole 4,093 organisms came from
+growing the scatter. Reasonable at the time and wrong: the grow phase looks
+like an independent source of plants and is not. I had the same blind spot —
+I scoped §Z21 to "the two non-default starts" and said those stand.
+
+§Z21 now carries a dated correction at the top of the entry, and its heading
+says the reproduction is stale, so nobody spends a session on a world that no
+longer exists. It stays **OPEN** for the two things that survive: the ceiling
+is real and now purely latent (a played world can still grow into it, still
+unmeasured), and *"nothing founded - no ground here"* is still shipped and
+still names one of three refusals it cannot tell apart.
+
+### 3. What the thicket fix is worth on the world as it now stands
+
+**On a fresh druid world: nothing, in any start.** 221 of 221 columns are
+sites with no climb needed, because there are no plants. The paired arms are
+**byte-identical at every frame** of a 570-frame sequence — I checked with
+`md5sum` rather than by eye, and the frames do move over time, so that is two
+identical worlds and not a dead harness.
+
+That is not a regression and the fix is not wasted:
+
+- **It fires the moment the player grows a thicket**, which is now the game's
+  entire premise — the druid plants, and the ground she has planted is exactly
+  the ground she will want to found on.
+- **The lab numbers are untouched by any of this** — `LabBox` builds its own
+  bed and does not read the druid preset. 147 → 188 placed over 24 stands
+  stands.
+
+**So a playtest of this needs a thicket grown first**, and on a fresh world
+pressing the key shows nothing either way. Worth telling the owner before he
+spends the session looking for a difference that cannot be there yet — that,
+rather than another card, is what I would route.
+
+**Head SHA at the bottom of this section's PR.**
