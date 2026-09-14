@@ -2252,9 +2252,12 @@ pub enum Account {
     /// copying.** Trophallaxis moves energy from one live animal to another
     /// and books nothing world-wide, correctly: the world's live stock is
     /// unchanged. Split per colony it is not unchanged at all — kin is
-    /// `creature::is_living_kin`, which is *species* identity unless
-    /// `World::colony_rivalry` is on, so a shipped bed lets two ant colonies
-    /// feed each other across the box.
+    /// `creature::is_living_kin`, which turns on *smell* rather than on the
+    /// label, and `Behavior::scent_spread` ships at 0, putting every colony
+    /// at the species' authored point. So on a shipped bed the two colonies
+    /// you put down are one extended family and feed each other across the
+    /// box; only the narrow end of that dial makes them strangers, which is
+    /// what the retired `colony_rivalry` switch used to do in one bit.
     ///
     /// Without this pair a colony's live identity would fail to close and
     /// the temptation would be a free term to absorb the gap, which is the

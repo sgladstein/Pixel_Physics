@@ -7085,8 +7085,10 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // so -- nothing was created or destroyed. Per colony it is
                 // a real transfer whenever the pair straddles two labels,
                 // which a shipped bed allows: `neediest_kin` goes through
-                // `is_living_kin`, and that is species identity unless
-                // `World::colony_rivalry` is on. Booked as a matched pair
+                // `is_living_kin`, which reads *smell* and not the label,
+                // and `Behavior::scent_spread` ships at 0 -- every colony at
+                // the species' authored point, so two clicks are one
+                // extended family. Booked as a matched pair
                 // so both colonies' live identities still close; see
                 // `Account::SharedOut`.
                 let donor = world.colony_of(organism);
@@ -21621,6 +21623,92 @@ mod tests {
         assert!(took > 0.0, "the beetle ate nothing off the ant in 4,000 frames: this scene no longer contains a predation");
         assert_eq!(took, lost, "{took:.4} J taken against {lost:.4} J lost -- a raid must be booked on both colonies");
         assert_eq!(w.colony_books(9).raided_by_others, 0.0, "nothing ate the beetle");
+    }
+
+
+    /// **A stranger colony's ant is booked as a raid, and it lands in the
+    /// diet band as `ant`.**
+    ///
+    /// The case round 35's conflict work (#417) opened, and it arrives
+    /// through a door the beetle test above does not use. `a_raid_is_booked_
+    /// on_both_colonies` proves the mechanism across a *species* line, where
+    /// `is_living_kin` is false because a beetle is not an ant. Here both
+    /// animals are ants and the predicate turns on **scent**: two odours a
+    /// channel apart at a tolerance of `-1` are strangers, which is what the
+    /// retired `colony_rivalry` switch used to assert and what
+    /// `Behavior::scent_spread`'s narrow end now expresses. A stranger is
+    /// food through the ordinary `Feed` path -- `ant` material carries
+    /// `food_class: 1.0` against the shipped neutral gut -- with no `Attack`
+    /// weight involved, which is why this fires on the **unwired** shipped
+    /// ant.
+    ///
+    /// **The second assertion is the one the FOOD page needs.** A raid that
+    /// books its joules and never names its source would draw on the diet
+    /// band as an unexplained rise; the page can only say *"this colony is
+    /// eating other ants"* if the mouthful is filed under the `ant`
+    /// material. So the band is asserted, not just the pair.
+    #[test]
+    fn a_stranger_colonys_ant_is_booked_as_a_raid_and_as_food() {
+        let mut w = test_world();
+        let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
+        for x in 80..140 {
+            w.set(x, 120, Cell::new(floor, 0).with_attached(true));
+        }
+        // **The drift dial pinned off, for `attacking_costs_the_jaw_and_
+        // yields_no_food`'s reason**: at the shipped `scent_drift` a newborn
+        // is a stranger to its own mother, and this scene's whole claim is
+        // about the odour it sets by hand.
+        let species = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(species).creature.as_ref().expect("creature").clone();
+        def.scent_drift = 0.0;
+        w.species.set_creature(species, def);
+        let victim = spawn(&mut w, "ant", 100, 119);
+        if let Some(st) = w.organism_mut(victim) {
+            st.traits[TRAIT_TOLERANCE] = -1.0;
+            st.colony = 1;
+            // Rich, so it neither starves nor wanders off inside the window:
+            // this scene is about the *eater's* mouth, and a victim that
+            // died of hunger would leave a corpse, which books to
+            // `HarvestedCorpse` and is a different account entirely.
+            st.energy = 100_000.0;
+        }
+        let eater = spawn(&mut w, "ant", 105, 119);
+        // **Both rich, and the obvious scene is the wrong one.** The first
+        // version made the eater hungry, on the reasoning that `Feed` is an
+        // urge and a full animal has no reason to open its mouth. It starved
+        // instead: at a quarter bank it walked off looking for food and was
+        // dead inside the window, so the probe found no eater at all and the
+        // null read as "strangers do not eat each other". The hunger wire is
+        // why -- it makes a full ant *rest*, so two rich strangers stay
+        // beside each other long enough for the mouth to find the flesh
+        // that is already touching it. 163 eats and 54 cells taken, against
+        // zero for the hungry pair. Same reasoning as `attacking_costs_the_
+        // jaw_and_yields_no_food`, which banks both its animals for it.
+        let bank = 100_000.0f32;
+        if let Some(st) = w.organism_mut(eater) {
+            // One channel apart: this is the whole of "stranger".
+            st.traits[SCENT_SLOTS[0]] = 1.0;
+            st.traits[TRAIT_TOLERANCE] = -1.0;
+            st.colony = 2;
+            st.energy = bank;
+        }
+        run(&mut w, 2_000);
+        let took = w.colony_books(2).raided;
+        let lost = w.colony_books(1).raided_by_others;
+        assert!(took > 0.0, "no stranger was eaten in 2,000 frames: this scene no longer contains the case #417 opened");
+        assert_eq!(took, lost, "{took:.4} J taken against {lost:.4} J lost -- a raid must be booked on both colonies");
+        // **And the page can name it.** `ant` is the material a live ant's
+        // flesh is made of, so a colony eating strangers shows up on the
+        // diet band under the species' own name rather than as an
+        // unattributed rise.
+        let ant_material = w.materials.id_of("ant").expect("ant material");
+        let band = w.colony_books(2).diet();
+        let eaten_ant = band.iter().find(|(m, _)| *m == ant_material).map(|(_, j)| *j).unwrap_or(0.0);
+        assert!(
+            eaten_ant > 0.0,
+            "the raid was booked but the diet band does not name `ant` as its source, so no page reading this can say what the colony is eating: band {:?}",
+            band.iter().map(|(m, j)| (w.materials.get(*m).name.clone(), *j)).collect::<Vec<_>>()
+        );
     }
 
     /// **The standing meat never exceeds what was put into it.** The ledger
