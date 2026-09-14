@@ -12483,14 +12483,40 @@ every arm above, so the two colonies are one family throughout and no ant has
 an *animal* foe at all — `xcol`, `own` and `plantkill` are 0 on every run.
 Not the eye: `nearest_foe` is a ring walk and does not read `sight_range`.
 
-**The likely repair, and the reason it is not landed here.** One test in
-`nearest_foe` — that the target's species has a `creature` def — makes the
-verb animal-only and costs one lookup on a path that already resolved the
-organism. It is a one-line change in `src/sim/creature.rs`, which is **Lane
-B's file this round**, and it is a behaviour change to the played bed
-(79–95 cells of standing food per 24,000 frames stop being destroyed), so it
-wants its own measurement rather than riding a review report. Whoever takes
-it should also decide the adjacent question it exposes: **should grazing raise
-an alarm at all?** The two feeding call sites were added so that an animal
-killed outright by one bite still calls out — a claim about *animals* that
-reaches every leaf in the world.
+**Still live after PR #417, and verified rather than assumed (2026-09-14).**
+Lane D's conflict work landed on `main` as `c5a77513` and touched this exact
+function. It changed the **odds count** to animals only — every plant cell was
+a living non-kin organism, so a stand of herb read as an army and an ant in
+foliage assessed itself as hopelessly outnumbered — and left the **target
+rule** alone, saying so in a comment: *"it is still any living non-kin
+organism and not only an animal"*. So this bug survives it whole.
+
+**It is sharper after #417, not blunter.** The new commitment gate is
+`assessing = victim != 0 && is_animal && contest::enabled()`, and a plant
+fails `is_animal` — so `commits = !assessing` is **true unconditionally** and
+a plant is the one target in the world that is struck with **no assessment at
+all**. An animal may now decline a fight it would lose; a herb may not.
+
+Re-measured on the merged tree (`origin/main` at `c5a77513` with this
+lane's branch merged in, built fresh): seed 1 reports **475 attacks, 79 cells,
+629 deaths — byte-identical to the pre-#417 run**, every column. Predicted
+before it was run, and for a reason worth keeping: on the shipped bed every
+foe is a plant, so `assessing` is false, so the commitment branch takes **no
+RNG draw**, so the trajectory cannot move. The numbers in this section
+therefore describe `main` as it stands, not only the tree they were taken on.
+
+**The repair is no longer the obvious one-liner, and that is the update.**
+This section first proposed testing that the target's species has a
+`creature` def. #417's comment is an argument against exactly that: an animal
+cornered by something it cannot digest must still be able to hit it, and a
+plant is an organism. Both concerns are real and they are not in conflict —
+what is wrong here is not that a plant *can* be struck, it is that an ant
+grazing raises an alarm that aims the fight verb at the plant it was eating.
+So the question to settle first is the one this section already named as
+adjacent and should now name as primary: **should the feeding path raise an
+alarm at all?** `cry_alarm`'s two feeding call sites
+(`creature.rs`, the gnaw and the swallow) were added so that an animal killed
+outright by one bite still calls out — a claim about *animals* that currently
+reaches every leaf in the world. Gating those two sites on the victim being
+an animal leaves the target rule, and #417's argument for it, entirely
+intact.

@@ -171,6 +171,18 @@ whatever produced that zero, this bed at 24,000 frames on three seeds reports
 "how often did the `Attack` branch reach a target" rather than "did anything
 fight". Filed as `Reports/open-bugs-handoff.md` §Z23.
 
+**Still live after PR #417, and measured rather than assumed.** Lane D's
+conflict work landed on `main` touching this very function: it made the
+**odds count** animals-only and left the **target rule** alone, on the stated
+ground that an animal cornered by something it cannot digest must still be
+able to hit it. Its new commitment gate reads `assessing = victim != 0 &&
+is_animal && contest::enabled()`, so a plant fails `is_animal`, `commits` is
+true unconditionally, and **a plant is now the one target in the world struck
+with no assessment at all**. Re-run on the merged tree, seed 1 reports
+**475 attacks / 79 cells / 629 deaths — byte-identical** to the figures above;
+predicted in advance, because with every foe a plant the commitment branch
+takes no RNG draw and the trajectory cannot move.
+
 ## "Eating each other" is a different question, and the answer is: they already do
 
 The brief's guess is right and it is worth stating plainly, because it changes
@@ -407,6 +419,50 @@ See above. Per-colony `harvested_corpse` is cheap and answers "which colony
 lives off carrion". "Whose dead" needs the corpse stamp to carry the victim's
 group, which is a `creature.rs` change and a different size of job.
 
+## Lane D reached the same place from the other side, and sharpens one number
+
+`Reports/animal-conflict-research-2026-09-14.md` (PR #417, on `main` as
+`c5a77513`) was written in parallel with this one and neither lane reviewed
+the other. Two of its findings bear directly on this report.
+
+**It confirms the mouth, independently and harder.** Its §8.2 reports total
+`eats` going **54 → 750** on a 4,000-frame bed with *nothing changed but kin
+recognition*, and cross-colony kills outnumbering `Attack` kills two to one.
+That is this report's third correction — predation is the ignition, the fight
+verb is not — arrived at on a different bed with a different harness. Its own
+summary of it is the better sentence: *"the strangers are not mainly
+fighting, they are mainly food."*
+
+**And it sizes the dial, which this report deliberately did not.** Its §8.3
+sweeps `scent_spread` over six values and finds it is a **threshold, not a
+slope**: everything saturates by **2**, and rows 3, 4 and 6 are within noise
+of each other. Below 2 the switch is unreliable rather than weak.
+
+**The two reports' stranger figures look contradictory and are not — they
+have different denominators, and the difference is the point.** Lane D's
+`strangers` is the share of **all ordered live-ant pairs**, which includes
+the within-colony pairs that are kin by construction; it reads **0.093** at
+`spread=1` and plateaus near **0.34**. This report's `between%` is the share
+of **cross-colony pairs only**, which is why it reads **100% or 0% and never
+anything between**: per seed the outcome is binary, decided entirely by
+whether the founding gap clears the tolerance radius. Their pooled figure is
+this one averaged over seeds and diluted by the kin pairs. **Neither is wrong
+and the split is the more useful readout**, which is the argument for
+`between%`/`within%` over any single pooled number.
+
+Pooling what the two lanes measured: **7 of 10 seeds separate at
+`spread=1`** (4 of 6 here, 3 of 4 there). That is the same verdict from both
+beds — the dial at 1 is a coin weighted toward working, and a single run of
+it reads as "the mechanism is broken" about a third of the time.
+
+**What it changes here: the recommendation, not a finding.** This report
+proposes exposing `scent_spread` rather than choosing a value for it, and
+proposes nothing be switched on. That stands. What Lane D adds is that if it
+*is* ever exposed, its useful range starts at **2**, not 1 — so a dial whose
+top is 1 would ship a mechanism a third of beds never show. Their column is
+the one to set it from, and the owner's standing bar applies to whoever does:
+six seeds is not a sweep, and gate an order statistic.
+
 ## What this lane would do next, in order
 
 1. **Show the owner a fight and ask whether it is worth watching** (the card
@@ -419,7 +475,12 @@ group, which is a `creature.rs` change and a different size of job.
 3. **Fix §Z23 either way.** It is not conditional on any of this: the played
    bed today destroys 58–95 cells of standing food per 24,000 frames through
    a verb aimed at plants, and the counter everyone reads as "did anything
-   fight" is counting that.
+   fight" is counting that. **The repair is not the one-liner this report
+   first proposed** — #417 argues, correctly, that a cornered animal must be
+   able to hit what it cannot digest. The thing to settle is upstream of the
+   target rule: **should the feeding path raise an alarm at all?** Gating
+   `cry_alarm`'s two feeding call sites on the victim being an animal fixes
+   this and leaves #417's argument intact.
 4. **Then the eye, if a war turns out to be worth approaching.** Not before —
    it is a per-tick charge on every animal for a behaviour nothing yet
    selects on, and `dead-ends.md`'s flight race is the warning.

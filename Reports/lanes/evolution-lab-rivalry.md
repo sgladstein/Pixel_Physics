@@ -72,6 +72,51 @@ and the run is **byte-identical to the baseline** — the classic "identical
 output across a change that must have moved something" tell, here with an
 innocent explanation). The harness prints the gap for exactly this reason.
 
+## After the round moved under this lane (2026-09-14, 08:36–09:00Z)
+
+**The bug is §Z23.** The coordinator renumbered it on this branch at
+`18b7fa2b` — `claude/absorb-destroys-plants` had filed a different §Z22 an
+hour earlier on an unlanded branch, which is precisely the case
+`bugindex.py --check` cannot see and `--branches` can. Verified the diff: the
+heading, the index row and five cross-references, and **no claim in the
+section changed**. Accepted as-is, not re-filed.
+
+**PR #417 (Lane D) landed on `main` and touches this lane's subject; §Z23
+survives it whole, and that was measured rather than assumed.** #417 made
+`nearest_foe`'s **odds count** animals-only and left the **target rule**
+alone, stating the reason in a comment. Two consequences, both now in §Z23:
+its new gate is `assessing = victim != 0 && is_animal && contest::enabled()`,
+so **a plant is the one target struck with no assessment at all**; and
+re-running seed 1 on `origin/main` **with this branch merged into a scratch
+worktree and built fresh** gives **475 attacks / 79 cells / 629 deaths,
+byte-identical** to the pre-#417 figure — predicted first, because with every
+foe a plant the commitment branch takes no RNG draw.
+
+**§Z23's proposed repair was wrong and has been rewritten.** It first said
+"test that the target is an animal"; #417 argues against exactly that, and
+correctly. The repair moved upstream: gate `cry_alarm`'s two **feeding** call
+sites on the victim being an animal, which fixes the vandalism and leaves the
+target rule intact.
+
+**One correction back to the coordinator: this lane ships no switch and no
+default.** The poke asks what this lane's "ON default" for `scent_spread` is
+and says to re-derive it. There is nothing to re-derive — the PR changes no
+species file, no default and no file under `src/`, and the report's
+recommendation is to expose the dial rather than choose a value, default-off.
+Lane D's §8.3 sweep is still useful and is now cited in the report: the dial
+is a **threshold, not a slope**, saturating by **2**, so a dial whose top is 1
+would ship a mechanism a third of beds never show.
+
+**The two lanes' stranger figures differ by denominator, not by fact**, and
+the report now says so: Lane D's 0.093 is over *all* ordered ant pairs
+(kin-heavy); this lane's `between%` is over *cross-colony* pairs only, which
+is why it is 100% or 0% and never in between. Pooled, **7 of 10 seeds
+separate at `spread=1`** (4 of 6 here, 3 of 4 there).
+
+**Not merged `main` in.** `git merge-tree` reports **0 conflicts** at 12
+behind x 6 files = 72, well under the 300 bar, and the coordinator owns the
+merge order this round.
+
 ## Cards
 
 **Card `20260914T053420770Z-6a7aa9`** — *Two colonies that are strangers to
