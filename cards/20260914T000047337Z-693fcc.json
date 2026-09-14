@@ -1,0 +1,70 @@
+{
+  "id": "20260914T000047337Z-693fcc",
+  "created": "2026-09-14T00:00:47Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/lab-zoom-rung-three",
+    "commit": "bc9ab1d7",
+    "agent": null,
+    "session_id": "64c7884f-1a39-5380-82e6-95e316d9a6b9",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Zooming out to see where you are, in the held world",
+  "question": "You are walking in the held world and pull the camera back to see where you are. Which of these three is the picture you want?",
+  "context_md": "The held world (`--bin druid`), one moment, one spot, the camera pulled back three different ways. Same world, same centre cell, and **all three drawn at the same size on screen** — the size a maximised window gives.\n\nTwo of them frame the land identically and differ only in how much of it survives; the third frames it differently. Each pane's own numbers are underneath it.\n\n**Measured already, so you do not have to judge it.** The zoom ladder has four rungs, and the third of them is the only one that cannot spend the extra pixels the sandbox and the lab now default to — walking outwards you get sharp, sharp, *soft*, sharp. Your answer decides between leaving that alone, dropping the soft rung off the ladder, and changing the engine so it can be sharp too. **Judge the pictures; the engineering is priced either way.**\n\nOne caveat that is mine rather than the engine's: to put all three at one size, one of the sharp panes had to be stretched by a third (every third row and column doubled). Nothing was thrown away and no pane was softened to match another.",
+  "kind": "gallery",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "rung 3 as it ships today — soft",
+      "files": [
+        "20260914T000047337Z-693fcc/000-pow2_arm0_step2.png"
+      ],
+      "caption": "",
+      "meta": {
+        "land in view": "1536 x 960 cells",
+        "of the whole world": "60% of its width, all of its height",
+        "detail that reaches the screen": "one screen pixel per 3x3 cells",
+        "black border": "none — the land fills the screen"
+      },
+      "focus": null
+    },
+    {
+      "label": "rung 4, the next rung out — sharp, already possible",
+      "files": [
+        "20260914T000047337Z-693fcc/001-pow2_arm0_step3.png"
+      ],
+      "caption": "",
+      "meta": {
+        "land in view": "2048 x 1280 cells",
+        "of the whole world": "80% of its width, all of its height",
+        "detail that reaches the screen": "one screen pixel per cell",
+        "black border": "25% of the screen, above and below the land"
+      },
+      "focus": null
+    },
+    {
+      "label": "rung 3 made sharp — needs the engine change",
+      "files": [
+        "20260914T000047337Z-693fcc/002-any_arm0_step2.png"
+      ],
+      "caption": "",
+      "meta": {
+        "land in view": "1536 x 960 cells",
+        "of the whole world": "60% of its width, all of its height",
+        "detail that reaches the screen": "one screen pixel per cell",
+        "black border": "none — the land fills the screen"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": false,
+    "comment": true,
+    "annotations": true
+  }
+}
