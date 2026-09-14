@@ -4,6 +4,20 @@
 this fix — handed over from Lane D, so it is held in slices and landed fast.
 Opened 2026-09-14.*
 
+> **⚠️ FOR THE ROUND RECORD, BEFORE ANYTHING ELSE IS COPIED OUT OF THIS NOTE.**
+> **"Plants standing 60 → 158, up on every seed" is WITHDRAWN.** Those numbers
+> were true of the tree they were taken on and do not generalise: re-measured
+> after `main`'s `organism_id` u16 → u32 landed, the stand goes **up on one
+> seed, down hard on one, flat on one — median −3**. See *I RETRACT* below.
+> **The SIZING is unaffected and is what the round rests on**: 100% of swings
+> plant-directed and the jaw taking **77–93%** of every cell stripped off a
+> living plant, reproduced on the merged tree. Quote the sizing, not the
+> stand. The owner's card verdict (he picked the *after* pane,
+> `20260914T211725703Z-094f70`, 21:25Z) is an endorsement of the fix by eye
+> and is unaffected either way — but its captions carry the withdrawn
+> figures, which were accurate for seed 3 on the pre-merge build and are not a
+> general claim.
+
 ## What this is
 
 The owner is losing his plants in the lab. He isolated the condition himself:
@@ -269,6 +283,18 @@ fixing an expectation is a decision about what the arm is for.
 
 `structural.rs` / `load.rs` / `rigid.rs` (zero commits in three days), plant
 species files, rivalry (felled 161 vs 165, `plantkill` 0 both arms).
+
+## Two checks the coordinator asked for, both clean
+
+`python3 scripts/deadendindex.py --check` current. `python3 scripts/bugindex.py
+--branches` reports five identifiers titled two ways across all fetched refs
+(`S2`, `Y`, `Z`, `Z4`, and the creature-chain pair) — **none of them this
+lane's.** This branch is on the majority side of every one, i.e. it carries
+the title that is already on `main`; the odd sides are old unlanded branches
+(`perf-blast-relax`, `creature-plant-pathfinding`, `main-master-divergence`).
+**This lane filed no new letter at all** — §Z23 already existed and was
+closed in place — so there was nothing here for `--branches` to collide with.
+Recorded so the condition is not read as this round's.
 
 ## Gates
 
