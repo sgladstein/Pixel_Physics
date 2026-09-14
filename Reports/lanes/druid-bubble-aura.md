@@ -1,6 +1,7 @@
 # Lane: the quickening aura (held world)
 
-**Branch** `claude/druid-bubble-aura`, cut from `main` at `f2652979`.
+**Branch** `claude/druid-bubble-aura`, cut from `main` at `f2652979`, `main`
+merged back in at 19 behind. **PR [#418](https://github.com/sgladstein/Pixel_Physics/pull/418).**
 **The ask**, owner 2026-09-14: *"I want you to improve the bubbles look. They
 shouldn't be a solid line it blocks too much. I am thinking hazy shimmering
 aura. Think about how to indicate speed visual."*
