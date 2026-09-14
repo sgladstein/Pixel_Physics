@@ -8771,15 +8771,64 @@ that is what it is: a standing instruction.
 
 ### The interface
 
-**Fourteen keys, listed on screen, on by default** (`/` or `F1` hides them),
-with the state of the world in the opposite corner. This shipped a day late
-and the owner found it the hard way: *"I just tried to playtest and there is
-no GUI at all? I have no idea how to control anything other than run and
-jump."* Every key existed and worked — in a doc comment at the top of
-`src/bin/druid.rs` and in the OS window title, neither of which is on screen.
-`druid::hud::KEYS` is now the single list, and
+**Every key, listed on screen, on by default** (`/` or `F1` hides the full
+list), with the state of the world in the opposite corner. This shipped a
+day late and the owner found it the hard way: *"I just tried to playtest and
+there is no GUI at all? I have no idea how to control anything other than
+run and jump."* Every key existed and worked — in a doc comment at the top
+of `src/bin/druid.rs` and in the OS window title, neither of which is on
+screen. `druid::hud::KEYS` is the single canonical list, and
 `the_legend_names_every_key_the_binary_binds` reads the binary's own source
 and fails if a binding is not named there.
+
+**A two-row button bar along the bottom, added on the owner's second
+playtest**: *"buttons for the main actions (with subtle hotkey always
+visible). I don't want to have to remember all these shortcuts and the menu
+isn't even a menu, it is a shortcut list."* Ported from the evolution lab's
+own control bar (`lab::ui`) rather than invented — a retained, measured,
+self-fitting `Widget`/`Bar`, with each button's key drawn dimmer underneath
+its label as the "subtle hotkey". Thirteen of the game's verbs have a button;
+three continuous dials (place radius, carried-circle reach, speed) and the
+held movement keys stay keyboard-only, on the same reasoning the lab's own
+stocking dial uses — a button pressed dozens of times to walk a ladder is
+not a control. The on-screen key legend shrank to match: a key with a
+button no longer also gets a corner row, so what remains is only what has
+no button. `Handler::act` in `src/bin/druid.rs` is the single dispatch
+point both the keyboard and the bar's clicks route through, with
+`druid::hud::Druid::act` underneath it for the pure game-state verbs.
+Clicking never reaches the world through an open modal — the options menu
+and the founding screen already own the keyboard exclusively while up, and
+the mouse agrees.
+
+The bar's own rectangle is fixed and fully repainted every drawn frame
+regardless of hover, so — unlike the biosphere page below — it needs no
+repaint decision of its own; measured at **0.055 ms/frame**
+(`PIXEL_PHYSICS_DRUID_BENCH_BAR=1`).
+
+**A biosphere page, `TAB`**, opened by default — plants, animals, biomass,
+births and deaths, generations, reproduction — ported from the evolution
+lab's own `lab::stats::Stats` almost unchanged: the page was already
+`&World`-only, and the one line that assumed the lab's control bar now takes
+its floor from a caller (`Stats::rect`/`Stats::draw_at_floor`), so the
+druid's own bar supplies its own. Because the page's height depends on its
+content, it is *not* repainted unconditionally the way the bar is: doing so
+measured **1.11 ms/frame** (`PIXEL_PHYSICS_DRUID_BENCH_BAR=1`) and, worse,
+risked a stale strip below a page that had just shrunk. `Handler::frame`
+instead forces a full world repaint only on the frames the page's own
+rectangle (or the cursor hovering it) actually changed — a few times a
+second at 1x, not sixty.
+
+**The energy pull lost its arrow.** Owner, same playtest: *"The big arrows
+above the ants needs to go... you should just see how much energy you get by
+how many particles come."* The stream of motes already carried an `amount`
+that the renderer never read — a fixed 26 particles regardless of how much
+was actually drawn — so the chevron over a charged animal's head was the
+*only* on-screen reading of how much energy was waiting, and it is gone
+along with the corner's `CHARGE … NEAR YOU` line. `druid::hud::
+mote_count_for_amount` now scales the mote count with the draw's `amount`
+(a floor of 6 so a small pull still reads as *several* particles, per this
+game's own no-arrows-no-orbs rule for the flow), covering both an absorb and
+a founding's reversed flow with one formula.
 
 **The circles are drawn as rings**, because under `HeldLook::Unchanged` — the
 owner's pick and the default — held ground draws *exactly* as running ground
@@ -8817,6 +8866,60 @@ The quickening set is folded into the renderer's `LookKey`, and it has to be:
 the carried circle moves with the player, so cells cross in and out of
 "outside" with no CA write behind them and nothing marks their chunks dirty.
 Without it the boundary smears, with no error anywhere.
+
+### How a circle of running time is drawn
+
+**A haze, not an outline.** Owner, 2026-09-14: *"They shouldn't be a solid
+line it blocks too much. I am thinking hazy shimmering aura. Think about how
+to indicate speed visual."* Until then a quickening was one hard 1px circle
+per placed bubble **plus one more inside it per two steps of the speed dial**,
+so the faster the circle the more of the world it crossed out — the complaint
+and the speed readout were the same object, and both had to be replaced at
+once.
+
+`render::AuraTuning` is a per-cell tint at the end of `cell_colour`'s chain,
+after `apply_held_look`. In the world pass and not in the HUD, because
+`druid::hud` cannot blend — a blend into a region the renderer skipped
+compounds and oscillates — and because a tint leaves the ground under it
+visible, which is the literal answer to *blocks too much*. The rim is
+displaced by coherent value noise keyed to **world** position: a
+constant-level disc reads as a soap bubble, which `Quickening::contains`' own
+doc and `Reports/dead-ends.md` both warn about, and keying it to the screen
+would make it crawl when the camera moves.
+
+Speed reads two ways, because a screenshot keeps only one of them:
+
+| | |
+|---|---|
+| **how fast the haze pulses** | not a mapping — the phase is `World::frame`, and `Druid::update` steps the world `speed` times per drawn frame, so a x8 circle pulses eight times faster *because time in there is running eight times faster* |
+| **how far it reaches inward** | 7 cells at real time, 22 at x8 — the half a paused screen, a contact sheet or a review card still carries |
+
+The dial is **measured rather than told**: `Druid::speed` is not visible from
+`render.rs`, so the renderer takes the difference between two readings of
+`World::frame`, which *is* the dial.
+`the_rate_the_aura_draws_is_the_rate_the_world_ran` is the positive control on
+that, and a frame with nothing stepped holds the last reading so a pause does
+not change what the picture says. **The circle he carries is exempt** and runs
+off the renderer's own draw counter: `step_extra_ticks` lifts the player out
+for the catch-up passes, so his ground genuinely runs at real time whatever
+the dial says.
+
+**It does not cost the dirty-rect render skip**, and that is what the phase
+being quantised buys. The pulse is *not* in the `LookKey`; the discs' bounding
+boxes are unioned into the dirty region by hand, the same device the animated
+liquid grain and `idle_extra` already use. Measured on a settled held world
+with one radius-40 circle: **0 pixels recomputed with the aura off, 8,649 with
+it on** — the circle's own bounding box — against 40,000 for a full repaint,
+and only on the frames the phase steps, which at real time is every other one.
+
+**Known limitations.** Above x1 the gnome's own circle is missing from the
+picture entirely: `step_extra_ticks` restores the player after the catch-up
+passes and does not restore `World::carried`, so anything drawing between two
+updates sees no carried circle. That predates the aura — the old outline
+vanished the same way. The `SPACE` placement preview is still a hard 1px
+circle, because it is not world state and the renderer cannot see it. There is
+no runtime selector for the aura's dials; `examples/druid_aura.rs` sweeps them
+from the command line instead.
 
 ### Not built
 

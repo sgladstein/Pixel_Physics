@@ -80,15 +80,14 @@ const RING_STANDING: [u8; 4] = [150, 220, 255, 255];
 /// What the next `SPACE` would place. Faint: it is not there yet.
 const RING_PREVIEW: [u8; 4] = [96, 116, 140, 255];
 
-/// **An animal with something worth taking.** Warm gold, the same family as
-/// the carried circle, because both are *yours*: the mark says "this is
-/// energy that belongs to you and is waiting".
-const CHARGED: [u8; 4] = [255, 226, 120, 255];
-/// ...and the same at a low charge, so the mark reads as filling rather than
-/// switching on. Interpolated toward [`CHARGED`] by how full the animal is.
-const CHARGED_LOW: [u8; 4] = [150, 120, 60, 255];
-/// Energy in flight. Brighter than the charged mark, because it is the event
-/// and the mark is only the promise.
+/// Energy in flight.
+///
+/// **Once "brighter than the charged mark, because it is the event and the
+/// mark is only the promise".** Item 2 of the 2026-09-14 playtest removed
+/// the mark — *"no indication of how much life energy the ants have...
+/// you should just see how much energy you get by how many particles
+/// come"* — so the event, this colour, is now the whole reading rather than
+/// half of a pair. See [`mote_count_for_amount`].
 const FLOW: [u8; 4] = [255, 250, 225, 255];
 /// The halo around a mote, and what the landing ring fades to.
 /// The scent the druid lays — a cold green, so it reads as something put
@@ -151,29 +150,45 @@ const BAR_H: i32 = 5;
 /// `the_legend_names_every_key_the_binary_binds` reads
 /// `src/bin/druid.rs` and fails if a key is bound and not listed here, which
 /// is exactly the failure that produced this module.
-pub const KEYS: &[(&str, &str)] = &[
-    ("A D", "WALK"),
-    ("W", "JUMP / SWIM UP"),
-    ("S", "DUCK / SWIM DOWN"),
-    ("SHIFT", "HOLD ON IN A TREE"),
-    ("SPACE", "PLACE A CIRCLE OF TIME"),
-    ("X", "LIFT THE NEAREST CIRCLE"),
-    ("Q E", "ITS RADIUS"),
-    ("[ ]", "HOW FAR YOUR OWN CIRCLE REACHES"),
-    ("Z V", "HOW FAST TIME RUNS IN THEM"),
-    ("G", "LAY A SCENT TRAIL AS YOU WALK"),
-    ("I", "WHICH SCENT - HOME, OR FOOD"),
-    ("T", "SOW A SEED WHERE YOU STAND"),
-    ("TAB", "WHICH SEED"),
-    ("C", "FOUND A COLONY - OPENS AN OFFER"),
-    ("F", "DRAW THE CHARGE OUT OF THEM"),
-    ("M", "OPTIONS"),
-    ("H", "HOLD OR RELEASE THE WORLD"),
-    ("L", "HOW HELD GROUND IS DRAWN"),
-    ("U", "UNLIMITED POWER (PLAYTEST)"),
-    ("P", "PAUSE"),
-    ("/ F1", "HIDE THESE KEYS"),
-    ("ESC", "QUIT"),
+///
+/// **The third field is whether the button bar also carries this key** — see
+/// `bar_specs`. A key with a button is still listed here (this array is the
+/// canonical "every key does something discoverable" guard and stays
+/// complete regardless of what else reaches it), but [`legend_size`] and
+/// [`Interface::draw`]'s legend loop skip it: the bar's own caption is that
+/// key's on-screen home now, and repeating it in the corner would be the
+/// same fact drawn twice while doing nothing for the keys that still need a
+/// legend row. That is also the owner's own complaint about item 3, read
+/// straight: *"I don't want to have to remember all these shortcuts and the
+/// menu isn't even a menu, it is a shortcut list"* — a shorter list, for
+/// what has no button.
+pub const KEYS: &[(&str, &str, bool)] = &[
+    ("A D", "WALK", false),
+    ("W", "JUMP / SWIM UP", false),
+    ("S", "DUCK / SWIM DOWN", false),
+    ("SHIFT", "HOLD ON IN A TREE", false),
+    ("SPACE", "PLACE A CIRCLE OF TIME", true),
+    ("X", "LIFT THE NEAREST CIRCLE", true),
+    ("Q E", "ITS RADIUS", false),
+    ("[ ]", "HOW FAR YOUR OWN CIRCLE REACHES", false),
+    ("Z V", "HOW FAST TIME RUNS IN THEM", false),
+    ("G", "LAY A SCENT TRAIL AS YOU WALK", false),
+    ("I", "WHICH SCENT - HOME, OR FOOD", true),
+    // `T` still sows; `K` now cycles which seed. `TAB` moved to the
+    // biosphere page below, matching the key the lab already uses for its
+    // own — a player who has touched both games gets the same reflex.
+    ("K", "WHICH SEED", true),
+    ("T", "SOW A SEED WHERE YOU STAND", true),
+    ("C", "FOUND A COLONY - OPENS AN OFFER", true),
+    ("F", "DRAW THE CHARGE OUT OF THEM", true),
+    ("M", "OPTIONS", true),
+    ("H", "HOLD OR RELEASE THE WORLD", true),
+    ("L", "HOW HELD GROUND IS DRAWN", true),
+    ("U", "UNLIMITED POWER (PLAYTEST)", true),
+    ("P", "PAUSE", true),
+    ("TAB", "PLANTS, ANIMALS, BIRTHS - THE BIOSPHERE PAGE", true),
+    ("/ F1", "HIDE THESE KEYS", false),
+    ("ESC", "QUIT", false),
 ];
 
 /// **The state the readout draws, as plain numbers.**
@@ -200,6 +215,16 @@ pub struct Readout {
     pub seed_kind: String,
     pub sown: usize,
     /// Charge standing within reach, and how many animals hold it.
+    ///
+    /// **No longer drawn.** Item 2 of the 2026-09-14 playtest: *"no
+    /// indication of how much life energy the ants have."* This was the
+    /// second of the two indications the owner's words covered — the first
+    /// being the chevron over a charged animal's head, in [`Interface::draw`]
+    /// until this change. The fields stay: `Druid::readout` (`src/druid/
+    /// mod.rs`, a different lane's file for the length of this program)
+    /// still builds them, and a struct literal missing a field the
+    /// constructor still writes would not compile. What changed is only
+    /// that [`Readout::lines`] no longer reads them.
     pub charge: (f32, usize),
     pub reserve_cap: f32,
     /// What a full pool looks like, for the bar. Power can exceed it; the bar
@@ -238,13 +263,6 @@ impl Readout {
         // held ground is invisible until time reaches it, so without the
         // count a working key and a broken one look the same.
         lines.push((format!("SEED {}   SOWN {}", self.seed_kind.to_uppercase(), self.sown), TEXT));
-        // **What `F` would give you, and from how many.** The number is the
-        // whole decision: walk to the colony now, or leave it charging.
-        let (charge, holders) = self.charge;
-        lines.push((
-            format!("CHARGE {charge:.0} IN {holders} NEAR YOU"),
-            if charge >= self.reserve_cap { GOOD } else { DIM },
-        ));
         lines.push((
             format!("WORLD {}   LOOK {}", if self.held { "HELD" } else { "RUNNING" }, self.look.to_uppercase()),
             if self.held { TEXT } else { WARN },
@@ -257,14 +275,6 @@ impl Readout {
         }
         lines
     }
-}
-
-/// A charged animal, in screen pixels, with how full it is.
-#[derive(Clone, Copy, PartialEq, Debug)]
-struct Mark {
-    x: i32,
-    y: i32,
-    fullness: f32,
 }
 
 /// One mote of drawn energy, in screen pixels, on its way to the player.
@@ -334,7 +344,6 @@ pub struct Interface {
     power_bar: Option<f32>,
     keys: bool,
     rings: Vec<Ring>,
-    marks: Vec<Mark>,
     motes: Vec<Mote>,
     /// Screen position and 0..1 age of each arrival bloom.
     landings: Vec<(i32, i32, f32)>,
@@ -364,7 +373,6 @@ impl Interface {
             status: readout.lines(),
             keys: game.show_keys,
             rings: rings(game, viewport),
-            marks: marks(game),
             motes: motes(game),
             landings: landings(game),
             scent_b: game.scent == crate::sim::pheromone::Channel::B,
@@ -394,22 +402,6 @@ impl Interface {
         let (faint, full) = if self.scent_b { (SCENT_B_FAINT, SCENT_B) } else { (SCENT_FAINT, SCENT) };
         for (x, y, band) in &self.scent {
             hc.put(frame, *x, *y, lerp(faint, full, *band as f32 / (SCENT_BANDS - 1) as f32));
-        }
-
-        // **The promise: a mark over an animal holding charge.** A chevron
-        // rather than a dot, and it grows with how full the animal is, so a
-        // colony reads as *filling* across a glance instead of switching on
-        // one ant at a time. Drawn over the head, not on the body: an ant is
-        // two cells and a dot on it is an ant of a different colour.
-        for m in &self.marks {
-            let tint = lerp(CHARGED_LOW, CHARGED, m.fullness);
-            let arms = 2 + (m.fullness * 4.0) as i32;
-            for i in 0..=arms {
-                for w in 0..2 {
-                    hc.put(frame, m.x - i, m.y - 5 - i + w, tint);
-                    hc.put(frame, m.x + i, m.y - 5 - i + w, tint);
-                }
-            }
         }
 
         // **The event: energy on its way in.** Brighter and larger as it
@@ -568,9 +560,13 @@ impl Interface {
             return;
         }
         let (keys_w, keys_h) = legend_size();
-        let top = viewport.1 as i32 - MARGIN - keys_h;
+        // **Above the bar, not above the screen edge.** The bar is always
+        // on screen (see the button-bar section below) and the legend is a
+        // panel like any other here — it must not sit under an opaque strip
+        // that is itself repainted every frame.
+        let top = viewport.1 as i32 - MARGIN - BAR_HEIGHT - keys_h;
         panel(hc, frame, viewport, (MARGIN, top, keys_w, keys_h));
-        for (i, (key, what)) in KEYS.iter().enumerate() {
+        for (i, (key, what)) in legend_rows().enumerate() {
             let y = top + PAD + i as i32 * LINE;
             hc.text(frame, MARGIN + PAD, y, key, KEYCAP);
             hc.text(frame, MARGIN + PAD + KEY_COL, y, what, TEXT);
@@ -693,15 +689,52 @@ fn lerp(a: [u8; 4], b: [u8; 4], t: f32) -> [u8; 4] {
     [mix(0), mix(1), mix(2), 255]
 }
 
-/// **Which animals are worth walking to**, in screen pixels.
-fn marks(game: &Druid) -> Vec<Mark> {
-    game.charged_animals()
-        .into_iter()
-        .filter_map(|((x, y), fullness)| {
-            let (sx, sy) = game.renderer.world_to_screen(x, y)?;
-            Some(Mark { x: sx, y: sy, fullness })
-        })
-        .collect()
+/// **How many particles one draw's amount buys.**
+///
+/// Owner, item 2 of the 2026-09-14 playtest: *"no indication of how much
+/// life energy the ants have. You just get less or none if you try to
+/// absorb too soon. You should just see how much energy you get by how
+/// many particles come."* Before this the count was a flat 26 for every
+/// draw regardless of `Draw::amount`, so an absorb taken the instant a
+/// reserve opened and one taken at a full reserve looked identical — the
+/// number the whole complaint is about was computed and then thrown away
+/// before it ever reached the screen.
+///
+/// **A line, not a step function** — `CLAUDE.md`'s first law, *an outcome is
+/// a distribution, not a binary*: a reserve just above zero reads as a thin
+/// trickle, a full `super::RESERVE_CAP` (40) reads as a real pull, and every
+/// amount between is visibly between.
+///
+/// **The floor is not decorative.** Every `Draw` that reaches this function
+/// already cleared `taken > 0.0` in `super::Druid::absorb` or `placed > 0`
+/// in `super::Druid::commit_founding`, so `amount` is never zero here —
+/// "nothing charged" already reads as *no draw at all*, which `absorb`'s
+/// own refusal message says out loud. What the floor guards against is a
+/// small positive amount rounding to one or two motes, which at this
+/// game's zoom is indistinguishable from a rendering glitch rather than
+/// from "a little".
+///
+/// **The founding path is the same formula on purpose, and it is the
+/// reading that needed checking rather than assuming.** A founding's
+/// `commit_founding` divides `paid` by `placed`, and
+/// `founding::Candidate::cost`'s own `PER_FOUNDER` is 12 — so a founding's
+/// per-stream `amount` sits in roughly the same 12..40 range `absorb`'s
+/// per-animal reserve does (reserve cap 40), rather than the much smaller
+/// number the caution above worried about. One formula reads honestly in
+/// both directions; see the lane report for the measured comparison, and
+/// `PIXEL_PHYSICS_DRUID_GIF`/`_ABSORB_AT`/`_FOUND_AT` for how to reproduce
+/// it.
+fn mote_count_for_amount(amount: f32) -> i32 {
+    // At the old fixed count (26), a full-reserve absorb (40) and a typical
+    // founding stream (12..40) both land close to this slope's output, so
+    // the flow at those amounts reads about the same as it did before this
+    // change — what moves is everything *below* a full reserve.
+    /// Thinnest a real draw is ever allowed to look — enough motes that a
+    /// small pull still reads as *several particles*, per the module doc's
+    /// "not a couple big orbs".
+    const FLOOR: f32 = 6.0;
+    const PER_UNIT: f32 = 0.6;
+    (FLOOR + amount.max(0.0) * PER_UNIT).round() as i32
 }
 
 /// **The flow: dozens of small particles streaming from each animal to the
@@ -709,8 +742,9 @@ fn marks(game: &Druid) -> Vec<Mark> {
 ///
 /// Owner: *"It should look like individual particles of energy flowing. Not a
 /// couple big orbs."* So the stream's weight comes from **count and spread**
-/// rather than from the size of any one mote — [`PER_DRAW`] of them, each on
-/// its own phase, each wandering sideways off the line by its own amount.
+/// rather than from the size of any one mote — [`mote_count_for_amount`] of
+/// them per draw, each on its own phase, each wandering sideways off the
+/// line by its own amount.
 ///
 /// Three things make it read as energy rather than as a dotted line, and all
 /// three are cheap:
@@ -727,15 +761,13 @@ fn marks(game: &Druid) -> Vec<Mark> {
 /// stable frame to frame — a particle wanders along a fixed curve rather than
 /// jittering, which is the difference between a flow and static.
 fn motes(game: &Druid) -> Vec<Mote> {
-    /// Enough that the stream has body at any distance. One animal's draw is
-    /// a thread; a colony's is a river, which is the point.
-    const PER_DRAW: i32 = 26;
     let Some(player) = &game.world.player else {
         return Vec::new();
     };
     let (px, py) = player.center();
     let mut out = Vec::new();
     for d in &game.draws {
+        let per_draw = mote_count_for_amount(d.amount);
         let head = d.age as f32 / super::DRAW_FRAMES as f32;
         // The two ends, in flow order. Everything below is written in terms
         // of "origin" and "destination" rather than "animal" and "player", so
@@ -746,11 +778,11 @@ fn motes(game: &Druid) -> Vec<Mote> {
         let len = (dx * dx + dy * dy).sqrt().max(1.0);
         // Perpendicular to the path, for the wander.
         let (nx, ny) = (-dy / len, dx / len);
-        for i in 0..PER_DRAW {
+        for i in 0..per_draw {
             let seed = i as f32;
             // Spread over the journey, and let the leaders run ahead of the
             // head so the stream has a ragged front rather than a wall.
-            let t = head * 1.3 - (seed / PER_DRAW as f32) * 0.62 - (seed * 0.37).fract() * 0.06;
+            let t = head * 1.3 - (seed / per_draw as f32) * 0.62 - (seed * 0.37).fract() * 0.06;
             if !(0.0..=1.0).contains(&t) {
                 continue;
             }
@@ -820,13 +852,21 @@ pub fn mote_count(game: &Druid) -> usize {
     motes(game).len()
 }
 
+/// The keys that still need a legend row — everything in [`KEYS`] the bar
+/// does not already caption. See [`KEYS`]'s own doc for why the array
+/// itself stays complete while this view is shorter.
+fn legend_rows() -> impl Iterator<Item = (&'static str, &'static str)> {
+    KEYS.iter().filter(|(_, _, has_button)| !has_button).map(|(key, what, _)| (*key, *what))
+}
+
 /// The legend panel's own size, derived from its rows rather than written
 /// down — a hardcoded box is what lets a row run off the bottom of it, which
 /// `App::help_columns`'s doc records happening to the line that said which
 /// key closed the page.
 fn legend_size() -> (i32, i32) {
-    let widest = KEYS.iter().map(|(_, what)| hud::text_width(what)).max().unwrap_or(0);
-    (PAD * 2 + KEY_COL + widest, PAD * 2 + KEYS.len() as i32 * LINE - 2)
+    let rows: Vec<(&str, &str)> = legend_rows().collect();
+    let widest = rows.iter().map(|(_, what)| hud::text_width(what)).max().unwrap_or(0);
+    (PAD * 2 + KEY_COL + widest, PAD * 2 + rows.len() as i32 * LINE - 2)
 }
 
 fn panel(hc: Hud, frame: &mut [u8], viewport: (u32, u32), (left, top, w, h): (i32, i32, i32, i32)) {
@@ -874,27 +914,433 @@ fn rings(game: &Druid, _viewport: (u32, u32)) -> Vec<Ring> {
         Some(Ring { cx, cy, r: ex - cx, colour })
     };
     let mut rings = Vec::new();
-    let tint = speed_tint(RING_STANDING, game.speed);
-    for q in &game.world.quickenings {
-        rings.extend(on_screen(q.x, q.y, q.r, tint));
-        // One extra ring inside per two steps of the dial, so a fast circle
-        // is visibly *thicker* and not merely a different colour.
-        for i in 1..=(game.speed.saturating_sub(1) / 2) as i32 {
-            rings.extend(on_screen(q.x, q.y, q.r - i * 3, tint));
+    // **A held world's circles are not drawn here any more.**
+    //
+    // Owner, 2026-09-14: *"They shouldn't be a solid line it blocks too
+    // much."* The outline and the speed cue were the same object — the loop
+    // that used to stand here added *one more* hard circle per two steps of
+    // the dial, so the faster the circle the more of the world it crossed
+    // out. Both moved into the world pass as a haze that tints the ground
+    // rather than covering it: `render::AuraTuning`, which carries speed as
+    // how fast the haze pulses and how far it reaches inward.
+    //
+    // **The outlines survive for the one case the haze cannot speak in**: a
+    // *running* world, where `time_runs_at` is true everywhere and the aura
+    // returns on its first test. A placed circle is inert then, and the
+    // owner's own reasoning for the preview below applies to it — seeing the
+    // circle beside a readout that says `WORLD RUNNING` is how that reads as
+    // a state rather than as a lost bubble.
+    if !game.world.held {
+        let tint = speed_tint(RING_STANDING, game.speed);
+        for q in &game.world.quickenings {
+            rings.extend(on_screen(q.x, q.y, q.r, tint));
         }
-    }
-    if let Some(q) = game.world.carried {
-        rings.extend(on_screen(q.x, q.y, q.r, RING_CARRIED));
+        if let Some(q) = game.world.carried {
+            rings.extend(on_screen(q.x, q.y, q.r, RING_CARRIED));
+        }
     }
     // What `SPACE` would place, at his feet. Drawn whatever the world is
     // doing: a circle placed in a *running* world is inert, and seeing the
     // ring next to a readout that says `WORLD RUNNING` is how that reads as a
     // state rather than as a broken key.
+    //
+    // **Still a thin outline, and now that is a distinction rather than a
+    // leftover.** `RING_PREVIEW` has to read as *not there yet*; a placed
+    // circle is a haze with weather in it and this is a line drawn on the
+    // air, which is a much wider gap than two shades of the same ring ever
+    // was.
     if let Some(player) = &game.world.player {
         let (px, py) = player.center();
         rings.extend(on_screen(px, py, game.place_radius, RING_PREVIEW));
     }
     rings
+}
+
+// -------------------------------------------------------------- button bar
+//
+// **Owner's ask, 2026-09-14, item 3 of the playtest**: *"We need an actual
+// GUI. We can keep it minimalistic, but buttons for the main actions (with
+// subtle hotkey always visible). I don't want to have to remember all these
+// shortcuts and the menu isn't even a menu, it is a shortcut list."*
+//
+// **Ported from `lab::ui`, not invented** — that module already solved this
+// (a retained, measured, self-fitting button bar), and only the smallest
+// honest subset comes across: no icons, no hover-note popup, no pages. A
+// face two lines tall — the verb, and under it, dimmer, the key that also
+// does it — is the whole ask, and it is also exactly `lab::ui::Widget`'s
+// shape.
+//
+// **Retained state lives on `bin/druid.rs`'s `Handler`, not on [`Druid`].**
+// `src/druid/mod.rs` is a different lane's file for the length of this
+// program (see `Reports/lanes/druid-screen.md`), so this module cannot add
+// a field to [`Druid`] to hold a cursor position or a pressed button across
+// frames. The cursor, the press-armed action and the laid-out [`Bar`]
+// itself are therefore fields on `Handler`, and [`Druid::act`] below is
+// reached from there rather than from a method a stateful `Ui` owns.
+// Functionally this is the same shape the lab uses — a retained bar tested
+// against the player's last look, one dispatch point every control routes
+// through — only which struct is holding the pen differs.
+//
+// **Nothing here is folded into [`Interface`]'s repaint comparison, and
+// that is a considered choice rather than an oversight.** The bar occupies
+// a fixed rectangle that is always on screen, always fully repainted (`put`,
+// never `blend`) and never toggled or resized, so the world underneath it
+// never needs the `ui_changed` force-repaint the rest of this module exists
+// to trigger — that mechanism is for a footprint that can change or
+// disappear, and the bar's footprint does neither. A hover highlight is
+// therefore *not* the hazard it is on the lab's bar (`lab::ui::Ui::is_dirty`
+// returns `true` outright while the cursor is in the window, because a
+// hover "leaves no footprint the dirty-rect skip knows to erase" there):
+// here the bar's own rectangle is unconditionally repainted every drawn
+// frame regardless of hover, by [`draw_bar`] being called every frame from
+// `Handler::frame` — so a hover highlight changing is just one more thing
+// that fixed repaint draws differently, never a stale pixel left behind.
+// See the lane report for the measured per-frame cost of that fixed
+// repaint.
+
+/// How tall the bar is, in logical pixels — two rows, the same shape
+/// `lab::ui::BAR_HEIGHT` uses and the same total (3 top + 24 + 2 gap + 24 +
+/// 3 bottom = 56), because it is a proven fit for this font at this width
+/// rather than a coincidence.
+pub const BAR_HEIGHT: i32 = BTN_TOP * 2 + BTN_HEIGHT * 2 + BTN_ROW_GAP;
+const BTN_TOP: i32 = 3;
+const BTN_HEIGHT: i32 = 24;
+const BTN_ROW_GAP: i32 = 2;
+/// Horizontal padding inside a button, and the gap between two buttons —
+/// tried loosest first; see [`bar_layout`].
+const BTN_SPACINGS: [(i32, i32); 3] = [(2, 2), (2, 1), (1, 1)];
+
+const BAR_BG: [u8; 4] = [20, 22, 27, 255];
+const BAR_EDGE: [u8; 4] = [70, 90, 115, 255];
+const FACE: [u8; 4] = [43, 47, 56, 255];
+const FACE_HOVER: [u8; 4] = [68, 75, 89, 255];
+const FACE_DOWN: [u8; 4] = [25, 27, 33, 255];
+const FACE_ON: [u8; 4] = [44, 92, 68, 255];
+const FACE_ON_HOVER: [u8; 4] = [62, 122, 90, 255];
+const BTN_EDGE: [u8; 4] = [78, 85, 99, 255];
+const BTN_EDGE_ON: [u8; 4] = [120, 198, 148, 255];
+const LABEL: [u8; 4] = [226, 230, 236, 255];
+const LABEL_ON: [u8; 4] = [234, 255, 240, 255];
+const SUB: [u8; 4] = [124, 131, 145, 255];
+const SUB_ON: [u8; 4] = [156, 202, 176, 255];
+
+/// **The first screen row the bar covers.** Everything above it is the
+/// world and the rest of the HUD — `lab::ui::bar_top`'s own doc.
+pub fn bar_top() -> i32 {
+    crate::app::HEIGHT as i32 - BAR_HEIGHT
+}
+
+fn bar_row_y(row: usize) -> i32 {
+    bar_top() + BTN_TOP + row as i32 * (BTN_HEIGHT + BTN_ROW_GAP)
+}
+
+/// A rectangle in framebuffer pixels. `lab::ui::Rect` in miniature, copied
+/// rather than shared: `lab` and `druid` do not depend on each other, by
+/// the same rule that keeps this a separate binary at all (`Druid`'s own
+/// module doc), and a `pub` bridge between them for one struct is the wrong
+/// direction to reach for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Rect {
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+}
+
+impl Rect {
+    fn contains(&self, x: i32, y: i32) -> bool {
+        x >= self.x && y >= self.y && x < self.x + self.w && y < self.y + self.h
+    }
+    fn right(&self) -> i32 {
+        self.x + self.w
+    }
+    fn bottom(&self) -> i32 {
+        self.y + self.h
+    }
+}
+
+/// **What a bar button, or a key, does — the one verb set both reach.**
+///
+/// `Druid::act` is the single place a control turns into a change, mirroring
+/// `lab::mod::Lab::act`'s own doc: *"the single place a control turns into a
+/// change… there is no second copy of what SPACE does."* `Handler::act` in
+/// `src/bin/druid.rs` is the actual outer dispatch point both the key
+/// handler and the bar's click handler call — see that function's doc for
+/// why the split.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Action {
+    TogglePause,
+    ToggleHeld,
+    PlaceCircle,
+    LiftCircle,
+    FoundColony,
+    Absorb,
+    SowSeed,
+    CycleSeedKind,
+    CycleLook,
+    CycleScent,
+    ToggleOptions,
+    ToggleUnlimited,
+    /// The biosphere page (item 1 of the playtest). Not handled by
+    /// [`Druid::act`] below — the page itself lives on `Handler`, for the
+    /// same reason the bar's own state does.
+    ToggleStats,
+}
+
+/// One button on the bar.
+struct Widget {
+    rect: Rect,
+    line1: String,
+    /// **The subtle hotkey the owner asked for**, drawn dimmer than
+    /// `line1` — see [`paint_widget`].
+    line2: String,
+    action: Action,
+    latched: bool,
+}
+
+/// The whole bar, laid out. Produced by [`bar_layout`] and retained by
+/// `Handler` so that a click landing between two frames is tested against
+/// the bar the player was actually looking at — `lab::ui`'s own module doc
+/// names this as the reason its bar is retained rather than rebuilt at
+/// click time.
+#[derive(Default)]
+pub struct Bar {
+    widgets: Vec<Widget>,
+}
+
+impl Bar {
+    /// The action under `(x, y)`, if any.
+    pub fn hit(&self, x: i32, y: i32) -> Option<Action> {
+        self.widgets.iter().find(|w| w.rect.contains(x, y)).map(|w| w.action)
+    }
+
+    fn fits(&self) -> bool {
+        self.widgets.iter().all(|w| w.rect.x >= MARGIN && w.rect.right() <= crate::app::WIDTH as i32 - MARGIN)
+    }
+}
+
+fn cell_width(label_px: i32, sub: &str, pad: i32) -> i32 {
+    label_px.max(hud::text_width(sub)) + pad * 2
+}
+
+struct Spec {
+    row: usize,
+    width: i32,
+    line1: String,
+    line2: &'static str,
+    action: Action,
+    latched: bool,
+}
+
+fn btn(row: usize, label: String, sub: &'static str, action: Action, latched: bool, pad: i32) -> Spec {
+    Spec { row, width: cell_width(hud::text_width(&label), sub, pad), line1: label, line2: sub, action, latched }
+}
+
+/// **What the bar needs to know in order to lay itself out and say which
+/// of its toggles are on** — `lab::ui::BarState` in miniature, and built for
+/// the same reason [`Readout`] is split out of [`Interface`]: `Druid::new`
+/// generates and grows a world, which is a minute of wall clock, and
+/// [`bar_layout`]'s own guards need to build a bar without paying that on
+/// every run. A snapshot of plain values rather than a borrow of [`Druid`]
+/// also sidesteps needing a live game at all in a test.
+struct BarState {
+    paused: bool,
+    held: bool,
+    offer_open: bool,
+    menu_open: bool,
+    unlimited: bool,
+    stats_open: bool,
+    seed_kind: String,
+    look: String,
+    scent: &'static str,
+}
+
+fn bar_state(game: &Druid, stats_open: bool) -> BarState {
+    BarState {
+        paused: game.paused,
+        held: game.world.held,
+        offer_open: game.offer.is_some(),
+        menu_open: game.menu.is_some(),
+        unlimited: game.unlimited,
+        stats_open,
+        seed_kind: game.seed_kind_name().to_uppercase(),
+        look: game.renderer.held_look.label().to_uppercase(),
+        scent: match game.scent {
+            crate::sim::pheromone::Channel::A => "HOME",
+            _ => "FOOD",
+        },
+    }
+}
+
+/// **The main actions, and what is left on the keyboard.**
+///
+/// Not every bound key is here — the owner asked for buttons on the *main*
+/// actions, not twenty-three of them. Left as keyboard-only: the three
+/// continuous dials (`Q`/`E` place radius, `[`/`]` carried-circle reach,
+/// `Z`/`V` speed) — a button pressed fifty-one times is not a control
+/// (`lab::ui`'s own `STOCK_LADDER` doc makes the same call) — and the four
+/// held movement keys (`A`/`D`/`W`/`S`/`SHIFT`/`G`), which a press-and-
+/// release button cannot express at all.
+///
+/// **Two rows widen dynamically: seed kind, held-ground look and scent
+/// plane double as their own readout**, the same idiom `lab::ui`'s species
+/// chip uses — the current value is the label, so there is nothing to
+/// desync between a chip and a side table naming what it shows.
+fn bar_specs(state: &BarState, pad: i32) -> Vec<Spec> {
+    vec![
+        btn(0, if state.paused { "RESUME".to_string() } else { "PAUSE".to_string() }, "P", Action::TogglePause, state.paused, pad),
+        btn(0, if state.held { "RUN".to_string() } else { "HOLD".to_string() }, "H", Action::ToggleHeld, false, pad),
+        btn(0, "PLACE".to_string(), "SPACE", Action::PlaceCircle, false, pad),
+        btn(0, "LIFT".to_string(), "X", Action::LiftCircle, false, pad),
+        btn(0, "FOUND".to_string(), "C", Action::FoundColony, state.offer_open, pad),
+        btn(0, "ABSORB".to_string(), "F", Action::Absorb, false, pad),
+        btn(1, "SOW".to_string(), "T", Action::SowSeed, false, pad),
+        btn(1, state.seed_kind.clone(), "K", Action::CycleSeedKind, false, pad),
+        btn(1, state.look.clone(), "L", Action::CycleLook, false, pad),
+        btn(1, state.scent.to_string(), "I", Action::CycleScent, false, pad),
+        btn(1, "OPTIONS".to_string(), "M", Action::ToggleOptions, state.menu_open, pad),
+        btn(1, "UNLIMITED".to_string(), "U", Action::ToggleUnlimited, state.unlimited, pad),
+        btn(1, "STATS".to_string(), "TAB", Action::ToggleStats, state.stats_open, pad),
+    ]
+}
+
+fn lay_out(state: &BarState, pad: i32, gap: i32) -> Bar {
+    let specs = bar_specs(state, pad);
+    let mut widgets = Vec::with_capacity(specs.len());
+    for row in 0..2 {
+        let mut x = MARGIN;
+        for spec in specs.iter().filter(|s| s.row == row) {
+            let rect = Rect { x, y: bar_row_y(row), w: spec.width, h: BTN_HEIGHT };
+            x = rect.right() + gap;
+            widgets.push(Widget { rect, line1: spec.line1.clone(), line2: spec.line2.to_string(), action: spec.action, latched: spec.latched });
+        }
+    }
+    Bar { widgets }
+}
+
+/// Lay the whole bar out. Pure: same state in, same rectangles out.
+///
+/// **Widths are measured, never written down** — every label goes through
+/// `hud::text_width`, so renaming a button cannot silently leave its face
+/// narrower than its own text. **Three spacings, tried loosest first**,
+/// copied from `lab::ui::layout`'s own discipline: a bar sized for today's
+/// button count is one renamed label away from overflowing, and closing the
+/// gaps between buttons is far more readable than losing the last one off
+/// the screen.
+pub fn bar_layout(game: &Druid, stats_open: bool) -> Bar {
+    let state = bar_state(game, stats_open);
+    layout_for(&state)
+}
+
+fn layout_for(state: &BarState) -> Bar {
+    for (pad, gap) in BTN_SPACINGS {
+        let bar = lay_out(state, pad, gap);
+        if bar.fits() {
+            return bar;
+        }
+    }
+    let (pad, gap) = BTN_SPACINGS[BTN_SPACINGS.len() - 1];
+    lay_out(state, pad, gap)
+}
+
+fn fill_rect(hc: Hud, frame: &mut [u8], r: Rect, colour: [u8; 4]) {
+    for y in r.y..r.bottom() {
+        for x in r.x..r.right() {
+            hc.put(frame, x, y, colour);
+        }
+    }
+}
+
+fn outline_rect(hc: Hud, frame: &mut [u8], r: Rect, colour: [u8; 4]) {
+    for x in r.x..r.right() {
+        hc.put(frame, x, r.y, colour);
+        hc.put(frame, x, r.bottom() - 1, colour);
+    }
+    for y in r.y..r.bottom() {
+        hc.put(frame, r.x, y, colour);
+        hc.put(frame, r.right() - 1, y, colour);
+    }
+}
+
+fn paint_widget(hc: Hud, frame: &mut [u8], w: &Widget, hover: bool, down: bool) {
+    let (face, edge, label, sub) = match (w.latched, hover, down) {
+        (_, _, true) => (FACE_DOWN, BTN_EDGE_ON, LABEL, SUB),
+        (true, true, _) => (FACE_ON_HOVER, BTN_EDGE_ON, LABEL_ON, SUB_ON),
+        (true, false, _) => (FACE_ON, BTN_EDGE_ON, LABEL_ON, SUB_ON),
+        (false, true, _) => (FACE_HOVER, BTN_EDGE, LABEL, LABEL),
+        (false, false, _) => (FACE, BTN_EDGE, LABEL, SUB),
+    };
+    fill_rect(hc, frame, w.rect, face);
+    outline_rect(hc, frame, w.rect, edge);
+    let tx = w.rect.x + (w.rect.w - hud::text_width(&w.line1)) / 2;
+    hc.text(frame, tx, w.rect.y + 4, &w.line1, label);
+    let sx = w.rect.x + (w.rect.w - hud::text_width(&w.line2)) / 2;
+    hc.text(frame, sx, w.rect.y + 4 + LINE, &w.line2, sub);
+}
+
+/// **Paint the bar. Called every drawn frame, unconditionally** — see the
+/// section doc above for why that is what keeps a hover highlight safe
+/// without folding the bar into [`Interface`]'s repaint comparison.
+pub fn draw_bar(bar: &Bar, frame: &mut [u8], viewport: (u32, u32), cursor: Option<(i32, i32)>, pressed: Option<Action>) {
+    let hc = Hud::new(viewport.0, viewport.1, 1);
+    let plate = Rect { x: 0, y: bar_top(), w: viewport.0 as i32, h: BAR_HEIGHT };
+    fill_rect(hc, frame, plate, BAR_BG);
+    for x in 0..viewport.0 as i32 {
+        hc.put(frame, x, bar_top(), BAR_EDGE);
+    }
+    for w in &bar.widgets {
+        let hover = cursor.is_some_and(|(x, y)| w.rect.contains(x, y));
+        let down = hover && pressed == Some(w.action);
+        paint_widget(hc, frame, w, hover, down);
+    }
+}
+
+impl Druid {
+    /// **The single place a control turns into a change** — the game-state
+    /// half of it. See [`Action`]'s own doc for the split with
+    /// `Handler::act`, which is the actual single dispatch point in the
+    /// running game: it wraps this for the two concerns that belong to the
+    /// event loop rather than to the game (clearing held movement keys
+    /// before a modal opens, and the biosphere page).
+    pub fn act(&mut self, action: Action) {
+        match action {
+            Action::TogglePause => self.paused = !self.paused,
+            Action::ToggleHeld => {
+                self.world.held = !self.world.held;
+                let hold = if self.world.held { crate::sim::clock::SkyPin::Noon.hold() } else { None };
+                self.world.set_sky_hold(hold);
+                self.note(if self.world.held { "the world is held" } else { "the world is running" });
+            }
+            Action::PlaceCircle => {
+                self.place_quickening();
+            }
+            Action::LiftCircle => {
+                self.lift_quickening();
+            }
+            Action::FoundColony => self.toggle_founding(),
+            Action::Absorb => {
+                self.absorb();
+            }
+            Action::SowSeed => {
+                self.plant_seed();
+            }
+            Action::CycleSeedKind => self.cycle_seed_kind(),
+            Action::CycleLook => {
+                self.renderer.cycle_held_look();
+                let look = self.renderer.held_look.label();
+                self.note(format!("held ground drawn: {look}"));
+            }
+            Action::CycleScent => self.cycle_scent(),
+            Action::ToggleOptions => self.toggle_menu(),
+            Action::ToggleUnlimited => {
+                self.unlimited = !self.unlimited;
+                let state = if self.unlimited { "on" } else { "off" };
+                self.note(format!("unlimited power {state}"));
+            }
+            // Handled by `Handler::act` — see this enum's own doc.
+            Action::ToggleStats => {}
+        }
+    }
 }
 
 #[cfg(test)]
@@ -915,7 +1361,7 @@ mod tests {
     #[test]
     fn the_legend_names_every_key_the_binary_binds() {
         let source = include_str!("../bin/druid.rs");
-        let listed: Vec<&str> = KEYS.iter().flat_map(|(keys, _)| keys.split_whitespace()).collect();
+        let listed: Vec<&str> = KEYS.iter().flat_map(|(keys, _, _)| keys.split_whitespace()).collect();
 
         let mut bound: Vec<String> = Vec::new();
         for (i, _) in source.match_indices("KeyCode::") {
@@ -957,7 +1403,7 @@ mod tests {
     /// looking at the rendered page. This is the cheap version of looking.
     #[test]
     fn every_character_the_interface_draws_has_a_glyph() {
-        for (key, what) in KEYS {
+        for (key, what, _) in KEYS {
             for text in [key, what] {
                 for c in text.chars() {
                     assert!(hud::has_glyph(c), "the legend draws {c:?} in {text:?}, which the font renders as a blank gap");
@@ -1103,7 +1549,9 @@ mod tests {
         let (w, h) = (crate::app::WIDTH as i32, crate::app::HEIGHT as i32);
         let (keys_w, keys_h) = legend_size();
         assert!(MARGIN + keys_w <= w, "the key legend is {keys_w} wide in a {w}-wide window");
-        assert!(MARGIN * 2 + keys_h <= h, "the key legend is {keys_h} tall in a {h}-tall window");
+        // **Above the bar, not above the screen edge** — see `Interface::draw`'s
+        // own comment on why the legend's bottom anchor moved.
+        assert!(MARGIN * 2 + BAR_HEIGHT + keys_h <= h, "the key legend is {keys_h} tall and the bar is {BAR_HEIGHT} tall, together too much for a {h}-tall window");
 
         // The readout sits at the top and the legend at the bottom; they must
         // not meet in the middle at the readout's tallest (message showing,
@@ -1133,7 +1581,67 @@ mod tests {
         let status_h = lines.len() as i32 * LINE + PAD * 2 - 2;
         let status_w = lines.iter().map(|(t, _)| hud::text_width(t)).max().unwrap_or(0) + PAD * 2;
         assert!(MARGIN + status_w <= w, "the readout is {status_w} wide in a {w}-wide window");
-        assert!(MARGIN + status_h < h - MARGIN - keys_h, "the readout ({status_h}) and the key legend ({keys_h}) overlap in a {h}-tall window");
+        assert!(
+            MARGIN + status_h < h - MARGIN - BAR_HEIGHT - keys_h,
+            "the readout ({status_h}) and the key legend ({keys_h}, above a {BAR_HEIGHT}-tall bar) overlap in a {h}-tall window"
+        );
+    }
+
+    /// **The button bar itself fits, and no two of its buttons overlap** —
+    /// `lab::ui`'s own `the_bar_fits_the_screen_and_no_two_widgets_overlap`,
+    /// which this is a direct port of. Swept over every combination of
+    /// modal/latched state `bar_specs` reads, since a widened label (a long
+    /// seed kind name, `UNCHANGED` for the held-ground look) is exactly the
+    /// renamed-button failure `lab::ui`'s own doc on `layout` warns about.
+    /// The widest bar the game can actually show — a long seed kind name and
+    /// a long held-look label, every latch on at once. Built by hand rather
+    /// than from a real `Druid`: `Druid::new` generates and grows a world,
+    /// which is a minute of wall clock (see [`BarState`]'s own doc), and a
+    /// guard that costs a minute is a guard nobody runs.
+    fn widest_bar_state() -> BarState {
+        BarState {
+            paused: true,
+            held: true,
+            offer_open: true,
+            menu_open: true,
+            unlimited: true,
+            stats_open: true,
+            seed_kind: "SCRAMBLER".to_string(),
+            look: "UNCHANGED".to_string(),
+            scent: "FOOD",
+        }
+    }
+
+    #[test]
+    fn the_bar_fits_the_screen_and_no_two_widgets_overlap() {
+        for state in [BarState { paused: false, held: false, offer_open: false, menu_open: false, unlimited: false, stats_open: false, ..widest_bar_state() }, widest_bar_state()] {
+            let bar = layout_for(&state);
+            assert!(bar.fits(), "the bar does not fit a {}-wide window even at its tightest spacing", crate::app::WIDTH);
+            for (i, a) in bar.widgets.iter().enumerate() {
+                assert!(a.rect.w >= hud::text_width(&a.line2), "{:?}'s face ({}) is narrower than its own caption {:?}", a.line1, a.rect.w, a.line2);
+                for b in &bar.widgets[i + 1..] {
+                    let overlap = a.rect.x < b.rect.right() && b.rect.x < a.rect.right() && a.rect.y < b.rect.bottom() && b.rect.y < a.rect.bottom();
+                    assert!(!overlap, "{:?} and {:?} overlap", a.line1, b.line1);
+                }
+            }
+        }
+    }
+
+    /// **Every button shows the key that also fires it** — `lab::ui`'s own
+    /// `every_speed_chip_shows_a_key`, which is exactly the promise item 3
+    /// of the playtest asked for: *"buttons for the main actions (with
+    /// subtle hotkey always visible)"*. Checked against `Handler::act`'s
+    /// key table would need `bin/druid.rs`'s source, which
+    /// `the_legend_names_every_key_the_binary_binds` already reads for the
+    /// legend; this guard is the narrower, cheaper claim that a caption is
+    /// never blank.
+    #[test]
+    fn every_button_shows_its_key() {
+        let bar = layout_for(&widest_bar_state());
+        assert!(bar.widgets.len() >= 10, "only {} widgets on the bar — bar_specs moved and this guard is now blind", bar.widgets.len());
+        for w in &bar.widgets {
+            assert!(!w.line2.is_empty(), "{:?} has no caption at all", w.line1);
+        }
     }
 
     /// **Drawing the interface twice must change nothing the second time.**
@@ -1159,7 +1667,6 @@ mod tests {
             status: vec![("POWER 600  +0.0/S".to_string(), TEXT), (String::new(), TEXT), ("WORLD HELD".to_string(), TEXT)],
             keys: true,
             rings: vec![Ring { cx: 200, cy: 150, r: 28, colour: RING_CARRIED }],
-            marks: vec![Mark { x: 120, y: 140, fullness: 0.8 }],
             motes: vec![Mote { x: 160, y: 130, bright: 0.5 }],
             landings: vec![(200, 150, 0.3)],
             scent_b: false,
@@ -1187,7 +1694,6 @@ mod tests {
             status: vec![("POWER 600".to_string(), TEXT)],
             keys: true,
             rings: Vec::new(),
-            marks: Vec::new(),
             motes: Vec::new(),
             landings: Vec::new(),
             scent_b: false,
@@ -1242,8 +1748,5 @@ mod tests {
         let mut g = f.clone();
         g.motes[0].bright += 0.05;
         assert_ne!(g, f, "a mote that only brightened must still force the repaint");
-        let mut h = b.clone();
-        h.marks = vec![Mark { x: 10, y: 10, fullness: 0.5 }];
-        assert_ne!(h, b, "a charged animal appearing must force the repaint");
     }
 }
