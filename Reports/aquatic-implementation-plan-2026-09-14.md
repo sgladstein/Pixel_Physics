@@ -711,6 +711,59 @@ box:
   the block read bone dry. Water is the *moisture source*. Marking a pond
   `blocked` would make the pond read as having no water in it.
 
+### 4.0 Phase 3 is two changes, not one: this engine has two light models
+
+**Found by building the prototype the owner asked for and watching it change
+nothing on screen.** `PIXEL_PHYSICS_WATER_OPACITY` now makes a cell of `Liquid`
+contribute a *fractional* optical depth to `field.rs`'s per-column
+Beer-Lambert (default `0.0`, so the shipped behaviour is byte-identical). It
+works. Three renders of a 90-row pool at `0.0`, `0.035` and `0.25` came back
+**byte-identical, same md5** — and the dial was compiled in, verified in the
+binary's `strings`.
+
+**The reason is that the picture is not lit by the field.** `field.rs`'s
+`FieldTile::transmission` is what *plants* photosynthesise by. What the
+*player* sees is `render.rs`'s `sky_light_grid` — a separate occupancy scan
+over "solid cells and open-sky cells" with **its own Beer-Lambert decay**,
+feeding `sky::apply_light`. Two independent light models, and the research's
+§2 claim that *"the engine already implements exactly the right physics and
+water is simply not in the predicate"* is true of the first and silent about
+the second.
+
+**So the card's question — "is a pool that goes dark with depth what you
+want?" — is a question about `render.rs`, and Phase 3 as scoped would have
+shipped with nothing visible.** This is the *check that a planned step can
+demonstrate itself* rule catching a phase before it was built rather than
+after, which is the cheap direction for once.
+
+**Phase 3's two halves, and they must agree.**
+
+| half | file | what it buys | state |
+|---|---|---|---|
+| the simulation's light | `field.rs` | a submerged plant experiences depth; compensation depth becomes real | **built, gated, guarded** |
+| the player's light | `render.rs` `sky_light_grid` | the pool *looks* deep | not built |
+
+A pool that looks dark and grows plants as if it were lit, or the reverse, is
+worse than neither: the picture would be lying about the simulation.
+
+**And the arithmetic is now a test rather than an argument**
+(`field::water_depth_tests`). The table is Beer-Lambert at optical depth
+`0.1006` per unit, since `0.904304^16 == 0.2 == SKY_TRANSMISSION`. Real water
+absorbs about `0.05` per metre at its clearest and a cell here is roughly 7 cm
+— the gnome is 14 cells tall — so **honest water is `0.035` units per cell**.
+Over a 28-row pond that is **transmission 0.90: nine tenths of the light
+reaches the floor and there is no gradient to see.** Halving it over the same
+28 rows needs `0.25`, water about **seven times more absorbing than the real
+thing**.
+
+**That is the owner's "be realistic about the depth" answered with a number,
+and it is a fork rather than an answer**: realism and a visible dark bottom
+cannot both be had at 28 rows. They can both be had at 300, which is why §4.1
+concludes depth is substantially an outdoor feature. The prototype the card
+asks for should render the same pool at both coefficients side by side and let
+the choice be made on the picture — once the `render.rs` half exists to make a
+picture at all.
+
 ### 4.1 The resolution problem, taken before writing the phase
 
 **Checked here rather than discovered later**, per *check that a planned step
