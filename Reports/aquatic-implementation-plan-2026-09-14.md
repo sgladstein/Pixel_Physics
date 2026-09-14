@@ -474,15 +474,54 @@ far apart in the file and the merge is mechanical, but `src/sim/world.rs` /
 `README.md` / `Reports/README.md` are the contested rows here (103, 103 and 103
 landings) — **land each quickly rather than holding a large diff**.
 
-**One harness is not ready and the briefs must not pretend otherwise.**
+**One harness was not ready and the briefs must not pretend otherwise.**
 Checked 2026-09-14: `labforage`, `labshot`, `waterstand`, `labgif`, `labbatch`
 and `soil_drawdown` all accept `scenario=`, so every measurement named above is
-executable today. **`creature_arena` and `labstats` do not** — `creature_arena`
-builds its `LabBox` from flags (`founders`, `ants`, `predators`, …) and cannot
-be pointed at a pond at all. Since it is the teeth test, and the teeth test is
-what Phase 2 ships or does not ship on, **adding `scenario=` to
-`creature_arena` is a prerequisite of Phase 2, not a nicety** — and it is the
-one harness change this plan asks for.
+executable today. **`creature_arena` and `labstats` did not** —
+`creature_arena` built its `LabBox` from flags (`founders`, `ants`,
+`predators`, …) and could not be pointed at a pond at all. Since it is the
+teeth test, and the teeth test is what Phase 2 ships or does not ship on,
+**adding `scenario=` to `creature_arena` is a prerequisite of Phase 2, not a
+nicety** — and it was the one harness change this plan asks for.
+
+> **Built, 2026-09-14 — and the flag was the small half.** `creature_arena`
+> now takes `scenario=`, with the sweep's `seeds=1..=N` stamped onto the
+> scenario's own `bed.seed` per seed rather than onto the `LabBox` it hands
+> back, which is where `labshot` records the same knob silently reaching
+> nothing.
+>
+> **The real work was that arms could only be handed out at frame 0.** Every
+> bed the flags can build has its colony standing when `build` returns, so
+> assignment was a straight line after it — and every bed written since the
+> owner's 2026-09-09 correction founds its ants from the **timeline**
+> instead, `the_pond_shore.ron` at frame 6,000. A frame-0 scan of one of
+> those finds **zero** animals and trips the `>= 8` assert before the run
+> starts. Assignment is now *whenever the founders arrive*, and the set to
+> label is **every live animal of the species whose lineage is unlabelled** —
+> exact rather than heuristic, because `Origin::Bud` carries a lineage
+> through unchanged, so a descendant already carries a label and only
+> `found_colony_of` mints a new one.
+>
+> **And the second-order break is the one worth carrying into any brief
+> here.** `idle_life` — the founding grant, whose 12,000 frames produced the
+> finding that governs every race this harness has ever run — starts at
+> *founding*, so the harness's own interpretability check (`frames >=
+> idle_life`) silently became wrong by the founding frame the moment a
+> colony could arrive late. A bed founding at 6,000 and run for 13,000 gives
+> its colony 7,000 against a 12,000-frame grant and would have reported the
+> horizon as sufficient. It now measures from founding and prints both
+> numbers. **Any check written against "the run" means "the run after the
+> thing existed" as soon as anything can start late** — which is the shape of
+> every timeline bed in §1.7, not a fact about this harness.
+>
+> **So a Phase 2 race on the pond bed needs `frames >= 18000`**, not the
+> 12,000 the grant alone suggests: 6,000 to found plus the full grant after
+> it. Three guards refuse the ways this reads as a result when it is not — a
+> run too short to reach the founding, a scenario founding a species the race
+> does not read, and a bed that seats nobody — because each of them otherwise
+> prints a table of zeros, which is indistinguishable from a bed where
+> neither arm survived. With no `scenario=` every column is identical to the
+> pre-change binary.
 
 **Every brief carries the same cost fork:** build it, or write the finding and
 stop; never a half-built fix. **Every brief's creature card is a moving
