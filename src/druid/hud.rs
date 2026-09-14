@@ -1671,6 +1671,7 @@ mod tests {
             menu_open: true,
             unlimited: true,
             stats_open: true,
+            small: true,
             seed_kind: "SCRAMBLER".to_string(),
             look: "UNCHANGED".to_string(),
             scent: "FOOD",
@@ -1679,7 +1680,7 @@ mod tests {
 
     #[test]
     fn the_bar_fits_the_screen_and_no_two_widgets_overlap() {
-        for state in [BarState { paused: false, held: false, offer_open: false, menu_open: false, unlimited: false, stats_open: false, ..widest_bar_state() }, widest_bar_state()] {
+        for state in [BarState { paused: false, held: false, offer_open: false, menu_open: false, unlimited: false, stats_open: false, small: false, ..widest_bar_state() }, widest_bar_state()] {
             let bar = layout_for(&state);
             assert!(bar.fits(), "the bar does not fit a {}-wide window even at its tightest spacing", crate::app::WIDTH);
             for (i, a) in bar.widgets.iter().enumerate() {
