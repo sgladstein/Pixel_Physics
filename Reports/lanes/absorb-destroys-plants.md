@@ -78,9 +78,26 @@ The grazing is the game working; only its invisibility fails the ethos.
 - `plant_bending` was flagged as unchecked. Ruled out by measurement: off, at
   speed 8, felled 269 against 274.
 
-## Found on the way, not this bug, not this lane
+## A correction — §Z21 landed on `main` and overturns one of my claims
 
-A founding in a grown wood places **2 of its 12 ants**; on bare ground, 32 of
-48. `colony_stations` drops every station whose column has no
-`colony_ant_site` at the founder's height, and a wood's ground is under its
-own litter. Nothing reports it but the count in the log line.
+A founding in a grown wood places **2 of its 12 ants** at full scale; on bare
+ground, 31 of 48. I attributed that to `colony_stations` dropping stations for
+want of ground under a wood's litter. **For the full-scale case that is
+wrong.** `Reports/open-bugs-handoff.md` **§Z21**, landed on `main` from
+`claude/thicket-founding` while I was measuring, has it: that world grows
+**4,093 organisms against a hard 4,095**, so `push_organism` refuses almost
+every founder an identity while `found_colony` reports *"no ground here"* — a
+wrong cause the game states out loud, **which I repeated**. My own log said
+`grew 4093 organisms` and I read past it.
+
+**The ceiling does not explain all of it**, and I am flagging that rather than
+swapping one confident answer for another: the 1024x512 grown world grows
+**973** organisms, nowhere near the ceiling, and still places **1 of 12**. A
+second independent shortfall is sitting there unmeasured.
+
+**Consequence for this lane's numbers**, and it is not uniform: only the
+**full-scale grown** pair ran at the ceiling. The 1024x512 grown arms did not,
+so they stand as measured. The **absorb null is untouched** either way — both
+arms of every pair sat in the same world. The grown-world **colony arm was
+weak regardless** at one or two ants, which is why the headline comes from
+`START=bare`.

@@ -231,13 +231,31 @@ for absorbing to be what decides how long the circle stands.
 
 ## 6. Two things found on the way that are not this bug
 
-- **A founding in a grown wood places 2 of its 12 ants; on bare ground it
-  places 32 of 48.** `colony_stations` drops every station whose column has no
-  `colony_ant_site` at the founder's own height, and a wood's ground is under
-  its own litter and roots. Nothing reports this but the count in the log line,
-  and *"founded 2 animals"* after a key meant to give you a colony is the same
-  silent-shortfall shape `found_colony_of`'s own doc opens with. `creature.rs`
-  / `druid/mod.rs` — not this lane's.
+- **A founding in a grown wood places 2 of its 12 ants; on bare ground, 31 of
+  48** — and **my explanation was wrong for the full-scale case, corrected by
+  §Z21, which landed on `main` while this was being written.** I put it down to
+  `colony_stations` dropping stations for want of ground under a wood's litter.
+  §Z21 measured the real cause at 2560x960: that world grows **4,093 organisms
+  against a hard ceiling of 4,095**, so `push_organism` refuses almost every
+  founder an identity while `found_colony` reports *"nothing founded - no
+  ground here"* — a confident, specific and wrong cause **which I then
+  repeated**. The tell was in my own log and I read past it:
+  `grew 4093 organisms`.
+
+  **The ceiling is not the whole of it, and this part is still open.** The
+  1024x512 grown world grows **973** organisms — nowhere near 4,095 — and
+  still places only **1 of 12**. So a second, independent shortfall exists on
+  small grown ground that §Z21 does not cover and nothing here has measured.
+  My original guess is not *disproved* for that case; it is merely
+  unestablished, and I am not going to assert it twice.
+
+  **What the ceiling costs the numbers here, stated rather than buried.** Only
+  the **full-scale grown** pair (§5) ran at the ceiling. The 1024x512 grown
+  arms in §4a and §4b did not — 973 of 4,095 — so they stand as measured. The
+  **absorb null is untouched** either way: both arms of every pair sat in the
+  same world, and the claim is that absorb writes nothing the sim reads. And
+  the grown-world **colony arm was weak regardless**, at one or two ants,
+  which is why §1 and §4c take their headline from `START=bare`.
 - **`step_extra_ticks` taking the player out is clean**, contrary to the
   brief's suspicion that it deserved a look in its own right. `frame::step`
   sets `world.carried = None` when there is no player and `player::step`
