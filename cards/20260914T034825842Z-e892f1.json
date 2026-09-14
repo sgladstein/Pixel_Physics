@@ -1,0 +1,48 @@
+{
+  "id": "20260914T034825842Z-e892f1",
+  "created": "2026-09-14T03:48:25Z",
+  "board": "held-world",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/druid-screen-gui",
+    "commit": "91567399",
+    "agent": null,
+    "session_id": "3fc33697-12dc-5058-ae58-dd2a581f09bc",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Energy pull: how the particle count should scale with a thin draw",
+  "question": "At this small a pull (2.25 energy per animal, well under the 40 cap), which flow reads as more honestly 'not much yet' — thin but still there, or thinner and closer to nothing?",
+  "context_md": "",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "floor 6, +0.6/energy (shipped)",
+      "files": [
+        "20260914T034825842Z-e892f1/000-mote_a_small.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 22
+    },
+    {
+      "label": "floor 2, +1.0/energy (steeper)",
+      "files": [
+        "20260914T034825842Z-e892f1/001-mote_b_small.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 22
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
