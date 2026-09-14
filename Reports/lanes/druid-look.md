@@ -140,7 +140,18 @@ better. The speed card was amended (unanswered) to say so and to name
 
 ## The owner's verdicts, and what is left
 
-Two of the four cards came back on 2026-09-14.
+Four of the five cards came back on 2026-09-14. **Two were answered by the
+choice alone, with no comment** — worth saying, because an empty `comment` in
+`review.py inbox` reads exactly like an unanswered card and neither of these
+was:
+
+| card | verdict |
+|---|---|
+| the merge (item 1a) | **after**, rated **5** |
+| animal colour (item 2) | **after** |
+
+Neither was blind, so those labels are literal and need no `blind_was`
+translation. Items 1a and 2 are accepted as they stand.
 
 **Speed colour — *"This is the idea, but make the color change a little more
 visible. You are close."*** Acted on in this branch: `AURA_FAST` warmed from
