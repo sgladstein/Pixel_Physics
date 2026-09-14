@@ -230,3 +230,45 @@ before appending to it* rather than *re-list the branches*.
   since closed. Resolved keep-both, that merge would have re-opened a fixed
   bug and sent the next reader at a generator with nothing to do with it —
   which is the failure §M's own entry opens by warning about.
+
+## `README.md` conflicts on almost every merge, and the conflict is never prose
+
+**Measured 2026-09-14, three times in one session** on one docs-only branch
+(`claude/dreamy-feynman-uq21ka`, PR #410), at 19, 26 and 15 commits behind
+`main`. Every one conflicted in `README.md`, and **every conflicted line was a
+generated table row** — 201 lines the second time, 192 the third, and **zero
+lines of prose across all three**.
+
+**The cause is that two generated blocks carry line numbers.** README's table
+of contents and its **By topic** table both cite section line numbers, so *any*
+insertion anywhere in the file rewrites both — and two lanes inserting in
+different places produce a textual conflict in blocks where neither side
+disagrees about anything. `scripts/readmetoc.py` is what writes them, and
+`docscheck.sh` fails if they are stale, so they cannot simply be left alone.
+
+**So the resolution is regenerate, never hand-merge**, and hand-merging is the
+trap: the line numbers on both sides are *both wrong* for the merged file, so
+carefully reconciling them by hand produces a confidently incorrect result that
+`docscheck` then rejects — or worse, accepts, if the hand-merge happens to be
+self-consistent.
+
+The recipe, run three times:
+
+1. `git merge origin/main`.
+2. **Check the precondition before applying the rest.** Every conflicted line
+   must start with `| [` or `| **` — a generated table row. If any conflicted
+   line is prose, stop and merge it properly; this recipe does not apply.
+3. Strip the conflict markers keeping *either* side (they differ only in line
+   numbers, both stale).
+4. `python3 scripts/readmetoc.py` — this is what makes the numbers right.
+5. Confirm your own prose survived the merge, by grepping for a phrase you
+   added. The generated blocks are large enough to hide a lost paragraph.
+6. `bash scripts/docscheck.sh`, then the guards your change touches.
+
+**What this costs, and why it is worth naming rather than fixing.** Roughly
+five minutes per merge, and it recurs at every merge rather than at some
+threshold — the 300 `behind x files` rule does not predict it, because the
+conflict is a function of *any* concurrent README edit, not of how far behind
+you are. Whether the generated blocks should stop carrying line numbers is a
+real question and a different change; until someone makes it, this is the
+procedure.
