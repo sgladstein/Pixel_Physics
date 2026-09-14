@@ -174,6 +174,8 @@ pub const KEYS: &[(&str, &str, bool)] = &[
     ("Z V", "HOW FAST TIME RUNS IN THEM", false),
     ("G", "LAY A SCENT TRAIL AS YOU WALK", false),
     ("I", "WHICH SCENT - HOME, OR FOOD", true),
+    ("R", "SMALL ENOUGH TO GO UNDERGROUND", true),
+    ("- =", "CLOSER IN, FURTHER OUT", false),
     // `T` still sows; `K` now cycles which seed. `TAB` moved to the
     // biosphere page below, matching the key the lab already uses for its
     // own — a player who has touched both games gets the same reflex.
@@ -209,6 +211,14 @@ pub struct Readout {
     pub rate: u32,
     /// How wide the circle the player carries is.
     pub carried_radius: i32,
+    /// **Whether that circle is switched off** — see
+    /// `Druid::toggle_carried_circle`. The radius is still whatever it was
+    /// set to, so the panel cannot infer this from `carried_radius` and must
+    /// be told: an empty power bar beside `YOUR CIRCLE R28` reads as a fault
+    /// rather than as a choice the player made.
+    pub carried_off: bool,
+    /// How many seeds of the selected kind are left in the pouch.
+    pub seeds: u32,
     pub held: bool,
     pub paused: bool,
     pub look: &'static str,
@@ -258,11 +268,29 @@ impl Readout {
         // reason to walk somewhere.
         lines.push((format!("ANIMALS {}   AWAKE {}", self.animals, self.animals_awake), TEXT));
         lines.push((format!("CIRCLES {}   NEXT R{}   SPEED X{}", self.circles, self.radius, self.rate), TEXT));
-        lines.push((format!("YOUR CIRCLE R{}", self.carried_radius), TEXT));
+        // **`OFF` is a word, not `R0`.** The radius dial cannot reach zero
+        // and the engine reads a zero radius as the default anyway, so a
+        // number here could never say this — see `World::carried_off`.
+        lines.push((
+            if self.carried_off { "YOUR CIRCLE OFF".to_string() } else { format!("YOUR CIRCLE R{}", self.carried_radius) },
+            if self.carried_off { WARN } else { TEXT },
+        ));
         // **What T would sow, and how many have gone in.** A seed dropped on
         // held ground is invisible until time reaches it, so without the
         // count a working key and a broken one look the same.
-        lines.push((format!("SEED {}   SOWN {}", self.seed_kind.to_uppercase(), self.sown), TEXT));
+        // **The pouch is on this line rather than a new one**, because "what
+        // T sows" and "how many of it are left" are one question now that the
+        // supply is finite. Red at zero: the key still works for every other
+        // kind, so a silent nothing-happens would read as a broken key.
+        //
+        // Merge note, 2026-09-14: `main` dropped the `CHARGE n IN m NEAR YOU`
+        // row that used to sit under this one. That deletion is kept -- it is
+        // the newer side and it is deliberate -- and only the seed count is
+        // carried across from this branch.
+        lines.push((
+            format!("SEED {} x{}   SOWN {}", self.seed_kind.to_uppercase(), self.seeds, self.sown),
+            if self.seeds == 0 { WARN } else { TEXT },
+        ));
         lines.push((
             format!("WORLD {}   LOOK {}", if self.held { "HELD" } else { "RUNNING" }, self.look.to_uppercase()),
             if self.held { TEXT } else { WARN },
@@ -1081,6 +1109,10 @@ pub enum Action {
     CycleScent,
     ToggleOptions,
     ToggleUnlimited,
+    /// Small enough to walk into a nest, or back to her own size.
+    ToggleSmall,
+    /// Closer in, or further out. `delta` is the direction.
+    Zoom(i32),
     /// The biosphere page (item 1 of the playtest). Not handled by
     /// [`Druid::act`] below — the page itself lives on `Handler`, for the
     /// same reason the bar's own state does.
@@ -1150,6 +1182,9 @@ struct BarState {
     menu_open: bool,
     unlimited: bool,
     stats_open: bool,
+    /// Whether she is in her small shape. Latches the button, which is how
+    /// a toggle says which way it is without a second readout.
+    small: bool,
     seed_kind: String,
     look: String,
     scent: &'static str,
@@ -1163,6 +1198,7 @@ fn bar_state(game: &Druid, stats_open: bool) -> BarState {
         menu_open: game.menu.is_some(),
         unlimited: game.unlimited,
         stats_open,
+        small: game.is_small(),
         seed_kind: game.seed_kind_name().to_uppercase(),
         look: game.renderer.held_look.label().to_uppercase(),
         scent: match game.scent {
@@ -1200,6 +1236,11 @@ fn bar_specs(state: &BarState, pad: i32) -> Vec<Spec> {
         btn(1, state.scent.to_string(), "I", Action::CycleScent, false, pad),
         btn(1, "OPTIONS".to_string(), "M", Action::ToggleOptions, state.menu_open, pad),
         btn(1, "UNLIMITED".to_string(), "U", Action::ToggleUnlimited, state.unlimited, pad),
+        // **A main action**, so it gets a button: it changes where in the
+        // world she can go, which is the test the rest of this bar passes.
+        // Latched, because "am I small" is a state and the button is the
+        // only thing on screen that says so.
+        btn(1, "SMALL".to_string(), "R", Action::ToggleSmall, state.small, pad),
         btn(1, "STATS".to_string(), "TAB", Action::ToggleStats, state.stats_open, pad),
     ]
 }
@@ -1331,6 +1372,10 @@ impl Druid {
                 self.note(format!("held ground drawn: {look}"));
             }
             Action::CycleScent => self.cycle_scent(),
+            Action::ToggleSmall => {
+                self.toggle_small();
+            }
+            Action::Zoom(delta) => self.renderer.adjust_zoom(delta),
             Action::ToggleOptions => self.toggle_menu(),
             Action::ToggleUnlimited => {
                 self.unlimited = !self.unlimited;
@@ -1377,6 +1422,13 @@ mod tests {
                 // twice, once for `TAB` and once for these.
                 "BracketLeft" => "[".to_string(),
                 "BracketRight" => "]".to_string(),
+                // The zoom pair, added with the shrink verb: at 2x3 she is a
+                // six-pixel blob and so is the gallery, so magnify is part
+                // of that feature rather than a nicety. Spelled out here for
+                // the same reason as the brackets above -- `KeyCode::Equal`
+                // reads as `EQUAL` and the legend quite rightly says `=`.
+                "Equal" => "=".to_string(),
+                "Minus" => "-".to_string(),
                 // `KeyA` .. `KeyZ` and the function keys read straight
                 // across; anything else added later shows up as itself and
                 // fails loudly rather than being silently skipped.
@@ -1412,11 +1464,17 @@ mod tests {
         }
         // The readout is formatted, so sweep values that produce every branch
         // and every sign rather than one tidy case.
-        for (power, income, drain, unlimited, paused) in [
-            (0.0, 0.0, 0.0, false, false),
-            (612.4, 7.25, 1.5, false, true),
-            (0.0, 0.0, 99.9, false, false),
-            (600.0, 0.0, 0.0, true, false),
+        // **`carried_off` and `seeds` are swept too, both ways each.** Both
+        // added a *branch* to `lines()` rather than a value, and a coverage
+        // sweep that only ever formats one side of a branch cannot see a
+        // glyph missing from the other — which is the whole thing this test
+        // is for. `YOUR CIRCLE OFF` and `SEED ... x0` are the two strings
+        // that only exist on one arm.
+        for (power, income, drain, unlimited, paused, carried_off, seeds) in [
+            (0.0, 0.0, 0.0, false, false, false, 8),
+            (612.4, 7.25, 1.5, false, true, true, 0),
+            (0.0, 0.0, 99.9, false, false, true, 24),
+            (600.0, 0.0, 0.0, true, false, false, 0),
         ] {
             let readout = Readout {
                 power,
@@ -1429,6 +1487,8 @@ mod tests {
                 radius: 60,
                 rate: 4,
                 carried_radius: 28,
+                carried_off,
+                seeds,
                 held: true,
                 paused,
                 look: "one hue",
@@ -1567,6 +1627,11 @@ mod tests {
             radius: 240,
             rate: 8,
             carried_radius: 96,
+            // The tallest panel is the one with every optional row on it, and
+            // `OFF` is one character shorter than `R96` — so the *on* arm is
+            // the one that sizes this, and the seed count is at its widest.
+            carried_off: false,
+            seeds: 24,
             held: true,
             paused: true,
             look: "unchanged",
@@ -1606,6 +1671,7 @@ mod tests {
             menu_open: true,
             unlimited: true,
             stats_open: true,
+            small: true,
             seed_kind: "SCRAMBLER".to_string(),
             look: "UNCHANGED".to_string(),
             scent: "FOOD",
@@ -1614,7 +1680,7 @@ mod tests {
 
     #[test]
     fn the_bar_fits_the_screen_and_no_two_widgets_overlap() {
-        for state in [BarState { paused: false, held: false, offer_open: false, menu_open: false, unlimited: false, stats_open: false, ..widest_bar_state() }, widest_bar_state()] {
+        for state in [BarState { paused: false, held: false, offer_open: false, menu_open: false, unlimited: false, stats_open: false, small: false, ..widest_bar_state() }, widest_bar_state()] {
             let bar = layout_for(&state);
             assert!(bar.fits(), "the bar does not fit a {}-wide window even at its tightest spacing", crate::app::WIDTH);
             for (i, a) in bar.widgets.iter().enumerate() {

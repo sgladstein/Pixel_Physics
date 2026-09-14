@@ -88,7 +88,7 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Trail status — the ant reads its way home, and the food trail is the larder's problem](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) | 8215 |
 | [Lifespan status — an ant gets old, and the colony's fall becomes a slope](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) | 8252 |
 | [Held world status — the third game, and time you carry in a circle](#held-world-status--the-third-game-and-time-you-carry-in-a-circle) | 8398 |
-| [Colony books status — what each colony is living on, in joules](#colony-books-status--what-each-colony-is-living-on-in-joules) | 8958 |
+| [Colony books status — what each colony is living on, in joules](#colony-books-status--what-each-colony-is-living-on-in-joules) | 9134 |
 
 ### Milestones, in numeric order
 
@@ -134,7 +134,7 @@ your time goes, not a rule about what you may read.
 | Topic | Game | Sections, primary first |
 |---|---|---|
 | **plants, trees and moss** | engine | [M16 status](#m16-status) 1935, [Soil nutrient status](#soil-nutrient-status--ground-is-worth-something-water-is-not) 7572, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1426, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 4656, [Parameter-genome status](#parameter-genome-status--a-species-file-is-a-starting-point-and-it-ships-inert) 4759, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1577, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1867, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1496, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1785, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4939, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 5176, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 5253, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6714, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 5573, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5621, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5852, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6606 |
-| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2348, [The ant colony](#the-ant-colony--status) 3864, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6714, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5621, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5852, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6776, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6606, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7615, [Hunger status](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) 7915, [Rest status](#rest-status--a-rest-that-ends-so-a-resting-animal-is-not-a-stopped-one) 8026, [Hopper status](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) 7995, [Trophallaxis status](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) 8157, [Trail status](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) 8215, [Lifespan status](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) 8252, [Colony books status](#colony-books-status--what-each-colony-is-living-on-in-joules) 8958 |
+| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2348, [The ant colony](#the-ant-colony--status) 3864, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6714, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5621, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5852, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6776, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6606, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7615, [Hunger status](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) 7915, [Rest status](#rest-status--a-rest-that-ends-so-a-resting-animal-is-not-a-stopped-one) 8026, [Hopper status](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) 7995, [Trophallaxis status](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) 8157, [Trail status](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) 8215, [Lifespan status](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) 8252, [Colony books status](#colony-books-status--what-each-colony-is-living-on-in-joules) 9134 |
 | **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 2121, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4939, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 5176, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 5253, [M8 status](#m8-status--started-not-complete) 3058 |
 | **fire, heat and phase change** | engine | [M14 status](#m14-status) 1013, [Materials](#materials) 293 |
 | **explosions, particles and debris** | outdoor | [M15 status](#m15-status) 1190, [M7 status](#m7-status) 1161 |
@@ -8585,6 +8585,89 @@ mid-width, and `surface_at` walked through it to the rock floor beneath: the
 gnome spawned submerged. A flooded column now disqualifies itself outright and
 the search alternates outward from the middle.
 
+### Nothing grows there until she plants it
+
+**The generated world contains no life at all**, and that is the player's job
+rather than the generator's. Owner playtest, 2026-09-14: *"The world should
+not start with any seeds. The druid has her own seeds to plant and that
+populates the world."*
+
+It is three zeroed densities in the `druid` preset — `moss_density`,
+`tree_density`, `grass_density` — and no code, because `passes::life_scatter`
+already early-outs when all three are zero, which is the path `arid` and
+`flat` take. Measured paired, one binary and two copies of
+`assets/worldgen.ron` (`pass_ablation seeds=1 preset=druid`): `life_scatter`
+**993 cells → 0**, with every other pass in the table byte-identical across
+the two arms, so nothing was displaced rather than removed. `Start::Bare` is
+the default and never grows, so that is the whole of it.
+
+**Her supply is finite, and that is the other half of the same item.** Before
+this, `Druid::plant_seed` read no resource and decremented nothing — no
+decrement existed anywhere in the repo — so on a bare map the item as stated
+would have turned a wood into a painting tool.
+
+| | |
+|---|---|
+| `SEED_START` | 8 of **each kind**, so *"eight grass and no oak"* is a state |
+| `SEED_CAP` | 24 per kind |
+| `SEED_FROM_CELLS` | 24 — a plant pays only once it looks like a plant |
+| `SEED_PER_PLANT_SECOND` | 0.005, per mature plant, **in the circle she carries** |
+
+**The carried circle, not a standing one**, is the load-bearing choice.
+Gathering is presence — the same thing the carried circle already is — so the
+way to be paid in seed is to walk your own wood. Crediting standing
+quickenings would pay a player who drops a circle over a wood and leaves,
+which is the unlimited supply wearing a delay. It also means switching the
+sphere off (below) stops the pouch filling, for free, out of the same
+`Option`. Seed is credited to the **plant's own kind**, so standing in an oak
+wood fills you with oak.
+
+Every number above is a first guess on the same footing as the rest of this
+economy. **The one to sweep first is the maturity bar**, because it is the
+only one that decides whether the mechanic has a middle: too low and every
+sprout pays, which is the infinite supply again; too high and nothing ever
+pays and the pouch is a countdown.
+
+**Not built, and it is the owner's call:** whether a refill should exist at
+all. Everything here assumes it should, because a supply that can only go down
+makes the outcome binary — you have seeds or the run is over — which is the
+failure law 1 names. That is an inference from the ethos rather than from his
+words.
+
+### The sphere has an off switch, and what it costs is not power
+
+Owner playtest, 2026-09-14: *"There should be an easy way to full turn off the
+sphere around the druid so no power is being used."*
+
+**The power half of that is already true, and it is worth recording why.**
+`carried_cost` prices the area *added*, not the area held, so the carried
+circle at its base radius costs exactly zero and a guard asserts it — *"the
+circle you already are must stay free"*. Nothing about switching it off is a
+saving unless the player has widened it with `]`, and then it is the widening
+that stops being billed.
+
+What was genuinely missing is the thing the words say: **a way to make the
+world hold still where she stands.** `World::carried_off` is that.
+
+**It is a flag and not a radius of zero, deliberately.** `carried_radius`
+reads `0` as the *default size* — its own doc refuses to let a dial reach off
+by accident — and even a genuinely zero radius would still run time for the
+cell underfoot, since `Quickening::contains` is `<=`. Both are asserted
+directly, so a later simplification of either gets told.
+
+**Off is a trade rather than a saving.** The colony under her feet stops
+storing charge, a sown seed stops germinating, the wood she is in stops
+growing, and her pouch stops filling. All of it falls out of
+`World::time_runs_at` and none of it is new code — the same way the rule that
+a colony must be founded inside running time does.
+
+The delivery is that the world visibly goes still: with `carried` at `None`
+the held look reclaims the ground she is standing on, so the bubble does not
+dim, it disappears. The readout says `YOUR CIRCLE OFF` as a word, because no
+number could say it, and in warning colour — an idle power bar that looks like
+a fault is the failure to avoid. `PIXEL_PHYSICS_DRUID_CIRCLE=off` is a
+headless control arm for judging the two states off one binary.
+
 ### The economy, and why every number in it is a first guess
 
 One pool. **Drain is charged on what is actually awake inside a circle, not on
@@ -8945,6 +9028,99 @@ vanished the same way. The `SPACE` placement preview is still a hard 1px
 circle, because it is not world state and the renderer cannot see it. There is
 no runtime selector for the aura's dials; `examples/druid_aura.rs` sweeps them
 from the command line instead.
+
+### Small enough to go underground
+
+**`R` takes her to 2x3 cells against her authored 7x14**, and at that size the
+galleries an ant digs are corridors she can walk. Step 2 of the held world's
+plan, and the owner's stated order after the playtest round: *"shrink and walk
+the nests."*
+
+**The size comes off the digger's constants rather than off a feel.** An ant
+cuts one cell at a time, so a gallery clears `creature::SPOIL_HEADROOM` = 3
+cells of headroom at its most generous — and `SPOIL_HEADROOM` is this
+engine's own definition of *indoors*, since `creature::is_sheltered` reads
+three empty cells overhead as outdoors. Two wide because the bore is one cell
+with a rind either side, leaving four to six void cells per row. So the thing
+to re-derive 2x3 against is a change to how ants dig, not a sweep.
+
+**Measured before it was built, which is what licensed building it.**
+`examples/burrow_probe arms=colony box=2x3`, twelve seeds at frame 8,000: a
+2x3 body reaches **54 to 92 percent** of the roofed void a colony digs, and on
+eleven of twelve seeds the largest single region *is* that whole reach — one
+connected run rather than a set of pockets. The same probe at `box=7x14`, her
+own size, reads **0% at every sample on every seed**, which is the premise of
+the feature stated as a number for the first time. `examples/cave_probe
+box=2x3` is the wider finding beside it: natural caves read **99% median**
+over 16 seeds x 8 presets, so shrinking opens the geology far more than it
+opens the nests.
+
+**Nothing new decides where she may go; the geometry already graded it.** 2x3
+fits the widest stretches of a nest and is stopped by the 1- and 2-tall ones,
+with no rule anywhere adjudicating it — an outcome with a middle rather than a
+door that is open or shut.
+
+**Growing back can be refused, and the refusal is the mechanic.**
+`player::try_resize` tests the target rectangle with `rect_free` — the same
+predicate every other move uses, asked one size ahead — and declines rather
+than shoving. It must never fall through to `depenetrate`, which would shove
+a three-cell gnome up to a body-length (the teleport its own reach exists to
+forbid) and, failing that, set `buried` — so a growth inside a tunnel would
+*entomb* rather than refuse. `SPOIL_THROW` is unscaled, so digging while small
+can seal the way she came: the most interesting hazard in the feature, and it
+needed no code.
+
+**Two reaches stated in terms of the body stopped being constants.**
+`DEPENETRATE_REACH` (4) and `REAIM_DEADZONE` (12) are both defined by their
+own docs *relative to the gnome* — "a large push is a teleport", "12 cells is
+just under the gnome's own height" — so a fixed value stops meaning what it
+says the moment the body changes: at 3 cells tall, 4 is longer than she is and
+12 is four body-heights, so the bore would never turn. They are now
+`depenetrate_reach(h)` and `reaim_deadzone(h)`, free functions beside
+`grip_rows(h)` rather than `Tuning` members, because `Tuning` membership puts
+a safety bound in `assets/player.ron` and on the panel where it can be swept
+to zero. Both return their authored values at `PLAYER_HEIGHT`, and a guard
+asserts it. A third site was a pre-existing bug at any scale but 1: the heave
+out of a burial read `(1..=PLAYER_HEIGHT)` against a doc saying "as far as his
+own height".
+
+**His tuning shrinks with him, and three of those numbers were correctness
+rather than feel.** `Tuning::for_body(k)` is the sibling of `Tuning::scaled`
+and deliberately not the same transform: `scaled` describes a world built at
+`k` times the cell resolution, where a metre is `k` cells and *everything*
+multiplies, gravity included. Here the world's cells did not change and only
+he did, so `gravity` and `fall_clamp` are restored to what was authored — a
+shrunk gnome who fell like ash would be the most visible possible way to get
+this wrong — and `jump_impulse` therefore takes `sqrt(k)` rather than `k`, so
+that against an unscaled gravity a jump stays the same number of *his own
+heights*. Applied in `player::step` beside the `cell_scale` scaling rather
+than at the druid's call site, and an exact identity at the authored size, so
+the sandbox and the lab are unchanged.
+
+What it was fixing: `step_up` is "about a third of his height" and at 2x3
+would be **taller than he is**, so he would walk up ledges he could not see
+over; `dig_radius` is documented as "clearance for a 14-tall gnome" and would
+bore a 15-cell hole for a 3-cell one; and `wade_rows` is 4, which makes
+`rect_free`'s `chest = h - wade` **negative** — the `dy < chest` arm never
+fires, no powder cell is ever counted, and he strolls through any depth of
+drift with nothing anywhere saying so. That last is an outright bug, which is
+why the re-derivation is part of the shrink and not a follow-up. A body with
+no chest at all is refused by `try_resize` rather than clamped, and a guard
+asserts the exact set of heights that would have none is `{1}`.
+
+The belt's ballistic terms (`hammer_force`, `hammer_recoil`, `stroke_impulse`)
+take `scaled`'s single `k` and strictly have `jump_impulse`'s problem, so a
+small gnome's hammer throws rock shorter than his size alone suggests. Left as
+it is deliberately: that is a question about how a small gnome's blows should
+*feel*, settled by playing rather than by algebra.
+
+**The sprite is deliberately not in this.** `draw_player` nearest-neighbour
+resamples the authored 7x14 table to any size, and at 2x3 that table is too
+sparse to read — the failure is sparseness rather than size, so no resample of
+it works and it needs an authored small table, which is judge-by-eye art in
+the repo's #7 most contested file. This change ships **zero `render.rs`
+lines**. `PIXEL_PHYSICS_DRUID_SMALL=1` starts her small for a headless look,
+and says so out loud if there is no room to shrink where she spawns.
 
 ### Not built
 
