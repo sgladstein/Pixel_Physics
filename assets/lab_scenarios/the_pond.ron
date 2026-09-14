@@ -1,0 +1,64 @@
+// **The pond** -- the pre-flight for `Reports/aquatic-implementation-plan-
+// 2026-09-14.md` Phase 0, and the bed every aquatic measurement needs.
+//
+// `Reports/aquatic-life-research-2026-09-14.md` §7.1 measured that the lab
+// **cannot make a pond by raining into it**: at STEADY rain, 40,000 frames,
+// the played bed holds 1,444 cells of standing water spread over 512 columns
+// at one to seven cells per row -- films caught in canopies, not a body. So
+// the habitat has to be *placed*, and this file is the test of whether
+// placing it is enough or whether the bed needs an engine change.
+//
+// **Stone-lined, and that is the whole design.** Soil is a `Powder`, so a pit
+// cleared straight into the bed slumps back in -- `the_bank.ron`'s own header
+// measures the same effect from the other side, a vertical soil face
+// becoming a ramp inside the first 3,000 frames. A basin with soil walls
+// would fill itself. The shell is `stone`: four cells on each side and four
+// under the floor, which is `LabBox`'s own `SHELL` thickness.
+//
+// The water is 152 wide and 28 deep. Both numbers are deliberate. **Wide**,
+// because `evaporation.rs`'s humidity shelter is a function of width and
+// asymptotes by 128 cells -- a body this wide saturates the air above itself
+// and should hold, where a puddle dries. **Deep**, because
+// `worldgen::params`' `pond_min_depth` is 2.0 and a one-cell film "renders as
+// a black line rather than as water and reads as an artifact"; 28 rows is a
+// water column with an inside, which is what any question about depth needs.
+//
+// No plants and no colony: this scenario asks one question and the answer
+// must not be confounded by a canopy holding water up or an ant digging the
+// bank out. The stocked version is a later file.
+(
+    name: "the_pond",
+    title: "THE POND",
+    question: "A stone-lined basin filled with water -- does the body stay where it was put, stay full, and stay asleep?",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 96,
+        ground_y: 160,
+        compartments: 1,
+        founders: 0,
+        species: "herb",
+        colonies: 0,
+        colony_ants: 52,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [],
+    placements: [
+        // The hole, cut through the bed's surface into the soil.
+        Clear(x: 176, y: 160, w: 160, h: 36),
+        // The shell: two walls and a floor, so the surrounding soil cannot
+        // slump in and the water cannot drain down through the bed.
+        Fill(material: "stone", x: 176, y: 160, w: 4, h: 36),
+        Fill(material: "stone", x: 332, y: 160, w: 4, h: 36),
+        Fill(material: "stone", x: 176, y: 192, w: 160, h: 4),
+        // The water, inside the shell, with a four-row lip of air above it
+        // so a full basin is visibly not an overflowing one.
+        Fill(material: "water", x: 180, y: 164, w: 152, h: 28),
+    ],
+    timeline: [],
+    horizon: 40000,
+)

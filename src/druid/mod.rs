@@ -896,12 +896,7 @@ impl Druid {
             rate: self.speed,
             carried_radius: self.world.carried_radius,
             carried_off: self.world.carried_off,
-            seeds: self.seeds_in_hand(),
-            held: self.world.held,
             paused: self.paused,
-            look: self.renderer.held_look.label(),
-            seed_kind: self.seed_kind_name().to_string(),
-            sown: self.sown,
             charge: self.charge_in_reach(),
             reserve_cap: RESERVE_CAP,
             power_full: POWER_START,
@@ -1687,6 +1682,25 @@ impl Druid {
             return;
         }
         let held_player = self.world.player.take();
+        // **Her circle is put back with her, and leaving it out was a bug the
+        // owner reported as *"my own circle disappears but still
+        // functions"*.** Removing the player is what keeps the carried circle
+        // out of these passes — that is the paragraph above and it is
+        // correct — but `frame::step` derives `world.carried` *from* the
+        // player, so a player-less pass sets it to `None` and the last extra
+        // pass is the last thing that touches it before the renderer reads
+        // it. This runs after the tick's own `frame::step`, so the circle was
+        // blanked on **every** frame at any speed above 1x with a standing
+        // circle on the map.
+        //
+        // **What made it read as a power bug is that it is invisible at 1x.**
+        // A player only reaches the dial once they have circles to run, and
+        // they only run out of power when the dial is up — so the symptom
+        // arrives alongside an empty pool and turning `UNLIMITED` on, which
+        // changes neither the dial nor the circle count, does nothing for it.
+        // The readout went on saying `YOUR CIRCLE R28` throughout, because it
+        // reads `carried_radius` and not `carried`.
+        let held_circle = self.world.carried;
         for _ in 1..self.speed {
             frame::step(
                 &mut self.world,
@@ -1697,6 +1711,7 @@ impl Druid {
             );
         }
         self.world.player = held_player;
+        self.world.carried = held_circle;
     }
 
     /// **Income and drain, and what the pool does about them.**
@@ -2261,6 +2276,42 @@ mod tests {
         let at = step(&mut w);
         assert!(w.carried.is_some(), "clearing carried_off must bring the circle back");
         assert!(w.time_runs_at(at.0, at.1), "time must run again where he stands");
+    }
+
+    /// **The speed dial must not take her own circle away.**
+    ///
+    /// Owner playtest, 2026-09-14: *"sometimes the druid's own time circle
+    /// disappears but still functions... I turn unlimited power on and it is
+    /// working but no visual."* The attribution to power was the correlation
+    /// rather than the cause, and that is why this guard is about the dial:
+    /// [`Druid::step_extra_ticks`] takes the player out so the carried circle
+    /// stays free, `frame::step` derives `world.carried` from the player, and
+    /// the extra passes run *after* the tick's own step — so the last thing
+    /// to touch `carried` before the renderer read it was a player-less pass
+    /// that set it to `None`. Power only ever ran out once the dial was up,
+    /// which is what put the two together.
+    ///
+    /// Swept over the whole dial rather than checked at one setting, because
+    /// the failure is "anything above 1x" and a spot check picks the setting
+    /// you were already thinking about. 1x is in the sweep as the arm that
+    /// was always fine.
+    #[test]
+    fn running_the_dial_up_does_not_take_her_own_circle_away() {
+        for speed in 1..=8 {
+            let mut g = Druid::bare_for_test();
+            g.speed = speed;
+            // The scene has to contain the situation: `step_extra_ticks`
+            // returns early with no standing circle, so without one this
+            // would pass at every setting and guard nothing.
+            g.world.quickenings.push(crate::sim::world::Quickening::at(32, 40, 16));
+            g.update();
+            let (x, y) = g.world.player.as_ref().expect("the test world keeps its player").center();
+            assert!(
+                g.world.carried.is_some(),
+                "at speed x{speed} her own circle is gone after a tick -- the readout would still say it is there"
+            );
+            assert!(g.world.time_runs_at(x, y), "at speed x{speed} time does not run where she stands");
+        }
     }
 
     /// **Sowing spends a seed, an empty pouch refuses, and gathering is what
