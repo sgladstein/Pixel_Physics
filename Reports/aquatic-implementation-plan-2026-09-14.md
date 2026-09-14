@@ -344,6 +344,57 @@ is worth stating plainly because nothing warns you: **a dial that fires between
 two instances of a thing is invisible to any harness that makes only one, and
 the harness reports a clean unchanged number rather than an error.**
 
+### 1.9 The hole is the spatial structure. The water is not.
+
+**This is the measurement §1.4 could not make and the research named as the one
+that decides whether any of this is worth building.** `labforage`'s stated
+question is already *"gone, or never got to it"* — its `unvisited` column is
+standing food in columns the colony has **never occupied**, and `cols` is how
+many columns it reached at all. Colony size could not separate those; this can.
+
+Three arms, one binary (md5 identical across all twelve runs), six seeds,
+24,000 frames, `RAYON_NUM_THREADS` pinned. Each arm is the one above it with
+one thing deleted: the water `Fill`, then the pit itself.
+
+| arm | `cols` per seed | `cols` median | `unvisited` median | `eats` median |
+|---|---|---|---|---|
+| **water** | 199, 200, 205, 199, 218, 180 | **199.5** | 158.5 | 823.0 |
+| **dry** | 196, 192, 207, 236, 191, 197 | **196.5** | 154.5 | 826.5 |
+| **flat** (no pit at all) | 307, 308, 273, 286, 253, 269 | **279.5** | 138.5 | 761.5 |
+
+**The pit is a barrier, and a large one.** Flat reaches 279.5 columns against
+roughly 197–200 for either pit — a **29% loss of range**, on **6 of 6 seeds
+with the two distributions completely separated**: the worst flat seed (253) is
+still further-ranging than the best pit seed (236). Nothing in this repo's
+usual spread survives that cleanly; it is about as unambiguous as a
+six-seed result here gets.
+
+**And the water contributes none of it.** Water against dry is 199.5 against
+196.5, three seeds up and three down, with `unvisited` (158.5 / 154.5) and
+`eats` (823 / 827) equally flat. §1.4 guessed at this — *"what little a pit
+buys, it buys dry"* — on an instrument it then showed had almost no power.
+This establishes it on one that does.
+
+**The flat arm is also the sensitivity control, and that is why it was run at
+all.** A null is worth very little until the instrument has been shown to move
+for a case you know differs: `cols` moved 29% with complete separation the
+moment the pit was removed, so the water null is a real null rather than a dead
+probe. `CLAUDE.md` asks for exactly this pairing and it is cheap — one more arm
+of an existing sweep.
+
+**What it changes, and what it does not.** The research's stop condition was
+*"if the delta is ≈0, the aquatic niche is decoration and this document's
+recommendation changes."* The delta between **pond and no-pond** is emphatically
+not zero; the delta attributable to **the water** is. So the recommendation
+stands unchanged, because it never rested on water-as-barrier — it rests on
+there being calories in the water, which is Phase 1's job and not Phase 2's.
+**Four instruments have now failed to distinguish a pond from the same hole
+left dry** (colony survival, births, `creature_arena arm=lethal`, and this),
+and the honest summary is that **in this engine today the water is scenery and
+the hole is the mechanic.** A brief that proposes water as spatial structure is
+proposing something four measurements say is not there; a brief that puts food
+in the water first is proposing the only thing that would change that.
+
 ---
 
 ## 2. Phase 1 — the margin

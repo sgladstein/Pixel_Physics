@@ -431,6 +431,24 @@ stated question is already *"gone, or never got to it"*, on a bed with and
 without a pond. **If the delta is ≈0, the aquatic niche is decoration and this
 document's recommendation changes.**
 
+> **The `labforage` half was taken 2026-09-14 — see the implementation plan's
+> §1.9 — and it splits the question in two.** Three arms, six seeds, each the
+> one above it with one thing deleted. Columns the colony ever reached:
+> **flat 279.5, dry pit 196.5, water pit 199.5.** So the delta between pond and
+> no-pond is emphatically *not* ≈0 — the pit costs 29% of the colony's range on
+> 6 of 6 seeds with the distributions completely separated — while the delta
+> attributable to **the water** is: three seeds up, three down, with
+> `unvisited` and `eats` equally flat. **The hole is the spatial structure; the
+> water is scenery.**
+>
+> **So this paragraph's stop condition does not fire, for a reason worth
+> stating**: the recommendation never rested on water-as-barrier, it rests on
+> there being calories in the water, and the `food_height` half above is
+> answerable today without running it — `growable` refuses `Liquid`, so
+> submerged food is **zero by construction**. A pond in this engine right now
+> neither blocks a forager nor holds anything to eat. That is the hop's exact
+> situation, and it is the whole argument for plants before the swimmer.
+
 **Detritus is the interesting answer**, and it is a different trophic mode
 rather than a relocated one. A pond floor accumulates what falls into it —
 `windfall` 1.05 sinks, `corpse` 1.2 sinks, litter rafts and eventually
