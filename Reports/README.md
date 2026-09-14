@@ -426,6 +426,25 @@ by somebody about to try it on creatures.
 
 ## Liquids and granular  ·  `engine`
 
+- [aquatic-life-research-2026-09-14.md](aquatic-life-research-2026-09-14.md) —
+  **research and brainstorm, 2026-09-14; nothing built, no build order.**
+  Aquatic creatures and plants across all three games. Four one-line
+  predicates make water a floor; buoyancy, drag, the water ledger, the scent
+  plane and the density table are already built and correct. Measured: water
+  passes light like air (positive control — rock reads black), and the lab
+  bed makes films rather than a pond even at STEADY rain. Carries the
+  finding that E9's *float* already ships, and that the plant height ceiling
+  is hydrostatic, so the waterline could set how tall a plant grows.
+- [aquatic-implementation-plan-2026-09-14.md](aquatic-implementation-plan-2026-09-14.md) —
+  **plan of record for aquatic work, 2026-09-14. Phase 0 built and measured;
+  Phases 1-4 specified, not built.** Turns the research above into a build
+  order with guards and briefs. Three measurements set the order and two
+  overturn the research: a pond in the lab is a **scenario file**, not a
+  `LabBox` field (`the_pond.ron`, 4,256 cells flat to frame 40,000); it holds
+  only over an **impermeable** floor (soil drains it to zero by frame 4,000);
+  and a pond as a bare **barrier buys nothing** (flat 3 / water 4 / dry pit 28
+  ants at 90,000). So the order is bed -> plant -> animal -> gradient, and the
+  swimmer comes last.
 - [liquid-simulation-research.md](liquid-simulation-research.md) —
   **research, round 1.** Why poured water piled like sand; SPH → PBF →
   PIC/FLIP survey.
@@ -2622,6 +2641,18 @@ was **no food verb** (there is one now: `E`) although hand-placed food is the on
 intervention measured to separate generation 13 from generation 0, and the plant mutation rates the
 design guide's §7b-i calls "already data" are Rust `const`s.
 
+- [druid-rounds-archive.md](druid-rounds-archive.md) — **record, 2026-09-14.**
+  Finished rounds of the **held world**'s coordinator note, moved out of
+  `Reports/lanes/druid-program-coordinator.md` so that note can stay a
+  standing one — the same split the lab made, and for the same reason: what a
+  round *overturned* is the part a later session cannot reconstruct, and also
+  the part nobody needs loaded to do today's work. Round 1 is the seven
+  playtest items of 2026-09-14 (five lanes, PRs #411, #413, #414, #415, #418),
+  including the two findings that outlived it — that four of the seven items
+  were sized off doc comments and two of those were wrong, and that a lane
+  overturned the coordinator's own brief. **A record, not a work order**: the
+  live round and the standing owner rulings are in the lane note.
+
 - [evolution-lab-rounds-archive.md](evolution-lab-rounds-archive.md) —
   **record, 2026-09-08.** Rounds one to nineteen of the lab's coordinator note,
   verbatim, moved out of `Reports/lanes/evolution-lab-coordinator.md` when that
@@ -2755,17 +2786,24 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   measurement, and the constants rivalry reallocates named and re-derived,
   since a correct mechanism at inherited constants is a regression.
 - [evolution-lab-round-36-brief-2026-09-14.md](evolution-lab-round-36-brief-2026-09-14.md)
-  — **brief, 2026-09-14. `lab`/`engine`.** What round 36 is for, written by
-  round 35's coordinator. The lead is the owner's #1 and it finally has a
-  measured target rather than a premise: **about half of what an ant costs is
-  not in the creature pass at all** — 45% of the frame's growth to 428 ants is
-  that phase, the other 55% is the CA sweep over the **29.4 cells an ant
-  dirties per frame**. Two jobs fall out, *fewer dirty cells* (census first,
-  nobody has looked at what the multiplier is made of) and *a cheaper sweep*.
-  Also carries what round 35 leaves: **the economy constants a live rivalry
-  reallocates** — the birth bar, `colony_ants` and the starvation balance, all
-  calibrated on a bed where no ant was food — and **§Z23**, whose obvious
-  repair is the wrong one.
+  — **brief, 2026-09-14, rewritten the same day. `lab`/`engine`.** What round 36
+  is for. **The first version led with performance and was wrong at the top**:
+  the owner then answered the round-35 cards and **the food-economy
+  instruments failed on his eye** (*"I don't understand what these visuals are
+  trying to tell"*; *"the amber hatch it bad — is it too much to track actual
+  paths and make trail?"*), which by this repo's ethos outranks everything
+  queued behind it. Four lanes: **A** making the food economy readable (lead,
+  and start by rendering the road and the harvest map *apart* — the tile grid
+  may simply be burying the trail); **B** a census of what the **29.4 cells an
+  ant dirties per frame** are made of, since half an ant's cost is not in the
+  creature pass; **C** the pheromones — *do they fade too fast to be useful*,
+  where the decay LUT caps an unreinforced trail at **255 passes ≈ 3,060
+  frames against a ~2,200-frame round trip** and the harness that set the
+  constants re-lays continuously so it cannot answer the question; **D** the
+  economy constants a live rivalry reallocates. Also carries the verdicts
+  verbatim, the zoom ruling (*"get rid of stop 3"*, which overturns
+  `dead-ends.md` `rendering:049`), and a process finding — **four cards asked
+  one question**, so read the open queue before posting.
 - [evolution-lab-round-35-2026-09-14.md](evolution-lab-round-35-2026-09-14.md)
   — **coordinator record, 2026-09-14. `lab`/`engine`.** The round that gave the
   food economy a face and answered *why don't colonies fight* with a finding

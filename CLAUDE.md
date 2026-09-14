@@ -77,7 +77,7 @@ already changed decisions:
 | File | Holds |
 |---|---|
 | `README.md` | Architecture, and per-milestone status. **~72k tokens, the largest document here — do not read it whole**: its **By topic** table maps subsystem to owning sections with line numbers **and says which game each topic belongs to** (`engine` is shared and is most of them; `outdoor`, `lab` and `held` mark what the other two games never reach). Milestone sections are named for the *build*, not the subsystem — `M17 status` is the structural-collapse write-up |
-| `wiki/*.md` | What a material or mechanic *does*, in plain language — no code, no file names. `Reports/*.md` is *why it's built that way*; this is *what it looks like when it's right*, which makes it **the written form of the bar your change is judged against**. ~34k tokens over 11 pages, so read the one page, not the directory. **Which page owns your file is not guessable for half of them**, and the map lives here because the wiki refuses file names by design: `field.rs`/`decay.rs`/`sky.rs` → `world-cycles.md`; `structural.rs`/`load.rs`/`rigid.rs` → `structural-collapse.md`; `explosion.rs`/`fracture_field.rs` → `explosions.md`; `plant.rs`/`organism.rs`/`assets/species` → `plants.md`; `creature.rs`/`brain.rs` → `ants.md`; `player.rs` → `the-gnome.md`; `worldgen/` → `the-world.md`; `lab/`, `bin/lab.rs` → no page yet, read `Reports/lanes/evolution-lab-coordinator.md`; `druid/`, `bin/druid.rs` → no page yet, read `Reports/held-world-game-concept-2026-09-13.md` and README's `Held world status`; `update.rs`/`material.rs` → `powders.md` and `liquids-and-gases.md`; `liquid.rs` → `liquids-and-gases.md`; `fire.rs` → `fire-and-heat.md`; `weather.rs` → `weather.md` |
+| `wiki/*.md` | What a material or mechanic *does*, in plain language — no code, no file names. `Reports/*.md` is *why it's built that way*; this is *what it looks like when it's right*, which makes it **the written form of the bar your change is judged against**. ~34k tokens over 11 pages, so read the one page, not the directory. **Which page owns your file is not guessable for half of them**, and the map lives here because the wiki refuses file names by design: `field.rs`/`decay.rs`/`sky.rs` → `world-cycles.md`; `structural.rs`/`load.rs`/`rigid.rs` → `structural-collapse.md`; `explosion.rs`/`fracture_field.rs` → `explosions.md`; `plant.rs`/`organism.rs`/`assets/species` → `plants.md`; `creature.rs`/`brain.rs` → `ants.md`; `player.rs` → `the-gnome.md`; `worldgen/` → `the-world.md`; `lab/`, `bin/lab.rs` → no page yet, read `Reports/lanes/evolution-lab-coordinator.md`; `druid/`, `bin/druid.rs` → no wiki page yet, read `Reports/lanes/druid-program-coordinator.md` first (the standing note: owner rulings, live round, the environment facts that cost time), then `Reports/held-world-game-concept-2026-09-13.md` and README's `Held world status`; `update.rs`/`material.rs` → `powders.md` and `liquids-and-gases.md`; `liquid.rs` → `liquids-and-gases.md`; `fire.rs` → `fire-and-heat.md`; `weather.rs` → `weather.md` |
 | `PLAN.md` | Roadmap, settled decisions, the issues backlog; the append-only progress log lives beside it in `PLAN-log.md`. **~60k tokens — do not read it whole**: start from its Contents, and in any session-handoff section read the dated *(State …)* line rather than the heading, which records only what was true when written |
 | `Reports/README.md` | **The index of every design report**, with per-report status and an in-flight section for documents still on unmerged branches — check a report's standing there before trusting it or writing a new one. **Its sections are tagged by game**, so a lab session can skip `outdoor` and vice versa; `engine` is shared and is most of the index |
 | `Reports/dead-ends.md` | **Tried-and-reverted approaches** (726 at last census, 2026-09-02), each with the condition its rejection depended on and where the full record lives. **~97k tokens — grep the *mechanism* you are about to touch or propose, never your subsystem.** Measured 2026-08-26: `thicken` returns ~2,460 tokens, `max_unsupported_span` ~650, `chunk seam` ~250, and `rot_remains` **zero** — a real answer, cheaply. Grepping an area instead costs ~12k–31k, more than this file. For a genuine survey, grep the address prefix (`^- \*\*.\?src/sim/plant`) rather than the prose: 99% of entries open with the file they apply to, which halves it |
@@ -460,10 +460,14 @@ identical. Full account, and the case it happened to, in
 `Reports/session-programs.md`: how a coordinator reaches a lane (the
 mechanism is not the obvious one — `SendMessage` fails, a poke-only trigger
 works), why a woken lane cannot reply, why the return path must be files,
-and the four failures that cost an evening. **Running a lab round
-specifically — spawning, model choice, when a message is worth a lane's turn
-— is the `lab-coordinator` skill**, which carries the same mechanics as
-runnable recipes.
+and the four failures that cost an evening. **Actually spawning and running
+lanes — for *any* program, not only the lab — is the `lab-coordinator`
+skill**, which carries the same mechanics as runnable recipes. Its name says
+lab for historical reasons and its contents are not lab-specific: **invoke it
+before you spawn a session, whatever the round is about.** A held-world
+coordinator skipped it on 2026-09-14 precisely because the name said "lab",
+and made the one mistake its opening section exists to prevent — on four
+lanes at once.
 
 It is a report rather than a section here because it applies to a minority
 of sessions and cost every one of them ~2,200 always-loaded tokens.
@@ -477,7 +481,8 @@ caller's model, and three workers once silently inherited a premium tier and
 ran $25–71 each inside ninety minutes. **Opus (`claude-opus-5`) is the
 default**; step down to Sonnet only where being wrong is cheap and loud, and
 up to Fable — which is *twice* Opus per token — only where being wrong is
-silent and compounds. Which is which: the `lab-coordinator` skill.
+silent and compounds. Which is which: the `lab-coordinator` skill — which,
+despite the name, is the skill for running lanes in **every** program here.
 
 ## Method
 
