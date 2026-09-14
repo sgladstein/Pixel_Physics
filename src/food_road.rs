@@ -68,6 +68,19 @@
 //! not events, because a mouthful of flower is three of leaf and a count
 //! cannot say so.
 //!
+//! **Face value taken, not `creature::diet_yield`, and the difference is the
+//! difference between two questions.** `diet_yield` is what *this* animal got
+//! out of the mouthful — `food_value` scaled by how far the food sits from its
+//! gut bias — and it is the right number for the books, which ask what the
+//! colony earned. This map asks where the food *came from*, and shading a
+//! patch by who happened to eat it would draw one stand of leaf two different
+//! brightnesses depending on which forager reached it first. So the weight
+//! here is what left the world at that tile, and every readout names it
+//! `face value taken` rather than joules, because it is not what anybody ate.
+//! (`Crop::unit` is a `min` over everything ingested, so a mixed load
+//! understates — one-directional, and in the safe direction, which is the
+//! crop's own doc's reasoning and not a second one.)
+//!
 //! # Sampling, and where this is observed from
 //!
 //! [`FoodRoad::observe`] is idempotent per `World::frame`, so it can be
