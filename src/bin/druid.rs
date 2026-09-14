@@ -548,6 +548,11 @@ impl Handler {
                 self.game.absorb();
             }
             KeyCode::Tab => self.game.cycle_seed_kind(),
+            // **Which plane `G` writes to.** Its own key rather than a second
+            // press of `G`, which is the lab's idiom for the same verb --
+            // `G` is *held* here rather than armed, so a second press cannot
+            // mean anything different from the first.
+            KeyCode::KeyI => self.game.cycle_scent(),
             // The economy's verb: a circle that runs while you are elsewhere.
             KeyCode::Space => {
                 self.game.place_quickening();

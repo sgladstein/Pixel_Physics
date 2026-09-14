@@ -37,9 +37,11 @@ pub enum Setting {
     HeldLook,
     /// `World::held` itself.
     Held,
+    /// [`Druid::scent`] — which plane `G` writes to.
+    Scent,
 }
 
-pub const SETTINGS: &[Setting] = &[Setting::PlantBreak, Setting::PlantBend, Setting::Unlimited, Setting::Keys, Setting::HeldLook, Setting::Held];
+pub const SETTINGS: &[Setting] = &[Setting::PlantBreak, Setting::PlantBend, Setting::Scent, Setting::Unlimited, Setting::Keys, Setting::HeldLook, Setting::Held];
 
 impl Setting {
     pub fn label(self) -> &'static str {
@@ -50,6 +52,7 @@ impl Setting {
             Setting::Keys => "SHOW THE KEY LIST",
             Setting::HeldLook => "HOW HELD GROUND IS DRAWN",
             Setting::Held => "TIME IS HELD",
+            Setting::Scent => "SCENT TRAIL WRITES",
         }
     }
 
@@ -69,6 +72,8 @@ impl Setting {
             Setting::Keys => "THE LIST IN THE BOTTOM CORNER",
             Setting::HeldLook => "UNCHANGED, OR ONE COLD HUE OUTSIDE YOUR CIRCLES",
             Setting::Held => "OFF - THE WHOLE WORLD RUNS. A CONTROL, NOT THE GAME",
+            // The one row whose note is a warning rather than a trade.
+            Setting::Scent => "FOOD IS A REAL ROUTE THAT NO ANT CAN READ YET",
         }
     }
 
@@ -81,6 +86,10 @@ impl Setting {
             Setting::Keys => on(game.show_keys),
             Setting::HeldLook => game.renderer.held_look.label().to_uppercase(),
             Setting::Held => on(game.world.held),
+            Setting::Scent => match game.scent {
+                crate::sim::pheromone::Channel::A => "HOME".to_string(),
+                _ => "FOOD".to_string(),
+            },
         }
     }
 
@@ -95,6 +104,7 @@ impl Setting {
             Setting::Keys => game.show_keys = !game.show_keys,
             Setting::HeldLook => game.renderer.cycle_held_look(),
             Setting::Held => game.world.held = !game.world.held,
+            Setting::Scent => game.cycle_scent(),
         }
     }
 }
