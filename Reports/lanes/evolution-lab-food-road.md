@@ -35,6 +35,15 @@ that already exists — `OrganismState::crop`, `::colony`, and the deltas of
 this lane changed no simulation file. The hooks are one line in `Lab::tick`
 and one in `Renderer::draw`.
 
+**Face value taken, not `creature::diet_yield`, and Lane B's books count the
+other one.** `colonybooks` (#419) prices what a colony *earned* — joules with
+the gut bias applied at the call that credits the animal — which is the right
+number for an income statement. This map weights a tile by what **left the
+world** there, because shading a patch by who happened to eat it draws one
+stand of leaf two brightnesses depending on which forager reached it first.
+**The two will disagree and both are right**; neither is the other's check,
+and every readout here says `face value taken` rather than joules.
+
 ## What it costs, measured
 
 `foodroad cost=4`, played bed at frame 20,000, arms alternated **inside one

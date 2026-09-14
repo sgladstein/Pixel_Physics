@@ -211,6 +211,10 @@ TOPICS = {
         "Trophallaxis status — the colony's stomach, shipped on, and a first measurement that says wait",
         "Trail status — the ant reads its way home, and the food trail is the larder's problem",
         "Lifespan status — an ant gets old, and the colony's fall becomes a slope",
+        # The books under the two lines above: hunger and trophallaxis are
+        # both *mechanisms*, and this is the reading that says what either
+        # one is costing a particular colony.
+        "Colony books status — what each colony is living on, in joules",
     ],
     "structural collapse, felling and rigid bodies": [
         "M17 status",
