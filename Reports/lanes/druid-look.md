@@ -123,6 +123,15 @@ change is 25 pixels whole-frame and 400 cropped and magnified.
 colour ramp is too weak, the lever is `fast_gain` or the hue endpoints —
 **not** `depth_per_step`, which is what he removed.
 
+**Corroboration worth knowing before reading his answer.** On the previous
+aura card (`20260914T053549208Z-49137a`) he wrote *"Looks much better static
+in animation, I am worried that it is too fast/rapid, but I will playtest"* —
+the worry came first, and the playtest is what turned it into item 1. This
+lane removed only the part that **accelerated with the dial**; the *base*
+shimmer rate is untouched, so it still runs at the speed he called much
+better. The speed card was amended (unanswered) to say so and to name
+`AuraTuning::period` as the dial if he still finds it too rapid.
+
 ## Gates
 
 `cargo clippy --all-targets --release --locked -- -D warnings` clean ·
