@@ -339,6 +339,45 @@ const TRAIL_PER_SECOND: f32 = 1.0;
 /// is precisely the thing an ant cannot follow (see [`Druid::lay_trail`]).
 const TRAIL_DEPOSIT: u8 = crate::sim::pheromone::DEPOSIT;
 
+/// **How wide a swath his scent lies in**, as a radius about him in cells.
+///
+/// Owner, 2026-09-14 playtest: *"my pheramone trail should last way longer.
+/// it dissapears so much faster than an ant could even move... it should be
+/// more diffuse looking, not like a bunch of dots."* Two complaints, and this
+/// one constant is the answer to both, which is why it is a swath and not a
+/// slower decay rate.
+///
+/// **What kills a trail here is diffusion, not decay, and that is measured
+/// rather than reasoned.** `pheromone::DIFFUSE` blends every cell a quarter
+/// of the way toward its own 3x3 mean each pass. For a cell on a **one-cell**
+/// line that mean is about `v/3` — six of its nine neighbours are empty — so
+/// the line sheds roughly **17% a pass** into ground that then evaporates it,
+/// against `DECAY_RHO`'s **3%**. Diffusion is five to six times the term
+/// everyone reaches for. A cell in the middle of a *band* has a 3x3 mean of
+/// roughly its own value and sheds almost nothing, so widening the mark buys
+/// lifetime that no amount of depositing harder can: measured on the plane at
+/// an unchanged [`TRAIL_DEPOSIT`], a one-cell line stays legible **1.0s** and
+/// an `r = 3` band **10.8s**, while pushing the line's deposit all the way to
+/// the 255 ceiling only reaches **4.8s**.
+///
+/// **3, and the curve is why.** Lifetime against radius at shipped deposit
+/// runs 1.0s / 7.0s / 10.8s / (r=4, deposit 120) 14.8s / (r=5) 15.6s — it is
+/// most of the way to its plateau at 3 and the last cells are bought at 2x
+/// the per-tick write for a fifth of the gain. It also lands the band on the
+/// ground: he lays at `Player::center`, which this build measures at a median
+/// **3 cells** above the floor, so `r = 3` is the first radius whose scent
+/// reaches the ground an ant actually walks on. Before it, the trail was
+/// drawn — and laid — hanging in the air above its own route.
+///
+/// **[`TRAIL_DEPOSIT`] is deliberately *not* raised alongside it.** Raising
+/// both saturates: `r = 3` at deposit 120 pins the plane at 247 of 255 for
+/// 2.8s more life, and a pinned trail is one no ant walking it can reinforce
+/// — `pheromone::DEPOSIT`'s own P-14 note says halve it rather than let that
+/// happen, and differential reinforcement is the whole path-selection
+/// algorithm. At the shipped 40 the band peaks at 182 and leaves that
+/// headroom standing.
+const TRAIL_RADIUS: i32 = 3;
+
 /// How many marks the trail readout remembers. Older ones have decayed out
 /// of the plane long before this, so the cap is a memory bound and not a
 /// rule.
@@ -1279,7 +1318,16 @@ impl Druid {
         let Some(player) = &self.world.player else {
             return false;
         };
-        let (x, y) = player.center();
+        // **At his feet, not his middle, and the picture is what said so.**
+        // `Player::center` is half a body up — measured on this build, a
+        // median **3 cells** above the floor — so a swath about it drew as a
+        // band of green mist hanging at his waist while the ground he had
+        // actually walked stayed clean. It is also the half of the plane an
+        // ant can never reach: an ant reads the six samples around its own
+        // head as it walks the floor. `Player::feet` is the row below his
+        // rectangle, so a [`TRAIL_RADIUS`] swath about it straddles the
+        // surface — most of it on the ground, its lower edge soaked into it.
+        let (x, y) = player.feet();
         let cost = TRAIL_PER_SECOND / TICKS_PER_SECOND as f32;
         if !self.unlimited {
             if self.power < cost {
@@ -1287,7 +1335,32 @@ impl Druid {
             }
             self.power -= cost;
         }
-        self.world.deposit_pheromone(self.scent, x, y, TRAIL_DEPOSIT);
+        // **A swath, not a cell.** See [`TRAIL_RADIUS`] for the measurement:
+        // a one-cell line loses five times more per pass to `DIFFUSE`
+        // spreading it into empty ground than to `DECAY_RHO` forgetting it,
+        // so the mark's *width* is the lifetime knob and the deposit is not.
+        //
+        // **Graded from the middle out rather than a uniform disc**, which is
+        // the same ruling as everywhere else in this engine: an outcome is a
+        // distribution. A flat disc lays a hard-edged slab whose rim is a
+        // step down to nothing, and the readout draws exactly what is in the
+        // plane — which is the "bunch of dots" with bigger dots. The ramp
+        // puts the peak under his feet and lets the edge fade out, so what is
+        // in the world and what is on the screen are both a cloud.
+        for dy in -TRAIL_RADIUS..=TRAIL_RADIUS {
+            for dx in -TRAIL_RADIUS..=TRAIL_RADIUS {
+                let d2 = dx * dx + dy * dy;
+                if d2 > TRAIL_RADIUS * TRAIL_RADIUS {
+                    continue;
+                }
+                // Linear in the radius, floored at 1: a cell that is inside
+                // the swath must receive *something*, or the rim rounds away
+                // and the band has a hard edge after all.
+                let fall = 1.0 - (d2 as f32).sqrt() / (TRAIL_RADIUS + 1) as f32;
+                let amount = (TRAIL_DEPOSIT as f32 * fall).round().max(1.0) as u8;
+                self.world.deposit_pheromone(self.scent, x + dx, y + dy, amount);
+            }
+        }
         // One entry per cell, not per tick: standing still would otherwise
         // fill the readout with nine hundred copies of one point and push
         // the rest of the route out of it.
