@@ -319,6 +319,31 @@ and above all cells of food eaten while submerged — never by colony size.** A
 swim arm raced on population in this bed would null, and a null there would be
 a statement about the bed's power, not about the verb.
 
+**The table survives a merge that should have moved it, and why that is not
+luck.** These arms were taken 20 commits behind `main`, which had meanwhile
+shipped **rivalry on by default** (`ant.ron` `scent_spread` 0 → 2.0, PR #423) —
+a behavioural change to the very animal being raced. Re-run on the merged tree,
+all three arms came back **digit-identical on every seed**. That is
+`CLAUDE.md`'s own tell for a stale binary, so it was checked rather than
+believed: the md5 moved and `scent_spread` is in the binary's strings.
+
+The dial is inert here **by construction**. Its own knob text says the scent
+offset is drawn *per founding click* — *"at 0 every click is one family"* — and
+`creature_arena` founds exactly one colony, on the flag path by hardcoded
+`colonies: 1` and on the scenario path because every bed shipped today founds
+from a single `Colony` event. One draw, one family, nobody a stranger.
+
+**Two things follow, and the second is the one to carry into Phase 2.** The
+table above is merge-stable, so it stands. And **every race this harness runs is
+a race in a world with rivalry switched off** — so a Phase 2 result measured
+here is silent about whether a swimmer that crosses into another colony's water
+is treated as a stranger, which is exactly the kind of question §5's ecology
+phase would want to ask. That needs `conflict_arena` or a bed that founds
+twice, and `conflict_arena` cannot take a `scenario=` either. The general form
+is worth stating plainly because nothing warns you: **a dial that fires between
+two instances of a thing is invisible to any harness that makes only one, and
+the harness reports a clean unchanged number rather than an error.**
+
 ---
 
 ## 2. Phase 1 — the margin
