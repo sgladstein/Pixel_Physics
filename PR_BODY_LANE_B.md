@@ -196,6 +196,23 @@ seed count cannot be inferred from `sown`.
 Full lane note, including the seed-economy reasoning and what the brief got
 right: `Reports/lanes/druid-seeds-and-sphere.md`.
 
+## Judged by eye, not described
+
+Both items are visible, so both went to the review queue as real captures of
+the shipped binary (`xvfb-run` + lavapipe + the app's own screenshot hook, so
+the HUD is in the picture — which is where half of each mechanic lives).
+
+- **`20260914T044639296Z-dd68c2`** — the bare world as she walks out into it.
+  Asks whether it reads as somewhere worth planting or as an empty map.
+- **`20260914T044811000Z-26d062`** — a blind A/B of the sphere on against off,
+  over a grown wood, same world and same frame. Asks whether off reads as the
+  world holding still or just as the ring being hidden. Its context says
+  plainly that the sphere already cost nothing, because both panes read
+  `OUT 0.0/S` and a card that did not explain that would read as a broken
+  mechanic.
+
+Neither was waited on. `python3 scripts/review.py inbox` collects them.
+
 ## Gates
 
 - `cargo clippy --all-targets --release --locked -- -D warnings` — clean

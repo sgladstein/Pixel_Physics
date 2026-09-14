@@ -181,41 +181,26 @@ two arms could only be compared across a rebuild.
 
 ---
 
-## Guards, and the two that were blind
+## Guards — the six-arm sensitivity table is in the PR body
 
-Both new guards were written after the code, so neither gets `CLAUDE.md`'s
-already-watched-it-go-red exemption. Putting the faults back found the first
-version of the pouch guard **blind twice**:
+What belongs here is the two *causes*, because both generalise past this lane
+and neither is visible in a diff.
 
-| fault put back | first version | now |
-|---|---|---|
-| decrement deleted | **passed** | fails |
-| empty-pouch refusal deleted | fails | fails |
-| credit the selected kind, not the plant's | **passed** | fails |
-| drop the carried-circle gate | **passed** | fails |
-| drop the maturity bar | **passed** | fails |
-| `frame.rs` ignores `carried_off` | fails | fails |
-
-Two distinct causes, both worth knowing:
-
-1. **The guard never reached a successful sowing.** Its world had no ground,
-   so `plant_seed` returned `false` from its first line — every assertion was
-   about the refusal path and the spend was never executed. This is
+1. **The pouch guard never reached a successful sowing.** Its world had no
+   ground, so `plant_seed` returned `false` from its first line — every
+   assertion was about the refusal path and the spend was never executed.
    `CLAUDE.md`'s *a scene that contradicts the code will look like a bug in
-   the code*, arriving as a false pass rather than a false failure.
-   `bare_for_test` now lays a floor and reloads the registries.
-
-   A second scene error under it: with the player standing still, the *second*
-   sowing is refused for "the cell is not empty" — a seed already lying there
-   — so a guard that did not move him between sowings would have been
+   the code*, arriving as a false **pass** rather than a false failure, which
+   is the direction that rule is not usually read in. A second scene error sat
+   under it: standing still, the second sowing is refused for *"the cell is not
+   empty"*, so a guard that did not move him between sowings would have been
    measuring the ground.
 
 2. **The crediting rule was inline in an organism walk that needs a grown
    world**, so the one claim a player would notice going wrong was unreachable
-   by any test that runs in under a minute. It is now `seed_credit`, a function
-   over plain values, and its guard opens with the positive control (a grown
-   tree in the circle pays into the *tree* pouch) before asserting any of its
-   four `None`s.
+   by any test that runs in under a minute. Pulled out as `seed_credit`, a
+   function over plain values, with a guard that opens on the positive control
+   before asserting any of its four `None`s.
 
 ---
 
@@ -232,6 +217,30 @@ held world had no way to hold still while she was in it. Reporting this to the
 owner as "your premise was wrong, here is a switch anyway" would be true and
 useless; the switch is the answer to what he asked for, and the arithmetic is a
 footnote.
+
+---
+
+## Review cards posted (fire-and-forget, not waited on)
+
+Real captures of the shipped binary through `xvfb-run` + lavapipe, not
+`filmstrip` — the app's own screenshot hook puts the HUD in the picture, which
+is where half of each mechanic lives.
+
+| card | asks |
+|---|---|
+| `20260914T044639296Z-dd68c2` | does the bare land read as somewhere worth planting, or as an empty map |
+| `20260914T044811000Z-26d062` | does the sphere switched off read as the world holding still, or just as the ring being hidden (**blind A/B**) |
+
+**Collect with `python3 scripts/review.py inbox`.** The second is blinded, so
+translate his prose through `blind_was` before believing it. Its context says
+outright that the sphere already cost nothing, because he will see
+`OUT 0.0/S` on both panes and an unexplained card would read as a broken
+mechanic.
+
+Two environment facts that cost twenty minutes here went into `CLAUDE.md`'s
+headless-screenshot block rather than this note, because they are not about
+this lane: the druid binary writes a *differently named* file, and it does not
+exit after the shutter.
 
 ---
 

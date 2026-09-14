@@ -2091,7 +2091,7 @@ mod tests {
         // *"the cell is not empty"* -- a seed already lying there -- so the
         // guard would have been measuring the ground rather than the pouch.
         let scale = g.world.cell_scale();
-        let mut sow_at = |g: &mut Druid, x: i32| {
+        let sow_at = |g: &mut Druid, x: i32| {
             g.world.player = Some(player::Player::at_scaled(x, 47, scale));
             g.plant_seed()
         };
