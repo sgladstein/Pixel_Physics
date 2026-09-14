@@ -17,13 +17,17 @@
 //
 // **Food is on the far bank and the colony is on the near one**, so the pond
 // stands between the animals and half the larder. That was authored as the
-// reachability experiment and **the first result says it is not one**: three
-// arms at one seed, frame 90,000, colony arriving at 6,000 -- flat bed 3
-// ants, this bed 4, and the same pit left *dry* 28. Water is
-// indistinguishable from no barrier at all and the dry pit is the outlier,
-// most likely as shelter. So do not read this bed as "the pond is spatial
-// structure"; read it as the bed in which something aquatic can later be
-// shown to matter. The plan's §1.4 carries the seed sweep.
+// reachability experiment and **it is not one**. Three arms, six seeds each,
+// frame 90,000, colony arriving at 6,000, ants alive at the end: flat bed
+// median 1.0, this bed 2.0, the same pit left *dry* 2.5. Water is not
+// distinguishable from the same hole left dry, and what little a pit buys, it
+// buys dry. (A one-seed reading of the same arms said 3 / 4 / 28; the 28 was
+// the outlier of the whole sweep, which is what one seed looks like here.)
+//
+// **And every arm ends with one to three ants out of 52 founders**, so this
+// bed at this horizon has almost no power to discriminate anything. Do not
+// read it as "the pond is spatial structure", and do not measure a swim verb
+// by colony size in it -- measure the verb. The plan's §1.4 has the table.
 //
 // Two herbs stand on the near bank as well as four on the far one, so a
 // colony that never crosses is not simply starved by placement.

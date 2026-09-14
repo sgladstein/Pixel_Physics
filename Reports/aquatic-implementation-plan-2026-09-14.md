@@ -30,13 +30,16 @@ the research assumed.**
    enough unsaturated capacity to swallow the pond. Stone holds; soil drinks.
    **This is the constraint every later phase inherits**, because a plant needs
    sediment and sediment is what empties the pond.
-3. **A pond as a bare barrier buys nothing.** Three arms, same bed, colony
-   landing on a grown bed at frame 6,000: flat bed **3** ants at frame 90,000,
-   water-filled pit **4**, dry pit **28** (measured, one seed; a 3×6 sweep is
-   in §1.4). Water is indistinguishable from no barrier at all, and the *dry*
-   pit is the outlier. **So the plan must not be sold on the pond as spatial
-   structure.** It has to be sold on calories, which is the research's own
-   conclusion arriving from a different direction.
+3. **A pond as a bare barrier buys nothing.** Three arms, **six seeds each**,
+   colony landing on a grown bed at frame 6,000, ants alive at frame 90,000:
+   flat bed median **1.0**, water-filled pit **2.0**, dry pit **2.5**
+   (measured). Water is not distinguishable from the same hole left dry, and
+   what little a pit buys, it buys dry. **So the plan must not be sold on the
+   pond as spatial structure.** It has to be sold on calories, which is the
+   research's own conclusion arriving from a different direction. §1.4 also
+   carries the warning that matters more: every arm collapses from 52 founders
+   to one or two ants, so **this bed cannot discriminate a pond effect at all**
+   and Phase 2 must not be measured by colony size in it.
 
 **Therefore the order is: bed → plant → animal → gradient.** Not
 animal-first. A swimmer authored before there is anything in the water is the
@@ -113,23 +116,53 @@ a floating seed reading as wet ground. This is `growable` and
 `cell_carries_nutrient` refusing, exactly as the research predicted, and it is
 now measured rather than read off the source.
 
-### 1.4 The barrier alone buys nothing
+### 1.4 The barrier alone buys nothing — and the bed cannot tell, which matters more
 
 Three arms, colony arriving on a grown bed at frame 6,000 via the scenario
 timeline (**not** dropped at frame 0 — a colony dropped on seedlings collapses
-regardless, which would confound everything):
+regardless, which would confound everything). **Six seeds per arm, 90,000
+frames, `RAYON_NUM_THREADS=1` (measured)**, ants alive at the end:
 
-| arm | ants @90,000 | births | deaths |
-|---|---|---|---|
-| flat bed, no pit | 3 | 9 | 41 |
-| pit filled with water | 4 | 18 | 43 |
-| pit left dry | **28** | 43 | 43 |
+| arm | the six seeds, sorted | median | mean | births (median) | plants (median) |
+|---|---|---|---|---|---|
+| flat bed, no pit | 0, 0, 1, 1, 2, 3 | **1.0** | 1.17 | 6.0 | 445 |
+| pit filled with water | 0, 0, 1, 3, 4, 10 | **2.0** | 3.00 | 10.5 | 295 |
+| pit left dry | 0, 1, 1, 4, 8, 28 | **2.5** | 7.00 | 8.5 | 293 |
 
-One seed per arm. A 3-arm × 6-seed sweep is running; **its result goes in this
-section and the conclusion below stands or falls on it.** As it reads now:
-water ≈ no barrier, and the dry pit is the outlier — most likely as shelter,
-since `exposure_cost_per_cell` is live and a walled pit is the shape
-`the_bank.ron` was built to provide.
+**The single-seed reading this section first carried — flat 3, water 4, dry pit
+28 — was seed 1, and seed 1's 28 is the outlier of the whole sweep.** Drop it
+and the dry pit is 0, 1, 1, 4, 8: a median of 1. The arm's mean of 7.00 is that
+one run and nothing else. This is `CLAUDE.md`'s *compare two runs, not one run
+against a remembered number*, and its *order statistic, never a single seed* —
+and it is worth leaving the wrong first reading visible, because the wrong
+reading is what a one-seed pond arm looks like.
+
+**What survives.** Water is not distinguishable from the same hole left dry:
+medians 2.0 against 2.5, distributions overlapping almost completely. Both pits
+are *marginally* above a flat bed (medians 2.0 / 2.5 against 1.0, births 10.5 /
+8.5 against 6.0), and a pit costs plants (median 295 / 293 against 445) because
+it removes growing area. **So the conclusion the plan is built on holds and is
+now properly supported: a pond as a bare barrier buys nothing — and what little
+a pit does buy, it buys dry.**
+
+**And the more useful finding is about the instrument.** Every arm ends with a
+median of one to three ants out of **52 founders**. That is a near-total
+collapse in all three, so this bed at this horizon has **almost no power to
+discriminate anything** — a real pond effect of the size anyone would care
+about could hide inside it. Two consequences for the briefs:
+
+- **Do not measure Phase 2 by colony size in this bed.** A swim verb that saved
+  a colony would have to lift it out of a collapse, and the collapse is not
+  about water. Measure the verb directly: submerged ticks, drownings, and
+  **food eaten while submerged**.
+- **The collapse itself is worth a separate look and is not this plan's.** It
+  reproduces at 6 seeds across three quite different beds, which is a cleaner
+  statement of the long-horizon problem than any aquatic question.
+
+**Six seeds is not a sweep**, and this repo has measured that specifically:
+§S2's anchor-rule census read 1.64x over its first six seeds and 1.08x over the
+next twelve. Treat the table above as ruling out a *large* water effect, not as
+a measurement of a small one.
 
 ### 1.5 A method note worth keeping: the instrument said the opposite of the picture
 
@@ -494,6 +527,14 @@ he was actually looking at).
 `grass.ron` — grass is the proof that a non-woody plant photosynthesising from
 `MatureBody` works end to end — with its own shoot and leaf materials and a
 disjoint palette band.
+*Build trap, and it is the asymmetry that made Phase 0 cheap:* **lab scenarios
+load from disk at runtime; species and materials do not.** `the_pond.ron` and
+its siblings worked the moment they were written, with no rebuild. `reed.ron`
+will not — species are `include_str!`'d into the binary, so a new one needs its
+registry line *and* a rebuild, and a harness run against a stale binary will
+report the reed doing nothing while the file on disk is perfect. Identical
+output across a change that must have moved something is the tell
+(`.claude/rules/assets.md`).
 *Constants to re-derive:* none for existing species, **by construction**, and
 that is the reason for the per-species flag. State that in the PR body so the
 next session does not re-audit it.
@@ -535,10 +576,12 @@ rider on this one.
 
 - **Phase 1** stops if saturated sediment still drains the pond (A0's fork), or
   if a reed reads as a twig (A1's fork).
-- **Phase 2** stops if §1.4's seed sweep shows the pond costs the colony
-  outright — a swimmer in a bed that water already makes worse is a change
-  nobody can measure. It also stops if a submerged-feeding counter comes back
-  zero: that is the hop again, caught early.
+- **Phase 2** does **not** stop on §1.4 — the sweep came back showing water
+  costs the colony nothing, and showing the bed cannot discriminate either way.
+  What that changes is how Phase 2 is judged: **not by colony size**, which
+  collapses to one or two ants in every arm, but by the verb's own counters and
+  especially by **food eaten while submerged**. It stops if that comes back
+  zero — that is the hop again, caught early.
 - **Phase 3** stops on the owner's card, or if the field's 16-cell resolution
   makes a 28-row pond exactly two bands of light — which is an
   **OWED** measurement and should be taken before any of Phase 3 is written.
