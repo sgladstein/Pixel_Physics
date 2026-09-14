@@ -169,8 +169,7 @@ pub const KEYS: &[(&str, &str, bool)] = &[
     ("SHIFT", "HOLD ON IN A TREE", false),
     ("SPACE", "PLACE A CIRCLE OF TIME", true),
     ("X", "LIFT THE NEAREST CIRCLE", true),
-    ("Q E", "ITS RADIUS", false),
-    ("[ ]", "HOW FAR YOUR OWN CIRCLE REACHES", false),
+    ("Q E", "BUBBLE SIZE - YOURS, AND THE NEXT ONE PLACED", false),
     ("Z V", "HOW FAST TIME RUNS IN THEM", false),
     ("G", "LAY A SCENT TRAIL AS YOU WALK", false),
     ("I", "WHICH SCENT - HOME, OR FOOD", true),
@@ -185,6 +184,7 @@ pub const KEYS: &[(&str, &str, bool)] = &[
     ("F", "DRAW THE CHARGE OUT OF THEM", true),
     ("M", "OPTIONS", true),
     ("H", "HOLD OR RELEASE THE WORLD", true),
+    ("N", "RESTART - A FRESH WORLD, ABOUT A MINUTE", false),
     ("L", "HOW HELD GROUND IS DRAWN", true),
     ("U", "UNLIMITED POWER (PLAYTEST)", true),
     ("P", "PAUSE", true),
@@ -217,13 +217,7 @@ pub struct Readout {
     /// be told: an empty power bar beside `YOUR CIRCLE R28` reads as a fault
     /// rather than as a choice the player made.
     pub carried_off: bool,
-    /// How many seeds of the selected kind are left in the pouch.
-    pub seeds: u32,
-    pub held: bool,
     pub paused: bool,
-    pub look: &'static str,
-    pub seed_kind: String,
-    pub sown: usize,
     /// Charge standing within reach, and how many animals hold it.
     ///
     /// **No longer drawn.** Item 2 of the 2026-09-14 playtest: *"no
@@ -275,26 +269,20 @@ impl Readout {
             if self.carried_off { "YOUR CIRCLE OFF".to_string() } else { format!("YOUR CIRCLE R{}", self.carried_radius) },
             if self.carried_off { WARN } else { TEXT },
         ));
-        // **What T would sow, and how many have gone in.** A seed dropped on
-        // held ground is invisible until time reaches it, so without the
-        // count a working key and a broken one look the same.
-        // **The pouch is on this line rather than a new one**, because "what
-        // T sows" and "how many of it are left" are one question now that the
-        // supply is finite. Red at zero: the key still works for every other
-        // kind, so a silent nothing-happens would read as a broken key.
+        // **The seed line and the world/look line are gone**, owner playtest
+        // 2026-09-14: *"simplify the top left info box: remove world held,
+        // look one hue, seed moss, sown number."* Every one of them was
+        // already said better somewhere else — the seed kind and the look
+        // are their own bar buttons and read as their own labels, and
+        // `WORLD HELD` restates what the whole screen is showing. `SOWN` was
+        // a running total nobody acts on.
         //
-        // Merge note, 2026-09-14: `main` dropped the `CHARGE n IN m NEAR YOU`
-        // row that used to sit under this one. That deletion is kept -- it is
-        // the newer side and it is deliberate -- and only the seed count is
-        // carried across from this branch.
-        lines.push((
-            format!("SEED {} x{}   SOWN {}", self.seed_kind.to_uppercase(), self.seeds, self.sown),
-            if self.seeds == 0 { WARN } else { TEXT },
-        ));
-        lines.push((
-            format!("WORLD {}   LOOK {}", if self.held { "HELD" } else { "RUNNING" }, self.look.to_uppercase()),
-            if self.held { TEXT } else { WARN },
-        ));
+        // **The pouch count moved to the SOW button rather than being
+        // deleted**, because it is the one thing on that line that was not
+        // duplicated and it is load-bearing: the supply is finite, so a key
+        // that quietly does nothing at zero would read as broken. It is the
+        // button's own label now — `SOW MOSS 8` — which is `lab::ui`'s chip
+        // idiom and the same one the seed-kind and look buttons already use.
         if self.paused {
             lines.push(("PAUSED".to_string(), WARN));
         }
@@ -1333,6 +1321,9 @@ struct BarState {
     menu_open: bool,
     unlimited: bool,
     stats_open: bool,
+    /// How many of the selected seed kind are left — the button's own label,
+    /// since the readout no longer carries it.
+    seeds: u32,
     /// Whether she is in her small shape. Latches the button, which is how
     /// a toggle says which way it is without a second readout.
     small: bool,
@@ -1350,6 +1341,7 @@ fn bar_state(game: &Druid, stats_open: bool) -> BarState {
         unlimited: game.unlimited,
         stats_open,
         small: game.is_small(),
+        seeds: game.seeds_in_hand(),
         seed_kind: game.seed_kind_name().to_uppercase(),
         look: game.renderer.held_look.label().to_uppercase(),
         scent: match game.scent {
@@ -1381,7 +1373,11 @@ fn bar_specs(state: &BarState, pad: i32) -> Vec<Spec> {
         btn(0, "LIFT".to_string(), "X", Action::LiftCircle, false, pad),
         btn(0, "FOUND".to_string(), "C", Action::FoundColony, state.offer_open, pad),
         btn(0, "ABSORB".to_string(), "F", Action::Absorb, false, pad),
-        btn(1, "SOW".to_string(), "T", Action::SowSeed, false, pad),
+        // **The pouch count lives on the button**, moved off the readout with
+        // the rest of that line — see `Readout::lines`. Red is not available
+        // on a button, so an empty pouch reads from the number alone; the
+        // refusal note is what says it out loud when the key is pressed.
+        btn(1, format!("SOW {}", state.seeds), "T", Action::SowSeed, false, pad),
         btn(1, state.seed_kind.clone(), "K", Action::CycleSeedKind, false, pad),
         btn(1, state.look.clone(), "L", Action::CycleLook, false, pad),
         btn(1, state.scent.to_string(), "I", Action::CycleScent, false, pad),
@@ -1661,7 +1657,7 @@ mod tests {
         // glyph missing from the other — which is the whole thing this test
         // is for. `YOUR CIRCLE OFF` and `SEED ... x0` are the two strings
         // that only exist on one arm.
-        for (power, income, drain, unlimited, paused, carried_off, seeds) in [
+        for (power, income, drain, unlimited, paused, carried_off, _seeds) in [
             (0.0, 0.0, 0.0, false, false, false, 8),
             (612.4, 7.25, 1.5, false, true, true, 0),
             (0.0, 0.0, 99.9, false, false, true, 24),
@@ -1679,12 +1675,7 @@ mod tests {
                 rate: 4,
                 carried_radius: 28,
                 carried_off,
-                seeds,
-                held: true,
                 paused,
-                look: "one hue",
-                seed_kind: "conifer".to_string(),
-                sown: 3,
                 charge: (123.0, 7),
                 reserve_cap: 40.0,
                 power_full: 600.0,
@@ -1876,14 +1867,9 @@ mod tests {
             carried_radius: 96,
             // The tallest panel is the one with every optional row on it, and
             // `OFF` is one character shorter than `R96` — so the *on* arm is
-            // the one that sizes this, and the seed count is at its widest.
+            // the one that sizes this.
             carried_off: false,
-            seeds: 24,
-            held: true,
             paused: true,
-            look: "unchanged",
-            seed_kind: "scrambler".to_string(),
-            sown: 999,
             charge: (4321.0, 210),
             reserve_cap: 40.0,
             power_full: 600.0,
@@ -1919,6 +1905,7 @@ mod tests {
             unlimited: true,
             stats_open: true,
             small: true,
+            seeds: 24,
             seed_kind: "SCRAMBLER".to_string(),
             look: "UNCHANGED".to_string(),
             scent: "FOOD",

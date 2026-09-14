@@ -1,0 +1,69 @@
+// **The pond with a bottom you can root in** -- Brief A0 of
+// `Reports/aquatic-implementation-plan-2026-09-14.md`, and the bed Phase 1 is
+// measured against.
+//
+// `the_pond.ron` is stone all the way round, which holds water perfectly and
+// gives a plant nothing to root in. This file puts four rows of soil *on top
+// of* that stone floor, inside the basin. The stone is load-bearing and is the
+// whole trick.
+//
+// **Why the stone has to stay.** The first attempt replaced the stone floor
+// with soil, so the basin's floor was continuous with the bed's own 96-row
+// soil column. That column's unsaturated room is 160 x 60 x (SOIL_SATURATED -
+// SOIL_FIELD_CAPACITY) = 160 x 60 x 380 = **3,648,000 units, which is exactly
+// the pond's fill** -- and the pond drained to precisely zero by frame 4,000.
+// It is worth knowing that the coincidence is not one: a basin cut into this
+// bed is about as deep as the soil under it, so the column can always swallow
+// it.
+//
+// Sealed, the sum works the other way. This sediment's room is 152 x 4 x 380 =
+// **231,040 units, 6.3% of the pond**. Measured: fill goes 3,648,000 ->
+// 3,416,949 by frame 5,000 and is then constant to 20,000 -- a loss of
+// 231,051, eleven units off the prediction. The sediment drinks its capacity
+// once and stops.
+//
+// **What this bed is for, and what it currently proves.** Two herbs placed in
+// the sediment die without ever reaching a second cell (1, 1 -> dead, 1 ->
+// dead, dead by frame 20,000). In the *drained* version of the same bed, the
+// same two positions reach 227 and 320 cells. Same soil, same light, same
+// placement; the only difference is whether the water stayed. That is
+// `plant::growable`'s refusal of `Liquid` isolated as cleanly as this bed can
+// isolate it, and it is the measurement Phase 1 has to move.
+(
+    name: "the_pond_sediment",
+    title: "THE POND, WITH A BOTTOM",
+    question: "A pond that holds AND has ground a root could reach -- does anything grow in it?",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 96,
+        ground_y: 160,
+        compartments: 1,
+        founders: 0,
+        species: "herb",
+        colonies: 0,
+        colony_ants: 52,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [],
+    placements: [
+        Clear(x: 176, y: 160, w: 160, h: 36),
+        Fill(material: "stone", x: 176, y: 160, w: 4, h: 36),
+        Fill(material: "stone", x: 332, y: 160, w: 4, h: 36),
+        // The seal. Without this the bed's own soil column empties the pond.
+        Fill(material: "stone", x: 176, y: 192, w: 160, h: 4),
+        // The sediment, on top of the seal.
+        Fill(material: "soil", x: 180, y: 188, w: 152, h: 4),
+        Fill(material: "water", x: 180, y: 164, w: 152, h: 24),
+        // Two founders in the sediment. Both die at one cell today; Phase 1
+        // is the work that changes that.
+        Plant(species: "herb", x: 220),
+        Plant(species: "herb", x: 280),
+    ],
+    timeline: [],
+    horizon: 40000,
+)

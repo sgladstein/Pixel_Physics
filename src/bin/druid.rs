@@ -90,6 +90,19 @@ struct Handler {
     /// binaries carry, and the only way to see a rendered window on a
     /// headless box, since this build's swapchain is invisible to OS capture.
     screenshot_countdown: Option<u32>,
+    /// **`N` — restart, counted in drawn frames.** Owner's playtest,
+    /// 2026-09-14: *"there should be a restart option."*
+    ///
+    /// Not acted on the same frame the key arrives. `Druid::new` generates
+    /// 2560x960 and grows it -- about a minute of wall clock -- on this
+    /// thread, with nothing else able to run while it does, so a restart
+    /// that fires immediately blocks the window the instant the key is
+    /// pressed and the message this counts down to would never be drawn at
+    /// all: the freeze and the notice would race, and the freeze always
+    /// wins. `Some(1)` at the keypress buys one drawn-and-presented frame
+    /// with `Druid::note`'s message on screen before `Handler::
+    /// perform_restart` actually blocks -- see `Handler::request_restart`.
+    restart_countdown: Option<u32>,
     /// See `PIXEL_PHYSICS_DRUID_CENSUS`.
     census_after: Option<u64>,
     /// See `PIXEL_PHYSICS_DRUID_ABSORB_AT`.
@@ -368,6 +381,7 @@ impl Handler {
             laying: false,
             jump_pressed: false,
             screenshot_countdown: std::env::var("PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES").ok().and_then(|v| v.parse().ok()),
+            restart_countdown: None,
             census_after,
             absorb_at,
             small_at,
@@ -425,6 +439,21 @@ impl Handler {
 
         let instant_fps = 1.0 / elapsed.as_secs_f32().max(1e-6);
         self.fps = if self.fps == 0.0 { instant_fps } else { self.fps * 0.9 + instant_fps * 0.1 };
+
+        // **`restart_countdown` reaching 0 is the frame that actually pays
+        // for it.** The frame that set it to `Some(1)` (`request_restart`)
+        // already drew and presented the "regenerating" message on the
+        // *old* game before this one runs -- see that field's own doc.
+        // Everything below this block, for the rest of this `frame` call,
+        // runs against the freshly generated `self.game`.
+        if let Some(n) = self.restart_countdown {
+            if n == 0 {
+                self.restart_countdown = None;
+                self.perform_restart();
+            } else {
+                self.restart_countdown = Some(n - 1);
+            }
+        }
 
         // Held state copied fresh; the jump press ORs in, so a press made on
         // a frame that ran zero ticks survives until a tick consumes it.
@@ -658,10 +687,12 @@ impl Handler {
                     if n <= 1 {
                         self.screenshot_countdown = None;
                         println!(
-                            "druid: shutter at tick {} — {} draws in flight, {} motes drawn",
+                            "druid: shutter at tick {} — {} draws in flight, {} motes drawn, aura discs {:?} (standing, carried), carried {:?}",
                             self.game.ticks,
                             self.game.draws.len(),
-                            pixel_physics::druid::hud::mote_count(&self.game)
+                            pixel_physics::druid::hud::mote_count(&self.game),
+                            self.game.renderer.aura_disc_count(),
+                            self.game.world.carried.map(|q| (q.x, q.y, q.r)),
                         );
                         save_framebuffer_png(pixels.frame(), WIDTH, HEIGHT);
                     } else {
@@ -841,18 +872,14 @@ impl Handler {
             // both are free.
             KeyCode::KeyZ => self.game.speed = (self.game.speed - 1).max(pixel_physics::druid::SPEED_MIN),
             KeyCode::KeyV => self.game.speed = (self.game.speed + 1).min(pixel_physics::druid::SPEED_MAX),
-            // **Your own circle.** `[`/`]` because that is brush size in the
-            // sandbox and this is the same gesture: how far your hand reaches.
-            KeyCode::BracketLeft => {
-                self.game.world.carried_radius =
-                    (self.game.world.carried_radius - 8).max(pixel_physics::sim::world::CARRIED_RADIUS)
-            }
-            KeyCode::BracketRight => {
-                self.game.world.carried_radius =
-                    (self.game.world.carried_radius + 8).min(pixel_physics::druid::CARRIED_RADIUS_MAX)
-            }
-            KeyCode::KeyQ => self.game.place_radius = (self.game.place_radius - 10).max(pixel_physics::druid::PLACE_RADIUS_MIN),
-            KeyCode::KeyE => self.game.place_radius = (self.game.place_radius + 10).min(pixel_physics::druid::PLACE_RADIUS_MAX),
+            // **One dial, both bubbles.** Owner's playtest, 2026-09-14:
+            // *"there should just be one bubble control size for the druid
+            // and placeable bubbles."* `Q`/`E` used to walk the placed
+            // circle alone, with `[`/`]` walking the carried one on its own
+            // scale — see `Druid::set_bubble_radius` for the one rule that
+            // now drives both from these two keys.
+            KeyCode::KeyQ => self.game.set_bubble_radius(self.game.place_radius - 10),
+            KeyCode::KeyE => self.game.set_bubble_radius(self.game.place_radius + 10),
             // **Unlimited power, for playtesting.** The economy's numbers are
             // first guesses and nobody has played this, so being able to take
             // them out of the way is what makes the mechanics judgeable at
@@ -863,8 +890,56 @@ impl Handler {
             // colour tell, so whether "held" reads at all is a question you
             // answer by flipping it and watching, not by looking at a still.
             KeyCode::KeyH => self.act(Action::ToggleHeld),
+            // **Restart.** `N` for "new world" -- the free letters left were
+            // `B`, `J`, `N`, `O`, `Y`, and this is the only one of them that
+            // reads as the verb. See `Handler::request_restart`.
+            KeyCode::KeyN => self.request_restart(),
             _ => {}
         }
+    }
+
+    /// **Arm a restart.** Does not restart on this frame -- see
+    /// `restart_countdown`'s own doc for why the block has to be deferred a
+    /// frame behind the message that announces it.
+    ///
+    /// A second press while one is already pending is a no-op rather than a
+    /// restart of the restart: `Druid::note` would just overwrite the same
+    /// message with itself, and there is nothing else pending state could
+    /// mean here.
+    fn request_restart(&mut self) {
+        if self.restart_countdown.is_some() {
+            return;
+        }
+        self.game.note("restarting -- generating a new world, about a minute");
+        self.restart_countdown = Some(1);
+    }
+
+    /// **The block `request_restart` warned the player about.** Everything
+    /// here is state that belongs to the *run*, not to the window -- a
+    /// stale accumulator would burn its backlog as catch-up ticks against a
+    /// world that was never running while it built up, held movement keys
+    /// would walk the new player off whatever he spawns standing on (the
+    /// same reason `Handler::act` clears them before a modal opens), and
+    /// the biosphere page's history is a chronicle of the *old* population,
+    /// which would draw as a graph of a species that no longer exists.
+    ///
+    /// **Whether the biosphere page was open survives; what it was showing
+    /// does not** -- `Stats::showing` is read before the replacement and
+    /// restored after, `Stats::new`'s own history starts empty either way.
+    fn perform_restart(&mut self) {
+        let stats_open = self.stats.showing();
+        self.game = Druid::new();
+        self.game.note("world restarted");
+        self.accumulator = Duration::ZERO;
+        self.held = HeldKeys::default();
+        self.laying = false;
+        self.jump_pressed = false;
+        self.stats = Stats::new();
+        if !stats_open {
+            self.stats.toggle();
+        }
+        self.last_stats_state = None;
+        self.bar_pressed = None;
     }
 
     /// **The single dispatch point this binary's controls actually route
@@ -1256,5 +1331,84 @@ fn save_framebuffer_png(rgba: &[u8], width: u32, height: u32) {
     match image::save_buffer(&path, rgba, width, height, image::ColorType::Rgba8) {
         Ok(()) => eprintln!("screenshot saved: {}", path.display()),
         Err(e) => eprintln!("screenshot failed: {e}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A `Handler` with no window and no `pixels` surface — everything
+    /// `Handler::new` does is env-var reads and `Druid::new`, neither of
+    /// which touches a display. `PIXEL_PHYSICS_DRUID_START=bare` skips
+    /// worldgen's growth phase (`Druid::new`'s own doc: "Bare is the one
+    /// that does not grow"), and a 64x64 world is fast to generate — this
+    /// is a test about `Handler`'s own bookkeeping, not about worldgen.
+    fn bare_handler() -> Handler {
+        // SAFETY (env mutation in a test): this is the only test in this
+        // binary that reads these two variables, so there is no other
+        // thread in this process for a race to reach.
+        unsafe {
+            std::env::set_var("PIXEL_PHYSICS_DRUID_START", "bare");
+            std::env::set_var("PIXEL_PHYSICS_DRUID_SIZE", "64x64");
+        }
+        let h = Handler::new();
+        unsafe {
+            std::env::remove_var("PIXEL_PHYSICS_DRUID_START");
+            std::env::remove_var("PIXEL_PHYSICS_DRUID_SIZE");
+        }
+        h
+    }
+
+    /// **`request_restart` arms the countdown and says so on screen; it does
+    /// not restart.** The property `restart_countdown`'s own doc depends on:
+    /// if this fired the block immediately, the message it just set would
+    /// never reach a presented frame — see that field's doc for why the
+    /// block has to wait a frame.
+    #[test]
+    fn request_restart_arms_a_message_and_a_one_frame_countdown_without_blocking() {
+        let mut h = bare_handler();
+        assert!(h.restart_countdown.is_none(), "test setup: nothing pending yet");
+
+        let ticks_before = h.game.ticks;
+        h.request_restart();
+        assert_eq!(h.restart_countdown, Some(1), "one press must arm exactly a one-frame countdown");
+        assert!(h.game.message().is_some(), "the player must see something the instant the key is pressed");
+        assert_eq!(h.game.ticks, ticks_before, "arming a restart must not itself advance or replace the world");
+
+        // A second press while one is already pending changes nothing --
+        // not a longer countdown, not two worlds racing to replace `game`.
+        h.request_restart();
+        assert_eq!(h.restart_countdown, Some(1), "a repeated press must not extend or reset the countdown");
+    }
+
+    /// **`perform_restart` is the block itself, and it resets the run, not
+    /// the window.** A fresh `Druid` (a different world -- `bare_for_test`'s
+    /// vs. `Handler::new`'s own generated one -- so the two are
+    /// distinguishable by more than address), the tick accumulator cleared,
+    /// held movement keys released, and the biosphere page's history reset
+    /// while whether it was *open* survives.
+    #[test]
+    fn perform_restart_replaces_the_game_and_resets_only_what_belongs_to_the_run() {
+        let mut h = bare_handler();
+        h.held.left = true;
+        h.accumulator = Duration::from_millis(500);
+        h.stats.toggle(); // flip from its `Handler::new` default
+        let stats_open_before = h.stats.showing();
+        let ticks_before = h.game.ticks;
+        // Walk the old world forward so its tick counter is provably
+        // nonzero -- otherwise "ticks reset" and "ticks were already zero"
+        // look identical.
+        for _ in 0..3 {
+            h.game.update();
+        }
+        assert!(h.game.ticks > ticks_before, "test setup: the old game must have actually ticked");
+
+        h.perform_restart();
+
+        assert_eq!(h.game.ticks, 0, "a freshly generated world must start at tick 0");
+        assert_eq!(h.accumulator, Duration::ZERO, "a stale accumulator must not survive into the new run");
+        assert!(!h.held.left, "held movement keys must not walk the new player off his spawn");
+        assert_eq!(h.stats.showing(), stats_open_before, "whether the biosphere page was open must survive a restart");
     }
 }

@@ -1,0 +1,166 @@
+// **The pond an animal can walk into** -- and, measured, the first bed in
+// which water is allowed to be a barrier at all.
+//
+// Every other pond in `assets/lab_scenarios/` is a stone box with vertical
+// walls: `the_pond`, `the_pond_sediment`, `the_pond_stocked`,
+// `the_pond_shore`. **That wall is why four separate instruments reported
+// that a pond is indistinguishable from the same hole left dry** -- colony
+// survival, births, `creature_arena arm=lethal` and `labforage`. A vertical
+// stone face stops an ant at the rim, so whatever stands at the bottom of the
+// pit never gets a chance to matter, and water-against-dry reads null for a
+// reason that has nothing to do with water.
+//
+// **Give the ants a bank they can walk down and the water is what stops
+// them**, because it is the only thing left to stop them. Columns the colony
+// ever occupied, `labforage`, six seeds, 24,000 frames, one binary
+// (`Reports/aquatic-implementation-plan-2026-09-14.md` §1.11):
+//
+//     no pit at all            279.5
+//     this bowl, DRY           254.5
+//     this bowl, WITH WATER    205.0     <- 49.5 columns, 6 of 6 seeds separated
+//     vertical basin, water    199.5
+//     vertical basin, dry      196.5     <- the same water costs NOTHING here
+//
+// **Two things in the shape are load-bearing and neither is decoration.**
+//
+// *The stone is a liner, not a wedge.* Stone is unavoidable -- §1.5 measured
+// the bed's own 96-row soil column having **exactly** enough unsaturated room
+// to swallow a pond of this size, so a soil-lined basin drains to zero by
+// frame 4,000. But the seal only has to be one tread thick. The first sloped
+// version filled the whole wedge with stone and rendered as a concrete tank;
+// this one lines the bowl and leaves the bed's own soil as the visible bank,
+// which is what makes it read as a pond.
+//
+// *The steps are 2 rows by 4 columns, and the row count is the number that
+// matters.* What an ant climbs is a step, not an average gradient, so the
+// step height is kept small rather than the slope made shallow.
+//
+// Holds: ~3,001 water cells resting on water at frame 16,000 against an
+// initial bowl volume of 2,944.
+//
+// **And it has a bed a root can hold, which is why it is also the Phase 1
+// bed.** Owner, card `20260914T161252082Z-c1f271`, on the first version of
+// this file: *"fine for creatures and floating plants, but anything that
+// needs roots in soil will fail. I think you need a thin stone liner with a
+// thicker soil bed?"* -- exactly right, and the two are not in tension:
+// **the stone only has to seal, the soil only has to be rootable**, so the
+// bottom four steps are sediment sitting on the liner. Water 2,592,000 units
+// at frame 0, and the sediment goes from `room 56` to `room 0` and stops --
+// `the_pond_sediment`'s measured behaviour, which is that a sealed bed drinks
+// its capacity once and then holds.
+//
+// **This is the Phase 2 bed.** A swim verb raced in any of the four boxed
+// ponds would be raced against a wall.
+//
+// **On why the boxed ponds stop an ant, since the obvious reading is wrong:**
+// it is not the stone. `creature::move_cost` returns `None` for `Solid` and
+// `Some` for `Powder`, which says an animal cannot *burrow into* rock and
+// says nothing about walking on it -- and the sloped arm that recovered the
+// range is made of **more** stone than the vertical pit it beat (8,576 cells
+// against 6,688). Ants walk across a stone bowl nearly as well as across flat
+// ground. What stops them is the **32-row vertical face**; the same stone
+// laid as 2-row steps is a road.
+(
+    name: "the_pond_bowl",
+    title: "THE POND, WITH A BANK",
+    question: "A pond with a bank an ant can walk down -- does the water itself now cost the colony anything, where a walled basin said it cost nothing?",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 96,
+        ground_y: 160,
+        compartments: 1,
+        founders: 0,
+        species: "herb",
+        colonies: 0,
+        colony_ants: 52,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [],
+    placements: [
+        Clear(x: 180, y: 160, w: 152, h: 2),
+        Clear(x: 184, y: 162, w: 144, h: 2),
+        Clear(x: 188, y: 164, w: 136, h: 2),
+        Clear(x: 192, y: 166, w: 128, h: 2),
+        Clear(x: 196, y: 168, w: 120, h: 2),
+        Clear(x: 200, y: 170, w: 112, h: 2),
+        Clear(x: 204, y: 172, w: 104, h: 2),
+        Clear(x: 208, y: 174, w: 96, h: 2),
+        Clear(x: 212, y: 176, w: 88, h: 2),
+        Clear(x: 216, y: 178, w: 80, h: 2),
+        Clear(x: 220, y: 180, w: 72, h: 2),
+        Clear(x: 224, y: 182, w: 64, h: 2),
+        Clear(x: 228, y: 184, w: 56, h: 2),
+        Clear(x: 232, y: 186, w: 48, h: 2),
+        Clear(x: 236, y: 188, w: 40, h: 2),
+        Clear(x: 240, y: 190, w: 32, h: 2),
+        Fill(material: "stone", x: 176, y: 192, w: 160, h: 4),
+        Fill(material: "stone", x: 176, y: 160, w: 4, h: 2),
+        Fill(material: "stone", x: 332, y: 160, w: 4, h: 2),
+        Fill(material: "stone", x: 180, y: 162, w: 4, h: 2),
+        Fill(material: "stone", x: 328, y: 162, w: 4, h: 2),
+        Fill(material: "stone", x: 184, y: 164, w: 4, h: 2),
+        Fill(material: "stone", x: 324, y: 164, w: 4, h: 2),
+        Fill(material: "stone", x: 188, y: 166, w: 4, h: 2),
+        Fill(material: "stone", x: 320, y: 166, w: 4, h: 2),
+        Fill(material: "stone", x: 192, y: 168, w: 4, h: 2),
+        Fill(material: "stone", x: 316, y: 168, w: 4, h: 2),
+        Fill(material: "stone", x: 196, y: 170, w: 4, h: 2),
+        Fill(material: "stone", x: 312, y: 170, w: 4, h: 2),
+        Fill(material: "stone", x: 200, y: 172, w: 4, h: 2),
+        Fill(material: "stone", x: 308, y: 172, w: 4, h: 2),
+        Fill(material: "stone", x: 204, y: 174, w: 4, h: 2),
+        Fill(material: "stone", x: 304, y: 174, w: 4, h: 2),
+        Fill(material: "stone", x: 208, y: 176, w: 4, h: 2),
+        Fill(material: "stone", x: 300, y: 176, w: 4, h: 2),
+        Fill(material: "stone", x: 212, y: 178, w: 4, h: 2),
+        Fill(material: "stone", x: 296, y: 178, w: 4, h: 2),
+        Fill(material: "stone", x: 216, y: 180, w: 4, h: 2),
+        Fill(material: "stone", x: 292, y: 180, w: 4, h: 2),
+        Fill(material: "stone", x: 220, y: 182, w: 4, h: 2),
+        Fill(material: "stone", x: 288, y: 182, w: 4, h: 2),
+        Fill(material: "stone", x: 224, y: 184, w: 4, h: 2),
+        Fill(material: "stone", x: 284, y: 184, w: 4, h: 2),
+        Fill(material: "stone", x: 228, y: 186, w: 4, h: 2),
+        Fill(material: "stone", x: 280, y: 186, w: 4, h: 2),
+        Fill(material: "stone", x: 232, y: 188, w: 4, h: 2),
+        Fill(material: "stone", x: 276, y: 188, w: 4, h: 2),
+        Fill(material: "stone", x: 236, y: 190, w: 4, h: 2),
+        Fill(material: "stone", x: 272, y: 190, w: 4, h: 2),
+        // **The sediment: the bottom four steps are soil, not water.**
+        // Owner, card 20260914T161252082Z-c1f271: "fine for creatures and
+        // floating plants, but anything that needs roots in soil will fail. I
+        // think you need a thin stone liner with a thicker soil bed?" A bowl
+        // that is stone all the way round suits a swimmer and a floater and
+        // gives a ROOTED plant nothing to hold. The liner underneath is what
+        // stops this draining -- see the header.
+        Fill(material: "soil", x: 228, y: 184, w: 56, h: 2),
+        Fill(material: "soil", x: 232, y: 186, w: 48, h: 2),
+        Fill(material: "soil", x: 236, y: 188, w: 40, h: 2),
+        Fill(material: "soil", x: 240, y: 190, w: 32, h: 2),
+        Fill(material: "water", x: 180, y: 160, w: 152, h: 2),
+        Fill(material: "water", x: 184, y: 162, w: 144, h: 2),
+        Fill(material: "water", x: 188, y: 164, w: 136, h: 2),
+        Fill(material: "water", x: 192, y: 166, w: 128, h: 2),
+        Fill(material: "water", x: 196, y: 168, w: 120, h: 2),
+        Fill(material: "water", x: 200, y: 170, w: 112, h: 2),
+        Fill(material: "water", x: 204, y: 172, w: 104, h: 2),
+        Fill(material: "water", x: 208, y: 174, w: 96, h: 2),
+        Fill(material: "water", x: 212, y: 176, w: 88, h: 2),
+        Fill(material: "water", x: 216, y: 178, w: 80, h: 2),
+        Fill(material: "water", x: 220, y: 180, w: 72, h: 2),
+        Fill(material: "water", x: 224, y: 182, w: 64, h: 2),
+        Plant(species: "herb", x: 60),
+        Plant(species: "herb", x: 100),
+        Plant(species: "herb", x: 400),
+        Plant(species: "herb", x: 450),
+    ],
+    timeline: [
+        (at: 6000, every: 0, until: 0, what: Colony(species: "ant", x: 120, count: 52)),
+    ],
+    horizon: 30000,
+)
