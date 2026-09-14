@@ -1,0 +1,64 @@
+{
+  "id": "20260914T222659700Z-f1e8e1",
+  "created": "2026-09-14T22:26:59Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/druid-trail",
+    "commit": "ce0382da",
+    "agent": null,
+    "session_id": "5e6d82e9-e32f-5d64-ad17-c922f2722624",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The trail, back on top of the ground and standing for half a minute",
+  "question": "Is it sitting at the right height now, and is half a minute long enough to walk a colony somewhere?",
+  "context_md": "Your two notes, both done: *\"Make it last even longer (at least 2x more)\"* and *\"if it is fully underground, an ant wont smell it either... it should be a little height, just at/slightly above ground versus fully below.\"*\n\n**You were right that it had gone under, and I had a number saying it hadn't.** He lays at his feet, and a gnome standing on soil is **sunk four cells into it** — that is by design, it is what makes walking through a drift feel like wading. So his feet are under the surface and so was the trail. My check measured *\"how far down to the first solid cell\"*, which reads zero for a trail lying on the ground **and** zero for one buried inside it. It now reads height as a signed number: the old version measures **4 cells under, all 64 samples buried**; this one **1 cell above, none buried**. Both strips are over soil, not rock — that is the only place the bug exists.\n\n**On lasting longer: no amount of widening or strengthening could do it, so the trail now works differently.** A scent mark laid once can't survive much past 20 seconds whatever shape it is — that limit is set by how fast the world forgets, which is shared with the ants and is not mine to change. I widened it to five times the size as a test: it bought 5 more seconds and nothing more.\n\nSo what he lays is now a **standing** instruction, the thing its price always said it was: he pays once by walking the route, and it holds itself up for half a minute, dimming the whole way, then goes. The oldest end fades first, so the trail retreats toward him rather than vanishing all at once — at 28s the half nearest him is still there and the far half has gone.\n\nBoth strips step **0 / 10 / 20 / 28 seconds** after he stops laying. Same walk, same ground, same seed.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "what you judged",
+      "files": [
+        "20260914T222659700Z-f1e8e1/000-prev_0.png",
+        "20260914T222659700Z-f1e8e1/001-prev_10.png",
+        "20260914T222659700Z-f1e8e1/002-prev_20.png",
+        "20260914T222659700Z-f1e8e1/003-prev_28.png"
+      ],
+      "caption": "laid at his feet — which on soil is under it",
+      "meta": {
+        "seconds the trail stays on the ground": 14,
+        "height it sits, in cells above the surface": -4,
+        "marks buried in the ground, of 64 sampled": 64,
+        "strength left after 10 seconds": 18,
+        "strength left after 20 seconds": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "now",
+      "files": [
+        "20260914T222659700Z-f1e8e1/004-v2_0.png",
+        "20260914T222659700Z-f1e8e1/005-v2_10.png",
+        "20260914T222659700Z-f1e8e1/006-v2_20.png",
+        "20260914T222659700Z-f1e8e1/007-v2_28.png"
+      ],
+      "caption": "laid on the ground surface, and held up for 30s",
+      "meta": {
+        "seconds the trail stays on the ground": 30,
+        "height it sits, in cells above the surface": 1,
+        "marks buried in the ground, of 64 sampled": 0,
+        "strength left after 10 seconds": 121,
+        "strength left after 20 seconds": 61
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
