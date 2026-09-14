@@ -158,3 +158,34 @@ horizontal line is a best case; a real walk is not.
 
 ## Gates
 
+- `cargo clippy --all-targets --release --locked -- -D warnings` — clean.
+- `cargo test --release` — the **full** suite, not `--lib`: 1,804 + 10 lib/bin,
+  3 `tests/determinism.rs`, 44 `tests/worldgen.rs`, **0 failed**. Named
+  because `CLAUDE.md` records that `--lib` cannot reach `tests/*.rs` at all
+  and four merges were gated on it in one day.
+- `bash scripts/docscheck.sh` — clean (it caught the missing
+  `Reports/instruments.md` row and that row is now written).
+- `python3 scripts/deadendindex.py --touching` — 4 files changed, **0 entries
+  name an identifier this branch adds**. Silence is not evidence, per its own
+  banner; `Reports/dead-ends.md` was also grepped directly for
+  `TRAIL_DEPOSIT`, `lay_trail`, `SCENT_HALO`, `SCENT_BANDS`, `DECAY_RHO`,
+  `decay_lut` and `PHEROMONE_INTERVAL` before any of this was built. The
+  decay/interval entries are about `DECAY_RHO` and the LUT floor, neither of
+  which is touched; nothing names the swath or the readout.
+
+## Notes for whoever follows
+
+- **`PR_BODY_LANE_D.md` at the repo root was overwritten**, as the brief asked.
+  What was there was the already-merged bubble-aura lane's body from an
+  earlier round; its content lives in that PR on GitHub.
+- **The next lever, if 14s is judged short**, is the trail as a *standing*
+  instruction — he keeps paying `TRAIL_PER_SECOND` and the remembered route
+  keeps being re-laid, age-graded from the oldest end so the slope survives.
+  Measured on the plane it reaches **105s**. It is not built here because it
+  is a design decision with an economy behind it rather than a number, and
+  `Druid::step_economy` is shared ground. Posted to the owner as the question
+  on card `20260914T202113978Z-80ad3b`.
+- **Widening the swath further is not the lever.** Real-app lifetime by
+  radius: r=3 **14s**, r=4 15s, r=5 ~17s, r=7 ~18s, and every radius above 3
+  pins the plane at 255 outright. Five times the per-tick write for four
+  seconds.

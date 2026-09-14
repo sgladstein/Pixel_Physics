@@ -1,160 +1,129 @@
-## Making a bubble of running time look like one
+# Lane D — the trail
 
-Owner, 2026-09-14: *"I want you to improve the bubbles look. They shouldn't be
-a solid line it blocks too much. I am thinking hazy shimmering aura. Think
-about how to indicate speed visual."*
+**What it does:** the scent the gnome lays now stays on the ground long
+enough for the animals he laid it for to act on it, and it looks like scent —
+a soft cloud lying along his route — instead of a hard green line that blinks
+out behind him.
 
-A quickening — a circle where time still runs in a world the druid has held —
-used to be drawn as a hard 1px outline over the world. It is now a **hazy,
-shimmering aura**: a per-cell tint in the world pass, with a ragged rim and
-pulses that wash inward. Nothing is painted over; the ground under the haze is
-still the ground.
+**Where it sits:** the held world's four-lane round on the 2026-09-14
+playtest. This is the pheromone item: *"my pheramone trail should last way
+longer. it dissapears so much faster than an ant could even move… it should be
+more diffuse looking, not like a bunch of dots."* Both halves of that
+complaint turned out to be one defect, which is why one constant answers both.
 
-**Where this sits.** Third of the held world's three ways of saying *this is
-where you spent your power* — the readout says how much, the preview says
-where the next one goes, and this is the one you actually look at while
-playing. It is also the last place the game was still telling the player
-something by drawing a line across the thing he is watching.
+Measured in the real app (`Druid::update`/`Druid::draw`, the calls
+`src/bin/druid.rs` makes), one walked route of 143 cells:
 
-## The complaint and the speed readout were the same object
+| | before | after |
+|---|---|---|
+| trail still on the ground | **3.5 s** | **~14 s** |
+| …in ant-cells walked | 35 | 135 |
+| strength at t+3.5s | 0 | 88 of 255 |
+| route cells still holding scent at t+3.5s | 0 of 143 | **143 of 143** |
+| where the scent sits | 3 cells above the floor | on the floor |
 
-That is why this is one change and not two. `hud::rings` drew one outline per
-circle **plus one more inside it per two steps of the speed dial** — at the top
-of the dial, five concentric hard circles three pixels apart over the very
-ground the player came to watch. Removing the occlusion removes the speed cue,
-so the haze has to carry speed itself, and it has to carry it twice or a
-screenshot says nothing (`rings`' own doc: *colour alone is the single-channel
-readout this repo keeps learning not to rely on*).
+A colony round trip is roughly 367 ant-cells, so the trail went from about a
+tenth of one to about a third. It is longer, not long.
 
-- **In motion: how fast the haze pulses.** Not a mapping at all — the pulse
-  phase is `World::frame`, which advances once per `frame::step`, and
-  `Druid::update` calls it `speed` times per drawn frame. A x8 circle pulses
-  eight times faster **because time in there is running eight times faster**.
-- **In a still: how far the haze reaches inward.** 7 cells at x1, 22 at x8, so
-  a fast circle reads as full of running time rather than merely rimmed with
-  it. This is the half a paused screen, a contact sheet or a review card keeps.
+## What was actually wrong
 
-The dial itself is **measured, not told**: `Druid::speed` lives in a file this
-lane does not own and `render.rs` is shared by three games, so the renderer
-takes the difference between two readings of `World::frame` — which *is* the
-dial. `the_rate_the_aura_draws_is_the_rate_the_world_ran` is the positive
-control (1, 2, 4, 8 steps between draws -> x1, x2, x4, x8), and a paused frame
-holds the last reading rather than collapsing the picture to real time.
+**Diffusion, not decay, is what removes a trail here, and nothing in the
+codebase said so.** `pheromone::DIFFUSE` blends every cell a quarter of the
+way toward its own 3x3 mean each pass. For a cell on a one-cell-wide line six
+of its nine neighbours are empty, so that mean is about `v/3` and the line
+sheds roughly **17% a pass** sideways — against `DECAY_RHO`'s **3%** to
+forgetting. Five to six times the term the module's own write-up frames trail
+lifetime around.
 
-**The circle he carries is exempt**, and that needed its own clock.
-`step_extra_ticks` lifts the player out of the world for the catch-up passes,
-so his own ground genuinely runs at real time however fast the paid circles are
-set; `World::frame` is one global counter (the fact that withdrew the
-per-circle rate), so the carried disc is drawn from the renderer's own draw
-counter instead. Guarded.
+Three consequences, all measured on the plane:
 
-## Why it is in the world pass and not in the HUD
+- **Depositing harder barely helps.** A one-cell line at the shipped deposit
+  stays legible **1.0 s**; pushing that deposit to the 255 ceiling reaches
+  **4.8 s**.
+- **Width is the lever.** At an *unchanged* deposit, an `r = 3` band reaches
+  **10.8 s**.
+- **The same fact is why it looked like dots.** A one-cell mark rounds to
+  nothing a cell or two out, so there was no cloud to draw — the readout was
+  drawing the spine of a cloud that did not exist.
 
-`druid::hud` cannot blend — a `Hud::blend` into a region the renderer skipped
-compounds frame on frame and oscillates as chunks repaint underneath, which is
-recorded at the top of that module and is why every mark it makes is a `put`.
-A cell in the world pass is written from scratch this frame, so a computed tint
-is one-pass by construction. **And it tints the cell instead of drawing over
-it, which is the literal answer to "it blocks too much."**
+Two more fell out of looking at the picture rather than the numbers:
 
-The rim is deliberately ragged, on `Quickening::contains`' own instruction: a
-constant-level disc reads as a soap bubble, which the owner rejected on sight
-for foliage, and the repair recorded in `dead-ends.md` is coherent value noise
-**keyed to world position so it does not crawl with the camera**.
+- **The scent was laid at his chest.** `lay_trail` marked `Player::center`, a
+  median **3 cells above the floor** on this build. Once the swath made it
+  wide enough to see, it read as green mist hanging at his waist over clean
+  ground — and it is the half of the plane an ant can never reach, since an ant
+  senses around its own head while walking the floor.
+- **The readout had one colour and seven unreachable ones.** The band was
+  `v * SCENT_BANDS / 256`, so everything under 32 fell in band 0 — and the
+  plane never held more than about 31 along a route. Every mark of every trail
+  drew in the same single dimmest colour.
 
-## What it costs
+## What shipped
 
-Measured on the state the dirty-rect skip exists for — a settled held world
-with a circle placed in it, which is this game's whole premise. **A counter,
-not a clock**, because a counter does not move with whatever else the box is
-doing:
+1. **`druid::TRAIL_RADIUS = 3`** — a graded swath about him rather than one
+   cell, strongest under his feet and fading to the rim. At the knee of the
+   curve: 1.0 / 7.0 / 10.8 s for r = 0 / 2 / 3, and r = 5 buys 15.6 s for
+   twice the per-tick write.
+2. **`lay_trail` anchors at `Player::feet`.** Clearance to ground 3 → 0.
+3. **`hud::band_of`** — bands off `sqrt(v/255)`, so the small values a cloud's
+   edge is made of resolve instead of collapsing into band 0.
+4. **The readout blends rather than stamps** — alpha carries strength
+   alongside colour, so the core lands opaque and the rim fades into the
+   world.
 
-| settled held world, one radius-40 circle | pixels recomputed per frame |
-|---|---|
-| aura off (control) | **0** — the skip is alive, so the arm below measures something |
-| aura on | **8,649** — the circle's own bounding box |
-| full repaint of that frame | 40,000 |
+## What it costs, plainly
 
-The aura repaints its own discs and **never** takes the full-redraw path: the
-phase is not in the `LookKey`, it unions rectangles into the dirty region the
-way the animated liquid grain and `idle_extra` already do. On the game's real
-512x320 frame a radius-46 circle is 6.7% of the screen, and it is paid only on
-the frames the quantised phase steps — every *other* frame at real time.
+- **29 plane writes a tick while `G` is held**, against 1. Nothing in the
+  sweep changed; a deposit is a `u8` write plus a `write_watch` mark.
+- **The plane does now run close to saturation along his route** — peak 241 of
+  255 against about 80 — because he re-marks each cell some ten times at 0.6
+  cells/tick. That is what the extra lifetime is bought with, and it means an
+  ant walking his road adds 14 rather than 40. Stated rather than tuned away:
+  `TRAIL_DEPOSIT` is left at one ant's mark, because raising it pins the plane
+  outright for 2.8 s more life and a pinned trail is one nothing can reinforce
+  (`pheromone::DEPOSIT`'s P-14).
 
-Whole frame through `Druid::draw` on the shipped 512x320, radius-46 circle at
-x8, eight alternating blocks of 40 frames, **after merging `main`** so Lane A's
-button bar and biosphere page are in the frame being compared: **1.699 -> 1.727
-ms mean, +0.028**. The worst-frame figure moved the *other* way in all three
-runs and does not pin (mean x frames far exceeds it) — noise wearing a number.
-The counter beside it is **+1,176 px/frame, identical across all three runs and
-both sides of the merge**, which is why it is the one quoted.
+## Scope
 
-`examples/ascii`: 31 scenes, 0 skipped, worst render frame **0.453 ms after
-the merge, 0.468 before it** — unchanged **by construction** rather than by
-luck, since no `ascii` scene holds a world and every path here returns on
-`!world.held`. The guard is what proves that, not the timing; a number that
-did not move is not evidence on its own.
+**`pheromone::DECAY_RHO` is untouched at 0.03**, along with `DEPOSIT`,
+`DIFFUSE` and `PHEROMONE_INTERVAL`. Per the owner's ruling — *"you make the
+gnome laid trail last longer; the evolution lab will explore the ant laid
+ones"* — nothing ant-laid changes, and the lab's foraging work stands on
+exactly the constants it stood on this morning.
 
-## Guards
+**The owner's aside, measured — *"I wonder if this is a problem for ant laid
+trails too."* Yes, identically**, and the answer was free because the shipped
+gnome trail *was* an ant trail: `TRAIL_DEPOSIT` was defined as
+`pheromone::DEPOSIT` and laid one cell at a time, so every number in the
+"before" column is also one ant laying one unreinforced route. A mark a scout
+lays and does not re-walk is off the ground in about 3.5 s, against a 37 s
+round trip. What keeps ant trails alive is **reinforcement**, not the mark's
+own life — which is a working system rather than a bug, but it does mean a
+colony cannot recruit to anything one ant found and left. **And the lever is
+not `DECAY_RHO`:** at 3% a pass it is not what is removing the trail, so a
+decay sweep will measure a small term. Aim at reinforcement rate or mark
+width. Measuring this was ours; fixing it is not, and nothing was changed.
 
-Seven, in `src/render.rs`. Every count has a known non-zero answer in the arm
-that should have one, because a haze reading 0 pixels looks the same whether
-the mechanism is quiet or the probe never reached it.
+## Instrument
 
-- `the_other_games_cannot_see_the_quickening_aura` — control first (hold the
-  world, the picture must move), then byte-identity on an unheld one.
-- `the_rate_the_aura_draws_is_the_rate_the_world_ran` — the positive control
-  on the instrument the depth channel is built from.
-- `a_faster_quickening_hazes_deeper` — scored on the *count*, not on a verdict.
-- `the_carried_circle_hazes_at_real_time_whatever_the_dial_says`.
-- `the_quickening_haze_moves_with_the_world_clock`.
-- `the_quickening_haze_never_covers_what_is_under_it` — no pixel is carried all
-  the way to the aura's colour. A hard outline fails this by construction.
-- `the_quickening_haze_keeps_the_dirty_rect_skip`.
+`examples/druid_trail.rs`, with a row in `Reports/instruments.md`
+(`trailfollow` answers *does a laid trail move a colony* — the other half, not
+duplicated). Its `selftest` runs five positive controls and **two of them
+fired in anger during this session**: the decay loop advanced `frame` by 1
+while `Pheromones::step` gates on `frame % 12`, so every lifetime printed
+**12x too long** behind a perfectly plausible decay curve; the repair then
+advanced by 12 from an unaligned frame and never hit a multiple again, so no
+pass ran and every arm reported a flat curve at its laid value. A third bug
+was caught by asking what the number counted. All three are recorded in the
+source. The harness still disagreed with the app by 3x afterwards, so **every
+headline number here is the app's**.
 
-**All five injected faults were watched going red** (a frozen phase, a depth
-that ignores the rate, a replace instead of a blend, a carried disc on the
-dial, and removing the dirty union). None of these guards was cited green
-without that.
+## Gates
 
-## Tried and dropped
-
-- A **squared inward fade**: the haze changed ~530 pixels over a radius-46
-  circle and, against this game's bright sky, one or two units of blue
-  survived. It fired, it counted non-zero, and it could not be seen.
-- **Rim roughness 2.2** (a clean-edged disc — the soap bubble) and **7.0** (the
-  circle stops reading as a circle). 4.5 shipped, chosen off rendered sheets.
-- Putting the phase in the `LookKey`: designed, then not built, because
-  `render.rs` already had the cheaper device.
-
-## Found, not fixed — one line in a file this lane does not own
-
-**Above x1 the gnome's own circle disappears from the picture.**
-`step_extra_ticks` puts the player back after the catch-up passes and does not
-put `World::carried` back, so between two updates a held world at speed 2+ has
-no carried circle at all: the ground under him greys out under ONE HUE and his
-halo is absent. This predates the aura — the old `RING_CARRIED` outline
-vanished the same way — and it needs a line in `src/druid/mod.rs`, which
-another session holds tonight. Details in the lane note.
-
-The **placement preview** is still a hard 1px circle and is now the most
-prominent line on screen. It is not world state, so the renderer cannot see it,
-and the ring draw block is another lane's; the lane note has the shape of the
-fix.
-
-## Judgement asked for
-
-Two cards are in the review queue, both unanswered at hand-off:
-
-- `20260914T053549208Z-49137a` — **blind A/B, 12-frame sequences at x8**: old
-  outline against new haze.
-- `20260914T053802005Z-8310ab` — **x1/x2/x4/x8 stills**: does the depth channel
-  read speed from a paused screen? I said on the card that I am unsure, and
-  why.
-
-Full account, including everything the brief got wrong, in
-`Reports/lanes/druid-bubble-aura.md`.
+`cargo clippy --all-targets --release --locked -- -D warnings`,
+`cargo test --release`, `bash scripts/docscheck.sh`,
+`python3 scripts/deadendindex.py --touching` (0 entries named).
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
-https://claude.ai/code/session_01ACu1rTADqs6PGfwdwFnYBS
+https://claude.ai/code/session_01CCsDdkXqh6ANtpkN8ff94C
