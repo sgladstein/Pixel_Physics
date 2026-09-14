@@ -3200,14 +3200,28 @@ pub struct Renderer {
     /// How far the haze reaches inward this draw, in cells — `depth` plus
     /// `depth_per_step` per step of the measured rate, resolved once here so
     /// the per-pixel path does no arithmetic that is constant over a frame.
-    aura_reach: f32,
+    ///
+    /// **Two of each, because the circle he carries is not on the dial.**
+    /// `Druid::step_extra_ticks` lifts the player out of the world for the
+    /// catch-up passes, so `World::carried` is absent from them and the
+    /// ground he is standing on genuinely runs at real time however fast the
+    /// paid circles are set. `World::frame` is one global counter — the fact
+    /// that withdrew the per-circle rate (`dead-ends.md`, `Quickening::rate`)
+    /// — so a phase read off it alone would pulse his own circle at x8 and
+    /// say something false about it. The carried disc is drawn from the
+    /// renderer's own draw counter instead, which advances once per drawn
+    /// frame and therefore *is* real time.
+    aura_reach: [f32; 2],
     /// The pulse phase, in wavelengths, quantised by [`AURA_FRAME_QUANTUM`].
-    aura_phase: f32,
-    /// ...and the quantised step it came from, which is also the white
-    /// noise's salt and the thing `last_aura_step` is compared against. One
-    /// number decides what is drawn and what is repainted, so the two cannot
-    /// disagree about which frames the haze moved on.
-    aura_step: u64,
+    /// Indexed as `aura_reach` is: `[standing, carried]`.
+    aura_phase: [f32; 2],
+    /// ...and the quantised steps they came from, `[standing, carried]`,
+    /// which are also the white noise's salt and the pair `last_aura_step` is
+    /// compared against. The same numbers decide what is *drawn* and what is
+    /// *repainted*, so the two cannot disagree about which frames the haze
+    /// moved on — and both are in the comparison, or the carried circle's
+    /// real-time pulse would advance on a frame nothing repainted it.
+    aura_step: [u64; 2],
     /// **How many times the world was stepped since the last `draw`** — the
     /// held game's speed dial, measured rather than told.
     ///
@@ -3236,7 +3250,7 @@ pub struct Renderer {
     /// by hand, and a circle that *moved* (the carried one follows the
     /// player) leaves a smear behind unless last frame's are unioned too.
     last_aura_rects: Vec<Rect>,
-    last_aura_step: Option<u64>,
+    last_aura_step: Option<[u64; 2]>,
     /// **Which colour an animal wears** -- see [`CreatureColour`]. `Off`
     /// here; the lab sets `Colony` when it builds its renderer.
     pub creature_colour: CreatureColour,
@@ -3540,9 +3554,9 @@ impl Renderer {
             aura: AuraTuning::default(),
             aura_discs: Vec::new(),
             aura_bounds: None,
-            aura_reach: 0.0,
-            aura_phase: 0.0,
-            aura_step: 0,
+            aura_reach: [0.0; 2],
+            aura_phase: [0.0; 2],
+            aura_step: [0; 2],
             aura_rate: 1,
             aura_last_world_frame: None,
             last_aura_rects: Vec::new(),
@@ -7640,9 +7654,16 @@ impl Renderer {
             return;
         }
 
-        self.aura_reach = (self.aura.depth + (self.aura_rate.saturating_sub(1)) as f32 * self.aura.depth_per_step).max(1.0);
-        self.aura_step = world.frame / AURA_FRAME_QUANTUM;
-        self.aura_phase = (self.aura_step * AURA_FRAME_QUANTUM) as f32 / self.aura.period.max(1.0);
+        self.aura_reach = [
+            (self.aura.depth + (self.aura_rate.saturating_sub(1)) as f32 * self.aura.depth_per_step).max(1.0),
+            self.aura.depth.max(1.0),
+        ];
+        // The standing circles' clock is the world's; the carried one's is
+        // this renderer's own draw counter -- see `aura_reach`. Both are
+        // quantised, and both go into the dirty-region comparison below.
+        self.aura_step = [world.frame / AURA_FRAME_QUANTUM, self.frame / AURA_FRAME_QUANTUM];
+        let phase = |step: u64| (step * AURA_FRAME_QUANTUM) as f32 / self.aura.period.max(1.0);
+        self.aura_phase = [phase(self.aura_step[0]), phase(self.aura_step[1])];
 
         for q in &world.quickenings {
             self.aura_discs.push((q.x, q.y, q.r, false));
@@ -7707,8 +7728,8 @@ impl Renderer {
     /// The pulse never reaches zero ([`AURA_PULSE_FLOOR`]): a haze that
     /// blinks fully out between crests reads as flickering, and the circle
     /// has to be *findable* at every instant — that is what it is for.
-    fn aura_amount(&self, x: i32, y: i32, d: f32) -> f32 {
-        let t = d / self.aura_reach;
+    fn aura_amount(&self, x: i32, y: i32, d: f32, arm: usize) -> f32 {
+        let t = d / self.aura_reach[arm];
         // **Linear, and it was squared for an afternoon.** A squared fade
         // puts most of the band's area under a very small number: measured
         // against the same frame drawn with `alpha = 0`, the haze changed
@@ -7718,11 +7739,11 @@ impl Renderer {
         // reports a non-zero count, and cannot be seen. Linear keeps the
         // rim bright and gives the tail something to be.
         let fade = 1.0 - t;
-        let u = d / self.aura.wave.max(0.5) - self.aura_phase;
+        let u = d / self.aura.wave.max(0.5) - self.aura_phase[arm];
         let f = u - u.floor();
         let tri = 1.0 - (2.0 * f - 1.0).abs();
         let pulse = tri * tri * (3.0 - 2.0 * tri);
-        let grain = 1.0 - self.aura.grain.clamp(0.0, 1.0) * rng::jitter3(x, y, self.aura_step as i32);
+        let grain = 1.0 - self.aura.grain.clamp(0.0, 1.0) * rng::jitter3(x, y, self.aura_step[arm] as i32);
         self.aura.alpha * fade * (AURA_PULSE_FLOOR + (1.0 - AURA_PULSE_FLOOR) * pulse) * grain
     }
 
@@ -7755,14 +7776,15 @@ impl Renderer {
         let mut best = 0.0f32;
         let mut carried = false;
         for &(cx, cy, r, is_carried) in &self.aura_discs {
+            let arm = usize::from(is_carried);
             let (dx, dy) = ((x - cx) as f32, (y - cy) as f32);
             // The distance *inside* the rim, with the rim itself displaced by
             // the coherent noise: positive inside, negative out.
             let d = r as f32 - (dx * dx + dy * dy).sqrt() + rough;
-            if d < 0.0 || d >= self.aura_reach {
+            if d < 0.0 || d >= self.aura_reach[arm] {
                 continue;
             }
-            let a = self.aura_amount(x, y, d);
+            let a = self.aura_amount(x, y, d, arm);
             if a > best {
                 best = a;
                 carried = is_carried;
@@ -9451,6 +9473,39 @@ mod tests {
             reached[0],
             reached[1]
         );
+    }
+
+    /// **The circle he carries is not on the dial**, so its haze must not
+    /// deepen when the paid circles are sped up.
+    ///
+    /// `Druid::step_extra_ticks` lifts the player out for the catch-up
+    /// passes, so the ground he stands on really does run at real time — a
+    /// haze that reported x8 there would be the readout lying about the one
+    /// circle the player is always looking at. The standing arm is measured
+    /// in the same run as the control, so a null cannot pass as agreement.
+    #[test]
+    fn the_carried_circle_hazes_at_real_time_whatever_the_dial_says() {
+        let mut world = aura_world();
+        world.quickenings = vec![crate::sim::world::Quickening::at(40, 130, 30)];
+        world.carried = Some(crate::sim::world::Quickening::at(150, 130, 30));
+        let mut r = Renderer::new();
+        let mut bare_r = Renderer::new();
+        bare_r.aura = AuraTuning::off();
+
+        let reach = |r: &Renderer| (r.aura_reach[0], r.aura_reach[1]);
+        aura_shot(&mut r, &world);
+        aura_shot(&mut bare_r, &world);
+        for _ in 0..8 {
+            crate::sim::update::step(&mut world);
+        }
+        aura_shot(&mut r, &world);
+        let (standing, carried) = reach(&r);
+        assert_eq!(r.aura_rate(), 8, "the world was not running at x8, so the comparison below is between two real-time arms");
+        assert!(
+            standing > carried * 2.0,
+            "the paid circle must haze far deeper at x8 than the carried one: standing {standing:.1} cells, carried {carried:.1}"
+        );
+        assert!((carried - AuraTuning::default().depth).abs() < 0.01, "the carried circle hazed at {carried:.1} cells rather than at its real-time depth");
     }
 
     /// **The haze moves on its own**, with nothing in the world changing that

@@ -71,6 +71,12 @@ struct Args {
     zoom: u32,
     /// `cost=1` — what the haze costs, instead of what it looks like.
     cost: bool,
+    /// `seq=/path/prefix` — write each captured frame as `prefix_00.png` and
+    /// so on, which is what a review card's *frame sequence* wants.
+    /// `.claude/skills/review/SKILL.md` prefers those to a GIF: the page
+    /// steps them on its own timer, where a GIF depends on the browser
+    /// decoding it and one has already reached the owner as a still.
+    seq: String,
 }
 
 fn main() {
@@ -88,6 +94,7 @@ fn main() {
         crop: None,
         zoom: 1,
         cost: false,
+        seq: String::new(),
     };
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
@@ -111,6 +118,7 @@ fn main() {
             "out" => a.out = v.into(),
             "sheet" => a.sheet = v.into(),
             "cost" => a.cost = v != "false",
+            "seq" => a.seq = v.into(),
             "zoom" => a.zoom = v.parse().unwrap_or(1).max(1),
             "crop" => {
                 let n: Vec<u32> = v.split(',').filter_map(|t| t.parse().ok()).collect();
@@ -189,7 +197,15 @@ fn main() {
         a.tune.depth + (game.renderer.aura_rate().saturating_sub(1)) as f32 * a.tune.depth_per_step
     );
 
-    if gif {
+    if !a.seq.is_empty() {
+        for (i, img) in shots.iter().enumerate() {
+            let path = format!("{}_{i:02}.png", a.seq);
+            if let Err(e) = img.save(&path) {
+                eprintln!("druid_aura: failed to write {path}: {e}");
+            }
+        }
+        println!("  wrote {} frames as {}_NN.png ({}x{} each)", shots.len(), a.seq, shots[0].width(), shots[0].height());
+    } else if gif {
         write_gif(&a.out, shots, a.delay_ms);
     } else {
         write_sheet(&a.out, &shots);
