@@ -7512,7 +7512,7 @@ rather than behaviour cards, and the plan's §1.7 is the reason there are four:
 the bed that answers a hydraulic question is not the bed that answers a
 locomotion one. **A pond needs an impermeable floor** — the bed's own soil
 column has almost exactly enough unsaturated room to swallow one, and a
-soil-floored basin drains to zero by frame 4,000.
+soil-floored basin drains to zero by frame 4,000. **A fifth landed the same day and supersedes the other four as a measurement bed**: `the_pond_bowl` has a bank an ant can walk down, and it is the first pond in which water is allowed to be a barrier at all. The four boxed ponds have vertical stone walls that stop an ant at the rim, so four separate instruments reported a pond as indistinguishable from the same hole left dry -- they were measuring the wall. On a sloped bank the identical water costs the colony 49.5 columns of range, 6 of 6 seeds separated (`Reports/aquatic-implementation-plan-2026-09-14.md` §1.11).
 
 **A colony or a predator that lands at build time can eat the plants it was
 meant to share the bed with, before either establishes.** `labshot
