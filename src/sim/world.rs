@@ -1709,6 +1709,29 @@ pub struct CreatureStats {
     /// a count of swings is not a count of hits, and this repo has already
     /// paid for 23 swings that removed 0 cells.
     pub attack_kills: u64,
+    /// **Encounters assessed** — every tick on which an animal that was
+    /// willing to fight actually stood in front of somebody it could have
+    /// bitten. The near side of `attacks`, one step further out than
+    /// `attacks`/`attack_kills` are from each other: that pair separates a
+    /// swing from a hit, and this separates *meeting* from swinging.
+    ///
+    /// Zero until a genome carries a weight on `BrainOutput::Attack`, for
+    /// the same reason `attacks` is: the whole verb sits behind that gate.
+    /// A run with `contests` high and `attacks` low is a border being held
+    /// without anyone dying, which is what almost all real inter-colony
+    /// contact looks like; `contests == attacks` is the old behaviour, in
+    /// which an encounter and a bite were the same event.
+    pub contests: u64,
+    /// **Encounters that ended in a display instead of a bite** —
+    /// `contests - attacks`, counted directly rather than subtracted so the
+    /// two cannot drift.
+    ///
+    /// **This is the counter the first law is read off.** `CLAUDE.md`: an
+    /// outcome is a distribution rather than a binary, and a fight mechanic
+    /// whose every encounter escalates has no middle however busy it looks.
+    /// `displays / contests` is the withdrawal rate, which in real ants is
+    /// nearly all of inter-colony contact — see `sim::contest`.
+    pub displays: u64,
     /// **Severing events**: a creature that lost a body cell and came apart
     /// at it, rather than merely shortening.
     ///
@@ -2141,6 +2164,286 @@ impl EnergyLedger {
     /// material default.
     pub fn meat_worth_of(materials: &MaterialRegistry, cell: Cell) -> Option<f64> {
         (materials.get(cell.material).worth_in_aux && cell.aux() != 0).then(|| cell.aux() as f64)
+    }
+
+    /// The field one [`Account`] names, or `None` for an account this
+    /// world-wide ledger deliberately does not carry.
+    ///
+    /// The single place the two structures are matched up. Everything that
+    /// books goes through [`World::book`], which goes through here, so an
+    /// account added to one side and forgotten on the other is a compile
+    /// error rather than a slow drift.
+    pub fn account_mut(&mut self, account: Account) -> Option<&mut f64> {
+        Some(match account {
+            Account::Granted => &mut self.granted,
+            Account::Stamped => &mut self.stamped,
+            Account::HarvestedPlant => &mut self.harvested_plant,
+            Account::HarvestedCorpse => &mut self.harvested_corpse,
+            Account::Metabolized => &mut self.metabolized,
+            Account::Moved => &mut self.moved,
+            Account::SynapseTax => &mut self.synapse_tax,
+            Account::StoredInMeat => &mut self.stored_in_meat,
+            Account::Dissipated => &mut self.dissipated,
+            Account::Overdrawn => &mut self.overdrawn,
+            // Between two colonies, so it nets to zero here and the world
+            // ledger is right to be silent. See [`Account::SharedOut`].
+            Account::SharedOut | Account::SharedIn => return None,
+        })
+    }
+
+    /// Read one account by name, for a sweep over [`Account::ALL`].
+    pub fn get(&self, account: Account) -> f64 {
+        match account {
+            Account::Granted => self.granted,
+            Account::Stamped => self.stamped,
+            Account::HarvestedPlant => self.harvested_plant,
+            Account::HarvestedCorpse => self.harvested_corpse,
+            Account::Metabolized => self.metabolized,
+            Account::Moved => self.moved,
+            Account::SynapseTax => self.synapse_tax,
+            Account::StoredInMeat => self.stored_in_meat,
+            Account::Dissipated => self.dissipated,
+            Account::Overdrawn => self.overdrawn,
+            Account::SharedOut | Account::SharedIn => 0.0,
+        }
+    }
+}
+
+/// **One account in the energy books, named once so that the world ledger
+/// and the per-colony ones cannot drift apart.**
+///
+/// [`EnergyLedger`] is world-wide; [`ColonyBooks`] keeps the same accounts
+/// per colony. Two structures holding the same numbers is exactly the shape
+/// that rots — someone books to one and forgets the other, and the sum
+/// identity that makes the split worth trusting quietly stops holding. So
+/// neither is written to by hand: [`World::book`] takes an `Account` and
+/// writes both sides, and `Account::ALL` is what the guard sweeps.
+///
+/// **Adding a variant enrols it in that sweep**, which is the point and is
+/// `CLAUDE.md`'s registry rule working for once rather than against:
+/// `every_account_sums_over_the_colonies` iterates `ALL`, so a new account
+/// is covered the moment it exists. The two things the sweep cannot infer
+/// are [`Account::world_wide`] and [`Account::live_sign`]; get those wrong
+/// and the identity breaks in a way the sweep will report.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(usize)]
+pub enum Account {
+    /// [`EnergyLedger::granted`].
+    Granted = 0,
+    /// [`EnergyLedger::stamped`].
+    Stamped,
+    /// [`EnergyLedger::harvested_plant`].
+    HarvestedPlant,
+    /// [`EnergyLedger::harvested_corpse`].
+    HarvestedCorpse,
+    /// [`EnergyLedger::metabolized`].
+    Metabolized,
+    /// [`EnergyLedger::moved`].
+    Moved,
+    /// [`EnergyLedger::synapse_tax`].
+    SynapseTax,
+    /// [`EnergyLedger::stored_in_meat`].
+    StoredInMeat,
+    /// [`EnergyLedger::dissipated`].
+    Dissipated,
+    /// [`EnergyLedger::overdrawn`].
+    Overdrawn,
+    /// **Colony-only, and the reason the split needed designing rather than
+    /// copying.** Trophallaxis moves energy from one live animal to another
+    /// and books nothing world-wide, correctly: the world's live stock is
+    /// unchanged. Split per colony it is not unchanged at all — kin is
+    /// `creature::is_living_kin`, which is *species* identity unless
+    /// `World::colony_rivalry` is on, so a shipped bed lets two ant colonies
+    /// feed each other across the box.
+    ///
+    /// Without this pair a colony's live identity would fail to close and
+    /// the temptation would be a free term to absorb the gap, which is the
+    /// exact failure [`EnergyLedger`]'s own doc records costing 300
+    /// conjured joules. It is a transfer and it is booked as one: out of
+    /// the donor's colony, into the recipient's, equal and opposite, so
+    /// `sum(SharedOut) == sum(SharedIn)` over every colony and the world
+    /// ledger is right to be silent about it.
+    SharedOut,
+    /// The far side of [`Account::SharedOut`].
+    SharedIn,
+}
+
+impl Account {
+    pub const ALL: [Account; 12] = [
+        Account::Granted,
+        Account::Stamped,
+        Account::HarvestedPlant,
+        Account::HarvestedCorpse,
+        Account::Metabolized,
+        Account::Moved,
+        Account::SynapseTax,
+        Account::StoredInMeat,
+        Account::Dissipated,
+        Account::Overdrawn,
+        Account::SharedOut,
+        Account::SharedIn,
+    ];
+    pub const COUNT: usize = Account::ALL.len();
+
+    /// Does the world-wide [`EnergyLedger`] carry this account too?
+    ///
+    /// False only for the two transfer accounts, which are between colonies
+    /// and so sum to zero world-wide. Everything else is booked in both
+    /// places by one call and the guard asserts they agree.
+    pub fn world_wide(self) -> bool {
+        !matches!(self, Account::SharedOut | Account::SharedIn)
+    }
+
+    /// `+1` if the account adds to the live stock, `-1` if it takes from
+    /// it, `0` if it never touches it.
+    ///
+    /// The whole of `expected_live_total`, for the world and for a colony,
+    /// is this sign times the account. Stated once here rather than twice
+    /// as two hand-written sums, because the two sums drifting apart is
+    /// precisely the bug the per-colony identity exists to catch.
+    /// `Stamped` is the only zero: structural energy goes straight to meat
+    /// and the animal can never spend it.
+    pub fn live_sign(self) -> f64 {
+        match self {
+            Account::Granted | Account::HarvestedPlant | Account::HarvestedCorpse | Account::Overdrawn | Account::SharedIn => 1.0,
+            Account::Metabolized
+            | Account::Moved
+            | Account::SynapseTax
+            | Account::StoredInMeat
+            | Account::Dissipated
+            | Account::SharedOut => -1.0,
+            Account::Stamped => 0.0,
+        }
+    }
+
+    /// The name a player reads, in the vocabulary of the box rather than of
+    /// the ledger — `wiki/ants.md`'s words, not `world.rs`'s.
+    pub fn label(self) -> &'static str {
+        match self {
+            Account::Granted => "placed with",
+            Account::Stamped => "bodies",
+            Account::HarvestedPlant => "foraged",
+            Account::HarvestedCorpse => "scavenged",
+            Account::Metabolized => "upkeep",
+            Account::Moved => "walking",
+            Account::SynapseTax => "brains",
+            Account::StoredInMeat => "left as meat",
+            Account::Dissipated => "lost",
+            Account::Overdrawn => "died owing",
+            Account::SharedOut => "fed to others",
+            Account::SharedIn => "fed by others",
+        }
+    }
+}
+
+/// **One colony's books: every [`Account`], plus what it ate.**
+///
+/// The world ledger answers *is the engine conserving energy*; this answers
+/// the player's question, which is a different one — *what is this colony
+/// living on, and is it living beyond its means*. Kept per
+/// [`OrganismState::colony`], which is the partition the lab's population
+/// strip and the renderer's creature colour already use, so the books and
+/// what is on screen are the same grouping.
+///
+/// # The live identity closes per colony; the meat identity does not, and
+/// # that is deliberate
+///
+/// Every joule that enters or leaves a colony's *live* stock is booked with
+/// that colony's label, so `expected_live_total` holds per colony exactly as
+/// it holds world-wide — `the_books_close_for_every_colony` asserts it.
+///
+/// **Meat is not split and must not be**, because a corpse cell carries no
+/// colony: [`Cell::aux`] holds its worth, and there is nowhere to put a
+/// label without taking a bit off something that needs it. So meat is one
+/// world-wide pool that colonies pay into ([`Account::StoredInMeat`]) and
+/// draw out of ([`Account::HarvestedCorpse`]), and the cross-colony transfer
+/// the player cares about — *that colony is eating my dead* — is visible as
+/// the two accounts rather than as a matched pair. Inventing an attributed
+/// meat account without a label to attribute it *by* is how a free term gets
+/// born; see [`EnergyLedger::meat_lost`], which is world-only for the same
+/// reason.
+#[derive(Clone, Debug, Default)]
+pub struct ColonyBooks {
+    accounts: [f64; Account::COUNT],
+    /// **Joules in, by the material they came out of** — the diet band.
+    ///
+    /// Indexed by `MaterialId.0`, grown on demand so nothing here needs the
+    /// registry to construct. **Joules and not cells**: a cell of moss and a
+    /// cell of corpse are not the same food, and this is priced through
+    /// `creature::diet_yield` at the same call that credits the animal, so
+    /// the readout cannot disagree with the verb.
+    ///
+    /// Sums to `HarvestedPlant + HarvestedCorpse` for this colony, which is
+    /// what `the_diet_band_sums_to_the_harvest_accounts` asserts — a band
+    /// that has quietly stopped tracking a new intake path is otherwise a
+    /// plausible picture of the wrong diet.
+    intake_by_material: Vec<f64>,
+    /// **Joules of living flesh this colony has swallowed off another
+    /// colony's animals**, and [`ColonyBooks::raided_by_others`] is the far
+    /// side of it.
+    ///
+    /// The one cross-colony flow with both ends legible at the instant it
+    /// happens: the bitten cell names its organism and the organism names
+    /// its colony. `World::tally_kill` already counts who kills whom; this
+    /// is what the meals were *worth*, which is the other half — a colony
+    /// can be bled a cell at a time without one death appearing in that
+    /// tally.
+    ///
+    /// **Face value, and therefore deliberately not a breakdown of any
+    /// account.** It is what came off the victim, priced the way the
+    /// victim's meat is priced, not the gut-filtered `diet_yield` the eater
+    /// is credited with at digestion — those are different numbers and the
+    /// robbed colony wants the first. Never subtract it from an account or
+    /// add it to one; it appears in no identity.
+    ///
+    /// Booked only where a mouth swallowed. The `Attack` verb destroys
+    /// flesh without gaining it — `CreatureStats::attack_cells` is that
+    /// number — and counting it here would make the two sides of a matched
+    /// pair stop matching.
+    pub raided: f64,
+    /// What other colonies have eaten off this one's living animals. Sums
+    /// equal to [`ColonyBooks::raided`] across all colonies.
+    pub raided_by_others: f64,
+}
+
+impl ColonyBooks {
+    pub fn get(&self, account: Account) -> f64 {
+        self.accounts[account as usize]
+    }
+
+    /// What this colony's live animals should hold between them. The
+    /// per-colony twin of [`EnergyLedger::expected_live_total`].
+    pub fn expected_live_total(&self) -> f64 {
+        Account::ALL.iter().map(|&a| a.live_sign() * self.get(a)).sum()
+    }
+
+    /// Everything that came in this colony's door, all time.
+    pub fn income(&self) -> f64 {
+        Account::ALL.iter().filter(|a| a.live_sign() > 0.0).map(|&a| self.get(a)).sum()
+    }
+
+    /// Everything that went out of it. Income minus this is the bank.
+    pub fn outgo(&self) -> f64 {
+        Account::ALL.iter().filter(|a| a.live_sign() < 0.0).map(|&a| self.get(a)).sum()
+    }
+
+    /// Joules in by material, heaviest first, as `(material, joules)`.
+    ///
+    /// Sorted here rather than at each reader because "what are they
+    /// eating" is a ranking question everywhere it is asked, and a stable
+    /// sort on a descending key keeps two equal materials in registry order
+    /// — `CLAUDE.md`'s `sort_unstable` gotcha, which is about exactly this.
+    pub fn diet(&self) -> Vec<(MaterialId, f64)> {
+        let mut rows: Vec<(MaterialId, f64)> =
+            self.intake_by_material.iter().enumerate().filter(|(_, &j)| j > 0.0).map(|(i, &j)| (MaterialId(i as u16), j)).collect();
+        rows.sort_by(|a, b| b.1.total_cmp(&a.1));
+        rows
+    }
+
+    /// This colony's whole intake, by the diet band rather than by the
+    /// accounts. The two agree; see [`ColonyBooks::intake_by_material`].
+    pub fn intake(&self) -> f64 {
+        self.intake_by_material.iter().sum()
     }
 }
 
@@ -2633,6 +2936,18 @@ pub struct World {
     /// stops being able to represent a single `idle_cost` addition once it
     /// passes about 16 million.
     pub energy_ledger: EnergyLedger,
+    /// **The same accounts, per colony** — the books a player reads, where
+    /// `energy_ledger` is the books the engine is audited against.
+    ///
+    /// Indexed by [`OrganismState::colony`] directly, so slot 0 is the
+    /// "no colony" bucket every test-built animal and every plant lands in.
+    /// A `Vec` and not a map because the labels are handed out by
+    /// `claim_colony` in order and never reused, so they are dense by
+    /// construction — and because the booking sites are on the creature hot
+    /// path, where an index is a bounds check and a hash is not.
+    ///
+    /// Write through [`World::book`] only. See [`ColonyBooks`].
+    colony_books: Vec<ColonyBooks>,
     organisms: Vec<OrganismSlot>,
     free_organism_slots: Vec<u16>,
     /// **Cumulative organism births and deaths — the lineage turnover
@@ -4854,6 +5169,7 @@ impl World {
             creature_stats: CreatureStats::default(),
             blocked_tissue_by_material: Vec::new(),
             energy_ledger: EnergyLedger::default(),
+            colony_books: Vec::new(),
             organisms: Vec::new(),
             free_organism_slots: Vec::new(),
             organisms_born: 0,
@@ -5168,6 +5484,94 @@ impl World {
     /// `EnergyLedger`'s invariant.
     pub fn live_creature_energy(&self) -> f64 {
         self.organisms.iter().filter_map(|slot| slot.state.as_ref()).map(|state| state.energy as f64).sum()
+    }
+
+    /// The same sum, split by [`OrganismState::colony`] — indexed like
+    /// [`World::colony_books`], so the two line up term for term and the
+    /// per-colony identity is a subtraction rather than a join.
+    pub fn live_creature_energy_by_colony(&self) -> Vec<f64> {
+        let mut out = vec![0.0; self.colony_books.len()];
+        for state in self.organisms.iter().filter_map(|slot| slot.state.as_ref()) {
+            let i = state.colony as usize;
+            if i >= out.len() {
+                out.resize(i + 1, 0.0);
+            }
+            out[i] += state.energy as f64;
+        }
+        out
+    }
+
+    /// Which colony an organism belongs to, or 0 for none.
+    ///
+    /// Read **once per tick** and passed down, not called at each booking
+    /// site: `CLAUDE.md`'s "guard hot-path work at the call site that
+    /// already has the data" — `creature_tick` has already resolved the
+    /// state for its own reasons, and a second lookup per account would be
+    /// six more per animal per tick for a number that cannot change inside
+    /// one tick.
+    pub fn colony_of(&self, organism: u16) -> u32 {
+        self.organism(organism).map_or(0, |s| s.colony)
+    }
+
+    /// **Book `joules` into one account, on both sets of books.**
+    ///
+    /// The only supported way to write either ledger. See [`Account`] for
+    /// why there is exactly one such door, and [`ColonyBooks`] for what the
+    /// split does and does not close.
+    #[inline]
+    pub fn book(&mut self, colony: u32, account: Account, joules: f64) {
+        if let Some(field) = self.energy_ledger.account_mut(account) {
+            *field += joules;
+        }
+        self.colony_books_mut(colony).accounts[account as usize] += joules;
+    }
+
+    /// Book a mouthful: the account, **and** the material it came out of.
+    ///
+    /// One call rather than two because the diet band and the harvest
+    /// accounts have to be the same joules — a band maintained separately
+    /// from the credit is a picture that can disagree with the verb, and
+    /// `the_diet_band_sums_to_the_harvest_accounts` is what would then go
+    /// red. `account` is the caller's because only it knows whether the
+    /// cell carried its worth in `aux` (meat, a transfer) or in its
+    /// material (forage, a source).
+    #[inline]
+    pub fn book_meal(&mut self, colony: u32, account: Account, material: MaterialId, joules: f64) {
+        self.book(colony, account, joules);
+        let books = self.colony_books_mut(colony);
+        let i = material.0 as usize;
+        if i >= books.intake_by_material.len() {
+            books.intake_by_material.resize(i + 1, 0.0);
+        }
+        books.intake_by_material[i] += joules;
+    }
+
+    /// One colony's books, read-only. Empty books for a colony that has
+    /// never been booked against, which is the honest answer and saves
+    /// every reader an `Option`.
+    pub fn colony_books(&self, colony: u32) -> ColonyBooks {
+        self.colony_books.get(colony as usize).cloned().unwrap_or_default()
+    }
+
+    /// Every colony's books, indexed by colony label.
+    pub fn all_colony_books(&self) -> &[ColonyBooks] {
+        &self.colony_books
+    }
+
+    /// **Book a mouthful of one colony's living animal taken by another**,
+    /// on both colonies at once. See [`ColonyBooks::raided`] for what the
+    /// number is and, just as importantly, what it is not.
+    pub fn book_raid(&mut self, eater: u32, victim: u32, joules: f64) {
+        self.colony_books_mut(eater).raided += joules;
+        self.colony_books_mut(victim).raided_by_others += joules;
+    }
+
+    fn colony_books_mut(&mut self, colony: u32) -> &mut ColonyBooks {
+        let i = colony as usize;
+        if i >= self.colony_books.len() {
+            self.colony_books.resize_with(i + 1, ColonyBooks::default);
+        }
+        &mut self.colony_books[i]
     }
 
     /// Read-only view of one organism's whole-plant state, for probes.
