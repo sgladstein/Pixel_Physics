@@ -8803,6 +8803,60 @@ the carried circle moves with the player, so cells cross in and out of
 "outside" with no CA write behind them and nothing marks their chunks dirty.
 Without it the boundary smears, with no error anywhere.
 
+### How a circle of running time is drawn
+
+**A haze, not an outline.** Owner, 2026-09-14: *"They shouldn't be a solid
+line it blocks too much. I am thinking hazy shimmering aura. Think about how
+to indicate speed visual."* Until then a quickening was one hard 1px circle
+per placed bubble **plus one more inside it per two steps of the speed dial**,
+so the faster the circle the more of the world it crossed out — the complaint
+and the speed readout were the same object, and both had to be replaced at
+once.
+
+`render::AuraTuning` is a per-cell tint at the end of `cell_colour`'s chain,
+after `apply_held_look`. In the world pass and not in the HUD, because
+`druid::hud` cannot blend — a blend into a region the renderer skipped
+compounds and oscillates — and because a tint leaves the ground under it
+visible, which is the literal answer to *blocks too much*. The rim is
+displaced by coherent value noise keyed to **world** position: a
+constant-level disc reads as a soap bubble, which `Quickening::contains`' own
+doc and `Reports/dead-ends.md` both warn about, and keying it to the screen
+would make it crawl when the camera moves.
+
+Speed reads two ways, because a screenshot keeps only one of them:
+
+| | |
+|---|---|
+| **how fast the haze pulses** | not a mapping — the phase is `World::frame`, and `Druid::update` steps the world `speed` times per drawn frame, so a x8 circle pulses eight times faster *because time in there is running eight times faster* |
+| **how far it reaches inward** | 7 cells at real time, 22 at x8 — the half a paused screen, a contact sheet or a review card still carries |
+
+The dial is **measured rather than told**: `Druid::speed` is not visible from
+`render.rs`, so the renderer takes the difference between two readings of
+`World::frame`, which *is* the dial.
+`the_rate_the_aura_draws_is_the_rate_the_world_ran` is the positive control on
+that, and a frame with nothing stepped holds the last reading so a pause does
+not change what the picture says. **The circle he carries is exempt** and runs
+off the renderer's own draw counter: `step_extra_ticks` lifts the player out
+for the catch-up passes, so his ground genuinely runs at real time whatever
+the dial says.
+
+**It does not cost the dirty-rect render skip**, and that is what the phase
+being quantised buys. The pulse is *not* in the `LookKey`; the discs' bounding
+boxes are unioned into the dirty region by hand, the same device the animated
+liquid grain and `idle_extra` already use. Measured on a settled held world
+with one radius-40 circle: **0 pixels recomputed with the aura off, 8,649 with
+it on** — the circle's own bounding box — against 40,000 for a full repaint,
+and only on the frames the phase steps, which at real time is every other one.
+
+**Known limitations.** Above x1 the gnome's own circle is missing from the
+picture entirely: `step_extra_ticks` restores the player after the catch-up
+passes and does not restore `World::carried`, so anything drawing between two
+updates sees no carried circle. That predates the aura — the old outline
+vanished the same way. The `SPACE` placement preview is still a hard 1px
+circle, because it is not world state and the renderer cannot see it. There is
+no runtime selector for the aura's dials; `examples/druid_aura.rs` sweeps them
+from the command line instead.
+
 ### Not built
 
 No save or load — there is no serde over `World` anywhere in this engine, so

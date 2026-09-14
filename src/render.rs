@@ -2875,6 +2875,23 @@ impl AuraTuning {
     }
 }
 
+/// One circle as the per-pixel path wants it. See `Renderer::aura_discs`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct AuraDisc {
+    cx: i32,
+    cy: i32,
+    r: f32,
+    /// `0` standing, `1` carried — indexes `Renderer::aura_reach`/`aura_phase`.
+    arm: usize,
+    /// Nothing inside this squared distance can be hazed: it is deeper than
+    /// the reach even where the rim noise pushes the boundary furthest in.
+    inner2: f32,
+    /// ...and nothing outside this one, where it pushes furthest out.
+    outer2: f32,
+    /// The bounding box, in world cells, for the dirty region.
+    bounds: Rect,
+}
+
 /// The haze over a circle standing on its own, and the one he carries —
 /// **the same cold/warm pair `druid::hud` gives their outlines**
 /// (`RING_STANDING`, `RING_CARRIED`), so the carried circle still reads as
@@ -3186,14 +3203,22 @@ pub struct Renderer {
     /// game, and free on two of them: every path below returns on
     /// `!world.held`, which no sandbox or lab world ever is.
     pub aura: AuraTuning,
-    /// This draw's quickening discs in world cells, `(x, y, r, carried)`,
-    /// rebuilt from the world once per `draw` and never per pixel.
+    /// This draw's quickening discs, rebuilt from the world once per `draw`
+    /// and never per pixel: centre, radius, which arm (`0` standing, `1`
+    /// carried), and the **squared** radii of the band the haze occupies.
+    ///
+    /// The two squared bounds are what keep this affordable when the player
+    /// has covered the map in circles. A single union rectangle rejects the
+    /// screen, but two circles far apart union to a rectangle spanning both,
+    /// and then every pixel between them would pay a square root per circle.
+    /// With the bounds the deep interior and the outside are each one integer
+    /// compare, and only cells in the band itself take the root.
     ///
     /// Renderer state that is *derived per frame from the world* rather than
     /// remembered across frames, which is the distinction `draw`'s sky-light
     /// note draws and the reason the stateful skyline (`dead-ends.md` §985)
     /// could not live here.
-    aura_discs: Vec<(i32, i32, i32, bool)>,
+    aura_discs: Vec<AuraDisc>,
     /// The union of those discs, so the per-pixel path rejects the whole
     /// screen on one rectangle test before it ever loops over circles.
     aura_bounds: Option<Rect>,
@@ -4919,14 +4944,8 @@ impl Renderer {
             // (the animated grain's own number) and this costs the discs. The
             // quantum is what keeps even that off most frames at real time —
             // see `AURA_FRAME_QUANTUM`.
-            let aura_rects: Vec<Rect> = self
-                .aura_discs
-                .iter()
-                .filter_map(|&(cx, cy, r, _)| {
-                    let slack = self.aura.rim_rough.abs().ceil() as i32 + 1;
-                    self.world_rect_to_screen_rect(Rect::new(cx - r - slack, cy - r - slack, cx + r + slack, cy + r + slack), width, height)
-                })
-                .collect();
+            let aura_rects: Vec<Rect> =
+                self.aura_discs.iter().filter_map(|d| self.world_rect_to_screen_rect(d.bounds, width, height)).collect();
             if self.last_aura_step != Some(self.aura_step) || self.last_aura_rects != aura_rects {
                 for r in aura_rects.iter().chain(self.last_aura_rects.iter()) {
                     dirty = Some(match dirty {
@@ -7665,20 +7684,34 @@ impl Renderer {
         let phase = |step: u64| (step * AURA_FRAME_QUANTUM) as f32 / self.aura.period.max(1.0);
         self.aura_phase = [phase(self.aura_step[0]), phase(self.aura_step[1])];
 
+        // One cell of slack past the roughest the rim noise can push the
+        // boundary in either direction, so a ragged crest is never clipped
+        // square and a ragged trough is never cut off inside.
+        let rough = self.aura.rim_rough.abs();
+        let slack = rough.ceil() as i32 + 1;
+        let disc = |cx: i32, cy: i32, r: i32, arm: usize, reach: f32| {
+            let inner = (r as f32 - reach - rough).max(0.0);
+            let outer = r as f32 + rough + 1.0;
+            AuraDisc {
+                cx,
+                cy,
+                r: r as f32,
+                arm,
+                inner2: inner * inner,
+                outer2: outer * outer,
+                bounds: Rect::new(cx - r - slack, cy - r - slack, cx + r + slack, cy + r + slack),
+            }
+        };
         for q in &world.quickenings {
-            self.aura_discs.push((q.x, q.y, q.r, false));
+            self.aura_discs.push(disc(q.x, q.y, q.r, 0, self.aura_reach[0]));
         }
         if let Some(q) = world.carried {
-            self.aura_discs.push((q.x, q.y, q.r, true));
+            self.aura_discs.push(disc(q.x, q.y, q.r, 1, self.aura_reach[1]));
         }
-        // One cell of slack past the roughest the rim noise can push the
-        // boundary outward, so a ragged crest is never clipped square.
-        let slack = self.aura.rim_rough.abs().ceil() as i32 + 1;
-        for &(cx, cy, r, _) in &self.aura_discs {
-            let rect = Rect::new(cx - r - slack, cy - r - slack, cx + r + slack, cy + r + slack);
+        for d in &self.aura_discs {
             self.aura_bounds = Some(match self.aura_bounds {
-                Some(b) => b.union(rect),
-                None => rect,
+                Some(b) => b.union(d.bounds),
+                None => d.bounds,
             });
         }
     }
@@ -7772,22 +7805,30 @@ impl Renderer {
         if !bounds.contains(x, y) {
             return base;
         }
+        // **Sampled once, outside the loop.** The rim noise is a property of
+        // the ground, not of which circle is asking about it, so two
+        // overlapping circles ripple along the same seam of the world rather
+        // than each carrying their own — which is what keeps it reading as
+        // terrain the haze is lying over.
         let rough = self.aura.rim_rough * self.aura_rim_noise(x, y);
         let mut best = 0.0f32;
         let mut carried = false;
-        for &(cx, cy, r, is_carried) in &self.aura_discs {
-            let arm = usize::from(is_carried);
-            let (dx, dy) = ((x - cx) as f32, (y - cy) as f32);
-            // The distance *inside* the rim, with the rim itself displaced by
-            // the coherent noise: positive inside, negative out.
-            let d = r as f32 - (dx * dx + dy * dy).sqrt() + rough;
-            if d < 0.0 || d >= self.aura_reach[arm] {
+        for disc in &self.aura_discs {
+            let (dx, dy) = ((x - disc.cx) as f32, (y - disc.cy) as f32);
+            let dist2 = dx * dx + dy * dy;
+            if dist2 >= disc.outer2 || dist2 <= disc.inner2 {
                 continue;
             }
-            let a = self.aura_amount(x, y, d, arm);
+            // The distance *inside* the rim, with the rim itself displaced by
+            // the coherent noise: positive inside, negative out.
+            let d = disc.r - dist2.sqrt() + rough;
+            if d < 0.0 || d >= self.aura_reach[disc.arm] {
+                continue;
+            }
+            let a = self.aura_amount(x, y, d, disc.arm);
             if a > best {
                 best = a;
-                carried = is_carried;
+                carried = disc.arm == 1;
             }
         }
         if best <= 0.0 {

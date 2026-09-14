@@ -41,13 +41,24 @@ the frames the quantised phase steps: at real time that is every *other* drawn
 frame, at x8 every one — which is the right shape, because x8 is the circle
 that is supposed to look fast.
 
-**The clock, for scale only.** Whole frame through `Druid::draw` — the call
-the game itself makes, HUD and all, because a subsystem harness overstates —
-eight alternating blocks of 40 frames, two settings of one binary:
-**1.740 -> 1.792 ms mean, +0.051**. The *worst* moved 6.281 -> 5.413, i.e. the
-wrong way; it does not pin (mean x frames = 557 ms, far above the worst), so it
-is an order statistic over many similar frames and means nothing. Read the
-mean.
+**The clock, for scale only, and it is the weaker number of the two.** Whole
+frame through `Druid::draw` — the call the game itself makes, HUD and all,
+because a subsystem harness overstates — eight alternating blocks of 40 frames,
+two settings of one binary, on the shipped 512x320 with a radius-46 circle at
+x8: **1.787 -> 1.791 ms mean, +0.004**. The *worst* moved 7.363 -> 5.929, i.e.
+the wrong way, and did so in both runs; it does not pin (mean x frames = 572 ms,
+far above the worst), so it is an order statistic over many similar frames and
+means nothing. The counter beside it is deterministic — **+1,176 px/frame in
+both runs** — which is why it is the one to quote.
+
+An earlier build of the same feature measured **+0.051 ms** here. The
+difference is the per-disc squared-radius rejection: the union of every
+circle's bounding box is one rectangle, so two circles far apart made every
+pixel between them pay a square root per circle. Each disc now carries its
+band as two squared radii, and the interior and the outside are one compare
+each. The render is **byte-identical** before and after — checked by rendering
+the same frame twice and `cmp`-ing it, which is the only control a pure
+optimisation has.
 
 **`examples/ascii` is unchanged, and by construction rather than by luck**: 31
 scenes, 0 skipped, worst render frame 0.468 ms. No `ascii` scene holds a

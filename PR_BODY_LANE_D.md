@@ -81,10 +81,12 @@ way the animated liquid grain and `idle_extra` already do. On the game's real
 512x320 frame a radius-46 circle is 6.7% of the screen, and it is paid only on
 the frames the quantised phase steps — every *other* frame at real time.
 
-Whole frame through `Druid::draw`, eight alternating blocks of 40 frames:
-**1.740 -> 1.792 ms mean, +0.051**. The worst-frame figure moved the *other*
-way and does not pin (mean x frames far exceeds it), so it is noise wearing a
-number.
+Whole frame through `Druid::draw` on the shipped 512x320, radius-46 circle at
+x8, eight alternating blocks of 40 frames: **1.787 -> 1.791 ms mean, +0.004**.
+The worst-frame figure moved the *other* way, in both runs, and does not pin
+(mean x frames far exceeds it) — noise wearing a number. The counter beside it
+is deterministic at **+1,176 px/frame** across runs, which is why it is the
+one quoted.
 
 `examples/ascii`: 31 scenes, 0 skipped, worst render frame 0.468 ms —
 unchanged **by construction**, since no `ascii` scene holds a world and every
