@@ -93,7 +93,16 @@ const FLOW: [u8; 4] = [255, 250, 225, 255];
 /// The halo around a mote, and what the landing ring fades to.
 /// The scent the druid lays — a cold green, so it reads as something put
 /// down rather than as the warm energy of the drain.
+///
+/// **Channel A only.** The two planes get different colours because they are
+/// different instructions and one of them is currently inert: a player who
+/// cannot see which plane he is drawing on cannot see why nothing happened.
 const SCENT: [u8; 4] = [120, 255, 180, 255];
+/// The food route, in the magenta `render.rs`'s own pheromone overlay uses for
+/// it — and deliberately a *colder* pair than channel A's, because nothing can
+/// read it yet (`open-bugs-handoff.md` §Z7).
+const SCENT_B: [u8; 4] = [230, 150, 255, 255];
+const SCENT_B_FAINT: [u8; 4] = [120, 70, 140, 255];
 /// **How far off the walked route the field is sampled**, in cells.
 ///
 /// Four, because that is roughly how far `pheromone::DIFFUSE` carries a mark
@@ -153,6 +162,7 @@ pub const KEYS: &[(&str, &str)] = &[
     ("[ ]", "HOW FAR YOUR OWN CIRCLE REACHES"),
     ("Z V", "HOW FAST TIME RUNS IN THEM"),
     ("G", "LAY A SCENT TRAIL AS YOU WALK"),
+    ("I", "WHICH SCENT - HOME, OR FOOD"),
     ("T", "SOW A SEED WHERE YOU STAND"),
     ("TAB", "WHICH SEED"),
     ("C", "FOUND A COLONY - OPENS AN OFFER"),
@@ -328,6 +338,8 @@ pub struct Interface {
     motes: Vec<Mote>,
     /// Screen position and 0..1 age of each arrival bloom.
     landings: Vec<(i32, i32, f32)>,
+    /// Which plane the marks below are on, so the colour can say so.
+    scent_b: bool,
     /// Scent he has laid, in screen pixels, with how strong it still is —
     /// **quantised to [`SCENT_BANDS`] levels, and that is not cosmetic.**
     ///
@@ -355,6 +367,7 @@ impl Interface {
             marks: marks(game),
             motes: motes(game),
             landings: landings(game),
+            scent_b: game.scent == crate::sim::pheromone::Channel::B,
             scent: scent(game),
             founding: founding(game),
             options: options(game),
@@ -378,8 +391,9 @@ impl Interface {
 
         // **What he has told them.** Under the marks and motes, over the
         // rings: it is ground he has written on, not an event.
+        let (faint, full) = if self.scent_b { (SCENT_B_FAINT, SCENT_B) } else { (SCENT_FAINT, SCENT) };
         for (x, y, band) in &self.scent {
-            hc.put(frame, *x, *y, lerp(SCENT_FAINT, SCENT, *band as f32 / (SCENT_BANDS - 1) as f32));
+            hc.put(frame, *x, *y, lerp(faint, full, *band as f32 / (SCENT_BANDS - 1) as f32));
         }
 
         // **The promise: a mark over an animal holding charge.** A chevron
@@ -597,7 +611,7 @@ fn scent(game: &Druid) -> Vec<(i32, i32, u8)> {
                     continue;
                 }
                 let (x, y) = (mx + dx, my + dy);
-                let v = game.world.pheromone_at(crate::sim::pheromone::Channel::B, x, y);
+                let v = game.world.pheromone_at(game.scent, x, y);
                 if v == 0 {
                     continue;
                 }
@@ -1148,6 +1162,7 @@ mod tests {
             marks: vec![Mark { x: 120, y: 140, fullness: 0.8 }],
             motes: vec![Mote { x: 160, y: 130, bright: 0.5 }],
             landings: vec![(200, 150, 0.3)],
+            scent_b: false,
             scent: vec![(140, 152, 7), (141, 152, 4), (142, 153, 1)],
             // **The screen is in the idempotence guard, not beside it.** It
             // draws the biggest panel in the game, and a panel is exactly the
@@ -1175,6 +1190,7 @@ mod tests {
             marks: Vec::new(),
             motes: Vec::new(),
             landings: Vec::new(),
+            scent_b: false,
             scent: Vec::new(),
             founding: None,
             options: None,
