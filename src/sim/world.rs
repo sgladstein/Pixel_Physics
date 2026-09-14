@@ -2407,6 +2407,36 @@ pub struct ColonyBooks {
     /// What other colonies have eaten off this one's living animals. Sums
     /// equal to [`ColonyBooks::raided`] across all colonies.
     pub raided_by_others: f64,
+    /// **[`ColonyBooks::raided`] split by whose animals it came off**, as
+    /// `(colony, joules)`, and [`ColonyBooks::lost_to`] is the far side.
+    ///
+    /// The owner asked the lab's FOOD page for this in as many words, 2026-
+    /// 09-14: *"if the colony is eating lots of ants, i can click and see
+    /// which colony they are coming from."* **The totals above cannot be
+    /// narrowed back down** — with two colonies the split is forced by
+    /// subtraction, with three it is not — so a page built on them would have
+    /// been guessing, and the split has to be kept at the call that already
+    /// knows both ends.
+    ///
+    /// A `Vec` rather than a map, for two reasons that are not tidiness: a
+    /// box holds a handful of colonies, so a linear scan is cheaper than a
+    /// hash; and **insertion order is stable**, where a map's iteration order
+    /// is not, and this is read by a page that ranks it —
+    /// `CLAUDE.md`'s `sort_unstable`/tie-order gotcha is exactly this shape.
+    pub raided_from: Vec<(u32, f64)>,
+    /// The far side of [`ColonyBooks::raided_from`]: which colonies have been
+    /// eating *this* one's animals, and for how much.
+    pub lost_to: Vec<(u32, f64)>,
+}
+
+/// Add `joules` to `colony`'s entry in a sparse `(colony, joules)` list,
+/// appending it if this is the first. Shared by both halves of a raid so the
+/// two sides cannot drift apart in how they accumulate.
+fn add_to(rows: &mut Vec<(u32, f64)>, colony: u32, joules: f64) {
+    match rows.iter_mut().find(|(c, _)| *c == colony) {
+        Some((_, total)) => *total += joules,
+        None => rows.push((colony, joules)),
+    }
 }
 
 impl ColonyBooks {
@@ -5589,8 +5619,15 @@ impl World {
     /// on both colonies at once. See [`ColonyBooks::raided`] for what the
     /// number is and, just as importantly, what it is not.
     pub fn book_raid(&mut self, eater: u32, victim: u32, joules: f64) {
-        self.colony_books_mut(eater).raided += joules;
-        self.colony_books_mut(victim).raided_by_others += joules;
+        let books = self.colony_books_mut(eater);
+        books.raided += joules;
+        // Split by whose animals it was, at the one call that knows both
+        // ends -- see `ColonyBooks::raided_from` for why the totals cannot be
+        // taken apart afterwards.
+        add_to(&mut books.raided_from, victim, joules);
+        let books = self.colony_books_mut(victim);
+        books.raided_by_others += joules;
+        add_to(&mut books.lost_to, eater, joules);
     }
 
     fn colony_books_mut(&mut self, colony: u32) -> &mut ColonyBooks {

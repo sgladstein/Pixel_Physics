@@ -1920,6 +1920,13 @@ struct BooksSnap {
     /// that has books — a colony that has died out still has an economy, and
     /// it is usually the one worth reading.
     colonies: Vec<(u32, [f64; Account::COUNT], f64, f64)>,
+    /// `(colony, rival, joules eaten off that rival, joules lost to it)` —
+    /// `ColonyBooks::raided_from` and `lost_to`, snapshotted so the rival
+    /// breakdown can be read over a range like everything else on the page.
+    /// A figure on this page that quietly meant *all time* while the row
+    /// above it meant *the last two minutes* is the correct-arithmetic,
+    /// different-question failure in miniature.
+    rivals: Vec<(u32, u32, f64, f64)>,
     /// `(colony, material, cumulative joules)`. **Per colony**, where the
     /// population ring's `diet` is summed over all of them: the colony page
     /// asks what *this* colony is eating, and a world total cannot be
@@ -2398,6 +2405,25 @@ impl History {
                     (colony as u32, accounts, b.raided, b.raided_by_others)
                 })
                 .collect(),
+            rivals: all
+                .iter()
+                .enumerate()
+                .flat_map(|(colony, b)| {
+                    let mut who: Vec<u32> = b.raided_from.iter().map(|&(c, _)| c).collect();
+                    for &(c, _) in &b.lost_to {
+                        if !who.contains(&c) {
+                            who.push(c);
+                        }
+                    }
+                    who.into_iter()
+                        .map(move |rival| {
+                            let took = b.raided_from.iter().find(|&&(c, _)| c == rival).map_or(0.0, |&(_, j)| j);
+                            let lost = b.lost_to.iter().find(|&&(c, _)| c == rival).map_or(0.0, |&(_, j)| j);
+                            (colony as u32, rival, took, lost)
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect(),
             diet: all
                 .iter()
                 .enumerate()
@@ -2460,6 +2486,39 @@ impl History {
             lost = rb;
         }
         ((books.raided - took).max(0.0), (books.raided_by_others - lost).max(0.0))
+    }
+
+    /// **Who this colony has been eating, and who has been eating it**, over
+    /// a range: `(rival, taken, lost)`, heaviest taken first.
+    ///
+    /// The owner's third layer — *"if the colony is eating lots of ants, i
+    /// can click and see which colony they are coming from."* Ranked on what
+    /// was *taken* rather than on the sum, because that is the question the
+    /// row is opened from; a colony being eaten and not eating still appears,
+    /// with a zero on the left.
+    fn rivals_over(&self, world: &World, colony: u32, now: u64, frames: u64) -> Vec<(u32, f64, f64)> {
+        let books = world.colony_books(colony);
+        let then = self.books_before(now, frames);
+        let mut who: Vec<u32> = books.raided_from.iter().map(|&(c, _)| c).collect();
+        for &(c, _) in &books.lost_to {
+            if !who.contains(&c) {
+                who.push(c);
+            }
+        }
+        let mut rows: Vec<(u32, f64, f64)> = who
+            .into_iter()
+            .map(|rival| {
+                let was = then.and_then(|s| s.rivals.iter().find(|&&(c, r, _, _)| c == colony && r == rival));
+                let took = books.raided_from.iter().find(|&&(c, _)| c == rival).map_or(0.0, |&(_, j)| j) - was.map_or(0.0, |&(_, _, t, _)| t);
+                let lost = books.lost_to.iter().find(|&&(c, _)| c == rival).map_or(0.0, |&(_, j)| j) - was.map_or(0.0, |&(_, _, _, l)| l);
+                (rival, took.max(0.0), lost.max(0.0))
+            })
+            .filter(|&(_, took, lost)| took > 0.0 || lost > 0.0)
+            .collect();
+        // Stable, so two rivals level on what they took keep the order they
+        // were first met in -- `CLAUDE.md`'s tie-order gotcha.
+        rows.sort_by(|a, b| b.1.total_cmp(&a.1));
+        rows
     }
 
     /// **What one colony ate over a range, by source material, heaviest
@@ -2678,13 +2737,14 @@ fn feeding_itself(found: f64, spent: f64) -> (f64, &'static str) {
 /// say that it is anything already dead rather than an ant specifically. The
 /// owner's ask went one layer further than this — *"if the colony is eating
 /// lots of ants, i can click and see which colony they are coming from"* —
-/// and **that layer is not buildable off what the engine records today**:
-/// `ColonyBooks::raided` is a scalar per colony, so with three colonies in
-/// the box the victim of any one mouthful is not recoverable. Saying which
-/// ones are ambiguous is the honest half of that, and the note says it.
+/// and for `ANT` that layer now exists: `ColonyBooks::raided_from` splits the
+/// flesh by whose animals it came off, and the colony page lists one line per
+/// rival. **For a plant source it does not and cannot yet**: nothing anywhere
+/// attributes a harvested cell to the organism it grew on, so the note points
+/// at the thing the box *can* answer — where on the ground it came from.
 fn source_note(name: &str) -> &'static str {
     match name {
-        "ANT" => " THIS IS ANOTHER COLONY'S LIVING ANIMALS, EATEN THROUGH THE ORDINARY MOUTH. WHICH COLONY THEY CAME OFF IS NOT RECORDED YET -- ONLY THE TOTAL IS, ON THE ATE RIVALS ROW BELOW.",
+        "ANT" => " THIS IS ANOTHER COLONY'S LIVING ANIMALS, EATEN THROUGH THE ORDINARY MOUTH. WHICH COLONY THEY CAME OFF IS ON THE LINES UNDER ATE RIVALS BELOW, ONE PER RIVAL, EACH IN ITS OWN COLOUR.",
         "CORPSE" => " ANYTHING ALREADY DEAD, WHOEVER IT WAS. A CORPSE CARRIES THE WORTH OF THE ANIMAL IT WAS, SO THIS IS FOOD SOMETHING ELSE ALREADY PAID FOR, AND A COLONY LIVING ON IT IS EATING ITSELF.",
         "SPOIL" => " THE MIDDEN -- WHAT A COLONY THROWS OUT. EATING IT BACK IS NOT INCOME; IT IS THE SAME JOULES GOING ROUND.",
         _ => " WHICH PLANTS IT CAME OFF IS NOT RECORDED YET. WHERE ON THE GROUND IT CAME FROM IS: PRESS F7 FOR THE HARVEST MAP AND THE PATCHES THIS COLONY HAS BEEN STRIPPING LIGHT UP IN ITS OWN COLOUR.",
@@ -4841,8 +4901,34 @@ impl Ui {
                 "ATE RIVALS / EATEN BY",
                 format!("{} / {}", compact(took), compact(lost)),
                 if lost > took { POOR } else { VALUE },
-                "LIVING FLESH TAKEN OFF ANOTHER COLONY'S ANIMALS, AND TAKEN OFF THIS ONE'S. TWO COLONIES THAT DO NOT KNOW EACH OTHER'S SMELL ARE FOOD TO EACH OTHER THROUGH THE ORDINARY MOUTH -- NOTHING HAS TO BE TAUGHT TO FIGHT FOR THIS TO HAPPEN. WHICH COLONY THE MOUTHFULS CAME OFF IS NOT RECORDED ANYWHERE YET; ONLY THE TOTAL IS.",
+                "LIVING FLESH TAKEN OFF ANOTHER COLONY'S ANIMALS, AND TAKEN OFF THIS ONE'S. TWO COLONIES THAT DO NOT KNOW EACH OTHER'S SMELL ARE FOOD TO EACH OTHER THROUGH THE ORDINARY MOUTH -- NOTHING HAS TO BE TAUGHT TO FIGHT FOR THIS TO HAPPEN. THE LINES UNDER THIS ONE SAY WHICH COLONY, EACH IN ITS OWN COLOUR.",
             ));
+            // **Named, not totalled -- the owner's third layer.** *"If the
+            // colony is eating lots of ants, i can click and see which colony
+            // they are coming from."* Listed under the total rather than
+            // behind another click: it is one line per rival on a bed that
+            // holds a handful of them, and a page reached by a second click
+            // to read two lines is a page nobody opens.
+            for (rival, took, lost) in self.history.rivals_over(world, colony, now, frames) {
+                let rival_species = self.history.remembered_groups().into_iter().find(|&(_, c)| c == rival).map(|(sp, _)| sp);
+                let (rival_name, rival_tint) = match rival_species {
+                    Some(sp) => (
+                        world.group_label(sp, rival),
+                        tint_of(render::group_colour(render::CreatureColour::Colony, sp, rival, false).unwrap_or(render::GROUP_NONE)),
+                    ),
+                    None => (format!("COLONY {rival}"), FAINT),
+                };
+                rows.push(Row::value(
+                    format!("  {rival_name}"),
+                    format!("{} / {}", compact(took), compact(lost)),
+                    rival_tint,
+                    format!(
+                        "THIS COLONY HAS EATEN {} J OFF {rival_name}'S LIVING ANIMALS IN THE WINDOW, AND LOST {} J OF ITS OWN TO THEM. BOOKED AT THE MOUTHFUL, SO A COLONY CAN BE BLED A CELL AT A TIME WITHOUT A SINGLE DEATH APPEARING IN THE KILL TALLY.",
+                        compact(took),
+                        compact(lost)
+                    ),
+                ));
+            }
         }
         let (in_crops, mut loads) = colony_carrying(world, colony);
         loads.sort_unstable_by(|a, b| b.cmp(a));
@@ -11537,6 +11623,55 @@ mod tests {
         assert_eq!(feeding_itself(9.0, 10.0).1, "YES");
         assert_eq!(feeding_itself(5.0, 10.0).1, "PART WAY");
         assert_eq!(feeding_itself(1.0, 10.0).1, "NO");
+    }
+
+    /// **A colony's page names which rival its meat came off, and gets the
+    /// split right when there is more than one.**
+    ///
+    /// The owner's third layer: *"if the colony is eating lots of ants, i can
+    /// click and see which colony they are coming from."* **Two colonies is
+    /// the case that cannot fail** — the split is forced by subtraction from
+    /// the totals, so a page guessing from `raided` alone would look correct.
+    /// Three is the case that separates a record from a guess, and it is what
+    /// this builds.
+    #[test]
+    fn a_colonys_page_names_which_rival_its_meat_came_off() {
+        // Live animals in three colonies, so the rows carry the colony's real
+        // name and colour rather than the no-organism fallback -- the page a
+        // player sees. `colonised` already has each colony raiding the next
+        // (1 takes 30 J off 2, 3 takes 90 J off 1); one more raid gives
+        // colony 1 a *second* rival, which is the case a guess cannot reach.
+        let mut world = colonised(3);
+        world.book_raid(1, 3, 500.0);
+
+        let mut ui = Ui::new();
+        ui.history.observe(&world);
+        ui.food_range = RANGES.iter().position(|&(_, f)| f == 0).expect("an all-time stop");
+        assert_eq!(
+            ui.history.rivals_over(&world, 1, world.frame, 0),
+            vec![(3, 500.0, 90.0), (2, 30.0, 0.0)],
+            "heaviest taken first, both sides per rival, and colony 3's 500 J not muddled with colony 2's 30"
+        );
+        // ...and the far side closes: what colony 1 took off colony 3 is what
+        // colony 3 lost to colony 1.
+        assert_eq!(
+            ui.history.rivals_over(&world, 3, world.frame, 0),
+            vec![(1, 90.0, 500.0), (2, 0.0, 60.0)],
+            "the victim's page says who took it"
+        );
+
+        // On the page itself, so a working split behind a row nobody draws
+        // still fails.
+        let rows = ui.food_colony_rows(&world, 1);
+        let named: Vec<String> = rows
+            .iter()
+            .filter_map(|r| match &r.body {
+                Body::Value { label, value, .. } if label.starts_with("  ANT") => Some(format!("{}={}", label.trim(), value)),
+                _ => None,
+            })
+            .collect();
+        assert!(named.iter().any(|r| r.starts_with("ANT 3=500")), "colony 3 is named on the page with its own joules: {named:?}");
+        assert!(named.iter().any(|r| r.starts_with("ANT 2=30")), "and so is colony 2: {named:?}");
     }
 
     /// **A range must actually narrow the figures, and must say when it

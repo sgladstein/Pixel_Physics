@@ -304,27 +304,37 @@ the fixture's raid in the past — so the block being height-checked was the
 short one. Caught by the guard's own `rivals == named` assertion going red,
 which is the assertion added for exactly this. The fixture now pins ALL TIME.
 
-### The third layer, and why it is not here
+### The third layer: half of it shipped, and the other half cannot yet
 
 *"If the colony is eating lots of ants, i can click and see which colony they
 are coming from, I can click flower and see which plants the flowers are being
-eaten from."* **Neither is buildable on what the engine records today**, and
-saying so is cheaper than building the wrong half:
+eaten from."*
 
-- **Which colony the ants came off.** `ColonyBooks::raided` is a **scalar per
-  colony**. With two colonies it is determined by subtraction; with three it is
-  not, and the page would be guessing. The fix is small and additive — a
-  `HashMap<u32, f64>` beside `raided`, filled at `World::book_raid`, which
-  already has both colonies in hand — and it is in `src/sim/world.rs`, the most
-  contested file in the repo and not this lane's. **Not done, deliberately, and
-  it is one commit whenever it is wanted.**
-- **Which plants the flowers came off.** Nothing attributes a harvested cell to
-  the organism it grew on; the bite reads a *material*, not an individual. That
-  is a real piece of engine work, not a readout.
+**Which colony the ants came off is now on the page.** `ColonyBooks` gains
+`raided_from` and `lost_to` — the raid split by whose animals it was, filled at
+`World::book_raid`, which already had both colonies in hand. The colony page
+lists one line per rival under `ATE RIVALS / EATEN BY`, each in that rival's
+own colour, windowed like everything else.
 
-**What the box can already answer is *where on the ground*** — the harvest map
-on `F7`, which is per colony and per tile. Each diet row's note says so, so the
-missing layer reads as a pointer rather than as a dead end.
+**Inline rather than behind a third click**, and that is a judgement I should
+name: it is one line per rival on a bed that holds a handful of them, and a
+page you reach by a second click to read two lines is a page nobody opens. The
+*information* was the ask; the click was the mechanism he pictured.
+
+**Two colonies is the case that cannot fail**, which is why the guard uses
+three. With two, the split is forced by subtraction from the totals — a page
+guessing from `raided` alone would have looked correct. With three it is not
+recoverable, and `a_colonys_page_names_which_rival_its_meat_came_off` builds
+exactly that: colony 1 takes 500 J off colony 3 and 30 J off colony 2 while
+being bled by 3 alone, so the ranking, the two sides and the attribution are
+each separately falsifiable, and the victim's own page is checked to close the
+far side.
+
+**Which plants the flowers came off still cannot be answered.** Nothing
+attributes a harvested cell to the organism it grew on — the bite reads a
+*material*, not an individual. That is engine work, not a readout, and the
+diet row's note points at the `F7` harvest map, which does know *where on the
+ground*.
 
 **Card `20260914T221442287Z-1add4b`** — *"The FOOD page, rebuilt the way you
 asked"*, both layers. Verdict: *pending*.
