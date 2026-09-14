@@ -46,11 +46,25 @@ that is supposed to look fast.
 frame through `Druid::draw` — the call the game itself makes, HUD and all,
 because a subsystem harness overstates — eight alternating blocks of 40 frames,
 two settings of one binary, on the shipped 512x320 with a radius-46 circle at
-x8: **1.787 -> 1.791 ms mean, +0.004**. The *worst* moved 7.363 -> 5.929, i.e.
-the wrong way, and did so in both runs; it does not pin (mean x frames = 572 ms,
-far above the worst), so it is an order statistic over many similar frames and
-means nothing. The counter beside it is deterministic — **+1,176 px/frame in
-both runs** — which is why it is the one to quote.
+x8, **measured after `main` was merged in**, so Lane A's button bar (0.055
+ms/frame unconditional) and biosphere page are in the frame being compared:
+**1.699 -> 1.727 ms mean, +0.028**. The *worst* moved 9.296 -> 5.163, i.e. the
+wrong way, and did so in all three runs; it does not pin (mean x frames = 544
+ms, far above the worst), so it is an order statistic over many similar frames
+and means nothing.
+
+**The counter beside it is the number to quote**: `+1,176 px/frame`, identical
+in all three runs across two builds and both sides of the merge. Deterministic
+where the clock is not.
+
+**Do not read `cost=1`'s counter at x1**, and this is the instrument warning
+worth carrying out of this lane. It reports **-1,606 px/frame**, i.e. adding
+work made the renderer recompute *fewer* pixels, which cannot be a causal
+effect of anything. The arms alternate on a world that keeps evolving, so at
+x1 they are not looking at the same state; at x8 the world inside the circle
+is busy enough that the touched set dominates and the two arms agree to the
+pixel. The paired, deterministic version of this question is the guard above,
+which forks nothing: one settled world, one renderer per arm, same frame.
 
 An earlier build of the same feature measured **+0.051 ms** here. The
 difference is the per-disc squared-radius rejection: the union of every
