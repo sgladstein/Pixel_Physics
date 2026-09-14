@@ -118,11 +118,58 @@ was caught by asking what the number counted. All three are recorded in the
 source. The harness still disagreed with the app by 3x afterwards, so **every
 headline number here is the app's**.
 
+## The lab reached the same root cause independently
+
+PR #432 (`claude/evolution-lab-pheromones`) measured this from the lab side
+while this was being built. **The two agree**: diffusion 16.7% a pass against
+decay's 2.9%, here ~17% against ~3%; and ant-laid trails have the same defect.
+
+It concluded the only lever is a **shared** per-channel `DIFFUSE` setter, and
+offered "the only lever is shared" as a complete result. **It is not the only
+lever.** Diffusion drains a line into *empty* neighbours — that is the whole of
+the 16.7% — so a cell in the middle of a band sheds almost nothing and widening
+the mark defeats the dominant term **without touching `DIFFUSE` at all**.
+Nothing is shared and no new dial is needed.
+
+`pherolife` could not have found it: it sweeps `rho`, `diffuse` and `deposit`
+over a trail it lays **one cell wide**, so width is a constant of the harness
+rather than a variable. That generalises, and it is written up as a proposed
+rule at the end of the lane note — **not** edited into `CLAUDE.md` by this
+lane, since placing a rule in the file every session in all three games loads
+is the owner's call.
+
+**What this lane did not measure:** `pherolife` carries a **run drive** counter
+and reports the shipped trail stops *steering* at frame 48 with 77 cells still
+standing — a better effect measure than presence. The swath's peak runs 3x
+higher over the same window and the slope guard
+`a_laid_trail_slopes_toward_the_newest_end` still passes, so the gradient an ant
+reads should be larger for longer; **that is an inference and is named as one.**
+A radius dial on `pherolife` settles it in one run.
+
+#432 was unmerged when this was written, so nothing here builds against
+`set_channel_diffuse`, and `DIFFUSE` is untouched.
+
 ## Gates
 
-`cargo clippy --all-targets --release --locked -- -D warnings`,
-`cargo test --release`, `bash scripts/docscheck.sh`,
-`python3 scripts/deadendindex.py --touching` (0 entries named).
+All four green on the **merged** tree (`main` landed 40 commits touching
+`src/druid/mod.rs`, `src/druid/hud.rs`, `src/render.rs` and `src/bin/druid.rs`
+mid-session; merged clean, and it turns out `main` never touched the scent path
+in either file). Re-measured after the merge: identical numbers.
+
+- `cargo clippy --all-targets --release --locked -- -D warnings` — clean.
+- `cargo test --release`, the **full** suite rather than `--lib`: 1,810 + 2 + 10
+  lib/bin, 3 `tests/determinism.rs`, 44 `tests/worldgen.rs` — **0 failed**.
+- `bash scripts/docscheck.sh` — clean (it caught the missing
+  `Reports/instruments.md` row, now written).
+- `python3 scripts/deadendindex.py --touching` — **0 entries** name an
+  identifier this branch adds. `Reports/dead-ends.md` was also grepped directly
+  for `TRAIL_DEPOSIT`, `lay_trail`, `SCENT_HALO`, `SCENT_BANDS`, `DECAY_RHO`,
+  `decay_lut` and `PHEROMONE_INTERVAL` before any of this was built.
+
+Judge-by-eye, per `CLAUDE.md`: review card `20260914T202113978Z-80ad3b`
+(`owner_can_see_it: true`), a before/after frame pair stepping 0 / 3.5 / 8 / 14
+seconds, asking whether 14s is enough or whether a trail should outlast a full
+colony round trip.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
