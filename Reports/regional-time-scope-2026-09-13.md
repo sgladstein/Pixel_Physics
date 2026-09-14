@@ -9,6 +9,21 @@ withdrawn for one global `Druid::speed`; that work is on
 `claude/determined-ramanujan-c9szc5` (commit `e27a4b15`) and **has not
 landed**, so nothing described below as "shipped" is on `main` yet.
 
+> **Update 2026-09-14: it landed.** PR #430 merged that branch, so everything
+> this report calls "shipped" *is* on `main` now — the global `Druid::speed`,
+> `PIXEL_PHYSICS_DRUID_CIRCLES`, `_CENSUS` and `_UNLIMITED`, and the
+> `dead-ends.md` entry (`other:124`, still that id). **Two things in §10 are
+> stale as a result**: the instrument is on `main` rather than on a branch,
+> and the twelve-seed spread sweep is therefore no longer blocked on landing
+> anything. What is *not* stale is the blocker itself —
+> **`PIXEL_PHYSICS_DRUID_SEED` still does not exist** (checked against
+> `main` on the date of this note, which lists twenty `_DRUID_` knobs and no
+> seed among them), so the sweep this report names as its first measurement
+> still cannot be run, and adding that knob is still the smallest useful
+> piece of work in the whole scope. Nothing else in the report changes:
+> the census, the RNG measurement and the ageing arithmetic were taken
+> against the engine, not against the branch.
+
 **What is measured here and what is reasoned.** Three things are measured:
 the census of `World::frame` readers (§1), the behaviour of `rng::stream`
 under a shortened or repeated key (§4b, with a positive control that
