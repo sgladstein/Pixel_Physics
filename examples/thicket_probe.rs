@@ -71,6 +71,10 @@ const MAX_STEP: i32 = 64;
 /// is the curve's own positive control.
 const BOUNDS: [i32; 8] = [0, 2, 4, 6, 8, 16, 32, 64];
 
+/// Integer upscale applied to a rendered card before it is written. See
+/// [`shoot`] for why a card is not posted at the framebuffer's own size.
+const OUT_SCALE: u32 = 2;
+
 /// One column's verdict.
 #[derive(Clone, Debug)]
 enum Verdict {
@@ -379,7 +383,23 @@ fn shoot(world: &pixel_physics::sim::world::World, at: (i32, i32), zoom: i32, ou
     renderer.set_camera(at.0 - span.0 / 2, at.1 - span.1 / 2, (vw, vh), world.bounds());
     let mut buf = vec![0u8; (vw * vh * 4) as usize];
     renderer.draw(world, &ParticleSystem::default(), &Default::default(), &mut buf, (vw, vh), true);
-    image::save_buffer(out, &buf, vw, vh, image::ColorType::Rgba8).expect("writing the frame");
+    // **Upscale nearest-neighbour before writing, and this is not decoration.**
+    // The review skill records the sizes the owner has actually been able to
+    // judge — 700-950 px across — and one card went out at 190x130 and came
+    // back as "I see none of the changes in it", because at that size there
+    // was nothing to see. An ant is two cells; the app's own framebuffer is
+    // 512 px wide. The page does scale client-side, but a card should not
+    // arrive needing the owner to find the zoom control first.
+    let (ow, oh) = (vw * OUT_SCALE, vh * OUT_SCALE);
+    let mut big = vec![0u8; (ow * oh * 4) as usize];
+    for y in 0..oh {
+        for x in 0..ow {
+            let src = (((y / OUT_SCALE) * vw + (x / OUT_SCALE)) * 4) as usize;
+            let dst = ((y * ow + x) * 4) as usize;
+            big[dst..dst + 4].copy_from_slice(&buf[src..src + 4]);
+        }
+    }
+    image::save_buffer(out, &big, ow, oh, image::ColorType::Rgba8).expect("writing the frame");
 }
 
 fn main() {
@@ -393,6 +413,7 @@ fn main() {
     let mut shot: Option<String> = None;
     let mut zoom = 4;
     let mut ablate = false;
+    let mut at: Option<i32> = None;
     for arg in std::env::args().skip(1) {
         let (k, v) = arg.split_once('=').unwrap_or((arg.as_str(), ""));
         match k {
@@ -403,6 +424,7 @@ fn main() {
             "shot" => shot = Some(v.to_string()),
             "zoom" => zoom = v.parse().unwrap_or(zoom),
             "ablate" => ablate = v != "0" && v != "off",
+            "at" => at = v.parse().ok(),
             "half" => half = v.parse().unwrap_or(half),
             "stands" => stands = v.parse().unwrap_or(stands),
             "spacing" => spacing = v.parse().unwrap_or(spacing),
@@ -422,7 +444,7 @@ fn main() {
     // Echo every parameter, the arm included: a log that does not name its
     // arm was written by a binary that never had one.
     let arm = std::env::var("PIXEL_PHYSICS_THICKET_CLIMB").unwrap_or_else(|_| "default".into());
-    println!("thicket_probe: start={start} half={half} stands={stands} spacing={spacing} lab={lab} seeds={seeds} frames={frames} shot={shot:?} zoom={zoom} ablate={ablate} climb_arm={arm} max_step={MAX_STEP}");
+    println!("thicket_probe: start={start} half={half} stands={stands} spacing={spacing} lab={lab} seeds={seeds} frames={frames} shot={shot:?} zoom={zoom} ablate={ablate} at={at:?} climb_arm={arm} max_step={MAX_STEP}");
 
     if lab > 0 {
         let (mut all_stations, mut all_placed) = (Vec::new(), Vec::new());
@@ -493,11 +515,28 @@ fn main() {
     } else {
         // The gnome's own key, so the census above can be read against the
         // number the player actually sees rather than instead of it.
-        let placed = game.found_colony();
-        println!("thicket_probe: found_colony at the gnome's feet placed {placed} animals");
+        // **`at=` picks the stand; without it, the gnome's own.** A card is
+        // read at one stand, and the stand the gnome happens to be at is a
+        // sample from a wide distribution — on `grow=2500` his own is a
+        // 3-against-4, which is inside the spread and says nothing. The
+        // sweep names a stand where the two arms genuinely differ; this is
+        // how the card gets aimed at it.
+        let (sx, sy_cursor) = match at {
+            Some(cx) => (cx, creature::colony_surface(&game.world, cx, 0).map_or(y, |g| g - 2)),
+            None => (x, y),
+        };
+        let placed = if at.is_some() { game.world.found_colony_of(sx, sy_cursor, "ant", 12) } else { game.found_colony() };
+        println!("thicket_probe: founding at {sx},{sy_cursor} placed {placed} animals");
         if let Some(out) = &shot {
-            shoot(&game.world, (x, y), zoom, out);
-            println!("thicket_probe: wrote {out} at {x},{y} zoom {zoom} — placed {placed} animals");
+            // **Aim at the ground, not at the stand.** The stand is a cursor
+            // row and in a wood the gnome stands *in the canopy* — the first
+            // pair of cards this wrote were centred on him, forty rows above
+            // the ants, and showed a handsome thicket with the thing being
+            // judged entirely out of frame. `CLAUDE.md`'s *look before you
+            // measure*, in the form where you look and it is the wrong place.
+            let ground = creature::colony_surface(&game.world, sx, sy_cursor).unwrap_or(sy_cursor);
+            shoot(&game.world, (sx, ground), zoom, out);
+            println!("thicket_probe: wrote {out} centred on the ground at {sx},{ground} zoom {zoom} — placed {placed} animals");
         }
     }
 }

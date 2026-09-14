@@ -2,8 +2,9 @@
 
 ## 2026-09-14 → coordinator
 
-**Branch `claude/thicket-founding`, cut from `main` at `32f465c6`.** Head SHA
-at the bottom.
+**Branch `claude/thicket-founding`, cut from `main` at `32f465c6`, with
+`origin/main` merged in at `79c0b639`.** Head SHA at the bottom. Every number
+below was re-taken on the merged tree and reproduces.
 
 **The short version.** The traced line was right and it is not the whole
 answer. `colony_ant_site`'s `is_empty(cx, sy - 1)` was refusing a forest
@@ -202,12 +203,91 @@ it and there is no sentence this change makes false. If you disagree, the
 sentence to add would go in whatever page owns the held world's verbs, and
 there is no such page yet.
 
-## 8. Gates
+## 8. What the guards cost, which is the part worth reading
 
-`cargo clippy --all-targets --release --locked -- -D warnings`, full `cargo
-test --release`, `scripts/acceptance.sh`, `scripts/docscheck.sh` — all green;
-see the PR body for the run. `deadendindex.py --touching`: 0 hits, and
-silence is not evidence, so §6 above is the manual pass.
+Four guards, and **two of them shipped in the first commit unable to fail**.
+Both were scene errors, both in the same test, and neither was caught by
+review — only by running it.
+
+1. It asked for a material called `rock`. This engine's solid is `stone`;
+   there is no `rock.ron`. So the overhang case never ran at all. What caught
+   it was `matted_bed`'s `unwrap_or_else(|| panic!("{material} material"))`,
+   which names the missing material rather than handing back a bed that has
+   quietly lost its subject.
+2. Fixed to `stone`, it then failed **for a good reason**: it asserted that a
+   slab of stone lying on soil is a refusal, and it is not.
+   `colony_surface` stops on the first cell that is *not*
+   `Empty | Gas | Plant`, so anything `Solid`, `Powder`, `Liquid` or
+   `Creature` over the soil **becomes the surface** rather than standing on
+   it. A slab on soil is higher ground and founding on top of it is correct.
+   The "slab over a leaf" case in the same test was unreachable for the same
+   reason. `CLAUDE.md`'s *a scene that contradicts the code will look like a
+   bug in the code*, twice in one function.
+
+The reachable non-plant blocker is a **`Gas`** — passable to the surface
+scan, and not `World::is_empty`. Both cases are now built out of smoke, and
+the third asserts `colony_surface` still lands on the soil *before* asserting
+anything about the climb, so it cannot quietly stop testing the climb.
+
+**Two fault injections, and they are not interchangeable.** Deleting the
+`!= MaterialKind::Plant` check so the climb crosses anything non-empty: the
+refusal guard FAILS, as it must. `PIXEL_PHYSICS_THICKET_CLIMB=off`: 3 of the
+4 guards fail and that one stays **green** — at climb 0 the old rule refuses
+everything, so a refusal guard cannot be falsified by an arm that refuses by
+construction. Recorded because its green under `off` is not coverage and
+should not be read as any.
+
+One near-miss worth passing on: my first attempt to run the four used `\|` as
+a filter separator. `cargo test` treats it as a literal substring, matched
+nothing, and printed `test result: ok. 0 passed` — a green line meaning *I
+ran nothing*. Check the count, not the colour.
+
+## 9. Judge-by-eye
+
+Review card **`20260914T050513804Z-623a4b`** (board `creature`, blind A/B,
+`owner_can_see_it: true`, verified present on `origin/review-queue` by
+`git show` rather than trusted from the post output). Same world, same seed,
+same stand (x=1312, the largest paired difference of the 18), one press of
+the key in each arm: **2 animals against 7**, both counts in the card's
+`meta` beside the picture.
+
+The question put to the owner is the one I cannot answer: the ants now stand
+**on grass and leaf rather than on soil**, which is consistent with the
+engine's own walk rules and is exactly the kind of thing that is right in the
+rules and reads as floating on screen. If it does, `THICKET_CLIMB` is one
+number and pulling it back is cheap.
+
+The first pair of cards I rendered were centred on the gnome and showed a
+handsome thicket with the ants entirely out of frame — in a wood he stands
+*in the canopy*, forty rows above where they land. `shot=` now aims at the
+ground under the stand, and upscales, because the skill's own record says the
+stills the owner has been able to judge are 700-950 px across and one card at
+190x130 came back as "I see none of the changes in it".
+
+## 10. Gates
+
+All green on `89b434dd`, and re-checked after the `main` merge:
+
+- `cargo test --release` — **1,753** lib + 10 bin + 3 determinism + **44
+  worldgen**, 0 failed. `tests/worldgen.rs` had never once run on this branch
+  before that: `cargo test` stops at the first failing test binary, and the
+  `rock`/`stone` guard was that binary. Two gating files invisible behind one
+  bad string — the exact asymmetry `CLAUDE.md` §M records.
+- `cargo clippy --all-targets --release --locked -- -D warnings` — clean.
+- `scripts/acceptance.sh` — all cases met their expectations.
+- `scripts/docscheck.sh` — clean, before and after the merge.
+- `deadendindex.py --touching` — 0 hits, and silence is not evidence, so §6
+  above is the manual pass.
+
+**`main` merged at `79c0b639`** — nine commits, not the six the coordinator
+had checked, and `src/druid/mod.rs` and `src/druid/founding.rs` were among
+them. Read rather than assumed: the druid changes are the scent-channel
+default, `HeldLook::OneHue` and HUD work. Nothing touches the grow phase, the
+life densities, `COLONY_SIZE`, or anything the organism count depends on.
+**The headline pair was re-taken on the merged tree and reproduces exactly**
+— stations 60 → 134, placed 47 → 79 — because a number taken before a merge
+is a number about a different tree. `branchcheck`: 7 ahead, 0 behind, 6
+files, well under the 300 bar.
 
 **The guards were watched going red.** `PIXEL_PHYSICS_THICKET_CLIMB=off`
 restores the pre-change rule exactly, and under it
