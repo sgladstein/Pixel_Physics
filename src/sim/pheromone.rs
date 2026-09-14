@@ -99,12 +99,34 @@ pub const PHEROMONE_INTERVAL: u64 = 12;
 ///
 /// Tracking keeps improving to 1.0, and 0.25 is still the right pick,
 /// because the two ends buy different things (`CLAUDE.md`: when several
-/// knobs move the same number, check what each one trades). A full mean
-/// filter flattens a shared trail's peak from 153 to 63 — and the
-/// *height* of a well-used trail against a lightly-used one is
-/// differential reinforcement, which is the entire path-selection
-/// algorithm. 0.25 takes 96% of the available tracking for 40% of the
-/// peak loss.
+/// knobs move the same number, check what each one trades).
+///
+/// **The reason recorded here for years was the wrong one, measured
+/// 2026-09-14.** It ran: a full mean filter flattens a shared trail's peak
+/// from 153 to 63, and *"the height of a well-used trail against a
+/// lightly-used one is differential reinforcement, which is the entire
+/// path-selection algorithm"*, so 0.25 buys 96% of the tracking for 40% of
+/// the peak. **Nothing reads height.** The only concentration inputs,
+/// `BrainInput::PheroAFront`/`PheroBFront`, have never carried a weight in
+/// any species file in any commit; what every animal reads is
+/// `PheroAAlong`, a Weber's-Law *relative* difference that is scale-free by
+/// construction. So the peak loss this paid 4% of tracking to avoid costs
+/// path selection nothing: measured at a fork where one branch carries ten
+/// times the traffic (`examples/pherolife mode=junction`), the ant's own
+/// discrimination is **0.845 / 0.969 / 0.899 / 0.881** at blends 0.10 /
+/// 0.25 / 0.50 / 1.00 — flat, while the peak falls 234 to 99.
+///
+/// **0.25 is still defensible, for a reason nobody had measured: what a
+/// high blend destroys is the weak branch itself.** In the same run the
+/// lightly-used branch stands at **19** at blend 0.10, **2** at 0.25 and
+/// **0 at 0.50 and above** — erased, not merely quieter. The high
+/// discrimination at those settings is the *absence* of the alternative
+/// rather than a clean reading of it (`CLAUDE.md`: a cost that vanishes may
+/// be work that vanished), and a colony that cannot re-find an abandoned
+/// route is the ossification `DECAY_RHO`'s doc guards against, arriving by
+/// another road. That makes this a **trail-lifetime** knob, which is the
+/// same axis `Pheromones::set_channel_diffuse` exists for, and **0.25 sits
+/// close to the cliff** — the weak branch is at 2 of 255.
 pub const DIFFUSE: f32 = 0.25;
 
 /// Evaporation per pass. The literature band is 0.1–0.5.

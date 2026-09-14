@@ -525,6 +525,104 @@ companion worth building, because rate and frequency reach the same 2x while
 trading different things — rate makes the spread permanently shallower,
 cadence keeps its shape and delays it.
 
+### The front sensors stay unwired, and that corrects §2a
+
+**The owner's follow-up: wire them if I recommend it, but find out why it was
+not done first.** Researched, and the recommendation is **no** — §2a's
+observation is true and the implication I left standing under it was wrong.
+
+**It was never done, rather than undone.** `git log -S "PheroAFront" --
+assets/species/` returns nothing: those slots have never carried a weight in
+any species file in any commit.
+
+**The design intended concentration to be read somewhere else entirely.**
+`creature-direction.md`'s motor stage specifies a probabilistic choice among
+three forward candidates weighted by `(k + s_i)^2` — Deneubourg's nonlinearity
+over three sampled *concentrations*. That is not what ants do here: `p_move`
+comes from the brain and the animal steps or tumbles, with `choose_weighted`
+used for other contested decisions but never scored on pheromone. So the
+concentration reader the design called for was to be a movement rule, not a
+brain input, and the run-and-tumble that replaced it is what `PheroAAlong`'s
+own doc argues for on a surface.
+
+**And the biology says the absent reader is the wrong one.**
+`stigmergy-research.md` §2: Perna et al. measured individual Argentine ants
+showing a **proportional (Weber's Law)** response to pheromone, *not* the
+sigmoidal absolute response the classical model assumes, and agent
+simulations with the Weber response still reproduced the literature's trails.
+`PheroAAlong` is `(ahead - here) / (ahead + here + 1)` — a relative
+difference normalised by the total. **That is a Weber response.** The engine
+already implements the individual rule the biology has; a front-sensor weight
+would add the one it does not. §2 puts the colony's side of it plainly:
+*"the colony finds the shorter path without any ant measuring anything."*
+
+**Measured, the existing input discriminates** (`pherolife mode=junction`, a
+fork whose strong branch carries ten times the traffic of the weak one):
+
+| blend | strong branch | weak branch | the ant's discrimination |
+|---|---|---|---|
+| 0.10 | 234 | **19** | 0.845 |
+| 0.25 | 221 | **2** | 0.969 |
+| 0.50 | 162 | **0** | 0.899 |
+| 1.00 | 99 | **0** | 0.881 |
+
+An ant on the trunk reads about **-0.01 down the strong branch and -0.98 down
+the weak one**, with nothing reading a height anywhere. **Height is not what a
+choice point needs; contrast is**, and a scale-free reader gets contrast free.
+
+**Read the two middle columns rather than the last one.** Discrimination is
+high at every blend, but above 0.25 it is high because **the weak branch has
+been erased** — 0 of 255, not merely quieter. That is `CLAUDE.md`'s *a cost
+that vanishes may be work that vanished*, and it is the real finding here: a
+colony that cannot re-find an abandoned route is the ossification
+`DECAY_RHO`'s doc guards against, reached by another road.
+
+**So two doc corrections land instead of a wiring change.** `DIFFUSE`'s
+stated justification — preserve peak height, because height *is* the
+path-selection algorithm — is measurably not what path selection needs, and
+its 4%-of-tracking payment buys nothing there. The value 0.25 survives for a
+reason nobody had measured: it is a **trail-lifetime** knob, the same axis
+§3b's table is about, and it **sits close to a cliff** (the weak branch at 2
+of 255). `BrainInput::PheroAAlong` now records why the front slots stay
+empty, matching how the laterals are already treated.
+
+**And the geometry is the deeper reason, which the biology alone does not
+give.** The owner's follow-up — *consider what real ants do, but also our 2D
+geometry and if that changes anything* — and it does, in the direction of
+making the answer firmer.
+
+The Jones/Physarum triad this input list was modelled on (a front sample plus
+two laterals at ±45°) assumes an agent in **open 2D**, whose problem is
+*staying on* a line it could drift off in any direction. A creature here
+cannot drift off. The whole-chain support rule holds it to the surface — a
+chain falls unless some cell of it touches solid — so it walks a
+**one-dimensional manifold** through a 2D world, and the surface *is* the
+line. That is the real reason the laterals measure 0.000: at full offset they
+point into open air and into rock.
+
+A creature confined to a line does not need *"am I on it"*. It needs **which
+way along it**, which is one signed scalar — and that is `PheroAAlong`.
+Absolute concentration answers a different question (*"is this branch the
+busy one"*), and in this geometry that question rarely arises: **there is no
+fork on open ground.** So the triad was imported from open-2D prior art
+without being re-derived for a side-view world; `PheroAAlong` *is* that
+re-derivation, and the laterals are rightly kept because the import still
+fits the one thing here that does move in open 2D — a flier.
+
+**This also caveats the table above, and the caveat is load-bearing.** Those
+branches are laid in **open air**, which no ant can walk. The measurement is
+honest about the *input's* discriminating power — a real, answerable question
+— and says nothing about how often the situation occurs. **Where forks
+genuinely exist in this world is underground**, in the galleries the colony
+digs, and over/under an obstacle. That is where a concentration reader would
+first be worth measuring, and pointing `mode=junction` at a dug nest is the
+follow-on nobody has run.
+
+**Kept rather than removed**, for the laterals' reason plus one: a zero
+weight is one mutation from existing (`MUT_ABS_FLOOR`), so a lineage for
+which absolute concentration *is* worth something can evolve the connection.
+Authoring one now pre-judges that.
+
 ---
 
 ## 4. What would overturn this
