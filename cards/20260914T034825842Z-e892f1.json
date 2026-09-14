@@ -13,7 +13,7 @@
   },
   "title": "Energy pull: how the particle count should scale with a thin draw",
   "question": "At this small a pull (2.25 energy per animal, well under the 40 cap), which flow reads as more honestly 'not much yet' — thin but still there, or thinner and closer to nothing?",
-  "context_md": "",
+  "context_md": "New (item 2 of your 2026-09-14 playtest): the mote count is now `floor + amount * slope` instead of a flat 26 regardless of how much you drew. Both arms here drew the same 18 energy from the same 8 animals (2.25 each, a pull taken early -- well under the 40 cap) on the same seed, so the only thing that differs is the formula. At a fuller pull (drew 120, 15/animal) the two arms give 15 and 17 motes -- close together -- so the floor is what this card is really asking about: how thin should the *thinnest real pull* look before it stops reading as \"still charging\" and starts reading as \"basically nothing\"?\n\n- **A** floor 6, +0.6 per energy -- 7 motes at this pull, 30 at a full 40-energy one\n- **B** floor 2, +1.0 per energy -- 4 motes at this pull, 42 at a full 40-energy one",
   "kind": "ab",
   "blind": true,
   "blocking": false,
@@ -24,7 +24,7 @@
         "20260914T034825842Z-e892f1/000-mote_a_small.gif"
       ],
       "caption": "",
-      "meta": {},
+      "meta": {"energy drawn": 18, "motes at this pull": 7, "motes at a full 40-cap pull": 30},
       "focus": null,
       "gif_frames": 22
     },
@@ -34,7 +34,7 @@
         "20260914T034825842Z-e892f1/001-mote_b_small.gif"
       ],
       "caption": "",
-      "meta": {},
+      "meta": {"energy drawn": 18, "motes at this pull": 4, "motes at a full 40-cap pull": 42},
       "focus": null,
       "gif_frames": 22
     }
