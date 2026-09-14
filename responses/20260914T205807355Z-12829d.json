@@ -1,0 +1,11 @@
+{
+  "card_id": "20260914T205807355Z-12829d",
+  "answered_at": "2026-09-14T21:24:35Z",
+  "choice": null,
+  "choice_label": null,
+  "rating": null,
+  "comment": "We really should have discussed this more. #1 issue is your graphs, (top) they are showing how much a colony is eating in unknown scale at a fast pace. This is not answering any questions that I would ask. (bottom) it shows what a colony is eating at any given time, but again the pace is too fast (if the graph is all spikes that isn't useful), the bigger issue is that there is no legend for me to know which line is which. In general, I prefer graphs to tables, but I don't think they are helping here. Here is my suggestion: top page is basically the stats you have (foraged/meat/fed, ate rivals/eaten by, etc.) for each colony. Get rid of the graphs. If you click a colony, it goes to a more detailed page for that specific colony, which lists what they are eating (deadleaf, ant, seed, corpse, etc.) and other detailed info. If this is possible, I would love to have another layer, so if the colony is eating lots of ants, i can click and see which colony they are coming from, I can click flower and see which plants the flowers are being eaten from, etc. I am guessing you chose the graphs because these change over time and that is valid but we are about what was eaten over the past 2-3 minutes, not the past 10 seconds. Maybe we keep all the stats but there is a range options (all time, 10 min, 5 min, 1 min, etc) for them.",
+  "annotations": [],
+  "archived": false,
+  "blind_was": null
+}
