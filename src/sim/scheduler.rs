@@ -23,6 +23,7 @@
 //! `next_frame`, independent of chunk sleep state, so there's no equivalent
 //! of "an unlucky roll could let the chunk sleep and freeze this forever."
 
+use super::cell::OrganismId;
 use super::creature;
 use super::decay;
 use super::evaporation;
@@ -82,7 +83,7 @@ pub enum ActiveKind {
     /// oscillator shape for lateral-root priming, over a flat per-tick
     /// branch probability, citing Moreno-Risueno et al. (2010) — one
     /// mechanism, two eventual users, neither invented here.
-    Organism { organism: u16, stale_ticks: u8, plastochron: u8 },
+    Organism { organism: OrganismId, stale_ticks: u8, plastochron: u8 },
     /// M17: a `Solid` cell whose distance-to-anchor may need recomputing —
     /// scheduled by whatever disturbs a structure (painting, erasing, an
     /// explosion). Generated terrain's distances are *not* built up through
@@ -105,7 +106,7 @@ pub enum ActiveKind {
     /// (`Reports/organism-substrate-design.md` §6).
     ///
     /// `x`/`y` on the containing `ActiveSite` is the creature's **head**.
-    Creature { organism: u16 },
+    Creature { organism: OrganismId },
     /// Architecture §5f: a cell of a **decayable** material due to re-check
     /// whether it is damp enough to decay into whatever its
     /// `Material::decays_into` names — `ash` into `soil`, `litter` into

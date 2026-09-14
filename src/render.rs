@@ -5,6 +5,7 @@
 //! two apart is what lets M6 swap in a GPU pipeline with lighting and bloom
 //! without touching a single movement rule.
 
+use crate::sim::cell::OrganismId;
 use crate::sim::fxhash::ChunkSet;
 
 use rayon::prelude::*;
@@ -3092,7 +3093,7 @@ pub struct Renderer {
     /// everybody actually plays. Pruned every `draw` against `World::
     /// live_organism_ids` rather than left to grow across a session that
     /// breeds and starves continuously.
-    idle_tracks: std::collections::HashMap<u16, IdleTrack>,
+    idle_tracks: std::collections::HashMap<OrganismId, IdleTrack>,
     /// World cells this frame's idle animation draws into that are not the
     /// animal's own body — the antenna tip or the shuffle reach. Rebuilt
     /// every `draw`; empty whenever `idle_anim` is `Off` or `Head`, which
@@ -5548,7 +5549,7 @@ impl Renderer {
                 } else {
                     cell.organism_id() != 0
                         && material.climbable
-                        && self.tree_depth.in_front(cell.organism_id() as u32)
+                        && self.tree_depth.in_front(cell.organism_id())
                 };
                 // Nothing is drawn where a tree covers him: the world's
                 // own pixels, already painted by the cell pass, are what
@@ -7150,7 +7151,7 @@ impl Renderer {
         // Gated on `organism_id` first, which is a field of the `Cell`
         // already in hand, so a world with no organisms in it pays one
         // compare per non-empty pixel and nothing else.
-        if self.tree_depth == TreeDepth::Haze && cell.organism_id() != 0 && !self.tree_depth.in_front(cell.organism_id() as u32) {
+        if self.tree_depth == TreeDepth::Haze && cell.organism_id() != 0 && !self.tree_depth.in_front(cell.organism_id()) {
             base = [
                 (base[0] as u16 * HAZE_DIM / 256) as u8,
                 (base[1] as u16 * HAZE_DIM / 256) as u8,
@@ -7644,7 +7645,7 @@ impl Renderer {
             return;
         }
         let live = world.live_organism_ids();
-        let live_set: std::collections::HashSet<u16> = live.iter().copied().collect();
+        let live_set: std::collections::HashSet<OrganismId> = live.iter().copied().collect();
         // An id this map never revisits (death, starvation, a colony wiped
         // out) must not sit in it forever -- a session runs for hours and
         // breeds and starves continuously.
@@ -12219,14 +12220,14 @@ mod tests {
         // given tree has to keep its answer.
         let mut front = 0;
         let mut behind = 0;
-        for id in 1..200u16 {
-            match TreeDepth::Weave.in_front(id as u32) {
+        for id in 1..200u32 {
+            match TreeDepth::Weave.in_front(id) {
                 true => behind += 1,
                 false => front += 1,
             }
             assert_eq!(
-                TreeDepth::Weave.in_front(id as u32),
-                TreeDepth::Weave.in_front(id as u32),
+                TreeDepth::Weave.in_front(id),
+                TreeDepth::Weave.in_front(id),
                 "a tree must not change which side of him it is on"
             );
         }
@@ -12239,7 +12240,7 @@ mod tests {
         // sequentially and worldgen plants a stand left to right, so parity
         // would lay down front-back-front-back across the screen — a
         // correlation the eye picks out at once.
-        let runs = (2..60u16).filter(|&id| TreeDepth::Weave.in_front(id as u32) == TreeDepth::Weave.in_front((id - 1) as u32)).count();
+        let runs = (2..60u32).filter(|&id| TreeDepth::Weave.in_front(id) == TreeDepth::Weave.in_front(id - 1)).count();
         assert!(runs > 8, "only {runs} of 58 neighbouring pairs matched, which is parity in disguise");
     }
 
@@ -12256,7 +12257,7 @@ mod tests {
         // Find an organism whose hash puts it in front of him.
         let organism = (0..64)
             .map(|_| world.push_organism(species).expect("an organism slot is free"))
-            .find(|&id| TreeDepth::Weave.in_front(id as u32))
+            .find(|&id| TreeDepth::Weave.in_front(id))
             .expect("some organism id hashes to the front");
         for y in 20..50 {
             for x in 28..40 {
@@ -14610,7 +14611,7 @@ mod tests {
 
         let (w, h) = (crate::lab::WIDTH, crate::lab::HEIGHT);
         let mut buf = vec![0u8; (w * h * 4) as usize];
-        let mut ever_animated: std::collections::HashSet<u16> = std::collections::HashSet::new();
+        let mut ever_animated: std::collections::HashSet<OrganismId> = std::collections::HashSet::new();
         let mut draws = 0u32;
         for f in 0..=WINDOW {
             if f.is_multiple_of(EVERY) {

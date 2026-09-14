@@ -229,6 +229,23 @@ struct Ladder {
     /// is a superset of *that*, taken because `recompute_reach` has one
     /// number per chunk and not one per mark.
     cellloc: u64,
+    /// **Today's rule with the reach taken over the rows the sweep will
+    /// actually walk, instead of over all 64 rows of the chunk** — the
+    /// candidate that keeps the single-rect shape.
+    ///
+    /// The rules only ever look **one row** up or down, so a cell in a row
+    /// the region does not contain cannot be examined and its reach cannot
+    /// matter. Taking the max over `dirty.min_y - 1 ..= dirty.max_y + 1`
+    /// instead of the whole chunk is therefore conservative by the same
+    /// argument today's rule is: every cell the sweep examines lies in those
+    /// rows, and this bounds the reach of all of them.
+    ///
+    /// **It is the version worth building first**, because it changes no
+    /// shape — one rect per chunk, exactly as now — so it does not inherit
+    /// §E2, which is a divergence of the per-row *span* shape. A per-row
+    /// `[u8; CHUNK_SIZE]` grown in `set_world` beside `self.reach` and
+    /// refreshed in `recompute_reach` computes it for nothing.
+    bbox_rowband: u64,
     rows1: u64,
     cells: u64,
 }
@@ -300,6 +317,31 @@ fn ladder(changed: impl Iterator<Item = (i32, i32)>, world: &World, w: i32, h: i
     }
 
     let mut out = Ladder { cells: cells.len() as u64, ..Ladder::default() };
+    // `bbox_rowband`: the same rect, with the reach taken over the rows the
+    // region occupies rather than over the whole chunk.
+    for (c, b) in &all {
+        let bounds = c.bounds();
+        let mut reach = 1;
+        for y in (b.1 - 1).max(bounds.min_y)..=(b.3 + 1).min(bounds.max_y) {
+            if y < 0 || y >= h {
+                continue;
+            }
+            for x in bounds.min_x..=bounds.max_x {
+                if x < 0 || x >= w {
+                    continue;
+                }
+                reach = reach.max(world.materials.get(world.get(x, y).material).sweep_reach());
+            }
+        }
+        let min_x = (b.0 - reach).max(bounds.min_x).max(0);
+        let max_x = (b.2 + reach).min(bounds.max_x).min(w - 1);
+        let min_y = (b.1 - 1).max(bounds.min_y).max(0);
+        let max_y = (b.3 + 1).min(bounds.max_y).min(h - 1);
+        if max_x >= min_x && max_y >= min_y {
+            out.bbox_rowband += ((max_x - min_x + 1) as i64 * (max_y - min_y + 1) as i64) as u64;
+        }
+    }
+
     for (dst, boxes) in [(&mut out.bbox_own, &own), (&mut out.bbox, &all)] {
         for (c, b) in boxes {
             let reach = world.chunk_reach(*c).unwrap_or(1);
@@ -689,7 +731,8 @@ fn main() {
                 arm.t.all.rows += l.rows;
                 arm.t.all.cellreach += l.cellreach;
                 arm.t.all.cellloc += l.cellloc;
-                if !(l.cells <= l.cellloc && l.cellloc <= l.cellreach && l.cellreach <= l.rows && l.rows <= l.bbox) {
+                arm.t.all.bbox_rowband += l.bbox_rowband;
+                if !(l.cells <= l.cellloc && l.cellloc <= l.cellreach && l.cellreach <= l.rows && l.rows <= l.bbox && l.bbox_rowband <= l.bbox) {
                     arm.t.ladder_out_of_order += 1;
                 }
                 arm.t.all.rows1 += l.rows1;
@@ -705,6 +748,7 @@ fn main() {
                 arm.t.ant.rows += a.rows;
                 arm.t.ant.cellreach += a.cellreach;
                 arm.t.ant.cellloc += a.cellloc;
+                arm.t.ant.bbox_rowband += a.bbox_rowband;
                 arm.t.ant.rows1 += a.rows1;
                 arm.t.ant.cells += a.cells;
             }
@@ -784,8 +828,8 @@ fn main() {
     println!("  stocked: {:?}", arms.iter().map(|a| a.stocked).collect::<Vec<_>>());
 
     println!(
-        "\n{:>6} {:>7} {:>9} {:>9} {:>9} {:>9} {:>7} {:>9} {:>10} {:>9} {:>9} {:>10} {:>9} {:>9}",
-        "want", "ants", "swept/f", "bbox_own", "bbox", "bbox/swp", "nbr x", "rows", "cellreach", "cellloc", "rows1", "cells", "a_bbox", "a_cells"
+        "\n{:>6} {:>7} {:>9} {:>9} {:>9} {:>9} {:>7} {:>9} {:>9} {:>10} {:>9} {:>9} {:>10} {:>9} {:>9}",
+        "want", "ants", "swept/f", "bbox_own", "bbox", "bbox/swp", "nbr x", "rowband", "rows", "cellreach", "cellloc", "rows1", "cells", "a_bbox", "a_cells"
     );
     for arm in &arms {
         let f = arm.t.frames as f64;
@@ -793,7 +837,7 @@ fn main() {
         let swept = arm.t.swept as f64 / f;
         let bbox = arm.t.all.bbox as f64 / g;
         println!(
-            "{:>6} {:>7.1} {:>9.0} {:>9.0} {:>9.0} {:>9.2} {:>7.2} {:>9.0} {:>10.0} {:>9.0} {:>9.0} {:>10.0} {:>9.0} {:>9.0}",
+            "{:>6} {:>7.1} {:>9.0} {:>9.0} {:>9.0} {:>9.2} {:>7.2} {:>9.0} {:>9.0} {:>10.0} {:>9.0} {:>9.0} {:>10.0} {:>9.0} {:>9.0}",
             arm.want,
             arm.ants,
             swept,
@@ -801,6 +845,7 @@ fn main() {
             bbox,
             bbox / swept,
             bbox / (arm.t.all.bbox_own as f64 / g).max(1.0),
+            arm.t.all.bbox_rowband as f64 / g,
             arm.t.all.rows as f64 / g,
             arm.t.all.cellreach as f64 / g,
             arm.t.all.cellloc as f64 / g,
@@ -838,6 +883,7 @@ fn main() {
     row("sw_stale", &|a| a.t.sw[CH_STALE] as f64 / g(a));
     row("bbox_own", &|a| a.t.all.bbox_own as f64 / g(a));
     row("bbox", &|a| a.t.all.bbox as f64 / g(a));
+    row("bbox_rowband", &|a| a.t.all.bbox_rowband as f64 / g(a));
     row("rows", &|a| a.t.all.rows as f64 / g(a));
     row("cellreach", &|a| a.t.all.cellreach as f64 / g(a));
     row("cellloc", &|a| a.t.all.cellloc as f64 / g(a));

@@ -33,6 +33,7 @@
 //! cargo run --release --example labdial -- mode=gif out=dial.gif
 //! ```
 
+use pixel_physics::sim::cell::OrganismId;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -145,7 +146,7 @@ fn census() {
 
     // The displacement instrument needs a ring of centroid maps: tens of
     // creatures a tick, so a 769-deep ring is kilobytes.
-    let mut ring: std::collections::VecDeque<HashMap<u16, (f32, f32)>> =
+    let mut ring: std::collections::VecDeque<HashMap<OrganismId, (f32, f32)>> =
         std::collections::VecDeque::with_capacity(longest + 1);
 
     // The changed-cell instrument is **anchored** rather than ringed: one grid

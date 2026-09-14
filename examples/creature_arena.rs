@@ -80,6 +80,7 @@
 //! direction statistic sits under them.
 
 use pixel_physics::lab::scenario::Scenario;
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::sim::brain;
 use pixel_physics::sim::explosion::Blasts;
@@ -674,7 +675,7 @@ fn assign_new_founders(
     // whom and where the nest patch is relative to each animal, and it is
     // what the mirror has to invert. `found_colony_of` hands back a count
     // and not handles, so they are recovered from the grid.
-    let mut founders: Vec<(i32, u16)> = Vec::new();
+    let mut founders: Vec<(i32, OrganismId)> = Vec::new();
     for y in 0..spec.height {
         for x in 0..spec.width {
             let id = w.get(x, y).organism_id();
@@ -887,7 +888,7 @@ fn run_world(spec: &LabBox, scenario: Option<&Scenario>, frames: u64, arm: &Arm,
             t.animals += 1;
             t.cells += state.chain.len();
             t.deepest_gen = t.deepest_gen.max(state.generation);
-            // **Keyed on the lineage, not the `u16` handle.** Handles are
+            // **Keyed on the lineage, not the slot handle.** Handles are
             // recycled after sixteen reuses and would silently merge two
             // unrelated lines; `claim_lineage` counts monotonically. But a
             // *lineage* label is shared by a whole descent, so this counts

@@ -109,6 +109,7 @@
 //! prints its coverage against the engine's own death counter rather than
 //! trusting the identity to hold.
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::sim::brain::BrainInput as I;
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::organism::{self, CellType, CreatureDef};
@@ -723,10 +724,10 @@ fn run(seed: u64, frames: usize, every: usize, beetles: usize, paint: Paint, ove
 
     let mut row = Row::default();
     let mut samples = 0.0f64;
-    let mut beetle_energy: std::collections::HashMap<u16, f32> = std::collections::HashMap::new();
-    let mut ever_fed: std::collections::HashSet<u16> = std::collections::HashSet::new();
-    let mut ever_grabbed: std::collections::HashSet<u16> = std::collections::HashSet::new();
-    let mut prev_band: std::collections::HashMap<(u16, u16, u32), (usize, usize, usize)> = std::collections::HashMap::new();
+    let mut beetle_energy: std::collections::HashMap<OrganismId, f32> = std::collections::HashMap::new();
+    let mut ever_fed: std::collections::HashSet<OrganismId> = std::collections::HashSet::new();
+    let mut ever_grabbed: std::collections::HashSet<OrganismId> = std::collections::HashSet::new();
+    let mut prev_band: std::collections::HashMap<(OrganismId, u16, u32), (usize, usize, usize)> = std::collections::HashMap::new();
 
     for frame in 0..frames {
         if paint == Paint::SaturatedTrail && frame % 60 == 0 {
@@ -748,7 +749,7 @@ fn run(seed: u64, frames: usize, every: usize, beetles: usize, paint: Paint, ove
 
         // --- where the heads are ------------------------------------------
         let mut prey: Vec<(i32, i32)> = Vec::new();
-        let mut preds: Vec<(i32, i32, u16)> = Vec::new();
+        let mut preds: Vec<(i32, i32, OrganismId)> = Vec::new();
         // Ant identity -> the band it was standing in at this sample, so
         // the next sample can tell which ants stopped existing and where
         // they were when they did. Keyed `(id, generation, lineage)` rather
@@ -756,7 +757,7 @@ fn run(seed: u64, frames: usize, every: usize, beetles: usize, paint: Paint, ove
         // Value is (distance band, roofed) -- both dimensions come off one
         // census in one pass, so they cannot disagree about which ant they
         // are describing.
-        let mut ant_band: std::collections::HashMap<(u16, u16, u32), (usize, usize, usize)> = std::collections::HashMap::new();
+        let mut ant_band: std::collections::HashMap<(OrganismId, u16, u32), (usize, usize, usize)> = std::collections::HashMap::new();
         for py in 0..H {
             for px in 0..W {
                 let c = world.get(px, py);
@@ -793,7 +794,7 @@ fn run(seed: u64, frames: usize, every: usize, beetles: usize, paint: Paint, ove
         // wetland world inside this budget, which was true and stopped
         // being true when the crop and the heritable breeding bar landed.
         // Measured 2026-08-31: 4 births in the no-predator arm over 6,000
-        // frames. A bare `u16` slot is then ambiguous -- an organism id is
+        // frames. A bare slot handle is then ambiguous -- an organism id is
         // reused after its holder dies, so a newborn taking a dead ant's
         // slot makes that death invisible, which is a *downward* bias on
         // exactly the count being measured.

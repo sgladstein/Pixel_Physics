@@ -109,7 +109,7 @@
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
-use super::cell::Cell;
+use super::cell::{Cell, OrganismId};
 use super::chunk::{Rect, CHUNK_SIZE};
 use super::material::{self, MaterialId, MaterialKind};
 use super::organism;
@@ -1382,7 +1382,7 @@ const LOAD_SEARCH_RADIUS: i32 = 3;
 /// only: a `Solid` neighbour is a wall the branch might be growing against
 /// rather than a burden, and counting it would make a tree weaker for
 /// having grown near rock.
-fn supported_load(world: &World, x: i32, y: i32, organism_id: u16) -> u16 {
+fn supported_load(world: &World, x: i32, y: i32, organism_id: OrganismId) -> u16 {
     let mut load = 0u16;
     for dx in -LOAD_SEARCH_RADIUS..=LOAD_SEARCH_RADIUS {
         for dy in -LOAD_SEARCH_RADIUS..=LOAD_SEARCH_RADIUS {
@@ -1437,7 +1437,7 @@ fn supported_load(world: &World, x: i32, y: i32, organism_id: u16) -> u16 {
 /// Unbounded, deliberately. A cap here would be a cap on *whether* a big
 /// piece comes off, which is the mistake `rigid::fracture_failing_region`'s
 /// own doc records having shipped once already.
-fn detached_organism_piece(world: &World, x: i32, y: i32, organism_id: u16) -> Vec<(i32, i32)> {
+fn detached_organism_piece(world: &World, x: i32, y: i32, organism_id: OrganismId) -> Vec<(i32, i32)> {
     let mut seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::from([(x, y)]);
     let mut queue = std::collections::VecDeque::from([(x, y)]);
     let mut out = Vec::new();
@@ -1516,7 +1516,7 @@ pub(crate) fn snap_organism_cell(world: &mut World, x: i32, y: i32) -> Vec<Activ
     schedule_organism_neighbours(world, x, y, organism_id)
 }
 
-fn schedule_organism_neighbours(world: &World, x: i32, y: i32, organism_id: u16) -> Vec<ActiveSite> {
+fn schedule_organism_neighbours(world: &World, x: i32, y: i32, organism_id: OrganismId) -> Vec<ActiveSite> {
     // **Eight, because `Grow` places at eight.** This walked four, so a
     // cascade through a crown -- which is mostly diagonal twigs -- skipped
     // every diagonally-attached neighbour and the chain simply stopped at
@@ -6963,7 +6963,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    fn organism_wood_cell(w: &mut World, organism_id: u16) -> Cell {
+    fn organism_wood_cell(w: &mut World, organism_id: OrganismId) -> Cell {
         let wood = w.materials.id_of("wood").unwrap();
         Cell::new(wood, 0).with_organism_id(organism_id).with_aux(organism::pack_cell_type(organism::CellType::MatureBody))
     }
@@ -7113,7 +7113,7 @@ mod tests {
     fn the_load_failure_switch_stops_the_span_rule_and_not_severing() {
         const BASE: i32 = 10;
         const TIP: i32 = BASE + 11;
-        let build = |rule: bool| -> (World, u16) {
+        let build = |rule: bool| -> (World, OrganismId) {
             let mut w = test_world();
             w.plant_load_failure = rule;
             let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
@@ -7271,7 +7271,7 @@ mod tests {
     fn the_load_failure_switch_holds_a_living_plant_that_lost_its_anchor_and_not_a_dead_one() {
         const BASE: i32 = 10;
         const SPAN: std::ops::Range<i32> = BASE..BASE + 10;
-        let build = |rule: bool, senescent: bool| -> (World, u16) {
+        let build = |rule: bool, senescent: bool| -> (World, OrganismId) {
             let mut w = test_world();
             w.plant_load_failure = rule;
             let tree = w.species.id_of("tree").expect("tree species must be loaded");
@@ -7296,7 +7296,7 @@ mod tests {
             let _ = tick(&mut w, &ActiveSite { x: BASE + 9, y: 30, kind: ActiveKind::StructuralCheck, next_frame: 0 });
             (w, organism_id)
         };
-        let standing = |w: &World, organism_id: u16| SPAN.filter(|&x| w.get(x, 30).organism_id() == organism_id).count();
+        let standing = |w: &World, organism_id: OrganismId| SPAN.filter(|&x| w.get(x, 30).organism_id() == organism_id).count();
 
         // The positive control, first, because everything below is a claim
         // about a beam that had to be capable of coming down. `CLAUDE.md`:

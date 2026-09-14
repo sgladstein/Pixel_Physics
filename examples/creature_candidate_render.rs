@@ -32,6 +32,7 @@
 //! ```
 
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::app::{HEIGHT, WIDTH};
 use pixel_physics::render::Renderer;
 use pixel_physics::sim::chunk::Rect;
@@ -58,7 +59,7 @@ fn build(seed: u64, preset: &str) -> World {
     world
 }
 
-fn body_cells(world: &World, id: u16) -> Vec<(i32, i32)> {
+fn body_cells(world: &World, id: OrganismId) -> Vec<(i32, i32)> {
     let b = world.bounds().expect("bounded world");
     let mut out = Vec::new();
     for y in b.min_y..=b.max_y {

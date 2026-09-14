@@ -15,6 +15,7 @@
 //! about the world. A harness needs it without a framebuffer, and the sort
 //! order is something a test should be able to assert.
 
+use crate::sim::cell::OrganismId;
 use crate::sim::organism::SpeciesId;
 use crate::sim::world::World;
 
@@ -31,7 +32,7 @@ use crate::sim::world::World;
 /// why it is per-world rather than rack-wide.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Individual {
-    pub id: u16,
+    pub id: OrganismId,
     pub born_frame: u64,
 }
 
@@ -393,7 +394,7 @@ pub fn anchor_of(state: &crate::sim::organism::OrganismState) -> Option<(i32, i3
 }
 
 /// One row, from one organism.
-fn row_of(world: &World, id: u16, state: &crate::sim::organism::OrganismState) -> RosterRow {
+fn row_of(world: &World, id: OrganismId, state: &crate::sim::organism::OrganismState) -> RosterRow {
     let def = world.species.get(state.species);
     let creature = def.creature.as_ref();
 

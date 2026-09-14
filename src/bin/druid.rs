@@ -65,11 +65,35 @@ struct GifCapture {
     /// First tick to capture on.
     start: u64,
     /// Ticks between captures. 1 is every tick, which at 60/s is real time.
+    ///
+    /// **Only honoured because `last` below exists.** Without it this is not
+    /// a stride at all: the test runs at *draw* time, and on the software
+    /// rasteriser a run can draw several times inside one player tick, so a
+    /// qualifying tick was captured over and over. Measured 2026-09-14 on the
+    /// first walk clip: 60 frames spanning **38 ticks**, an animation of
+    /// mostly the same instant, and the per-tick speed read off it was a
+    /// third of the real one. The standing note already had the two clocks
+    /// written down (`PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES` counts drawn
+    /// frames, the hooks count player ticks); this is the same fact biting
+    /// from the other side.
     every: u64,
     /// How many frames to take before writing the file and exiting.
     count: usize,
     out: std::path::PathBuf,
     frames: Vec<Vec<u8>>,
+    /// Her position and the tick, as of the **first captured frame** --
+    /// filled in there rather than at construction so it is the start of the
+    /// clip rather than the start of the run.
+    ///
+    /// **A GIF of a walk cannot be read for speed and this is why it is
+    /// here.** The camera follows her, so two clips at two speeds differ only
+    /// in how fast the ground goes past, which is exactly the judgement
+    /// `CLAUDE.md`'s *"did it fire at all" needs a counter, not a picture*
+    /// says an image cannot carry. This is the number that goes in the review
+    /// card's `meta`: cells covered over a fixed number of ticks.
+    from: Option<(f32, u64)>,
+    /// The last tick a frame was taken on -- see `every`.
+    last: Option<u64>,
 }
 
 struct Handler {
@@ -340,7 +364,7 @@ impl Handler {
             let n: Vec<&str> = v.split(',').collect();
             let (start, every, count) = (n.first()?.trim().parse().ok()?, n.get(1)?.trim().parse().ok()?, n.get(2)?.trim().parse().ok()?);
             let out = n.get(3).map_or_else(|| std::env::temp_dir().join("pixel_physics_druid.gif"), |o| o.trim().into());
-            Some(GifCapture { start, every, count, out, frames: Vec::new() })
+            Some(GifCapture { start, every, count, out, frames: Vec::new(), from: None, last: None })
         });
         // `PIXEL_PHYSICS_DRUID_WALK=N` -- hold `D` for the first N player
         // ticks. A colony is founded at the gnome's feet, so a scripted
@@ -673,12 +697,17 @@ impl Handler {
                 // is drawn by the HUD, not by the world.
                 if let Some(g) = &mut self.gif {
                     let t = self.game.ticks;
-                    if t >= g.start && g.frames.len() < g.count && (t - g.start).is_multiple_of(g.every) {
+                    if t >= g.start && g.frames.len() < g.count && (t - g.start).is_multiple_of(g.every) && g.last != Some(t) {
+                        g.last = Some(t);
+                        if g.from.is_none() {
+                            g.from = self.game.world.player.as_ref().map(|p| (p.x, t));
+                        }
                         g.frames.push(pixels.frame().to_vec());
                     }
                     if g.frames.len() >= g.count {
+                        let here = self.game.world.player.as_ref().map(|p| (p.x, p.w, p.h));
                         let g = self.gif.take().expect("just checked");
-                        save_gif(&g);
+                        save_gif(&g, here, self.game.ticks);
                         event_loop.exit();
                         return;
                     }
@@ -1306,7 +1335,7 @@ fn census(game: &Druid) {
 /// The delay is derived from the capture interval and the fixed 60 ticks a
 /// second, so the result plays at the speed the game actually ran — the whole
 /// point being to judge motion, which a GIF at an arbitrary rate cannot do.
-fn save_gif(g: &GifCapture) {
+fn save_gif(g: &GifCapture, here: Option<(f32, i32, i32)>, tick: u64) {
     let delay_ms = (g.every * 1000 / u64::from(TICKS_PER_SECOND)).max(16);
     let delay = image::Delay::from_saturating_duration(Duration::from_millis(delay_ms));
     let file = match std::fs::File::create(&g.out) {
@@ -1327,6 +1356,16 @@ fn save_gif(g: &GifCapture) {
     }
     drop(encoder);
     eprintln!("gif saved ({} frames, {delay_ms}ms apart): {}", g.frames.len(), g.out.display());
+    // The clip's own measurement -- see `GifCapture::from`.
+    if let (Some((from_x, from_t)), Some((x, w, h))) = (g.from, here) {
+        let ticks = tick.saturating_sub(from_t).max(1);
+        eprintln!(
+            "gif walk: {:.1} cells in {ticks} ticks ({:.3} cells/tick, {:.3} of her own {w}x{h} lengths a tick)",
+            x - from_x,
+            (x - from_x) / ticks as f32,
+            (x - from_x) / ticks as f32 / h as f32,
+        );
+    }
 }
 
 /// Its own filename, so a druid screenshot and a sandbox one can both exist.
