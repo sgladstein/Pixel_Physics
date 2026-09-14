@@ -56,8 +56,18 @@ state:
 | 3, 4, 11a | the stress setting, restart, one size dial | **landed**, Lane C, PR #435 |
 | 1, 6, 7 | bubbles merge + speed as colour, creature colours, lab overlays | Lane A, **PR #437** open |
 | 11b | longer gnome-laid trail, diffuse look | Lane D, **PR #438** open |
-| 2, 5, 9 | the yellow bars, founding far away, the founding screen | Lane B, `claude/druid-founding` — **nothing pushed yet** |
-| — | the shrunk gnome moves too slowly (card verdict, not a playtest item) | coordinator's own, in flight |
+| 2, 5, 9 | the yellow bars, founding far away, the founding screen | Lane B, `claude/druid-founding` — pushed, amending |
+| — | the shrunk gnome moves too slowly (card verdict, not a playtest item) | **landed**, PR #439 |
+| — | the regional-time scope report, stuck un-mergeable since 2026-09-13 | **landed**, PR #402 |
+
+**Round 37's verdicts, all four answered 2026-09-14 evening.** Speed: *"Looks
+good"*, 5 of 5 — closed. Founding menu: approved as built. The other two sent
+work back: the trail wants **2x more lifetime again** and its anchor raised,
+and the founding patch's colour **dies entirely** rather than softening (1 of
+5). The trail anchor is the one worth keeping — the lane set it to
+`Player::feet`, which is about four cells *under* any soil surface, because
+`wade_rows` sinks a standing gnome knee-deep by design. Same fact that made
+the shrink verb refuse on every soil surface in the world.
 
 **Lane A and Lane D finished without the GitHub tools**, in the shape
 `CLAUDE.md` describes: branch pushed, `PR_BODY_LANE_*.md` written on it, head
@@ -87,20 +97,31 @@ So turning channel A's diffusion down to lengthen her trail reaches the ants
 too, and the owner's split — her trail is ours, theirs is the lab's — is not
 automatically satisfied by staying out of `DECAY_RHO`.
 
-## Verdicts in hand
+## Standing: what this program does NOT own
 
-- **The druid's zoom-out rungs: "get rid of stop 3"** (card
-  `20260914T084458895Z-ae1b01`, answered 13:46). Walking out you get crisp,
-  crisp, **blocky**, crisp; the blocky stop is the only one that fits the
-  world top to bottom. **Already in flight as PR #431** — checked before
-  routing it, which is the point: the rungs are `render::MAX_ZOOM_OUT_STRIDE`
-  and `src/app.rs`, shared with both other games (`src/lab/mod.rs` asserts
-  rung 4 at every pixel budget), so a druid-board verdict is not automatically
-  druid-program work. **Read the open PR list before dispatching a verdict**,
-  not only before dispatching a round.
-- **The shrink: "looks good. I want to move a bit faster though"** (card
-  `20260914T162644450Z-02b298`, answered 18:11). Taken by the coordinator —
-  see the round table. The finding it produced is below.
+- **The nest mechanic is the evolution lab's**, ruled 2026-09-14 when the
+  owner asked directly whether it should go to that coordinator instead. It
+  is ant behaviour in shared `creature.rs`, entangled with the ant-laid
+  pheromone work the lab is already running, and the lab holds the foraging
+  baseline (414 deliveries) any change is measured against. **Handed over in
+  full** — the owner's brief verbatim (attach the nest to a world location
+  rather than a material; a circle or blob so a dug-up nest stays reachable;
+  research how real ants find home; his hunch that the nest does little
+  because ants go to food), plus everything established here, plus the three
+  druid-side requirements a redesign must keep. What this program kept is the
+  *look*: porting the lab's own `earth_toned_nest`.
+  The evidence gathered before handing it over went *with* it rather than
+  staying here, which is the point of a handoff: read the brief in that
+  session, or re-derive it from `nest.ron`'s own doc, which answers most of it
+  in its first paragraph. The one number worth carrying: `nest` is
+  `penetration_resistance` **6.0** against a `dig_force` of **1.0** on every
+  shipped ant, so a colony cannot excavate its own doorstep.
+- **The zoom-out rungs are not this program's either.** *"Get rid of stop
+  3"* (card `20260914T084458895Z-ae1b01`) is `render::MAX_ZOOM_OUT_STRIDE` and
+  `src/app.rs`, shared with both other games, and was already in flight as
+  PR #431 — found by reading the open PR list before routing it. **A verdict
+  on the druid board is not automatically druid-program work**, and the check
+  is the same one this note already prescribes before dispatching a round.
 
 ## Environment facts that have cost time here
 
