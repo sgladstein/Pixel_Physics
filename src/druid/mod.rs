@@ -23,6 +23,7 @@
 
 pub mod founding;
 pub mod hud;
+pub mod menu;
 
 use crate::render::Renderer;
 use crate::sim::chunk::Rect;
@@ -111,16 +112,28 @@ pub enum Start {
     /// It also leaves the **seed bank** the grown phase produced, stopped in
     /// the soil. Those are not plants; they are what germinates the first
     /// time you spend time on that ground.
-    #[default]
     Dead,
     /// Never grown at all — bare generated ground plus `life_scatter`'s
     /// single seed cell per plant, held at frame 0.
     ///
-    /// The literal reading of the owner's ask, kept because it is the other
-    /// half of an ambiguous instruction and rendering both is cheaper than
-    /// guessing (`CLAUDE.md`: *resolve an ambiguous complaint before building
-    /// anything*). Emptier than [`Start::Dead`]: no bones, no root systems,
-    /// and a much thinner seed bank, since nothing ever set seed.
+    /// **The default, on the owner's second telling of it.** He asked for
+    /// *"a dead world, no living plants, but I can plant seeds"* and got
+    /// [`Start::Dead`], which is grown-then-senescent — every plant standing
+    /// where it died. Playing it, the verdict was *"still shipping full of
+    /// plants... I thought we said bare"*, and he is right about what he
+    /// sees: a senescent tree still renders as a tree, so a wood that is
+    /// dead by every number in the simulation reads on screen as a wood.
+    ///
+    /// **That is worth keeping as a finding rather than only as a default.**
+    /// The death is real (`marked 4095 of 4095 organisms senescent`) and
+    /// completely invisible, which is this repo's *a debug readout must not
+    /// be a function of the thing it debugs* pointed at the game itself: if
+    /// standing dead is ever wanted on screen, it needs its own colour, not
+    /// its own flag. [`Start::Dead`] stays reachable for that.
+    ///
+    /// Emptier than [`Start::Dead`]: no bones, no root systems, and a much
+    /// thinner seed bank, since nothing ever set seed.
+    #[default]
     Bare,
     /// Grown and held **alive** — this module's first answer, kept as the
     /// control. A living wood, stopped mid-life.
@@ -232,7 +245,11 @@ const ABSORB_RADIUS: i32 = 60;
 
 /// How long the drawn energy takes to reach you, in player ticks. Long enough
 /// to read as a flow rather than a flash.
-const DRAW_FRAMES: u32 = 42;
+///
+/// **90, up from 42, on the owner's playtest**: *"a good start... make it
+/// slower."* The stream had the right shape at 42 and went past too quickly
+/// to watch, which is the same defect as a flash wearing a longer number.
+const DRAW_FRAMES: u32 = 90;
 /// How often the economy is recomputed, in ticks. Walking every organism is
 /// `O(organisms)` and there are thousands, so this runs twice a second rather
 /// than sixty times and scales what it charges.
@@ -460,6 +477,9 @@ pub struct Druid {
     /// no longer smells of anything, which is the worst kind of readout: one
     /// that is a picture of the gesture rather than of the world.
     pub trail: std::collections::VecDeque<(i32, i32)>,
+    /// **The options menu, while it is open** — see [`menu`]. `None` the
+    /// rest of the time, the same one-piece-of-state shape as [`Druid::offer`].
+    pub menu: Option<menu::Menu>,
     /// **The founding screen, while it is open.** `None` the rest of the
     /// time, which is also what says whether the game is showing it — one
     /// piece of state rather than an `open: bool` beside an `Offer` that can
@@ -500,6 +520,20 @@ impl Druid {
         // species file silently did nothing.
         let _ = world.materials.reload(material::ASSET_DIR);
         let _ = world.species.reload(organism::ASSET_DIR);
+        // **Plants do not come apart under their own load here, by default.**
+        // Owner, 2026-09-14, asking for the menu this sits behind: *"the
+        // ability to turn off plant destruction or breaking due to stress
+        // (which should be off by default)."* The engine default is `true`
+        // and stays `true` — the outdoor game and `scripts/acceptance.sh`'s
+        // `fell` case are untouched; this is the held world choosing
+        // differently, which is what a per-game field is for.
+        //
+        // **Only a *living* plant is held.** A senescent one comes apart
+        // exactly as before, so culling, rot and felling still work — the
+        // switch's own doc records the owner reporting *"I turned COLLAPSE
+        // UNDER LOAD off, but trees are still falling over"* against an
+        // earlier version that got that distinction wrong.
+        world.plant_load_failure = false;
 
         // **The druid preset, not the shipped default.** `rolling` is a
         // mining world -- the first druid build generated one and put the
@@ -625,6 +659,7 @@ impl Druid {
             seed_kind: 0,
             sown: 0,
             trail: std::collections::VecDeque::new(),
+            menu: None,
             offer: None,
             reserves: std::collections::HashMap::new(),
             draws: Vec::new(),
@@ -929,6 +964,14 @@ impl Druid {
         true
     }
 
+    /// **Open the options menu, or shut it again.**
+    pub fn toggle_menu(&mut self) {
+        if self.menu.take().is_some() {
+            return;
+        }
+        self.menu = Some(menu::Menu::default());
+    }
+
     /// **Open the founding screen, or shut it again.**
     ///
     /// The offer itself outlives the screen — see [`Druid::offer`] — so
@@ -972,8 +1015,9 @@ impl Druid {
             return 0;
         };
         let candidate = offer.picked().clone();
+        let body = offer.body;
         let founders = offer.founders;
-        let cost = candidate.cost(founders);
+        let cost = candidate.cost(body, founders);
         if !self.unlimited && self.power < cost {
             self.note(format!("not enough power - that founding costs {cost:.0}"));
             return 0;
@@ -982,7 +1026,7 @@ impl Druid {
             return 0;
         };
         let (x, y) = player.center();
-        let species = candidate.stock().species;
+        let species = founding::STOCKS[body.min(founding::STOCKS.len() - 1)].species;
         let Some(species_id) = self.world.species.id_of(species) else {
             self.note(format!("{species} is not loaded"));
             return 0;
@@ -1029,7 +1073,7 @@ impl Druid {
         // for three animals is the kind of unfairness a player notices at
         // once and cannot see the cause of. Affordability was checked against
         // the full ask above, so a founding can never overdraw.
-        let paid = candidate.cost(placed as i32);
+        let paid = candidate.cost(body, placed as i32);
         println!("druid: founded {placed} {species} at {x},{y} — asked for {founders} at {cost:.0}, paid {paid:.0}");
         // **Spend it where you can see it go.** The pool coming off the meter
         // is a number changing in the corner; this is the same event as
@@ -1042,14 +1086,28 @@ impl Druid {
             self.draws.push(Draw { from: (cx, cy), outward: true, age: 0, amount: paid / placed.max(1) as f32 });
         }
         if placed == 0 {
-            self.note("nothing founded - no ground here");
+            // **Three refusals wearing one message was the bug.** `C` at the
+            // spawn refuses on both `dead` and `grown` starts and takes on
+            // `bare`, and "no ground here" is unactionable when you are
+            // plainly standing on ground: what is actually true is that every
+            // station is *occupied*, because a grown wood fills the surface
+            // with plant cells and a station that does not fit is declined.
+            // Measured 2026-09-14 -- and it is the first thing a player
+            // presses, so a refusal that does not say what to do about it is
+            // the whole feature reading as broken.
+            self.note(if stations.is_empty() {
+                "no ground here - stand on something solid"
+            } else {
+                "no room - the ground here is full. try open ground"
+            });
+            println!("druid: founding REFUSED — {} stations offered, 0 took", stations.len());
             return 0;
         }
         if !self.unlimited {
             self.power -= paid;
         }
         self.animals += placed;
-        self.note(format!("{placed} {} founded for {paid:.0}", candidate.stock().name.to_lowercase()));
+        self.note(format!("{placed} {} founded for {paid:.0}", founding::STOCKS[body.min(founding::STOCKS.len() - 1)].name.to_lowercase()));
         // **Committing is what costs you the other two.** Walking away does
         // not reroll, and neither does a refusal above — only a founding that
         // actually happened.

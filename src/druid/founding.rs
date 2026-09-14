@@ -6,9 +6,22 @@
 //! random, part user design, some user input"*, with *"each attempt rare and
 //! costly"*.
 //!
-//! So `C` opens an offer. Three lineages are drawn from the world's own seed;
-//! you pick one, pick how many founders to pay for, and spend the pool to put
-//! them in the ground. **Walking away costs nothing and leaves the same three
+//! So `C` opens an offer. **Three dials, and the split between what you
+//! choose and what the world rolls is the owner's**, 2026-09-14: the first
+//! version rolled the body too, and the verdict was *"more flexibility,
+//! especially on body shape and movement."*
+//!
+//! - **The body you choose** (`Q`/`E`). Six stocks, and the choice is not
+//!   cosmetic: it settles how the animal *moves* — the hopper is the only
+//!   shipped consumer of `BrainOutput::Impulse` and actually jumps, the
+//!   segmented body bends where a rigid one cannot, a two-cell body dies
+//!   whole where a six-cell one loses a tail and lives.
+//! - **The lineage the world rolls** (`A`/`D`, three on offer). Traits only,
+//!   including two that are movement — how fast it lives and how tightly it
+//!   turns.
+//! - **How many founders** (`Z`/`V`).
+//!
+//! Then you spend the pool to put them in the ground. **Walking away costs nothing and leaves the same three
 //! standing** — it is committing that rerolls them, which is the whole of what
 //! makes the choice a choice. A free reroll would turn "rare and costly" into
 //! a slot machine you play until you win.
@@ -33,7 +46,7 @@
 //! the economy on; they are set so that a default founding is affordable
 //! twice and a heavy one hurts, and that is all the authority they have.
 
-use crate::sim::organism::{TRAIT_ARMOUR, TRAIT_CROP_CAPACITY, TRAIT_DIG_FORCE, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_SIGHT_RANGE, CREATURE_TRAITS};
+use crate::sim::organism::{TRAIT_ARMOUR, TRAIT_CROP_CAPACITY, TRAIT_CURVATURE_RADIUS, TRAIT_DIG_FORCE, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_SIGHT_RANGE, CREATURE_TRAITS};
 use crate::sim::rng::Rng;
 
 /// How many lineages are on offer at once.
@@ -115,6 +128,10 @@ const ROLLED: &[Rolled] = &[
     // How fast it lives. Fast is more work done and more food burnt; it is
     // priced, but lightly, because it is a real trade rather than a gift.
     Rolled { slot: TRAIT_PACE, words: ["SLOW-LIVING", "UNHURRIED", "BRISK", "BURNS FAST"], premium: 0.15 },
+    // How tightly it turns — the second movement trait, and neither end is
+    // better: a tight turner works a small patch over and a wide one covers
+    // ground, so it is priced at zero like diet.
+    Rolled { slot: TRAIT_CURVATURE_RADIUS, words: ["TURNS ON THE SPOT", "TURNS TIGHT", "TURNS WIDE", "RANGES WIDE"], premium: 0.0 },
     Rolled { slot: TRAIT_DIG_FORCE, words: ["SOFT JAWS", "WEAK JAWS", "STRONG JAWS", "SHEARING JAWS"], premium: 0.30 },
     Rolled { slot: TRAIT_ARMOUR, words: ["THIN SHELLED", "LIGHTLY PLATED", "WELL PLATED", "ARMOURED"], premium: 0.30 },
     Rolled { slot: TRAIT_CROP_CAPACITY, words: ["SHALLOW CROP", "SMALL CROP", "DEEP CROP", "GREAT CROP"], premium: 0.25 },
@@ -147,22 +164,23 @@ pub struct Line {
     pub strength: f32,
 }
 
-/// **A lineage on offer**: a stock, and how this one differs from it.
+/// **A lineage on offer**: how this bloodline differs from its stock.
+///
+/// **It carries no body.** The body is the player's dial, not the roll's —
+/// owner's ruling, and it means the same three lineages can be put into any
+/// of the six stocks, which is what "more flexibility on body shape" asks
+/// for. It also keeps this type pure — no `World`, no species registry — so
+/// the screen is testable as arithmetic.
 ///
 /// Deltas rather than absolutes, and that is the honest form: the stock's own
 /// character is in its blurb, and what the roll says is *how this lineage
-/// departs from its stock*. It also keeps this whole type pure — no `World`,
-/// no species registry — so the screen is testable as arithmetic.
+/// departs from whatever body you put it in*.
 #[derive(Clone)]
 pub struct Candidate {
-    pub stock: usize,
     pub deltas: [f32; CREATURE_TRAITS],
 }
 
 impl Candidate {
-    pub fn stock(&self) -> &'static Stock {
-        &STOCKS[self.stock]
-    }
 
     /// **Roll one lineage**, deterministically.
     ///
@@ -186,12 +204,11 @@ impl Candidate {
         let mut rng = Rng::new(
             seed ^ (attempt as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (index as u64).wrapping_mul(0xBF58_476D_1CE4_E5B9),
         );
-        let stock = rng.below(STOCKS.len() as u32) as usize;
         let mut deltas = [0.0f32; CREATURE_TRAITS];
         for r in ROLLED {
             deltas[r.slot] = (rng.unit_f32() + rng.unit_f32() - 1.0).clamp(-1.0, 1.0);
         }
-        Candidate { stock, deltas }
+        Candidate { deltas }
     }
 
     /// The lines this lineage draws, neutral slots omitted.
@@ -211,8 +228,8 @@ impl Candidate {
     /// that charges for it: how many, how much animal each one is, and how
     /// much the roll gave you. A cost with a term nobody can point at is a
     /// number that reads as arbitrary however carefully it was derived.
-    pub fn cost(&self, founders: i32) -> f32 {
-        let body = 1.0 + (self.stock().cells - 2).max(0) as f32 * 0.25;
+    pub fn cost(&self, stock: usize, founders: i32) -> f32 {
+        let body = 1.0 + (STOCKS[stock.min(STOCKS.len() - 1)].cells - 2).max(0) as f32 * 0.25;
         // Only the *high* side is charged for, and only where a high side is
         // an advantage. A thin-shelled, blind, slow lineage is not a discount
         // you can farm — it is simply cheap, which it should be.
@@ -227,12 +244,16 @@ pub struct Offer {
     seed: u64,
     candidates: Vec<Candidate>,
     pub picked: usize,
+    /// **The body, and it is chosen rather than rolled.** Index into
+    /// [`STOCKS`]; see the module doc for the owner's ruling behind the
+    /// split.
+    pub body: usize,
     pub founders: i32,
 }
 
 impl Offer {
     pub fn new(seed: u64) -> Self {
-        let mut offer = Offer { attempt: 0, seed, candidates: Vec::new(), picked: 0, founders: FOUNDERS_DEFAULT };
+        let mut offer = Offer { attempt: 0, seed, candidates: Vec::new(), picked: 0, body: 0, founders: FOUNDERS_DEFAULT };
         offer.reroll();
         offer
     }
@@ -243,6 +264,9 @@ impl Offer {
         self.candidates = (0..OFFERED).map(|i| Candidate::roll(self.seed, self.attempt, i)).collect();
         self.attempt = self.attempt.wrapping_add(1);
         self.picked = 0;
+        // The body is not rerolled: it is the player's standing choice, and
+        // resetting it every founding would make the dial feel like it had
+        // not been set.
     }
 
     pub fn candidates(&self) -> &[Candidate] {
@@ -265,8 +289,23 @@ impl Offer {
         self.founders = (self.founders + delta).clamp(FOUNDERS_MIN, FOUNDERS_MAX);
     }
 
+    /// Cycle the body, wrapping — same reason as `step_pick`.
+    pub fn step_body(&mut self, delta: i32) {
+        let n = STOCKS.len() as i32;
+        self.body = (((self.body as i32 + delta) % n + n) % n) as usize;
+    }
+
+    pub fn stock(&self) -> &'static Stock {
+        &STOCKS[self.body.min(STOCKS.len() - 1)]
+    }
+
     pub fn cost(&self) -> f32 {
-        self.picked().cost(self.founders)
+        self.picked().cost(self.body, self.founders)
+    }
+
+    /// What the chosen body costs each of the three lineages, for the screen.
+    pub fn cost_of(&self, index: usize) -> f32 {
+        self.candidates[index.min(self.candidates.len() - 1)].cost(self.body, self.founders)
     }
 }
 
@@ -282,14 +321,13 @@ mod tests {
         let a = Offer::new(4242);
         let b = Offer::new(4242);
         for (x, y) in a.candidates().iter().zip(b.candidates()) {
-            assert_eq!(x.stock, y.stock);
             assert_eq!(x.deltas, y.deltas);
         }
         // ...and a different world offers something else, or the seed is not
         // reaching the draw at all -- which is exactly what the sweep gotcha
         // warns reads as a clean result.
         let other = Offer::new(4243);
-        let same = a.candidates().iter().zip(other.candidates()).all(|(x, y)| x.stock == y.stock && x.deltas == y.deltas);
+        let same = a.candidates().iter().zip(other.candidates()).all(|(x, y)| x.deltas == y.deltas);
         assert!(!same, "two different seeds produced the identical offer; the seed is not connected");
     }
 
@@ -298,29 +336,31 @@ mod tests {
     #[test]
     fn committing_draws_a_fresh_three() {
         let mut offer = Offer::new(7);
-        let before: Vec<_> = offer.candidates().iter().map(|c| (c.stock, c.deltas)).collect();
+        let before: Vec<_> = offer.candidates().iter().map(|c| c.deltas).collect();
         offer.reroll();
-        let after: Vec<_> = offer.candidates().iter().map(|c| (c.stock, c.deltas)).collect();
+        let after: Vec<_> = offer.candidates().iter().map(|c| c.deltas).collect();
         assert_ne!(before, after);
     }
 
     #[test]
     fn a_founding_costs_more_for_more_founders_and_for_heavier_stock() {
-        let neutral = Candidate { stock: 0, deltas: [0.0; CREATURE_TRAITS] };
-        assert!(neutral.cost(24) > neutral.cost(4));
-        assert_eq!(neutral.cost(0), 0.0);
-        // The common ant is two cells; pale chitin is nine.
-        let heavy = Candidate { stock: STOCKS.len() - 1, deltas: [0.0; CREATURE_TRAITS] };
-        assert!(heavy.stock().cells > neutral.stock().cells);
-        assert!(heavy.cost(12) > neutral.cost(12));
-        // And a strong roll is dearer than a neutral one, on the same stock.
+        let neutral = Candidate { deltas: [0.0; CREATURE_TRAITS] };
+        let (light, heavy) = (0, STOCKS.len() - 1);
+        assert!(neutral.cost(light, 24) > neutral.cost(light, 4));
+        assert_eq!(neutral.cost(light, 0), 0.0);
+        // The common ant is two cells; pale chitin is nine -- and the same
+        // lineage in the heavier body costs more, which is the body dial
+        // doing something.
+        assert!(STOCKS[heavy].cells > STOCKS[light].cells);
+        assert!(neutral.cost(heavy, 12) > neutral.cost(light, 12));
+        // And a strong roll is dearer than a neutral one, in the same body.
         let mut gifted = neutral.clone();
         gifted.deltas[TRAIT_SIGHT_RANGE] = 1.0;
-        assert!(gifted.cost(12) > neutral.cost(12));
+        assert!(gifted.cost(light, 12) > neutral.cost(light, 12));
         // ...while a *bad* roll is not a discount to farm.
         let mut poor = neutral.clone();
         poor.deltas[TRAIT_SIGHT_RANGE] = -1.0;
-        assert_eq!(poor.cost(12), neutral.cost(12));
+        assert_eq!(poor.cost(light, 12), neutral.cost(light, 12));
     }
 
     /// **The ethos as an assertion**: *an outcome is a distribution, not a

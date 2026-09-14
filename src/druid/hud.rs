@@ -94,6 +94,14 @@ const FLOW: [u8; 4] = [255, 250, 225, 255];
 /// The scent the druid lays — a cold green, so it reads as something put
 /// down rather than as the warm energy of the drain.
 const SCENT: [u8; 4] = [120, 255, 180, 255];
+/// **How far off the walked route the field is sampled**, in cells.
+///
+/// Four, because that is roughly how far `pheromone::DIFFUSE` carries a mark
+/// before it rounds to nothing — far enough that the readout shows a cloud
+/// rather than a line, and near enough that a long trail is a few thousand
+/// samples rather than the whole screen.
+const SCENT_HALO: i32 = 4;
+
 /// **How many brightness levels a mark can take.** See `Interface::scent`
 /// for why this is banded at all rather than continuous — it is the
 /// dirty-rect skip, not the palette.
@@ -149,6 +157,7 @@ pub const KEYS: &[(&str, &str)] = &[
     ("TAB", "WHICH SEED"),
     ("C", "FOUND A COLONY - OPENS AN OFFER"),
     ("F", "DRAW THE CHARGE OUT OF THEM"),
+    ("M", "OPTIONS"),
     ("H", "HOLD OR RELEASE THE WORLD"),
     ("L", "HOW HELD GROUND IS DRAWN"),
     ("U", "UNLIMITED POWER (PLAYTEST)"),
@@ -267,6 +276,17 @@ struct Ring {
     colour: [u8; 4],
 }
 
+/// **The options menu**, flattened the moment it is built — same reason as
+/// [`Founding`]: the comparison against last frame is what tells the
+/// dirty-rect skip the corner owes a repaint.
+#[derive(Clone, PartialEq, Debug)]
+struct Options {
+    /// Label and current value, per row.
+    rows: Vec<(String, String)>,
+    row: usize,
+    note: String,
+}
+
 /// **The founding screen**, flattened to text the moment it is built.
 ///
 /// Rows first, then a detail pane for the one you are on: three candidates at
@@ -277,6 +297,9 @@ struct Ring {
 struct Founding {
     rows: Vec<Row>,
     picked: usize,
+    /// The chosen body, and what choosing it buys — the dial the owner asked
+    /// for. Above the lineages, because it applies to all three of them.
+    body: String,
     blurb: String,
     dial: String,
 }
@@ -317,6 +340,8 @@ pub struct Interface {
     scent: Vec<(i32, i32, u8)>,
     /// The founding screen, while it is open.
     founding: Option<Founding>,
+    /// The options menu, while it is open.
+    options: Option<Options>,
 }
 
 impl Interface {
@@ -332,6 +357,7 @@ impl Interface {
             landings: landings(game),
             scent: scent(game),
             founding: founding(game),
+            options: options(game),
         }
     }
 
@@ -382,13 +408,28 @@ impl Interface {
         // pixels and there are dozens of them, each on its own phase with its
         // own lateral wander — the flow is in the *count* and the spread, not
         // in the size of any one of them.
+        // **Aura first, cores after**, in two passes, so no core is painted
+        // over by the next mote's halo.
+        //
+        // **`put`, not a blend, and that is not a shortcut.** A blend into a
+        // region the renderer skipped compounds frame on frame until it is
+        // flat opaque — the defect the panel fill already paid for, and
+        // `drawing_the_same_interface_twice_changes_nothing` is the guard.
+        // So the aura is a dim *colour*, drawn once, rather than alpha.
+        for m in &self.motes {
+            let halo = lerp(PANEL, FLOW_FAINT, 0.35 + m.bright * 0.45);
+            for (dx, dy) in [(0, -1), (0, 1), (-1, 0), (1, 0)] {
+                hc.put(frame, m.x + dx, m.y + dy, halo);
+            }
+            if m.bright > 0.6 {
+                let corner = lerp(PANEL, FLOW_FAINT, 0.2 + m.bright * 0.25);
+                for (dx, dy) in [(-1, -1), (1, -1), (-1, 1), (1, 1)] {
+                    hc.put(frame, m.x + dx, m.y + dy, corner);
+                }
+            }
+        }
         for m in &self.motes {
             hc.put(frame, m.x, m.y, lerp(FLOW_FAINT, FLOW, m.bright));
-            // A second pixel only on the brightest, so the stream has grain
-            // rather than being uniform dust.
-            if m.bright > 0.78 {
-                hc.put(frame, m.x, m.y - 1, FLOW);
-            }
         }
 
         // **It lands on you.** A ring that blooms outward from the player as
@@ -434,18 +475,49 @@ impl Interface {
             hc.text(frame, MARGIN + PAD, y, text, *colour);
         }
 
+        // **The options menu, drawn before the founding screen** so that if
+        // both were somehow open only one is seen -- and this one is the one
+        // whose keys `key` routes first.
+        if let Some(o) = &self.options {
+            let h = PAD * 2 + LINE * (o.rows.len() as i32 + 4) + 6;
+            let left = (viewport.0 as i32 - MENU_W) / 2;
+            let top = (viewport.1 as i32 - h) / 2;
+            panel(hc, frame, viewport, (left, top, MENU_W, h));
+            hc.text(frame, left + PAD, top + PAD, "OPTIONS", ACCENT);
+            for (i, (label, value)) in o.rows.iter().enumerate() {
+                let y = top + PAD + (i as i32 + 1) * LINE + 4;
+                let on = i == o.row;
+                if on {
+                    hc.text(frame, left + PAD, y, ">", ACCENT);
+                }
+                hc.text(frame, left + PAD + 8, y, label, if on { TEXT } else { DIM });
+                // Green for on and grey for off, so the state of the whole
+                // menu reads before a word of it does.
+                let tint = if value == "OFF" { DIM } else { GOOD };
+                hc.text(frame, left + MENU_VALUE, y, value, tint);
+            }
+            let foot = top + PAD + (o.rows.len() as i32 + 1) * LINE + 8;
+            hc.text(frame, left + PAD + 8, foot, &o.note, DIM);
+            hc.text(frame, left + PAD + 8, foot + LINE, MENU_KEYS, KEYCAP);
+            return;
+        }
+
         // **The founding screen goes over everything and takes the keys with
         // it.** Drawn last so nothing crosses it, and it returns before the
         // legend below: while the screen is up, `KEYS` is a list of bindings
         // that are not live, and a legend that lies is worse than none.
         if let Some(f) = &self.founding {
-            let h = PAD * 2 + LINE * (f.rows.len() as i32 + 4) + 4;
+            let h = PAD * 2 + LINE * (f.rows.len() as i32 + 5) + 6;
             let left = (viewport.0 as i32 - OFFER_W) / 2;
             let top = (viewport.1 as i32 - h) / 2;
             panel(hc, frame, viewport, (left, top, OFFER_W, h));
             hc.text(frame, left + PAD, top + PAD, "FOUND A COLONY", ACCENT);
+            // **The body first, because it applies to all three lineages**
+            // and because it is the dial the first version did not have.
+            hc.text(frame, left + PAD + 8, top + PAD + LINE + 2, &f.body, TEXT);
+            hc.text(frame, left + PAD + 8, top + PAD + LINE * 2 + 2, &f.blurb, DIM);
             for (i, row) in f.rows.iter().enumerate() {
-                let y = top + PAD + (i as i32 + 1) * LINE + 2;
+                let y = top + PAD + (i as i32 + 3) * LINE + 6;
                 let on = i == f.picked;
                 // **The cursor is a character, not a highlight.** A filled
                 // row behind text is one more thing to get right against the
@@ -472,10 +544,9 @@ impl Interface {
                 let cw = hud::text_width(&row.cost);
                 hc.text(frame, left + OFFER_W - PAD - cw, y, &row.cost, if row.afford { GOOD } else { WARN });
             }
-            let blurb_y = top + PAD + (f.rows.len() as i32 + 1) * LINE + 6;
-            hc.text(frame, left + PAD + 8, blurb_y, &f.blurb, DIM);
-            hc.text(frame, left + PAD + 8, blurb_y + LINE, &f.dial, TEXT);
-            hc.text(frame, left + PAD + 8, blurb_y + LINE * 2, FOUNDING_KEYS, KEYCAP);
+            let foot = top + PAD + (f.rows.len() as i32 + 3) * LINE + 10;
+            hc.text(frame, left + PAD + 8, foot, &f.dial, TEXT);
+            hc.text(frame, left + PAD + 8, foot + LINE, FOUNDING_KEYS, KEYCAP);
             return;
         }
 
@@ -505,18 +576,57 @@ impl Interface {
 /// Only the cells he laid are sampled, not the screen: a per-pixel read of
 /// the plane every frame is sweep-scale work for a readout.
 fn scent(game: &Druid) -> Vec<(i32, i32, u8)> {
-    game.trail
-        .iter()
-        .filter_map(|&(x, y)| {
-            let v = game.world.pheromone_at(crate::sim::pheromone::Channel::B, x, y);
-            if v == 0 {
-                return None;
+    // **A disc around each mark, not the mark.** Owner, on the first version:
+    // *"It should look more like what pheromones look like in the pheromone
+    // overlay. More diffuse. Not a single sharp line."* — and he is right
+    // about the world as well as about the picture. The plane *does* diffuse
+    // (`pheromone::DIFFUSE`), so sampling only the cells he walked drew the
+    // spine of a cloud and threw the cloud away. `render.rs`'s own overlay
+    // samples every cell in view, which is the honest thing and is
+    // sweep-scale work for a readout; a disc per mark reaches the same field
+    // over the only region that can be non-zero.
+    //
+    // Deduped by *screen* cell rather than world cell, because that is what
+    // gets drawn and the discs overlap heavily along a walked route.
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for &(mx, my) in &game.trail {
+        for dy in -SCENT_HALO..=SCENT_HALO {
+            for dx in -SCENT_HALO..=SCENT_HALO {
+                if dx * dx + dy * dy > SCENT_HALO * SCENT_HALO {
+                    continue;
+                }
+                let (x, y) = (mx + dx, my + dy);
+                let v = game.world.pheromone_at(crate::sim::pheromone::Channel::B, x, y);
+                if v == 0 {
+                    continue;
+                }
+                let Some((sx, sy)) = game.renderer.world_to_screen(x, y) else { continue };
+                if !seen.insert((sx, sy)) {
+                    continue;
+                }
+                out.push((sx, sy, (v as u16 * SCENT_BANDS as u16 / 256) as u8));
             }
-            let (sx, sy) = game.renderer.world_to_screen(x, y)?;
-            Some((sx, sy, (v as u16 * SCENT_BANDS as u16 / 256) as u8))
-        })
-        .collect()
+        }
+    }
+    out
 }
+
+fn options(game: &Druid) -> Option<Options> {
+    let m = game.menu.as_ref()?;
+    Some(Options {
+        rows: super::menu::SETTINGS.iter().map(|s| (s.label().to_string(), s.value(game))).collect(),
+        row: m.row,
+        note: m.current().note().to_string(),
+    })
+}
+
+/// What the options menu binds, drawn along its bottom.
+const MENU_KEYS: &str = "W S CHOOSE    SPACE CHANGE    M OR X CLOSE";
+/// Where a row's value is right-aligned to.
+const MENU_W: i32 = 404;
+/// How wide the menu's own name column runs before the value.
+const MENU_VALUE: i32 = 250;
 
 /// **Flatten the offer into what the screen draws.**
 ///
@@ -529,10 +639,15 @@ fn founding(game: &Druid) -> Option<Founding> {
     let rows = offer
         .candidates()
         .iter()
-        .map(|c| {
-            let cost = c.cost(offer.founders);
+        .enumerate()
+        .map(|(i, c)| {
+            let cost = offer.cost_of(i);
             Row {
-                name: c.stock().name.to_string(),
+                // **Numbered, not named.** The name is the body's and the
+                // body is now one choice above, shared by all three -- a
+                // column repeating it three times said nothing and cost the
+                // width the trait words needed.
+                name: format!("LINE {}", i + 1),
                 words: c.lines().into_iter().map(|l| (l.word.to_string(), l.strength)).collect(),
                 cost: format!("{cost:.0}"),
                 afford: game.unlimited || game.power >= cost,
@@ -542,7 +657,8 @@ fn founding(game: &Druid) -> Option<Founding> {
     Some(Founding {
         rows,
         picked: offer.picked,
-        blurb: offer.picked().stock().blurb.to_string(),
+        body: format!("BODY  {}", offer.stock().name),
+        blurb: offer.stock().blurb.to_string(),
         dial: format!("FOUNDERS {}    COST {:.0}    POWER {:.0}", offer.founders, offer.cost(), game.power),
     })
 }
@@ -550,10 +666,10 @@ fn founding(game: &Druid) -> Option<Founding> {
 /// What the founding screen binds, drawn along its bottom. Not in [`KEYS`]:
 /// these are live only while the screen is up, and the legend is a list of
 /// what works *now*.
-const FOUNDING_KEYS: &str = "A D CHOOSE    Q E HOW MANY    C FOUND    X LEAVE";
+const FOUNDING_KEYS: &str = "A D LINE   Q E BODY   Z V HOW MANY   C FOUND   X LEAVE";
 
 /// Where the words start, past the widest stock name.
-const OFFER_COL: i32 = 88;
+const OFFER_COL: i32 = 52;
 /// Where the cost is right-aligned to.
 const OFFER_W: i32 = 340;
 
@@ -629,7 +745,15 @@ fn motes(game: &Druid) -> Vec<Mote> {
             // on wherever it is going.
             let spread = (1.0 - ease) * 7.0;
             let wander = ((t * 7.0 + seed * 2.399).sin() + (seed * 1.7).sin()) * 0.5 * spread;
-            let arc = (t * std::f32::consts::PI).sin() * 11.0;
+            // **The bow decays before it arrives**, rather than being
+            // symmetric about the midpoint. Owner: *"it seems to go to the
+            // top of the gnome instead of the middle."* `center()` is the
+            // middle and always was — what read as the top was a symmetric
+            // arc lifting the whole stream, so the last thing the eye
+            // followed was still 11 cells high when the flow ended. The
+            // `(1 - t)` factor peaks the bow at about a third of the way
+            // along and flattens the approach into the body.
+            let arc = (t * std::f32::consts::PI).sin() * (1.0 - t) * 14.0;
             let wx = ox as f32 + dx * ease + nx * wander;
             let wy = oy as f32 + dy * ease + ny * wander - arc;
             if let Some((sx, sy)) = game.renderer.world_to_screen(wx.round() as i32, wy.round() as i32) {
@@ -871,10 +995,10 @@ mod tests {
         Founding {
             rows: (0..founding::OFFERED)
                 .map(|i| Row {
-                    name: founding::STOCKS.iter().max_by_key(|s| s.name.len()).unwrap().name.to_string(),
+                    name: format!("LINE {}", i + 1),
                     // Every rolled slot loud at once -- rare, and the case the
                     // row has to survive.
-                    words: founding::Candidate { stock: i.min(founding::STOCKS.len() - 1), deltas: [1.0; crate::sim::organism::CREATURE_TRAITS] }
+                    words: founding::Candidate { deltas: [1.0; crate::sim::organism::CREATURE_TRAITS] }
                         .lines()
                         .into_iter()
                         .map(|l| (l.word.to_string(), l.strength))
@@ -884,9 +1008,50 @@ mod tests {
                 })
                 .collect(),
             picked: 0,
+            body: format!("BODY  {}", founding::STOCKS.iter().max_by_key(|s| s.name.len()).unwrap().name),
             blurb: longest.blurb.to_string(),
             dial: format!("FOUNDERS {}    COST 9999    POWER 9999", founding::FOUNDERS_MAX),
         }
+    }
+
+    /// The widest options menu, for the two guards below — the longest label
+    /// against the longest note, which are not the same row.
+    fn widest_menu() -> Options {
+        use crate::druid::menu::SETTINGS;
+        Options {
+            rows: SETTINGS.iter().map(|s| (s.label().to_string(), "UNCHANGED".to_string())).collect(),
+            row: 0,
+            note: SETTINGS.iter().map(|s| s.note()).max_by_key(|n| n.len()).unwrap().to_string(),
+        }
+    }
+
+    /// **The options menu fits, and every character of it has a glyph.**
+    /// Sibling of the founding guard below and for the same reason: its
+    /// strings never pass through `Readout`.
+    #[test]
+    fn the_options_menu_fits_and_has_glyphs_for_everything() {
+        let (w, h) = (crate::app::WIDTH as i32, crate::app::HEIGHT as i32);
+        let o = widest_menu();
+        let panel_h = PAD * 2 + LINE * (o.rows.len() as i32 + 4) + 6;
+        assert!(MENU_W <= w, "the options menu is {MENU_W} wide in a {w}-wide window");
+        assert!(panel_h <= h, "the options menu is {panel_h} tall in a {h}-tall window");
+        // A label must stop before the value column, and the note before the
+        // right edge.
+        for (label, _) in &o.rows {
+            let lw = hud::text_width(label);
+            assert!(PAD + 8 + lw <= MENU_VALUE, "{label:?} is {lw} wide and runs into the value column at {MENU_VALUE}");
+        }
+        let inner = MENU_W - PAD * 2 - 8;
+        let mut checked = 0;
+        for text in [o.note.as_str(), MENU_KEYS] {
+            let tw = hud::text_width(text);
+            assert!(tw <= inner, "{text:?} is {tw} wide inside {inner}");
+            for c in text.chars() {
+                assert!(hud::has_glyph(c), "the options menu draws {c:?} in {text:?}");
+                checked += 1;
+            }
+        }
+        assert!(checked > 60, "only {checked} characters swept; this guard would pass on nothing");
     }
 
     /// **The founding screen fits too, and every character of it has a
@@ -897,14 +1062,14 @@ mod tests {
     fn the_founding_screen_fits_and_has_glyphs_for_everything() {
         let (w, h) = (crate::app::WIDTH as i32, crate::app::HEIGHT as i32);
         let f = widest_offer();
-        let panel_h = PAD * 2 + LINE * (f.rows.len() as i32 + 4) + 4;
+        let panel_h = PAD * 2 + LINE * (f.rows.len() as i32 + 5) + 6;
         assert!(OFFER_W <= w, "the founding screen is {OFFER_W} wide in a {w}-wide window");
         assert!(panel_h <= h, "the founding screen is {panel_h} tall in a {h}-tall window");
         // The three text rows under the list are drawn full width, so they
         // are the ones that can run off the right edge.
         let inner = OFFER_W - PAD * 2 - 8;
         let mut checked = 0;
-        for text in [f.blurb.as_str(), f.dial.as_str(), FOUNDING_KEYS] {
+        for text in [f.body.as_str(), f.blurb.as_str(), f.dial.as_str(), FOUNDING_KEYS] {
             let tw = hud::text_width(text);
             assert!(tw <= inner, "{text:?} is {tw} wide inside {inner}");
             for c in text.chars() {
@@ -988,6 +1153,7 @@ mod tests {
             // draws the biggest panel in the game, and a panel is exactly the
             // shape that compounded last time.
             founding: Some(widest_offer()),
+            options: Some(widest_menu()),
         };
         ui.draw(&mut frame, (w, h));
         let once = frame.clone();
@@ -1011,6 +1177,7 @@ mod tests {
             landings: Vec::new(),
             scent: Vec::new(),
             founding: None,
+            options: None,
         };
         let b = a.clone();
         assert_eq!(a, b, "an unchanged interface must compare equal, or the render skip never fires at all");
@@ -1034,6 +1201,15 @@ mod tests {
             f.picked = 1;
         }
         assert_ne!(moved, e, "moving the cursor must force the repaint, or the keys look dead on settled ground");
+
+        let mut om = b.clone();
+        om.options = Some(widest_menu());
+        assert_ne!(om, b, "opening the options menu must force the repaint");
+        let mut om2 = om.clone();
+        if let Some(o) = om2.options.as_mut() {
+            o.row = 1;
+        }
+        assert_ne!(om2, om, "moving the menu cursor must force the repaint");
 
         let mut d = b.clone();
         d.rings = vec![Ring { cx: 10, cy: 10, r: 28, colour: RING_CARRIED }];

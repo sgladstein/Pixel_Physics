@@ -448,12 +448,34 @@ impl Handler {
         // eighteen arms each remembering to check is eighteen chances to
         // forget, and the one that forgets is a key that quietly still works
         // behind a modal screen.
+        // **The options menu owns the keyboard while it is up**, and it is
+        // checked before the founding screen so exactly one modal can ever be
+        // taking input.
+        if let Some(m) = self.game.menu.as_mut() {
+            match code {
+                KeyCode::KeyW | KeyCode::KeyA => m.step(-1),
+                KeyCode::KeyS | KeyCode::KeyD => m.step(1),
+                KeyCode::Space => {
+                    let setting = m.current();
+                    setting.advance(&mut self.game);
+                }
+                KeyCode::KeyM | KeyCode::KeyX | KeyCode::Escape => self.game.menu = None,
+                _ => {}
+            }
+            return;
+        }
         if let Some(offer) = self.game.offer.as_mut() {
             match code {
                 KeyCode::KeyA => offer.step_pick(-1),
                 KeyCode::KeyD => offer.step_pick(1),
-                KeyCode::KeyQ => offer.step_founders(-1),
-                KeyCode::KeyE => offer.step_founders(1),
+                // **Three dials, and the body is the one the owner asked
+                // for**: *"more flexibility, especially on body shape and
+                // movement."* `Q`/`E` is the radius dial outside this screen,
+                // so it is the natural "cycle the thing you are sizing" here.
+                KeyCode::KeyQ => offer.step_body(-1),
+                KeyCode::KeyE => offer.step_body(1),
+                KeyCode::KeyZ => offer.step_founders(-1),
+                KeyCode::KeyV => offer.step_founders(1),
                 KeyCode::KeyC => {
                     self.game.commit_founding();
                 }
@@ -486,6 +508,13 @@ impl Handler {
             // **Found a colony where you are standing.** It has to be inside
             // running time to tick at all, and the circle you carry is at
             // your feet -- see `Druid::found_colony`.
+            // **The options menu.** Settings rather than verbs -- see
+            // `druid::menu` for why they are not more keys.
+            KeyCode::KeyM => {
+                self.held = HeldKeys::default();
+                self.laying = false;
+                self.game.toggle_menu();
+            }
             KeyCode::KeyC => {
                 // **Stop walking on the way in.** Otherwise a key held at the
                 // moment the screen opens stays held -- the release goes to
@@ -604,7 +633,7 @@ impl ApplicationHandler for Handler {
                     // while you read about it. Held state is cleared on the
                     // way in (`key`), so he stops rather than keeping the
                     // direction he was going.
-                    if self.game.offer.is_some() {
+                    if self.game.offer.is_some() || self.game.menu.is_some() {
                         self.laying = false;
                         if pressed && !event.repeat {
                             self.key(code, event_loop);
@@ -700,7 +729,38 @@ fn census(game: &Druid) {
     }
     if n > 0 {
         let (mx, my) = ((sx / n as i64) as i32, (sy / n as i64) as i32);
-        print!("  {n} animals, mean at {mx},{my}");
+        // **Furthest reached, not just the mean**, and the mean is the trap
+        // that made the first trail A/B unreadable: a colony lives at its
+        // nest, so the mean *is* the nest whatever the animals do, and two
+        // arms came back identical to the digit while saying nothing. How far
+        // the furthest one got, and how many are near a named point, can tell
+        // milling from stillness.
+        let east = w
+            .live_organism_ids()
+            .into_iter()
+            .filter_map(|id| w.organism(id))
+            .filter(|st| w.species.get(st.species).creature.is_some())
+            .filter_map(|st| st.cells.keys().map(|&(x, _)| x).max())
+            .max()
+            .unwrap_or(0);
+        print!("  {n} animals, mean at {mx},{my}, furthest east {east}");
+        // `PIXEL_PHYSICS_DRUID_MARK=x,y` -- a fixed reference both arms of a
+        // paired run can be counted against. The trail head cannot serve: the
+        // arm with no trail has none, so the two arms would be measured with
+        // different rulers.
+        if let Some((rx, ry)) = std::env::var("PIXEL_PHYSICS_DRUID_MARK").ok().and_then(|v| {
+            let (a, b) = v.split_once(',')?;
+            Some((a.trim().parse::<i32>().ok()?, b.trim().parse::<i32>().ok()?))
+        }) {
+            let near = w
+                .live_organism_ids()
+                .into_iter()
+                .filter_map(|id| w.organism(id))
+                .filter(|st| w.species.get(st.species).creature.is_some())
+                .filter(|st| st.cells.keys().next().is_some_and(|&(x, y)| (x - rx).abs() < 40 && (y - ry).abs() < 40))
+                .count();
+            print!(" — {near} within 40 of the mark {rx},{ry}");
+        }
         if let Some(&(tx, ty)) = game.trail.back() {
             let d = (((tx - mx) as f32).powi(2) + ((ty - my) as f32).powi(2)).sqrt();
             let near = w

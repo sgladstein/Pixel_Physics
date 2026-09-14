@@ -8644,12 +8644,50 @@ blind, thin-shelled, slow lineage is simply cheap rather than a discount to
 farm. A default founding — common ant, twelve, neutral — is 144 against a full
 pool of 600. Like every other number in this economy, first guesses.
 
+**`C` at the spawn refuses on a grown or dead start and takes on a bare one**,
+measured 2026-09-14 on both. A grown wood fills the surface with plant cells,
+`colony_stations` declines a station that does not fit, and every one of the
+twelve is declined — so the founding places nobody. It is the first key a
+player presses, so the refusal now distinguishes its two causes: *"no ground
+here"* when no station could even be laid out, and *"no room — the ground here
+is full"* when they were and none took. One message for three refusals was the
+real defect, because "no ground here" is unactionable when you are plainly
+standing on ground. **`Start::Bare` being the default keeps the common path
+working**; making a grown wood foundable is open work, and the honest fix is
+probably in `colony_stations` rather than in a message.
+
 **You pay for the founders that landed, not the ones you asked for**, and the
 gap is not small: a headless founding of twelve `hopper` on rolling ground
 seated **3**, because `colony_stations` lays out a corridor and a station that
 does not fit is declined. Paying 224 for three animals is unfairness a player
 notices at once and cannot see the cause of. Affordability is still checked
 against the full ask, so a founding can never overdraw the pool.
+
+### The options menu
+
+`M`. Owner's ask, 2026-09-14: *"we need a menu with options. The first I would
+add is the ability to turn off plant destruction or breaking due to stress
+(which should be off by default)."*
+
+**Every row is a switch the engine already had** — nothing in `druid::menu`
+adds behaviour. `plant_load_failure` and `plant_bending` were fields on
+`World` reachable only from the lab's parameters panel; the rest were keys
+nobody could guess. A menu is discoverability, and a menu row that is also a
+new mechanic is two changes wearing one commit.
+
+**The held world sets `plant_load_failure = false` at startup.** The engine
+default stays `true`, so the outdoor game and `scripts/acceptance.sh`'s `fell`
+case are untouched — this is one game choosing differently, which is what a
+per-game field is for. Only a *living* plant is held: a senescent one comes
+apart exactly as before, so culling, rot and felling still work. That
+distinction is not incidental; the switch's own doc records an earlier version
+getting it wrong and the owner reporting *"I turned COLLAPSE UNDER LOAD off,
+but trees are still falling over."*
+
+Why a menu and not more keys: there are twenty bindings already and the legend
+fills a corner. A setting is a thing you change once and forget; a verb is a
+thing you press. Keeping them apart is what stops the legend becoming the
+screen.
 
 ### Telling the colony where to go
 
