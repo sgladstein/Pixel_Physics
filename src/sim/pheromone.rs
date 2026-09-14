@@ -58,6 +58,21 @@ use super::chunk::Rect;
 /// Measured: at interval 4 the colony reached 0 deliveries with total
 /// channel A across the whole world sitting at 100. The pass rate is the
 /// knob that moves the ceiling, and it is also three times cheaper.
+///
+/// **The 255-pass ceiling above is real and the margin it implies is not**
+/// (measured 2026-09-14, `examples/pherolife`). 255 passes is what a cell
+/// *at 255* can survive, and nothing writes 255: a move lays [`DEPOSIT`]
+/// (40) scaled by the brain's own output, so the ceiling on a cell an ant
+/// actually leaves is **40 passes, not 255** — and with the blend running
+/// it dies in **12**. That is **144 frames against a 2,200-frame round
+/// trip, 0.065x**, where this doc's own arithmetic reads 1.4x. Six seeds
+/// of the real bed agree: a 50-ant colony stands 149–393 trail cells at a
+/// peak under 100 of 255, every one of them held up by traffic rather than
+/// by persistence. **A trail here is a live map of where ants are, not a
+/// memory of where they went** — a lone scout's trail is gone long before
+/// the scout is home. Whether that is the game is the owner's to say;
+/// what this constant must not do is claim a margin it does not have.
+/// `Reports/pheromone-lifetime-and-wiring-2026-09-14.md`.
 pub const PHEROMONE_INTERVAL: u64 = 12;
 
 /// Blend toward the 3x3 mean per pass.
@@ -92,10 +107,29 @@ pub const PHEROMONE_INTERVAL: u64 = 12;
 /// peak loss.
 pub const DIFFUSE: f32 = 0.25;
 
-/// Evaporation per pass. The literature band is 0.1–0.5 and **this is the
-/// parameter the whole mechanism balances on**: too slow and the world
-/// ossifies on the first path found, too fast and no trail survives long
-/// enough to be reinforced.
+/// Evaporation per pass. The literature band is 0.1–0.5.
+///
+/// **This said "the parameter the whole mechanism balances on" until
+/// 2026-09-14, and it is measurably not** — `examples/pherolife`, which
+/// lays a trail and then leaves it alone, the thing no harness here did
+/// before. Setting `rho` to **zero** and leaving the blend alone gives an
+/// unreinforced trail the *identical* 144-frame life the shipped pair
+/// gives it. Sweeping `rho` across the whole literature band moves that
+/// life 144 -> 60 frames, while [`DIFFUSE`] alone moves it 144 -> 432.
+///
+/// The arithmetic behind that: a trail is a **one-cell-wide line**, so a
+/// cell on it sees a 3x3 mean of about a third of its own value and the
+/// blend takes 16.7% per pass — against this constant's 2.9%. The realised
+/// evaporation rate of a shipped trail is therefore **~0.19 per pass,
+/// inside the literature band**, and the sentence above had it sitting
+/// deliberately below a band it is actually in, by a route nobody had
+/// measured. The number here is not wrong; what was wrong is which knob
+/// the lifetime hangs on. [`Pheromones::set_channel_diffuse`] is the other
+/// one, and it did not exist until the same day.
+///
+/// Ossification is what this guards against, and that argument is
+/// untouched: too slow and the world ossifies on the first path found, too
+/// fast and no trail survives long enough to be reinforced.
 ///
 /// Measured below the literature band, and the reason is the same ceiling
 /// `PHEROMONE_INTERVAL` documents: against a *single follower* re-laying
@@ -117,6 +151,16 @@ pub const DECAY_RHO: f32 = 0.03;
 /// sit well below saturation — differential reinforcement *is* the
 /// path-selection algorithm, and it clips flat at the ceiling. P-14: if
 /// trails pin at 255, halve this before touching anything else.
+///
+/// **They do not pin, and that is now measured rather than assumed**
+/// (`examples/pherolife mode=world`, six seeds, 2026-09-14): the tallest
+/// cell anywhere on channel A over a 4,000-frame run of a 50-ant colony
+/// is **39–98 of 255**, and channel B's is 15–55. P-14's trigger has never
+/// fired in this bed, so **do not halve this looking for headroom** — the
+/// plane is three-quarters empty at its loudest and the problem at the
+/// other end. What a low deposit does cost is lifetime, since the LUT's
+/// `min(v - 1)` floor makes a cell's maximum survival equal to its own
+/// value in passes: see [`PHEROMONE_INTERVAL`].
 pub const DEPOSIT: u8 = 40;
 
 /// Sleep granularity, in cells. Equal to `CHUNK_SIZE` by choice rather than
@@ -272,6 +316,21 @@ impl PheromonePlane {
     /// branch that would avoid it.
     fn set_rho(&mut self, rho: f32) {
         self.decay_lut = build_decay_lut(rho);
+    }
+
+    /// Set the blend toward the 3x3 mean, in place.
+    ///
+    /// Trivial next to [`Self::set_rho`] because `diffuse` is already held
+    /// per plane rather than read from the const -- the field exists so
+    /// `diffusion_spread_profile_sweep` could vary it, and nothing but a
+    /// `#[cfg(test)]` constructor could reach it until now.
+    fn set_diffuse(&mut self, diffuse: f32) {
+        self.diffuse = diffuse;
+    }
+
+    /// What this plane is currently blending at.
+    fn diffuse(&self) -> f32 {
+        self.diffuse
     }
 
     fn with_params(bounds: Rect, diffuse: f32, rho: f32) -> Self {
@@ -525,6 +584,11 @@ pub struct Pheromones {
     /// the plane because the plane may not exist yet: a value set before the
     /// first bite has to survive until there is something to apply it to.
     alarm_rho: f32,
+    /// The blend rate for the alarm plane, held for the same reason
+    /// `alarm_rho` is: the plane may not exist when the dial moves, and a
+    /// setting that only reached planes made afterwards would read as
+    /// disconnected in the box the player is looking at.
+    alarm_diffuse: f32,
     pub stats: PheromoneStats,
 }
 
@@ -535,6 +599,7 @@ impl Pheromones {
             alarm: None,
             bounds,
             alarm_rho: ALARM_RHO,
+            alarm_diffuse: DIFFUSE,
             stats: PheromoneStats::default(),
         }
     }
@@ -580,6 +645,53 @@ impl Pheromones {
         }
     }
 
+    /// **How fast one plane spreads**, against `DIFFUSE`'s 0.25 shipped on
+    /// all three.
+    ///
+    /// **This is the dial the trail lifetime actually turns, which is not
+    /// what `DECAY_RHO`'s own doc assumes**, and it had no setter at all
+    /// until 2026-09-14 while decay has had one since the alarm plane
+    /// arrived. Measured with `examples/pherolife`, on the one-cell-wide
+    /// line a walking ant leaves: a trail cell's 3x3 mean is about a third
+    /// of its own value, so the blend alone takes **16.7% per pass** against
+    /// decay's 2.9% at `DECAY_RHO` -- and the realised evaporation rate of a
+    /// shipped trail is therefore **~0.19 per pass, inside the literature
+    /// band of 0.1-0.5** that `DECAY_RHO` is documented as sitting
+    /// deliberately below. Sweeping `DECAY_RHO` across that whole band moves
+    /// an unreinforced trail's life 144 -> 60 frames; it is close to inert
+    /// because it is the smaller term.
+    ///
+    /// **Exposed rather than retuned**, per the standing direction: 0.25 is
+    /// still what ships and `DIFFUSE`'s own doc holds the sweep that chose
+    /// it. What that sweep could not see is this, because it re-laid its
+    /// trail every pass -- so it measured how well 0.25 *tracks* and never
+    /// how fast it *forgets*. Both are real and they want opposite
+    /// settings; which one the box wants is the owner's to find.
+    pub fn set_channel_diffuse(&mut self, channel: Channel, diffuse: f32) {
+        match channel {
+            Channel::Alarm => {
+                self.alarm_diffuse = diffuse;
+                if let Some(plane) = &mut self.alarm {
+                    plane.set_diffuse(diffuse);
+                }
+            }
+            c => self.planes[c as usize].set_diffuse(diffuse),
+        }
+    }
+
+    /// What a plane is blending at — `None` for an alarm plane nothing has
+    /// written yet, whose pending setting is [`Self::alarm_diffuse`].
+    pub fn channel_diffuse(&self, channel: Channel) -> Option<f32> {
+        self.plane_opt(channel).map(|p| p.diffuse())
+    }
+
+    /// The blend rate the alarm plane will be built at, which is a
+    /// different question from what it *is* blending at — the plane may not
+    /// exist. Same split as `alarm_rho`, and for the same reason.
+    pub fn alarm_diffuse(&self) -> f32 {
+        self.alarm_diffuse
+    }
+
     /// Both planes with non-default diffusion/decay — for sweeps only.
     #[cfg(test)]
     fn with_params(bounds: Rect, diffuse: f32, rho: f32) -> Self {
@@ -588,6 +700,7 @@ impl Pheromones {
             alarm: None,
             bounds,
             alarm_rho: ALARM_RHO,
+            alarm_diffuse: DIFFUSE,
             stats: PheromoneStats::default(),
         }
     }
@@ -640,8 +753,8 @@ impl Pheromones {
         if channel == Channel::Alarm {
             // **The allocation happens here and nowhere else.** First bite in
             // the world's life; every one after it is an ordinary deposit.
-            let (bounds, rho) = (self.bounds, self.alarm_rho);
-            let plane = self.alarm.get_or_insert_with(|| PheromonePlane::with_params(bounds, DIFFUSE, rho));
+            let (bounds, rho, diffuse) = (self.bounds, self.alarm_rho, self.alarm_diffuse);
+            let plane = self.alarm.get_or_insert_with(|| PheromonePlane::with_params(bounds, diffuse, rho));
             if plane.deposit(x, y, amount) {
                 self.stats.deposits_alarm += 1;
             }
@@ -701,6 +814,53 @@ impl Pheromones {
 
 #[cfg(test)]
 mod tests {
+    /// **The blend dial must actually change how fast a trail goes.**
+    ///
+    /// `set_channel_diffuse` is the knob that turns out to set a trail's
+    /// whole lifetime -- measured with `examples/pherolife`, blending is
+    /// 16.7% per pass on a one-cell line against decay's 2.9%, and turning
+    /// `DECAY_RHO` off entirely leaves the lifetime unchanged at 144
+    /// frames. A dial on the larger of those two terms that silently did
+    /// nothing would be the `include_str!` trap again: every sweep over it
+    /// would come back with identical rows and read as "the lever is dead".
+    ///
+    /// So this asserts the thing that would break, which is not that the
+    /// setter stores a number -- it is that the number reaches `step`. A
+    /// plane at `diffuse = 0` must outlive one at 0.25 from the same
+    /// deposit, and the assertion is on the frame count rather than on
+    /// equality with a measured constant, so a legitimate retune of
+    /// `DIFFUSE` does not make it red for the wrong reason.
+    #[test]
+    fn the_blend_dial_reaches_the_pass() {
+        let life = |diffuse: f32| {
+            let mut p = Pheromones::new(Rect::new(0, 0, 127, 127));
+            p.set_channel_diffuse(Channel::A, diffuse);
+            for x in 0..40 {
+                p.deposit(Channel::A, 20 + x, 64, DEPOSIT);
+            }
+            let mut passes = 0;
+            while p.plane(Channel::A).max() > 0 && passes < 2_000 {
+                passes += 1;
+                p.step(passes * PHEROMONE_INTERVAL, PHEROMONE_INTERVAL);
+            }
+            passes
+        };
+        let (blended, still) = (life(DIFFUSE), life(0.0));
+        assert!(
+            still > blended,
+            "a trail that does not spread must outlive one that does: diffuse=0 lasted {still} passes, diffuse={DIFFUSE} lasted {blended}"
+        );
+        // And the dial must be readable back, including on the alarm plane
+        // that may not exist yet -- the `alarm_rho` split, which shipped
+        // with a stored value for exactly this reason.
+        let mut p = Pheromones::new(Rect::new(0, 0, 63, 63));
+        p.set_channel_diffuse(Channel::Alarm, 0.5);
+        assert_eq!(p.channel_diffuse(Channel::Alarm), None, "no alarm plane has been made, so there is nothing blending yet");
+        assert_eq!(p.alarm_diffuse(), 0.5, "...but the setting has to survive until there is");
+        p.deposit(Channel::Alarm, 10, 10, ALARM_DEPOSIT);
+        assert_eq!(p.channel_diffuse(Channel::Alarm), Some(0.5), "the plane must be built at the dialled rate, not at DIFFUSE");
+    }
+
     /// **A scaled interval must actually change how often a pass runs.**
     ///
     /// The eleven tests below all drive `step` on multiples of the raw
