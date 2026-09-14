@@ -501,29 +501,59 @@ fn geometry(game: &pixel_physics::druid::Druid) -> String {
     let ys: std::collections::HashSet<i32> = cells.iter().map(|c| c.1).collect();
     let xs: std::collections::HashSet<i32> = cells.iter().map(|c| c.0).collect();
     let span = cells.iter().map(|c| c.0).max().unwrap() - cells.iter().map(|c| c.0).min().unwrap() + 1;
-    // **How far above the ground the mark sits.** An ant reads the plane
-    // around its head as it walks the floor, so a trail laid at the gnome's
-    // *centre* is laid at his chest -- half a body above anything that could
-    // follow it. Measured rather than assumed: the drop to the first solid
-    // cell under each mark.
-    let mut clear: Vec<i32> = Vec::new();
+    // **Where the mark sits relative to the ground surface**, signed: positive
+    // is cells of air above the top solid row, 0 is on it, negative is buried
+    // that many cells inside it.
+    //
+    // **Signed, because the unsigned version was blind and it shipped.** This
+    // read "drop to the first solid cell under the mark", which is 0 for a
+    // mark resting on the surface *and* 0 for a mark buried six cells inside
+    // it -- the scan stops immediately either way. It reported "clearance to
+    // ground 3 -> 0" for the move from `Player::center` to `Player::feet` and
+    // was read as "now it is on the ground"; the owner's eye caught what it
+    // could not, that on soil the trail had gone under. `CLAUDE.md`'s metric
+    // trap, in the excavation shape: a number that cannot tell two opposite
+    // states apart reports the one you expected.
+    //
+    // `creature::colony_surface` finds the surface from a point that may be
+    // *inside* the ground -- it rises to open air first, then takes the first
+    // solid row below -- and looks through a canopy on the way, which a
+    // hand-rolled scan up from the mark would not.
+    let mut height: Vec<i32> = Vec::new();
     for &(x, y) in cells.iter().take(64) {
-        let mut d = 0;
-        while d < 40 && game.world.is_empty(x, y + d) {
-            d += 1;
+        if let Some(surface) = pixel_physics::sim::creature::colony_surface(&game.world, x, y) {
+            height.push(surface - y);
         }
-        clear.push(d);
     }
     let median = {
-        let mut c = clear.clone();
+        let mut c = height.clone();
         c.sort_unstable();
-        c.get(c.len() / 2).copied().unwrap_or(-1)
+        c.get(c.len() / 2).copied().unwrap_or(-99)
     };
+    let buried = height.iter().filter(|&&h| h < 0).count();
+    // **What he is standing on, because the whole anchor bug is soil-only.**
+    // `wade_rows` sinks him four rows into any powder and not at all into
+    // rock, so a run over bare rock cannot show the defect and cannot show
+    // the fix either -- `CLAUDE.md`'s "a scene that contradicts the code will
+    // look like a bug in the code", pointed at the scene that omits it.
+    let mut ground: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for &(x, y) in cells.iter().take(64) {
+        if let Some(surface) = pixel_physics::sim::creature::colony_surface(&game.world, x, y) {
+            // `kind`, not the material's name, because the distinction that
+            // matters here is exactly the one `wade_rows` keys on: he sinks
+            // into a `Powder` and stands on a `Solid`.
+            let m = game.world.get(x, surface).material;
+            *ground.entry(format!("{:?}", game.world.materials.kind(m))).or_default() += 1;
+        }
+    }
+    let ground: Vec<String> = ground.iter().map(|(k, v)| format!("{k} {v}")).collect();
     format!(
-        "8-adjacent {joined}/{}  distinct x {} of span {span}  distinct y {}  median clearance to ground {median}",
+        "8-adjacent {joined}/{}  x {} of span {span}  y {}  height above surface {median:+} ({buried}/{} buried)  ground [{}]",
         cells.len().saturating_sub(1),
         xs.len(),
-        ys.len()
+        ys.len(),
+        height.len(),
+        ground.join(", ")
     )
 }
 
