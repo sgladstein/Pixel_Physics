@@ -72,52 +72,67 @@ and the run is **byte-identical to the baseline** — the classic "identical
 output across a change that must have moved something" tell, here with an
 innocent explanation). The harness prints the gap for exactly this reason.
 
-## After the round moved under this lane (2026-09-14, 08:36–09:00Z)
+## After the round moved under this lane (2026-09-14)
 
-**The bug is §Z23.** The coordinator renumbered it on this branch at
-`18b7fa2b` — `claude/absorb-destroys-plants` had filed a different §Z22 an
-hour earlier on an unlanded branch, which is precisely the case
-`bugindex.py --check` cannot see and `--branches` can. Verified the diff: the
-heading, the index row and five cross-references, and **no claim in the
-section changed**. Accepted as-is, not re-filed.
+**The bug is §Z23.** The coordinator renumbered it at `18b7fa2b` — another
+branch had filed a different §Z22 an hour earlier on an unlanded branch, the
+case `bugindex.py --check` cannot see and `--branches` can. Diff verified:
+heading, index row, five references, **no claim changed**. Accepted, not
+re-filed.
 
-**PR #417 (Lane D) landed on `main` and touches this lane's subject; §Z23
-survives it whole, and that was measured rather than assumed.** #417 made
-`nearest_foe`'s **odds count** animals-only and left the **target rule**
-alone, stating the reason in a comment. Two consequences, both now in §Z23:
-its new gate is `assessing = victim != 0 && is_animal && contest::enabled()`,
-so **a plant is the one target struck with no assessment at all**; and
-re-running seed 1 on `origin/main` **with this branch merged into a scratch
-worktree and built fresh** gives **475 attacks / 79 cells / 629 deaths,
-byte-identical** to the pre-#417 figure — predicted first, because with every
-foe a plant the commitment branch takes no RNG draw.
+**PR #417 (Lane D) landed and touches this subject; §Z23 survives it whole,
+measured rather than assumed.** #417 made `nearest_foe`'s odds count
+animals-only and left the target rule alone. So a plant still fails
+`is_animal`, `commits` is true unconditionally, and **a plant is the one
+target struck with no assessment at all**; and seed 1 re-run on `main` with
+this branch merged gives **475 attacks / 79 cells / 629 deaths,
+byte-identical**. Predicted first: with every foe a plant, the commitment
+branch takes no RNG draw. **§Z23's proposed repair was wrong and is
+rewritten** — gate `cry_alarm`'s two *feeding* sites on the victim being an
+animal, which leaves #417's argument intact.
 
-**§Z23's proposed repair was wrong and has been rewritten.** It first said
-"test that the target is an animal"; #417 argues against exactly that, and
-correctly. The repair moved upstream: gate `cry_alarm`'s two **feeding** call
-sites on the victim being an animal, which fixes the vandalism and leaves the
-target rule intact.
+**The two lanes' stranger figures differ by denominator, not by fact.** Lane
+D's is over all ordered ant pairs (kin-heavy); this lane's `between%` is over
+cross-colony pairs only. Pooled, **7 of 10 seeds separate at `spread=1`**.
 
-**One correction back to the coordinator: this lane ships no switch and no
-default.** The poke asks what this lane's "ON default" for `scent_spread` is
-and says to re-derive it. There is nothing to re-derive — the PR changes no
-species file, no default and no file under `src/`, and the report's
-recommendation is to expose the dial rather than choose a value, default-off.
-Lane D's §8.3 sweep is still useful and is now cited in the report: the dial
-is a **threshold, not a slope**, saturating by **2**, so a dial whose top is 1
-would ship a mechanism a third of beds never show.
+## The switch, shipped ON (2026-09-14, branch `claude/evolution-lab-rivalry-on`)
 
-**The two lanes' stranger figures differ by denominator, not by fact**, and
-the report now says so: Lane D's 0.093 is over *all* ordered ant pairs
-(kin-heavy); this lane's `between%` is over *cross-colony* pairs only, which
-is why it is 100% or 0% and never in between. Pooled, **7 of 10 seeds
-separate at `spread=1`** (4 of 6 here, 3 of 4 there).
+**The findings live in the report** —
+[`why-colonies-do-not-fight-2026-09-14.md`](../why-colonies-do-not-fight-2026-09-14.md),
+"Postscript: the owner ruled, and it ships on": the measured value and why
+**2.0**, the clamp that makes it saturate, the paired cost, the 19 tests it
+broke and what the nineteenth turned out to be. Only what is addressed to
+another session is kept here.
 
-**Not merged `main` in.** `git merge-tree` reports **0 conflicts** at 12
-behind x 6 files = 72, well under the 300 bar, and the coordinator owns the
-merge order this round.
+**Provenance of the ruling, because this lane could not verify it.** The
+coordinator relayed *"You can ship it on"* at 08:36Z, dated 04:43. It had not
+reached this lane before that — the brief said default-OFF. The review queue's
+most recent owner answer is **01:44:09Z** and there is nothing at 04:43, so it
+came through a channel this lane does not have. Acted on the relay; recording
+where the belief came from.
+
+**For the coordinator, on file ownership.** `src/sim/creature.rs` is Lane B's
+this round and carries **two test-only edits** (the `test_world()` pin, and
+the new default test beside it); `src/sim/specimen.rs` carries one test edit.
+**No non-test `src/` line changed.** The only behavioural line in the branch is
+`scent_spread: 2.0` in `assets/species/ant.ron` — a shipped species edited in
+place, said loudly here as the brief requires.
+
+**For whoever owns the colony economy.** The default makes an ant *food* to
+another colony, and the birth bar, `colony_ants` and the starvation balance
+were all calibrated on a bed where no ant is food. Deliberately not re-derived
+here; the paired numbers are in the report for you.
+
+**For whoever owns the held world.** Only COMMON ANT is switched on; the other
+five foundable stocks still found as one family with themselves.
 
 ## Cards
+
+**Card `20260914T101732230Z-f2fb00`** — *Rival colonies, switched on in the
+bed you play*. The shipped-on A/B: the bed as it was against the bed a new box
+gives you today, same seed and window, `0` against `9` killings between
+colonies in `meta`, with the value derivation and the paired cost in the
+context. Posted after the ruling.
 
 **Card `20260914T053420770Z-6a7aa9`** — *Two colonies that are strangers to
 each other*, board `creatures`. An A/B of **frame sequences** (175 frames

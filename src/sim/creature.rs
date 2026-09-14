@@ -12527,8 +12527,104 @@ mod tests {
     use crate::sim::scheduler;
     use crate::sim::update;
 
+    /// **A unit-test world, with the ant's colony-founding scent draw pinned
+    /// off.**
+    ///
+    /// `ant.ron` ships `scent_spread: 2.0` since 2026-09-14, so every
+    /// `spawn` of a second ant founds a colony whose signature is displaced
+    /// by a *random* offset. Almost every kin test in this file works by
+    /// displacing one animal's scent by a **controlled** amount and asking
+    /// what the radius does with it, and a random offset underneath a
+    /// controlled one is not a stricter test, it is a confound — the same
+    /// shape `attacking_costs_the_jaw_and_yields_no_food` already pins
+    /// `scent_drift` off for, and for the same reason.
+    ///
+    /// **Pinned here rather than in nineteen places** because it is a
+    /// property of the *world* a unit test wants, not of any one rule under
+    /// test: a bed whose scent is exactly what the test put there. Any test
+    /// that wants the shipped draw sets it back explicitly — and one does,
+    /// deliberately, so that this pin cannot quietly stop the default from
+    /// being tested at all: see
+    /// `the_shipped_ant_founds_colonies_that_are_strangers`.
     fn test_world() -> World {
-        World::new(Rect::new(0, 0, 199, 199))
+        let mut w = World::new(Rect::new(0, 0, 199, 199));
+        if let Some(id) = w.species.id_of("ant") {
+            if let Some(def) = w.species.get(id).creature.as_ref() {
+                let mut def = def.clone();
+                def.scent_spread = 0.0;
+                w.species.set_creature(id, def);
+            }
+        }
+        w
+    }
+
+    /// **The shipped default is on, and this is the test that says so.**
+    ///
+    /// [`test_world`] pins `scent_spread` off so that every other kin test
+    /// in this file measures the rule rather than the draw. That pin is
+    /// exactly the shape `CLAUDE.md` warns about — *a superseded
+    /// mechanism's tests keep passing while testing nothing* — unless
+    /// something covers the default deliberately. This is that something,
+    /// and it reads the species file rather than a constant, so the day the
+    /// dial moves this test moves with it.
+    ///
+    /// Two claims, and the second is the one with teeth: the ant **authors**
+    /// a non-zero spread, and two foundings at it actually land outside each
+    /// other's tolerance. The second can fail while the first passes — the
+    /// offsets are a draw and `apply_colony_scent` clamps each slot to
+    /// `[-1, 1]`, so a seed can put two colonies in the same corner of that
+    /// cube (measured: 1 seed in 12 on the played bed). So this asserts over
+    /// **several colony labels** rather than one pair, and asks that most of
+    /// them part rather than all — an order statistic, because the per-pair
+    /// outcome is binary and a single pair would be a coin flip wearing a
+    /// gate.
+    #[test]
+    fn the_shipped_ant_founds_colonies_that_are_strangers() {
+        let w = World::new(Rect::new(0, 0, 199, 199));
+        let id = w.species.id_of("ant").expect("ant species");
+        let def = w.species.get(id).creature.as_ref().expect("creature").clone();
+        assert!(
+            def.scent_spread > 0.0,
+            "ant.ron must author a non-zero scent_spread -- at 0 every colony founds at one point and no two colonies can ever be strangers, which is the whole finding of why-colonies-do-not-fight-2026-09-14.md"
+        );
+
+        // The radius the founding gap has to clear, read off the ancestral
+        // vector rather than assumed, so retuning the tolerance moves this.
+        let radius = tolerance_radius(&def.traits);
+        let parted = |seed: u64| -> usize {
+            let offsets: Vec<[f32; 3]> = (1..=8u32)
+                .map(|colony| {
+                    let mut t = def.traits;
+                    apply_colony_scent(&mut t, seed, colony, def.scent_spread);
+                    scent_of(&t)
+                })
+                .collect();
+            let mut parted = 0;
+            let mut pairs = 0;
+            for (i, a) in offsets.iter().enumerate() {
+                for b in offsets.iter().skip(i + 1) {
+                    pairs += 1;
+                    if scent_distance_sq(a, b).sqrt() > radius {
+                        parted += 1;
+                    }
+                }
+            }
+            assert_eq!(pairs, 28, "eight colonies is twenty-eight pairs");
+            parted
+        };
+
+        // Three seeds, and the bar is a majority rather than all of them:
+        // the clamp means some pairs land together however wide the dial,
+        // and a gate asserting every pair parts would be asserting something
+        // the mechanism does not promise.
+        for seed in [1u64, 7, 99] {
+            let n = parted(seed);
+            assert!(
+                n >= 20,
+                "seed {seed}: only {n} of 28 colony pairs founded outside a tolerance radius of {radius} at scent_spread {} -- the shipped default is not making colonies strangers",
+                def.scent_spread
+            );
+        }
     }
 
     /// **A smoke test for the speculated read phase, and explicitly not the

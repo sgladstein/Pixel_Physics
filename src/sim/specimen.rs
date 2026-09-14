@@ -966,7 +966,57 @@ mod tests {
         assert_eq!(out.moved, 0, "a zero-brood release is a clone and must move nothing");
         let after = w.organism(out.organism).expect("the released ant");
         assert_eq!(after.genome, genome, "the released ant is not carrying the genome that was kept");
-        assert_eq!(after.traits, traits, "the released ant's body traits did not survive the jar");
+
+        // **Every slot but the scent signature round-trips exactly.**
+        //
+        // This assertion used to be a flat `assert_eq!` over all fourteen,
+        // and it was true only because `scent_spread` was 0: releasing a jar
+        // **deliberately** adds the new label's founding offset on top of
+        // the scent it was jarred with (`creature.rs`, `Origin::Stock` —
+        // *"the specimen's own drift is kept, the gesture's identity is
+        // added"*). At a zero dial that offset is the zero vector and the
+        // three slots appeared to round-trip; `ant.ron` shipping
+        // `scent_spread: 2.0` on 2026-09-14 made the difference real and the
+        // old assertion went red.
+        //
+        // **The old assertion was passing on a coincidence, so it is
+        // replaced rather than widened.** What it means to say is *the
+        // animal comes back the same animal*, and that is now checked where
+        // it is actually claimed — exactly on the eleven slots the jar
+        // promises to preserve, and against the documented rule on the three
+        // it does not.
+        for (slot, (a, b)) in after.traits.iter().zip(traits.iter()).enumerate() {
+            if organism::SCENT_SLOTS.contains(&slot) {
+                continue;
+            }
+            assert_eq!(a, b, "trait slot {slot} did not survive the jar");
+        }
+
+        // And the signature is the jarred one plus this release's own colony
+        // offset — not the species point, and not an arbitrary redraw.
+        // Built from the **public** `colony_scent_offset` plus the same clamp
+        // `apply_colony_scent` applies, rather than reaching for that private
+        // function: this keeps the check honest without widening
+        // `creature.rs`'s API for a test in another module.
+        let def = w.species.get(w.species.id_of("ant").expect("ant")).creature.as_ref().expect("creature").clone();
+        let mut want = traits;
+        let off = crate::sim::creature::colony_scent_offset(w.seed, after.colony, def.scent_spread);
+        for (i, slot) in organism::SCENT_SLOTS.iter().enumerate() {
+            want[*slot] = (want[*slot] + off[i]).clamp(-1.0, 1.0);
+        }
+        for slot in organism::SCENT_SLOTS {
+            assert_eq!(
+                after.traits[slot], want[slot],
+                "scent slot {slot}: a release must carry the jarred scent plus its new label's founding offset"
+            );
+        }
+        // The control for the assertion above: at the shipped dial the
+        // offset is not the zero vector, so this test is not passing
+        // vacuously the way its predecessor did.
+        assert!(
+            def.scent_spread > 0.0 && want[organism::SCENT_SLOTS[0]] != traits[organism::SCENT_SLOTS[0]],
+            "the shipped scent_spread must actually move the signature, or the check above is testing nothing"
+        );
     }
 
     #[test]

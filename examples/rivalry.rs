@@ -337,6 +337,30 @@ fn main() {
         lab.stats.toggle();
     }
 
+    // **The value the bed is actually founded at, echoed whether or not
+    // `spread=` was passed.** It stopped being safe to leave implicit the
+    // day `ant.ron` began authoring a non-zero `scent_spread`: before that a
+    // log with no `spread=` on it meant "the unswitched bed" and now it
+    // means "whatever the species file says today". `CLAUDE.md`'s harness
+    // rule is that a knob nobody can see the value of is a knob nobody can
+    // tell is disconnected, and this is its other half — a *default* nobody
+    // can see the value of is a default nobody can tell has moved. Read off
+    // the species registry rather than from the argument, so the two routes
+    // into this field cannot be confused in a log.
+    println!(
+        "rivalry: ant scent_spread as authored = {} (species file), scent_drift = {}",
+        lab.world
+            .species
+            .id_of("ant")
+            .and_then(|id| lab.world.species.get(id).creature.as_ref().map(|d| d.scent_spread))
+            .unwrap_or(0.0),
+        lab.world
+            .species
+            .id_of("ant")
+            .and_then(|id| lab.world.species.get(id).creature.as_ref().map(|d| d.scent_drift))
+            .unwrap_or(0.0),
+    );
+
     // **Link 1.** The offset is drawn at founding, keyed on the seed and the
     // label (`creature::colony_scent_offset`), so applying that same draw to
     // every standing animal of each label is byte-identical to having
