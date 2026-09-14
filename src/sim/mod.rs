@@ -51,6 +51,10 @@
 //!   cells apart produce a bit-identical field, measured
 //!   (`creature.rs`'s resolution experiment), so path selection — the
 //!   entire mechanism — would be impossible
+//! * `contest` — assessment before commitment: what an animal reads off an
+//!   opponent before deciding to bite it. Pure arithmetic over numbers
+//!   `creature`'s fight already has, kept out of `creature` so it can be
+//!   tested without a bed
 //! * `creature` — M18 Phase 1, cell-based creatures (a burrowing worm),
 //!   dispatched from `scheduler` like plant growth and structural checks;
 //!   fire/burning is deliberately not reimplemented here, since `fire.rs`
@@ -70,6 +74,7 @@ pub mod brain;
 pub mod cell;
 pub mod chunk;
 pub mod clock;
+pub mod contest;
 pub mod creature;
 pub mod decay;
 pub mod enclosure;

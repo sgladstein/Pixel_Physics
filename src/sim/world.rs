@@ -1709,6 +1709,29 @@ pub struct CreatureStats {
     /// a count of swings is not a count of hits, and this repo has already
     /// paid for 23 swings that removed 0 cells.
     pub attack_kills: u64,
+    /// **Encounters assessed** — every tick on which an animal that was
+    /// willing to fight actually stood in front of somebody it could have
+    /// bitten. The near side of `attacks`, one step further out than
+    /// `attacks`/`attack_kills` are from each other: that pair separates a
+    /// swing from a hit, and this separates *meeting* from swinging.
+    ///
+    /// Zero until a genome carries a weight on `BrainOutput::Attack`, for
+    /// the same reason `attacks` is: the whole verb sits behind that gate.
+    /// A run with `contests` high and `attacks` low is a border being held
+    /// without anyone dying, which is what almost all real inter-colony
+    /// contact looks like; `contests == attacks` is the old behaviour, in
+    /// which an encounter and a bite were the same event.
+    pub contests: u64,
+    /// **Encounters that ended in a display instead of a bite** —
+    /// `contests - attacks`, counted directly rather than subtracted so the
+    /// two cannot drift.
+    ///
+    /// **This is the counter the first law is read off.** `CLAUDE.md`: an
+    /// outcome is a distribution rather than a binary, and a fight mechanic
+    /// whose every encounter escalates has no middle however busy it looks.
+    /// `displays / contests` is the withdrawal rate, which in real ants is
+    /// nearly all of inter-colony contact — see `sim::contest`.
+    pub displays: u64,
     /// **Severing events**: a creature that lost a body cell and came apart
     /// at it, rather than merely shortening.
     ///
