@@ -171,6 +171,14 @@ order every round, and **prints the map size it timed**.
   moves for the lane's own work. The only check that works is the **branch
   head**. Say a message was *sent*, never that a lane was *contacted*, and put
   anything load-bearing in the repo as well as in the poke.
+- **A guard written with a *hungry* eater starved its own eater**, so the null
+  read as *"strangers do not eat each other"*. Feeding is an urge, so the first
+  version made the eater hungry — at a quarter bank it walked off looking for
+  food and was dead inside the window, and the probe found no eater at all. The
+  hunger wire makes a **full** ant rest, so two rich strangers stay adjacent
+  long enough for the mouth to find flesh already touching it: **163 eats and
+  54 cells taken, against zero**. The scene, not the mechanism, was the bug —
+  and the obvious scene was the wrong one.
 - **The rung-3 zoom question was re-asked in plain words** (#409, card
   `20260914T084458895Z-ae1b01`). He had answered *"keep rung 3 as a soft stop"*
   and then said he did not know what a soft stop was. Rendered and looked at
@@ -185,14 +193,119 @@ costs is not in the creature pass at all** but in the CA sweep over the 29.4
 cells it dirties per frame
 ([`evolution-lab-knee-2026-09-14.md`](evolution-lab-knee-2026-09-14.md)).
 
-**One thing is unfinished and it is not a lane's fault.** The owner ruled *"you
-can ship it on"* and **nothing in this round implements it**: #416 measures
-rivalry and changes no default, and lane C's own reading remains *expose it,
-default off*. Shipping it on is now a choice of **value** rather than of
-boolean — the dial saturates by 2 and a top of 1 shows nothing in a third of
-beds — so it wants the constants it reallocates named and re-derived, and a
-seed sweep gating an order statistic. **Six seeds is not a sweep.**
-
 **§Z23 is open with a repair already designed** (gate `cry_alarm`'s two feeding
-call sites on the victim being an animal), which is a contained first job for
-whoever picks up the creature line.
+call sites on the victim being an animal — *not* a test that the target has a
+`creature` def, which #417 argues against and correctly), a contained first job
+for whoever picks up the creature line.
+
+**What is left of the ship-it-on ruling is the economy, not the switch.** Lane
+C shipped it: `assets/species/ant.ron` authors `scent_spread: 2.0` (#423). The
+constants that default reallocates — the birth bar, `colony_ants`, and the
+starvation balance, all calibrated on a bed where **no ant is food** — are
+named in the commit and deliberately **not** re-derived inside a one-line asset
+change. That is the correct boundary and it is round 36's job.
+
+## 8. Shipping it on, and the instrument bug that nearly set the wrong value
+
+*Added after the round's record was first written, when lane C landed the
+switch (#423).*
+
+**The value is 2.0, gated on an order statistic** because the per-seed outcome
+is binary and a median hides the beds where the switch does nothing. 12 seeds ×
+24,000 frames, counting seeds with a cross-colony killing:
+
+| `scent_spread` | seeds with a kill | kills | median founding gap |
+|---|---|---|---|
+| 0 | **0 of 12** | 0 | — |
+| 1 | 9 of 12 | 86 | 1.62 |
+| **2** | **11 of 12** | 105 | 2.28 |
+
+**What the dial decides is how many seeds clear the recognition radius at
+founding, and nothing else** — `is_living_kin` is a *boolean*, so 1 → 2 leaves
+the kill count identical on 10 of 12 seeds and the whole gain is the two seeds
+that cross. **It saturates because the signature is clamped**: `apply_colony_
+scent` clamps each slot to `[-1, 1]`, so past ~1 the dial folds draws onto the
+corners of that cube instead of pushing colonies apart. One seed is
+byte-identical to the unswitched bed at *every* value — **one bed in twelve
+cannot be separated by any setting. Structural, not tuning.**
+
+**The cost, paired off(0) against shipped(2) over the same 12 seeds:** deaths
+**+99 median**, up on 11 of 12 and down on none; starvation share **−4.3 points
+median**, down on 10 of 12 — killing displaces starving; population and births
+**both unmoved, medians exactly 0**. The bed carries it.
+
+**And the table above is the second one, because the first was measured through
+a broken instrument.** `rivalry.rs`'s `spread=` override *added* its offset to
+whatever scent an animal already carried. While the default was 0 that was
+identical to re-deriving, so every measurement taken before the switch went
+live is sound — but the moment `ant.ron` authored a live value, every arm was
+measuring `authored + requested`, and **`spread=0` was not an off arm at all**:
+it left the authored offset standing while claiming to have removed it. The
+confounded sweep said *"1.0 and 2.0 are equivalent and 2.0 has the worse
+tail"*, and the branch briefly shipped **1.0** on that reading.
+
+**The control that caught it is the one this repo demands of every other knob**
+— run the bed from the *authored* value and from the *runtime override* at one
+seed and require them byte-identical. They disagreed on the founding gap alone
+(1.817 against 2.289) **while every outcome column matched** — matched only
+because both sat past a threshold, so the doubled offset changed no decision
+and would have gone on changing none until some arm sat near the boundary.
+**A confound that is invisible in every column you are looking at is still
+there.**
+
+**A second finding from the same work, and it is a rule rather than a number:
+the founding draw is not stable across engine changes.** One seed's founding
+gap at an unchanged `spread=1` moved **0.907 → 2.170** across the round-35
+merge. The offsets are a pure hash of `(world seed, colony label, slot)`, so
+what moved was *which labels get claimed*, upstream of this field entirely.
+**Tune this dial on the threshold argument, which is structural; never on a
+table of particular seeds' gaps, which is not.**
+
+**And the echo earned its place immediately.** The harness prints
+`scent_spread as authored` every run, and it caught the lane editing the
+comment to 2.0 while leaving the value at 1.0. *A default nobody can see the
+value of is a default nobody can tell has moved.*
+
+**The first thing the live default actually broke was a harness, and the
+diagnosis was half right.** CI went red on `cargo run --release --example
+ascii` — the one gate the lane's local set was missing, and exactly where a
+behavioural default change was always going to land. **Three scenes place their
+animals in a `world.plant_ant(..)` loop**, and `plant_ant` routes through
+`Origin::Founder { colony: None }`, **which claims a fresh label per call**. So
+each scene held **55–60 one-ant colonies that only looked like a colony**:
+inert while every label smelled identical, mutual strangers the moment
+`ant.ron` authored a live value. `examples/ascii.rs` **had already ruled on
+this once**, in its own moisture scene — *"One colony, not fifty-five … they
+stopped foraging and started eating each other"* — so the fix is that precedent
+applied to the three loops that never got it.
+
+| scene | before | after |
+|---|---|---|
+| excavation (the red one) | digs 62, roofed void **0** | digs 354, roofed void 42 |
+| foraging | 12 of 15 alive at 12k frames, 703 deliveries | 15 of 15, 849 |
+| double bridge | 1,076 deliveries | **13** |
+
+**Two of those do not say what they first look like.** In the excavation scene
+`deaths` barely moved — **52 → 55**. It was not that more ants died; they spent
+the run *fighting instead of digging*, so what moved is the digging. And the
+bridge's collapse is **the old number being the artifact**: sixty one-ant
+colonies each satisfied *"a laden animal reaches its colony's nest"* trivially,
+where one colony of sixty has to make the trip. `deaths` is 59 either way. **13
+is a real and rather low round-trip count over that bridge** — a finding about
+the bridge, stated out loud rather than quietly installed as a new baseline.
+
+**And the reading this is not, which the coordinator proposed and the lane
+refuted.** The coordinator's relay suggested this might mean *a player
+sprinkling ants one at a time now gets a massacre*, and said it would be a
+finding for the owner if true. **It is not true**: `plant_ant` is not reachable
+from the game — the sandbox's ant key goes through `World::found_colony`, which
+claims one label for the whole colony, and the only non-test caller of
+`plant_ant` sits inside a `#[test]`. **A harness placement artifact, not a
+player-facing consequence of the default.** Checked because it was asked for,
+and reported as negative.
+
+**Two things it left for the owner**, neither a lane's to decide: at a live
+dial, **jarring an ant and releasing it beside its own nest makes it a stranger
+its nestmates will eat** — that follows from the documented release rule and
+was invisible while the dial was 0. And **only the common ant is on**; the held
+world's other five foundable stocks still found as one family with themselves.
