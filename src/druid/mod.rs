@@ -161,6 +161,18 @@ impl Start {
 /// `PIXEL_PHYSICS_DRUID_START=dead|bare|grown` — see [`Start`].
 const START_ENV: &str = "PIXEL_PHYSICS_DRUID_START";
 
+/// `PIXEL_PHYSICS_DRUID_CIRCLE=off` — start with the carried circle switched
+/// off. See [`Druid::toggle_carried_circle`].
+///
+/// **A control arm, not a setting.** The key that toggles the circle lives in
+/// `src/bin/druid.rs`, and there is no way to press a key in a headless
+/// capture — so without this, the *"what does it look like with the sphere
+/// off"* question could only be answered by editing a line and rebuilding
+/// between the two arms, which is exactly the shape that produces a
+/// stale-binary comparison. One binary, one switch, nothing else different.
+/// Anything but the literal `off` leaves the circle on.
+const CIRCLE_ENV: &str = "PIXEL_PHYSICS_DRUID_CIRCLE";
+
 /// The worldgen preset this game builds from — see `assets/worldgen.ron`,
 /// where the reasoning for each value that differs from `rolling` is written
 /// beside it.
@@ -732,6 +744,13 @@ impl Druid {
             // `at_scaled`, not `at`: at any `cell_scale` other than 1 the
             // plain constructor builds a half-size gnome.
             world.player = Some(player::Player::at_scaled(x, y, world.cell_scale()));
+        }
+        // The headless control arm -- see `CIRCLE_ENV`. Echoed, because a
+        // switch nobody can see the value of is a switch nobody can tell is
+        // disconnected.
+        world.carried_off = std::env::var(CIRCLE_ENV).is_ok_and(|v| v.trim().eq_ignore_ascii_case("off"));
+        if world.carried_off {
+            println!("druid: starting with the carried circle OFF ({CIRCLE_ENV})");
         }
 
         Self {

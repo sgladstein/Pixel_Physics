@@ -8545,6 +8545,89 @@ mid-width, and `surface_at` walked through it to the rock floor beneath: the
 gnome spawned submerged. A flooded column now disqualifies itself outright and
 the search alternates outward from the middle.
 
+### Nothing grows there until she plants it
+
+**The generated world contains no life at all**, and that is the player's job
+rather than the generator's. Owner playtest, 2026-09-14: *"The world should
+not start with any seeds. The druid has her own seeds to plant and that
+populates the world."*
+
+It is three zeroed densities in the `druid` preset — `moss_density`,
+`tree_density`, `grass_density` — and no code, because `passes::life_scatter`
+already early-outs when all three are zero, which is the path `arid` and
+`flat` take. Measured paired, one binary and two copies of
+`assets/worldgen.ron` (`pass_ablation seeds=1 preset=druid`): `life_scatter`
+**993 cells → 0**, with every other pass in the table byte-identical across
+the two arms, so nothing was displaced rather than removed. `Start::Bare` is
+the default and never grows, so that is the whole of it.
+
+**Her supply is finite, and that is the other half of the same item.** Before
+this, `Druid::plant_seed` read no resource and decremented nothing — no
+decrement existed anywhere in the repo — so on a bare map the item as stated
+would have turned a wood into a painting tool.
+
+| | |
+|---|---|
+| `SEED_START` | 8 of **each kind**, so *"eight grass and no oak"* is a state |
+| `SEED_CAP` | 24 per kind |
+| `SEED_FROM_CELLS` | 24 — a plant pays only once it looks like a plant |
+| `SEED_PER_PLANT_SECOND` | 0.005, per mature plant, **in the circle she carries** |
+
+**The carried circle, not a standing one**, is the load-bearing choice.
+Gathering is presence — the same thing the carried circle already is — so the
+way to be paid in seed is to walk your own wood. Crediting standing
+quickenings would pay a player who drops a circle over a wood and leaves,
+which is the unlimited supply wearing a delay. It also means switching the
+sphere off (below) stops the pouch filling, for free, out of the same
+`Option`. Seed is credited to the **plant's own kind**, so standing in an oak
+wood fills you with oak.
+
+Every number above is a first guess on the same footing as the rest of this
+economy. **The one to sweep first is the maturity bar**, because it is the
+only one that decides whether the mechanic has a middle: too low and every
+sprout pays, which is the infinite supply again; too high and nothing ever
+pays and the pouch is a countdown.
+
+**Not built, and it is the owner's call:** whether a refill should exist at
+all. Everything here assumes it should, because a supply that can only go down
+makes the outcome binary — you have seeds or the run is over — which is the
+failure law 1 names. That is an inference from the ethos rather than from his
+words.
+
+### The sphere has an off switch, and what it costs is not power
+
+Owner playtest, 2026-09-14: *"There should be an easy way to full turn off the
+sphere around the druid so no power is being used."*
+
+**The power half of that is already true, and it is worth recording why.**
+`carried_cost` prices the area *added*, not the area held, so the carried
+circle at its base radius costs exactly zero and a guard asserts it — *"the
+circle you already are must stay free"*. Nothing about switching it off is a
+saving unless the player has widened it with `]`, and then it is the widening
+that stops being billed.
+
+What was genuinely missing is the thing the words say: **a way to make the
+world hold still where she stands.** `World::carried_off` is that.
+
+**It is a flag and not a radius of zero, deliberately.** `carried_radius`
+reads `0` as the *default size* — its own doc refuses to let a dial reach off
+by accident — and even a genuinely zero radius would still run time for the
+cell underfoot, since `Quickening::contains` is `<=`. Both are asserted
+directly, so a later simplification of either gets told.
+
+**Off is a trade rather than a saving.** The colony under her feet stops
+storing charge, a sown seed stops germinating, the wood she is in stops
+growing, and her pouch stops filling. All of it falls out of
+`World::time_runs_at` and none of it is new code — the same way the rule that
+a colony must be founded inside running time does.
+
+The delivery is that the world visibly goes still: with `carried` at `None`
+the held look reclaims the ground she is standing on, so the bubble does not
+dim, it disappears. The readout says `YOUR CIRCLE OFF` as a word, because no
+number could say it, and in warning colour — an idle power bar that looks like
+a fault is the failure to avoid. `PIXEL_PHYSICS_DRUID_CIRCLE=off` is a
+headless control arm for judging the two states off one binary.
+
 ### The economy, and why every number in it is a first guess
 
 One pool. **Drain is charged on what is actually awake inside a circle, not on
