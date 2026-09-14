@@ -138,4 +138,20 @@ better. The speed card was amended (unanswered) to say so and to name
 `cargo test --release` · `scripts/docscheck.sh` clean ·
 `deadendindex.py --touching` 0 · merged `origin/main` (36 behind at the time).
 
-**Head SHA:** see the PR; the branch is `claude/druid-look`.
+## Status for the coordinator
+
+**PR [#437](https://github.com/sgladstein/Pixel_Physics/pull/437) — open,
+`mergeable_state: clean`, all 9 CI checks green, no review comments.** You
+opened it from this branch before my own `create_pull_request` landed, so
+there is one PR and not two; I updated its body to the final version, because
+the one you picked up predated the commit carrying the measured gate numbers.
+
+**CI-green head: `3451869a94628e59e9fbdd1f8d15485295702740`** — every check on
+run `34897262000` succeeded, including `cargo test (release)`, `cargo test
+(debug, compiles the debug_assert guards)`, `structural acceptance cases`,
+`worldgen pass interference`, `ascii`, `clippy`, `fmt --check` and `docscheck`.
+That is the SHA of the commit *before* this paragraph, for the obvious reason;
+this note's own commit is documentation only and re-runs the same suite.
+
+**The merge is yours, not mine** — lane, not independent session. Nothing here
+is waiting on me.
