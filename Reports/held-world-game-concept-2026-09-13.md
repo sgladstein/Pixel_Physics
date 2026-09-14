@@ -390,6 +390,36 @@ screen does not apply: `C` is available on bare ground and says nothing about
 it. The cheapest form is a line on the screen reading what is alive inside the
 carried circle, which the economy already counts.
 
+### Built 2026-09-14: the druid can lay scent, and whether the colony follows is open
+
+`G` deposits channel B where he walks (README's *Telling the colony where to
+go*). The half that is **measured**: the trail is laid (121 marks over a
+130-cell walk), it carries the slope `PheroBAlong` needs (guarded, with the
+frozen plane as the control — the same walk with `step_pheromones` never
+called reads its two ends equal), and `ant.ron` wires channel B into `Move`
+gated on an empty crop.
+
+The half that is **not**: that a druid-laid trail moves a colony. **The first
+attempt failed as an experiment rather than as a verb, and the three faults
+are worth recording so nobody repeats them.**
+
+- **`bare` has no food.** Channel B is the road to something; a trail leading
+  to bare ground is an instruction with no object, and the colony had nothing
+  to be led *to*.
+- **A mean over a colony that lives at its nest is the nest.** Founded at
+  1279, mean at 1281 after 3,940 ticks — in *both* arms, identical to the
+  digit, which is this repo's tidiness tell rather than a result. The metric
+  cannot separate milling at home from not moving at all. The count near the
+  trail head can, and it read **0 of 3**.
+- **The offer rolled `hopper`, and 3 of 6 founders were dead by the end.**
+  Its wiring is inherited from `ant.ron` but was never read, and a starving
+  three-animal sample answers nothing either way.
+
+A valid test wants food at the trail's far end, a stock whose wiring has been
+checked, a population that is not starving, and an order statistic over seeds
+rather than one run. Until then the verb is *built and unproven*, which is a
+different claim from *working*.
+
 ## 4a. Making the colony load-bearing, not resident
 
 **The owner's objection to the first draft, and it was correct:** *"this

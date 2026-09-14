@@ -8682,6 +8682,23 @@ meal never lays a trail for anyone to follow, and random-walks with a full
 larder out of reach. A finger that can put scent down is the missing first
 mark.
 
+**What is measured, and what is not.** The trail is laid (121 marks over a
+130-cell walk), it has the slope the mechanism needs (guarded, with the frozen
+plane as the control), and the ants' authored wiring reads channel B. **That a
+druid-laid trail actually moves a colony is not yet demonstrated**, and the
+first attempt could not answer it: a paired run on `start=bare`, one arm
+laying and one not, put the colony's mean at **1281,317 in both** — identical
+to the digit, which is `CLAUDE.md`'s tidiness tell rather than a result. Three
+things were wrong with the scene rather than with the verb. **A mean over a
+colony that lives at its nest is the nest**, whatever the animals do, so the
+metric cannot separate "milling at home" from "not moving" — read the furthest
+cell reached, or the count near the trail head, which was 0 of 3. `bare` has
+**no food**, so channel B led to nothing and there was nothing for a follower
+to find. And the offer rolled `hopper`, whose wiring is inherited from
+`ant.ron` but was not checked, with only **3 of 6** founders alive by the end
+in a world with nothing to eat. A valid test wants food at the trail's far
+end, a stock whose wiring has been read, and a population that is not starving.
+
 **A trail only commands where time runs**, and that falls out of the held
 gate rather than out of anything here: creatures tick on the active-site
 schedule, which `scheduler::step` gates on `time_runs_at`. So a trail leading
