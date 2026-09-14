@@ -1,0 +1,84 @@
+{
+  "id": "20260914T201530498Z-1a387e",
+  "created": "2026-09-14T20:15:30Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-food-readable",
+    "commit": "1331b35b",
+    "agent": null,
+    "session_id": "65a4d947-1bc8-5f1b-b8de-5d815018976b",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "How long should a food road remember?",
+  "question": "Which one is the trail -- which pane lets you follow where the food goes?",
+  "context_md": "You asked: ***\"is it too much to track actual paths and make trail?\"***\n\n**It was never too much, and it was already tracking them.** The road marks the exact cell an ant stands on, every tick it moves. What it was doing wrong is **forgetting** -- it dropped a mark to half in ten seconds, so what reached the screen was the last few hundred steps anybody took, scattered along the surface. One of these panes holds a minute instead. Nothing else differs: same bed, same seed, same run, same animals.\n\n- **red-orange** -- an ant walked here **carrying**\n- **blue** -- an ant walked here with nothing\n- the harvest map is off in both, so this is the road on its own\n\n**Scrub it.** The trail builds as they work; that is the part a still cannot show.\n\n**And it is free, which I measured before proposing it rather than after.** The longer memory holds nearly four times as much road and costs nothing either instrument can see: on a settled bed, where this view is dearest because it forces a full repaint, the short memory came out **+0.82 ms** a frame over having the view off and the long one **+0.73**; over a whole running frame, **+0.56 ms** against **+0.47**. The check that says the ruler works at all is a second channel drawn on the same bed, which moves the same number to **+1.17 ms**. What this view costs is having it switched on -- not what it remembers.\n\nWhichever you pick becomes the default, and the other stays a dial.",
+  "kind": "frames",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "ten seconds (what shipped)",
+      "files": [
+        "20260914T201530498Z-1a387e/000-frame_0000.png",
+        "20260914T201530498Z-1a387e/001-frame_0001.png",
+        "20260914T201530498Z-1a387e/002-frame_0002.png",
+        "20260914T201530498Z-1a387e/003-frame_0003.png",
+        "20260914T201530498Z-1a387e/004-frame_0004.png",
+        "20260914T201530498Z-1a387e/005-frame_0005.png",
+        "20260914T201530498Z-1a387e/006-frame_0006.png",
+        "20260914T201530498Z-1a387e/007-frame_0007.png",
+        "20260914T201530498Z-1a387e/008-frame_0008.png",
+        "20260914T201530498Z-1a387e/009-frame_0009.png",
+        "20260914T201530498Z-1a387e/010-frame_0010.png",
+        "20260914T201530498Z-1a387e/011-frame_0011.png",
+        "20260914T201530498Z-1a387e/012-frame_0012.png",
+        "20260914T201530498Z-1a387e/013-frame_0013.png",
+        "20260914T201530498Z-1a387e/014-frame_0014.png"
+      ],
+      "caption": "a mark halves in ten seconds",
+      "meta": {
+        "steps taken carrying food": 995,
+        "steps taken empty-handed": 887,
+        "ground still showing a road at the end": "279 cells",
+        "cost over a whole running frame": "+0.56 ms"
+      },
+      "focus": null
+    },
+    {
+      "label": "a minute",
+      "files": [
+        "20260914T201530498Z-1a387e/015-frame_0000.png",
+        "20260914T201530498Z-1a387e/016-frame_0001.png",
+        "20260914T201530498Z-1a387e/017-frame_0002.png",
+        "20260914T201530498Z-1a387e/018-frame_0003.png",
+        "20260914T201530498Z-1a387e/019-frame_0004.png",
+        "20260914T201530498Z-1a387e/020-frame_0005.png",
+        "20260914T201530498Z-1a387e/021-frame_0006.png",
+        "20260914T201530498Z-1a387e/022-frame_0007.png",
+        "20260914T201530498Z-1a387e/023-frame_0008.png",
+        "20260914T201530498Z-1a387e/024-frame_0009.png",
+        "20260914T201530498Z-1a387e/025-frame_0010.png",
+        "20260914T201530498Z-1a387e/026-frame_0011.png",
+        "20260914T201530498Z-1a387e/027-frame_0012.png",
+        "20260914T201530498Z-1a387e/028-frame_0013.png",
+        "20260914T201530498Z-1a387e/029-frame_0014.png"
+      ],
+      "caption": "a mark halves in a minute",
+      "meta": {
+        "steps taken carrying food": 995,
+        "steps taken empty-handed": 887,
+        "ground still showing a road at the end": "1,024 cells",
+        "cost over a whole running frame": "+0.47 ms"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
