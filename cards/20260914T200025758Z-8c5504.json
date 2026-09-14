@@ -1,0 +1,52 @@
+{
+  "id": "20260914T200025758Z-8c5504",
+  "created": "2026-09-14T20:00:25Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/druid-look",
+    "commit": "9fd637a7",
+    "agent": null,
+    "session_id": "14a7ca69-3c22-5406-8545-a1ad6dc7a692",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The lab's overlays, on a world where time has stopped",
+  "question": "Does the overlay now read the same everywhere, instead of only inside the bubble?",
+  "context_md": "Your fourth item: *\"the overlays from the evolution lab should also work in this game.\"*\n\nThey were already wired in — all three games draw through the same code and nothing skipped them. What broke them was the held-world look: where time is stopped the ground is recoloured to one hue, and that ran *after* the overlay and painted over it. So every channel came out reading as the grey-blue of stopped ground everywhere except inside a bubble — a readout whose answer depended on the thing it was meant to be independent of.\n\nThis is the heat channel. The world is one temperature throughout, so the right picture is a flat one.\n\n- **before**: warm only inside the bubble, cold everywhere else — the channel is describing the bubble, not the heat\n- **after**: one reading across the whole frame, which is the truth\n\nThe bubble's own haze still draws over the top in both, so the game look is not lost — the overlay just wins on the cells it speaks for.\n\n**Still to come from another lane:** there is no key or menu row to turn these on yet. The switches are ready on the renderer and I have said so in my lane note.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before",
+      "files": [
+        "20260914T200025758Z-8c5504/000-xtemperatureB-after.png"
+      ],
+      "caption": "held ground repaints over the channel",
+      "meta": {
+        "cells the channel is wrong on": 43456,
+        "bubbles in frame": 1
+      },
+      "focus": null
+    },
+    {
+      "label": "after",
+      "files": [
+        "20260914T200025758Z-8c5504/001-xtemperatureA-after.png"
+      ],
+      "caption": "the channel wins where it speaks",
+      "meta": {
+        "cells the channel is wrong on": 0,
+        "bubbles in frame": 1
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
