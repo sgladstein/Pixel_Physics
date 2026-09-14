@@ -209,6 +209,14 @@ pub struct Readout {
     pub rate: u32,
     /// How wide the circle the player carries is.
     pub carried_radius: i32,
+    /// **Whether that circle is switched off** — see
+    /// `Druid::toggle_carried_circle`. The radius is still whatever it was
+    /// set to, so the panel cannot infer this from `carried_radius` and must
+    /// be told: an empty power bar beside `YOUR CIRCLE R28` reads as a fault
+    /// rather than as a choice the player made.
+    pub carried_off: bool,
+    /// How many seeds of the selected kind are left in the pouch.
+    pub seeds: u32,
     pub held: bool,
     pub paused: bool,
     pub look: &'static str,
@@ -258,11 +266,29 @@ impl Readout {
         // reason to walk somewhere.
         lines.push((format!("ANIMALS {}   AWAKE {}", self.animals, self.animals_awake), TEXT));
         lines.push((format!("CIRCLES {}   NEXT R{}   SPEED X{}", self.circles, self.radius, self.rate), TEXT));
-        lines.push((format!("YOUR CIRCLE R{}", self.carried_radius), TEXT));
+        // **`OFF` is a word, not `R0`.** The radius dial cannot reach zero
+        // and the engine reads a zero radius as the default anyway, so a
+        // number here could never say this — see `World::carried_off`.
+        lines.push((
+            if self.carried_off { "YOUR CIRCLE OFF".to_string() } else { format!("YOUR CIRCLE R{}", self.carried_radius) },
+            if self.carried_off { WARN } else { TEXT },
+        ));
         // **What T would sow, and how many have gone in.** A seed dropped on
         // held ground is invisible until time reaches it, so without the
         // count a working key and a broken one look the same.
-        lines.push((format!("SEED {}   SOWN {}", self.seed_kind.to_uppercase(), self.sown), TEXT));
+        // **The pouch is on this line rather than a new one**, because "what
+        // T sows" and "how many of it are left" are one question now that the
+        // supply is finite. Red at zero: the key still works for every other
+        // kind, so a silent nothing-happens would read as a broken key.
+        //
+        // Merge note, 2026-09-14: `main` dropped the `CHARGE n IN m NEAR YOU`
+        // row that used to sit under this one. That deletion is kept -- it is
+        // the newer side and it is deliberate -- and only the seed count is
+        // carried across from this branch.
+        lines.push((
+            format!("SEED {} x{}   SOWN {}", self.seed_kind.to_uppercase(), self.seeds, self.sown),
+            if self.seeds == 0 { WARN } else { TEXT },
+        ));
         lines.push((
             format!("WORLD {}   LOOK {}", if self.held { "HELD" } else { "RUNNING" }, self.look.to_uppercase()),
             if self.held { TEXT } else { WARN },
@@ -1412,11 +1438,17 @@ mod tests {
         }
         // The readout is formatted, so sweep values that produce every branch
         // and every sign rather than one tidy case.
-        for (power, income, drain, unlimited, paused) in [
-            (0.0, 0.0, 0.0, false, false),
-            (612.4, 7.25, 1.5, false, true),
-            (0.0, 0.0, 99.9, false, false),
-            (600.0, 0.0, 0.0, true, false),
+        // **`carried_off` and `seeds` are swept too, both ways each.** Both
+        // added a *branch* to `lines()` rather than a value, and a coverage
+        // sweep that only ever formats one side of a branch cannot see a
+        // glyph missing from the other — which is the whole thing this test
+        // is for. `YOUR CIRCLE OFF` and `SEED ... x0` are the two strings
+        // that only exist on one arm.
+        for (power, income, drain, unlimited, paused, carried_off, seeds) in [
+            (0.0, 0.0, 0.0, false, false, false, 8),
+            (612.4, 7.25, 1.5, false, true, true, 0),
+            (0.0, 0.0, 99.9, false, false, true, 24),
+            (600.0, 0.0, 0.0, true, false, false, 0),
         ] {
             let readout = Readout {
                 power,
@@ -1429,6 +1461,8 @@ mod tests {
                 radius: 60,
                 rate: 4,
                 carried_radius: 28,
+                carried_off,
+                seeds,
                 held: true,
                 paused,
                 look: "one hue",
@@ -1567,6 +1601,11 @@ mod tests {
             radius: 240,
             rate: 8,
             carried_radius: 96,
+            // The tallest panel is the one with every optional row on it, and
+            // `OFF` is one character shorter than `R96` — so the *on* arm is
+            // the one that sizes this, and the seed count is at its widest.
+            carried_off: false,
+            seeds: 24,
             held: true,
             paused: true,
             look: "unchanged",
