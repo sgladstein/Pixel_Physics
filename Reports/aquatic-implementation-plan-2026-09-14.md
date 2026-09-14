@@ -14,6 +14,68 @@ built.** Two review cards carry decisions that are not a lane's to make:
 
 ---
 
+## 0a. The owner's verdicts on the three cards, 2026-09-14
+
+All three came back while the measurements above were running, and each moves
+something. Recorded here rather than folded away silently, because two of them
+change what a phase is for.
+
+**Card `…0c5076` — does a deep pool go dark? (gated Phase 3.)**
+> *"prototype and show me what it looks like. Be realistic about the depth"*
+
+**Phase 3 is ungated, and the deliverable is a picture rather than a
+proposal.** But *"be realistic about the depth"* collides head-on with §4.1's
+measurement and that has to be said before anything is built: real water is
+nearly clear over a pond's depth — a lake's euphotic zone runs to tens of
+metres — and the lab world is 320 cells tall with a 28-row pond that is
+**1.75 field cells**. A physically honest extinction coefficient over 28 rows
+is *no visible gradient at all*. So realism and a visible dark bottom are in
+tension here, and the prototype's job is to show the owner that tension rather
+than to quietly pick one: render the same pool at a realistic coefficient and
+at a legible one, side by side, and let the choice be made on the picture.
+**Depth is substantially an outdoor feature** for the same reason — ~80 rows
+buys a five-step gradient, a quarter of the lab world and nothing at all to a
+world that streams.
+
+**Card `…14b62b` — is this the pond bed you want?**
+> *"This is fine to start, but in nature it would need a sloped enterance or
+> creatures will get stuck. That might happen here"*
+
+**It does happen here, and it was measured before the verdict arrived without
+either knowing about the other.** §1.9's `cols` column says the vertical-walled
+pit costs the colony **29% of its range on 6 of 6 seeds with the distributions
+completely separated**. The owner read it off a still picture; the harness read
+it off a six-seed sweep; they are the same finding. **The sloped bank therefore
+stops being a nicety and becomes a testable claim**: if the slope is what the
+pit is costing, a stepped bank should recover that range toward the flat bed's
+279.5, and if it does not, the barrier is something else and the plan should
+say so. `shore_slope_dry` is that arm — the identical footprint and depth,
+walls stepped 2 rows per 4 columns, so **step height** (what an ant actually
+climbs) is what changes rather than the average gradient.
+
+**Card `…bdca4a` — ants standing on water; drown, float or swim at generation
+zero?**
+> *"most drown? what is realistic?"*
+
+**A question back, and it deserves a real answer rather than a default.** The
+honest one is that *float* is realistic for an animal this size and *drown* is
+realistic for the engine's physics, and they disagree — which is worth the
+owner knowing before E9 is priced. At ant scale surface tension dominates
+gravity: real ants are hard to drown, float readily, and some species raft for
+days. But this engine has no surface tension, and its creature material is
+**exactly water density**, so a body that enters water is neutrally buoyant and
+simply hangs there — which is what `land_afloat` already models and what the
+card's own picture shows. So "mostly drown" is not what physics at this scale
+says; it is a *game* choice, and a defensible one, because drowning is the only
+mechanism yet proposed that puts carrion in the world (§5). **The plan's
+recommendation is therefore to make the answer heritable and start the
+distribution wide rather than pick a default** — E9's own ruling was that all
+three be reachable — and to price drowning so it is survivable-but-costly at
+generation zero, with the carrion it produces as the payoff rather than the
+punishment.
+
+---
+
 ## 0. The answer
 
 **Three things measured tonight set the order, and two of them overturn what
