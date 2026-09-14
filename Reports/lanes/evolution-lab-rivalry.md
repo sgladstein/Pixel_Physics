@@ -102,4 +102,14 @@ coordinator to sequence against Lane B.
 
 ## Head SHA
 
-*Filled in at push.*
+`55efeb17c12c3db1b30af20b014b1c42870289e3` on `claude/evolution-lab-rivalry`.
+Gates at that SHA: clippy `--all-targets --release --locked -- -D warnings`
+clean; `cargo test --release --lib` **1,750 passed / 0 failed / 85 ignored**;
+`--test worldgen --test determinism` **47 passed / 0 failed**; `docscheck`
+clean; `deadendindex --touching` 0 hits.
+
+**The 54-run sweep was verified byte-identical across two rebuilds** (the
+card-capture additions, and the clippy `is_multiple_of` fix) by re-running
+`base seed=1` on each new binary and matching every column — this repo's own
+stale-binary rule, met from the side where the binary is new and the table is
+old.
