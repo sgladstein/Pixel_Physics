@@ -6,9 +6,11 @@ identical little pale dashes, two cells on and one off, straight across —
 a dotted line rather than a place, and every cell of it the same flat colour
 while everything else in the world is mottled. It is a worn patch now: solid
 under the founders themselves, breaking into scattered single cells as it
-gets further out. And it has **no colour of its own at all** — each cell keeps
-the exact tone of the earth it replaced, so founding a colony leaves the
-ground looking like ground. It still drains, which is what the gaps were
+gets further out. And in the held world it has **no colour of its
+own at all** — each cell keeps the exact tone of the earth it replaced, so
+founding a colony leaves the ground looking like ground. (The lab's beds have
+been the same since 2026-08-30. In the sandbox the nest is still pale and
+findable, which is wanted there.) It still drains, which is what the gaps were
 always for and has not been given up; the gaps are simply single cells set
 about rather than a comb. (The door is still a door to everything that has to
 find it: an ant knows it by touch, not by looking at it.) The same
@@ -98,9 +100,9 @@ water; every misting left a film sitting on it, and since nothing walks into
 water, the whole colony simply lost its front door — food kept being picked up and none of it ever came home. The threshold
 has drains in it now: ordinary ground is left in it often enough that a film
 never has more than a cell to travel before the earth drinks it. A thin sheen
-can still catch on it after heavy misting. **You cannot see the door**, as of
-2026-09-14 — it takes the colour of whatever it was painted over — so the way
-to find a colony's home is to watch where the ants go. The same day,
+can still catch on it after heavy misting. **In the held world you cannot see the door**,
+as of 2026-09-14 — it takes the colour of whatever it was painted over — so the
+way to find a colony's home there is to watch where the ants go. The same day,
 **a nest became a place that holds a smell** -- ants blend with the
 mound they stand on, scent drift ships on at last, and two mounds nobody
 walks between become two colonies within a session. See "Who is family".

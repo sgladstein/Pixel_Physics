@@ -12,13 +12,30 @@ three shipped, each reproduced before it was touched.
 patch's *shape* and came back rated **1 of 5**: *"None. There should be no
 color. If we have to have this, it should be invisible."* The shape work below
 stands (he accepts the drains are load-bearing); what he rejected is that a
-player can see it. So `nest.ron` now carries `soil.ron`'s palette entry for
-entry and family for family, and `paint_nest_patch` hands each new cell the
-**shade byte of the cell it replaced** — `cell_colour` resolves a cell as
-`palette[shade % len]`, so the pair reproduces the exact tone the patch
-covered. The two halves are worthless apart: a matching palette with a fresh
-shade draws a *different* soil, and an inherited shade into the old tan
-palette draws tan. `the_nest_draws_in_the_grounds_own_colours` holds both.
+player can see it.
+
+**And it is `lab::earth_toned_nest` ported, not a second answer** — the
+coordinator caught me scoping a fresh one. The lab solved this same complaint
+from the same owner on 2026-08-30 and its doc already rules out the three
+tempting fixes, including the one I had shipped an hour earlier: **an edit to
+`nest.ron`, which would change the sandbox too, where a findable nest is
+wanted.** That edit is reverted. `druid::ground_toned_nest` swaps the palette
+on this game's own `Materials` at world construction, and `paint_nest_patch`
+hands each new cell the **shade byte of the cell it replaced**. The halves are
+worthless apart: a ground-toned palette with a fresh shade draws a *different*
+soil, an inherited shade into a pale palette draws pale. Guards:
+`a_founding_leaves_no_colour_on_the_ground` (druid) and
+`a_painted_threshold_keeps_the_grounds_own_shade` (creature).
+
+**The tones did not transfer, and that was worth checking.** The lab installs
+`packedsoil`'s single worked-earth family because a lab bed is packedsoil.
+This world's surface is `soil`, which ships **three** four-tone families that
+`worldgen::passes::soil_shade` picks between per region, so a fixed family is
+right in one part of the map and wrong in the next. `founding_shot` censuses
+the ground the patch actually paints over: **soil in 25 of 25 cells**. So the
+whole of soil's palette is installed, read off the registry rather than
+written down — a copied table goes stale silently here, because a wrong tone
+is a faint stripe and not a crash.
 
 **Measured as a frame, per the coordinator's own prescription**, by
 `examples/founding_shot invisible=1`: two framebuffers of **one** world — the
@@ -188,12 +205,18 @@ three small edits to `src/druid/mod.rs` — `toggle_founding`, `commit_founding`
 `update`'s pause gate, plus one field. **Nothing in the trail functions**, per
 the brief.
 
-**`assets/materials/nest.ron` is taken after all**, on the coordinator's
-ruling. It is shared with the lab, whose own comment said the pale tan was
-deliberate — *"to read clearly against soil and against the dark ants standing
-on it"*. That is a real want and it belongs to a diagnostic box rather than to
-the game with the complaint, so **the lab loses a visual cue here** and can
-have it back as an overlay if it wants one. Flagged rather than assumed.
+**Left alone after all: `assets/materials/nest.ron`.** I edited it, the
+coordinator pointed at `lab::earth_toned_nest`, and the edit is reverted — the
+sandbox wants a findable nest and that file is how it gets one. The palette
+now moves per game, on each game's own `Materials`.
+
+**One consequence that does still reach the other two games**, flagged rather
+than assumed: the inherited shade lives in shared `paint_nest_patch`, so a
+nest cell in the lab and the sandbox now draws a varied entry of its own
+palette instead of always the first. Both gain grain where they had a flat
+tone; neither changes colour. **Follow-up not taken**: `ground_toned_nest` and
+`lab::earth_toned_nest` want to be one helper, and a cross-game refactor is
+not worth doing inside a playtest item.
 
 ## Review cards
 

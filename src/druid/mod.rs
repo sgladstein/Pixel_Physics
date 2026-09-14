@@ -695,6 +695,11 @@ impl Druid {
         // species file silently did nothing.
         let _ = world.materials.reload(material::ASSET_DIR);
         let _ = world.species.reload(organism::ASSET_DIR);
+        // **The colony's threshold draws as ground here, not as pale sand.**
+        // Owner playtest, 2026-09-14, rating a first attempt that only changed
+        // the patch's *shape* 1 of 5: *"There should be no color. If we have
+        // to have this, it should be invisible."* See [`ground_toned_nest`].
+        ground_toned_nest(&mut world);
         // **Plants do not come apart under their own load here, by default.**
         // Owner, 2026-09-14, asking for the menu this sits behind: *"the
         // ability to turn off plant destruction or breaking due to stress
@@ -1946,6 +1951,63 @@ impl Druid {
     }
 }
 
+/// **Draw the colony's threshold as the ground it was painted over.**
+///
+/// Owner playtest, 2026-09-14: *"when I found ants there are little yellow
+/// bars that get placed onto the ground. I don't like this."* — and, rating a
+/// first attempt that changed only the patch's *shape*, **1 of 5**: *"None.
+/// There should be no color. If we have to have this, it should be
+/// invisible."*
+///
+/// **This is `lab::earth_toned_nest` ported, not a second answer to the same
+/// question.** That function solved this complaint for the second game on
+/// 2026-08-30, from the same owner's *"we don't need a visible line for where
+/// the colony is placed"*, and its doc already rules out the three things this
+/// is deliberately not — an edit to `creature.rs` (the patch is functional and
+/// deliberately narrow: *"home has to be a place, not everywhere"*, measured
+/// at 414 deliveries), an edit to `nest.ron` (which would change the sandbox
+/// too, where a findable nest is wanted), and a per-pixel material test in
+/// `render.rs` (163,840 comparisons a frame for a stripe, where a palette
+/// swap costs **nothing at draw time at all** — which is what
+/// `Materials::get_mut` is for). Read that doc before changing this one.
+///
+/// **What this game does differently, and why.** The lab installs
+/// `packedsoil`'s four-tone worked-earth family, because a lab bed is
+/// packedsoil and one family is all it needs. This world's surface is
+/// `soil`, which ships **three** four-tone families — reference loam, wet,
+/// and dry — and `worldgen::passes::soil_shade` picks between them per
+/// region. So a fixed family would be right in one part of the map and wrong
+/// in the next. Installing soil's *whole* palette instead, and having
+/// [`World::paint_nest_patch`] hand each new cell **the shade byte of the cell
+/// it replaced**, makes the threshold reproduce the exact tone it covered —
+/// family, tone and grain together. The two halves are worthless apart: a
+/// matching palette with a fresh shade draws a *different* soil.
+///
+/// **Read off `soil.ron` at runtime rather than written down here**, unlike
+/// the lab's constant. A copied table is a copy that goes stale, and this one
+/// would go stale silently — the wrong tone is not a crash, it is a faint
+/// stripe nobody looks for. `a_founding_leaves_no_colour_on_the_ground` is the
+/// guard.
+///
+/// **What it costs is exactly what the lab's costs**: the ability to spot a
+/// colony at a glance. The colour carries no behaviour — `AtNest` is a contact
+/// scan for the material and an ant's route home is a pheromone gradient that
+/// never asks where the nest is.
+///
+/// **Follow-up, deliberately not taken here**: this and `lab::earth_toned_nest`
+/// want to be one helper. A cross-game refactor is not worth doing inside a
+/// playtest item, so each game keeps its own call for now.
+pub fn ground_toned_nest(world: &mut World) {
+    let (Some(nest), Some(soil)) = (world.materials.id_of("nest"), world.materials.id_of("soil")) else {
+        return;
+    };
+    let ground = world.materials.get(soil);
+    let (palette, base) = (ground.palette.clone(), ground.base_shades);
+    let def = world.materials.get_mut(nest);
+    def.palette = palette;
+    def.base_shades = base;
+}
+
 /// **A dry standing spot near the middle of the world.**
 ///
 /// Generated terrain puts the surface wherever it likes, and the sandbox
@@ -2104,6 +2166,55 @@ fn grow_from_env() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A founding leaves no colour on the ground.**
+    ///
+    /// Owner playtest, 2026-09-14, rating a first attempt that changed only
+    /// the patch's shape **1 of 5**: *"None. There should be no color. If we
+    /// have to have this, it should be invisible."*
+    ///
+    /// Three claims, and the middle one is the control:
+    ///
+    /// - [`ground_toned_nest`] installs `soil`'s palette on the threshold, and
+    ///   reads it off the material registry rather than a table written down
+    ///   here — a copied palette is a copy that goes stale, and this one would
+    ///   go stale *silently*, since the wrong tone is a faint stripe rather
+    ///   than a crash;
+    /// - **the two materials genuinely differ before it runs.** Without this
+    ///   the assertion would pass just as happily on a `nest.ron` that had
+    ///   been edited to match, which is the fix this deliberately is *not* —
+    ///   `lab::earth_toned_nest`'s own doc rules it out, because the sandbox
+    ///   wants a findable nest;
+    /// - `base_shades` moves with the palette. A random draw that stayed
+    ///   inside the old three-entry bound would sample a third of the new one
+    ///   and quietly lose the wet and dry families.
+    ///
+    /// **It is a necessary condition and not the claim**, which is about the
+    /// rendered frame: `examples/founding_shot invisible=1` is what measures
+    /// that, two framebuffers of one world with the rest of the picture as its
+    /// control.
+    #[test]
+    fn a_founding_leaves_no_colour_on_the_ground() {
+        let mut world = World::new(crate::sim::chunk::Rect::new(0, 0, 63, 63));
+        let _ = world.materials.reload(material::ASSET_DIR);
+        let (nest, soil) = (world.materials.id_of("nest").expect("nest is compiled in"), world.materials.id_of("soil").expect("soil is compiled in"));
+        let ground = world.materials.get(soil).palette.clone();
+        // The control: the shipped asset is *not* already soil-coloured, so a
+        // `ground_toned_nest` that did nothing at all would be caught here.
+        assert_ne!(
+            world.materials.get(nest).palette,
+            ground,
+            "nest.ron already carries soil's palette -- either the asset was edited (which would change the sandbox too) or this guard is testing nothing"
+        );
+
+        ground_toned_nest(&mut world);
+        assert_eq!(world.materials.get(nest).palette, ground, "the threshold did not take the ground's palette");
+        assert_eq!(
+            world.materials.get(nest).base_shades,
+            world.materials.get(soil).base_shades,
+            "the palette moved and the shade bound did not -- a random draw would lose soil's wet and dry families"
+        );
+    }
 
     /// **A trail he lays has a slope, and the slope points at him.**
     ///

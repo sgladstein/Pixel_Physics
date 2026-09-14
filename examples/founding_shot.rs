@@ -336,6 +336,17 @@ fn invisible(game: &mut Druid, px: i32, py: i32, zoom: i32) {
         painted.len()
     );
     println!("  held water of the ground replaced: {dn} cell(s) that differ hold {dlo}..{dhi}, {sn} cell(s) that match hold {slo}..{shi}");
+    // **What the patch actually paints over**, because "invisible" is against
+    // the ground that is there rather than against a material named in a
+    // constant. A threshold toned to `soil` is only invisible where the
+    // surface *is* soil, and a grown world has litter and root in it.
+    let mut kinds: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for &(cx, cy) in &painted {
+        if let Some(&(_, _, c)) = before.iter().find(|&&(bx, by, _)| bx == cx && by == cy) {
+            *kinds.entry(game.world.materials.get(c.material).name.clone()).or_default() += 1;
+        }
+    }
+    println!("  ground replaced: {kinds:?}");
     println!("  {}", if on_patch == 0 { "THE THRESHOLD IS INVISIBLE" } else { "THE THRESHOLD STILL SHOWS" });
 }
 

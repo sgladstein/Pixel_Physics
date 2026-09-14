@@ -9,62 +9,18 @@
 // freshest nearest home, and a laden ant walks up it. No ant ever asks
 // where the nest is. This material only has to be recognisable on contact.
 //
-// **It has no colour of its own, and that is the point.** Owner playtest,
-// 2026-09-14: *"when I found ants there are little yellow bars that get placed
-// onto the ground. I don't like this."* Rated 1 of 5 against a first attempt
-// that only changed the patch's *shape*: *"None. There should be no color. If
-// we have to have this, it should be invisible."*
-//
-// So the palette below is `soil.ron`'s, entry for entry and family for family,
-// and `World::paint_nest_patch` hands each new cell the **shade byte of the
-// cell it replaced** rather than drawing a fresh one. `cell_colour` resolves a
-// cell as `palette[shade % len]`, so a nest cell painted over loam draws the
-// loam it covered -- the same family, the same tone, the same grain -- rather
-// than something chosen to be near it.
-//
-// The old palette was three tones of pale warm tan, authored "to read clearly
-// against soil and against the dark ants standing on it". That is a real want
-// and it belongs to the *lab*, which is a diagnostic box; it is not a thing
-// the held world's player ever asked to see. The two games share this file and
-// only one of them has a view on it, so the one with the complaint wins and
-// the lab loses a cue it can get back through an overlay if it wants one.
-//
-// **What this does not reach**: `cell_colour` darkens ground by held water,
-// gated on `water_capacity`, and only `soil.ron` opts in. A nest cell
-// therefore still draws *dry* on wet ground. Giving this material a capacity
-// is a recorded dead end and must not be retried -- on a `Solid`, `Cell::aux`
-// is the structural anchor distance, so the field would be read as moisture
-// and painted as dampness. The fix, if the wet case matters, is render-side.
-// See `Reports/lanes/druid-founding.md` for the measurement.
+// Pale and warm, to read clearly against soil and against the dark ants
+// standing on it.
 (
     name: "nest",
     display: "Nest",
     kind: Solid,
     density: 2.0,
-    // `soil.ron`'s list, unchanged: three families of four, reference loam
-    // then wet then dry, and `base_colors` keeps a random draw inside the
-    // first family exactly as it does there. Copied rather than referenced
-    // because the format has no include; the guard
-    // `the_nest_draws_in_the_grounds_own_colours` reads both files and fails
-    // if they ever part.
     colors: [
-        // 0: reference loam
-        (64, 46, 34),
-        (74, 54, 40),
-        (56, 40, 30),
-        (82, 60, 44),
-        // 1: wet, dark and rich
-        (52, 36, 24),
-        (60, 43, 29),
-        (44, 30, 20),
-        (68, 49, 33),
-        // 2: dry, pale and dusty
-        (96, 80, 62),
-        (108, 91, 71),
-        (84, 70, 54),
-        (118, 100, 78),
+        (196, 168, 120),
+        (184, 156, 110),
+        (206, 180, 132),
     ],
-    base_colors: 4,
     penetration_resistance: 6.0,
     heat_conductivity: 0.3,
 )

@@ -57,15 +57,37 @@ no color. If we have to have this, it should be invisible."* He accepts the
 drains are load-bearing; what he rejects is that a player can see them. The
 shape work above stands and this is on top of it.
 
-`nest.ron` now carries `soil.ron`'s palette **entry for entry and family for
-family**, and `paint_nest_patch` hands each new cell the **shade byte of the
-cell it replaced**. `cell_colour` resolves a cell as `palette[shade % len]`, so
-the pair reproduces the exact tone the patch covered — same family, same tone,
-same grain. The two halves are worthless apart, which is why one guard holds
-both: a matching palette with a fresh shade draws a *different* soil, and an
-inherited shade into the old tan palette draws tan. It also removes a question
-rather than answering one — there is no draw left in `paint_nest_patch` at all,
-so founding cannot disturb `World::rng`.
+**It is `lab::earth_toned_nest` ported, not a second answer to the same
+question.** The evolution lab solved this exact complaint from the same owner
+on 2026-08-30 — *"we don't need a visible line for where the colony is
+placed"* — and its doc already rules out the three tempting fixes: an edit to
+`creature.rs` (the patch is functional and deliberately narrow, measured at 414
+deliveries), **an edit to `nest.ron` (which would change the sandbox too, where
+a findable nest is wanted)**, and a per-pixel material test in `render.rs`
+(163,840 comparisons a frame for a stripe, where a palette swap costs nothing
+at draw time at all). I had shipped the middle one before the coordinator
+pointed at the lab; it is reverted.
+
+`druid::ground_toned_nest` swaps the palette on **this game's own**
+`Materials` at world construction, and `paint_nest_patch` hands each new cell
+the **shade byte of the cell it replaced**. `cell_colour` resolves a cell as
+`palette[shade % len]`, so the pair reproduces the exact tone the patch covered
+— family, tone and grain together. The halves are worthless apart, which is why
+there are two guards: `a_founding_leaves_no_colour_on_the_ground` (with the
+control that `nest.ron` is *not* already soil-coloured, so a swap that did
+nothing would be caught) and `a_painted_threshold_keeps_the_grounds_own_shade`.
+It also removes a question rather than answering one — there is no draw left in
+`paint_nest_patch` at all, so founding cannot disturb `World::rng`.
+
+**The tones did not transfer, and checking was the point.** The lab installs
+`packedsoil`'s single worked-earth family because a lab bed is packedsoil. This
+world's surface is `soil`, which ships **three** four-tone families that
+`worldgen::passes::soil_shade` picks between per region — a fixed family would
+be right in one part of the map and wrong in the next. `founding_shot`'s census
+says the patch paints over **soil in 25 of 25 cells** here, so the whole of
+soil's palette is installed, and read off the material registry rather than
+written down: a copied table goes stale, and this one would go stale silently,
+because a wrong tone is a faint stripe rather than a crash.
 
 **"Invisible" is a claim about the rendered frame and is measured as one.**
 `examples/founding_shot invisible=1` takes two framebuffers of **one** world —
@@ -103,12 +125,15 @@ through the bottom of a nest wall (`a_nest_still_stops_him`); it also touches
 taken. It is a handful of lines and can be sequenced after #437 if the 12 is
 judged to matter; by eye at play zoom it does not.
 
-**One cost, flagged rather than assumed**: `nest.ron` is shared with the
-evolution lab, whose own comment said the pale tan was deliberate — *"to read
-clearly against soil and against the dark ants standing on it"*. That is a real
-want, and it belongs to a diagnostic box rather than to the game with the
-complaint. **The lab loses a visual cue here** and can have it back as an
-overlay.
+**One consequence that does reach the other two games**, flagged rather than
+assumed: the inherited shade lives in shared `paint_nest_patch`, so a nest cell
+in the lab and the sandbox now draws a varied entry of its own palette instead
+of always the first. Both gain grain where they had a flat tone; neither
+changes colour, and neither game's palette moved.
+
+**Follow-up deliberately not taken**: `druid::ground_toned_nest` and
+`lab::earth_toned_nest` want to be one helper. A cross-game refactor is not
+worth doing inside a playtest item, so each game keeps its own call.
 
 Card out on the result: `20260914T215649928Z-91968a`, blind, before/after.
 
