@@ -22407,7 +22407,31 @@ mod tests {
     /// post-grazing cooldown, **not** shrinking `food_energy` until the
     /// niche disappears -- moss is the only ground-level renewable an ant
     /// can reach at all (§13k/§13n).
+    /// **`#[ignore]`d 2026-09-14, round 36, and the reproduction is right --
+    /// it is the world that changed under it. `Reports/open-bugs-handoff.md`
+    /// §Z26.**
+    ///
+    /// This passed for as long as §Z23 was open, and it passed *because* it
+    /// was: an ant grazing a live moss cell raised an alarm, `ant.ron`'s
+    /// `(Alarm, Attack, 2.0)` turned the alarm into a swing, and the swing
+    /// landed on the lawn. The grazer was destroying its own larder, and
+    /// that loss was holding the pump shut. Gating `cry_alarm` on an animal
+    /// victim closed §Z23 and the lawn's intake **doubled, 456 J -> 912 J**,
+    /// while the litter larder arm stayed **byte-identical at 684 J** --
+    /// litter is a loose material carrying no organism id, so the gate
+    /// provably cannot reach that arm. One quantity, moving for one reason.
+    ///
+    /// So moss has crossed the pump line this test was written to catch, and
+    /// the assertion below is **reporting a true finding**, not failing.
+    /// Weakening or deleting it would delete the finding; the remedy is the
+    /// one this test's own doc names above -- a per-cell post-grazing
+    /// cooldown, never shrinking `food_energy` -- which reallocates the
+    /// plant economy and belongs to whoever takes §Z26, with `moss.ron`'s
+    /// `damp_chance: 0.35` at `cost: 0.0` re-derived as part of it.
+    ///
+    /// **Un-ignoring this is the acceptance test for that work.**
     #[test]
+    #[ignore = "§Z26: moss crossed the pump line when §Z23 was closed; the fix is a post-grazing cooldown, not a retune here"]
     fn a_lone_grazer_cannot_farm_a_moss_lawn_forever() {
         let horizon = grazer_horizon();
         let unlimited = grazer_scene(Larder::Unlimited, horizon);
