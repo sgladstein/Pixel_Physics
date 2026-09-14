@@ -463,9 +463,21 @@ per-row census reads `4:6 20:1 21:1 22:1 36:1 43:7 …` — one to seven cells i
 row. Most of it is held in canopies and on top of other water rather than
 pooled on the floor. STEADY is already double the shipped default (`Light`).
 
-**So: if the lab is to be the proving ground, a basin has to be built into the
-bed.** That is a `LabBox` field beside `soil_depth`, not a rain setting. Rain
-will not do it, and this is the single most actionable thing in the document.
+**So: if the lab is to be the proving ground, a basin has to be placed rather
+than rained for.** Rain will not do it, and this is the single most actionable
+thing in the document.
+
+> **OVERTURNED THE SAME DAY, and the correction is cheaper than the claim.**
+> This paragraph said a basin "is a `LabBox` field beside `soil_depth`". **It
+> is not — it is a scenario file.** `Placement::Fill` already accepts
+> `"water"` and scenarios load from disk at runtime, so
+> `assets/lab_scenarios/the_pond.ron` holds 4,256 water cells flat from frame
+> 0 to 40,000 with **no engine change at all**. The one real constraint is one
+> this section did not see: the basin needs an **impermeable floor**, because
+> the bed's own soil column has almost exactly enough unsaturated room to
+> swallow the pond. See
+> [`aquatic-implementation-plan-2026-09-14.md`](aquatic-implementation-plan-2026-09-14.md)
+> §1.1 and §1.6.
 
 **Two honesty notes on those numbers.** The animal count moved 45 → 8 and
 plants 799 → 619 between the arms, which looks like "rain costs the colony" and
@@ -610,8 +622,8 @@ ecological mechanism*.
 
 **Lab (`lab`) — water is a line in a bed spec, and the only place selection is
 measurable.** §7.1 is the finding: there is no basin, and rain will not make
-one. A basin would be the same shape as `soil_depth` — one bed field, turnable
-by `Knob::Bed`, settable per scenario. The lab is the proving ground because it
+one. **A basin is a scenario file, not a bed field** — see §7.1's own
+correction; four of them ship with the implementation plan. The lab is the proving ground because it
 is the only game with `labstats`, `chronicle`, `census.rs` and `creature_arena`
 with a control arm. It is also where a pond costs the most proportionally: the
 bed *is* the world at 512×320.
