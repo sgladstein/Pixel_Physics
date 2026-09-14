@@ -5554,7 +5554,7 @@ fn nearest_foe(world: &World, organism: u16, head: (i32, i32), gut: Gut) -> Opti
             // this question already (a stand of herb read as an army until
             // it did); asking it in one place and not the other is what
             // §Z23 was.
-            if world.materials.kind(cell.material) != MaterialKind::Creature && !plant_is_a_foe() {
+            if !is_animal_cell(world, cell) && !plant_is_a_foe() {
                 continue;
             }
             // **First in ring order, exactly as before** -- the point at
@@ -5663,22 +5663,37 @@ fn cry_alarm(world: &mut World, x: i32, y: i32) {
     world.deposit_pheromone(Channel::Alarm, x, y, pheromone::ALARM_DEPOSIT);
 }
 
-/// **Is the cell at `(x, y)` part of a living animal?**
+/// **Is this cell a piece of an animal**, as `MaterialKind` sees it.
 ///
-/// One predicate rather than the four open-coded `materials.kind(..) ==
-/// MaterialKind::Creature` tests this file had grown, because §Z23 is what
-/// happens when the *same* question is asked in one place and not in
-/// another: `nearest_foe`'s odds count asked it, `nearest_foe`'s target rule
-/// did not, and a stand of herb was a foe to the fist while not being an
-/// army to the arithmetic.
+/// One definition with three readers -- the fight verb's assessment gate and
+/// `cry_alarm`'s two feeding call sites -- because they are three halves of
+/// one question and a second copy is how they come to disagree. It was
+/// inlined at the fight site and absent at the other two, which is exactly
+/// the bug below. **A fourth reader arrived with the owner's second ruling**:
+/// `nearest_foe`'s target rule, which is the one place the same question was
+/// being asked and answered the other way.
 ///
-/// **A corpse is deliberately not an animal here** and needs no clause to
-/// say so: `corpse` is `kind: Powder` and carries no organism id, so both
-/// halves of this test already exclude it. Being eaten is the one thing a
-/// corpse is for.
-fn is_animal_cell(world: &World, x: i32, y: i32) -> bool {
-    let cell = world.get(x, y);
-    cell.organism_id() != 0 && world.materials.kind(cell.material) == MaterialKind::Creature
+/// **Read off the material rather than off the species' `creature` def, and
+/// that distinction is the whole of §Z23's repair.** The obvious test --
+/// "does the target's species have a creature def" -- was proposed and is
+/// wrong for the reason the fight verb's own doc gives.
+///
+/// **What that doc argued FOR is now overruled and the distinction still
+/// matters.** It read: an animal cornered by something it cannot digest must
+/// still be able to hit it, and a plant is an organism -- so what was wrong
+/// was never that a plant *can* be struck, only that grazing aimed the fist.
+/// The owner ruled on 2026-09-14 that **creatures do not attack plants, no
+/// exception**, because that argument has no instance: nothing in this engine
+/// lets a plant harm an animal. The material test survives the ruling
+/// unchanged; only the conclusion drawn from it moved. See `nearest_foe`, and
+/// `Reports/dead-ends.md` `creatures:082` for the condition that reopens it.
+///
+/// **A corpse is not an animal here and needs no clause**: `corpse` is
+/// `kind: Powder` and carries no organism id, so both of the tests its
+/// callers pair this with already exclude it. Being eaten is what a corpse
+/// is for.
+fn is_animal_cell(world: &World, cell: Cell) -> bool {
+    world.materials.kind(cell.material) == MaterialKind::Creature
 }
 
 /// **The ablation switch for the owner's 2026-09-14 rulings** — a plant is
@@ -6972,7 +6987,10 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
             // counters. That keeps `contests`/`displays` meaning what their
             // names say and keeps this change invisible to every animal that
             // was already chewing on vegetation.
-            let is_animal = world.materials.kind(cell.material) == MaterialKind::Creature;
+            // Through the shared predicate rather than inlined here, which is
+            // how this site and the two feeding sites came to disagree --
+            // see `is_animal_cell`.
+            let is_animal = is_animal_cell(world, cell);
             let assessing = victim != 0 && is_animal && contest::enabled();
             let commit = if assessing {
                 let their_bite = world
@@ -7255,7 +7273,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // a loose cell has nowhere to carry the damage, and every
                 // such cell in the world is soft enough to take in one bite
                 // anyway (`corpse` is 0.1 against a mouth of 1.0).
-                let victim = world.get(fxx, fyy).organism_id();
+                let bitten = world.get(fxx, fyy);
+                let victim = bitten.organism_id();
                 may_swallow = false;
                 if victim != 0 {
                     // **EATING A PLANT RAISES NO ALARM. Owner's ruling,
@@ -7280,14 +7299,14 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                     //
                     // **A corpse is silent too and needs no clause**: it is
                     // `kind: Powder` and carries no organism id.
-                    if !is_animal_cell(world, fxx, fyy) {
+                    if is_animal_cell(world, bitten) {
+                        world.creature_stats.alarm_eat_animal += 1;
+                        cry_alarm(world, fxx, fyy);
+                    } else {
                         world.creature_stats.alarm_eat_plant += 1;
                         if plant_is_a_foe() {
                             cry_alarm(world, fxx, fyy);
                         }
-                    } else {
-                        world.creature_stats.alarm_eat_animal += 1;
-                        cry_alarm(world, fxx, fyy);
                     }
                     let done = world.organism(victim).is_some_and(|st| st.gnawed + bite_damage >= 1.0);
                     if let Some(st) = world.organism_mut(victim) {
@@ -7327,21 +7346,22 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
         // colony. Read before the swallow, because after it the cell belongs
         // to nobody.
         if let Some((_, fxx, fyy, _)) = offered.filter(|_| may_swallow) {
-            if world.get(fxx, fyy).organism_id() != 0 {
+            let bitten = world.get(fxx, fyy);
+            if bitten.organism_id() != 0 {
                 // The swallow's half of the same ruling -- see the gnaw site
                 // above. **Both sites or neither**: a signal written at only
                 // one of them is a colony that hears its members chewed and
                 // not its members killed, which is what `cry_alarm` exists as
                 // one function to prevent, and the same argument applies to
                 // the silence.
-                if !is_animal_cell(world, fxx, fyy) {
+                if is_animal_cell(world, bitten) {
+                    world.creature_stats.alarm_eat_animal += 1;
+                    cry_alarm(world, fxx, fyy);
+                } else {
                     world.creature_stats.alarm_eat_plant += 1;
                     if plant_is_a_foe() {
                         cry_alarm(world, fxx, fyy);
                     }
-                } else {
-                    world.creature_stats.alarm_eat_animal += 1;
-                    cry_alarm(world, fxx, fyy);
                 }
             }
         }
