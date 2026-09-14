@@ -468,6 +468,25 @@ pub struct Druid {
     pub reserves: std::collections::HashMap<u16, f32>,
     /// Energy in flight from an animal to the player — see [`Draw`].
     pub draws: Vec<Draw>,
+    /// **Which plane `G` writes to.** `Channel::A` by default — and that
+    /// default is the engine's own, not a choice made here.
+    ///
+    /// `Channel`'s `#[default]` moved from `B` to `A` on 2026-09-09 and its
+    /// doc says why: `open-bugs-handoff.md` §Z7 measured that the shipped ant
+    /// **cannot read channel B at all** — hidden units 2/3 sit saturated at
+    /// the exact input an empty ant has, so a hand-laid food trail moves the
+    /// near-target ant-tick count by *exactly zero*, twice, on two
+    /// independent harnesses. This game then went and named `B` explicitly,
+    /// which threw that default away and shipped the one thing §Z7 calls the
+    /// worst version of an unfinished verb: *"defaulting a player's first
+    /// drag to the plane nothing acts on"*. A third harness — this game's own
+    /// paired run — reproduced the same exact tie before anyone noticed.
+    ///
+    /// **B is still one key away and the screen says what it is worth.** The
+    /// food route is the trail a player would *want* first; hiding it would
+    /// be its own dishonesty. What changed is only the plane the first press
+    /// lands on.
+    pub scent: crate::sim::pheromone::Channel,
     /// **Where he has laid scent**, newest last — see [`Druid::lay_trail`].
     ///
     /// The marks are drawn by sampling the *plane* at these points rather
@@ -637,7 +656,20 @@ impl Druid {
             world,
             particles,
             blasts,
-            renderer: Renderer::new(),
+            // **One hue is the held world's default look, not a key away.**
+            // Owner playtest, 2026-09-14: *"One hue should become default."*
+            // Set here rather than by moving `HeldLook`'s own `#[default]`,
+            // because that enum is shared with the other two games and this
+            // is a decision about *this* one — `apply_held_look` early-outs
+            // on `!world.held`, so the sandbox and the lab could not see the
+            // change either way, and a default nobody else can observe is
+            // better stated where it is meant than hidden in a shared
+            // derive.
+            renderer: {
+                let mut r = Renderer::new();
+                r.held_look = crate::render::HeldLook::OneHue;
+                r
+            },
             player_tuning,
             player_input: player::PlayerInput::default(),
             paused: false,
@@ -658,6 +690,7 @@ impl Druid {
             seed_kinds,
             seed_kind: 0,
             sown: 0,
+            scent: crate::sim::pheromone::Channel::default(),
             trail: std::collections::VecDeque::new(),
             menu: None,
             offer: None,
@@ -680,23 +713,6 @@ impl Druid {
     /// The current message, if one is set and has not yet expired.
     pub fn message(&self) -> Option<&str> {
         self.message.as_ref().filter(|(_, until)| self.ticks < *until).map(|(text, _)| text.as_str())
-    }
-
-    /// **Where the charged animals are, in world cells, and how full each
-    /// is.** For the tell over their heads — see [`hud`].
-    ///
-    /// Only those with something worth taking: a mark over every ant in a
-    /// colony of two hundred is not a tell, it is a texture.
-    pub fn charged_animals(&self) -> Vec<((i32, i32), f32)> {
-        self.reserves
-            .iter()
-            .filter(|(_, held)| **held > RESERVE_CAP * 0.15)
-            .filter_map(|(id, held)| {
-                let state = self.world.organism(*id)?;
-                let at = state.chain.first().copied().or_else(|| state.cells.keys().next().copied())?;
-                Some((at, (held / RESERVE_CAP).clamp(0.0, 1.0)))
-            })
-            .collect()
     }
 
     /// Everything the corner readout says, as numbers. See [`hud::Readout`].
@@ -914,29 +930,32 @@ impl Druid {
     /// **Lay a scent trail where he is standing.** Held, not tapped: the
     /// gesture is walking a route, and the route is the instruction.
     ///
-    /// **Channel B, and which channel it is was measured rather than
-    /// guessed.** `ant.ron`'s hidden units 2 and 3 carry `PheroBAlong` into
-    /// `Move` at ±2.5 behind `(Bias, 45.0)` and `(Carrying, -75.0)` — so they
-    /// fire on an ant that is **empty**, and channel B is the "there is food
-    /// that way" trail. Units 0 and 1 are the mirror image on channel A,
-    /// gated the other way, which is the laden ant's road home. Laying A
-    /// would tell a colony where its own nest is, which it already knows.
+    /// **Which plane it writes to is [`Druid::scent`], and the first version
+    /// of this doc argued the wrong case at length.** It reasoned correctly
+    /// from `ant.ron`'s wiring — units 2/3 carry `PheroBAlong` into `Move`
+    /// gated on an **empty** ant, so B is the "there is food that way" trail
+    /// and A is the laden ant's road home — and then concluded that laying A
+    /// "would tell a colony where its own nest is, which it already knows".
+    /// That is true of the *meaning* and irrelevant to the *outcome*:
+    /// `open-bugs-handoff.md` §Z7 had already measured that **nothing can
+    /// read B**, so the well-reasoned channel was the dead one. Reading a
+    /// wiring diagram is not the same as asking whether the wire carries
+    /// anything, and the bug register had the answer the whole time.
     ///
     /// **Why a trail he lays is followable at all**, which is not obvious and
-    /// is the whole mechanic: the ant reads `PheroBAlong`, the *gradient*
-    /// along its heading, so a trail of uniform strength says nothing. What
-    /// supplies the slope is `DECAY_RHO` — every mark is fading from the
-    /// moment it is laid, so the freshest cell on the path is the strongest,
-    /// and the slope points back along the route to wherever he is now. Walk
-    /// from the nest to where you want them and they come up the path behind
-    /// you; stop, and the peak stays where you stopped. **He does not push
-    /// them, he is the thing they are walking toward.**
+    /// is the whole mechanic: the ant reads the *gradient* along its heading,
+    /// so a trail of uniform strength says nothing. What supplies the slope is
+    /// `DECAY_RHO` — every mark is fading from the moment it is laid, so the
+    /// freshest cell on the path is the strongest, and the slope points back
+    /// along the route to wherever he is now. Walk from the nest to where you
+    /// want them and they come up the path behind you; stop, and the peak
+    /// stays where you stopped. **He does not push them, he is the thing they
+    /// are walking toward.**
     ///
-    /// **And it is the cold start.** `dead-ends.md` records that channel B is
-    /// emitted only by an ant *already carrying* — so a colony that never
-    /// reaches a first meal never lays a trail for anyone to follow, and sits
-    /// at random walk with a full larder out of reach. A finger that can put
-    /// scent down is exactly the missing first mark.
+    /// On channel A that reads as *bring what you are carrying to this spot*,
+    /// and it competes with the nest's own A emission — so laying it badly
+    /// strands a laden colony short of home. A verb that can be misused is a
+    /// verb with stakes.
     ///
     /// Returns whether anything was laid, so a refusal is a real answer.
     pub fn lay_trail(&mut self) -> bool {
@@ -951,7 +970,7 @@ impl Druid {
             }
             self.power -= cost;
         }
-        self.world.deposit_pheromone(crate::sim::pheromone::Channel::B, x, y, TRAIL_DEPOSIT);
+        self.world.deposit_pheromone(self.scent, x, y, TRAIL_DEPOSIT);
         // One entry per cell, not per tick: standing still would otherwise
         // fill the readout with nine hundred copies of one point and push
         // the rest of the route out of it.
@@ -962,6 +981,27 @@ impl Druid {
             self.trail.push_back((x, y));
         }
         true
+    }
+
+    /// **Flip the plane `G` writes to**, A <-> B.
+    ///
+    /// The lab's `SCENT` tool has the same verb for the same reason
+    /// (`lab::ui::Action::ToggleScentChannel`) — there, a second press of the
+    /// tool's own key does it, because the tool is *armed*. `G` here is
+    /// **held** rather than armed, so a second press cannot mean anything
+    /// different from the first and the flip needs a key of its own.
+    ///
+    /// `Alarm` is deliberately not in the cycle: it is not a trail, it is one
+    /// event at one cell written by a bite, and painting a swath of it would
+    /// be a player-only quantity nothing in the engine ever produces
+    /// (`lab::ui::Tool::Alarm` makes the same argument at more length).
+    pub fn cycle_scent(&mut self) {
+        use crate::sim::pheromone::Channel;
+        self.scent = if self.scent == Channel::A { Channel::B } else { Channel::A };
+        self.note(match self.scent {
+            Channel::A => "scent: the way home - laden ants follow this",
+            _ => "scent: the way to food - NOTHING CAN READ THIS YET",
+        });
     }
 
     /// **Open the options menu, or shut it again.**
