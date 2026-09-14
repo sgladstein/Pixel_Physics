@@ -936,8 +936,24 @@ impl Druid {
     #[cfg(test)]
     fn bare_for_test() -> Self {
         let mut world = World::new(Rect::new(0, 0, 63, 63));
+        // **The registries, or `plant_tree_species` declines every call** and
+        // a guard over spending a seed would never once reach the spend. Both
+        // are `include_str!`'d, so this is a parse and not a file read.
+        let _ = world.materials.reload(material::ASSET_DIR);
+        let _ = world.species.reload(organism::ASSET_DIR);
         world.held = true;
-        world.player = Some(player::Player::at_scaled(32, 32, world.cell_scale()));
+        // **A floor, because a world with no ground is a scene error wearing
+        // a null result** -- `CLAUDE.md`'s own *a scene that contradicts the
+        // code will look like a bug in the code*. Without it the player falls
+        // out of the world and `plant_seed` returns `false` from its very
+        // first line, which reads exactly like a broken pouch.
+        for x in 0..64 {
+            for y in 48..64 {
+                world.set(x, y, crate::sim::cell::Cell::new(material::STONE, 0));
+            }
+        }
+        let (sx, sy) = spawn_point(&world).expect("the hand-built floor must be standable");
+        world.player = Some(player::Player::at_scaled(sx, sy, world.cell_scale()));
         Self {
             world,
             particles: ParticleSystem::new(),
@@ -1557,14 +1573,11 @@ impl Druid {
                 // `SEED_FROM_CELLS` is the middle the ethos asks for — a
                 // sprout sown a minute ago pays nothing and a grown tree
                 // pays, and the gap between them is time she spent on it.
-                if state.cells.len() >= SEED_FROM_CELLS && self.world.carried.is_some_and(|c| c.contains(x, y)) {
-                    // Credited to the *plant's own* kind, not the selected
-                    // one: standing in an oak wood fills you with oak. A
-                    // species the pouch has no slot for (one that is not
-                    // sowable, so never in `seed_kinds`) simply pays nothing.
-                    if let Some(k) = kind_index(&self.seed_kinds, &self.world.species.get(state.species).name) {
-                        gathered_by_kind[k] += SEED_PER_PLANT_SECOND * seconds;
-                    }
+                // The rule itself is [`seed_credit`], which is where it can
+                // be asked questions without a grown world.
+                let name = &self.world.species.get(state.species).name;
+                if let Some(k) = seed_credit(&self.seed_kinds, self.world.carried, name, state.cells.len(), x, y) {
+                    gathered_by_kind[k] += SEED_PER_PLANT_SECOND * seconds;
                 }
             }
         }
@@ -1798,16 +1811,34 @@ fn carried_cost(world: &World) -> f32 {
     (ratio * ratio - 1.0).max(0.0)
 }
 
-/// **Which pouch slot a species name belongs to**, or `None` if it is not a
-/// kind the druid can carry.
+/// **Does this plant pay the druid seed, and into which pouch?**
 ///
-/// A linear scan over seven strings, twice a second, per plant standing in
-/// the circle she is carrying — not per organism in the world, because the
-/// caller has already gated on the circle. A map keyed by `SpeciesId` was the
-/// first version and it is a second representation of `seed_kinds`' own
-/// ordering, which is exactly the side table [`Druid::seed_kinds`]' doc
-/// refuses to keep.
-fn kind_index(kinds: &[String], name: &str) -> Option<usize> {
+/// The whole gathering rule, as one function over plain values, so a guard
+/// can ask it the four questions that matter without growing a wood first.
+/// It was inline in [`Druid::step_economy`]'s organism walk to begin with,
+/// and that walk needs a grown world — so the *"credited to the plant's own
+/// kind"* claim, which is the one thing here a player would notice going
+/// wrong, was not reachable by any test that ran in under a minute. Pulled
+/// out for exactly that reason.
+///
+/// Four ways to answer `None`, and each is a rule rather than a guard clause:
+/// a plant too small to have anything to give ([`SEED_FROM_CELLS`]); a plant
+/// outside the circle she is *carrying*, which is what makes gathering
+/// presence rather than ownership; no carried circle at all, so switching the
+/// sphere off stops the pouch filling exactly as it stops everything else;
+/// and a species that is not a kind she can sow, which simply pays nothing.
+///
+/// The name scan is a linear pass over seven strings, twice a second, per
+/// plant already inside the circle. A map keyed by `SpeciesId` was the first
+/// version and it is a second representation of `seed_kinds`' own ordering —
+/// the side table [`Druid::seed_kinds`]' own doc refuses to keep.
+fn seed_credit(kinds: &[String], carried: Option<crate::sim::world::Quickening>, name: &str, cells: usize, x: i32, y: i32) -> Option<usize> {
+    if cells < SEED_FROM_CELLS {
+        return None;
+    }
+    if !carried.is_some_and(|c| c.contains(x, y)) {
+        return None;
+    }
     kinds.iter().position(|k| k == name)
 }
 
@@ -2031,13 +2062,83 @@ mod tests {
         assert_eq!(g.seeds[0], SEED_CAP, "the pouch must not exceed its cap");
         assert_eq!(g.seed_growth[0], 0.0, "a full pouch banks nothing for later");
 
-        // And the refusal: an empty pouch declines and says so, with no
-        // world needed to reach the check.
+        // **Sowing spends one, and this is the half the first version of this
+        // guard was blind to.** Written without it, every assertion above
+        // passed with the decrement deleted outright -- the test never
+        // reached a *successful* sowing, so the central claim of the whole
+        // change was unguarded. Put the deletion back now and this goes red.
+        // **He is moved between sowings, and that is not a convenience.** The
+        // first version stood still and the second sowing was refused for
+        // *"the cell is not empty"* -- a seed already lying there -- so the
+        // guard would have been measuring the ground rather than the pouch.
+        let scale = g.world.cell_scale();
+        let mut sow_at = |g: &mut Druid, x: i32| {
+            g.world.player = Some(player::Player::at_scaled(x, 47, scale));
+            g.plant_seed()
+        };
+
+        g.seeds[0] = 2;
+        g.seed_kind = 0;
+        assert!(sow_at(&mut g, 10), "a tree seed into empty ground must go in");
+        assert_eq!(g.seeds[0], 1, "sowing must spend a seed");
+        assert_eq!(g.sown, 1);
+        assert!(sow_at(&mut g, 14), "the second seed must go in too");
+        assert_eq!(g.seeds[0], 0, "the pouch must reach zero");
+
+        // And then the refusal, on the kind that is now empty -- at a fresh
+        // column, so "no room" cannot be what is being read.
+        assert!(!sow_at(&mut g, 18), "sowing with an empty pouch must refuse");
+        assert!(g.message().is_some_and(|m| m.contains("no tree seed left")), "the refusal must be said out loud, got {:?}", g.message());
+        assert_eq!(g.sown, 2, "a refused sowing is not a sowing");
+
+        // ...and the other kind is untouched by any of it -- a single shared
+        // counter would have been spent by the two sowings above.
+        assert_eq!(g.seeds[1], 0, "grass started empty and nothing here was grass");
+        g.seeds[1] = 3;
         g.seed_kind = 1;
-        assert_eq!(g.seeds_in_hand(), 0);
-        assert!(!g.plant_seed(), "sowing with an empty pouch must refuse");
-        assert!(g.message().is_some_and(|m| m.contains("no grass seed left")), "the refusal must be said out loud, got {:?}", g.message());
-        assert_eq!(g.sown, 0, "a refused sowing is not a sowing");
+        assert!(sow_at(&mut g, 22), "grass with 3 in hand must sow");
+        assert_eq!(g.seeds[1], 2, "the grass pouch is its own");
+        assert_eq!(g.seeds[0], 0, "sowing grass must not touch the tree pouch");
+    }
+
+    /// **What pays her seed, and into which pouch.**
+    ///
+    /// Separate from the pouch guard above because it is a different claim:
+    /// that one is about arithmetic on a count, this is about *which plant
+    /// counts*. It exists in this shape because the first version of the
+    /// pouch guard could not see it at all — the crediting was inline in the
+    /// organism walk, which needs a grown world, and deleting *"the plant's
+    /// own kind"* in favour of *"the selected kind"* left every assertion
+    /// green. Put that substitution back now and `an oak wood` goes red.
+    #[test]
+    fn seed_is_credited_to_the_plant_standing_in_the_circle_she_carries() {
+        use crate::sim::world::{Quickening, CARRIED_RADIUS};
+        let kinds = vec!["tree".to_string(), "grass".to_string()];
+        let here = Some(Quickening::at(100, 100, CARRIED_RADIUS));
+        let big = SEED_FROM_CELLS;
+
+        // The positive control first, or every `None` below is unreadable:
+        // a grown tree under her feet pays into the *tree* pouch, which is
+        // index 0 and not the selected kind, whatever that happens to be.
+        assert_eq!(seed_credit(&kinds, here, "tree", big, 100, 100), Some(0), "a grown tree in the circle must pay");
+        assert_eq!(seed_credit(&kinds, here, "grass", big, 100, 100), Some(1), "...and grass into the grass pouch");
+
+        // Too small: the middle the ethos asks for.
+        assert_eq!(seed_credit(&kinds, here, "tree", big - 1, 100, 100), None, "one cell under the bar pays nothing");
+        assert_eq!(seed_credit(&kinds, here, "tree", 1, 100, 100), None, "a seedling pays nothing");
+
+        // Outside the circle she carries -- this is what makes gathering
+        // presence. A wood on the far side of the map pays nothing however
+        // many standing quickenings are running over it.
+        assert_eq!(seed_credit(&kinds, here, "tree", big, 100 + CARRIED_RADIUS + 1, 100), None, "a tree outside the circle pays nothing");
+
+        // No circle at all -- switching the sphere off stops the pouch
+        // filling, the same way it stops everything else.
+        assert_eq!(seed_credit(&kinds, None, "tree", big, 100, 100), None, "with the circle off nothing pays");
+
+        // A species that is not a kind she can carry.
+        assert_eq!(seed_credit(&kinds, here, "ant", big, 100, 100), None, "an animal is not a seed kind");
+        assert_eq!(seed_credit(&kinds, here, "conifer", big, 100, 100), None, "a kind with no pouch slot pays nothing");
     }
 
     /// **The dial is priced, and priced linearly.**
