@@ -2755,17 +2755,24 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   measurement, and the constants rivalry reallocates named and re-derived,
   since a correct mechanism at inherited constants is a regression.
 - [evolution-lab-round-36-brief-2026-09-14.md](evolution-lab-round-36-brief-2026-09-14.md)
-  — **brief, 2026-09-14. `lab`/`engine`.** What round 36 is for, written by
-  round 35's coordinator. The lead is the owner's #1 and it finally has a
-  measured target rather than a premise: **about half of what an ant costs is
-  not in the creature pass at all** — 45% of the frame's growth to 428 ants is
-  that phase, the other 55% is the CA sweep over the **29.4 cells an ant
-  dirties per frame**. Two jobs fall out, *fewer dirty cells* (census first,
-  nobody has looked at what the multiplier is made of) and *a cheaper sweep*.
-  Also carries what round 35 leaves: **the economy constants a live rivalry
-  reallocates** — the birth bar, `colony_ants` and the starvation balance, all
-  calibrated on a bed where no ant was food — and **§Z23**, whose obvious
-  repair is the wrong one.
+  — **brief, 2026-09-14, rewritten the same day. `lab`/`engine`.** What round 36
+  is for. **The first version led with performance and was wrong at the top**:
+  the owner then answered the round-35 cards and **the food-economy
+  instruments failed on his eye** (*"I don't understand what these visuals are
+  trying to tell"*; *"the amber hatch it bad — is it too much to track actual
+  paths and make trail?"*), which by this repo's ethos outranks everything
+  queued behind it. Four lanes: **A** making the food economy readable (lead,
+  and start by rendering the road and the harvest map *apart* — the tile grid
+  may simply be burying the trail); **B** a census of what the **29.4 cells an
+  ant dirties per frame** are made of, since half an ant's cost is not in the
+  creature pass; **C** the pheromones — *do they fade too fast to be useful*,
+  where the decay LUT caps an unreinforced trail at **255 passes ≈ 3,060
+  frames against a ~2,200-frame round trip** and the harness that set the
+  constants re-lays continuously so it cannot answer the question; **D** the
+  economy constants a live rivalry reallocates. Also carries the verdicts
+  verbatim, the zoom ruling (*"get rid of stop 3"*, which overturns
+  `dead-ends.md` `rendering:049`), and a process finding — **four cards asked
+  one question**, so read the open queue before posting.
 - [evolution-lab-round-35-2026-09-14.md](evolution-lab-round-35-2026-09-14.md)
   — **coordinator record, 2026-09-14. `lab`/`engine`.** The round that gave the
   food economy a face and answered *why don't colonies fight* with a finding
