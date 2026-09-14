@@ -23,6 +23,7 @@ touched**.
 | Harness | `examples/rivalry.rs` — the chain measured link by link on one run, with both controls in `control=selftest` |
 | Card | see **Cards** below |
 | Bug filed | `Reports/open-bugs-handoff.md` §Z22 — `nearest_foe` counts a plant as a foe |
+| PR | [#416](https://github.com/sgladstein/Pixel_Physics/pull/416), head `f3d2ef56`. **Coordinator owns the merge.** |
 
 **No shipped species file was edited and no default changed.** Every arm in
 the report is a run-time override in the harness; the bed a player opens is
