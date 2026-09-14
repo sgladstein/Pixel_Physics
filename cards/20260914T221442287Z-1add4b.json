@@ -1,0 +1,56 @@
+{
+  "id": "20260914T221442287Z-1add4b",
+  "created": "2026-09-14T22:14:42Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-food-readable",
+    "commit": "12e226a0",
+    "agent": null,
+    "session_id": "65a4d947-1bc8-5f1b-b8de-5d815018976b",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The FOOD page, rebuilt the way you asked",
+  "question": "Is this the shape you wanted -- and on the colony page, what is missing that you would go looking for first?",
+  "context_md": "Built to your spec, and the graphs are gone.\n\n**Top page** — every colony's stats side by side, no charts. **Each colony's line is a button**: click it and you get that colony's own page. **`COUNTING THE LAST` is a button too** — it steps 2 MIN, 1 MIN, 5 MIN, 10 MIN, ALL TIME, and every figure on both pages is read over whatever it says. It opens on **2 minutes**, the span you named; ALL TIME is on the ladder but it is not where the page opens, because all time is dominated by what happened at founding. `(SO FAR)` appears when the box has not run that long yet, so a two-minute number is never quietly a thirty-second one.\n\n**The colony page** — what that colony is eating, ranked, in joules, each source in the colour it draws as on the ground. Then what it spent, what it carried home, and what it gave away.\n\n**Why the graphs had to go, in case it is useful later:** they were plotting a *window of 120 frames, 56 times*. That is a **rate**, and what you were asking them was an **amount** -- so the picture was drawing the sampling interval rather than the colony, which is exactly why it was all spikes. A smoother chart would not have fixed it. The fix is the number over a span you pick.\n\n**The third layer you asked for is not here, and I want to be straight about why rather than quietly skip it.** Clicking `ANT` to see *which* colony they came off is not buildable on what the box records today: the tally of flesh taken off rivals is one number per colony, so with three colonies in the box the victim of any one mouthful is genuinely not recoverable. It is a small change to record it and I have not made it -- say the word and it goes in. **Clicking a plant source to see which plants** is the same shape and a bigger change. What the box *can* already tell you is **where on the ground** it came from, which is the harvest map on `F7`.\n\nSame bed and same moment in both shots.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "Top page -- every colony, no graphs",
+      "files": [
+        "20260914T221442287Z-1add4b/000-card_top.png"
+      ],
+      "caption": "each colony's line opens it; the range row above changes what every figure counts",
+      "meta": {
+        "colonies on screen": 2,
+        "colonies the page can now hold": 4,
+        "screen space the two graphs were using": "108 of 228 pixels",
+        "range shown": "the last 2 minutes of box time"
+      },
+      "focus": null
+    },
+    {
+      "label": "One colony, opened",
+      "files": [
+        "20260914T221442287Z-1add4b/001-card_col.png"
+      ],
+      "caption": "what this colony is eating, ranked, each source in its own colour",
+      "meta": {
+        "sources it is eating": 5,
+        "its biggest source": "deadleaf, 684 J, 29% of its diet",
+        "living rivals it ate": "342 J",
+        "of its own bill it found for itself": "17%"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
