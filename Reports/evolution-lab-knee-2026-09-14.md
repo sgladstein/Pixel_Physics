@@ -129,6 +129,15 @@ The **189 → 793** chord runs straight through 400 and 600 and reads **4.34
 µs/ant**, against **3.78** for the 50 → 189 chord below it. A knee would put
 those at 0.5 and 2.7. They are the same number.
 
+**Re-run after merging `main` (through #401/#403/#405), which added two root
+materials.** The populations shift a little — the 300-arm stands 154 ants
+instead of 122 — and the finding does not: 0/6/20/34/58/154/246/349 ants at
+924.7/699.6/911.8/995.1/1273.5/1624.0/1985.3/2171.6 µs, **4.29 µs/ant end to
+end** over the stocked arms against 4.05 before, with the three chords above
+58 ants reading **3.65, 3.93, 1.81**. Nothing on `main` since this lane cut
+touches `creature.rs`, `scheduler.rs`, `world.rs`, `update.rs` or
+`parallel.rs`.
+
 **The noise bar, so the flatness claim is checkable.** `min/med` over three
 reps runs 0.89–1.00 and `spread` (worst rep over best) 1.03–1.31, so
 differences below ~15% are not resolvable here. The claim being made is that
