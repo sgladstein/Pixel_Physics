@@ -19,7 +19,19 @@
 //! cargo run --release --example cave_probe                       # 16 seeds, every preset
 //! cargo run --release --example cave_probe -- seeds=32 preset=canyon
 //! cargo run --release --example cave_probe -- verbose=1          # per-system lines
+//! cargo run --release --example cave_probe -- box=2x3             # ...for a *shrunk* body
 //! ```
+//!
+//! **`box=WxH` is the walkability half's body size, and it defaults to the
+//! real gnome's `PLAYER_WIDTH x PLAYER_HEIGHT`** so the figures published in
+//! `Reports/cave-redesign-2026-08-29.md` are what a bare run prints. It is a
+//! parameter because the held world is considering a *shrunk* gnome, and
+//! "could I enter it" is a different question at 2x3 than at 7x14 — the
+//! opening itself is unchanged, which is why the default reproducing the
+//! published numbers byte-for-byte is the whole test that this is right.
+
+#[path = "common/mod.rs"]
+mod common;
 
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::material::{self, MaterialKind};
@@ -120,12 +132,24 @@ fn main() {
     let mut seeds: u64 = 16;
     let mut only: String = String::new();
     let mut verbose = false;
+    // The body the walkability half opens the void by. Defaults to the real
+    // gnome so a bare run prints the published figures; `box=2x3` is the
+    // held world's shrunk-gnome question.
+    let mut body = (
+        pixel_physics::sim::player::PLAYER_WIDTH as usize,
+        pixel_physics::sim::player::PLAYER_HEIGHT as usize,
+    );
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
         match k {
             "seeds" => seeds = v.parse().expect("seeds=N"),
             "preset" => only = v.to_string(),
             "verbose" => verbose = v != "0",
+            "box" => {
+                let (bw, bh) = v.split_once('x').expect("box=WxH");
+                body = (bw.parse().expect("box=WxH"), bh.parse().expect("box=WxH"));
+                assert!(body.0 > 0 && body.1 > 0, "box=WxH wants a body with area");
+            }
             // Handled before the sweep loop; accepted here so the arg parser
             // does not reject its own mode.
             "field" | "t" | "t3" | "halfw" | "halfh" | "cell" | "squash" | "fseed" => {}
@@ -169,11 +193,17 @@ fn main() {
         panic!("{e}");
     }
 
+    // The box is echoed because a knob nobody can see the value of is a knob
+    // nobody can tell is disconnected -- the detached-megastudy gotcha in
+    // `CLAUDE.md`, which produced 24 byte-identical logs from a binary built
+    // before the argument existed.
     println!(
-        "cave census: {seeds} seeds x {} presets, world {}x{}",
+        "cave census: {seeds} seeds x {} presets, world {}x{}, body {}x{}",
         presets.cycle_order().len(),
         pixel_physics::app::WORLD_WIDTH,
-        pixel_physics::app::WORLD_HEIGHT
+        pixel_physics::app::WORLD_HEIGHT,
+        body.0,
+        body.1
     );
     println!();
 
@@ -199,7 +229,7 @@ fn main() {
             let mut world = World::new(bounds);
             worldgen::generate(&mut world, worldgen::Spec::Generated { params, seed });
 
-            let found = census(&world, &mut forms, &mut vug_list);
+            let found = census(&world, &mut forms, &mut vug_list, body);
             if found.is_empty() {
                 worlds_with_none += 1;
             }
@@ -392,7 +422,7 @@ fn deep_area(world: &World) -> (usize, usize) {
 /// Flood-fill every deep void component and measure it. 8-connected,
 /// because that is the neighbourhood the carve writes at and a 4-connected
 /// read of an 8-connected writer sees fragments (CLAUDE.md).
-fn census(world: &World, forms: &mut Formations, vugs: &mut Vec<System>) -> Vec<System> {
+fn census(world: &World, forms: &mut Formations, vugs: &mut Vec<System>, body: (usize, usize)) -> Vec<System> {
     let (w, h) = (pixel_physics::app::WORLD_WIDTH as i32, pixel_physics::app::WORLD_HEIGHT as i32);
     let tops = cave_top(world);
     let top = *tops.iter().min().unwrap_or(&0);
@@ -453,7 +483,7 @@ fn census(world: &World, forms: &mut Formations, vugs: &mut Vec<System>) -> Vec<
             if !cells.iter().any(|&(x, y)| y >= tops[x as usize] + 140) {
                 continue;
             }
-            let sh = shape(world, &cells);
+            let sh = shape(world, &cells, body);
             // A geode vug is a single ellipse at most ~40 cells across; a
             // cave system's envelope is 180. Counting the two together
             // averages a jewel and a gallery into a number describing
@@ -470,7 +500,7 @@ fn census(world: &World, forms: &mut Formations, vugs: &mut Vec<System>) -> Vec<
     out
 }
 
-fn shape(world: &World, cells: &[(i32, i32)]) -> System {
+fn shape(world: &World, cells: &[(i32, i32)], body: (usize, usize)) -> System {
     let (x0, x1) = (cells.iter().map(|c| c.0).min().unwrap(), cells.iter().map(|c| c.0).max().unwrap());
     let (y0, y1) = (cells.iter().map(|c| c.1).min().unwrap(), cells.iter().map(|c| c.1).max().unwrap());
     let (cw, ch) = ((x1 - x0 + 1) as usize, (y1 - y0 + 1) as usize);
@@ -511,10 +541,7 @@ fn shape(world: &World, cells: &[(i32, i32)]) -> System {
         }
     }
     // --- how much of this can the player stand in and walk through ---
-    let (pw, ph) = (
-        pixel_physics::sim::player::PLAYER_WIDTH as usize,
-        pixel_physics::sim::player::PLAYER_HEIGHT as usize,
-    );
+    //
     // **Passable is not the same as void, and conflating them made this
     // number wrong.** `grid` holds the carved void. The player also walks
     // straight through anything whose material carries `Material::scenery`
@@ -530,95 +557,22 @@ fn shape(world: &World, cells: &[(i32, i32)]) -> System {
     // the round-6 cave track (finding A1-1); the bug is this file's, and it
     // arrived when `Material::scenery` shipped and only the *material
     // names* here were updated.
-    let passable = |wx: i32, wy: i32| -> bool {
-        let cxi = (wx - x0) as usize;
-        let cyi = (wy - y0) as usize;
-        grid[cyi * cw + cxi] || world.materials.get(world.get(wx, wy).material).scenery
-    };
-    let mut fits = vec![false; cw * ch];
-    if cw >= pw && ch >= ph {
-        for cy in 0..=(ch - ph) {
-            for cx in 0..=(cw - pw) {
-                if (0..ph).all(|dy| (0..pw).all(|dx| passable(x0 + (cx + dx) as i32, y0 + (cy + dy) as i32))) {
-                    fits[cy * cw + cx] = true;
-                }
-            }
-        }
-    }
-    // Every void cell the player's box covers from some standable position.
-    let mut reached = vec![false; cw * ch];
+    //
+    // The opening itself lives in `common::open_by_box` since 2026-09-14,
+    // because `burrow_probe` needed the same question asked of *dug* void
+    // and a second copy would have been a second set of answers.
+    let mut passable = vec![false; cw * ch];
     for cy in 0..ch {
         for cx in 0..cw {
-            if !fits[cy * cw + cx] {
-                continue;
-            }
-            for dy in 0..ph {
-                for dx in 0..pw {
-                    reached[(cy + dy) * cw + cx + dx] = true;
-                }
-            }
+            let i = cy * cw + cx;
+            passable[i] = grid[i]
+                || world
+                    .materials
+                    .get(world.get(x0 + cx as i32, y0 + cy as i32).material)
+                    .scenery;
         }
     }
-    // --- and is it *one* cave, or several he cannot travel between? ---
-    //
-    // Flood the fit positions 8-connected. Two fit positions adjacent in the
-    // grid mean the box slides between them, so a component is a region he
-    // can walk without leaving the box's freedom -- the traversal question,
-    // asked of the same box that answers the occupancy one.
-    let mut region = vec![u32::MAX; cw * ch];
-    let mut regions: Vec<Vec<usize>> = Vec::new();
-    for start in 0..cw * ch {
-        if !fits[start] || region[start] != u32::MAX {
-            continue;
-        }
-        let id = regions.len() as u32;
-        let mut stack = vec![start];
-        let mut members = Vec::new();
-        region[start] = id;
-        while let Some(i) = stack.pop() {
-            members.push(i);
-            let (cx, cy) = ((i % cw) as i32, (i / cw) as i32);
-            for dy in -1..=1i32 {
-                for dx in -1..=1i32 {
-                    let (nx, ny) = (cx + dx, cy + dy);
-                    if nx < 0 || ny < 0 || nx >= cw as i32 || ny >= ch as i32 {
-                        continue;
-                    }
-                    let n = ny as usize * cw + nx as usize;
-                    if fits[n] && region[n] == u32::MAX {
-                        region[n] = id;
-                        stack.push(n);
-                    }
-                }
-            }
-        }
-        regions.push(members);
-    }
-    let mut walk_largest = 0usize;
-    for members in &regions {
-        let mut seen = vec![false; cw * ch];
-        let mut n = 0;
-        for &i in members {
-            let (cx, cy) = (i % cw, i / cw);
-            for dy in 0..ph {
-                for dx in 0..pw {
-                    let j = (cy + dy) * cw + cx + dx;
-                    if grid[j] && !seen[j] {
-                        seen[j] = true;
-                        n += 1;
-                    }
-                }
-            }
-        }
-        walk_largest = walk_largest.max(n);
-    }
-    // Numerator is reached **void**, not reached cells: now that the box may
-    // sit over scenery, `reached` covers cells that are not in `cells` at all,
-    // and dividing those by the void count would report more than 100% of a
-    // cave as walkable. The question is still "how much of this cave's open
-    // space can he get into".
-    let reachable = (0..cw * ch).filter(|&i| reached[i] && grid[i]).count();
-    let reachable_pct = (100 * reachable / cells.len().max(1)) as i32;
+    let walk = common::open_by_box(&passable, &grid, cw, ch, body);
 
     col_runs.sort_unstable();
     let pick = |q: f32| col_runs[((col_runs.len() as f32 - 1.0) * q) as usize];
@@ -630,9 +584,9 @@ fn shape(world: &World, cells: &[(i32, i32)]) -> System {
         col_median: pick(0.5),
         col_p95: pick(0.95),
         widest,
-        reachable_pct,
-        walk_largest_pct: (100 * walk_largest / cells.len().max(1)) as i32,
-        walk_regions: regions.len() as i32,
+        reachable_pct: walk.reachable_pct,
+        walk_largest_pct: walk.largest_pct,
+        walk_regions: walk.regions,
     }
 }
 
