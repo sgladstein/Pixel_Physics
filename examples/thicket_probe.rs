@@ -392,6 +392,7 @@ fn main() {
     let mut frames = 6000u64;
     let mut shot: Option<String> = None;
     let mut zoom = 4;
+    let mut ablate = false;
     for arg in std::env::args().skip(1) {
         let (k, v) = arg.split_once('=').unwrap_or((arg.as_str(), ""));
         match k {
@@ -401,6 +402,7 @@ fn main() {
             "frames" => frames = v.parse().unwrap_or(frames),
             "shot" => shot = Some(v.to_string()),
             "zoom" => zoom = v.parse().unwrap_or(zoom),
+            "ablate" => ablate = v != "0" && v != "off",
             "half" => half = v.parse().unwrap_or(half),
             "stands" => stands = v.parse().unwrap_or(stands),
             "spacing" => spacing = v.parse().unwrap_or(spacing),
@@ -420,7 +422,7 @@ fn main() {
     // Echo every parameter, the arm included: a log that does not name its
     // arm was written by a binary that never had one.
     let arm = std::env::var("PIXEL_PHYSICS_THICKET_CLIMB").unwrap_or_else(|_| "default".into());
-    println!("thicket_probe: start={start} half={half} stands={stands} spacing={spacing} lab={lab} seeds={seeds} frames={frames} shot={shot:?} zoom={zoom} climb_arm={arm} max_step={MAX_STEP}");
+    println!("thicket_probe: start={start} half={half} stands={stands} spacing={spacing} lab={lab} seeds={seeds} frames={frames} shot={shot:?} zoom={zoom} ablate={ablate} climb_arm={arm} max_step={MAX_STEP}");
 
     if lab > 0 {
         let (mut all_stations, mut all_placed) = (Vec::new(), Vec::new());
@@ -435,6 +437,37 @@ fn main() {
     }
 
     let mut game = pixel_physics::druid::Druid::new();
+    if ablate {
+        // **`ablate=1` — what this world looks like with `life_scatter`
+        // switched off**, without touching `assets/worldgen.ron`, which is
+        // another lane's file.
+        //
+        // Lane B is zeroing the druid preset's `moss_density`,
+        // `tree_density` and `grass_density`, which takes `life_scatter`
+        // from 993 cells to 0. On a `start=bare` world — zero grow frames —
+        // **every plant cell present is a scatter cell by construction**,
+        // because nothing has had a tick in which to grow one. So deleting
+        // them here reproduces the post-Lane-B world exactly, for this
+        // question, and turns a prediction about somebody else's unlanded
+        // branch into a measurement.
+        //
+        // It is only valid at `start=bare`. On `grown` or `dead` this would
+        // delete an entire wood, which is a different world and not a
+        // control for anything.
+        let bounds = game.world.bounds().expect("a generated world has bounds");
+        let mut removed = 0usize;
+        for cx in bounds.min_x..=bounds.max_x {
+            for cy in bounds.min_y..=bounds.max_y {
+                if game.world.materials.kind(game.world.get(cx, cy).material) == MaterialKind::Plant {
+                    game.world.set(cx, cy, pixel_physics::sim::cell::Cell::EMPTY);
+                    removed += 1;
+                }
+            }
+        }
+        // Printed, because an ablation that removed nothing is a control arm
+        // wearing the treatment's label and reads exactly like "no effect".
+        println!("thicket_probe: ablate removed {removed} plant cells (start={start}; only meaningful at start=bare)");
+    }
     let Some(player) = game.world.player.as_ref() else {
         println!("thicket_probe: no player in the world — nothing to found at");
         return;

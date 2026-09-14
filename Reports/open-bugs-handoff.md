@@ -12384,6 +12384,25 @@ same binary on `Start::Bare` (378 organisms, 3,700 slots free): **0 refusals,
 148 animals placed over 18 stands.** The counter goes to zero on a world that
 is fine and non-zero on a world that is not.
 
+**Scope, stated narrowly on purpose.** This is **not** every held world. It
+is `Start::Grown` and `Start::Dead`, both of which run the 8,000-frame grow
+phase; `Start::Bare` is **the default and what the owner plays**, it skips
+that phase, and it is measured clean — 378 organisms, **0 refusals, 148
+animals placed over 18 stands**. So the severity is "the two non-default
+starts", and a reader who takes this entry as "founding is broken in the held
+world" has taken more than it says.
+
+Two things pull in opposite directions on that scope and both are worth
+writing down. Zeroing the druid preset's `moss_density`, `tree_density` and
+`grass_density` — in flight on `claude/druid-seeds-and-sphere`, owner item
+*"the world should not start with any seeds"* — takes `life_scatter` from 993
+cells to 0, so `Start::Bare` gets **further** from the ceiling, not closer,
+and this entry's scope narrows again. But nothing stops a *played* world
+reaching the ceiling by growing into it: the ceiling is a property of how many
+organisms are alive, not of how they got there, and a druid who plants and
+quickens for long enough arrives at the same wall with no grow phase involved
+at all. That has not been measured and is not claimed here.
+
 **Where a fix does *not* go: `src/sim/creature.rs`.** Founding is behaving
 correctly — it asks for an identity, is refused, and declines. Candidates,
 none of them measured and none of them decided here:

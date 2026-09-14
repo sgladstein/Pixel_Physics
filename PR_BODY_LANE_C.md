@@ -66,6 +66,23 @@ One binary, two arms, the semantic rule held fixed and nothing else moved.
 
 **Druid, bare start, 18 stands:** placed **120 → 148**, p50 8 → 10.
 
+⚠️ **That bare-start row has a shelf life, and it is worth knowing before
+anyone re-runs it.** Its whole delta comes from `life_scatter`'s seed cells —
+the 45 blocked columns in the bare census are grassroot 21, rootwood 14, moss
+10 and nothing else, which on a zero-grow world can only be scatter.
+`claude/druid-seeds-and-sphere` zeroes the druid preset's three life
+densities (`life_scatter` 993 cells → 0), so after it lands a bare world has
+no plant cell anywhere and this arm's delta goes to zero.
+`thicket_probe start=bare ablate=1` is the arm that settles it without
+touching `assets/worldgen.ron`: it deletes every plant cell before censusing,
+which on a zero-grow world is exactly what zeroing the scatter does.
+**Run pending — this line carries its numbers or is withdrawn before merge.**
+What is measured today is the composition above; the prediction follows from
+it rather than standing on its own. That is the correct outcome — a change
+about thickets does nothing on ground with no thicket — and it makes the bare
+arm a *cleaner* negative control rather than an invalid one. The grown-start
+numbers, which carry the finding, are untouched.
+
 **Lab bed (`LabBox` founders=8) grown 6,000 frames, then founded at each of 8
 founder columns, 3 seeds — 24 stands:** stations **182 → 269**, placed
 **147 → 188**, p50 6 → 8, **0 of 24 stands worse**. Live organism count
@@ -137,6 +154,27 @@ literal, so it cannot go green the day the bound moves.
 `the_climb_refuses_everything_that_is_not_a_plant` covers the case a naive
 "first free cell above" would get wrong: soil, a leaf, a slab of stone, then
 air. There *is* free space up there; it is on the far side of a wall.
+
+**One of those four shipped in the first commit silently guarding nothing,
+and the second commit is the fix.** It asked for a material called `rock`.
+This engine's solid is `stone`; there is no `rock.ron`. So the overhang case
+— *a floor with a slab over it is not a thicket* — was never tested, and the
+slab case under it was building its slab out of a material that does not
+exist either. What caught it was not review and not the assertion: it was
+`matted_bed`'s `unwrap_or_else(|| panic!("{material} material"))`, which
+names the missing material instead of returning `None` and letting the bed
+come back quietly wrong. A bed built without its slab still *has* a floor, so
+`colony_ant_site` would have answered `Some(...)`, the assertion would have
+read `None != Some` and failed — but on the wrong grounds, and only because
+the scene had silently lost the thing under test.
+
+Worth saying plainly because it is this repo's own rule turned on its author:
+a guard written *after* the fix has not been watched going red, and two of
+these four had been. The other two had not, and one of them could not have
+run at all. The general remedy is the one `CLAUDE.md` already states — put
+the fault back — and the specific one is cheaper: **make the scene builder
+panic on a name it cannot resolve**, so a test that has lost its subject
+fails as a missing material rather than as a confusing assertion.
 
 ## Gates
 
