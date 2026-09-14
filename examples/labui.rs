@@ -158,6 +158,13 @@ fn main() {
         (Panel::Plants, Action::Panel(Panel::Plants)),
         (Panel::Ants, Action::Panel(Panel::Ants)),
         (Panel::Box, Action::Panel(Panel::Box)),
+        // **FOOD, reached through MENU like the rest.** Its other route is
+        // the ANTS page's own `WHAT THEY ARE EATING` heading -- the bar has
+        // no chip for it and `bin/lab.rs`'s key table is another lane's --
+        // and a page with two routes is worth photographing through the one
+        // every page here is photographed through, so the tile is
+        // comparable with its neighbours.
+        (Panel::Food, Action::Panel(Panel::Food)),
     ] {
         leave_open_panel(&mut lab);
         let at = reach(&mut lab, action);
@@ -167,6 +174,31 @@ fn main() {
         // the owner asked every label to carry.
         lab.set_cursor(Some((at.0 + 20, pixel_physics::lab::ui::bar_top() - 60)));
         tiles.push((format!("PAGE: {panel:?}"), shot(&mut lab)));
+    }
+    leave_open_panel(&mut lab);
+
+    // **FOOD again, with no pointer on it.** Every tile above deliberately
+    // hovers a row so the sheet shows the explanation each label carries --
+    // and on this page the note box lands over the top chart, which is the
+    // one thing a reader has to judge by eye. So the page gets a second
+    // tile at rest. The count beside it is the whole point of the card the
+    // owner is shown: an image says a chart is drawn and only a number says
+    // whether anything was ever booked into it.
+    {
+        let at = reach(&mut lab, Action::Panel(Panel::Food));
+        click(&mut lab, at);
+        lab.set_cursor(None);
+        let books: Vec<String> = lab
+            .world
+            .live_creature_groups()
+            .iter()
+            .map(|g| {
+                let b = lab.world.colony_books(g.colony);
+                format!("{}: in {:.0} J, out {:.0} J, {} sources", lab.world.group_label(g.species, g.colony), b.income(), b.outgo(), b.diet().len())
+            })
+            .collect();
+        fired.push(format!("FOOD: {}", if books.is_empty() { "no colony has books".to_string() } else { books.join("; ") }));
+        tiles.push(("PAGE: Food (RESTING)".into(), shot(&mut lab)));
     }
     leave_open_panel(&mut lab);
 

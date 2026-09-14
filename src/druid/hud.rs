@@ -940,22 +940,41 @@ fn rings(game: &Druid, _viewport: (u32, u32)) -> Vec<Ring> {
         Some(Ring { cx, cy, r: ex - cx, colour })
     };
     let mut rings = Vec::new();
-    let tint = speed_tint(RING_STANDING, game.speed);
-    for q in &game.world.quickenings {
-        rings.extend(on_screen(q.x, q.y, q.r, tint));
-        // One extra ring inside per two steps of the dial, so a fast circle
-        // is visibly *thicker* and not merely a different colour.
-        for i in 1..=(game.speed.saturating_sub(1) / 2) as i32 {
-            rings.extend(on_screen(q.x, q.y, q.r - i * 3, tint));
+    // **A held world's circles are not drawn here any more.**
+    //
+    // Owner, 2026-09-14: *"They shouldn't be a solid line it blocks too
+    // much."* The outline and the speed cue were the same object — the loop
+    // that used to stand here added *one more* hard circle per two steps of
+    // the dial, so the faster the circle the more of the world it crossed
+    // out. Both moved into the world pass as a haze that tints the ground
+    // rather than covering it: `render::AuraTuning`, which carries speed as
+    // how fast the haze pulses and how far it reaches inward.
+    //
+    // **The outlines survive for the one case the haze cannot speak in**: a
+    // *running* world, where `time_runs_at` is true everywhere and the aura
+    // returns on its first test. A placed circle is inert then, and the
+    // owner's own reasoning for the preview below applies to it — seeing the
+    // circle beside a readout that says `WORLD RUNNING` is how that reads as
+    // a state rather than as a lost bubble.
+    if !game.world.held {
+        let tint = speed_tint(RING_STANDING, game.speed);
+        for q in &game.world.quickenings {
+            rings.extend(on_screen(q.x, q.y, q.r, tint));
         }
-    }
-    if let Some(q) = game.world.carried {
-        rings.extend(on_screen(q.x, q.y, q.r, RING_CARRIED));
+        if let Some(q) = game.world.carried {
+            rings.extend(on_screen(q.x, q.y, q.r, RING_CARRIED));
+        }
     }
     // What `SPACE` would place, at his feet. Drawn whatever the world is
     // doing: a circle placed in a *running* world is inert, and seeing the
     // ring next to a readout that says `WORLD RUNNING` is how that reads as a
     // state rather than as a broken key.
+    //
+    // **Still a thin outline, and now that is a distinction rather than a
+    // leftover.** `RING_PREVIEW` has to read as *not there yet*; a placed
+    // circle is a haze with weather in it and this is a line drawn on the
+    // air, which is a much wider gap than two shades of the same ring ever
+    // was.
     if let Some(player) = &game.world.player {
         let (px, py) = player.center();
         rings.extend(on_screen(px, py, game.place_radius, RING_PREVIEW));
