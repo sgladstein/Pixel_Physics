@@ -155,6 +155,13 @@ remember?"*, blind A/B, ten seconds against a minute. Verdict: *pending*.
 - **`20260914T193144118Z-d8e147`** (the amber hatch, no longer a box) —
   answered **rating 4**, no comment. The box is accepted; nothing is asked
   for.
+- **`20260914T201530498Z-1a387e`** (how long should a food road remember) —
+  **"Option A. Halves in a minute."** Blind card, `blind_was: [1, 0]`, so his
+  displayed **A** is stored item **1**, which is the minute — and he named it
+  in the prose as well, so the click and the sentence agree without needing
+  the map. **The minute is confirmed as the default and is already shipped.**
+- **`20260914T205807355Z-12829d`** (the FOOD page) — answered with a design,
+  not a rating. See §6; it overturns §5's chart work.
 
 ## 5. The FOOD page: every row was true and none of them was an answer
 
