@@ -180,6 +180,37 @@ two plant positions*, differing only in whether the water stayed —
 Soil, light, nutrient and placement are all held fixed. Water is the whole
 difference, and Phase 1 is therefore exactly as scoped: one predicate.
 
+### 1.7 The bed that proves Phase 1 is not the bed that proves Phase 2
+
+`the_pond.ron` sinks its water four rows below a stone lip. That is right for
+the hydraulic question and **useless for the locomotion one**: ants walking
+east along that bed stop at x=176, the lip, and the animal bounding box never
+enters the pond's footprint. They never touch the water at all. A swim brief
+measured in that bed would measure nothing and could not tell that from a
+broken verb.
+
+Flush the waterline with the bed surface (`the_pond_shore.ron`, shipped here)
+and an ant meets it head-on. Measured at 6x with the marker overlay and
+**rain off**, frames 7,400–8,000: **ants walk out of the bank and stand on the
+water surface**, five or more cells from the shore. That is §R2's locomotion
+half, live, in a bed Phase 2 can be measured in.
+
+Two cautions that cost time here:
+
+- **`animals span x A..B` is a bounding box over every animal**, so a high max-x
+  and a high max-y can come from two different ants — one east of the shore and
+  one dug into the bank read identically to one ant out on the water. The span
+  is what first suggested this and it could not establish it; **the marker
+  overlay at 6x is what did.** `CLAUDE.md`'s *ask what your number counts*,
+  in its bounding-box costume.
+- **`labgif` defaults to `rain=steady`**, which puts water on the bank and into
+  the pond. Pass `rain=off` for any question about where the waterline is.
+
+**So Phase 2's briefs measure in `the_pond_shore.ron` and Phase 1's in
+`the_pond_sediment.ron`**, and neither is a drop-in for the other. This is the
+`CLAUDE.md` rule about a scene failing to contain the defect you are removing,
+met in advance for once.
+
 ---
 
 ## 2. Phase 1 — the margin
