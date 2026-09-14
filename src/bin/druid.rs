@@ -136,6 +136,18 @@ impl Handler {
         if std::env::var("PIXEL_PHYSICS_DRUID_FOUND").is_ok_and(|v| v != "0") {
             game.found_colony();
         }
+        // `PIXEL_PHYSICS_DRUID_MENU=1` -- open the options menu at startup,
+        // and `=<n>` to put the cursor on the nth row. Same shape and same
+        // reason as every hook here: a headless screenshot cannot press `M`,
+        // and a menu is exactly the thing a still image *can* settle.
+        if let Ok(v) = std::env::var("PIXEL_PHYSICS_DRUID_MENU") {
+            if v != "0" {
+                game.toggle_menu();
+                if let (Ok(n), Some(m)) = (v.parse::<i32>(), game.menu.as_mut()) {
+                    m.step(n);
+                }
+            }
+        }
         // `PIXEL_PHYSICS_DRUID_OFFER=1` -- open the founding screen at
         // startup, and `=<n>` to put the cursor on the nth lineage. The
         // screen is the one part of this game a still image *can* settle, so
