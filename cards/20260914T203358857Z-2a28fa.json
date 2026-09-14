@@ -1,0 +1,67 @@
+{
+  "id": "20260914T203358857Z-2a28fa",
+  "created": "2026-09-14T20:33:58Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/druid-founding",
+    "commit": "9fd637a7",
+    "agent": null,
+    "session_id": "e1540bcb-9e00-52ac-ad9b-3aa57be21c20",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The ground where a colony was just founded",
+  "question": "Which of these three grounds is closest to what you want under a new colony — and if the answer is 'none of them', is it the pattern you dislike or the pale colour itself?",
+  "context_md": "Your playtest: *\"when I found ants there are little yellow bars that get placed onto the ground. I don't like this.\"*\n\nThe marks are the **nest patch** — the ground a colony walks home to. It has to stay broken, or water stands on it and the colony stops delivering (that was a real bug, and the unbroken patch measured 52–68 cells of standing water against 0–4 over the ground beside it).\n\nWhat I changed, and why there are three panes rather than two:\n\n- the patch was a **rigid two-on, one-off comb**, 36 columns in eighteen identical dashes. So it had no middle — it was a dotted line rather than a place.\n- every cell was also painted the palette's **lightest** tan, with no grain at all, which nothing else in this world does.\n\nOne pane is the ground as you saw it. One changes only the grain. One is both — a solid doorstep under your feet that dissolves into scattered crumbs.\n\n**What I am unsure about, and what the third clause of the question is for:** the solid middle is *under the gnome*, so the part you actually see is the scatter either side. If pale tan cells on dark soil are the problem at all, none of these fixes it and the answer is the colour — which also changes how the nest reads in the lab, so I have not touched it without asking.\n\nSame world, same seed, same camera; the only thing that differs is the rule being judged.",
+  "kind": "gallery",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "shipped",
+      "files": [
+        "20260914T203358857Z-2a28fa/000-A_nest_before.png"
+      ],
+      "caption": "the ground as you played it",
+      "meta": {
+        "tan cells on the ground": 36,
+        "separate marks": 18,
+        "longest unbroken mark": 2
+      },
+      "focus": null
+    },
+    {
+      "label": "grain only",
+      "files": [
+        "20260914T203358857Z-2a28fa/001-z4_comb.png"
+      ],
+      "caption": "same pattern, each cell drawn from the nest's own three shades instead of all one",
+      "meta": {
+        "tan cells on the ground": 36,
+        "separate marks": 18,
+        "longest unbroken mark": 2
+      },
+      "focus": null
+    },
+    {
+      "label": "doorstep and crumbs",
+      "files": [
+        "20260914T203358857Z-2a28fa/002-z4_new.png"
+      ],
+      "caption": "a solid patch at his feet, dissolving outward, with grain",
+      "meta": {
+        "tan cells on the ground": 25,
+        "separate marks": 15,
+        "longest unbroken mark": 11
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
