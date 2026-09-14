@@ -75,6 +75,7 @@
 //! bounded by one `CHUNK_SIZE`. It does affect behaviour, which is the whole
 //! reason chunk rows are ordered rather than parity-split: see `step`.
 
+use super::cell::OrganismId;
 use std::collections::HashMap;
 
 use rayon::prelude::*;
@@ -471,7 +472,7 @@ struct ChunkOutcome {
     /// vanished from its cell list and grew into a single sterile cell.
     /// Caught by independent review, not by the suite. See
     /// `World::reindex_organism_cell`.
-    organism_moves: Vec<(i32, i32, u16, u16)>,
+    organism_moves: Vec<(i32, i32, OrganismId, OrganismId)>,
     /// See `ChunkView::phase_counts`'s own doc.
     phase_counts: crate::sim::fire::PhaseCounts,
     /// See `ChunkView::sky_condensate`'s own doc.
@@ -555,7 +556,7 @@ struct ChunkView<'w> {
     /// See `ChunkOutcome::splash_sites`'s own doc.
     splash_sites: Vec<(i32, i32, f32)>,
     /// See `ChunkOutcome::organism_moves`'s own doc.
-    organism_moves: Vec<(i32, i32, u16, u16)>,
+    organism_moves: Vec<(i32, i32, OrganismId, OrganismId)>,
     /// This worker's private `fire::PhaseCounts` tally, merged into
     /// `World::phase_changes` by `run_pass` — only `World` owns the
     /// cumulative counters, same reasoning as `pending_active_sites`.

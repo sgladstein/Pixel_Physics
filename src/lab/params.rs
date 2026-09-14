@@ -42,6 +42,7 @@
 //! one. They are shown with every tier so the player can *see* them, and the
 //! panel says plainly that it cannot move them.
 
+use crate::sim::cell::OrganismId;
 use crate::sim::creature;
 use crate::sim::material;
 use crate::sim::organism::{self, Behavior, CellType, SpeciesId};
@@ -1874,7 +1875,7 @@ fn field_text(source: &str, field: &str) -> Option<String> {
 /// `--` for every plant would be worse than no row: a creature has heritable
 /// body traits and a foraging errand, a plant has a genotype, an allele set
 /// and a carbon economy.
-pub fn specimen_rows(world: &World, id: u16) -> Vec<(String, String, String)> {
+pub fn specimen_rows(world: &World, id: OrganismId) -> Vec<(String, String, String)> {
     specimen_sections(world, id).into_iter().flat_map(|(_, _, rows)| rows).collect()
 }
 
@@ -1903,7 +1904,7 @@ const GENOME_NOTE: &str = "WHAT IT WAS DEALT AND CANNOT CHANGE, DRAWN WHEN IT WA
 /// about what the numbers *are*, not about how they are drawn: `STATE` is the
 /// block a player watches change while the box runs, and that is the same fact
 /// whether it is folded, scrolled or printed by a harness.
-pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
+pub fn specimen_sections(world: &World, id: OrganismId) -> Vec<SpecimenSection> {
     let Some(state) = world.organism_state(id) else { return Vec::new() };
     let species = world.species.get(state.species);
     let mut life: Vec<SpecimenRow> = Vec::new();
@@ -2098,7 +2099,7 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
 /// What the log *does* drop is old lines wholesale, and the row below says so
 /// -- an individual older than the log's window has a truncated story, and a
 /// truncated story must not read as an uneventful one.
-fn story(world: &World, id: u16, born_frame: u64) -> Vec<SpecimenRow> {
+fn story(world: &World, id: OrganismId, born_frame: u64) -> Vec<SpecimenRow> {
     // **Short forms, dropping the subject** -- the page title already names
     // this individual, so `Ui::log_rows`' full sentence ("KESTREL-3 BORN TO
     // KESTREL-2") would repeat itself here. See `world::LogEvent`'s doc for
@@ -2129,7 +2130,7 @@ fn story(world: &World, id: u16, born_frame: u64) -> Vec<SpecimenRow> {
                         let count = world
                             .live_creature_groups()
                             .iter()
-                            .find(|g| g.species == e.species && g.colony == e.other as u32)
+                            .find(|g| g.species == e.species && g.colony == e.other)
                             .map(|g| g.alive)
                             .unwrap_or(0);
                         format!("SPLIT OFF, {count}")
@@ -2181,7 +2182,7 @@ fn story(world: &World, id: u16, born_frame: u64) -> Vec<SpecimenRow> {
 /// or truncate, and the number is already in `GENOME` two headings down. The
 /// explanation carries the weight or the allele it came from, so hovering any
 /// sentence says why it was said.
-fn words(world: &World, id: u16) -> Vec<SpecimenRow> {
+fn words(world: &World, id: OrganismId) -> Vec<SpecimenRow> {
     crate::lab::plainspeak::describe(world, id)
         .into_iter()
         .flat_map(|p| {
@@ -2966,7 +2967,7 @@ mod tests {
             world::LogEvent { kind: world::LogKind::GroupSplit, other: 3, ..base.clone() },
             world::LogEvent { kind: world::LogKind::LineMilestone, other: 0x0102, ..base.clone() },
             world::LogEvent { kind: world::LogKind::LineMilestone, other: 8, ..base.clone() },
-            world::LogEvent { kind: world::LogKind::LineRecord, other: ((organism::TRAIT_REPRODUCE_AT as u16) << 8) | 4, ..base.clone() },
+            world::LogEvent { kind: world::LogKind::LineRecord, other: ((organism::TRAIT_REPRODUCE_AT as OrganismId) << 8) | 4, ..base.clone() },
         ];
         for e in events {
             world.run_log.push(e);

@@ -65,6 +65,7 @@
 //! completion and then the next is the shape that does not survive that; a
 //! round-robin is.
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::render::Renderer;
 use pixel_physics::sim::cell::Cell;
@@ -398,7 +399,7 @@ fn run_arm(
     gut: Option<f32>,
     split: bool,
     render_every: u64,
-) -> (Vec<Tile>, World, Vec<u16>) {
+) -> (Vec<Tile>, World, Vec<OrganismId>) {
     // **The gut override founds the colony itself**, because a species-level
     // write has to land before `found_colony` stamps a founder's traits or
     // every reading is of the neutral gut — the failure `stamp_probe` gained
@@ -706,7 +707,7 @@ fn main() {
     // every arm across the same stretch, which is the only shape that
     // survives a drifting machine (`CLAUDE.md`, and this repo has measured a
     // byte-identical binary disagreeing 2.42x with itself).
-    let mut last: Option<(World, Vec<u16>, LabBox)> = None;
+    let mut last: Option<(World, Vec<OrganismId>, LabBox)> = None;
     for rep in 0..reps {
         for (i, w) in walls.iter().enumerate() {
             let spec = LabBox { compartments: *w, ..base.clone() };

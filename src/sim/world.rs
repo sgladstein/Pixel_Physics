@@ -21,7 +21,7 @@ use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 use std::sync::OnceLock;
 
-use super::cell::Cell;
+use super::cell::{Cell, OrganismId};
 use super::chunk::{Chunk, ChunkCoord, ChunkGrid, Rect, CHUNK_SIZE, MAX_REACH};
 use super::creature;
 use super::decay;
@@ -35,43 +35,70 @@ use super::rng::Rng;
 use super::scheduler::{self, ActiveSite};
 use super::surface::CellSurface;
 
-/// Bits of `Cell::organism_id` given to the slot index (the rest, high 4
-/// bits, are generation). 4095 concurrently-live organisms — generous for
-/// anything this engine plays at real-time rates.
+/// Bits of `Cell::organism_id` given to the slot index (the rest, the high
+/// 12 bits, are generation). **1,048,575 concurrently-live organisms** —
+/// plants, creatures and ungerminated seeds together, since all three are
+/// organisms and a seed waiting in the ground holds a slot like anything
+/// else.
 ///
-/// **The bound is enforced in release, not by a debug assertion.** It used
-/// to be the latter, and `encode_organism_id` below does not mask, so a
-/// 4,096th slot index set bit 12 — the generation's low bit — and the new
-/// organism silently *became* an existing live one. `push_organism` now
+/// **This was 12 bits and 4,095 slots, and the ceiling was reached in
+/// play.** The held world's `Start::Grown` and `Start::Dead` run an
+/// 8,000-frame grow phase that produces 4,093 organisms, so pressing `C` —
+/// the one verb in that game that makes an animal — could not allocate an
+/// identity and founded nothing, while the bar blamed the ground
+/// (`Reports/open-bugs-handoff.md` §Z21). The outdoor world is not immune,
+/// only slower: measured 2026-09-14, a 2048x640 world grown 20,000 frames
+/// goes from ~105 organisms to a high-water **882**, still climbing, and
+/// the ceiling is a property of how many things are alive rather than of
+/// how they got there.
+///
+/// **The bound is still enforced in release, not by a debug assertion**,
+/// and that half must not be relaxed because the ceiling moved.
+/// `encode_organism_id` below does not mask the index, so an
+/// out-of-range slot index would run into the generation's low bit and the
+/// new organism would silently *become* an existing live one — the failure
+/// §F4 named "silent organism identity corruption in release", back when
+/// the check was a `debug_assert` the app never compiles. `push_organism`
 /// refuses the birth and counts it (`World::organisms_refused`) instead.
-const ORGANISM_INDEX_BITS: u32 = 12;
-const ORGANISM_INDEX_MASK: u16 = (1 << ORGANISM_INDEX_BITS) - 1;
-/// 4 bits: a slot wraps back to generation 0 after 16 reuses, at which
-/// point a sufficiently stale reference from exactly 16 reuses ago could
-/// in principle alias a live organism again. Accepted rather than
-/// widening `Cell` a third time this session for a failure mode that
-/// needs a bug (a cell holding an `organism_id` no live cell should still
-/// reference) compounded with exactly the wrong reuse count to manifest —
-/// the generational check still catches every *other* staleness case,
-/// which is the actual, common failure mode it exists for.
-const GENERATION_MASK: u8 = 0b1111;
+/// A wider ceiling makes that refusal rarer, never unnecessary.
+const ORGANISM_INDEX_BITS: u32 = 20;
+const ORGANISM_INDEX_MASK: OrganismId = (1 << ORGANISM_INDEX_BITS) - 1;
+/// 12 bits: a slot wraps back to generation 0 after **4,096 reuses**, at
+/// which point a sufficiently stale reference from exactly 4,096 reuses ago
+/// could in principle alias a live organism again.
+///
+/// **This was 4 bits and a wrap at 16, and widening `Cell` to 16 bytes
+/// spent the new room on both halves rather than only on the index.** The
+/// stale handles this guards against are not hypothetical: detached tissue
+/// keeps its `organism_id` (a component census once counted severed crowns
+/// as anatomy — `Reports/dead-ends.md`), so litter carrying a dead
+/// organism's handle is lying around any grown world. At 16 reuses that
+/// margin was thin enough that the alternative considered here — re-splitting
+/// the old `u16` as 13/3 for 8,191 slots — would have *halved* it to buy
+/// one doubling. `World::organism_generation_wraps` counts the wraps that
+/// actually happen; it is still the number to read before trusting any
+/// claim about how thin this is.
+const GENERATION_MASK: u16 = 0b1111_1111_1111;
 
-fn encode_organism_id(slot_index: u16, generation: u8) -> u16 {
+fn encode_organism_id(slot_index: OrganismId, generation: u16) -> OrganismId {
     debug_assert!(slot_index != 0 && slot_index <= ORGANISM_INDEX_MASK, "organism slot index out of range: {slot_index}");
-    ((generation as u16 & GENERATION_MASK as u16) << ORGANISM_INDEX_BITS) | slot_index
+    ((generation as OrganismId & GENERATION_MASK as OrganismId) << ORGANISM_INDEX_BITS) | slot_index
 }
 
 /// `(slot_index, generation)` — `slot_index == 0` means "no organism",
 /// matching `organism_id`'s own zero-is-empty convention.
-fn decode_organism_id(organism_id: u16) -> (u16, u8) {
+fn decode_organism_id(organism_id: OrganismId) -> (OrganismId, u16) {
     let slot_index = organism_id & ORGANISM_INDEX_MASK;
-    let generation = ((organism_id >> ORGANISM_INDEX_BITS) as u8) & GENERATION_MASK;
+    let generation = ((organism_id >> ORGANISM_INDEX_BITS) as u16) & GENERATION_MASK;
     (slot_index, generation)
 }
 
 #[derive(Clone)]
 struct OrganismSlot {
-    generation: u8,
+    /// `u16` because the generation is 12 bits since the `Cell` widening —
+    /// see `GENERATION_MASK`. It was `u8` at 4 bits and silently truncating
+    /// here would put every slot back inside a 256-reuse wrap.
+    generation: u16,
     /// `None` when this slot is on the free list — kept rather than
     /// removing the slot entirely, since `organisms` is addressed by
     /// stable index and shrinking it would renumber every slot after it.
@@ -84,7 +111,7 @@ struct OrganismSlot {
 /// while `self.colony_breeders` is already borrowed mutably — the two are
 /// disjoint fields, but `organism`'s own `&self` signature would force the
 /// whole struct to be borrowed and rule that out.
-fn organism_in(organisms: &[OrganismSlot], organism_id: u16) -> Option<&OrganismState> {
+fn organism_in(organisms: &[OrganismSlot], organism_id: OrganismId) -> Option<&OrganismState> {
     let (slot_index, generation) = decode_organism_id(organism_id);
     if slot_index == 0 {
         return None;
@@ -155,12 +182,12 @@ pub struct LogEvent {
     /// The simulated frame it happened on.
     pub frame: u64,
     /// Who it happened to, as the identity the roster pins by.
-    pub id: u16,
+    pub id: OrganismId,
     pub born_frame: u64,
     pub species: organism::SpeciesId,
     pub kind: LogKind,
     /// The other party, where there is one: a birth's parent. `0` otherwise.
-    pub other: u16,
+    pub other: OrganismId,
     /// **Which founding line this line of the log is about.** `0` for
     /// anything not descended from a founder (a test fixture, mostly).
     ///
@@ -341,7 +368,7 @@ pub const POPULATION_MILESTONES: [u32; 3] = [10, 100, 1000];
 /// threshold)` — `false` for a generation rung, `true` for a population one
 /// — so a reader does not have to know the bit layout to print the number
 /// that was actually crossed.
-pub fn decode_milestone(other: u16) -> (bool, u32) {
+pub fn decode_milestone(other: OrganismId) -> (bool, u32) {
     let index = (other & 0x00FF) as usize;
     if other & 0xFF00 != 0 {
         (true, POPULATION_MILESTONES.get(index).copied().unwrap_or(0))
@@ -553,7 +580,7 @@ pub struct CreatureGroup {
 pub struct Grave {
     /// The identity it had, which is still how a run-log line refers to it:
     /// `RunLog::about` is keyed on exactly this pair.
-    pub id: u16,
+    pub id: OrganismId,
     pub born_frame: u64,
     pub died_frame: u64,
     pub species: organism::SpeciesId,
@@ -610,7 +637,7 @@ impl Graveyard {
     }
 
     /// One individual's record, if it is still held.
-    pub fn about(&self, id: u16, born_frame: u64) -> Option<&Grave> {
+    pub fn about(&self, id: OrganismId, born_frame: u64) -> Option<&Grave> {
         self.graves.iter().rev().find(|g| g.id == id && g.born_frame == born_frame)
     }
 
@@ -695,7 +722,7 @@ impl RunLog {
     /// real organism can legitimately be the world's very first, itself
     /// `id 0, born_frame 0`. Without this exclusion that organism's timeline
     /// would silently pick up every player action in the run.
-    pub fn about(&self, id: u16, born_frame: u64) -> impl Iterator<Item = &LogEvent> {
+    pub fn about(&self, id: OrganismId, born_frame: u64) -> impl Iterator<Item = &LogEvent> {
         self.recent().filter(move |e| e.kind != LogKind::PlayerAction && e.id == id && e.born_frame == born_frame)
     }
 
@@ -819,7 +846,7 @@ pub(crate) struct LineStats {
 /// of `kind` and `other` -- clippy's own arity limit forced the bundling,
 /// and the bundle reads better than the flat list did anyway.
 pub(crate) struct LogSubject {
-    pub id: u16,
+    pub id: OrganismId,
     pub born_frame: u64,
     pub species: organism::SpeciesId,
     pub lineage: u32,
@@ -858,7 +885,7 @@ impl World {
     /// it pushes, `slot.state` has already been set to `None` (its books are
     /// closed before the slot returns to the free list) -- so it fills the
     /// two fields itself and calls [`World::log_for`] instead.
-    pub(crate) fn log(&mut self, kind: LogKind, id: u16, born_frame: u64, species: organism::SpeciesId, other: u16) {
+    pub(crate) fn log(&mut self, kind: LogKind, id: OrganismId, born_frame: u64, species: organism::SpeciesId, other: OrganismId) {
         let (lineage, generation) = self.organism(id).map(|s| (s.lineage, s.generation)).unwrap_or((0, 0));
         self.log_for(kind, other, LogSubject { id, born_frame, species, lineage, generation });
     }
@@ -866,7 +893,7 @@ impl World {
     /// The same push, with `lineage`/`generation` supplied rather than read
     /// off the organism -- see [`World::log`]'s doc for why `free_organism`
     /// needs this instead.
-    fn log_for(&mut self, kind: LogKind, other: u16, who: LogSubject) {
+    fn log_for(&mut self, kind: LogKind, other: OrganismId, who: LogSubject) {
         self.run_log.push(LogEvent {
             frame: self.frame,
             id: who.id,
@@ -915,7 +942,7 @@ impl World {
         &mut self,
         lineage: u32,
         delta: i64,
-        id: u16,
+        id: OrganismId,
         born_frame: u64,
         species: organism::SpeciesId,
         generation: u16,
@@ -968,7 +995,7 @@ impl World {
             }
         }
         for i in crossed {
-            self.log_for(LogKind::LineMilestone, 0x0100 | i as u16, LogSubject { id, born_frame, species, lineage, generation });
+            self.log_for(LogKind::LineMilestone, 0x0100 | i as OrganismId, LogSubject { id, born_frame, species, lineage, generation });
         }
     }
 
@@ -977,7 +1004,7 @@ impl World {
     /// `LogKind::LineMilestone`'s own doc for why a plant lineage does not
     /// call this. Checks [`GENERATION_MILESTONES`] and pushes `LineMilestone`
     /// for any rung newly crossed.
-    pub(crate) fn note_line_generation(&mut self, lineage: u32, generation: u16, id: u16, born_frame: u64, species: organism::SpeciesId) {
+    pub(crate) fn note_line_generation(&mut self, lineage: u32, generation: u16, id: OrganismId, born_frame: u64, species: organism::SpeciesId) {
         if lineage == 0 {
             return;
         }
@@ -996,7 +1023,7 @@ impl World {
             }
         }
         for i in crossed {
-            self.log_for(LogKind::LineMilestone, i as u16, LogSubject { id, born_frame, species, lineage, generation });
+            self.log_for(LogKind::LineMilestone, i as OrganismId, LogSubject { id, born_frame, species, lineage, generation });
         }
     }
 
@@ -1009,7 +1036,7 @@ impl World {
         &mut self,
         lineage: u32,
         traits: &[f32; organism::CREATURE_TRAITS],
-        id: u16,
+        id: OrganismId,
         born_frame: u64,
         species: organism::SpeciesId,
         generation: u16,
@@ -1033,7 +1060,7 @@ impl World {
             }
         }
         for (slot, step) in crossed {
-            self.log_for(LogKind::LineRecord, ((slot as u16) << 8) | step as u16, LogSubject { id, born_frame, species, lineage, generation });
+            self.log_for(LogKind::LineRecord, ((slot as OrganismId) << 8) | step as OrganismId, LogSubject { id, born_frame, species, lineage, generation });
         }
     }
 
@@ -1704,6 +1731,52 @@ pub struct CreatureStats {
     /// bites a fight is taking, which is the quantity the arms-race reach
     /// moves and the one a bite count alone cannot report.
     pub attack_cells: u64,
+    /// **Of `attacks`, the swings whose target was not an animal** — a plant,
+    /// in every bed shipped today.
+    ///
+    /// The near side of the §Z23 pair. `attacks` has always been
+    /// arithmetically correct about "the `Attack` branch reached a target"
+    /// and has already been read as a fighting figure by one report; this
+    /// column is what separates the two readings without changing what
+    /// either counter means. `attacks - attacks_at_plants` is animals
+    /// fighting animals, which is the number a war wants.
+    ///
+    /// **Since the owner's 2026-09-14 ruling this must read 0 in every bed
+    /// for ever**, and it is kept for exactly that: it is the repair's own
+    /// standing guard, and the column that would say out loud if a later
+    /// change to `nearest_foe` put plants back in front of the fist.
+    pub attacks_at_plants: u64,
+    /// **Of `attack_cells`, the cells that came off a plant** — the far side
+    /// of the same pair, and the one a repair is judged on.
+    ///
+    /// This is the quantity §Z23 is about, and nothing counted it before:
+    /// `attack_cells` pools plant with animal and `plantkill` counts whole
+    /// organisms, so a stand being taken apart one cell at a time reads
+    /// zero on both. **Pure loss by construction** — the `Attack` path's
+    /// own comment is *"the cell comes off and nobody eats it"*, and
+    /// `wood`/`rootwood`/`grassroot` carry no `food_energy` at all, so
+    /// nothing in the world is fed by any of these.
+    pub attack_plant_cells: u64,
+    /// **Plant cells taken off a plant by the MOUTH** — the denominator
+    /// `attack_plant_cells` is read against, and the reason it had to be a
+    /// cell count rather than joules.
+    ///
+    /// Grazing and vandalism remove the same thing — one cell of standing
+    /// plant — and until this existed they were counted in different units:
+    /// `harvested_plant` is joules at the eater's gut, `eats` pools every
+    /// material, and `attack_cells` is cells. **A ratio between a joule
+    /// figure and a cell figure is not a share of anything**, which is
+    /// exactly `CLAUDE.md`'s worst-recurring failure in its *difference*
+    /// costume, so both halves are counted here in cells at the moment the
+    /// cell leaves the world.
+    ///
+    /// **A standing plant census cannot replace this**, and that was
+    /// measured rather than assumed: over three seeds of the played longant
+    /// bed the paired standing count moved −84, **+3,463** and +3,484 — one
+    /// arm reading *more* plant with the colony on it — because a stock
+    /// carries everything the bed did about the loss as well as the loss.
+    /// This is the flow.
+    pub eaten_plant_cells: u64,
     /// **Attacks that killed** — the effect counter from the far side of the
     /// call, paired with `attacks` for the reason `CLAUDE.md` insists on:
     /// a count of swings is not a count of hits, and this repo has already
@@ -1732,6 +1805,35 @@ pub struct CreatureStats {
     /// `displays / contests` is the withdrawal rate, which in real ants is
     /// nearly all of inter-colony contact — see `sim::contest`.
     pub displays: u64,
+    /// **Where the alarm plane's writes come from**, split three ways at the
+    /// three `cry_alarm` call sites: a bite landed by the `Attack` verb, and
+    /// the two feeding sites — an animal being eaten, and a plant being
+    /// grazed.
+    ///
+    /// Built for §Z23, which is the loop these three make between them:
+    /// grazing writes alarm, every armed genome ships `(Alarm, Attack, 2.0)`,
+    /// and the swing lands on the plant that was being grazed. The split is
+    /// what says which site feeds the loop — a single total cannot, and the
+    /// owner's own positive control (alarm signals in a box holding one
+    /// colony and nothing but trees) is exactly this column being non-zero
+    /// where the other two must be 0.
+    pub alarm_attack: u64,
+    /// See `alarm_attack`. An animal bitten by the feeding path (gnaw or
+    /// swallow) — being eaten, which from the victim's side is being
+    /// attacked.
+    pub alarm_eat_animal: u64,
+    /// See `alarm_attack`. A plant cell bitten by the feeding path — and
+    /// since the owner's 2026-09-14 ruling, **a cry that was suppressed**
+    /// rather than one that was made. It is deliberately still counted.
+    ///
+    /// **This is the §Z23 term**: ordinary, legitimate, universal foraging,
+    /// writing on the plane the fight verb listens to. `CLAUDE.md`, *a
+    /// repair can remove the picture and leave the mechanism: census the
+    /// mechanism, not its consequence* — a column that went to zero because
+    /// the call site was deleted cannot tell a repair that works from a bed
+    /// that stopped grazing, so this one keeps counting the bites and the
+    /// alarm plane keeps not hearing them.
+    pub alarm_eat_plant: u64,
     /// **Severing events**: a creature that lost a body cell and came apart
     /// at it, rather than merely shortening.
     ///
@@ -2579,6 +2681,13 @@ pub struct World {
     /// longer compiles.
     cell_scale: f32,
     pub materials: MaterialRegistry,
+    /// **A harness's override of the per-chunk sweep rule**, applied to every
+    /// chunk created after [`Self::set_sweep_rows`] was called so a late-born
+    /// chunk does not quietly run the other arm.
+    ///
+    /// `None` in the app and in every test that does not ask, which leaves
+    /// `Chunk::new`'s environment-variable default exactly as it was.
+    sweep_rows_override: Option<bool>,
     pub rng: Rng,
     /// The CA sweep's per-visit draw when `PIXEL_PHYSICS_RNG=positional`;
     /// inert under the default, where `rng` above is handed out unchanged.
@@ -2952,7 +3061,7 @@ pub struct World {
     /// Write through [`World::book`] only. See [`ColonyBooks`].
     colony_books: Vec<ColonyBooks>,
     organisms: Vec<OrganismSlot>,
-    free_organism_slots: Vec<u16>,
+    free_organism_slots: Vec<OrganismId>,
     /// **Cumulative organism births and deaths — the lineage turnover
     /// readout the plant plan of record's Phase 0d asks for and nothing
     /// printed.**
@@ -3821,7 +3930,7 @@ pub struct World {
     /// (§2.5), so without this set the organism -- alleles, lineage,
     /// endowment and all -- would be freed and its id handed to the next
     /// `push_organism` call before the ant ever put it down.
-    pub(crate) carried_seed_organisms: std::collections::HashSet<u16>,
+    pub(crate) carried_seed_organisms: std::collections::HashSet<OrganismId>,
 
     /// Decay events, split by which side of `DECAY_MOISTURE_THRESHOLD` the
     /// field humidity was on when the roll was made.
@@ -4455,7 +4564,7 @@ pub struct World {
     /// two reasons: deterministic by construction (`CLAUDE.md` requires
     /// it, and a `HashMap` would raise the hasher-seed question this
     /// sidesteps entirely) and a colony number is sparse.
-    pub(crate) colony_breeders: std::collections::BTreeMap<u32, Vec<u16>>,
+    pub(crate) colony_breeders: std::collections::BTreeMap<u32, Vec<OrganismId>>,
 
     pub mutation_sigma: f32,
     /// **The chance a seed is born with one of its parent's fate rules
@@ -5168,6 +5277,7 @@ impl World {
             frame: 0,
             clock: crate::sim::clock::Clock::default(),
             materials: MaterialRegistry::builtin(),
+            sweep_rows_override: None,
             rng: Rng::default(),
             visit_rng: super::surface::VisitRng::new(),
             chunk_bodies: Vec::new(),
@@ -5362,7 +5472,7 @@ impl World {
         for cy in c0.y..=c1.y {
             for cx in c0.x..=c1.x {
                 let coord = ChunkCoord::new(cx, cy);
-                self.chunks.get_or_insert_with(coord, || Chunk::new(coord));
+                self.chunks.get_or_insert_with(coord, || Self::new_chunk(coord, self.sweep_rows_override));
                 self.fields.entry(coord).or_insert_with(FieldTile::new);
             }
         }
@@ -5430,7 +5540,7 @@ impl World {
     /// is all-in or all-out.** Whether a half-quickened tree should grow on
     /// one side is a design question the concept has not answered, and
     /// guessing at it in a resolver would bury the decision.
-    pub fn time_runs_for_organism(&self, organism: u16) -> bool {
+    pub fn time_runs_for_organism(&self, organism: OrganismId) -> bool {
         if !self.held {
             return true;
         }
@@ -5536,7 +5646,7 @@ impl World {
     /// state for its own reasons, and a second lookup per account would be
     /// six more per animal per tick for a number that cannot change inside
     /// one tick.
-    pub fn colony_of(&self, organism: u16) -> u32 {
+    pub fn colony_of(&self, organism: OrganismId) -> u32 {
         self.organism(organism).map_or(0, |s| s.colony)
     }
 
@@ -5612,7 +5722,7 @@ impl World {
     /// and `examples/plant_probe.rs` read it and renaming them is churn,
     /// not reconciliation — but prefer `organism` in new code, and fold
     /// this away whenever those sites are next touched anyway.
-    pub fn organism_state(&self, organism_id: u16) -> Option<&organism::OrganismState> {
+    pub fn organism_state(&self, organism_id: OrganismId) -> Option<&organism::OrganismState> {
         self.organism(organism_id)
     }
 
@@ -5625,12 +5735,12 @@ impl World {
     /// `mark_organism_senescent`. A harness studying selection has to be able
     /// to enumerate the population before it can disturb it, and every
     /// in-crate caller wanted exactly this already.
-    pub fn live_organism_ids(&self) -> Vec<u16> {
+    pub fn live_organism_ids(&self) -> Vec<OrganismId> {
         self.organisms
             .iter()
             .enumerate()
             .filter(|(_, slot)| slot.state.is_some())
-            .map(|(i, slot)| encode_organism_id((i + 1) as u16, slot.generation))
+            .map(|(i, slot)| encode_organism_id((i + 1) as OrganismId, slot.generation))
             .collect()
     }
 
@@ -5645,7 +5755,7 @@ impl World {
     /// per carrying ant, which is small -- and wrong in the direction that
     /// flatters the change being measured here, which is the reason to close
     /// it rather than note it.
-    pub fn is_carried_seed(&self, organism_id: u16) -> bool {
+    pub fn is_carried_seed(&self, organism_id: OrganismId) -> bool {
         self.carried_seed_organisms.contains(&organism_id)
     }
 
@@ -5917,7 +6027,7 @@ impl World {
     /// reads per frame on a grown stand; if that ever shows up in a
     /// profile the next step is caching the type in the sidecar, which
     /// buys speed at the price of a second copy of the truth.
-    pub fn organism_active_tip_count(&self, organism_id: u16, cell_type: super::organism::CellType) -> usize {
+    pub fn organism_active_tip_count(&self, organism_id: OrganismId, cell_type: super::organism::CellType) -> usize {
         let Some(state) = self.organism(organism_id) else {
             return 0;
         };
@@ -6032,7 +6142,7 @@ impl World {
     /// organism cell onto the grid at the ceiling — softer than corrupting
     /// an identity, still a leak of exactly the kind this allocator exists
     /// to end.
-    pub(crate) fn push_organism(&mut self, species: SpeciesId) -> Option<u16> {
+    pub(crate) fn push_organism(&mut self, species: SpeciesId) -> Option<OrganismId> {
         // A new organism has no cells yet, so there is nothing to mark and
         // no bound on where its first cell will land: void the window.
         // Births are rare; this costs one window's speculation.
@@ -6244,17 +6354,17 @@ impl World {
             // condition the world can reach.
             debug_assert!(
                 self.organisms.len() < ORGANISM_INDEX_MASK as usize,
-                "organism index would overflow the 12 bits Cell::organism_id reserves for it"
+                "organism index would overflow the 20 bits Cell::organism_id reserves for it"
             );
             self.organisms.push(OrganismSlot { generation: 0, state: Some(state) });
-            Some(encode_organism_id(self.organisms.len() as u16, 0))
+            Some(encode_organism_id(self.organisms.len() as OrganismId, 0))
         }
     }
 
     /// `None` for `organism_id == 0` (no organism) or a stale id whose slot
     /// has since been reused by a different organism — the generation
     /// mismatch this whole scheme exists to catch, not a panic.
-    pub fn organism(&self, organism_id: u16) -> Option<&OrganismState> {
+    pub fn organism(&self, organism_id: OrganismId) -> Option<&OrganismState> {
         organism_in(&self.organisms, organism_id)
     }
 
@@ -6285,7 +6395,7 @@ impl World {
     /// so it would manufacture the ruderal-strategy result such an experiment
     /// is hoping to observe (`Reports/plant-evolvability-handoff-2026-08-27.md`
     /// §5). The caller owns that choice; this function only carries it out.
-    pub fn mark_organism_senescent(&mut self, organism_id: u16) -> bool {
+    pub fn mark_organism_senescent(&mut self, organism_id: OrganismId) -> bool {
         match self.organism_mut(organism_id) {
             Some(state) => {
                 state.senescent = true;
@@ -6319,7 +6429,7 @@ impl World {
     ///
     /// This is the write half only. Reading an individual's traits is
     /// `organism(id).traits`, which is already public.
-    pub fn set_organism_trait(&mut self, organism_id: u16, slot: usize, value: f32) -> bool {
+    pub fn set_organism_trait(&mut self, organism_id: OrganismId, slot: usize, value: f32) -> bool {
         if slot >= crate::sim::organism::CREATURE_TRAITS {
             return false;
         }
@@ -6360,7 +6470,7 @@ impl World {
     /// would grow with every *birth*, not every *breeder*, exactly on the
     /// long-lived, highly fecund founders this index exists to stop the
     /// world from paying for.
-    pub(crate) fn record_breeder(&mut self, colony: u32, organism_id: u16) {
+    pub(crate) fn record_breeder(&mut self, colony: u32, organism_id: OrganismId) {
         let organisms = &self.organisms;
         let list = self.colony_breeders.entry(colony).or_default();
         list.retain(|&id| organism_in(organisms, id).is_some());
@@ -6369,7 +6479,7 @@ impl World {
         }
     }
 
-    pub(crate) fn organism_mut(&mut self, organism_id: u16) -> Option<&mut OrganismState> {
+    pub(crate) fn organism_mut(&mut self, organism_id: OrganismId) -> Option<&mut OrganismState> {
         let (slot_index, generation) = decode_organism_id(organism_id);
         if slot_index == 0 {
             return None;
@@ -6436,7 +6546,7 @@ impl World {
     /// organisms whose cell list has gone empty — the one liveness
     /// definition that cannot orphan a standing cell, since a cell still
     /// referring to the organism is exactly what makes the list non-empty.
-    pub(crate) fn free_organism(&mut self, organism_id: u16) {
+    pub(crate) fn free_organism(&mut self, organism_id: OrganismId) {
         // Same as `push_organism`, from the other end: a freed slot changes
         // what `world.organism(id)` answers for every cell that still names
         // it, and reclamation is rare enough to pay for wholesale.
@@ -6523,7 +6633,7 @@ impl World {
         }
         self.log_for(
             LogKind::Died,
-            cause.index() as u16,
+            cause.index() as OrganismId,
             LogSubject { id: organism_id, born_frame, species, lineage, generation },
         );
         // **The lineage's own ending, which is the only line here about
@@ -6565,7 +6675,7 @@ impl World {
     /// statement, and a caller that set the bit without the count (or the
     /// reverse) would produce a mean wait that is silently wrong rather than
     /// obviously missing.
-    pub fn note_birth_denied(&mut self, organism: u16) {
+    pub fn note_birth_denied(&mut self, organism: OrganismId) {
         let slot = (organism & ORGANISM_INDEX_MASK) as usize;
         let (word, bit) = (slot / 64, slot % 64);
         // `ORGANISM_INDEX_MASK` is 12 bits, so `word` is 0..64 by
@@ -6652,8 +6762,13 @@ impl World {
     /// free slot — i.e. only when the live count is about to exceed every
     /// value it has ever held. `organisms.len()` is therefore exactly
     /// max-over-time of the live count, for free, with no per-frame
-    /// bookkeeping. The `ceiling` it is judged against is the 12-bit slot
-    /// index's own bound.
+    /// bookkeeping. The `ceiling` it is judged against is the slot index's
+    /// own bound -- 20 bits since the `Cell` widening, so 1,048,575 rather
+    /// than the 4,095 every readout beside this one was written against.
+    /// **Read it from here rather than spelling it**: it has moved once and
+    /// the places that hardcoded it (a lab colour threshold at `>= 4000`, a
+    /// help string, two by-hand `1..4096` scans) all read wrong the moment
+    /// it did.
     pub fn organism_slot_high_water(&self) -> (usize, usize) {
         (self.organisms.len(), ORGANISM_INDEX_MASK as usize)
     }
@@ -6676,7 +6791,7 @@ impl World {
     ///
     /// Returns whether the organism was live. `false` for a stale or
     /// recycled handle rather than a panic, matching `organism`.
-    pub fn set_organism_fates(&mut self, organism_id: u16, fates: super::organism::FateGenome) -> bool {
+    pub fn set_organism_fates(&mut self, organism_id: OrganismId, fates: super::organism::FateGenome) -> bool {
         match self.organism_mut(organism_id) {
             Some(state) => {
                 state.fates = fates;
@@ -6712,7 +6827,7 @@ impl World {
     /// Returns whether the organism was live.
     pub fn set_organism_genotype(
         &mut self,
-        organism_id: u16,
+        organism_id: OrganismId,
         draws: [f32; super::organism::GENOTYPE_TRAITS],
         alleles: [u8; super::organism::DISCRETE_LOCI],
         params: super::organism::ParamGenome,
@@ -6758,7 +6873,7 @@ impl World {
     /// is the first and this is the second — a rate that fires and a
     /// population that carries nothing are different findings and look
     /// identical without it.
-    pub fn organism_params(&self, organism_id: u16) -> Option<super::organism::ParamGenome> {
+    pub fn organism_params(&self, organism_id: OrganismId) -> Option<super::organism::ParamGenome> {
         self.organism(organism_id).map(|s| s.params)
     }
 
@@ -6767,7 +6882,7 @@ impl World {
     /// onto another rather than inventing a genome.
     pub fn organism_genotype(
         &self,
-        organism_id: u16,
+        organism_id: OrganismId,
     ) -> Option<([f32; super::organism::GENOTYPE_TRAITS], [u8; super::organism::DISCRETE_LOCI], super::organism::ParamGenome, u64)> {
         self.organism(organism_id).map(|s| (s.genotype_draws, s.alleles, s.params, s.lineage_seed))
     }
@@ -6791,7 +6906,7 @@ impl World {
     ///
     /// Returns whether the organism was live — `false` for a stale or
     /// recycled handle rather than a panic, matching `organism`.
-    pub fn set_organism_genome(&mut self, organism_id: u16, genome: Vec<f32>) -> bool {
+    pub fn set_organism_genome(&mut self, organism_id: OrganismId, genome: Vec<f32>) -> bool {
         assert_eq!(
             genome.len(),
             super::brain::GENOME_LEN,
@@ -7334,7 +7449,7 @@ impl World {
         /// One animal as the pass sees it: its handle, its founding line
         /// and the traits its scent and tolerance are read from.
         struct Member {
-            id: u16,
+            id: OrganismId,
             lineage: u32,
             traits: [f32; organism::CREATURE_TRAITS],
         }
@@ -7390,7 +7505,7 @@ impl World {
             // member that holds it -- `LogKind::GroupSplit`'s own identity,
             // added beside the lineage tracking rather than as a second pass
             // over `members`.
-            let mut clusters: Vec<(u32, u16, Vec<u16>)> = Vec::new();
+            let mut clusters: Vec<(u32, OrganismId, Vec<OrganismId>)> = Vec::new();
             let mut root_of: Vec<(usize, usize)> = Vec::new();
             for (i, member) in members.iter().enumerate() {
                 let r = find(&mut parent, i);
@@ -7432,7 +7547,7 @@ impl World {
                 // inheritance above uses -- so the line reads as "the group
                 // that kept ANIMAL n's family" rather than an arbitrary pick.
                 let born_frame = self.organism(*low_id).map_or(0, |s| s.born_frame);
-                self.log(LogKind::GroupSplit, *low_id, born_frame, species, child as u16);
+                self.log(LogKind::GroupSplit, *low_id, born_frame, species, child as OrganismId);
             }
         }
         minted
@@ -8272,7 +8387,7 @@ impl World {
             let coord = ChunkCoord::containing(x, y);
             // The last row of this chunk, or the end of the run.
             let seg_end = hi.min(coord.origin().1 + CHUNK_SIZE - 1);
-            let chunk = self.chunks.get_or_insert_with(coord, || Chunk::new(coord));
+            let chunk = self.chunks.get_or_insert_with(coord, || Self::new_chunk(coord, self.sweep_rows_override));
             let mut pending: Vec<(i32, Cell, Cell)> = Vec::new();
             for cy in y..=seg_end {
                 let cell = make(cy);
@@ -8462,7 +8577,7 @@ impl World {
     /// `Germinate` has no resource gate. **The moment a carbon-carrying
     /// cell can move, this needs a move-aware seam**, not a second
     /// remove/insert pair.
-    pub(crate) fn reindex_organism_cell(&mut self, x: i32, y: i32, was: u16, now: u16) {
+    pub(crate) fn reindex_organism_cell(&mut self, x: i32, y: i32, was: OrganismId, now: OrganismId) {
         if was == now {
             return;
         }
@@ -8568,7 +8683,7 @@ impl World {
         let coord = ChunkCoord::containing(x, y);
         let reach = self.materials.get(cell.material).sweep_reach();
         let is_liquid = self.materials.kind(cell.material) == MaterialKind::Liquid;
-        let chunk = self.chunks.get_or_insert_with(coord, || Chunk::new(coord));
+        let chunk = self.chunks.get_or_insert_with(coord, || Self::new_chunk(coord, self.sweep_rows_override));
         let old = chunk.get_world(x, y);
         chunk.set_world(x, y, cell, reach, is_liquid);
         self.touch_neighbours(x, y, coord);
@@ -8979,6 +9094,39 @@ impl World {
 
     pub fn sweep_region(&self, coord: ChunkCoord) -> Option<Rect> {
         self.chunks.get(&coord).and_then(|c| c.sweep_region())
+    }
+
+    /// A fresh chunk, carrying any harness sweep-rule override the world is
+    /// running under. Without this a chunk born after
+    /// [`Self::set_sweep_rows`] would run the *other* arm, which is the shape
+    /// of bug a two-arm comparison cannot survive and cannot see.
+    fn new_chunk(coord: ChunkCoord, sweep_rows: Option<bool>) -> Chunk {
+        let mut chunk = Chunk::new(coord);
+        if let Some(on) = sweep_rows {
+            chunk.set_sweep_rows(on);
+        }
+        chunk
+    }
+
+    /// **Switch every chunk between the box sweep rule and the per-row-span
+    /// rule** — [`Chunk::set_sweep_rows`], fanned out, plus the default every
+    /// chunk created afterwards inherits.
+    ///
+    /// For an instrument holding both arms in one process
+    /// (`examples/sweepgap.rs`); the shipped default is the environment
+    /// variable's and this is never called by the app.
+    pub fn set_sweep_rows(&mut self, on: bool) {
+        self.sweep_rows_override = Some(on);
+        for chunk in self.chunks.values_mut() {
+            chunk.set_sweep_rows(on);
+        }
+    }
+
+    /// [`Chunk::dirty_marks_row`] — the raw marks of one row of one chunk,
+    /// for an instrument. See that function for why a reconstruction from a
+    /// grid diff will not do.
+    pub fn dirty_marks_row(&self, coord: ChunkCoord, row: i32) -> Option<(i32, i32)> {
+        self.chunks.get(&coord).and_then(|c| c.dirty_marks_row(row))
     }
 
     /// **Write a soil cell's new moisture without waking the CA sweep.**
@@ -10386,7 +10534,7 @@ mod tests {
     /// 0 from `next` so no two bodies share a cell. Built through the real
     /// `push_organism` seam rather than by pushing a slot, so the census is
     /// walking the same store the engine fills.
-    fn spawn_line(world: &mut World, line: u32, cells: usize, next: &mut i32) -> u16 {
+    fn spawn_line(world: &mut World, line: u32, cells: usize, next: &mut i32) -> OrganismId {
         let species = crate::sim::organism::SpeciesId(0);
         let Some(id) = world.push_organism(species) else { return 0 };
         let Some(state) = world.organism_mut(id) else { return 0 };
@@ -11337,6 +11485,85 @@ mod tests {
         w.move_cell(10, 10, 10, 11, false);
         assert!(w.get(10, 10).is_empty());
         assert_eq!(w.get(10, 11).material, material::SAND);
+    }
+
+    #[test]
+    fn set_sweep_rows_narrows_the_plan_and_a_chunk_born_afterwards_inherits_it() {
+        // **The guard on the instrument seam `examples/sweepgap.rs` rests
+        // on**, and it has two halves because the seam has two ways to lie.
+        //
+        // Half one: the setter must actually change what `sweep_plan`
+        // returns. A no-op setter gives a two-arm comparison that silently
+        // runs one arm twice -- which reads as "the narrowing is safe", the
+        // most expensive wrong answer available here.
+        //
+        // **What this guard is measured to catch, and what it is measured
+        // NOT to catch.** Both were established by putting the fault back,
+        // 2026-09-14, which is the only thing that settles it:
+        //
+        // - `Chunk::set_sweep_rows` made a no-op -> **red** (`walked 2013,
+        //   box 2013`). So the guard is sensitive to the setter, which is the
+        //   fault that matters most: a no-op setter gives a two-arm
+        //   comparison that silently runs one arm twice, and that reads as
+        //   "the narrowing is safe" -- the most expensive wrong answer
+        //   available here.
+        // - `World::new_chunk`'s override dropped -> **still green**. So this
+        //   guard does NOT cover the late-born-chunk path, and `new_chunk`'s
+        //   own correctness rests on reading it rather than on this test.
+        //   Why it stays green is not understood; it is recorded as a known
+        //   hole rather than papered over, because citing this test's green
+        //   as cover for that path would be exactly the argument-from-a-blind
+        //   -guard `CLAUDE.md` warns about.
+        //
+        // **Two marks far apart on different ROWS, and the row part is what
+        // makes the guard able to discriminate at all.** Written first with
+        // both marks on one row, where it could not: a row span is the
+        // min..max *hull* of the marks on that row, so two marks on one row
+        // give the row rule and the box rule the identical region and the
+        // assertion read `walked 183, box 183` for a setter that was working
+        // perfectly. `CLAUDE.md`: check that a guard's inputs actually vary
+        // what it guards. Thirty rows apart, the box rule covers all thirty-
+        // three rows between them and the row rule covers six.
+        let mut w = World::new(Rect::new(0, 0, 255, 127));
+        w.set_sweep_rows(true);
+        // Both writes land in a chunk that did not exist when the override
+        // was set, which is what half two is about.
+        w.set(4, 70, Cell::new(material::SAND, 0));
+        w.set(60, 100, Cell::new(material::SAND, 0));
+        w.end_step();
+
+        let coord = ChunkCoord::containing(4, 70);
+        let region = w.sweep_region(coord).expect("the chunk has marks, so it has a region");
+        let plan = w.sweep_plan(coord).expect("and therefore a plan");
+        let walked: i32 = (region.min_y..=region.max_y)
+            .filter_map(|y| plan.row(y).map(|(lo, hi)| hi - lo + 1))
+            .sum();
+        let boxed = (region.max_x - region.min_x + 1) * (region.max_y - region.min_y + 1);
+        assert!(
+            walked < boxed,
+            "the row rule must walk strictly fewer cells than the box it sits in \
+             (walked {walked}, box {boxed}) -- equal means either the setter did nothing or \
+             the chunk was born without the override"
+        );
+
+        // And the box rule over the identical marks walks the whole box, so
+        // the difference above belongs to the rule and not to the geometry.
+        let mut b = World::new(Rect::new(0, 0, 255, 127));
+        b.set_sweep_rows(false);
+        b.set(4, 70, Cell::new(material::SAND, 0));
+        b.set(60, 100, Cell::new(material::SAND, 0));
+        b.end_step();
+        let bregion = b.sweep_region(coord).expect("same marks, same region");
+        let bplan = b.sweep_plan(coord).expect("same marks, same plan");
+        let bwalked: i32 = (bregion.min_y..=bregion.max_y)
+            .filter_map(|y| bplan.row(y).map(|(lo, hi)| hi - lo + 1))
+            .sum();
+        assert_eq!(
+            bwalked,
+            (bregion.max_x - bregion.min_x + 1) * (bregion.max_y - bregion.min_y + 1),
+            "the box rule walks every cell of its box"
+        );
+        assert_eq!(region, bregion, "narrowing the plan must not move the bounding box -- parallel.rs's write-disjointness proof is stated against that rect");
     }
 
     #[test]

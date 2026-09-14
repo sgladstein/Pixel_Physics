@@ -29,6 +29,7 @@
 //! the speckle floor and nothing more.
 
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::app::{HEIGHT, WIDTH};
 use pixel_physics::render::Renderer;
 use pixel_physics::sim::cell::Cell;
@@ -500,7 +501,7 @@ fn live(mut world: World, species: &str, count: i32, frames: u32, out: &str, cro
     // actually on screen.
     let Some(mat) = world.materials.id_of(species) else { panic!("no material named {species:?}") };
     let mut cells: Vec<(i32, i32)> = Vec::new();
-    let mut ids: std::collections::HashSet<u16> = std::collections::HashSet::new();
+    let mut ids: std::collections::HashSet<OrganismId> = std::collections::HashSet::new();
     for y in 0..HEIGHT as i32 {
         for x in 0..WIDTH as i32 {
             let c = world.get(x, y);

@@ -995,6 +995,8 @@ impl Stats {
         // live organisms with births outrunning deaths at 45,000 frames.
         let fill = census.slots_used as f32 / census.slots_ceiling.max(1) as f32;
         // **The gauge needs a name.** Rendered, it was a bar and `66 OF 4095`
+        // (the ceiling was 4,095 then and is 1,048,575 now; the gauge has
+        // always read it off the world rather than spelling it)
         // with nothing saying what was being counted -- the one row on the
         // page a reader could not decode from the page itself.
         rows.push(Row::text(

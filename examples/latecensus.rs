@@ -48,6 +48,7 @@
 //! plumbing and the loop; `Ids`, `Sample`, `census`, `ant_gut_bias` and
 //! `colony_deaths` are `pixel_physics::lab::census`'s.
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::lab::census::{self, Ids};
 use pixel_physics::lab::scenario::Scenario;
 use pixel_physics::lab::scene::LabBox;
@@ -419,7 +420,7 @@ fn main() {
             // bounds it and keeps two identical worlds reporting identical
             // numbers, which a random sample would not.
             {
-                let ids: Vec<u16> = world
+                let ids: Vec<OrganismId> = world
                     .live_organism_ids()
                     .into_iter()
                     .filter(|id| world.organism(*id).is_some_and(|st| world.species.get(st.species).creature.is_some()))
@@ -654,6 +655,39 @@ fn main() {
         killed,
         oldage,
         other
+    );
+    // **§Z23's own row, appended rather than interleaved** -- the contested
+    // `SUMMARY` convention, and these are this lane's fields.
+    //
+    // **`plants` here is the denominator the fix is judged against**, and it
+    // only means anything paired: run this arm and `no_colony=1` on the same
+    // seed and the gap between the two `plant_cells` figures is all the plant
+    // tissue a colony costs the bed, by every route at once. `atk_plant` is
+    // the share of that gap the `Attack` verb took -- the pure-loss route,
+    // where the cell comes off and nobody eats it -- and `harv_plant` is what
+    // the mouth took, which is the game working.
+    //
+    // **The three alarm columns are the loop itself.** `al_eat_plant` is
+    // grazing writing on the plane the fight verb listens to; it is the term
+    // §Z23 is about, and the owner's own positive control is that it is
+    // non-zero in a box holding one colony and nothing but trees.
+    println!(
+        "SUMMARY z23 plant_cells={} eat_plant_cells={} attacks={} atk_plant={} atk_cells={} atk_plant_cells={} \
+         al_attack={} al_eat_animal={} al_eat_plant={} harv_plant={:.0} harv_corpse={:.0} \
+         severed_cells={} severed_pieces={}",
+        s.plant_cells_in_band + s.plant_cells_outside,
+        st.eaten_plant_cells,
+        st.attacks,
+        st.attacks_at_plants,
+        st.attack_cells,
+        st.attack_plant_cells,
+        st.alarm_attack,
+        st.alarm_eat_animal,
+        st.alarm_eat_plant,
+        world.energy_ledger.harvested_plant,
+        world.energy_ledger.harvested_corpse,
+        world.structural_failures.severed_organism_cells,
+        world.structural_failures.severed_organism_pieces,
     );
     println!(
         "SUMMARY mound_bare={} mound_cols={} digs_per_1k={:.2} roofed={} packed_above={} mound_high={}",
