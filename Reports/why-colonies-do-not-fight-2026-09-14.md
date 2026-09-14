@@ -596,6 +596,50 @@ dial, jarring an ant and releasing it beside its own nest makes it a
 documented release rule; it was invisible while the dial was 0; it is not this
 lane's to overturn.
 
+### What the live default broke outside the test suite
+
+`cargo run --release --example ascii` — a CI gate, and **the one my local set
+was missing** — went red. Exactly where a behavioural default change was always
+going to land.
+
+**Cause, verified rather than assumed.** Three scenes place their animals in a
+`world.plant_ant(..)` **loop**, and `plant_ant` goes through
+`Origin::Founder { colony: None }`, which claims a **fresh label per call**. So
+each scene held 55 or 60 one-ant colonies that only *looked* like a colony —
+inert while every label smelled identical, mutual strangers the moment the dial
+went live. And a stranger is *food* to the ordinary mouth before it is ever a
+target for the fight verb.
+
+**`examples/ascii.rs` had already ruled on this once**, in its own moisture
+scene: *"One colony, not fifty-five. `World::plant_ant` claims a fresh colony
+per call, so a loop of it builds a crowd of strangers that only looks like a
+colony… attributed drops 237 → 22 … they stopped foraging and started eating
+each other."* The repair is that precedent applied to the three loops that had
+never had it.
+
+| scene | before | after |
+|---|---|---|
+| excavation (the red one) | `digs 62`, roofed **0** | `digs 354`, roofed **42** |
+| foraging | **12** of 15 animals at 12k frames | **15** of 15, deliveries 703 → 849 |
+| double bridge | `deliveries` **1,076** | **13** |
+
+**Two of those want reading carefully, and neither says what it first looks
+like.** In the excavation scene `deaths` barely moved — **52 → 55**. It is not
+that more ants died; it is that they spent the run fighting instead of digging,
+so what moved was the *digging*. And the bridge scene's collapse is the **old**
+number being the artifact: sixty one-ant colonies each satisfied "a laden
+animal reaches its colony's nest" trivially, where one colony of sixty has to
+make the trip. `deaths` is 59 either way, so nothing there is animals eating
+each other. **13 is a real and rather low round-trip count over that bridge** —
+a finding about the bridge, not a regression.
+
+**And the reading this is not.** `plant_ant` is **not reachable from the
+game**: the sandbox's ant key goes through `World::found_colony`, which claims
+one label for the whole colony, and the only non-test caller of `plant_ant` is
+inside a `#[test]`. So *"a player sprinkling ants now gets a massacre"* is not
+supported by the code — this is a harness placement artifact, not a
+player-facing consequence of the default.
+
 ### Scope, stated plainly
 
 Only **COMMON ANT** is switched on. The held world's five other foundable

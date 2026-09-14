@@ -82,12 +82,11 @@ re-filed.
 
 **PR #417 (Lane D) landed and touches this subject; §Z23 survives it whole,
 measured rather than assumed.** #417 made `nearest_foe`'s odds count
-animals-only and left the target rule alone. So a plant still fails
-`is_animal`, `commits` is true unconditionally, and **a plant is the one
-target struck with no assessment at all**; and seed 1 re-run on `main` with
-this branch merged gives **475 attacks / 79 cells / 629 deaths,
-byte-identical**. Predicted first: with every foe a plant, the commitment
-branch takes no RNG draw. **§Z23's proposed repair was wrong and is
+animals-only and left the target rule alone, so a plant still fails
+`is_animal` and is **the one target struck with no assessment at all**; seed 1
+re-run on `main` with this branch merged gives **475 attacks / 79 cells / 629
+deaths, byte-identical**. Predicted first: with every foe a plant, the
+commitment branch takes no RNG draw. **§Z23's proposed repair was wrong and is
 rewritten** — gate `cry_alarm`'s two *feeding* sites on the victim being an
 animal, which leaves #417's argument intact.
 
@@ -122,6 +121,18 @@ place, said loudly here as the brief requires.
 another colony, and the birth bar, `colony_ants` and the starvation balance
 were all calibrated on a bed where no ant is food. Deliberately not re-derived
 here; the paired numbers are in the report for you.
+
+**For whoever owns `examples/ascii.rs`.** The live default turned that file's
+CI gate red — **the one gate my local set was missing**. Three scenes place
+animals in a `plant_ant` loop, which claims a **fresh label per call**, so each
+held 55-60 one-ant colonies that only looked like a colony: inert at a zero
+dial, mutual strangers at a live one. The file had already ruled on this in its
+own moisture scene; the repair is that precedent applied to the three loops
+that lacked it. Excavation `digs 62 -> 354`, roofed `0 -> 42`; foraging keeps
+15 of 15 animals against 12; the double bridge's `deliveries 1,076 -> 13`,
+where the **old** number was the artifact. Full account, including why this is
+**not** a player-facing consequence (`plant_ant` is unreachable from the game),
+in the report's "What the live default broke outside the test suite".
 
 **For whoever owns the held world.** Only COMMON ANT is switched on; the other
 five foundable stocks still found as one family with themselves.
@@ -173,35 +184,17 @@ coordinator to sequence against Lane B.
 
 ## Head SHA
 
-**`afb6bfe1dd80253f9cd486c180e5da2abd71acb6`** on `claude/evolution-lab-rivalry`
-— `main` moved 7 commits under this branch while it was measuring, so that
-commit merges it in and **CI is 9 of 9 green on it**. The one conflict was
-`Reports/open-bugs-handoff.md`, the contested file the rules warn about: the
-generated index block was taken whole from `main` and regenerated with
-`scripts/bugindex.py` rather than hand-merged, and the two bug sections
-appended to the same end of the file — **§Z21 from `main` and §Z23 from here**
-— were both kept. `docscheck` was re-run after the merge, unconditionally.
+**`claude/evolution-lab-rivalry-on`**, PR **#423** — the switch, opened by the
+coordinator who owns its merge. PR **#416** (the report and the harness) is
+**merged**.
 
-**The letter changed after that merge, and not because of it.** This lane
-filed §Z22 at 05:47; `claude/absorb-destroys-plants` had already filed a
-different §Z22 at 04:48 on an unlanded branch, which is exactly the case
-`bugindex.py --check` cannot see and `--branches` can. First filed wins, so
-this lane's section is **§Z23** and the earlier filing keeps §Z22. The
-renumber was made by the round coordinator rather than by this lane, because
-the lane was idle and the round was waiting on it; it is a rename of the
-heading, the index row and five cross-references, and no claim in the section
-changed.
+Gates re-run on the merged tree after every correction: clippy clean;
+`cargo test --release --lib` **1,790 passed / 0 failed / 85 ignored**;
+`--test worldgen --test determinism` **47 / 0**; `acceptance.sh`,
+`worldgencheck.sh` and `docscheck` clean; and **`cargo run --release --example
+ascii`**, which is the gate this lane's local set was missing and the one the
+live default turned red.
 
-Gates re-run **after** the merge: clippy clean; `cargo test --release --lib`
-**1,756 passed / 0 failed / 85 ignored**; `--test worldgen --test determinism`
-**47 passed / 0 failed**; `docscheck` clean.
-
-The pre-merge SHA was `55efeb17`, whose gates were: clippy clean; `cargo test --release --lib` **1,750 passed / 0 failed / 85 ignored**;
-`--test worldgen --test determinism` **47 passed / 0 failed**; `docscheck`
-clean; `deadendindex --touching` 0 hits.
-
-**The 54-run sweep was verified byte-identical across two rebuilds** (the
-card-capture additions, and the clippy `is_multiple_of` fix) by re-running
-`base seed=1` on each new binary and matching every column — this repo's own
-stale-binary rule, met from the side where the binary is new and the table is
-old.
+**The lesson for the next lane's gate list: `--lib` plus the integration tests
+is not what CI runs.** A behavioural default change lands in `examples/ascii.rs`
+before it lands anywhere a unit test looks.
