@@ -1,0 +1,54 @@
+{
+  "id": "20260914T205807355Z-12829d",
+  "created": "2026-09-14T20:58:07Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-food-readable",
+    "commit": "25eecfa7",
+    "agent": null,
+    "session_id": "65a4d947-1bc8-5f1b-b8de-5d815018976b",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The FOOD page, with the question it never asked",
+  "question": "Reading this cold: can you tell whether each colony is feeding itself, and which of the two is worse off?",
+  "context_md": "You read this page and said: ***\"Nope. I don't understand what these visuals are trying to tell\"***.\n\nGoing back over it, the trouble was not a chart type. **Every row on it was true and not one of them was an answer** -- it listed what a colony had eaten, spent and was holding, and never said whether that added up to a colony that can keep itself alive. And the two charts had **no scale anywhere on them**: the same peaked line meant six hundred joules on one bed and six on another, so it drew a shape rather than a quantity.\n\nTwo changes, both on lines that were already there:\n\n* **Each colony's own line now opens with `FINDS n%`** -- the share of everything it has spent that it went out and found in the world for itself. The food it was placed with does not count, because that runs out once. Its own dead do not count, because a corpse is food something else already paid for. *(That is the headline the books turned out to be carrying: on this bed the two colonies find **13%** and **9%**. They are living on what they were given and on each other.)*\n* **Each chart now says what its tallest point is**, top right.\n\n**What I am unsure of and would rather you judged:** whether one number on the colony's own line is enough, or whether the page still wants a plain sentence of its own across the top. It can have one -- but only by pushing the second colony off the screen, because the two charts leave room for exactly two colonies and no more. I would rather you could see both colonies than have the headline.\n\nSame bed, same moment, same seed in both panes.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- as you saw it",
+      "files": [
+        "20260914T205807355Z-12829d/000-food_before2.png"
+      ],
+      "caption": "nine true rows, no answer on any of them, and no scale on either chart",
+      "meta": {
+        "colonies on screen": 2,
+        "the amber colony found in the world": "1.8K J against a 13.8K J bill",
+        "the blue colony found in the world": "1.0K J against an 11.1K J bill"
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- with the question answered",
+      "files": [
+        "20260914T205807355Z-12829d/001-food6_crop.png"
+      ],
+      "caption": "the same rows, each colony opening with whether it is paying its own way",
+      "meta": {
+        "colonies on screen": 2,
+        "the amber colony found in the world": "1.8K J against a 13.8K J bill",
+        "the blue colony found in the world": "1.0K J against an 11.1K J bill"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
