@@ -266,6 +266,23 @@ If a future harness gives lanes the MCP tools, check it rather than assume it:
 have one lane try `create_trigger` against the coordinator early, while a
 failure is still cheap to route around.
 
+**A measured counter-example, 2026-09-14, and it narrows the claim rather than
+killing it.** Lane A of the druid program was poked by exactly the mechanism
+above at 03:47 and again at 03:51, and at 03:59 it opened **its own** pull
+request — `mcp__github__create_pull_request`, called from inside a woken lane.
+So the strip is not total: either it does not reach `mcp__github__*`, or it
+binds only the turn the trigger starts and a lane that keeps working past that
+turn has its tools back. **What that does not touch is the half the protocol
+rests on** — no lane in that round reached its coordinator, and `SendMessage`
+and `ListAgents` failed exactly as described above. So the return path is still
+files, and "the coordinator opens every lane's PR" drops from a fact to a
+belt-and-braces default: it costs one call, and being wrong the other way
+leaves finished work with no PR at all, which is the failure
+`branchcheck.sh --prs` exists to catch. **The clean test is still unrun** —
+one lane calling `mcp__github__get_me` in the first turn after a poke would
+settle which of the two readings is right, and it is cheap. Until someone does
+it this is a qualification, not a refutation.
+
 ### Coordinators can talk to each other, and that channel is two-way
 
 The asymmetry above is only between a coordinator and the lanes it wakes. Two
