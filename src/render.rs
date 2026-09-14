@@ -7210,7 +7210,7 @@ impl Renderer {
             // the ground and stopping dead at the skyline, because every
             // empty cell in the disc returned on this line. A bubble hanging
             // over a field would have been invisible.
-            return self.apply_quicken_aura(x, y, self.apply_field_overlay(world, x, y, base));
+            return self.apply_quicken_aura(x, y, self.apply_field_overlay(world, x, y, false, base));
         }
         let mut rgb = [base[0], base[1], base[2]];
 
@@ -7449,7 +7449,7 @@ impl Renderer {
         } else {
             rgb
         };
-        let tinted = self.apply_field_overlay(world, x, y, [rgb[0], rgb[1], rgb[2], 255]);
+        let tinted = self.apply_field_overlay(world, x, y, true, [rgb[0], rgb[1], rgb[2], 255]);
         // Applied *after* the field overlay, deliberately: the two can be on
         // at once (light and canopy density together is the pairing that
         // actually explains where a tip chose to grow), and when they are,
@@ -8324,7 +8324,15 @@ impl Renderer {
     /// saturated reading still reaches `MAX_BLEND` — it just no longer
     /// paints the entire screen for a channel currently near zero
     /// everywhere.
-    fn apply_field_overlay(&self, world: &World, x: i32, y: i32, base: [u8; 4]) -> [u8; 4] {
+    ///
+    /// `ground` is whether this position holds anything at all — the caller's
+    /// own `cell.material != EMPTY`, passed rather than re-read, because both
+    /// callers already have the cell and a `World::get` per pixel is exactly
+    /// the hot-path work `CLAUDE.md` says to guard at the site that has the
+    /// data. Only the harvest wash reads it, and only to refuse to paint sky:
+    /// see [`crate::food_road::FoodRoad::harvest_on_ground`] for the box it
+    /// was drawing before.
+    fn apply_field_overlay(&self, world: &World, x: i32, y: i32, ground: bool, base: [u8; 4]) -> [u8; 4] {
         // **The food channels come first, and they live in this function
         // rather than beside it because this is the one funnel both cell
         // classes already pass through** -- `cell_colour` calls it once for
@@ -8345,12 +8353,36 @@ impl Renderer {
             // `food_tiles` is empty unless the harvest channel is drawn
             // (`draw` clears it and only refills it then), so the emptiness
             // check is the mode check as well as the early out.
-            if !self.food_tiles.is_empty() {
+            //
+            // **And never over empty space**, which is the whole of the
+            // "huge box": a harvest tile lands on the surface band, where
+            // eight cells is one row of ground and seven of sky, so a wash
+            // that covered its tile drew a rectangle with a straight edge
+            // hanging in the air. Clipped to ground its outline is the
+            // terrain, and the rows it gives up were the rows burying the
+            // road. `harvest_on_ground` keeps the old drawing reachable so
+            // the two can be put side by side.
+            if !self.food_tiles.is_empty() && (ground || !self.food.harvest_on_ground) {
                 let tile = (x.div_euclid(self.food.tile), y.div_euclid(self.food.tile));
                 // Dithered rather than flat -- see `HARVEST_DITHER`: a
                 // tile-wide flat replace covered the very plants the map was
                 // pointing at.
-                hit = self.food_tiles.get(&tile).filter(|m| m.covers(x, y)).map(|m| m.rgb);
+                hit = self
+                    .food_tiles
+                    .get(&tile)
+                    .filter(|m| m.covers(x, y))
+                    // **And only the skin of the ground, not its depth.**
+                    // The clip above stops the wash painting sky; on its own
+                    // it leaves the other half of the same block, because a
+                    // surface tile is part air and part *soil* and the soil
+                    // half is solid. A colony harvests what it can reach, so
+                    // the honest mark is the exposed face -- and the tail of
+                    // the test is what keeps this cheap: it runs only for a
+                    // pixel already inside a live tile and already through
+                    // the dither, which is a few hundred a frame rather than
+                    // the screen.
+                    .filter(|_| !self.food.harvest_on_ground || crate::food_road::near_open_air(world, x, y))
+                    .map(|m| m.rgb);
             }
             // Road over harvest: the patch says whose food and from where,
             // the road drawn on top of it says how it travels.
@@ -10864,6 +10896,71 @@ mod tests {
         );
         r.cycle_field_overlay();
         assert_eq!(r.field_overlay, FieldOverlay::Off, "cycling should wrap back to Off, not stop at the last channel");
+    }
+
+    /// **The harvest wash must not paint sky, and must not paint the depth
+    /// of the ground either** -- the two halves of *"why is the amber hatch
+    /// drop like a huge box?"*.
+    ///
+    /// A harvest tile is 8 cells square and every live one sits on the
+    /// surface band, so the tile it is drawn in is part air, part skin, part
+    /// soil. Washing the whole tile draws a rectangle against the tile grid;
+    /// washing everything solid in it draws the same rectangle anchored to
+    /// the bottom instead. Only the skin follows the terrain.
+    ///
+    /// **The third assertion is the fault put back**: with
+    /// `harvest_on_ground` cleared the sky pixel *must* change, or this test
+    /// is green because the wash never reached the cell at all and would
+    /// stay green with the whole channel deleted.
+    #[test]
+    fn the_harvest_wash_marks_the_skin_of_the_ground_and_not_the_sky_over_it() {
+        use crate::food_road::{FoodOverlay, TileMark};
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        // Surface at y = 36, inside tile row 4 (y 32..39): four rows of air
+        // above it and four of soil below, which is the shape of every tile
+        // the channel actually draws in.
+        for x in 0..64 {
+            for y in 36..64 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+
+        let plain = Renderer::new();
+        let mut r = Renderer::new();
+        r.food.mode = FoodOverlay::Harvest;
+        // Claims this world for the map (`FoodRoad::describes`); with no
+        // animals in it, nothing is marked -- the mark below is placed by
+        // hand so the test does not depend on a colony finding food.
+        r.food.observe(&world);
+        // `cover: 1.0` so the ordered dither passes at every position and
+        // the only thing deciding a pixel is the clip under test.
+        r.food_tiles.insert((0, 4), TileMark { rgb: [255.0, 196.0, 40.0], cover: 1.0 });
+
+        let sky = (2, 33);
+        let skin = (2, 36);
+        let deep = (2, 39);
+        assert_eq!(
+            r.cell_colour_at(&world, sky.0, sky.1, (0, 0)),
+            plain.cell_colour_at(&world, sky.0, sky.1, (0, 0)),
+            "the wash must leave open air alone -- painting it is the straight top edge that read as a dropped box"
+        );
+        assert_ne!(
+            r.cell_colour_at(&world, skin.0, skin.1, (0, 0)),
+            plain.cell_colour_at(&world, skin.0, skin.1, (0, 0)),
+            "the exposed face of the ground is exactly what the mark is about and must still be drawn"
+        );
+        assert_eq!(
+            r.cell_colour_at(&world, deep.0, deep.1, (0, 0)),
+            plain.cell_colour_at(&world, deep.0, deep.1, (0, 0)),
+            "and buried ground must be left alone, or the block is simply anchored to the bottom of the tile instead of the top"
+        );
+
+        r.food.harvest_on_ground = false;
+        assert_ne!(
+            r.cell_colour_at(&world, sky.0, sky.1, (0, 0)),
+            plain.cell_colour_at(&world, sky.0, sky.1, (0, 0)),
+            "the positive control: unclipped, this pixel is painted -- so the assertions above are about the clip and not about a channel that never fired"
+        );
     }
 
     #[test]

@@ -57,3 +57,38 @@ literal description of it.
 *(Kept here as a measurement rather than a guess: the tile rows come from
 `foodroad`'s own `SOURCES` line, which prints world coordinates.)*
 
+## 2. The repair: the wash marks the skin of the ground, and nothing else
+
+Two clips, and they are one change — **either alone leaves a box.**
+
+- `FoodRoad::harvest_on_ground` refuses **open air**. That removes the straight
+  top edge hanging over the terrain.
+- `food_road::near_open_air` refuses ground more than `HARVEST_SKIN` = 3 cells
+  under the exposed face. Without it the block is simply anchored to the
+  *bottom* of the tile instead of the top — the same box upside down, which is
+  what the air-only clip actually drew on `far_larder`, where the surface is
+  bare soil and the tile's lower half is solid.
+
+`HARVEST_MAX_COVER` went 0.8 → 1.0 in the same change and for the same reason:
+the fifth held back existed so a tile the colony lives off still showed the
+ground *underneath* it, and clipped to the skin the wash no longer covers what
+it points at. Holding it back only made the strongest patch in the bed read as
+speckle. `ramp`'s floor keeps the middle — the quietest live patch is still 18%
+dots.
+
+**What was ruled out by measurement, not by argument:** *shrinking the tile*.
+At `tile=4` the sheet still draws boxes in the sky, only smaller; at `tile=1`
+the channel vanishes into the road entirely and says nothing. **The box is the
+air, not the size** — which is why the fix is a clip and `tile` stays at 8,
+where the region reading lives.
+
+Guard:
+`render::tests::the_harvest_wash_marks_the_skin_of_the_ground_and_not_the_sky_over_it`
+— sky unchanged, skin changed, buried ground unchanged, and a fourth arm that
+**puts the fault back** (`harvest_on_ground = false`) and requires the sky pixel
+to move, so the first three cannot be green because the wash never fired.
+
+**Card `20260914T193144118Z-d8e147`** — *"The amber hatch, no longer a box"*,
+posted 2026-09-14 19:31Z, before/after frame sequences on the planted bed.
+Verdict: *pending*.
+

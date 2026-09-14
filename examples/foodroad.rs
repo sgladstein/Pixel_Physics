@@ -181,6 +181,12 @@ fn main() {
     if let Some(v) = arg::<u32>("walked") {
         lab.renderer.food.show_walked = v == 1;
     }
+    // `ground=0` puts the round-35 drawing back: the harvest wash covering
+    // its whole tile, air included. The arm of the comparison that asks
+    // whether clipping to ground is what fixed the box.
+    if let Some(v) = arg::<u32>("ground") {
+        lab.renderer.food.harvest_on_ground = v == 1;
+    }
     if let Some(v) = arg::<f32>("roadhalf") {
         lab.renderer.food.road_half_life = v;
     }
@@ -203,10 +209,11 @@ fn main() {
     let f = &lab.renderer.food;
     println!(
         "foodroad: scenario={scenario_name} seed={seed} start={start} frames={frames} every={every} mode={} \
-         tile={} show_walked={} road_half_life={} harvest_half_life={} road_full={} harvest_full={} out={out}",
+         tile={} show_walked={} harvest_on_ground={} road_half_life={} harvest_half_life={} road_full={} harvest_full={} out={out}",
         f.mode.label(),
         f.tile,
         f.show_walked,
+        f.harvest_on_ground,
         f.road_half_life,
         f.harvest_half_life,
         f.road_full.map_or_else(|| "tracked".into(), |v| v.to_string()),
