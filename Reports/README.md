@@ -2633,6 +2633,36 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   warning that the dangerous merge is the conflict-free one: a clean
   `merge-tree` broke the build on a `ChunkSet` type alias neither side's lines
   touched.
+- [colony-food-economy-design-2026-09-14.md](colony-food-economy-design-2026-09-14.md)
+  — **design, 2026-09-14, round 35. `engine`.** How a player is to understand a
+  colony's food economy, written from the owner's ask before any lane started.
+  **The finding that reframes it: the books already exist and already balance.**
+  `World::energy_ledger` is a closed double-entry ledger with conservation
+  identities asserted by tests — its shape was forced by an old free `eaten`
+  account that **conjured 300 joules** when a beetle bit an ant, and the
+  property it protects is the one evolution needs (*no lineage may extract
+  unbounded energy from a cycle it controls*). So the job is not an economy but
+  three absences: it is **world-wide rather than per colony, it has no face, and
+  no account knows where a joule came from.** Sizes itself on one live fact:
+  **70–90% of ant deaths in the lab bed are starvation, on every seed.** Names
+  what is already there to build on (`OrganismState::colony`, `Crop`,
+  `diet_yield`, and the three CLI food harnesses — **none of which a player ever
+  sees**, which is the gap), the five pieces and which lane owns each, and eight
+  traps each paid for once: **count joules not cells**; **splitting a closed
+  ledger per colony breaks closure unless inter-colony transfer is its own
+  account**; **a standing count cannot tell a store from a conveyor** (dwell
+  time can); show a distribution, not an average. **§5 answers "why do colonies
+  never fight or eat each other"** — three gaps, all *authorship rather than
+  machinery*: `scent_spread` defaults to 0 so **the shipped bed holds no rivals,
+  only one extended family**; the shipped ant is **blind**; and nothing wires
+  `ThreatNear`/`ThreatBearing` to `Attack`, so the only route in is retaliation.
+  The fight itself works — **296–478 attacks over 9,000 frames** with non-kin in
+  reach, against **`attacks 0` over nine runs of 300,000 frames** on the bed the
+  owner plays. **Rivalry ships ON**, owner ruling 2026-09-14 (*"You can ship it
+  on"*), overturning the coordinator's default-off call and restoring *ship new
+  behaviours as default* — with the knob kept, an `off` control kept for
+  measurement, and the constants rivalry reallocates named and re-derived,
+  since a correct mechanism at inherited constants is a regression.
 - [evolution-lab-round-33-2026-09-13.md](evolution-lab-round-33-2026-09-13.md)
   — **coordinator record, 2026-09-13. `lab`/`engine`.** The round that answered
   the owner's #1 with a **no**. **The creature pass can run across cores and is

@@ -87,8 +87,21 @@ pub struct Stock {
     pub blurb: &'static str,
     /// Cells in the body plan. Prices the stock, and it is the honest
     /// quantity to price on: a nine-cell animal is nine cells of the world
-    /// spent, digs a wider corridor, and takes a bite in the middle without
-    /// dying — which a two-cell body cannot do at all.
+    /// spent, and takes a bite in the middle without dying — which a two-cell
+    /// body cannot do at all.
+    ///
+    /// **"digs a wider corridor" stood here and was false.** Corrected
+    /// 2026-09-14 against `Reports/creature-articulated-body-2026-09-09.md`,
+    /// which measured the *opposite sign*: a one-cell width increase took
+    /// roofed void from `4, 6, 4` to **0 at every window from frame 1,000
+    /// on**. The mechanism is two facts that only look contradictory: the dig
+    /// verb is **body-blind** — `act` targets one cell ahead of the head and
+    /// never reads `def.body` — while the *step* is body-aware and its
+    /// refusal is terminal, since an ant that cannot fit through the hole it
+    /// just cut re-rolls its heading (`tumble`) and never faces that soil
+    /// again. So a wider body does not widen a gallery; it stops one being
+    /// dug. `colony_stations`' own doc says the same thing from the surface
+    /// side — wide bodies get *spread out* because they **gridlock**.
     pub cells: i32,
 }
 
@@ -97,7 +110,7 @@ pub const STOCKS: &[Stock] = &[
     Stock { species: "hopper", name: "HOPPER", blurb: "IT JUMPS. GETS WHERE WALKING DOES NOT.", cells: 3 },
     Stock { species: "ant_long", name: "LONG ANT", blurb: "SIX CELLS. LOSES A TAIL AND LIVES.", cells: 6 },
     Stock { species: "longant", name: "SEGMENTED ANT", blurb: "SEVEN CELLS, JOINTED. BENDS ROUND CORNERS.", cells: 7 },
-    Stock { species: "ant_wide", name: "BROAD ANT", blurb: "NINE CELLS. DIGS A ROOM YOU CAN STAND IN.", cells: 9 },
+    Stock { species: "ant_wide", name: "BROAD ANT", blurb: "FIVE ACROSS, TWO DEEP. JAMS IN A NARROW GAP.", cells: 9 },
     Stock { species: "chitin_pale", name: "PALE CHITIN", blurb: "PLATED FROM BIRTH. TWICE AN ANT TO BITE THROUGH.", cells: 9 },
 ];
 
@@ -422,6 +435,54 @@ mod tests {
             }
         }
         assert!(checked > 200, "only {checked} characters swept; this guard would pass on nothing");
+    }
+
+    /// **Every stock can read the plane `G` arms, and this is the guard the
+    /// original bug walked straight past.**
+    ///
+    /// `Druid::scent` ships at `Channel::default()`, which is `A` — the
+    /// engine moved that default from `B` on 2026-09-09 because
+    /// `open-bugs-handoff.md` §Z7 measured that **nothing can read B**. This
+    /// game then named `B` explicitly, threw the default away, and shipped a
+    /// verb that deposited a correct gradient no animal could act on. Two
+    /// independent harnesses had already reported the exact tie (1,903 =
+    /// 1,903 and 595 = 595) and a third — this game's own paired run —
+    /// reproduced it before anyone connected the two.
+    ///
+    /// So the guard is not "is the default A"; that is a tautology over one
+    /// line. It is **can the animals the player can actually found read it**:
+    /// the repaired homing pair is `(Carrying, 0, 45.5)`, and the pre-fix
+    /// weight it replaced was `75.0`, which saturated the unit and flattened
+    /// the signal to about 0.3% of a step.
+    ///
+    /// **The positive control is the old number**, asserted absent: if
+    /// `75.0` ever comes back on unit 0 of a stock, that stock is deaf again
+    /// and this goes red.
+    #[test]
+    fn every_stock_can_read_the_plane_the_trail_arms() {
+        // The armed plane is the engine's own opinion about which one is
+        // readable, inherited rather than named -- that is the whole fix.
+        assert_eq!(crate::sim::pheromone::Channel::default(), crate::sim::pheromone::Channel::A);
+        let gate = regex_lite_carrying_zero;
+        for s in STOCKS {
+            let text = std::fs::read_to_string(format!("{}/{}.ron", crate::sim::organism::ASSET_DIR, s.species)).unwrap_or_default();
+            let w = gate(&text).unwrap_or_else(|| panic!("{} authors no `(Carrying, 0, _)` homing gate at all", s.species));
+            assert!(
+                (w - 45.5).abs() < 0.01,
+                "{} gates its homing unit at {w}, not the repaired 45.5 -- at 75.0 the unit saturates and the ant reads a laid channel-A trail at ~0.3% of a step (open-bugs-handoff.md SSZ7)",
+                s.species
+            );
+        }
+    }
+
+    /// The weight on `(Carrying, 0, w)`, parsed out of a species file without
+    /// pulling in a regex crate for one line.
+    fn regex_lite_carrying_zero(text: &str) -> Option<f32> {
+        text.lines().find_map(|l| {
+            let l: String = l.chars().filter(|c| !c.is_whitespace()).collect();
+            let rest = l.strip_prefix("(Carrying,0,")?;
+            rest.split(')').next()?.parse().ok()
+        })
     }
 
     /// **A stock has to be a species that can actually keep house**, and the

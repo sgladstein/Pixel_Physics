@@ -11,6 +11,12 @@
 //!
 //! `Reports/tree-architecture-implementation-plan.md` Phase 0a. Anything
 //! that measures plants builds its world from here.
+//!
+//! **It carries shared harness *geometry* as well as the shared scene**, for
+//! the same reason: `open_by_box` below was `cave_probe`'s alone, and the
+//! moment a second harness needed it the choice was one implementation or two
+//! that drift. The scene is still the bulk of this file; read the section
+//! rules rather than the module name.
 
 // Shared by several harness binaries, and Rust compiles each example as
 // its own crate -- so anything only one of them uses reads as dead here.
@@ -487,4 +493,129 @@ impl PlantScene {
 pub fn canopy_top(w: &World) -> Option<i32> {
     let b = w.bounds()?;
     (b.min_y..=b.max_y).find(|&y| (b.min_x..=b.max_x).any(|x| w.get(x, y).organism_id() != 0))
+}
+
+// ---------------------------------------------------------------------------
+// Can a body of a given size actually get in there?
+// ---------------------------------------------------------------------------
+
+/// What a `w x h` body can reach inside a void, as a morphological opening.
+///
+/// **Lifted out of `cave_probe` so a second harness cannot reimplement it
+/// slightly differently**, which is the `lab::census` precedent: one
+/// implementation with two callers cannot drift, and the reproduction that
+/// validates it is free. `cave_probe` at its default box prints the numbers
+/// published in `Reports/cave-redesign-2026-08-29.md`, so any edit here is
+/// checked against a figure already on the record — and `burrow_probe`, whose
+/// void is *dug* rather than generated and has no published figure, inherits
+/// that validation instead of asserting its own correctness.
+///
+/// **It is a conservative proxy for `player::rect_free`, deliberately.** The
+/// real predicate allows a soft footing and counts shoulder grains, so a
+/// position this declines may still be standable in the game. That direction
+/// is the safe one for a gate: it cannot claim a body fits where it does not.
+pub struct Walk {
+    /// Percent of the void the box covers from some position it fits in.
+    pub reachable_pct: i32,
+    /// Percent inside the **largest single connected** region of fit
+    /// positions — the traversal question. A high `reachable_pct` split
+    /// across many regions is a set of pockets, not a walk.
+    pub largest_pct: i32,
+    /// How many disjoint regions of fit positions there are.
+    pub regions: i32,
+}
+
+/// Open `void` by a `bw x bh` box, over a `cw x ch` subregion.
+///
+/// `passable` is where the box may *stand* (void, plus anything the body
+/// walks through — `Material::scenery` for the gnome); `void` is the
+/// denominator, the open space being asked about. They differ because a
+/// formation standing in a passage is not an obstruction and is also not
+/// cave to be reached: conflating the two once reported a decorated cave as
+/// impassable (`cave_probe`'s finding A1-1).
+pub fn open_by_box(passable: &[bool], void: &[bool], cw: usize, ch: usize, (bw, bh): (usize, usize)) -> Walk {
+    let total = void.iter().filter(|&&b| b).count();
+    let mut fits = vec![false; cw * ch];
+    if cw >= bw && ch >= bh && bw > 0 && bh > 0 {
+        for cy in 0..=(ch - bh) {
+            for cx in 0..=(cw - bw) {
+                if (0..bh).all(|dy| (0..bw).all(|dx| passable[(cy + dy) * cw + cx + dx])) {
+                    fits[cy * cw + cx] = true;
+                }
+            }
+        }
+    }
+    // Every void cell the box covers from some position it fits in.
+    let mut reached = vec![false; cw * ch];
+    for cy in 0..ch {
+        for cx in 0..cw {
+            if !fits[cy * cw + cx] {
+                continue;
+            }
+            for dy in 0..bh {
+                for dx in 0..bw {
+                    reached[(cy + dy) * cw + cx + dx] = true;
+                }
+            }
+        }
+    }
+    // Flood the fit positions 8-connected: two adjacent fit positions mean
+    // the box slides between them, so a component is a region the body can
+    // walk without ever leaving the box's freedom.
+    let mut region = vec![u32::MAX; cw * ch];
+    let mut regions: Vec<Vec<usize>> = Vec::new();
+    for start in 0..cw * ch {
+        if !fits[start] || region[start] != u32::MAX {
+            continue;
+        }
+        let id = regions.len() as u32;
+        let mut stack = vec![start];
+        let mut members = Vec::new();
+        region[start] = id;
+        while let Some(i) = stack.pop() {
+            members.push(i);
+            let (cx, cy) = ((i % cw) as i32, (i / cw) as i32);
+            for dy in -1..=1i32 {
+                for dx in -1..=1i32 {
+                    let (nx, ny) = (cx + dx, cy + dy);
+                    if nx < 0 || ny < 0 || nx >= cw as i32 || ny >= ch as i32 {
+                        continue;
+                    }
+                    let n = ny as usize * cw + nx as usize;
+                    if fits[n] && region[n] == u32::MAX {
+                        region[n] = id;
+                        stack.push(n);
+                    }
+                }
+            }
+        }
+        regions.push(members);
+    }
+    let mut largest = 0usize;
+    for members in &regions {
+        let mut seen = vec![false; cw * ch];
+        let mut n = 0;
+        for &i in members {
+            let (cx, cy) = (i % cw, i / cw);
+            for dy in 0..bh {
+                for dx in 0..bw {
+                    let j = (cy + dy) * cw + cx + dx;
+                    if void[j] && !seen[j] {
+                        seen[j] = true;
+                        n += 1;
+                    }
+                }
+            }
+        }
+        largest = largest.max(n);
+    }
+    // Numerator is reached **void**, not reached cells: the box may sit over
+    // passable non-void, so dividing those in would report more than 100% of
+    // a cave as walkable.
+    let reachable = (0..cw * ch).filter(|&i| reached[i] && void[i]).count();
+    Walk {
+        reachable_pct: (100 * reachable / total.max(1)) as i32,
+        largest_pct: (100 * largest / total.max(1)) as i32,
+        regions: regions.len() as i32,
+    }
 }
