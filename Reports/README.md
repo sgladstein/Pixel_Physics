@@ -2716,6 +2716,35 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   behaviours as default* — with the knob kept, an `off` control kept for
   measurement, and the constants rivalry reallocates named and re-derived,
   since a correct mechanism at inherited constants is a regression.
+- [evolution-lab-round-36-brief-2026-09-14.md](evolution-lab-round-36-brief-2026-09-14.md)
+  — **brief, 2026-09-14. `lab`/`engine`.** What round 36 is for, written by
+  round 35's coordinator. The lead is the owner's #1 and it finally has a
+  measured target rather than a premise: **about half of what an ant costs is
+  not in the creature pass at all** — 45% of the frame's growth to 428 ants is
+  that phase, the other 55% is the CA sweep over the **29.4 cells an ant
+  dirties per frame**. Two jobs fall out, *fewer dirty cells* (census first,
+  nobody has looked at what the multiplier is made of) and *a cheaper sweep*.
+  Also carries the two unfinished items round 35 leaves: the owner's *"you can
+  ship it on"*, which is a choice of **value** because `scent_spread` saturates
+  by 2, and **§Z23**, whose obvious repair is the wrong one.
+- [evolution-lab-round-35-2026-09-14.md](evolution-lab-round-35-2026-09-14.md)
+  — **coordinator record, 2026-09-14. `lab`/`engine`.** The round that gave the
+  food economy a face and answered *why don't colonies fight* with a finding
+  nobody had named: **a stranger is already food.** `ant` material carries
+  `food_class: 1.0` against the shipped neutral gut, so two colonies outside
+  each other's tolerance eat each other through the **ordinary mouth** —
+  `eats` **54 → 750** from nothing but kin recognition, cross-colony kills
+  outnumbering `Attack` kills two to one. **Turning rivalry on produces
+  predation, not war.** Only `Behavior::scent_spread` is binding, and it is a
+  **threshold rather than a slope**, saturating by 2: at `spread = 1` just
+  **9.3%** of ordered pairs are strangers and one seed in four never meets, so
+  a dial topping out at 1 ships a mechanism a third of beds never show. Also:
+  **an encounter is no longer a bite** (`src/sim/contest.rs`, escalation
+  **1.000 → 0.520**, the rest withdrawals that *display*); per-colony books in
+  joules and a per-cell food road, whose **two food numbers disagree on
+  purpose**; and both overlays defeat the dirty-rect skip, so **the settled bed
+  is the price**. Landed #416, #417, #419, #420. Open: the owner's *"you can
+  ship it on"* is not yet implemented, and §Z23 has a designed repair.
 - [evolution-lab-round-33-2026-09-13.md](evolution-lab-round-33-2026-09-13.md)
   — **coordinator record, 2026-09-13. `lab`/`engine`.** The round that answered
   the owner's #1 with a **no**. **The creature pass can run across cores and is
