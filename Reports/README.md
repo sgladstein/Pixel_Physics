@@ -2843,6 +2843,24 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   deposit is inaudible to anyone but the displayer, which is the measurement
   `contest.rs` asked for. Ships one dial (`set_channel_diffuse`) and two
   harnesses; **no default moved**.
+- [evolution-lab-nest-question-2026-09-14.md](evolution-lab-nest-question-2026-09-14.md)
+  — **research brief, 2026-09-14, nothing started. `lab`/`engine`/`held`.**
+  What a nest should be, handed from the druid program on the owner's ask
+  (*"it should be attached to a world location, not a material… but do more
+  research first"*). **The nest is already a sensed marker rather than a
+  structure** — `AtNest` is one 8-neighbour material test, and
+  `world.rs`'s `NestSite` already records a logical site nothing reads for
+  location. **Real ants do not home on the queen**: the mechanism that fits
+  this engine is **path integration** — a per-ant home vector attached to no
+  cell, so digging cannot break it — corrected at short range by nest odour,
+  which is what `AtNest` already is. **The sequencing call is that the trail
+  question comes first**: Lane C measured `DECAY_RHO` inert, and a druid lane
+  found a mark gone in ~3.5 s against a ~37 s round trip, so *"the nest does
+  nothing"* may be a symptom of the trail. Carries the constraint any
+  redesign must hold (**414 deliveries** at a footprint deliberately narrower
+  than the ant band), the three held-world requirements, and the finding that
+  **`nest`'s `penetration_resistance` 6.0 against every shipped `dig_force`
+  of 1.0 means a colony cannot dig its own doorstep**.
 - [evolution-lab-round-36-brief-2026-09-14.md](evolution-lab-round-36-brief-2026-09-14.md)
   — **brief, 2026-09-14, rewritten the same day. `lab`/`engine`.** What round 36
   is for. **The first version led with performance and was wrong at the top**:
