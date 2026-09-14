@@ -701,6 +701,71 @@ pub struct MaterialDef {
     /// up.
     #[serde(default)]
     pub climbable: bool,
+    /// Whether living tissue of this material is **ground** to the
+    /// character rather than scenery — root, which grows *through* the
+    /// bank he is walking on instead of standing in the air above it.
+    ///
+    /// **The owner's report, 2026-09-13:** *"roots are considered plant
+    /// instead of ground, so the gnome falls into the root mass instead of
+    /// walking over it like the ground."* Measured on `scene=wood` before
+    /// this field existed: he walked 126 cells into the stand, dropped
+    /// through the forest floor into a tree's root plate, and stood there
+    /// for the remaining 2,000 frames of the run — five rows under the soil
+    /// line with **60 of his 98 cells inside living tissue**, travelled
+    /// unchanged at every later tile. The held world (`bin/druid`) turns
+    /// that from occasional into constant: its bank is 54% soil with roots
+    /// all through it.
+    ///
+    /// **And the acceptance case that exists for exactly this question moves
+    /// with it.** `scripts/acceptance.sh`'s `wood` arm sweeps four grown
+    /// stands and gates the total; paired off one binary through
+    /// `PIXEL_PHYSICS_ROOT_FOOTING`, on one machine:
+    ///
+    /// | `frame0` | roots as scenery | roots as ground |
+    /// |---|---|---|
+    /// | 0 | 126 | 422 |
+    /// | 1800 | 388 | 374 |
+    /// | 3600 | 469 | 475 |
+    /// | 4500 | 49 | 395 |
+    /// | total | 1,032 | 1,666 |
+    ///
+    /// **Read the shape rather than the total**: two windows barely move and
+    /// one is 14 cells *worse*, because the rule only fires where a root
+    /// plate is in his path. The two that move are the two where he was
+    /// being swallowed. A clean uniform win across all four would have been
+    /// the tell that something else was being measured.
+    ///
+    /// **`Footing::Soft` — what the soil the root displaced already was —
+    /// and not `Hard`.** The bank is powder: he sinks to the knee and
+    /// stops. A root that stood him *on top* of itself would make the
+    /// surface jump by the wade depth wherever one surfaced, which is the
+    /// same discontinuity as falling into it, pointing the other way. What
+    /// "like the ground" asks for is that a root and the soil beside it
+    /// answer the same question the same way, and `Soft` is the answer soil
+    /// already gives. It is also the graded one: `CLAUDE.md`'s first law,
+    /// an outcome is a distribution rather than a binary — `Hard` is
+    /// *on top of*, `Climb` is *straight through*, and only this has a
+    /// middle.
+    ///
+    /// **ANDed with `Cell::organism_id() != 0`, exactly like `climbable`**,
+    /// and for the identical reason: a painted `rootwood` wall is the same
+    /// material as a living root and must stay a wall. It is tested
+    /// *before* `climbable` because the two are opposite claims about one
+    /// cell and `grip` compares `Footing::Climb` by equality — reaching the
+    /// climb arm first would give him a ladder down into the bank.
+    ///
+    /// **A *player* property, like `climbable`, `insubstantial` and
+    /// `scenery`.** Nothing in the CA sweep, the structural search, the
+    /// light field, fire, the liquid rules or the colony reads it. And the
+    /// root materials deliberately keep `climbable: true` alongside it,
+    /// which looks redundant and is not: `climbable` is read by four other
+    /// systems that must not change — `plant`-flooding for the shake
+    /// (`shake_target`, `shaken_cells`), `creature::crossable` for an ant
+    /// picking its way over a stem, and `render.rs`'s tree-depth occlusion.
+    /// Dropping the flag to express "not a ladder" would silently retune
+    /// all four.
+    #[serde(default)]
+    pub underfoot: bool,
     /// Whether this powder is too light to impede the character at all --
     /// he moves through it as if it were not there.
     ///
@@ -1785,6 +1850,8 @@ pub struct Material {
     pub needs_footing: bool,
     /// See `MaterialDef::climbable`.
     pub climbable: bool,
+    /// See `MaterialDef::underfoot`.
+    pub underfoot: bool,
     /// See `MaterialDef::insubstantial`.
     pub insubstantial: bool,
     /// See `MaterialDef::falls_through_organisms`.
@@ -2147,6 +2214,7 @@ impl From<MaterialDef> for Material {
             self_supporting: def.self_supporting,
             needs_footing: def.needs_footing,
             climbable: def.climbable,
+            underfoot: def.underfoot,
             insubstantial: def.insubstantial,
             falls_through_organisms: def.falls_through_organisms,
             scenery: def.scenery,
@@ -2580,6 +2648,7 @@ impl MaterialRegistry {
             self_supporting: false,
             needs_footing: false,
             climbable: false,
+            underfoot: false,
             insubstantial: false,
             falls_through_organisms: false,
             scenery: false,
@@ -2662,6 +2731,7 @@ impl MaterialRegistry {
             self_supporting: false,
             needs_footing: false,
             climbable: false,
+            underfoot: false,
             insubstantial: false,
             falls_through_organisms: false,
             scenery: false,

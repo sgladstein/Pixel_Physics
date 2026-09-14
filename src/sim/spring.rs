@@ -127,6 +127,26 @@ pub fn step(world: &mut World) {
                 if !world.in_bounds(x, y) {
                     continue;
                 }
+                // **A held spring does not run**, per outlet column, at the
+                // cell it would emit into (`World::time_runs_at`). A spring
+                // is water crossing the plane of the world from off-screen
+                // — an ongoing process the world drives, not a thing the
+                // player struck — so it belongs with the weather rather
+                // than with the physics the held world deliberately leaves
+                // running. The `druid` preset sets `spring_flow: 7.0`, the
+                // highest of any preset, so this is the difference between
+                // a stopped country and a stopped country with a waterfall
+                // in it.
+                //
+                // **Before the throttle bookkeeping below**, deliberately:
+                // a held outlet is not throttled, it is stopped, and
+                // `spring_ledger.throttled` is the number that says a
+                // player's dam is working. Counting held columns in it
+                // would make the dam's own readout a function of where he
+                // is standing.
+                if !world.time_runs_at(x, y) {
+                    continue;
+                }
                 let outlet = world.get(x, y);
                 // Raw material check, not `is_empty()` — same reasoning as
                 // the renderer: the question is "is there material here".
@@ -150,6 +170,13 @@ pub fn step(world: &mut World) {
     for i in 0..world.drains.len() {
         let (x, y) = world.drains[i];
         if !world.in_bounds(x, y) {
+            continue;
+        }
+        // The drain half of the same gate. A drain is the spring run
+        // backwards -- water leaving the plane -- so a held one takes
+        // nothing, or a pool outside every circle would quietly empty into
+        // a valley that is not running either.
+        if !world.time_runs_at(x, y) {
             continue;
         }
         let cell = world.get(x, y);
@@ -328,4 +355,70 @@ mod tests {
         assert_eq!(fill_a, fill_b);
         assert_eq!(ledger_a, ledger_b);
     }
+
+    /// **And then it stops, third way: the world is held.**
+    ///
+    /// A spring is water arriving from off the plane -- a process the world
+    /// runs, not a thing the player struck -- so it belongs with the weather
+    /// under the held world's gate rather than with the physics `bin/druid`
+    /// deliberately leaves running. The `druid` preset sets the highest
+    /// `spring_flow` of any preset (7.0), so without this a stopped country
+    /// has a waterfall in it.
+    ///
+    /// Three arms, each the control for the next, and written this way
+    /// because arm 2 alone passes on a spring that was never connected:
+    /// unheld emits, held emits nothing, held-with-a-circle-over-it emits
+    /// again.
+    #[test]
+    fn a_held_spring_stops_and_a_quickened_one_runs() {
+        use crate::sim::world::Quickening;
+        let run = |held: bool, circles: &[Quickening]| {
+            let mut w = world_with_floor();
+            assert!(w.add_spring(64, 60, 1));
+            w.held = held;
+            w.quickenings = circles.to_vec();
+            for _ in 0..40 {
+                step(&mut w);
+            }
+            (w.spring_ledger, total_water_fill(&w))
+        };
+
+        let (running, running_fill) = run(false, &[]);
+        assert!(running.emitted > 0, "the control emitted nothing, so this guard is blind");
+
+        let (stopped, stopped_fill) = run(true, &[]);
+        assert_eq!(stopped.emitted, 0, "a held spring must emit nothing");
+        assert_eq!(stopped_fill, 0, "...and nothing may be standing in the world from it");
+        // **Not throttled -- stopped.** `throttled` is the number that tells
+        // a player his dam is working, and a held column is neither drowned
+        // nor walled.
+        assert_eq!(stopped.throttled, 0, "a held outlet is stopped, not throttled; the dam readout must not count it");
+
+        let (quickened, quickened_fill) = run(true, &[Quickening { x: 64, y: 60, r: 20 }]);
+        assert_eq!(quickened.emitted, running.emitted, "a spring inside a circle runs exactly as an unheld one");
+        assert_eq!(quickened_fill, running_fill);
+    }
+
+    /// The drain half of the same gate: a held drain takes nothing, so a
+    /// pool outside every circle does not quietly empty into a valley that
+    /// is not running either.
+    #[test]
+    fn a_held_drain_takes_nothing_and_a_quickened_one_drains() {
+        let run = |held: bool, r: i32| {
+            let mut w = world_with_floor();
+            w.add_drain(30, 99);
+            w.set(30, 99, Cell::new(material::WATER, 0));
+            w.held = held;
+            if r > 0 {
+                w.quickenings = vec![crate::sim::world::Quickening { x: 30, y: 99, r }];
+            }
+            step(&mut w);
+            w.spring_ledger.drained
+        };
+        let running = run(false, 0);
+        assert!(running > 0, "the control drained nothing, so this guard is blind");
+        assert_eq!(run(true, 0), 0, "a held drain must take nothing");
+        assert_eq!(run(true, 20), running, "a drain inside a circle drains exactly as an unheld one");
+    }
+
 }

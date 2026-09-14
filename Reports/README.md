@@ -2633,6 +2633,38 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   warning that the dangerous merge is the conflict-free one: a clean
   `merge-tree` broke the build on a `ChunkSet` type alias neither side's lines
   touched.
+- [evolution-lab-round-33-2026-09-13.md](evolution-lab-round-33-2026-09-13.md)
+  — **coordinator record, 2026-09-13. `lab`/`engine`.** The round that answered
+  the owner's #1 with a **no**. **The creature pass can run across cores and is
+  not worth switching on** (#398, ships `ParMode::Off`): exact — `par=verify`
+  recomputes each speculation and names the disagreeing brain input, 0
+  mismatches — and it costs **3–4% of the frame**, because a speculation pays
+  only if `hit rate x parallel speedup > 1` and that is `0.35 x 2.1` on four
+  cores. **Both terms belong to the box and the bed, not the code**, which is
+  why it ships wired up and one flag away rather than deleted. **So
+  performance at high creature counts is still open, and round 32's knee is the
+  lead** — a diffuse cost that sextuples across a threshold means something
+  specific changes state there, and nobody has looked. Also: **§Z13 reopened
+  and closed the other way** — the marked animals were not resting, they
+  **could not move**, `brain::squash` returning negative into a `[0,1]` clamp
+  so every degree of "would rather not" landed on exactly 0.0 (#396); **a
+  pooled idle rate cannot tell "everyone rests briefly" from "a few froze" —
+  both give 75%**, and the per-animal census found 18.5–21.9% of a bed never
+  seen moving again. Carries the coordination failures the round paid for:
+  **`fire_trigger` returning success is not evidence a lane woke**, and
+  **sweep `list_triggers` before archiving a session** — a lane's own check-in
+  fired into an archived session and errored in front of the owner. Brief:
+  [evolution-lab-round-34-brief-2026-09-13.md](evolution-lab-round-34-brief-2026-09-13.md).
+- [evolution-lab-round-34-brief-2026-09-13.md](evolution-lab-round-34-brief-2026-09-13.md)
+  — **brief, 2026-09-13. `lab`/`engine`.** What round 34 is for: **find out
+  what changes at the knee before proposing any fix.** Names four untested
+  candidates (cache residency, the active-site scheduler, checkerboard
+  contention, density rather than count) and the discriminator that separates
+  the last two from the first two. Repeats round 32's calibration rule —
+  **any creature-cost harness must be calibrated above 800 ants**, since below
+  the knee it reads ~0.3 µs and looks broken. Also carries the **rung-3 card**
+  owed to the owner and why `zoomout_pixels` cannot make it, and the held
+  world's zoom behind it.
 - [evolution-lab-rest-with-an-end-2026-09-13.md](evolution-lab-rest-with-an-end-2026-09-13.md)
   — **record, 2026-09-13, round 33 lane F. `engine`, not `lab`** — it changes
   every creature in both games. **§Z13 re-aimed and fixed**, on the owner

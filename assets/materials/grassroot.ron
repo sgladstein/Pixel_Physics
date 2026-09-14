@@ -26,6 +26,10 @@
     // Read only alongside `Cell::organism_id() != 0`, so a painted cell of
     // this material is as solid as it ever was.
     climbable: true,
+    // Ground, like `rootwood` and for the same reason: a sward's fibrous
+    // mat is the top inch of the bank, not something standing on it, and
+    // the gnome walks over it rather than through it.
+    underfoot: true,
     density: 0.35,
     colors: [
         (162, 152, 108),

@@ -1,6 +1,11 @@
 # The Gnome
 
-*Current as of: 2026-09-13. New since the last pass: **the far view can be
+*Current as of: 2026-09-13. New since the last pass: **he walks over roots
+instead of falling into them** — a forest floor is threaded with root, and
+every root cell in it used to be a hole he could sink through, so walking
+into a grown wood dropped him under the ground and wedged him there. Roots
+are ground now, and the bank reads at one level whether the next cell along
+is soil or root. Also 2026-09-13: **the far view can be
 given more dots instead of fewer cells** — pulled all the way back, the
 picture can now be drawn at up to sixteen times as many dots, so a stem that
 was drawn four cells wide is drawn one cell wide again. It is off by default
@@ -79,6 +84,25 @@ over the spot he was standing on would bury him where he stood.
 wall; only *living* tissue is scenery. So building is unchanged, and the
 distinction is one you can see: growing things are scenery, cut and placed
 things are matter.
+
+**Roots are the exception, and they are ground.** A tree's root plate is
+threaded through the bank you are standing on, so it holds you up the way
+the soil around it does: you sink into a forest floor to about the knee and
+walk on, whether the cell under your boot is soil or root. Before this a
+root was a hole in the floor. Walking into a grown wood dropped him through
+it into the root plate of the first big tree and stuck him there — and the
+deeper and more rooted the ground, the worse it got, which is why it matters
+most in the held world, where the whole surface is deep soil with roots all
+through it.
+
+Three things it is not, each for the same reason soil is not. It is not a
+floor you stand on *top* of: a mat you can wade into reads as ground, and
+one you stood on the surface of would step you up and down by a knee's depth
+every time a root broke the surface. It is not a wall — a root threading a
+tunnel is something you shoulder past, exactly as you shoulder past the odd
+grain of soil, though a *bank* of root stops you exactly as a bank of soil
+does. And it is not a ladder: holding `Shift` in the ground finds nothing to
+take hold of.
 
 He also passes in front of some trees and behind others, which is purely a
 matter of drawing — a tree is walk-through either way. Which side a given
@@ -485,10 +509,10 @@ go, so he stays put. Being at the bottom of a hill is genuinely bad news.
 
 He is a visitor in the simulation rather than a part of it: sand keeps
 falling as if he weren't there. Two current gaps — a root threading a
-tunnel can't be cut out of the way (it no longer *stops* him, since he
-walks through growing things, but the pick won't take it), and spoil that
-has nowhere solid to land stays in the bore rather than being thrown into
-the air.
+tunnel can't be cut out of the way (it doesn't *stop* him, since it is
+ground he shoulders past, but pointing at it shakes the tree instead of
+cutting), and spoil that has nowhere solid to land stays in the bore rather
+than being thrown into the air.
 
 ## Changing how he feels
 
