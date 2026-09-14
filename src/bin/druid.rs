@@ -126,6 +126,13 @@ impl Handler {
         // same reason as the look above: a headless screenshot cannot press
         // `C`, and "did the founding place anybody" is a question with a
         // number rather than a picture.
+        // `PIXEL_PHYSICS_DRUID_KEYS=0` -- start with the legend hidden. It
+        // is twenty rows tall and covers the lower half of a 512x320 frame,
+        // which is exactly where the ground is; a headless run cannot press
+        // `/`.
+        if std::env::var("PIXEL_PHYSICS_DRUID_KEYS").is_ok_and(|v| v == "0") {
+            game.show_keys = false;
+        }
         if std::env::var("PIXEL_PHYSICS_DRUID_FOUND").is_ok_and(|v| v != "0") {
             game.found_colony();
         }
@@ -312,12 +319,6 @@ impl Handler {
         self.game.player_input.grab = self.held.grab;
         self.game.player_input.jump_pressed |= std::mem::take(&mut self.jump_pressed);
 
-        // Per tick rather than per frame: it is priced per second, and a
-        // frame is worth several ticks on a slow box.
-        if self.laying || (self.game.ticks >= self.lay.0 && self.game.ticks < self.lay.1) {
-            self.game.lay_trail();
-        }
-
         if let Some(n) = self.found_at {
             if self.game.ticks >= n {
                 self.found_at = None;
@@ -371,6 +372,16 @@ impl Handler {
         self.accumulator += elapsed;
         let mut ticks = 0;
         while self.accumulator >= TICK && ticks < MAX_TICKS_PER_FRAME {
+            // **Inside the tick loop, and it was outside it.** `lay_trail` is
+            // priced per second and divides by `TICKS_PER_SECOND`, so calling
+            // it once per *frame* charged a fast machine less than a slow one
+            // for the same walk -- and laid one mark per frame instead of one
+            // per cell, which is the whole reason `TICK` exists. Caught by a
+            // counter and not by the picture: a headless run walked 239 cells
+            // and reported `trail 1 marks`.
+            if self.laying || (self.game.ticks >= self.lay.0 && self.game.ticks < self.lay.1) {
+                self.game.lay_trail();
+            }
             self.game.update();
             self.accumulator -= TICK;
             ticks += 1;
@@ -694,6 +705,7 @@ fn census(game: &Druid) {
             let d = (((tx - mx) as f32).powi(2) + ((ty - my) as f32).powi(2)).sqrt();
             let near = w
                 .live_organism_ids()
+                .into_iter()
                 .filter_map(|id| w.organism(id))
                 .filter(|s| w.species.get(s.species).creature.is_some())
                 .filter(|s| s.cells.keys().next().is_some_and(|&(x, y)| (x - tx).abs() < 40 && (y - ty).abs() < 40))

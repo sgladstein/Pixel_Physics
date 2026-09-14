@@ -8644,6 +8644,13 @@ blind, thin-shelled, slow lineage is simply cheap rather than a discount to
 farm. A default founding — common ant, twelve, neutral — is 144 against a full
 pool of 600. Like every other number in this economy, first guesses.
 
+**You pay for the founders that landed, not the ones you asked for**, and the
+gap is not small: a headless founding of twelve `hopper` on rolling ground
+seated **3**, because `colony_stations` lays out a corridor and a station that
+does not fit is declined. Paying 224 for three animals is unfairness a player
+notices at once and cannot see the cause of. Affordability is still checked
+against the full ask, so a founding can never overdraw the pool.
+
 ### Telling the colony where to go
 
 The colony was a thing you owned and watched. `G`, held while you walk, lays a
@@ -8674,6 +8681,15 @@ only by an ant *already carrying* — so a colony that never reaches a first
 meal never lays a trail for anyone to follow, and random-walks with a full
 larder out of reach. A finger that can put scent down is the missing first
 mark.
+
+**A trail only commands where time runs**, and that falls out of the held
+gate rather than out of anything here: creatures tick on the active-site
+schedule, which `scheduler::step` gates on `time_runs_at`. So a trail leading
+out of every circle leads a colony that is not moving. The two verbs are
+paired — you lay the route *and* you pay to extend time along it, or you draw
+inside a standing circle you already have. That coupling is the game working
+rather than a limitation: the instruction is free-ish and the running time it
+needs is not.
 
 The mark is drawn by sampling the plane at the cells he laid, **not** by
 remembering how bright each was: a mark fades exactly as its scent does and

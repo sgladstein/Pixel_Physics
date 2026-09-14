@@ -93,7 +93,21 @@ const FLOW: [u8; 4] = [255, 250, 225, 255];
 /// The halo around a mote, and what the landing ring fades to.
 /// The scent the druid lays — a cold green, so it reads as something put
 /// down rather than as the warm energy of the drain.
-const SCENT: [u8; 4] = [120, 235, 170, 255];
+const SCENT: [u8; 4] = [120, 255, 180, 255];
+/// **How many brightness levels a mark can take.** See `Interface::scent`
+/// for why this is banded at all rather than continuous — it is the
+/// dirty-rect skip, not the palette.
+const SCENT_BANDS: u8 = 8;
+
+/// ...and the faintest a mark gets before it is dropped.
+///
+/// **Not a fade toward the panel colour**, which is what the first version
+/// did and why the first headless shot showed no trail at all: a fresh mark
+/// is `DEPOSIT` = 40 of 255, so it blended 37% of the way from navy to green
+/// and came out a dark muted green that is indistinguishable from the
+/// dead-root texture it lies on. A mark is either there or it is not; how
+/// strong it is varies the *green*, never how much ground shows through.
+const SCENT_FAINT: [u8; 4] = [46, 150, 96, 255];
 
 const FLOW_FAINT: [u8; 4] = [190, 150, 70, 255];
 
@@ -291,8 +305,16 @@ pub struct Interface {
     motes: Vec<Mote>,
     /// Screen position and 0..1 age of each arrival bloom.
     landings: Vec<(i32, i32, f32)>,
-    /// Scent he has laid, in screen pixels, with how strong it still is.
-    scent: Vec<(i32, i32, f32)>,
+    /// Scent he has laid, in screen pixels, with how strong it still is —
+    /// **quantised to [`SCENT_BANDS`] levels, and that is not cosmetic.**
+    ///
+    /// This value is compared against last frame's to decide whether the
+    /// corner owes a repaint. A raw 0..1 strength changes on *every* frame,
+    /// because the plane is decaying every pass — so a trail lying on settled
+    /// ground would force a full repaint for ever and quietly cost the
+    /// dirty-rect skip its whole job. Banding means the comparison moves only
+    /// when a mark visibly changes, which is seconds apart.
+    scent: Vec<(i32, i32, u8)>,
     /// The founding screen, while it is open.
     founding: Option<Founding>,
 }
@@ -330,8 +352,8 @@ impl Interface {
 
         // **What he has told them.** Under the marks and motes, over the
         // rings: it is ground he has written on, not an event.
-        for (x, y, strength) in &self.scent {
-            hc.put(frame, *x, *y, lerp(PANEL, SCENT, 0.25 + strength * 0.75));
+        for (x, y, band) in &self.scent {
+            hc.put(frame, *x, *y, lerp(SCENT_FAINT, SCENT, *band as f32 / (SCENT_BANDS - 1) as f32));
         }
 
         // **The promise: a mark over an animal holding charge.** A chevron
@@ -482,7 +504,7 @@ impl Interface {
 ///
 /// Only the cells he laid are sampled, not the screen: a per-pixel read of
 /// the plane every frame is sweep-scale work for a readout.
-fn scent(game: &Druid) -> Vec<(i32, i32, f32)> {
+fn scent(game: &Druid) -> Vec<(i32, i32, u8)> {
     game.trail
         .iter()
         .filter_map(|&(x, y)| {
@@ -491,7 +513,7 @@ fn scent(game: &Druid) -> Vec<(i32, i32, f32)> {
                 return None;
             }
             let (sx, sy) = game.renderer.world_to_screen(x, y)?;
-            Some((sx, sy, v as f32 / 255.0))
+            Some((sx, sy, (v as u16 * SCENT_BANDS as u16 / 256) as u8))
         })
         .collect()
 }
@@ -961,7 +983,7 @@ mod tests {
             marks: vec![Mark { x: 120, y: 140, fullness: 0.8 }],
             motes: vec![Mote { x: 160, y: 130, bright: 0.5 }],
             landings: vec![(200, 150, 0.3)],
-            scent: vec![(140, 152, 0.9), (141, 152, 0.6), (142, 153, 0.2)],
+            scent: vec![(140, 152, 7), (141, 152, 4), (142, 153, 1)],
             // **The screen is in the idempotence guard, not beside it.** It
             // draws the biggest panel in the game, and a panel is exactly the
             // shape that compounded last time.

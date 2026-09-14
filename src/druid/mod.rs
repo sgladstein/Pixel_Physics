@@ -1022,7 +1022,15 @@ impl Druid {
             }
             placed += 1;
         }
-        println!("druid: founded {placed} {species} at {x},{y} for {cost:.0} power (asked for {founders})");
+        // **Charged for what landed, not for what you asked for**, and the
+        // difference is not small: a headless founding of twelve `hopper` on
+        // rolling ground seated **3**, because `colony_stations` lays out a
+        // corridor and a station that does not fit is declined. Paying 224
+        // for three animals is the kind of unfairness a player notices at
+        // once and cannot see the cause of. Affordability was checked against
+        // the full ask above, so a founding can never overdraw.
+        let paid = candidate.cost(placed as i32);
+        println!("druid: founded {placed} {species} at {x},{y} — asked for {founders} at {cost:.0}, paid {paid:.0}");
         // **Spend it where you can see it go.** The pool coming off the meter
         // is a number changing in the corner; this is the same event as
         // something leaving the caster and arriving in the ground, and it is
@@ -1031,17 +1039,17 @@ impl Druid {
         // simulation believes"*. Capped so a twenty-four founder colony is a
         // heavier flow than a four without being a wall of motes.
         for &(cx, cy) in stations.iter().take(FOUNDING_STREAMS) {
-            self.draws.push(Draw { from: (cx, cy), outward: true, age: 0, amount: cost / placed.max(1) as f32 });
+            self.draws.push(Draw { from: (cx, cy), outward: true, age: 0, amount: paid / placed.max(1) as f32 });
         }
         if placed == 0 {
             self.note("nothing founded - no ground here");
             return 0;
         }
         if !self.unlimited {
-            self.power -= cost;
+            self.power -= paid;
         }
         self.animals += placed;
-        self.note(format!("{placed} {} founded for {cost:.0}", candidate.stock().name.to_lowercase()));
+        self.note(format!("{placed} {} founded for {paid:.0}", candidate.stock().name.to_lowercase()));
         // **Committing is what costs you the other two.** Walking away does
         // not reroll, and neither does a refusal above — only a founding that
         // actually happened.
@@ -1451,7 +1459,7 @@ mod tests {
         let walk: Vec<i32> = (40..70).collect();
 
         // The arm: lay along the row, letting the plane age between marks.
-        let mut w = World::new(256, 128);
+        let mut w = World::new(Rect::new(0, 0, 255, 127));
         for &x in &walk {
             w.deposit_pheromone(Channel::B, x, 64, DEPOSIT);
             for _ in 0..12 {
@@ -1466,7 +1474,7 @@ mod tests {
         );
 
         // The control: the identical walk with the plane frozen.
-        let mut c = World::new(256, 128);
+        let mut c = World::new(Rect::new(0, 0, 255, 127));
         for &x in &walk {
             c.deposit_pheromone(Channel::B, x, 64, DEPOSIT);
         }
