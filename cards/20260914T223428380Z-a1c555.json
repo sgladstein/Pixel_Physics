@@ -1,0 +1,52 @@
+{
+  "id": "20260914T223428380Z-a1c555",
+  "created": "2026-09-14T22:34:28Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/druid-look",
+    "commit": "d7b31532",
+    "agent": null,
+    "session_id": "14a7ca69-3c22-5406-8545-a1ad6dc7a692",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Speed colour, pushed further",
+  "question": "Is the difference between a slow bubble and a fast one visible enough now?",
+  "context_md": "You said of the last one: *\"This is the idea, but make the color change a little more visible. You are close.\"*\n\nSame four settings of the dial in each pane — **x1 top-left, x2 top-right, x4 bottom-left, x8 bottom-right**. Only the ramp changed between the two panes.\n\nI pushed both halves of it:\n\n- **the hot end is warmer** — a warm gold rather than a near-white\n- **a fast bubble is denser**, not just warmer. Measured: a x8 bubble now carries **1.72x** the tint of a x1 one, against 1.37x before\n\n**One thing I deliberately did not do, and it is the ceiling on this.** Pushing the hot end further means going into amber — and amber is already the colour of the bubble *he is carrying*. Past about here, a fast placed bubble starts reading as his own bubble, and I would be buying one distinction by spending another. If you want it hotter still, tell me and I will take the carried bubble somewhere else first rather than let the two collide.\n\nThe shimmer speed is unchanged and identical in every tile — that is the part you asked to stop moving with the dial.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before",
+      "files": [
+        "20260914T223428380Z-a1c555/000-speeds_card.png"
+      ],
+      "caption": "the ramp you saw: hot end near-white, density 1.45x",
+      "meta": {
+        "bubbles drawn as haze per tile": 1,
+        "tint a x8 bubble carries vs x1": "1.37x"
+      },
+      "focus": null
+    },
+    {
+      "label": "after",
+      "files": [
+        "20260914T223428380Z-a1c555/001-speeds_v2.png"
+      ],
+      "caption": "hot end warmed to gold, density 2.0x",
+      "meta": {
+        "bubbles drawn as haze per tile": "1 standing + 1 carried",
+        "tint a x8 bubble carries vs x1": "1.72x"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
