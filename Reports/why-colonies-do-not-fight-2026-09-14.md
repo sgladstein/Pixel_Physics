@@ -169,7 +169,7 @@ whatever produced that zero, this bed at 24,000 frames on three seeds reports
 344–475. And it is another instance of `CLAUDE.md`'s worst-recurring failure:
 `attacks` is arithmetically correct, has always been correct, and answers
 "how often did the `Attack` branch reach a target" rather than "did anything
-fight". Filed as `Reports/open-bugs-handoff.md` §Z22.
+fight". Filed as `Reports/open-bugs-handoff.md` §Z23.
 
 ## "Eating each other" is a different question, and the answer is: they already do
 
@@ -225,7 +225,7 @@ apply, and every knob is echoed on the run's first line.
 | `between%` / `within%` | share of living animal pairs that are mutually outside each other's tolerance, **split by whether the pair share a colony label** | two colonies becoming foreign to each other, and a colony eating itself, are opposite findings that a pooled figure cannot tell apart |
 | `gap` | mean scent distance between members of *different* colonies, against a tolerance radius of 1.0 | this is what explains a null: at `scent_spread = 1` the per-colony offsets are a **draw**, so a seed can land inside the radius and the dial does nothing |
 | `contacts` / `cross` | living animals standing in each other's `nearest_foe` ring, and the subset that are mutually strangers | the **opportunity** count — it separates "they never meet" from "they meet and do not bite", which `attacks == 0` cannot |
-| `xcol` / `own` / `plantkill` | kills from `World::kills_log`, split by whether attacker and victim shared a colony, and by whether the victim was an animal at all | **"colonies fighting" is `xcol`.** `attacks` is not a fighting counter — see §Z22 |
+| `xcol` / `own` / `plantkill` | kills from `World::kills_log`, split by whether attacker and victim shared a colony, and by whether the victim was an animal at all | **"colonies fighting" is `xcol`.** `attacks` is not a fighting counter — see §Z23 |
 | `starv%`, deaths by cause | the owner's bed reports every death as starvation | if closing a gap only changes *which* deaths happen, the bed has gained a new way to die rather than a war |
 | `corpse_j` / `plant_j` | `EnergyLedger`, for the eating half | scavenging is not fighting and is measured separately |
 
@@ -416,7 +416,7 @@ group, which is a `creature.rs` change and a different size of job.
    dial, on the page a player can reach, with the honest label — *how far
    apart two colonies start*. Default-off because the owner asked to explore
    and has not seen it; he can rule otherwise in a sentence.
-3. **Fix §Z22 either way.** It is not conditional on any of this: the played
+3. **Fix §Z23 either way.** It is not conditional on any of this: the played
    bed today destroys 58–95 cells of standing food per 24,000 frames through
    a verb aimed at plants, and the counter everyone reads as "did anything
    fight" is counting that.

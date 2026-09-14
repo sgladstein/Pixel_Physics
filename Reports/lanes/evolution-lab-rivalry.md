@@ -22,7 +22,7 @@ touched**.
 | Report | [`Reports/why-colonies-do-not-fight-2026-09-14.md`](../why-colonies-do-not-fight-2026-09-14.md) |
 | Harness | `examples/rivalry.rs` — the chain measured link by link on one run, with both controls in `control=selftest` |
 | Card | see **Cards** below |
-| Bug filed | `Reports/open-bugs-handoff.md` §Z22 — `nearest_foe` counts a plant as a foe |
+| Bug filed | `Reports/open-bugs-handoff.md` §Z23 — `nearest_foe` counts a plant as a foe |
 | PR | [#416](https://github.com/sgladstein/Pixel_Physics/pull/416), head `f3d2ef56`. **Coordinator owns the merge.** |
 
 **No shipped species file was edited and no default changed.** Every arm in
@@ -95,7 +95,7 @@ can be ignored.
 ## Files this lane owns
 
 `Reports/why-colonies-do-not-fight-2026-09-14.md`, this note, its line in
-`Reports/README.md`, `examples/rivalry.rs`, and the §Z22 section of
+`Reports/README.md`, `examples/rivalry.rs`, and the §Z23 section of
 `Reports/open-bugs-handoff.md`. **`src/sim/creature.rs`, `src/render.rs`,
 `src/bin/lab.rs` and `src/lab/ui.rs` were not touched** — no change to
 `creature.rs` turned out to be needed, so there is nothing for the
@@ -109,8 +109,18 @@ commit merges it in and **CI is 9 of 9 green on it**. The one conflict was
 `Reports/open-bugs-handoff.md`, the contested file the rules warn about: the
 generated index block was taken whole from `main` and regenerated with
 `scripts/bugindex.py` rather than hand-merged, and the two bug sections
-appended to the same end of the file — **§Z21 from `main` and §Z22 from here**
+appended to the same end of the file — **§Z21 from `main` and §Z23 from here**
 — were both kept. `docscheck` was re-run after the merge, unconditionally.
+
+**The letter changed after that merge, and not because of it.** This lane
+filed §Z22 at 05:47; `claude/absorb-destroys-plants` had already filed a
+different §Z22 at 04:48 on an unlanded branch, which is exactly the case
+`bugindex.py --check` cannot see and `--branches` can. First filed wins, so
+this lane's section is **§Z23** and the earlier filing keeps §Z22. The
+renumber was made by the round coordinator rather than by this lane, because
+the lane was idle and the round was waiting on it; it is a rename of the
+heading, the index row and five cross-references, and no claim in the section
+changed.
 
 Gates re-run **after** the merge: clippy clean; `cargo test --release --lib`
 **1,756 passed / 0 failed / 85 ignored**; `--test worldgen --test determinism`

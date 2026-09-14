@@ -2204,7 +2204,7 @@ drift that two of these documents still reflect.**
   no colony, so any ant scavenges any dead, measured at 2–4% of intake and
   100% of it in a plantless box — a readout gap (`harvested_corpse` is one
   global `f64`), not a mechanism gap, and the account Lane B's per-colony
-  ledger would split. Files `open-bugs-handoff.md` §Z22: `nearest_foe` counts
+  ledger would split. Files `open-bugs-handoff.md` §Z23: `nearest_foe` counts
   a **plant** as a foe, so every one of the played bed's 344–475 "attacks" is
   an ant biting a leaf, and `attacks` is not a fighting counter. Harness
   `examples/rivalry.rs`, both controls in `control=selftest`, two of whose

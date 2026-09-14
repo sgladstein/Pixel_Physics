@@ -162,7 +162,7 @@ point.
 | Z17 | **OPEN** | 12241 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
 | Z20 | closed | 12293 | labgif wire= was a silent no-op for every card it has ever produced (lab) |
 | Z21 | **OPEN** | 12334 | The held world's grown and dead starts fill every organism slot, so C founds nothing |
-| Z22 | **OPEN** | 12433 | nearest_foe counts a plant as a foe, so a fed colony quietly vandalises its own larder |
+| Z23 | **OPEN** | 12433 | nearest_foe counts a plant as a foe, so a fed colony quietly vandalises its own larder |
 
 <!-- END GENERATED INDEX -->
 
@@ -12430,7 +12430,7 @@ like a colony that will not.
 
 ---
 
-### Z22. `nearest_foe` counts a plant as a foe, so a fed colony quietly vandalises its own larder — and `attacks` is not a fighting counter (creature) — **OPEN, round 35, 2026-09-14**
+### Z23. `nearest_foe` counts a plant as a foe, so a fed colony quietly vandalises its own larder — and `attacks` is not a fighting counter (creature) — **OPEN, round 35, 2026-09-14**
 
 **What it is.** `creature::nearest_foe` — `BrainOutput::Attack`'s own walk of
 the attacker's body ring — skips a cell only if it is unowned, the attacker's
