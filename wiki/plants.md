@@ -3,7 +3,11 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-09-12 (**a seed an animal bites is usually not
+*Current as of: 2026-09-13 (**root-bound ground is ground to walk on.** A
+root plate is threaded through the bank, and it now holds a walker up the
+way the soil around it does instead of being a hole he drops through — see
+**Roots** below, and [The Gnome](the-gnome.md). Before that, 2026-09-12:
+**a seed an animal bites is usually not
 destroyed any more, whatever kind of plant made it.** Until now only a herb
 or a scrambler's seed could survive a mouth, and only while it was still
 wrapped in the fruit that carried it; a bare seed lying on the ground was
@@ -277,6 +281,16 @@ Root mass does two jobs, and they are the same number:
   how many there are, and a plant carrying a big crown on a narrow root plate
   puts its growth into roots until it catches up. So a tall plant in the open
   builds a wide plate and a squat one does not.
+
+**Root-bound ground is still ground.** Everything above the soil is scenery
+to somebody walking through it — a trunk is something you pass, not
+something you bump into — and roots are the half of a plant that is not.
+They are inside the bank, so they carry a walker's weight the way the soil
+they displaced would: a forest floor thick with root is a floor, wadeable to
+about the knee and level with the bare soil beside it, rather than a lattice
+of holes to fall into. That is one rule with two readings and only the
+second is new: a root already held the *soil* up, and now it holds up
+whatever is standing on the soil too.
 
 **Roots grow toward water they can smell.** A root tip reads how wet the
 ground is a short way off in each direction and leans toward the wetter
