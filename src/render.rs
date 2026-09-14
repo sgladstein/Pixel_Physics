@@ -2786,18 +2786,34 @@ const HELD_CAST: [f32; 3] = {
 /// ground the player is watching. Removing the occlusion means removing the
 /// speed cue, so the haze has to carry speed itself.
 ///
-/// **Two channels, because colour alone is the single-channel readout this
-/// repo keeps learning not to rely on** (`rings`' own doc said so and was
-/// right):
+/// **Speed is carried by colour, and by nothing else.** Owner, 2026-09-14,
+/// having played the first version: *"The speed indication should just be
+/// bubble color, not animation speed (it looks bad when moving fast)."*
 ///
-/// 1. **How fast the haze pulses**, which needs no legend and cannot be
-///    misread, because it is not a mapping at all — the pulse phase is
-///    `World::frame`, and a circle at x8 runs `frame` eight times per drawn
-///    frame. *The shimmer is literally time running.*
-/// 2. **How far the haze reaches inward**, which is the half that survives a
-///    still screenshot — a paused game, a contact sheet, a review card.
-///    [`AuraTuning::depth_per_step`] is what makes a fast circle read as
-///    *full* of running time rather than merely rimmed with it.
+/// That overrules the two-channel argument this doc used to make, and the
+/// overruled half is worth keeping written down because it was not a bad
+/// argument — it was the wrong trade. The haze used to say speed twice:
+///
+/// 1. **How fast it pulsed.** The phase was `World::frame`, and a circle at
+///    x8 runs `frame` eight times per drawn frame, so the shimmer was
+///    literally time running — a readout that needs no legend and cannot be
+///    misread. It is also the thing that *looks bad*, which settles it: a
+///    mechanic that is right on paper and dull-or-ugly in the hand has
+///    failed, and this file's own ethos says so. The phase now advances on
+///    the renderer's own draw counter, so the shimmer runs at one rate
+///    whatever the dial says.
+/// 2. **How far it reached inward.** [`AuraTuning::depth_per_step`] survives
+///    as a dial and defaults to **zero**: with speed in the colour, a band
+///    that also thickens is the flat saturated block at the top of the dial
+///    that this whole change exists to avoid.
+///
+/// Colour alone *is* the single-channel readout this repo keeps warning
+/// about (`rings`' own doc said so). Two things make it affordable here and
+/// both are worth checking if this is ever revisited: the ramp is the
+/// game's existing speed vocabulary — `druid::hud`'s ring ran cold blue to
+/// hot white over the same dial, so nothing new is being taught — and
+/// colour is the channel that *survives a still*, which is what the depth
+/// channel was originally for.
 ///
 /// **Why it is a per-cell recolour in the world pass rather than something
 /// the HUD draws.** `druid::hud` cannot blend: a `Hud::blend` into a region
@@ -2828,7 +2844,13 @@ pub struct AuraTuning {
     /// cells.
     pub depth: f32,
     /// ...and how many more cells each further step of the speed dial buys.
-    /// This is channel 2 — the one a still frame can be read for.
+    ///
+    /// **Zero by default since 2026-09-14** — see the type's own doc. Speed
+    /// is the colour now; a band that thickened with it as well stacked to a
+    /// solid block at the top of the dial. Kept as a dial rather than
+    /// deleted because it is the one lever that puts speed back into a
+    /// channel a colour-blind reading can use, and `examples/druid_aura`
+    /// still sweeps it.
     pub depth_per_step: f32,
     /// Wavelength of the inward-travelling pulse, in world cells.
     pub wave: f32,
@@ -2845,6 +2867,20 @@ pub struct AuraTuning {
     /// the pulses are clean bands and read as rings again, which is the
     /// thing being removed.
     pub grain: f32,
+    /// **How much stronger the haze is at the top of the speed dial**, as a
+    /// multiplier on [`AuraTuning::alpha`]. `1.0` leaves speed entirely to
+    /// the hue.
+    ///
+    /// The second half of "speed is the colour", and it is here because the
+    /// hue on its own measured as a mechanism that fires and cannot be seen:
+    /// the cold end of the ramp is a pale blue against a pale blue sky, so a
+    /// slow circle and a fast one differed by a few units over most of the
+    /// band. A colour that is *stronger* as well as warmer is still a
+    /// statement about colour and not about animation, which is what the
+    /// owner ruled out — and unlike [`AuraTuning::depth_per_step`] it cannot
+    /// stack to a solid block, because it scales a band whose width does not
+    /// move and whose fade still runs to nothing at the inner edge.
+    pub fast_gain: f32,
     /// How many cells the coherent rim noise displaces the boundary by, and
     /// the wavelength it does it at.
     pub rim_rough: f32,
@@ -2857,10 +2893,11 @@ impl Default for AuraTuning {
         Self {
             alpha: 0.55,
             depth: 7.0,
-            depth_per_step: 2.2,
+            depth_per_step: 0.0,
             wave: 7.0,
             period: 48.0,
             grain: 0.55,
+            fast_gain: 1.45,
             rim_rough: 4.5,
             rim_scale: 5.0,
         }
@@ -2883,10 +2920,16 @@ struct AuraDisc {
     r: f32,
     /// `0` standing, `1` carried — indexes `Renderer::aura_reach`/`aura_phase`.
     arm: usize,
-    /// Nothing inside this squared distance can be hazed: it is deeper than
-    /// the reach even where the rim noise pushes the boundary furthest in.
-    inner2: f32,
-    /// ...and nothing outside this one, where it pushes furthest out.
+    /// Nothing outside this squared distance can be hazed, where the rim
+    /// noise pushes the boundary furthest out.
+    ///
+    /// **There is deliberately no matching inner cull, and there used to
+    /// be.** It skipped every pixel deeper than the reach, which is exactly
+    /// the pixel the union rule in `apply_quicken_aura` has to *see*: a
+    /// point buried inside this circle is what tells a neighbouring circle
+    /// not to draw its rim there. Culling it is what made overlapping
+    /// bubbles read as crossing rings. The cost is a `sqrt` per pixel of
+    /// disc interior, inside `aura_bounds` only.
     outer2: f32,
     /// The bounding box, in world cells, for the dirty region.
     bounds: Rect,
@@ -2900,6 +2943,19 @@ struct AuraDisc {
 /// colour is a cheaper thing to keep in step than a `pub use`.
 const AURA_STANDING: [u8; 4] = [150, 220, 255, 255];
 const AURA_CARRIED: [u8; 4] = [255, 214, 140, 255];
+
+/// **What the haze over a standing circle runs *to* at the top of the speed
+/// dial** — `druid::hud`'s `FLOW`, mirrored here for `AURA_STANDING`'s own
+/// reason.
+///
+/// Owner, 2026-09-14: *"The speed indication should just be bubble color."*
+/// This is the ramp the game already spoke in — `hud::speed_tint` ran the
+/// ring from `RING_STANDING` to `FLOW` over the same dial before the
+/// outlines went — so a player who learned it on the ring reads it unchanged
+/// on the haze. Choosing a *new* hue would have been a second thing to
+/// learn, and it would have collided with [`AURA_CARRIED`], which is the
+/// warm end of the only other colour distinction the haze makes.
+const AURA_FAST: [u8; 4] = [255, 250, 225, 255];
 
 /// The top of the held game's speed dial (`druid::SPEED_MAX`), mirrored
 /// rather than imported: `render.rs` is shared by three games and
@@ -3284,6 +3340,11 @@ pub struct Renderer {
     /// change what the picture says about the speed. A fresh `Renderer` has
     /// no previous frame and reads 1 for exactly one draw.
     aura_rate: u32,
+    /// `aura_rate` as a 0..1 position on the speed dial, computed once per
+    /// `draw` beside everything else the per-cell path needs — see
+    /// `refresh_quicken_aura`'s contract. Drives both halves of the speed
+    /// readout: the hue in `aura_tint` and the strength in `aura_amount`.
+    aura_speed_t: f32,
     /// `World::frame` as of the previous `draw`, for the measurement above.
     aura_last_world_frame: Option<u64>,
     /// The screen rectangles the aura covered on the previous `draw`, and the
@@ -3603,6 +3664,7 @@ impl Renderer {
             aura_phase: [0.0; 2],
             aura_step: [0; 2],
             aura_rate: 1,
+            aura_speed_t: 0.0,
             aura_last_world_frame: None,
             last_aura_rects: Vec::new(),
             last_aura_step: None,
@@ -3885,6 +3947,21 @@ impl Renderer {
     /// draws and check this says `n`, before trusting any picture it drew.
     pub fn aura_rate(&self) -> u32 {
         self.aura_rate
+    }
+
+    /// **How many circles this draw's haze was actually built from**, as
+    /// `(standing, carried)`.
+    ///
+    /// `CLAUDE.md`'s *"did it fire at all" needs a counter, not a picture*,
+    /// pointed at the one thing a contact sheet of a haze cannot say. A haze
+    /// drawn too faint and a haze never built look identical at the zoom a
+    /// card is read at, and they want opposite fixes — this separates them,
+    /// and it counts what the *renderer* holds rather than what the world
+    /// does, so a circle culled or a disc list left stale reads as the zero
+    /// it is.
+    pub fn aura_disc_count(&self) -> (usize, usize) {
+        let carried = self.aura_discs.iter().filter(|d| d.arm == 1).count();
+        (self.aura_discs.len() - carried, carried)
     }
 
     /// Step how held ground is drawn — see [`HeldLook`].
@@ -7449,7 +7526,8 @@ impl Renderer {
         } else {
             rgb
         };
-        let tinted = self.apply_field_overlay(world, x, y, [rgb[0], rgb[1], rgb[2], 255]);
+        let plain = [rgb[0], rgb[1], rgb[2], 255];
+        let tinted = self.apply_field_overlay(world, x, y, plain);
         // Applied *after* the field overlay, deliberately: the two can be on
         // at once (light and canopy density together is the pairing that
         // actually explains where a tip chose to grow), and when they are,
@@ -7459,12 +7537,33 @@ impl Renderer {
         // lighting: a debug channel must stay readable at midnight, and the
         // full-replace ramps below are exactly the channels that must not be
         // modulated by the time of day.
-        // **Last, and after the debug channels deliberately.** This one is
-        // not a readout, it is what the *world* looks like where time has
-        // stopped, so a debug overlay drawn on held ground should still read
-        // as that overlay rather than being greyed with everything else.
         let tinted = self.apply_organism_overlay(world, x, y, tinted);
-        let tinted = self.apply_held_look(world, x, y, tinted);
+        // **The held look yields to a debug channel, and it used to win.**
+        //
+        // Owner, 2026-09-14: *"the overlays from the evolution lab should
+        // also work in this game."* They were routed here already — this
+        // function is shared by all three games and nothing skipped them —
+        // and they still came out unreadable, because `apply_held_look` is a
+        // full replace onto one hue that runs *after* them and covers most
+        // of a held world. Every ramp collapsed to the same colour with only
+        // its luminance left, which is the `CLAUDE.md` failure of a debug
+        // readout that is a function of the thing it debugs: the moisture
+        // ramp and the food ramp came out the same hue as the ground.
+        //
+        // The comment that stood here claimed this ordering already left the
+        // overlay readable. It did not, and it is worth saying why it read
+        // as though it might: on the *lab* and the sandbox `apply_held_look`
+        // returns on its first test, so the claim was true everywhere anyone
+        // was looking when it was written.
+        //
+        // **The test is "did a debug channel paint this cell", not "is one
+        // switched on".** A field overlay covers the screen and an organism
+        // overlay covers a few hundred cells; keying on the mode would drop
+        // the held look off the whole world to make a handful of ant cells
+        // readable, and where time has stopped is this game's premise. Four
+        // bytes compared against what the chain started with says exactly
+        // which cells were spoken for and costs nothing.
+        let tinted = if tinted == plain { self.apply_held_look(world, x, y, tinted) } else { tinted };
         // **Last of all, and after the held look deliberately.** That one
         // says what stopped ground looks like; this says where it has not
         // stopped, and where the two meet the second is the more specific
@@ -7743,10 +7842,22 @@ impl Renderer {
             (self.aura.depth + (self.aura_rate.saturating_sub(1)) as f32 * self.aura.depth_per_step).max(1.0),
             self.aura.depth.max(1.0),
         ];
-        // The standing circles' clock is the world's; the carried one's is
-        // this renderer's own draw counter -- see `aura_reach`. Both are
-        // quantised, and both go into the dirty-region comparison below.
-        self.aura_step = [world.frame / AURA_FRAME_QUANTUM, self.frame / AURA_FRAME_QUANTUM];
+        self.aura_speed_t = ((self.aura_rate.max(1) - 1) as f32 / (AURA_RATE_MAX - 1).max(1) as f32).clamp(0.0, 1.0);
+        // **Both clocks are this renderer's own draw counter, and the
+        // standing one used to be the world's.** That is the whole of
+        // "not animation speed": `World::frame` advances once per step and a
+        // held world at x8 takes eight steps per drawn frame, so the pulse
+        // ran eight times faster on a fast circle. It was a readout that
+        // could not be misread and the owner's verdict on it was that it
+        // *looks bad* — see `AuraTuning`'s doc. Off the draw counter the
+        // shimmer runs at one rate whatever the dial says, and speed is
+        // read off the tint instead.
+        //
+        // It is also cheaper, which is not why it was done but is worth
+        // recording: `AURA_FRAME_QUANTUM` now holds the phase for two drawn
+        // frames at *every* setting, where at x8 it used to change on every
+        // one and hand the dirty-rect skip its whole job back.
+        self.aura_step = [self.frame / AURA_FRAME_QUANTUM, self.frame / AURA_FRAME_QUANTUM];
         let phase = |step: u64| (step * AURA_FRAME_QUANTUM) as f32 / self.aura.period.max(1.0);
         self.aura_phase = [phase(self.aura_step[0]), phase(self.aura_step[1])];
 
@@ -7755,15 +7866,13 @@ impl Renderer {
         // square and a ragged trough is never cut off inside.
         let rough = self.aura.rim_rough.abs();
         let slack = rough.ceil() as i32 + 1;
-        let disc = |cx: i32, cy: i32, r: i32, arm: usize, reach: f32| {
-            let inner = (r as f32 - reach - rough).max(0.0);
+        let disc = |cx: i32, cy: i32, r: i32, arm: usize, _reach: f32| {
             let outer = r as f32 + rough + 1.0;
             AuraDisc {
                 cx,
                 cy,
                 r: r as f32,
                 arm,
-                inner2: inner * inner,
                 outer2: outer * outer,
                 bounds: Rect::new(cx - r - slack, cy - r - slack, cx + r + slack, cy + r + slack),
             }
@@ -7843,7 +7952,32 @@ impl Renderer {
         let tri = 1.0 - (2.0 * f - 1.0).abs();
         let pulse = tri * tri * (3.0 - 2.0 * tri);
         let grain = 1.0 - self.aura.grain.clamp(0.0, 1.0) * rng::jitter3(x, y, self.aura_step[arm] as i32);
-        self.aura.alpha * fade * (AURA_PULSE_FLOOR + (1.0 - AURA_PULSE_FLOOR) * pulse) * grain
+        // **The strength half of the speed readout** — see
+        // `AuraTuning::fast_gain`. Standing circles only: the carried one is
+        // not placed and has no speed to report, so ramping it would say a
+        // thing about the dial that is not true of that circle.
+        let gain = if arm == 1 { 1.0 } else { 1.0 + (self.aura.fast_gain - 1.0) * self.aura_speed_t };
+        (self.aura.alpha * gain).min(1.0) * fade * (AURA_PULSE_FLOOR + (1.0 - AURA_PULSE_FLOOR) * pulse) * grain
+    }
+
+    /// **What colour the haze is, which is where speed lives.**
+    ///
+    /// A standing circle runs from [`AURA_STANDING`] at real time to
+    /// [`AURA_FAST`] at the top of the dial — `druid::hud::speed_tint`'s own
+    /// ramp, on `aura_rate`, which is speed as this renderer *measured* it
+    /// rather than as a caller claimed it. The carried circle does not ride
+    /// the ramp: it is the one he is holding and has not placed, so it has
+    /// no speed to report, and [`AURA_CARRIED`] staying put is what keeps
+    /// "his" readable against a fast standing circle warming toward white.
+    fn aura_tint(&self, arm: usize) -> [u8; 4] {
+        if arm == 1 {
+            return AURA_CARRIED;
+        }
+        let t = self.aura_speed_t;
+        let mix = |i: usize| {
+            (AURA_STANDING[i] as f32 + (AURA_FAST[i] as f32 - AURA_STANDING[i] as f32) * t).round().clamp(0.0, 255.0) as u8
+        };
+        [mix(0), mix(1), mix(2), 255]
     }
 
     /// **The haze itself** — see [`AuraTuning`] for what it is for and why it
@@ -7877,35 +8011,55 @@ impl Renderer {
         // than each carrying their own — which is what keeps it reading as
         // terrain the haze is lying over.
         let rough = self.aura.rim_rough * self.aura_rim_noise(x, y);
-        let mut best = 0.0f32;
-        let mut carried = false;
+        // **The outline of the union, not one outline per circle.**
+        //
+        // Owner, 2026-09-14: *"when you place multiple overlapping, they
+        // should merge instead of just looking like overlapping circles."*
+        // The previous version already did "the strongest circle wins rather
+        // than the sum" — which is right, and was not the defect. The defect
+        // was that every disc still drew its *own* rim band, including the
+        // stretch of it buried inside a neighbour, so three bubbles read as
+        // three crossing rings and not as one blob.
+        //
+        // **The rule is one line of geometry.** To leave the union you have
+        // to leave every circle you are in, so the depth of a point inside
+        // the union is `max` over the discs of its depth inside each — and
+        // the disc that attains that maximum is the one whose arc *is* the
+        // union boundary there, so it also says which tint and which reach
+        // to use. A point deep inside any circle therefore has a large
+        // maximum, fails the reach test, and draws nothing, whichever
+        // neighbour's rim it happens to lie under. Where the circles do not
+        // touch the maximum is just that circle's own depth and the rule
+        // collapses to the old one.
+        //
+        // (`max` is a lower bound on the true distance to the union's
+        // complement rather than equal to it, so the band is a shade wider
+        // than an exact union across a lens. Exactness is not what this is
+        // for, and at a ragged noisy rim the difference is under the noise.)
+        let mut deepest = f32::NEG_INFINITY;
+        let mut arm = 0usize;
         for disc in &self.aura_discs {
             let (dx, dy) = ((x - disc.cx) as f32, (y - disc.cy) as f32);
             let dist2 = dx * dx + dy * dy;
-            if dist2 >= disc.outer2 || dist2 <= disc.inner2 {
+            if dist2 >= disc.outer2 {
                 continue;
             }
             // The distance *inside* the rim, with the rim itself displaced by
             // the coherent noise: positive inside, negative out.
             let d = disc.r - dist2.sqrt() + rough;
-            if d < 0.0 || d >= self.aura_reach[disc.arm] {
-                continue;
-            }
-            let a = self.aura_amount(x, y, d, disc.arm);
-            if a > best {
-                best = a;
-                carried = disc.arm == 1;
+            if d > deepest {
+                deepest = d;
+                arm = disc.arm;
             }
         }
+        if deepest < 0.0 || deepest >= self.aura_reach[arm] {
+            return base;
+        }
+        let best = self.aura_amount(x, y, deepest, arm);
         if best <= 0.0 {
             return base;
         }
-        // **The strongest circle wins rather than the sum.** Two overlapping
-        // circles adding would make their lens brighter than either, which
-        // says "something else is here" about a region where nothing else is;
-        // and at the top of the dial a stack of them would saturate to a flat
-        // block, which is the complaint this change exists to answer.
-        let tint = if carried { AURA_CARRIED } else { AURA_STANDING };
+        let tint = self.aura_tint(arm);
         let mut out = base;
         for i in 0..3 {
             out[i] = (base[i] as f32 + (tint[i] as f32 - base[i] as f32) * best).round().clamp(0.0, 255.0) as u8;
@@ -9495,6 +9649,80 @@ mod tests {
         assert_eq!(plain, all_quickened, "a world entirely inside a quickening must draw exactly as a running one");
     }
 
+    /// **A debug overlay survives the held world's recolour**, which is the
+    /// whole of the owner's third item, 2026-09-14: *"the overlays from the
+    /// evolution lab should also work in this game."*
+    ///
+    /// They were always *routed* — `cell_colour` is shared by all three games
+    /// and nothing skipped them. They were unreadable, because
+    /// `apply_held_look` ran afterwards and is a full replace onto one hue,
+    /// so every ramp arrived at the screen with only its luminance left. A
+    /// guard that merely asked "is the overlay on the path" would have been
+    /// green throughout.
+    ///
+    /// **Temperature rather than light**, and that is not arbitrary: it is a
+    /// *full replace* on a fixed ramp, which is the class the held look was
+    /// destroying, and it fires on every cell. `FieldOverlay::Light` was
+    /// tried first and made the guard vacuous — the light field is flat in a
+    /// world whose field pass has never run, so the overlay drew nothing and
+    /// there were no overlay cells to make a claim about.
+    ///
+    /// Four shots, because the claim is about *which* cells: `P` plain, `H`
+    /// held, `O` the overlay on a running world, `B` both. The overlay's own
+    /// cells are those where `O` differs from `P`; on exactly those, `B` must
+    /// equal `O`. `H != P` is the positive control — without it the whole
+    /// thing passes with the held look deleted.
+    #[test]
+    fn a_debug_overlay_is_readable_on_held_ground() {
+        let mut world = World::new(Rect::new(0, 0, 199, 199));
+        for x in 0..200 {
+            for y in 140..200 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for _ in 0..4 {
+            crate::sim::update::step(&mut world);
+        }
+        let particles = ParticleSystem::new();
+        let shot = |held: bool, overlay: FieldOverlay, world: &mut World| {
+            world.held = held;
+            let mut r = Renderer::new();
+            r.held_look = HeldLook::OneHue;
+            r.field_overlay = overlay;
+            // The aura is off in every arm: it is the one other pass that
+            // draws on a held world, and leaving it on would put a second
+            // reason for two shots to differ inside a guard about ordering.
+            r.aura = AuraTuning::off();
+            let mut buf = vec![0u8; 200 * 200 * 4];
+            r.draw(world, &particles, &ChunkSet::default(), &mut buf, (200, 200), true);
+            buf
+        };
+
+        let p = shot(false, FieldOverlay::Off, &mut world);
+        let h = shot(true, FieldOverlay::Off, &mut world);
+        let o = shot(false, FieldOverlay::Temperature, &mut world);
+        let b = shot(true, FieldOverlay::Temperature, &mut world);
+
+        assert_ne!(p, h, "the held look changed nothing, so this guard cannot see it winning over an overlay");
+        assert_ne!(p, o, "the temperature overlay changed nothing, so there are no overlay cells to make a claim about");
+
+        let mut painted = 0usize;
+        let mut lost = 0usize;
+        for i in (0..p.len()).step_by(4) {
+            if o[i..i + 4] != p[i..i + 4] {
+                painted += 1;
+                if b[i..i + 4] != o[i..i + 4] {
+                    lost += 1;
+                }
+            }
+        }
+        assert!(painted > 1_000, "only {painted} cells carried the overlay, which is too few to read a share off");
+        assert_eq!(
+            lost, 0,
+            "{lost} of {painted} overlay cells were repainted by the held look -- a debug channel that is a function of the thing it debugs is exactly what CLAUDE.md forbids"
+        );
+    }
+
     // --- the quickening aura (`AuraTuning`) ---------------------------------
     //
     // Owner, 2026-09-14: *"They shouldn't be a solid line it blocks too much.
@@ -9587,23 +9815,56 @@ mod tests {
         assert_eq!(r.aura_rate(), 8, "a paused frame reset the measured rate");
     }
 
-    /// **A faster circle hazes deeper** — the channel that survives a still
-    /// screenshot, and the reason removing the concentric speed rings does
-    /// not drop this to a single readout.
+    /// **A faster circle hazes warmer and stronger — and not deeper, and not
+    /// faster**, which is the whole of the owner's 2026-09-14 ruling:
+    /// *"The speed indication should just be bubble color, not animation
+    /// speed (it looks bad when moving fast)."*
     ///
-    /// Counted as cells the haze reached, not as a verdict: `CLAUDE.md`'s
-    /// *a pass/fail read of a graded quantity hides the gradient*. Both arms
-    /// are asserted non-zero, so a count of 0 cannot pass as "no change".
+    /// **This guard replaces one that asserted the opposite** — the depth
+    /// channel, which the same owner then removed. `CLAUDE.md`'s rule about a
+    /// superseded mechanism's tests is why it is rewritten here rather than
+    /// left standing: it would have gone on passing for years once
+    /// `depth_per_step` was tuned back up by accident, guarding a readout
+    /// nobody wanted.
+    ///
+    /// Read as quantities and not as verdicts, per *a pass/fail read of a
+    /// graded quantity hides the gradient*: both arms carry a non-zero
+    /// footprint, so neither assertion below can be satisfied by two nulls.
     #[test]
-    fn a_faster_quickening_hazes_deeper() {
+    fn a_faster_quickening_hazes_warmer_and_stronger_but_not_deeper() {
         let mut world = aura_world();
         let mut r = Renderer::new();
         let mut bare_r = Renderer::new();
         bare_r.aura = AuraTuning::off();
 
-        let mut reached = Vec::new();
+        // **How far each hazed pixel was carried toward its own tint**, and
+        // the first version of this guard summed the raw channel difference
+        // instead. That number is dominated by the hue: blue to near-white
+        // moves red by 105 all on its own, so it reported a healthy increase
+        // with the strength channel switched off entirely — measured, by
+        // setting `fast_gain` to 1.0 and watching this test stay green.
+        // `CLAUDE.md`'s rule about citing a guard's green, applied to the
+        // guard rather than to the code it watches.
+        //
+        // The blend fraction is recoverable because the tint is known:
+        // `out = base + (tint - base) * amount`, so dividing through by the
+        // channel where the tint is furthest from the ground gives `amount`
+        // whatever colour the tint happens to be.
+        //
+        // **Read at a high quantile, and the second version of this guard
+        // summed it instead.** A sum is over the pixels that registered a
+        // change at all, and that set is itself a function of the hue: a
+        // blue tint on a blue sky rounds a faint pixel back to the ground
+        // colour, a near-white one does not. So the sum rose 2.2x across the
+        // dial with `fast_gain` at 1.0 — the strength channel switched off
+        // entirely — purely because the warm arm counted more faint pixels.
+        // The peak of the distribution is set by `alpha * gain` and does not
+        // care how many pixels cleared the rounding.
+        let mut strength = Vec::new();
+        let mut touched = Vec::new();
+        let mut tints = Vec::new();
+        let mut reaches = Vec::new();
         for steps in [1usize, 8] {
-            // Drive the measured rate to `steps`, then photograph.
             aura_shot(&mut r, &world);
             aura_shot(&mut bare_r, &world);
             for _ in 0..steps {
@@ -9612,66 +9873,278 @@ mod tests {
             let hazed = aura_shot(&mut r, &world);
             let bare = aura_shot(&mut bare_r, &world);
             assert_eq!(r.aura_rate(), steps as u32, "the arm did not run at the rate it is named for");
-            let n = hazed.chunks_exact(4).zip(bare.chunks_exact(4)).filter(|(a, b)| a != b).count();
-            reached.push(n);
+            let tint = r.aura_tint(0);
+            let mut amounts: Vec<f32> = Vec::new();
+            let mut n = 0usize;
+            for (a, b) in hazed.chunks_exact(4).zip(bare.chunks_exact(4)) {
+                if a == b {
+                    continue;
+                }
+                n += 1;
+                // The widest-separated channel, so the division is never by a
+                // near-zero and the recovered fraction is never amplified
+                // noise. A ground colour that happens to sit on the tint in
+                // every channel carries no information about the amount and
+                // is skipped rather than guessed at.
+                let pick = (0..3).max_by_key(|&i| (tint[i] as i32 - b[i] as i32).abs());
+                if let Some(i) = pick {
+                    let span = tint[i] as f32 - b[i] as f32;
+                    // A wide span only: on a narrow one the byte rounding is
+                    // a large share of the recovered fraction, and both arms
+                    // have to be read on the same terms.
+                    if span.abs() >= 100.0 {
+                        amounts.push((a[i] as f32 - b[i] as f32) / span);
+                    }
+                }
+            }
+            amounts.sort_by(|u, v| u.partial_cmp(v).expect("recovered blend fractions are finite"));
+            assert!(amounts.len() > 200, "only {} pixels were readable for strength at x{steps}, which is too few to take a quantile of", amounts.len());
+            strength.push(amounts[amounts.len() * 99 / 100] as f64);
+            touched.push(n);
+            tints.push(tint);
+            reaches.push(r.aura_reach[0]);
         }
-        assert!(reached[0] > 0, "the real-time arm hazed nothing, so the comparison below is between two nulls");
+        assert!(touched[0] > 0 && touched[1] > 0, "an arm hazed nothing, so every comparison below is between nulls: {touched:?}");
+
+        // 1. Warmer. The ramp runs toward `AURA_FAST`, whose red is far above
+        //    `AURA_STANDING`'s and whose blue is below it -- asserting both
+        //    ends is what stops a uniform brightening passing as a hue.
+        assert_eq!(tints[0], AURA_STANDING, "at real time the standing haze must be the colour the ring was, and it was {:?}", tints[0]);
         assert!(
-            reached[1] > reached[0] * 2,
-            "eight times the speed must be visibly more haze and not merely a faster one: x1 reached {} pixels, x8 reached {}",
-            reached[0],
-            reached[1]
+            tints[1][0] > tints[0][0] + 40 && tints[1][2] < tints[0][2],
+            "x8 must read as a hotter colour than x1 and not merely a brighter one: x1 {:?}, x8 {:?}",
+            tints[0],
+            tints[1]
+        );
+
+        // 2. Stronger. Read as the blend fraction, which is the quantity
+        //    `fast_gain` actually names, so a dial wired to nothing cannot
+        //    pass on the hue's coat-tails.
+        // **A fixed bar, not `fast_gain` read back.** Deriving the
+        // expectation from the dial made this guard agree with whatever the
+        // dial said, so switching the channel off satisfied it — the bar
+        // moved with the fault, and the test stayed green through the very
+        // thing it is named for. `CLAUDE.md`'s *set bars from measurement
+        // with headroom*: measured 2026-09-14, this ratio is **1.37** at the
+        // shipped `fast_gain` of 1.45 and **0.94** with the channel switched
+        // off, so 1.20 sits in the gap rather than on either value.
+        const DENSER: f64 = 1.20;
+        let got = strength[1] / strength[0].max(f64::MIN_POSITIVE);
+        assert!(
+            got > DENSER,
+            "x8 must carry a denser haze than x1, not merely a warmer one: the blend peaked at {:.3} against {:.3} over {} and {} pixels, a ratio of {got:.2} against a bar of {DENSER:.2}",
+            strength[1],
+            strength[0],
+            touched[1],
+            touched[0]
+        );
+
+        // 3. Not deeper. The removed channel, guarded in the negative so that
+        //    putting it back is a decision rather than an accident.
+        assert_eq!(
+            reaches[0], reaches[1],
+            "the band reached {:.1} cells at x1 and {:.1} at x8 -- speed is the colour now, and a band that also thickens is the flat block this change exists to avoid",
+            reaches[0], reaches[1]
         );
     }
 
-    /// **The circle he carries is not on the dial**, so its haze must not
-    /// deepen when the paid circles are sped up.
+    /// **The circle he carries is not on the dial**, so the speed readout
+    /// must not be painted onto it.
     ///
     /// `Druid::step_extra_ticks` lifts the player out for the catch-up
     /// passes, so the ground he stands on really does run at real time — a
     /// haze that reported x8 there would be the readout lying about the one
-    /// circle the player is always looking at. The standing arm is measured
-    /// in the same run as the control, so a null cannot pass as agreement.
+    /// circle the player is always looking at. **Rewritten from a claim
+    /// about depth** when speed moved into the colour: the old version
+    /// asserted the standing band reached twice as far, which is now
+    /// deliberately false.
+    ///
+    /// The standing arm is read in the same run, so a null cannot pass as
+    /// agreement.
     #[test]
-    fn the_carried_circle_hazes_at_real_time_whatever_the_dial_says() {
+    fn the_carried_circle_is_not_painted_with_the_dials_speed() {
         let mut world = aura_world();
         world.quickenings = vec![crate::sim::world::Quickening::at(40, 130, 30)];
         world.carried = Some(crate::sim::world::Quickening::at(150, 130, 30));
         let mut r = Renderer::new();
-        let mut bare_r = Renderer::new();
-        bare_r.aura = AuraTuning::off();
 
-        let reach = |r: &Renderer| (r.aura_reach[0], r.aura_reach[1]);
         aura_shot(&mut r, &world);
-        aura_shot(&mut bare_r, &world);
         for _ in 0..8 {
             crate::sim::update::step(&mut world);
         }
         aura_shot(&mut r, &world);
-        let (standing, carried) = reach(&r);
         assert_eq!(r.aura_rate(), 8, "the world was not running at x8, so the comparison below is between two real-time arms");
+        assert_eq!((r.aura_disc_count().0, r.aura_disc_count().1), (1, 1), "the scene must hold one of each kind of circle, and it holds {:?}", r.aura_disc_count());
+
+        // The positive control comes first: the standing circle *has* moved
+        // off its real-time colour, so "the carried one has not" is a
+        // statement about the ramp running rather than about it being dead.
+        let standing = r.aura_tint(0);
+        assert_ne!(standing, AURA_STANDING, "the standing haze did not warm at x8, so this guard cannot see the carried one failing to stay put");
+        assert_eq!(r.aura_tint(1), AURA_CARRIED, "the carried circle was tinted with the dial's speed, which is a claim about a circle he has not placed");
         assert!(
-            standing > carried * 2.0,
-            "the paid circle must haze far deeper at x8 than the carried one: standing {standing:.1} cells, carried {carried:.1}"
+            (r.aura_reach[1] - AuraTuning::default().depth).abs() < 0.01,
+            "the carried circle hazed at {:.1} cells rather than at its real-time depth",
+            r.aura_reach[1]
         );
-        assert!((carried - AuraTuning::default().depth).abs() < 0.01, "the carried circle hazed at {carried:.1} cells rather than at its real-time depth");
     }
 
-    /// **The haze moves on its own**, with nothing in the world changing that
-    /// the renderer was told about — which is what makes it a shimmer rather
-    /// than a picture of one, and is also why it has to dirty its own
-    /// rectangles below.
+    /// **The haze moves on its own, at one rate whatever the dial says.**
+    ///
+    /// Two claims, and the second is the owner's actual complaint —
+    /// *"not animation speed (it looks bad when moving fast)"*. The phase
+    /// used to be `World::frame`, which a held world advances up to
+    /// [`AURA_RATE_MAX`] times per drawn frame, so the shimmer ran eight
+    /// times faster on a fast circle. It is the renderer's own draw counter
+    /// now, and this guard is what stops it drifting back.
+    ///
+    /// The second claim is measured as *how many distinct pictures* a fixed
+    /// number of draws produces, which is the quantity "how fast does it
+    /// animate" actually means. A count rather than a verdict, and the
+    /// real-time arm's count is asserted to be more than one, so two frozen
+    /// arms cannot agree their way to green.
     #[test]
-    fn the_quickening_haze_moves_with_the_world_clock() {
-        let mut world = aura_world();
-        let mut r = Renderer::new();
-        let first = aura_shot(&mut r, &world);
-        // Far enough for the quantised phase to have moved several steps.
-        for _ in 0..(AURA_FRAME_QUANTUM * 8) {
-            world.frame = world.frame.wrapping_add(1);
+    fn the_haze_shimmers_on_the_draw_clock_and_not_on_the_worlds() {
+        const DRAWS: usize = 8;
+        let mut phases = Vec::new();
+        for per_draw in [1usize, 8] {
+            let mut world = aura_world();
+            let mut r = Renderer::new();
+            let mut seen: Vec<Vec<u8>> = Vec::new();
+            for _ in 0..DRAWS {
+                for _ in 0..per_draw {
+                    crate::sim::update::step(&mut world);
+                }
+                let shot = aura_shot(&mut r, &world);
+                if !seen.contains(&shot) {
+                    seen.push(shot);
+                }
+            }
+            assert_eq!(r.aura_rate(), per_draw as u32, "the arm did not run at the rate it is named for");
+            phases.push(seen.len());
         }
-        let later = aura_shot(&mut r, &world);
-        assert_ne!(first, later, "the haze is the same picture eight phase steps later, so it does not shimmer");
+        assert!(phases[0] > 1, "the haze drew the same picture for all {DRAWS} draws at real time, so it does not shimmer at all");
+        assert_eq!(
+            phases[0], phases[1],
+            "the world running x8 produced {} distinct frames against {} at real time -- the shimmer is riding the world clock again",
+            phases[1], phases[0]
+        );
+    }
+
+    /// **Overlapping circles draw one outline, not one each.**
+    ///
+    /// Owner, 2026-09-14: *"when you place multiple overlapping, they should
+    /// merge instead of just looking like overlapping circles."*
+    ///
+    /// **The assertion is over the region the defect lived in**, not over a
+    /// total. A whole-picture count moves for several reasons at once — two
+    /// bands do overlap a little even when merged — and could be satisfied by
+    /// the haze simply getting fainter. The cells that decide it are the ones
+    /// on the *first* circle's rim that lie buried inside the second: under
+    /// the old rule the first circle painted its band straight through its
+    /// neighbour's interior, which is what read as crossing rings.
+    ///
+    /// The single-circle arm is the positive control and it is not optional:
+    /// without it, an aura that had stopped working entirely would report
+    /// zero hazed cells in the region and pass.
+    #[test]
+    fn overlapping_quickenings_draw_the_outline_of_their_union() {
+        use crate::sim::world::Quickening;
+        const R: i32 = 40;
+        let (ax, ay) = (60i32, 130i32);
+        // Centres `R` apart, so the two genuinely interpenetrate: circles
+        // that merely touch have no interior for the other one to draw into
+        // and this guard would be vacuous over them.
+        let (bx, by) = (ax + R, ay);
+
+        // **A wider band than the shipped one**, because the region this
+        // guard reads has to survive being eroded from both sides by the rim
+        // noise: at the default 7 cells it is `[36.25, 36.75]` wide and the
+        // first version of this test read exactly zero cells in it and said
+        // so. The rule under test is a `max` over the discs and does not know
+        // what the band is worth, so widening it changes nothing it asserts.
+        let tune = AuraTuning { depth: 16.0, ..AuraTuning::default() };
+        let reach = tune.depth;
+        // Half, because `aura_rim_noise` returns -0.5..0.5 and `rim_rough`
+        // scales it -- the whole of `rim_rough` is the peak-to-peak swing,
+        // not the one-sided reach, and taking it whole is what emptied the
+        // interval.
+        let slack = tune.rim_rough * 0.5 + 1.0;
+
+        let mut world = aura_world();
+        let mut bare_r = Renderer::new();
+        bare_r.aura = AuraTuning::off();
+        world.quickenings = vec![Quickening::at(ax, ay, R)];
+        let bare = aura_shot(&mut bare_r, &world);
+        let inside_b_on_as_rim = |x: i32, y: i32| {
+            let da = (((x - ax).pow(2) + (y - ay).pow(2)) as f32).sqrt();
+            let db = (((x - bx).pow(2) + (y - by).pow(2)) as f32).sqrt();
+            da <= R as f32 - slack && da >= R as f32 - reach + slack && db <= R as f32 - reach - slack
+        };
+
+        let count_hazed = |shot: &[u8], r: &Renderer| {
+            let mut n = 0usize;
+            for y in 0..200i32 {
+                for x in 0..200i32 {
+                    if !inside_b_on_as_rim(x, y) {
+                        continue;
+                    }
+                    let Some((sx, sy)) = r.world_to_screen(x, y) else { continue };
+                    if !(0..200).contains(&sx) || !(0..200).contains(&sy) {
+                        continue;
+                    }
+                    let i = (sy as usize * 200 + sx as usize) * 4;
+                    if shot[i..i + 4] != bare[i..i + 4] {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
+
+        // Arm 1 -- A alone. The region is A's own rim band, so it must be
+        // hazed, and this is the control that licenses reading arm 2's zero.
+        let mut alone_r = Renderer::new();
+        alone_r.aura = tune;
+        let alone = aura_shot(&mut alone_r, &world);
+        let n_alone = count_hazed(&alone, &alone_r);
+        assert!(
+            n_alone > 50,
+            "only {n_alone} cells of A's rim were hazed with A alone -- the region this guard reads is empty or the aura is not firing, and its zero below would mean nothing"
+        );
+
+        // Arm 2 -- both. The same cells are now interior to the union.
+        world.quickenings = vec![Quickening::at(ax, ay, R), Quickening::at(bx, by, R)];
+        let mut both_r = Renderer::new();
+        both_r.aura = tune;
+        let both = aura_shot(&mut both_r, &world);
+        assert_eq!(both_r.aura_disc_count(), (2, 0), "the scene must hold two standing circles, and it holds {:?}", both_r.aura_disc_count());
+        let n_both = count_hazed(&both, &both_r);
+        assert_eq!(
+            n_both, 0,
+            "{n_both} of {n_alone} cells buried inside the second circle still carried the first circle's rim -- that stretch of arc is what reads as two circles crossing rather than one shape"
+        );
+    }
+
+    /// **A circle standing on its own is drawn exactly as it was**, which is
+    /// the other half of the union rule and the cheaper half to get wrong.
+    ///
+    /// The merge is a `max` over the discs, and over one disc a `max` is the
+    /// identity — so the owner's approved real-time look must come through
+    /// untouched. Asserted against a footprint rather than a picture, because
+    /// the speed tint legitimately moves bytes and a byte-equality claim
+    /// would be a claim about the tint instead.
+    #[test]
+    fn one_quickening_on_its_own_is_untouched_by_the_merge() {
+        let world = aura_world();
+        let mut r = Renderer::new();
+        let hazed = aura_shot(&mut r, &world);
+        let mut bare_r = Renderer::new();
+        bare_r.aura = AuraTuning::off();
+        let bare = aura_shot(&mut bare_r, &world);
+        let n = hazed.chunks_exact(4).zip(bare.chunks_exact(4)).filter(|(a, b)| a != b).count();
+        assert_eq!(r.aura_disc_count(), (1, 0), "the scene must hold exactly one standing circle");
+        assert!(n > 500, "one circle hazed only {n} pixels, so the merge has eaten a lone circle's band as well as a buried one");
     }
 
     /// **The haze tints the ground rather than covering it**, which is the
@@ -9739,21 +10212,38 @@ mod tests {
         off.draw(&world, &particles, &touched, &mut buf, (200, 200), false);
         on.draw(&world, &particles, &touched, &mut buf, (200, 200), false);
 
-        // The measured frame: the world is settled, so nothing is touched and
-        // the only thing that changed is the clock.
-        crate::sim::update::step(&mut world);
-        let touched = world.take_touched_chunks();
-        let n_off = off.draw(&world, &particles, &touched, &mut buf, (200, 200), false);
-        let n_on = on.draw(&world, &particles, &touched, &mut buf, (200, 200), false);
+        // **The measured window is `AURA_FRAME_QUANTUM` frames, not one, and
+        // it was one.** The phase is quantised, so it stands still on some
+        // drawn frames by design and a single-frame reading is a coin toss on
+        // which parity it landed on. That coin came up heads while the
+        // standing arm's clock was `World::frame` — which this test advanced
+        // itself, every frame — and tails the moment the phase moved to the
+        // renderer's own draw counter, failing a guard whose subject had not
+        // regressed. A window as long as the quantum is the shortest one in
+        // which "it repaints" is a property of the mechanism rather than of
+        // where the count was taken.
+        let mut n_off = 0usize;
+        let mut n_on = 0usize;
+        let mut worst_on = 0usize;
+        for _ in 0..AURA_FRAME_QUANTUM {
+            crate::sim::update::step(&mut world);
+            let touched = world.take_touched_chunks();
+            n_off += off.draw(&world, &particles, &touched, &mut buf, (200, 200), false);
+            let this = on.draw(&world, &particles, &touched, &mut buf, (200, 200), false);
+            n_on += this;
+            worst_on = worst_on.max(this);
+        }
 
         assert_eq!(n_off, 0, "the control repainted {n_off} pixels of a settled world, so this guard cannot see a defeated skip");
-        assert!(n_on > 0, "the aura repainted nothing, so it cannot be shimmering");
+        assert!(n_on > 0, "the aura repainted nothing over {AURA_FRAME_QUANTUM} frames, so it cannot be shimmering");
         // One disc of radius 40 plus the rim slack, squared. Anything near
-        // `all` means the aura took the full-redraw path.
+        // `all` means the aura took the full-redraw path. Read against the
+        // worst single frame rather than the sum, or the bound would loosen
+        // by itself every time the window got longer.
         let bound = (2 * (40 + 6) + 1) * (2 * (40 + 6) + 1);
         assert!(
-            n_on <= bound,
-            "the aura repainted {n_on} pixels for one radius-40 circle, against a {bound}-pixel bounding box (a full frame is {all})"
+            worst_on <= bound,
+            "the aura repainted {worst_on} pixels in one frame for one radius-40 circle, against a {bound}-pixel bounding box (a full frame is {all})"
         );
     }
 
