@@ -149,9 +149,16 @@ The second carries a live question: if the ramp is too weak the lever is
 
 ## Gates
 
-`cargo clippy --all-targets --release --locked -- -D warnings` clean ·
-`cargo test --release` · `bash scripts/docscheck.sh` clean ·
-`python3 scripts/deadendindex.py --touching` 0 · `origin/main` merged.
+All run on the merged tree, after the second `origin/main` merge:
+
+- `cargo clippy --all-targets --release --locked -- -D warnings` — clean
+- `cargo test --release` — **1,873 passed, 0 failed**, 103 ignored
+  (1,814 lib · 44 `tests/worldgen.rs` · 10 `main.rs` · 3 `tests/determinism.rs`
+  · 2 doc). The full command, not `--lib`, so the preset and worldgen guards
+  actually ran
+- `bash scripts/docscheck.sh` — clean
+- `python3 scripts/deadendindex.py --touching` — one hit, this branch's own
+  new entry naming `fast_gain`
 
 **Note for whoever integrates:** `aura_disc_count()` landed on `main` via
 PR #430 while this branch was running, and git merged both copies into one
