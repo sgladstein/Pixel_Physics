@@ -1,0 +1,55 @@
+{
+  "id": "20260914T040932865Z-14b62b",
+  "created": "2026-09-14T04:09:32Z",
+  "board": "aquatic",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/dreamy-feynman-uq21ka",
+    "commit": "ef77299b",
+    "agent": null,
+    "session_id": "03a661b6-8a97-557a-bb54-646ad0fd7092",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "A pond in the lab, and nothing in the world can go in it",
+  "question": "This is a pond placed in the lab bed -- stone-lined basin, 152 wide and 28 deep -- at frames 6k, 20k, 60k and 90k. It holds perfectly: 4,256 water cells, exactly constant, and it costs nothing (0.012 ms/tick against 0.012 for the same basin left dry). The bed around it thrives. Nothing ever enters it. Before I write the build order: is this the bed you want aquatic work proved in, and is a pond this size right -- or do you want something wider and shallower, a shoreline rather than a tank?",
+  "context_md": "**The pond needed no engine change at all.** The research said a basin would have to be a `LabBox` field; it does not -- `Placement::Fill` already takes `\"water\"`, so this is a scenario file (`the_pond.ron`) and nothing else. That is a correction to my own report.\n\n**What the second image is for.** The same bed with the water left out. At one seed the colony does *better* in the dry pit than in the wet one or on a flat bed (28 ants against 4 and 3 at frame 90,000) -- so a pond as a bare *barrier* buys nothing, and the dry pit is the outlier, probably as shelter. A seed sweep is running now. The point for the plan: **water only becomes interesting when there is something to eat in it**, which is the research's own conclusion arriving from a different direction.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "the pond, stocked",
+      "files": [
+        "20260914T040932865Z-14b62b/000-pond_wet.png"
+      ],
+      "caption": "Frames 6k / 20k / 60k / 90k. The pond holds its level exactly. Plants crowd both banks. The water stays empty.",
+      "meta": {
+        "water cells": "4,256, constant to frame 40,000",
+        "cost": "0.012 ms/tick (dry basin: 0.012)",
+        "engine changes": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "same bed, no water",
+      "files": [
+        "20260914T040932865Z-14b62b/001-pond_nowater.png"
+      ],
+      "caption": "The identical bed with the basin left dry -- the control that says what the water itself is worth.",
+      "meta": {
+        "ants at 90k, dry pit": 28,
+        "ants at 90k, water": 4,
+        "ants at 90k, flat bed": 3,
+        "seeds": "1 (a sweep is running)"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
