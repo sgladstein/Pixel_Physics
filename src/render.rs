@@ -2981,6 +2981,26 @@ pub struct Renderer {
     /// What [`MagnifyStyle::Chamfer`] does at a concave corner — see
     /// [`NotchRule`].
     pub magnify_notch: NotchRule,
+    /// **The food road and the harvest map** — where a colony's food comes
+    /// from and how it travels. See [`crate::food_road`]; `F7` cycles it in
+    /// the lab.
+    ///
+    /// Held here rather than on `Lab` for one reason: a binary that only
+    /// *draws* (the sandbox, a headless harness at a stride) then gets a
+    /// sampled road for free, because `draw` observes as well. The lab's own
+    /// tick loop observes per tick, and `FoodRoad::observe` is idempotent per
+    /// `World::frame` so the two never double-count.
+    ///
+    /// `Off` by default and free then, the same shape as `field_overlay`
+    /// below.
+    pub food: crate::food_road::FoodRoad,
+    /// This frame's harvest-tile colours, resolved once per `draw` rather
+    /// than per pixel — a tile is 64 cells and each carries one entry per
+    /// colony that has taken from it, so resolving the dominant colony in the
+    /// pixel loop would walk that list 64 times over.
+    ///
+    /// Empty and untouched whenever the harvest channel is not drawn.
+    food_tiles: std::collections::HashMap<(i32, i32), crate::food_road::TileMark>,
     /// Tints every pixel by an M13 field channel instead of (blended over)
     /// the ordinary cell colour — `V` cycles it. `Off` by default, so it
     /// costs nothing (no extra `World::field_at` calls) unless a player
@@ -3335,6 +3355,8 @@ impl Renderer {
             last_body_rects: Vec::new(),
             last_player_pose: None,
             idle_anim: idle_anim_mode(),
+            food: crate::food_road::FoodRoad::new(),
+            food_tiles: std::collections::HashMap::new(),
             idle_tracks: std::collections::HashMap::new(),
             idle_extra: std::collections::HashMap::new(),
             last_idle_extra_cells: Vec::new(),
@@ -3516,6 +3538,14 @@ impl Renderer {
         self.sky_light_solid.clear();
         self.sky_light_outdoors.clear();
         self.sky_light_grid.clear();
+        // Same contract, third cache: a road is a picture of journeys made
+        // across *this* world's ground, so carrying one into a rebuilt box
+        // draws a map of a place that no longer exists -- and the per-animal
+        // counter readings behind it are worse than stale, since `u16`
+        // organism handles are reused and a stale entry reads as the new
+        // animal's whole life arriving in one tick.
+        self.food.forget();
+        self.food_tiles.clear();
     }
 
     /// `F12` — cycle where the dark behind a void comes from. Same
@@ -3568,6 +3598,18 @@ impl Renderer {
     /// real running plant answers.
     pub fn cycle_organism_overlay(&mut self) {
         self.organism_overlay = self.organism_overlay.next();
+    }
+
+    /// `F7` in the lab — step through the food-economy channels. See
+    /// [`crate::food_road::FoodOverlay`].
+    pub fn cycle_food_overlay(&mut self) {
+        self.food.mode = self.food.mode.next();
+        // The maps are dropped when the channel goes off (see
+        // `FoodRoad::observe`), so coming back on starts from an empty world
+        // and fills over the next few seconds of play. That is correct for a
+        // channel whose claim is "this is the road they are using *now*", and
+        // it is the reason the cost is genuinely zero while it is off.
+        self.food_tiles.clear();
     }
 
     /// Step how held ground is drawn — see [`HeldLook`].
@@ -4204,6 +4246,24 @@ impl Renderer {
         // Free (no-op past the mode check) whenever `PIXEL_PHYSICS_IDLE_ANIM`
         // is unset, which is every ordinary frame today.
         self.refresh_idle_anim(world);
+        // **Observe, then resolve the tile colours — both once here, never
+        // per pixel.**
+        //
+        // The observation is idempotent per `World::frame`, so this is the
+        // *sampled* reading for binaries that have no per-tick hook (the
+        // sandbox, a harness capturing at a stride) and a no-op in the lab,
+        // whose tick loop has already taken this frame. Both return on one
+        // compare while the channel is off.
+        self.food.observe(world);
+        // Both ramps track the bed rather than sitting on an authored
+        // constant -- see `FoodRoad::refresh` for the two-and-a-half orders
+        // of magnitude between two shipped scenarios that ruled a fixed bar
+        // out. Once per draw, never per pixel.
+        self.food.refresh(world.frame);
+        self.food_tiles.clear();
+        if matches!(self.food.mode, crate::food_road::FoodOverlay::Harvest | crate::food_road::FoodOverlay::Both) {
+            self.food_tiles = self.food.tile_colours(world.frame);
+        }
         // The animated variants are the ones whose output changes with
         // nothing in the world changing, so they have to defeat the
         // dirty-rect skip. Measured on a fully settled world: a redraw every
@@ -4448,6 +4508,11 @@ impl Renderer {
             || organism_overlay_changed
             || organism_overlay_is_live
             || self.field_overlay != FieldOverlay::Off
+            // Both food channels decay every tick, so every pixel they
+            // cover changes with no chunk dirtied -- the same shape, and the
+            // same cost, as the field overlay above. Off by default, and one
+            // enum compare then.
+            || self.food.on()
             || self.show_chunk_overlay
             // Falling precipitation moves every frame and moves *everywhere*,
             // so there is no dirty rectangle that describes it and the whole
@@ -7722,6 +7787,48 @@ impl Renderer {
     /// paints the entire screen for a channel currently near zero
     /// everywhere.
     fn apply_field_overlay(&self, world: &World, x: i32, y: i32, base: [u8; 4]) -> [u8; 4] {
+        // **The food channels come first, and they live in this function
+        // rather than beside it because this is the one funnel both cell
+        // classes already pass through** -- `cell_colour` calls it once for
+        // empty space and once for everything else, and a road runs over
+        // both (an ant walks a tunnel floor and the open air above a bank).
+        // A second call site would be a second thing to keep in step.
+        //
+        // A **full replace on a fixed dark-to-bright ramp**, never a blend
+        // into the cell's own colour -- see `crate::food_road::FoodRoad::
+        // road_at` for what a blend cost the last channel that tried one.
+        //
+        // Falls through to the field overlay wherever there is no road and
+        // no harvest, so the two compose: a scent plane under a haul route
+        // is exactly the pairing that says whether the ants are following
+        // the trail they laid.
+        if self.food.on() {
+            let mut hit = None;
+            // `food_tiles` is empty unless the harvest channel is drawn
+            // (`draw` clears it and only refills it then), so the emptiness
+            // check is the mode check as well as the early out.
+            if !self.food_tiles.is_empty() {
+                let tile = (x.div_euclid(self.food.tile), y.div_euclid(self.food.tile));
+                // Dithered rather than flat -- see `HARVEST_DITHER`: a
+                // tile-wide flat replace covered the very plants the map was
+                // pointing at.
+                hit = self.food_tiles.get(&tile).filter(|m| m.covers(x, y)).map(|m| m.rgb);
+            }
+            // Road over harvest: the patch says whose food and from where,
+            // the road drawn on top of it says how it travels.
+            if matches!(self.food.mode, crate::food_road::FoodOverlay::Road | crate::food_road::FoodOverlay::Both) {
+                if let Some(road) = self.food.road_at(x, y, world.frame) {
+                    hit = Some(road);
+                }
+            }
+            if let Some(rgb) = hit {
+                let mut out = base;
+                for (c, r) in out.iter_mut().take(3).zip(rgb) {
+                    *c = r.round().clamp(0.0, 255.0) as u8;
+                }
+                return out;
+            }
+        }
         // **The pheromone channels return here, before the blend tail
         // below ever runs, and that is not a shortcut.** `CLAUDE.md`'s
         // "a debug readout must not be a function of the thing it debugs"

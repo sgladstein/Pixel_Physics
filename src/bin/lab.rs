@@ -28,6 +28,7 @@
 //! | `[` / `]` | the brush, narrower and wider |
 //! | `O` / `L` | the field and organism overlays |
 //! | `F1` / `F2` / `F3` | the plants, ants and box pages |
+//! | `F7` | the food road and the harvest map — off / road / harvest / both |
 //! | `F` | minimum framerate at speed-up: 60 / 30 / 20 / 10 Hz |
 //! | `T` | what the clock does on a notable event: LINGER / STOP / OFF |
 //! | `Tab` | the stats page |
@@ -695,6 +696,29 @@ impl Handler {
             // since reaching the menu cannot itself depend on already
             // knowing a key.
             KeyCode::F6 => self.lab.act(Action::Panel(Panel::Menu)),
+            // **`F7` — the food economy on the ground.** Owner, round 35:
+            // *"I want to know what they are eating, where it is coming from,
+            // if/where it is being stored or movement paths."* This is the
+            // half of that which is seen rather than read — the haul routes
+            // and the patches the food is coming out of (`food_road`).
+            //
+            // **A key rather than a letter because there is no letter left**,
+            // which was checked rather than assumed: every one of `A`-`Z` is
+            // bound in this match. So it goes on the end of the `F1..F6` run,
+            // which is also where the sandbox puts its view toggles (`F10` is
+            // the tree-depth switch there). The two overlay *letters* it
+            // belongs beside, `O` and `L`, are the field and organism
+            // channels; this is a third of the same kind and composes with
+            // both — a scent plane under a haul route is exactly the pairing
+            // that says whether the ants are following the trail they laid.
+            //
+            // Poked straight at the renderer, the way `L` already is, rather
+            // than through an `Action`: it is a view and owns no lab state.
+            KeyCode::F7 => {
+                self.lab.renderer.cycle_food_overlay();
+                let label = self.lab.renderer.food.mode.label();
+                self.lab.ui.say(format!("FOOD {label}"));
+            }
             // The parameters page. `P` rather than `F4`: it is the one page
             // you open to *change* something rather than to read something,
             // and it sits with the tools on the bar's top row for the same
