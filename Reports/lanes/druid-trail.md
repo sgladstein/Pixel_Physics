@@ -15,8 +15,8 @@ dissapears so much faster than an ant could even move. I wonder if this is a
 problem for ant laid trails too. The animation can be improved too. it should
 be more diffuse looking, not like a bunch of dots."*
 
-Scope ruling carried in the brief: *"For pheromone, you make the gnome laid
-trail last longer. The evolution lab will explore the ant laid ones."*
+Scope ruling in the brief: *"you make the gnome laid trail last longer. The
+evolution lab will explore the ant laid ones."*
 
 ## The headline
 
@@ -50,9 +50,8 @@ the readout's band was `v * SCENT_BANDS / 256` while the plane never held more
 than ~31 along a route, so **every mark of every trail drew in the same single
 dimmest colour**.
 
-**The full write-up, the four changes and what they cost is `PR_BODY_LANE_D.md`
-on this branch** — not repeated here, because a lane note is for what another
-lane needs.
+**The four changes and what they cost: `PR_BODY_LANE_D.md` on this branch** —
+not repeated here; a lane note is for what another lane needs.
 
 ## The owner's aside — *"is this a problem for ant laid trails too"*
 
@@ -160,20 +159,17 @@ swath is laid by `Druid::lay_trail` and by nothing else, ant-laid marks are
 untouched, and no per-channel dial is needed. Real app, 3.5s → ~14s.
 
 **Why #432 could not have found it.** `pherolife` sweeps `rho`, `diffuse` and
-`deposit` over a trail it lays **one cell wide**, so width is not a variable it
-has — it is a constant of the harness. See the proposed rule at the end.
+`deposit` over a trail it lays **one cell wide**: width is a constant of the
+harness, not a variable. See the proposed rule at the end.
 
-**The correction's own suggestion, measured, is the weak one.** Deposit is
-listed as promising on the grounds that the loudest cell anywhere is 98 of 255
-so there is headroom. There is, and it does not buy much: a one-cell line at
-the **255 ceiling** reaches 4.8s against the swath's 10.8s at the *unchanged*
-deposit. Depositing harder moves the exponential's starting point; widening
-changes its rate.
-
-**And the headroom is now spent** — the swath peaks at **241 of 255** along his
-route, because he re-marks each cell some ten times at 0.6 cells/tick. So #432's
-"the plane is three-quarters empty at its peak" is true of a shipped ant trail
-and is no longer true of the gnome's. Already stated above as the trade.
+**Its own suggestion, measured, is the weak one.** Deposit is listed as
+promising because the loudest cell anywhere is 98 of 255, so there is headroom.
+There is, and it buys little: a one-cell line at the **255 ceiling** reaches
+4.8s against the swath's 10.8s at the *unchanged* deposit. Depositing harder
+moves the exponential's starting point; widening changes its rate. **And that
+headroom is now spent** — the swath peaks at **241** along his route, so #432's
+"three-quarters empty at its peak" holds for a shipped ant trail and no longer
+for the gnome's. Stated above as the trade.
 
 ### What this lane did *not* measure, and which instrument answers it
 
@@ -219,8 +215,7 @@ the owner's call.
 
 ## Head
 
-PR [#438](https://github.com/sgladstein/Pixel_Physics/pull/438) (opened by the
-coordinator from an earlier draft of `PR_BODY_LANE_D.md`; its body has since
-been updated in place to carry the #432 reconciliation and the merged-tree
-gate results). Head `6edfbea854dc8f40e6610de05c72cba91e2b0520`, plus this
-commit.
+PR [#438](https://github.com/sgladstein/Pixel_Physics/pull/438), head
+`6edfbea854dc8f40e6610de05c72cba91e2b0520` plus this commit. Opened by the
+coordinator from an earlier draft of `PR_BODY_LANE_D.md`; its body was then
+updated in place to carry the #432 reconciliation and the merged-tree gates.
