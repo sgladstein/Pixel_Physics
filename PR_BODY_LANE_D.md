@@ -146,8 +146,13 @@ higher over the same window and the slope guard
 reads should be larger for longer; **that is an inference and is named as one.**
 A radius dial on `pherolife` settles it in one run.
 
-#432 was unmerged when this was written, so nothing here builds against
-`set_channel_diffuse`, and `DIFFUSE` is untouched.
+**#432 has since landed and this branch carries it** (merge `6100c053`).
+Checked rather than assumed: it adds the setters and leaves **every shipped
+constant where it was** — `DIFFUSE` 0.25, `DECAY_RHO` 0.03, `DEPOSIT` 40,
+`PHEROMONE_INTERVAL` 12 — and re-measuring on the merged tree returns the same
+numbers to the cell. Nothing here calls the new setter. The one conflict was
+`Reports/instruments.md`, where both lanes added a row in the same place;
+resolved by keeping all three and cross-referencing.
 
 ## Gates
 

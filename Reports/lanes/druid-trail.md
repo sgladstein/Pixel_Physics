@@ -68,32 +68,26 @@ mine; fixing it is not, and nothing ant-laid was changed.
 
 ## Instrument
 
-`examples/druid_trail.rs` — new; `Reports/instruments.md` grepped first
-(`trailfollow` answers *does a laid trail move a colony*, not duplicated).
-Two modes:
+`examples/druid_trail.rs`, with a row in `Reports/instruments.md` that says
+what it answers and how it overlaps `pherolife`. Two modes: a plane-side sweep,
+and `shot=`, which drives the real `Druid::update`/`Druid::draw` loop
+headlessly and prints the plane's peak, live route cells, route geometry and
+**clearance to the ground** per frame.
 
-- the default sweep, on the plane alone, printing the peak-on-route decay
-  curve per arm in seconds **and in ant-cells**, against a colony round trip;
-- `shot=` , which drives the real `Druid::update`/`Druid::draw` loop headlessly
-  (no window, no GPU) and writes a column sheet with the plane's peak, live
-  cell count, route geometry and **clearance to the ground** printed per frame.
-
-`selftest` runs five positive controls. **They earned their keep twice in one
+**Its `selftest`'s five positive controls earned their keep twice in one
 session**, and both failures are recorded in the source:
 
 - the decay loop advanced `frame` by 1 while `Pheromones::step` gates on
   `frame % 12`, so its "passes" were ticks and every lifetime printed **12x
-  too long** — a 1.0 s trail reported as 12.0 s, with a perfectly plausible
-  decay curve;
+  too long** behind a perfectly plausible decay curve;
 - the repair then advanced by 12 from an *unaligned* frame and never hit a
   multiple again, so no pass ran at all and every arm reported a flat curve at
-  its laid value. Control B caught that one; control E was added for it.
+  its laid value. Control B caught it; control E was added for it.
 
-A third instrument bug was caught by asking what the number counted: the
-`slope` column sampled the last cell of the *route*, which at a stride above
-one the gnome never steps on, and so reported the newest end of the trail
-*weaker* than the oldest — the exact reverse of the property it exists to
-check.
+A third was caught by asking what the number counted: the `slope` column
+sampled the last cell of the *route*, which at a stride above one the gnome
+never steps on, and so reported the newest end of the trail *weaker* than the
+oldest — the reverse of the property it exists to check.
 
 **And the harness disagreed with the app by 3x even after both repairs**, so
 every headline number above is the app's. A clean line on an empty plane is a
@@ -101,20 +95,23 @@ best case; a real walk is not.
 
 ## Gates
 
-- `cargo clippy --all-targets --release --locked -- -D warnings` — clean.
-- `cargo test --release` — the **full** suite, not `--lib`: 1,804 + 10 lib/bin,
-  3 `tests/determinism.rs`, 44 `tests/worldgen.rs`, **0 failed**. Named
-  because `CLAUDE.md` records that `--lib` cannot reach `tests/*.rs` at all
-  and four merges were gated on it in one day.
-- `bash scripts/docscheck.sh` — clean (it caught the missing
-  `Reports/instruments.md` row and that row is now written).
-- `python3 scripts/deadendindex.py --touching` — 4 files changed, **0 entries
-  name an identifier this branch adds**. Silence is not evidence, per its own
-  banner; `Reports/dead-ends.md` was also grepped directly for
-  `TRAIL_DEPOSIT`, `lay_trail`, `SCENT_HALO`, `SCENT_BANDS`, `DECAY_RHO`,
-  `decay_lut` and `PHEROMONE_INTERVAL` before any of this was built. The
-  decay/interval entries are about `DECAY_RHO` and the LUT floor, neither of
-  which is touched; nothing names the swath or the readout.
+All green on the merged tree, and **CI green on `b8b31edc`: all 9 checks**
+(clippy, `cargo test` release *and* debug, `ascii`, structural acceptance,
+worldgen interference, branches, docscheck, fmt).
+
+Locally: `cargo clippy --all-targets --release --locked -- -D warnings` clean;
+`cargo test --release` — the **full** suite, not `--lib`, because `--lib`
+cannot reach `tests/*.rs` at all — 1,810 + 2 + 10 lib/bin, 3
+`tests/determinism.rs`, 44 `tests/worldgen.rs`, **0 failed**;
+`scripts/docscheck.sh`, `scripts/acceptance.sh` and `scripts/worldgencheck.sh`
+clean. `deadendindex.py --touching`: **0 entries** name an identifier this
+branch adds, and `dead-ends.md` was grepped directly for `TRAIL_DEPOSIT`,
+`lay_trail`, `SCENT_HALO`, `SCENT_BANDS`, `DECAY_RHO`, `decay_lut` and
+`PHEROMONE_INTERVAL` before any of this was built.
+
+**`branchcheck.sh --gate` exits 1 in this container and it is not a defect** —
+it says so itself: the clone is shallow, so ancestry is unknowable here. CI
+checks out at full depth and its `branches` job passes.
 
 ## Notes for whoever follows
 
@@ -141,8 +138,7 @@ mark persist?"* — listing re-laying, a higher deposit, or a non-pheromone mark
 and adding that **"if the honest answer is still 'the only lever is shared',
 that is a complete and correct result."**
 
-**The two measurements agree, arrived at independently**, which is worth more
-than either alone:
+**The two measurements agree, arrived at independently:**
 
 | | #432 (`pherolife`) | this lane (`druid_trail`) |
 |---|---|---|
@@ -152,11 +148,11 @@ than either alone:
 
 **But the answer to its question is yes, and the lever is not on its list: the
 mark's *width*.** Diffusion only drains a line *into empty neighbours* — that
-is the whole of the 16.7%. A cell in the middle of a band has a 3x3 mean of
-roughly its own value and sheds almost nothing, so widening the mark defeats
-the dominant term **without touching `DIFFUSE` at all**. Nothing is shared: the
-swath is laid by `Druid::lay_trail` and by nothing else, ant-laid marks are
-untouched, and no per-channel dial is needed. Real app, 3.5s → ~14s.
+is the whole of the 16.7%. A cell mid-band has a 3x3 mean of roughly its own
+value and sheds almost nothing, so widening the mark defeats the dominant term
+**without touching `DIFFUSE` at all**. Nothing is shared: the swath is laid by
+`Druid::lay_trail` alone, ant-laid marks are untouched, and no per-channel dial
+is needed. Real app, 3.5s → ~14s.
 
 **Why #432 could not have found it.** `pherolife` sweeps `rho`, `diffuse` and
 `deposit` over a trail it lays **one cell wide**: width is a constant of the
@@ -174,9 +170,9 @@ for the gnome's. Stated above as the trade.
 ### What this lane did *not* measure, and which instrument answers it
 
 `pherolife` carries a **run drive** counter — frames until the ant's steering
-contribution at mid-trail falls under an absolute bar — and reports that the
-shipped trail **stops steering at frame 48** while 77 cells are still standing.
-That is the right question and a better one than presence.
+at mid-trail falls under an absolute bar — and reports the shipped trail
+**stops steering at frame 48** with 77 cells still standing. A better measure
+than presence.
 
 **This lane measured presence and strength, not steering.** The swath's peak
 runs 3x higher over the same window (241 against 80) and the along-route slope
@@ -193,25 +189,31 @@ it has the run-drive counter and the `DIFFUSE` setter. What it lacks, and what
 `druid_trail shot=` is for, is the **real `Druid` loop**: route geometry, and
 the clearance-to-ground column that caught the trail being laid at his chest.
 
-**#432 was not merged when this was written**, so nothing here builds against
-`set_channel_diffuse`, and `DIFFUSE` is untouched.
+**#432 has since landed on `main` and this branch carries it** (merge
+`6100c053`). Checked rather than assumed: it adds `set_channel_diffuse` /
+`channel_diffuse` / `alarm_diffuse` and leaves **every shipped constant where
+it was** -- `DIFFUSE` 0.25, `DECAY_RHO` 0.03, `DEPOSIT` 40,
+`PHEROMONE_INTERVAL` 12 -- and re-measuring on the merged tree returns the
+same numbers to the cell (peak 241 / 88 / 28 / 0 at 0 / 3.5 / 8 / 14s,
+clearance 0). Nothing here calls the new setter.
+
+The only merge conflict was `Reports/instruments.md`, where both lanes added a
+row in the same place; resolved by keeping all three (`pherolife`, `pherowire`,
+`druid_trail`) and cross-referencing mine to `pherolife` so the file does the
+job it exists for.
 
 ## One proposed rule, for the coordinator or the owner to place — not edited in
 
-The reusable half of the above is a *measurement* rule and reads universally:
-
 > **Ask what your harness is holding still, not only what it sweeps.** An
-> instrument that fixes the answer as a constant will report that the levers it
-> does vary are the only ones there are — and it looks exactly like a thorough
-> sweep. `pherolife` varied `rho`, `diffuse` and `deposit` over a trail it laid
-> **one cell wide**, and concluded the only lever was a shared constant; width
-> was not a variable it had. The tell is a sweep in which every arm fails the
-> same way, which `CLAUDE.md` already has — but that rule says *suspect the
-> rider*, and this one says *suspect the constant*.
+> instrument that fixes the answer as a constant reports that the levers it
+> *does* vary are the only ones there are — and it looks exactly like a
+> thorough sweep. The tell is a sweep in which every arm fails the same way,
+> which `CLAUDE.md` already has — but that rule says *suspect the rider*, and
+> this one says *suspect the constant*.
 
 **Deliberately not added to `CLAUDE.md` by this lane** — the most contested
-file in the repo, loaded before every session in all three games. Placing it is
-the owner's call.
+file in the repo, loaded before every session in all three games. Placing it
+is the owner's call.
 
 ## Head
 
