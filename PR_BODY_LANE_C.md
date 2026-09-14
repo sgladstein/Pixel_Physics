@@ -183,12 +183,30 @@ the fault back — and the specific one is cheaper: **make the scene builder
 panic on a name it cannot resolve**, so a test that has lost its subject
 fails as a missing material rather than as a confusing assertion.
 
+## Judge-by-eye
+
+Review card **`20260914T050513804Z-623a4b`** (board `creature`, blind A/B) —
+same world, seed, stand and frame, one press of the key in each arm, 2 animals
+against 7, both counts in `meta` beside the picture. Verified present on
+`origin/review-queue` with `git show` rather than trusted from the post
+output.
+
+The question put to the owner is the one I cannot answer myself: the ants now
+stand **on grass and leaf rather than on soil**. That follows the engine's own
+walk rules, and it is exactly the kind of thing that is right in the rules and
+reads as floating on screen. If it does, `THICKET_CLIMB` is one number.
+
 ## Gates
 
-`cargo clippy --all-targets --release --locked -- -D warnings`, full `cargo
-test --release`, `scripts/acceptance.sh`, `scripts/docscheck.sh` — green.
-`deadendindex.py --touching`: 0 hits (silence is not evidence; the manual pass
-is the section above).
+`cargo test --release` — 1,753 lib + 10 bin + 3 determinism + **44 worldgen**,
+0 failed. `cargo clippy --all-targets --release --locked -- -D warnings` —
+clean. `scripts/acceptance.sh` — all cases met their expectations.
+`scripts/docscheck.sh` — clean. `deadendindex.py --touching`: 0 hits (silence
+is not evidence; the manual pass is the section above).
+
+`main` merged at `79c0b639`; `src/druid/mod.rs` and `src/druid/founding.rs`
+were in it, so the headline pair was **re-taken on the merged tree** and
+reproduces exactly (60 → 134 stations, 47 → 79 placed).
 
 Full account, including the reproduction and everything the brief got wrong:
 `Reports/lanes/thicket-founding.md`.
