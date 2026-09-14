@@ -2658,7 +2658,11 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   `ThreatNear`/`ThreatBearing` to `Attack`, so the only route in is retaliation.
   The fight itself works — **296–478 attacks over 9,000 frames** with non-kin in
   reach, against **`attacks 0` over nine runs of 300,000 frames** on the bed the
-  owner plays.
+  owner plays. **Rivalry ships ON**, owner ruling 2026-09-14 (*"You can ship it
+  on"*), overturning the coordinator's default-off call and restoring *ship new
+  behaviours as default* — with the knob kept, an `off` control kept for
+  measurement, and the constants rivalry reallocates named and re-derived,
+  since a correct mechanism at inherited constants is a regression.
 - [evolution-lab-round-33-2026-09-13.md](evolution-lab-round-33-2026-09-13.md)
   — **coordinator record, 2026-09-13. `lab`/`engine`.** The round that answered
   the owner's #1 with a **no**. **The creature pass can run across cores and is

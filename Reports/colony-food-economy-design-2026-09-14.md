@@ -142,11 +142,27 @@ scavenging another's dead with nobody able to see it — which would make it a
 **readout** gap rather than a mechanism gap, and Lane B's split is what would
 reveal it.
 
-**Any switch ships default-off pending the owner's eye.** The standing rule is
-*ship new behaviours on*; this one changes the ecology of every bed in both
-games, he asked to explore rather than to build, and he has not seen it. The
-honest shape is default-off plus a card, and he can rule otherwise in a
-sentence.
+**It ships ON. Owner ruling, 2026-09-14: *"You can ship it on."*** The
+coordinator's first call was default-off pending his eye, on the grounds that
+this changes the ecology of every bed in both games and he had asked to explore
+rather than to build. He removed that caution in one line, which restores the
+repo's standing rule — *ship new behaviours as default* (round twenty, and him
+again in round twenty-nine: *"ship everything on"*).
+
+**Shipping on does not mean removing the knob.** His standing direction is
+*"Give me the tools, data, access to the parameters that need to be tweaked and
+I do that testing myself in the game. That is the game."* A default of on with a
+parameter he can turn down is that; a hardcoded behaviour with no dial is not.
+An `off` arm also has to survive as the **control** — that is a measurement
+requirement rather than a shipping one.
+
+**And shipping on raises the bar on two things rather than lowering it.** This
+lands on constants calibrated against a world with no rivalry in it, and a
+*correct mechanism at inherited constants is a regression* — so the constants
+rivalry reallocates must be named and re-derived, or the PR must say plainly
+which numbers are now stale. It also governs procedural content, so the seed
+sweep comes **before** the model change and gates an **order statistic** over
+seeds rather than any single one; **six seeds is not a sweep.**
 
 **One rejection binds the design**: `dead-ends.md` :272, :276, :403 —
 **protection as an exemption rather than a capacity multiplier**, which killed
