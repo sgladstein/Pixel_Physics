@@ -1,0 +1,64 @@
+{
+  "id": "20260914T030227009Z-0c5076",
+  "created": "2026-09-14T03:02:27Z",
+  "board": "aquatic",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/dreamy-feynman-uq21ka",
+    "commit": "ac492554",
+    "agent": null,
+    "session_id": "03a661b6-8a97-557a-bb54-646ad0fd7092",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Water passes light like air, so a pool has no bottom",
+  "question": "I am exploring aquatic life, and this is the gap everything else sits on: there is no depth in the water. A pool forty rows deep is the same blue at the floor as at the surface, because only rock and plants block light -- water is as clear as air to the light field. Nothing living down there could have a reason to rise toward the light, and a lake can never have a dark bottom. Is a pool that goes dark with depth what you want, and roughly how dark at forty rows?",
+  "context_md": "The engine already does this for foliage, with the right equation. `FieldTile::transmission` is **Beer-Lambert**: it counts opaque cells down each column and reads transmission off a table. That is the same law that gives a real lake its depth limit. Water is simply not counted as opaque, so it contributes nothing.\n\n**The third image is the control**, and it is why the second one is a finding rather than a broken overlay: a cave inside rock reads pitch black on the same channel, same settings. Light does stop when something stops it.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "the pool today",
+      "files": [
+        "20260914T030227009Z-0c5076/000-wb_plain.png"
+      ],
+      "caption": "A body of water about 40 rows deep. The floor is the same blue as the surface.",
+      "meta": {
+        "water depth": "~40 rows",
+        "light at floor vs surface": "identical"
+      },
+      "focus": null
+    },
+    {
+      "label": "light channel",
+      "files": [
+        "20260914T030227009Z-0c5076/001-wb_light.png"
+      ],
+      "caption": "The same water on the light channel. Uniform top to bottom -- no attenuation at all.",
+      "meta": {
+        "material kinds that block light": "2 of 5 (Solid, Plant)",
+        "liquid contribution to opacity": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "control: rock",
+      "files": [
+        "20260914T030227009Z-0c5076/002-cavern_light.png"
+      ],
+      "caption": "A cave inside rock, same channel, same run. Pitch black -- so the overlay is sensitive.",
+      "meta": {
+        "light inside rock": "black",
+        "control result": "passes"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
