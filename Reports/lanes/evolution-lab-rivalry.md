@@ -126,13 +126,23 @@ here; the paired numbers are in the report for you.
 **For whoever owns the held world.** Only COMMON ANT is switched on; the other
 five foundable stocks still found as one family with themselves.
 
+**For anyone who used `rivalry.rs spread=` before 2026-09-14 11:00Z.** The
+override **added** its offset to the scent an animal already carried. That was
+identical to re-deriving it while `scent_spread` defaulted to 0 — so every
+measurement in the report's main body is sound — but from the moment the
+default went live it meant `authored + requested`, and `spread=0` was not an
+off arm. Fixed to re-derive from the ancestral point. **Caught by the paired
+authored-vs-override run**, which disagreed on `gap` alone while every outcome
+column matched; the report's "The measurement that was wrong" section has it.
+
 ## Cards
 
-**Card `20260914T101732230Z-f2fb00`** — *Rival colonies, switched on in the
-bed you play*. The shipped-on A/B: the bed as it was against the bed a new box
-gives you today, same seed and window, `0` against `9` killings between
-colonies in `meta`, with the value derivation and the paired cost in the
-context. Posted after the ruling.
+**Card `20260914T111237467Z-507bba`** — *Rival colonies, on by default in the
+bed you play*. The card of record for the switch: off against on at the
+settled value, same seed and window, **0 against 8** killings between colonies
+in `meta`. (`20260914T101732230Z-f2fb00` is its **superseded** predecessor,
+rendered while the value was still being derived on the confounded sweep — if
+the owner answered that one, read the verdict against its own images.)
 
 **Card `20260914T053420770Z-6a7aa9`** — *Two colonies that are strangers to
 each other*, board `creatures`. An A/B of **frame sequences** (175 frames
