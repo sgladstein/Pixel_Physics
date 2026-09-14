@@ -1,0 +1,37 @@
+{
+  "id": "20260914T001449002Z-c8fea6",
+  "created": "2026-09-14T00:14:49Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/determined-ramanujan-c9szc5",
+    "commit": "4c99d05a",
+    "agent": null,
+    "session_id": "79abafe2-f617-546c-9fed-7bebff67abba",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Founding a colony: three lineages, pick one",
+  "question": "C used to drop twelve identical ants. Now it offers three. Does this read as a decision worth making — and can you tell at a glance which of the three you want?",
+  "context_md": "**3 lineages on offer** at 224 / 321 / 178 power against a pool of 600, so all three are affordable and the choice is not made for you.\n\n**Rolled, over 3,600 slots measured:** 28.7% of trait slots land neutral and draw no line at all; 29.7% land strong. So a lineage says two or three things about itself, not six. A uniform draw would make every candidate loud (~55% strong) and none of them mean anything.\n\n**Stocks** are real species with real differences — HOPPER jumps, LONG ANT is six cells and survives a bite that kills a two-cell ant, PALE CHITIN is plated from birth at twice the ant's armour.\n\nWalking away (X) costs nothing and leaves the same three. Only committing rerolls them.\n\nThings I am unsure about and would rather you told me than guessed: whether the cost numbers mean anything to you yet, whether the founder dial (Q/E, 4-24) is discoverable, and whether the trait words say enough.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260914T001449002Z-c8fea6/000-offer_screen.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
