@@ -1,6 +1,9 @@
 # Weather
 
-*Current as of: 2026-08-29 (you can now pick a weather pattern and hold it,
+*Current as of: 2026-09-13 (in the held world, weather now stops where time
+does: rain, snow, frost and springs reach only the circles that are running,
+and the country outside them stays exactly as it was; before that, you could
+pick a weather pattern and hold it,
 or let the world go back to making its own; before that, how fast the weather
 changes its mind became a setting, separate from the length of a day; rain now reaches the soil through
 leaf litter, grass and other loose cover instead of being stopped dead by it,
@@ -303,6 +306,33 @@ in the ground at any moment rather than water that has been lost.
 Ground under a saturated sky stops drying and stays damp, exactly as a lake
 stops evaporating into air that is already full of water. It picks up again
 when the weather changes.
+
+## In the held world, weather stops where time does
+
+*(The third game — the one where the land is stopped and the only running
+time there is is the circle you carry with you and the ones you pay to leave
+standing.)*
+
+**The sky still has weather there; only the running circles feel it.** A
+front comes over, the clouds and the falling rain are drawn across the whole
+country exactly as they always were, and what the rain *does* happens inside
+a circle and nowhere else. Snow lies inside the rim and the ground a step
+past it stays bare. A pond inside a circle can ice over while the one beyond
+it does not. A clear freezing night puts frost only where time is running.
+And a spring — water arriving from off the edge of the world — runs only
+while a circle is over it, so a stopped country does not have a waterfall
+pouring in the middle of it.
+
+The rain a circle gets is the rain it *would* have got if the whole world
+were running: the same shower, cut to the size of the circle, rather than a
+thinner one. Nothing about the front changes because you are standing there.
+
+Wind is the one thing you will not see inside a circle, and it is a matter
+of scale rather than a rule about wind. A gust is a squall that happens high
+in the air and is several times wider than a circle you can walk around, so
+it has nowhere to land that is running. Deliberately calling up a gale is a
+verb that has not been built yet, and when it is it will have to place the
+squall rather than wait for one to arrive.
 
 ## What is not here yet
 
