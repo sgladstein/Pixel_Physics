@@ -66,18 +66,48 @@ stock carries everything the bed did as well as the loss. Hence
 `eaten_plant_cells`: the flow, in cells, at the line where the cell leaves the
 world.
 
-**After:** `attacks` 0 and `attack_plant_cells` 0 on every seed. Plants
-standing **173 → 206, 134 → 191, 60 → 158** against a no-colony control of
-264 / 202 / 202.
+**After:** `attacks` 0 and `attack_plant_cells` 0 on every seed. That half is
+exact and does not move.
 
-**Reported with its cost, not as a clean win.** The colony grew too — ants
-66 → 123, 81 → 146, 156 → 190; births 83 → 152 — because the jaw work it was
-billed for bought nothing, and grazing rose with it (`eaten_plant_cells`
-112 → 477 on seed 1). Plants still went up on every seed. **Whether a bigger,
-better-fed colony is what he wants is a question for him**, and it is the
-constant-re-derivation this repo warns about: the birth bar and the starvation
-balance were calibrated against a colony paying a bill that has now gone.
-**That is Lane D's file and Lane D's question** — flagged, not taken.
+## I RETRACT "plants up on every seed". Re-measured, it is not true.
+
+The tree moved under me — `main` landed 21 commits including `Cell::organism_
+id` widening u16 → u32 — and this repo's own rule is to **re-measure the
+baseline in the same session rather than compare against a remembered
+number**. Re-run paired on the merged tree, one binary, the ablation switch
+the only difference:
+
+| seed | plants, loop live | plants, fixed | no-colony control | ants, live → fixed |
+|---|---|---|---|---|
+| 1 | 243 | **275** | 270 | 198 → 137 |
+| 2 | 161 | **97** | 268 | 127 → 224 |
+| 3 | 190 | 187 | 200 | 2 → 8 |
+
+**Up on one seed, down hard on one, flat on one — median −3.** The pre-merge
+run read 173 → 206, 134 → 191, 60 → 158, three for three, and **that was a
+sample from a wide distribution on a tree that no longer exists.** Three seeds
+is not a sweep either way.
+
+**The mechanism claim is untouched by this** and is what the round rests on:
+100% of swings plant-directed, and the jaw taking **77–93%** of every cell
+removed from a living plant, reproduced on the merged tree (seed 1: 3,839 jaw
+cells against 659 by mouth; seed 2: 5,226 against 412). The *outcome* claim is
+the one that was oversold.
+
+**And the two columns together say what is actually going on, which is more
+useful than the number I withdrew.** Where the colony does not grow, the stand
+recovers to the unhunted control — seed 1 ends at **275 against a no-ant 270**,
+i.e. a colony that stays its size now costs the bed essentially nothing in
+plant count. Where the colony explodes, grazing replaces the jaw — seed 2's
+ants nearly double, 127 → 224, and the stand falls with them. **The fix removes
+the pure loss completely; what happens to the forest next depends on what the
+colony does with the energy it is no longer wasting.**
+
+**That is the constant re-derivation this repo warns about, now with evidence
+rather than as a worry.** The birth bar and the starvation balance were
+calibrated against a colony paying a bill that has gone. **Lane D's file and
+Lane D's question** — flagged, not taken, and the seed-2 row is the case to
+tune against.
 
 ## On "worse than yesterday"
 

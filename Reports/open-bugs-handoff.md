@@ -164,8 +164,8 @@ point.
 | Z21 | closed | 12337 | The held world's grown and dead starts fill every organism slot, so C founds nothing |
 | Z22 | **OPEN** | 12504 | A colony inside a quickening eats about a sixth of the garden, and nothing on screen says so |
 | Z23 | closed | 12599 | nearest_foe counts a plant as a foe, so a fed colony quietly vandalises its own larder |
-| Z24 | **OPEN** | 12782 | A loop of plant_ant is a crowd of strangers, and nine harnesses still do it |
-| Z25 | **OPEN** | 12863 | Nothing can hear an alarm: the plane's audible radius is about two cells |
+| Z24 | **OPEN** | 12809 | A loop of plant_ant is a crowd of strangers, and nine harnesses still do it |
+| Z25 | **OPEN** | 12890 | Nothing can hear an alarm: the plane's audible radius is about two cells |
 
 <!-- END GENERATED INDEX -->
 
@@ -12736,12 +12736,39 @@ it. A stock carries everything the bed did about the loss as well as the loss;
 where the cell leaves the world, so the two routes are a ratio rather than two
 numbers about different things.
 
-**After: `attacks` 0 and `attack_plant_cells` 0 on every seed.** Plants
-standing 173 → 206, 134 → 191, 60 → 158, against a no-colony control of
-264 / 202 / 202. **Reported with its second-order cost rather than as a clean
-win**: the colony also grew (ants 66 → 123, 81 → 146, 156 → 190; births
-83 → 152) because the jaw work it was being billed for bought nothing, and
-grazing rose with it — and plants still went up on every seed.
+**After: `attacks` 0 and `attack_plant_cells` 0 on every seed.** That half is
+exact and does not move.
+
+**The stand's response is NOT a clean win, and an earlier version of this
+closure said it was.** Those first numbers (173 → 206, 134 → 191, 60 → 158,
+three for three) were taken before `main` landed 21 commits including
+`Cell::organism_id`'s u16 → u32 widening. **Re-measured paired on the merged
+tree**, one binary, the ablation switch the only difference:
+
+| seed | plants, loop live | plants, fixed | no-colony control | ants, live → fixed |
+|---|---|---|---|---|
+| 1 | 243 | **275** | 270 | 198 → 137 |
+| 2 | 161 | **97** | 268 | 127 → 224 |
+| 3 | 190 | 187 | 200 | 2 → 8 |
+
+Up on one, down hard on one, flat on one — **median −3**, and three seeds is
+not a sweep. The withdrawn reading was a sample from a wide distribution on a
+tree that no longer exists; `CLAUDE.md`'s *re-measure the baseline in the same
+session* is what caught it.
+
+**The mechanism figures above are untouched and reproduce on the merged
+tree** — 100% of swings plant-directed, the jaw taking 77–93% of every cell
+removed from a living plant (seed 1: 3,839 jaw cells against 659 by mouth).
+
+**What the two columns say together is the more useful finding.** Where the
+colony does not grow the stand recovers to the unhunted control (seed 1 ends
+at **275 against a no-ant 270** — a colony that stays its size now costs the
+bed essentially nothing in plant count); where it explodes, grazing replaces
+the jaw (seed 2's ants nearly double and the stand falls with them). **The fix
+removes the pure loss completely; what happens to the forest next is decided
+by what the colony does with the energy it is no longer wasting** — which puts
+the birth bar and the starvation balance, calibrated against a colony paying a
+bill that has gone, in front of whoever owns the economy.
 
 **`PIXEL_PHYSICS_PLANT_FOE=on` restores both halves together**, and its arm
 reproduces every pre-fix column byte-identically, so this is one binary rather
