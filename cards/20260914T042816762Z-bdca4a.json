@@ -1,0 +1,43 @@
+{
+  "id": "20260914T042816762Z-bdca4a",
+  "created": "2026-09-14T04:28:16Z",
+  "board": "aquatic",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/dreamy-feynman-uq21ka",
+    "commit": "274a4eb4",
+    "agent": null,
+    "session_id": "03a661b6-8a97-557a-bb54-646ad0fd7092",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The ants walk out onto the pond and stand on it",
+  "question": "This is the shoreline at 6x, ants drawn as gold markers, rain off. They walk east along the bank, reach the water, and keep going -- out onto the surface, standing on it. This is bug R2's locomotion half, which you ruled on in August (drown, float and swim, heritable, with the float limit mechanical). It is still unbuilt, and it is what Phase 2 of the plan fixes. Two questions: does an ant standing on water read as broken enough to be worth fixing before the plants, and when it IS fixed, should an ant that blunders in mostly drown, mostly float, or mostly swim at generation zero?",
+  "context_md": "The plan's order is **bed -> plant -> animal**, and this card is the argument against my own ordering -- so it is worth asking rather than assuming. The case for plants first is that survival tracks eating at +0.895 and nothing else, so a swimmer with nothing to eat is the hop again (built August, correct, guarded, **zero launches in every real scene**). The case for animals first is on this card: it is the only aquatic thing that currently looks *wrong* on screen.\n\nThe bed is a stone-lined basin with the waterline flush to the ground, which is what lets an ant meet the water at all. In the sunk version (a four-row stone lip) they never reach it.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "the shoreline",
+      "files": [
+        "20260914T042816762Z-bdca4a/000-shore_off.gif"
+      ],
+      "caption": "6x, rain off, frames 7,400-8,000. Gold markers are ants. Watch the one that leaves the bank.",
+      "meta": {
+        "ants alive in window": 31,
+        "pond": "152 x 32, flush waterline",
+        "E9 status": "float built, drown and swim unbuilt",
+        "bug": "open-bugs-handoff R2, locomotion half"
+      },
+      "focus": null,
+      "gif_frames": 21
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
