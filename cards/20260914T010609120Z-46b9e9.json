@@ -1,0 +1,37 @@
+{
+  "id": "20260914T010609120Z-46b9e9",
+  "created": "2026-09-14T01:06:09Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/determined-ramanujan-c9szc5",
+    "commit": "d10a1cea",
+    "agent": null,
+    "session_id": "79abafe2-f617-546c-9fed-7bebff67abba",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The options menu, and plants no longer break under stress",
+  "question": "M opens this. PLANTS BREAK UNDER STRESS is off, as you asked. Are these the right first six rows — and is anything here you would rather not have to find in a menu at all?",
+  "context_md": "**Six rows, and every one is a switch the engine already had.** Nothing here adds behaviour. PLANTS BREAK UNDER STRESS and PLANTS BEND UNDER LOAD were fields on the world reachable only from the lab's parameters panel; the rest were keys nobody could guess. A menu is discoverability — a menu row that is also a new mechanic would be two changes wearing one commit.\n\n**The held world sets plant breaking off at startup and the engine default stays on**, so the outdoor game and the acceptance cases are untouched. Only a *living* plant is held: a senescent one comes apart exactly as before, so culling, rot and felling still work. That distinction is not incidental — an earlier version got it wrong and you caught it with \"I turned COLLAPSE UNDER LOAD off, but trees are still falling over.\"\n\n**The world behind the panel is the other change you asked for**: bare is now the default start. No plants at all, rather than a wood that is dead by every number in the simulation and still renders as a wood.\n\nThe line under the rows says what the highlighted switch buys or costs, because a switch whose consequence is invisible is one nobody touches twice.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260914T010609120Z-46b9e9/000-menu.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
