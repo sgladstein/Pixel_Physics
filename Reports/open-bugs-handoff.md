@@ -163,7 +163,7 @@ point.
 | Z20 | closed | 12294 | labgif wire= was a silent no-op for every card it has ever produced (lab) |
 | Z21 | **OPEN** | 12335 | The held world's grown and dead starts fill every organism slot, so C founds nothing |
 | Z22 | **OPEN** | 12434 | A colony inside a quickening eats about a sixth of the garden, and nothing on screen says so |
-| Z23 | **OPEN** | 12510 | nearest_foe counts a plant as a foe, so a fed colony quietly vandalises its own larder |
+| Z23 | **OPEN** | 12529 | nearest_foe counts a plant as a foe, so a fed colony quietly vandalises its own larder |
 
 <!-- END GENERATED INDEX -->
 
@@ -12472,8 +12472,27 @@ speed dial multiplies it: eaten **912 → 21,813**, felled **39 → 672**,
 everything else fixed — `Druid::speed` doing exactly what its own doc says,
 applied to grazing.
 
+**Part of it is §Z23 and is a real defect, measured here 2026-09-14.** §Z23
+(`nearest_foe` counts a plant as a foe, so an ant's own feeding alarm turns
+into a swing at the leaf and *"the cell comes off and nobody eats it"*) fires
+on this bed too, and the druid world is a harder case for it than the lab bed
+it was found on. Full scale, 3,000 ticks at speed 8 — 24,000 world frames, the
+same budget §Z23's own table uses:
+
+| | with a colony | no colony |
+|---|---|---|
+| swings that reached a target | **364** | **0** |
+| cells those swings took | **193** | **0** |
+
+against §Z23's 344–475 swings and 58–86 cells on the lab bed. The zero arm is
+the control and it is exact: no ants, no swings. **But it is a minority of
+what this section is about** — 193 cells against ~5,600 plant cells standing
+and 21,813 units of tissue genuinely eaten, i.e. on the order of a tenth of
+the 117-plant gap between the two arms. So fixing §Z23 will not close §Z22,
+and §Z22's prescription is unchanged by it.
+
 **Why it is filed as open rather than closed as working-as-designed.** The
-grazing is the game working and needs no fix. What is broken is that a large,
+grazing — the other nine tenths — is the game working and needs no fix. What is broken is that a large,
 ongoing, player-caused cost has **no visible cause**: the readout prices a
 circle in *power* and says nothing about *plants*, and the dial is priced
 honestly in power while nothing says the same multiplier applies to what eats

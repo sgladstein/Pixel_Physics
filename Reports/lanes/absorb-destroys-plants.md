@@ -52,8 +52,18 @@ Instrument: `examples/druid_garden.rs`, row in `Reports/instruments.md`. Card
   multiplier applies to **grazing**. One string in the note the dial raises
   closes it.
 
+- **`src/sim/creature.rs` (Lane C) — already filed as §Z23, and it reaches
+  this bug.** `nearest_foe` counts a plant as a foe, so an ant's feeding alarm
+  turns into a swing at the leaf and the cell comes off with nobody eating it.
+  Measured on the druid bed at full scale, 24,000 world frames: **364 swings,
+  193 cells struck with a colony; 0 and 0 without** — against §Z23's 344–475
+  and 58–86 on the lab bed, so the druid world is the harder case. **It is
+  about a tenth of what this lane measured**, so fixing it will not close
+  §Z22, but it is a real defect where the rest is not.
+
 **No change is recommended to `absorb`, to the motes, or to the dial itself.**
-The grazing is the game working; only its invisibility fails the ethos.
+The grazing — the other nine tenths — is the game working; only its
+invisibility fails the ethos.
 
 ## Corrections — including two to my own work
 

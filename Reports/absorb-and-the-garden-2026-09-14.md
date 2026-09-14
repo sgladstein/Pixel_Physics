@@ -245,12 +245,34 @@ honestly in power. What is not priced anywhere the player can see is that the
 same multiplier applies to **grazing**. One line in the note raised when the
 dial is changed closes the gap for the cost of a string.
 
-**No change is recommended to the dial itself, and the grazing is not a bug.**
-*An outcome is a distribution, not a binary*: the colony eating a sixth of the
-garden at a rate the player set is graded, legible and reversible, and it is
-the game working. What fails the ethos is only that the player cannot see it
-happening or attribute it. Whether a colony *should* cost that much is a
-balance question for the owner.
+### 6c. A tenth of it is `open-bugs-handoff.md` §Z23, and that part *is* a bug
+
+**This qualifies the paragraph that used to end this section.** §Z23 — landed
+on `main` from round 35 while this branch was open — has `nearest_foe`
+counting a **plant** as a foe: an ant's own feeding alarm turns into a swing,
+the swing lands on the leaf, and *"the cell comes off and nobody eats it"*.
+Pure loss, billed to the jaw, feeding nobody.
+
+It fires on this bed, and harder than on the lab bed it was found on. Full
+scale, 3,000 ticks at speed 8 — 24,000 world frames, §Z23's own budget:
+
+| | with a colony | no colony |
+|---|---|---|
+| swings that reached a target | **364** | **0** |
+| cells those swings took | **193** | **0** |
+
+against §Z23's 344–475 swings and 58–86 cells. The zero arm is the control and
+it is exact. **But it is a minority**: 193 cells against ~5,600 plant cells
+standing and 21,813 units of tissue genuinely eaten — on the order of a tenth
+of the 117-plant gap. So fixing §Z23 will not close this report, and this
+report's prescription does not depend on it.
+
+**No change is recommended to the dial itself, and the grazing — the other
+nine tenths — is not a bug.** *An outcome is a distribution, not a binary*:
+the colony eating a sixth of the garden at a rate the player set is graded,
+legible and reversible, and it is the game working. What fails the ethos is
+only that the player cannot see it happening or attribute it. Whether a colony
+*should* cost that much is a balance question for the owner.
 
 ---
 
@@ -338,3 +360,7 @@ when the repair landed.
   matter. The card asks the owner directly and says so in as many words.
 - **The small-world grown founding shortfall is unexplained** — 5 of 12 on a
   world holding 973 organisms, nowhere near §Z21's ceiling.
+- **The §Z23 share is one arm at one seed**, like everything else here, and it
+  is a *lower* bound on the defect's reach rather than a measurement of it:
+  `attack_cells` counts cells the swing took, not tissue the plant then lost
+  to the wound.

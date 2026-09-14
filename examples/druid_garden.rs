@@ -99,6 +99,21 @@ struct Census {
     /// plant usually survives being grazed, so eating and dying are
     /// different events and only one of them is grazing.
     harvested_plant: f64,
+    /// **Swings that reached a target**, and **cells those swings took.**
+    ///
+    /// Here because of `open-bugs-handoff.md` **§Z23**: `nearest_foe` counts
+    /// a *plant* as a foe, so an ant grazing raises an alarm, the alarm turns
+    /// into a swing, and the swing lands on the leaf — *"the cell comes off
+    /// and nobody eats it"*. That is pure loss and a real defect, as against
+    /// grazing, which is the game working. Without these two beside
+    /// `harvested_plant` a census cannot tell the two apart, and this lane's
+    /// first conclusion — *the grazing wants no fix* — was written without
+    /// them.
+    ///
+    /// `attacks` is **not** a fighting counter and must not be read as one;
+    /// §Z23's second half is a report that did exactly that.
+    attacks: u64,
+    attack_cells: u64,
 }
 
 impl Census {
@@ -161,6 +176,8 @@ fn census(world: &World, at: (i32, i32)) -> Census {
         animals,
         deaths: world.deaths_by_cause,
         harvested_plant: world.energy_ledger.harvested_plant,
+        attacks: world.creature_stats.attacks,
+        attack_cells: world.creature_stats.attack_cells,
     }
 }
 
@@ -192,6 +209,20 @@ fn report(label: &str, a: &Census, b: &Census) {
     println!(
         "  {:<12} {:>10.0} {:>10.0} {:>+10.0}",
         "eaten(plant)", a.harvested_plant, b.harvested_plant, b.harvested_plant - a.harvested_plant
+    );
+    println!(
+        "  {:<12} {:>10} {:>10} {:>+10}",
+        "swings(Z23)",
+        a.attacks,
+        b.attacks,
+        b.attacks as i64 - a.attacks as i64
+    );
+    println!(
+        "  {:<12} {:>10} {:>10} {:>+10}",
+        "cells struck",
+        a.attack_cells,
+        b.attack_cells,
+        b.attack_cells as i64 - a.attack_cells as i64
     );
     for (i, cause) in DEATH_CAUSE_LIST.iter().enumerate() {
         let d = b.deaths[i] - a.deaths[i];
