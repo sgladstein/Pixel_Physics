@@ -72,52 +72,88 @@ and the run is **byte-identical to the baseline** — the classic "identical
 output across a change that must have moved something" tell, here with an
 innocent explanation). The harness prints the gap for exactly this reason.
 
-## After the round moved under this lane (2026-09-14, 08:36–09:00Z)
+## After the round moved under this lane (2026-09-14)
 
-**The bug is §Z23.** The coordinator renumbered it on this branch at
-`18b7fa2b` — `claude/absorb-destroys-plants` had filed a different §Z22 an
-hour earlier on an unlanded branch, which is precisely the case
-`bugindex.py --check` cannot see and `--branches` can. Verified the diff: the
-heading, the index row and five cross-references, and **no claim in the
-section changed**. Accepted as-is, not re-filed.
+**The bug is §Z23.** The coordinator renumbered it at `18b7fa2b` — another
+branch had filed a different §Z22 an hour earlier on an unlanded branch, the
+case `bugindex.py --check` cannot see and `--branches` can. Diff verified:
+heading, index row, five references, **no claim changed**. Accepted, not
+re-filed.
 
-**PR #417 (Lane D) landed on `main` and touches this lane's subject; §Z23
-survives it whole, and that was measured rather than assumed.** #417 made
-`nearest_foe`'s **odds count** animals-only and left the **target rule**
-alone, stating the reason in a comment. Two consequences, both now in §Z23:
-its new gate is `assessing = victim != 0 && is_animal && contest::enabled()`,
-so **a plant is the one target struck with no assessment at all**; and
-re-running seed 1 on `origin/main` **with this branch merged into a scratch
-worktree and built fresh** gives **475 attacks / 79 cells / 629 deaths,
-byte-identical** to the pre-#417 figure — predicted first, because with every
-foe a plant the commitment branch takes no RNG draw.
+**PR #417 (Lane D) landed and touches this subject; §Z23 survives it whole,
+measured rather than assumed.** #417 made `nearest_foe`'s odds count
+animals-only and left the target rule alone, so a plant still fails
+`is_animal` and is **the one target struck with no assessment at all**; seed 1
+re-run on `main` with this branch merged gives **475 attacks / 79 cells / 629
+deaths, byte-identical**. Predicted first: with every foe a plant, the
+commitment branch takes no RNG draw. **§Z23's proposed repair was wrong and is
+rewritten** — gate `cry_alarm`'s two *feeding* sites on the victim being an
+animal, which leaves #417's argument intact.
 
-**§Z23's proposed repair was wrong and has been rewritten.** It first said
-"test that the target is an animal"; #417 argues against exactly that, and
-correctly. The repair moved upstream: gate `cry_alarm`'s two **feeding** call
-sites on the victim being an animal, which fixes the vandalism and leaves the
-target rule intact.
+**The two lanes' stranger figures differ by denominator, not by fact.** Lane
+D's is over all ordered ant pairs (kin-heavy); this lane's `between%` is over
+cross-colony pairs only. Pooled, **7 of 10 seeds separate at `spread=1`**.
 
-**One correction back to the coordinator: this lane ships no switch and no
-default.** The poke asks what this lane's "ON default" for `scent_spread` is
-and says to re-derive it. There is nothing to re-derive — the PR changes no
-species file, no default and no file under `src/`, and the report's
-recommendation is to expose the dial rather than choose a value, default-off.
-Lane D's §8.3 sweep is still useful and is now cited in the report: the dial
-is a **threshold, not a slope**, saturating by **2**, so a dial whose top is 1
-would ship a mechanism a third of beds never show.
+## The switch, shipped ON (2026-09-14, branch `claude/evolution-lab-rivalry-on`)
 
-**The two lanes' stranger figures differ by denominator, not by fact**, and
-the report now says so: Lane D's 0.093 is over *all* ordered ant pairs
-(kin-heavy); this lane's `between%` is over *cross-colony* pairs only, which
-is why it is 100% or 0% and never in between. Pooled, **7 of 10 seeds
-separate at `spread=1`** (4 of 6 here, 3 of 4 there).
+**The findings live in the report** —
+[`why-colonies-do-not-fight-2026-09-14.md`](../why-colonies-do-not-fight-2026-09-14.md),
+"Postscript: the owner ruled, and it ships on": the measured value and why
+**2.0**, the clamp that makes it saturate, the paired cost, the 19 tests it
+broke and what the nineteenth turned out to be. Only what is addressed to
+another session is kept here.
 
-**Not merged `main` in.** `git merge-tree` reports **0 conflicts** at 12
-behind x 6 files = 72, well under the 300 bar, and the coordinator owns the
-merge order this round.
+**Provenance of the ruling, because this lane could not verify it.** The
+coordinator relayed *"You can ship it on"* at 08:36Z, dated 04:43. It had not
+reached this lane before that — the brief said default-OFF. The review queue's
+most recent owner answer is **01:44:09Z** and there is nothing at 04:43, so it
+came through a channel this lane does not have. Acted on the relay; recording
+where the belief came from.
+
+**For the coordinator, on file ownership.** `src/sim/creature.rs` is Lane B's
+this round and carries **two test-only edits** (the `test_world()` pin, and
+the new default test beside it); `src/sim/specimen.rs` carries one test edit.
+**No non-test `src/` line changed.** The only behavioural line in the branch is
+`scent_spread: 2.0` in `assets/species/ant.ron` — a shipped species edited in
+place, said loudly here as the brief requires.
+
+**For whoever owns the colony economy.** The default makes an ant *food* to
+another colony, and the birth bar, `colony_ants` and the starvation balance
+were all calibrated on a bed where no ant is food. Deliberately not re-derived
+here; the paired numbers are in the report for you.
+
+**For whoever owns `examples/ascii.rs`.** The live default turned that file's
+CI gate red — **the one gate my local set was missing**. Three scenes place
+animals in a `plant_ant` loop, which claims a **fresh label per call**, so each
+held 55-60 one-ant colonies that only looked like a colony: inert at a zero
+dial, mutual strangers at a live one. The file had already ruled on this in its
+own moisture scene; the repair is that precedent applied to the three loops
+that lacked it. Excavation `digs 62 -> 354`, roofed `0 -> 42`; foraging keeps
+15 of 15 animals against 12; the double bridge's `deliveries 1,076 -> 13`,
+where the **old** number was the artifact. Full account, including why this is
+**not** a player-facing consequence (`plant_ant` is unreachable from the game),
+in the report's "What the live default broke outside the test suite".
+
+**For whoever owns the held world.** Only COMMON ANT is switched on; the other
+five foundable stocks still found as one family with themselves.
+
+**For anyone who used `rivalry.rs spread=` before 2026-09-14 11:00Z.** The
+override **added** its offset to the scent an animal already carried. That was
+identical to re-deriving it while `scent_spread` defaulted to 0 — so every
+measurement in the report's main body is sound — but from the moment the
+default went live it meant `authored + requested`, and `spread=0` was not an
+off arm. Fixed to re-derive from the ancestral point. **Caught by the paired
+authored-vs-override run**, which disagreed on `gap` alone while every outcome
+column matched; the report's "The measurement that was wrong" section has it.
 
 ## Cards
+
+**Card `20260914T111237467Z-507bba`** — *Rival colonies, on by default in the
+bed you play*. The card of record for the switch: off against on at the
+settled value, same seed and window, **0 against 8** killings between colonies
+in `meta`. (`20260914T101732230Z-f2fb00` is its **superseded** predecessor,
+rendered while the value was still being derived on the confounded sweep — if
+the owner answered that one, read the verdict against its own images.)
 
 **Card `20260914T053420770Z-6a7aa9`** — *Two colonies that are strangers to
 each other*, board `creatures`. An A/B of **frame sequences** (175 frames
@@ -148,35 +184,17 @@ coordinator to sequence against Lane B.
 
 ## Head SHA
 
-**`afb6bfe1dd80253f9cd486c180e5da2abd71acb6`** on `claude/evolution-lab-rivalry`
-— `main` moved 7 commits under this branch while it was measuring, so that
-commit merges it in and **CI is 9 of 9 green on it**. The one conflict was
-`Reports/open-bugs-handoff.md`, the contested file the rules warn about: the
-generated index block was taken whole from `main` and regenerated with
-`scripts/bugindex.py` rather than hand-merged, and the two bug sections
-appended to the same end of the file — **§Z21 from `main` and §Z23 from here**
-— were both kept. `docscheck` was re-run after the merge, unconditionally.
+**`claude/evolution-lab-rivalry-on`**, PR **#423** — the switch, opened by the
+coordinator who owns its merge. PR **#416** (the report and the harness) is
+**merged**.
 
-**The letter changed after that merge, and not because of it.** This lane
-filed §Z22 at 05:47; `claude/absorb-destroys-plants` had already filed a
-different §Z22 at 04:48 on an unlanded branch, which is exactly the case
-`bugindex.py --check` cannot see and `--branches` can. First filed wins, so
-this lane's section is **§Z23** and the earlier filing keeps §Z22. The
-renumber was made by the round coordinator rather than by this lane, because
-the lane was idle and the round was waiting on it; it is a rename of the
-heading, the index row and five cross-references, and no claim in the section
-changed.
+Gates re-run on the merged tree after every correction: clippy clean;
+`cargo test --release --lib` **1,790 passed / 0 failed / 85 ignored**;
+`--test worldgen --test determinism` **47 / 0**; `acceptance.sh`,
+`worldgencheck.sh` and `docscheck` clean; and **`cargo run --release --example
+ascii`**, which is the gate this lane's local set was missing and the one the
+live default turned red.
 
-Gates re-run **after** the merge: clippy clean; `cargo test --release --lib`
-**1,756 passed / 0 failed / 85 ignored**; `--test worldgen --test determinism`
-**47 passed / 0 failed**; `docscheck` clean.
-
-The pre-merge SHA was `55efeb17`, whose gates were: clippy clean; `cargo test --release --lib` **1,750 passed / 0 failed / 85 ignored**;
-`--test worldgen --test determinism` **47 passed / 0 failed**; `docscheck`
-clean; `deadendindex --touching` 0 hits.
-
-**The 54-run sweep was verified byte-identical across two rebuilds** (the
-card-capture additions, and the clippy `is_multiple_of` fix) by re-running
-`base seed=1` on each new binary and matching every column — this repo's own
-stale-binary rule, met from the side where the binary is new and the table is
-old.
+**The lesson for the next lane's gate list: `--lib` plus the integration tests
+is not what CI runs.** A behavioural default change lands in `examples/ascii.rs`
+before it lands anywhere a unit test looks.
