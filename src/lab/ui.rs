@@ -4335,12 +4335,21 @@ impl Ui {
             // **Two questions on one row, and both are distributions.**
             // "Empty" is `CLAUDE.md`'s first law -- a colony is not thriving
             // or starving, it empties out, and only a spread says so before
-            // the deaths do. "Carrying" is the only store a colony has:
-            // there is no granary in this box, a dropped load is a cell on
-            // the floor like any other, and the midden is spoil rather than
-            // food. The note ranks the carriers, because a mean forager
-            // hides "a fifth do all of it" exactly as a pooled idle rate hid
-            // "a fifth are frozen" (round 33).
+            // the deaths do. The note ranks the carriers, because a mean
+            // forager hides "a fifth do all of it" exactly as a pooled idle
+            // rate hid "a fifth are frozen" (round 33).
+            //
+            // **"Carrying" says in transit, and the wording is the whole
+            // care.** `Reports/colony-food-economy-design-2026-09-14.md` §4:
+            // a standing count cannot tell a store from a conveyor --
+            // `larder_probe` already found a "granary of ten cells" that was
+            // ten cells on their way somewhere, `resident` 0 from frame 200,
+            // and the readout that would answer *is it stored* is dwell
+            // time rather than quantity. There is no granary in this box at
+            // all: a dropped load is a cell on the floor like any other and
+            // the midden is spoil rather than food, so a crop total is the
+            // honest answer to "what is the colony holding" and is not
+            // offered as an answer to "what has it put by".
             Row::value(
                 "  EMPTY / CARRYING",
                 format!(
@@ -4350,7 +4359,7 @@ impl Ui {
                 ),
                 if alive > 0 && thin * 2 >= alive { POOR } else { FAINT },
                 format!(
-                    "HOW MANY OF ITS LIVING ANIMALS ARE UNDER A QUARTER OF THE BANK THEY WERE PLACED WITH, AND HOW MUCH FOOD THE COLONY IS HOLDING IN ITS CROPS RIGHT NOW. BANKS: UNDER A TENTH {}, A TENTH TO A QUARTER {}, TO A HALF {}, TO FULL {}, FULL OR BETTER {}. {carried} LOADS HAVE REACHED THE NEST, BY ANT AND MOST FIRST: {}. {idle} OF {} HAVE CARRIED NOTHING HOME, WHICH AN AVERAGE WOULD HIDE.",
+                    "HOW MANY OF ITS LIVING ANIMALS ARE UNDER A QUARTER OF THE BANK THEY WERE PLACED WITH, AND HOW MUCH FOOD IS IN ITS CROPS RIGHT NOW -- WHICH IS FOOD IN TRANSIT, NOT FOOD PUT BY. BANKS: UNDER A TENTH {}, A TENTH TO A QUARTER {}, TO A HALF {}, TO FULL {}, FULL OR BETTER {}. {carried} LOADS HAVE REACHED THE NEST, BY ANT AND MOST FIRST: {}. {idle} OF {} HAVE CARRIED NOTHING HOME, WHICH AN AVERAGE WOULD HIDE.",
                     bands[0],
                     bands[1],
                     bands[2],
