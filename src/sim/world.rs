@@ -4271,6 +4271,29 @@ pub struct World {
     /// `player` already means, and a dial that can be turned to *off* by
     /// accident is a different mechanic.
     pub carried_radius: i32,
+    /// **Whether the carried circle is switched off entirely.** `false`
+    /// normally; while it is `true` [`crate::sim::frame::step`] leaves
+    /// `carried` as `None` and time stands still where the player stands.
+    ///
+    /// **A separate flag rather than `carried_radius = 0`, and the field
+    /// above says why.** That dial treats `0` as the default precisely so it
+    /// cannot be turned to *off* by accident, and the doc calls an off state
+    /// "a different mechanic". This is that mechanic, written as its own
+    /// word: nothing that shrinks the circle can reach it, and nothing that
+    /// reads it can mistake it for a size.
+    ///
+    /// **Off is a trade, not a saving.** The carried circle is free
+    /// ([`crate::druid`]'s `carried_cost` is zero at its base size), so this
+    /// buys no power directly. What it stops is everything the circle was
+    /// doing for you — a colony under your feet stops storing charge, a seed
+    /// you sowed stops germinating, and the wood you are standing in stops
+    /// growing. It is for when the player wants the world to *hold still*,
+    /// which is the one thing the held world could not previously do while he
+    /// was in it.
+    ///
+    /// Owner playtest, 2026-09-14: *"There should be an easy way to full turn
+    /// off the sphere around the druid so no power is being used."*
+    pub carried_off: bool,
     /// **Whether soil levels its water sideways as readily as it does when
     /// it is dry.** `update::update_soil_water`'s capillary exchange, and
     /// the reason the bed stands in visible columns under the moisture
@@ -5291,6 +5314,7 @@ impl World {
             quickenings: Vec::new(),
             carried: None,
             carried_radius: CARRIED_RADIUS,
+            carried_off: false,
             developmental_key: super::organism::DevelopmentalKey::default(),
             deepest_generation: 0,
             deepest_animal_generation: 0,

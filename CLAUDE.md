@@ -165,6 +165,16 @@ for *looking at one frame of the real thing*, not for timing anything. Frame
 timings still come from `ascii`, and `PIXEL_PHYSICS_CAPTURE_SEQUENCE` still
 works for a strip.
 
+**All three binaries carry the hook and they do not write the same file.**
+`./target/release/druid` writes `pixel_physics_**druid**_screenshot.png`; the
+line above is the sandbox's name, and waiting on it while the druid app runs
+looks exactly like a capture that never fired. **And none of them exits after
+the shutter** — a headless capture script has to kill the app itself, and
+`pkill -f target/release/druid` matches the *wrapping shell's own command
+line* and kills the script instead, which reads as the same failure a second
+time. `for p in $(pgrep -x druid); do kill $p; done` is the one that works.
+Both cost twenty minutes on 2026-09-14, one after the other.
+
 `filmstrip` writes a contact-sheet PNG — several frames of one run in a grid —
 so an artifact can be judged by eye without a window. Add `gif=1 out=x.gif` and
 it encodes an animation instead, still with no window and no GPU: reach for that

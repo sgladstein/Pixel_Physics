@@ -308,9 +308,34 @@
             vault_min_depth: 200,
             vault_bedrock_margin: 16,
             world_age: 0.0,
-            moss_density: 0.18,
-            tree_density: 0.50,
-            grass_density: 0.72,
+            // **No life is scattered into the held world, and that is the
+            // game rather than a bare-looking preset.** Owner playtest,
+            // 2026-09-14: *"The world should not start with any seeds. The
+            // druid has her own seeds to plant and that populates the
+            // world."*
+            //
+            // These three are the *only* thing that ever put a plant in this
+            // world — `Start::Bare` never grows, and nothing else in the
+            // generator plants. At all three zero, `passes::life_scatter`
+            // early-outs before it reaches any of its three planting sites,
+            // which is the path `arid` and `flat` already take, so this is a
+            // configuration the generator supports rather than a new one.
+            //
+            // Measured, paired, one binary and two copies of this file
+            // (`pass_ablation seeds=1 preset=druid`): `life_scatter` wrote
+            // **993 cells** at `0.18 / 0.50 / 0.72` and **0** at these, with
+            // every other pass in the table byte-identical across the two
+            // arms — `soil_blanket` 1,239,668, `ponds` 94,493,
+            // `soil_moisture` 1,223,852 on both.
+            //
+            // Do not restore them to "make the world look alive". What the
+            // land looks like is now a consequence of what the player has
+            // sown, which is the whole verb the game is built on — a
+            // generator that seeded it first would be answering the question
+            // the player is there to answer.
+            moss_density: 0.0,
+            tree_density: 0.0,
+            grass_density: 0.0,
             life_cluster_wavelength: 70.0,
             // The only preset that sets this. See the note above the block.
             settle_frames: 120.0,

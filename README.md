@@ -88,7 +88,7 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Trail status — the ant reads its way home, and the food trail is the larder's problem](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) | 8186 |
 | [Lifespan status — an ant gets old, and the colony's fall becomes a slope](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) | 8223 |
 | [Held world status — the third game, and time you carry in a circle](#held-world-status--the-third-game-and-time-you-carry-in-a-circle) | 8369 |
-| [Colony books status — what each colony is living on, in joules](#colony-books-status--what-each-colony-is-living-on-in-joules) | 8929 |
+| [Colony books status — what each colony is living on, in joules](#colony-books-status--what-each-colony-is-living-on-in-joules) | 9012 |
 
 ### Milestones, in numeric order
 
@@ -134,7 +134,7 @@ your time goes, not a rule about what you may read.
 | Topic | Game | Sections, primary first |
 |---|---|---|
 | **plants, trees and moss** | engine | [M16 status](#m16-status) 1906, [Soil nutrient status](#soil-nutrient-status--ground-is-worth-something-water-is-not) 7543, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1426, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 4627, [Parameter-genome status](#parameter-genome-status--a-species-file-is-a-starting-point-and-it-ships-inert) 4730, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1548, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1838, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1496, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1756, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4910, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 5147, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 5224, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6685, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 5544, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5592, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5823, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6577 |
-| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2319, [The ant colony](#the-ant-colony--status) 3835, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6685, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5592, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5823, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6747, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6577, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7586, [Hunger status](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) 7886, [Rest status](#rest-status--a-rest-that-ends-so-a-resting-animal-is-not-a-stopped-one) 7997, [Hopper status](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) 7966, [Trophallaxis status](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) 8128, [Trail status](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) 8186, [Lifespan status](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) 8223, [Colony books status](#colony-books-status--what-each-colony-is-living-on-in-joules) 8929 |
+| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2319, [The ant colony](#the-ant-colony--status) 3835, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6685, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5592, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5823, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6747, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6577, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7586, [Hunger status](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) 7886, [Rest status](#rest-status--a-rest-that-ends-so-a-resting-animal-is-not-a-stopped-one) 7997, [Hopper status](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) 7966, [Trophallaxis status](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) 8128, [Trail status](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) 8186, [Lifespan status](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) 8223, [Colony books status](#colony-books-status--what-each-colony-is-living-on-in-joules) 9012 |
 | **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 2092, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4910, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 5147, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 5224, [M8 status](#m8-status--started-not-complete) 3029 |
 | **fire, heat and phase change** | engine | [M14 status](#m14-status) 1013, [Materials](#materials) 293 |
 | **explosions, particles and debris** | outdoor | [M15 status](#m15-status) 1190, [M7 status](#m7-status) 1161 |
@@ -8555,6 +8555,89 @@ there was no pattern to copy. The first generated world put a pond exactly at
 mid-width, and `surface_at` walked through it to the rock floor beneath: the
 gnome spawned submerged. A flooded column now disqualifies itself outright and
 the search alternates outward from the middle.
+
+### Nothing grows there until she plants it
+
+**The generated world contains no life at all**, and that is the player's job
+rather than the generator's. Owner playtest, 2026-09-14: *"The world should
+not start with any seeds. The druid has her own seeds to plant and that
+populates the world."*
+
+It is three zeroed densities in the `druid` preset — `moss_density`,
+`tree_density`, `grass_density` — and no code, because `passes::life_scatter`
+already early-outs when all three are zero, which is the path `arid` and
+`flat` take. Measured paired, one binary and two copies of
+`assets/worldgen.ron` (`pass_ablation seeds=1 preset=druid`): `life_scatter`
+**993 cells → 0**, with every other pass in the table byte-identical across
+the two arms, so nothing was displaced rather than removed. `Start::Bare` is
+the default and never grows, so that is the whole of it.
+
+**Her supply is finite, and that is the other half of the same item.** Before
+this, `Druid::plant_seed` read no resource and decremented nothing — no
+decrement existed anywhere in the repo — so on a bare map the item as stated
+would have turned a wood into a painting tool.
+
+| | |
+|---|---|
+| `SEED_START` | 8 of **each kind**, so *"eight grass and no oak"* is a state |
+| `SEED_CAP` | 24 per kind |
+| `SEED_FROM_CELLS` | 24 — a plant pays only once it looks like a plant |
+| `SEED_PER_PLANT_SECOND` | 0.005, per mature plant, **in the circle she carries** |
+
+**The carried circle, not a standing one**, is the load-bearing choice.
+Gathering is presence — the same thing the carried circle already is — so the
+way to be paid in seed is to walk your own wood. Crediting standing
+quickenings would pay a player who drops a circle over a wood and leaves,
+which is the unlimited supply wearing a delay. It also means switching the
+sphere off (below) stops the pouch filling, for free, out of the same
+`Option`. Seed is credited to the **plant's own kind**, so standing in an oak
+wood fills you with oak.
+
+Every number above is a first guess on the same footing as the rest of this
+economy. **The one to sweep first is the maturity bar**, because it is the
+only one that decides whether the mechanic has a middle: too low and every
+sprout pays, which is the infinite supply again; too high and nothing ever
+pays and the pouch is a countdown.
+
+**Not built, and it is the owner's call:** whether a refill should exist at
+all. Everything here assumes it should, because a supply that can only go down
+makes the outcome binary — you have seeds or the run is over — which is the
+failure law 1 names. That is an inference from the ethos rather than from his
+words.
+
+### The sphere has an off switch, and what it costs is not power
+
+Owner playtest, 2026-09-14: *"There should be an easy way to full turn off the
+sphere around the druid so no power is being used."*
+
+**The power half of that is already true, and it is worth recording why.**
+`carried_cost` prices the area *added*, not the area held, so the carried
+circle at its base radius costs exactly zero and a guard asserts it — *"the
+circle you already are must stay free"*. Nothing about switching it off is a
+saving unless the player has widened it with `]`, and then it is the widening
+that stops being billed.
+
+What was genuinely missing is the thing the words say: **a way to make the
+world hold still where she stands.** `World::carried_off` is that.
+
+**It is a flag and not a radius of zero, deliberately.** `carried_radius`
+reads `0` as the *default size* — its own doc refuses to let a dial reach off
+by accident — and even a genuinely zero radius would still run time for the
+cell underfoot, since `Quickening::contains` is `<=`. Both are asserted
+directly, so a later simplification of either gets told.
+
+**Off is a trade rather than a saving.** The colony under her feet stops
+storing charge, a sown seed stops germinating, the wood she is in stops
+growing, and her pouch stops filling. All of it falls out of
+`World::time_runs_at` and none of it is new code — the same way the rule that
+a colony must be founded inside running time does.
+
+The delivery is that the world visibly goes still: with `carried` at `None`
+the held look reclaims the ground she is standing on, so the bubble does not
+dim, it disappears. The readout says `YOUR CIRCLE OFF` as a word, because no
+number could say it, and in warning colour — an idle power bar that looks like
+a fault is the failure to avoid. `PIXEL_PHYSICS_DRUID_CIRCLE=off` is a
+headless control arm for judging the two states off one binary.
 
 ### The economy, and why every number in it is a first guess
 
