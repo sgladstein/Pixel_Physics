@@ -388,6 +388,15 @@ by somebody about to try it on creatures.
 
 ## Liquids and granular  ·  `engine`
 
+- [aquatic-life-research-2026-09-14.md](aquatic-life-research-2026-09-14.md) —
+  **research and brainstorm, 2026-09-14; nothing built, no build order.**
+  Aquatic creatures and plants across all three games. Four one-line
+  predicates make water a floor; buoyancy, drag, the water ledger, the scent
+  plane and the density table are already built and correct. Measured: water
+  passes light like air (positive control — rock reads black), and the lab
+  bed makes films rather than a pond even at STEADY rain. Carries the
+  finding that E9's *float* already ships, and that the plant height ceiling
+  is hydrostatic, so the waterline could set how tall a plant grows.
 - [liquid-simulation-research.md](liquid-simulation-research.md) —
   **research, round 1.** Why poured water piled like sand; SPH → PBF →
   PIC/FLIP survey.
