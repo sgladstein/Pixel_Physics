@@ -116,11 +116,23 @@ impl Handler {
     fn new() -> Self {
         let now = Instant::now();
         let mut game = Druid::new();
-        // `PIXEL_PHYSICS_DRUID_LOOK=onehue` -- start in a look rather than
-        // reaching it with a key, because a headless screenshot cannot press
-        // one and the whole point of the selector is to be compared.
-        if std::env::var("PIXEL_PHYSICS_DRUID_LOOK").is_ok_and(|v| v.eq_ignore_ascii_case("onehue")) {
-            game.renderer.held_look = pixel_physics::render::HeldLook::OneHue;
+        // `PIXEL_PHYSICS_DRUID_LOOK=onehue|unchanged` -- start in a look
+        // rather than reaching it with a key, because a headless screenshot
+        // cannot press one and the whole point of the selector is to be
+        // compared.
+        //
+        // **Both spellings, since one hue became the default (2026-09-14).**
+        // This hook could only ever *select* `onehue`, which was enough while
+        // the default was the other one and is now a hook that cannot reach
+        // half its own selector -- the comparison the selector exists for
+        // would have had no way to render the baseline.
+        if let Ok(v) = std::env::var("PIXEL_PHYSICS_DRUID_LOOK") {
+            use pixel_physics::render::HeldLook;
+            match v.to_ascii_lowercase().as_str() {
+                "onehue" => game.renderer.held_look = HeldLook::OneHue,
+                "unchanged" | "plain" => game.renderer.held_look = HeldLook::Unchanged,
+                other => println!("druid: PIXEL_PHYSICS_DRUID_LOOK={other:?} is not a look -- onehue or unchanged"),
+            }
         }
         // `PIXEL_PHYSICS_DRUID_FOUND=1` -- found a colony at startup, for the
         // same reason as the look above: a headless screenshot cannot press

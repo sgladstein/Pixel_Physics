@@ -656,7 +656,20 @@ impl Druid {
             world,
             particles,
             blasts,
-            renderer: Renderer::new(),
+            // **One hue is the held world's default look, not a key away.**
+            // Owner playtest, 2026-09-14: *"One hue should become default."*
+            // Set here rather than by moving `HeldLook`'s own `#[default]`,
+            // because that enum is shared with the other two games and this
+            // is a decision about *this* one — `apply_held_look` early-outs
+            // on `!world.held`, so the sandbox and the lab could not see the
+            // change either way, and a default nobody else can observe is
+            // better stated where it is meant than hidden in a shared
+            // derive.
+            renderer: {
+                let mut r = Renderer::new();
+                r.held_look = crate::render::HeldLook::OneHue;
+                r
+            },
             player_tuning,
             player_input: player::PlayerInput::default(),
             paused: false,
