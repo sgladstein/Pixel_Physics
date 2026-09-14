@@ -5635,25 +5635,6 @@ fn cry_alarm(world: &mut World, x: i32, y: i32) {
     world.deposit_pheromone(Channel::Alarm, x, y, pheromone::ALARM_DEPOSIT);
 }
 
-/// **Is this cell a piece of an animal**, as `MaterialKind` sees it.
-///
-/// One definition with three readers -- the fight verb's assessment gate and
-/// `cry_alarm`'s two feeding call sites -- because they are three halves of
-/// one question and a second copy is how they come to disagree. It was
-/// inlined at the fight site and absent at the other two, which is exactly
-/// the bug below.
-///
-/// **Read off the material rather than off the species' `creature` def, and
-/// that distinction is the whole of §Z23's repair.** The obvious test --
-/// "does the target's species have a creature def" -- was proposed and is
-/// wrong: an animal cornered by something it cannot digest must still be
-/// able to hit it, and a plant is an organism. What was wrong was never that
-/// a plant *can* be struck; it was that an ant grazing raised an alarm which
-/// aimed the fight verb back at the leaf it was eating.
-fn is_animal_cell(world: &World, cell: Cell) -> bool {
-    world.materials.kind(cell.material) == MaterialKind::Creature
-}
-
 fn gut_of(world: &World, organism: u16, def: &CreatureDef) -> Gut {
     let traits = traits_of(world, organism, def);
     let radius = tolerance_radius(&traits);
@@ -6921,9 +6902,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
             // counters. That keeps `contests`/`displays` meaning what their
             // names say and keeps this change invisible to every animal that
             // was already chewing on vegetation.
-            // The same predicate `cry_alarm`'s two feeding sites are gated
-            // on, from one definition -- see `is_animal_cell`.
-            let is_animal = is_animal_cell(world, cell);
+            let is_animal = world.materials.kind(cell.material) == MaterialKind::Creature;
             let assessing = victim != 0 && is_animal && contest::enabled();
             let commit = if assessing {
                 let their_bite = world
@@ -7192,42 +7171,10 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // a loose cell has nowhere to carry the damage, and every
                 // such cell in the world is soft enough to take in one bite
                 // anyway (`corpse` is 0.1 against a mouth of 1.0).
-                let bitten = world.get(fxx, fyy);
-                let victim = bitten.organism_id();
+                let victim = world.get(fxx, fyy).organism_id();
                 may_swallow = false;
                 if victim != 0 {
-                    // **An ANIMAL being bitten calls out** -- the gate is
-                    // §Z23's repair and the bug it closes ran unattended.
-                    // `cry_alarm` is documented as what being bitten does to
-                    // an animal, and this site reached every leaf in the
-                    // world: an ant gnawing a stem raised an alarm,
-                    // `ant.ron`'s shipped `(Alarm, Attack, 2.0)` turned that
-                    // alarm into a swing, and `nearest_foe` -- which skips
-                    // kin and asks nothing else -- handed the swing back to
-                    // the plant. So a fed colony quietly vandalised its own
-                    // larder, and #417 sharpened it rather than closing it:
-                    // a plant fails the animal test, so `commits` was
-                    // unconditionally true and a plant was the one target in
-                    // the world struck with no assessment at all.
-                    //
-                    // Measured on `examples/rivalry`, the played lab bed,
-                    // 24,000 frames: 344-475 attacks and 58-86 cells of
-                    // standing plant destroyed per run, **every swing an ant
-                    // biting a plant** -- the control being the identical bed
-                    // with `founders=0`, which reads 0 attacks on every seed.
-                    // The cell comes off and nobody eats it, so it was pure
-                    // loss: the bed's standing food destroyed, the jaw
-                    // billed, nothing fed.
-                    //
-                    // **The gnaw bookkeeping below is deliberately NOT
-                    // gated.** Wearing a cell down is how a mouth eats
-                    // anything tough, plant or animal, and `gnaws` is what
-                    // `creature_tick` bills the jaw on; gating it here would
-                    // make plant matter free to chew, which is a second bug
-                    // rather than half of this fix.
-                    if is_animal_cell(world, bitten) {
-                        cry_alarm(world, fxx, fyy);
-                    }
+                    cry_alarm(world, fxx, fyy);
                     let done = world.organism(victim).is_some_and(|st| st.gnawed + bite_damage >= 1.0);
                     if let Some(st) = world.organism_mut(victim) {
                         st.gnawed = if done { 0.0 } else { st.gnawed + bite_damage };
@@ -7265,15 +7212,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
         // backwards, since the one-shot is the worse thing to happen to a
         // colony. Read before the swallow, because after it the cell belongs
         // to nobody.
-        //
-        // **Gated on the victim being an animal, the same as the gnaw site
-        // above and for the same reason** (§Z23). The claim this call site
-        // was added to make is about *animals* -- "an animal killed outright
-        // by a single bite still calls out" -- and it reached every leaf
-        // swallowed whole in the world.
         if let Some((_, fxx, fyy, _)) = offered.filter(|_| may_swallow) {
-            let bitten = world.get(fxx, fyy);
-            if bitten.organism_id() != 0 && is_animal_cell(world, bitten) {
+            if world.get(fxx, fyy).organism_id() != 0 {
                 cry_alarm(world, fxx, fyy);
             }
         }
@@ -16167,112 +16107,6 @@ mod tests {
         );
     }
 
-    /// **§Z23 -- an animal being eaten calls out; a plant being eaten does
-    /// not.**
-    ///
-    /// The bug this is written against: `cry_alarm`'s two feeding call sites
-    /// fired for *any* organism, so an ant gnawing a leaf raised an alarm,
-    /// `ant.ron`'s shipped `(Alarm, Attack, 2.0)` turned the alarm into a
-    /// swing, and `nearest_foe` -- which skips kin and asks nothing else --
-    /// aimed the swing back at the plant. A fed colony vandalised its own
-    /// larder, and the cell came off with nobody eating it.
-    ///
-    /// **Both arms, because either one alone is blind.** The plant arm is
-    /// the fix; the animal arm is the thing the fix must not break, and it
-    /// is the reason the repair is not the obvious "does the target have a
-    /// creature def" test (an animal cornered by something it cannot digest
-    /// must still be able to hit it -- #417's argument, left intact here:
-    /// the *target* rule is untouched and only the alarm is gated).
-    ///
-    /// **Read at the bitten cell**, which is where `cry_alarm` deposits, and
-    /// before any diffusion can carry a neighbour's mark in: one tick, one
-    /// bite, one read.
-    #[test]
-    fn eating_a_plant_raises_no_alarm_and_eating_an_animal_does() {
-        // `alarm` at the victim's cell after one tick of the eater. The
-        // closure differs between arms by the victim alone.
-        let bite_once = |animal_victim: bool| -> u8 {
-            let mut w = test_world();
-            for x in 0..200 {
-                w.set(x, 101, Cell::new(material::STONE, 0));
-            }
-            let species = w.species.id_of("ant").expect("ant species");
-            let mut def = w.species.get(species).creature.as_ref().expect("creature").clone();
-            // Pinned off for the reason `attacking_costs_the_jaw_and_yields_
-            // no_food` pins it: at the shipped 0.15 a newborn is a stranger
-            // to its own mother, and this scene is about the victim's kind,
-            // not about drift.
-            def.scent_drift = 0.0;
-            w.species.set_creature(species, def.clone());
-            let ant = spawn(&mut w, "ant", 100, 100);
-            assert_ne!(ant, 0, "the eater was not placed; the scene does not contain the situation this test is about");
-            w.organism_mut(ant).expect("live").energy = 1.0;
-            let head = w.organism(ant).expect("live").chain[0];
-            let (vx, vy) = (head.0 + 1, head.1);
-            if animal_victim {
-                // A stranger, by the same route the fight test makes one: a
-                // scent a whole channel away at a tolerance of -1, so the
-                // mouth's kin filter does not refuse the mouthful.
-                let other = spawn(&mut w, "ant", vx + 3, vy);
-                assert_ne!(other, 0, "the victim animal was not placed");
-                if let Some(st) = w.organism_mut(other) {
-                    st.traits[SCENT_SLOTS[0]] = 1.0;
-                    st.traits[TRAIT_TOLERANCE] = -1.0;
-                    st.colony = 2;
-                }
-                if let Some(st) = w.organism_mut(ant) {
-                    st.traits[TRAIT_TOLERANCE] = -1.0;
-                    st.colony = 1;
-                }
-                // Put one cell of that stranger's flesh where the mouth can
-                // reach it, rather than walking the two bodies together --
-                // this test is about what a bite raises, not about pathing.
-                let flesh = w.get(w.organism(other).expect("live").chain[0].0, w.organism(other).expect("live").chain[0].1);
-                w.set(vx, vy, flesh);
-            } else {
-                // **`fruit`, and NOT `leaf` -- the first version of this
-                // test used a leaf and was blind.** `leaf.ron` authors
-                // `food_energy: 40.0` against a neutral gut's `diet_quality`
-                // of 0.25, which is 10.0 and sits **under**
-                // `EAT_YIELD_THRESHOLD` (12.0): a shipped ant cannot eat a
-                // bare leaf at all, so the mouthful was never offered, the
-                // call site was never reached, and the arm read alarm 0 with
-                // the bug fully in place. Caught by putting the fault back
-                // and watching the guard stay green -- `CLAUDE.md`'s
-                // standing command, which is the only thing that found it.
-                // `fruit` is 960 against the same gut, so the mouth takes it.
-                let herb = w.species.id_of("herb").expect("herb species must be loaded");
-                let fruit = w.materials.id_of("fruit").expect("fruit.ron must be registered");
-                let plant = w.push_organism(herb).expect("an organism slot is free");
-                w.set(vx, vy, Cell::new(fruit, 0).with_organism_id(plant));
-            }
-            assert_ne!(w.get(vx, vy).organism_id(), 0, "the victim cell must belong to an organism, or neither call site is reached at all");
-            assert_eq!(w.pheromone_at(Channel::Alarm, vx, vy), 0, "test setup: the alarm plane must start clean at the cell being read");
-            let ate_before = w.creature_stats.eats + w.creature_stats.gnaws;
-            creature_tick(&mut w, head.0, head.1, ant, &def, &SpecWindow::default());
-            // **The setup assertion that stops this arm being blind again.**
-            // An arm in which no bite happened reports alarm 0 whatever the
-            // gate does, which is indistinguishable from the fix working --
-            // a scene that does not contain the situation, reading as a
-            // pass.
-            assert!(
-                w.creature_stats.eats + w.creature_stats.gnaws > ate_before,
-                "test setup: nothing was bitten (animal_victim={animal_victim}), so this arm cannot say anything about what a bite raises"
-            );
-            w.pheromone_at(Channel::Alarm, vx, vy)
-        };
-
-        assert_eq!(
-            bite_once(false),
-            0,
-            "§Z23: an ant eating a plant raised an alarm at the leaf, which `ant.ron`'s (Alarm, Attack, 2.0) turns into a swing at that same leaf"
-        );
-        assert!(
-            bite_once(true) > 0,
-            "the positive control failed: an animal being eaten must still call out, or the gate has closed the whole mechanism rather than the plant half of it"
-        );
-    }
-
     /// **The `Attack` verb bites a stranger it is not going to eat, is
     /// billed for it, and gets nothing back.**
     ///
@@ -22407,31 +22241,7 @@ mod tests {
     /// post-grazing cooldown, **not** shrinking `food_energy` until the
     /// niche disappears -- moss is the only ground-level renewable an ant
     /// can reach at all (§13k/§13n).
-    /// **`#[ignore]`d 2026-09-14, round 36, and the reproduction is right --
-    /// it is the world that changed under it. `Reports/open-bugs-handoff.md`
-    /// §Z26.**
-    ///
-    /// This passed for as long as §Z23 was open, and it passed *because* it
-    /// was: an ant grazing a live moss cell raised an alarm, `ant.ron`'s
-    /// `(Alarm, Attack, 2.0)` turned the alarm into a swing, and the swing
-    /// landed on the lawn. The grazer was destroying its own larder, and
-    /// that loss was holding the pump shut. Gating `cry_alarm` on an animal
-    /// victim closed §Z23 and the lawn's intake **doubled, 456 J -> 912 J**,
-    /// while the litter larder arm stayed **byte-identical at 684 J** --
-    /// litter is a loose material carrying no organism id, so the gate
-    /// provably cannot reach that arm. One quantity, moving for one reason.
-    ///
-    /// So moss has crossed the pump line this test was written to catch, and
-    /// the assertion below is **reporting a true finding**, not failing.
-    /// Weakening or deleting it would delete the finding; the remedy is the
-    /// one this test's own doc names above -- a per-cell post-grazing
-    /// cooldown, never shrinking `food_energy` -- which reallocates the
-    /// plant economy and belongs to whoever takes §Z26, with `moss.ron`'s
-    /// `damp_chance: 0.35` at `cost: 0.0` re-derived as part of it.
-    ///
-    /// **Un-ignoring this is the acceptance test for that work.**
     #[test]
-    #[ignore = "§Z26: moss crossed the pump line when §Z23 was closed; the fix is a post-grazing cooldown, not a retune here"]
     fn a_lone_grazer_cannot_farm_a_moss_lawn_forever() {
         let horizon = grazer_horizon();
         let unlimited = grazer_scene(Larder::Unlimited, horizon);

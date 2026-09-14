@@ -947,25 +947,57 @@ fn arena_at(apart: Apart, wired: bool, seed: u64) -> Option<Arm> {
         def.scent_drift = 0.0;
         lab.world.species.set_creature(id, def);
     }
-    if apart != Apart::No {
-        if let Some(id) = lab.world.species.id_of("ant") {
-            let mut def = lab.world.species.get(id).creature.as_ref().expect("creature").clone();
-            def.scent_spread = 1.0;
-            lab.world.species.set_creature(id, def);
+    // **EVERY arm pins `scent_spread` explicitly and re-derives each standing
+    // ant's signature from the species' ANCESTRAL point.** Two repairs, and
+    // both are #423's live default arriving inside a control written before
+    // it existed -- `CLAUDE.md`'s "adding a member to a set enrols it in
+    // every rule over that set", with the set being "every arm that did not
+    // name its own spread".
+    //
+    // **1. `Apart::No` set nothing at all**, so it inherited whatever
+    // `ant.ron` authored. That was 0 until #423 and the arm genuinely meant
+    // "everyone is kin"; from #423 it silently meant "the shipped stranger
+    // bed", and the two claims resting on it -- `shipped` reads `cross 0,
+    // attacks 0`, and `wire-only` shows a swinging ant with no target --
+    // have been failing ever since, on `main`, gated by nothing (CI does not
+    // run `control=selftest`). Measured 2026-09-14 on unmodified `origin/
+    // main`: byte-identical failures to this branch, which is what says the
+    // defect is the default's and not this lane's.
+    //
+    // **2. The separated arms ADDED their offset to the scent an animal
+    // already carried**, which is precisely the trap round 35 recorded and
+    // repaired in the `spread=` path above -- and missed here, because this
+    // function has its own copy. At a live default `Apart::Spread` was
+    // measuring `authored 2.0 + requested 1.0`; the tell is in the log, where
+    // it reported a founding gap of **2.170** against the 1.62 median round
+    // 35 measured for a true `spread=1`.
+    //
+    // Resetting to the ancestral point first makes `requested` mean "founded
+    // at this spread" for any authored default, 0 included -- so the kin arm
+    // is kin again by construction rather than by luck.
+    let requested = if apart == Apart::No { 0.0 } else { 1.0 };
+    let ancestral = lab
+        .world
+        .species
+        .id_of("ant")
+        .and_then(|id| lab.world.species.get(id).creature.as_ref().map(|d| d.traits))
+        .unwrap_or([0.0; organism::CREATURE_TRAITS]);
+    if let Some(id) = lab.world.species.id_of("ant") {
+        let mut def = lab.world.species.get(id).creature.as_ref().expect("creature").clone();
+        def.scent_spread = requested;
+        lab.world.species.set_creature(id, def);
+    }
+    let world_seed = lab.world.seed;
+    let pairs: Vec<(u16, u32)> =
+        ants_of(&lab, "ant").into_iter().filter_map(|id| lab.world.organism(id).map(|st| (id, st.colony))).collect();
+    for (id, col) in pairs {
+        let off = creature::colony_scent_offset(world_seed, col, requested);
+        for (i, slot) in organism::SCENT_SLOTS.iter().enumerate() {
+            lab.world.set_organism_trait(id, *slot, (ancestral[*slot] + off[i]).clamp(-1.0, 1.0));
         }
-        let world_seed = lab.world.seed;
-        let pairs: Vec<(u16, u32)> =
-            ants_of(&lab, "ant").into_iter().filter_map(|id| lab.world.organism(id).map(|st| (id, st.colony))).collect();
-        for (id, col) in pairs {
-            let off = creature::colony_scent_offset(world_seed, col, 1.0);
-            let traits = lab.world.organism(id).expect("live").traits;
-            for (i, slot) in organism::SCENT_SLOTS.iter().enumerate() {
-                lab.world.set_organism_trait(id, *slot, (traits[*slot] + off[i]).clamp(-1.0, 1.0));
-            }
-        }
-        if apart == Apart::Rivalry {
-            set_allele_on(&mut lab, "ant", organism::TRAIT_TOLERANCE, -1.0);
-        }
+    }
+    if apart == Apart::Rivalry {
+        set_allele_on(&mut lab, "ant", organism::TRAIT_TOLERANCE, -1.0);
     }
     if wired {
         let slot = pixel_physics::sim::brain::io_slot(pixel_physics::sim::brain::BrainInput::Bias, pixel_physics::sim::brain::BrainOutput::Attack);

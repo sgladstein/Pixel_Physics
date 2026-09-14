@@ -14,38 +14,24 @@ unless it says `Attack`. Nothing here is about a war.
 
 ---
 
-## 1. What shipped
+## 1. What shipped — and what I handed back
 
-**§Z23 closed** (`src/sim/creature.rs`). `cry_alarm`'s two feeding call sites
-are gated on the victim being an animal. The target rule is untouched, so
-#417's argument stands: an animal cornered by something it cannot digest can
-still hit it. One predicate, `is_animal_cell`, with three readers — the fight
-site's assessment gate (which had an inlined copy) and the two feeding sites
-(which had none).
+**The §Z23 fix is NOT in this branch. Lane E's is better and it supersedes
+mine; I reverted `src/sim/creature.rs`, `wiki/ants.md` and
+`Reports/open-bugs-handoff.md` to `main` rather than make E resolve a conflict
+against a subset of their own work.** §5a has the whole account.
 
-Reproduced the register's own run byte-for-byte first (seed 1: 475 attacks,
-79 cells, 629 deaths), then:
+What this branch carries:
 
-| | §Z23 open | §Z23 fixed |
-|---|---|---|
-| attacks, seed 1, `spread=0` | 475 | **0** |
-| over 12 seeds at the shipped dial | — | every cross-colony **kill** preserved: `xcol == killedA` on all twelve rows |
-
-**Not claimed: that every remaining *swing* is animal-directed.** That is a
-`kill` counter and it cannot say it — see §5a, where I strike the claim.
-Ruling out plant-directed swings needs a counter split by victim kind, and the
-owner's "creatures will not attack plants at all" is what closes the gap.
-
-**`examples/rivalry` now reads the economy animal-only**, and `colony_ants=`
-is a knob. New `SUMMARY` columns, appended after `main`'s:
-`deathsA starvedA killedA starvA% raided_j raided_by_others_j`, plus a
-`SUMMARY-causes-animal` line and an `economy` echo carrying the birth bar,
-the grant, and what a rival is worth against it.
-
-**§Z26 filed** — closing §Z23 doubled the moss lawn's yield and the moss pump
-is now live. See §5.
-
----
+- **`examples/rivalry` reads the economy animal-only**, and `colony_ants=` is
+  a knob. New `SUMMARY` columns, appended after `main`'s:
+  `deathsA starvedA killedA starvA% raided_j raided_by_others_j`, plus a
+  `SUMMARY-causes-animal` line and an `economy` echo carrying the birth bar,
+  the grant, and what a rival is worth against it.
+- **The harness's own selftest, repaired** — it had been failing on `main`
+  since #423 and nothing gated it. §5d.
+- **`ancestor.ron` can hear an alarm**, routed here by Lane C. §5b.
+- The findings below.
 
 ## 2. The instrument finding, which reframes round 35's numbers
 
@@ -199,132 +185,62 @@ and it sits just under the point where the dial stops being honest.
 
 ---
 
-## 5. What closing §Z23 exposed — §Z26, and it is the biggest thing here
+## 5. The moss lawn — withdrawn, see §5a
 
-**§Z23 was halving the yield of every renewable plant niche in the engine.**
+I filed this as §Z26 (*the moss pump is live*) and then withdrew it: Lane E's
+`dead-ends.md` creatures:083 is the better disposition, and my claim does not
+follow from a comparison whose two arms differ in more than the mechanism under
+test. The paired numbers survive as evidence for **E's** entry. §5a.
 
-`a_lone_grazer_cannot_farm_a_moss_lawn_forever` asserts that a renewable moss
-lawn must not out-yield an inexhaustible litter larder — the sessile-
-freeloading attractor P-20 names. It passed for as long as §Z23 was open, and
-it passed **because** it was: the grazer's alarm aimed the fight verb at the
-lawn it was eating, and that loss held the pump shut.
+---
 
-Paired, the two arms of that test, §Z23's gate the only change:
+## 5a. Lane E superseded this, and I stood down
+
+**Resolved 2026-09-14, ~21:55Z.** The coordinator reassigned `creature.rs`'s
+alarm/foe path to Lane E by a poke that fired at 19:58:44Z — *after* this PR
+was opened and green at ~19:51Z, with E's branch not yet existing. That was a
+poke crossing a landing, `CLAUDE.md`'s own case: *the only check that works is
+the branch head.*
+
+**Lane E has now pushed `claude/evolution-lab-forest-eaten`, and their fix is
+strictly better than mine on every axis.** I reverted my `creature.rs`,
+`wiki/ants.md` and `Reports/open-bugs-handoff.md` changes to `main`.
+
+| | mine | Lane E's |
+|---|---|---|
+| eating a plant raises no alarm | yes | yes |
+| creatures do not attack plants at all | **no** — I left the target rule intact | **yes**, both owner rulings |
+| sized the problem first | no | **yes: the jaw takes 9 of every 10 cells a colony removes from a living plant** |
+| counter split by victim kind | **no — I said this was missing and could not close it** | **yes** (`attacks_at_plants`, `attack_plant_cells`) |
+| one-binary A/B | no | **yes** (`PIXEL_PHYSICS_PLANT_FOE=on`, reproduces pre-fix byte-identically) |
+
+**E's counters settle the claim I struck.** I could not rule out plant-directed
+swings surviving my gate, because `xcol`/`killedA` are kill counters. E
+measured it: **100% of attacks and 100% of attack cells were at plants on
+every seed**, going to 0 after their fix. So the gap I flagged was real and is
+now closed — by them, with the instrument I said the question needed.
+
+**E also out-diagnosed me on §Z26, and I withdrew it.** I filed the moss-lawn
+result as a bug — *the moss pump is live*. E recorded it as `dead-ends.md`
+creatures:083 instead, withdrawing **the guard's bar rather than the
+mechanism**: `a_lone_grazer_cannot_farm_a_moss_lawn_forever` compares two
+larders holding **different foods in joules**, and the wall arm is a ceiling on
+*mouthfuls*. The two arms differ in more than the thing under test, so the
+ordering was only ever correct while §Z23 propped it up. That is the better
+reading, and it makes my "the pump is live" claim unsupported — the comparison
+that would establish it was never valid.
+
+**My paired numbers are the evidence for E's entry, not a separate bug**, and
+they are exactly the tell E's general form names — *only one arm moves, and the
+arm containing no instance of the mechanism is the control*:
 
 | arm | §Z23 open | §Z23 fixed |
 |---|---|---|
-| moss lawn intake | 456 J | **912 J** |
-| litter larder intake | 684 J | **684 J** |
-| lawn efficiency | 1.459 | **2.435** |
-| larder efficiency | 1.757 | **1.757** |
+| moss lawn intake (contains the mechanism) | 456 J | **912 J** |
+| litter larder intake (the control) | 684 J | **684 J — byte-identical** |
 
-**The larder arm is byte-identical, which is the specificity control** —
 `litter` is a loose material carrying no organism id, so the gate provably
-cannot reach that arm. The moss arm is live organisms and exactly doubles. One
-quantity, moving for one reason.
-
-**Not fixed here, on purpose.** The remedy is already written in the test's own
-doc — a per-cell post-grazing cooldown, never shrinking `food_energy` — and it
-reallocates the plant economy, so `moss.ron`'s `damp_chance: 0.35` at
-`cost: 0.0` and everything calibrated against the grazing yield as it has
-actually behaved want re-deriving with it. The guard is `#[ignore]`d with a
-pointer, not weakened: **un-ignoring it is the acceptance test for that work.**
-
----
-
-## 5a. ROUTING COLLISION — §Z23 was already fixed and pushed before the reassignment reached me
-
-**Read this before Lane E starts.** The coordinator's poke reassigning
-`creature.rs`'s `cry_alarm`/`nearest_foe`/attack-target path to Lane E fired at
-**19:58:44Z**. My §Z23 fix was committed at **~19:47Z** and PR
-[#436](https://github.com/sgladstein/Pixel_Physics/pull/436) opened at
-**~19:51Z**, gates green. `origin/claude/evolution-lab-forest-eaten` did not
-exist when I checked at 20:08Z. So this is not a lane writing into another's
-file — it is a poke that crossed a landing, which is the exact failure
-`CLAUDE.md` names: *there is no delivery signal for a poke; the only check that
-works is the branch head.*
-
-**I have stopped touching that path** and have made no edit to it since the
-poke. What follows is the hand-off, not a claim on the file.
-
-### What is already done, and what is still Lane E's
-
-The owner's two rulings, against what #436 actually implements:
-
-| owner's ruling | in #436? |
-|---|---|
-| **Eating a plant will not raise an alarm** | **yes — this is exactly the gate on `cry_alarm`'s two feeding sites** |
-| **Creatures will not attack plants at all. No exception.** | **NO — and I deliberately did the opposite** |
-
-**The second row is the important one and it is a correction to my own
-judgement.** I left `nearest_foe`'s target rule intact on purpose, following
-#417's argument and the §Z23 section's own designed repair — *an animal
-cornered by something it cannot digest must still be able to hit it*. **The
-owner has now ruled against that, with "no exception".** That argument is
-overruled, the register section is out of date, and closing it is Lane E's.
-
-### A claim of mine to strike, because it is wrong
-
-My PR body and §1 above say every remaining swing is animal-directed, citing
-`xcol == killedA` on all twelve seeds. **That does not follow.** `xcol` and
-`killedA` are both *kill* counters; they say the kills were cross-colony. They
-say nothing about swings that took no cell, and those are most of them — seed
-10 post-fix reads **attacks 71, cells 13, killedA 9**.
-
-**So I cannot rule out plant-directed swings surviving my fix**, and the
-mechanism is still reachable: an animal bitten nearby raises an alarm, a
-listener swings, and `nearest_foe` hands it whatever living non-kin organism is
-nearest — which may be the plant it is standing on. Establishing that needs a
-counter split by victim kind, which nothing has. **This is precisely the gap
-ruling (a) closes**, so it is E's to close rather than mine to measure.
-
-### What Lane E can take from #436
-
-- **The guard** `eating_a_plant_raises_no_alarm_and_eating_an_animal_does`,
-  with its animal arm as the positive control. **It was blind on its first
-  writing** — the plant arm used a `leaf`, and `leaf.ron`'s `food_energy: 40.0`
-  against a neutral gut's 0.25 is 10.0, under `EAT_YIELD_THRESHOLD`'s 12.0, so
-  a shipped ant cannot eat a bare leaf and the call site was never reached.
-  Use `fruit` or `moss`. Only the fault-reinstatement rule found this.
-- **`is_animal_cell`**, one predicate with three readers, already in place.
-- **§Z26** (§5 below) — closing this doubles the moss lawn's yield and makes
-  the moss pump live. **E's fix will land the same consequence**, so the
-  `#[ignore]`d guard and the filed bug apply to E's change as much as mine.
-- **Wood.** The coordinator's note says the attack bite has no diet gate and
-  takes wood, which carries no `food_energy` at all. That is consistent with
-  what I measured and is the sharpest statement of why this was pure loss;
-  nothing in #436 addresses it, because #436 does not touch the target rule.
-
-**If E's fix supersedes mine at those two call sites, take E's.** Mine is a
-strict subset of the owner's rulings.
-
----
-
-## 5c. The coordinator's plant_j datum — checked, and it needs two corrections
-
-*Handed to me as adjacent to the economy: "rivalry off vs on, same seed, plants
-felled 161 -> 165 with `plantkill` 0 in both arms, but plants EATEN moved
-5,333 -> 9,690 joules."*
-
-**Correction 1: `plant_j` is not "plants eaten".** `EnergyLedger::
-harvested_plant`'s own doc: *"Eating something whose worth comes from its
-material: leaf, moss, seed, **a live animal's flesh**."* A mouthful of rival
-books to the same account as a mouthful of leaf. That is why this lane had to
-read `ColonyBooks::raided` to see predation income at all — and it means the
-datum's rise is partly ants.
-
-**Correction 2: one seed cannot carry it.** Over 12 paired seeds the sign is
-not stable — `plant_j` **falls on 3** and rises on 8, median **+2,548 J** over a
-range of **−5,899 to +9,158**. And of a *positive* delta, predation accounts
-for a median **19%** (range 7–191%; on seed 8 predation exceeds the whole
-delta, so genuine plant intake fell there while `plant_j` rose).
-
-**So the effect may well be real, and it is not established by this datum.**
-The honest statement is that rivalry raises plant intake on about two seeds in
-three, by a highly variable amount, of which roughly a fifth is not plants.
-Measured post-§Z23-fix on both arms (see SHAs below).
-
----
+cannot reach that arm. Recorded here rather than re-filed.
 
 ## 5b. Lane C's routed change, taken
 
@@ -358,7 +274,87 @@ for, not a defect, and it is not mine to settle.
 
 ---
 
+## 5c. The coordinator's plant_j datum — checked, and it needs two corrections
+
+*Handed to me as adjacent to the economy: "rivalry off vs on, same seed, plants
+felled 161 -> 165 with `plantkill` 0 in both arms, but plants EATEN moved
+5,333 -> 9,690 joules."*
+
+**Correction 1: `plant_j` is not "plants eaten".** `EnergyLedger::
+harvested_plant`'s own doc: *"Eating something whose worth comes from its
+material: leaf, moss, seed, **a live animal's flesh**."* A mouthful of rival
+books to the same account as a mouthful of leaf. That is why this lane had to
+read `ColonyBooks::raided` to see predation income at all — and it means the
+datum's rise is partly ants.
+
+**Correction 2: one seed cannot carry it.** Over 12 paired seeds the sign is
+not stable — `plant_j` **falls on 3** and rises on 8, median **+2,548 J** over a
+range of **−5,899 to +9,158**. And of a *positive* delta, predation accounts
+for a median **19%** (range 7–191%; on seed 8 predation exceeds the whole
+delta, so genuine plant intake fell there while `plant_j` rose).
+
+**So the effect may well be real, and it is not established by this datum.**
+The honest statement is that rivalry raises plant intake on about two seeds in
+three, by a highly variable amount, of which roughly a fifth is not plants.
+Measured post-§Z23-fix on both arms (see SHAs below).
+
+---
+
+## 5d. The harness's own selftest has been failing on `main` since #423
+
+**Found because Lane E's note said "rivalry selftest failure is pre-existing".
+`examples/rivalry.rs` is mine, so I checked rather than took it.** It is
+pre-existing — byte-identical failures on unmodified `origin/main` — and the
+cause is worth naming, because this harness's numbers are quoted all through
+this note.
+
+Two arms failed, and both are #423's live default landing inside a control
+written before it existed:
+
+1. **`Apart::No` set no `scent_spread` at all** — it inherited whatever
+   `ant.ron` authored. That was 0 until #423, so the arm genuinely meant
+   "everyone is kin"; from #423 it silently meant *the shipped stranger bed*,
+   and the two claims resting on it (`shipped` reads `cross 0, attacks 0`;
+   `wire-only` shows a swinging ant with no target) have been false ever since.
+2. **The separated arms ADDED their offset to the scent an animal already
+   carried** — precisely the trap round 35 recorded and repaired in the
+   `spread=` path, and missed here because this function keeps its own copy.
+   The tell was in the log: a founding gap of **2.170** against the **1.62**
+   median round 35 measured for a true `spread=1`.
+
+Repaired by pinning every arm's spread explicitly and re-deriving each standing
+ant's signature from the **ancestral** point, so `requested` means "founded at
+this spread" for any authored default, 0 included. Verified by the arms' own
+numbers:
+
+| arm | before | after |
+|---|---|---|
+| `shipped` gap / between | 1.744 / 100% — **FAIL** | **0.000 / 0%** — ok |
+| `wire-only` attacks | 2 — **FAIL** | **0** — ok |
+| `two-colonies` gap | 2.170 (doubled) | **1.710** — matches round 35 |
+
+**Nothing gated this**: CI does not run `rivalry control=selftest`. A control
+that inherits a default rather than naming it is a control that breaks silently
+when the default moves, and `CLAUDE.md` already has the rule — *adding a member
+to a set enrols it in every rule over that set*, with the set here being every
+arm that did not name its own spread.
+
+---
+
 ## 6. For whoever runs the next round
+
+**FIRST, and it is routed to this lane by Lane E: E's fix grows the colony, so
+every economy number in §2, §3 and §4 wants re-taking on the far side of it.**
+E measured ants **66 → 123, 81 → 146, 156 → 190** across three seeds, because
+the jaw work the colony was billed for bought nothing and that bill is now
+gone. A bed with twice the ants is a different economy: predation opportunity,
+plant intake and the starvation rate all move together, and **nothing in §3
+survives that automatically.** My conclusion there — predation income is ~0.65
+of one child per bed and cannot reach the birth bar — is a claim about the
+pre-E bed, stamped at `768c1b59` in §6b. **Re-run the 12-seed paired sweep once
+E lands.** The instrument is built and the columns are in place; it is one
+command per arm.
+
 
 - **§Z26 is the one worth taking.** It is a live pump in the plant economy,
   it has a paired reproduction and a written remedy, and it is bigger than
