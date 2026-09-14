@@ -362,11 +362,37 @@ fn main() {
     );
 
     // **Link 1.** The offset is drawn at founding, keyed on the seed and the
-    // label (`creature::colony_scent_offset`), so applying that same draw to
-    // every standing animal of each label is byte-identical to having
-    // founded the bed at this spread — `labstats`' own argument for the same
-    // move — and the species' spread is set for anything founded later.
+    // label (`creature::colony_scent_offset`), so re-deriving it for every
+    // standing animal is byte-identical to having founded the bed at this
+    // spread — `labstats`' own argument for the same move — and the species'
+    // spread is set for anything founded later.
+    //
+    // **From the species' ancestral point, NOT from the scent the animal is
+    // already carrying, and that distinction became load-bearing the day
+    // `ant.ron` started authoring a non-zero `scent_spread`.** This block
+    // used to add its offset on top of whatever the animal had. While the
+    // authored default was 0, founding applied nothing and "add on top" and
+    // "re-derive" were the same thing. At a live default they are not:
+    // founding applies the authored offset and this block applied a *second*
+    // one, so `spread=1` silently meant "authored plus another 1" and
+    // `spread=0` was not an off arm at all — it left the authored offset
+    // standing while claiming to have removed it.
+    //
+    // Caught by the check this file's own header demands of everything else:
+    // the bed founded from the authored value against the same seed through
+    // this override disagreed on `gap` (1.817 against 2.289) while every
+    // outcome column matched — matched only because both were past the
+    // recognition radius, which is a threshold, so the doubled offset changed
+    // no decision and would have gone on not changing one until some arm sat
+    // near the boundary. Resetting to `def.traits` first makes `spread=v`
+    // mean "founded at v" for any authored default, including 0.
     if let Some(v) = spread {
+        let ancestral = lab
+            .world
+            .species
+            .id_of("ant")
+            .and_then(|id| lab.world.species.get(id).creature.as_ref().map(|d| d.traits))
+            .unwrap_or([0.0; organism::CREATURE_TRAITS]);
         if let Some(id) = lab.world.species.id_of("ant") {
             let mut def = lab.world.species.get(id).creature.as_ref().expect("creature").clone();
             def.scent_spread = v;
@@ -383,12 +409,11 @@ fn main() {
             .collect();
         for &(id, col) in &living {
             let off = creature::colony_scent_offset(world_seed, col, v);
-            let traits = lab.world.organism(id).expect("live").traits;
             for (i, slot) in organism::SCENT_SLOTS.iter().enumerate() {
-                lab.world.set_organism_trait(id, *slot, (traits[*slot] + off[i]).clamp(-1.0, 1.0));
+                lab.world.set_organism_trait(id, *slot, (ancestral[*slot] + off[i]).clamp(-1.0, 1.0));
             }
         }
-        println!("rivalry: ant scent_spread = {v}, founding offset applied to {} standing ant(s)", living.len());
+        println!("rivalry: ant scent_spread = {v}, re-derived from the ancestral point on {} standing ant(s)", living.len());
     }
     if let Some(v) = tolerance {
         let n = set_allele_on(&mut lab, "ant", organism::TRAIT_TOLERANCE, v);

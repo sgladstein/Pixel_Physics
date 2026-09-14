@@ -473,50 +473,88 @@ whatever was decided last is worth nothing. What follows is what shipping it
 on actually took.
 
 `assets/species/ant.ron` authors **`scent_spread: 2.0`**. One behavioural
-line; everything else below is consequence.
+line; everything else below is consequence — including one wrong number of
+my own, kept on the record with the control that caught it.
 
 ### The value, gated on an order statistic
 
-12 seeds x 24,000 frames on the played bed. Gated on **the share of seeds
-where the switch does anything visible**, not on a median — the per-seed
-outcome is binary (§ above), so a median hides exactly the beds where it does
-nothing.
+12 seeds x 24,000 frames on the played bed, **all three arms re-measured on
+the merged tree** (`main` after round 35 closed, so with Lane D's contest
+system live). Gated on **the share of seeds where the switch does anything
+visible**, not on a median — the per-seed outcome is binary, so a median
+hides exactly the beds where it does nothing.
 
-| `scent_spread` | seeds with a cross-colony killing | founding gaps |
-|---|---|---|
-| 1 | 9 of 12 | 3 seeds under the radius |
-| **2** | **11 of 12** | 1 seed under |
-| 3 | 11 of 12 | 1 seed under, **and it gets worse** |
+| `scent_spread` | seeds with a cross-colony killing | x-kills | median founding gap |
+|---|---|---|---|
+| **0 (off)** | **0 of 12** | 0 | 0.000 |
+| 1 | 9 of 12 | 86 | 1.62 |
+| **2 (shipped)** | **11 of 12** | 105 | 2.28 |
 
-**2.0 is where it becomes reliable, not where it becomes fierce.**
+**What the dial decides is how many seeds clear the recognition radius at
+founding, and nothing else.** `is_living_kin` is `distance_sq <=
+tolerance_sq`, a **boolean**, so two colonies already outside the radius are
+not made more hostile by being further outside it: going 1 → 2 leaves the kill
+count **identical on 10 of 12 seeds**, and the entire gain is the two seeds
+that cross the threshold. The worst seed is no worse at 2.0 (0.561 against
+0.566).
 
-### Why it saturates: the signature is clamped
+**One seed in twelve never separates at any value.** Seed 9 is
+byte-identical to the unswitched bed on every column. `apply_colony_scent`
+clamps each slot to `[-1, 1]`, so past about 2 the draws fold onto the corners
+of that cube rather than spreading, and two colonies can land together.
+Structural, not tuning — drawing on a sphere or not clamping would fix it and
+both are design changes made nowhere here. Lane D's §8.3 saw the same
+saturation from a different bed; the clamp is the mechanism under it.
 
-`creature::apply_colony_scent` clamps each slot to `[-1, 1]`. Past about 1 the
-dial stops pushing colonies apart and starts folding the draws onto the
-**corners of that cube**, where two colonies can land together. Seed 9's
-founding gap *falls* from 0.566 at `spread=2` to 0.331 at `spread=3`, and that
-seed is **byte-identical to the unswitched bed on every column at every
-value**.
+### The measurement that was wrong, and the control that caught it
 
-**So one bed in twelve cannot be made to separate by any setting.** That is a
-structural property of a cube-clamped offset, not a tuning failure, and no
-value fixes it. Drawing the offset on a sphere, or not clamping, would — both
-are design changes and neither is made here. Lane D's §8.3 saw the saturation
-from a different bed; the clamp is the mechanism under it.
+**This value was briefly changed to 1.0 on a confounded sweep**, and the
+record is kept rather than tidied away because the way it was caught
+generalises.
+
+`rivalry.rs`'s `spread=` override **added** its offset to whatever scent an
+animal was already carrying. While the field defaulted to 0 that was identical
+to re-deriving it, and every measurement in this report above was taken that
+way and is sound. The moment the default went live the two stopped being the
+same thing: founding applied the authored offset and the override applied a
+**second** one, so every arm silently measured `authored + requested` — and
+`spread=0` was not an off arm at all, it left the authored offset standing
+while claiming to remove it. Read through that lens the sweep said *"1.0 and
+2.0 are equivalent and 2.0 has the worse tail"*, which is the reverse of the
+truth.
+
+**The control was the one this repo demands of every other knob: run the bed
+from the authored value and from the runtime override at the same seed and
+require them byte-identical.** They disagreed on `gap` **alone** — 1.817
+against 2.289 — while every outcome column matched. They matched only because
+both sat well past a threshold, so the doubled offset changed no decision, and
+it would have gone on changing none until some future arm sat near the
+boundary. **A confound that is invisible in every column you are looking at is
+still there**, and the paired authored-vs-override run is what makes it
+visible. `spread=` now re-derives from the species' ancestral point, so it
+means "founded at v" for any authored default including 0.
+
+A second finding fell out of it: **the founding draw is not stable across
+engine changes.** Seed 1's gap at an unchanged `spread=1` moved 0.907 → 2.170
+across the round-35 merge. The offsets are a pure hash of (world seed, colony
+label, slot), so what moved was which *labels* get claimed, upstream of this
+field entirely. **Tune this dial on the threshold argument, which is
+structural; never on a table of particular seeds' gaps, which is not.**
 
 ### What it costs, paired
 
-Same seeds at 0 against 2, which cancels everything the dial is not about:
+Off (0) against shipped (2), same 12 seeds, which cancels everything the dial
+is not about:
 
 | | median | direction |
 |---|---|---|
-| deaths | **+98** | up on **11 of 12**, down on none |
-| starvation share | **−4.6 points** | down on 9 of 12 |
-| ants alive | +0.5 | up 6, down 4 — no effect |
+| deaths | **+99** | up on **11 of 12**, down on none |
+| starvation share | **−4.3 points** | down on 10 of 12 |
+| ants alive | 0.0 | up 4 / down 5 — no effect |
+| births | 0.0 | up 4 / down 5 — no effect |
 
-**Killing displaces starving rather than adding to it**, and the population is
-unmoved. The bed carries it.
+**Killing displaces starving rather than adding to it**, and neither
+population nor breeding moves. The bed carries it.
 
 **The constants this reallocates are named here and deliberately not
 re-derived**: the birth bar (`reproduce_at`, floored by the stamp),

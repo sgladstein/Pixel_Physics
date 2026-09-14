@@ -842,40 +842,65 @@
         // the whole of why no colony had ever fought another
         // (`Reports/why-colonies-do-not-fight-2026-09-14.md`).
         //
-        // **2.0 rather than 1.0, and the difference is reliability rather
-        // than intensity.** The acceptance radius is `tolerance + 1` = 1.0
-        // at this species' authored tolerance, and the founding gap has to
-        // clear it. Measured on the played bed, 12 seeds x 24,000 frames,
-        // gating the fraction of seeds where the switch does anything
-        // visible rather than a median -- the per-seed outcome is binary and
-        // a median hides the seeds where it does nothing:
+        // **2.0, and what the dial actually decides is how many world seeds
+        // clear the recognition radius at founding -- nothing else.**
+        // `is_living_kin` is `distance_sq <= tolerance_sq`, a **boolean**, so
+        // for two colonies already outside the acceptance radius
+        // (`tolerance + 1` = 1.0 here) moving them further apart changes no
+        // decision any animal ever makes. Measured: going 1 -> 2 leaves the
+        // cross-colony kill count **identical on 10 of 12 seeds**, and the
+        // whole gain is the two seeds that cross the threshold.
         //
-        //   spread=1  ->   9 of 12 seeds see a cross-colony killing
-        //   spread=2  ->  11 of 12
-        //   spread=3  ->  11 of 12, and the worst seed gets WORSE
+        // Measured on the played bed, 12 seeds x 24,000 frames, gating the
+        // fraction of seeds where the switch does anything visible rather
+        // than a median -- the per-seed outcome is binary, so a median hides
+        // the seeds where it does nothing:
         //
-        // **It saturates because the signature is clamped, not because the
-        // effect tops out**, which is the part worth knowing before anyone
-        // tunes it again: `creature::apply_colony_scent` clamps each slot to
-        // `[-1, 1]`, so raising the dial past about 1 stops pushing colonies
-        // apart and starts folding the draws onto the corners of that cube,
-        // where two colonies can land together. That is why seed 9's gap
-        // *falls* from 0.566 to 0.331 going 2 -> 3. Lane D reached the same
+        //   spread=0  ->   0 of 12 seeds, 0 kills   (the off arm, and it is
+        //                  genuinely off -- see below for why that matters)
+        //   spread=1  ->   9 of 12 seeds,  86 kills, median founding gap 1.62
+        //   spread=2  ->  11 of 12 seeds, 105 kills, median founding gap 2.28
+        //
+        // **The worst seed is no worse at 2.0** (0.561 against 0.566), so the
+        // clamp does not cost anything in the tail at this end of the axis --
+        // though it is still what stops the dial buying more further up, and
+        // it is why nothing above 2 is worth trying: `apply_colony_scent`
+        // clamps each slot to `[-1, 1]`, so past that the draws fold onto the
+        // corners of the cube instead of spreading. Lane D reached the same
         // saturation from a different bed
         // (`Reports/animal-conflict-research-2026-09-14.md` §8.3); the clamp
         // is the mechanism under it.
         //
-        // **One seed in twelve still never separates, at any value.** Seed 9
-        // is byte-identical to the unswitched bed on every column. That is a
+        // **This value was briefly changed to 1.0 on a measurement that was
+        // wrong, and the record is kept rather than tidied away**, because
+        // the way it was caught is the reusable part. `rivalry.rs`'s
+        // `spread=` override used to *add* its offset to whatever scent an
+        // animal already carried. While this field defaulted to 0 that was
+        // the same as re-deriving it; the moment this line went live,
+        // founding applied the authored offset and the override applied a
+        // **second** one -- so every arm measured `authored + requested`, and
+        // `spread=0` was not an off arm at all. It read as "1.0 and 2.0 are
+        // equivalent, and 2.0 has a worse tail", which is the opposite of the
+        // truth. **The control that caught it is the one this file's own
+        // notes demand everywhere else**: run the bed from the *authored*
+        // value and from the *runtime* override at the same seed and require
+        // them byte-identical. They disagreed on `gap` alone (1.817 against
+        // 2.289) while every outcome column matched -- matched only because
+        // both sat past a threshold, so a doubled offset changed no decision
+        // and would have gone on hiding until some arm sat near the boundary.
+        //
+        // **One seed in twelve still never separates.** Seed 9 is
+        // byte-identical to the unswitched bed on every column. That is a
         // structural limit of a cube-clamped offset rather than a setting
         // anyone can fix -- drawing on a sphere, or not clamping, is a design
         // change and is not made here.
         //
         // **What it costs, paired against the same seeds at 0**: deaths
-        // +98 median and up on 11 of 12 seeds; starvation share -4.6 points
-        // median and down on 9 of 12, because killing displaces starving
-        // rather than adding to it; population unmoved (+0.5 alive median,
-        // up on 6 of 12 and down on 4). The bed carries it. **The constants
+        // **+99 median, up on 11 of 12 seeds and down on none**; starvation
+        // share **-4.3 points median, down on 10 of 12**, because killing
+        // displaces starving rather than adding to it; population and births
+        // unmoved (both medians exactly 0, up on 4 and down on 5). The bed
+        // carries it. **The constants
         // this reallocates are named and NOT re-derived here** -- the birth
         // bar, `colony_ants` and the starvation balance were all calibrated
         // on a bed where no ant is food, and an ant is now food to another
