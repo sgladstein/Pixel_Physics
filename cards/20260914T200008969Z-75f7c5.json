@@ -1,0 +1,52 @@
+{
+  "id": "20260914T200008969Z-75f7c5",
+  "created": "2026-09-14T20:00:08Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/druid-look",
+    "commit": "9fd637a7",
+    "agent": null,
+    "session_id": "14a7ca69-3c22-5406-8545-a1ad6dc7a692",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The ants wear their colony's colour here too",
+  "question": "Is this the animal colour you meant — the same one the lab uses?",
+  "context_md": "Your third item: *\"change creature colors to match the evolution lab game.\"*\n\nThe lab has dressed every animal in its colony's colour since 2026-09-06, for a complaint that lands here word for word — the ants and the beetles could only be told apart with an overlay switched on. This game was still on the outdoor game's default, where an animal wears its own dark body colour and disappears into soil.\n\nFourteen founders on the bank at his feet, same run, same frame.\n\nThe outdoor sandbox keeps the old default — it is the one of the three that is not about watching groups.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before",
+      "files": [
+        "20260914T200008969Z-75f7c5/000-cc_off-after.png"
+      ],
+      "caption": "each animal's own body colour",
+      "meta": {
+        "ants on the bank": 14,
+        "ant pixels on screen": 400
+      },
+      "focus": null
+    },
+    {
+      "label": "after",
+      "files": [
+        "20260914T200008969Z-75f7c5/001-cc_colony-after.png"
+      ],
+      "caption": "colony colour, as in the lab",
+      "meta": {
+        "ants on the bank": 14,
+        "ant pixels on screen": 400
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
