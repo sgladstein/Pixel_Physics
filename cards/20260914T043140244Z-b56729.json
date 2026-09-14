@@ -1,0 +1,58 @@
+{
+  "id": "20260914T043140244Z-b56729",
+  "created": "2026-09-14T04:31:40Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/absorb-destroys-plants",
+    "commit": "fe8bc9ae",
+    "agent": null,
+    "session_id": "ab498c15-38be-5a0b-a525-bdfb54ed80d6",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "What eats the plants around your colony",
+  "question": "Is this the thing you saw when you reported that absorbing destroys plants - a circle chewed back to bare ground like B? And was the speed dial up at the time?",
+  "context_md": "Same world, same seed, same 3000 player ticks, speed x8, one circle. The ONLY difference is whether a colony is standing in it.\n\nI could not reproduce your report from the `F` key. Pressing `F` leaves the world **bit-identical** - every plant material, every organism, every death cause, every unit of plant eaten - measured at speed 1 and speed 8 and with 32 ants. The energy motes never touch the world; they are painted into the finished frame.\n\nWhat does eat the garden is **ants grazing inside a circle, multiplied by the speed dial**. Absorbing is upstream of that rather than the cause of it: it buys the power that keeps the circle standing, and you have to be standing in the colony to press `F` at all.\n\nIf B is not what you saw, tell me what was on screen instead - I would rather know my reproduction is wrong than ship a fix for it.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - no colony",
+      "files": [
+        "20260914T043140244Z-b56729/000-nocolony-after.png"
+      ],
+      "caption": "the same circle with nothing living in it",
+      "meta": {
+        "plants at end": 352,
+        "plant cells": 5811,
+        "plant energy eaten": 0,
+        "plants felled": 273,
+        "ants": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "B - 33 ants",
+      "files": [
+        "20260914T043140244Z-b56729/001-colony-after.png"
+      ],
+      "caption": "a colony founded at the player's feet",
+      "meta": {
+        "plants at end": 177,
+        "plant cells": 5163,
+        "plant energy eaten": 15010,
+        "plants felled": 335,
+        "ants": 33
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
