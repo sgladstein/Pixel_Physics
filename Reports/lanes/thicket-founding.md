@@ -303,4 +303,6 @@ open when I got there, opened on my behalf at 04:35; I updated the body rather
 than opening a second one. I do have `mcp__github__get_me`, so I could have
 opened it myself had it not existed.
 
-**Head SHA: `58f2ac1e98925d176b6860e6f57ffa9f0fd7a75f`.**
+**Head SHA: `27d72abc358cbee23e47bab2ccaa0699c7b825dc`** (this note's own
+commit; the code and every measurement above are unchanged since
+`58f2ac1e`).
