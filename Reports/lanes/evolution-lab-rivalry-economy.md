@@ -29,7 +29,12 @@ Reproduced the register's own run byte-for-byte first (seed 1: 475 attacks,
 | | §Z23 open | §Z23 fixed |
 |---|---|---|
 | attacks, seed 1, `spread=0` | 475 | **0** |
-| over 12 seeds at the shipped dial | — | every swing animal-directed: `xcol == killedA` on **all twelve rows** |
+| over 12 seeds at the shipped dial | — | every cross-colony **kill** preserved: `xcol == killedA` on all twelve rows |
+
+**Not claimed: that every remaining *swing* is animal-directed.** That is a
+`kill` counter and it cannot say it — see §5a, where I strike the claim.
+Ruling out plant-directed swings needs a counter split by victim kind, and the
+owner's "creatures will not attack plants at all" is what closes the gap.
 
 **`examples/rivalry` now reads the economy animal-only**, and `colony_ants=`
 is a knob. New `SUMMARY` columns, appended after `main`'s:
@@ -227,6 +232,100 @@ pointer, not weakened: **un-ignoring it is the acceptance test for that work.**
 
 ---
 
+## 5a. ROUTING COLLISION — §Z23 was already fixed and pushed before the reassignment reached me
+
+**Read this before Lane E starts.** The coordinator's poke reassigning
+`creature.rs`'s `cry_alarm`/`nearest_foe`/attack-target path to Lane E fired at
+**19:58:44Z**. My §Z23 fix was committed at **~19:47Z** and PR
+[#436](https://github.com/sgladstein/Pixel_Physics/pull/436) opened at
+**~19:51Z**, gates green. `origin/claude/evolution-lab-forest-eaten` did not
+exist when I checked at 20:08Z. So this is not a lane writing into another's
+file — it is a poke that crossed a landing, which is the exact failure
+`CLAUDE.md` names: *there is no delivery signal for a poke; the only check that
+works is the branch head.*
+
+**I have stopped touching that path** and have made no edit to it since the
+poke. What follows is the hand-off, not a claim on the file.
+
+### What is already done, and what is still Lane E's
+
+The owner's two rulings, against what #436 actually implements:
+
+| owner's ruling | in #436? |
+|---|---|
+| **Eating a plant will not raise an alarm** | **yes — this is exactly the gate on `cry_alarm`'s two feeding sites** |
+| **Creatures will not attack plants at all. No exception.** | **NO — and I deliberately did the opposite** |
+
+**The second row is the important one and it is a correction to my own
+judgement.** I left `nearest_foe`'s target rule intact on purpose, following
+#417's argument and the §Z23 section's own designed repair — *an animal
+cornered by something it cannot digest must still be able to hit it*. **The
+owner has now ruled against that, with "no exception".** That argument is
+overruled, the register section is out of date, and closing it is Lane E's.
+
+### A claim of mine to strike, because it is wrong
+
+My PR body and §1 above say every remaining swing is animal-directed, citing
+`xcol == killedA` on all twelve seeds. **That does not follow.** `xcol` and
+`killedA` are both *kill* counters; they say the kills were cross-colony. They
+say nothing about swings that took no cell, and those are most of them — seed
+10 post-fix reads **attacks 71, cells 13, killedA 9**.
+
+**So I cannot rule out plant-directed swings surviving my fix**, and the
+mechanism is still reachable: an animal bitten nearby raises an alarm, a
+listener swings, and `nearest_foe` hands it whatever living non-kin organism is
+nearest — which may be the plant it is standing on. Establishing that needs a
+counter split by victim kind, which nothing has. **This is precisely the gap
+ruling (a) closes**, so it is E's to close rather than mine to measure.
+
+### What Lane E can take from #436
+
+- **The guard** `eating_a_plant_raises_no_alarm_and_eating_an_animal_does`,
+  with its animal arm as the positive control. **It was blind on its first
+  writing** — the plant arm used a `leaf`, and `leaf.ron`'s `food_energy: 40.0`
+  against a neutral gut's 0.25 is 10.0, under `EAT_YIELD_THRESHOLD`'s 12.0, so
+  a shipped ant cannot eat a bare leaf and the call site was never reached.
+  Use `fruit` or `moss`. Only the fault-reinstatement rule found this.
+- **`is_animal_cell`**, one predicate with three readers, already in place.
+- **§Z26** (§5 below) — closing this doubles the moss lawn's yield and makes
+  the moss pump live. **E's fix will land the same consequence**, so the
+  `#[ignore]`d guard and the filed bug apply to E's change as much as mine.
+- **Wood.** The coordinator's note says the attack bite has no diet gate and
+  takes wood, which carries no `food_energy` at all. That is consistent with
+  what I measured and is the sharpest statement of why this was pure loss;
+  nothing in #436 addresses it, because #436 does not touch the target rule.
+
+**If E's fix supersedes mine at those two call sites, take E's.** Mine is a
+strict subset of the owner's rulings.
+
+---
+
+## 5c. The coordinator's plant_j datum — checked, and it needs two corrections
+
+*Handed to me as adjacent to the economy: "rivalry off vs on, same seed, plants
+felled 161 -> 165 with `plantkill` 0 in both arms, but plants EATEN moved
+5,333 -> 9,690 joules."*
+
+**Correction 1: `plant_j` is not "plants eaten".** `EnergyLedger::
+harvested_plant`'s own doc: *"Eating something whose worth comes from its
+material: leaf, moss, seed, **a live animal's flesh**."* A mouthful of rival
+books to the same account as a mouthful of leaf. That is why this lane had to
+read `ColonyBooks::raided` to see predation income at all — and it means the
+datum's rise is partly ants.
+
+**Correction 2: one seed cannot carry it.** Over 12 paired seeds the sign is
+not stable — `plant_j` **falls on 3** and rises on 8, median **+2,548 J** over a
+range of **−5,899 to +9,158**. And of a *positive* delta, predation accounts
+for a median **19%** (range 7–191%; on seed 8 predation exceeds the whole
+delta, so genuine plant intake fell there while `plant_j` rose).
+
+**So the effect may well be real, and it is not established by this datum.**
+The honest statement is that rivalry raises plant intake on about two seeds in
+three, by a highly variable amount, of which roughly a fifth is not plants.
+Measured post-§Z23-fix on both arms (see SHAs below).
+
+---
+
 ## 5b. Lane C's routed change, taken
 
 **`ancestor.ron` now carries `(Alarm, Move, -1.0)` and `(Alarm, Attack, 2.0)`.**
@@ -280,6 +379,23 @@ for, not a defect, and it is not mine to settle.
 - **Nothing was posted to the review queue.** Every finding here is a count or
   a joule, the rivalry-visibility question is closed by the owner's ruling,
   and the queue is for visual evaluations only.
+
+## 6b. Head SHAs for every measurement, per the coordinator's request
+
+Both arms of every paired sweep were run on one binary, so each comparison is
+internally consistent whatever moved around it.
+
+| measurement | tree | side of E's fix |
+|---|---|---|
+| §Z23 reproduction, 475/79/629 at seed 1 | `f4e3b471` (`origin/main`) | **before** |
+| pre-fix shipped arm, seeds 1–3 | `f4e3b471` | **before** |
+| the 12-seed paired sweep (§2, §3), `colony_ants` sweep (§4), placement table, plant_j check (§5c) | `768c1b59` — my §Z23 gate, nothing else | **after mine, before E's** |
+| the moss-lawn pair (§5) | `768c1b59` against the same tree with the gate reverted | both sides of **mine** |
+
+**None of these sit on the far side of ruling (a)** — no arm here has
+`nearest_foe` refusing plants, because nothing in #436 changes the target rule.
+A number taken after E lands is not comparable to one here, and the columns
+most likely to move are `attacks`, `cells` and anything reading `plant_j`.
 
 ## 7. Gates
 
