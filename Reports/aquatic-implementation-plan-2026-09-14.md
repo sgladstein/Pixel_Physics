@@ -142,6 +142,44 @@ bug in the code*, and its inverse — a number that is arithmetically correct an
 about a world that no longer exists. **Look at the picture before believing the
 counter**, every time, including when the counter is telling you what you hoped.
 
+### 1.6 A rootable pond needs no engine change either — and the plant still dies in it
+
+§1.5's basin drained because its soil floor was continuous with the bed's own
+96-row soil column. **That column's unsaturated room is 160 x 60 x (1000-620)
+= 3,648,000 units, which is exactly the pond's fill** — hence the drain to
+precisely zero.
+
+Seal it instead: keep the stone floor and lay a **four-row sediment layer on
+top of it**, inside the basin. Its room is 152 x 4 x 380 = **231,040 units,
+6.3% of the pond**. Predicted before running; measured after **(measured)**:
+
+| frame | 0 | 5,000 | 10,000 | 15,000 | 20,000 |
+|---|---|---|---|---|---|
+| total fill | 3,648,000 | 3,416,949 | 3,416,949 | 3,416,949 | 3,416,949 |
+
+A loss of **231,051** against a predicted 231,040 — eleven units, 0.005%. The
+sediment drinks exactly its capacity and stops. **So Brief A0's code change is
+not needed**: a pond with ground a root can reach is a scenario file, like the
+pond itself. A0 becomes a bed rather than an engine change, which is the
+cheapest correction in this document.
+
+**And the plant still dies, which is the point.** Two herbs placed in that
+submerged sediment, in a pond that now holds:
+
+| | frame 0 | 6,000 | 20,000 | 40,000 |
+|---|---|---|---|---|
+| founder cells | 1, 1 | dead, 1 | dead, dead | dead, dead |
+
+Neither ever reached a second cell. **This is the controlled form of §1.3**, and
+it is the cleanest demonstration in either document: the *same bed*, the *same
+two plant positions*, differing only in whether the water stayed —
+
+- water drained away (§1.5): **227 and 320 cells**;
+- water held (here): **dead, without growing once**.
+
+Soil, light, nutrient and placement are all held fixed. Water is the whole
+difference, and Phase 1 is therefore exactly as scoped: one predicate.
+
 ---
 
 ## 2. Phase 1 — the margin
@@ -282,6 +320,47 @@ box:
   the block read bone dry. Water is the *moisture source*. Marking a pond
   `blocked` would make the pond read as having no water in it.
 
+### 4.1 The resolution problem, taken before writing the phase
+
+**Checked here rather than discovered later**, per *check that a planned step
+can demonstrate itself before promising it will*. Two verified constants
+decide how much gradient the field can express at all:
+
+- `FIELD_SCALE = 16` (`field.rs:48`) — **one transmission sample per 16 CA
+  rows**.
+- `COLUMN_TRANSMISSION` has exactly **17 entries**, 0..=16 opaque cells, and
+  its last entry *is* `SKY_TRANSMISSION` (`field.rs:2315`) — so a field block
+  whose columns are full of opaque material is already at the table's floor.
+
+Two consequences, and both change the phase:
+
+1. **Water cannot count as a whole opaque cell.** If it did, the table would
+   saturate after 16 rows and a pond would go from full light to the floor in
+   one step. Water needs a **fractional extinction coefficient**, which means
+   `column_depth` — a plain `u8` count today — has to become a fractional
+   accumulator or the coefficient has to scale the table index. That is real
+   work beyond "add `Liquid` to the predicate", and the research understated
+   it.
+2. **`the_pond.ron` is too shallow to show a ramp, and so is the lab.** 28 rows
+   is **1.75 field cells**. A five-step gradient needs roughly 80 rows of
+   water — a quarter of the 320-row lab world. So **the depth gradient is
+   substantially an outdoor-world feature**, where a lake can be deep, and the
+   lab can only ever show two or three bands of it. That inverts this plan's
+   "lab as the proving ground" framing *for this phase only*; Phases 1 and 2
+   are unaffected.
+
+Neither of these is a reason not to do it — a two-band pool is still a pool
+with a dark bottom, which is what the card asks about. They are reasons the
+phase is bigger than one predicate, and they should be in front of the owner
+before the card is answered, not after.
+
+**What was tried and did not settle it:** `filmstrip scene=forest
+channel=light` shows the mechanism working *laterally* — trunk shadows are
+visible as distinct vertical bands — but everything below the surface
+saturates to one value, so it does not demonstrate a depth ramp. **OWED**: a
+render of a deep column under fractional extinction, which cannot be taken
+until the coefficient exists.
+
 **The height rule lands here, not in Phase 1**, because depth and plant height
 are the same gradient: charge turgor lift only above the waterline, and how
 deep the water is decides how tall a plant can grow. The bound stays finite —
@@ -333,25 +412,30 @@ measurement is `scenario=the_pond_stocked`, 6+ seeds, 90,000 frames,
 
 ## 7. The briefs
 
-### Brief A0 — the sediment placement (do this first; it is not optional)
+### Brief A0 — the sediment bed (do this first; it is not optional)
 
-*Owns:* `src/lab/scenario.rs`, `assets/lab_scenarios/`.
-*Read first:* §1.1 and §1.5 here.
-*Build:* a way for a `Placement` to lay soil at a stated wetness — either
-`Fill` gaining an optional `aux`/`wetness`, or a `Sediment` variant. Default
-must be today's `SOIL_FIELD_CAPACITY` so no existing scenario moves.
-*Ship:* `the_pond_sediment.ron` — the stone basin with a saturated sediment
-layer on its floor.
-*Counters:* total fill at 0 / 20,000 / 40,000.
-*Positive control:* the same bed with the sediment laid at field capacity must
+**Reduced to a data file by §1.6** — it was specified as a `scenario.rs`
+change and does not need one.
+
+*Owns:* `assets/lab_scenarios/`.
+*Read first:* §1.5 and §1.6 here.
+*Build:* `the_pond_sediment.ron` — `the_pond.ron` with a four-row soil layer
+laid **on top of the stone floor**, inside the basin, and the water shortened
+to match. The stone is what seals the sediment from the bed's own column; take
+it away and §1.5 happens.
+*Counters:* total fill at 0 / 5,000 / 20,000.
+*Positive control:* the same bed with the stone floor replaced by soil must
 drain to zero by frame 4,000, reproducing §1.5.
-*Ships if:* fill is flat to the unit at 40,000 frames.
-*Guard:* `every_shipped_scenario_loads_builds_and_places_what_it_says` sweeps
-`assets/lab_scenarios` — **adding a scenario enrols it**, so run
-`cargo test --release --lib lab::scenario` specifically. `cargo test --lib` does
-reach it; `tests/*.rs` guards are a different set and this is not one of them.
-*Cost fork:* if saturated sediment still drains, the pond needs an impermeable
-liner under a thin sediment layer instead. Write which and stop.
+*Ships if:* fill is flat to the unit from frame 5,000 on, having lost about
+6% — and **check the loss against 152 x depth x 380 before believing it**, since
+that arithmetic predicted the measured number to 0.005%.
+*Guard:* adding a scenario enrols it in
+`every_shipped_scenario_loads_builds_and_places_what_it_says`, so run
+`cargo test --release --lib lab::scenario` specifically.
+*Cost fork:* if a deeper sediment layer is wanted for rooting and the loss
+becomes visible, the fork is a wetness-carrying `Fill` after all — that is the
+change this brief originally specified, and §1.6 is the reason not to reach for
+it first.
 
 ### Brief A1 — the reed
 
