@@ -439,7 +439,11 @@ document's recommendation changes.**
 > 6 of 6 seeds with the distributions completely separated — while the delta
 > attributable to **the water** is: three seeds up, three down, with
 > `unvisited` and `eats` equally flat. **The hole is the spatial structure; the
-> water is scenery.**
+> water is scenery — in a basin nothing can enter.** *(Corrected the same day:
+> all three arms were vertical-walled, which stops an ant at the rim, so the
+> water was never reachable. On a sloped bank the identical water costs 49.5
+> columns of range, 6 of 6 seeds separated — the implementation plan's §1.11.
+> Water is a barrier; four instruments had been measuring a wall.)*
 >
 > **So this paragraph's stop condition does not fire, for a reason worth
 > stating**: the recommendation never rested on water-as-barrier, it rests on

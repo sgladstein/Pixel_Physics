@@ -406,7 +406,17 @@ is worth stating plainly because nothing warns you: **a dial that fires between
 two instances of a thing is invisible to any harness that makes only one, and
 the harness reports a clean unchanged number rather than an error.**
 
-### 1.9 The hole is the spatial structure. The water is not.
+### 1.9 The hole is the spatial structure. The water is not — *in a basin nothing can enter*
+
+> **SUPERSEDED IN PART by §1.11, same session.** Everything measured below
+> stands; the *headline* does not. All three arms here are vertical-walled
+> basins, which stop an ant at the rim, so what is at the bottom cannot
+> matter — this section measured a wall and attributed the result to water.
+> Given a bank an ant can walk down, the identical water costs **49.5 columns
+> of range, 6 of 6 seeds separated**. Read the table below as the hole's
+> contribution, and §1.11 for the water's.
+
+#### The hole is the spatial structure. The water is not.
 
 **This is the measurement §1.4 could not make and the research named as the one
 that decides whether any of this is worth building.** `labforage`'s stated
@@ -459,14 +469,14 @@ in the water first is proposing the only thing that would change that.
 
 ### 1.10 The owner's sloped entrance, measured — and the first reading of it was wrong
 
-> **CORRECTION, same session.** The table below races a **dry** sloped pit
-> against a **dry** vertical one, which is a clean pair for *wall shape* and is
-> **not the comparison the bed needs**, because the bed is a pond and has water
-> in it. Measured afterwards: a sloped bowl **with water in it** reads
-> `cols` **205.0** against the watered vertical pit's 199.5 — the 92% recovery
-> below **does not survive filling the pond**. §1.11 has that table and what it
-> means. Read this section as *what a slope does to a hole*, not as *what a
-> slope does to a pond*.
+> **CORRECTION, same session, and it is the good kind.** The table below
+> races a **dry** sloped pit against a **dry** vertical one — a clean pair for
+> *wall shape*, and not the comparison a pond needs. Filled, the same sloped
+> bowl reads `cols` **205.0** against **254.5** dry, so the recovery below does
+> not survive the water. **Chasing that down produced the session's main
+> finding and overturned §1.9's**: water *is* a barrier, it had simply never
+> been reachable in any bed measured before. §1.11 is that result; read this
+> section as *what a slope does to a hole*.
 
 §0a's second verdict — *"in nature it would need a sloped enterance or
 creatures will get stuck"* — arrived after §1.9 had independently measured the
@@ -505,6 +515,61 @@ range claim survives that confound because `cols` is about where an ant can
 walk and the effect is large, separated and mechanically direct — a 32-row
 vertical face against a 2-row step. A claim that the sloped pond is *better for
 the colony* would not survive it, and is not made.
+
+### 1.11 Water is a barrier. Every bed that said otherwise had a wall in front of it.
+
+**This overturns §1.9, and the mechanism is `CLAUDE.md`'s own rule about a
+scene that does not contain the situation you think it does.** Six beds, one
+binary (md5 identical across all 36 runs), six seeds each, 24,000 frames.
+Each differs from its neighbour by one thing.
+
+| bed | `cols` per seed | median | `unvisited` |
+|---|---|---|---|
+| no pit at all | 307, 308, 273, 286, 253, 269 | 279.5 | 138.5 |
+| sloped wedge, **dry** | 290, 273, 272, 252, 251, 276 | 272.5 | 137.5 |
+| sloped liner, **dry** | 265, 254, 252, 246, 276, 255 | **254.5** | 115.5 |
+| sloped liner, **water** | 212, 188, 198, 188, 217, 237 | **205.0** | 121.0 |
+| vertical, **water** | 199, 200, 205, 199, 218, 180 | 199.5 | 158.5 |
+| vertical, **dry** | 196, 192, 207, 236, 191, 197 | 196.5 | 154.5 |
+
+**Read the two middle rows together: they are one file and sixteen `Fill`
+lines apart, and the water costs 49.5 columns — completely separated on 6 of 6
+seeds** (worst dry 246, best watered 237). Now read the bottom two: the same
+water, in a vertical basin, costs **nothing** (196.5 against 199.5, three
+seeds each way).
+
+**So water is worth about 60% of what the hole itself is worth — and four
+instruments missed it because every bed they ran in kept the animals away from
+the water.** A vertical stone wall stops an ant at the rim; whatever is at the
+bottom of the pit is then irrelevant, and water-against-dry reads null *for a
+reason that has nothing to do with water*. Give the ants a bank they can walk
+down and the water is suddenly the thing stopping them, because it is the only
+thing left to stop them.
+
+**§1.9's headline — "the hole is the spatial structure, the water is scenery" —
+is therefore wrong as stated, and the corrected form is sharper:** *in a basin
+nothing can enter, the water is scenery; make the basin enterable and the water
+is a barrier in its own right.* §1.4's three arms, §1.9's four instruments and
+§1.8's Gate 2 water/dry null are all measurements taken in vertical-walled
+basins, and all of them inherit the same confound. None of their numbers are
+wrong; what they measured was a wall.
+
+**This is the rule about a mechanism that appears inert, in its most expensive
+costume.** The check it asks for — *does the scene still contain the situation
+you think it does?* — was applied to the pond's hydraulics (§1.1), to the
+plant's substrate (§1.6) and to the ant's reach (§1.7), and **not** to the
+question the whole document is about. Four independent nulls agreeing is not
+evidence of a null when all four share a bed, and the agreement is what made it
+convincing.
+
+**What it changes for the phases.** Phase 2's premise is stronger than the
+plan credited: water already changes what a colony can do, so a swim verb has
+something to be worth **before** Phase 1 puts calories in the water — but only
+on a bed with a passable bank, which no shipped scenario has. **So the bed
+comes first and it is not the bed anyone has been using**: the four shipped
+ponds are all stone boxes, and a Phase 2 race in any of them measures a wall.
+`shore_bowl` (sloped, thin-lined, soil-banked, holds water) is the shape that
+does not, and it should ship as the Phase 2 bed.
 
 ---
 
