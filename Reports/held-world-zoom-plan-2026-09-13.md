@@ -173,6 +173,27 @@ plain words: *zooming out has four steps, the third is blurry and the rest are
 sharp — leave it, or delete the third step so every step is sharp and you lose
 the one that fits the world's whole height?*
 
+**The re-ask is posted: card `20260914T084458895Z-ae1b01`** (board `druid`,
+2026-09-14 08:44Z), a four-pane gallery — one press of zoom-out per pane, in
+walking order, every pane normalised to one on-screen size, each captioned with
+how much world it shows and whether it is crisp. Three things changed from the
+question he could not read:
+
+- **The word is *blocky*, not *soft*.** Rendered and looked at before posting:
+  rung 3 does not read as a blur, it reads as chunky — every cell drawn at the
+  coarsest size against rung 2's crisp one. "Soft stop" was doubly unreadable,
+  because it was also borrowed from traffic law.
+- **The question names the two live options and nothing else**, in the shape he
+  has to choose between: keep the blocky stop, or jump from stop 2 to stop 4.
+  The rejected third option is mentioned only to say he already saw it.
+- **Why it is blocky is stated in one sentence** — the renderer can only draw a
+  cell 1, 2 or 4 screen-pixels wide, and 3 divides evenly into none of them —
+  so the answer is not a guess about whether it is fixable.
+
+No new code was needed: `labzoom world=druid budget=4 zoom=4 tiles=` already
+writes one tile per rung at a common physical size, which is the same
+photograph-the-shipped-renderer move recorded below.
+
 **Where that leaves the three options:**
 
 | option | standing |
