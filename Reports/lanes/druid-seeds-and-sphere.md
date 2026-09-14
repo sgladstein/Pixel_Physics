@@ -134,81 +134,50 @@ credited to the plant's own kind, gated at `SEED_FROM_CELLS` 24 cells.
    player's question, which is "does this look like a tree yet". 24 cells
    against a grown tree's 31–153.
 
-**What I considered and did not build.** Buying seeds with power — rejected,
-and the brief is right to warn against it: power is the animal economy and
-`Setting::Unlimited` already means power, so a seed priced in power would make
-the two indistinguishable the first time someone pressed `U`. Picking up loose
-seed cells off the ground — more satisfying, and it is what the world actually
-produces once plants reproduce, but a loose seed cell is a `Seed`-typed cell
-belonging to a live organism, so harvesting one means organism surgery on the
-plant line's reproduction path, and it would let her hoover up the
-regeneration she is there to encourage. Left for a later session with a clear
-run at it; noted here rather than in `dead-ends.md` because neither was built.
+**Two shapes considered and not built**, neither reaching `dead-ends.md`
+because neither was built. Seeds priced in power: `Setting::Unlimited` already
+means power, so the two would become indistinguishable the first time anyone
+pressed `U`. Picking loose seed cells up off the ground: more satisfying, and
+it is what the world actually produces once plants reproduce, but a loose seed
+cell belongs to a live organism, so harvesting one is surgery on the plant
+line's reproduction path — and it would let her hoover up the regeneration she
+is there to encourage. Worth a later session with a clear run at it.
 
 **What I would ask the owner**, if a message could reach him: *is the refill
 meant to exist at all, or should a run be bounded by what she sets out with?*
-Everything above assumes it should — a supply that can only ever go down makes
-the outcome binary (you have seeds or the game is over), which is the failure
-law 1 names. But that is an inference from the ethos, not from his words.
+Everything above assumes it should — a supply that can only go down makes the
+outcome binary, which is the failure law 1 names — but that is an inference
+from the ethos, not from his words.
 
-### Numbers that are first guesses
-
-`SEED_START` 8, `SEED_CAP` 24, `SEED_FROM_CELLS` 24, `SEED_PER_PLANT_SECOND`
-0.005. Every one is a first guess, and each says so at its definition — the
-same footing as the rest of this economy, whose own doc says the numbers are
-"wrong in the way a first guess is wrong". At 0.005 a wood of twenty mature
-plants under her feet pays a seed every ten seconds.
-
-**The one I would sweep first is `SEED_FROM_CELLS`**, because it is the only
-one that decides whether the mechanic has a *middle*: too low and every sprout
-pays, which is the unlimited supply again; too high and nothing ever pays and
-the pouch is a countdown.
+The four numbers are first guesses and say so at their definitions. **The one
+to sweep first is `SEED_FROM_CELLS`**, because it alone decides whether the
+mechanic has a *middle*: too low and every sprout pays, which is the unlimited
+supply again; too high and nothing ever pays and the pouch is a countdown.
 
 ---
 
 ## Item 5 — the sphere's off switch
 
-### The brief's warning was correct and I can confirm the arithmetic
+The reasoning is in the PR body and in `README.md`'s `Held world status`. What
+belongs here is the three things a later session would otherwise re-derive:
 
-The carried circle at its base radius costs exactly zero, and there is a guard
-saying so. Nothing here is a saving unless the player has widened it with `]`,
-and then it is the widening that stops being billed. I did not touch
-`carried_cost` and its guard is untouched and still green.
-
-So what is built is the thing the words say: a way to make the world **hold
-still** where she stands.
-
-### Why it is a flag and not a radius
-
-`World::carried_radius`'s doc refuses to let a dial reach off by accident, and
-that comment is load-bearing — `frame.rs:101` reads `0` as the default size,
-so a dial turned to zero gives a *default-sized* circle, and even a genuinely
-zero radius would still run time for the cell underfoot because
-`Quickening::contains` is `<=`. Both of those are asserted directly in
-`the_carried_circle_turns_off_by_the_flag_and_not_by_the_dial`, so a later
-session that "simplifies" either will be told.
-
-`World::carried_off` is therefore its own word. Default `false`, so the
-sandbox and the lab see no change at all.
-
-### It is a trade, not a free button
-
-Off, the colony under her feet stores no charge, a seed she has sown does not
-germinate, the wood she is in stops growing, and her pouch stops filling. Every
-one of those falls out of `World::time_runs_at` and needed no code — the same
-way the rule that a colony must be founded inside running time does.
-
-### The delivery, per law 2
-
-The world going still around her is the visible consequence: with
-`world.carried` at `None` the held look reclaims the ground she is standing on,
-so the bubble does not dim — it disappears. The HUD says `YOUR CIRCLE OFF` in
-warning colour, which is the half that stops an empty power bar reading as a
-fault.
+1. **The brief's warning was right and I confirmed it.** The carried circle at
+   its base radius costs exactly zero. `carried_cost` is untouched and its
+   guard still green. Nothing about the off switch is a power saving unless
+   the player has widened the circle with `]`.
+2. **It is a flag and not a radius**, because `carried_radius`'s doc refuses
+   to let a dial reach off by accident, `frame.rs` reads `0` as the default
+   size, and `Quickening::contains` is `<=` so even a real zero would run time
+   for the cell underfoot. All three are asserted directly in
+   `the_carried_circle_turns_off_by_the_flag_and_not_by_the_dial`, so a later
+   "simplification" of any of them gets told rather than discovered.
+3. **Off is a trade.** The colony stops storing charge, sown seed stops
+   germinating, the wood stops growing, the pouch stops filling — all of it out
+   of `World::time_runs_at`, none of it new code.
 
 `PIXEL_PHYSICS_DRUID_CIRCLE=off` is a **control arm, not a setting**: the key
 is Lane A's file and a headless capture cannot press one, so without it the
-two arms could only be compared across a rebuild. One binary, one switch.
+two arms could only be compared across a rebuild.
 
 ---
 
