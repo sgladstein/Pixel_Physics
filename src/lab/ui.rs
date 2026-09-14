@@ -287,33 +287,40 @@ impl Rect {
 /// every panel until now dimmed what was behind it instead. Opaque on purpose;
 /// [`render::blend`] is still the right call for anything that wants the world
 /// to show through.
-fn fill(frame: &mut [u8], r: Rect, colour: [u8; 4]) {
+/// The canvas the whole bar draws through, built from the renderer's current
+/// buffer scale. See `render::Hud`.
+pub fn hud_canvas(renderer: &crate::render::Renderer) -> render::Hud {
+    let scale = renderer.pixel_scale().max(1);
+    render::Hud::new(W * scale as u32, H * scale as u32, scale)
+}
+
+fn fill(hc: render::Hud, frame: &mut [u8], r: Rect, colour: [u8; 4]) {
     for y in r.y..r.bottom() {
         for x in r.x..r.right() {
-            render::put(frame, W, H, x, y, colour);
+            hc.put(frame, x, y, colour);
         }
     }
 }
 
-fn outline(frame: &mut [u8], r: Rect, colour: [u8; 4]) {
+fn outline(hc: render::Hud, frame: &mut [u8], r: Rect, colour: [u8; 4]) {
     for x in r.x..r.right() {
-        render::put(frame, W, H, x, r.y, colour);
-        render::put(frame, W, H, x, r.bottom() - 1, colour);
+        hc.put(frame, x, r.y, colour);
+        hc.put(frame, x, r.bottom() - 1, colour);
     }
     for y in r.y..r.bottom() {
-        render::put(frame, W, H, r.x, y, colour);
-        render::put(frame, W, H, r.right() - 1, y, colour);
+        hc.put(frame, r.x, y, colour);
+        hc.put(frame, r.right() - 1, y, colour);
     }
 }
 
-fn text(frame: &mut [u8], x: i32, y: i32, s: &str, colour: [u8; 4]) {
-    hud::draw_text(frame, W, H, x, y, s, colour);
+fn text(hc: render::Hud, frame: &mut [u8], x: i32, y: i32, s: &str, colour: [u8; 4]) {
+    hc.text(frame, x, y, s, colour);
 }
 
 /// The same call under a name that does not collide with a local `text`
 /// binding. `draw` already binds `text` from `paint_page`'s return.
-fn text_at(frame: &mut [u8], x: i32, y: i32, s: &str, colour: [u8; 4]) {
-    text(frame, x, y, s, colour);
+fn text_at(hc: render::Hud, frame: &mut [u8], x: i32, y: i32, s: &str, colour: [u8; 4]) {
+    text(hc, frame, x, y, s, colour);
 }
 
 // ------------------------------------------------------------------ icons
@@ -333,20 +340,20 @@ enum Icon {
     Pause,
 }
 
-fn draw_icon(frame: &mut [u8], icon: Icon, x: i32, y: i32, colour: [u8; 4]) {
+fn draw_icon(hc: render::Hud, frame: &mut [u8], icon: Icon, x: i32, y: i32, colour: [u8; 4]) {
     match icon {
         Icon::Play => {
             for row in 0..7 {
                 let width = 4 - (row - 3i32).abs();
                 for col in 0..width {
-                    render::put(frame, W, H, x + col, y + row, colour);
+                    hc.put(frame, x + col, y + row, colour);
                 }
             }
         }
         Icon::Pause => {
             for row in 0..7 {
                 for col in [0, 1, 4, 5] {
-                    render::put(frame, W, H, x + col, y + row, colour);
+                    hc.put(frame, x + col, y + row, colour);
                 }
             }
         }
@@ -1624,7 +1631,7 @@ fn overlay_face_px() -> i32 {
         .unwrap_or(0)
 }
 
-fn paint_widget(frame: &mut [u8], wid: &Widget, hover: bool, down: bool) {
+fn paint_widget(hc: render::Hud, frame: &mut [u8], wid: &Widget, hover: bool, down: bool) {
     let r = wid.rect;
     let (face, edge, label, sub) = match (wid.action.is_some(), wid.latched, hover, down) {
         (false, ..) => (READOUT_BG, EDGE, LABEL, FAINT),
@@ -1634,8 +1641,8 @@ fn paint_widget(frame: &mut [u8], wid: &Widget, hover: bool, down: bool) {
         (_, false, true, _) => (FACE_HOVER, EDGE, LABEL, LABEL),
         _ => (FACE, EDGE, LABEL, SUB),
     };
-    fill(frame, r, face);
-    outline(frame, r, edge);
+    fill(hc, frame, r, face);
+    outline(hc, frame, r, edge);
 
     let icon_px = wid.icon.map_or(0, |_| ICON_W + ICON_GAP);
     let text_px = icon_px + hud::text_width(&wid.line1);
@@ -1648,9 +1655,9 @@ fn paint_widget(frame: &mut [u8], wid: &Widget, hover: bool, down: bool) {
     // caption: every widget `layout` produces is `BTN_HEIGHT` tall.
     let ty = if r.h < BTN_HEIGHT { r.y + (r.h - hud::GLYPH_HEIGHT) / 2 } else { r.y + 4 };
     if let Some(icon) = wid.icon {
-        draw_icon(frame, icon, tx, ty, label);
+        draw_icon(hc, frame, icon, tx, ty, label);
     }
-    text(frame, tx + icon_px, ty, &wid.line1, label);
+    text(hc, frame, tx + icon_px, ty, &wid.line1, label);
 
     let sy = r.y + 4 + LINE + 2;
     match wid.ratio {
@@ -1659,17 +1666,17 @@ fn paint_widget(frame: &mut [u8], wid: &Widget, hover: bool, down: bool) {
         // number: the digits for what it is, the strip for how far short.
         Some(ratio) => {
             let sx = r.x + (r.w - hud::text_width(&wid.line2)) / 2;
-            text(frame, sx, sy - 1, &wid.line2, grade(ratio));
+            text(hc, frame, sx, sy - 1, &wid.line2, grade(ratio));
             let track = Rect { x: r.x + 3, y: r.bottom() - 4, w: r.w - 6, h: 2 };
-            fill(frame, track, [38, 40, 46, 255]);
+            fill(hc, frame, track, [38, 40, 46, 255]);
             let filled = (track.w as f32 * ratio.clamp(0.0, 1.0)).round() as i32;
             if filled > 0 {
-                fill(frame, Rect { w: filled, ..track }, grade(ratio));
+                fill(hc, frame, Rect { w: filled, ..track }, grade(ratio));
             }
         }
         None => {
             let sx = r.x + (r.w - hud::text_width(&wid.line2)) / 2;
-            text(frame, sx, sy, &wid.line2, sub);
+            text(hc, frame, sx, sy, &wid.line2, sub);
         }
     }
 }
@@ -2158,23 +2165,23 @@ pub fn draw_life_marks(
 /// count is bounded by its shape (a perimeter or a single cell), never by
 /// the population.
 fn fill_mark_row(
+    hc: render::Hud,
     frame: &mut [u8],
     world: &World,
     renderer: &crate::render::Renderer,
-    y: i32,
+    (y, cap): (i32, i32),
     (x0, x1): (i32, i32),
-    cap: i32,
     colour: [u8; 4],
 ) {
     if y < 0 || y > cap {
         return;
     }
     for x in x0..=x1 {
-        let (wx, wy) = renderer.screen_to_world(x, y);
+        let (wx, wy) = renderer.logical_to_world(x, y);
         if world.get(wx, wy).organism_id() != 0 {
             continue;
         }
-        render::put(frame, W, H, x, y, colour);
+        hc.put(frame, x, y, colour);
     }
 }
 
@@ -2189,18 +2196,19 @@ fn fill_mark_row(
 /// check is what makes it "never *any* body's pixel", which is the shape a
 /// crowded nest actually needs.
 fn draw_halo(frame: &mut [u8], world: &World, renderer: &crate::render::Renderer, (min_x, min_y, max_x, max_y): (i32, i32, i32, i32), colour: [u8; 4]) {
-    let (ox0, oy0, ox1, oy1, _) = renderer.world_rect_to_screen(min_x - 1, min_y - 1, max_x + 1, max_y + 1);
-    let (ix0, iy0, ix1, iy1, _) = renderer.world_rect_to_screen(min_x, min_y, max_x, max_y);
+    let hc = hud_canvas(renderer);
+    let (ox0, oy0, ox1, oy1, _) = renderer.world_rect_to_logical(min_x - 1, min_y - 1, max_x + 1, max_y + 1);
+    let (ix0, iy0, ix1, iy1, _) = renderer.world_rect_to_logical(min_x, min_y, max_x, max_y);
     let cap = bar_top() - 1;
     for y in oy0..iy0 {
-        fill_mark_row(frame, world, renderer, y, (ox0, ox1), cap, colour);
+        fill_mark_row(hc, frame, world, renderer, (y, cap), (ox0, ox1), colour);
     }
     for y in (iy1 + 1)..=oy1 {
-        fill_mark_row(frame, world, renderer, y, (ox0, ox1), cap, colour);
+        fill_mark_row(hc, frame, world, renderer, (y, cap), (ox0, ox1), colour);
     }
     for y in iy0..=iy1 {
-        fill_mark_row(frame, world, renderer, y, (ox0, ix0 - 1), cap, colour);
-        fill_mark_row(frame, world, renderer, y, (ix1 + 1, ox1), cap, colour);
+        fill_mark_row(hc, frame, world, renderer, (y, cap), (ox0, ix0 - 1), colour);
+        fill_mark_row(hc, frame, world, renderer, (y, cap), (ix1 + 1, ox1), colour);
     }
 }
 
@@ -2210,11 +2218,12 @@ fn draw_halo(frame: &mut [u8], world: &World, renderer: &crate::render::Renderer
 /// standing there, which `fill_mark_row`'s world check catches the same way
 /// `draw_halo`'s does.
 fn draw_tick(frame: &mut [u8], world: &World, renderer: &crate::render::Renderer, (min_x, min_y, max_x, _): (i32, i32, i32, i32), colour: [u8; 4]) {
+    let hc = hud_canvas(renderer);
     let cx = (min_x + max_x) / 2;
-    let (x0, y0, x1, y1, _) = renderer.world_rect_to_screen(cx, min_y - 1, cx, min_y - 1);
+    let (x0, y0, x1, y1, _) = renderer.world_rect_to_logical(cx, min_y - 1, cx, min_y - 1);
     let cap = bar_top() - 1;
     for y in y0..=y1 {
-        fill_mark_row(frame, world, renderer, y, (x0, x1), cap, colour);
+        fill_mark_row(hc, frame, world, renderer, (y, cap), (x0, x1), colour);
     }
 }
 
@@ -4927,22 +4936,22 @@ fn page_rect(rows: &[Row], anchor_x: i32, bottom: i32) -> Rect {
 /// single-column page needs, and `paint_menu`'s two columns share the same
 /// row painter rather than duplicating it.
 fn paint_page(
+    hc: render::Hud,
     frame: &mut [u8],
     rect: Rect,
     title: &str,
     rows: &[Row],
     cursor: Option<(i32, i32)>,
-    taps: &mut Vec<Widget>,
-    pressed: Option<Action>,
+    (taps, pressed): (&mut Vec<Widget>, Option<Action>),
 ) -> Option<(String, i32)> {
-    fill(frame, rect, PANEL_BG);
-    outline(frame, rect, PANEL_EDGE);
-    text(frame, rect.x + PAGE_PAD, rect.y + 6, title, TITLE);
+    fill(hc, frame, rect, PANEL_BG);
+    outline(hc, frame, rect, PANEL_EDGE);
+    text(hc, frame, rect.x + PAGE_PAD, rect.y + 6, title, TITLE);
     for x in rect.x + 1..rect.right() - 1 {
-        render::put(frame, W, H, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+        hc.put(frame, x, rect.y + PAGE_HEADER - 4, DIVIDER);
     }
     let col = Rect { x: rect.x, y: rect.y + PAGE_HEADER, w: rect.w, h: rect.h - PAGE_HEADER };
-    paint_rows(frame, col, rows, cursor, taps, pressed)
+    paint_rows(hc, frame, col, rows, cursor, taps, pressed)
 }
 
 /// Draw one column of rows and return the note under the cursor, if any.
@@ -4958,6 +4967,7 @@ fn paint_page(
 /// same arithmetic is how a label and its explanation come to disagree about
 /// which row they belong to.
 fn paint_rows(
+    hc: render::Hud,
     frame: &mut [u8],
     col: Rect,
     rows: &[Row],
@@ -4979,21 +4989,21 @@ fn paint_rows(
             // overpaints this with its own hover face below -- the two never
             // fight, because a `Choice` row's whole point is that hovering it
             // has a visible answer of its own.
-            fill(frame, Rect { x: col.x + 1, y, w: col.w - 2, h: row.height() }, [34, 40, 52, 255]);
+            fill(hc, frame, Rect { x: col.x + 1, y, w: col.w - 2, h: row.height() }, [34, 40, 52, 255]);
         }
         match &row.body {
             Body::Gap => {}
             Body::Value { label, value, tint } => {
-                text(frame, left, y, label, FAINT);
-                text(frame, right - hud::text_width(value), y, value, *tint);
+                text(hc, frame, left, y, label, FAINT);
+                text(hc, frame, right - hud::text_width(value), y, value, *tint);
             }
             Body::Spark { label, series, tint } => {
-                draw_spark(frame, Rect { x: left, y, w: right - left, h: 12 }, series, *tint);
-                text(frame, left, y + 14, label, FAINT);
+                draw_spark(hc, frame, Rect { x: left, y, w: right - left, h: 12 }, series, *tint);
+                text(hc, frame, left, y + 14, label, FAINT);
             }
             Body::Lines { caption, series } => {
-                draw_lines(frame, Rect { x: left, y, w: right - left, h: CHART_H }, series);
-                text(frame, left, y + CHART_H + 2, caption, FAINT);
+                draw_lines(hc, frame, Rect { x: left, y, w: right - left, h: CHART_H }, series);
+                text(hc, frame, left, y + CHART_H + 2, caption, FAINT);
             }
             Body::Choice { label, value, action } => {
                 // The bar button's own idiom (`paint_widget`), scaled to one
@@ -5009,10 +5019,10 @@ fn paint_rows(
                     (false, true) => (FACE_HOVER, EDGE),
                     (false, false) => (FACE, EDGE),
                 };
-                fill(frame, btn, face);
-                outline(frame, btn, edge);
-                text(frame, left, y + 1, label, LABEL);
-                text(frame, right - hud::text_width(value), y + 1, value, GOOD);
+                fill(hc, frame, btn, face);
+                outline(hc, frame, btn, edge);
+                text(hc, frame, left, y + 1, label, LABEL);
+                text(hc, frame, right - hud::text_width(value), y + 1, value, GOOD);
                 // The same hit target `Head` pushes below -- a `Choice` is a
                 // `Head` that draws as a button instead of a heading, and the
                 // click mechanism does not care which one drew it.
@@ -5029,17 +5039,17 @@ fn paint_rows(
             }
             Body::Head { label, open, hidden, action } => {
                 for x in col.x + 1..col.right() - 1 {
-                    render::put(frame, W, H, x, y + 1, DIVIDER);
+                    hc.put(frame, x, y + 1, DIVIDER);
                 }
                 // `-` open, `+` shut, then the count of what is behind it.
                 // The sign is on the left of the label rather than the right
                 // because that column is where the eye already is, and a row
                 // of headings has to be scannable without reading any of it.
                 let sign = if *open { "-" } else { "+" };
-                text(frame, left, y + 4, sign, if *open { VALUE } else { GOOD });
-                text(frame, left + 8, y + 4, label, if *open { VALUE } else { FAINT });
+                text(hc, frame, left, y + 4, sign, if *open { VALUE } else { GOOD });
+                text(hc, frame, left + 8, y + 4, label, if *open { VALUE } else { FAINT });
                 if !*open {
-                    text(frame, right - hud::text_width(&hidden.to_string()), y + 4, &hidden.to_string(), GOOD);
+                    text(hc, frame, right - hud::text_width(&hidden.to_string()), y + 4, &hidden.to_string(), GOOD);
                 }
                 // An invisible hit target, exactly the row it was drawn at.
                 // Empty `line1` is the house idiom for "clickable, not
@@ -5085,31 +5095,31 @@ const TOGGLES_HEADER: &str = "VIEW / TOGGLES";
 /// budget; going to two columns buys that budget back several times over,
 /// so the headings return as the thing they actually are.
 fn paint_menu(
+    hc: render::Hud,
     frame: &mut [u8],
     rect: Rect,
     pages: &[Row],
     toggles: &[Row],
     cursor: Option<(i32, i32)>,
-    taps: &mut Vec<Widget>,
-    pressed: Option<Action>,
+    (taps, pressed): (&mut Vec<Widget>, Option<Action>),
 ) -> Option<(String, i32)> {
-    fill(frame, rect, PANEL_BG);
-    outline(frame, rect, PANEL_EDGE);
-    text(frame, rect.x + PAGE_PAD, rect.y + 6, "MENU", TITLE);
+    fill(hc, frame, rect, PANEL_BG);
+    outline(hc, frame, rect, PANEL_EDGE);
+    text(hc, frame, rect.x + PAGE_PAD, rect.y + 6, "MENU", TITLE);
     for x in rect.x + 1..rect.right() - 1 {
-        render::put(frame, W, H, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+        hc.put(frame, x, rect.y + PAGE_HEADER - 4, DIVIDER);
     }
 
     let pages_w = menu_col_inner(pages, "PAGES") + PAGE_PAD * 2;
     let header_y = rect.y + PAGE_HEADER;
     let body_y = header_y + LINE + 2;
-    text(frame, rect.x + PAGE_PAD, header_y, "PAGES", FAINT);
-    text(frame, rect.x + pages_w + PAGE_PAD, header_y, TOGGLES_HEADER, FAINT);
+    text(hc, frame, rect.x + PAGE_PAD, header_y, "PAGES", FAINT);
+    text(hc, frame, rect.x + pages_w + PAGE_PAD, header_y, TOGGLES_HEADER, FAINT);
 
     let left_col = Rect { x: rect.x, y: body_y, w: pages_w, h: rect.bottom() - body_y };
     let right_col = Rect { x: rect.x + pages_w, y: body_y, w: rect.w - pages_w, h: rect.bottom() - body_y };
-    let a = paint_rows(frame, left_col, pages, cursor, taps, pressed);
-    let b = paint_rows(frame, right_col, toggles, cursor, taps, pressed);
+    let a = paint_rows(hc, frame, left_col, pages, cursor, taps, pressed);
+    let b = paint_rows(hc, frame, right_col, toggles, cursor, taps, pressed);
     a.or(b)
 }
 
@@ -5140,11 +5150,11 @@ fn menu_rect(pages: &[Row], toggles: &[Row], anchor_x: i32, bottom: i32) -> Rect
 /// Scaled to the series' own peak rather than to a fixed axis: the two
 /// kingdoms differ by two orders of magnitude in this box, and one shared
 /// axis would draw the colony as a flat line on the floor whatever it did.
-fn draw_spark(frame: &mut [u8], area: Rect, series: &[u32], tint: [u8; 4]) {
-    fill(frame, area, [24, 27, 33, 255]);
+fn draw_spark(hc: render::Hud, frame: &mut [u8], area: Rect, series: &[u32], tint: [u8; 4]) {
+    fill(hc, frame, area, [24, 27, 33, 255]);
     let peak = series.iter().copied().max().unwrap_or(0);
     if series.is_empty() {
-        text(frame, area.x + 2, area.y + 2, "NO SAMPLES YET", FAINT);
+        text(hc, frame, area.x + 2, area.y + 2, "NO SAMPLES YET", FAINT);
         return;
     }
     let bar_w = (area.w / series.len() as i32).max(1);
@@ -5162,11 +5172,11 @@ fn draw_spark(frame: &mut [u8], area: Rect, series: &[u32], tint: [u8; 4]) {
             ((*v as f32 / peak as f32) * (area.h - 1) as f32).round() as i32 + 1
         };
         let w = bar_w.min(area.right() - x);
-        fill(frame, Rect { x, y: area.bottom() - h, w, h }, tint);
+        fill(hc, frame, Rect { x, y: area.bottom() - h, w, h }, tint);
         // The top of each bar, brighter. A series that barely varies fills the
         // strip almost solid and reads as "no information"; the profile line
         // is what makes a *flat* population look flat rather than look full.
-        fill(frame, Rect { x, y: area.bottom() - h, w, h: 1 }, [244, 248, 252, 255]);
+        fill(hc, frame, Rect { x, y: area.bottom() - h, w, h: 1 }, [244, 248, 252, 255]);
     }
 }
 
@@ -5184,15 +5194,15 @@ fn draw_spark(frame: &mut [u8], area: Rect, series: &[u32], tint: [u8; 4]) {
 /// in an existing group's series both print a caption instead of a chart,
 /// and a shared peak of zero (every series flat at the floor) draws every
 /// point on the baseline rather than panicking on a `0.0 / 0.0`.
-fn draw_lines(frame: &mut [u8], area: Rect, series: &[(Vec<u32>, [u8; 4])]) {
-    fill(frame, area, [24, 27, 33, 255]);
+fn draw_lines(hc: render::Hud, frame: &mut [u8], area: Rect, series: &[(Vec<u32>, [u8; 4])]) {
+    fill(hc, frame, area, [24, 27, 33, 255]);
     if series.is_empty() {
-        text(frame, area.x + 2, area.y + 2, "NO GROUPS YET", FAINT);
+        text(hc, frame, area.x + 2, area.y + 2, "NO GROUPS YET", FAINT);
         return;
     }
     let len = series.iter().map(|(s, _)| s.len()).max().unwrap_or(0);
     if len == 0 {
-        text(frame, area.x + 2, area.y + 2, "NO SAMPLES YET", FAINT);
+        text(hc, frame, area.x + 2, area.y + 2, "NO SAMPLES YET", FAINT);
         return;
     }
     let peak = series.iter().flat_map(|(s, _)| s.iter().copied()).max().unwrap_or(0);
@@ -5208,8 +5218,8 @@ fn draw_lines(frame: &mut [u8], area: Rect, series: &[(Vec<u32>, [u8; 4])]) {
             let h = if peak == 0 { 0 } else { ((v as f32 / peak as f32) * (area.h - 1) as f32).round() as i32 };
             let y = area.bottom() - 1 - h;
             match prev {
-                Some((px, py)) => draw_segment(frame, px, py, x, y, *tint),
-                None => render::put(frame, W, H, x, y, *tint),
+                Some((px, py)) => draw_segment(hc, frame, px, py, x, y, *tint),
+                None => hc.put(frame, x, y, *tint),
             }
             prev = Some((x, y));
         }
@@ -5221,7 +5231,7 @@ fn draw_lines(frame: &mut [u8], area: Rect, series: &[(Vec<u32>, [u8; 4])]) {
 /// there was no line primitive to reuse -- this is a plain integer
 /// Bresenham, with `render::put`'s own bounds check doing the clipping
 /// rather than a second one here.
-fn draw_segment(frame: &mut [u8], x0: i32, y0: i32, x1: i32, y1: i32, colour: [u8; 4]) {
+fn draw_segment(hc: render::Hud, frame: &mut [u8], x0: i32, y0: i32, x1: i32, y1: i32, colour: [u8; 4]) {
     let (mut x, mut y) = (x0, y0);
     let dx = (x1 - x0).abs();
     let sx: i32 = if x0 < x1 { 1 } else { -1 };
@@ -5229,7 +5239,7 @@ fn draw_segment(frame: &mut [u8], x0: i32, y0: i32, x1: i32, y1: i32, colour: [u
     let sy: i32 = if y0 < y1 { 1 } else { -1 };
     let mut err = dx + dy;
     loop {
-        render::put(frame, W, H, x, y, colour);
+        hc.put(frame, x, y, colour);
         if x == x1 && y == y1 {
             break;
         }
@@ -5751,12 +5761,12 @@ fn rack_page_width() -> i32 {
 /// Clipped rather than assumed to fit: the page is placed against the bar and
 /// a short window can push it off the top, and a blit that ran past the
 /// framebuffer would be a panic in a page nobody opens on a small screen.
-fn blit(frame: &mut [u8], x: i32, y: i32, thumb: &super::Thumb) {
+fn blit(hc: render::Hud, frame: &mut [u8], x: i32, y: i32, thumb: &super::Thumb) {
     for ty in 0..thumb.h as i32 {
         for tx in 0..thumb.w as i32 {
             let i = ((ty * thumb.w as i32 + tx) * 4) as usize;
             let px = [thumb.rgba[i], thumb.rgba[i + 1], thumb.rgba[i + 2], 255];
-            render::put(frame, W, H, x + tx, y + ty, px);
+            hc.put(frame, x + tx, y + ty, px);
         }
     }
 }
@@ -6435,14 +6445,27 @@ pub fn chronicle_text(world: &World, spec: &LabBox, bed_label: &str, dial: u32, 
         let _ = writeln!(out, "{}", legend_paragraph(e));
     }
     out.push('\n');
-    let mut counts = std::collections::BTreeMap::<&'static str, u32>::new();
-    for e in world.run_log.recent() {
-        *counts.entry(e.kind.label()).or_insert(0) += 1;
-    }
+    // **The tally, not a census of the ring** -- `RunLog::pushed`'s own doc
+    // for what this line used to say and why. It counted `recent()`, so the
+    // owner's 560,000-frame playtest printed `BORN 664` for a bed that had
+    // had 15,905 animal births in it: the ring was simply full, and a full
+    // ring reads as a complete tally. `LOG DROPPED` beside it was the only
+    // hint, and it is the number this line now makes unnecessary to reason
+    // about -- kept, because "how much of the story is gone" is still worth
+    // saying even once the counts are exact.
     let _ = writeln!(
         out,
         "COUNTS: {} | LINES ENDED {} | LINEAGES CLAIMED {} | LOG DROPPED {}",
-        counts.iter().map(|(k, v)| format!("{k} {v}")).collect::<Vec<_>>().join(", "),
+        {
+            // **Sorted by label, which is the order the `BTreeMap` this
+            // replaced happened to produce.** Kept deliberately: a chronicle
+            // is a file the owner uploads and an agent reads, and reordering
+            // a line that already exists in landed logs costs more than the
+            // `LogKind::ALL` order is worth.
+            let mut counts: Vec<(&'static str, u64)> = world.run_log.pushed_by_kind().map(|(k, n)| (k.label(), n)).collect();
+            counts.sort_unstable_by_key(|(label, _)| *label);
+            counts.iter().map(|(label, n)| format!("{label} {n}")).collect::<Vec<_>>().join(", ")
+        },
         ended.len(),
         world.lineages_claimed(),
         world.run_log.dropped()
@@ -6491,8 +6514,8 @@ impl Ui {
     /// here* where the truth is *nobody has looked yet* — which is the
     /// difference between a dead box and a fresh one, and the whole question a
     /// batch is read to answer.
-    fn paint_rack(&mut self, frame: &mut [u8], chambers: &[super::ChamberSummary], thumb: Option<&super::Thumb>, state: &BarState) -> Option<(String, Rect, i32)> {
-        let mut widgets: Vec<Widget> = Vec::new();
+    fn paint_rack(&mut self, hc: render::Hud, frame: &mut [u8], chambers: &[super::ChamberSummary], thumb: Option<&super::Thumb>, state: &BarState) -> Option<(String, Rect, i32)> {
+            let mut widgets: Vec<Widget> = Vec::new();
         let thumb_batch_running = state.batch.progress.is_some();
         let mut note: Option<(String, Rect, i32)> = None;
 
@@ -6540,11 +6563,11 @@ impl Ui {
         let rect = Rect { x: MARGIN, y: (bottom - h).max(MARGIN), w, h };
         self.rack_box = Some(rect);
 
-        fill(frame, rect, PANEL_BG);
-        outline(frame, rect, PANEL_EDGE);
+        fill(hc, frame, rect, PANEL_BG);
+        outline(hc, frame, rect, PANEL_EDGE);
         let left = rect.x + PAGE_PAD;
         let right = rect.right() - PAGE_PAD;
-        text(frame, left, rect.y + 6, "THE RACK", TITLE);
+        text(hc, frame, left, rect.y + 6, "THE RACK", TITLE);
 
         // NEW, in the header. The rack's own verb, and it reseeds: at the same
         // seed every draw in the engine is a pure function of `(world.seed,
@@ -6590,7 +6613,7 @@ impl Ui {
             note: "COLLAPSE THE RACK TO ONE ROW PER SWEPT SETTING: THE MEDIAN ON TOP AND THE LOW-TO-HIGH RANGE UNDER IT. READ THE RANGE FIRST -- TWELVE COPIES OF ONE BOX DIFFERING IN NOTHING AT ALL ALREADY SPREAD 2.4X ON PLANTS AND 3.1X ON ANIMALS, SO TWO SETTINGS CLOSER TOGETHER THAN THAT HAVE NOT BEEN TOLD APART.".into(),
         });
         for x in rect.x + 1..rect.right() - 1 {
-            render::put(frame, W, H, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+            hc.put(frame, x, rect.y + PAGE_HEADER - 4, DIVIDER);
         }
 
         // ---- the column header.
@@ -6618,7 +6641,7 @@ impl Ui {
                 Some((c, desc)) if c == i => format!("{head}{}", if desc { "\\" } else { "/" }),
                 _ => (*head).to_string(),
             };
-            text(frame, left + col[i], y, &label, tint);
+            text(hc, frame, left + col[i], y, &label, tint);
             // The whole column width is the target: a three-character heading
             // is not something a person can reliably hit.
             widgets.push(Widget {
@@ -6668,25 +6691,25 @@ impl Ui {
             });
         }
         for x in rect.x + 1..rect.right() - 1 {
-            render::put(frame, W, H, x, y - 2, DIVIDER);
+            hc.put(frame, x, y - 2, DIVIDER);
         }
 
         // ---- grouped: one setting per pair of lines, medians over ranges.
         let groups = if self.rack_grouped { rack_groups(chambers) } else { Vec::new() };
         if self.rack_grouped {
             if groups.is_empty() {
-                text(frame, left, y + 2, RACK_LITERALS[7], FAINT);
+                text(hc, frame, left, y + 2, RACK_LITERALS[7], FAINT);
                 y += RACK_ROW;
             }
             for g in groups.iter().skip(self.rack_scroll).take(RACK_ROWS / 2) {
-                text(frame, left, y + 2, &format!("{:.0}", g.setting), VALUE);
-                text(frame, left + col[0], y + 2, &format!("{} RUNS", g.runs), FAINT);
-                text(frame, left + col[1], y + 2, &format!("{:.0}", g.setting), VALUE);
+                text(hc, frame, left, y + 2, &format!("{:.0}", g.setting), VALUE);
+                text(hc, frame, left + col[0], y + 2, &format!("{} RUNS", g.runs), FAINT);
+                text(hc, frame, left + col[1], y + 2, &format!("{:.0}", g.setting), VALUE);
                 for (i, sp) in g.cols.iter().enumerate() {
                     let x = left + col[2 + i];
                     match sp {
-                        Some(sp) => text(frame, x, y + 2, &format!("{:.0}", sp.mid), if i == 1 { GOOD } else { FAINT }),
-                        None => text(frame, x, y + 2, "-", FAINT),
+                        Some(sp) => text(hc, frame, x, y + 2, &format!("{:.0}", sp.mid), if i == 1 { GOOD } else { FAINT }),
+                        None => text(hc, frame, x, y + 2, "-", FAINT),
                     }
                 }
                 y += RACK_ROW;
@@ -6696,7 +6719,7 @@ impl Ui {
                 // the noise between two copies of one chamber.
                 for (i, sp) in g.cols.iter().enumerate() {
                     if let Some(sp) = sp {
-                        text(frame, left + col[2 + i], y + 2, &format!("{:.0}-{:.0}", sp.low, sp.high), FAINT);
+                        text(hc, frame, left + col[2 + i], y + 2, &format!("{:.0}-{:.0}", sp.low, sp.high), FAINT);
                     }
                 }
                 y += RACK_ROW;
@@ -6716,9 +6739,9 @@ impl Ui {
             // looks exactly like a row that has no data.
             let hovered = self.cursor.is_some_and(|(cx, cy)| band.contains(cx, cy));
             if selected {
-                fill(frame, band, FACE_ON);
+                fill(hc, frame, band, FACE_ON);
             } else if hovered {
-                fill(frame, band, FACE_HOVER);
+                fill(hc, frame, band, FACE_HOVER);
             }
             // The whole row is the button. A four-pixel-wide number is not a
             // click target, and a row that only responds on its label is a row
@@ -6735,40 +6758,40 @@ impl Ui {
             });
 
             let tint = if ch.active { SUB_ON } else if selected { TITLE } else { FAINT };
-            text(frame, left, y + 2, &ch.label, tint);
-            text(frame, left + col[0], y + 2, &format!("SEED {}", ch.seed), FAINT);
+            text(hc, frame, left, y + 2, &ch.label, tint);
+            text(hc, frame, left + col[0], y + 2, &format!("SEED {}", ch.seed), FAINT);
             match ch.setting {
-                Some(v) => text(frame, left + col[1], y + 2, &format!("{v:.0}"), VALUE),
-                None => text(frame, left + col[1], y + 2, "-", FAINT),
+                Some(v) => text(hc, frame, left + col[1], y + 2, &format!("{v:.0}"), VALUE),
+                None => text(hc, frame, left + col[1], y + 2, "-", FAINT),
             }
             // The counter that says whether it is frozen -- and, on a copy
             // still in flight, the one that says it is moving at all.
-            text(frame, left + col[2], y + 2, &format!("{}", ch.frame), if ch.active || ch.running.is_some() { SUB_ON } else { FAINT });
+            text(hc, frame, left + col[2], y + 2, &format!("{}", ch.frame), if ch.active || ch.running.is_some() { SUB_ON } else { FAINT });
 
             match &ch.census {
                 Some(c) => {
-                    text(frame, left + col[3], y + 2, &format!("{}", c.plants), GOOD);
-                    text(frame, left + col[4], y + 2, &format!("{}", c.animals), FAIR);
-                    text(frame, left + col[5], y + 2, &format!("{}/{}", c.plant_generation, c.animal_generation), FAINT);
-                    text(frame, left + col[6], y + 2, &format!("{}", c.seeds_borne), FAINT);
+                    text(hc, frame, left + col[3], y + 2, &format!("{}", c.plants), GOOD);
+                    text(hc, frame, left + col[4], y + 2, &format!("{}", c.animals), FAIR);
+                    text(hc, frame, left + col[5], y + 2, &format!("{}/{}", c.plant_generation, c.animal_generation), FAINT);
+                    text(hc, frame, left + col[6], y + 2, &format!("{}", c.seeds_borne), FAINT);
                 }
                 // Never looked at, which is not the same as empty. One dash
                 // per column, on the column, rather than one run of text
                 // guessed into position.
                 None => {
                     for x in col.iter().skip(3) {
-                        text(frame, left + x, y + 2, "-", FAINT);
+                        text(hc, frame, left + x, y + 2, "-", FAINT);
                     }
                 }
             }
             if ch.running.is_some() {
-                text(frame, right - hud::text_width(RACK_LITERALS[6]), y + 2, RACK_LITERALS[6], VALUE);
+                text(hc, frame, right - hud::text_width(RACK_LITERALS[6]), y + 2, RACK_LITERALS[6], VALUE);
             } else if ch.active {
-                text(frame, right - hud::text_width("HERE"), y + 2, RACK_LITERALS[3], SUB_ON);
+                text(hc, frame, right - hud::text_width("HERE"), y + 2, RACK_LITERALS[3], SUB_ON);
             } else if ch.rebuilding {
-                text(frame, right - hud::text_width(RACK_LITERALS[5]), y + 2, RACK_LITERALS[5], SUB_ON);
+                text(hc, frame, right - hud::text_width(RACK_LITERALS[5]), y + 2, RACK_LITERALS[5], SUB_ON);
             } else if ch.on_record {
-                text(frame, right - hud::text_width(RACK_LITERALS[4]), y + 2, RACK_LITERALS[4], FAINT);
+                text(hc, frame, right - hud::text_width(RACK_LITERALS[4]), y + 2, RACK_LITERALS[4], FAINT);
             }
             y += RACK_ROW;
         }
@@ -6787,6 +6810,7 @@ impl Ui {
             let down = Rect { x: left + step_w + 2, y: y + 2, w: step_w, h: 10 };
             let last = (self.rack_scroll + shown).min(chambers.len());
             text(
+                hc,
                 frame,
                 left + step_w * 2 + 8,
                 y + 3,
@@ -6864,19 +6888,19 @@ impl Ui {
                     // Drawn dead rather than hidden. A verb that vanishes when
                     // it does not apply teaches nothing; one that is visibly
                     // unavailable says why when you hover it.
-                    text(frame, vx + PAD, vy + 2, label, SUB);
+                    text(hc, frame, vx + PAD, vy + 2, label, SUB);
                 }
                 vx += bw + 4;
             }
             if here {
-                text(frame, vx + 4, vy + 2, RACK_LITERALS[1], FAINT);
+                text(hc, frame, vx + 4, vy + 2, RACK_LITERALS[1], FAINT);
             } else if rebuilding {
-                text(frame, vx + 4, vy + 2, RACK_LITERALS[5], SUB_ON);
+                text(hc, frame, vx + 4, vy + 2, RACK_LITERALS[5], SUB_ON);
             } else if on_record {
-                text(frame, vx + 4, vy + 2, RACK_LITERALS[2], FAINT);
+                text(hc, frame, vx + 4, vy + 2, RACK_LITERALS[2], FAINT);
             }
         } else {
-            text(frame, left, y + 5, RACK_LITERALS[0], FAINT);
+            text(hc, frame, left, y + 5, RACK_LITERALS[0], FAINT);
         }
         // **Advance past the verbs.** They used to be the last thing drawn
         // and so never had to; moved above the picture, a block that does not
@@ -6887,7 +6911,7 @@ impl Ui {
         // ---- the picture of whichever row is highlighted.
         if let Some(t) = thumb {
             let ty = y + 2;
-            blit(frame, rect.x + (rect.w - t.w as i32) / 2, ty, t);
+            blit(hc, frame, rect.x + (rect.w - t.w as i32) / 2, ty, t);
             y = ty + RACK_THUMB_H;
         }
 
@@ -6903,7 +6927,7 @@ impl Ui {
         let mut dial = |label: &str, value: String, typed: TypedField, minus: Action, plus: Action, note: &'static str, x: i32, w: &mut Vec<Widget>| -> i32 {
             let _ = &typing;
             let step = cell_width(hud::text_width("W"), "", PAD);
-            text(frame, x, by + 2, label, FAINT);
+            text(hc, frame, x, by + 2, label, FAINT);
             let mut cx = x + hud::text_width(label) + 4;
             for (face, action) in [("-", minus), ("+", plus)] {
                 if face == "+" {
@@ -6917,8 +6941,8 @@ impl Ui {
                     // control, so the number itself is a button.
                     let live = self.typing.as_ref().filter(|(f, _)| *f == typed);
                     match live {
-                        Some((_, buf)) => text(frame, cx + 3, by + 2, &format!("{buf}_"), SUB_ON),
-                        None => text(frame, cx + 3, by + 2, &value, VALUE),
+                        Some((_, buf)) => text(hc, frame, cx + 3, by + 2, &format!("{buf}_"), SUB_ON),
+                        None => text(hc, frame, cx + 3, by + 2, &value, VALUE),
                     }
                     w.push(Widget {
                         rect: Rect { x: cx + 1, y: by, w: BATCH_VALUE_W, h: 11 },
@@ -6989,9 +7013,9 @@ impl Ui {
             // over ticks; the run count stays beside it because that is what
             // says how many rows you can already compare.
             let line = batch_progress_line(p, &left_note);
-            text(frame, left, y, &line, SUB_ON);
+            text(hc, frame, left, y, &line, SUB_ON);
             if p.failed > 0 {
-                text(frame, left, y + 9, &format!("{} FAILED TO BUILD", p.failed), POOR);
+                text(hc, frame, left, y + 9, &format!("{} FAILED TO BUILD", p.failed), POOR);
             }
             // No `y` advance: the batch line is the last thing this page
             // draws now that the row verbs have moved above the picture.
@@ -7007,7 +7031,7 @@ impl Ui {
         for wid in widgets.iter().filter(|w| !w.line1.is_empty()) {
             let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
             let down = hover && self.pressed.is_some() && self.pressed == wid.action;
-            paint_widget(frame, wid, hover, down);
+            paint_widget(hc, frame, wid, hover, down);
         }
         self.rack_bar = Bar { widgets, dividers: Vec::new() };
         if let Some(wid) = self.rack_bar.hovered(self.cursor) {
@@ -7028,10 +7052,10 @@ impl Ui {
     /// detail`), the founding-line-per-row page PR #304 shipped, filtered to
     /// one colony instead of the whole run. `BACK` reads the latch: to the
     /// LOG page from SUMMARY, back to SUMMARY from a colony's DETAIL.
-    fn paint_history(&mut self, frame: &mut [u8], world: &World) -> Option<(String, Rect, i32)> {
+    fn paint_history(&mut self, hc: render::Hud, frame: &mut [u8], world: &World) -> Option<(String, Rect, i32)> {
         match self.history_open {
-            Some(colony) => self.paint_history_detail(frame, world, colony),
-            None => self.paint_history_summary(frame, world),
+            Some(colony) => self.paint_history_detail(hc, frame, world, colony),
+            None => self.paint_history_summary(hc, frame, world),
         }
     }
 
@@ -7048,8 +7072,8 @@ impl Ui {
     /// worst-case table (`HISTORY_COLS`'s own idiom): a colony's name and its
     /// causes text have no bounded worst case the way one ended line's own
     /// fields do, so there is nothing to measure them against ahead of time.
-    fn paint_history_summary(&mut self, frame: &mut [u8], world: &World) -> Option<(String, Rect, i32)> {
-        let mut widgets: Vec<Widget> = Vec::new();
+    fn paint_history_summary(&mut self, hc: render::Hud, frame: &mut [u8], world: &World) -> Option<(String, Rect, i32)> {
+            let mut widgets: Vec<Widget> = Vec::new();
         let mut note: Option<(String, Rect, i32)> = None;
 
         let rows = history_summary(world);
@@ -7093,11 +7117,11 @@ impl Ui {
         let rect = Rect { x: MARGIN, y: (bottom - h).max(MARGIN), w, h };
         self.history_box = Some(rect);
 
-        fill(frame, rect, PANEL_BG);
-        outline(frame, rect, PANEL_EDGE);
+        fill(hc, frame, rect, PANEL_BG);
+        outline(hc, frame, rect, PANEL_EDGE);
         let left = rect.x + PAGE_PAD;
         let right = rect.right() - PAGE_PAD;
-        text(frame, left, rect.y + 6, Panel::History.title(), TITLE);
+        text(hc, frame, left, rect.y + 6, Panel::History.title(), TITLE);
 
         // BACK, to the LOG page this one is opened from -- the roster's own
         // reason: without it this page is a dead end, since it carries no
@@ -7117,22 +7141,22 @@ impl Ui {
         });
 
         for x in rect.x + 1..rect.right() - 1 {
-            render::put(frame, W, H, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+            hc.put(frame, x, rect.y + PAGE_HEADER - 4, DIVIDER);
         }
 
         let mut y = rect.y + PAGE_HEADER;
-        text(frame, left, y, "NAME", FAINT);
+        text(hc, frame, left, y, "NAME", FAINT);
         for (x, head) in [col_kingdom, col_alive, col_ended, col_causes].into_iter().zip(SUMMARY_COLS) {
-            text(frame, left + x, y, head, FAINT);
+            text(hc, frame, left + x, y, head, FAINT);
         }
         y += HISTORY_HEAD;
         for x in rect.x + 1..rect.right() - 1 {
-            render::put(frame, W, H, x, y - 2, DIVIDER);
+            hc.put(frame, x, y - 2, DIVIDER);
         }
 
         // ---- the rows, or the empty state that says which empty it is.
         if total == 0 {
-            text(frame, left, y + 2, SUMMARY_LITERALS[0], FAINT);
+            text(hc, frame, left, y + 2, SUMMARY_LITERALS[0], FAINT);
             y += HISTORY_ROW;
         }
         for r in rows.iter().skip(scroll).take(shown) {
@@ -7141,14 +7165,14 @@ impl Ui {
             // over the row it highlights erases the line you are reading.
             let hovered = self.cursor.is_some_and(|(cx, cy)| band.contains(cx, cy));
             if hovered {
-                fill(frame, band, FACE_HOVER);
+                fill(hc, frame, band, FACE_HOVER);
             }
-            text(frame, left, y + 2, &r.name, if r.creature { GOOD } else { VALUE });
-            text(frame, left + col_kingdom, y + 2, kingdom_label(r.creature), FAINT);
-            text(frame, left + col_alive, y + 2, &alive_text(r), if r.alive.is_some() { GOOD } else { FAINT });
-            text(frame, left + col_ended, y + 2, &format!("{}", r.ended.len()), FAINT);
+            text(hc, frame, left, y + 2, &r.name, if r.creature { GOOD } else { VALUE });
+            text(hc, frame, left + col_kingdom, y + 2, kingdom_label(r.creature), FAINT);
+            text(hc, frame, left + col_alive, y + 2, &alive_text(r), if r.alive.is_some() { GOOD } else { FAINT });
+            text(hc, frame, left + col_ended, y + 2, &format!("{}", r.ended.len()), FAINT);
             let fitted = fit_causes_to_width(&r.causes, causes_budget);
-            text(frame, left + col_causes, y + 2, &fitted, if r.causes == "--" { FAINT } else { POOR });
+            text(hc, frame, left + col_causes, y + 2, &fitted, if r.causes == "--" { FAINT } else { POOR });
             // A colony row opens its own DETAIL; a plant row has nothing
             // under it to open (`HistorySummaryRow::colony`'s own doc), so
             // it stays a hover target the same way an ended line always has.
@@ -7179,7 +7203,7 @@ impl Ui {
             let up = Rect { x: left, y: y + 2, w: step_w, h: 10 };
             let down = Rect { x: left + step_w + 2, y: y + 2, w: step_w, h: 10 };
             let last = (scroll + shown).min(total);
-            text(frame, left + step_w * 2 + 8, y + 3, &format!("{}-{} OF {}", scroll + 1, last, total), FAINT);
+            text(hc, frame, left + step_w * 2 + 8, y + 3, &format!("{}-{} OF {}", scroll + 1, last, total), FAINT);
             for (r2, label, dir) in [(up, "<", -1), (down, ">", 1)] {
                 widgets.push(Widget {
                     rect: r2,
@@ -7197,7 +7221,7 @@ impl Ui {
         for wid in widgets.iter().filter(|w| !w.line1.is_empty()) {
             let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
             let down = hover && self.pressed.is_some() && self.pressed == wid.action;
-            paint_widget(frame, wid, hover, down);
+            paint_widget(hc, frame, wid, hover, down);
         }
         self.history_bar = Bar { widgets, dividers: Vec::new() };
         if let Some(wid) = self.history_bar.hovered(self.cursor) {
@@ -7220,8 +7244,8 @@ impl Ui {
     /// standing list on `Ui`, no second census: a line that ends shows up
     /// here the instant its `LineEnded` event does, because that event is
     /// the only thing this reads.
-    fn paint_history_detail(&mut self, frame: &mut [u8], world: &World, colony: u32) -> Option<(String, Rect, i32)> {
-        let mut widgets: Vec<Widget> = Vec::new();
+    fn paint_history_detail(&mut self, hc: render::Hud, frame: &mut [u8], world: &World, colony: u32) -> Option<(String, Rect, i32)> {
+            let mut widgets: Vec<Widget> = Vec::new();
         let mut note: Option<(String, Rect, i32)> = None;
 
         let rows = history_lines_for_colony(world, colony);
@@ -7253,11 +7277,11 @@ impl Ui {
         let rect = Rect { x: MARGIN, y: (bottom - h).max(MARGIN), w, h };
         self.history_box = Some(rect);
 
-        fill(frame, rect, PANEL_BG);
-        outline(frame, rect, PANEL_EDGE);
+        fill(hc, frame, rect, PANEL_BG);
+        outline(hc, frame, rect, PANEL_EDGE);
         let left = rect.x + PAGE_PAD;
         let right = rect.right() - PAGE_PAD;
-        text(frame, left, rect.y + 6, &format!("HISTORY -- {name}"), TITLE);
+        text(hc, frame, left, rect.y + 6, &format!("HISTORY -- {name}"), TITLE);
 
         // BACK, to the SUMMARY this colony was opened from -- SUMMARY's own
         // BACK goes to the LOG page instead, `Action::HistoryBack`'s own doc.
@@ -7274,7 +7298,7 @@ impl Ui {
         });
 
         for x in rect.x + 1..rect.right() - 1 {
-            render::put(frame, W, H, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+            hc.put(frame, x, rect.y + PAGE_HEADER - 4, DIVIDER);
         }
 
         // ---- the column header. Measured through `hud::text_width` against
@@ -7283,18 +7307,18 @@ impl Ui {
         // eight pixels, reported from play.
         let mut y = rect.y + PAGE_HEADER;
         let col = history_col_x();
-        text(frame, left, y, "NAME", FAINT);
+        text(hc, frame, left, y, "NAME", FAINT);
         for (i, (head, _)) in HISTORY_COLS.iter().enumerate() {
-            text(frame, left + col[i], y, head, FAINT);
+            text(hc, frame, left + col[i], y, head, FAINT);
         }
         y += HISTORY_HEAD;
         for x in rect.x + 1..rect.right() - 1 {
-            render::put(frame, W, H, x, y - 2, DIVIDER);
+            hc.put(frame, x, y - 2, DIVIDER);
         }
 
         // ---- the rows, or the empty state that says which empty it is.
         if total == 0 {
-            text(frame, left, y + 2, HISTORY_LITERALS[0], FAINT);
+            text(hc, frame, left, y + 2, HISTORY_LITERALS[0], FAINT);
             y += HISTORY_ROW;
         }
         for r in rows.iter().skip(scroll).take(shown) {
@@ -7303,14 +7327,14 @@ impl Ui {
             // over the row it highlights erases the line you are reading.
             let hovered = self.cursor.is_some_and(|(cx, cy)| band.contains(cx, cy));
             if hovered {
-                fill(frame, band, FACE_HOVER);
+                fill(hc, frame, band, FACE_HOVER);
             }
-            text(frame, left, y + 2, &r.name, if r.creature { GOOD } else { VALUE });
+            text(hc, frame, left, y + 2, &r.name, if r.creature { GOOD } else { VALUE });
             let kingdom = kingdom_label(r.creature);
-            text(frame, left + col[0], y + 2, kingdom, FAINT);
-            text(frame, left + col[1], y + 2, &format!("{}", r.generations), FAINT);
-            text(frame, left + col[2], y + 2, &format!("{}", r.peak_living), FAINT);
-            text(frame, left + col[3], y + 2, &format!("F{}", r.ended_frame), FAINT);
+            text(hc, frame, left + col[0], y + 2, kingdom, FAINT);
+            text(hc, frame, left + col[1], y + 2, &format!("{}", r.generations), FAINT);
+            text(hc, frame, left + col[2], y + 2, &format!("{}", r.peak_living), FAINT);
+            text(hc, frame, left + col[3], y + 2, &format!("F{}", r.ended_frame), FAINT);
             let (cause, cause_tint) = match r.cause {
                 Some(c) => (c.label(), POOR),
                 // A grave held with no cause, or one that aged out of the
@@ -7319,7 +7343,7 @@ impl Ui {
                 // never faking a dead row's numbers applies to a word too.
                 None => ("--", FAINT),
             };
-            text(frame, left + col[4], y + 2, cause, cause_tint);
+            text(hc, frame, left + col[4], y + 2, cause, cause_tint);
             // The whole row is a hover target and nothing else -- there is
             // no live individual behind a founding line to pin or inspect,
             // so `action` stays `None` and the note carries the one sentence
@@ -7346,7 +7370,7 @@ impl Ui {
             let up = Rect { x: left, y: y + 2, w: step_w, h: 10 };
             let down = Rect { x: left + step_w + 2, y: y + 2, w: step_w, h: 10 };
             let last = (scroll + shown).min(total);
-            text(frame, left + step_w * 2 + 8, y + 3, &format!("{}-{} OF {}", scroll + 1, last, total), FAINT);
+            text(hc, frame, left + step_w * 2 + 8, y + 3, &format!("{}-{} OF {}", scroll + 1, last, total), FAINT);
             for (r2, label, dir) in [(up, "<", -1), (down, ">", 1)] {
                 widgets.push(Widget {
                     rect: r2,
@@ -7364,7 +7388,7 @@ impl Ui {
         for wid in widgets.iter().filter(|w| !w.line1.is_empty()) {
             let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
             let down = hover && self.pressed.is_some() && self.pressed == wid.action;
-            paint_widget(frame, wid, hover, down);
+            paint_widget(hc, frame, wid, hover, down);
         }
         self.history_bar = Bar { widgets, dividers: Vec::new() };
         if let Some(wid) = self.history_bar.hovered(self.cursor) {
@@ -7389,8 +7413,8 @@ impl Ui {
     /// condition it recorded was *the row list being variable* -- which a
     /// roster is more than anything else on screen: it changes length between
     /// two frames with nobody touching anything.
-    fn paint_roster(&mut self, frame: &mut [u8], world: &World, kingdom: roster::Kingdom) -> Option<(String, Rect, i32)> {
-        let mut widgets: Vec<Widget> = Vec::new();
+    fn paint_roster(&mut self, hc: render::Hud, frame: &mut [u8], world: &World, kingdom: roster::Kingdom) -> Option<(String, Rect, i32)> {
+            let mut widgets: Vec<Widget> = Vec::new();
         let mut note: Option<(String, Rect, i32)> = None;
 
         let cols = roster_cols(kingdom);
@@ -7416,12 +7440,12 @@ impl Ui {
         let rect = Rect { x: MARGIN, y: (bottom - h).max(MARGIN), w, h };
         self.roster_box = Some(rect);
 
-        fill(frame, rect, PANEL_BG);
-        outline(frame, rect, PANEL_EDGE);
+        fill(hc, frame, rect, PANEL_BG);
+        outline(hc, frame, rect, PANEL_EDGE);
         let left = rect.x + PAGE_PAD;
         let right = rect.right() - PAGE_PAD;
         let title = if kingdom == roster::Kingdom::Plants { "EVERY PLANT" } else { "EVERY ANIMAL" };
-        text(frame, left, rect.y + 6, title, TITLE);
+        text(hc, frame, left, rect.y + 6, title, TITLE);
 
         // BACK, in the header, to the page this one was opened from.
         //
@@ -7518,7 +7542,7 @@ impl Ui {
         });
 
         for x in rect.x + 1..rect.right() - 1 {
-            render::put(frame, W, H, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+            hc.put(frame, x, rect.y + PAGE_HEADER - 4, DIVIDER);
         }
 
         // ---- the column header. Measured through `hud::text_width` against
@@ -7533,7 +7557,7 @@ impl Ui {
                 Some((c, d)) if c == i => format!("{head}{}", if d { "\\" } else { "/" }),
                 _ => (*head).to_string(),
             };
-            text(frame, left + col[i], y, &label, if sorted_on { TITLE } else { FAINT });
+            text(hc, frame, left + col[i], y, &label, if sorted_on { TITLE } else { FAINT });
             // The whole column is the target: a three-character heading is
             // not something a person can reliably hit.
             widgets.push(Widget {
@@ -7549,7 +7573,7 @@ impl Ui {
         }
         y += RACK_HEAD;
         for x in rect.x + 1..rect.right() - 1 {
-            render::put(frame, W, H, x, y - 2, DIVIDER);
+            hc.put(frame, x, y - 2, DIVIDER);
         }
 
         // ---- the rows.
@@ -7563,7 +7587,7 @@ impl Ui {
                 roster::Filter::Dead => ROSTER_LITERALS[4],
                 _ => ROSTER_LITERALS[1],
             };
-            text(frame, left, y + 2, why, FAINT);
+            text(hc, frame, left, y + 2, why, FAINT);
             y += RACK_ROW;
         }
         for (n, r) in rows.iter().enumerate().skip(scroll).take(shown) {
@@ -7574,9 +7598,9 @@ impl Ui {
             // looks exactly like a row with no data in it.
             let hovered = self.cursor.is_some_and(|(cx, cy)| band.contains(cx, cy));
             if selected {
-                fill(frame, band, FACE_ON);
+                fill(hc, frame, band, FACE_ON);
             } else if hovered {
-                fill(frame, band, FACE_HOVER);
+                fill(hc, frame, band, FACE_HOVER);
             }
             // The whole row is the button, and it is aimed with the position
             // in the *sorted* list -- which `Lab::act` resolves to an identity
@@ -7608,7 +7632,7 @@ impl Ui {
                 FAINT
             };
             let label = if spared { format!("{SPARED_MARK}{}", n + 1) } else { format!("{}", n + 1) };
-            text(frame, left, y + 2, &label, tint);
+            text(hc, frame, left, y + 2, &label, tint);
             let species = param_label(&world.species.get(r.species).name);
             let state_tint = match r.state {
                 roster::RowState::Senescent | roster::RowState::Starving => POOR,
@@ -7650,7 +7674,7 @@ impl Ui {
                 ]
             };
             for (i, (v, t)) in values.iter().enumerate() {
-                text(frame, left + col[i], y + 2, v, *t);
+                text(hc, frame, left + col[i], y + 2, v, *t);
             }
             y += RACK_ROW;
         }
@@ -7663,7 +7687,7 @@ impl Ui {
             let up = Rect { x: left, y: y + 2, w: step_w, h: 10 };
             let down = Rect { x: left + step_w + 2, y: y + 2, w: step_w, h: 10 };
             let last = (scroll + shown).min(total);
-            text(frame, left + step_w * 2 + 8, y + 3, &format!("{}-{} OF {}", scroll + 1, last, total), FAINT);
+            text(hc, frame, left + step_w * 2 + 8, y + 3, &format!("{}-{} OF {}", scroll + 1, last, total), FAINT);
             for (r, label, dir) in [(up, "<", -1), (down, ">", 1)] {
                 widgets.push(Widget {
                     rect: r,
@@ -7720,7 +7744,7 @@ impl Ui {
                     // verb that vanishes when it does not apply teaches
                     // nothing, and one that is visibly unavailable says why
                     // when you hover it.
-                    text(frame, vx + PAD, vy + 2, label, SUB);
+                    text(hc, frame, vx + PAD, vy + 2, label, SUB);
                 }
                 vx += bw + 4;
             }
@@ -7728,10 +7752,10 @@ impl Ui {
             // otherwise simply stop having numbers on it, which reads as the
             // interface having broken rather than as the animal having died.
             if !alive {
-                text(frame, vx + 4, vy + 2, ROSTER_LITERALS[2], POOR);
+                text(hc, frame, vx + 4, vy + 2, ROSTER_LITERALS[2], POOR);
             }
         } else {
-            text(frame, left, vy + 2, ROSTER_LITERALS[3], FAINT);
+            text(hc, frame, left, vy + 2, ROSTER_LITERALS[3], FAINT);
         }
 
         // Retained first, then painted from what was retained -- the house
@@ -7739,7 +7763,7 @@ impl Ui {
         for wid in widgets.iter().filter(|w| !w.line1.is_empty()) {
             let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
             let down = hover && self.pressed.is_some() && self.pressed == wid.action;
-            paint_widget(frame, wid, hover, down);
+            paint_widget(hc, frame, wid, hover, down);
         }
         self.roster_bar = Bar { widgets, dividers: Vec::new() };
         if let Some(wid) = self.roster_bar.hovered(self.cursor) {
@@ -7750,8 +7774,8 @@ impl Ui {
         note
     }
 
-    fn paint_shelf(&mut self, frame: &mut [u8]) -> Option<(String, Rect, i32)> {
-        let mut widgets: Vec<Widget> = Vec::new();
+    fn paint_shelf(&mut self, hc: render::Hud, frame: &mut [u8]) -> Option<(String, Rect, i32)> {
+            let mut widgets: Vec<Widget> = Vec::new();
         let mut note: Option<(String, Rect, i32)> = None;
 
         let count = self.shelf.len();
@@ -7766,11 +7790,11 @@ impl Ui {
         let rect = Rect { x: MARGIN, y: (bottom - h).max(MARGIN), w, h };
         self.shelf_box = Some(rect);
 
-        fill(frame, rect, PANEL_BG);
-        outline(frame, rect, PANEL_EDGE);
+        fill(hc, frame, rect, PANEL_BG);
+        outline(hc, frame, rect, PANEL_EDGE);
         let left = rect.x + PAGE_PAD;
         let right = rect.right() - PAGE_PAD;
-        text(frame, left, rect.y + 6, "THE SHELF", TITLE);
+        text(hc, frame, left, rect.y + 6, "THE SHELF", TITLE);
 
         // RELOAD, in the header. The rack is read off a directory, so it can
         // change without the game touching it.
@@ -7786,14 +7810,14 @@ impl Ui {
             note: "RE-READ THE SHELF DIRECTORY. JARS ARE FILES IN ASSETS/SHELF, SO YOU CAN COPY ONE IN FROM ANOTHER RUN OR ANOTHER MACHINE AND IT WILL BE HERE.".into(),
         });
         for x in rect.x + 1..rect.right() - 1 {
-            render::put(frame, W, H, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+            hc.put(frame, x, rect.y + PAGE_HEADER - 4, DIVIDER);
         }
 
         // ---- the dial strip, and the three verbs that act on the armed jar.
         let ty = rect.y + PAGE_HEADER;
         let step_w = cell_width(hud::text_width("W"), "", PAD);
         let dial = self.brood_label();
-        text(frame, left, ty + 2, "DRIFT", SUB_ON);
+        text(hc, frame, left, ty + 2, "DRIFT", SUB_ON);
         let dial_x = left + hud::text_width("DRIFT") + 6;
         for (dx, label, sign) in [(0, "-", -1), (step_w + 2 + hud::text_width("8 BROODS") + 6, "+", 1)] {
             widgets.push(Widget {
@@ -7807,7 +7831,7 @@ impl Ui {
                 note: "HOW FAR A RELEASE DRIFTS FROM THE JAR, COUNTED IN BROODS. ZERO IS THAT EXACT INDIVIDUAL AGAIN. ONE IS AS DIFFERENT AS ITS OWN CHILD WOULD HAVE BEEN -- IT IS THE SAME MUTATION THE ENGINE APPLIES AT A BIRTH, APPLIED ONCE PER BROOD. NOTHING HERE IS A SEPARATE RATE YOU HAVE TO CALIBRATE.".into(),
             });
         }
-        text(frame, dial_x + step_w + 4, ty + 2, &dial, if self.broods == 0 { VALUE } else { EDGE_ON });
+        text(hc, frame, dial_x + step_w + 4, ty + 2, &dial, if self.broods == 0 { VALUE } else { EDGE_ON });
 
         let armed = self.armed_jar().map(|j| (j.name.clone(), j.species.clone(), j.genetics.kingdom()));
         let mut vx = right;
@@ -7872,9 +7896,9 @@ impl Ui {
             // **The empty state carries the instruction.** A player who
             // opens this page first has no way to guess that the shelf is
             // filled by a tool on the bar rather than by a button here.
-            text(frame, left, y + 2, "NOTHING KEPT YET.", FAINT);
-            text(frame, left, y + 12, "CLICK A PLANT OR AN ANT WITH LOOK", FAINT);
-            text(frame, left, y + 22, "(Z), THEN PRESS KEEP ON THAT PAGE.", FAINT);
+            text(hc, frame, left, y + 2, "NOTHING KEPT YET.", FAINT);
+            text(hc, frame, left, y + 12, "CLICK A PLANT OR AN ANT WITH LOOK", FAINT);
+            text(hc, frame, left, y + 22, "(Z), THEN PRESS KEEP ON THAT PAGE.", FAINT);
             y += SHELF_ROW * shown.max(1) as i32;
         }
         for (i, jar) in self.shelf.iter().take(SHELF_ROWS).enumerate() {
@@ -7882,21 +7906,22 @@ impl Ui {
             let selected = self.shelf_selected == Some(i);
             if hovered || selected {
                 fill(
+                    hc,
                     frame,
                     Rect { x: rect.x + 1, y, w: rect.w - 2, h: SHELF_ROW },
                     if selected { [40, 52, 44, 255] } else { [34, 40, 52, 255] },
                 );
             }
             let name = jar.name.to_uppercase();
-            text(frame, left, y + 1, &name, if selected { LABEL_ON } else { LABEL });
+            text(hc, frame, left, y + 1, &name, if selected { LABEL_ON } else { LABEL });
             let species = jar.species.to_uppercase();
-            text(frame, right - SHELF_RIGHT + 4, y + 1, &species, if selected { SUB_ON } else { FAINT });
+            text(hc, frame, right - SHELF_RIGHT + 4, y + 1, &species, if selected { SUB_ON } else { FAINT });
             // **Generation, because it is the number that says whether a jar
             // is a founder you kept or a descendant you selected for** — the
             // one thing about a specimen that a name cannot carry and that
             // the player chose.
             let gen = format!("G{}", jar.taken.generation);
-            text(frame, right - hud::text_width(&gen), y + 1, &gen, FAINT);
+            text(hc, frame, right - hud::text_width(&gen), y + 1, &gen, FAINT);
             let note_text = jar_note(jar);
             if hovered {
                 note = Some((note_text.clone(), rect, y));
@@ -7926,7 +7951,7 @@ impl Ui {
             footer.push_str(&format!("  {} UNREADABLE", self.shelf_skipped));
         }
         if !footer.is_empty() {
-            text(frame, left, y + 3, &footer, FAINT);
+            text(hc, frame, left, y + 3, &footer, FAINT);
         }
 
         self.shelf_bar = Bar { widgets, dividers: Vec::new() };
@@ -7938,7 +7963,7 @@ impl Ui {
             }
             let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
             let down = hover && self.pressed.is_some() && self.pressed == wid.action;
-            paint_widget(frame, wid, hover, down);
+            paint_widget(hc, frame, wid, hover, down);
         }
         if let Some(wid) = self.shelf_bar.hovered(self.cursor).filter(|w| !w.note.is_empty()) {
             note = Some((wid.note.clone(), rect, wid.rect.y));
@@ -7946,8 +7971,8 @@ impl Ui {
         note
     }
 
-    fn paint_params(&mut self, frame: &mut [u8], world: &World, spec: &LabBox) -> Option<(String, Rect, i32)> {
-        let list = self.page_params(world, spec);
+    fn paint_params(&mut self, hc: render::Hud, frame: &mut [u8], world: &World, spec: &LabBox) -> Option<(String, Rect, i32)> {
+            let list = self.page_params(world, spec);
         let lines = param_lines(&list);
         let mut widgets: Vec<Widget> = Vec::new();
         let mut note: Option<(String, Rect, i32)> = None;
@@ -7970,11 +7995,11 @@ impl Ui {
         let rect = Rect { x: MARGIN, y: (bottom - h).max(MARGIN), w, h };
         self.params_box = Some(rect);
 
-        fill(frame, rect, PANEL_BG);
-        outline(frame, rect, PANEL_EDGE);
+        fill(hc, frame, rect, PANEL_BG);
+        outline(hc, frame, rect, PANEL_EDGE);
         let left = rect.x + PAGE_PAD;
         let right = rect.right() - PAGE_PAD;
-        text(frame, left, rect.y + 6, "PARAMETERS", TITLE);
+        text(hc, frame, left, rect.y + 6, "PARAMETERS", TITLE);
 
         // SAVE, in the header, acting on whatever row was last touched. Verb
         // on the button and the object named beside it, so a press cannot mean
@@ -8001,7 +8026,7 @@ impl Ui {
         });
 
         for x in rect.x + 1..rect.right() - 1 {
-            render::put(frame, W, H, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+            hc.put(frame, x, rect.y + PAGE_HEADER - 4, DIVIDER);
         }
 
         // The tab strip.
@@ -8027,7 +8052,7 @@ impl Ui {
         for line in &shown {
             match line {
                 Line::Head(name) => {
-                    text(frame, left, y + 1, &param_label(name), SUB_ON);
+                    text(hc, frame, left, y + 1, &param_label(name), SUB_ON);
                 }
                 Line::Row(i) => {
                     let Some(p) = list.get(*i) else { continue };
@@ -8037,7 +8062,7 @@ impl Ui {
                     let selected = self.param_selected == Some(*i);
                     if hovered || selected {
                         let tint = if selected { [40, 52, 44, 255] } else { [34, 40, 52, 255] };
-                        fill(frame, Rect { x: rect.x + 1, y, w: rect.w - 2, h: PARAM_ROW }, tint);
+                        fill(hc, frame, Rect { x: rect.x + 1, y, w: rect.w - 2, h: PARAM_ROW }, tint);
                     }
                     if hovered {
                         note = Some((p.note.clone(), rect, y));
@@ -8049,21 +8074,21 @@ impl Ui {
                     // rows rather than forty of width.
                     let track = Rect { x: left, y: y + PARAM_ROW - 3, w: right - PARAM_RIGHT - left, h: 2 };
                     if p.writable() {
-                        fill(frame, track, [30, 34, 42, 255]);
+                        fill(hc, frame, track, [30, 34, 42, 255]);
                         let filled = (track.w as f32 * p.fraction()).round() as i32;
                         if filled > 0 {
-                            fill(frame, Rect { w: filled, ..track }, if selected { EDGE_ON } else { [70, 96, 122, 255] });
+                            fill(hc, frame, Rect { w: filled, ..track }, if selected { EDGE_ON } else { [70, 96, 122, 255] });
                         }
                     }
-                    text(frame, left, y + 1, &param_label(&p.tunable.name), if selected { LABEL_ON } else { LABEL });
+                    text(hc, frame, left, y + 1, &param_label(&p.tunable.name), if selected { LABEL_ON } else { LABEL });
 
                     if p.writable() {
                         let minus = Rect { x: right - PARAM_MINUS, y: y + 1, w: PARAM_STEP_W, h: 9 };
                         let plus = Rect { x: right - PARAM_PLUS, y: y + 1, w: PARAM_STEP_W, h: 9 };
                         let value = p.display();
-                        text(frame, right - PARAM_VALUE_RIGHT - hud::text_width(&value), y + 1, &value, VALUE);
+                        text(hc, frame, right - PARAM_VALUE_RIGHT - hud::text_width(&value), y + 1, &value, VALUE);
                         let range = p.range();
-                        text(frame, right - hud::text_width(&range), y + 1, &range, FAINT);
+                        text(hc, frame, right - hud::text_width(&range), y + 1, &range, FAINT);
                         for (r, label, sign) in [(minus, "-", -1), (plus, "+", 1)] {
                             widgets.push(Widget {
                                 rect: r,
@@ -8094,7 +8119,7 @@ impl Ui {
                         });
                     } else {
                         let value = p.display();
-                        text(frame, right - hud::text_width(&value), y + 1, &value, FAINT);
+                        text(hc, frame, right - hud::text_width(&value), y + 1, &value, FAINT);
                     }
                 }
             }
@@ -8107,7 +8132,7 @@ impl Ui {
             let up = Rect { x: left, y: y + 2, w: step_w, h: 10 };
             let down = Rect { x: left + step_w + 2, y: y + 2, w: step_w, h: 10 };
             let last = (first + shown.len()).min(lines.len());
-            text(frame, left + step_w * 2 + 8, y + 3, &format!("{}-{} OF {}", first + 1, last, lines.len()), FAINT);
+            text(hc, frame, left + step_w * 2 + 8, y + 3, &format!("{}-{} OF {}", first + 1, last, lines.len()), FAINT);
             for (r, label, dir) in [(up, "<", -1), (down, ">", 1)] {
                 widgets.push(Widget {
                     rect: r,
@@ -8136,7 +8161,7 @@ impl Ui {
             }
             let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
             let down = hover && self.pressed.is_some() && self.pressed == wid.action;
-            paint_widget(frame, wid, hover, down);
+            paint_widget(hc, frame, wid, hover, down);
         }
         // A chip's note wins over the row's: the cursor can only be over one
         // of them, and the chip is the smaller, more specific target.
@@ -8167,7 +8192,7 @@ enum Note {
 /// follows the pointer covers the row it is describing, so you read the
 /// explanation having lost the thing it was about. Lane A's `stats.rs` reached
 /// this the same way and opens its note to the left for the same reason.
-fn draw_note(frame: &mut [u8], note: &str, avoid: Rect, row_y: i32, place: Note) {
+fn draw_note(hc: render::Hud, frame: &mut [u8], note: &str, avoid: Rect, row_y: i32, place: Note) {
     // **Sized to the gap it is going into, not to a constant.** At a fixed
     // 210 the parameters page — the widest thing that opens here — left 209
     // pixels beside it, so the box missed by *one pixel*, fell through to the
@@ -8205,10 +8230,10 @@ fn draw_note(frame: &mut [u8], note: &str, avoid: Rect, row_y: i32, place: Note)
         }
     };
     let r = Rect { x, y, w: width, h: height };
-    fill(frame, r, NOTE_BG);
-    outline(frame, r, PANEL_EDGE);
+    fill(hc, frame, r, NOTE_BG);
+    outline(hc, frame, r, PANEL_EDGE);
     for (i, line) in lines.iter().enumerate() {
-        text(frame, x + 6, y + 5 + i as i32 * LINE, line, [232, 236, 242, 255]);
+        text(hc, frame, x + 6, y + 5 + i as i32 * LINE, line, [232, 236, 242, 255]);
     }
 }
 
@@ -8246,7 +8271,14 @@ impl Ui {
         renderer: &crate::render::Renderer,
         fps: f32,
     ) {
-        self.bar = layout(state);
+        let hc = hud_canvas(renderer);
+        // **The bar keeps its logical size however large the buffer is.**
+        // Every rect, glyph and icon below is positioned against `W`/`H`, so a
+        // grown buffer would put the whole bar in a corner at a fraction of
+        // its size. `render::Hud` turns each logical pixel into a
+        // `pixel_scale`-square block; at scale 1 it is the free functions it
+        // wraps, byte for byte.
+            self.bar = layout(state);
         // Before anything is painted, so the reticle, the page and the rows
         // under it are all reading one position rather than three.
         self.follow_inspected(world);
@@ -8299,7 +8331,7 @@ impl Ui {
         if self.pinned.is_some() {
             let n = self.watch.len();
             for (i, (wx, wy)) in self.watch.path().enumerate() {
-                let (x0, y0, x1, y1, _) = renderer.world_rect_to_screen(wx, wy, wx, wy);
+                let (x0, y0, x1, y1, _) = renderer.world_rect_to_logical(wx, wy, wx, wy);
                 let (cx, cy) = ((x0 + x1) / 2, (y0 + y1) / 2);
                 if cy >= bar_top() {
                     continue;
@@ -8315,7 +8347,7 @@ impl Ui {
                     (MARKER[2] as f32 * k) as u8,
                     255,
                 ];
-                render::put(frame, W, H, cx, cy, tint);
+                hc.put(frame, cx, cy, tint);
             }
         }
 
@@ -8334,7 +8366,7 @@ impl Ui {
                 // something the reticle does not.
                 let big = b.0 <= b.2 && (b.2 - b.0 >= 3 || b.3 - b.1 >= 3);
                 if big {
-                    let (x0, y0, x1, y1, _) = renderer.world_rect_to_screen(b.0, b.1, b.2, b.3);
+                    let (x0, y0, x1, y1, _) = renderer.world_rect_to_logical(b.0, b.1, b.2, b.3);
                     let (x0, y0) = (x0 - 2, y0 - 2);
                     let (x1, y1) = (x1 + 2, y1 + 2);
                     if y0 < bar_top() {
@@ -8356,7 +8388,7 @@ impl Ui {
                                 (box_rect.right() - 1, box_rect.bottom() - 1 - i),
                             ] {
                                 if cy < bar_top() {
-                                    render::put(frame, W, H, cx, cy, MARKER);
+                                    hc.put(frame, cx, cy, MARKER);
                                 }
                             }
                         }
@@ -8366,12 +8398,12 @@ impl Ui {
         }
 
         if let Some((wx, wy)) = self.inspect {
-            let (x0, y0, x1, y1, _) = renderer.world_rect_to_screen(wx, wy, wx, wy);
+            let (x0, y0, x1, y1, _) = renderer.world_rect_to_logical(wx, wy, wx, wy);
             let (x0, y0) = (x0 - 3, y0 - 3);
             let (x1, y1) = (x1 + 3, y1 + 3);
             if y1 < bar_top() {
                 let ring = Rect { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
-                outline(frame, ring, MARKER);
+                outline(hc, frame, ring, MARKER);
                 // Four ticks outside the ring. A bare 7x7 outline is a smudge
                 // at this scale -- and the cell it marks is often an ant, which
                 // is two dark cells you can only find because they move. The
@@ -8379,10 +8411,10 @@ impl Ui {
                 // findable at all.
                 for t in 2..5 {
                     let (cx, cy) = (ring.x + ring.w / 2, ring.y + ring.h / 2);
-                    render::put(frame, W, H, cx, ring.y - t, MARKER);
-                    render::put(frame, W, H, cx, ring.bottom() - 1 + t, MARKER);
-                    render::put(frame, W, H, ring.x - t, cy, MARKER);
-                    render::put(frame, W, H, ring.right() - 1 + t, cy, MARKER);
+                    hc.put(frame, cx, ring.y - t, MARKER);
+                    hc.put(frame, cx, ring.bottom() - 1 + t, MARKER);
+                    hc.put(frame, ring.x - t, cy, MARKER);
+                    hc.put(frame, ring.right() - 1 + t, cy, MARKER);
                 }
             }
         }
@@ -8393,12 +8425,12 @@ impl Ui {
         // `world_rect_to_screen`, so it is the right size at every zoom rather
         // than the right number of *screen* pixels at one of them.
         if let Some((cx, cy)) = self.cursor.filter(|&(_, y)| y < bar_top()) {
-            let (wx, wy) = renderer.screen_to_world(cx, cy);
+            let (wx, wy) = renderer.logical_to_world(cx, cy);
             let r = if self.tool.is_brush() { self.brush } else { 1 };
-            let (x0, _, x1, _, _) = renderer.world_rect_to_screen(wx - r, wy - r, wx + r, wy + r);
+            let (x0, _, x1, _, _) = renderer.world_rect_to_logical(wx - r, wy - r, wx + r, wy + r);
             let screen_r = ((x1 - x0) / 2).max(2);
             if self.tool != Tool::Look {
-                render::draw_circle_outline(frame, W, H, cx, cy, screen_r, TOOL_RING);
+                hc.circle(frame, cx, cy, screen_r, TOOL_RING);
             }
         }
 
@@ -8407,7 +8439,7 @@ impl Ui {
         if self.panel == Some(Panel::Params) {
             // Its own painter: the rows carry buttons, so they are not `Row`s
             // and the page is not a `paint_page`.
-            if let Some((body, avoid, y)) = self.paint_params(frame, world, spec) {
+            if let Some((body, avoid, y)) = self.paint_params(hc, frame, world, spec) {
                 note = Some((body, avoid, y, Note::BesidePage));
             }
             self.panel_box = None;
@@ -8421,7 +8453,7 @@ impl Ui {
         } else if self.panel == Some(Panel::Chambers) {
             // Its own painter, for `Params`' and `Shelf`'s reason: a row here
             // is a chamber with two verbs attached, not a label.
-            if let Some((body, avoid, y)) = self.paint_rack(frame, state.chambers, state.rack_thumb, state) {
+            if let Some((body, avoid, y)) = self.paint_rack(hc, frame, state.chambers, state.rack_thumb, state) {
                 note = Some((body, avoid, y, Note::BesidePage));
             }
             self.panel_box = None;
@@ -8436,7 +8468,7 @@ impl Ui {
             self.history_bar = Bar::default();
         } else if self.panel == Some(Panel::Shelf) {
             // The same deal, and the same reason: a jar row is a verb.
-            if let Some((body, avoid, y)) = self.paint_shelf(frame) {
+            if let Some((body, avoid, y)) = self.paint_shelf(hc, frame) {
                 note = Some((body, avoid, y, Note::BesidePage));
             }
             self.panel_box = None;
@@ -8457,7 +8489,7 @@ impl Ui {
             } else {
                 roster::Kingdom::Creatures
             };
-            if let Some((body, avoid, y)) = self.paint_roster(frame, world, kingdom) {
+            if let Some((body, avoid, y)) = self.paint_roster(hc, frame, world, kingdom) {
                 note = Some((body, avoid, y, Note::BesidePage));
             }
             self.panel_box = None;
@@ -8473,7 +8505,7 @@ impl Ui {
         } else if self.panel == Some(Panel::History) {
             // Its own painter, `Chambers`' reason: a row here carries six
             // fields and a scrollable window, not a label.
-            if let Some((body, avoid, y)) = self.paint_history(frame, world) {
+            if let Some((body, avoid, y)) = self.paint_history(hc, frame, world) {
                 note = Some((body, avoid, y, Note::BesidePage));
             }
             self.panel_box = None;
@@ -8512,7 +8544,7 @@ impl Ui {
             let rect = menu_rect(&pages, &toggles, anchor, bar_top() - 4);
             self.panel_box = Some(rect);
             let mut taps: Vec<Widget> = Vec::new();
-            if let Some((text, y)) = paint_menu(frame, rect, &pages, &toggles, self.cursor, &mut taps, self.pressed) {
+            if let Some((text, y)) = paint_menu(hc, frame, rect, &pages, &toggles, self.cursor, (&mut taps, self.pressed)) {
                 note = Some((text, rect, y, Note::BesidePage));
             }
             self.panel_bar = Bar { widgets: taps, dividers: Vec::new() };
@@ -8542,7 +8574,7 @@ impl Ui {
             let rect = page_rect(&rows, anchor, bar_top() - 4);
             self.panel_box = Some(rect);
             let mut taps: Vec<Widget> = Vec::new();
-            if let Some((text, y)) = paint_page(frame, rect, panel.title(), &rows, self.cursor, &mut taps, self.pressed) {
+            if let Some((text, y)) = paint_page(hc, frame, rect, panel.title(), &rows, self.cursor, (&mut taps, self.pressed)) {
                 note = Some((text, rect, y, Note::BesidePage));
             }
             self.panel_bar = Bar { widgets: taps, dividers: Vec::new() };
@@ -8597,7 +8629,7 @@ impl Ui {
             // `paint_page`'s own hover rule, and the reason it is stated
             // there).
             let mut taps: Vec<Widget> = Vec::new();
-            if let Some((text, y)) = paint_page(frame, rect, "CELL", &rows, self.cursor, &mut taps, self.pressed) {
+            if let Some((text, y)) = paint_page(hc, frame, rect, "CELL", &rows, self.cursor, (&mut taps, self.pressed)) {
                 note = Some((text, rect, y, Note::BesidePage));
             }
             // **`KEEP`, in the header, and only while there is something to
@@ -8621,7 +8653,7 @@ impl Ui {
                 if hover && !close.note.is_empty() {
                     note = Some((close.note.clone(), rect, rect.y, Note::BesidePage));
                 }
-                paint_widget(frame, &close, hover, down);
+                paint_widget(hc, frame, &close, hover, down);
                 taps.push(close);
             }
             if let Some(button) = self.keep_button(world, at, rect, close_w) {
@@ -8630,7 +8662,7 @@ impl Ui {
                 if hover && !button.note.is_empty() {
                     note = Some((button.note.clone(), rect, rect.y, Note::BesidePage));
                 }
-                paint_widget(frame, &button, hover, down);
+                paint_widget(hc, frame, &button, hover, down);
                 taps.push(button);
             }
             self.inspect_bar = Bar { widgets: taps, dividers: Vec::new() };
@@ -8642,22 +8674,22 @@ impl Ui {
         // The bar itself, over everything a page drew, because a page opens
         // *above* it and the two must not fight over the seam.
         let bar = Rect { x: 0, y: bar_top(), w: W as i32, h: BAR_HEIGHT };
-        fill(frame, bar, BAR_BG);
+        fill(hc, frame, bar, BAR_BG);
         for x in 0..W as i32 {
-            render::put(frame, W, H, x, bar.y, BAR_EDGE);
+            hc.put(frame, x, bar.y, BAR_EDGE);
         }
         for (dx, row) in &self.bar.dividers {
             // Inside that row's own band. A rule the full height of a two-row
             // bar separates controls that have nothing to do with each other.
             let top = row_y(*row) + 2;
             for y in top..top + BTN_HEIGHT - 4 {
-                render::put(frame, W, H, *dx, y, DIVIDER);
+                hc.put(frame, *dx, y, DIVIDER);
             }
         }
         for wid in &self.bar.widgets {
             let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
             let down = hover && self.pressed.is_some() && self.pressed == wid.action;
-            paint_widget(frame, wid, hover, down);
+            paint_widget(hc, frame, wid, hover, down);
         }
 
         // **The rack's tabs.** Laid out here rather than in `layout` because
@@ -8668,16 +8700,16 @@ impl Ui {
         self.tabs = lay_out_tabs(state.chambers, tab_strip_y(state.chambers.len()));
         {
             let y = tab_strip_y(state.chambers.len());
-            fill(frame, Rect { x: 0, y, w: W as i32, h: TAB_H }, BAR_BG);
+            fill(hc, frame, Rect { x: 0, y, w: W as i32, h: TAB_H }, BAR_BG);
             // The rule along the strip's own top, so the strip and the bar
             // read as one panel rather than two stacked ones.
             for x in 0..W as i32 {
-                render::put(frame, W, H, x, y, BAR_EDGE);
+                hc.put(frame, x, y, BAR_EDGE);
             }
             for wid in &self.tabs.widgets {
                 let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
                 let down = hover && self.pressed.is_some() && self.pressed == wid.action;
-                paint_widget(frame, wid, hover, down);
+                paint_widget(hc, frame, wid, hover, down);
             }
         }
         // A bar button explains itself too, and its note wins over a page's:
@@ -8712,8 +8744,8 @@ impl Ui {
         // left column is free below the clock.
         if self.tool == Tool::Look {
             if let Some((cx, cy)) = self.cursor.filter(|&(x, y)| y < bar_top() && !self.covers(x, y)) {
-                let (wx, wy) = renderer.screen_to_world(cx, cy);
-                paint_hover_cell(frame, world, (wx, wy), self.inspect_box);
+                let (wx, wy) = renderer.logical_to_world(cx, cy);
+                paint_hover_cell(hc, frame, world, (wx, wy), self.inspect_box);
             }
         }
 
@@ -8727,14 +8759,14 @@ impl Ui {
                     w: w.min(W as i32 - MARGIN * 2),
                     h: 13,
                 };
-                fill(frame, r, NOTE_BG);
-                outline(frame, r, MARKER);
-                text_at(frame, r.x + 6, r.y + 3, text, MARKER);
+                fill(hc, frame, r, NOTE_BG);
+                outline(hc, frame, r, MARKER);
+                text_at(hc, frame, r.x + 6, r.y + 3, text, MARKER);
             }
         }
 
         if let Some((body, avoid, y, place)) = note {
-            draw_note(frame, &body, avoid, y, place);
+            draw_note(hc, frame, &body, avoid, y, place);
         }
     }
 }
@@ -8766,7 +8798,7 @@ impl Ui {
 /// **The transient one moves.** The readout follows the cursor and is gone
 /// the moment it leaves; the page is pinned and is what the player is
 /// reading.
-fn paint_hover_cell(frame: &mut [u8], world: &World, (x, y): (i32, i32), avoid: Option<Rect>) {
+fn paint_hover_cell(hc: render::Hud, frame: &mut [u8], world: &World, (x, y): (i32, i32), avoid: Option<Rect>) {
     use crate::sim::material::MaterialKind;
     let cell = world.get(x, y);
     let def = world.materials.get(cell.material);
@@ -8812,16 +8844,24 @@ fn paint_hover_cell(frame: &mut [u8], world: &World, (x, y): (i32, i32), avoid: 
             }
         }
     }
-    fill(frame, r, READOUT_BG);
-    outline(frame, r, PANEL_EDGE);
+    fill(hc, frame, r, READOUT_BG);
+    outline(hc, frame, r, PANEL_EDGE);
     for (i, line) in lines.iter().enumerate() {
         let tint = if i == 0 { VALUE } else if organism.is_some() && i == 3 { GOOD } else { FAINT };
-        text_at(frame, r.x + 6, r.y + 4 + i as i32 * LINE, line, tint);
+        text_at(hc, frame, r.x + 6, r.y + 4 + i as i32 * LINE, line, tint);
     }
 }
 
 #[cfg(test)]
 mod tests {
+    /// The canvas a test draws through. Scale 1, because a test allocates a
+    /// `W`x`H` buffer -- at scale 1 `render::Hud` is the free functions it
+    /// wraps, byte for byte, so every assertion below means what it did
+    /// before the buffer could grow.
+    fn hud() -> render::Hud {
+        render::Hud::new(W, H, 1)
+    }
+
     use super::*;
     use crate::sim::chunk::Rect as WorldRect;
 
@@ -8953,7 +8993,7 @@ mod tests {
             // reported exactly that -- "there is currently no way to enter
             // the others" -- against a page that draws an ENTER button.
             page.select_chamber(20);
-            page.paint_rack(&mut buf, &rack(40), Some(&thumb), st);
+            page.paint_rack(hud(), &mut buf, &rack(40), Some(&thumb), st);
             // **Against the panel, not the screen.** The first version of
             // this guard checked `H` and passed while ENTER was being drawn
             // below the panel, behind the bar -- on the screen by arithmetic
@@ -9060,7 +9100,7 @@ mod tests {
                 .collect()
         };
 
-        page.paint_rack(&mut buf, &chambers, None, &st);
+        page.paint_rack(hud(), &mut buf, &chambers, None, &st);
         let first = drawn(&page);
         assert_eq!(first.len(), RACK_ROWS, "the page shows its window, not the whole rack");
         assert_eq!(first[0], 0, "and it starts at the top");
@@ -9073,7 +9113,7 @@ mod tests {
         );
 
         page.scroll_rack(1);
-        page.paint_rack(&mut buf, &chambers, None, &st);
+        page.paint_rack(hud(), &mut buf, &chambers, None, &st);
         let second = drawn(&page);
         assert_eq!(second[0], RACK_ROWS, "one page forward starts where the last one ended");
         assert!(
@@ -9086,7 +9126,7 @@ mod tests {
         for _ in 0..10 {
             page.scroll_rack(1);
         }
-        page.paint_rack(&mut buf, &chambers, None, &st);
+        page.paint_rack(hud(), &mut buf, &chambers, None, &st);
         let last = drawn(&page);
         assert_eq!(last.len(), RACK_ROWS, "scrolled off the end and drew a short page");
         assert_eq!(*last.last().expect("rows"), N - 1, "the end of the list is reachable");
@@ -9102,7 +9142,7 @@ mod tests {
         // A rack that fits draws no pager: a control that does nothing is
         // worse than no control.
         let mut small = Ui::new();
-        small.paint_rack(&mut buf, &rack(4), None, &st);
+        small.paint_rack(hud(), &mut buf, &rack(4), None, &st);
         assert!(
             !small.rack_bar.widgets.iter().any(|w| w.action == Some(Action::RackScroll(1))),
             "a rack that fits on one page still drew a pager"
@@ -9141,7 +9181,7 @@ mod tests {
         page.sort_chambers(PLT);
         page.sort_chambers(PLT);
         assert_eq!(page.rack_sort, Some((PLT, false)), "a second click on one column reverses it");
-        page.paint_rack(&mut buf, &chambers, None, &st);
+        page.paint_rack(hud(), &mut buf, &chambers, None, &st);
 
         // The rows are bands with no face; their action names the chamber.
         let aimed: Vec<usize> = page
@@ -9281,7 +9321,7 @@ mod tests {
                     ui.inspect = Some((10, 10));
                 }
                 let mut buf = vec![0u8; (W * H * 4) as usize];
-                let _ = ui.paint_roster(&mut buf, &world, kingdom);
+                let _ = ui.paint_roster(hud(), &mut buf, &world, kingdom);
                 let mut seen = 0;
                 for wid in &ui.roster_bar.widgets {
                     let Some(action) = wid.action else { continue };
@@ -9346,7 +9386,7 @@ mod tests {
             let spec = LabBox::default();
             let st = state(false, 1);
             let _ = (&world, &spec);
-            page.paint_rack(&mut buf, &rack(7), None, &st);
+            page.paint_rack(hud(), &mut buf, &rack(7), None, &st);
             for wid in &page.rack_bar.widgets {
                 check(&wid.line1, "rack button");
                 check(&wid.note, "rack explanation");
@@ -9452,7 +9492,7 @@ mod tests {
                 creature: true,
             });
 
-            page.paint_history(&mut buf, &w);
+            page.paint_history(hud(), &mut buf, &w);
             for wid in &page.history_bar.widgets {
                 check(&wid.line1, "history button");
                 check(&wid.note, "history row or verb explanation");
@@ -9492,7 +9532,7 @@ mod tests {
             // title (`"HISTORY -- {name}"`, never drawn until a colony is
             // open) and the row columns PR #304 shipped, unchanged.
             page.open_history_colony(colony);
-            page.paint_history(&mut buf, &w);
+            page.paint_history(hud(), &mut buf, &w);
             for wid in &page.history_bar.widgets {
                 check(&wid.line1, "history detail button");
                 check(&wid.note, "history detail row or verb explanation");
@@ -9695,6 +9735,73 @@ mod tests {
 
         let name = names::line_name(w.seed, lineages[1]);
         assert!(text.contains(&name), "the chronicle never names {name:?}, one of the lines that ended");
+    }
+
+    /// **The chronicle's `COUNTS:` line reports what happened, not what is
+    /// still in the ring.**
+    ///
+    /// The owner's 560,000-frame playtest printed `COUNTS: BORN 664` for a
+    /// bed that had had 15,905 animal births in it: the line tallied
+    /// `RunLog::recent()`, and the individuals ring was full at exactly
+    /// `RUN_LOG_CAP`, so a full ring read as a complete count. The LOG
+    /// page's own `OLDER` row already stated the rule this broke --
+    /// *"nothing in the lab is ever counted off this page"*.
+    ///
+    /// Both halves, on one world: the printed number must equal the true
+    /// push count, **and** must differ from the ring census, so the test
+    /// cannot pass with the fix reverted and cannot pass vacuously on a run
+    /// that never overflowed.
+    #[test]
+    fn the_chronicle_counts_are_the_tally_not_a_census_of_the_ring() {
+        let mut w = world();
+        let born = world::RUN_LOG_CAP as u64 * 2 + 17;
+        for f in 0..born {
+            w.frame = f;
+            w.run_log.push(world::LogEvent {
+                frame: f,
+                id: 1,
+                born_frame: 0,
+                species: crate::sim::organism::SpeciesId(0),
+                kind: world::LogKind::Born,
+                other: 0,
+                lineage: 0,
+                generation: 0,
+                detail: String::new(),
+            });
+        }
+        let in_ring = w.run_log.recent().filter(|e| e.kind == world::LogKind::Born).count();
+        assert!(
+            (in_ring as u64) < born,
+            "the fixture did not overflow the ring ({in_ring} of {born}), so it cannot tell a tally from a census"
+        );
+
+        let text = chronicle_text(&w, &LabBox::default(), "TEST BED", 1, &[], &[]);
+        let counts = text.lines().find(|l| l.starts_with("COUNTS:")).expect("the chronicle always ends with a COUNTS line");
+        assert!(
+            counts.contains(&format!("BORN {born}")),
+            "COUNTS reports the ring, not the box: wanted BORN {born}, line reads {counts:?}"
+        );
+        assert!(
+            !counts.contains(&format!("BORN {in_ring}")),
+            "COUNTS still carries the ring census {in_ring}, which is the number that made a 15,905-birth session read as 664"
+        );
+        // ...and the line still says how much of the *story* is gone, which
+        // exact counts do not make redundant.
+        assert!(counts.contains(&format!("LOG DROPPED {}", w.run_log.dropped())), "the drop count left the line: {counts:?}");
+    }
+
+    /// **A kind that never happened is not printed as zero**, and one that
+    /// did is printed once -- the negative half of the line above. Without
+    /// it `pushed_by_kind` could emit all nine kinds every time and the
+    /// assertions above would still pass.
+    #[test]
+    fn the_chronicle_counts_omit_kinds_that_never_fired() {
+        let (w, _) = world_with_ended_lines(2);
+        let text = chronicle_text(&w, &LabBox::default(), "TEST BED", 1, &[], &[]);
+        let counts = text.lines().find(|l| l.starts_with("COUNTS:")).expect("a COUNTS line");
+        assert!(counts.contains("LINE ENDED 2"), "the two ended lines are not counted: {counts:?}");
+        assert!(!counts.contains("FIRST SEED"), "nothing set a seed in this fixture, yet the line reports it: {counts:?}");
+        assert!(!counts.contains("ACTION"), "the player did nothing in this fixture, yet the line reports it: {counts:?}");
     }
 
     /// **`ended_lines` matches the log's own `LineEnded` events one to
@@ -10368,7 +10475,7 @@ mod tests {
                 .collect()
         };
 
-        ui.paint_roster(&mut buf, &world, roster::Kingdom::Creatures);
+        ui.paint_roster(hud(), &mut buf, &world, roster::Kingdom::Creatures);
         let first = drawn(&ui);
         assert!(!first.is_empty() && first.len() < 40, "the page must show a window of a 40-row list, not all of it or none");
         assert_eq!(first[0], 0, "and it starts at the top");
@@ -10378,7 +10485,7 @@ mod tests {
         );
 
         ui.scroll_roster(1);
-        ui.paint_roster(&mut buf, &world, roster::Kingdom::Creatures);
+        ui.paint_roster(hud(), &mut buf, &world, roster::Kingdom::Creatures);
         let second = drawn(&ui);
         assert!(
             second.iter().all(|i| !first.contains(i)),
@@ -10389,7 +10496,7 @@ mod tests {
         for _ in 0..10 {
             ui.scroll_roster(1);
         }
-        ui.paint_roster(&mut buf, &world, roster::Kingdom::Creatures);
+        ui.paint_roster(hud(), &mut buf, &world, roster::Kingdom::Creatures);
         let last = drawn(&ui);
         assert_eq!(*last.last().expect("rows"), 39, "the end of the list is not reachable");
         assert_eq!(last.len(), first.len(), "scrolled off the end and drew a short page");
@@ -10405,7 +10512,7 @@ mod tests {
         let small = peopled(0, 3);
         let mut tiny = Ui::new();
         tiny.panel = Some(Panel::AntList);
-        tiny.paint_roster(&mut buf, &small, roster::Kingdom::Creatures);
+        tiny.paint_roster(hud(), &mut buf, &small, roster::Kingdom::Creatures);
         assert!(
             !tiny.roster_bar.widgets.iter().any(|w| w.action == Some(Action::RosterScroll(1))),
             "a roster that fits on one page still drew a pager"
@@ -10432,7 +10539,7 @@ mod tests {
                         ui.pin(r.who);
                     }
                 }
-                ui.paint_roster(&mut buf, &world, roster::Kingdom::Creatures);
+                ui.paint_roster(hud(), &mut buf, &world, roster::Kingdom::Creatures);
                 let rect = ui.roster_box.expect("the page was drawn");
                 assert!(rect.y >= MARGIN, "n={n} pinned={pinned}: the page starts at y={} -- off the top", rect.y);
                 assert!(rect.bottom() <= bar_top(), "n={n} pinned={pinned}: the page runs into the bar");
@@ -10470,7 +10577,7 @@ mod tests {
         ] {
             let mut ui = Ui::new();
             ui.panel = Some(panel);
-            ui.paint_roster(&mut buf, &world, kingdom);
+            ui.paint_roster(hud(), &mut buf, &world, kingdom);
             assert!(
                 ui.widget_rect(Action::Panel(back_to)).is_some(),
                 "{panel:?} drew no way back to {back_to:?}"
@@ -11097,7 +11204,7 @@ mod tests {
             let mut body_pixels_checked = 0usize;
             for y in 0..=cap {
                 for x in 0..W as i32 {
-                    let (wx, wy) = lab.renderer.screen_to_world(x, y);
+                    let (wx, wy) = lab.renderer.logical_to_world(x, y);
                     if lab.world.get(wx, wy).organism_id() == 0 {
                         continue;
                     }

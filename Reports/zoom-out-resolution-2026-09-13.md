@@ -194,3 +194,200 @@ The one cost not in the tables: the HUD is drawn at fixed pixel coordinates
 through 82 call sites in `src/app.rs`, so a grown buffer needs those to scale or
 the text lands in a corner at a quarter size. That is the bulk of the
 implementation work, and none of it is in the render path.
+
+
+---
+
+# Part two: the lab, and what the speed dial does to the answer
+
+*Added 2026-09-13, after the sandbox half landed (#389) and the owner asked:
+**"So will everything be consistent between the games once PR 392 ships? Does
+this impact performance in the lab?"** The honest answer was no and no, and
+this is the work that closes both.*
+
+## Why the lab needed it more than the sandbox
+
+`src/lab/mod.rs` re-exports the sandbox's `WIDTH`/`HEIGHT` and drives the same
+`Renderer`, so **the lab had exactly the same 15-in-16 discard at the widest
+rung** — and none of the fix. #392 flipping the sandbox default to x2 made the
+games *diverge*, in the wrong direction: the lab is where the owner said the
+finer buffer was best (card `20260913T083914900Z-764956`, *"C is best"* — x4,
+decoded through `blind_was: [1, 0, 2]`), and it was the one that could not do it.
+
+## The finding that matters, and it is the opposite of what was expected
+
+The round-33 brief reasoned that the lab draws once per many ticks at the top of
+the speed dial, so a render cost would be amortised away. **Measured, it is not
+— and the direction reverses.**
+
+`examples/labzoom_cost.rs` drives the real loop (`Lab::advance`, then `Lab::draw`
+only when the advance says to draw) and reports **`achieved`: simulated seconds
+per real second, render included** — the number on the dial, which is what the
+player feels. Frame milliseconds are the wrong unit for a box you run fast and
+glance at.
+
+**A 1024x640 bed, 8 founders, one colony** (rung 2, so x2 and x4 both spend
+scale 2):
+
+| dial | x1 | x2 | x4 |
+|---|---|---|---|
+| 1 | 1.0x | **1.00x** | **1.00x** |
+| 16 | 5.4x | 0.47x | 0.45x |
+| 256 | 4.4x | 0.57x | 0.53x |
+| 1024 | 3.5x | 0.65x | 0.64x |
+
+**At dial 1 the bigger buffer is free. At fast-forward it costs a third to a
+half of the achieved rate.** The reason is that `TimeControl` gives each pass a
+wall-clock budget and the render comes out of it: at dial 1 the box has budget
+to spare and the render fits in the slack, while at fast-forward every
+millisecond spent drawing is a millisecond not spent ticking. The render is not
+amortised by the dial — **it competes with it**, so it costs most exactly where
+the brief expected it to cost least.
+
+**A 2048x1280 bed, 48 founders, four colonies** (rung 4, so the budgets differ):
+x2 reads **0.73-0.78x** and x4 **0.40-0.44x**, at every dial — this bed cannot
+reach 1x real time at all, so the dial never gets to skip a draw and
+`ticks/draw` is 1.0 throughout.
+
+## The control, and it is the reason this ships on by default
+
+**The shipped 512x320 bed cannot zoom out at all**, so the budget buys nothing
+and costs nothing there: measured **1.00x** achieved at every budget and every
+dial, and the harness prints *"the budget buys nothing at this rung"* beside it.
+`max_zoom_out_stride` derives the cap from the world's own bounds, and a box no
+bigger than the viewport has nothing to pull back from — so the rung is 1, no
+power of two divides it, and the buffer never grows. `the_shipped_bed_spends_no_
+pixel_budget` is the guard.
+
+That is also the qualification the round-32 brief's claim needed. It said a
+typical box would show *whole* at one cell per pixel; the true statement is
+**boxes up to 2048x1280** do, because that is the widest span the ladder
+reaches. `MAX_BOX` is 4096, so the top of the range does not.
+
+## *"Even when pixels are off screen in the lab, they are being simulated, why
+## does zooming out and making them visible affect performance?"*
+
+The owner, 2026-09-13, and it is the sharpest question anyone has asked about
+this. The answer in one line: **the simulation half does not move at all** —
+those cells were always being stepped, visible or not — and what grows is the
+*drawing*.
+
+`Renderer::draw` does its per-**output-pixel** work once per buffer pixel: the
+material colour, the depth shade, the per-cell grain, the sky lighting. At
+512x320 that is 164k pixels of it; at 2048x1280 it is 2.6M. On top of that a
+larger buffer is uploaded to the GPU each frame.
+
+**And this is exactly why the whole-frame figure is 1.66x rather than 16x**, a
+ratio that otherwise looks too good:
+
+- the **simulation** is untouched — `frame::step` reads the same 13-14 ms at
+  every budget in the sandbox measurement above, and the lab's tick cost does
+  not move either;
+- **cell reads are constant by construction** — `pixels x stride²` is the same
+  product at every budget, which is the whole design of `zoomout_pixels`, so a
+  bigger buffer re-reads no world at all;
+- so the only quantity that grows is **per-pixel colour work**, which is a
+  minority of a frame that also contains the simulation, the HUD and the
+  particles.
+
+The lab's answer has one extra term, and it is the one in the table above: the
+render competes with the *tick budget*, so on a box at fast-forward the cost
+shows up as fewer simulated seconds per real second rather than as a slower
+frame. Same work, different unit.
+
+## The default, and it is the owner's pick
+
+**x4** (`lab::DEFAULT_PIXEL_BUDGET`), which is what he chose — **and the same
+default as the sandbox, because consistency between the two games is a stated
+requirement**:
+
+> *"I am not sure what questions that I answered that suggests zoom should be
+> different between the games, but that doesn't seem like what I want."*
+> — 2026-09-13, on being told the app would default to x2 and the lab to x4.
+
+**He is right, and the near-miss is worth recording because it is a flaw in the
+cards rather than in his eye.** The two offered **different menus**: the lab
+card was x1/x2/x4 and the real-game card was two panes, x1 against x2, so **x4
+was never on offer in the game**. Reading *"x2 in the game, x4 in the lab"* off
+that pair reads the construction of the cards and calls it a preference. Given
+the full range, he picked the finest in both. **A comparison can only return a
+verdict about the options it contains** — which is the review-queue form of
+*ask what your number counts*, and it cost a wrong default in one game.
+
+**What he has actually seen is x2, and that distinction matters.** The lab-bar
+card (`20260913T170211133Z-af41c9`, *"I think this is fine. If there are other
+better looking options, we can explore them"*) was rendered at the **1024x640
+default window**, where `pixel_scale_cap` resolves a request of x4 down to x2 —
+`blind_was: [1, 0]` puts the x2 arm in front of him as pane A. So: **the default
+asks for x4, the cap gives x2 at that window, and x4 arrives only if the window
+grows.** Saying "the lab ships at x4" as though his eye has backed it would be a
+claim about a picture nobody has looked at.
+
+**The same qualification applies to the consistency argument, in both
+directions.** Both games now *request* the same budget; what either of them
+*displays* depends on the window it is in. That is the honest position and it is
+the right one — the alternative is two games that disagree by design — but a
+sentence implying they are pixel-identical would be wrong.
+
+**And a refused request now says so on screen.** The budget can be refused two
+ways — the window is too small, or the zoom rung cannot divide it — and both
+were silent, so a player who set x4 and saw x2 had no way to know which, or that
+anything had been refused. A line under the clock names the request, what it
+resolved to, and which of the two refused it. It is drawn only when the request
+is *not* met. That is `time::PRESETS`' own principle applied to a second dial:
+*"the dial is a request, and a request the machine cannot meet is how the
+readout earns its keep."* Not on the bar, because row 0 measures 508 of 508
+pixels at its tightest spacing and a widget there would overflow it.
+
+The numbers above are why x4 is defensible rather than merely obedient:
+
+- on the **shipped bed it is a no-op**, measured;
+- on any bed that only reaches **rung 2, x4 and x2 are the same thing**, because
+  the scale must divide the rung;
+- it is **free at dial 1**, which is when you are actually looking at the box;
+- it is **one key** (`+`) to step down, and the cost is named on the way past.
+
+What it does cost is a **large bed at fast-forward: roughly half the achieved
+rate**. That is stated here, in the README, and in the PR rather than left for
+someone to find.
+
+## Two bugs, both the same shape, and the second was found by a number that
+## could not be true
+
+The sandbox half shipped a panic caused by **two sources of truth for one
+derived quantity** — `viewport()` read the renderer's pushed copy while `draw`
+pushed it afterwards. The lab half found the same shape again, and this time it
+was silent:
+
+`zoom_within` derived the scale from `self.pixel_scale()` while its `viewport`
+argument came from the caller's authoritative pair. For as long as a rung change
+was in flight the two described different frames, and the visible effect was
+that **a bed reaching rung 4 at budget 1 stopped at rung 2 at budget 2**. The
+tell was a measurement that could not be true: *the bigger buffer ran faster*
+(1.09-1.24x). It was not faster — it was showing half as much world.
+
+**The fix was to delete the ambiguity rather than order the operations.** The
+camera is about *cells*, so it now takes the **logical** viewport and multiplies
+by the ladder stride; nothing in `follow`, `pan`, `set_camera` or `zoom_within`
+touches `pixel_scale` at all. `visible_span`'s contract changed with it (logical
+viewport, ladder stride) — the same number as before whenever buffer and scale
+agree, and still right when they do not. `draw`, the one caller that genuinely
+holds a buffer, divides by the scale on the way in.
+
+**Its guard had to be written twice.** The obvious version, asserting on
+`Renderer` that the rung is budget-independent, **passed with the fault
+reinstated** — blind, because the fault needs a caller whose viewport is derived
+from the budget. The one that works is at `Lab` level and pushes the budget at
+the renderer first, because that is the order the app runs in; it fails with
+*"budget x2 reached rung 3, not 4"*. `CLAUDE.md`'s rule earned its place twice
+over here: the first guard was replaced, not widened.
+
+## The other half of the lab, which is not in the renderer
+
+The bar is interactive, which the sandbox's HUD is not. The cursor arrives in
+**buffer** pixels and the bar is laid out in **logical** ones, so at x4 every
+button would be four screens off. The conversion happens once, at the window
+boundary (`Lab::to_logical`), and everything downstream — hit tests, hover
+explanations, `press`/`drag`, and the world lookups through the new
+`Renderer::logical_to_world` — works in logical pixels. The rack thumbnails are
+pinned to budget 1 for their own off-screen draw, since they are not the window.

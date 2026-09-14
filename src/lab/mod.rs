@@ -57,6 +57,24 @@ use crate::sim::world::World;
 
 pub use crate::app::{HEIGHT, WIDTH};
 
+/// What [`Lab::pixel_budget`] starts at — how many buffer pixels a logical
+/// pixel is given at the widest zoom-out.
+///
+/// **4, and it is the owner's pick rather than a default anyone chose.** Shown
+/// the same bed at x1, x2 and x4 on 2026-09-13 (card
+/// `20260913T083914900Z-764956`) he answered *"C is best"*: one buffer pixel
+/// per world cell, nothing discarded. The sandbox ships lower because its own
+/// card named no pane.
+///
+/// **The lab can afford it where the sandbox cannot**, and the reason is in
+/// `Reports/zoom-out-resolution-2026-09-13.md`: at rest the lab's dirty-rect
+/// skip actually fires — 0 pixels repainted, 0.19 ms, flat across a 16x pixel
+/// range — where outdoors the sky never stops moving, so the skip never fires
+/// and the full cost is paid every frame. On top of that the lab draws once
+/// per *many* ticks at the top of the speed dial, so the render is amortised
+/// over the ticks rather than paid by each.
+pub const DEFAULT_PIXEL_BUDGET: i32 = 4;
+
 /// How much a rack still is shrunk in each axis. Kept beside `Thumb` rather
 /// than in `ui`, because the downscale happens here.
 const THUMB_SHRINK: u32 = 4;
@@ -142,6 +160,22 @@ pub struct Lab {
     /// along the bottom shows every control as a button and prints its key
     /// under it, so the page is now a reference rather than the interface.
     pub show_help: bool,
+    /// `+` — how many buffer pixels a logical pixel may be given at zoom-out.
+    ///
+    /// **The lab is where the owner picked the finest setting.** Shown the
+    /// same bed at x1, x2 and x4 (card `20260913T083914900Z-764956`,
+    /// 2026-09-13) he answered *"C is best"* — x4, one buffer pixel per world
+    /// cell with nothing discarded. The outdoor game defaults lower because
+    /// its own card came back naming no pane; this one did not.
+    ///
+    /// See [`crate::render::Renderer::pixel_budget`] for what it does and
+    /// [`crate::app::App::pixel_budget`] for the sandbox's copy. Held here
+    /// rather than on the renderer for the same reason: it is one of two
+    /// terms, and the renderer is handed `min` of this and the window's cap.
+    pub pixel_budget: i32,
+    /// The most buffer the window can actually show, in logical-pixel
+    /// multiples — set by `bin/lab.rs` from the surface size, 1 until it is.
+    pub pixel_scale_cap: i32,
     /// **A live paint stroke: the last world cell the brush was at, and
     /// whether it is erasing.**
     ///
@@ -480,6 +514,8 @@ impl Lab {
             // key list, which is otherwise unreachable without a keypress and
             // so unphotographable on a box with no keyboard.
             show_help: std::env::var("PIXEL_PHYSICS_LAB_HELP").as_deref() != Ok("0"),
+            pixel_budget: DEFAULT_PIXEL_BUDGET,
+            pixel_scale_cap: 1,
             stroke: None,
             scent_origin: None,
             lamp_grab: None,
@@ -1352,7 +1388,16 @@ impl Lab {
             };
             // Forced full: an incremental draw of a world the renderer has
             // never seen would leave most of the buffer black.
+            //
+            // **Pinned to budget 1 for the duration.** This is an off-screen
+            // buffer of its own, allocated at the logical size and then shrunk
+            // to a thumbnail — it is not the window. With the player's budget
+            // in force the renderer would sample at `rung / scale` and paint a
+            // quarter of the box into it, which reads as a thumbnail of the
+            // wrong thing rather than as an error.
+            let budget = std::mem::replace(&mut self.renderer.pixel_budget, 1);
             self.renderer.draw(world, particles, &Default::default(), &mut full, (WIDTH, HEIGHT), true);
+            self.renderer.pixel_budget = budget;
         }
         let (tw, th) = (WIDTH / THUMB_SHRINK, HEIGHT / THUMB_SHRINK);
         let mut rgba = vec![0u8; (tw * th * 4) as usize];
@@ -1708,7 +1753,60 @@ impl Lab {
     /// `fps` is the *window's* rate, which only the binary knows; it is passed
     /// in rather than measured here so that the number on the box page is the
     /// same one the title bar shows.
+    /// The frame buffer this lab wants drawn into — `WIDTH`x`HEIGHT` times
+    /// whatever [`Self::pixel_budget`] is buying. `bin/lab.rs` must resize the
+    /// `Pixels` buffer to match before calling [`Self::draw`].
+    pub fn viewport(&self) -> (u32, u32) {
+        let s = self.pixel_scale() as u32;
+        (WIDTH * s, HEIGHT * s)
+    }
+
+    /// The scale in force — buffer pixels per logical pixel.
+    ///
+    /// **Derived from the authoritative pair, never read back from the
+    /// renderer's pushed copy.** The sandbox shipped that bug for an afternoon
+    /// and it panicked in a HUD blend a hundred lines from its cause, because
+    /// `main.rs` sized the buffer before `draw` had pushed the budget. One
+    /// derivation, no ordering to get right.
+    pub fn pixel_scale(&self) -> i32 {
+        self.renderer.pixel_scale_for(self.effective_pixel_budget()).max(1)
+    }
+
+    /// The player's choice, bounded by what the window can show.
+    fn effective_pixel_budget(&self) -> i32 {
+        self.pixel_budget.min(self.pixel_scale_cap).max(1)
+    }
+
+    fn apply_pixel_budget(&mut self) {
+        self.renderer.pixel_budget = self.effective_pixel_budget();
+    }
+
+    /// `+`, cycling x1 -> x2 -> x4 -> x1. Returns the new setting.
+    pub fn cycle_pixel_budget(&mut self) -> i32 {
+        self.pixel_budget = match self.pixel_budget {
+            1 => 2,
+            2 => 4,
+            _ => 1,
+        };
+        self.apply_pixel_budget();
+        // The buffer changes size, so nothing already painted can be reused.
+        self.view_dirty = true;
+        self.pixel_budget
+    }
+
+    /// **A window pixel, as the bar understands it.** The cursor arrives in
+    /// *buffer* pixels and the bar is laid out in logical ones, so this is the
+    /// conversion every input path goes through — see
+    /// [`crate::render::Renderer::logical_to_world`] for the other half.
+    pub fn to_logical(&self, x: i32, y: i32) -> (i32, i32) {
+        let s = self.pixel_scale();
+        (x.div_euclid(s), y.div_euclid(s))
+    }
+
     pub fn draw(&mut self, frame_buf: &mut [u8], fps: f32) {
+        self.apply_pixel_budget();
+        let hc = ui::hud_canvas(&self.renderer);
+        let viewport = self.viewport();
         // **Before the camera is read, because it can move the camera.** The
         // pin re-points the cell page at the individual's current cell and,
         // while FOLLOW is on, walks the view after it -- so doing this after
@@ -1743,10 +1841,28 @@ impl Lab {
             &self.particles,
             &touched,
             frame_buf,
-            (WIDTH, HEIGHT),
+            viewport,
             force_full,
         );
-        self.time.draw(frame_buf, &self.world);
+        self.time.draw(hc, frame_buf, &self.world);
+        // **A request the machine cannot meet has to say so**, which is the
+        // same principle `time::PRESETS` already states for the speed dial:
+        // *"the dial is a request, and a request the machine cannot meet is
+        // how the readout earns its keep."* The pixel budget is a request too,
+        // and it is refused silently in two different ways — the window is too
+        // small for it, or the zoom rung cannot divide it. Without this a
+        // player who sets x4 and sees x2 has no way to know which, or that
+        // anything was refused at all.
+        //
+        // Under the clock rather than on the bar: row 0 of the bar measures
+        // 508 of 508 pixels at its tightest spacing, so a widget there would
+        // overflow it. Drawn only when the request is *not* met, so the usual
+        // case costs one integer comparison and no pixels.
+        let (want, got) = (self.effective_pixel_budget().max(self.pixel_budget), self.pixel_scale());
+        if want != got {
+            let why = if self.pixel_budget > self.pixel_scale_cap { "WINDOW" } else { "THIS ZOOM" };
+            hc.text(frame_buf, 4, 14, &format!("PIXELS X{} -> X{got} ({why})", self.pixel_budget), [190, 170, 110, 255]);
+        }
         // The species chip's face and its explanation, read out of the world's
         // own table rather than written down here — a chip that named a
         // species while explaining a different one is the stale side table
@@ -1813,9 +1929,9 @@ impl Lab {
         // a second path. One owner, because two positions that disagree by a
         // frame is exactly the class of bug the retained bar exists to avoid.
         if self.show_help {
-            draw_help(frame_buf);
+            draw_help(hc, frame_buf);
         } else {
-            self.stats.draw_at(frame_buf, &self.world, self.ui.cursor());
+            self.stats.draw_at(hc, frame_buf, &self.world, self.ui.cursor());
         }
     }
 
@@ -1847,14 +1963,14 @@ impl Lab {
         // (release back over the same fixture) from a drag (release
         // somewhere else) -- see `Lab::lamp_at`.
         if self.ui.tool() == ui::Tool::Lamp {
-            let (wx, _) = self.renderer.screen_to_world(x, y);
+            let (wx, _) = self.renderer.logical_to_world(x, y);
             self.lamp_grab = self.spec.lamp_near(&self.world, wx);
             return;
         }
         if !self.ui.tool().is_brush() {
             return;
         }
-        let at = self.renderer.screen_to_world(x, y);
+        let at = self.renderer.logical_to_world(x, y);
         // **`Scent` remembers where the press landed too**, for
         // `paint_scent`'s gradient -- a fixed point the whole gesture ramps
         // away from, set once rather than re-read from each incremental
@@ -1874,7 +1990,7 @@ impl Lab {
         if self.show_help || self.ui.covers(x, y) {
             return;
         }
-        let at = self.renderer.screen_to_world(x, y);
+        let at = self.renderer.logical_to_world(x, y);
         self.begin_stroke(at, true);
     }
 
@@ -1892,7 +2008,7 @@ impl Lab {
     /// same call underneath.
     pub fn drag(&mut self, x: i32, y: i32) {
         let Some(stroke) = self.stroke else { return };
-        let to = self.renderer.screen_to_world(x, y);
+        let to = self.renderer.logical_to_world(x, y);
         if to == stroke.last {
             return;
         }
@@ -2552,7 +2668,7 @@ impl Lab {
                     self.show_help = false;
                     return;
                 }
-                let at = self.renderer.screen_to_world(x, y);
+                let at = self.renderer.logical_to_world(x, y);
                 self.use_tool(at);
             }
         }
@@ -3550,32 +3666,215 @@ const HELP: [&str; 30] = [
     "",
 ];
 
-fn draw_help(frame: &mut [u8]) {
+fn draw_help(hc: crate::render::Hud, frame: &mut [u8]) {
     let w = HELP.iter().map(|l| crate::hud::text_width(l)).max().unwrap_or(0);
     let (bw, bh) = (w + 24, HELP.len() as i32 * 10 + 20);
     let (x0, y0) = ((WIDTH as i32 - bw) / 2, (HEIGHT as i32 - bh) / 2);
     for y in y0..(y0 + bh) {
         for x in x0..(x0 + bw) {
-            if x < 0 || y < 0 || x >= WIDTH as i32 || y >= HEIGHT as i32 {
-                continue;
-            }
-            let i = ((y as u32 * WIDTH + x as u32) * 4) as usize;
             // Dim what is behind rather than covering it, so the box stays
             // visible under the page and the page reads as an overlay.
-            for c in 0..3 {
-                frame[i + c] /= 4;
-            }
+            //
+            // **Through the canvas, not by indexing the frame.** This used to
+            // compute its own offset from `WIDTH`, which is the logical width
+            // and no longer the buffer's; at a grown buffer it dimmed a
+            // diagonal smear across the top-left instead of a panel. Blending
+            // to black at 0.75 is `dst / 4` to the byte, so the look is
+            // unchanged at scale 1.
+            hc.blend(frame, x, y, [0, 0, 0, 255], 0.75);
         }
     }
     for (i, line) in HELP.iter().enumerate() {
         let colour = if i == 0 { [235, 235, 200, 255] } else { [200, 200, 200, 255] };
-        crate::hud::draw_text(frame, WIDTH, HEIGHT, x0 + 12, y0 + 12 + i as i32 * 10, line, colour);
+        hc.text(frame, x0 + 12, y0 + 12 + i as i32 * 10, line, colour);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --------------------------------------------- the zoom-out pixel budget
+
+    /// A bed big enough to reach the widest zoom rung. Empty of life on
+    /// purpose: every guard here is about the *view*, and founders would make
+    /// three arms of one assertion cost three grown stands.
+    fn wide_bed() -> Lab {
+        let base = scene::LabBox::default();
+        Lab::new(scene::LabBox {
+            width: 2048,
+            height: 1280,
+            ground_y: base.ground_y * 1280 / base.height.max(1),
+            founders: 0,
+            colonies: 0,
+            ..base
+        })
+    }
+
+    /// **The bed must reach the same zoom rung, and show the same span of
+    /// world, whatever the pixel budget.** Growing the buffer buys resolution,
+    /// never reach.
+    ///
+    /// **This is the guard for the way it was actually broken**, and it is at
+    /// this level rather than on `Renderer` because the same assertion written
+    /// against `Renderer` alone passes with the fault reinstated — it needs a
+    /// caller that derives its viewport from the budget, which is what `Lab`
+    /// does and what the sandbox does.
+    ///
+    /// The fault: `zoom_within` derived the scale from the renderer's pushed
+    /// copy while its `viewport` came from the authoritative pair, and the two
+    /// describe different frames for as long as a rung change is in flight.
+    /// A bed that reaches rung 4 at budget 1 stopped at **rung 2** at budget 2,
+    /// so two arms of a cost measurement meant to differ only in buffer size
+    /// were showing different amounts of world — and the bigger buffer
+    /// measured *faster*, which is how it was noticed.
+    #[test]
+    fn the_bed_reaches_the_same_zoom_rung_at_every_pixel_budget() {
+        /// budget, rung, span in cells, buffer in pixels.
+        type Arm = (i32, i32, (i32, i32), (u32, u32));
+        let mut seen: Vec<Arm> = Vec::new();
+        for budget in [1, 2, 4] {
+            let mut lab = wide_bed();
+            lab.pixel_scale_cap = crate::app::MAX_PIXEL_SCALE;
+            lab.pixel_budget = budget;
+            // **Pushed at the renderer first, because that is the order the
+            // app runs in** — `draw` applies the budget and the next frame's
+            // zoom key reads it back. Without this the renderer sits at budget
+            // 1 for the whole test and the arms never differ, which is a guard
+            // that passes because it exercises a path the app never takes.
+            lab.apply_pixel_budget();
+            let bounds = lab.world.bounds();
+            // Held, as the key is: further than the ladder is long.
+            for _ in 0..8 {
+                lab.renderer.zoom_within(-1, (WIDTH, HEIGHT), bounds);
+            }
+            seen.push((budget, lab.renderer.zoom_out_stride, lab.renderer.visible_span((WIDTH, HEIGHT)), lab.viewport()));
+        }
+        let (_, rung, span, _) = seen[0];
+        assert_eq!(rung, 4, "the control arm must reach the widest rung on a 2048x1280 bed");
+        assert_eq!(span, (2048, 1280), "and see the whole bed");
+        for &(budget, got_rung, got_span, viewport) in &seen {
+            assert_eq!(got_rung, rung, "budget x{budget} reached rung {got_rung}, not {rung}");
+            assert_eq!(got_span, span, "budget x{budget} shows a different span of world");
+            // ...and the buffer really did grow, or the arms are the same arm.
+            assert_eq!(viewport, (WIDTH * budget as u32, HEIGHT * budget as u32), "budget x{budget} did not size its buffer");
+        }
+    }
+
+    /// **The shipped bed cannot zoom out at all, so the budget is a no-op
+    /// there** — `max_zoom_out_stride` derives the cap from the world's own
+    /// bounds, and a box no bigger than the viewport has nothing to pull back
+    /// from. Stated as a guard because it is the case a reader assumes away,
+    /// and because it is the reason this costs nothing on the default bed:
+    /// measured 2026-09-13, 1.00x the achieved tick rate at every budget.
+    #[test]
+    fn the_shipped_bed_spends_no_pixel_budget() {
+        for budget in [1, 2, 4] {
+            let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..scene::LabBox::default() });
+            lab.pixel_scale_cap = crate::app::MAX_PIXEL_SCALE;
+            lab.pixel_budget = budget;
+            lab.apply_pixel_budget();
+            let bounds = lab.world.bounds();
+            for _ in 0..8 {
+                lab.renderer.zoom_within(-1, (WIDTH, HEIGHT), bounds);
+            }
+            assert_eq!(lab.renderer.zoom_out_stride, 1, "the shipped bed should not zoom out");
+            assert_eq!(lab.viewport(), (WIDTH, HEIGHT), "budget x{budget} grew the buffer on a bed that cannot zoom out");
+            assert_eq!(lab.pixel_scale(), 1);
+        }
+    }
+
+    /// **A refused request must say so on screen.** The pixel budget can be
+    /// refused two ways — the window is too small, or the zoom rung cannot
+    /// divide it — and both were silent, so a player who set x4 and saw x2 had
+    /// no way to know which, or that anything had been refused. Same principle
+    /// `time::PRESETS` states for the speed dial.
+    ///
+    /// **A paired diff at one buffer size, not an ink count.** The first
+    /// version of this counted opaque pixels in the notice's band and compared
+    /// x4 against x2 — which measured the *buffer size*, because the world is
+    /// drawn behind the notice so every pixel in the band is opaque either way.
+    /// It read 14,336 against 57,344 and said nothing about the notice at all.
+    /// Both arms here sit at scale 2, so the frames are the same size and the
+    /// only thing that differs is whether the request was met.
+    #[test]
+    fn a_refused_pixel_budget_says_so_under_the_clock() {
+        let mut lab = wide_bed();
+        lab.pixel_scale_cap = crate::app::MAX_PIXEL_SCALE;
+        lab.pixel_budget = 2;
+        lab.apply_pixel_budget();
+        let bounds = lab.world.bounds();
+        for _ in 0..8 {
+            lab.renderer.zoom_within(-1, (WIDTH, HEIGHT), bounds);
+        }
+        assert_eq!(lab.pixel_scale(), 2, "both arms must sit at scale 2 for the frames to be comparable");
+
+        let (w, h) = lab.viewport();
+        let mut met = vec![0u8; (w * h * 4) as usize];
+        lab.draw(&mut met, 60.0);
+
+        // Same scale, same buffer, but now the window refuses the request.
+        lab.pixel_budget = 4;
+        lab.pixel_scale_cap = 2;
+        assert_eq!(lab.pixel_scale(), 2, "the cap must hold the scale still, or this is not a paired comparison");
+        assert_eq!(lab.viewport(), (w, h));
+        let mut refused = vec![0u8; (w * h * 4) as usize];
+        lab.draw(&mut refused, 60.0);
+
+        let band = |buf: &[u8], y0: u32, y1: u32| -> usize {
+            (y0..y1).flat_map(|y| (0..w).map(move |x| ((y * w + x) * 4) as usize)).filter(|&i| buf[i..i + 4] != met[i..i + 4]).count()
+        };
+        let scale = lab.pixel_scale() as u32;
+        let notice = band(&refused, 14 * scale, (14 + crate::hud::GLYPH_HEIGHT as u32) * scale);
+        assert!(notice > 0, "a budget refused by the window must draw a notice under the clock");
+
+        // ...and it must not have repainted anything else: the world, the bar
+        // and the clock are identical between the two.
+        let elsewhere = band(&refused, (14 + crate::hud::GLYPH_HEIGHT as u32) * scale, h);
+        assert_eq!(elsewhere, 0, "the notice must be the only difference");
+    }
+
+    /// The window is the ceiling, and the player's choice survives being
+    /// capped by it — same rule as the sandbox.
+    #[test]
+    fn the_window_caps_the_lab_budget_without_forgetting_it() {
+        let mut lab = wide_bed();
+        lab.pixel_budget = 4;
+        lab.apply_pixel_budget();
+        let bounds = lab.world.bounds();
+        for _ in 0..8 {
+            lab.renderer.zoom_within(-1, (WIDTH, HEIGHT), bounds);
+        }
+        lab.pixel_scale_cap = 1;
+        assert_eq!(lab.viewport(), (WIDTH, HEIGHT));
+        lab.pixel_scale_cap = 2;
+        assert_eq!(lab.viewport(), (WIDTH * 2, HEIGHT * 2));
+        lab.pixel_scale_cap = 4;
+        assert_eq!(lab.viewport(), (WIDTH * 4, HEIGHT * 4), "the choice must come back when the window grows");
+        assert_eq!(lab.pixel_budget, 4, "and must survive being capped");
+    }
+
+    /// **The cursor arrives in buffer pixels and the bar is laid out in logical
+    /// ones.** At x4 a click at the far right of a 2048-wide buffer is a click
+    /// at the far right of the 512-wide bar, not four screens off the end of
+    /// it — which is what every bar button would do without this.
+    #[test]
+    fn the_cursor_converts_from_buffer_pixels_to_the_bar() {
+        let mut lab = wide_bed();
+        lab.pixel_scale_cap = crate::app::MAX_PIXEL_SCALE;
+        lab.pixel_budget = 4;
+        lab.apply_pixel_budget();
+        let bounds = lab.world.bounds();
+        for _ in 0..8 {
+            lab.renderer.zoom_within(-1, (WIDTH, HEIGHT), bounds);
+        }
+        assert_eq!(lab.pixel_scale(), 4, "this bed should be at x4 for the conversion to mean anything");
+        assert_eq!(lab.to_logical(0, 0), (0, 0));
+        assert_eq!(lab.to_logical(2044, 1276), (511, 319), "the far corner of the buffer is the far corner of the bar");
+        // ...and at x1 it is the identity, which is every build before this.
+        lab.pixel_budget = 1;
+        assert_eq!(lab.to_logical(511, 319), (511, 319));
+    }
 
     // ------------------------------------------------------- the rack
 
@@ -5221,7 +5520,7 @@ mod tests {
     }
 
     fn aim(lab: &Lab, wx: i32, wy: i32) -> (i32, i32) {
-        lab.renderer.world_to_screen(wx, wy).expect("the bed is on screen")
+        lab.renderer.world_to_logical(wx, wy).expect("the bed is on screen")
     }
 
     /// Click a **world** cell, aimed through the renderer. Takes the cell
@@ -5558,7 +5857,7 @@ mod tests {
             cells.sort_unstable();
             cells.push(at);
             for (wx, wy) in cells {
-                let Some((sx, sy)) = lab.renderer.world_to_screen(wx, wy) else { continue };
+                let Some((sx, sy)) = lab.renderer.world_to_logical(wx, wy) else { continue };
                 if lab.ui.covers(sx, sy) || sx < 0 || sy < 0 || sx >= WIDTH as i32 || sy >= HEIGHT as i32 {
                     continue;
                 }
@@ -5626,7 +5925,7 @@ mod tests {
                 let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
                 cells.sort_unstable();
                 for (wx, wy) in cells {
-                    let Some((sx, sy)) = lab.renderer.world_to_screen(wx, wy) else { continue };
+                    let Some((sx, sy)) = lab.renderer.world_to_logical(wx, wy) else { continue };
                     if lab.ui.covers(sx, sy) || sx < 0 || sy < 0 || sx >= WIDTH as i32 || sy >= HEIGHT as i32 {
                         continue;
                     }
@@ -5692,7 +5991,7 @@ mod tests {
         ];
         let mut checked = 0;
         for at in ats {
-            let Some((sx, sy)) = lab.renderer.world_to_screen(at.0, at.1) else { continue };
+            let Some((sx, sy)) = lab.renderer.world_to_logical(at.0, at.1) else { continue };
             if lab.ui.covers(sx, sy) {
                 continue;
             }
