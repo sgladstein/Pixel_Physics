@@ -22528,6 +22528,27 @@ mod tests {
         // quantity the wall arm actually bounds: 18 against 37, and 9 against
         // 37 before the repair. `dead-ends.md` carries the withdrawal.
         //
+        // **And the joule reading does not say the lawn is being mined,
+        // which is the thing it was taken to say.** §Z26 was filed off the
+        // 456 -> 912 move as *"the moss pump is live"*. Censused rather than
+        // inferred, the same run, standing moss cells owned by a live
+        // organism inside the scene: **20 at the start -> 26 at the end with
+        // the defect live, and 20 -> 22 with it fixed.** The lawn is net
+        // *producing* in both arms. What the repair did was let the ant eat
+        // twice as much of the regrowth -- which is why the fixed arm's lawn
+        // ends smaller than the broken arm's while feeding the ant better --
+        // and an animal living on regrowth that outpaces it is what a
+        // renewable niche IS, not a pump.
+        //
+        // **What would establish a pump, and is not this:** the standing
+        // lawn falling over a run, or mouthfuls exceeding the inexhaustible
+        // wall's. Neither does. **What this does NOT establish**, and the
+        // test's name asks for: that the lawn is bounded over an *unbounded*
+        // horizon. One seed, one scene, 1.1 idle lifetimes, and 20 -> 22 is a
+        // small number. So §Z26 is qualified rather than closed -- the
+        // evidence it rests on is a diet-quality artifact, and the question
+        // it names still wants a long-horizon census.
+        //
         // `lawn_intake`, `larder_intake` and the two efficiencies are still
         // computed and still printed on failure, because the joules are worth
         // seeing next to the bites -- they are just not the assertion.
