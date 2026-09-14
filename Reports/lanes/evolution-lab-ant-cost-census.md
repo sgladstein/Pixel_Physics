@@ -1,11 +1,13 @@
 # Lane B — where an ant's cost actually goes
 
-*Round 36, 2026-09-14. Branch `claude/evolution-lab-ant-cost-census`. Census
-first, fix second — and the census is the deliverable.*
+*Round 36, 2026-09-14. Census landed as #433 from
+`claude/evolution-lab-ant-cost-census`; the fix attempt that followed the
+owner's "fix it" is on `claude/evolution-lab-mark-local-reach`.*
 
 **Full record:
-[`../evolution-lab-ant-dirty-cells-2026-09-14.md`](../evolution-lab-ant-dirty-cells-2026-09-14.md).
-Harness: `examples/antdirt.rs` (new, mine). Nothing under `src/` touched.**
+[`../evolution-lab-ant-dirty-cells-2026-09-14.md`](../evolution-lab-ant-dirty-cells-2026-09-14.md)
+— §9 is the fix attempt. Harnesses: `examples/antdirt.rs` and
+`examples/sweepgap.rs`, both new.**
 
 ## What the round asked, and the answer
 
@@ -30,8 +32,10 @@ Per ant per frame, three seeds:
 
 **A mark-local reach cuts the region the sweep is asked for 4.8–5.7x with no
 loss of conservatism** — the derivation is §6 of the report, and
-`parallel.rs`'s write-safety proof is untouched because it is stated against
-the bounding box and `touch_neighbours`' flat `MAX_REACH`.
+`parallel.rs`'s write-safety proof is untouched (verified, see below).
+**But read the next section before building anything from this line: the
+saving is a *shape* prize, not a reach prize**, and calling it a reach prize
+is a mistake this note made first.
 
 Read the spreads too: today's rule varies **1.75x across three seeds of one
 bed**; the ant's floor varies 6%. **What an ant costs today is a fact about
@@ -54,27 +58,57 @@ another 7%, cutting the reach as well saves 75%. **Which explains
 `PIXEL_PHYSICS_SWEEP=rows` measuring 1.05x on the tick** — it removed one of
 two mechanisms covering the same cells, so 6% of the region was all it had.
 
-## For the coordinator — the one thing to route
+## The fix, after the owner said "fix it" — what happened
 
-**The fix belongs in `src/sim/chunk.rs` + `src/sim/world.rs`, which I do not
-own this round, so it is written up rather than written.** Shape, from the
-census: the far-reaching cells are one or two per chunk, so a chunk keeps
-their x-positions in a tiny list and a mark's reach becomes "the chunk maximum
-if one is within it, else the ordinary floor" — a few comparisons against a
-list that is almost always empty.
+*Branch `claude/evolution-lab-mark-local-reach`. Report §9 has the whole of
+it.*
 
-**Do not route it yet.** §E2 is in front of it: `PIXEL_PHYSICS_SWEEP=rows` is
-*also* a strictly-conservative narrowing and still diverges at frame 4,330 on
-the standard lab bed, with the RNG coupling ruled out and a second coupling
-unidentified. A per-mark reach is the same class of change and hits the same
-wall. **The routable job is §E2** — understand the coupling, then the 5x is
-available. Its leading untested hypothesis is already written down: chunk
-wakefulness feeding `field::step`'s `active_chunk_count()` gate.
+**I did not deliver the 4.8–5.7x, and the reason is a measurement, not a
+shortfall of effort. Two findings, both load-bearing:**
 
-**And nothing here is a timing.** `antdirt` publishes no clock on purpose.
-*Removing work is not removing cost*; the region is an upper bound and the
-`rows` precedent says the realised frame gain is much smaller. Whoever builds
-it owes a paired alternating whole-frame run.
+**1. The single-rect version of this fix is arithmetically incapable of
+working.** Built and measured first, because keeping the region's shape
+untouched is what stays clear of §E2. Taking the reach over the rows the
+region occupies instead of all 64: **19,261 → 18,904 cells a frame, 1.9%.**
+The mechanism is plain — `swept` is ~64 wide by 18 rows per awake chunk, so
+**at reach 24 on a 64-wide chunk the rect is already clipped to the full chunk
+width.** Every single-rect rule is full-width. So **§6's 4.8–5.7x is entirely
+a *shape* prize wearing a reach label**, and my own note said "reach" where it
+should have said "shape". Correcting that is the most useful thing in this
+slice.
+
+**2. §E2 is now bisected to a cell, and it is the soil-moisture channel.** It
+had only ever been bisected to a frame, and the reason was mechanical: the
+switch was a process-wide `OnceLock`, so two settings meant two processes, two
+processes of a chaotic sim are two different worlds, and the only available
+comparison was a world hash — which says *that* two runs differ and never
+*which cell*. `Chunk::sweep_rows` is now a per-chunk field with
+`World::set_sweep_rows` beside it (shipped default unchanged, same env var),
+and `examples/sweepgap.rs` steps both arms in lockstep in one process:
+
+```
+FIRST DIVERGENCE at frame 237 -- 4 differing cell(s)
+   371 160  soil/soil  aux 795 vs 875   chunk 5,2  reach 24   in B? yes
+   373 160  soil/soil  aux 701 vs 620   chunk 5,2  reach 24   in B? yes
+   371 161  soil/soil  aux 736 vs 763   chunk 5,2  reach 24   in B? NO
+   373 161  soil/soil  aux 646 vs 620   chunk 5,2  reach 24   in B? NO
+```
+
+**Every differing cell is `soil`, same material, same organism id, different
+`aux`. Nothing moved differently; the water held in four soil cells did.**
+Frame **237**, not 4,330 — thirty seconds instead of a bisect. `arm=box` (both
+arms on the shipped rule) shows no divergence in 1,500 frames, so it belongs
+to the rule and not to the harness.
+
+**Not established: why.** The moisture pass walks its own region over every
+chunk and its seed is identical in both arms, so the obvious route is ruled
+out and the real one is not found. A located fault, not a diagnosed one.
+
+**For the coordinator, plainly: the shape change is what earns the prize, and
+shipping it today ships a known divergence.** The next job is `sweepgap`
+pointed at why those four cells' moisture differs — now a half-hour question.
+I have taken no frame-cost measurement because there is nothing yet to time;
+the thing that would earn one is the change I am saying should not ship.
 
 ## Two harness findings worth keeping
 
@@ -96,7 +130,25 @@ columns also omit — puts the control at **0.98–1.06 on every arm of every ru
 in this report**. Porting both to `labperf` would make its `est_` columns
 usable; I did not, because `labperf` is contested and not mine.
 
-## Controls, both green
+## Controls — and one fault-back found a hole
+
+**The new guard is sensitive to one fault and measured blind to another**, and
+both were established by putting the fault back rather than argued:
+`Chunk::set_sweep_rows` made a no-op → **red** (`walked 2013, box 2013`);
+`World::new_chunk`'s override dropped → **still green**. The hole is recorded
+in the test itself. Its first geometry — two marks on one row — could not
+discriminate at all, because a row span is the *hull* of the marks on its row,
+so both rules gave the identical region and it read `walked 183, box 183` for
+a setter that worked perfectly.
+
+**`parallel.rs`'s proof: verified, not asserted** (the coordinator was right
+to ask). `concurrent_chunks_are_never_within_reach_of_each_other` is
+exhaustive over **chunk coordinates and the flat `MAX_REACH` alone** — it
+reads neither `sweep_region`, nor `sweep_plan`, nor a chunk's tracked `reach`.
+The claim holds, and the new guard asserts the bounding box is identical under
+both rules so it stays held.
+
+## Census controls, all green
 
 - **Specificity.** `ants=0` must attribute nothing to an animal: `sw_ant 0
   ch_ant 0 chg_ant 0` — PASS on every run.

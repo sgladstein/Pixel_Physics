@@ -70,6 +70,7 @@
 
 mod common;
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::sim::organism::{self, Behavior, CellType};
 use pixel_physics::sim::parallel;
 use pixel_physics::sim::world::World;
@@ -406,7 +407,7 @@ fn param_drift() {
     // Census the standing population's override tables, off the grid, so a
     // dead organism holding a slot cannot be counted.
     let b = w.bounds().expect("the plant scene sets bounds");
-    let mut owners: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+    let mut owners: std::collections::BTreeSet<OrganismId> = std::collections::BTreeSet::new();
     for y in b.min_y..=b.max_y {
         for x in b.min_x..=b.max_x {
             let o = w.get(x, y).organism_id();
@@ -690,7 +691,7 @@ struct Arm {
 fn census(w: &World) -> (u32, usize) {
     let b = w.bounds().expect("the plant scene sets bounds");
     let mut cells = 0u32;
-    let mut owners: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+    let mut owners: std::collections::BTreeSet<OrganismId> = std::collections::BTreeSet::new();
     for y in b.min_y..=b.max_y {
         for x in b.min_x..=b.max_x {
             let id = w.get(x, y).organism_id();
@@ -867,7 +868,7 @@ const MIN_CLUMP: usize = 3;
 /// columns first always succeeds; the caller re-takes its baseline *after* the
 /// clear, so whatever the clear removed is in both terms of the difference and
 /// cancels.
-fn clear_graft_site(w: &mut World, ground: i32) -> Option<(i32, i32, u16)> {
+fn clear_graft_site(w: &mut World, ground: i32) -> Option<(i32, i32, OrganismId)> {
     let b = w.bounds()?;
     let top = ground - 5;
     for y in ground..=b.max_y {
@@ -899,7 +900,7 @@ fn clear_graft_site(w: &mut World, ground: i32) -> Option<(i32, i32, u16)> {
 /// a hand-built cell could differ in exactly the field the census filters on,
 /// and then the control would prove the census can see something that never
 /// occurs.
-fn graft_sucker(w: &mut World, ground: i32, site: (i32, i32, u16)) -> bool {
+fn graft_sucker(w: &mut World, ground: i32, site: (i32, i32, OrganismId)) -> bool {
     let (x, y, id) = site;
     let Some(b) = w.bounds() else { return false };
     let mut donor = None;
@@ -945,7 +946,7 @@ fn graft_sucker(w: &mut World, ground: i32, site: (i32, i32, u16)) -> bool {
 /// came up.
 fn above_ground_width(w: &World, ground: i32) -> (f32, i32, usize) {
     use std::collections::BTreeMap;
-    let mut span: BTreeMap<u16, (i32, i32)> = BTreeMap::new();
+    let mut span: BTreeMap<OrganismId, (i32, i32)> = BTreeMap::new();
     let Some(b) = w.bounds() else { return (0.0, 0, 0) };
     for y in b.min_y..=b.max_y.min(ground - 1) {
         for x in b.min_x..=b.max_x {
@@ -1014,9 +1015,9 @@ fn emergent_clumps(
     w: &World,
     ground: i32,
     min_cells: usize,
-) -> std::collections::BTreeMap<u16, (usize, usize)> {
+) -> std::collections::BTreeMap<OrganismId, (usize, usize)> {
     use std::collections::{BTreeMap, BTreeSet};
-    let mut out: BTreeMap<u16, (usize, usize)> = BTreeMap::new();
+    let mut out: BTreeMap<OrganismId, (usize, usize)> = BTreeMap::new();
     let Some(b) = w.bounds() else { return out };
     let shoot = |c: pixel_physics::sim::cell::Cell| {
         matches!(
@@ -1024,7 +1025,7 @@ fn emergent_clumps(
             Some(CellType::GrowingTip | CellType::MatureBody | CellType::Leaf | CellType::DormantBud)
         )
     };
-    let mut owner: BTreeMap<(i32, i32), u16> = BTreeMap::new();
+    let mut owner: BTreeMap<(i32, i32), OrganismId> = BTreeMap::new();
     for y in b.min_y..=b.max_y.min(ground - 1) {
         for x in b.min_x..=b.max_x {
             let c = w.get(x, y);
@@ -1040,7 +1041,7 @@ fn emergent_clumps(
         }
     }
     let mut seen: BTreeSet<(i32, i32)> = BTreeSet::new();
-    let starts: Vec<((i32, i32), u16)> = owner.iter().map(|(&p, &id)| (p, id)).collect();
+    let starts: Vec<((i32, i32), OrganismId)> = owner.iter().map(|(&p, &id)| (p, id)).collect();
     for (start, id) in starts {
         if !seen.insert(start) {
             continue;
@@ -1192,7 +1193,7 @@ fn rhizome() {
         let b = w.bounds().expect("bounds");
         let (mut shallow, mut deep, mut cells) = (0u32, 0u32, 0u32);
         let mut depth_hist: std::collections::BTreeMap<i32, u32> = std::collections::BTreeMap::new();
-        let mut owners: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+        let mut owners: std::collections::BTreeSet<OrganismId> = std::collections::BTreeSet::new();
         for y in b.min_y..=b.max_y {
             for x in b.min_x..=b.max_x {
                 let c = w.get(x, y);

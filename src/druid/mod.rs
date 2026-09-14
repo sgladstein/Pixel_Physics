@@ -25,6 +25,7 @@ pub mod founding;
 pub mod hud;
 pub mod menu;
 
+use crate::sim::cell::OrganismId;
 use crate::render::Renderer;
 use crate::sim::chunk::Rect;
 use crate::sim::clock::SkyPin;
@@ -339,6 +340,90 @@ const TRAIL_PER_SECOND: f32 = 1.0;
 /// is precisely the thing an ant cannot follow (see [`Druid::lay_trail`]).
 const TRAIL_DEPOSIT: u8 = crate::sim::pheromone::DEPOSIT;
 
+/// **How wide a swath his scent lies in**, as a radius about him in cells.
+///
+/// Owner, 2026-09-14 playtest: *"my pheramone trail should last way longer.
+/// it dissapears so much faster than an ant could even move... it should be
+/// more diffuse looking, not like a bunch of dots."* Two complaints, and this
+/// one constant is the answer to both, which is why it is a swath and not a
+/// slower decay rate.
+///
+/// **What kills a trail here is diffusion, not decay, and that is measured
+/// rather than reasoned.** `pheromone::DIFFUSE` blends every cell a quarter
+/// of the way toward its own 3x3 mean each pass. For a cell on a **one-cell**
+/// line that mean is about `v/3` — six of its nine neighbours are empty — so
+/// the line sheds roughly **17% a pass** into ground that then evaporates it,
+/// against `DECAY_RHO`'s **3%**. Diffusion is five to six times the term
+/// everyone reaches for. A cell in the middle of a *band* has a 3x3 mean of
+/// roughly its own value and sheds almost nothing, so widening the mark buys
+/// lifetime that no amount of depositing harder can: measured on the plane at
+/// an unchanged [`TRAIL_DEPOSIT`], a one-cell line stays legible **1.0s** and
+/// an `r = 3` band **10.8s**, while pushing the line's deposit all the way to
+/// the 255 ceiling only reaches **4.8s**.
+///
+/// **3, and the curve is why.** Lifetime against radius at shipped deposit
+/// runs 1.0s / 7.0s / 10.8s / (r=4, deposit 120) 14.8s / (r=5) 15.6s — it is
+/// most of the way to its plateau at 3 and the last cells are bought at 2x
+/// the per-tick write for a fifth of the gain. It also lands the band on the
+/// ground: he lays at `Player::center`, which this build measures at a median
+/// **3 cells** above the floor, so `r = 3` is the first radius whose scent
+/// reaches the ground an ant actually walks on. Before it, the trail was
+/// drawn — and laid — hanging in the air above its own route.
+///
+/// **[`TRAIL_DEPOSIT`] is deliberately *not* raised alongside it.** Raising
+/// both saturates: `r = 3` at deposit 120 pins the plane at 247 of 255 for
+/// 2.8s more life, and a pinned trail is one no ant walking it can reinforce
+/// — `pheromone::DEPOSIT`'s own P-14 note says halve it rather than let that
+/// happen, and differential reinforcement is the whole path-selection
+/// algorithm. At the shipped 40 the band peaks at 182 and leaves that
+/// headroom standing.
+const TRAIL_RADIUS: i32 = 3;
+
+/// **How long a route he has walked keeps being renewed**, in seconds.
+///
+/// Owner, on the first swath: *"Make it last even longer (at least 2x
+/// more)."*
+///
+/// **No width and no deposit can do this, which is why there is a renewal at
+/// all.** A cell that is laid once and left has a hard ceiling set by
+/// `DECAY_RHO` and the decay LUT's forced strict decrease: from a saturated
+/// 255 it takes about 67 passes to fall to 33 at 3% a pass and 33 more at the
+/// floor's one-per-pass, so **20 seconds is the most a single mark can
+/// possibly survive**, and that is before any diffusion. Measured against
+/// that: a swath at `r = 12` — wide enough that spreading costs its middle
+/// almost nothing — reaches **15.8s**, against `r = 3`'s 10.8s. Five times the
+/// per-tick write for 1.5x, and still not 2x. The ceiling is real and it is
+/// made of a constant this game does not own.
+///
+/// **So the trail becomes what its own price already called it.**
+/// [`TRAIL_PER_SECOND`] is documented as "a standing instruction to the
+/// colony", and until now it bought a mark that faded on its own within a few
+/// seconds. It now buys one that *stands* for this long and then goes.
+///
+/// **This is not the plant line's treadmill**, which
+/// `Reports/dead-ends.md` records twice: re-laying what decay removes was a
+/// dead end there because construction was *charged* both times, so the plant
+/// paid twice for standing still. Renewal here is charged once, when he walks
+/// the route; holding it costs frames and nothing else.
+const TRAIL_LIFE_SECONDS: f32 = 30.0;
+
+/// **The level a fresh mark is held at while it stands**, of 255.
+///
+/// Not [`TRAIL_DEPOSIT`], which is what one *tick* of walking adds, and not
+/// the ceiling. 180 leaves 75 of headroom under saturation, so an ant walking
+/// his road still adds a readable 40 on top of the instruction rather than
+/// clipping flat against it — `pheromone::DEPOSIT`'s own P-14 note, which is
+/// about exactly this failure.
+///
+/// **Held, not added, and that is what makes the death graded.** Topping a
+/// cell up by a fixed amount every pass pins it at the ceiling for the whole
+/// life and then drops it off a cliff at expiry — a binary, which is the
+/// defect this project's first law is named for. Renewing *toward a target
+/// that falls with age* means the trail visibly dims along its whole length
+/// as it ages, and the oldest end is always the faintest, which is also the
+/// slope an ant walks up.
+const TRAIL_HOLD: u8 = 180;
+
 /// How many marks the trail readout remembers. Older ones have decayed out
 /// of the plane long before this, so the cap is a memory bound and not a
 /// rule.
@@ -614,7 +699,7 @@ pub struct Druid {
     /// organism dies, so the map is pruned to the ids seen on each pass —
     /// otherwise a dead ant's charge would be inherited by whatever is
     /// allocated its slot next.
-    pub reserves: std::collections::HashMap<u16, f32>,
+    pub reserves: std::collections::HashMap<OrganismId, f32>,
     /// Energy in flight from an animal to the player — see [`Draw`].
     pub draws: Vec<Draw>,
     /// **Which plane `G` writes to.** `Channel::A` by default — and that
@@ -645,6 +730,19 @@ pub struct Druid {
     /// no longer smells of anything, which is the worst kind of readout: one
     /// that is a picture of the gesture rather than of the world.
     pub trail: std::collections::VecDeque<(i32, i32)>,
+    /// **When each mark of [`Druid::trail`] was laid**, in player ticks, one
+    /// entry per entry there and in the same order.
+    ///
+    /// **Parallel to `trail` rather than folded into it, and that is a
+    /// deliberate cost.** `(i32, i32)` is what `src/bin/druid.rs` reads out of
+    /// `trail` to print the route, and that file belongs to another lane this
+    /// round — changing the element type would have made this change collide
+    /// with theirs for no gain the player can see. The invariant is
+    /// maintained in exactly two places ([`Druid::lay_trail`] pushes, and
+    /// [`Druid::step_trail`] pops from the front), asserted in debug, and
+    /// **read through `zip`, which truncates**: a desync degrades to renewing
+    /// fewer marks rather than to a panic in the player's game.
+    trail_laid: std::collections::VecDeque<u64>,
     /// **The options menu, while it is open** — see [`menu`]. `None` the
     /// rest of the time, the same one-piece-of-state shape as [`Druid::offer`].
     pub menu: Option<menu::Menu>,
@@ -666,6 +764,42 @@ pub struct Druid {
 impl Default for Druid {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Why a founding placed nobody, in the player's words.
+///
+/// **Three refusals used to wear one message and that was the bug.** `C` is
+/// the first thing a player presses and the only thing in the held world that
+/// makes an animal, so a refusal that names the wrong cause reads as the
+/// whole feature being broken. "nothing founded - no ground here" was said
+/// while standing plainly on ground, because the world was at the 4,095
+/// organism ceiling and every station reached the allocator and was turned
+/// away (`Reports/open-bugs-handoff.md` §Z21). The ground rule and the
+/// allocator are independent walls: with the thicket repair on, the same
+/// nine stands were offered **63 stations against 31** and placed the
+/// **identical 2** animals.
+///
+/// A free function taking the two facts rather than a method, so both
+/// founding paths -- `Druid::found_colony` at the player's feet and
+/// `found_from_offer` -- reach the same wording from the same inputs. Two
+/// call sites choosing their own strings is how the third case went unnamed
+/// in the first place.
+///
+/// `no_slots` is read from `World::organisms_refused` either side of the
+/// founding, never inferred: a stand that seats nobody because the ground
+/// refused it and one that seats nobody because the world is out of
+/// identities are the same number without that counter.
+fn refusal_note(stations_offered: usize, no_slots: bool) -> &'static str {
+    // Slots first, and deliberately: it is the only one of the three the
+    // player cannot act on by moving, which is what both other wordings
+    // tell them to do.
+    if no_slots {
+        "no room for another living thing - the world is full"
+    } else if stations_offered == 0 {
+        "no ground here - stand on something solid"
+    } else {
+        "no room - the ground here is full. try open ground"
     }
 }
 
@@ -747,7 +881,7 @@ impl Druid {
         // none yet -- nothing in worldgen places one, and founding a colony
         // is the player's verb.
         if start == Start::Dead {
-            let plants: Vec<u16> = world
+            let plants: Vec<OrganismId> = world
                 .live_organism_ids()
                 .into_iter()
                 .filter(|id| world.organism(*id).is_some_and(|st| world.species.get(st.species).creature.is_none()))
@@ -851,6 +985,7 @@ impl Druid {
             gathered: 0,
             scent: crate::sim::pheromone::Channel::default(),
             trail: std::collections::VecDeque::new(),
+            trail_laid: std::collections::VecDeque::new(),
             menu: None,
             offer: None,
             reserves: std::collections::HashMap::new(),
@@ -1067,6 +1202,7 @@ impl Druid {
             gathered: 0,
             scent: crate::sim::pheromone::Channel::default(),
             trail: std::collections::VecDeque::new(),
+            trail_laid: std::collections::VecDeque::new(),
             menu: None,
             offer: None,
             reserves: std::collections::HashMap::new(),
@@ -1190,7 +1326,7 @@ impl Druid {
         let (px, py) = player.center();
         let mut taken = 0.0;
         let mut from: Vec<((i32, i32), f32)> = Vec::new();
-        let ids: Vec<u16> = self.reserves.keys().copied().collect();
+        let ids: Vec<OrganismId> = self.reserves.keys().copied().collect();
         for id in ids {
             let held = self.reserves.get(&id).copied().unwrap_or(0.0);
             if held <= 0.0 {
@@ -1255,14 +1391,43 @@ impl Druid {
             return 0;
         };
         let (x, y) = player.center();
+        // **The slot ceiling is a *third* refusal and it has to be read, not
+        // inferred.** `found_colony_of` returns 0 for three unrelated
+        // reasons -- no ground, no nest material, and no organism slots --
+        // and this line said "no ground here" for all three. On a world at
+        // the ceiling that is a confident, specific and wrong cause: the
+        // ground is fine and the world is out of identities
+        // (`Reports/open-bugs-handoff.md` §Z21, measured at 4,095 of 4,095
+        // with 26 births refused over nine stands). `World::organisms_refused`
+        // is the engine's own counter, incremented inside `push_organism` on
+        // the far side of the call, so reading it either side of the
+        // founding is the one thing that tells the three apart -- and it is
+        // what the investigation itself needed before it could.
+        let refused_before = self.world.organisms_refused();
         let placed = self.world.found_colony_of(x, y, COLONY_SPECIES, COLONY_SIZE);
-        println!("druid: founded {placed} animals at {x},{y} (colony {})", if placed > 0 { "took" } else { "REFUSED - no ground, or no nest material" });
+        let no_slots = self.world.organisms_refused() > refused_before;
+        println!(
+            "druid: founded {placed} animals at {x},{y} (colony {})",
+            if placed > 0 {
+                "took"
+            } else if no_slots {
+                "REFUSED - no organism slots"
+            } else {
+                "REFUSED - no ground, or no nest material"
+            }
+        );
         // Counted here rather than waiting for the next economy pass: half a
         // second of a readout still saying zero, right after the key that was
         // meant to change it, reads as the key not working.
         self.animals += placed;
         match placed {
-            0 => self.note("nothing founded - no ground here"),
+            // Through the same classifier as `found_from_offer`, so the two
+            // verbs cannot drift apart in what they call the same refusal.
+            // `found_colony_of` does its own siting and hands back no
+            // station list, so the ground case is reported as "no ground"
+            // -- which is right, since that path declines for want of
+            // ground or nest material and nothing else.
+            0 => self.note(refusal_note(0, no_slots)),
             n => self.note(format!("founded {n} animals at your feet")),
         }
         placed
@@ -1303,7 +1468,41 @@ impl Druid {
         let Some(player) = &self.world.player else {
             return false;
         };
-        let (x, y) = player.center();
+        // **On the ground surface under him, one cell clear of it — not his
+        // middle, and not his feet either.** Both of the obvious anchors are
+        // wrong and each was shipped before this one.
+        //
+        // `Player::center` is half a body up, so the swath drew as a band of
+        // green mist hanging at his waist over ground he had walked clean.
+        // `Player::feet` is the bottom of his *rectangle*, which is only the
+        // surface on bare rock: `player::Tuning::wade_rows` is 4 of his 14
+        // rows — "about knee-deep" by its own doc — so **a gnome standing on
+        // any powder is sunk four rows into it by design**, and his feet are
+        // four cells *under* the soil. Owner, on the swath at `feet`: *"if it
+        // is fully underground, an ant wont smell it either... it should be a
+        // little height, just at/slightly above ground versus fully below."*
+        //
+        // **The census that said `feet` was right could not have said
+        // otherwise**, which is the part worth remembering: it measured "drop
+        // to the first solid cell below the mark", and that is 0 both for a
+        // mark resting on the surface and for one buried inside it. A number
+        // that cannot tell two opposite states apart reports the one you
+        // expected. It is signed now.
+        //
+        // `creature::colony_surface` is the right question asked properly —
+        // it rises out of solid to open air first and *then* takes the top
+        // solid row, so it answers from a point that may be buried, and it
+        // looks through a canopy rather than stopping on leaves. One cell
+        // above that row is "just at/slightly above ground"; the swath's
+        // lower half still soaks in.
+        let (fx, fy) = player.feet();
+        let (x, y) = match crate::sim::creature::colony_surface(&self.world, fx, fy) {
+            Some(surface) => (fx, surface - 1),
+            // No ground in the column at all — over a chasm or off the world.
+            // Lay where he is rather than refusing: a verb that silently does
+            // nothing is the thing this game's ethos is most against.
+            None => (fx, fy),
+        };
         let cost = TRAIL_PER_SECOND / TICKS_PER_SECOND as f32;
         if !self.unlimited {
             if self.power < cost {
@@ -1311,16 +1510,49 @@ impl Druid {
             }
             self.power -= cost;
         }
-        self.world.deposit_pheromone(self.scent, x, y, TRAIL_DEPOSIT);
+        // **A swath, not a cell.** See [`TRAIL_RADIUS`] for the measurement:
+        // a one-cell line loses five times more per pass to `DIFFUSE`
+        // spreading it into empty ground than to `DECAY_RHO` forgetting it,
+        // so the mark's *width* is the lifetime knob and the deposit is not.
+        //
+        // **Graded from the middle out rather than a uniform disc**, which is
+        // the same ruling as everywhere else in this engine: an outcome is a
+        // distribution. A flat disc lays a hard-edged slab whose rim is a
+        // step down to nothing, and the readout draws exactly what is in the
+        // plane — which is the "bunch of dots" with bigger dots. The ramp
+        // puts the peak under his feet and lets the edge fade out, so what is
+        // in the world and what is on the screen are both a cloud.
+        for dy in -TRAIL_RADIUS..=TRAIL_RADIUS {
+            for dx in -TRAIL_RADIUS..=TRAIL_RADIUS {
+                let d2 = dx * dx + dy * dy;
+                if d2 > TRAIL_RADIUS * TRAIL_RADIUS {
+                    continue;
+                }
+                // Linear in the radius, floored at 1: a cell that is inside
+                // the swath must receive *something*, or the rim rounds away
+                // and the band has a hard edge after all.
+                let fall = 1.0 - (d2 as f32).sqrt() / (TRAIL_RADIUS + 1) as f32;
+                let amount = (TRAIL_DEPOSIT as f32 * fall).round().max(1.0) as u8;
+                self.world.deposit_pheromone(self.scent, x + dx, y + dy, amount);
+            }
+        }
         // One entry per cell, not per tick: standing still would otherwise
         // fill the readout with nine hundred copies of one point and push
         // the rest of the route out of it.
         if self.trail.back() != Some(&(x, y)) {
             if self.trail.len() >= TRAIL_MARKS {
                 self.trail.pop_front();
+                self.trail_laid.pop_front();
             }
             self.trail.push_back((x, y));
+            self.trail_laid.push_back(self.ticks);
+        } else if let Some(last) = self.trail_laid.back_mut() {
+            // Standing still on a cell he has already marked renews it rather
+            // than adding a duplicate: the instruction is "here", and holding
+            // the key on one spot should keep that spot fresh.
+            *last = self.ticks;
         }
+        debug_assert_eq!(self.trail.len(), self.trail_laid.len(), "the trail and its ages must stay in lockstep");
         true
     }
 
@@ -1491,6 +1723,13 @@ impl Druid {
         // joins it, so a founding in which nothing fits claims nothing.
         let mut colony: Option<u32> = None;
         let mut placed = 0;
+        // See `found_colony`: the refusal counter either side of the loop is
+        // the only thing that separates "every station is occupied" from
+        // "every station reached the allocator and was turned away". §Z21
+        // measured those two as *the same picture* -- 63 stations offered
+        // against 31 with the ground rule repaired, and the identical 2
+        // animals placed, because the wall was downstream of the ground.
+        let refused_before = self.world.organisms_refused();
         let stations = self.world.colony_stations(x, y, species_id, founders);
         for &(cx, cy) in &stations {
             let Some(organism) = creature::release_creature_specimen(&mut self.world, cx, cy, species, genome.clone(), traits, colony) else {
@@ -1530,12 +1769,18 @@ impl Druid {
             // Measured 2026-09-14 -- and it is the first thing a player
             // presses, so a refusal that does not say what to do about it is
             // the whole feature reading as broken.
-            self.note(if stations.is_empty() {
-                "no ground here - stand on something solid"
-            } else {
-                "no room - the ground here is full. try open ground"
-            });
-            println!("druid: founding REFUSED — {} stations offered, 0 took", stations.len());
+            // **Three refusals, three messages, and the third one is not a
+            // property of the ground at all.** "the ground here is full" is
+            // as wrong at the slot ceiling as "no ground here" was, and it
+            // sends the player walking somewhere else to get the same
+            // result.
+            let no_slots = self.world.organisms_refused() > refused_before;
+            self.note(refusal_note(stations.len(), no_slots));
+            println!(
+                "druid: founding REFUSED — {} stations offered, 0 took{}",
+                stations.len(),
+                if no_slots { " (out of organism slots)" } else { "" }
+            );
             return 0;
         }
         if !self.unlimited {
@@ -1696,7 +1941,7 @@ impl Druid {
         // Rebuilt rather than updated in place: organism slots are reused, so
         // an entry left behind by a dead animal would be inherited by
         // whatever is allocated its slot next.
-        let mut fresh: std::collections::HashMap<u16, f32> = std::collections::HashMap::with_capacity(self.reserves.len());
+        let mut fresh: std::collections::HashMap<OrganismId, f32> = std::collections::HashMap::with_capacity(self.reserves.len());
         for id in self.world.live_organism_ids() {
             let Some(state) = self.world.organism(id) else { continue };
             let Some((x, y)) = state.chain.first().copied().or_else(|| state.cells.keys().next().copied()) else {
@@ -1867,6 +2112,48 @@ impl Druid {
         self.draws.retain(|d| d.age <= DRAW_FRAMES);
 
         self.step_economy();
+        self.step_trail();
+    }
+
+    /// **Hold up the route he has walked, and let it go when its time is
+    /// up.** See [`TRAIL_LIFE_SECONDS`] for why a laid-once mark cannot last
+    /// long enough however it is shaped, and [`TRAIL_HOLD`] for why this
+    /// renews *toward a falling target* rather than adding a fixed amount.
+    ///
+    /// **Once per pheromone pass, not once per tick.** The plane only decays
+    /// on its own pass (`pheromone::PHEROMONE_INTERVAL`), so renewing between
+    /// two passes writes over a value nothing has touched — eleven twelfths
+    /// of the work for none of the effect.
+    ///
+    /// Renewal writes the **core cell only**, not the whole swath the walk
+    /// laid: `pheromone::DIFFUSE` spreads a standing mark outward every pass
+    /// by itself, so holding the middle up holds the cloud up. That is the
+    /// case `DIFFUSE`'s own profile sweep measures as "a continuously re-laid
+    /// one-cell trail", and it is 29 times cheaper than re-laying the disc.
+    fn step_trail(&mut self) {
+        if !self.ticks.is_multiple_of(crate::sim::pheromone::PHEROMONE_INTERVAL) {
+            return;
+        }
+        let life = (TRAIL_LIFE_SECONDS * TICKS_PER_SECOND as f32) as u64;
+        let now = self.ticks;
+        // Oldest first, so expiry is a drain from the front and stops at the
+        // first mark still alive.
+        while self.trail_laid.front().is_some_and(|&laid| now.saturating_sub(laid) >= life) {
+            self.trail.pop_front();
+            self.trail_laid.pop_front();
+        }
+        // Collected first because the walk borrows `self.trail` and the
+        // deposit needs `self.world` mutably.
+        let marks: Vec<((i32, i32), u64)> = self.trail.iter().copied().zip(self.trail_laid.iter().copied()).collect();
+        let channel = self.scent;
+        for ((x, y), laid) in marks {
+            let age = now.saturating_sub(laid) as f32 / life as f32;
+            let target = (TRAIL_HOLD as f32 * (1.0 - age)).round().max(0.0) as u8;
+            let standing = self.world.pheromone_at(channel, x, y);
+            if standing < target {
+                self.world.deposit_pheromone(channel, x, y, target - standing);
+            }
+        }
     }
 
     /// One drawn frame.
@@ -2057,6 +2344,55 @@ fn grow_from_env() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A world out of organism slots says so, rather than blaming the
+    /// ground.** §Z21's whole content: `found_colony_of` returns 0 for three
+    /// unrelated reasons and the bar named the wrong one, confidently.
+    ///
+    /// **The `no_slots` arm is checked against a real ceiling rather than a
+    /// hand-set flag**, because the claim being guarded is that the counter
+    /// moves when the world is full -- a flag would guard the `if` and not
+    /// the mechanism. Filling every slot costs ~0.6 s, measured, which is
+    /// why it is done for real here.
+    #[test]
+    fn a_world_out_of_slots_says_so_instead_of_blaming_the_ground() {
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        let species = w.species.id_of("moss").expect("moss is compiled in");
+
+        // The control first: a world with slots free refuses nothing, so the
+        // counter is known to be quiet when nothing is wrong. Without this
+        // the assertion below cannot tell "the world is full" from "this
+        // counter is always non-zero".
+        let quiet = w.organisms_refused();
+        let id = w.push_organism(species).expect("a slot is free in a fresh world");
+        w.free_organism(id);
+        assert_eq!(w.organisms_refused(), quiet, "an allocation that succeeds must not count as a refusal");
+
+        // Now fill it. `push_organism` is the only allocator, so this is the
+        // same wall a germination or a founding hits.
+        while w.push_organism(species).is_some() {}
+        let before = w.organisms_refused();
+        assert!(w.push_organism(species).is_none(), "a full world must refuse, not wrap an index into the generation bits");
+        assert!(w.organisms_refused() > before, "a refused birth must be counted -- it is the only signal the message can read");
+
+        // And the wording follows the counter, not the ground. Both of the
+        // ground wordings tell the player to move, which is useless here.
+        let full = refusal_note(63, true);
+        assert!(full.contains("world is full"), "a slot refusal must name the world being full, not the ground: {full:?}");
+        assert!(!full.contains("ground"), "a slot refusal must not mention ground at all -- that is the wrong cause: {full:?}");
+    }
+
+    /// The other two arms still say what they used to, so the fix names a
+    /// third case rather than renaming the two that were already right.
+    #[test]
+    fn the_two_ground_refusals_are_unchanged_and_distinct() {
+        let none = refusal_note(0, false);
+        let full = refusal_note(63, false);
+        assert!(none.contains("no ground here"), "{none:?}");
+        assert!(full.contains("the ground here is full"), "{full:?}");
+        assert_ne!(none, full, "standing off ground and standing on crowded ground are different things to do about it");
+        assert_ne!(full, refusal_note(63, true), "the same station count must read differently when the refusal was the allocator");
+    }
 
     /// **A trail he lays has a slope, and the slope points at him.**
     ///

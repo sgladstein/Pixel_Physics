@@ -17,6 +17,7 @@
 //! was one grain on one ledge or the whole surface avalanching — which are
 //! different bugs.
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::material;
 use pixel_physics::sim::organism;
@@ -874,7 +875,7 @@ const FLORA_BOUNDS: (i32, i32) = (8191, 639);
 fn flora_census(world: &World) -> (BTreeMap<String, usize>, BTreeMap<String, usize>) {
     let seed_material = world.materials.id_of("seed");
     let bounds = world.bounds().expect("bounded world");
-    let mut grown: BTreeMap<u16, bool> = BTreeMap::new();
+    let mut grown: BTreeMap<OrganismId, bool> = BTreeMap::new();
     for y in bounds.min_y..=bounds.max_y {
         for x in bounds.min_x..=bounds.max_x {
             let cell = world.get(x, y);

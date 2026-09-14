@@ -342,6 +342,20 @@ pub struct Chunk {
     /// what the switch buys when it is on, paid by everyone who never turns
     /// it on. A `bool` already in the chunk's own cache line costs nothing.
     moist_cells: bool,
+    /// **Whether this chunk's [`Self::sweep_plan`] narrows the box to per-row
+    /// spans** — `row_spans_enabled()`'s answer, held per chunk rather than
+    /// read from the `OnceLock` at every call.
+    ///
+    /// **A field and not a call because a two-arm comparison needs it to be
+    /// one.** `CLAUDE.md` requires arms compared *inside one run*; a process-
+    /// wide `OnceLock` makes that impossible, so the only way to measure the
+    /// box rule against the rows rule was two processes — and two processes
+    /// of a chaotic simulation are two different worlds, which is precisely
+    /// why `Reports/open-bugs-handoff.md` §E2 could be bisected to a frame
+    /// and never to a *cell*. Defaulted from the same environment variable,
+    /// so nothing about the shipped behaviour moves; `Self::set_sweep_rows`
+    /// is the instrument seam (`examples/sweepgap.rs`).
+    sweep_rows: bool,
     /// **Which 16x16 blocks have had a cell written since the field last
     /// rescanned this chunk**, one bit per block, row-major, `u16::MAX` on a
     /// fresh or woken chunk. `field::rebuild_blocked` derives five per-block
@@ -618,6 +632,7 @@ impl Chunk {
             pending_moist_rows: full_rows(coord),
             pending_moist_cells: full_moist_cells(),
             moist_cells: moisture_marks_cells(),
+            sweep_rows: row_spans_enabled(),
             stale_blocks: u16::MAX,
             rng: Rng::new(seed_from_coord(coord)),
             nutrient_deficit: None,
@@ -812,7 +827,7 @@ impl Chunk {
     pub fn sweep_plan(&self) -> Option<SweepPlan> {
         let bounds = self.sweep_region()?;
         let mut rows = [NO_SPAN; SPAN_ROWS];
-        if !row_spans_enabled() {
+        if !self.sweep_rows {
             // The old behaviour, exactly: every row of the box, end to end.
             for r in rows.iter_mut().take((bounds.max_y - bounds.min_y + 1) as usize) {
                 *r = (bounds.min_x as i16, bounds.max_x as i16);
@@ -848,6 +863,49 @@ impl Chunk {
             }
         }
         Some(SweepPlan { bounds, rows })
+    }
+
+    /// **The raw dirty marks of one row, for an instrument** — world x, as
+    /// [`Self::mark_dirty`] recorded them, before any `reach` expansion or
+    /// clipping. `None` for a row with no marks on it.
+    ///
+    /// Read-only and changes nothing. It exists because the safety of any
+    /// *narrower* sweep region cannot be checked against a reconstruction of
+    /// the marks: `examples/antdirt.rs` reproduces today's region from a grid
+    /// diff to within 3%, which is ample for pricing a rule and useless for
+    /// deciding whether one drops a cell the rules then act on. A write that
+    /// changes no cell still marks (`World::write_cell` compares nothing), so
+    /// a diff can only ever under-count marks, and under-counted marks
+    /// manufacture exactly the gap such a check is looking for.
+    ///
+    /// `row` is a **world** y. Rows one outside the chunk are addressable,
+    /// because a mark one row out still constrains the chunk's own edge row —
+    /// the same indexing `dirty_rows` uses and `sweep_plan` reads.
+    ///
+    /// `Reports/open-bugs-handoff.md` §E2 is what this is for:
+    /// `PIXEL_PHYSICS_SWEEP=rows` is a strictly narrower region that
+    /// nonetheless diverges at frame 4,330, with one coupling ruled out and a
+    /// second unidentified. Locating it needs the real marks.
+    pub fn dirty_marks_row(&self, row: i32) -> Option<(i32, i32)> {
+        let ly = row - self.coord.bounds().min_y;
+        if !(-1..=CHUNK_SIZE).contains(&ly) {
+            return None;
+        }
+        let (lo, hi) = self.dirty_rows[(ly + 1) as usize];
+        (lo <= hi).then_some((lo as i32, hi as i32))
+    }
+
+    /// **Switch this chunk between the box rule and the per-row-span rule**,
+    /// for an instrument that holds both arms in one process.
+    ///
+    /// Changes which cells inside an already-awake chunk get re-examined and
+    /// nothing else: the bounding box `parallel.rs`'s write-disjointness
+    /// proof is stated against is [`Self::sweep_region`]'s and is not touched
+    /// by either setting (see [`Self::sweep_plan`]). Shipped behaviour comes
+    /// from the environment variable at construction; this is only ever
+    /// called by a harness.
+    pub fn set_sweep_rows(&mut self, on: bool) {
+        self.sweep_rows = on;
     }
 
     /// True when this chunk has nothing to sweep and can be skipped.

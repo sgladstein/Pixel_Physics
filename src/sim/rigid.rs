@@ -68,7 +68,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::cell::Cell;
+use super::cell::{Cell, OrganismId};
 use super::material::{self, MaterialId, MaterialKind};
 use super::organism;
 use super::scheduler::{ActiveKind, ActiveSite};
@@ -542,7 +542,7 @@ pub struct BodyCell {
     ///   that is already leaving -- the amputation landmine
     ///   (`CLAUDE.md`'s structural-check gotcha) firing from *inside* the
     ///   fall, which `Reports/felling-blockers.md` §3 step 4 predicted.
-    pub organism_id: u16,
+    pub organism_id: OrganismId,
 }
 
 /// Which way a body goes through a quarter turn.
@@ -5996,14 +5996,14 @@ mod tests {
 
     /// A `wood` cell owned by `organism_id`, the same shape
     /// `structural.rs`'s own organism tests build.
-    fn organism_wood(w: &mut World, organism_id: u16) -> Cell {
+    fn organism_wood(w: &mut World, organism_id: OrganismId) -> Cell {
         let wood = w.materials.id_of("wood").unwrap();
         Cell::new(wood, 0).with_organism_id(organism_id)
     }
 
     /// A world with a tree species pushed and a bedrock floor, for the
     /// severance tests below.
-    fn tissue_world() -> (World, u16) {
+    fn tissue_world() -> (World, OrganismId) {
         let mut w = test_world();
         for x in 0..64 {
             w.set(x, 63, Cell::new(material::BEDROCK, 0).with_attached(true));
@@ -6181,7 +6181,7 @@ mod tests {
         let (mut w, id) = tissue_world();
         let wood = w.materials.id_of("wood").expect("wood");
         let log = w.materials.id_of("log").expect("log");
-        let bar = |dx: i32, organism_id: u16| BodyCell { dx, dy: 0, material: wood, shade: 0, organism_id };
+        let bar = |dx: i32, organism_id: OrganismId| BodyCell { dx, dy: 0, material: wood, shade: 0, organism_id };
 
         settle(&mut w, &ChunkBody::at((0..6).map(|dx| bar(dx, id)).collect(), 10.0, 40.0));
         settle(&mut w, &ChunkBody::at((0..6).map(|dx| bar(dx, 0)).collect(), 30.0, 40.0));
@@ -6941,7 +6941,7 @@ mod tool_target_tests {
     /// hand-painted wood `structural.rs`'s burning-tree test uses — which
     /// `Reports/felling-blockers.md` §1 names as a superseded test that has
     /// never once exercised the organism branch.
-    fn wood_block(organism_id: u16) -> World {
+    fn wood_block(organism_id: OrganismId) -> World {
         let mut w = World::new(Rect::new(0, 0, 63, 63));
         let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
         for x in 0..64 {

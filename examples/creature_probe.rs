@@ -602,7 +602,14 @@ fn main() {
     let mut dup_chains = 0usize;
     let mut headless_chains = 0usize;
     let mut chained = 0usize;
-    for id in 1..4096u16 {
+    // **`World::live_organism_ids`, not a hand-rolled range over the slot
+    // ceiling.** This read `1..4096u16`, which was wrong in two ways and
+    // only one of them was the ceiling moving: a bare slot index carries
+    // generation 0, so `World::organism` resolved it only while the slot
+    // had never been reused, and every animal in a recycled slot was
+    // invisible to this census. The accessor returns encoded handles for
+    // exactly the live slots, so it is both correct and cheaper.
+    for id in world.live_organism_ids() {
         let Some(state) = world.organism(id) else { continue };
         if world.species.get(state.species).creature.is_none() || state.chain.is_empty() {
             continue;

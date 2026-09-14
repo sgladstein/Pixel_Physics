@@ -42,6 +42,7 @@
 //! displayed frame is 1 tick at 1x and up to 256 at the top of the ladder, so
 //! a per-call sample would make the x-axis the speed dial rather than time.
 
+use crate::sim::cell::OrganismId;
 use std::collections::VecDeque;
 
 use crate::hud;
@@ -2107,7 +2108,7 @@ impl Watch {
     /// while the first is pinned and an ungated page draws the *pinned* one's
     /// series under the *clicked* one's numbers. Every row on that page is
     /// about one individual or the page is worse than having none.
-    fn about(&self, id: u16) -> bool {
+    fn about(&self, id: OrganismId) -> bool {
         self.who.is_some_and(|w| w.id == id) && !self.samples.is_empty()
     }
 
@@ -3010,7 +3011,7 @@ pub struct Ui {
     /// deliberately live -- `inspect_rows` re-reads the world every frame so a
     /// clicked ant's energy falls while you watch, and a snapshot would freeze
     /// exactly the numbers the page exists to show.
-    inspect_organism: Option<u16>,
+    inspect_organism: Option<OrganismId>,
     pub(crate) history: History,
     /// The pinned individual's trail and per-individual series.
     /// Per-box, and swapped with the chamber like `history`.
@@ -3528,7 +3529,7 @@ impl Ui {
     }
 
     /// The individual the cell page is following, if it is following one.
-    pub fn inspected_organism(&self) -> Option<u16> {
+    pub fn inspected_organism(&self) -> Option<OrganismId> {
         self.inspect_organism
     }
 
@@ -4047,7 +4048,7 @@ impl Ui {
     /// bed, for as long as the pin was held. Found by cropping a contact
     /// sheet -- the row was highlighted, the pin resolved, and the page was
     /// simply somebody else's.
-    pub fn inspect_at(&mut self, cell: (i32, i32), organism: u16) {
+    pub fn inspect_at(&mut self, cell: (i32, i32), organism: OrganismId) {
         self.inspect = Some(cell);
         self.inspect_organism = Some(organism);
     }
@@ -5245,8 +5246,16 @@ impl Ui {
                     Row::value(
                         "SLOTS",
                         format!("{live}/{allocated}"),
-                        if allocated >= 4000 { POOR } else { FAINT },
-                        "LIVE ORGANISMS AGAINST ORGANISM SLOTS EVER ALLOCATED. THE SECOND NUMBER IS THE HIGH-WATER MARK OF CONCURRENT LIFE AND IT NEVER FALLS. THE CEILING IS 4095, AND A BIRTH REFUSED AT THE CEILING IS A BIRTH THAT DID NOT HAPPEN.",
+                        // **Against the world's own ceiling, not a spelled
+                        // number.** This was `>= 4000`, nine tenths of the
+                        // old 4,095; at the widened ceiling that same
+                        // constant would paint the row amber at 0.4% full
+                        // and never mean anything again.
+                        if allocated * 10 >= world.organism_slot_high_water().1 * 9 { POOR } else { FAINT },
+                        format!(
+                            "LIVE ORGANISMS AGAINST ORGANISM SLOTS EVER ALLOCATED. THE SECOND NUMBER IS THE HIGH-WATER MARK OF CONCURRENT LIFE AND IT NEVER FALLS. THE CEILING IS {}, AND A BIRTH REFUSED AT THE CEILING IS A BIRTH THAT DID NOT HAPPEN.",
+                            world.organism_slot_high_water().1
+                        ),
                     ),
                     Row::gap(),
                     // **The way in to the FOOD page.** A `Body::Head` for
@@ -5612,7 +5621,7 @@ impl Ui {
     /// never carries somebody else's history. Empty is the right answer and
     /// not a failure: nothing is pinned yet, or the ring has not filled, and
     /// in both cases the page is simply the page it always was.
-    fn watch_rows(&self, id: u16) -> Vec<Row> {
+    fn watch_rows(&self, id: OrganismId) -> Vec<Row> {
         if !self.watch.about(id) {
             return Vec::new();
         }
@@ -6787,7 +6796,7 @@ const LOG_ROWS: usize = 14;
 /// on a death it is `DeathCause::index()`. An index this does not recognise
 /// prints as `DIED` rather than as a wrong cause -- a log that confidently
 /// names the wrong killer is worse than one that admits it does not know.
-fn cause_of(index: u16) -> &'static str {
+fn cause_of(index: OrganismId) -> &'static str {
     match crate::sim::organism::DEATH_CAUSE_LIST.get(index as usize) {
         Some(c) => c.label(),
         None => "DIED",
@@ -6867,7 +6876,7 @@ pub fn format_log_line(world: &World, e: &world::LogEvent) -> (String, [u8; 4], 
             )
         }
         world::LogKind::GroupSplit => {
-            let child_colony = e.other as u32;
+            let child_colony = e.other;
             let new_label = world.group_label(e.species, child_colony);
             let parent_label = world
                 .colony_parents
@@ -10582,7 +10591,7 @@ mod tests {
             world::LogEvent { kind: world::LogKind::LineMilestone, other: 8, ..base.clone() },
             world::LogEvent {
                 kind: world::LogKind::LineRecord,
-                other: ((crate::sim::organism::TRAIT_REPRODUCE_AT as u16) << 8) | 4,
+                other: ((crate::sim::organism::TRAIT_REPRODUCE_AT as OrganismId) << 8) | 4,
                 ..base.clone()
             },
             // **A representative player action, deliberately near the
@@ -11249,23 +11258,36 @@ mod tests {
         assert!(!doomed.alive(&world), "and it does not resolve any more");
     }
 
+    /// One full turn of a slot's generation counter -- the point at which a
+    /// bare handle repeats. Mirrors `world::GENERATION_MASK`, which is
+    /// private; spelled here so the test states the number it depends on
+    /// rather than burying it in a loop bound, which is how the old `0..64`
+    /// silently stopped reaching the wrap when the split moved.
+    const GENERATION_SPAN: usize = 4096;
+
     /// **An identity survives its slot being handed to somebody else.**
     ///
     /// The guard `born_frame` exists for, and the reason a bare handle is not
-    /// an identity: `encode_organism_id` gives the slot index 12 bits and the
-    /// generation 4, so a handle comes back after 16 turns of one slot. A pin
-    /// keyed on the handle alone would silently follow whatever animal landed
-    /// in the recycled slot -- which is a different creature wearing the
-    /// number of the one you were watching.
+    /// an identity: `encode_organism_id` gives the slot index 20 bits and the
+    /// generation 12, so a handle comes back after 4,096 turns of one slot. A
+    /// pin keyed on the handle alone would silently follow whatever animal
+    /// landed in the recycled slot -- which is a different creature wearing
+    /// the number of the one you were watching.
+    ///
+    /// **The cycle was 16 and is now 4,096**, because `Cell::organism_id`
+    /// widened to `u32` and the split went 12/4 -> 20/12. Longer is safer and
+    /// changes nothing this test asserts: the collision is rarer, not gone,
+    /// so an identity still cannot be a bare handle.
     #[test]
     fn an_individual_survives_slot_reuse_as_an_identity() {
         let mut world = peopled(0, 1);
         let species = world.species.id_of("ant").expect("ant loaded");
         let first = roster::rows(&world, roster::Kingdom::Creatures, roster::SortKey::Slot, false, roster::Filter::All)[0].who;
 
-        // Turn the slot over until the four generation bits wrap and the
-        // handle comes back. Sixteen reuses is the whole cycle, so this is
-        // bounded and it is the real mechanism rather than a simulated one.
+        // Turn the slot over until the generation bits wrap and the handle
+        // comes back. One full cycle is the bound, so this is finite and it
+        // is the real mechanism rather than a simulated one -- ~4k
+        // free/push pairs, measured at well under a second.
         // **Free the handle you have, not the one you started with.** A
         // freed slot comes back with its generation bumped, so the second
         // turn of the loop holds a *different* handle -- and `free_organism`
@@ -11274,7 +11296,7 @@ mod tests {
         // version of this loop did exactly that and never collided.
         let mut current = first.id;
         let mut collided = None;
-        for _ in 0..64 {
+        for _ in 0..GENERATION_SPAN + 1 {
             world.free_organism(current);
             world.frame += 1;
             current = world.push_organism(species).expect("the slot was just freed");
@@ -11283,7 +11305,7 @@ mod tests {
                 break;
             }
         }
-        let id = collided.expect("sixteen reuses of one slot must bring the handle back");
+        let id = collided.expect("a full generation cycle on one slot must bring the handle back");
         let born = world.organism(id).expect("just made").born_frame;
 
         // The positive control: the halves the identity is made of really do
@@ -12537,7 +12559,7 @@ mod tests {
         // Free every animal in the first colony, so it is missing from the
         // next sample -- and `group_series` must read that sample as 0, not
         // as one entry shorter than the surviving colony's.
-        let doomed: Vec<u16> =
+        let doomed: Vec<OrganismId> =
             world.live_organism_ids().into_iter().filter(|&id| world.organism(id).is_some_and(|s| s.colony == co0)).collect();
         assert!(!doomed.is_empty(), "nothing to free -- this test would prove nothing");
         for id in doomed {
@@ -12608,7 +12630,7 @@ mod tests {
         // legend the moment they starved. Free every animal of the first
         // colony, sample again, and the legend still carries both rows with
         // the dead one reading 0 on its face.
-        let doomed: Vec<u16> = world
+        let doomed: Vec<OrganismId> = world
             .live_organism_ids()
             .into_iter()
             .filter(|&id| world.organism(id).is_some_and(|s| s.colony == groups[0].colony))

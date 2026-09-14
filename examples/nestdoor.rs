@@ -39,6 +39,7 @@
 //!
 //! It echoes its own parameters on the first line -- the megastudy gotcha.
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::lab::rain::Rain;
 use pixel_physics::lab::scenario::Scenario;
 use pixel_physics::lab::Lab;
@@ -163,7 +164,7 @@ fn all_nest_cells(world: &World) -> Vec<(i32, i32)> {
 /// delivery count, and whether it is carrying anything. A named type because
 /// the tuple is past the width clippy accepts inline, and because every
 /// reader of it wants all five.
-type Animal = (u16, (i32, i32), u16, u32, bool);
+type Animal = (OrganismId, (i32, i32), u16, u32, bool);
 
 /// Heads of every living animal, with generation, its own delivery count, and
 /// whether it is carrying anything.
@@ -215,7 +216,7 @@ fn main() {
     let mut founded = false;
     // Per-window accumulators over *every* frame, not only the sample frames:
     // an ant at the door for one frame in ten thousand is the whole question.
-    let mut seen_at_nest: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+    let mut seen_at_nest: std::collections::BTreeSet<OrganismId> = std::collections::BTreeSet::new();
     let mut peak_at_nest = 0usize;
     let mut laden_dist_sum = 0f64;
     let mut laden_dist_n = 0u64;

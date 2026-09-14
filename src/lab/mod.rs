@@ -3711,6 +3711,7 @@ fn draw_help(hc: crate::render::Hud, frame: &mut [u8]) {
 
 #[cfg(test)]
 mod tests {
+    use crate::sim::cell::OrganismId;
     use super::*;
 
     // --------------------------------------------- the zoom-out pixel budget
@@ -4350,10 +4351,17 @@ mod tests {
         // Read the wrong way round this reports "the copy mechanism is
         // broken" for a source bed that simply had no plants in it, which is
         // `CLAUDE.md`'s check-that-a-guard's-inputs-vary-what-it-guards.
-        let plants_here = (1..4096u16)
-            .filter(|&id| {
-                lab.world.organism(id).is_some_and(|st| lab.world.species.get(st.species).creature.is_none())
-            })
+        // **Counted off `live_organism_ids`, not a range over the slot
+        // ceiling.** This read `(1..4096u16)`, which hardcoded the old
+        // 4,095 ceiling *and* only ever resolved slots still at generation
+        // 0 -- a bare index carries no generation, so any plant in a reused
+        // slot was missed. The accessor gives encoded handles for the live
+        // slots and nothing else.
+        let plants_here = lab
+            .world
+            .live_organism_ids()
+            .into_iter()
+            .filter(|&id| lab.world.organism(id).is_some_and(|st| lab.world.species.get(st.species).creature.is_none()))
             .count();
         assert!(plants_here > 0, "the bed germinated no PLANTS, so this test cannot see the thing it is about (organisms alive: {})", lab.world.live_organism_count());
 
@@ -5216,7 +5224,7 @@ mod tests {
         let (fx, fy) = bench_cell(&lab);
         let before = lab.world.live_organism_ids().len();
         lab.use_tool((fx, fy));
-        let placed: Vec<u16> = lab
+        let placed: Vec<OrganismId> = lab
             .world
             .live_organism_ids()
             .into_iter()
@@ -5255,7 +5263,7 @@ mod tests {
         lab.act(ui::Action::ShelfSelect(0));
         assert_eq!(lab.ui.tool(), ui::Tool::Release);
 
-        let animals = |lab: &Lab| -> Vec<u16> {
+        let animals = |lab: &Lab| -> Vec<OrganismId> {
             lab.world
                 .live_organism_ids()
                 .into_iter()
