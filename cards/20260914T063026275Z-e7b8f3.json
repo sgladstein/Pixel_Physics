@@ -1,0 +1,43 @@
+{
+  "id": "20260914T063026275Z-e7b8f3",
+  "created": "2026-09-14T06:30:26Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-colony-books",
+    "commit": "4cac52cf",
+    "agent": null,
+    "session_id": "68a149d6-f310-53fc-a78f-fefd5cda5af1",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The FOOD page: what each colony is living on",
+  "question": "Reading this cold, can you tell what each colony eats, where it comes from, and whether it is feeding itself? Which row or chart is doing the least for you, and what is missing that you would look for first?",
+  "context_md": "New page in the lab, reached from the ANTS page (**WHAT THEY ARE EATING**) and from MENU. Everything on it is **joules, never cells** — priced at the moment the ant is credited, so it cannot disagree with the eat verb.\n\n* **Top chart** — food in per sample, one line per colony, in the colour that colony wears in the box. Per window, not a running total, so a colony that stops eating falls to the floor instead of drawing a flat climb.\n* **Second chart** — the diet band: the same joules split by what they came out of, each line in that material's own colour.\n* **FORAGED / MEAT / FED** — where the food came from. MEAT is scavenged corpse, so a colony living on it is eating itself. FED is mouth-to-mouth, and some of it crosses between colonies.\n* **UPKEEP / WALK / BRAIN** — what it went on. Walking is about a third of everything spent here; the brains are 7%.\n* **EMPTY / CARRYING** — how many animals are under a quarter of the bank they were placed with, and what the colony is holding in its crops. There is no granary in this box, so a crop is the only store it has.\n\nEvery row's hover note carries the numbers that would not fit on it, including who carried what home, ranked.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "FOOD page",
+      "files": [
+        "20260914T063026275Z-e7b8f3/000-card-page--food-(resting).png"
+      ],
+      "caption": "",
+      "meta": {
+        "colonies drawn": 2,
+        "ANT 1": "in 17,031 J / out 16,410 J / 4 sources / 3 alive",
+        "ANT 2": "in 13,745 J / out 12,823 J / 4 sources / 2 alive",
+        "bed": "labui default, 2 colonies, 20,000 frames",
+        "books check": "colony totals == world ledger, 0 J apart"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
