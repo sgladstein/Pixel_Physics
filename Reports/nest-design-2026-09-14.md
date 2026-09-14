@@ -1,8 +1,8 @@
 # What a nest should be — research, measurement, and a recommendation
 
 *2026-09-14. Round 36's research lane, on the brief
-`evolution-lab-nest-question-2026-09-14.md` (PR #441, branch
-`claude/tender-turing-5jp66j`; not on `main` as this is written, so no link).
+[`evolution-lab-nest-question-2026-09-14.md`](evolution-lab-nest-question-2026-09-14.md)
+(PR #441).
 **Nothing is built here**: one harness (`examples/nesthome.rs`), no `src/`
 change, no default moved. Every claim the recommendation rests on was
 re-checked in the tree with the command beside it — §1.*

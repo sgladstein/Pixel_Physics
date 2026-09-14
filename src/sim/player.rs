@@ -1253,12 +1253,32 @@ impl Tuning {
     /// neither number is wrong"*. Scaling them would make a shrunk gnome
     /// drift down like ash.
     ///
-    /// **And that forces `jump_impulse` to `sqrt(k)`, not `k`.** A jump rises
-    /// `v^2 / 2g`. In `scaled`'s world both `v` and `g` take a factor and the
-    /// height comes out `k` — the derivation its own doc gives. Here `g` is
-    /// fixed, so `v * k` would give a height of `k^2` and he would barely
-    /// leave the ground; `v * sqrt(k)` restores a jump that is the same
-    /// number of *his own heights* at any size.
+    /// **And a fixed `g` splits a class `scaled` is entitled to keep
+    /// together.** `scaled` files speeds and accelerations under one heading
+    /// because in its world they take the same factor. They do not here.
+    /// Holding a body dynamically similar against a gravity that did not
+    /// change holds `v^2 / (g * L)` constant — the Froude number, and the
+    /// reason a mouse and a horse walk alike when you measure them in their
+    /// own lengths — so with `g` fixed a **velocity** goes as `sqrt(L)` and
+    /// an **acceleration** goes as nothing at all.
+    ///
+    /// *Velocities*, `sqrt(k)`. A jump rises `v^2 / 2g`. In `scaled`'s world
+    /// both `v` and `g` take a factor and the height comes out `k` — the
+    /// derivation its own doc gives. Here `g` is fixed, so `v * k` would give
+    /// a height of `k^2` and he would barely leave the ground; `v * sqrt(k)`
+    /// restores a jump that is the same number of *his own heights* at any
+    /// size. `run_max` and `climb_speed` are the same number in the same
+    /// units and were the reason this paragraph had to be generalised: they
+    /// carried `scaled`'s `k` through the first playable shrink, which put a
+    /// 2x3 gnome at 0.32 cells a tick and drew the owner's *"looks good. I
+    /// want to move a bit faster though"*.
+    ///
+    /// *Accelerations*, no factor. `run_accel` is 1.2 times `gravity` and
+    /// `ground_decel` 2.5 times it; gravity is the world's and did not move,
+    /// so neither do they. The two corrections work in opposite directions
+    /// and that is the point — at `k = 3/14` a `k` on both left her taking
+    /// the same 12.5 ticks to reach a top speed a fifth as high, which is not
+    /// a small gnome, it is a slow one.
     ///
     /// **Why this is not optional, and what it was fixing.** Three numbers in
     /// this struct are authored in cells against a 7x14 body and are plainly
@@ -1286,16 +1306,137 @@ impl Tuning {
     /// would be precision standing in for a decision.
     pub fn for_body(&self, k: f32) -> Self {
         let scaled = self.scaled(k);
+        // **Every correction below is written against `scaled`'s value, not
+        // recomputed from `self`**, so the two cannot drift apart if somebody
+        // reclassifies a field later. `per_velocity` turns `scaled`'s `k` into
+        // `sqrt(k)`; `per_accel` turns it into nothing at all.
+        let (per_velocity, per_accel) = if k > 0.0 { (1.0 / k.sqrt(), 1.0 / k) } else { (1.0, 1.0) };
+        // Exhaustive for the same reason `scaled` is, and the reason is
+        // sharper here: **`scaled` may file speeds and accelerations under one
+        // heading because in its world they take the same factor, and this
+        // function exists precisely because they do not.** A field added later
+        // and classified there would arrive here silently carrying a `k` that
+        // is right for a shrinking world and wrong for a shrinking gnome. It
+        // cannot compile until somebody says which of these classes it is.
+        let Self {
+            // The world's, not his -- restored below to what was authored.
+            gravity: _,
+            fall_clamp: _,
+            run_accel,
+            run_max,
+            ground_decel,
+            air_control,
+            jump_impulse,
+            coyote_frames,
+            jump_buffer_frames,
+            step_up,
+            dig_reach,
+            dig_radius,
+            dig_cooldown,
+            wade_rows,
+            wade_slowdown,
+            shoulder_grains,
+            buoyancy,
+            swim_damp,
+            stroke_impulse,
+            stroke_cooldown,
+            splash_force,
+            shake_reach,
+            shake_shed,
+            shake_seed,
+            mantle_reach,
+            climb_speed,
+            surface_hop,
+            dig_yield,
+            bore_bite,
+            hammer_reach,
+            hammer_radius,
+            hammer_force,
+            hammer_cooldown,
+            hammer_recoil,
+            chop_reach,
+            chop_radius,
+            chop_cooldown,
+            chop_yield,
+        } = scaled;
         Self {
-            // The world's, not his — restored to what was authored.
+            // ---- the world's, not his ----
             gravity: self.gravity,
             fall_clamp: self.fall_clamp,
-            // `scaled` gave this `k`; against an unscaled gravity it wants
-            // `sqrt(k)`. Written as a correction to `scaled`'s value rather
-            // than recomputed from `self`, so the two cannot drift apart if
-            // somebody reclassifies `jump_impulse` later.
-            jump_impulse: if k > 0.0 { scaled.jump_impulse / k.sqrt() } else { scaled.jump_impulse },
-            ..scaled
+
+            // ---- his own locomotion: velocities, cells per tick ----
+            // **`sqrt(k)`, and it is the same correction `jump_impulse` has
+            // always had here** -- that one was written out by hand and this
+            // is the rule it was an instance of. Dynamic similarity against a
+            // *fixed* `g` holds `v^2 / (g * L)` constant, so `v` goes as
+            // `sqrt(L)`; `scaled`'s `k` is only right when `g` shrinks too.
+            //
+            // **What it was fixing, and it was a complaint rather than a
+            // derivation.** At `k = 3/14` a `k` on `run_max` left her at 0.32
+            // cells a tick against the authored 1.5, so crossing the world
+            // took four and a half times as long as it does at full size and
+            // the owner's verdict on the first playable shrink was *"looks
+            // good. I want to move a bit faster though"*. `sqrt(k)` puts her
+            // at 0.69 -- still visibly a small creature's stride, and it is
+            // more of *her own* body-lengths a tick than the tall gnome
+            // manages, which is what a scurry is.
+            run_max: run_max * per_velocity,
+            jump_impulse: jump_impulse * per_velocity,
+            climb_speed: climb_speed * per_velocity,
+
+            // ---- his own locomotion: accelerations, cells per tick squared ----
+            // **No factor at all.** An acceleration here is a multiple of
+            // gravity -- `run_accel` is 1.2 g, `ground_decel` 2.5 g -- and
+            // gravity is the world's and did not move. Scaling these with the
+            // body is what made the small gnome feel like she was wading
+            // through the air as well as walking slowly: at `k` she took the
+            // *same* 12.5 ticks to reach a top speed a fifth as high.
+            run_accel: run_accel * per_accel,
+            ground_decel: ground_decel * per_accel,
+
+            // ---- the belt's ballistic terms, left at `scaled`'s `k` ----
+            // **Deliberately not reclassified, and the doc above says why**:
+            // these set how hard a *blow* lands rather than how she gets
+            // about, and what a small gnome's blows should feel like is
+            // settled by playing. `stroke_impulse` is here rather than with
+            // the locomotion velocities for the same reason -- nobody has yet
+            // watched a 2x3 gnome swim.
+            stroke_impulse,
+            hammer_force,
+            hammer_recoil,
+
+            // ---- everything `scaled` already got right for a body ----
+            // Lengths are cells and cells did not change size; the
+            // dimensionless terms are fractions of numbers that scaled; the
+            // clock does not care how tall he is.
+            air_control,
+            coyote_frames,
+            jump_buffer_frames,
+            step_up,
+            dig_reach,
+            dig_radius,
+            dig_cooldown,
+            wade_rows,
+            wade_slowdown,
+            shoulder_grains,
+            buoyancy,
+            swim_damp,
+            stroke_cooldown,
+            splash_force,
+            shake_reach,
+            shake_shed,
+            shake_seed,
+            mantle_reach,
+            surface_hop,
+            dig_yield,
+            bore_bite,
+            hammer_reach,
+            hammer_radius,
+            hammer_cooldown,
+            chop_reach,
+            chop_radius,
+            chop_cooldown,
+            chop_yield,
         }
     }
 
@@ -4207,6 +4348,100 @@ mod tests {
             assert!(
                 (heights - full).abs() < 0.05 * full,
                 "a gnome {h} tall jumps {heights:.2} of his own heights against {full:.2} for the authored one"
+            );
+        }
+    }
+
+    /// **A small gnome runs like a small animal, not like a slow one**, and
+    /// the difference is a factor of `sqrt(k)` that the first shrink did not
+    /// have. Dynamic similarity against a *fixed* gravity holds the Froude
+    /// number `v^2 / (g * L)` constant, so this asserts the quantity rather
+    /// than the number: it survives any retune of `run_max` or `gravity`,
+    /// and it goes red the moment somebody hands `run_max` `scaled`'s `k`
+    /// again, which is the regression it is named for.
+    ///
+    /// **`climb_speed` is checked as a ratio to `run_max` instead**, because
+    /// it is not a gait and has no `L` of its own to be similar against --
+    /// what must hold is that climbing stays the same fraction of running it
+    /// was authored as, at every size.
+    #[test]
+    fn a_smaller_gnome_runs_at_the_same_froude_number() {
+        let t = Tuning::default();
+        let froude = |tuning: &Tuning, h: i32| tuning.run_max * tuning.run_max / (tuning.gravity * h as f32);
+        let full = froude(&t, PLAYER_HEIGHT);
+        for h in [2, 3, 5, 7, 10] {
+            let tuned = t.for_body(h as f32 / PLAYER_HEIGHT as f32);
+            let fr = froude(&tuned, h);
+            assert!(
+                (fr - full).abs() < 1e-3 * full,
+                "a gnome {h} tall runs at Froude {fr:.4} against {full:.4} for the authored one -- at {:.3} cells a tick",
+                tuned.run_max
+            );
+            let climb = tuned.climb_speed / tuned.run_max;
+            assert!(
+                (climb - t.climb_speed / t.run_max).abs() < 1e-3,
+                "a gnome {h} tall climbs at {climb:.3} of his running speed against {:.3} authored",
+                t.climb_speed / t.run_max
+            );
+        }
+    }
+
+    /// **An acceleration is a multiple of gravity, and gravity is the
+    /// world's.** So `run_accel` and `ground_decel` do not move when only he
+    /// does -- scaling them with the body is what made the first shrunk gnome
+    /// take the authored 12.5 ticks to reach a top speed a fifth as high.
+    ///
+    /// Asserted as the ratio to `gravity` rather than as the raw number for
+    /// the reason the Froude guard above gives: the raw number is a tuning
+    /// value somebody may legitimately change, and the ratio is the claim.
+    #[test]
+    fn a_smaller_gnome_accelerates_at_the_same_multiple_of_gravity() {
+        let t = Tuning::default();
+        for h in [2, 3, 5, 7, 10] {
+            let tuned = t.for_body(h as f32 / PLAYER_HEIGHT as f32);
+            for (name, small, full) in [
+                ("run_accel", tuned.run_accel, t.run_accel),
+                ("ground_decel", tuned.ground_decel, t.ground_decel),
+            ] {
+                let got = small / tuned.gravity;
+                let want = full / t.gravity;
+                assert!(
+                    (got - want).abs() < 1e-4 * want,
+                    "a gnome {h} tall accelerates at {got:.4} g of {name} against {want:.4} g authored"
+                );
+            }
+        }
+    }
+
+    /// **The shrink has to buy something, and this is the something**: at the
+    /// same Froude number a smaller body covers *more of its own lengths* per
+    /// tick, which is what reads on screen as a scurry rather than a trudge.
+    ///
+    /// This is the half the Froude guard cannot assert. A version that left
+    /// every speed at the authored number would also pass that one's cousin
+    /// and would be wrong in the other direction -- so this pins the sign and
+    /// the ordering, and the guard above pins the size.
+    #[test]
+    fn a_smaller_gnome_covers_more_of_his_own_lengths_per_tick() {
+        let t = Tuning::default();
+        let mut per_tick = Vec::new();
+        for h in [3, 7, PLAYER_HEIGHT] {
+            let tuned = t.for_body(h as f32 / PLAYER_HEIGHT as f32);
+            per_tick.push((h, tuned.run_max / h as f32, tuned.run_max));
+        }
+        for w in per_tick.windows(2) {
+            let (small_h, small_gait, small_speed) = w[0];
+            let (big_h, big_gait, big_speed) = w[1];
+            assert!(
+                small_gait > big_gait,
+                "a gnome {small_h} tall covers {small_gait:.3} of his own lengths a tick against {big_gait:.3} for one {big_h} tall"
+            );
+            // **And still slower in the world**, which is the other half of
+            // "a small animal": if this ever inverts, the shrink has become a
+            // speed powerup rather than a change of size.
+            assert!(
+                small_speed < big_speed,
+                "a gnome {small_h} tall outruns one {big_h} tall in plain cells a tick -- {small_speed:.3} against {big_speed:.3}"
             );
         }
     }
