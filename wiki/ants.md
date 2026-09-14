@@ -1,6 +1,22 @@
 # Ants
 
-*Current as of: 2026-09-13, when **a resting animal stopped being an animal
+*Current as of: 2026-09-14, when **the ground a new colony walks home to
+stopped looking painted on.** The worked earth went down as a row of
+identical little pale dashes, two cells on and one off, straight across —
+a dotted line rather than a place, and every cell of it the same flat colour
+while everything else in the world is mottled. It is a worn patch now: solid
+under the founders themselves, breaking into scattered single cells as it
+gets further out, and shaded cell by cell like the ground it replaced. It
+still drains, which is what the gaps were always for and has not been given
+up; the gaps are simply single cells set about rather than a comb. The same
+day, **a colony is founded where you are standing.** Founders used to be set
+out on a ruled line either side of you, and any place on that line that could
+not take one was skipped rather than swapped — so founding in a thicket
+seated a handful scattered across the whole width and charged you for them.
+They are placed from your feet outward now, onto the nearest ground that will
+hold one: on open ground the colony is the tightest huddle its bodies allow,
+and only ground that refuses anyone pushes the rest further out. Earlier, on
+2026-09-13, when **a resting animal stopped being an animal
 that has stopped.** An ant that has held one spot for a while now grows
 restless: it shifts, takes a step and settles again, and the longer it has
 been still the sooner that happens. Before, a fed ant with food in reach and
@@ -77,10 +93,11 @@ plants does see it, so grazing a standing stand is something a bloodline can
 walks home to used to be the one piece of the bed that could not soak up
 water; every misting left a film sitting on it, and since nothing walks into
 water, the whole colony simply lost its front door — food kept being picked up and none of it ever came home. The threshold
-has drains in it now: every third column of it is left as ordinary ground, so
-a film has one cell to travel before the earth drinks it. The door looks very
-slightly speckled and is otherwise the same place; a thin sheen can still
-catch on it after heavy misting. See "Coming home" below. The same day,
+has drains in it now: ordinary ground is left in it often enough that a film
+never has more than a cell to travel before the earth drinks it. The door is
+speckled at its edges and solid in the middle, and is otherwise the same
+place; a thin sheen can still catch on it after heavy misting. See "Coming
+home" below. The same day,
 **a nest became a place that holds a smell** -- ants blend with the
 mound they stand on, scent drift ships on at last, and two mounds nobody
 walks between become two colonies within a session. See "Who is family".

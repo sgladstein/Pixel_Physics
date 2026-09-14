@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 
 use pixel_physics::app::{HEIGHT, WIDTH};
 use pixel_physics::druid::hud::{self, Action};
-use pixel_physics::druid::{Druid, TICKS_PER_SECOND};
+use pixel_physics::druid::{founding, Druid, TICKS_PER_SECOND};
 use pixel_physics::lab::stats::Stats;
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
@@ -123,6 +123,18 @@ struct Handler {
     /// The action a press armed, so a button fires on release over *itself*
     /// rather than on press — see `Handler::act`'s call sites below.
     bar_pressed: Option<Action>,
+    /// **The same, for the founding screen** (item 3 of the 2026-09-14
+    /// playtest: *"fully controlled by arrow keys and/or wasd and/or
+    /// mouse"*). Separate from `bar_pressed` because the two are never armed
+    /// at once — the bar is not drawn while the screen is up — and one field
+    /// holding either would make "which thing did this release belong to" a
+    /// question with no answer in it.
+    ///
+    /// **No retained layout beside it, unlike `bar`.** `hud::offer_layout` is
+    /// pure in the viewport: the panel's shape depends only on
+    /// `founding::OFFERED`, which is a constant, so a click between frames is
+    /// already being tested against the rectangles the player was looking at.
+    offer_pressed: Option<hud::OfferHit>,
     /// **The biosphere page (item 1 of the playtest)** — also not on
     /// `Druid`, for the same reason the bar's own state is not.
     stats: Stats,
@@ -366,6 +378,7 @@ impl Handler {
             cursor: None,
             bar: hud::Bar::default(),
             bar_pressed: None,
+            offer_pressed: None,
             stats: Stats::new(),
             last_stats_state: None,
             result: Ok(()),
@@ -698,12 +711,35 @@ impl Handler {
         }
         if let Some(offer) = self.game.offer.as_mut() {
             match code {
-                KeyCode::KeyA => offer.step_pick(-1),
-                KeyCode::KeyD => offer.step_pick(1),
-                // **Three dials, and the body is the one the owner asked
-                // for**: *"more flexibility, especially on body shape and
-                // movement."* `Q`/`E` is the radius dial outside this screen,
-                // so it is the natural "cycle the thing you are sizing" here.
+                // **A cursor over a list, which is what makes it a menu.**
+                // Owner playtest, 2026-09-14: *"it should be fully controlled
+                // by arrow keys and/or wasd and/or mouse."* Six unrelated
+                // letters, one per dial, is a shortcut list wearing a panel;
+                // up and down over `founding::ROWS` plus left and right on
+                // whatever the cursor is on reaches every dial from every
+                // device, and the dial verbs themselves live in
+                // `founding.rs` so this arm and the click below cannot
+                // disagree about what left means.
+                KeyCode::ArrowUp | KeyCode::KeyW => offer.step_row(-1),
+                KeyCode::ArrowDown | KeyCode::KeyS => offer.step_row(1),
+                KeyCode::ArrowLeft | KeyCode::KeyA => offer.adjust(-1),
+                KeyCode::ArrowRight | KeyCode::KeyD => offer.adjust(1),
+                KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Space => match offer.activate() {
+                    founding::Activate::Commit => {
+                        self.game.commit_founding();
+                    }
+                    founding::Activate::Close => {
+                        self.game.close_founding();
+                    }
+                    founding::Activate::Done => {}
+                },
+                // **The old letters are kept, every one of them.** They are
+                // in nobody's way -- the new bindings are arrows, `ENTER` and
+                // the pointer -- and a player who has already learnt `Q`/`E`
+                // for the body should not have it taken away to make room for
+                // a menu that is *also* there. `Q`/`E` is the radius dial
+                // outside this screen, so it is still the natural "cycle the
+                // thing you are sizing" here.
                 KeyCode::KeyQ => offer.step_body(-1),
                 KeyCode::KeyE => offer.step_body(1),
                 KeyCode::KeyZ => offer.step_founders(-1),
@@ -715,7 +751,13 @@ impl Handler {
                 // out of a modal is the classic way to lose a session to one
                 // keystroke, and `X` -- lift, elsewhere -- is the natural
                 // "put this down" here too.
-                KeyCode::KeyX | KeyCode::Escape => self.game.offer = None,
+                //
+                // **Through `close_founding`, never `offer = None`**: shutting
+                // the screen is what saves the dials for the next open, and a
+                // second way to shut it is a second way to lose them.
+                KeyCode::KeyX | KeyCode::Escape => {
+                    self.game.close_founding();
+                }
                 _ => {}
             }
             return;
@@ -872,20 +914,94 @@ impl Handler {
     /// nobody can see would be the mouse disagreeing with the keyboard
     /// about who is in charge.
     fn mouse_button(&mut self, pressed: bool) {
-        if self.game.menu.is_some() || self.game.offer.is_some() {
+        if self.game.menu.is_some() {
             self.bar_pressed = None;
             return;
         }
         let Some((x, y)) = self.cursor else {
             self.bar_pressed = None;
+            self.offer_pressed = None;
             return;
         };
+        // **The founding screen takes the pointer as well as the keyboard**,
+        // under exactly the bar's own protocol -- press arms, release over
+        // the same thing fires, sliding off takes the press back. The bar
+        // itself stays suppressed while the screen is up, for the reason it
+        // always was: it is not drawn, and a click reaching a button nobody
+        // can see is the mouse disagreeing with the keyboard about who is in
+        // charge.
+        if self.game.offer.is_some() {
+            self.bar_pressed = None;
+            let hit = hud::offer_hit((WIDTH, HEIGHT), x, y);
+            if pressed {
+                self.offer_pressed = hit;
+            } else if let Some(armed) = self.offer_pressed.take() {
+                if hit == Some(armed) {
+                    self.offer_click(armed);
+                }
+            }
+            return;
+        }
         if pressed {
             self.bar_pressed = self.bar.hit(x, y);
         } else if let Some(action) = self.bar_pressed.take() {
             if self.bar.hit(x, y) == Some(action) {
                 self.act(action);
             }
+        }
+    }
+
+    /// **Tell the founding screen where the pointer is.**
+    ///
+    /// It is stored on the `Offer` rather than kept here beside the bar's own
+    /// cursor, because this game skips the repaint of a settled world and the
+    /// decision to repaint is `hud::Interface`'s frame-to-frame comparison of
+    /// itself. A hover held on `Handler` would move without that comparison
+    /// noticing and simply never be drawn -- the mouse reading as dead on the
+    /// one screen it was added for. The bar does not have this problem
+    /// because `draw_bar` is called by hand every frame with the cursor in
+    /// its arguments.
+    fn hover_offer(&mut self) {
+        let hit = self.cursor.and_then(|(x, y)| hud::offer_hit((WIDTH, HEIGHT), x, y));
+        if let Some(offer) = self.game.offer.as_mut() {
+            offer.hover = hit.map(|h| h.row());
+        }
+    }
+
+    /// **What a click on the founding screen means**, routed through the very
+    /// verbs the keys use (`founding::Offer::adjust`, `::activate`) rather
+    /// than through a second opinion about what each row does. `hud::Bar`'s
+    /// own `Action` indirection exists for the same reason and its doc says
+    /// so: *"there is no second copy of what SPACE does."*
+    fn offer_click(&mut self, hit: hud::OfferHit) {
+        let Some(offer) = self.game.offer.as_mut() else {
+            return;
+        };
+        offer.go_to(hit.row());
+        let outcome = match hit {
+            hud::OfferHit::Less(_) => {
+                offer.adjust(-1);
+                founding::Activate::Done
+            }
+            hud::OfferHit::More(_) => {
+                offer.adjust(1);
+                founding::Activate::Done
+            }
+            // **A click on `FOUND` founds, and a click on a lineage only
+            // picks it.** Landing on a row is already choosing it for the
+            // three that are a list; the two that are buttons are the only
+            // rows where arriving and acting are different things.
+            hud::OfferHit::Row(founding::Row::Found) | hud::OfferHit::Row(founding::Row::Leave) => offer.activate(),
+            hud::OfferHit::Row(_) => founding::Activate::Done,
+        };
+        match outcome {
+            founding::Activate::Commit => {
+                self.game.commit_founding();
+            }
+            founding::Activate::Close => {
+                self.game.close_founding();
+            }
+            founding::Activate::Done => {}
         }
     }
 }
@@ -980,10 +1096,13 @@ impl ApplicationHandler for Handler {
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor =
                     self.pixels.as_ref().and_then(|p| p.window_pos_to_pixel((position.x as f32, position.y as f32)).ok()).map(|(x, y)| (x as i32, y as i32));
+                self.hover_offer();
             }
             WindowEvent::CursorLeft { .. } => {
                 self.cursor = None;
                 self.bar_pressed = None;
+                self.offer_pressed = None;
+                self.hover_offer();
             }
             WindowEvent::MouseInput { state, button: MouseButton::Left, .. } => {
                 self.mouse_button(state == ElementState::Pressed);

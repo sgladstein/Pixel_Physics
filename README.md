@@ -8686,6 +8686,36 @@ pick one, pick how many founders to pay for (4–24), and spend the pool.
 committing rerolls them, which is the whole of what makes it a choice — a free
 reroll is a slot machine you play until you win.
 
+**It is a menu rather than a shortcut list, since 2026-09-14** — owner
+playtest: *"the found menu needs to be way improved. it should be fully
+controlled by arrow keys and/or wasd and/or mouse. When I change things they
+should stay as the default next time I open the menu. The game should pause
+when in the founding menu."* Three separate repairs, and the middle one turned
+out to be two bugs:
+
+- **A cursor over `founding::ROWS`** — body, the three lineages, the founder
+  count, and `FOUND`/`LEAVE` as rows of their own so the arrows have somewhere
+  to arrive. Up and down walk it (arrows or `W`/`S`), left and right work
+  whatever it is on (arrows or `A`/`D`), `ENTER` chooses. Every row carries a
+  hit box from `hud::offer_layout` — **one definition, read by the drawing and
+  by the click**, since a hit box that disagrees with the thing it is under is
+  `open-bugs-handoff.md` §R2 wearing a mouse — and the two dials carry `<`/`>`
+  ends so the pointer can work them rather than only select them. The press/
+  release protocol is the button bar's: a press is taken back by sliding off
+  it. **Every old letter still works**; nothing was taken away to make room.
+- **The dials survive a close** (`founding::Memory`). They did not:
+  `toggle_founding` built a fresh `Offer` on every open. **The same line was
+  eating the reroll** — `commit_founding` called `reroll` and *then* dropped
+  the offer, so the three it had just drawn went out with it and the next open
+  served attempt 0 again. "Committing is what costs you the other two" was the
+  design from day one and had never once happened in the game.
+- **Time stops while the screen is up** (`Druid::time_stopped`), *derived*
+  rather than written into `paused` — the alternative is saving and restoring
+  the player's own pause across a modal, and a restore that misses one exit
+  path unpauses a game they had deliberately stopped. Measured in
+  `examples/founding_shot`, with its control in the same run: twenty updates
+  move the clock by **0** with the screen open and by **20** with it shut.
+
 **Six stocks, and the five excluded species were each excluded for a measured
 reason.** `ancestor` and `flitter` declare no nest, so their animals stand on
 the ground with no home gradient and nobody forages; `beetle` carries **zero**
@@ -8756,6 +8786,24 @@ seated **3**, because `colony_stations` lays out a corridor and a station that
 does not fit is declined. Paying 224 for three animals is unfairness a player
 notices at once and cannot see the cause of. Affordability is still checked
 against the full ask, so a founding can never overdraw the pool.
+
+**And the colony now lands at his feet rather than on a ruled line**, owner
+playtest 2026-09-14: *"when founding ants sometime they are not founding far
+away from me. it should still happen right under or next to the druid."*
+`colony_stations` decided every offset before it looked at the ground and
+dropped the ones that were not sites, so a stand whose middle is blocked
+seated nobody near him and scattered the survivors over the band's full width.
+It walks outward from the cursor a column at a time now, taking the first that
+is a site and keeping a body's corridor between any two — so the nearest
+ground is claimed first and distance is only ever paid where the near ground
+refused. Measured by `a_colony_is_founded_at_his_feet`, watched red against
+the band it replaced: nine columns of trunk through the middle of a stand
+seated **6 of 8** on the band and **8 of 8** on the walk.
+
+**It is close to a no-op on ground that is all site**, which is what keeps it
+safe for the lab — `found_colony_of` is shared, and the lab's beds are flat,
+so the first column taken is the cursor's own and every later one lands on the
+same lattice. `PIXEL_PHYSICS_COLONY_BAND=1` is the paired arm, in one binary.
 
 ### The options menu
 

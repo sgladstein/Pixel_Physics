@@ -628,6 +628,13 @@ pub struct Druid {
     /// leaves the same three standing, and only committing rerolls. See
     /// [`founding`].
     pub offer: Option<founding::Offer>,
+    /// **What the founding screen was left set to.** Owner playtest,
+    /// 2026-09-14: *"When I change things they should stay as the default
+    /// next time I open the menu."* See [`founding::Memory`] for the two
+    /// bugs that were one bug, and why the dials could not simply live on
+    /// [`Druid::offer`]: that field is `None` while the screen is shut, which
+    /// is exactly when the choices have to survive.
+    pub offer_memory: founding::Memory,
     /// How many seeds the player has sown, for the readout — *"did it fire at
     /// all needs a counter"*, and a seed dropped outside a quickening does
     /// nothing visible until time reaches it, so the picture cannot say.
@@ -824,6 +831,7 @@ impl Druid {
             trail: std::collections::VecDeque::new(),
             menu: None,
             offer: None,
+            offer_memory: founding::Memory::default(),
             reserves: std::collections::HashMap::new(),
             draws: Vec::new(),
         }
@@ -1045,6 +1053,7 @@ impl Druid {
             trail: std::collections::VecDeque::new(),
             menu: None,
             offer: None,
+            offer_memory: founding::Memory::default(),
             reserves: std::collections::HashMap::new(),
             draws: Vec::new(),
         }
@@ -1389,10 +1398,44 @@ impl Druid {
     /// closing is genuinely walking away rather than declining, and the same
     /// three lineages are there when you come back.
     pub fn toggle_founding(&mut self) {
-        if self.offer.take().is_some() {
+        if self.close_founding() {
             return;
         }
-        self.offer = Some(founding::Offer::new(self.world.seed));
+        self.offer = Some(founding::Offer::resumed(self.world.seed, self.offer_memory));
+    }
+
+    /// **Shut the screen, keeping what it was set to.** Returns whether it
+    /// was open, so [`Druid::toggle_founding`] can be one line of it.
+    ///
+    /// The saving is the whole of this function, and it is why closing is not
+    /// `self.offer = None` at four call sites: three of them forgot, which is
+    /// the shape `CLAUDE.md` warns about when a guard has to be remembered
+    /// rather than made a command.
+    pub fn close_founding(&mut self) -> bool {
+        match self.offer.take() {
+            Some(offer) => {
+                self.offer_memory = offer.memory();
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// **Whether the clock is stopped.**
+    ///
+    /// Owner playtest, 2026-09-14: *"The game should pause when in the
+    /// founding menu."* Derived rather than stored — the screen opening does
+    /// **not** write `paused`, it only answers this — because the alternative
+    /// is saving and restoring the player's own pause across the modal, and a
+    /// restore that misses one exit path unpauses a game the player had
+    /// deliberately stopped. A derived answer cannot get that wrong.
+    ///
+    /// It is also the honest reading of what the screen is: a founding is
+    /// *"the one act in this game you do not get back"*, and reading three
+    /// lineages while the world keeps eating the ground you are standing on
+    /// is a decision taken under a clock nobody asked for.
+    pub fn time_stopped(&self) -> bool {
+        self.paused || self.offer.is_some()
     }
 
     /// **Put the chosen lineage in the ground.**
@@ -1525,7 +1568,11 @@ impl Druid {
         if let Some(offer) = &mut self.offer {
             offer.reroll();
         }
-        self.offer = None;
+        // **Through `close_founding`, so the reroll is kept.** It used to be
+        // `self.offer = None`, which dropped the three that had just been
+        // drawn -- so the next open served attempt 0 again and "committing is
+        // what costs you the other two" had never once happened in the game.
+        self.close_founding();
         placed
     }
 
@@ -1777,7 +1824,7 @@ impl Druid {
 
     /// One tick.
     pub fn update(&mut self) {
-        if self.paused {
+        if self.time_stopped() {
             return;
         }
         self.ticks += 1;
