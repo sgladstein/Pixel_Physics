@@ -1,0 +1,54 @@
+{
+  "id": "20260914T050513804Z-623a4b",
+  "created": "2026-09-14T05:05:13Z",
+  "board": "creature",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/thicket-founding",
+    "commit": "33dcd498",
+    "agent": null,
+    "session_id": "2fbd9462-1374-56a3-b250-2d069183dfee",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Founding a colony while standing in a thicket",
+  "question": "Which of these reads as a colony that has actually taken hold in the undergrowth?",
+  "context_md": "Your playtest note, 2026-09-14: *\"it should be easier to found a colony while standing in a thicket of plants.\"*\n\nSame world, same seed, same stand, same frame. One press of the found-a-colony key in each.\n\n**What was wrong.** Founding looked at the *soil* and wanted air directly above it. A forest floor never has that — it has root, stem base, grass blade, moss or fallen leaf — so a wood was the one place you could not start a colony. Censused on this world: 86 of 221 columns would take an ant in a grown wood, against 176 on bare ground, and every single refusal was a plant cell.\n\n**What it does now.** It climbs through the plants to the first free cell, so an ant stands *on* the mat rather than being refused by it.\n\n**The thing I cannot judge and you can.** Those ants are standing on grass and leaf, not on soil. I think that is right — the engine already lets an ant walk onto a leaf and treats a plant as something to stand on — but standing on foliage is exactly the kind of thing that is correct in the rules and looks like floating on screen. If it reads as floating, say so: the depth it will climb is one number and easy to pull back.\n\n**Not in this picture, and worth knowing:** on a *fully* grown world this key still seats almost nobody, and that turned out to be nothing to do with plants — the world runs out of organism slots (4,095 of 4,095) and the game then says \"no ground here\", which is simply wrong. Filed separately as §Z21.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before",
+      "files": [
+        "20260914T050513804Z-623a4b/000-card_off.png"
+      ],
+      "caption": "the rule as shipped",
+      "meta": {
+        "ants placed by the key": 2,
+        "spots the ground offered": 4,
+        "plants standing on the soil here (columns of 221)": 135
+      },
+      "focus": null
+    },
+    {
+      "label": "after",
+      "files": [
+        "20260914T050513804Z-623a4b/001-card_default.png"
+      ],
+      "caption": "a mat of plants counts as floor",
+      "meta": {
+        "ants placed by the key": 7,
+        "spots the ground offered": 12,
+        "plants standing on the soil here (columns of 221)": 135
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
