@@ -1,0 +1,84 @@
+{
+  "id": "20260914T063034460Z-989679",
+  "created": "2026-09-14T06:30:34Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-food-road",
+    "commit": "33d09ea7",
+    "agent": null,
+    "session_id": "5b5b9407-c48e-5780-ab66-7933129bc360",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Where this colony's food comes from, and how it moves",
+  "question": "With it on (B), can you tell where the food is coming from and which way it travels?",
+  "context_md": "New view in the lab, **`F7`** (off / food road / harvest map / both). Same bed, same 5,600 frames, scrub the two together.\n\n- **amber hatch** — ground the colony has taken food out of, in that colony's own colour, brighter and denser the more it has given up. It fades over about a minute of play, so it is where they are working *now*, not everywhere they have ever been.\n- **red-orange line** — an ant walked here **carrying**. White-hot where the traffic is heaviest.\n- **blue line** — an ant walked here with nothing.\n\nThe hatch is deliberately see-through: painted solid it covered the very plants it was pointing at.\n\n**What I am unsure of and would rather you judged than I did:** whether the amber reads as *ground that fed them* or just as a stain over the plants, and whether the blue is useful context or clutter. It ships off by default.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — as the lab looks today",
+      "files": [
+        "20260914T063034460Z-989679/000-frame_0000.png",
+        "20260914T063034460Z-989679/001-frame_0001.png",
+        "20260914T063034460Z-989679/002-frame_0002.png",
+        "20260914T063034460Z-989679/003-frame_0003.png",
+        "20260914T063034460Z-989679/004-frame_0004.png",
+        "20260914T063034460Z-989679/005-frame_0005.png",
+        "20260914T063034460Z-989679/006-frame_0006.png",
+        "20260914T063034460Z-989679/007-frame_0007.png",
+        "20260914T063034460Z-989679/008-frame_0008.png",
+        "20260914T063034460Z-989679/009-frame_0009.png",
+        "20260914T063034460Z-989679/010-frame_0010.png",
+        "20260914T063034460Z-989679/011-frame_0011.png",
+        "20260914T063034460Z-989679/012-frame_0012.png",
+        "20260914T063034460Z-989679/013-frame_0013.png",
+        "20260914T063034460Z-989679/014-frame_0014.png"
+      ],
+      "caption": "the control: same world, same frames, nothing drawn over it",
+      "meta": {
+        "ants alive (carrying right now)": "37 (29)"
+      },
+      "focus": null
+    },
+    {
+      "label": "B — F7, road + harvest",
+      "files": [
+        "20260914T063034460Z-989679/015-frame_0000.png",
+        "20260914T063034460Z-989679/016-frame_0001.png",
+        "20260914T063034460Z-989679/017-frame_0002.png",
+        "20260914T063034460Z-989679/018-frame_0003.png",
+        "20260914T063034460Z-989679/019-frame_0004.png",
+        "20260914T063034460Z-989679/020-frame_0005.png",
+        "20260914T063034460Z-989679/021-frame_0006.png",
+        "20260914T063034460Z-989679/022-frame_0007.png",
+        "20260914T063034460Z-989679/023-frame_0008.png",
+        "20260914T063034460Z-989679/024-frame_0009.png",
+        "20260914T063034460Z-989679/025-frame_0010.png",
+        "20260914T063034460Z-989679/026-frame_0011.png",
+        "20260914T063034460Z-989679/027-frame_0012.png",
+        "20260914T063034460Z-989679/028-frame_0013.png",
+        "20260914T063034460Z-989679/029-frame_0014.png"
+      ],
+      "caption": "amber = ground they took food from; red-orange = walked carrying; blue = walked empty",
+      "meta": {
+        "steps taken carrying food": 814,
+        "steps taken empty-handed": 405,
+        "mouthfuls taken out of the world": 1603,
+        "food value taken out of the world": 372640,
+        "ants alive (carrying right now)": "37 (29)",
+        "ground marked as a source": "26 patches",
+        "extra time per frame with this on": "+1.6 ms of 3.9 while things move, +1.7 of 2.0 once they stop"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
