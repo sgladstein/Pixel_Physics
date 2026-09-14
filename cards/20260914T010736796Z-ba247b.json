@@ -1,0 +1,37 @@
+{
+  "id": "20260914T010736796Z-ba247b",
+  "created": "2026-09-14T01:07:36Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/determined-ramanujan-c9szc5",
+    "commit": "d10a1cea",
+    "agent": null,
+    "session_id": "79abafe2-f617-546c-9fed-7bebff67abba",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Founding, rebuilt: you choose the body, the world rolls the bloodline",
+  "question": "You asked for more flexibility on body shape and movement. Three dials now: Q/E the body, A/D the lineage, Z/V how many. Is the body the right thing to have taken out of the roll — and is there a dial still missing?",
+  "context_md": "**The split is the change.** The first version rolled the body too, so you got three random animals. Now the body is a standing choice that applies to all three lineages on offer, and only the bloodline is rolled.\n\n**The body choice is not cosmetic — it settles how the animal moves.** Six stocks: the common ant (two cells, dies whole), the hopper (the only shipped animal that actually jumps), the long ant (six cells, loses a tail and lives), the segmented ant (jointed, bends round corners), the broad ant (nine cells, digs a room), and pale chitin (plated from birth, twice an ant to bite through).\n\n**Two of the six rolled traits are movement**: how fast it lives, and how tightly it turns. Both visible in this roll — LINE 1 turns tight, LINE 2 and 3 turn wide.\n\n**Costs 170 / 209 / 144 against a pool of 600**, all affordable, so the choice is not made for you. Changing the body changes all three costs together, which is the dial doing something.\n\nStill not built, and I would rather say so than have you find it: step 2 of the concept's own founding ritual — writing instincts as sentences. Rolling the brain is unsafe (a rolled genome gives you a colony that cannot forage and looks merely unlucky), but *writing* one is not, and the plain-speech genome readout that would have to become writable already exists.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260914T010736796Z-ba247b/000-founding2.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
