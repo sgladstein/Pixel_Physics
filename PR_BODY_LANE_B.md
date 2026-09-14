@@ -50,7 +50,7 @@ the patch ended in a straight line of crumbs); a fringe bounded at
 all the player sees, because the core is under his feet); a square taper from
 the centre (25 → **13** columns, a door too small to be one).
 
-**This one is judge-by-eye and is with the owner**, blind, three arms
+**This one is judge-by-eye and is still with the owner**, blind, three arms
 (shipped / grain only / both) so the two halves of the change can be told
 apart: card `20260914T203358857Z-2a28fa`. It also asks the question I could not
 settle myself — whether the complaint is the *pattern* or the pale *colour*.
@@ -117,7 +117,8 @@ Three clauses; the middle one turned out to be two bugs.
   run — twenty updates move the clock by **0** with the screen open and by
   **20** with it shut.
 
-Before/after card with the owner: `20260914T203509792Z-1d6a4f`.
+Before/after card with the owner: `20260914T203509792Z-1d6a4f` — **answered,
+the owner chose "after"**.
 
 ### Guards, each watched red
 

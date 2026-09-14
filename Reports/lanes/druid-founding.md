@@ -123,13 +123,24 @@ lab-visible change; review card
 `20260914T203358857Z-2a28fa` asks him which reading it is, with a
 grain-only pane between the two so the two halves can be told apart.
 
-## Review cards out
+## Review cards
 
-- `20260914T203358857Z-2a28fa` — the ground after a founding, three arms,
-  blind. **Decode the prose through `blind_was` before acting on it.**
 - `20260914T203509792Z-1d6a4f` — the rebuilt menu, before/after, not blind.
+  **Answered 2026-09-14 21:26Z: the owner chose "after"**, no comment. Item 3
+  is approved as it stands.
+- `20260914T203358857Z-2a28fa` — the ground after a founding, three arms
+  (shipped / grain only / both), **blind**, still open. **Decode the prose
+  through `blind_was` before acting on it** — on a blind card the stored
+  `choice_label` and the owner's sentence are in different namespaces, and
+  this repo has already misread one verdict for that reason. The third clause
+  of its question is the one that matters for what happens next: if the answer
+  is *the colour*, the fix is `assets/materials/nest.ron` and it is a
+  lab-visible change, so it wants its own decision rather than being folded
+  into this branch.
 
-Both `owner_can_see_it: true`, verified present on `origin/review-queue`.
+Both `owner_can_see_it: true`, verified present on `origin/review-queue` by
+fetching the ref rather than trusting the local one (a stale
+`origin/review-queue` said "not on remote" about a card that was).
 
 ## Gates
 
