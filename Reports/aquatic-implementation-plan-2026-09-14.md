@@ -159,6 +159,15 @@ about could hide inside it. Two consequences for the briefs:
   reproduces at 6 seeds across three quite different beds, which is a cleaner
   statement of the long-horizon problem than any aquatic question.
 
+**The three arms, so this is reproducible without shipping two more beds.**
+The water arm is `the_pond_stocked.ron` as it ships. The **dry pit** arm is
+that file with the one `Fill(material: "water", …)` line deleted. The **flat
+bed** arm is that file with the `Clear`, both stone walls, the stone floor and
+the water all deleted — the same plants and the same frame-6,000 colony on an
+untouched bed. Drop the three into a directory and point
+`PIXEL_PHYSICS_LAB_SCENARIOS` at it; `labshot scenario=<arm> seed=<n>
+frames=90000` is the run, and `seed=` overrides the scenario's own bed seed.
+
 **Six seeds is not a sweep**, and this repo has measured that specifically:
 §S2's anchor-rule census read 1.64x over its first six seeds and 1.08x over the
 next twelve. Treat the table above as ruling out a *large* water effect, not as
