@@ -129,10 +129,18 @@ the renderer's copy is *stale by design*, and that sizing a buffer from it
 The authoritative pair must live in one place that owns both halves — not in
 the renderer with callers guessing when to push.
 
-## 6. The rung-3 hole — the card is answered; one half is still open
+## 6. The rung-3 hole — CLOSED 2026-09-14: stop 3 is off the ladder
 
-**Half of this section is settled by the owner's eye and half is not. Read
-which is which before acting on either.**
+**Both halves are now settled by the owner's eye. This section is kept for how
+it was settled, not as an open question — nothing here is waiting on anybody.**
+
+> **The answer, verbatim, on card `20260914T084458895Z-ae1b01`: _"get rid of stop
+> 3"_.** Landed as `render::ZOOM_OUT_RUNGS = [1, 2, 4]`, stepped by
+> `Renderer::adjust_zoom` in both directions, in all three games — it is the
+> renderer that makes 3 blocky, not any one world. **Stride 3 survives as a
+> *state* and not as a *stop*:** `zoom_within` clamps the ladder to
+> `max_zoom_out_stride`, which may land on 3 for a box needing exactly three
+> screens to cover. A cap is not a stop, and three owner rulings sit on that cap.
 
 The defect, for the record. The ladder is `1, 2, 3, 4` and the budget is a
 power of two, so **at rung 3 the budget buys nothing** — `pixel_scale_for`
@@ -168,7 +176,7 @@ through, the owner answered *"Keep rung 3 as a soft stop"* — **and then said h
 did not know what "soft stop" meant.** That is a fair complaint about the
 question: it was asked in the coordinator's vocabulary rather than the world's,
 and an answer to a question the reader could not parse is not a verdict.
-**So this half is recorded as ASKED AND NOT YET ANSWERED**, pending a re-ask in
+**That half was recorded as ASKED AND NOT YET ANSWERED until 2026-09-14**, pending a re-ask in
 plain words: *zooming out has four steps, the third is blurry and the rest are
 sharp — leave it, or delete the third step so every step is sharp and you lose
 the one that fits the world's whole height?*
@@ -198,13 +206,16 @@ photograph-the-shipped-renderer move recorded below.
 
 | option | standing |
 |---|---|
-| Leave rung 3 a soft stop | **Provisional** — his answer, given to a question he then said he could not read. It is also the status quo, so it is what holds while the question is re-asked. |
-| Drop 3 from the ladder (`1, 2, 4`) | **Still live.** Small change if he wants it. |
-| Non-power-of-two budget | **Rejected** — he was shown it as a live pane and did not take it. `Reports/dead-ends.md`. |
+| Leave rung 3 a soft stop | **Rejected 2026-09-14.** It had been provisional — his answer to a question he then said he could not read — and it did not survive the re-ask in plain words. |
+| Drop 3 from the ladder (`1, 2, 4`) | **CHOSEN and landed.** `render::ZOOM_OUT_RUNGS`, with a guard (`stride_three_is_not_a_stop_in_either_direction`) watched going red against both halves of the step put back to `+/- 1`. |
+| Non-power-of-two budget | **Rejected, and now harder to reach** — he was shown it as a live pane and did not take it, and the rung it would have sharpened is off the ladder. The only surviving route is a box whose cap lands on 3. `Reports/dead-ends.md` `rendering:049`. |
 
-**So: nothing in `pixel_scale_for` changes either way**, and no work is blocked
-— both live options are `1,2,3,4` as it ships or a one-line ladder edit, and
-the held world's zoom can be built against the shared rungs regardless.
+**Nothing in `pixel_scale_for` changed, as predicted** — the ladder edit was the
+whole of it, and the held world's zoom builds against the shared rungs either way.
+**What the prediction got wrong is worth keeping**: this section called it *"a
+one-line ladder edit"* and it was not, because the ladder is walked in **two**
+directions. Skipping 3 on the way out and still stepping through it on the way
+back in is a bug a single-press test passes and a player sees immediately.
 
 **What `spend=any` proved on the way, and it is the reusable part.** The
 non-power-of-two option was *rendered from the shipped renderer rather than
