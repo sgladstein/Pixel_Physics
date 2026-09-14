@@ -1,15 +1,28 @@
 ---
 name: lab-coordinator
-description: Run a round of the evolution lab as coordinator — spawning lanes as cloud sessions, choosing each lane's model, reaching a lane once it is running, and closing the round out. Use when you are coordinating other sessions in this repo, when you have been asked to run or close a lab round, or when you need the mechanics of talking to a session you spawned. Also read it if you were spawned BY a coordinator and need to know how to answer one.
+description: Run a round of parallel cloud sessions as coordinator, for ANY program in this repo — the evolution lab, the held world (druid), a plant or perf round, anything. Covers spawning lanes so they actually have a repository, choosing each lane's model, reaching one once it is running, and closing the round out. Use BEFORE you spawn or brief another session, whatever the subject: the spawn mechanics are the same for every program and getting them wrong costs the whole round. Also read it if you were spawned BY a coordinator and need to know how to answer one. (The name says lab for historical reasons; the contents are not lab-specific.)
 ---
 
 # Coordinating a round
 
 A round is: brief several lanes, spawn each as its own cloud session, let them
 build, keep them honest, land their work, and write the next round's brief.
-The lab itself (`cargo run --release --bin lab`) is described in
-`Reports/lanes/evolution-lab-coordinator.md` — **read that first for what the
-round is about**. This file is only about *running* sessions.
+
+**This file is about *running* sessions and nothing else, so it applies to
+every program in this repo — not only the lab.** That is worth saying at the
+top because the name did not say it and a round was lost to exactly that:
+2026-09-14, a coordinator running a **held-world** round did not invoke this
+skill, because it is called `lab-coordinator` and the round was not about the
+lab. It then made the precise mistake the next section exists to prevent, on
+four lanes at once. `CLAUDE.md`'s own rule for rules — *state the rule
+universally, put the subsystem in the evidence clause; would an agent working
+on weather recognise this as theirs?* — applies to skills, and this one failed
+it.
+
+**What the round is *about* lives elsewhere, per program**: the lab in
+`Reports/lanes/evolution-lab-coordinator.md`, the held world in README's
+`Held world status` and `Reports/held-world-game-concept-2026-09-13.md`. Read
+your program's note for the subject; read this for the machinery.
 
 Everything here was paid for. Where a rule cites a measurement, that
 measurement is the reason the rule exists, and re-deriving it costs what it
