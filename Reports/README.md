@@ -2809,6 +2809,24 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   deposit is inaudible to anyone but the displayer, which is the measurement
   `contest.rs` asked for. Ships one dial (`set_channel_diffuse`) and two
   harnesses; **no default moved**.
+- [nest-design-2026-09-14.md](nest-design-2026-09-14.md) — **research and
+  a recommendation, 2026-09-14. `lab`/`held`/`engine`.** What a nest should
+  *be*, against the owner's two proposals (a world location, not a material;
+  a blob so a dug door can still be reached) and the brief's sequencing
+  claim (trail first). Real ant homing is path integration corrected at
+  short range by the nest's own plume, never the queen; every other colony
+  sim attaches home to a coordinate. **Measured with `examples/nesthome`**:
+  the 414-delivery scene places 15 of its 55 ants and has no channel A by
+  frame 6,000, so it is not a homing scene; on the played bed cutting the
+  homing circuit entirely leaves deliveries inside the noise between two
+  mechanically identical arms (up to 3.6x on one seed), so **nothing steers
+  a laden ant home today** and the owner's "the nest does nothing" is right
+  in the strong sense; the patch is never dug (`lost 0`) because the crust
+  is 6.0 against a jaw ceiling of 2.0. **Recommends** a site-based `AtNest`
+  with a `nest_reach` dial (the site, the odour and the per-ant anchor
+  already exist), the material kept as paint, the crust dropped, and a
+  per-ant home bearing built next — the trail ordering is wrong, the nest
+  work can start now. No `src/` change; nothing landed.
 - [evolution-lab-round-36-brief-2026-09-14.md](evolution-lab-round-36-brief-2026-09-14.md)
   — **brief, 2026-09-14, rewritten the same day. `lab`/`engine`.** What round 36
   is for. **The first version led with performance and was wrong at the top**:
