@@ -173,6 +173,16 @@ frames=90000` is the run, and `seed=` overrides the scenario's own bed seed.
 next twelve. Treat the table above as ruling out a *large* water effect, not as
 a measurement of a small one.
 
+**Confirmed a third time, on a different instrument, in §1.8.** The same water
+and dry beds raced through `creature_arena arm=lethal` — the sharpest
+discrimination test the lab has, rather than a colony count — read median
+**33.3% against 35.3%**, 5 of 6 seeds against 6 of 6. Three instruments have
+now failed to tell a pond from the same hole left dry. That is not yet proof
+there is nothing to find, and §1.8 says why it could not be: at one to
+seventeen survivors these beds have very little power. But it does mean **no
+brief should be written on the premise that the water alone is spatial
+structure**, and the plan does not write one.
+
 ### 1.5 A method note worth keeping: the instrument said the opposite of the picture
 
 Building §1.3 I first tried a **soil-floored** basin so a plant could root in
@@ -252,6 +262,62 @@ Two cautions that cost time here:
 `the_pond_sediment.ron`**, and neither is a drop-in for the other. This is the
 `CLAUDE.md` rule about a scene failing to contain the defect you are removing,
 met in advance for once.
+
+### 1.8 Gate 2 on the pond bed: it passes, and it will still not see a swimmer
+
+**The question this answers is whether Phase 2 can be judged at all**, and it
+was taken before any of Phase 2 was written, per `CLAUDE.md`'s *check that a
+planned step can demonstrate itself before promising it will*. `creature_arena
+arm=lethal` races the shipped ant against a **zeroed** brain: if a bed cannot
+put that arm behind, nothing measured in it is interpretable. It could not be
+pointed at a pond until §6's harness change; this is its first run there.
+
+Three arms, one binary (md5 recorded before and after the sweep and identical),
+`RAYON_NUM_THREADS=4`, six seeds, 24,000 frames — which is the **18,000 the
+grant needs after a 6,000-frame founding**, not the 12,000 the grant alone
+suggests.
+
+| arm | per-seed B share | median | seeds with B behind | survivors of 52 |
+|---|---|---|---|---|
+| **water** (`the_pond_shore`) | 26.7, 28.6, 30.0, 50.0, 43.8, 33.3 | **33.3%** | 5 of 6 | 15, 7, 10, 2, 16, 6 |
+| **dry** (same file, water `Fill` deleted) | 42.9, 36.4, 28.6, 0.0, 35.3, 0.0 | **35.3%** | 6 of 6 | 14, 11, 7, 6, 17, 1 |
+| **flat** (the default flag bed) | 25.0, 25.0, 0.0, 0.0, 0.0, 0.0 | **0.0%** | 6 of 6 | 4, 4, 1, 0, 2, 2 |
+
+**All three beds have teeth, so Phase 2 has a bed it can be judged in.** That
+is the finding the phase needed and it is a green light.
+
+**Water against dry is the only clean comparison here, and it shows nothing.**
+The two files differ by one line — the placement counter reads 11,552 cells
+against 6,688, and the difference of **4,864 is exactly 152 x 32**, the water
+fill and nothing else. Median 33.3% against 35.3%, 5 of 6 against 6 of 6: the
+water is not distinguishable from the same hole left dry. That is the **third**
+independent arrival at §1.4's finding, now on the sharpest instrument the lab
+has rather than on colony size.
+
+**Do not read the flat bed's 0.0% as "the pond discriminates worse."** It is
+the comparison that is broken, not the beds: the flat arm founds at frame 0 and
+gets 24,000 frames of mortality where the pit arms found at 6,000 and get
+18,000, so it differs in exposure, in larder and in bed all at once. Its
+survivor counts say the same thing from the other side — **4, 4, 1, 0, 2, 2 of
+52 founders**, a near-total wipeout in which "B share 0%" is a statement about
+one to four animals. A bed that kills almost everyone eliminates the weaker arm
+by attrition, which looks like sharper discrimination and is not the same
+claim.
+
+**And the result that governs Phase 2 is in the survivor column, not the share
+column.** `arm=lethal` is a **maximal-effect** test — a brainless ant against a
+whole brain is the largest fitness difference this bed can be shown, and
+`Reports/instruments.md` already records that this bounds what passing
+licenses: small-effect races null in this harness on a power problem, which is
+why flight nulled. A swim verb is a small effect, and these beds end with
+**one to seventeen animals**. So Gate 2 passing licenses the bed and says
+nothing about whether a swimmer would be visible in it.
+
+**This is the plan's own §3 instruction, now measured rather than argued: judge
+Phase 2 by the verb's own counters — submerged ticks, drownings, swim moves,
+and above all cells of food eaten while submerged — never by colony size.** A
+swim arm raced on population in this bed would null, and a null there would be
+a statement about the bed's power, not about the verb.
 
 ---
 
