@@ -994,6 +994,36 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology  ·  `engine`
 
+- [animal-conflict-research-2026-09-14.md](animal-conflict-research-2026-09-14.md)
+  — **research plus implementation, 2026-09-14, round 35 lane D. `engine`.**
+  When animals fight, why they mostly do not, and what this engine can do
+  about it: the contest literature, then a mapping onto every lever we have,
+  then a build. **The finding that reframes the question: a stranger is
+  already food.** `ant` material is `food_class: 1.0` against a neutral gut,
+  so the moment two colonies fall outside each other's tolerance each is prey
+  to the other's **ordinary mouth** — total `eats` **54 → ~1,100** from
+  nothing but turning kin recognition on, with cross-colony kills outnumbering
+  `Attack` kills. The engine models **intraguild predation** by default and
+  **interference competition** only through the unwired `Attack` verb. Two
+  more measured corrections: **`scent_spread = 1.0` does not make two
+  colonies strangers** (4.2% of ordered pairs, one seed in four never meets;
+  it saturates at 0.497 by `spread=4`, which is the ceiling), and
+  **`nearest_foe` targets any living non-kin *organism*, so an armed ant
+  bites plants** — pre-existing, invisible because no shipped species authors
+  `Attack`, caught by the new arena's specificity control in its first
+  minute. **Built:** `sim::contest`, assessment before commitment — the
+  engine's own `(bite/armour)²` both ways round plus the local numerical
+  odds, through a floored logistic, so an encounter is graded rather than a
+  coin with one face; a withdrawal writes a quiet alarm mark, which is the
+  *Myrmecocystus* tournament and the verb the second law asks for. **94% of
+  contact is now withdrawal** (escalation 0.058, stable across a tenfold
+  range of contact), against 100% escalation before. Ships **on**, four dials
+  in the environment, invisible to everything that ships and byte-identical
+  down to the random stream when off. `COMMIT_FLOOR` is the
+  capacity-not-exemption rule `dead-ends.md` :272/:276/:403 binds this to.
+  **§10 is six things it deliberately does not build**, dear-enemy/nasty-
+  neighbour first, because the sign of that effect is genuinely unsettled in
+  ants. Instrument: `examples/conflict_arena.rs`
 - [colony-economy-design-2026-09-09.md](colony-economy-design-2026-09-09.md)
   — **design of record for the creature line's energy economy, 2026-09-09.
   Nothing built.** Asks the question §Z6's diagnosis leaves open — *where does
