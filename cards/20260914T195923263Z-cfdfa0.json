@@ -1,0 +1,54 @@
+{
+  "id": "20260914T195923263Z-cfdfa0",
+  "created": "2026-09-14T19:59:23Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/druid-look",
+    "commit": "9fd637a7",
+    "agent": null,
+    "session_id": "14a7ca69-3c22-5406-8545-a1ad6dc7a692",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Three bubbles placed on top of each other",
+  "question": "Does the cluster now read as one shape, rather than as three circles crossing?",
+  "context_md": "Your first item: *\"when you place multiple overlapping, they should merge instead of just looking like overlapping circles.\"*\n\nThree circles placed so each cuts well into its neighbour, plus the one he is carrying. The only difference between the two panes is the merge rule — same three circles, same speed, same band depth — so nothing else here should move.\n\nWhat changed underneath: each circle used to draw its own rim all the way round, including the stretch buried inside its neighbour. Now the rim is drawn on the edge of the *union*, so a bubble stops drawing where it is inside another one.\n\n**The carried bubble is in both panes** (the warm one at his feet) and merges with the cluster the same way. The thin grey outline around him is the placement preview and is not part of this.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before",
+      "files": [
+        "20260914T195923263Z-cfdfa0/000-m_before.png"
+      ],
+      "caption": "each circle draws its own full rim",
+      "meta": {
+        "bubbles placed": 3,
+        "bubbles drawn as haze": "3 standing + 1 carried",
+        "ground pixels the haze tinted": 4419
+      },
+      "focus": null
+    },
+    {
+      "label": "after",
+      "files": [
+        "20260914T195923263Z-cfdfa0/001-m_after.png"
+      ],
+      "caption": "the rim follows the edge of the union",
+      "meta": {
+        "bubbles placed": 3,
+        "bubbles drawn as haze": "3 standing + 1 carried",
+        "ground pixels the haze tinted": 2450
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
