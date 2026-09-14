@@ -68,75 +68,45 @@ touched it.
 
 ## Item 4 — no seeds in the generated world
 
-### The brief's trace was right, and it is three asset lines
+The brief's trace was right in every particular, and the first half really is
+three zeroed densities in `assets/worldgen.ron`. The paired ablation table
+(`life_scatter` 993 cells → 0, every other pass byte-identical) is in the PR
+body. Two things about it that are not:
 
-`assets/worldgen.ron`, the `druid` preset: `moss_density`, `tree_density`,
-`grass_density` all to `0.0`. `passes::life_scatter` early-outs on all three
-at zero, which is the path `arid` and `flat` already take.
-
-**Measured rather than assumed**, paired, one binary and two copies of the
-file (`pass_ablation seeds=1 preset=druid`):
-
-| | before | after |
-|---|---|---|
-| `life_scatter` | **993** | **0** |
-| `soil_blanket` | 1,239,668 | 1,239,668 |
-| `ponds` | 94,493 | 94,493 |
-| `soil_moisture` | 1,223,852 | 1,223,852 |
-| `moisture_init` | 71,324 | 71,324 |
-
-The before-arm is the positive control: the instrument reads a known non-zero
-case at 993 and the same case at 0 with only the densities changed. Every
-other pass is byte-identical across the arms, so nothing was displaced into a
-different pass.
-
-`Start::Bare` never grows (`grow = 0`), and nothing else in the generator
-plants, so that is the whole of it. `Start::Bare`'s doc said "plus
-`life_scatter`'s single seed cell per plant" and has been corrected.
-
-### The registry gotcha did not bite, and here is the evidence
-
-`tests/worldgen.rs` sweeps `presets()` and one guard asserts not one cell
-moves in the 120 frames after generation. Removing falling seed powder should
-make that guard *happier*, and it does — full `cargo test --release` green
-(numbers in the PR body). `bash scripts/worldgencheck.sh` green.
-
-The half of that guard worth naming: `life_scatter` still writes on other
-presets, so the every-pass-writes-somewhere half of `worldgencheck` is
-unaffected. A change that zeroed it on *every* preset would have failed there,
-which is the check doing its job.
+- **The before-arm is the positive control**, which is the only reason the 0
+  means anything: the same instrument reads a known non-zero case at 993 with
+  nothing changed but the densities.
+- **The registry gotcha did not bite, and the reason is worth keeping.**
+  Removing falling seed powder makes `tests/worldgen.rs`'s not-one-cell-moves
+  guard *happier*, not angrier. And `life_scatter` still writes on other
+  presets, so `worldgencheck`'s every-pass-writes-somewhere half is
+  unaffected — a change that zeroed it on *every* preset would have failed
+  there, which is that check doing its job.
 
 ---
 
 ## Item 4, second half — the seed economy, and why this shape
 
 The brief is right that the supply was unlimited and that no decrement existed
-anywhere in the repo. The design decision was where seeds come *back* from.
-This is the part that is genuinely the owner's call; what is here is the
-simplest defensible version, and the assumption is stated so it can be
-overturned cheaply.
+anywhere in the repo. The design decision was where seeds come *back* from —
+genuinely the owner's call, so what is here is the simplest defensible version
+with the assumption stated. **What is built** is in the PR body and in
+`README.md`'s `Held world status`; what belongs here is why this shape rather
+than another.
 
-**What is built.** A pouch per kind (`Druid::seeds`, index-parallel to
-`seed_kinds`): `SEED_START` 8 of each at the start, `SEED_CAP` 24. Sowing
-spends one, and only on a seed that actually goes in the ground. An empty
-pouch refuses and says so. The pouch refills from **mature plants standing in
-the circle she carries** — `SEED_PER_PLANT_SECOND` 0.005 per plant per second,
-credited to the plant's own kind, gated at `SEED_FROM_CELLS` 24 cells.
-
-**Three things that shape rested on, all of them arguable:**
+**Three choices it rested on, all arguable:**
 
 1. **Per kind, not one number.** "Eight grass and no oak" is a state the game
    can be in, which is what makes cycling the seed kind a decision rather than
    a preference. A single counter is a smaller change and a duller one.
 
-2. **The *carried* circle, not a standing one.** This is the load-bearing
-   choice. Gathering is presence — the same thing the carried circle already
-   is — so the way to be paid in seed is to walk your own wood. Crediting
-   standing quickenings instead would mean a player who places a circle over a
-   wood and leaves gets paid for ever, which is the unlimited supply wearing a
-   delay. It also means switching the sphere off stops the pouch filling, for
-   free, out of the same `Option` — the two items interlock rather than sitting
-   beside each other.
+2. **The *carried* circle, not a standing one.** The load-bearing one.
+   Gathering is presence — the same thing the carried circle already is — so
+   the way to be paid in seed is to walk your own wood. Crediting standing
+   quickenings would pay a player who drops a circle over a wood and leaves,
+   which is the unlimited supply wearing a delay. It also means switching the
+   sphere off stops the pouch filling, for free, out of the same `Option` —
+   the two items interlock rather than sitting beside each other.
 
 3. **A cell-count maturity bar rather than the species' own `seed_maturity`.**
    That fence is a plant's business and moves with the genome; this is the
@@ -146,34 +116,27 @@ credited to the plant's own kind, gated at `SEED_FROM_CELLS` 24 cells.
 **Two shapes considered and not built**, neither reaching `dead-ends.md`
 because neither was built. Seeds priced in power: `Setting::Unlimited` already
 means power, so the two would become indistinguishable the first time anyone
-pressed `U`. Picking loose seed cells up off the ground: more satisfying, and
-it is what the world actually produces once plants reproduce, but a loose seed
-cell belongs to a live organism, so harvesting one is surgery on the plant
-line's reproduction path — and it would let her hoover up the regeneration she
-is there to encourage. Worth a later session with a clear run at it.
+pressed `U`. Picking loose seed cells up off the ground: more satisfying, but a
+loose seed cell belongs to a live organism, so harvesting one is surgery on the
+plant line's reproduction path — and it would let her hoover up the
+regeneration she is there to encourage. Worth a later session.
 
-**What I would ask the owner**, if a message could reach him: *is the refill
+**The open question for the owner** — the coordinator says it has been carried
+to him verbatim, so this is the record rather than the ask: *is the refill
 meant to exist at all, or should a run be bounded by what she sets out with?*
-Everything above assumes it should — a supply that can only go down makes the
-outcome binary, which is the failure law 1 names — but that is an inference
-from the ethos, not from his words.
+Everything here assumes it should, on law 1 — a supply that can only go down
+makes the outcome binary — which is an inference from the ethos and not from
+his words.
 
-The four numbers are first guesses and say so at their definitions. **The one
-to sweep first is `SEED_FROM_CELLS`**, because it alone decides whether the
-mechanic has a *middle*: too low and every sprout pays, which is the unlimited
-supply again; too high and nothing ever pays and the pouch is a countdown.
+The four numbers are first guesses and say so at their definitions. **Sweep
+`SEED_FROM_CELLS` first**: it alone decides whether the mechanic has a
+*middle*. Too low and every sprout pays, which is the unlimited supply again;
+too high and nothing pays and the pouch is a countdown.
 
 ### What happens near the organism ceiling — §Z21
 
-Lane C's finding, routed here by the coordinator: `Cell::organism_id` gives 12
-bits to the slot index, so the world holds **4,095 organisms**, and on a
-*grown* start `Druid::new` already arrives at 4,093 of them.
-
-**Zeroing the densities is the largest relief that pressure gets from
-anything here, and it is relief rather than a fix.** On `Start::Bare` — the
-default, and what the owner plays — `life_scatter` now writes nothing, so the
-slot table starts empty and her seeds populate a world instead of competing
-for the tail of one. Grown and dead starts are untouched.
+Lane C's finding, routed here by the coordinator: 12 bits of slot index means
+**4,095 organisms**, and a *grown* start already arrives at 4,093 of them.
 
 **The supply is designed against that ceiling rather than ignoring it.** Two
 properties, both deliberate: the pouch is finite and capped, so free sowing
