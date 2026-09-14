@@ -17093,7 +17093,7 @@ mod tests {
         assert!(arm(false, &[]), "test setup: an ant in a running world has to move, or the arms below compare nothing");
         assert!(!arm(true, &[]), "an ant on held ground moved, so the gate does not reach creatures");
         assert!(
-            arm(true, &[crate::sim::world::Quickening { x: 100, y: 119, r: 40 }]),
+            arm(true, &[crate::sim::world::Quickening::at(100, 119, 40)]),
             "an ant inside a quickening must think again -- otherwise this gate is an off switch rather than a place"
         );
     }

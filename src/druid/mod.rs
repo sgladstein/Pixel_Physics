@@ -21,11 +21,14 @@
 //! world-edge behaviour beyond the sandbox's. Named here as out of scope
 //! rather than discovered later.
 
+pub mod founding;
 pub mod hud;
+pub mod menu;
 
 use crate::render::Renderer;
 use crate::sim::chunk::Rect;
 use crate::sim::clock::SkyPin;
+use crate::sim::creature;
 use crate::sim::explosion::{self, Blasts};
 use crate::sim::frame;
 use crate::sim::material;
@@ -84,6 +87,72 @@ const SIZE_ENV: &str = "PIXEL_PHYSICS_DRUID_SIZE";
 /// `PIXEL_PHYSICS_DRUID_GROW=N` — override [`GROW_FRAMES`].
 const GROW_ENV: &str = "PIXEL_PHYSICS_DRUID_GROW";
 
+/// **What the land is when you arrive.**
+///
+/// Owner's ruling, 2026-09-13: *"I actually want to start with a dead world.
+/// No living plants, but I can plant seeds."* That reverses this module's
+/// first answer, which grew a wood and held it alive, and it is the better
+/// game: a living wood you did not plant is scenery, and the verb the concept
+/// is built around is **putting something back**.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Start {
+    /// **The default.** The land lived, and then it died: grown for
+    /// [`GROW_FRAMES`], then every plant marked senescent, then held.
+    ///
+    /// **Senescent rather than deleted, and that is the whole trick.**
+    /// `World::mark_organism_senescent` is the engine's own kill path — it
+    /// sets the flag `plant::rot_remains` reads, and rot then carries the
+    /// body out at the species' own half-life. In a *held* world rot never
+    /// runs, so the bodies **stand**: a wood of dead trees, exactly the
+    /// "somewhere that died" the concept asks for, with no deadwood pass to
+    /// write. And the moment a quickening covers one it starts to rot, which
+    /// is the same rule the colony and the seed bank already obey and needs
+    /// no code of its own.
+    ///
+    /// It also leaves the **seed bank** the grown phase produced, stopped in
+    /// the soil. Those are not plants; they are what germinates the first
+    /// time you spend time on that ground.
+    Dead,
+    /// Never grown at all — bare generated ground plus `life_scatter`'s
+    /// single seed cell per plant, held at frame 0.
+    ///
+    /// **The default, on the owner's second telling of it.** He asked for
+    /// *"a dead world, no living plants, but I can plant seeds"* and got
+    /// [`Start::Dead`], which is grown-then-senescent — every plant standing
+    /// where it died. Playing it, the verdict was *"still shipping full of
+    /// plants... I thought we said bare"*, and he is right about what he
+    /// sees: a senescent tree still renders as a tree, so a wood that is
+    /// dead by every number in the simulation reads on screen as a wood.
+    ///
+    /// **That is worth keeping as a finding rather than only as a default.**
+    /// The death is real (`marked 4095 of 4095 organisms senescent`) and
+    /// completely invisible, which is this repo's *a debug readout must not
+    /// be a function of the thing it debugs* pointed at the game itself: if
+    /// standing dead is ever wanted on screen, it needs its own colour, not
+    /// its own flag. [`Start::Dead`] stays reachable for that.
+    ///
+    /// Emptier than [`Start::Dead`]: no bones, no root systems, and a much
+    /// thinner seed bank, since nothing ever set seed.
+    #[default]
+    Bare,
+    /// Grown and held **alive** — this module's first answer, kept as the
+    /// control. A living wood, stopped mid-life.
+    Grown,
+}
+
+impl Start {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Dead => "dead",
+            Self::Bare => "bare",
+            Self::Grown => "grown",
+        }
+    }
+}
+
+/// `PIXEL_PHYSICS_DRUID_START=dead|bare|grown` — see [`Start`].
+const START_ENV: &str = "PIXEL_PHYSICS_DRUID_START";
+
 /// The worldgen preset this game builds from — see `assets/worldgen.ron`,
 /// where the reasoning for each value that differs from `rolling` is written
 /// beside it.
@@ -104,6 +173,10 @@ const PRESET_ENV: &str = "PIXEL_PHYSICS_DRUID_PRESET";
 /// no-home control and would make "does a colony form at all" the question,
 /// which is the lab's question rather than this game's.
 const COLONY_SPECIES: &str = "ant";
+
+/// The one plant the engine sows by a path of its own — see the seed-kind
+/// list in [`Druid::new`] and the branch in [`Druid::plant_seed`].
+const MOSS: &str = "moss";
 
 /// How many animals a founding places.
 ///
@@ -135,13 +208,111 @@ const DRAIN_PER_CIRCLE: f32 = 1.0;
 /// ...and per plant standing inside one. A mature wood is expensive to keep
 /// running; bare ground is nearly free.
 const DRAIN_PER_PLANT: f32 = 0.02;
-/// Paid per animal per second, wherever time is running for it. The carried
-/// circle is free, so a colony under your feet pays without costing.
-const INCOME_PER_ANIMAL: f32 = 0.6;
+/// **What an animal stores, per second, while time is running for it.**
+///
+/// Owner's ruling, 2026-09-13, replacing a flat per-animal trickle over the
+/// whole world: *"you don't automatically fill your bar based on all
+/// creatures in the world. You fill based on number of creatures near you...
+/// creatures build up a reserve that you absorb and they have to regenerate
+/// before you can absorb again."*
+///
+/// **This is the loop closing.** Before it, income and expenditure were two
+/// unrelated taps: you spent power to run time, and you were paid for animals
+/// existing somewhere. Now the colony is a **battery you charge by spending**
+/// — a creature only stores while it is *running*, which means inside a
+/// circle, which means you paid for it. "Quicken my colony or my wood?"
+/// becomes a real question every minute, and it is the same question the
+/// whole game is about.
+///
+/// **That rule needs no code.** `World::time_runs_at` already decides it, the
+/// same way it already decides that a colony must be founded inside running
+/// time and that a sown seed waits for a circle to reach it. Three mechanics,
+/// one gate.
+const RESERVE_PER_SECOND: f32 = 1.5;
+
+/// **How much one animal can hold.** ~27 seconds of running to fill, so a
+/// colony of twelve is worth ~480 against a starting pool of 600: a lump
+/// worth walking for rather than a trickle worth ignoring.
+///
+/// The number this is really setting is *how often you press the key*, and
+/// the owner's warning shapes it: a button pressed every few seconds is worse
+/// than no button. A cap this size makes the pull a slow one.
+const RESERVE_CAP: f32 = 40.0;
+
+/// **How near you have to be.** Deliberately smaller than
+/// [`CARRIED_RADIUS`]: you have to stand *in* the colony, not near it.
+const ABSORB_RADIUS: i32 = 60;
+
+/// How long the drawn energy takes to reach you, in player ticks. Long enough
+/// to read as a flow rather than a flash.
+///
+/// **90, up from 42, on the owner's playtest**: *"a good start... make it
+/// slower."* The stream had the right shape at 42 and went past too quickly
+/// to watch, which is the same defect as a flash wearing a longer number.
+const DRAW_FRAMES: u32 = 90;
 /// How often the economy is recomputed, in ticks. Walking every organism is
 /// `O(organisms)` and there are thousands, so this runs twice a second rather
 /// than sixty times and scales what it charges.
+/// **What laying scent costs**, per second held.
+///
+/// Priced at one standing circle, because that is what it is: a standing
+/// instruction to the colony. A first guess like everything else in this
+/// economy.
+const TRAIL_PER_SECOND: f32 = 1.0;
+
+/// **How strong the druid's mark is**, per tick, against one ant's
+/// `pheromone::DEPOSIT` of 40.
+///
+/// The same, deliberately, and the strength comes from *repetition*: he walks
+/// slower than one cell a tick, so each cell takes two or three marks and
+/// ends at two to three ants' worth. A larger number here would saturate the
+/// plane at 255 along the whole path, and a saturated trail is flat — which
+/// is precisely the thing an ant cannot follow (see [`Druid::lay_trail`]).
+const TRAIL_DEPOSIT: u8 = crate::sim::pheromone::DEPOSIT;
+
+/// How many marks the trail readout remembers. Older ones have decayed out
+/// of the plane long before this, so the cap is a memory bound and not a
+/// rule.
+const TRAIL_MARKS: usize = 900;
+
+/// **How many streams a founding draws**, however many founders it places.
+///
+/// A cap rather than one per station: twenty-four streams is a wall of motes
+/// and reads as noise, while four to eight reads as *several places at once*,
+/// which is what a colony arriving is. The flow is the event, not a census of
+/// it.
+const FOUNDING_STREAMS: usize = 8;
+
+/// **The tick rate the game is driven at.**
+///
+/// Here rather than in `src/bin/druid.rs`, which is where it lived and where
+/// only the event loop could see it. Anything in the game that prices
+/// something *per second* has to divide by it — `ECONOMY_INTERVAL` below is
+/// "twice a second" expressed in ticks, and [`TRAIL_PER_SECOND`] is a rate —
+/// and a second copy of the number in the lib would be the side table that
+/// goes stale the day the loop is retimed.
+pub const TICKS_PER_SECOND: u32 = 60;
+
 const ECONOMY_INTERVAL: u64 = 30;
+
+/// **How fast the world may be run inside the circles**, in ticks per frame.
+///
+/// Capped rather than open-ended, and the cap is a frame-cost bound rather
+/// than a design statement: every extra tick is another pass of the whole
+/// shared frame step, and although the held gate means almost all of that
+/// pass does nothing, the sweep overhead is not zero. 8 is a starting cap to
+/// be re-derived against a measured frame once somebody has played with it.
+pub const SPEED_MIN: u32 = 1;
+pub const SPEED_MAX: u32 = 8;
+
+/// **How far the carried circle may be widened**, in cells.
+///
+/// The floor is [`CARRIED_RADIUS`] itself — the circle you *are* cannot be
+/// made smaller than presence, or the gnome could stand outside his own time.
+/// The ceiling is well under [`PLACE_RADIUS_MAX`]: a carried circle follows
+/// you everywhere and costs nothing at its base size, so an unbounded one is
+/// a free standing circle that never has to be placed.
+pub const CARRIED_RADIUS_MAX: i32 = 96;
 
 /// Radius a placed quickening starts at, and the range `Q`/`E` walk.
 const PLACE_RADIUS_START: i32 = 60;
@@ -161,14 +332,42 @@ pub const PLACE_RADIUS_MAX: i32 = 240;
 const CARRY_WAKE_STEP: i32 = CARRIED_RADIUS / 2;
 
 /// **How long the interface holds on to the last thing that happened**, in
-/// ticks — three seconds.
+/// player ticks — three seconds.
 ///
-/// Expiry is checked against `world.frame` at draw time rather than ticked
+/// Expiry is checked against [`Druid::ticks`] at draw time rather than ticked
 /// down, which needs no update-phase wiring and has one deliberate
 /// consequence `App::active_toast` records too: a message raised while
 /// *paused* stays up until the world runs again. That is the behaviour worth
 /// having here — paused is exactly when somebody is reading.
+///
+/// **Player ticks, not `world.frame`**: with a fast circle standing, the
+/// world's frame counter advances at that circle's rate, and a message would
+/// vanish in three eighths of a second. See [`Druid::ticks`].
 const MESSAGE_FRAMES: u64 = 180;
+
+/// **Energy on its way from an animal to the player.**
+///
+/// Owner: *"There should be a visual for when creatures have built up energy
+/// to drain and a really cool visual when you drain it. It should flow into
+/// you."* So a draw is not a number that changes — it is a thing that
+/// travels, and it takes [`DRAW_FRAMES`] to arrive.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Draw {
+    /// The far end of the flow, in world cells — where it came *from* on a
+    /// pull, and where it is going *to* on a founding.
+    pub from: (i32, i32),
+    /// **Which way it runs.** A pull converges on the player; a founding is
+    /// the same flow reversed, spending the pool out into the ground.
+    ///
+    /// One flag rather than a second list, because the whole value of this
+    /// being the drain's own machinery is that the founding then *looks* like
+    /// the drain running backwards — which is what it is.
+    pub outward: bool,
+    /// Ticks since it was pulled; it lands at [`DRAW_FRAMES`].
+    pub age: u32,
+    /// How much, which sets how heavy the flow looks.
+    pub amount: f32,
+}
 
 /// The whole game: the same quartet `App` and `Lab` each declare, because
 /// there is no extracted game core in this engine and inventing one to hold
@@ -190,6 +389,22 @@ pub struct Druid {
     pub unlimited: bool,
     /// Radius the next placed quickening takes.
     pub place_radius: i32,
+    /// **How fast time runs inside every circle**, in ticks per frame.
+    ///
+    /// **One dial for all of them, not one per circle, and that is a measured
+    /// decision rather than a simplification.** A per-circle rate was built
+    /// first and withdrawn: `World::frame` is a *global* clock and every
+    /// organism's cadence is expressed in it, so running the world eight
+    /// times to speed one circle speeds the scheduling of everything
+    /// everywhere. Measured on two circles over equivalent ground, 1,500
+    /// player ticks, unlimited power — a **rate-1** circle beside a rate-8
+    /// one grew **127** living plant cells against **58** for the same circle
+    /// when both were rate 1. It was running at nothing like real time.
+    /// Per-circle rates need real regional time, not extra whole-world
+    /// passes; `Reports/dead-ends.md` carries the entry.
+    ///
+    /// One dial has no cross-talk to leak, because every circle runs at it.
+    pub speed: u32,
     /// Income and drain as of the last recompute, for the readout. Per
     /// second, so a person can read them against a clock.
     pub income: f32,
@@ -203,6 +418,23 @@ pub struct Druid {
     /// The last thing that happened and the frame it stops being shown on.
     /// Raised by [`Druid::note`]; see [`MESSAGE_FRAMES`].
     pub message: Option<(String, u64)>,
+    /// **Player-time, in ticks.** One per [`Druid::update`], whatever the
+    /// circles are doing.
+    ///
+    /// **`World::frame` is no longer this**, and that is the speed dial's one
+    /// real hazard. An extra pass is a whole `frame::step`, so a rate-8
+    /// circle advances `world.frame` by 8 per update — it has become "how
+    /// much world has happened", which is the right meaning for the *world*
+    /// and the wrong clock for anything the *player* experiences. Measured
+    /// the moment the dial first ran: a census keyed on `world.frame` read a
+    /// real-time circle at 2 living cells against 45 in the control, purely
+    /// because it had had an eighth of the updates.
+    ///
+    /// Two things here were keyed on it and are now keyed on this instead.
+    /// The economy was the dangerous one: `frame % 30 == 0` with frame
+    /// stepping by 8 goes 0, 8, 16, 24, 32 and **never lands on 30**, so a
+    /// single fast circle switched the whole economy off silently.
+    pub ticks: u64,
     /// Animals alive, and animals in running time, as of the last economy
     /// pass. **Fields rather than a census**: `World::live_creature_count`
     /// walks every organism slot, which is thousands, and the readout is
@@ -213,6 +445,54 @@ pub struct Druid {
     /// repaint the dirty-rect skip would otherwise not know it owed. See
     /// [`hud::Interface`].
     last_ui: Option<hud::Interface>,
+    /// How the land arrived — see [`Start`]. Kept for the readout, so a
+    /// player can tell a dead world from a bare one without counting trees.
+    pub start: Start,
+    /// **What `T` plants**, and the kinds it can cycle through.
+    ///
+    /// Built at run time from the loaded species rather than written down:
+    /// every species with no `creature` block is a plant and can be sown, so
+    /// adding a species file adds a seed kind and nothing here has to know.
+    /// A hardcoded list is the side table that goes stale the day somebody
+    /// writes `assets/species/fern.ron`.
+    pub seed_kinds: Vec<String>,
+    pub seed_kind: usize,
+    /// **What each animal is holding**, keyed by organism id.
+    ///
+    /// On the game rather than on `OrganismState`, deliberately: this is the
+    /// held world's economy and no part of it belongs to the sandbox or the
+    /// lab, which share every line of `sim`. Slots are reused when an
+    /// organism dies, so the map is pruned to the ids seen on each pass —
+    /// otherwise a dead ant's charge would be inherited by whatever is
+    /// allocated its slot next.
+    pub reserves: std::collections::HashMap<u16, f32>,
+    /// Energy in flight from an animal to the player — see [`Draw`].
+    pub draws: Vec<Draw>,
+    /// **Where he has laid scent**, newest last — see [`Druid::lay_trail`].
+    ///
+    /// The marks are drawn by sampling the *plane* at these points rather
+    /// than by remembering how bright they were, so a mark fades exactly as
+    /// its scent does and vanishes when the scent is gone. Remembering the
+    /// brightness instead would leave a drawn trail standing over ground that
+    /// no longer smells of anything, which is the worst kind of readout: one
+    /// that is a picture of the gesture rather than of the world.
+    pub trail: std::collections::VecDeque<(i32, i32)>,
+    /// **The options menu, while it is open** — see [`menu`]. `None` the
+    /// rest of the time, the same one-piece-of-state shape as [`Druid::offer`].
+    pub menu: Option<menu::Menu>,
+    /// **The founding screen, while it is open.** `None` the rest of the
+    /// time, which is also what says whether the game is showing it — one
+    /// piece of state rather than an `open: bool` beside an `Offer` that can
+    /// disagree with it.
+    ///
+    /// It survives being closed and reopened: walking away from an offer
+    /// leaves the same three standing, and only committing rerolls. See
+    /// [`founding`].
+    pub offer: Option<founding::Offer>,
+    /// How many seeds the player has sown, for the readout — *"did it fire at
+    /// all needs a counter"*, and a seed dropped outside a quickening does
+    /// nothing visible until time reaches it, so the picture cannot say.
+    pub sown: usize,
 }
 
 impl Default for Druid {
@@ -225,8 +505,12 @@ impl Druid {
     /// Generate a world, live in it for a while, then stop it.
     pub fn new() -> Self {
         let (w, h) = size_from_env();
-        let grow = grow_from_env();
-        println!("druid: world {w}x{h}, grown {grow} frames before holding");
+        let start = start_from_env();
+        // **`Bare` is the one that does not grow.** `Dead` still grows -- it
+        // has to, or there are no bodies to leave standing and no seed bank
+        // in the soil; it kills what it grew instead.
+        let grow = if start == Start::Bare { 0 } else { grow_from_env() };
+        println!("druid: world {w}x{h}, start {}, grown {grow} frames before holding", start.label());
 
         let mut world = World::new(Rect::new(0, 0, w as i32 - 1, h as i32 - 1));
 
@@ -236,6 +520,20 @@ impl Druid {
         // species file silently did nothing.
         let _ = world.materials.reload(material::ASSET_DIR);
         let _ = world.species.reload(organism::ASSET_DIR);
+        // **Plants do not come apart under their own load here, by default.**
+        // Owner, 2026-09-14, asking for the menu this sits behind: *"the
+        // ability to turn off plant destruction or breaking due to stress
+        // (which should be off by default)."* The engine default is `true`
+        // and stays `true` — the outdoor game and `scripts/acceptance.sh`'s
+        // `fell` case are untouched; this is the held world choosing
+        // differently, which is what a per-game field is for.
+        //
+        // **Only a *living* plant is held.** A senescent one comes apart
+        // exactly as before, so culling, rot and felling still work — the
+        // switch's own doc records the owner reporting *"I turned COLLAPSE
+        // UNDER LOAD off, but trees are still falling over"* against an
+        // earlier version that got that distinction wrong.
+        world.plant_load_failure = false;
 
         // **The druid preset, not the shipped default.** `rolling` is a
         // mining world -- the first druid build generated one and put the
@@ -275,6 +573,25 @@ impl Druid {
         let grown = world.live_organism_count();
         println!("druid: grew {grown} organisms in {:.1}s", t0.elapsed().as_secs_f32());
 
+        // --- ...and then it dies ---------------------------------------
+        //
+        // Only the plants. The animals are not touched, because there are
+        // none yet -- nothing in worldgen places one, and founding a colony
+        // is the player's verb.
+        if start == Start::Dead {
+            let plants: Vec<u16> = world
+                .live_organism_ids()
+                .into_iter()
+                .filter(|id| world.organism(*id).is_some_and(|st| world.species.get(st.species).creature.is_none()))
+                .collect();
+            let killed = plants.iter().filter(|id| world.mark_organism_senescent(**id)).count();
+            // **Counted, because the picture cannot tell you.** A wood of
+            // senescent trees and a wood of living ones are the same
+            // silhouette until something rots, and in a held world nothing
+            // ever will until the player spends time on it.
+            println!("druid: marked {killed} of {grown} organisms senescent — the wood is standing dead");
+        }
+
         // --- and then it stops -----------------------------------------
         //
         // The sky pin is not decoration and not an optimisation, though it is
@@ -284,6 +601,31 @@ impl Druid {
         // ground and reads as a bug rather than as a state.
         world.held = true;
         world.set_sky_hold(SkyPin::Noon.hold());
+
+        // **Every species this game knows how to sow**, in registry order, so
+        // a new species file becomes a seed kind with no edit here.
+        //
+        // **The predicate is measured, not guessed, and two obvious ones are
+        // wrong.** `creature.is_none()` admits the **worm**, which is an
+        // animal driven by `creature.rs` keyed on its species *name* and has
+        // no `creature` block at all. `has_economy()` excludes **moss**,
+        // which declares no `Photosynthesize` anywhere (its own file says
+        // so). Swept over all twenty loaded species, a declared `Seed` cell
+        // type is true for exactly the seven sowable plants -- tree, conifer,
+        // shrub, creeper, grass, herb, scrambler -- and false for moss, the
+        // worm and every ant.
+        //
+        // Moss is added because the engine has **two** sowing paths, not one:
+        // `plant_tree_species` needs a seed-shaped species and
+        // `World::plant_moss_seed` is moss-only. `Druid::plant_seed` branches
+        // on the same fact, so this mirrors the engine rather than keeping a
+        // list beside it.
+        let seed_kinds: Vec<String> = (0..world.species.len())
+            .map(|i| world.species.get(crate::sim::organism::SpeciesId(i as u16)))
+            .filter(|sp| is_sowable(sp))
+            .map(|sp| sp.name.clone())
+            .collect();
+        println!("druid: {} seed kinds — {}", seed_kinds.len(), seed_kinds.join(", "));
 
         if let Some((x, y)) = spawn_point(&world) {
             // `at_scaled`, not `at`: at any `cell_scale` other than 1 the
@@ -302,14 +644,25 @@ impl Druid {
             power: POWER_START,
             unlimited: false,
             place_radius: PLACE_RADIUS_START,
+            speed: SPEED_MIN,
             income: 0.0,
             drain: 0.0,
             last_wake: None,
             show_keys: true,
             message: None,
+            ticks: 0,
             animals: 0,
             animals_awake: 0,
             last_ui: None,
+            start,
+            seed_kinds,
+            seed_kind: 0,
+            sown: 0,
+            trail: std::collections::VecDeque::new(),
+            menu: None,
+            offer: None,
+            reserves: std::collections::HashMap::new(),
+            draws: Vec::new(),
         }
     }
 
@@ -321,12 +674,29 @@ impl Druid {
     /// headless run is read — and this is the same fact put where the player
     /// is looking.
     pub fn note(&mut self, text: impl Into<String>) {
-        self.message = Some((text.into(), self.world.frame + MESSAGE_FRAMES));
+        self.message = Some((text.into(), self.ticks + MESSAGE_FRAMES));
     }
 
     /// The current message, if one is set and has not yet expired.
     pub fn message(&self) -> Option<&str> {
-        self.message.as_ref().filter(|(_, until)| self.world.frame < *until).map(|(text, _)| text.as_str())
+        self.message.as_ref().filter(|(_, until)| self.ticks < *until).map(|(text, _)| text.as_str())
+    }
+
+    /// **Where the charged animals are, in world cells, and how full each
+    /// is.** For the tell over their heads — see [`hud`].
+    ///
+    /// Only those with something worth taking: a mark over every ant in a
+    /// colony of two hundred is not a tell, it is a texture.
+    pub fn charged_animals(&self) -> Vec<((i32, i32), f32)> {
+        self.reserves
+            .iter()
+            .filter(|(_, held)| **held > RESERVE_CAP * 0.15)
+            .filter_map(|(id, held)| {
+                let state = self.world.organism(*id)?;
+                let at = state.chain.first().copied().or_else(|| state.cells.keys().next().copied())?;
+                Some((at, (held / RESERVE_CAP).clamp(0.0, 1.0)))
+            })
+            .collect()
     }
 
     /// Everything the corner readout says, as numbers. See [`hud::Readout`].
@@ -340,11 +710,167 @@ impl Druid {
             animals_awake: self.animals_awake,
             circles: self.world.quickenings.len(),
             radius: self.place_radius,
+            rate: self.speed,
+            carried_radius: self.world.carried_radius,
             held: self.world.held,
             paused: self.paused,
             look: self.renderer.held_look.label(),
+            seed_kind: self.seed_kind_name().to_string(),
+            sown: self.sown,
+            charge: self.charge_in_reach(),
+            reserve_cap: RESERVE_CAP,
+            power_full: POWER_START,
             message: self.message().map(str::to_string),
         }
+    }
+
+    /// **Sow a seed of the chosen kind where the player is standing.**
+    ///
+    /// The verb the whole concept is built on: *"you can plant seeds you
+    /// get"*. `World::plant_tree_species` places a `seed`-material cell,
+    /// which is a `Powder` and therefore falls to the ground on its own
+    /// rather than hanging where it was dropped — so the player aims at a
+    /// bank, not at a pixel.
+    ///
+    /// **A seed sown outside a quickening does nothing, and that is the
+    /// game rather than a bug.** Germination is a life process and the held
+    /// gate covers it, so a seed dropped on cold ground lies there until the
+    /// player spends time on it. Nothing here implements that; it falls out
+    /// of the gate, exactly as the rule that a colony must be founded inside
+    /// running time does.
+    ///
+    /// Returns whether a seed was actually placed. **`false` is a real
+    /// answer** and is reported: `plant_tree_species` declines when the cell
+    /// is occupied or the species is not loaded, and a silent no-op is
+    /// indistinguishable from a key that does not work — which is precisely
+    /// the complaint that produced this game's interface.
+    pub fn plant_seed(&mut self) -> bool {
+        let Some(player) = &self.world.player else {
+            return false;
+        };
+        let (x, y) = player.center();
+        let Some(kind) = self.seed_kinds.get(self.seed_kind).cloned() else {
+            self.note("no seed kinds are loaded");
+            return false;
+        };
+        // Moss is not tree-shaped and has its own planter; everything else
+        // goes through the species-named one.
+        let placed = if kind == MOSS {
+            self.world.plant_moss_seed(x, y);
+            // `plant_moss_seed` returns nothing, so ask the world instead of
+            // assuming -- the same reason the branch below reads a bool.
+            !self.world.is_empty(x, y)
+        } else {
+            self.world.plant_tree_species(x, y, &kind)
+        };
+        if placed {
+            self.sown += 1;
+            let running = self.world.time_runs_at(x, y);
+            println!("druid: sowed {kind} at {x},{y} (time {})", if running { "running" } else { "held" });
+            self.note(if running { format!("{kind} seed sown - it is growing") } else { format!("{kind} seed sown - it waits for time") });
+        } else {
+            println!("druid: {kind} seed REFUSED at {x},{y} - the cell is not empty, or the species is not loaded");
+            self.note(format!("no room for a {kind} seed here"));
+        }
+        placed
+    }
+
+    /// Step which kind `T` sows.
+    pub fn cycle_seed_kind(&mut self) {
+        if self.seed_kinds.is_empty() {
+            return;
+        }
+        self.seed_kind = (self.seed_kind + 1) % self.seed_kinds.len();
+        let kind = self.seed_kinds[self.seed_kind].clone();
+        self.note(format!("seed kind: {kind}"));
+    }
+
+    /// What `T` would sow, for the readout.
+    pub fn seed_kind_name(&self) -> &str {
+        self.seed_kinds.get(self.seed_kind).map_or("none", String::as_str)
+    }
+
+    /// **Total charge standing within reach**, for the readout and for the
+    /// key's own decision.
+    pub fn charge_in_reach(&self) -> (f32, usize) {
+        let Some(player) = &self.world.player else {
+            return (0.0, 0);
+        };
+        let (px, py) = player.center();
+        let mut total = 0.0;
+        let mut n = 0;
+        for (id, held) in &self.reserves {
+            if *held <= 0.0 {
+                continue;
+            }
+            let Some(state) = self.world.organism(*id) else { continue };
+            let Some((x, y)) = state.chain.first().copied().or_else(|| state.cells.keys().next().copied()) else {
+                continue;
+            };
+            let (dx, dy) = (x - px, y - py);
+            if dx * dx + dy * dy <= ABSORB_RADIUS * ABSORB_RADIUS {
+                total += *held;
+                n += 1;
+            }
+        }
+        (total, n)
+    }
+
+    /// **Draw the charge out of every animal within reach.**
+    ///
+    /// A key rather than a trickle, and that is the point: `CLAUDE.md`'s
+    /// second law is *there must be a verb, and it must deliver something*.
+    /// An automatic drip is weather; walking into your colony and pulling is
+    /// a moment.
+    ///
+    /// Returns what was taken. Zero is a real answer and is said out loud —
+    /// standing in an uncharged colony and standing in no colony look
+    /// identical otherwise.
+    pub fn absorb(&mut self) -> f32 {
+        let Some(player) = &self.world.player else {
+            return 0.0;
+        };
+        let (px, py) = player.center();
+        let mut taken = 0.0;
+        let mut from: Vec<((i32, i32), f32)> = Vec::new();
+        let ids: Vec<u16> = self.reserves.keys().copied().collect();
+        for id in ids {
+            let held = self.reserves.get(&id).copied().unwrap_or(0.0);
+            if held <= 0.0 {
+                continue;
+            }
+            let Some(state) = self.world.organism(id) else { continue };
+            let Some((x, y)) = state.chain.first().copied().or_else(|| state.cells.keys().next().copied()) else {
+                continue;
+            };
+            let (dx, dy) = (x - px, y - py);
+            if dx * dx + dy * dy > ABSORB_RADIUS * ABSORB_RADIUS {
+                continue;
+            }
+            taken += held;
+            from.push(((x, y), held));
+            // **Emptied, not reduced.** They regenerate from nothing, and
+            // only while running — which is what stops you camping one
+            // colony and makes the map worth walking.
+            self.reserves.insert(id, 0.0);
+        }
+        for (at, amount) in from {
+            self.draws.push(Draw { from: at, outward: false, age: 0, amount });
+        }
+        if taken > 0.0 {
+            self.power += taken;
+            println!("druid: drew {taken:.0} from {} animals", self.draws.len());
+            self.note(format!("drew {taken:.0} from the colony"));
+        } else {
+            // **Said out loud, like every other refusal here.** Standing in
+            // an uncharged colony, standing in a starved one and standing
+            // nowhere near a colony are three different situations and one
+            // silent key.
+            let (charge, holders) = self.charge_in_reach();
+            println!("druid: absorb took nothing — {charge:.0} charge in {holders} animals within {ABSORB_RADIUS}, {} alive", self.animals);
+            self.note("nothing charged within reach");
+        }
+        taken
     }
 
     /// **Found a colony at the player's feet.**
@@ -385,6 +911,213 @@ impl Druid {
         placed
     }
 
+    /// **Lay a scent trail where he is standing.** Held, not tapped: the
+    /// gesture is walking a route, and the route is the instruction.
+    ///
+    /// **Channel B, and which channel it is was measured rather than
+    /// guessed.** `ant.ron`'s hidden units 2 and 3 carry `PheroBAlong` into
+    /// `Move` at ±2.5 behind `(Bias, 45.0)` and `(Carrying, -75.0)` — so they
+    /// fire on an ant that is **empty**, and channel B is the "there is food
+    /// that way" trail. Units 0 and 1 are the mirror image on channel A,
+    /// gated the other way, which is the laden ant's road home. Laying A
+    /// would tell a colony where its own nest is, which it already knows.
+    ///
+    /// **Why a trail he lays is followable at all**, which is not obvious and
+    /// is the whole mechanic: the ant reads `PheroBAlong`, the *gradient*
+    /// along its heading, so a trail of uniform strength says nothing. What
+    /// supplies the slope is `DECAY_RHO` — every mark is fading from the
+    /// moment it is laid, so the freshest cell on the path is the strongest,
+    /// and the slope points back along the route to wherever he is now. Walk
+    /// from the nest to where you want them and they come up the path behind
+    /// you; stop, and the peak stays where you stopped. **He does not push
+    /// them, he is the thing they are walking toward.**
+    ///
+    /// **And it is the cold start.** `dead-ends.md` records that channel B is
+    /// emitted only by an ant *already carrying* — so a colony that never
+    /// reaches a first meal never lays a trail for anyone to follow, and sits
+    /// at random walk with a full larder out of reach. A finger that can put
+    /// scent down is exactly the missing first mark.
+    ///
+    /// Returns whether anything was laid, so a refusal is a real answer.
+    pub fn lay_trail(&mut self) -> bool {
+        let Some(player) = &self.world.player else {
+            return false;
+        };
+        let (x, y) = player.center();
+        let cost = TRAIL_PER_SECOND / TICKS_PER_SECOND as f32;
+        if !self.unlimited {
+            if self.power < cost {
+                return false;
+            }
+            self.power -= cost;
+        }
+        self.world.deposit_pheromone(crate::sim::pheromone::Channel::B, x, y, TRAIL_DEPOSIT);
+        // One entry per cell, not per tick: standing still would otherwise
+        // fill the readout with nine hundred copies of one point and push
+        // the rest of the route out of it.
+        if self.trail.back() != Some(&(x, y)) {
+            if self.trail.len() >= TRAIL_MARKS {
+                self.trail.pop_front();
+            }
+            self.trail.push_back((x, y));
+        }
+        true
+    }
+
+    /// **Open the options menu, or shut it again.**
+    pub fn toggle_menu(&mut self) {
+        if self.menu.take().is_some() {
+            return;
+        }
+        self.menu = Some(menu::Menu::default());
+    }
+
+    /// **Open the founding screen, or shut it again.**
+    ///
+    /// The offer itself outlives the screen — see [`Druid::offer`] — so
+    /// closing is genuinely walking away rather than declining, and the same
+    /// three lineages are there when you come back.
+    pub fn toggle_founding(&mut self) {
+        if self.offer.take().is_some() {
+            return;
+        }
+        self.offer = Some(founding::Offer::new(self.world.seed));
+    }
+
+    /// **Put the chosen lineage in the ground.**
+    ///
+    /// Composed from public engine parts rather than a new one:
+    /// `paint_nest_patch` puts a home down, `colony_stations` lays out where
+    /// the founders stand — terrain-following, and derived from the body
+    /// plan's own width, which is why a nine-cell stock does not get the
+    /// two-cell ant's corridor — and `release_creature_specimen` places each
+    /// founder with this lineage's traits stamped on it.
+    ///
+    /// **The species' own genome goes in untouched.** That is the whole of
+    /// why this is safe: the trail-following circuit lives in `ant.ron`'s
+    /// hidden layer, and a rolled genome would produce a colony that walks at
+    /// random and takes an evening to tell apart from an unlucky one.
+    ///
+    /// **It lands at his feet on purpose, and that is a rule rather than a
+    /// convenience.** A colony in held ground does not tick: creatures run on
+    /// the active-site schedule, which `scheduler::step` gates on
+    /// `time_runs_at`. So a colony has to be founded *inside* running time or
+    /// it stands there as scenery — and the carried quickening is exactly the
+    /// circle at his feet. The rule needs no code; it falls out of the gate.
+    ///
+    /// Returns how many animals were placed. **Zero is a real answer** and
+    /// every route to it says which one it was: too little power, no ground,
+    /// a species that is not loaded. A silent no-op is indistinguishable from
+    /// a broken feature, which is how the whole of this milestone was once
+    /// reported missing.
+    pub fn commit_founding(&mut self) -> usize {
+        let Some(offer) = &self.offer else {
+            return 0;
+        };
+        let candidate = offer.picked().clone();
+        let body = offer.body;
+        let founders = offer.founders;
+        let cost = candidate.cost(body, founders);
+        if !self.unlimited && self.power < cost {
+            self.note(format!("not enough power - that founding costs {cost:.0}"));
+            return 0;
+        }
+        let Some(player) = &self.world.player else {
+            return 0;
+        };
+        let (x, y) = player.center();
+        let species = founding::STOCKS[body.min(founding::STOCKS.len() - 1)].species;
+        let Some(species_id) = self.world.species.id_of(species) else {
+            self.note(format!("{species} is not loaded"));
+            return 0;
+        };
+        let Some(def) = self.world.species.get(species_id).creature.clone() else {
+            self.note(format!("{species} is not an animal"));
+            return 0;
+        };
+        let genome = self.world.species.get(species_id).genome.clone();
+        // **The stock's own traits, moved by the roll.** Clamped to the
+        // slots' shared domain rather than trusted: a delta that pushed a
+        // baseline past ±1 would be read by `ratio_factor_reach` as an
+        // allele no birth could ever produce.
+        let mut traits = def.traits;
+        for (t, d) in traits.iter_mut().zip(candidate.deltas.iter()) {
+            *t = (*t + *d).clamp(-1.0, 1.0);
+        }
+        if !def.nest.is_empty() {
+            if self.world.materials.id_of(&def.nest).is_none() {
+                self.note(format!("{species} wants a nest of {} and there is none", def.nest));
+                return 0;
+            }
+            self.world.paint_nest_patch(x, y);
+        }
+        // **One colony per founding**, exactly as `found_colony_of` does it:
+        // the first founder that fits claims the label and every later one
+        // joins it, so a founding in which nothing fits claims nothing.
+        let mut colony: Option<u32> = None;
+        let mut placed = 0;
+        let stations = self.world.colony_stations(x, y, species_id, founders);
+        for &(cx, cy) in &stations {
+            let Some(organism) = creature::release_creature_specimen(&mut self.world, cx, cy, species, genome.clone(), traits, colony) else {
+                continue;
+            };
+            if colony.is_none() {
+                colony = self.world.organism(organism).map(|s| s.colony);
+            }
+            placed += 1;
+        }
+        // **Charged for what landed, not for what you asked for**, and the
+        // difference is not small: a headless founding of twelve `hopper` on
+        // rolling ground seated **3**, because `colony_stations` lays out a
+        // corridor and a station that does not fit is declined. Paying 224
+        // for three animals is the kind of unfairness a player notices at
+        // once and cannot see the cause of. Affordability was checked against
+        // the full ask above, so a founding can never overdraw.
+        let paid = candidate.cost(body, placed as i32);
+        println!("druid: founded {placed} {species} at {x},{y} — asked for {founders} at {cost:.0}, paid {paid:.0}");
+        // **Spend it where you can see it go.** The pool coming off the meter
+        // is a number changing in the corner; this is the same event as
+        // something leaving the caster and arriving in the ground, and it is
+        // the drain's own flow with `outward` set — *"if an event produces no
+        // visible consequence it is not finished regardless of what the
+        // simulation believes"*. Capped so a twenty-four founder colony is a
+        // heavier flow than a four without being a wall of motes.
+        for &(cx, cy) in stations.iter().take(FOUNDING_STREAMS) {
+            self.draws.push(Draw { from: (cx, cy), outward: true, age: 0, amount: paid / placed.max(1) as f32 });
+        }
+        if placed == 0 {
+            // **Three refusals wearing one message was the bug.** `C` at the
+            // spawn refuses on both `dead` and `grown` starts and takes on
+            // `bare`, and "no ground here" is unactionable when you are
+            // plainly standing on ground: what is actually true is that every
+            // station is *occupied*, because a grown wood fills the surface
+            // with plant cells and a station that does not fit is declined.
+            // Measured 2026-09-14 -- and it is the first thing a player
+            // presses, so a refusal that does not say what to do about it is
+            // the whole feature reading as broken.
+            self.note(if stations.is_empty() {
+                "no ground here - stand on something solid"
+            } else {
+                "no room - the ground here is full. try open ground"
+            });
+            println!("druid: founding REFUSED — {} stations offered, 0 took", stations.len());
+            return 0;
+        }
+        if !self.unlimited {
+            self.power -= paid;
+        }
+        self.animals += placed;
+        self.note(format!("{placed} {} founded for {paid:.0}", founding::STOCKS[body.min(founding::STOCKS.len() - 1)].name.to_lowercase()));
+        // **Committing is what costs you the other two.** Walking away does
+        // not reroll, and neither does a refusal above — only a founding that
+        // actually happened.
+        if let Some(offer) = &mut self.offer {
+            offer.reroll();
+        }
+        self.offer = None;
+        placed
+    }
+
     /// **Place a standing quickening where he is standing.**
     ///
     /// The economy's verb, as against the carried circle, which is free and
@@ -402,7 +1135,7 @@ impl Druid {
         };
         let (x, y) = player.center();
         let r = self.place_radius;
-        self.world.quickenings.push(crate::sim::world::Quickening { x, y, r });
+        self.world.quickenings.push(crate::sim::world::Quickening::at(x, y, r));
         let woken = self.world.wake_region(x, y, r);
         println!("druid: quickening at {x},{y} r{r} — woke {woken} sites");
         self.note(format!("circle placed r{r} - woke {woken} sites"));
@@ -437,13 +1170,52 @@ impl Druid {
         }
     }
 
+    /// **The speed dial: run the world again, for as many ticks as are paid
+    /// for.**
+    ///
+    /// Owner's ask, 2026-09-13: *"You should be able to set the speed of the
+    /// bubble."*
+    ///
+    /// **It needs no regional driver, and that is the whole reason it is
+    /// cheap.** An extra `frame::step` on a *held* world already does work
+    /// only inside the circles, because the held gate stops everything else —
+    /// so "run the circles again" is spelled "run the world again".
+    ///
+    /// **The player is taken out of the world for the extra passes, and that
+    /// is deliberate twice over.** He is always 1x — the concept is explicit:
+    /// *he walks through his own bubble and watches it race around him* — and
+    /// `frame::step` recomputes `World::carried` from him every call, so
+    /// leaving him in would both move him at 8x and drag a fast carried
+    /// circle around with him. `player::step` returns immediately when there
+    /// is no player, so removing him is also what keeps the carried circle
+    /// out of these passes, which is what makes it free.
+    ///
+    /// See [`Druid::speed`] for why this is one dial rather than one per
+    /// circle, and [`Druid::ticks`] for the clock this does *not* advance.
+    fn step_extra_ticks(&mut self) {
+        if self.speed <= 1 || self.world.quickenings.is_empty() {
+            return;
+        }
+        let held_player = self.world.player.take();
+        for _ in 1..self.speed {
+            frame::step(
+                &mut self.world,
+                &mut self.particles,
+                &mut self.blasts,
+                player::PlayerInput::default(),
+                &self.player_tuning,
+            );
+        }
+        self.world.player = held_player;
+    }
+
     /// **Income and drain, and what the pool does about them.**
     ///
     /// One walk over the organisms rather than one per circle: there are
     /// thousands of them and a per-circle walk would be quadratic in the
     /// thing the player is encouraged to accumulate.
     fn step_economy(&mut self) {
-        if !self.world.frame.is_multiple_of(ECONOMY_INTERVAL) {
+        if !self.ticks.is_multiple_of(ECONOMY_INTERVAL) {
             return;
         }
         let seconds = ECONOMY_INTERVAL as f32 / 60.0;
@@ -451,6 +1223,10 @@ impl Druid {
         let mut animals_running = 0.0f32;
         let mut animals_alive = 0usize;
         let mut plants_in_circles = 0.0f32;
+        // Rebuilt rather than updated in place: organism slots are reused, so
+        // an entry left behind by a dead animal would be inherited by
+        // whatever is allocated its slot next.
+        let mut fresh: std::collections::HashMap<u16, f32> = std::collections::HashMap::with_capacity(self.reserves.len());
         for id in self.world.live_organism_ids() {
             let Some(state) = self.world.organism(id) else { continue };
             let Some((x, y)) = state.chain.first().copied().or_else(|| state.cells.keys().next().copied()) else {
@@ -459,21 +1235,50 @@ impl Druid {
             let creature = self.world.species.get(state.species).creature.is_some();
             if creature {
                 animals_alive += 1;
+                let held = self.reserves.get(&id).copied().unwrap_or(0.0);
                 // **Anywhere time runs, carried circle included.** A colony
-                // under his feet pays without costing, which is what makes
+                // under his feet charges without costing, which is what makes
                 // the carried circle worth walking somewhere with.
                 if self.world.time_runs_at(x, y) {
                     animals_running += 1.0;
+                    fresh.insert(id, (held + RESERVE_PER_SECOND * seconds).min(RESERVE_CAP));
+                } else {
+                    // A frozen animal keeps what it had and earns nothing --
+                    // the owner's question answered by the gate that already
+                    // exists rather than by a rule of its own.
+                    fresh.insert(id, held);
                 }
-            } else if self.world.quickenings.iter().any(|q| q.contains(x, y)) {
+            } else {
+                // **Charged at the speed it is being run at.** A plant inside
+                // a rate-4 circle is having four times as much life happen to
+                // it as one in a rate-1 circle, and the concept's whole
+                // economy is *the faster the more expensive* -- so the
+                // multiplier is the honest price rather than a surcharge.
+                // The fastest circle over a plant wins; two circles do not
+                // stack, because the plant is only ticked once per pass.
+                //
                 // Charged only inside a *standing* circle: the carried one is
                 // free, so walking through a wood does not bill you for it.
-                plants_in_circles += 1.0;
+                if self.world.quickenings.iter().any(|q| q.contains(x, y)) {
+                    plants_in_circles += 1.0;
+                }
             }
         }
 
-        self.income = INCOME_PER_ANIMAL * animals_running;
-        self.drain = DRAIN_PER_CIRCLE * self.world.quickenings.len() as f32 + DRAIN_PER_PLANT * plants_in_circles;
+        self.reserves = fresh;
+        // **Income is what you *drew*, per second, not what is out there.**
+        // The readout has to answer "am I winning", and with an absorb-driven
+        // economy the honest answer is a rate over the recent past rather
+        // than a census of stored charge that may never be collected.
+        let drawn: f32 = self.draws.iter().filter(|d| d.age == 0).map(|d| d.amount).sum();
+        self.income = drawn / seconds;
+        // **Multiplied by the dial, both terms.** A plant in a circle run at
+        // 8x is having eight times as much life happen to it, and an empty
+        // circle at 8x still costs eight times a slow one -- which is what
+        // stops the dial being free until something grows under it. This is
+        // the concept's *the faster the more expensive*, and it is the only
+        // thing standing between the player and leaving it at maximum.
+            self.drain = drain_for(self.speed, self.world.quickenings.len() as f32 + carried_cost(&self.world), plants_in_circles);
         // The readout's two animal numbers, taken from the walk that was
         // happening anyway rather than from a second census per frame.
         self.animals = animals_alive;
@@ -501,10 +1306,12 @@ impl Druid {
         if self.paused {
             return;
         }
+        self.ticks += 1;
         frame::step(&mut self.world, &mut self.particles, &mut self.blasts, self.player_input, &self.player_tuning);
         // **Consumed here, or a catch-up burst turns one press into five
         // jumps.** The edge is the caller's to set and this tick's to clear.
         self.player_input.jump_pressed = false;
+        self.step_extra_ticks();
 
         // **Wake the ground he has walked onto, on a distance threshold.**
         // Every frame would be the unbounded heap rebuild `wake_region`'s own
@@ -520,6 +1327,14 @@ impl Druid {
                 self.world.wake_region(carried.x, carried.y, carried.r);
             }
         }
+
+        // Energy in flight ages toward the player and lands. Kept before the
+        // economy so a draw made this tick is still `age == 0` when the
+        // economy reads it as this pass's income.
+        for d in &mut self.draws {
+            d.age += 1;
+        }
+        self.draws.retain(|d| d.age <= DRAW_FRAMES);
 
         self.step_economy();
     }
@@ -614,6 +1429,57 @@ fn size_from_env() -> (u32, u32) {
     }
 }
 
+/// **What a widened carried circle costs, in standing-circle equivalents.**
+///
+/// **Zero at its base size, and that is load-bearing.** The carried circle is
+/// free because it is *presence* — a colony under your feet charges without
+/// billing you, which is the whole reason walking somewhere is worth doing.
+/// But the owner asked to be able to widen it, and a free circle you can grow
+/// to a standing circle's size is a standing circle you never have to place:
+/// the placement economy would simply stop applying.
+///
+/// So the price is the **area you added**, not the area you have. Doubling
+/// the radius covers four times the ground and costs three circles; leaving
+/// it alone costs nothing, exactly as before.
+fn carried_cost(world: &World) -> f32 {
+    let Some(carried) = world.carried else {
+        return 0.0;
+    };
+    let base = CARRIED_RADIUS.max(1) as f32;
+    let ratio = carried.r as f32 / base;
+    (ratio * ratio - 1.0).max(0.0)
+}
+
+/// **What one second of running costs**, given the dial, how many standing
+/// circles there are, and how many plants stand inside them.
+///
+/// A named function so the guard asserts the rule rather than a copy of it.
+fn drain_for(speed: u32, circles: f32, plants_in_circles: f32) -> f32 {
+    speed.max(1) as f32 * (DRAIN_PER_CIRCLE * circles + DRAIN_PER_PLANT * plants_in_circles)
+}
+
+/// **Can this game sow this species?** See the seed-kind list in
+/// [`Druid::new`] for the measurement behind it and the two predicates that
+/// are wrong.
+fn is_sowable(species: &crate::sim::organism::Species) -> bool {
+    species.cell_types().iter().any(|(ct, _)| *ct == crate::sim::organism::CellType::Seed) || species.name == MOSS
+}
+
+fn start_from_env() -> Start {
+    let Ok(v) = std::env::var(START_ENV) else {
+        return Start::default();
+    };
+    match v.trim().to_ascii_lowercase().as_str() {
+        "dead" => Start::Dead,
+        "bare" => Start::Bare,
+        "grown" | "alive" => Start::Grown,
+        other => {
+            eprintln!("druid: {START_ENV}={other:?} is not dead|bare|grown; using {}", Start::default().label());
+            Start::default()
+        }
+    }
+}
+
 fn grow_from_env() -> u64 {
     match std::env::var(GROW_ENV) {
         Ok(v) => match v.trim().parse() {
@@ -630,6 +1496,148 @@ fn grow_from_env() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A trail he lays has a slope, and the slope points at him.**
+    ///
+    /// This is the assumption the whole of [`Druid::lay_trail`] rests on, and
+    /// it is not obvious enough to leave unguarded: an ant reads
+    /// `PheroBAlong`, the *gradient* along its heading, so a trail of uniform
+    /// strength is a trail nothing can follow. What supplies the slope is
+    /// `DECAY_RHO` — every mark starts fading the moment it is laid, so the
+    /// newest cell on the route is the strongest.
+    ///
+    /// **The control is the same walk with the plane never stepped**, which
+    /// is the world in which the decay does not happen: there the two ends
+    /// read *equal*, so this guard is known to be measuring the decay rather
+    /// than something about the deposit. Without it, a deposit that happened
+    /// to write more at the far end would pass and mean nothing.
+    #[test]
+    fn a_laid_trail_slopes_toward_the_newest_end() {
+        use crate::sim::pheromone::{Channel, DEPOSIT};
+        let walk: Vec<i32> = (40..70).collect();
+
+        // The arm: lay along the row, letting the plane age between marks.
+        let mut w = World::new(Rect::new(0, 0, 255, 127));
+        for &x in &walk {
+            w.deposit_pheromone(Channel::B, x, 64, DEPOSIT);
+            for _ in 0..12 {
+                w.frame += 1;
+                w.step_pheromones();
+            }
+        }
+        let (first, last) = (w.pheromone_at(Channel::B, walk[0], 64), w.pheromone_at(Channel::B, *walk.last().unwrap(), 64));
+        assert!(
+            last > first,
+            "the newest end reads {last} against the oldest {first} -- a flat trail has no gradient, and `PheroBAlong` is a gradient, so nothing would follow it"
+        );
+
+        // The control: the identical walk with the plane frozen.
+        let mut c = World::new(Rect::new(0, 0, 255, 127));
+        for &x in &walk {
+            c.deposit_pheromone(Channel::B, x, 64, DEPOSIT);
+        }
+        let (cf, cl) = (c.pheromone_at(Channel::B, walk[0], 64), c.pheromone_at(Channel::B, *walk.last().unwrap(), 64));
+        assert_eq!(cf, cl, "with the plane never stepped the two ends must be equal ({cf} vs {cl}); if they are not, the slope above is not the decay and this guard is measuring the wrong thing");
+    }
+
+    /// **Widening the circle you carry is not free, and leaving it alone
+    /// still is.**
+    ///
+    /// The exploit this guards: the carried circle costs nothing because it
+    /// is presence, and the owner asked to be able to widen it. A free circle
+    /// that can grow to a standing circle's size is a standing circle nobody
+    /// ever has to place — the placement economy simply stops applying, and
+    /// nothing else in the game would notice.
+    #[test]
+    fn a_widened_carried_circle_costs_and_an_untouched_one_does_not() {
+        use crate::sim::world::Quickening;
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+
+        assert_eq!(carried_cost(&w), 0.0, "no carried circle is no cost");
+
+        w.carried = Some(Quickening::at(10, 10, CARRIED_RADIUS));
+        assert_eq!(carried_cost(&w), 0.0, "the circle you already are must stay free");
+
+        // Twice the radius is four times the ground, so three circles' worth
+        // of *added* reach.
+        w.carried = Some(Quickening::at(10, 10, CARRIED_RADIUS * 2));
+        assert!((carried_cost(&w) - 3.0).abs() < 1e-4, "double the radius should cost 3, not {}", carried_cost(&w));
+
+        // Monotone all the way up, or some middle setting is a free lunch.
+        let mut last = 0.0;
+        for r in CARRIED_RADIUS..=CARRIED_RADIUS_MAX {
+            w.carried = Some(Quickening::at(10, 10, r));
+            let c = carried_cost(&w);
+            assert!(c >= last, "cost fell from {last} to {c} at r{r}");
+            last = c;
+        }
+        assert!(last > 0.0, "the widest carried circle must cost something");
+    }
+
+    /// **The dial is priced, and priced linearly.**
+    ///
+    /// The one thing standing between the player and leaving the speed at
+    /// maximum for ever, so if it silently stopped scaling the whole mechanic
+    /// would become a free button. Asserted on the arithmetic rather than on
+    /// a played world, because it *is* arithmetic — and asserted at both ends
+    /// (an empty circle and a full one), since an early version multiplied
+    /// only the per-plant term and a bare fast circle cost nothing.
+    #[test]
+    fn the_speed_dial_is_priced_linearly_at_both_ends() {
+        // An empty circle: nothing growing, so only the per-circle term.
+        let empty = |speed: u32| drain_for(speed, 1.0, 0.0);
+        assert!(empty(1) > 0.0, "a standing circle must cost something even empty");
+        for speed in SPEED_MIN..=SPEED_MAX {
+            let want = empty(1) * speed as f32;
+            assert!((empty(speed) - want).abs() < 1e-4, "an empty circle at x{speed} costs {}, not {want}", empty(speed));
+        }
+
+        // ...and with a wood in it, where the per-plant term dominates.
+        let wood = |speed: u32| drain_for(speed, 1.0, 500.0);
+        assert!(wood(1) > empty(1), "plants inside a circle must add to its cost");
+        for speed in SPEED_MIN..=SPEED_MAX {
+            let want = wood(1) * speed as f32;
+            assert!((wood(speed) - want).abs() < 1e-3, "a wood at x{speed} costs {}, not {want}", wood(speed));
+        }
+
+        // The dial cannot be turned to free, and zero is not a discount.
+        assert_eq!(drain_for(0, 1.0, 0.0), drain_for(1, 1.0, 0.0), "speed 0 must be priced as real time, not as nothing");
+    }
+
+    /// **The seed list is plants, and nothing but plants.**
+    ///
+    /// The guard for a predicate this module got wrong **twice**, each time
+    /// plausibly: `creature.is_none()` admits the worm, which is an animal
+    /// with no `creature` block because `creature.rs` drives it by species
+    /// *name*; `has_economy()` drops moss, which declares no
+    /// `Photosynthesize` at all. Both compile, both read correctly, and both
+    /// put the wrong thing in the player's hand.
+    ///
+    /// Asserted against the **whole shipped species set** rather than a
+    /// sample, and in both directions — every plant present, every animal
+    /// absent — so adding a species file to `assets/species/` and forgetting
+    /// this fails here rather than in somebody's game.
+    #[test]
+    fn the_seed_kinds_are_every_plant_and_no_animal() {
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let _ = w.species.reload(organism::ASSET_DIR);
+        assert!(w.species.len() > 10, "the species set did not load; this guard would pass on nothing");
+
+        let sowable: Vec<&str> = (0..w.species.len())
+            .map(|i| w.species.get(organism::SpeciesId(i as u16)))
+            .filter(|sp| is_sowable(sp))
+            .map(|sp| sp.name.as_str())
+            .collect();
+
+        for plant in ["moss", "tree", "conifer", "shrub", "creeper", "grass", "herb", "scrambler"] {
+            assert!(sowable.contains(&plant), "{plant} is a plant the player should be able to sow, and it is not in {sowable:?}");
+        }
+        // The worm is the one that caught this: an animal with no `creature`
+        // block at all.
+        for animal in ["worm", "ant", "beetle", "hopper", "flitter", "longant", "ancestor"] {
+            assert!(!sowable.contains(&animal), "{animal} is an animal and must not be sowable, but it is in {sowable:?}");
+        }
+    }
 
     /// **A spawn point has to be on the ground**, which is the one thing this
     /// game needs that the sandbox never had to solve — it summons the gnome

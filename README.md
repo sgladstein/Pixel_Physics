@@ -8574,11 +8574,185 @@ one look identical.
 
 **Nothing in worldgen places a creature.** `World::found_colony_of` had only
 tests and the lab as callers, so an economy whose only income is animal
-metabolism could at first only ever drain. `C` founds twelve `ant` at the
-player's feet, and **it has to be at his feet**: creatures run on the
-active-site schedule, which the held gate covers, so a colony founded outside
-running time stands there as scenery. That rule needs no code — it falls out
-of the gate.
+metabolism could at first only ever drain. `C` founds a colony at the player's
+feet, and **it has to be at his feet**: creatures run on the active-site
+schedule, which the held gate covers, so a colony founded outside running time
+stands there as scenery. That rule needs no code — it falls out of the gate.
+
+### Founding a colony
+
+`C` opened by dropping twelve stock `ant` and printing how many landed. That
+is a keypress, not an act — nothing about the colony was yours and every
+founding was the same founding — against a brief asking for *"part random,
+part user design, some user input"* with *"each attempt rare and costly"*.
+
+So `C` opens an **offer**: three lineages drawn from the world's own seed. You
+pick one, pick how many founders to pay for (4–24), and spend the pool.
+**Walking away costs nothing and leaves the same three standing**; only
+committing rerolls them, which is the whole of what makes it a choice — a free
+reroll is a slot machine you play until you win.
+
+**Six stocks, and the five excluded species were each excluded for a measured
+reason.** `ancestor` and `flitter` declare no nest, so their animals stand on
+the ground with no home gradient and nobody forages; `beetle` carries **zero**
+pheromone wires and no `Attack`, so it run-and-tumbles at random —
+`dead-ends.md` already records that as what made beetles useless as predation
+pressure; `ant_block`/`ant_block_shaded` are render fixtures.
+`a_stock_is_a_species_that_can_actually_keep_house` holds that line, **with
+`beetle` as its positive control**, so the guard is known to discriminate
+rather than merely to pass.
+
+| stock | cells | |
+|---|---|---|
+| common ant | 2 | cheap, quick, dies whole |
+| hopper | 3 | the only shipped consumer of `BrainOutput::Impulse` |
+| long ant | 6 | a body with a middle — loses a tail and lives |
+| segmented ant | 7 | jointed; bends round corners |
+| broad ant | 9 | digs a room rather than a corridor |
+| pale chitin | 9 | plated from birth: `0.5` against the ant's `0.25` |
+
+**Six trait slots are rolled, and the draw is triangular rather than
+uniform** — *an outcome is a distribution, not a binary*. Two summed uniforms
+put most slots near neutral, so a lineage usually has one or two things to say
+about itself and occasionally something worth paying for; a uniform draw gives
+every candidate six loud traits and none of them mean anything. Neutral draws
+no line at all: an unremarkable slot should read as unremarkable, not as a weak
+version of something. Rolled: `GUT_BIAS`, `PACE`, `DIG_FORCE`, `ARMOUR`,
+`CROP_CAPACITY`, `SIGHT_RANGE` — the last being the dearest and the rarest,
+since every shipped ant is blind.
+
+**The brain genome goes in untouched, and that is what makes this safe.**
+`organism.rs` keeps traits outside the genome on purpose (*"a gut is not a
+synapse"*), and `ant.ron`'s hidden layer is where the whole homing circuit
+lives — `PheroAAlong`/`PheroBAlong` into `Move` at ±6.0, gated on `Carrying`.
+A rolled genome would hand the player colonies that cannot forage, which is
+both a worse game and a bug that takes an evening to recognise, because a
+colony walking at random looks exactly like one that is merely unlucky.
+
+**No engine change went with any of it.** The screen composes public parts:
+`paint_nest_patch` puts a home down, `colony_stations` lays out the founders
+(terrain-following, and derived from the body plan's own width, which is why a
+nine-cell stock does not inherit the two-cell ant's corridor), and
+`creature::release_creature_specimen` places each one as an `Origin::Stock` —
+the variant that already takes explicit traits and stamps the colony's scent
+offset on top.
+
+Cost is three terms, each of them something visible on the screen that charges
+for it: how many founders, how much animal each one is (body cells), and how
+much the roll gave you — and **only the good half of a roll is charged**, so a
+blind, thin-shelled, slow lineage is simply cheap rather than a discount to
+farm. A default founding — common ant, twelve, neutral — is 144 against a full
+pool of 600. Like every other number in this economy, first guesses.
+
+**`C` at the spawn refuses on a grown or dead start and takes on a bare one**,
+measured 2026-09-14 on both. A grown wood fills the surface with plant cells,
+`colony_stations` declines a station that does not fit, and every one of the
+twelve is declined — so the founding places nobody. It is the first key a
+player presses, so the refusal now distinguishes its two causes: *"no ground
+here"* when no station could even be laid out, and *"no room — the ground here
+is full"* when they were and none took. One message for three refusals was the
+real defect, because "no ground here" is unactionable when you are plainly
+standing on ground. **`Start::Bare` being the default keeps the common path
+working**; making a grown wood foundable is open work, and the honest fix is
+probably in `colony_stations` rather than in a message.
+
+**You pay for the founders that landed, not the ones you asked for**, and the
+gap is not small: a headless founding of twelve `hopper` on rolling ground
+seated **3**, because `colony_stations` lays out a corridor and a station that
+does not fit is declined. Paying 224 for three animals is unfairness a player
+notices at once and cannot see the cause of. Affordability is still checked
+against the full ask, so a founding can never overdraw the pool.
+
+### The options menu
+
+`M`. Owner's ask, 2026-09-14: *"we need a menu with options. The first I would
+add is the ability to turn off plant destruction or breaking due to stress
+(which should be off by default)."*
+
+**Every row is a switch the engine already had** — nothing in `druid::menu`
+adds behaviour. `plant_load_failure` and `plant_bending` were fields on
+`World` reachable only from the lab's parameters panel; the rest were keys
+nobody could guess. A menu is discoverability, and a menu row that is also a
+new mechanic is two changes wearing one commit.
+
+**The held world sets `plant_load_failure = false` at startup.** The engine
+default stays `true`, so the outdoor game and `scripts/acceptance.sh`'s `fell`
+case are untouched — this is one game choosing differently, which is what a
+per-game field is for. Only a *living* plant is held: a senescent one comes
+apart exactly as before, so culling, rot and felling still work. That
+distinction is not incidental; the switch's own doc records an earlier version
+getting it wrong and the owner reporting *"I turned COLLAPSE UNDER LOAD off,
+but trees are still falling over."*
+
+Why a menu and not more keys: there are twenty bindings already and the legend
+fills a corner. A setting is a thing you change once and forget; a verb is a
+thing you press. Keeping them apart is what stops the legend becoming the
+screen.
+
+### Telling the colony where to go
+
+The colony was a thing you owned and watched. `G`, held while you walk, lays a
+scent trail — and it is the difference between owning one and commanding one.
+
+**Channel B, and which channel it is was measured rather than guessed.**
+`ant.ron`'s hidden units 2 and 3 carry `PheroBAlong` into `Move` at ±2.5
+behind `(Bias, 45.0)` and `(Carrying, -75.0)`, so they fire on an ant that is
+**empty**: channel B is the "there is food that way" trail. Units 0 and 1 are
+the mirror image on channel A, gated the other way — the laden ant's road
+home, emitted at the nest by hidden unit 4. Laying A would tell a colony where
+its own nest is, which it already knows.
+
+**Why a trail he lays is followable at all** is the whole mechanic and is not
+obvious. The ant reads the *gradient* along its heading, so a trail of uniform
+strength says nothing. What supplies the slope is `DECAY_RHO`: every mark
+fades from the moment it is laid, so the freshest cell is the strongest and
+the slope points back along the route to wherever he is standing now. Walk
+from the nest to where you want them and they come up the path behind you;
+stop, and the peak stays where you stopped. **He does not push them — he is
+the thing they are walking toward.** `a_laid_trail_slopes_toward_the_newest_end`
+guards it, **with the frozen plane as its control**: with the plane never
+stepped the two ends read equal, so the guard is known to be measuring the
+decay rather than something about the deposit.
+
+**And it is the cold start.** `dead-ends.md` records that channel B is emitted
+only by an ant *already carrying* — so a colony that never reaches a first
+meal never lays a trail for anyone to follow, and random-walks with a full
+larder out of reach. A finger that can put scent down is the missing first
+mark.
+
+**What is measured, and what is not.** The trail is laid (121 marks over a
+130-cell walk), it has the slope the mechanism needs (guarded, with the frozen
+plane as the control), and the ants' authored wiring reads channel B. **That a
+druid-laid trail actually moves a colony is not yet demonstrated**, and the
+first attempt could not answer it: a paired run on `start=bare`, one arm
+laying and one not, put the colony's mean at **1281,317 in both** — identical
+to the digit, which is `CLAUDE.md`'s tidiness tell rather than a result. Three
+things were wrong with the scene rather than with the verb. **A mean over a
+colony that lives at its nest is the nest**, whatever the animals do, so the
+metric cannot separate "milling at home" from "not moving" — read the furthest
+cell reached, or the count near the trail head, which was 0 of 3. `bare` has
+**no food**, so channel B led to nothing and there was nothing for a follower
+to find. And the offer rolled `hopper`, whose wiring is inherited from
+`ant.ron` but was not checked, with only **3 of 6** founders alive by the end
+in a world with nothing to eat. A valid test wants food at the trail's far
+end, a stock whose wiring has been read, and a population that is not starving.
+
+**A trail only commands where time runs**, and that falls out of the held
+gate rather than out of anything here: creatures tick on the active-site
+schedule, which `scheduler::step` gates on `time_runs_at`. So a trail leading
+out of every circle leads a colony that is not moving. The two verbs are
+paired — you lay the route *and* you pay to extend time along it, or you draw
+inside a standing circle you already have. That coupling is the game working
+rather than a limitation: the instruction is free-ish and the running time it
+needs is not.
+
+The mark is drawn by sampling the plane at the cells he laid, **not** by
+remembering how bright each was: a mark fades exactly as its scent does and
+vanishes when the scent is gone, rather than leaving a drawn trail standing
+over ground that no longer smells of anything. Only those cells are read, not
+the screen — a per-pixel plane read every frame is sweep-scale work for a
+readout. `TRAIL_PER_SECOND` is 1.0, the price of one standing circle, since
+that is what it is: a standing instruction.
 
 ### The interface
 

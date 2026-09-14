@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use pixel_physics::app::{HEIGHT, WIDTH};
-use pixel_physics::druid::Druid;
+use pixel_physics::druid::{Druid, TICKS_PER_SECOND};
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -33,11 +33,18 @@ use winit::window::{Window, WindowId};
 /// The simulation advances at a fixed rate regardless of frame rate, for the
 /// reason `main.rs` gives: every CA rule is "one cell per step" rather than a
 /// velocity, so a variable timestep changes behaviour with the frame rate.
-const TICKS_PER_SECOND: u32 = 60;
+/// The rate itself is `druid::TICKS_PER_SECOND`, in the lib, because the
+/// game prices things per second and the loop is not the only reader.
 const TICK: Duration = Duration::from_nanos(1_000_000_000 / TICKS_PER_SECOND as u64);
 /// Ceiling on catch-up ticks per frame — without it a stall makes the next
 /// frame simulate the whole missing interval and stall further.
 const MAX_TICKS_PER_FRAME: u32 = 5;
+
+/// Frames to wait after a scripted absorb before the screenshot, so the flow
+/// is caught in mid-air rather than before it starts or after it lands.
+/// `druid::DRAW_FRAMES` is 42 player ticks; a third of the way along shows the
+/// stream strung out with its head near the player.
+const DRAW_FRAMES_TO_CATCH: u32 = 4;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoop::new()?;
@@ -50,6 +57,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     handler.result
 }
 
+/// **An animation being captured**, in player ticks — see
+/// `PIXEL_PHYSICS_DRUID_GIF`.
+struct GifCapture {
+    /// First tick to capture on.
+    start: u64,
+    /// Ticks between captures. 1 is every tick, which at 60/s is real time.
+    every: u64,
+    /// How many frames to take before writing the file and exiting.
+    count: usize,
+    out: std::path::PathBuf,
+    frames: Vec<Vec<u8>>,
+}
+
 struct Handler {
     window: Option<Arc<Window>>,
     pixels: Option<Pixels<'static>>,
@@ -59,6 +79,8 @@ struct Handler {
     accumulator: Duration,
     fps: f32,
     held: HeldKeys,
+    /// `G` — laying scent, held rather than tapped.
+    laying: bool,
     /// A jump press seen since the last frame's input assembly. Separate from
     /// `held.jump` so a press and release faster than one frame still jumps.
     jump_pressed: bool,
@@ -66,6 +88,18 @@ struct Handler {
     /// binaries carry, and the only way to see a rendered window on a
     /// headless box, since this build's swapchain is invisible to OS capture.
     screenshot_countdown: Option<u32>,
+    /// See `PIXEL_PHYSICS_DRUID_CENSUS`.
+    census_after: Option<u64>,
+    /// See `PIXEL_PHYSICS_DRUID_ABSORB_AT`.
+    absorb_at: Option<u64>,
+    /// `PIXEL_PHYSICS_DRUID_FOUND_AT` — the tick to commit the open offer on.
+    found_at: Option<u64>,
+    /// See `PIXEL_PHYSICS_DRUID_GIF`.
+    gif: Option<GifCapture>,
+    /// See `PIXEL_PHYSICS_DRUID_WALK`.
+    walk: (u64, u64),
+    /// See `PIXEL_PHYSICS_DRUID_LAY`.
+    lay: (u64, u64),
     result: Result<(), Box<dyn std::error::Error>>,
 }
 
@@ -92,9 +126,139 @@ impl Handler {
         // same reason as the look above: a headless screenshot cannot press
         // `C`, and "did the founding place anybody" is a question with a
         // number rather than a picture.
+        // `PIXEL_PHYSICS_DRUID_KEYS=0` -- start with the legend hidden. It
+        // is twenty rows tall and covers the lower half of a 512x320 frame,
+        // which is exactly where the ground is; a headless run cannot press
+        // `/`.
+        if std::env::var("PIXEL_PHYSICS_DRUID_KEYS").is_ok_and(|v| v == "0") {
+            game.show_keys = false;
+        }
         if std::env::var("PIXEL_PHYSICS_DRUID_FOUND").is_ok_and(|v| v != "0") {
             game.found_colony();
         }
+        // `PIXEL_PHYSICS_DRUID_MENU=1` -- open the options menu at startup,
+        // and `=<n>` to put the cursor on the nth row. Same shape and same
+        // reason as every hook here: a headless screenshot cannot press `M`,
+        // and a menu is exactly the thing a still image *can* settle.
+        if let Ok(v) = std::env::var("PIXEL_PHYSICS_DRUID_MENU") {
+            if v != "0" {
+                game.toggle_menu();
+                if let (Ok(n), Some(m)) = (v.parse::<i32>(), game.menu.as_mut()) {
+                    m.step(n);
+                }
+            }
+        }
+        // `PIXEL_PHYSICS_DRUID_OFFER=1` -- open the founding screen at
+        // startup, and `=<n>` to put the cursor on the nth lineage. The
+        // screen is the one part of this game a still image *can* settle, so
+        // it is the one that most needs to be reachable without a keyboard.
+        if let Ok(v) = std::env::var("PIXEL_PHYSICS_DRUID_OFFER") {
+            if v != "0" {
+                game.toggle_founding();
+                if let (Ok(n), Some(offer)) = (v.parse::<i32>(), game.offer.as_mut()) {
+                    offer.step_pick(n);
+                }
+            }
+        }
+        // `PIXEL_PHYSICS_DRUID_CIRCLES=x,y,r,rate;x,y,r,rate` -- place
+        // standing quickenings at startup. Third hook of the same shape and
+        // for the same reason as the two above: a headless run cannot press
+        // `SPACE`, and the speed dial is a claim about what happens over
+        // hundreds of frames, which is not a thing a screenshot can settle.
+        if let Ok(spec) = std::env::var("PIXEL_PHYSICS_DRUID_CIRCLES") {
+            for one in spec.split(';').filter(|s| !s.trim().is_empty()) {
+                let n: Vec<&str> = one.split(',').collect();
+                match n.as_slice() {
+                    [x, y, r, rate] => {
+                        let parsed = (x.trim().parse(), y.trim().parse(), r.trim().parse(), rate.trim().parse::<u32>());
+                        if let (Ok(x), Ok(y), Ok(r), Ok(rate)) = parsed {
+                            game.world.quickenings.push(pixel_physics::sim::world::Quickening::at(x, y, r));
+                            // The dial is one number for the whole game now,
+                            // so the last entry's speed wins -- see
+                            // `Druid::speed`. Kept in the spec's shape so the
+                            // measurement scripts still read.
+                            game.speed = rate.clamp(pixel_physics::druid::SPEED_MIN, pixel_physics::druid::SPEED_MAX);
+                            let woken = game.world.wake_region(x, y, r);
+                            println!("druid: circle at {x},{y} r{r}, world speed x{} — woke {woken} sites", game.speed);
+                        } else {
+                            eprintln!("druid: CIRCLES entry {one:?} is not x,y,r,rate");
+                        }
+                    }
+                    _ => eprintln!("druid: CIRCLES entry {one:?} is not x,y,r,rate"),
+                }
+            }
+        }
+        // `PIXEL_PHYSICS_DRUID_UNLIMITED=1` -- the `U` key, for a run with no
+        // hands on it. Not a convenience: the first attempt to measure the
+        // speed dial reported *no circles at all*, because a rate-8 circle
+        // drains 9/s in base cost before a single plant is counted and the
+        // economy had closed both of them by frame 1,600. Measuring growth
+        // and measuring the price at the same time measures neither.
+        if std::env::var("PIXEL_PHYSICS_DRUID_UNLIMITED").is_ok_and(|v| v != "0") {
+            game.unlimited = true;
+        }
+        // `PIXEL_PHYSICS_DRUID_CENSUS=N` -- after N ticks, print living plant
+        // tissue inside each standing circle and exit. The instrument for the
+        // speed dial: "did it fire" needs a counter, and per-circle is the
+        // only granularity that can tell a working dial from a world that
+        // simply runs fast everywhere.
+        let census_after: Option<u64> = std::env::var("PIXEL_PHYSICS_DRUID_CENSUS").ok().and_then(|v| v.parse().ok());
+        // `PIXEL_PHYSICS_DRUID_ABSORB_AT=N` -- press `F` at player tick N.
+        // The drawn energy is in flight for `DRAW_FRAMES` and then gone, so
+        // catching it needs the press and the screenshot to be scheduled
+        // together; a headless run cannot press anything.
+        let absorb_at: Option<u64> = std::env::var("PIXEL_PHYSICS_DRUID_ABSORB_AT").ok().and_then(|v| v.parse().ok());
+        // `PIXEL_PHYSICS_DRUID_FOUND_AT=<tick>` -- commit whatever the offer is
+        // showing, at that player tick. Same shape and same reason as
+        // `ABSORB_AT` above: the founding throws a flow, and a flow is a
+        // claim about several frames that a screenshot scheduled by hand
+        // will miss. Pair it with `PIXEL_PHYSICS_DRUID_OFFER` to choose
+        // which lineage.
+        let found_at: Option<u64> = std::env::var("PIXEL_PHYSICS_DRUID_FOUND_AT").ok().and_then(|v| v.parse().ok());
+        // `PIXEL_PHYSICS_DRUID_GIF=start,every,count[,out.gif]` -- capture an
+        // animation instead of a still.
+        //
+        // **This exists because a still is the wrong instrument for a flow,
+        // and it cost two wrong answers to learn.** The owner judged the
+        // drawn-energy effect from single frames twice -- "a couple big orbs"
+        // once, and before that a frame with nothing in it at all -- and both
+        // readings were fair, because a stream of particles is a thing that
+        // *moves* and a photograph of one is a scatter of dots. `filmstrip`
+        // has had `gif=1` for exactly this reason for a while; it just cannot
+        // drive this game.
+        let gif = std::env::var("PIXEL_PHYSICS_DRUID_GIF").ok().and_then(|v| {
+            let n: Vec<&str> = v.split(',').collect();
+            let (start, every, count) = (n.first()?.trim().parse().ok()?, n.get(1)?.trim().parse().ok()?, n.get(2)?.trim().parse().ok()?);
+            let out = n.get(3).map_or_else(|| std::env::temp_dir().join("pixel_physics_druid.gif"), |o| o.trim().into());
+            Some(GifCapture { start, every, count, out, frames: Vec::new() })
+        });
+        // `PIXEL_PHYSICS_DRUID_WALK=N` -- hold `D` for the first N player
+        // ticks. A colony is founded at the gnome's feet, so a scripted
+        // absorb has about five cells for the stream to cross and the flow
+        // reads as a flash; walking him off first is the difference between
+        // rendering the feature and rendering a sparkle.
+        // A range, not a prefix: the colony has to charge *first*, and it
+        // only charges while it is inside running time -- which, when he is
+        // standing with it, is his own carried circle. So the script is
+        // stand, then step off, then pull.
+        let walk: (u64, u64) = std::env::var("PIXEL_PHYSICS_DRUID_WALK")
+            .ok()
+            .and_then(|v| {
+                let (a, b) = v.split_once(',')?;
+                Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
+            })
+            .unwrap_or((0, 0));
+        // `PIXEL_PHYSICS_DRUID_LAY=a,b` -- hold `G` between those player
+        // ticks, the same shape as `WALK` above and normally paired with it:
+        // a trail is a route walked while holding a key, so a headless run
+        // needs both halves or it lays one dot and calls it a trail.
+        let lay: (u64, u64) = std::env::var("PIXEL_PHYSICS_DRUID_LAY")
+            .ok()
+            .and_then(|v| {
+                let (a, b) = v.split_once(',')?;
+                Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
+            })
+            .unwrap_or((0, 0));
         Self {
             window: None,
             pixels: None,
@@ -104,8 +268,15 @@ impl Handler {
             accumulator: Duration::ZERO,
             fps: 0.0,
             held: HeldKeys::default(),
+            laying: false,
             jump_pressed: false,
             screenshot_countdown: std::env::var("PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES").ok().and_then(|v| v.parse().ok()),
+            census_after,
+            absorb_at,
+            found_at,
+            gif,
+            walk,
+            lay,
             result: Ok(()),
         }
     }
@@ -154,15 +325,75 @@ impl Handler {
         // Held state copied fresh; the jump press ORs in, so a press made on
         // a frame that ran zero ticks survives until a tick consumes it.
         self.game.player_input.left = self.held.left;
-        self.game.player_input.right = self.held.right;
+        self.game.player_input.right = self.held.right || (self.game.ticks >= self.walk.0 && self.game.ticks < self.walk.1);
         self.game.player_input.jump_held = self.held.jump;
         self.game.player_input.down = self.held.down;
         self.game.player_input.grab = self.held.grab;
         self.game.player_input.jump_pressed |= std::mem::take(&mut self.jump_pressed);
 
+        if let Some(n) = self.found_at {
+            if self.game.ticks >= n {
+                self.found_at = None;
+                if self.game.offer.is_none() {
+                    self.game.toggle_founding();
+                }
+                // **The founding schedules its own screenshot**, for the
+                // reason the pull below already learned the hard way: the
+                // countdown counts *drawn frames* and this counts *player
+                // ticks*, and on a software rasteriser one drawn frame is
+                // worth several ticks. Scheduling both by hand renders the
+                // moment after the flow has finished and reads as the flow
+                // not existing.
+                if self.game.commit_founding() > 0 {
+                    let catch = std::env::var("PIXEL_PHYSICS_DRUID_CATCH").ok().and_then(|v| v.parse().ok());
+                    self.screenshot_countdown = Some(catch.unwrap_or(1));
+                }
+            }
+        }
+
+        if let Some(n) = self.absorb_at {
+            if self.game.ticks >= n {
+                self.absorb_at = None;
+                if self.game.absorb() > 0.0 {
+                    // **The pull schedules its own screenshot**, because the
+                    // two clocks do not line up: `screenshot_countdown` counts
+                    // *drawn frames* and this counts *player ticks*, and on a
+                    // software rasteriser a drawn frame is worth several
+                    // ticks. Scheduling both by hand produced two renders
+                    // with no flow in them and a wrong story about why (I
+                    // blamed the colony starving; it had 68 charge).
+                    // `PIXEL_PHYSICS_DRUID_CATCH=N` picks how far along the
+                    // stream is when the shutter opens.
+                    let n = std::env::var("PIXEL_PHYSICS_DRUID_CATCH").ok().and_then(|v| v.parse().ok());
+                    self.screenshot_countdown = Some(n.unwrap_or(DRAW_FRAMES_TO_CATCH));
+                }
+            }
+        }
+        if let Some(n) = self.census_after {
+            // Player ticks, not `world.frame` -- see `Druid::ticks`. Keying
+            // this on the world's counter is what made the dial's first
+            // measurement read a real-time circle at 2 cells against 45.
+            if self.game.ticks >= n {
+                self.census_after = None;
+                census(&self.game);
+                event_loop.exit();
+                return;
+            }
+        }
+
         self.accumulator += elapsed;
         let mut ticks = 0;
         while self.accumulator >= TICK && ticks < MAX_TICKS_PER_FRAME {
+            // **Inside the tick loop, and it was outside it.** `lay_trail` is
+            // priced per second and divides by `TICKS_PER_SECOND`, so calling
+            // it once per *frame* charged a fast machine less than a slow one
+            // for the same walk -- and laid one mark per frame instead of one
+            // per cell, which is the whole reason `TICK` exists. Caught by a
+            // counter and not by the picture: a headless run walked 239 cells
+            // and reported `trail 1 marks`.
+            if self.laying || (self.game.ticks >= self.lay.0 && self.game.ticks < self.lay.1) {
+                self.game.lay_trail();
+            }
             self.game.update();
             self.accumulator -= TICK;
             ticks += 1;
@@ -175,9 +406,30 @@ impl Handler {
         let render_error = match &mut self.pixels {
             Some(pixels) => {
                 self.game.draw(pixels.frame_mut(), (WIDTH, HEIGHT), false);
+                // **Captured after the draw, before the present**, so the
+                // interface is in the frame -- the flow this exists to record
+                // is drawn by the HUD, not by the world.
+                if let Some(g) = &mut self.gif {
+                    let t = self.game.ticks;
+                    if t >= g.start && g.frames.len() < g.count && (t - g.start).is_multiple_of(g.every) {
+                        g.frames.push(pixels.frame().to_vec());
+                    }
+                    if g.frames.len() >= g.count {
+                        let g = self.gif.take().expect("just checked");
+                        save_gif(&g);
+                        event_loop.exit();
+                        return;
+                    }
+                }
                 if let Some(n) = self.screenshot_countdown {
                     if n <= 1 {
                         self.screenshot_countdown = None;
+                        println!(
+                            "druid: shutter at tick {} — {} draws in flight, {} motes drawn",
+                            self.game.ticks,
+                            self.game.draws.len(),
+                            pixel_physics::druid::hud::mote_count(&self.game)
+                        );
                         save_framebuffer_png(pixels.frame(), WIDTH, HEIGHT);
                     } else {
                         self.screenshot_countdown = Some(n - 1);
@@ -203,6 +455,51 @@ impl Handler {
     }
 
     fn key(&mut self, code: KeyCode, event_loop: &ActiveEventLoop) {
+        // **While the founding screen is up it owns every binding.** Handled
+        // before the main list rather than by adding a guard to each arm:
+        // eighteen arms each remembering to check is eighteen chances to
+        // forget, and the one that forgets is a key that quietly still works
+        // behind a modal screen.
+        // **The options menu owns the keyboard while it is up**, and it is
+        // checked before the founding screen so exactly one modal can ever be
+        // taking input.
+        if let Some(m) = self.game.menu.as_mut() {
+            match code {
+                KeyCode::KeyW | KeyCode::KeyA => m.step(-1),
+                KeyCode::KeyS | KeyCode::KeyD => m.step(1),
+                KeyCode::Space => {
+                    let setting = m.current();
+                    setting.advance(&mut self.game);
+                }
+                KeyCode::KeyM | KeyCode::KeyX | KeyCode::Escape => self.game.menu = None,
+                _ => {}
+            }
+            return;
+        }
+        if let Some(offer) = self.game.offer.as_mut() {
+            match code {
+                KeyCode::KeyA => offer.step_pick(-1),
+                KeyCode::KeyD => offer.step_pick(1),
+                // **Three dials, and the body is the one the owner asked
+                // for**: *"more flexibility, especially on body shape and
+                // movement."* `Q`/`E` is the radius dial outside this screen,
+                // so it is the natural "cycle the thing you are sizing" here.
+                KeyCode::KeyQ => offer.step_body(-1),
+                KeyCode::KeyE => offer.step_body(1),
+                KeyCode::KeyZ => offer.step_founders(-1),
+                KeyCode::KeyV => offer.step_founders(1),
+                KeyCode::KeyC => {
+                    self.game.commit_founding();
+                }
+                // **Escape closes the screen rather than the game.** Quitting
+                // out of a modal is the classic way to lose a session to one
+                // keystroke, and `X` -- lift, elsewhere -- is the natural
+                // "put this down" here too.
+                KeyCode::KeyX | KeyCode::Escape => self.game.offer = None,
+                _ => {}
+            }
+            return;
+        }
         match code {
             KeyCode::Escape => event_loop.exit(),
             KeyCode::KeyP => {
@@ -223,9 +520,34 @@ impl Handler {
             // **Found a colony where you are standing.** It has to be inside
             // running time to tick at all, and the circle you carry is at
             // your feet -- see `Druid::found_colony`.
-            KeyCode::KeyC => {
-                self.game.found_colony();
+            // **The options menu.** Settings rather than verbs -- see
+            // `druid::menu` for why they are not more keys.
+            KeyCode::KeyM => {
+                self.held = HeldKeys::default();
+                self.laying = false;
+                self.game.toggle_menu();
             }
+            KeyCode::KeyC => {
+                // **Stop walking on the way in.** Otherwise a key held at the
+                // moment the screen opens stays held -- the release goes to
+                // the screen, which does not track it -- and he walks off the
+                // site he is founding on.
+                self.held = HeldKeys::default();
+                self.laying = false;
+                self.game.toggle_founding();
+            }
+            // **The verb the whole game is built on.** A seed sown on held
+            // ground lies there until a circle reaches it -- see
+            // `Druid::plant_seed`.
+            KeyCode::KeyT => {
+                self.game.plant_seed();
+            }
+            // **Draw the colony's charge.** The verb the economy is built on
+            // -- see `Druid::absorb`.
+            KeyCode::KeyF => {
+                self.game.absorb();
+            }
+            KeyCode::Tab => self.game.cycle_seed_kind(),
             // The economy's verb: a circle that runs while you are elsewhere.
             KeyCode::Space => {
                 self.game.place_quickening();
@@ -236,6 +558,20 @@ impl Handler {
             // No note for these two: the radius is on the readout and the
             // preview ring at his feet resizes as he presses them, so a
             // message would be a third copy of a fact already on screen twice.
+            // The speed dial. `Z`/`V` rather than more letters near the
+            // movement keys, and both are free.
+            KeyCode::KeyZ => self.game.speed = (self.game.speed - 1).max(pixel_physics::druid::SPEED_MIN),
+            KeyCode::KeyV => self.game.speed = (self.game.speed + 1).min(pixel_physics::druid::SPEED_MAX),
+            // **Your own circle.** `[`/`]` because that is brush size in the
+            // sandbox and this is the same gesture: how far your hand reaches.
+            KeyCode::BracketLeft => {
+                self.game.world.carried_radius =
+                    (self.game.world.carried_radius - 8).max(pixel_physics::sim::world::CARRIED_RADIUS)
+            }
+            KeyCode::BracketRight => {
+                self.game.world.carried_radius =
+                    (self.game.world.carried_radius + 8).min(pixel_physics::druid::CARRIED_RADIUS_MAX)
+            }
             KeyCode::KeyQ => self.game.place_radius = (self.game.place_radius - 10).max(pixel_physics::druid::PLACE_RADIUS_MIN),
             KeyCode::KeyE => self.game.place_radius = (self.game.place_radius + 10).min(pixel_physics::druid::PLACE_RADIUS_MAX),
             // **Unlimited power, for playtesting.** The economy's numbers are
@@ -303,6 +639,19 @@ impl ApplicationHandler for Handler {
             WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(code) = event.physical_key {
                     let pressed = event.state == ElementState::Pressed;
+                    // **The founding screen takes the whole keyboard.** A/D
+                    // choose a lineage there, and the same press reaching the
+                    // walk would have the gnome stroll off the colony site
+                    // while you read about it. Held state is cleared on the
+                    // way in (`key`), so he stops rather than keeping the
+                    // direction he was going.
+                    if self.game.offer.is_some() || self.game.menu.is_some() {
+                        self.laying = false;
+                        if pressed && !event.repeat {
+                            self.key(code, event_loop);
+                        }
+                        return;
+                    }
                     match code {
                         KeyCode::KeyA => self.held.left = pressed,
                         KeyCode::KeyD => self.held.right = pressed,
@@ -313,6 +662,11 @@ impl ApplicationHandler for Handler {
                             }
                         }
                         KeyCode::KeyS => self.held.down = pressed,
+                        // **Held, not tapped**, and so it lives here beside
+                        // the walk rather than in `key`: the gesture is
+                        // walking a route while holding it down, and a tap
+                        // would put one dot on the ground.
+                        KeyCode::KeyG => self.laying = pressed,
                         // Either shift, so it does not matter which hand is
                         // on the movement keys.
                         KeyCode::ShiftLeft | KeyCode::ShiftRight => self.held.grab = pressed,
@@ -333,6 +687,133 @@ impl ApplicationHandler for Handler {
             window.request_redraw();
         }
     }
+}
+
+/// **Living plant tissue inside each standing circle**, and outside all of
+/// them, at whatever frame the caller asked for.
+///
+/// Per circle rather than world-wide, which is the whole point: a world-wide
+/// count cannot tell a speed dial that works from one that runs everything
+/// fast, and those are exactly the two things to distinguish.
+fn census(game: &Druid) {
+    let w = &game.world;
+    let mut inside = vec![0usize; w.quickenings.len()];
+    let mut outside = 0usize;
+    for id in w.live_organism_ids() {
+        let Some(state) = w.organism(id) else { continue };
+        // **Senescent is not living, and in this game that is most of the
+        // world.** `Start::Dead` marks every plant senescent, so a census
+        // that counted them would report a dead wood as thriving -- the
+        // metric answering a different question than the one asked.
+        if w.species.get(state.species).creature.is_some() || state.senescent {
+            continue;
+        }
+        let cells = state.cells.len();
+        match w.quickenings.iter().position(|q| state.cells.keys().next().is_some_and(|(x, y)| q.contains(*x, *y))) {
+            Some(i) => inside[i] += cells,
+            None => outside += cells,
+        }
+    }
+    println!("druid census at frame {} (player ticks {}, speed x{}):", w.frame, game.ticks, game.speed);
+    for (i, q) in w.quickenings.iter().enumerate() {
+        println!("  circle {i} at {},{} r{} : {} living plant cells", q.x, q.y, q.r, inside[i]);
+    }
+    println!("  outside every circle : {outside} living plant cells");
+    let (charge, holders) = game.charge_in_reach();
+    println!("  animals {} ({} awake), charge {charge:.0} in {holders} within reach", game.animals, game.animals_awake);
+    // **Where the animals actually are**, which is the only thing that can
+    // answer whether a laid trail was followed. A picture cannot: an ant is
+    // two cells at this zoom, and "the colony drifted east" and "the colony
+    // milled about" look identical on a contact sheet. Reported against the
+    // trail's own far end rather than in absolute cells, because the number
+    // that matters is *did they close on where he pointed*.
+    let mut n = 0usize;
+    let (mut sx, mut sy) = (0i64, 0i64);
+    for id in w.live_organism_ids() {
+        let Some(state) = w.organism(id) else { continue };
+        if w.species.get(state.species).creature.is_none() {
+            continue;
+        }
+        let Some((x, y)) = state.cells.keys().next().copied() else { continue };
+        n += 1;
+        sx += x as i64;
+        sy += y as i64;
+    }
+    if n > 0 {
+        let (mx, my) = ((sx / n as i64) as i32, (sy / n as i64) as i32);
+        // **Furthest reached, not just the mean**, and the mean is the trap
+        // that made the first trail A/B unreadable: a colony lives at its
+        // nest, so the mean *is* the nest whatever the animals do, and two
+        // arms came back identical to the digit while saying nothing. How far
+        // the furthest one got, and how many are near a named point, can tell
+        // milling from stillness.
+        let east = w
+            .live_organism_ids()
+            .into_iter()
+            .filter_map(|id| w.organism(id))
+            .filter(|st| w.species.get(st.species).creature.is_some())
+            .filter_map(|st| st.cells.keys().map(|&(x, _)| x).max())
+            .max()
+            .unwrap_or(0);
+        print!("  {n} animals, mean at {mx},{my}, furthest east {east}");
+        // `PIXEL_PHYSICS_DRUID_MARK=x,y` -- a fixed reference both arms of a
+        // paired run can be counted against. The trail head cannot serve: the
+        // arm with no trail has none, so the two arms would be measured with
+        // different rulers.
+        if let Some((rx, ry)) = std::env::var("PIXEL_PHYSICS_DRUID_MARK").ok().and_then(|v| {
+            let (a, b) = v.split_once(',')?;
+            Some((a.trim().parse::<i32>().ok()?, b.trim().parse::<i32>().ok()?))
+        }) {
+            let near = w
+                .live_organism_ids()
+                .into_iter()
+                .filter_map(|id| w.organism(id))
+                .filter(|st| w.species.get(st.species).creature.is_some())
+                .filter(|st| st.cells.keys().next().is_some_and(|&(x, y)| (x - rx).abs() < 40 && (y - ry).abs() < 40))
+                .count();
+            print!(" — {near} within 40 of the mark {rx},{ry}");
+        }
+        if let Some(&(tx, ty)) = game.trail.back() {
+            let d = (((tx - mx) as f32).powi(2) + ((ty - my) as f32).powi(2)).sqrt();
+            let near = w
+                .live_organism_ids()
+                .into_iter()
+                .filter_map(|id| w.organism(id))
+                .filter(|s| w.species.get(s.species).creature.is_some())
+                .filter(|s| s.cells.keys().next().is_some_and(|&(x, y)| (x - tx).abs() < 40 && (y - ty).abs() < 40))
+                .count();
+            print!(" — trail head {tx},{ty}, mean is {d:.0} cells off it, {near} animals within 40");
+        }
+        println!(" (trail {} marks)", game.trail.len());
+    }
+}
+
+/// Write the captured frames out as a looping animation.
+///
+/// The delay is derived from the capture interval and the fixed 60 ticks a
+/// second, so the result plays at the speed the game actually ran — the whole
+/// point being to judge motion, which a GIF at an arbitrary rate cannot do.
+fn save_gif(g: &GifCapture) {
+    let delay_ms = (g.every * 1000 / u64::from(TICKS_PER_SECOND)).max(16);
+    let delay = image::Delay::from_saturating_duration(Duration::from_millis(delay_ms));
+    let file = match std::fs::File::create(&g.out) {
+        Ok(f) => f,
+        Err(e) => return eprintln!("gif failed: {e}"),
+    };
+    let mut encoder = image::codecs::gif::GifEncoder::new(file);
+    if let Err(e) = encoder.set_repeat(image::codecs::gif::Repeat::Infinite) {
+        return eprintln!("gif failed: {e}");
+    }
+    for f in &g.frames {
+        let Some(buf) = image::RgbaImage::from_raw(WIDTH, HEIGHT, f.clone()) else {
+            return eprintln!("gif failed: a frame was not {WIDTH}x{HEIGHT}");
+        };
+        if let Err(e) = encoder.encode_frame(image::Frame::from_parts(buf, 0, 0, delay)) {
+            return eprintln!("gif failed: {e}");
+        }
+    }
+    drop(encoder);
+    eprintln!("gif saved ({} frames, {delay_ms}ms apart): {}", g.frames.len(), g.out.display());
 }
 
 /// Its own filename, so a druid screenshot and a sandbox one can both exist.
