@@ -98,6 +98,44 @@ being wrong is silent and reaches another game — Lane B changes a worldgen
 preset and an engine contract, Lane C changes machinery the evolution lab
 founds colonies through.
 
+## What a lane overturned, 03:47 — read this before trusting the table above
+
+**Lane C corrected the brief I gave it, and the correction is the better
+finding.** Both halves are measured; both are real.
+
+- **The traced line was right and is fixed.** `colony_ant_site`'s
+  `is_empty(cx, sy - 1)` was refusing a forest floor. Lane C's own probe
+  bucketed all 135 refusals by the material standing there — **53 wood, 51
+  leaf, 12 grassblade, 10 rootwood, 9 grassroot, and zero** spoil, litter,
+  powder or water — so the scene did contain the situation, which is the
+  check `CLAUDE.md` demands and which I had not run.
+- **But the headline symptom I handed it is a different bug, and no ground
+  rule can move it.** `Druid::new` on a *grown* start grows **4,093
+  organisms against a ceiling of 4,095** — `Cell::organism_id` spends 12
+  bits on the slot index. Over nine separated stands: **4,095 of 4,095
+  live, 26 births refused by `push_organism`, 2 animals placed, 8 of 9
+  stands placing nobody.** `Start::Dead` is identical, because a senescent
+  plant still holds its slot and in a held world nothing rots. Filed as
+  **§Z21**, not fixed, because it is not that lane's to fix.
+- **Two errors of mine, both worth recording.** I wrote *"places nobody"*;
+  it places **two**, and that gap was the whole thread. And I attributed the
+  symptom to a line that explains only the other half.
+- **The tidiness tell fired, on the lane's own work.** Its paired sweep read
+  **stations 31 → 63, animals placed 2 → 2** — a lever demonstrably
+  connected, doubling the ground offered, moving nothing a player sees.
+  `CLAUDE.md` says a clean first result is evidence of an artifact rather
+  than of a strong effect; here it was evidence of a ceiling downstream.
+
+**The cross-lane consequence, which neither lane could see and is the whole
+reason a coordinator exists.** Lane B is zeroing the same preset's three
+life densities for item 4 (`life_scatter` **993 cells → 0**, paired, every
+other pass byte-identical). On `Start::Bare` — the default, and what the
+owner plays — that takes the starting organism count toward nothing, so it
+**relieves** §Z21 where the owner meets it while leaving grown and dead
+untouched. Both lanes were told; §Z21 is being tightened to name the starts
+rather than "the held world", because an entry that overstates its scope
+gets discounted later.
+
 ## Standing facts for this round
 
 - **Lanes A and B are based on `claude/determined-ramanujan-c9szc5`, not
