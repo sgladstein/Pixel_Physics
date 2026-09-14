@@ -3340,21 +3340,25 @@ impl World {
                 // Only ground gets converted -- painting over water or a
                 // creature would be a surprise.
                 if matches!(self.materials.kind(cell.material), MaterialKind::Solid | MaterialKind::Powder) {
-                    // **Grain, rather than one flat byte.** Every other
-                    // material in this world draws its palette entry from a
-                    // per-cell random byte (`World::set`'s own shade draw:
-                    // *"so bulk material has visible grain"*); the threshold
-                    // passed a literal `0`, so all 36 of its cells took
-                    // `nest.ron`'s **lightest** colour and the patch was the
-                    // only unmottled thing on the ground. That flatness is
-                    // half of what made it read as paint rather than as
-                    // earth. Keyed on the cell's own position rather than
-                    // drawn from `World::rng`, so founding does not disturb a
-                    // shared stream that worldgen and every pass also draw
-                    // from -- same-build replay is required (`PLAN.md`) and a
-                    // player-triggered draw is exactly the kind of thing that
-                    // reshuffles it.
-                    self.set(cx, sy, Cell::new(nest, shade_at(cx, sy)).with_attached(cell.attached()));
+                    // **It keeps the shade of the cell it replaced, and that
+                    // is what makes the threshold invisible.** Owner, on the
+                    // first attempt at this (which only changed the patch's
+                    // shape), rated 1 of 5: *"There should be no color. If we
+                    // have to have this, it should be invisible."*
+                    //
+                    // `nest.ron` carries `soil.ron`'s palette entry for entry,
+                    // and `cell_colour` resolves a cell as
+                    // `palette[shade % len]` -- so handing the new cell the
+                    // old one's shade byte reproduces the exact colour it
+                    // covered, family and tone and grain together. A fresh
+                    // draw would have given the patch grain and still made it
+                    // a patch; inheriting gives it the ground's own.
+                    //
+                    // It also removes a question rather than answering one:
+                    // there is no draw here at all now, so founding cannot
+                    // disturb `World::rng`, which worldgen and every pass also
+                    // draw from and which same-build replay depends on.
+                    self.set(cx, sy, Cell::new(nest, cell.shade).with_attached(cell.attached()));
                     painted += 1;
                 }
             }
@@ -3489,12 +3493,6 @@ fn offset_hash(d: i32) -> u8 {
     h = h.wrapping_mul(0x85EB_CA6B);
     h ^= h >> 13;
     (h & 0xFF) as u8
-}
-
-/// A palette entry per cell, keyed on position. See the call site in
-/// [`World::paint_nest_patch`] for why it is not drawn from `World::rng`.
-fn shade_at(x: i32, y: i32) -> u8 {
-    offset_hash(x.wrapping_mul(73_856_093) ^ y.wrapping_mul(19_349_663))
 }
 
 /// **How wide the unbroken middle of a threshold is**, in columns either
@@ -13854,6 +13852,67 @@ mod tests {
             }
         }
         (w, GROUND)
+    }
+
+    /// **The threshold has no colour of its own.** Owner, 2026-09-14, rating
+    /// a shape-only fix **1 of 5**: *"None. There should be no color. If we
+    /// have to have this, it should be invisible."*
+    ///
+    /// Two halves, and they only work together: `nest.ron` carries
+    /// `soil.ron`'s palette entry for entry, and `paint_nest_patch` hands each
+    /// new cell the **shade byte of the cell it replaced**. `cell_colour`
+    /// resolves a cell as `palette[shade % len]`, so the pair reproduces the
+    /// exact colour the patch covered. Either half alone is worthless — a
+    /// matching palette with a fresh shade draws a *different soil*, and an
+    /// inherited shade into the old tan palette draws tan.
+    ///
+    /// **This is a necessary condition and not the claim.** The claim is
+    /// about the rendered frame, which this cannot see: `cell_colour` tints by
+    /// several things downstream of the palette, so two cells can agree here
+    /// and still draw differently — and they do, by up to 12 of 255 on wet
+    /// ground. `examples/founding_shot invisible=1` is what measures the
+    /// frame, with the rest of the picture as its control; the lane note
+    /// carries the number and why the residue is not reachable from this file.
+    /// Kept anyway because it is the half that *can* silently rot: the two
+    /// palettes are copies, and nothing but this notices them parting.
+    #[test]
+    fn the_nest_draws_in_the_grounds_own_colours() {
+        let palette = |name: &str| -> String {
+            let text = std::fs::read_to_string(format!("assets/materials/{name}.ron")).unwrap_or_else(|e| panic!("{name}.ron: {e}"));
+            let body = text.split("colors:").nth(1).unwrap_or_else(|| panic!("{name}.ron has no colors list"));
+            let body = body.split(']').next().unwrap_or_default();
+            // Comments and whitespace out; the tuples are the content.
+            body.lines().map(|l| l.split("//").next().unwrap_or_default()).collect::<String>().chars().filter(|c| !c.is_whitespace()).collect()
+        };
+        let (soil, nest) = (palette("soil"), palette("nest"));
+        assert!(!soil.is_empty(), "soil.ron's palette did not parse; this guard is reading nothing");
+        assert_eq!(nest, soil, "nest.ron and soil.ron have parted -- the threshold draws in a colour of its own again");
+
+        // ...and the painted cell keeps the shade of the one it replaced, or
+        // the shared palette buys nothing. Watched red against a fresh draw.
+        let (mut w, ground) = matted_bed("leaf", 0);
+        // **The bed is given a grain first, and that is not decoration.**
+        // `matted_bed` lays every cell at shade 0, so an inherited byte and a
+        // hard-coded `0` are the same picture there -- which is exactly what
+        // the first version of this guard asserted, and its own control caught
+        // it. A distinct byte per column is what makes the claim checkable.
+        let soil_id = w.materials.id_of("soil").expect("soil is compiled in");
+        for x in 0..=63 {
+            w.set(x, ground, Cell::new(soil_id, (x * 7 + 3) as u8));
+        }
+        let before: Vec<(i32, u8)> = (0..=63).map(|x| (x, w.get(x, ground).shade)).collect();
+        assert!(before.iter().any(|&(_, s)| s != before[0].1), "the bed's soil is all one shade; this guard cannot tell an inherited byte from a constant");
+        w.paint_nest_patch(32, ground - 1);
+        let nest_id = w.materials.id_of("nest").expect("nest is compiled in");
+        let mut checked = 0;
+        for &(x, shade) in &before {
+            if w.get(x, ground).material != nest_id {
+                continue;
+            }
+            checked += 1;
+            assert_eq!(w.get(x, ground).shade, shade, "column {x} took a fresh shade instead of the ground's own");
+        }
+        assert!(checked > 4, "only {checked} cells were painted; this guard would pass on nothing");
     }
 
     /// **The barcode, as an assertion.** Owner playtest, 2026-09-14: *"when I

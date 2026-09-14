@@ -88,7 +88,7 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Trail status — the ant reads its way home, and the food trail is the larder's problem](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) | 8208 |
 | [Lifespan status — an ant gets old, and the colony's fall becomes a slope](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) | 8245 |
 | [Held world status — the third game, and time you carry in a circle](#held-world-status--the-third-game-and-time-you-carry-in-a-circle) | 8391 |
-| [Colony books status — what each colony is living on, in joules](#colony-books-status--what-each-colony-is-living-on-in-joules) | 9175 |
+| [Colony books status — what each colony is living on, in joules](#colony-books-status--what-each-colony-is-living-on-in-joules) | 9203 |
 
 ### Milestones, in numeric order
 
@@ -134,7 +134,7 @@ your time goes, not a rule about what you may read.
 | Topic | Game | Sections, primary first |
 |---|---|---|
 | **plants, trees and moss** | engine | [M16 status](#m16-status) 1906, [Soil nutrient status](#soil-nutrient-status--ground-is-worth-something-water-is-not) 7565, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1426, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 4634, [Parameter-genome status](#parameter-genome-status--a-species-file-is-a-starting-point-and-it-ships-inert) 4737, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1548, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1838, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1496, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1756, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4917, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 5154, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 5231, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6692, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 5551, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5599, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5830, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6584 |
-| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2319, [The ant colony](#the-ant-colony--status) 3842, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6692, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5599, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5830, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6754, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6584, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7608, [Hunger status](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) 7908, [Rest status](#rest-status--a-rest-that-ends-so-a-resting-animal-is-not-a-stopped-one) 8019, [Hopper status](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) 7988, [Trophallaxis status](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) 8150, [Trail status](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) 8208, [Lifespan status](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) 8245, [Colony books status](#colony-books-status--what-each-colony-is-living-on-in-joules) 9175 |
+| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2319, [The ant colony](#the-ant-colony--status) 3842, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6692, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5599, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5830, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6754, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6584, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7608, [Hunger status](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) 7908, [Rest status](#rest-status--a-rest-that-ends-so-a-resting-animal-is-not-a-stopped-one) 8019, [Hopper status](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) 7988, [Trophallaxis status](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) 8150, [Trail status](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) 8208, [Lifespan status](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) 8245, [Colony books status](#colony-books-status--what-each-colony-is-living-on-in-joules) 9203 |
 | **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 2092, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4917, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 5154, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 5231, [M8 status](#m8-status--started-not-complete) 3036 |
 | **fire, heat and phase change** | engine | [M14 status](#m14-status) 1013, [Materials](#materials) 293 |
 | **explosions, particles and debris** | outdoor | [M15 status](#m15-status) 1190, [M7 status](#m7-status) 1161 |
@@ -8808,6 +8808,34 @@ seated **3**, because `colony_stations` lays out a corridor and a station that
 does not fit is declined. Paying 224 for three animals is unfairness a player
 notices at once and cannot see the cause of. Affordability is still checked
 against the full ask, so a founding can never overdraw the pool.
+
+**The threshold has no colour of its own, since 2026-09-14.** The shape fix
+above went to the owner and came back rated **1 of 5**: *"None. There should be
+no color. If we have to have this, it should be invisible."* He accepts that
+the patch has to stay broken — the drains are load-bearing, see §T2 — and
+rejects that a player can see it. So `nest.ron` now carries `soil.ron`'s
+palette entry for entry and family for family, and `paint_nest_patch` hands
+each new cell the **shade byte of the cell it replaced**: `cell_colour`
+resolves a cell as `palette[shade % len]`, so the pair reproduces the exact
+tone the patch covered, grain and all. `the_nest_draws_in_the_grounds_own_colours`
+holds both halves, and the two are worthless apart — a matching palette with a
+fresh shade draws a *different* soil.
+
+**"Invisible" is a claim about the rendered frame, and it is measured as one.**
+`examples/founding_shot invisible=1` takes two framebuffers of one world — the
+patch painted, the ground put back cell for cell, drawn again — and counts the
+pixels that differ over the patch, with the rest of the frame as the control.
+That control is what makes the number mean anything: it read **1,023 pixels**
+on the first run, which was the carried quickening's animated haze rather than
+the ground, and the haze is switched off for both arms now. Clean, the patch
+reads **19 of 25 cells differing, worst channel 12 of 255**, down from a pale
+tan against dark loam — about 130. The residue is a material-keyed term
+downstream of the palette in `cell_colour`, and it is **not reachable from the
+engine side**: giving `nest` a `water_capacity` is a recorded dead end (on a
+`Solid`, `Cell::aux` is the structural anchor distance, so it would be painted
+as dampness), and making the door a flag on `soil` re-creates the other one
+(`soil` is a `Powder`, and `player::footing` then lets the gnome wade through
+a nest wall — `a_nest_still_stops_him`). See `Reports/lanes/druid-founding.md`.
 
 **And the colony now lands at his feet rather than on a ruled line**, owner
 playtest 2026-09-14: *"when founding ants sometime they are not founding far

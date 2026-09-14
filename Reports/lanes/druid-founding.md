@@ -8,36 +8,117 @@ three shipped, each reproduced before it was touched.
 
 ## What shipped
 
-**Item 1 — "little yellow bars that get placed onto the ground."**
+**Item 1, second pass — the colour is gone.** The first pass changed only the
+patch's *shape* and came back rated **1 of 5**: *"None. There should be no
+color. If we have to have this, it should be invisible."* The shape work below
+stands (he accepts the drains are load-bearing); what he rejected is that a
+player can see it. So `nest.ron` now carries `soil.ron`'s palette entry for
+entry and family for family, and `paint_nest_patch` hands each new cell the
+**shade byte of the cell it replaced** — `cell_colour` resolves a cell as
+`palette[shade % len]`, so the pair reproduces the exact tone the patch
+covered. The two halves are worthless apart: a matching palette with a fresh
+shade draws a *different* soil, and an inherited shade into the old tan
+palette draws tan. `the_nest_draws_in_the_grounds_own_colours` holds both.
+
+**Measured as a frame, per the coordinator's own prescription**, by
+`examples/founding_shot invisible=1`: two framebuffers of **one** world — the
+patch painted, the ground put back cell for cell, drawn again — counting the
+pixels that differ over the patch, with the rest of the frame as the control.
+
+- **The control earned its place on the first run**: 1,023 pixels differed
+  *off* the patch, which is the carried quickening's animated haze — two draws
+  of one unchanged world are not identical while it is on. Without the control
+  that noise is the size of the whole question and would have sat inside the
+  answer. Switched off for both arms; the control is 0 now.
+- Clean, the patch reads **19 of 25 cells differing, worst channel 12 of
+  255** — against roughly **130** for pale tan on dark loam before. The 6 that
+  match are behind the gnome's own sprite, drawn in both arms.
+- **The tidy story was wrong and I nearly published it.** The standing
+  hypothesis was the moisture darkening (`cell_colour` gates it on
+  `water_capacity`, which only `soil.ron` opts in to, so a nest cell draws
+  dry). Split by the water the replaced ground held, the differing cells hold
+  **506..531** and the matching ones **523..526** — overlapping ranges, so the
+  split does not carry it. Reported as unexplained rather than as confirmed.
+
+**The residue is not reachable from the engine side, and both routes out are
+recorded dead ends.** Giving `nest` a `water_capacity` is one already in the
+register (on a `Solid`, `Cell::aux` is the structural anchor distance, so the
+field is painted as dampness). Making the door a *flag on soil* — which would
+be invisible by construction and needs no render change at all — re-creates
+the other: `soil` is a `Powder`, so `player::footing` goes `Hard` to `Soft`
+and the gnome wades through the bottom of a nest wall
+(`a_nest_still_stops_him`); it also touches **32 sites outside
+`src/sim/creature.rs`**, in `lab/mod.rs`, `plant.rs`, `player.rs` and a dozen
+instruments. **The remaining route is render-side**, in `cell_colour`, which is
+`src/render.rs` — Lane A's file, with **PR #437 open on it**. Not taken. It is
+a handful of lines and the coordinator can sequence it after #437 if the 12 is
+judged to matter; by eye at play zoom it does not (see the card below).
+
+**Item 1, first pass — "little yellow bars that get placed onto the ground."**
 Reproduced as a number first: `paint_nest_patch` laid `i % 3 != 2` over 53
 columns, which `examples/founding_shot`'s run histogram reads as **36 columns
-in eighteen runs of exactly two**. A dotted line with no middle — `CLAUDE.md`'s
-first law, arrived at from the destruction line and true here. And every cell
-took a literal `0` shade, so the patch was the palette's *lightest* tan and
-the only unmottled thing on the ground.
-
-`nest_mask` replaces the comb: an unbroken core, then a fringe of single cells
-thinning to nothing at the rim. **36 columns in 18 runs → 25 in 15**, longest
-run 2 → 11. Cells take a position-keyed shade now, not `World::rng` — a
-player-triggered draw reshuffles a stream worldgen also draws from, and
-same-build replay is required.
+in eighteen runs of exactly two** — a dotted line with no middle.
+`nest_mask` replaces the comb with an unbroken core and a fringe of single
+cells thinning to nothing at the rim: **36 columns in 18 runs → 25 in 15**,
+longest run 2 → 11.
 
 **Item 2 — "it should still happen right under or next to the druid."**
-`colony_stations` decided every offset before it looked at the ground and
-dropped the ones that were not sites, so a blocked middle seated nobody near
-him and scattered the survivors across the band's full width. It walks outward
-a column at a time now, taking the first that is a site and keeping a body's
-corridor between any two. Nine columns of trunk through a stand: **6 of 8
-seated → 8 of 8**, watched red against the predecessor.
+`colony_stations` walks outward from the stand a column at a time now, taking
+the nearest viable ground and keeping a body's corridor between any two,
+instead of stamping a fixed band and dropping the offsets that were not sites.
+Nine columns of trunk through a stand: **6 of 8 seated → 8 of 8**, watched red
+against the predecessor.
 
 **Item 3 — "the found menu needs to be way improved."** A cursor over
-`founding::ROWS` (body, three lineages, the count, `FOUND`, `LEAVE`); arrows
-and `WASD` move it, left/right work the row, `ENTER` chooses, and every row
-has a hit box. `hud::offer_layout` is **one definition read by the drawing and
-by the click** — §R2 is what a second copy of a placement rule cost last time.
-The dials carry `<`/`>` ends so the pointer can work them, not only select
-them. Every old letter still works. `founding::Memory` makes the dials survive
-a close; `Druid::time_stopped` stops the clock while the screen is up.
+`founding::ROWS`; arrows, `WASD` and the pointer all reach every row, `ENTER`
+chooses, `founding::Memory` makes the dials survive a close, and
+`Druid::time_stopped` stops the clock while the screen is up (0 ticks open
+against 20 shut, with the control in the same run). **Approved by the owner.**
+
+`PR_BODY_LANE_B.md` on this branch carries the full write-up of all three;
+what is below is only what a *later session* cannot reconstruct from it.
+
+## Handed back, not taken: the standing water on the door
+
+The coordinator's instruction was to write this down and **not** chase it, so
+this is the record and nothing on this branch acts on it.
+
+**What was measured**, `examples/nestdoor`, the lab's played bed, seed 1/2/3,
+standing free-liquid cells over the nest patch against the same width of
+ordinary ground beside it, sampled at 10k/20k/30k frames with the colony
+founded at 6,000:
+
+| arm | seed 1 | seed 2 | seed 3 |
+|---|---|---|---|
+| unbroken patch (`PIXEL_PHYSICS_NEST_DRAINS=off`) | 52, 63, 68 | 10, 9, 10 | 18, 1, 1 |
+| ground beside it, same width | 0, 1, 4 | 2, 13, 1 | 5, 1, 0 |
+| shipped (broken, `NEST_CORE=5`) | 7, 11, 9 | 1, 4, 0 | 0, 4, 0 |
+
+**The mechanism I believe causes it**, and it is `open-bugs-handoff.md` §T2's
+own: `nest` is a plain `Solid` with **no `water_capacity`**, so an unbroken
+patch is the only impermeable strip on the surface of a misted bed. Every
+other ground cell around it drinks; the door does not, and a film one cell
+deep stands on it. An ant cannot step into liquid
+(`landing_is_placeable_through_tissue` wants `World::is_empty`), so that film
+is a **wall**: `adjacent_nest` goes false for the whole colony at once and
+`AtNest`, `nest_visits` and `deliveries` freeze on the same frame. What keeps
+the film standing across an unbroken patch is *distance* — the middle of 53
+columns is 26 from ground that drinks, and a one-cell film has almost no head
+to spread on.
+
+**What the drains buy is not dryness, and that is the part worth saying out
+loud**: no part of a misted bed is dry. They buy that the door **stops being
+the wettest strip on the bed** — the shipped arm sits at the neighbouring
+ground's own level, the unbroken one sits an order of magnitude above it.
+§T2 stays open on the residue, and it is right that it does.
+
+**Three things a lane picking this up should know before measuring anything.**
+`deliveries` is the noisiest column in the file (154–980 across six seeds of
+an unedited ant, per `instruments.md`) and moved *against* the water on a
+single seed here — do not read it at n=1. `burrow_probe arms=colony` cannot
+see founder placement at all (below). And two of the obvious fixes are already
+in `dead-ends.md`: a `water_capacity` on `nest` while it is a `Solid`, and
+making it a `Powder` to allow one.
 
 ## The three things worth another lane's time
 
@@ -60,28 +141,21 @@ across a change that must have moved something, where the cause is the harness
 rather than the build. (It is also still on §Z24's list, for a different
 reason.) `labnest founders=8` *is* on the path and is the one to use.
 
-**A stale example binary cost the first drainage sweep.** `cargo build
---release --example founding_shot` rebuilt one binary; `nestdoor` then reported
-**byte-identical** results for three different `PIXEL_PHYSICS_NEST_CORE`
-settings, all reading the old comb's 36 cells. The `off` arm looked right the
-whole time, which is what made the table plausible. `--examples`, always.
+**A stale example binary cost the first drainage sweep.** `--example
+founding_shot` rebuilt one binary; `nestdoor` then reported **byte-identical**
+results for three different `PIXEL_PHYSICS_NEST_CORE` settings, all reading the
+old comb's 36 cells, while the `off` arm looked right throughout — which is
+what made the table plausible. `--examples`, always.
 
 ## Numbers a later session should not re-derive
 
-**Drainage, `examples/nestdoor`, 3 seeds, standing water on the patch against
-the same width of ordinary ground beside it, at 10k/20k/30k frames.** The core
-is the one place the §T2 drain rule is relaxed, so it is set from this rather
-than argued:
-
-| arm | seed 1 | seed 2 | seed 3 |
-|---|---|---|---|
-| run-bounded comb (`core=0`) | 1, 10, 15 | 2, 3, 1 | 1, 0, 0 |
-| **shipped (`core=5`)** | 7, 11, 9 | 1, 4, 0 | 0, 4, 0 |
-| unbroken (`NEST_DRAINS=off`) | 52, 63, 68 | 10, 9, 10 | 18, 1, 1 |
-
-Ground beside the patch read 0–4 in every arm. `core=12` was measurably wetter
-(20, 19, 52 on seed 1) and is not taken. The unbroken arm is the positive
-control and reproduces §T2 outright.
+**Drainage.** The table is in *Handed back* above; the reading for this branch
+is that the core is the one place the §T2 drain rule is relaxed, so it is set
+from `nestdoor` rather than argued. The run-bounded comb (`core=0`) reads
+1,10,15 / 2,3,1 / 1,0,0 across the three seeds against the shipped `core=5`'s
+7,11,9 / 1,4,0 / 0,4,0 — indistinguishable, both at the neighbouring ground's
+own level. `core=12` was measurably wetter (20, 19, 52 on seed 1) and is not
+taken.
 
 **Lab exposure, `labnest founders=8 seeds=2`, `RAYON_NUM_THREADS=2`, the walk
 against `PIXEL_PHYSICS_COLONY_BAND=1`.** **52 founders seated in both arms**,
@@ -91,16 +165,15 @@ frame 5,000 on the walk, 52 → 15/19 on the band); `roofed` at frame 9,000 is
 433/468 — the two seeds swap which arm is higher, so that is the bed's own
 spread rather than the change.
 
-**Tried and rejected, in order, all on item 1's shape:** a linear taper
-anchored at the core's edge — still ~50% dense at the rim, so the patch ended
-in a straight line of crumbs; a fringe bounded at `drain_period - 1` — that is
-2-on-1-off, a *shorter* barcode, and the fringe is all the player sees because
-the core is under his feet; a square taper from the centre — 25 → **13**
-columns, a door too small to be one. None is in `dead-ends.md`: each was a
-tuning step inside one mechanism rather than a mechanism, and all three are
-reachable from the shipped knobs.
+**Tried and rejected on item 1's shape:** a linear taper anchored at the core's
+edge (~50% dense at the rim, so the patch ended in a straight line of crumbs);
+a fringe bounded at `drain_period - 1` (2-on-1-off — a *shorter* barcode, and
+the fringe is all the player sees because the core is under his feet); a square
+taper from the centre (25 → **13** columns, a door too small to be one). None
+is in `dead-ends.md`: each was a tuning step inside one mechanism rather than a
+mechanism, and all three are reachable from the shipped knobs.
 
-## What I took that the brief did not give me, and what I left alone
+## Files: what I took beyond the brief, and what I left alone
 
 **I took ~40 lines of `src/bin/druid.rs` outside the `offer` arm**, which the
 brief asked me to flag rather than take: one `Handler` field
@@ -115,13 +188,12 @@ three small edits to `src/druid/mod.rs` — `toggle_founding`, `commit_founding`
 `update`'s pause gate, plus one field. **Nothing in the trail functions**, per
 the brief.
 
-**Left alone: `assets/materials/nest.ron`.** It is shared with the lab, whose
-own comment says the pale tan is deliberate — *"to read clearly against soil
-and against the dark ants standing on it"*. If the owner's complaint turns out
-to be the **colour** rather than the pattern, that file is the fix and it is a
-lab-visible change; review card
-`20260914T203358857Z-2a28fa` asks him which reading it is, with a
-grain-only pane between the two so the two halves can be told apart.
+**`assets/materials/nest.ron` is taken after all**, on the coordinator's
+ruling. It is shared with the lab, whose own comment said the pale tan was
+deliberate — *"to read clearly against soil and against the dark ants standing
+on it"*. That is a real want and it belongs to a diagnostic box rather than to
+the game with the complaint, so **the lab loses a visual cue here** and can
+have it back as an overlay if it wants one. Flagged rather than assumed.
 
 ## Review cards
 
@@ -144,9 +216,7 @@ fetching the ref rather than trusting the local one (a stale
 
 ## Gates
 
-`cargo clippy --all-targets --release --locked -- -D warnings`,
-`cargo test --release` (full, not `--lib`), `bash scripts/docscheck.sh`,
-`python3 scripts/deadendindex.py --touching` — all green; `docscheck` wanted
-`readmetoc.py` after the README edit and was rerun clean.
-
-Head SHA: see the last line of `PR_BODY_LANE_B.md`.
+`clippy --all-targets --release --locked -D warnings`, `cargo test --release`
+(full, not `--lib`), `docscheck.sh`, `deadendindex.py --touching`. `docscheck`
+wanted `readmetoc.py` after each README edit and `deadendindex.py` after the
+register write-backs; both rerun clean. Head SHA in `PR_BODY_LANE_B.md`.

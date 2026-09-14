@@ -61,6 +61,9 @@ struct Args {
     /// Player ticks to run before the shot, so the flow has landed.
     ticks: usize,
     zoom: i32,
+    /// `invisible=1` -- the framebuffer pair instead of a picture. See the
+    /// call site for why it is pixels rather than palette entries.
+    invisible: bool,
     /// `crop=x,y,w,h` in screen pixels, or `crop=fit` for a band centred on
     /// the gnome that holds the whole patch.
     crop: Option<(u32, u32, u32, u32)>,
@@ -79,6 +82,7 @@ fn main() {
         pick: 0,
         ticks: 20,
         zoom: 4,
+        invisible: false,
         crop: None,
         fit: false,
         mag: 2,
@@ -94,6 +98,7 @@ fn main() {
             "founders" => a.founders = v.parse().unwrap_or(founding::FOUNDERS_DEFAULT),
             "pick" => a.pick = v.parse().unwrap_or(0),
             "ticks" => a.ticks = v.parse().unwrap_or(20),
+            "invisible" => a.invisible = v != "0",
             "zoom" => a.zoom = v.parse().unwrap_or(4),
             "mag" => a.mag = v.parse().unwrap_or(2).max(1),
             "out" => a.out = v.into(),
@@ -211,6 +216,25 @@ fn main() {
         runs
     );
 
+    // **Is the threshold invisible?** -- item 1's real bar, and it is a claim
+    // about the **rendered frame** rather than about the material table. The
+    // owner rated a shape-only fix 1 of 5: *"There should be no color. If we
+    // have to have this, it should be invisible."*
+    //
+    // A material-level assertion (these cells now share a colour id) would be
+    // the readout being a function of the thing it debugs -- `cell_colour`
+    // tints by several things downstream of the palette, so two cells can
+    // agree on their palette entry and still draw differently. So: **two
+    // framebuffers of the same world, one where a colony was founded and one
+    // where it was not, differing in no pixel over the patch.**
+    //
+    // The ants are painted out of both arms rather than excluded by
+    // arithmetic: an animal standing on the door is a real difference between
+    // the two worlds and has nothing to do with whether the ground shows.
+    if a.invisible {
+        invisible(&mut game, px, py, a.zoom);
+        return;
+    }
     let mut buf = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
     if a.screen {
         game.draw(&mut buf, (WIDTH, HEIGHT), true);
@@ -230,6 +254,98 @@ fn main() {
         Ok(()) => println!("  wrote {} ({}x{})", a.out, img.width(), img.height()),
         Err(e) => println!("  could not write {}: {e}", a.out),
     }
+}
+
+/// **The two framebuffers, and how many pixels of the patch differ.**
+///
+/// Both arms come out of **one** world and one binary: the patch is painted,
+/// the frame taken, the painted cells put back exactly as they were, and the
+/// frame taken again. Two separate runs would be two worlds by the second
+/// frame (`CLAUDE.md`), and two binaries would be two builds.
+fn invisible(game: &mut Druid, px: i32, py: i32, zoom: i32) {
+    use pixel_physics::app::{HEIGHT, WIDTH};
+    let before: Vec<(i32, i32, pixel_physics::sim::cell::Cell)> =
+        ((px - 64)..=(px + 64)).flat_map(|cx| ((py - 48)..=(py + 48)).map(move |cy| (cx, cy))).map(|(cx, cy)| (cx, cy, game.world.get(cx, cy))).collect();
+
+    // **The haze is switched off for both arms, and the control is why.**
+    // The quickening she carries draws an animated aura, so two draws of one
+    // unchanged world differ by about a thousand pixels of it -- measured, as
+    // a non-zero `off_patch` on the first run of this. That is a renderer that
+    // is not a pure function of the world, which is fine for a haze and fatal
+    // for a frame comparison: it would put noise the size of the whole
+    // question into the control. `druid_aura` owns judging the haze.
+    game.renderer.aura = pixel_physics::render::AuraTuning::off();
+    let mut founded = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+    let mut bare = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+    game.world.paint_nest_patch(px, py);
+    let painted: Vec<(i32, i32)> = before.iter().filter(|&&(cx, cy, c)| game.world.get(cx, cy).material != c.material).map(|&(cx, cy, _)| (cx, cy)).collect();
+    draw_world(game, &mut founded);
+    // Put the ground back, cell for cell, and draw the same world again.
+    for &(cx, cy, c) in &before {
+        game.world.set(cx, cy, c);
+    }
+    draw_world(game, &mut bare);
+
+    // Only the cells the patch actually took are in question; the rest of the
+    // frame is the same world twice and must be identical, which is the
+    // control -- without it a zero here could mean the renderer never ran.
+    let mut on_patch = 0usize;
+    let mut off_patch = 0usize;
+    let mut worst = 0i32;
+    for (i, (p, q)) in founded.chunks_exact(4).zip(bare.chunks_exact(4)).enumerate() {
+        if p == q {
+            continue;
+        }
+        let (sx, sy) = ((i as u32 % WIDTH) as i32, (i as u32 / WIDTH) as i32);
+        let cell = game.renderer.screen_to_world(sx, sy);
+        let (wx, wy) = cell;
+        let here = painted.iter().any(|&(cx, cy)| cx == wx && cy == wy);
+        if here {
+            on_patch += 1;
+        } else {
+            off_patch += 1;
+        }
+        worst = worst.max(p.iter().zip(q).map(|(a, b)| (*a as i32 - *b as i32).abs()).max().unwrap_or(0));
+    }
+    // **Which cells differ, against what the ground under them was holding.**
+    // `cell_colour` darkens ground by held water and gates that on
+    // `water_capacity`, which only `soil.ron` opts in to -- so the standing
+    // hypothesis for any residue is that a nest cell draws *dry*. This is the
+    // number that confirms or kills it, rather than an argument: the water the
+    // replaced cell was holding, for the cells that differ and for the cells
+    // that do not.
+    let water = |cells: &[(i32, i32)]| -> (u16, u16, usize) {
+        let vals: Vec<u16> = before.iter().filter(|&&(cx, cy, _)| cells.iter().any(|&(px, py)| px == cx && py == cy)).map(|&(_, _, c)| c.aux()).collect();
+        (vals.iter().copied().min().unwrap_or(0), vals.iter().copied().max().unwrap_or(0), vals.len())
+    };
+    let differing: Vec<(i32, i32)> = painted
+        .iter()
+        .copied()
+        .filter(|&(cx, cy)| {
+            game.renderer.world_to_screen(cx, cy).is_some_and(|(sx, sy)| {
+                let i = (sy as u32 * WIDTH + sx as u32) as usize * 4;
+                founded.get(i..i + 4) != bare.get(i..i + 4)
+            })
+        })
+        .collect();
+    let same: Vec<(i32, i32)> = painted.iter().copied().filter(|c| !differing.contains(c)).collect();
+    let (dlo, dhi, dn) = water(&differing);
+    let (slo, shi, sn) = water(&same);
+    println!(
+        "  invisible at zoom {zoom}: {} nest cells painted | {on_patch} pixel(s) of the patch differ, worst channel {worst} | {off_patch} elsewhere (the control: the rest of the frame is the same world twice and must be 0)",
+        painted.len()
+    );
+    println!("  held water of the ground replaced: {dn} cell(s) that differ hold {dlo}..{dhi}, {sn} cell(s) that match hold {slo}..{shi}");
+    println!("  {}", if on_patch == 0 { "THE THRESHOLD IS INVISIBLE" } else { "THE THRESHOLD STILL SHOWS" });
+}
+
+fn draw_world(game: &mut Druid, buf: &mut [u8]) {
+    use pixel_physics::app::{HEIGHT, WIDTH};
+    if let Some(player) = &game.world.player {
+        game.renderer.follow(player.center(), (WIDTH, HEIGHT), game.world.bounds());
+    }
+    let touched = game.world.take_touched_chunks();
+    game.renderer.draw(&game.world, &game.particles, &touched, buf, (WIDTH, HEIGHT), true);
 }
 
 /// Painted columns of the nest patch, and the lengths of the unbroken runs.

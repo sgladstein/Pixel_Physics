@@ -50,13 +50,67 @@ the patch ended in a straight line of crumbs); a fringe bounded at
 all the player sees, because the core is under his feet); a square taper from
 the centre (25 → **13** columns, a door too small to be one).
 
-**This one is judge-by-eye and is still with the owner**, blind, three arms
-(shipped / grain only / both) so the two halves of the change can be told
-apart: card `20260914T203358857Z-2a28fa`. It also asks the question I could not
-settle myself — whether the complaint is the *pattern* or the pale *colour*.
-If it is the colour, the fix is `assets/materials/nest.ron`, which is shared
-with the lab and whose own comment says the pale tan is deliberate, so I have
-not touched it.
+#### ...and then the owner rated that 1 of 5, so the colour went too
+
+Card `20260914T203358857Z-2a28fa` came back **1 of 5**: *"None. There should be
+no color. If we have to have this, it should be invisible."* He accepts the
+drains are load-bearing; what he rejects is that a player can see them. The
+shape work above stands and this is on top of it.
+
+`nest.ron` now carries `soil.ron`'s palette **entry for entry and family for
+family**, and `paint_nest_patch` hands each new cell the **shade byte of the
+cell it replaced**. `cell_colour` resolves a cell as `palette[shade % len]`, so
+the pair reproduces the exact tone the patch covered — same family, same tone,
+same grain. The two halves are worthless apart, which is why one guard holds
+both: a matching palette with a fresh shade draws a *different* soil, and an
+inherited shade into the old tan palette draws tan. It also removes a question
+rather than answering one — there is no draw left in `paint_nest_patch` at all,
+so founding cannot disturb `World::rng`.
+
+**"Invisible" is a claim about the rendered frame and is measured as one.**
+`examples/founding_shot invisible=1` takes two framebuffers of **one** world —
+the patch painted, the ground put back cell for cell, drawn again — and counts
+the pixels that differ over the patch, with the rest of the frame as the
+control. A material-level assertion that the cells share a palette entry would
+be the readout being a function of the thing it debugs.
+
+- **The control earned its place on the first run.** It read **1,023 pixels**
+  differing *off* the patch: two draws of one unchanged world are not identical
+  while the carried quickening's animated haze is on. That is noise the size of
+  the whole question, and without the control it would have sat inside the
+  answer. Switched off for both arms; the control is **0** now.
+- Clean, the patch reads **19 of 25 cells differing, worst channel 12 of 255**,
+  against roughly **130** for pale tan on dark loam before. The 6 that match
+  are behind the gnome's own sprite and drawn in both arms.
+- **The tidy story was wrong and is reported as wrong.** The standing
+  hypothesis was the moisture darkening — `cell_colour` gates it on
+  `water_capacity`, which only `soil.ron` opts in to, so a nest cell draws dry.
+  Split by the water the replaced ground held, the differing cells hold
+  **506..531** and the matching ones **523..526**. Overlapping ranges: the
+  split does not carry it, so the residue is recorded as unexplained rather
+  than as confirmed.
+
+**The last 12 is not reachable from the engine side, and both routes out are
+recorded dead ends.** A `water_capacity` on `nest` is already in the register
+(on a `Solid`, `Cell::aux` is the structural anchor distance, so the field
+would be painted as dampness). Making the door a **flag on soil** — invisible
+by construction, no render change at all — re-creates the other: `soil` is a
+`Powder`, so `player::footing` goes `Hard` to `Soft` and the gnome wades
+through the bottom of a nest wall (`a_nest_still_stops_him`); it also touches
+**32 sites outside `src/sim/creature.rs`**, in `lab/mod.rs`, `plant.rs`,
+`player.rs` and a dozen instruments. The remaining route is render-side, in
+`cell_colour` — `src/render.rs`, Lane A's file, **PR #437 open on it**. Not
+taken. It is a handful of lines and can be sequenced after #437 if the 12 is
+judged to matter; by eye at play zoom it does not.
+
+**One cost, flagged rather than assumed**: `nest.ron` is shared with the
+evolution lab, whose own comment said the pale tan was deliberate — *"to read
+clearly against soil and against the dark ants standing on it"*. That is a real
+want, and it belongs to a diagnostic box rather than to the game with the
+complaint. **The lab loses a visual cue here** and can have it back as an
+overlay.
+
+Card out on the result: `20260914T215649928Z-91968a`, blind, before/after.
 
 ### 2. *"it should still happen right under or next to the druid."*
 
@@ -125,6 +179,10 @@ the owner chose "after"**.
 `a_threshold_has_a_middle` (the barcode, `core=0`, is an **asserted** control —
 the test fails if the control passes), `the_fringe_never_holds_a_run_longer_than_the_drain_bound`,
 `a_colony_is_founded_at_his_feet` (red against the band: 6 of 8),
+`the_nest_draws_in_the_grounds_own_colours` (**its own control fired on the
+first run** — `matted_bed` lays every cell at shade 0, so an inherited byte and
+a hard-coded `0` were the same picture and the guard could not discriminate;
+the bed is given a grain now),
 `every_row_of_the_founding_screen_can_be_clicked`, `the_screen_opens_on_what_was_left_set`
 (with a control that the default does not already satisfy it),
 `a_commit_is_still_a_commit_after_the_screen_closes`,
@@ -150,6 +208,14 @@ question, which no image metric answers.
 
 `PIXEL_PHYSICS_NEST_SHAPE=comb` (the 2026-09-12 patch, verbatim),
 `PIXEL_PHYSICS_NEST_CORE=<n>`, `PIXEL_PHYSICS_COLONY_BAND=1`.
+
+### Not taken: the standing water on the door
+
+The owner's verdict also said *"this should be dug into may more"* about the
+film §T2 measures. On the coordinator's instruction that is **not** this lane
+and nothing here acts on it. The measurement, the mechanism I believe causes
+it, and three traps for whoever picks it up are written down in
+`Reports/lanes/druid-founding.md` under *Handed back*.
 
 ### Files, and one I took that the brief did not give me
 
