@@ -14321,28 +14321,109 @@ mod tests {
 
     /// ...and the door is still a *place*.
     ///
-    /// The drains are a comb, so the obvious way to break this fix is to
-    /// widen them until there is no patch left: "home has to be a place, not
-    /// everywhere, or there is no gradient to walk up". Two of every three
-    /// columns are nest, and every nest cell is within one column of a drain,
-    /// which is the property that makes the film travel one cell.
+    /// The obvious way to break the drain fix is to widen the gaps until
+    /// there is no patch left: *"home has to be a place, not everywhere, or
+    /// there is no gradient to walk up"*.
+    ///
+    /// **Rewritten 2026-09-14, and the claim it makes is deliberately not the
+    /// one it made before.** It asserted two things about a comb — that at
+    /// least half the width was nest, and that *every* nest column was within
+    /// one of a drain. Both are the comb's own mechanism restated rather than
+    /// the property it was for: under a fixed period, density and extent are
+    /// the same number and the drain spacing is uniform by construction. So
+    /// neither survives a threshold with a solid middle, which is what the
+    /// owner's *"little yellow bars"* complaint asked for — and a guard that
+    /// fails for a shape nobody has shown to be worse is a guard measuring
+    /// its own predecessor.
+    ///
+    /// What has to stay true is the *reason* each was asserted, and both
+    /// halves now have something better standing behind them:
+    ///
+    /// - **"a place, not everywhere"** is about the door having a **middle**,
+    ///   which a barcode of eighteen identical two-cell dashes did not have
+    ///   at all. So the claim is an unbroken run plus a total wide enough to
+    ///   stand a colony on, which is strictly more than the old bar asked and
+    ///   is what the old shape would now fail.
+    /// - **the film must not stand on it** is measured *directly*, on a real
+    ///   wetted bed, by `a_film_on_the_door_drains_through_the_comb` above —
+    ///   green at this shape, at 2 of 53 columns and 95% of a second soaking
+    ///   shed — and by `examples/nestdoor` over three seeds (lane note
+    ///   `druid-founding.md`). A per-column proxy cannot outrank a
+    ///   measurement of the thing itself. Outside the core the bound is still
+    ///   asserted exactly, by
+    ///   `the_fringe_never_holds_a_run_longer_than_the_drain_bound`; the core
+    ///   is the one relaxation and is priced by those two.
+    ///
+    /// **The controls are in the assertions**, because every bar here is a
+    /// threshold over a procedural shape and green is its default state: the
+    /// degenerate patches this is meant to catch are constructed and checked
+    /// to fail, both the empty one and the barcode.
     #[test]
     fn the_nest_patch_is_still_continuous_enough_to_walk_home_to() {
         let (w, patch) = bed_with_a_nest_patch();
-        let width = 2 * scaled_cells(&w, COLONY_HALF_WIDTH) + 1;
+        let half = scaled_cells(&w, COLONY_HALF_WIDTH);
+        let width = 2 * half + 1;
+        let mut columns: Vec<i32> = patch.iter().map(|&(x, _)| x).collect();
+        columns.sort_unstable();
+        columns.dedup();
+
+        // A door has to be wide enough to stand a colony on. A third rather
+        // than a half: the shape spends its columns on a middle instead of
+        // spreading them, and the extent that matters is the run below.
         assert!(
-            patch.len() * 2 >= width as usize,
-            "at least half the threshold must be nest, got {} of {width} columns",
-            patch.len()
+            columns.len() * 3 >= width as usize,
+            "the threshold is {} of {width} columns -- too little ground left to walk home to",
+            columns.len()
         );
+        // ...and it has a middle, which is the half the old bar could not see.
+        let longest = longest_run(&columns);
+        assert!(
+            longest >= (2 * scaled_cells(&w, NEST_CORE) + 1) as usize,
+            "the threshold's longest unbroken run is {longest} columns -- a dotted line rather than a door"
+        );
+        // **The control, and it is the shape that shipped**: a two-on,
+        // one-off comb over the whole width passes the width bar comfortably
+        // and must fail the middle, or this guard cannot tell a place from a
+        // barcode and is measuring nothing.
+        let comb: Vec<i32> = (0..width).filter(|i| i % 3 != 2).collect();
+        assert!(comb.len() * 3 >= width as usize, "the control must clear the width bar, or it is failing for the wrong reason");
+        assert!(
+            longest_run(&comb) < (2 * scaled_cells(&w, NEST_CORE) + 1) as usize,
+            "the barcode passed the middle bar -- this guard cannot tell a place from a dotted line"
+        );
+
+        // Every column outside the core still sheds onto ground within a
+        // cell. The core is excluded by position rather than quietly allowed:
+        // see the doc above for what prices it instead.
         let nest = w.materials.id_of("nest").expect("nest is compiled in");
         let drains: Vec<i32> = (0..=191).filter(|&x| (95..105).all(|y| w.get(x, y).material != nest)).collect();
-        for &(x, _) in &patch {
+        let centre = (columns.first().copied().unwrap_or(0) + columns.last().copied().unwrap_or(0)) / 2;
+        let core = scaled_cells(&w, NEST_CORE);
+        let mut checked = 0;
+        for &x in &columns {
+            if (x - centre).abs() <= core {
+                continue;
+            }
+            checked += 1;
             assert!(
                 drains.iter().any(|&d| (d - x).abs() <= 1),
-                "every nest column needs ground it can shed a film onto within one cell; x={x} has none"
+                "every nest column outside the core needs ground it can shed a film onto within one cell; x={x} has none"
             );
         }
+        assert!(checked > 4, "only {checked} fringe columns were checked; this guard would pass on nothing");
+    }
+
+    /// The longest run of consecutive integers in a sorted, deduplicated list.
+    fn longest_run(columns: &[i32]) -> usize {
+        let mut best = 0usize;
+        let mut run = 0usize;
+        let mut prev: Option<i32> = None;
+        for &x in columns {
+            run = if prev == Some(x - 1) { run + 1 } else { 1 };
+            best = best.max(run);
+            prev = Some(x);
+        }
+        best
     }
 
     fn run(w: &mut World, frames: usize) {

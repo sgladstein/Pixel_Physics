@@ -1,271 +1,178 @@
-# The world starts bare, and she is the one who plants it
+## Founding: the menu, where the colony lands, and what it leaves on the ground
 
-Two owner playtest items from 2026-09-14, both on the held world
-(`cargo run --release --bin druid`). Lane B of a five-lane program; opened by
-the coordinator from the lane's own `PR_BODY_LANE_B.md`.
+Lane B of the held-world round. The three founding complaints from the owner's
+2026-09-14 playtest, each reproduced before it was touched.
 
-**What this does, in the world's words.** The druid walks out into a land with
-nothing growing in it, carrying a pouch of seed. What comes up is what she put
-there. And she can now switch off the sphere of running time she carries, so
-the world holds still around her.
+### 1. *"when I found ants there are little yellow bars that get placed onto the ground. I don't like this."*
 
-**Where it sits.** These are the first two of the playtest items that change
-what the game *is* rather than how it looks — the held world had a verb for
-planting but nothing that made planting cost anything, and no way to stop time
-while standing in it. Lane A has the interface and the keys; Lane C has the
-creatures. This lane is the world and the economy.
+**Reproduced as a number, not just a picture.** The nest patch — the worked
+ground a colony walks home to — was laid as `i % 3 != 2` over 53 columns:
+`examples/founding_shot`'s run histogram reads **36 columns in eighteen runs of
+exactly two**. That is a barcode, and a barcode is what the complaint
+describes. It also had no middle at all, which is `CLAUDE.md`'s first law —
+*an outcome is a distribution, not a binary* — failing on a patch of ground.
+And every cell took a literal `0` shade, so all 36 drew `nest.ron`'s
+**lightest** colour while every other material in the world draws a random
+byte "so bulk material has visible grain".
 
----
+`nest_mask` replaces the comb with an unbroken core at the gnome's feet and a
+fringe of single cells thinning to nothing at the rim. **36 columns in 18 runs
+→ 25 in 15**; longest run **2 → 11**. Cells now take a position-keyed shade —
+deliberately not `World::rng`, because a player-triggered draw reshuffles a
+stream worldgen and every pass also draw from, and same-build replay is
+required (`PLAN.md`).
 
-## Item 4 — "The world should not start with any seeds"
+**The drain rule it must not break is held by construction.**
+`open-bugs-handoff.md` §T2: `nest` is an impermeable `Solid`, so an unbroken
+patch stands under a film and the colony loses its front door. The property
+that repair needs is that every nest column is within one of ground that
+drinks; outside the core no run may exceed `DRAIN_PERIOD - 1`, and the fringe
+clears that with a column to spare. The core is the single relaxation, so it
+comes off `examples/nestdoor`'s own water pair rather than an argument —
+three seeds, standing water on the patch against the same width of ordinary
+ground beside it, at 10k/20k/30k frames:
 
-> *"The world should not start with any seeds. The druid has her own seeds to
-> plant and that populates the world."*
+| arm | seed 1 | seed 2 | seed 3 |
+|---|---|---|---|
+| run-bounded comb (`NEST_CORE=0`) | 1, 10, 15 | 2, 3, 1 | 1, 0, 0 |
+| **shipped (`NEST_CORE=5`)** | 7, 11, 9 | 1, 4, 0 | 0, 4, 0 |
+| unbroken (`NEST_DRAINS=off`) | 52, 63, 68 | 10, 9, 10 | 18, 1, 1 |
 
-### The world half is three asset lines
+Ground beside the patch read 0–4 in every arm. `core=12` was measurably wetter
+(20, 19, 52 on seed 1) and is not taken. The unbroken arm is the **positive
+control** and reproduces §T2 outright, so the instrument is known to
+discriminate rather than merely to pass.
 
-The seeds came from the worldgen `life_scatter` pass, which already early-outs
-when all three of its densities are zero — the path `arid` and `flat` already
-take. So the `druid` preset's `moss_density`, `tree_density` and
-`grass_density` go to `0.0` and no code changes.
+**Three shapes were built and rejected first**, all reachable from the shipped
+knobs: a linear taper anchored at the core's edge (~50% dense at the rim, so
+the patch ended in a straight line of crumbs); a fringe bounded at
+`drain_period - 1` (that is 2-on-1-off — a *shorter* barcode, and the fringe is
+all the player sees, because the core is under his feet); a square taper from
+the centre (25 → **13** columns, a door too small to be one).
 
-Measured rather than assumed, paired, one binary and two copies of
-`assets/worldgen.ron` (`pass_ablation seeds=1 preset=druid`):
+**This one is judge-by-eye and is with the owner**, blind, three arms
+(shipped / grain only / both) so the two halves of the change can be told
+apart: card `20260914T203358857Z-2a28fa`. It also asks the question I could not
+settle myself — whether the complaint is the *pattern* or the pale *colour*.
+If it is the colour, the fix is `assets/materials/nest.ron`, which is shared
+with the lab and whose own comment says the pale tan is deliberate, so I have
+not touched it.
 
-| pass | before | after |
-|---|---|---|
-| **`life_scatter`** | **993 cells** | **0** |
-| `soil_blanket` | 1,239,668 | 1,239,668 |
-| `ponds` | 94,493 | 94,493 |
-| `soil_moisture` | 1,223,852 | 1,223,852 |
-| `moisture_init` | 71,324 | 71,324 |
+### 2. *"it should still happen right under or next to the druid."*
 
-The before-arm is the positive control: the same instrument reads a known
-non-zero case at 993. Every other pass is byte-identical across the two arms,
-so nothing was displaced into a different pass rather than removed.
+`colony_stations` decided every offset before it looked at the ground — a band
+centred on the cursor with a station every `spacing` columns — and **dropped**
+the ones that were not sites. So a stand whose middle is blocked seated nobody
+near him and scattered the survivors over the band's full width.
 
-`Start::Bare` never grows and nothing else in the generator plants, so that is
-the whole of it. Its doc claimed otherwise and has been corrected.
+It walks outward from the cursor a column at a time now, taking the first that
+is a site and keeping a body's corridor between any two already claimed. The
+nearest ground is claimed first, and distance is only ever paid where the near
+ground refused. Nine columns of trunk through a stand: **6 of 8 seated → 8 of
+8**, and the guard was watched red against the predecessor.
 
-### The other half is that her supply was infinite
+Order stays left to right — `founder_reserve` staggers the cohort's starting
+energy by index, so reordering would move the lab for no reason anybody asked
+for. No two entries share a column, so `sort_unstable` has no tie to break.
 
-`Druid::plant_seed` read no resource and decremented nothing. `sown` was a
-monotone counter for the readout, and no decrement existed anywhere in the
-repo — so on a bare map the item as stated would have changed a wood into a
-painting tool.
+**`src/sim/creature.rs` is shared with the evolution lab**, so this was
+measured there too, one binary, `PIXEL_PHYSICS_COLONY_BAND=1` as the paired
+arm, `RAYON_NUM_THREADS=2` pinned because a counter downstream of the
+checkerboard is not load-independent. `labnest founders=8 seeds=2`: **52
+founders seated in both arms**; the die-off keeps its shape (52 → 13/16 by
+frame 5,000 on the walk, 52 → 15/19 on the band); `roofed` at 9,000 is 7/19
+against 15/22 and `digs` 503/373 against 433/468, with the two seeds swapping
+which arm is higher — the bed's own spread, not the change. It is close to a
+no-op on flat ground by construction, which is what keeps it safe there.
 
-So: **a pouch per kind**. Eight of each to start, capped at 24. Sowing spends
-one, and only on a seed that actually goes into the ground. An empty pouch
-refuses and says so, like every other refusal in this game. And it refills
-from **mature plants standing in the circle she carries** — 0.005 seeds per
-plant per second, credited to the plant's own kind, and only above a 24-cell
-maturity bar.
+**`burrow_probe arms=colony` cannot see this change and should not be quoted
+about it**: its colony arm builds through `World::plant_ant` in a loop, never
+`found_colony_of`, and it proves it by coming back byte-identical across the
+switch.
 
-Three choices in that worth arguing with:
+### 3. *"the found menu needs to be way improved."*
 
-- **Per kind, not one number**, so *"eight grass and no oak"* is a state the
-  game can be in. That is what makes cycling the seed kind a decision.
-- **The carried circle, not a standing one.** Gathering is presence — the same
-  thing the carried circle already is — so the way to be paid in seed is to
-  walk your own wood. Crediting standing quickenings would pay a player who
-  places a circle over a wood and leaves, which is the unlimited supply
-  wearing a delay. It also makes the two items in this PR interlock: switching
-  the sphere off stops the pouch filling, for free, out of the same `Option`.
-- **A cell-count maturity bar** rather than the species' own `seed_maturity`
-  fence, which is a plant's business and moves with the genome. This is the
-  player's question, and the player's question is *"does this look like a tree
-  yet"*.
+Three clauses; the middle one turned out to be two bugs.
 
-**What I did not build, and why.** Seeds priced in power — `Setting::Unlimited`
-already means power, so a seed bought with power would become free the first
-time anyone pressed `U`, which is the mechanic deleting itself. Picking loose
-seed cells up off the ground — more satisfying, and it is what the world
-actually produces once plants reproduce, but a loose seed cell belongs to a
-live organism, so harvesting one is surgery on the plant line's reproduction
-path, and it would let her hoover up the regeneration she is there to
-encourage.
+- **Fully controlled by arrows, WASD or mouse.** A cursor over
+  `founding::ROWS` — body, the three lineages, the founder count, and
+  `FOUND`/`LEAVE` as rows of their own so the arrows have somewhere to arrive.
+  Up/down walk it, left/right work whatever it is on, `ENTER` chooses. Every
+  row carries a hit box from `hud::offer_layout`, **one definition read by the
+  drawing and by the click** — a hit box that disagrees with the thing it is
+  under is §R2 wearing a mouse. The two dials carry `<`/`>` ends so the
+  pointer can *work* them rather than only select them, under the button bar's
+  own press/release protocol (sliding off takes the press back). **Every old
+  letter still works**; nothing was taken away to make room.
+- **Choices stay set.** `founding::Memory`. They did not — `toggle_founding`
+  built a fresh `Offer` on every open. **The same line was eating the
+  reroll**: `commit_founding` called `reroll()` and *then* dropped the offer,
+  so the three it had just drawn went out with it and the next open served
+  attempt 0 again. "Committing is what costs you the other two" was the design
+  from day one and had never once happened in the game.
+- **The game pauses.** `Druid::time_stopped`, *derived* rather than written
+  into `paused`: the alternative is saving and restoring the player's own
+  pause across a modal, and a restore that misses one exit path unpauses a
+  game they had deliberately stopped. Measured with its control in the same
+  run — twenty updates move the clock by **0** with the screen open and by
+  **20** with it shut.
 
-### It also relieves the organism-slot ceiling, and is designed against it
+Before/after card with the owner: `20260914T203509792Z-1d6a4f`.
 
-Lane C measured (§Z21) that `Cell::organism_id` gives 12 bits to the slot
-index, so the world holds **4,095 organisms** — and on a *grown* start
-`Druid::new` already arrives at **4,093** of them, with further births
-silently refused.
+### Guards, each watched red
 
-Zeroing the densities is probably the largest relief that pressure gets from
-anything currently in flight: on `Start::Bare`, the default and what is
-actually played, the slot table now starts **empty**. That is relief, not a
-fix — grown and dead starts are untouched and §Z21 stays open.
+`a_threshold_has_a_middle` (the barcode, `core=0`, is an **asserted** control —
+the test fails if the control passes), `the_fringe_never_holds_a_run_longer_than_the_drain_bound`,
+`a_colony_is_founded_at_his_feet` (red against the band: 6 of 8),
+`every_row_of_the_founding_screen_can_be_clicked`, `the_screen_opens_on_what_was_left_set`
+(with a control that the default does not already satisfy it),
+`a_commit_is_still_a_commit_after_the_screen_closes`,
+`every_row_of_the_menu_is_reachable_and_does_something`,
+`a_stale_memory_is_clamped_rather_than_trusted`.
 
-The supply is designed against the ceiling rather than around it. The pouch is
-finite and capped, so free sowing cannot run the table up on its own; and a
-refusal at the ceiling is **said out loud and costs no seed**.
-`plant_tree_species` answers a bare `false` both for "this cell is occupied"
-and for "the engine is out of slots", so `plant_seed` samples
-`World::organisms_refused` across the call and separates them — *"the world is
-full - nothing can be born until something dies"* rather than *"no room
-here"*, which would send a player hunting for better ground that does not
-exist.
+`the_legend_names_every_key_the_binary_binds` now sweeps all three on-screen
+legends rather than `KEYS` alone. The claim it makes is *a player can find out
+what this key does without reading the source*, and a key live only inside a
+modal is discoverable on that modal's own footer; four `ARROWUP`-shaped rows in
+the world's corner would be the opposite of what the legend exists for.
 
-**The assumption worth flagging**, since it is the owner's call and not mine:
-*that a refill should exist at all.* A supply that can only go down makes the
-outcome binary — you have seeds or the run is over — which is the failure law 1
-names, so everything here assumes a refill. That is an inference from the
-ethos, not from his words. If a run is meant to be bounded by what she sets
-out with, delete `take_gathered_seed` and its caller and nothing else moves.
+### New instrument
 
-Every number here (8, 24, 24 cells, 0.005/s) is a first guess and says so at
-its definition — the same footing as the rest of this economy, whose own doc
-says as much. The one to sweep first is the maturity bar, because it is the
-only one that decides whether the mechanic has a *middle*.
+`examples/founding_shot` — drives the real `Druid` headless and writes the
+picture with the counts beside it. Indexed in `Reports/instruments.md`. It
+renders the **world alone**, which `bin/druid` cannot: the biosphere page and
+the button bar cover exactly the ground a nest patch is painted on. Its
+run-length histogram is the general form for any *"is this pattern regular"*
+question, which no image metric answers.
 
----
+### Paired arms, all in one binary
 
-## Item 5 — "an easy way to full turn off the sphere"
+`PIXEL_PHYSICS_NEST_SHAPE=comb` (the 2026-09-12 patch, verbatim),
+`PIXEL_PHYSICS_NEST_CORE=<n>`, `PIXEL_PHYSICS_COLONY_BAND=1`.
 
-> *"There should be an easy way to full turn off the sphere around the druid so
-> no power is being used."*
+### Files, and one I took that the brief did not give me
 
-**The power half of that premise is already true, and the code says so.**
-`carried_cost` prices the area *added*, so the carried circle at its base
-radius costs exactly zero, and there is a guard whose message is *"the circle
-you already are must stay free"*. Nothing here is a saving unless the player
-has widened it with `]`, and then it is the widening that stops being billed.
-`carried_cost` is untouched and its guard still passes.
+Owned and changed: `src/sim/creature.rs`, `src/druid/founding.rs`, the `offer`
+arm of `src/bin/druid.rs`. Also `src/druid/hud.rs` (the screen's draw and
+layout), three small edits to `src/druid/mod.rs` (`toggle_founding`,
+`commit_founding`, `update`'s pause gate, one field) — **nothing in the trail
+functions** — and **~40 lines of `src/bin/druid.rs` outside the `offer` arm**:
+one `Handler` field, the founding branch of `mouse_button`, two helpers, and
+two lines in `CursorMoved`/`CursorLeft`. The mouse plumbing is the only place
+item 3's "and/or mouse" can live and a lane cannot message its coordinator;
+flagged here and in the lane note so Lane C expects the conflict in
+`window_event`.
 
-What was genuinely missing is the thing the words say: **a way to make the
-world hold still where she stands.** That is what this builds.
+### Gates
 
-### It is a flag, not a radius of zero
+`cargo clippy --all-targets --release --locked -- -D warnings`,
+`cargo test --release` (full — `--lib` cannot reach `tests/*.rs`, and
+`creature.rs` changes are what those catch), `bash scripts/docscheck.sh`
+(wanted `readmetoc.py` after the README edit; rerun clean),
+`python3 scripts/deadendindex.py --touching` (quiet).
 
-`World::carried_radius`'s own doc refuses to let a dial reach off by accident,
-and that comment is load-bearing: `frame.rs` reads a zero radius as the
-*default size*, and even a genuinely zero radius would still run time for the
-cell underfoot, because `Quickening::contains` is `<=`. Both are asserted
-directly, so a later session that "simplifies" either will be told.
-
-`World::carried_off` is therefore its own word, default `false` — the sandbox
-and the lab see no change at all.
-
-### Off is a trade, not a free button
-
-With the circle off, the colony under her feet stores no charge, a seed she has
-sown does not germinate, the wood she is in stops growing, and her pouch stops
-filling. Every one of those falls out of `World::time_runs_at` and needed no
-code — the same way the rule that a colony must be founded inside running time
-does.
-
-The delivery, per law 2, is that **the world visibly goes still**: with
-`world.carried` at `None` the held look reclaims the ground she is standing on,
-so the bubble does not dim, it disappears. The HUD says `YOUR CIRCLE OFF` in
-warning colour — a word, because no number could say it — which is what stops
-an idle power bar reading as a fault.
-
-The key belongs to `src/bin/druid.rs`, which is Lane A's file.
-`Druid::toggle_carried_circle()` is the call, and
-`PIXEL_PHYSICS_DRUID_CIRCLE=off` is a headless control arm for judging the two
-states off one binary in the meantime. **Lane A's screen brief merged before
-the call could be routed, so the key does not exist yet** — the verb and its
-state are here and ready, and binding it is one line in a file this lane does
-not own.
-
----
-
-## One thing carried in from another lane, and acted on
-
-`Druid::speed`'s doc now records Lane E's diagnosis of the owner's *"absorbing
-destroys plants"* report, because it lands next door to this economy:
-absorbing never touches the world at all, and what eats a wood is ants grazing
-inside a quickening — which **the speed dial multiplies too**, 228 plant cells
-eaten at speed 1 against **2,217** at speed 8. The dial's doc and `drain_for`
-both price it honestly in *power* and the player is told nothing about the
-other half of what he just bought.
-
-Closing that wants the on-screen note the dial raises to name grazing as well
-as cost, and `Z`/`V` write `Druid::speed` directly from `src/bin/druid.rs` with
-no `Druid` method in between — so it is not a change this lane can make. The
-measurement is recorded where the next session to touch the dial will read it,
-rather than left as a silent gap.
-
----
-
-## Guards, and the two that were blind
-
-Both new guards were written after the code, so neither gets `CLAUDE.md`'s
-already-watched-it-go-red exemption. Putting the faults back found the first
-version of the pouch guard **blind three ways**:
-
-| fault put back | first version | now |
-|---|---|---|
-| the decrement deleted | **passed** | fails |
-| the empty-pouch refusal deleted | fails | fails |
-| credit the selected kind, not the plant's | **passed** | fails |
-| drop the carried-circle gate | **passed** | fails |
-| drop the maturity bar | **passed** | fails |
-| `frame.rs` ignores `carried_off` | fails | fails |
-
-Two causes, both general:
-
-1. **The guard never reached a successful sowing.** Its world had no ground, so
-   `plant_seed` returned `false` from its first line and every assertion was
-   about the refusal path — *a scene that contradicts the code will look like a
-   bug in the code*, arriving as a false **pass**. A second scene error sat
-   under it: standing still, the second sowing is refused for *"the cell is not
-   empty"*, so a guard that did not move him between sowings would have been
-   measuring the ground.
-2. **The crediting rule was inline in an organism walk that needs a grown
-   world**, so the one claim a player would notice going wrong was unreachable
-   by any test running in under a minute. It is now `seed_credit`, a function
-   over plain values whose four `None`s are the rules, with a guard that opens
-   on the positive control before asserting any of them.
-
----
-
-## Files, and the lane boundary
-
-`assets/worldgen.ron`, `src/worldgen/` (unchanged in the end — the pass already
-supported this), `src/druid/mod.rs`, and the carried-quickening lines of
-`src/sim/world.rs` and `src/sim/frame.rs`.
-
-`src/druid/hud.rs` is Lane A's and is touched under a narrow licence, in one
-commit, entirely within `Readout` (`:185-258`) and ~140 lines clear of
-`Interface::draw`: two fields, two lines gaining a branch, and the coverage
-sweep extended so both branches of both are actually formatted. Two fields
-rather than the one the licence named — `carried_off` cannot be inferred from
-`carried_radius` (the radius keeps its value while the circle is off) and the
-seed count cannot be inferred from `sown`.
-
-`Druid::charged_animals` is untouched and still there for Lane A to delete.
-
-Full lane note, including the seed-economy reasoning and what the brief got
-right: `Reports/lanes/druid-seeds-and-sphere.md`.
-
-## Judged by eye, not described
-
-Both items are visible, so both went to the review queue as real captures of
-the shipped binary (`xvfb-run` + lavapipe + the app's own screenshot hook, so
-the HUD is in the picture — which is where half of each mechanic lives).
-
-- **`20260914T044639296Z-dd68c2`** — the bare world as she walks out into it.
-  Asks whether it reads as somewhere worth planting or as an empty map.
-- **`20260914T044811000Z-26d062`** — a blind A/B of the sphere on against off,
-  over a grown wood, same world and same frame. Asks whether off reads as the
-  world holding still or just as the ring being hidden. Its context says
-  plainly that the sphere already cost nothing, because both panes read
-  `OUT 0.0/S` and a card that did not explain that would read as a broken
-  mechanic.
-
-Neither was waited on. `python3 scripts/review.py inbox` collects them.
-
-## Gates
-
-- `cargo clippy --all-targets --release --locked -- -D warnings` — clean
-- `cargo test --release` (the full suite, not `--lib` — the worldgen guards
-  that sweep `presets()` live in `tests/*.rs` and `--lib` cannot reach them)
-- `bash scripts/worldgencheck.sh`
-- `bash scripts/docscheck.sh`
-- `python3 scripts/deadendindex.py --touching`
+Lane note: `Reports/lanes/druid-founding.md`.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
-https://claude.ai/code/session_01CbyvwaFsrCF6jnA87mYnky
+https://claude.ai/code/session_01R9CaT2LnxTh8Khpn2VzELr
