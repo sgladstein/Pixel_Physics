@@ -187,10 +187,24 @@ and it sits just under the point where the dial stops being honest.
 
 ## 5. The moss lawn — withdrawn, see §5a
 
-I filed this as §Z26 (*the moss pump is live*) and then withdrew it: Lane E's
+I filed this as §Z26 (*the moss pump is live*) and withdrew that reading: Lane E's
 `dead-ends.md` creatures:083 is the better disposition, and my claim does not
 follow from a comparison whose two arms differ in more than the mechanism under
-test. The paired numbers survive as evidence for **E's** entry. §5a.
+test — the wall arm bounds *mouthfuls*, not joules, and on mouthfuls the lawn
+sits comfortably inside it (**18 against 37**).
+
+**E also ruled out the reading I could not**: they censused the standing lawn
+itself — **20 → 26 with the defect live, 20 → 22 with it fixed, net producing on
+both arms**. So the lawn is not being mined; the fixed arm ends smaller only
+because the ant eats twice as much of the regrowth, which is what a renewable
+niche is.
+
+**§Z26 stays OPEN as a long-horizon question, not closed** — what none of this
+establishes is that the lawn is bounded over an *unbounded* horizon, and 20 → 22
+on one seed and one scene is a small number. E re-derived the guard onto
+mouthfuls and left it **active** rather than `#[ignore]`d. My paired numbers
+survive as independent evidence for their entry: lawn 456 → 912 and the litter
+larder byte-identical at 684, from two harnesses and two lanes. §5a.
 
 ---
 
@@ -343,38 +357,36 @@ arm that did not name its own spread.
 
 ## 6. For whoever runs the next round
 
-**FIRST, and it is routed to this lane by Lane E: E's fix grows the colony, so
+**FIRST, and it is routed to this lane by Lane E: E's fix changes the bed, so
 every economy number in §2, §3 and §4 wants re-taking on the far side of it.**
-E measured ants **66 → 123, 81 → 146, 156 → 190** across three seeds, because
-the jaw work the colony was billed for bought nothing and that bill is now
-gone. A bed with twice the ants is a different economy: predation opportunity,
-plant intake and the starvation rate all move together, and **nothing in §3
-survives that automatically.** My conclusion there — predation income is ~0.65
-of one child per bed and cannot reach the birth bar — is a claim about the
-pre-E bed, stamped at `768c1b59` in §6b. **Re-run the 12-seed paired sweep once
-E lands.** The instrument is built and the columns are in place; it is one
-command per arm.
 
+**E's first figures for this were withdrawn and these are the replacements** —
+their originals (ants 66 → 123, 81 → 146, 156 → 190) were taken before `main`
+landed #434's organism-id widening, and re-measured paired on the merged tree
+they read:
 
-- **§Z26 is the one worth taking.** It is a live pump in the plant economy,
-  it has a paired reproduction and a written remedy, and it is bigger than
-  anything the rivalry dial did.
-- **§Z23's second half is still open**: `CreatureStats::attacks` is not a
-  count of animals fighting and there is no counter that is. It is now *more*
-  misleading, not less — the number is small (0–71 against 344–475) and
-  finally animal-directed, so a reader is likelier to trust it as a fighting
-  figure. It still counts "the `Attack` branch reached a target".
-- **The `colony_ants` clamp (§4) is not filed as a bug** — it is a silent
-  placement loss rather than a defect with a wrong answer, and I did not want
-  to spend a letter on something the owner may simply want the slider
-  re-ranged for. If it recurs in another lane's measurement, file it.
-- **Do not price a colony off `deaths`, `starved` or `starv%` from any lab
-  harness without checking the denominator.** Those are whole-bed columns and
-  a played box is mostly plants. `deathsA`/`starvedA`/`starvA%` exist in
-  `rivalry` now; nothing else reads `group_deaths`.
-- **Nothing was posted to the review queue.** Every finding here is a count or
-  a joule, the rivalry-visibility question is closed by the owner's ruling,
-  and the queue is for visual evaluations only.
+| seed | ants, defect live → fixed | plants standing, live → fixed | no-colony control |
+|---|---|---|---|
+| 1 | **198 → 137** | 243 → **275** | 270 |
+| 2 | 127 → **224** | 161 → **97** | 268 |
+| 3 | 2 → **8** | 190 → 187 | 200 |
+
+**So "the fix grows the colony" is 2 of 3, not 3 of 3 — seed 1 shrinks**, and
+standing plants move up on one, down hard on one, flat on one, median −3. **Do
+not quote the withdrawn triples**; they are retracted in E's register entry and
+lane note as well as here.
+
+**What the two columns say together is more useful than either**: where the
+colony does *not* grow, the stand recovers to the unhunted control (seed 1,
+**275 standing against a no-ant 270**); where it explodes, grazing simply
+replaces the jaw (seed 2, plants 161 → 97). **Seed 2 is the case to tune the
+birth bar against** — E's call and I agree with it.
+
+**My conclusion in §3 is unaffected and if anything better supported**, but it
+is still a claim about the pre-E bed, stamped at `768c1b59` in §6b: predation
+income is ~0.65 of one child per bed and cannot reach the birth bar. **Re-run
+the 12-seed paired sweep once the merged tree settles.** The instrument is
+built and the columns are in place; it is one command per arm.
 
 ## 6b. Head SHAs for every measurement, per the coordinator's request
 
