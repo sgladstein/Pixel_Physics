@@ -1875,9 +1875,10 @@ pub fn try_resize(world: &World, p: &mut Player, (w, h): (i32, i32), tuning: &Tu
     // does this same derivation every tick; this is it asked one size ahead,
     // which is the whole idiom of this function.
     let expected = ((PLAYER_HEIGHT as f32 * world.cell_scale()).round() as i32).max(1);
-    let tuning = tuning.scaled(world.cell_scale()).for_body(h as f32 / expected as f32);
-    let wade = tuning.wade_rows as i32;
-    let shoulder = tuning.shoulder_grains as i32;
+    let tuning_for = |body_h: i32| tuning.scaled(world.cell_scale()).for_body(body_h as f32 / expected as f32);
+    let target = tuning_for(h);
+    let wade = target.wade_rows as i32;
+    let shoulder = target.shoulder_grains as i32;
     // **A body with no chest is refused**, and it is refused here rather
     // than clamped, because the failure is silent. `rect_free` tests powder
     // against `chest = h - wade`; at `wade >= h` that is zero or negative,
@@ -1892,14 +1893,37 @@ pub fn try_resize(world: &World, p: &mut Player, (w, h): (i32, i32), tuning: &Tu
     let (fx, fy) = p.feet();
     // Feet held, horizontal centre held. `rect_origin` rounds, so derive the
     // target from the anchor rather than from the current float position.
-    let (tx, ty) = (fx - w / 2, fy - h);
+    let tx = fx - w / 2;
+    // **He may rise out of the soft ground he was standing in, and no
+    // further.** Without this the verb is refused on every soil surface in
+    // the world, which is not a corner case: `wade_rows` is "4 of his 14
+    // rows -- about knee-deep", so a gnome standing on *any* powder is sunk
+    // four rows into it by design. Anchoring a 2x3 body on those buried feet
+    // puts the whole of it underground, and `rect_free` quite rightly says
+    // no. Measured on the real app before this existed: `grounded true`,
+    // `buried false`, and every one of the four rows under his chest solid --
+    // a correct refusal that would have left `R` working only on bare rock.
+    //
+    // **The bound is the wade depth, not the body height**, and that is what
+    // keeps it from being a teleport. He may climb out of exactly the mud he
+    // was already in; he may not step up a ledge, drift through a ceiling, or
+    // rise to meet a roof while growing. At the authored gnome that is four
+    // cells, at 2x3 it is one, and at either size it moves him only through
+    // cells his own body already occupied.
+    let rise = {
+        let here = tuning_for(p.h);
+        here.wade_rows as i32
+    };
     // The margin is the authored gnome's depenetration reach for the same
     // reason `step` uses it: this is a safety window, and over-scanning is
     // the cheap direction.
-    let bodies = Bodies::near(world, tx, ty, (w, h), depenetrate_reach(PLAYER_HEIGHT) + 1);
-    if !rect_free(world, &bodies, tx, ty, (w, h), wade, shoulder) {
+    let bodies = Bodies::near(world, tx, fy - h - rise, (w, h + rise), depenetrate_reach(PLAYER_HEIGHT) + 1);
+    // Lowest first, so he ends as deep as he legally can rather than perched
+    // at the top of the search -- the shrink should feel like settling into
+    // the ground, not like being lifted out of it.
+    let Some(ty) = (0..=rise).map(|up| fy - h - up).find(|&ty| rect_free(world, &bodies, tx, ty, (w, h), wade, shoulder)) else {
         return false;
-    }
+    };
     p.w = w;
     p.h = h;
     p.x = tx as f32;
@@ -4236,6 +4260,86 @@ mod tests {
         assert!(try_resize(&world, &mut p, (PLAYER_WIDTH, PLAYER_HEIGHT), &tuning), "he could not grow back on open ground");
         assert_eq!((p.w, p.h), (PLAYER_WIDTH, PLAYER_HEIGHT));
         assert_eq!(p.feet(), standing, "growing back pushed him into the floor or lifted him off it");
+    }
+
+    /// **He can shrink while standing on ordinary ground, and that is the
+    /// case the whole verb lives or dies on.**
+    ///
+    /// Found by looking at the real app rather than by any test. `wade_rows`
+    /// is "4 of his 14 rows -- about knee-deep", so a gnome standing on *any*
+    /// powder is sunk four rows into it **by design**; [`Player::feet`] is
+    /// therefore four rows underground, and a 2x3 body anchored there is
+    /// entirely below the surface. `rect_free` refused it, correctly, and the
+    /// verb would have worked only on bare rock — inert on every soil surface
+    /// in the world, which no unit test in this file would have noticed
+    /// because they all build stone floors.
+    ///
+    /// So the guard is built on **powder**, deliberately, and asserts he
+    /// both shrinks and ends up *higher* than his buried feet.
+    #[test]
+    fn he_can_shrink_while_standing_knee_deep_in_soft_ground() {
+        let mut world = World::new(Rect::new(0, 0, 127, 95));
+        for y in 70..=95 {
+            for x in 0..=127 {
+                world.set(x, y, Cell::new(material::SAND, 0));
+            }
+        }
+        world.player = Some(Player::at(64, 50));
+        let tuning = Tuning::default();
+        for _ in 0..400 {
+            tick(&mut world, PlayerInput::default());
+        }
+        let mut p = world.player.take().unwrap();
+        let sunk = p.feet();
+        // The scene check: he must actually be wading, or this guard is about
+        // a gnome on a hard floor and proves nothing.
+        assert!(
+            !world.is_empty(sunk.0, sunk.1 - 1),
+            "the scene does not contain the situation: his feet are not in the ground, so nothing here tests the wade case"
+        );
+
+        assert!(try_resize(&world, &mut p, (2, 3), &tuning), "he could not shrink while standing on ordinary soft ground");
+        assert_eq!((p.w, p.h), (2, 3));
+        assert!(p.feet().1 <= sunk.1, "the shrink left his feet below where he was standing");
+        // **The bound is NOT asserted here, and that is deliberate.** The
+        // search takes the lowest free position first, so in this scene the
+        // very first candidate fits and the bound never binds -- an
+        // assertion on it passes whatever the bound is set to. Measured by
+        // putting the fault back: widening the bound four-fold left this
+        // test green. A guard that cannot go red is blind rather than weak,
+        // so the bound gets its own scene below instead of a clause here.
+    }
+
+    /// **The rise is bounded, so a resize can never become a teleport.**
+    ///
+    /// The scene the guard above structurally cannot provide: his feet are
+    /// deep inside solid rock with open air well above, so every candidate
+    /// within the bound is blocked and only an unbounded search would find
+    /// the sky. An unbounded one *would* -- which is the failure this exists
+    /// to catch, `depenetrate`'s own doc calling a large push "a teleport"
+    /// and `DEPENETRATE_REACH` existing to forbid exactly it.
+    #[test]
+    fn a_resize_never_lifts_him_out_of_solid_rock() {
+        let mut world = World::new(Rect::new(0, 0, 127, 95));
+        for y in 60..=95 {
+            for x in 0..=127 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        let tuning = Tuning::default();
+        let mut p = Player::at(64, 80);
+        let (fx, fy) = p.feet();
+        // Open sky starts well above his feet -- further than any legitimate
+        // rise, and reachable only by a search that has lost its bound.
+        assert!(fy - 8 > 60, "the scene does not reach the open air it is built around");
+        assert!(
+            !rect_free(&world, &Bodies::none(), fx - 1, fy - 3, (2, 3), tuning.wade_rows as i32, tuning.shoulder_grains as i32),
+            "the scene does not contain the situation: a 2x3 body already fits at his feet, so nothing here tests the bound"
+        );
+
+        assert!(!try_resize(&world, &mut p, (2, 3), &tuning), "a resize lifted him out of solid rock -- the rise is unbounded");
+        assert_eq!((p.w, p.h), (PLAYER_WIDTH, PLAYER_HEIGHT), "a refused resize changed his size anyway");
+        assert_eq!(p.feet(), (fx, fy), "a refused resize moved him");
     }
 
     /// **A growth that would not fit is refused, and refused means nothing
