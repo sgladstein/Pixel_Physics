@@ -228,6 +228,53 @@ fn floating_ground(world: &World, w: i32, h: i32) -> (usize, usize) {
     (pieces, cells)
 }
 
+/// **Can a body of a given size actually walk the nest the ants dug?**
+///
+/// The question the shrink-the-gnome feature is gated on, and the reason it
+/// needs its own column rather than being read off `inradius`: `inradius` is
+/// the largest inscribed **disc**, and a gnome is a wide-short **rectangle**.
+/// A 3-tall 40-long gallery and a round chamber can share an `inradius` and
+/// admit completely different boxes.
+///
+/// The opening itself is `common::open_by_box`, shared with `cave_probe`,
+/// whose default box reproduces the figures published in
+/// `Reports/cave-redesign-2026-08-29.md` — so this harness, which has no
+/// published figure of its own, inherits that validation instead of asserting
+/// its own correctness.
+///
+/// **The two grids are deliberately different, and that IS the measurement.**
+/// `passable` is every empty cell in the footprint, because a body may stand
+/// anywhere empty and must be able to slide in through the open pit to reach
+/// anything. `void` — the denominator — is the **roofed** subset, because that
+/// is what a player would call a nest: `CLAUDE.md`'s own excavation trap says
+/// a hole open to the sky is not a room, and censusing all standing void
+/// scored a build that leaves *no roof at all* above one whose tunnels stand.
+/// So the percentage answers "how much of the enclosed nest can this body get
+/// into", not "how much empty space is there".
+fn walk_in_bank(world: &World, (x0, x1): (i32, i32), (y0, y1): (i32, i32), body: (usize, usize)) -> common::Walk {
+    let (w, h) = ((x1 - x0) as usize, (y1 - y0) as usize);
+    let idx = |x: i32, y: i32| (y - y0) as usize * w + (x - x0) as usize;
+    let mut passable = vec![false; w * h];
+    let mut roofed = vec![false; w * h];
+    for x in x0..x1 {
+        // Same per-column prefix as `void_components`: roofed means ground
+        // stands somewhere above it in the column, including the bank's own
+        // untouched cap above `y0`.
+        let mut above = 0usize;
+        for y in 0..y1 {
+            let m = world.get(x, y).material;
+            if y >= y0 && m == material::EMPTY {
+                passable[idx(x, y)] = true;
+                roofed[idx(x, y)] = above > 0;
+            }
+            if matches!(world.materials.kind(m), MaterialKind::Powder | MaterialKind::Solid) {
+                above += 1;
+            }
+        }
+    }
+    common::open_by_box(&passable, &roofed, w, h, body)
+}
+
 fn void_components(
     world: &World,
     (x0, x1): (i32, i32),
@@ -762,6 +809,25 @@ fn main() {
     let ants: i32 = arg("ants").unwrap_or(55);
     let colony_frames: u64 = arg("colonyframes").unwrap_or(8_000);
     let bud_k: f64 = arg("budk").unwrap_or(BUD_K);
+    // **`box=WxH` — the body the walkability column opens the nest by, and its
+    // default is the sensitivity control rather than the interesting case.**
+    // The real gnome is `PLAYER_WIDTH x PLAYER_HEIGHT` = 7x14, and a gallery an
+    // ant dug is 1-3 cells tall, so a bare run MUST read ~0% and any other
+    // answer means this instrument is measuring itself. `box=2x3` is the
+    // question the held world is actually asking. Not parsed through `arg`
+    // because that one parses a single value.
+    let body: (usize, usize) = std::env::args()
+        .find_map(|a| a.strip_prefix("box=").map(|v| v.to_string()))
+        .map(|v| {
+            let (w, h) = v.split_once('x').expect("box=WxH");
+            let b = (w.parse::<usize>().expect("box=WxH"), h.parse::<usize>().expect("box=WxH"));
+            assert!(b.0 > 0 && b.1 > 0, "box=WxH wants a body with area");
+            b
+        })
+        .unwrap_or((
+            pixel_physics::sim::player::PLAYER_WIDTH as usize,
+            pixel_physics::sim::player::PLAYER_HEIGHT as usize,
+        ));
 
     // **Before the colony arm, not after it.** The shape columns are quoted
     // about a colony and the only thing that says they mean what they claim is
@@ -773,7 +839,7 @@ fn main() {
 
     let png: Option<String> = arg("png");
     if want.split(',').any(|w| w == "colony") {
-        colony_arm(seeds, ants, colony_frames, bud_k, png.as_deref());
+        colony_arm(seeds, ants, colony_frames, bud_k, png.as_deref(), body);
     }
 
     println!(
@@ -1133,13 +1199,18 @@ fn main() {
 /// that removed 0 cells. A renamed `packedsoil`, a dropped `packs_into`, or a
 /// dig that only ever lands in stone all read as `packed 0` here and are
 /// invisible in `digs`.
-fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>) {
+fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>, body: (usize, usize)) {
     use pixel_physics::sim::chunk::Rect;
     use pixel_physics::sim::parallel;
     use pixel_physics::sim::particle::ParticleSystem;
 
     let lining_on = std::env::var("PIXEL_PHYSICS_BURROW_LINING").as_deref() != Ok("off");
-    println!("\n=== arm colony ===  lining {}", if lining_on { "ON" } else { "OFF (ablated)" });
+    println!(
+        "\n=== arm colony ===  lining {}  body {}x{}",
+        if lining_on { "ON" } else { "OFF (ablated)" },
+        body.0,
+        body.1
+    );
     println!("  55 ants on a soil bank over stone; `void` is standing empty cells inside the bank");
     println!(
         "  `void` is every empty cell in the bank footprint -- **erosion moves it**; \n           `roofed` is empty with ground standing above it, which erosion cannot produce. Read `roofed`."
@@ -1352,8 +1423,34 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>)
             for i in (1..slots.len()).rev() {
                 slots.swap(i, draw.below(i as u32 + 1) as usize);
             }
+            // **One colony, not fifty-five** -- the repair `examples/ascii.rs`
+            // made to three of its own scenes on 2026-09-14 and which this
+            // file never got. `World::plant_ant` places through
+            // `Origin::Founder { colony: None }`, which claims a **fresh
+            // label per call**, so a loop of it builds a crowd of strangers
+            // that only looks like a colony. It was inert while `ant.ron`
+            // left `scent_spread` at 0 and every label smelled identical;
+            // with the dial live those labels are mutual strangers, and a
+            // stranger is *food* before it is ever a target for the fight
+            // verb. The first ant founds the label and every later one joins
+            // it, which is `creature::colony_of_site`'s whole purpose.
+            //
+            // **This is why the walk gate read zero.** Measured on this
+            // harness, `arms=colony`, 12 seeds, frame 8,000: `roofed` void
+            // 5-9 cells as strangers against this file's own published 130,
+            // with `lgroof 0` -- the largest void run had no roof at all,
+            // which is this file's own definition of a quarried face rather
+            // than a gallery. They spent the run fighting instead of
+            // digging, exactly as `ascii`'s excavation scene did (`digs`
+            // 62 -> 354, roofed 0 -> 42 on the same repair). Any number
+            // taken from this harness between `ant.ron` gaining a live
+            // `scent_spread` and this commit is a measurement of a brawl.
+            let mut colony = None;
             for &(x, y) in slots.iter().take(ants as usize) {
-                world.plant_ant(x, y);
+                if let Some(site) = pixel_physics::sim::creature::plant_creature_seed_in(&mut world, x, y, "ant", colony) {
+                    colony = colony.or_else(|| pixel_physics::sim::creature::colony_of_site(&world, &site));
+                    world.schedule_active_site(site);
+                }
             }
         }
         // **The scene check, asserted rather than printed** -- the same rule
@@ -1549,6 +1646,16 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>)
                 println!(
                     "         chamber: {:>5} cells  circ {:>5.3}  inradius {:>5.2}  buds {:>3}",
                     shape.cells, shape.circularity, shape.inradius, shape.buds
+                );
+                // **Whether a body this size could walk it**, which `inradius`
+                // above cannot answer: that is an inscribed disc and a gnome is
+                // a wide-short rectangle. `regions` is the column that decides
+                // whether the feature is fun -- a high reach split across many
+                // regions is a set of pockets, not a walk.
+                let walk = walk_in_bank(&world, (bank_x0, bank_x1), (bank_y0, bank_y1), body);
+                println!(
+                    "         walk {}x{}: {:>3}% of roofed void reachable   largest region {:>3}%   regions {:>3}",
+                    body.0, body.1, walk.reachable_pct, walk.largest_pct, walk.regions
                 );
                 println!(
                     "         crowd over {live} ants: min {:.3}  p10 {:.3}  p50 {:.3}  mean {mean:.3}  p90 {:.3}  max {:.3}   (clamped at 1.0)",

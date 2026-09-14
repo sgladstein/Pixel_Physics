@@ -108,6 +108,28 @@ joules by what they came out of with each line in that material's own palette
 colour, and per colony FORAGED / MEAT / FED, UPKEEP / WALK / BRAIN, EMPTY /
 CARRYING.
 
+**AND THE BOOKS IMMEDIATELY PRODUCED THE HEADLINE THEY WERE BUILT FOR: THE
+COLONIES DO NOT FEED THEMSELVES.** Shipped bed, seed 1, two colonies of 8
+founders, 20,000 frames. One colony took in **10,400 J of founding grant and
+foraged 399 J**; both together foraged **485 J against 18,800 J granted —
+2.6%**. They ate **84% and 95% corpse**. Walking is 27% of everything spent,
+brains 8.3%, upkeep 46–48%.
+
+**That is the mechanism under a standing lab observation, stated in joules for
+the first time**: 70–90% of ant deaths in this bed are starvation, and the
+reason is not that a colony fails to find its dead — **plant income is
+approximately zero**. Every colony in the lab has been living on the founding
+grant and then on its own corpses. It is the strongest argument yet that the
+bed, not the animal, is what wants attention, and it was invisible until the
+ledger had a per-colony face.
+
+**One scene fact cost a measurement on the way**, and it is the
+*scene-contradicts-the-code* trap again: the two colonies were founded **30
+cells apart, not 120**. At 120 they never meet, every share stays inside one
+colony, and **the cross-colony transfer the whole split was designed around is
+untested while its equality assertion passes perfectly**. The guard bed now
+founds at 85 and 115 and asserts the crossing happens.
+
 **Joules, never cells** — priced by `diet_yield` at the call that credits the
 animal, so the page cannot disagree with the eat verb. **Both distribution rows
 are distributions on purpose**: a colony does not thrive or starve, it empties
