@@ -1,0 +1,64 @@
+{
+  "id": "20260914T084458895Z-ae1b01",
+  "created": "2026-09-14T08:44:58Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "main",
+    "commit": "c5a77513",
+    "agent": null,
+    "session_id": "0a1a9f8f-ddc6-59ea-ad95-93e9e0c44ba1",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Zooming out in the held world: keep the blocky stop, or skip it?",
+  "question": "Walking out from close up you get crisp, crisp, BLOCKY, crisp. The blocky one is the only stop that fits the whole world top to bottom; the one after it is crisp but leaves a quarter of the screen black. Keep the blocky stop, or should zooming out jump straight from stop 2 to stop 4?",
+  "context_md": "Asked once before in my words, not yours — you answered \"keep rung 3 as a soft stop\" and then said you didn't know what soft stop meant. That was a fair complaint about the question. Here it is again with pictures and no jargon.\n\n**Zooming out in the held world has four stops.** Each pane below is one press of zoom-out, in order. Every pane is shown at the same size on screen, so the only difference you are looking at is how much world you see and how crisp it is.\n\n| stop | how much world | how it looks | empty screen |\n|---|---|---|---|\n| 1 | 512 x 320 cells | crisp | none |\n| 2 | 1024 x 640 | crisp | none |\n| **3** | **1536 x 960 — the whole world, top to bottom** | **blocky** | **none** |\n| 4 | 2048 x 1280 | crisp | **a quarter of the screen is black** |\n\n**Why stop 3 is blocky and the others aren't:** the renderer can only draw a cell 1, 2 or 4 screen-pixels wide. Stops 2 and 4 divide evenly into that; stop 3 doesn't, so it falls back to the coarsest setting. It is not a bug and there is no cheap fix — you already looked at the version that fixes it and preferred stop 4 instead (card 20260914T000047337Z-693fcc).\n\n**So the only question left is whether stop 3 should be on the ladder at all.** Nothing is blocked either way: keeping it is what ships today, removing it is a one-line change.\n",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "Stop 1 — closest",
+      "files": [
+        "20260914T084458895Z-ae1b01/000-r_arm0_step0.png"
+      ],
+      "caption": "512 x 320 cells. Crisp.",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "Stop 2",
+      "files": [
+        "20260914T084458895Z-ae1b01/001-r_arm0_step1.png"
+      ],
+      "caption": "1024 x 640 cells. Crisp.",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "Stop 3 — the blocky one",
+      "files": [
+        "20260914T084458895Z-ae1b01/002-r_arm0_step2.png"
+      ],
+      "caption": "1536 x 960 cells — the whole world, top to bottom. Blocky: every cell is drawn at the coarsest size.",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "Stop 4 — furthest",
+      "files": [
+        "20260914T084458895Z-ae1b01/003-r_arm0_step3.png"
+      ],
+      "caption": "2048 x 1280 cells. Crisp, but the world is only 960 tall, so a quarter of the screen is black. This is the one you picked when I asked which you liked at rest.",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
