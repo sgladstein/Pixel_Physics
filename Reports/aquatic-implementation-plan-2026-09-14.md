@@ -432,6 +432,16 @@ far apart in the file and the merge is mechanical, but `src/sim/world.rs` /
 `README.md` / `Reports/README.md` are the contested rows here (103, 103 and 103
 landings) — **land each quickly rather than holding a large diff**.
 
+**One harness is not ready and the briefs must not pretend otherwise.**
+Checked 2026-09-14: `labforage`, `labshot`, `waterstand`, `labgif`, `labbatch`
+and `soil_drawdown` all accept `scenario=`, so every measurement named above is
+executable today. **`creature_arena` and `labstats` do not** — `creature_arena`
+builds its `LabBox` from flags (`founders`, `ants`, `predators`, …) and cannot
+be pointed at a pond at all. Since it is the teeth test, and the teeth test is
+what Phase 2 ships or does not ship on, **adding `scenario=` to
+`creature_arena` is a prerequisite of Phase 2, not a nicety** — and it is the
+one harness change this plan asks for.
+
 **Every brief carries the same cost fork:** build it, or write the finding and
 stop; never a half-built fix. **Every brief's creature card is a moving
 sequence** (`labgif`, or `filmstrip gif=1`), never a still — an ant is two dark

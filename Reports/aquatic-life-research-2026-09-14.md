@@ -704,7 +704,7 @@ This table is deliberately where a build order would go.
 | **Does a gas cell rise through water?** | one `filmstrip` scene | Settles bubbles-as-oxygen before any scalar design is drawn |
 | **Does litter float and stay?** | `litter_probe` — read its `SUSPENDED (air underneath)` line | Settles the floating mat (§5.3) at zero cost |
 | **Does a burrow under a pond flood?** | `burrow_probe` with the table raised | Settles whether a benthic burrow is a niche or a bug |
-| **Does the bed still punish a worse animal with water in it?** | `creature_arena`, incl. `arm=lethal` | The direct form of the selection objection |
+| **Does the bed still punish a worse animal with water in it?** | `creature_arena`, incl. `arm=lethal` — **but it builds its `LabBox` from flags and has no `scenario=`, so it cannot be pointed at a pond today** (checked 2026-09-14); adding one is the prerequisite | The direct form of the selection objection |
 | **Would slot 14 ever move?** | `genome_drift` | E9 claims the trait is evolvable; this is what would say it evolved |
 | **Does a submerged plant read as a plant?** | `creature_look`'s `ink`, plus a review card | The appearance trap's own instrument |
 | **Is any of it seed-stable?** | `labbatch` | §7.1's arms are one seed each and say so |
