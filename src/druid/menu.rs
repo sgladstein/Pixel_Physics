@@ -98,7 +98,18 @@ impl Setting {
     /// flips: the menu should not have to know which rows are two-valued.
     pub fn advance(self, game: &mut Druid) {
         match self {
-            Setting::PlantBreak => game.world.plant_load_failure = !game.world.plant_load_failure,
+            Setting::PlantBreak => {
+                game.world.plant_load_failure = !game.world.plant_load_failure;
+                // **The reproduction behind this call: `CLAUDE.md`'s "reproduce
+                // before you fix."** A bare field write here left an already-
+                // settled beam standing after the switch went back on --
+                // `structural::tests::flipping_the_load_failure_switch_the_way_
+                // the_menu_does_does_not_retroactively_recheck_a_settled_beam`
+                // reproduces it directly. See `schedule_structural_recheck_of_
+                // all_living_plants`'s own doc for why a toggle alone never
+                // reached those cells.
+                game.world.schedule_structural_recheck_of_all_living_plants();
+            }
             Setting::PlantBend => game.world.plant_bending = !game.world.plant_bending,
             Setting::Unlimited => game.unlimited = !game.unlimited,
             Setting::Keys => game.show_keys = !game.show_keys,
