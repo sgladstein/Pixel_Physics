@@ -1,0 +1,41 @@
+{
+  "id": "20260914T195956622Z-357e6d",
+  "created": "2026-09-14T19:59:56Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/druid-look",
+    "commit": "9fd637a7",
+    "agent": null,
+    "session_id": "14a7ca69-3c22-5406-8545-a1ad6dc7a692",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Speed, read off bubble colour alone",
+  "question": "Can you tell how fast a bubble is running from its colour here, or does the difference need to be wider?",
+  "context_md": "Your second item: *\"The speed indication should just be bubble color, not animation speed (it looks bad when moving fast).\"*\n\nThe shimmer no longer speeds up — it now runs at one rate whatever the dial says. Speed moved entirely into how the bubble looks: **cold blue at real time, warming toward white as the dial climbs, and denser with it.** That is the ramp the old ring already used, so it is not a new thing to learn.\n\nOne circle, same size and position, four settings of the dial, in order x1 / x2 / x4 / x8.\n\n**What I am unsure about and want your eye on:** colour on its own is a weaker cue than the old pulse was, and against a pale sky the cold end is nearly the sky's own colour. I added a density ramp alongside the hue for that reason. If x1 and x8 still read too alike, the fix is one dial and I can push either the hue or the density much further.\n\n*(Ignore that only the x1 tile has the warm bubble at his feet — he happened to be carrying one in that run. And the thin grey outline is the placement preview, not a bubble.)*",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "x1 — real time",
+      "files": [
+        "20260914T195956622Z-357e6d/000-speeds_card.png"
+      ],
+      "caption": "x1 top-left, x2 top-right, x4 bottom-left, x8 bottom-right",
+      "meta": {
+        "bubbles drawn as haze each tile": 1,
+        "speed the renderer measured": "x1, x2, x4, x8 — one per tile",
+        "how far the haze reaches in": "7 cells at every speed (it no longer thickens)"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
