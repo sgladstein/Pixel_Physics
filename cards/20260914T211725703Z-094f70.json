@@ -1,0 +1,46 @@
+{
+  "id": "20260914T211725703Z-094f70",
+  "created": "2026-09-14T21:17:25Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-forest-eaten",
+    "commit": "6585e322",
+    "agent": null,
+    "session_id": "0f1e21cc-72b1-5b7f-a375-e7ffcba2a97b",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "What should an alarm MEAN?",
+  "question": "Should eating another CREATURE raise an alarm, or should alarm mean only \"I was attacked\"?",
+  "context_md": "Your two rulings are shipped: **creatures do not attack plants**, and **eating a plant raises no alarm**. Your longant bed, same seed, 40,000 frames — the pictures are just so you can see it landed. **The question below is the ask.**\n\nYou found the loop yourself and it was the whole of it: on that bed **100% of every swing and every cell taken by the jaw was at a plant**, and the jaw was removing **9 of every 10 cells** a colony took off a living plant while feeding on none of them.\n\nAlarm is the only thing in the engine that makes an ant reach for the fight verb, so what writes it decides what a colony comes running for. Three moments can write one:\n\n| the moment | raises an alarm? |\n|---|---|\n| **an ant is bitten by the fight verb** | yes — not in question |\n| **an ant is EATEN by another ant** | **your call** |\n| **a plant is grazed** | no — your ruling, shipped |\n\n**What I would ship if you have no strong preference:** an alarm whenever a *living animal* is bitten, whichever verb did it — from the victim's side, being eaten **is** being attacked. That excludes plants and corpses and keeps the shout for the one thing worth running to.\n\n**And it costs you nothing to decide either way today:** over three 40,000-frame runs of this bed an ant ate another ant **zero** times. One colony has no strangers to eat. It starts to matter the moment two colonies share a box — which is now the default.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before (the loop live)",
+      "files": [
+        "20260914T211725703Z-094f70/000-bed_on.png"
+      ],
+      "caption": "60 plants standing. 7,442 swings at plants, 5,071 plant cells smashed and eaten by nobody.",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "after (both rulings shipped)",
+      "files": [
+        "20260914T211725703Z-094f70/001-bed_off.png"
+      ],
+      "caption": "158 plants standing. 0 swings at plants. The no-ant control is 202.",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
