@@ -4344,12 +4344,18 @@ impl Ui {
             // a standing count cannot tell a store from a conveyor --
             // `larder_probe` already found a "granary of ten cells" that was
             // ten cells on their way somewhere, `resident` 0 from frame 200,
-            // and the readout that would answer *is it stored* is dwell
-            // time rather than quantity. There is no granary in this box at
-            // all: a dropped load is a cell on the floor like any other and
-            // the midden is spoil rather than food, so a crop total is the
-            // honest answer to "what is the colony holding" and is not
-            // offered as an answer to "what has it put by".
+            // and the readout that answers *is it stored* is turnover rather
+            // than quantity. **That readout already exists for food on the
+            // ground** -- `larder_probe mode=turnover` tracks the band as a
+            // set of positions and reports entries, exits and residents --
+            // so this row deliberately does not try to be it. There is no
+            // granary in this box at all: a dropped load is a cell on the
+            // floor like any other and the midden is spoil rather than food,
+            // so a crop total is the honest answer to "what is the colony
+            // holding" and is not offered as an answer to "what has it put
+            // by". The one thing still unmeasured is dwell time *inside* a
+            // crop, which would say whether a carrier is ferrying or
+            // hoarding.
             Row::value(
                 "  EMPTY / CARRYING",
                 format!(

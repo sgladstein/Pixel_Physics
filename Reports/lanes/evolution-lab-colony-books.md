@@ -76,8 +76,13 @@ Every guard here was written after the code, so each had the fault put back:
   free stop after `F5`) finishes it.
 - **`CARRYING` is a standing count**, so per the design report §4 it cannot
   tell a store from a conveyor. It is labelled as food *in transit* and says
-  so in its note; the readout that would answer *is it stored* is **dwell
-  time**, and nothing measures it.
+  so in its note. **Do not build a harness for the store question — one
+  exists**: `larder_probe mode=turnover` tracks the band as a set of
+  positions and reports entries, exits and residents, and is what turned "a
+  granary of ten cells" into "ten cells in transit", `resident` 0 from frame
+  200. The genuinely unmeasured thing is dwell time *inside a crop*, which is
+  what would separate a carrier that is ferrying from one that is hoarding;
+  it wants a frame stamp on `Crop` and is not in this branch.
 - **Meat is not attributed and must not be without a label to attribute it
   by.** A corpse cell has nowhere to carry a colony — `Cell::aux` is its
   worth. Colonies pay into one world pool and draw out of it; `meat_lost`

@@ -8903,8 +8903,13 @@ colony blocks as the screen holds and names the rest rather than scrolling.
 `raided` is booked only where a mouth swallowed — the `Attack` verb destroys
 flesh without gaining it, and `CreatureStats::attack_cells` is that number
 instead. **`CARRYING` is a standing count and so cannot tell a store from a
-conveyor**; it is labelled as food in transit for that reason, and the readout
-that would answer *is it stored* is dwell time, which nothing measures yet.
+conveyor**; it is labelled as food in transit for that reason. For food on the
+*ground* the readout that answers *is it stored* already exists and is not this
+one — `larder_probe mode=turnover`, which tracks the band as a set of positions
+and reports entries, exits and residents, and which is what turned "a granary
+of ten cells" into "ten cells in transit". What nothing measures is dwell time
+*inside* a crop, which is what would say whether a carrier is ferrying or
+hoarding.
 
 **What the first reading says, and it is the reason to have built this.** On
 the shipped bed at seed 1, two colonies of 8 founders over 20,000 frames, the
