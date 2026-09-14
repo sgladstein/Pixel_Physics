@@ -12764,6 +12764,37 @@ constants trade reach against the alarm staying an *event* rather than
 becoming a map of where fights have ever happened, which is the thing
 `ALARM_RHO`'s doc exists to prevent.
 
+**Who is actually writing this plane today, which is not what anyone
+intended.** Measured on the same head after round 36's coordinator flagged
+the plant-loss regression (lane E, `claude/evolution-lab-forest-eaten`). Same
+bed, same seed, same colony, one variable:
+
+| arm | alarm deposits | plane |
+|---|---|---|
+| `founders=8` (plants present) | **336** | live |
+| `founders=0` (no plants) | **0** | **never written** |
+
+`cargo run --release --example pherolife -- mode=world frames=9000 seed=1
+founders=0`
+
+**100% of alarm traffic in the shipped single-colony bed is the plant-grazing
+path**, not any fight — remove the plants and the plane is never allocated.
+So **`ALARM_RHO` and `ALARM_DEPOSIT` have never been calibrated against fight
+traffic**, and once lane E removes that writer a single-colony bed's alarm
+rate is **exactly zero**. The first bed that can calibrate them is a
+two-colony one with rivalry on. **This entry's propagation numbers are
+unaffected** — they are measured from a hand-placed deposit and do not depend
+on who wrote it — but any *rate* taken before E lands is a rate for a writer
+that is going away.
+
+**Bearing on lane E's open ruling** (*should eating another creature raise an
+alarm, or should alarm mean only "I was attacked"?*): at these constants
+**nobody beyond touching distance can hear an alarm however it was raised**,
+so the recruitment argument for either answer buys nothing measurable today.
+The semantics can be decided on what the word should mean; if the answer is
+meant to *do* something, the constants have to move with it, which is this
+entry.
+
 **Related, same lane, not filed separately**: `ancestor.ron` carries no
 `Alarm` weight at all, so the lab's founding lineage cannot act on this plane
 even at `d=0`. Routed to lane D in

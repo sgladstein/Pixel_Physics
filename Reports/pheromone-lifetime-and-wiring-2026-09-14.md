@@ -10,6 +10,14 @@ data, access to the parameters that need to be tweaked and I do that testing
 myself in the game"*), every default ships unchanged and the one thing added
 is a dial that did not exist.*
 
+***Every measurement here was taken on `e01dd1a1`, branched from `f4e3b471`,
+and is therefore BEFORE Lane E's plant-grazing fix
+(`claude/evolution-lab-forest-eaten`).** That matters for the alarm plane and
+not for the trail planes: §2e measures that **100% of alarm deposits in this
+bed come from the grazing path E is removing**, so any alarm *rate* taken
+here is a rate for a writer that is going away. The channel A/B work in §1 is
+untouched by it.*
+
 ---
 
 ## The short answer
@@ -235,9 +243,10 @@ beetle                .     .     .     .     .     .     .     .     .
 
 **Everything is engine-live.** All seven reader slots are computed every
 tick, both trail planes have a live writer and a live reader, and the alarm
-plane's writers fire (336 alarm deposits in a 9,000-frame bed, plane live).
-Nothing is disconnected in the Rust. What the table shows is four findings in
-the *authored* half.
+plane's writers fire. Nothing is disconnected in the Rust. What the table
+shows is four findings in the *authored* half — and **§2e is a correction to
+the sentence you just read**, because "the writers fire" turned out to be
+true of a writer nobody intended.
 
 ### 2a. Four of the seven reader slots are read by no species at all
 
@@ -349,6 +358,54 @@ the fight is not expressible on this plane at these constants.
 than a tuned constant — what the box wants has not been measured"*. This is
 that measurement, and `set_channel_diffuse` now makes the other half of it
 reachable too.
+
+### 2e. Every alarm in a one-colony bed is the grazing path — **a correction**
+
+**Measured after round 36's coordinator flagged the plant-loss regression
+(Lane E, `claude/evolution-lab-forest-eaten`), and it overturns a number
+published earlier in this same report.** §2's first draft cited *"336 alarm
+deposits in a 9,000-frame bed, plane live"* as evidence the alarm writers
+fire. They do. The writer is not a fight.
+
+Same bed, same seed, same colony, one variable — the plants:
+
+| arm | alarm deposits | plane |
+|---|---|---|
+| `founders=8` (plants present) | **336** | live |
+| `founders=0` (no plants) | **0** | **never written** |
+
+`cargo run --release --example pherolife -- mode=world frames=9000 seed=1
+founders=0`
+
+**Not "mostly" — all of it.** Remove the plants and the alarm plane is never
+allocated. So in the shipped single-colony bed, **100% of alarm traffic comes
+from the grazing path**, which is the loop Lane E is fixing: an ant grazes a
+plant cell, the victim is an *organism* so the eat path calls `cry_alarm`,
+and `(Alarm, Attack, 2.0)` — the only wired route to attacking — sends the
+colony at a plant that feeds nobody.
+
+This is the owner's own positive control reproduced from the other
+direction: he sees alarm signals in a box containing only trees, where
+nothing can attack anything; this takes the trees away and the plane stops
+existing.
+
+**What it means for the constants.** `ALARM_RHO` (0.25) and `ALARM_DEPOSIT`
+(240) have therefore **never been calibrated against fight traffic, because
+in this bed there has not been any.** When E's fix lands, the alarm deposit
+rate in a single-colony bed goes to **exactly zero**, and every alarm number
+in this report — §2d included — is measured on a bed whose only alarm writer
+is about to be removed. §2d is unaffected in substance: it is a
+*propagation* measurement over a hand-placed deposit and does not care who
+wrote it. What is affected is any claim about **rate**.
+
+**And it sharpens the open ruling** E is putting to the owner — *should
+eating another creature raise an alarm, or should alarm mean only "I was
+attacked"?* §2d is the evidence that bears on it: **at these constants
+nobody beyond touching distance can hear an alarm however it was raised.**
+So the recruitment argument for keeping eating-raises-alarm buys nothing
+measurable today. If the owner wants that signal to *mean* something, the
+constants have to move with the decision — and that is a second change, on a
+seed sweep, not a rider on E's fix.
 
 ---
 

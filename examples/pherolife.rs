@@ -403,10 +403,17 @@ fn world(args: &Args) {
     let frames: u64 = std::env::args().find_map(|a| a.strip_prefix("frames=").and_then(|v| v.parse().ok())).unwrap_or(9_000);
     let seed: u64 = std::env::args().find_map(|a| a.strip_prefix("seed=").and_then(|v| v.parse().ok())).unwrap_or(1);
     let species = std::env::args().find_map(|a| a.strip_prefix("colonyspecies=").map(str::to_string)).unwrap_or_else(|| "ant".into());
-    println!("the real bed: frames={frames} seed={seed} colonyspecies={species}");
+    // **`founders=` is the control for who is writing the alarm plane.**
+    // A plant is an organism, so the grazing path can raise an alarm; a bed
+    // with no plants in it is the arm where only an animal can. Without
+    // this the alarm deposit count is a sum over two writers with no way to
+    // separate them -- `CLAUDE.md`'s "ask what your number counts".
+    let founders: usize = std::env::args().find_map(|a| a.strip_prefix("founders=").and_then(|v| v.parse().ok())).unwrap_or(8);
+    let colonies: usize = std::env::args().find_map(|a| a.strip_prefix("colonies=").and_then(|v| v.parse().ok())).unwrap_or(1);
+    println!("the real bed: frames={frames} seed={seed} colonyspecies={species} founders={founders} colonies={colonies}");
     println!("(`standing` counts cells > 0 on the plane; `peak` is the tallest cell anywhere.)");
     println!();
-    let spec = LabBox { width: 512, height: 320, soil_depth: 80, founders: 8, colonies: 1, compartments: 1, seed, colony_species: species, ..LabBox::default() };
+    let spec = LabBox { width: 512, height: 320, soil_depth: 80, founders, colonies, compartments: 1, seed, colony_species: species, ..LabBox::default() };
     let mut lab = Lab::new(spec);
     // **`ants` is the control, and without it this table cannot be read.**
     // A standing-trail count falling to zero has two causes that look

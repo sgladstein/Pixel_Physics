@@ -62,8 +62,9 @@ three-quarters empty at its peak and the problem is at the other end.
 ## Q2 — nothing is broken in the Rust; four findings in the authored half
 
 All seven reader slots are computed every tick, both trail planes have a live
-reader and a live writer, and the alarm plane's writers fire (336 deposits in
-a 9,000-frame bed, plane live). `examples/pherowire` walks every shipped
+reader and a live writer, and the alarm plane's writers fire — **though not
+the writer anyone meant; see the Lane E section below, which corrects a
+number I published earlier today.** `examples/pherowire` walks every shipped
 genome rather than grepping the `.ron` — `ant.ron` wires through hidden
 units, and a weight under `brain::W_EPS` is dead on arrival to `eval_brain`.
 
@@ -122,6 +123,68 @@ because the slots' stated justification names this animal.
 animal that is coherent and I am not flagging it.
 
 ---
+
+## For Lane E and the open ruling — evidence, before the decision
+
+**Every measurement in this lane was taken on `e01dd1a1` (branched from
+`f4e3b471`), i.e. BEFORE E's plant-grazing fix.** Recorded because the alarm
+plane's deposit rate is about to move and a rate taken here will not be
+comparable. The channel A/B work is unaffected — it is the alarm plane only.
+
+**1. I can confirm E's diagnosis from the other direction, and it corrects a
+number of mine.** My Q2 first cited *"336 alarm deposits in a 9,000-frame
+bed"* as evidence the alarm writers fire. They fire; the writer is grazing.
+Same bed, same seed, same colony, one variable:
+
+| arm | alarm deposits | plane |
+|---|---|---|
+| `founders=8` (plants) | **336** | live |
+| `founders=0` (no plants) | **0** | **never written** |
+
+`pherolife mode=world frames=9000 seed=1 founders=0`
+
+**Not "mostly" — all of it.** Remove the plants and the plane is never
+allocated. **100% of alarm traffic in the shipped single-colony bed is the
+grazing path.** That is the owner's tree-only-box control reproduced
+inside-out: he sees alarms where nothing can attack, I take the plants away
+and the plane stops existing.
+
+**2. On the open question — *should eating another creature raise an alarm,
+or should alarm mean only "I was attacked"?*** My finding 2 above is the
+evidence that bears on it, and it points one way:
+
+**At the shipped constants, nobody beyond touching distance can hear an alarm
+however it was raised.** A wound's loudest reading one cell away is **6 of
+255** (+0.047 into `Attack` against a weight of 2.0); two cells is **zero,
+ever**; even a sustained 40-bite fight leaves an ant two cells off at 0.059
+and four cells off at zero for the whole fight. A `DISPLAY_DEPOSIT` is
+inaudible to anyone but the displayer.
+
+**So the recruitment argument for keeping eating-raises-alarm buys nothing
+measurable today** — there is no colony-scale response to recruit, because
+the signal does not propagate. That is an argument for deciding the semantics
+on what the owner wants the word *alarm* to mean, not on what it would
+achieve, because at present it achieves nothing past the cells in contact.
+
+**If the ruling is that eating a creature SHOULD raise an alarm and that this
+should mean something, the constants must move with it** — `ALARM_RHO 0.25`
+against `DIFFUSE 0.25` is what confines it, and **both are now dialable**
+(`set_alarm_rho` existed; `set_channel_diffuse` landed with this branch).
+That is a second change on a seed sweep gating an order statistic, not a
+rider on E's fix. Filed as **§Z25**.
+
+**3. `DISPLAY_DEPOSIT`: my baseline is pre-fix and I am saying so.** The
+brief asked me to measure it and the coordinator is right that a deposit-rate
+baseline taken now is mostly the bug. **What I measured is not a rate** — it
+is propagation from a hand-placed deposit, independent of who wrote it, so
+the "inaudible to anyone but the displayer" finding survives E's fix
+unchanged. Anyone wanting the display's *frequency* must re-measure after E
+lands; `pherolife mode=world founders=0` is the arm that isolates it.
+
+**4. `ALARM_RHO` and `ALARM_DEPOSIT` have never been calibrated against fight
+traffic**, because in this bed there has not been any — see the table above.
+After E's fix a single-colony bed's alarm rate is **exactly zero**, so the
+first bed that can calibrate them is a two-colony one with rivalry on.
 
 ## For the coordinator
 
