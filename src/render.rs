@@ -7782,6 +7782,17 @@ impl Renderer {
         }
     }
 
+    /// **How many aura discs this draw is painting, split standing/carried.**
+    ///
+    /// The counter half of `CLAUDE.md`'s *"did it fire at all" needs a
+    /// counter, not a picture*: a haze that is drawn but too faint and a
+    /// haze that was never built look identical on a contact sheet, and they
+    /// want opposite fixes.
+    pub fn aura_disc_count(&self) -> (usize, usize) {
+        let carried = self.aura_discs.iter().filter(|d| d.arm == 1).count();
+        (self.aura_discs.len() - carried, carried)
+    }
+
     /// **Coherent value noise on the world grid**, in `-0.5..0.5`, used to
     /// displace the drawn rim off the simulation's clean circle.
     ///

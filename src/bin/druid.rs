@@ -645,10 +645,12 @@ impl Handler {
                     if n <= 1 {
                         self.screenshot_countdown = None;
                         println!(
-                            "druid: shutter at tick {} — {} draws in flight, {} motes drawn",
+                            "druid: shutter at tick {} — {} draws in flight, {} motes drawn, aura discs {:?} (standing, carried), carried {:?}",
                             self.game.ticks,
                             self.game.draws.len(),
-                            pixel_physics::druid::hud::mote_count(&self.game)
+                            pixel_physics::druid::hud::mote_count(&self.game),
+                            self.game.renderer.aura_disc_count(),
+                            self.game.world.carried.map(|q| (q.x, q.y, q.r)),
                         );
                         save_framebuffer_png(pixels.frame(), WIDTH, HEIGHT);
                     } else {
