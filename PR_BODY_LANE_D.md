@@ -12,18 +12,23 @@ more diffuse looking, not like a bunch of dots."* Both halves of that
 complaint turned out to be one defect, which is why one constant answers both.
 
 Measured in the real app (`Druid::update`/`Druid::draw`, the calls
-`src/bin/druid.rs` makes), one walked route of 143 cells:
+`src/bin/druid.rs` makes), one walked route of 143 cells over soil:
 
-| | before | after |
-|---|---|---|
-| trail still on the ground | **3.5 s** | **~14 s** |
-| …in ant-cells walked | 35 | 135 |
-| strength at t+3.5s | 0 | 88 of 255 |
-| route cells still holding scent at t+3.5s | 0 of 143 | **143 of 143** |
-| where the scent sits | 3 cells above the floor | on the floor |
+| | at the start | first pass | **now** |
+|---|---|---|---|
+| trail still on the ground | 3.5 s | 14 s | **30 s** |
+| …in ant-cells walked | 35 | 135 | **300** |
+| strength left after 10 s | 0 | 18 | **121** of 255 |
+| strength left after 20 s | 0 | 0 | **61** |
+| height it sits, cells above the surface | +3 (his chest) | −4 (buried) | **+1** |
+| marks buried in the ground, of 64 sampled | 0 | 64 | **0** |
 
-A colony round trip is roughly 367 ant-cells, so the trail went from about a
-tenth of one to about a third. It is longer, not long.
+**The owner reviewed the first pass and asked for two things**, both done here:
+*"Make it last even longer (at least 2x more). I like the visual, but if it is
+fully underground, an ant wont smell it either. I think you overcorrected and
+it should be a little height, just at/slightly above ground versus fully
+below."* That is **2.1x** on the lifetime and the anchor lifted out of the
+ground; against where the round started it is **8.6x**.
 
 ## What was actually wrong
 
@@ -48,11 +53,12 @@ Three consequences, all measured on the plane:
 
 Two more fell out of looking at the picture rather than the numbers:
 
-- **The scent was laid at his chest.** `lay_trail` marked `Player::center`, a
-  median **3 cells above the floor** on this build. Once the swath made it
-  wide enough to see, it read as green mist hanging at his waist over clean
-  ground — and it is the half of the plane an ant can never reach, since an ant
-  senses around its own head while walking the floor.
+- **The scent was laid at his chest.** `lay_trail` marked `Player::center`,
+  about 3 cells above the floor, so once the swath made it wide enough to see
+  it read as green mist at his waist over clean ground — and that is the half
+  of the plane an ant can never reach, since an ant senses around its own head
+  while walking the floor. Moving it to `Player::feet` then overshot into the
+  ground; see *Why the anchor had to move twice*.
 - **The readout had one colour and seven unreachable ones.** The band was
   `v * SCENT_BANDS / 256`, so everything under 32 fell in band 0 — and the
   plane never held more than about 31 along a route. Every mark of every trail
@@ -61,27 +67,90 @@ Two more fell out of looking at the picture rather than the numbers:
 ## What shipped
 
 1. **`druid::TRAIL_RADIUS = 3`** — a graded swath about him rather than one
-   cell, strongest under his feet and fading to the rim. At the knee of the
-   curve: 1.0 / 7.0 / 10.8 s for r = 0 / 2 / 3, and r = 5 buys 15.6 s for
-   twice the per-tick write.
-2. **`lay_trail` anchors at `Player::feet`.** Clearance to ground 3 → 0.
-3. **`hud::band_of`** — bands off `sqrt(v/255)`, so the small values a cloud's
+   cell. At the knee of the curve: 1.0 / 7.0 / 10.8 s for r = 0 / 2 / 3.
+2. **The anchor is the ground surface under him, one cell clear** —
+   `creature::colony_surface(...) - 1`, not `Player::center` and not
+   `Player::feet`. Both of the obvious ones were shipped first and both are
+   wrong (below).
+3. **`druid::TRAIL_LIFE_SECONDS = 30`, `TRAIL_HOLD = 180`,
+   `Druid::step_trail`** — the route is a **standing** instruction he
+   maintains, renewed once per pheromone pass toward a target that falls with
+   each mark's age.
+4. **`hud::band_of`** — bands off `sqrt(v/255)`, so the small values a cloud's
    edge is made of resolve instead of collapsing into band 0.
-4. **The readout blends rather than stamps** — alpha carries strength
-   alongside colour, so the core lands opaque and the rim fades into the
-   world.
+5. **The readout blends rather than stamps** — alpha carries strength alongside
+   colour, so the core lands opaque and the rim fades into the world.
+
+### Why the anchor had to move twice
+
+`Player::center` is half a body up, so the swath drew as green mist at his
+waist over ground he had walked clean. `Player::feet` is the bottom of his
+*rectangle*, which is the surface **only on bare rock**:
+`player::Tuning::wade_rows` is 4 of his 14 rows — "about knee-deep" by its own
+doc — so **a gnome standing on any powder is sunk four rows into it by
+design**, and his feet are four cells under the soil.
+
+**The census that said `feet` was right could not have said otherwise.** It
+measured *"drop to the first solid cell below the mark"*, which is **0 for a
+mark resting on the surface and 0 for one buried four cells inside it** — the
+scan stops immediately either way. It is signed now and reports the buried
+count; putting the old anchor back reads **−4, 64 of 64 buried**, against
+**+1, 0 buried**. `CLAUDE.md`'s metric trap in its excavation shape: a number
+that cannot tell two opposite states apart reports the one you expected.
+
+`colony_surface` rather than a hand-rolled scan because it rises out of solid
+to open air *before* taking the top solid row, so it answers from a buried
+point, and it looks through a canopy rather than stopping on leaves.
+
+**And the scene was checked, not assumed.** The route's surface censuses as
+`Powder` 64 of 64, so this is measured on exactly the ground the defect exists
+on — a run over bare rock could show neither the bug nor the fix.
+
+### Why lasting longer needed a different mechanism
+
+**No width and no deposit can do it.** A cell laid once has a hard ceiling from
+`DECAY_RHO` plus the decay LUT's forced strict decrease: from a saturated 255
+that is ~67 passes to fall to 33 at 3% a pass and 33 more at one-per-pass, so
+**~20 s is the most a single mark can survive** before diffusion is even
+counted. Measured against that: a swath at **r = 12**, wide enough that
+spreading costs its middle almost nothing, reaches **15.8 s** against r = 3's
+10.8 s — five times the per-tick write for 1.5x, and still short. The ceiling
+is made of a constant this game does not own.
+
+So the trail became what `TRAIL_PER_SECOND`'s own doc already called it, *"a
+standing instruction to the colony"*. `Druid::step_trail` renews the remembered
+route once per pheromone pass — **the core cell only, not the swath**, because
+`DIFFUSE` spreads a standing mark outward by itself (the case its own profile
+sweep measures), which is 29x cheaper than re-laying the disc.
+
+**Held toward a falling target, not topped up by a fixed amount.** Adding pins
+the cell at the ceiling for the whole life and then drops it off a cliff at
+expiry — the binary outcome this project's first law is named for. Renewing
+toward a target that falls with age means the trail dims along its whole length
+as it ages, and at 28 s **the oldest half has expired while the 75 cells
+nearest him still stand**: it retreats toward him, which is the direction its
+slope already pointed.
+
+**Not the treadmill `Reports/dead-ends.md` records twice** on the plant line:
+re-laying what decay removes was a dead end there because construction was
+*charged* both times. Renewal here is charged once, when he walks the route.
 
 ## What it costs, plainly
 
-- **29 plane writes a tick while `G` is held**, against 1. Nothing in the
-  sweep changed; a deposit is a `u8` write plus a `write_watch` mark.
-- **The plane does now run close to saturation along his route** — peak 241 of
-  255 against about 80 — because he re-marks each cell some ten times at 0.6
-  cells/tick. That is what the extra lifetime is bought with, and it means an
-  ant walking his road adds 14 rather than 40. Stated rather than tuned away:
-  `TRAIL_DEPOSIT` is left at one ant's mark, because raising it pins the plane
-  outright for 2.8 s more life and a pinned trail is one nothing can reinforce
-  (`pheromone::DEPOSIT`'s P-14).
+- **29 plane writes a tick while `G` is held**, against 1, plus **one write per
+  remembered mark per pheromone pass** (≤900 marks / 12 frames = ≤75 a frame)
+  while a trail stands. A deposit is a `u8` write plus a `write_watch` mark;
+  nothing in the sweep changed.
+- **`TRAIL_HOLD` is 180 of 255, deliberately below the ceiling**, so an ant
+  walking his road still adds a readable 40 rather than clipping flat
+  (`pheromone::DEPOSIT`'s P-14). The walk's own swath does still peak near
+  saturation for its first seconds; the standing phase, which is most of the
+  life, does not.
+- **`trail_laid` is parallel to `trail` rather than folded into it** — the
+  element type `src/bin/druid.rs` reads stays put, and that file is another
+  lane's this round. Kept in lockstep in two places, `debug_assert`ed, and read
+  through `zip` so a desync degrades to renewing fewer marks rather than to a
+  panic in the player's game.
 
 ## Scope
 

@@ -20,35 +20,51 @@ evolution lab will explore the ant laid ones."*
 
 ## The headline
 
-Measured in the real app (`Druid::update`/`Druid::draw`, the calls
-`src/bin/druid.rs` makes), one walked route of 143 cells:
+Real app (`Druid::update`/`Druid::draw`), one 143-cell walk over **soil**:
 
-| | before | after |
-|---|---|---|
-| trail still on the ground | **3.5 s** | **~14 s** |
-| ...in ant-cells walked | 35 | 135 |
-| peak strength at t+3.5s | 0 | 88 |
-| cells of the route still holding scent at t+3.5s | 0 of 143 | **143 of 143** |
-| where the scent sits | 3 cells above the floor | on the floor |
+| | at the start | first pass | **now** |
+|---|---|---|---|
+| trail still on the ground | 3.5 s | 14 s | **30 s** |
+| …in ant-cells walked | 35 | 135 | **300** |
+| strength left after 10 s | 0 | 18 | **121** of 255 |
+| height, cells above the surface | +3 (chest) | −4 (buried) | **+1** |
+| marks buried, of 64 sampled | 0 | 64 | **0** |
 
-**Both of the owner's complaints turned out to be one defect**, which is why
-one constant answers both.
+**Two passes**, the second answering the owner's verdict on the first: *"Make
+it last even longer (at least 2x more)... if it is fully underground, an ant
+wont smell it either... just at/slightly above ground versus fully below."*
+**2.1x** on his ask; **8.6x** on where the round started.
 
-## What was wrong, in one paragraph
+## What was wrong, and what it took
 
-**Diffusion, not decay, is what removes a trail here.** `pheromone::DIFFUSE`
-blends every cell a quarter of the way to its own 3x3 mean each pass, and a
-one-cell line has six empty neighbours of nine — so it sheds **~17% a pass**
-sideways against `DECAY_RHO`'s **3%**. Depositing harder barely helps (the 255
-ceiling on a line reaches 4.8s; an `r = 3` band at the *unchanged* deposit
-reaches 10.8s). The same fact is why it looked like dots: a one-cell mark
-rounds to nothing a cell or two out, so the readout was drawing the spine of a
-cloud that did not exist. Two more defects fell out of looking at the picture
-rather than the numbers — the scent was laid at his **chest** (`Player::center`,
-a median 3 cells above the floor, the half of the plane no ant can smell), and
-the readout's band was `v * SCENT_BANDS / 256` while the plane never held more
-than ~31 along a route, so **every mark of every trail drew in the same single
-dimmest colour**.
+**Diffusion, not decay, removes a trail here.** `DIFFUSE` blends every cell a
+quarter toward its own 3x3 mean each pass, and a one-cell line has six empty
+neighbours of nine — so it sheds **~17% a pass** against `DECAY_RHO`'s **3%**.
+Depositing harder barely helps (255 on a line = 4.8s); **width** is the lever
+(`r = 3` at the *unchanged* deposit = 10.8s). The same fact is why it drew as
+dots: a one-cell mark rounds to nothing a cell or two out, so there was no
+cloud to draw.
+
+**But width has a ceiling and it is not mine.** A cell laid once cannot pass
+**~20s**: from a saturated 255, `DECAY_RHO` plus the LUT's forced strict
+decrease is ~67 passes to 33 and 33 more at one-per-pass. Measured — `r = 12`,
+wide enough that spreading costs its middle almost nothing, reaches **15.8s**.
+So 2x needed a different mechanism, and the one it needed is what
+`TRAIL_PER_SECOND`'s doc already called the verb: **a standing instruction**.
+`Druid::step_trail` renews the remembered route once per pheromone pass toward
+a target that **falls with each mark's age** — held, not added, so the death is
+graded rather than a cliff, and at 28s the oldest half has expired while the 75
+cells nearest him still stand.
+
+**The anchor was wrong twice, and the second time my own number hid it.**
+`Player::feet` is the surface only on bare rock: `wade_rows` is 4 of his 14
+rows, so **a gnome on powder is sunk four rows into it by design**. The census
+that blessed `feet` measured *"drop to the first solid cell below the mark"* —
+**0 for a mark on the surface and 0 for one buried four cells inside it**. It
+is signed now: old anchor **−4, 64/64 buried**, new **+1, 0 buried**, on a
+route whose surface censuses `Powder` 64 of 64. `creature::colony_surface`
+rises out of solid before taking the top solid row, so it answers from a
+buried point and looks through canopy.
 
 **The four changes and what they cost: `PR_BODY_LANE_D.md` on this branch** —
 not repeated here; a lane note is for what another lane needs.
@@ -117,90 +133,49 @@ checks out at full depth and its `branches` job passes.
 
 - **`PR_BODY_LANE_D.md` was overwritten**, as the brief asked; what was there
   was the already-merged bubble-aura lane's body, which lives in that PR.
-- **The next lever, if 14s is judged short**, is the trail as a *standing*
-  instruction — he keeps paying `TRAIL_PER_SECOND` and the remembered route
-  keeps being re-laid, age-graded from the oldest end so the slope survives.
-  Measured on the plane it reaches **105s**. It is not built here because it
-  is a design decision with an economy behind it rather than a number, and
-  `Druid::step_economy` is shared ground. Posted to the owner as the question
-  on card `20260914T202113978Z-80ad3b`.
-- **Widening the swath further is not the lever.** Real-app lifetime by
-  radius: r=3 **14s**, r=4 15s, r=5 ~17s, r=7 ~18s, and every radius above 3
-  pins the plane at 255 outright. Five times the per-tick write for four
-  seconds.
+- **Widening the swath further is not a lever.** Real-app lifetime by radius
+  was r=3 **14s**, r=4 15s, r=5 ~17s, r=7 ~18s, and every radius above 3 pins
+  the plane at 255 outright. The renewal is what moved it to 30s.
+- **`TRAIL_LIFE_SECONDS` is the dial if the owner wants more or less.** It is
+  a clean knob: the trail holds its level for that long, dimming, then goes.
+  Nothing else needs re-deriving with it.
+- **If a third instrument is ever wanted here, it is a radius dial on
+  `pherolife`**, not a new binary — see the run-drive gap above.
 
-## Reply to the coordinator's correction (received 19:40Z, after this was built)
+## Reply to the coordinator's two corrections
 
-The correction said `DECAY_RHO` is inert, the lever is `DIFFUSE`, the new
-per-channel setter in PR #432 is shared with the ants, and therefore *"the
-question your item actually turns on is: is there a druid-only way to make her
-mark persist?"* — listing re-laying, a higher deposit, or a non-pheromone mark,
-and adding that **"if the honest answer is still 'the only lever is shared',
-that is a complete and correct result."**
+**First** (19:40Z): `DECAY_RHO` is inert, the lever is `DIFFUSE`, the new
+per-channel setter is shared, so *"is there a druid-only way?"* — with "the
+only lever is shared" offered as an acceptable answer.
 
-**The two measurements agree, arrived at independently:**
+The two measurements agree, arrived at independently: diffusion **16.7%** a
+pass against decay's **2.9%** (#432) and **~17% / ~3%** here; ant-laid trails
+have the same defect either way.
 
-| | #432 (`pherolife`) | this lane (`druid_trail`) |
-|---|---|---|
-| diffusion's share, per pass | 16.7% | ~17% |
-| decay's share, per pass | 2.9% | ~3% |
-| ant-laid trails have the same defect | yes | yes |
-
-**But the answer to its question is yes, and the lever is not on its list: the
-mark's *width*.** Diffusion only drains a line *into empty neighbours* — that
-is the whole of the 16.7%. A cell mid-band has a 3x3 mean of roughly its own
-value and sheds almost nothing, so widening the mark defeats the dominant term
-**without touching `DIFFUSE` at all**. Nothing is shared: the swath is laid by
-`Druid::lay_trail` alone, ant-laid marks are untouched, and no per-channel dial
-is needed. Real app, 3.5s → ~14s.
+**The answer is yes, and the lever was not on its list: the mark's *width*,
+then its *renewal*.** Diffusion drains a line into *empty* neighbours — that is
+the whole of the 16.7% — so a cell mid-band sheds almost nothing. Neither the
+swath nor the renewal touches `DIFFUSE`; both are laid by `Druid::lay_trail`
+and `Druid::step_trail` alone, and nothing ant-laid moves.
 
 **Why #432 could not have found it.** `pherolife` sweeps `rho`, `diffuse` and
 `deposit` over a trail it lays **one cell wide**: width is a constant of the
-harness, not a variable. See the proposed rule at the end.
+harness, not a variable. See the proposed rule below.
 
-**Its own suggestion, measured, is the weak one.** Deposit is listed as
-promising because the loudest cell anywhere is 98 of 255, so there is headroom.
-There is, and it buys little: a one-cell line at the **255 ceiling** reaches
-4.8s against the swath's 10.8s at the *unchanged* deposit. Depositing harder
-moves the exponential's starting point; widening changes its rate. **And that
-headroom is now spent** — the swath peaks at **241** along his route, so #432's
-"three-quarters empty at its peak" holds for a shipped ant trail and no longer
-for the gnome's. Stated above as the trade.
+**Second** (21:35Z, with the owner's verdict): `wade_rows` sinks him four rows
+into powder, so `feet()` is under the surface — **correct, confirmed to the
+cell**, and it named the right repair (`colony_surface`) before I measured it.
+Its 2x target needed the renewal, which its own suggestions (re-lay while held,
+deposit harder, a separate mark) gestured at; the ceiling measurement above is
+why none of the cheaper ones reach it.
 
-### What this lane did *not* measure, and which instrument answers it
-
-`pherolife` carries a **run drive** counter — frames until the ant's steering
-at mid-trail falls under an absolute bar — and reports the shipped trail
-**stops steering at frame 48** with 77 cells still standing. A better measure
-than presence.
-
-**This lane measured presence and strength, not steering.** The swath's peak
-runs 3x higher over the same window (241 against 80) and the along-route slope
-guard `a_laid_trail_slopes_toward_the_newest_end` still passes, so the absolute
-gradient an ant reads should be several times larger for several times longer —
-but that is an **inference, not a measurement**, and it is exactly the kind this
-repo keeps having overturned. Whoever owns #432 can settle it in one run by
-giving `pherolife` a radius dial and re-reading its own run-drive column; that
-is a smaller change than either instrument.
-
-**Instrument overlap, so nobody builds a third.** `druid_trail`'s plane-side
-sweep and `pherolife` overlap, and `pherolife` is the better of the two there —
-it has the run-drive counter and the `DIFFUSE` setter. What it lacks, and what
-`druid_trail shot=` is for, is the **real `Druid` loop**: route geometry, and
-the clearance-to-ground column that caught the trail being laid at his chest.
-
-**#432 has since landed on `main` and this branch carries it** (merge
-`6100c053`). Checked rather than assumed: it adds `set_channel_diffuse` /
-`channel_diffuse` / `alarm_diffuse` and leaves **every shipped constant where
-it was** -- `DIFFUSE` 0.25, `DECAY_RHO` 0.03, `DEPOSIT` 40,
-`PHEROMONE_INTERVAL` 12 -- and re-measuring on the merged tree returns the
-same numbers to the cell (peak 241 / 88 / 28 / 0 at 0 / 3.5 / 8 / 14s,
-clearance 0). Nothing here calls the new setter.
-
-The only merge conflict was `Reports/instruments.md`, where both lanes added a
-row in the same place; resolved by keeping all three (`pherolife`, `pherowire`,
-`druid_trail`) and cross-referencing mine to `pherolife` so the file does the
-job it exists for.
+**What this lane still has not measured.** `pherolife` carries a **run drive**
+counter and reports the shipped trail **stops steering at frame 48** with 77
+cells standing — a better measure than presence. This lane measured presence
+and strength. The standing trail holds 61 of 255 at 20s where the old one was
+at 0, and the slope guard passes, so the gradient should be readable far
+longer — but that is an **inference**, and a radius dial on `pherolife` settles
+it in one run against its own run-drive column.
 
 ## One proposed rule, for the coordinator or the owner to place — not edited in
 
@@ -217,7 +192,12 @@ is the owner's call.
 
 ## Head
 
-PR [#438](https://github.com/sgladstein/Pixel_Physics/pull/438), head
-`6edfbea854dc8f40e6610de05c72cba91e2b0520` plus this commit. Opened by the
-coordinator from an earlier draft of `PR_BODY_LANE_D.md`; its body was then
-updated in place to carry the #432 reconciliation and the merged-tree gates.
+PR [#438](https://github.com/sgladstein/Pixel_Physics/pull/438). Opened by the
+coordinator from an early draft of `PR_BODY_LANE_D.md`; its body has been
+updated in place twice since, and carries the current numbers.
+
+Review cards: `20260914T202113978Z-80ad3b` (the swath — answered, visual
+approved, two changes asked) and `20260914T222659700Z-f1e8e1` (this pass —
+posted, `owner_can_see_it: true`, all 8 frames verified on the remote).
+
+Head `ce0382da` plus the doc commit that carries this line.
