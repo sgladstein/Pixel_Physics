@@ -92,16 +92,25 @@ the research assumed.**
    enough unsaturated capacity to swallow the pond. Stone holds; soil drinks.
    **This is the constraint every later phase inherits**, because a plant needs
    sediment and sediment is what empties the pond.
-3. **A pond as a bare barrier buys nothing.** Three arms, **six seeds each**,
+3. **A pond as a bare barrier buys nothing — and that reading was wrong,
+   overturned later the same day by §1.11.** Three arms, six seeds each,
    colony landing on a grown bed at frame 6,000, ants alive at frame 90,000:
-   flat bed median **1.0**, water-filled pit **2.0**, dry pit **2.5**
-   (measured). Water is not distinguishable from the same hole left dry, and
-   what little a pit buys, it buys dry. **So the plan must not be sold on the
-   pond as spatial structure.** It has to be sold on calories, which is the
-   research's own conclusion arriving from a different direction. §1.4 also
-   carries the warning that matters more: every arm collapses from 52 founders
-   to one or two ants, so **this bed cannot discriminate a pond effect at all**
-   and Phase 2 must not be measured by colony size in it.
+   flat bed median 1.0, water-filled pit 2.0, dry pit 2.5 (measured). Water
+   read as indistinguishable from the same hole left dry — **because all three
+   arms were vertical-walled basins, and a 32-row vertical face stops an ant
+   at the rim, so nothing ever reached the water.** Given a bank an ant can
+   walk down, the identical water costs **49.5 columns of colony range, 6 of 6
+   seeds completely separated** (§1.11). **Water is a barrier; four
+   instruments had been measuring a wall.**
+
+   Two things from this paragraph do survive and still govern the plan. The
+   larger claim it was making — *sell this on calories, not on the pond as
+   spatial structure* — is **unchanged**, because there is still nothing in
+   the water to eat: `growable` refuses `Liquid`, so submerged food is zero by
+   construction. And §1.4's warning matters more than ever: every arm
+   collapses from 52 founders to one or two ants, so **that bed cannot
+   discriminate a pond effect at all** and Phase 2 must not be measured by
+   colony size in it.
 
 **Therefore the order is: bed → plant → animal → gradient.** Not
 animal-first. A swimmer authored before there is anything in the water is the
@@ -111,10 +120,11 @@ every real scene** because nothing rewarded it. Survival tracks eating at
 
 | phase | what the player gets | engine cost | status |
 |---|---|---|---|
-| **0 — the bed** | a pond that holds, and the harnesses to read it | **none** | **built here** |
-| **1 — the margin** | plants that live at and under the waterline | one predicate, one species, one bed rule | specified |
-| **2 — the body** | drown, float and swim as a heritable trait (E9) | one trait slot, one verb, one clock | specified |
-| **3 — the gradient** | a pool that goes dark with depth | one predicate + per-material extinction | **gated on a card** |
+| **0 — the bed** | a pond that holds, that an animal can walk into, and rootable ground under it | **none** | **built and shipped** (`the_pond_bowl`) |
+| **1 — the margin** | plants that live at and under the waterline | one predicate, one species | specified; its bed now exists |
+| **2 — the body** | drown, float and swim as a heritable trait (E9) | one trait slot, one verb, one clock | specified; its bed and its teeth test now exist |
+| **3a — depth the plants feel** | a submerged plant experiences depth | fractional extinction in `field.rs` | **built, gated, guarded** (`PIXEL_PHYSICS_WATER_OPACITY`) |
+| **3b — depth the player sees** | a pool that *looks* dark with depth | a second change, in `render.rs`'s own light | **not built** — §4.0 |
 | **4 — the loop** | detritus, drowning, carrion that sinks | small, and mostly falls out | sketch only |
 
 ---
