@@ -1,0 +1,431 @@
+# The pond is a data file, the plant is one predicate, and the swimmer has to come last
+
+*Implementation plan, 2026-09-14. Turns
+[`aquatic-life-research-2026-09-14.md`](aquatic-life-research-2026-09-14.md)
+into a build order with prices, guards and briefs. **Phase 0 is built and
+measured in this branch**; Phases 1–4 are specified and not built. Numbers
+marked **(measured)** were taken here on 2026-09-14 at `RAYON_NUM_THREADS=1`,
+release; **OWED** names the run that would take them.*
+
+**Status: plan of record for aquatic work. Phase 0 landed; nothing else
+built.** Two review cards carry decisions that are not a lane's to make:
+`20260914T030227009Z-0c5076` (does a deep pool go dark — Phase 4) and
+`20260914T040932865Z-14b62b` (is this the pond bed you want — Phase 0).
+
+---
+
+## 0. The answer
+
+**Three things measured tonight set the order, and two of them overturn what
+the research assumed.**
+
+1. **A pond in the lab is a scenario file, not an engine change.** The research
+   said a basin would have to be a `LabBox` field. It does not:
+   `Placement::Fill` already accepts `"water"`. `assets/lab_scenarios/the_pond.ron`
+   ships with this plan and holds **4,256 water cells, exactly constant from
+   frame 0 to 40,000 (measured)**.
+2. **But only if its floor is impermeable.** The same basin with a soil floor
+   drains **3,648,000 fill units to 3,000 by frame 2,000 and to zero by frame
+   4,000 (measured)** — the bed's own 96-row soil column has almost exactly
+   enough unsaturated capacity to swallow the pond. Stone holds; soil drinks.
+   **This is the constraint every later phase inherits**, because a plant needs
+   sediment and sediment is what empties the pond.
+3. **A pond as a bare barrier buys nothing.** Three arms, same bed, colony
+   landing on a grown bed at frame 6,000: flat bed **3** ants at frame 90,000,
+   water-filled pit **4**, dry pit **28** (measured, one seed; a 3×6 sweep is
+   in §1.4). Water is indistinguishable from no barrier at all, and the *dry*
+   pit is the outlier. **So the plan must not be sold on the pond as spatial
+   structure.** It has to be sold on calories, which is the research's own
+   conclusion arriving from a different direction.
+
+**Therefore the order is: bed → plant → animal → gradient.** Not
+animal-first. A swimmer authored before there is anything in the water is the
+hop again — shipped 2026-08-29, correct, guarded, and used **zero times in
+every real scene** because nothing rewarded it. Survival tracks eating at
++0.895 and nothing else.
+
+| phase | what the player gets | engine cost | status |
+|---|---|---|---|
+| **0 — the bed** | a pond that holds, and the harnesses to read it | **none** | **built here** |
+| **1 — the margin** | plants that live at and under the waterline | one predicate, one species, one bed rule | specified |
+| **2 — the body** | drown, float and swim as a heritable trait (E9) | one trait slot, one verb, one clock | specified |
+| **3 — the gradient** | a pool that goes dark with depth | one predicate + per-material extinction | **gated on a card** |
+| **4 — the loop** | detritus, drowning, carrion that sinks | small, and mostly falls out | sketch only |
+
+---
+
+## 1. Phase 0 — built and measured in this branch
+
+### 1.1 `the_pond.ron` — the bed
+
+A stone-lined basin, 152 wide and 28 deep, in the standard 512×320 lab bed. Both
+numbers are chosen rather than picked: **wide**, because `evaporation.rs`'s
+humidity shelter asymptotes by 128 cells so a body this wide saturates the air
+above itself and holds; **deep**, because `pond_min_depth` is 2.0 and a one-cell
+film "renders as a black line rather than as water and reads as an artifact" —
+28 rows is a water column with an inside.
+
+| | frame 0 | frame 20,000 | frame 40,000 |
+|---|---|---|---|
+| water cells | 4,256 | 4,256 | 4,256 |
+| total fill | 4,256,000 | 4,256,952 | 4,256,952 |
+
+Exactly stable. The +952 units between 0 and 20,000 is the sealed box's own lid
+condensation (`weather::condense_under_a_lid`), and it then stops.
+
+### 1.2 A still pond is free, and §1f does not bite here
+
+Three arms, one binary, `RAYON_NUM_THREADS=1`, 40,000 frames **(measured)**:
+
+| arm | median ms/tick | mean | p90 |
+|---|---|---|---|
+| dry basin, no water | 0.012 | 0.013 | 0.013 |
+| the pond | 0.012 | 0.015 | 0.018 |
+| the pond with a stone block in it | 0.013 | 0.016 | 0.019 |
+
+`open-bugs-handoff.md` §1f says *a pond with rock in it never stops shuffling
+fill*. **This is not a refutation of it and must not be quoted as one.** §1f is
+a chunk-wake claim measured on the outdoor world with natural pond geometry;
+this is a stone-lined rectangle, the most favourable possible shape, and
+ms/tick over a near-empty box is far too coarse to see four awake chunks.
+What it does establish is narrower and still useful: **at the lab bed's scale,
+a pond — with or without an object in it — costs about one microsecond a tick
+and its cell counts are bit-stable.** The lab is not where §1f bites.
+**OWED**: an awake-chunk census, which no harness currently prints for a lab
+scenario.
+
+### 1.3 A plant cannot live in or over water — measured, five positions
+
+`pond_plants`, one herb at each of five positions, founder cell counts by id:
+
+| position | frame 0 | frame 6,000 | frame 30,000 |
+|---|---|---|---|
+| x=200, over open water | 1 | **dead** | dead |
+| x=256, over open water | 1 | 1 | **dead** |
+| x=178, on the stone lip | 1 | 1 | **dead** |
+| x=170, soil bank, one cell from the lip | 1 | 190 | **249** |
+| x=340, soil bank | 1 | 188 | **469** |
+
+Three of three die in or over the water; both on soil one cell away thrive.
+The two that sat at **1 cell** for 6,000 frames before dying are the
+germination gate refusing, which is `plant.rs:6198`'s deliberate guard against
+a floating seed reading as wet ground. This is `growable` and
+`cell_carries_nutrient` refusing, exactly as the research predicted, and it is
+now measured rather than read off the source.
+
+### 1.4 The barrier alone buys nothing
+
+Three arms, colony arriving on a grown bed at frame 6,000 via the scenario
+timeline (**not** dropped at frame 0 — a colony dropped on seedlings collapses
+regardless, which would confound everything):
+
+| arm | ants @90,000 | births | deaths |
+|---|---|---|---|
+| flat bed, no pit | 3 | 9 | 41 |
+| pit filled with water | 4 | 18 | 43 |
+| pit left dry | **28** | 43 | 43 |
+
+One seed per arm. A 3-arm × 6-seed sweep is running; **its result goes in this
+section and the conclusion below stands or falls on it.** As it reads now:
+water ≈ no barrier, and the dry pit is the outlier — most likely as shelter,
+since `exposure_cost_per_cell` is live and a walled pit is the shape
+`the_bank.ron` was built to provide.
+
+### 1.5 A method note worth keeping: the instrument said the opposite of the picture
+
+Building §1.3 I first tried a **soil-floored** basin so a plant could root in
+sediment. The founder counts came back 227 and 320 cells — *plants thriving
+underwater*, which would have been the finding of the session. The contact
+sheet showed **an empty pit**: the pond had drained and they were growing in
+dry ground. `CLAUDE.md`'s *a scene that contradicts the code will look like a
+bug in the code*, and its inverse — a number that is arithmetically correct and
+about a world that no longer exists. **Look at the picture before believing the
+counter**, every time, including when the counter is telling you what you hoped.
+
+---
+
+## 2. Phase 1 — the margin
+
+**What the player gets:** the pond stops being a dead blue rectangle. Reeds
+stand in the shallows, their stems crossing the waterline, their reflections
+the first thing in the box that is *of* the water.
+
+**The one predicate.** `plant::growable` (`plant.rs:349`) refuses `Liquid` on
+both the shoot and root paths. It must allow a shoot to extend into a `Liquid`
+**for a species that has opted in**, and for no other species.
+
+**The opt-in goes on the species, tested at the call site** — `CLAUDE.md`'s
+*guard hot-path work at the call site that already has the data*. A
+`SpeciesDef` field (`submerged_shoot: bool`, default false) read where
+`growable` already holds the species, never a `id_of("reed")` string compare in
+the sweep. This is also what keeps the change from re-deriving every existing
+species' constants: a per-species opt-in is a no-op for all twenty shipped
+plants by construction, and that is the whole reason it must be per-species
+rather than a global relaxation.
+
+**The bed rule, which is §1.1's constraint and is not optional.** A rooted
+aquatic plant needs sediment; sediment drains the pond in under 4,000 frames.
+The fix is not a new mechanism — it is to place the sediment **already
+saturated**. `Placement::Fill` lays soil at `SOIL_FIELD_CAPACITY` (620);
+`SOIL_SATURATED` is 1,000, and a saturated cell has no room to drink. So Phase
+1 needs either a `Fill` that takes an explicit wetness, or a distinct
+`"sediment"` placement — **one line in `scenario.rs`, and it is the cheapest
+part of this phase.** Verify by re-running §1.1's constancy table on the
+sediment bed: if fill is not flat to the unit at 40,000 frames, the sediment is
+still drinking and nothing downstream is worth measuring.
+
+**Appearance is not optional either**, and this is where the phase most likely
+fails quietly. `plant-appearance-design.md` §5: three architectural levers
+fired, all measured, and the owner saw no change, because every plant in the
+world drew from one four-brown palette and one four-green one. **A reed built
+from `wood` and `leaf` will read as a twig standing in a puddle.** It needs its
+own materials and its own palette band — which is exactly the case that
+document says a new material is *warranted* for, since a reed's physics differ
+(it does not hold itself up the same way and it lives wet).
+
+**The height rule is deferred to Phase 4, deliberately.** The research's
+finding — that the turgor ceiling is Lockhart's equation charging the
+gravitational cost of lifting water, so lift should only be charged above the
+waterline — is real and is the most elegant thing in the whole area. It is also
+a change to the one gate in the plant system built from geometry rather than
+resource state, and it *removes a bound without supplying a replacement* (the
+first kelp is 300 cells tall). An emergent reed rooted in shallow sediment
+does not need it: it is short by construction. **Do not take the elegant change
+until there is a plant that needs it.**
+
+---
+
+## 3. Phase 2 — the body (E9)
+
+The owner's ruling, 2026-08-29: drown, float and swim all reachable, heritable,
+with the float limit **mechanical rather than genetic**.
+
+**Float is already built** and nobody had written it down: `land_afloat`
+(`creature.rs:9967`) — *"Weightless and not flying is standing on water, not
+flying over it"* — sets `creature_stats.landed_afloat` and ships with
+`LAND_AFLOAT=0` as a runtime A/B. So this phase is **drown and swim**, and it
+starts with a control arm already in the binary.
+
+**The mechanical limit already has a dial, and one comment is wrong about it.**
+`creature.rs:8943` says *"every cell is density 1.0, which every creature
+material currently is"*. `beetle.ron` is **1.2** and `corpse.ron` is 1.2, so the
+prey hangs at the surface, the predator sinks and the dead sink — authored by
+accident and better than anything a design would have invented. **Fix that
+comment in whichever brief lands first**; it is load-bearing for the rest of
+this section.
+
+The fork, named rather than resolved:
+
+- **density-as-material** — one authored number per species, not evolvable.
+  Satisfies "mechanical not genetic" as written, and already works today.
+- **density-as-trait** — slot 14 of `CREATURE_TRAITS` (14 used of a 64-slot
+  reserve; appending is lawful and guarded by
+  `appending_a_slot_on_any_axis_moves_no_existing_weight`). Evolvable, which is
+  the other half of the ruling — but then the mechanical limit has to mean
+  something else, most naturally *body size sets a bound the gene cannot
+  cross*.
+
+**Drowning must be a clock, not a predicate** — `CLAUDE.md` law 1, an outcome
+is a distribution. A consecutive-submerged-frames counter, with `flight.stall`
+as the working pattern in the same file. And drowning is worth more than it
+looks: it is the only mechanism yet proposed that puts **carrion** in the
+world, which is measured as the reason the survival-versus-`gut_bias` curve has
+one hump instead of two.
+
+**Two costs that must be stated before the phase starts, not discovered in
+it.**
+
+1. **A new `BrainOutput` grows `live_slots`, which re-derives every species'
+   `mutation_rate`.** The precedent is exact and recorded: `live_slots` 846 →
+   870 meant `main` before `f9dd3295` was not a valid control arm. If swim is a
+   new output, **every species file changes in the same commit** and every
+   baseline taken before it is void. Consider instead whether swimming is a
+   *movement mode* selected by the existing `Move` output when the body is in
+   liquid — no new slot, no re-derivation.
+2. **The guard that encodes the current design must be made to fail.**
+   `a_weightless_body_is_put_down_on_water_unless_it_is_flying` is a guard whose
+   name is the decision. A swim verb adds a third state and the guard must go
+   red for the replacement, or it is a superseded test that keeps passing while
+   testing nothing.
+
+**And the orientation trap.** `dead-ends.md:1106` (decision D1) rejected
+rotating a body through the grid — aliasing, self-overlap, cells appearing from
+nowhere — and its own re-test clause says arbitrary-orientation creatures
+reopen it. **A swimmer keeps the canonical up and mirrors like everything
+else.** In a side-view pixel game a fish that stays upright is not a
+compromise; it is what the view wants.
+
+---
+
+## 4. Phase 3 — the gradient, gated on a card
+
+**Do not start this before card `20260914T030227009Z-0c5076` is answered.** If
+the owner does not want a dark pool, the phase goes and Phases 1–2 are
+unaffected.
+
+If it is wanted: `FieldTile::transmission` (`field.rs:308-347`) is already a
+**Beer–Lambert per-column depth model**, built for foliage, and Beer–Lambert is
+the law that governs light in water. Water is simply absent from the predicate
+in `rebuild_blocked` (`field.rs:2999`), which counts only `Solid` and `Plant`.
+
+Two conditions travel with it, and the second is the one that would break the
+box:
+
+- **Per-material extinction.** `column_depth` is a plain `u8` count today; a
+  cell of water must not attenuate like a cell of wood. `dead-ends.md:224`
+  already names the fix site for the parallel buried-plant case: opacity as a
+  material property.
+- **It must be `transmission`, never `blocked`.** A blocked block is skipped
+  entirely by `step_diffusion`, which is the measured cause of the bug at
+  `field.rs:815` — **96.8% of grass cells read field moisture exactly 0.000 at
+  every wetness level**, because the presence of fuel in a block is what makes
+  the block read bone dry. Water is the *moisture source*. Marking a pond
+  `blocked` would make the pond read as having no water in it.
+
+**The height rule lands here, not in Phase 1**, because depth and plant height
+are the same gradient: charge turgor lift only above the waterline, and how
+deep the water is decides how tall a plant can grow. The bound stays finite —
+water depth plus whatever the plant can lift in air — so
+`every_growing_species_has_a_height_ceiling_to_be_charged_against` is satisfied
+rather than weakened.
+
+---
+
+## 5. Phase 4 — the loop, sketch only
+
+Not specified in detail because Phases 1–3 will change what it should be. The
+shape: things that fall in sink (`windfall` 1.05, `corpse` 1.2) and accumulate
+on the pond floor; an animal that feeds on drift scores **position held**
+rather than distance covered, which is the first income channel in this engine
+that is not a function of locomotion — and locomotion is **5,599 J of the
+colony's 10,796 J burn, 52%**. A bubble is the oxygen model without a scalar:
+`is_displaceable` is already `Liquid | Gas` **(measured**, `material.rs:219`**)**,
+so a gas cell should rise through a water column with no new mechanism, and
+that dodges the `Cell::aux` tagged-union trap entirely.
+
+---
+
+## 6. Build order, ownership and collisions
+
+**Order:** Phase 0 (landed) → **1a** (bed rule) → **1b** (predicate + species)
+→ **2** (E9) → **3** (gated) → 4.
+
+| lane | owns | disjoint from |
+|---|---|---|
+| **1a — sediment** | `src/lab/scenario.rs`, `assets/lab_scenarios/*.ron` | everything; lands first and alone |
+| **1b — the reed** | `src/sim/plant.rs`, `src/sim/organism.rs` (one `SpeciesDef` field), `assets/species/reed.ron`, two new materials, one `include_str!` line | **2** entirely — run them together |
+| **2 — E9** | `src/sim/creature.rs`, `src/sim/organism.rs` (trait slot) | **1b** except `organism.rs`; see below |
+| **3 — depth** | `src/sim/field.rs`, `assets/materials/*.ron` | both |
+
+**1b and 2 both touch `organism.rs`.** `SpeciesDef` and `CREATURE_TRAITS` are
+far apart in the file and the merge is mechanical, but `src/sim/world.rs` /
+`README.md` / `Reports/README.md` are the contested rows here (103, 103 and 103
+landings) — **land each quickly rather than holding a large diff**.
+
+**Every brief carries the same cost fork:** build it, or write the finding and
+stop; never a half-built fix. **Every brief's creature card is a moving
+sequence** (`labgif`, or `filmstrip gif=1`), never a still — an ant is two dark
+cells at play zoom and is picked out of dark soil by *moving*. **Every brief's
+measurement is `scenario=the_pond_stocked`, 6+ seeds, 90,000 frames,
+`RAYON_NUM_THREADS` pinned.**
+
+---
+
+## 7. The briefs
+
+### Brief A0 — the sediment placement (do this first; it is not optional)
+
+*Owns:* `src/lab/scenario.rs`, `assets/lab_scenarios/`.
+*Read first:* §1.1 and §1.5 here.
+*Build:* a way for a `Placement` to lay soil at a stated wetness — either
+`Fill` gaining an optional `aux`/`wetness`, or a `Sediment` variant. Default
+must be today's `SOIL_FIELD_CAPACITY` so no existing scenario moves.
+*Ship:* `the_pond_sediment.ron` — the stone basin with a saturated sediment
+layer on its floor.
+*Counters:* total fill at 0 / 20,000 / 40,000.
+*Positive control:* the same bed with the sediment laid at field capacity must
+drain to zero by frame 4,000, reproducing §1.5.
+*Ships if:* fill is flat to the unit at 40,000 frames.
+*Guard:* `every_shipped_scenario_loads_builds_and_places_what_it_says` sweeps
+`assets/lab_scenarios` — **adding a scenario enrols it**, so run
+`cargo test --release --lib lab::scenario` specifically. `cargo test --lib` does
+reach it; `tests/*.rs` guards are a different set and this is not one of them.
+*Cost fork:* if saturated sediment still drains, the pond needs an impermeable
+liner under a thin sediment layer instead. Write which and stop.
+
+### Brief A1 — the reed
+
+*Owns:* `src/sim/plant.rs`, `src/sim/organism.rs` (`SpeciesDef` only),
+`assets/species/reed.ron`, `assets/materials/` (two new), one `include_str!`
+line in `organism.rs`'s registry.
+*Read first:* §2 here; `plant-appearance-design.md` §5 and §3;
+`dead-ends.md` line **845** (germination in mid-air was the first thing the
+owner ever reported) and line **1843** (the substrate gates were a null on what
+he was actually looking at).
+*Build:* `SpeciesDef::submerged_shoot: bool` (default false), tested inside
+`growable` where the species is already in hand. A `reed.ron` cut from
+`grass.ron` — grass is the proof that a non-woody plant photosynthesising from
+`MatureBody` works end to end — with its own shoot and leaf materials and a
+disjoint palette band.
+*Constants to re-derive:* none for existing species, **by construction**, and
+that is the reason for the per-species flag. State that in the PR body so the
+next session does not re-audit it.
+*Counters:* reed cells standing **below the waterline** (it fired) and standing
+reed count at 90,000 (there is something in the picture). A null here is
+indistinguishable from a probe that never ran, so print both.
+*Positive control:* an arm at `submerged_shoot: false` must take
+below-waterline cells to exactly zero while the reed still grows on the bank.
+*Measurement:* `labshot scenario=the_pond_sediment`, 6 seeds, 90,000 frames.
+*Card:* the pond with reeds in it against the pond without, both at 90,000,
+standing-reed count in `meta`.
+*Cost fork:* if the reed grows but reads as a twig in a puddle, **that is the
+appearance finding and it is worth more than the mechanism** — write it, with
+the render, and stop. Do not tune the growth rules to fix a palette problem.
+
+### Brief A2 — E9
+
+*Owns:* `src/sim/creature.rs`, `src/sim/organism.rs` (`CREATURE_TRAITS`).
+*Read first:* §3 here in full, including both stated costs.
+*Build:* in order — (i) fix the stale density comment at `creature.rs:8943`;
+(ii) open `move_cost` for `Liquid` at a price; (iii) the drown clock;
+(iv) swim, **preferring a movement mode over a new `BrainOutput`** for the
+`live_slots` reason.
+*Counters:* submerged ticks, drownings, swim moves; and from the far side,
+**cells of food eaten while submerged** — a "it fired" counter without an
+effect counter is how a clean negative turned out to be 23 swings removing 0
+cells.
+*Positive control:* `LAND_AFLOAT=0` restores the old defect; the new drown
+clock at an infinite threshold must reproduce today's behaviour exactly.
+*Guard:* `a_weightless_body_is_put_down_on_water_unless_it_is_flying` **must be
+made to fail for the replacement** — verify red before shipping green.
+*Cost fork:* if swim needs a new brain output after all, that is a
+whole-corpus `mutation_rate` re-derivation and it is **its own PR**, not a
+rider on this one.
+
+---
+
+## 8. What would stop each phase
+
+- **Phase 1** stops if saturated sediment still drains the pond (A0's fork), or
+  if a reed reads as a twig (A1's fork).
+- **Phase 2** stops if §1.4's seed sweep shows the pond costs the colony
+  outright — a swimmer in a bed that water already makes worse is a change
+  nobody can measure. It also stops if a submerged-feeding counter comes back
+  zero: that is the hop again, caught early.
+- **Phase 3** stops on the owner's card, or if the field's 16-cell resolution
+  makes a 28-row pond exactly two bands of light — which is an
+  **OWED** measurement and should be taken before any of Phase 3 is written.
+- **Phase 4** is not specified enough to stop.
+
+---
+
+## 9. What this deliberately does not build
+
+No dissolved oxygen, salinity or water-column nutrient scalar — `Cell::aux` is
+a tagged union whose tag is material data, and the `nest.ron` entry is the
+worked case where **every counter read as a clean win** and the design was
+still wrong. No current or advection. No free-floating algae. No ice lid. No
+change to the gnome's swimming, which is the one aquatic thing in the repo that
+has actually been played and already carries an owner complaint. No outdoor
+worldgen work: ponds already generate there, and the lab is the proving ground
+because it is the only game with a control arm.

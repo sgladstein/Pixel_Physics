@@ -397,6 +397,16 @@ by somebody about to try it on creatures.
   bed makes films rather than a pond even at STEADY rain. Carries the
   finding that E9's *float* already ships, and that the plant height ceiling
   is hydrostatic, so the waterline could set how tall a plant grows.
+- [aquatic-implementation-plan-2026-09-14.md](aquatic-implementation-plan-2026-09-14.md) —
+  **plan of record for aquatic work, 2026-09-14. Phase 0 built and measured;
+  Phases 1-4 specified, not built.** Turns the research above into a build
+  order with guards and briefs. Three measurements set the order and two
+  overturn the research: a pond in the lab is a **scenario file**, not a
+  `LabBox` field (`the_pond.ron`, 4,256 cells flat to frame 40,000); it holds
+  only over an **impermeable** floor (soil drains it to zero by frame 4,000);
+  and a pond as a bare **barrier buys nothing** (flat 3 / water 4 / dry pit 28
+  ants at 90,000). So the order is bed -> plant -> animal -> gradient, and the
+  swimmer comes last.
 - [liquid-simulation-research.md](liquid-simulation-research.md) —
   **research, round 1.** Why poured water piled like sand; SPH → PBF →
   PIC/FLIP survey.
