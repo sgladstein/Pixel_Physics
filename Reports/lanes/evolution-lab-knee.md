@@ -72,6 +72,12 @@ beds fits a line through two backgrounds and calls the difference an ant.
 
 ## Handover
 
-Branch `claude/evolution-lab-knee`. **Head SHA: see the PR / `git log -1` on
-that branch** — this note is committed before the final push, so the SHA it
-would carry is the one *before* itself. The coordinator owns the merge.
+Branch `claude/evolution-lab-knee`, **PR #407**, opened against `main` merged
+through #406. The coordinator owns the merge; read the head SHA off the PR
+rather than off this line, which is committed before the push that carries it.
+
+**Nothing under `src/` was touched**, so there is no behavioural change to
+review — the diff is `examples/antcost.rs`, the report, this note, and the
+index lines. Gates on the branch: clippy clean, `--lib` 1,723 passed / 0
+failed, `--test worldgen --test determinism` 44 passed / 0 failed, `docscheck`
+clean, `deadendindex --touching` silent.
