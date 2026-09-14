@@ -1,0 +1,77 @@
+{
+  "id": "20260914T063101470Z-06554c",
+  "created": "2026-09-14T06:31:01Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-food-road",
+    "commit": "33d09ea7",
+    "agent": null,
+    "session_id": "5b5b9407-c48e-5780-ab66-7933129bc360",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "A colony working one end of the box",
+  "question": "Does B say at a glance that this colony only ever works the left end of the bed?",
+  "context_md": "The same new view (`F7`) on **the far larder** — a bed built with the colony at one wall and its food heaped at the other, 363 cells away. Whole bed, wall to wall. Scrub the two together.\n\nSame reading as the other card: **amber hatch** = ground they took food out of, **red-orange** = walked carrying, **blue** = walked empty-handed.\n\n**What the numbers say happened here**, so you are not judging the picture against a guess: over these 4,400 frames they took **45 mouthfuls, every one of them within 180 cells of home**, and every one at the price of a corpse. They are eating their own dead, and the colony goes from 52 animals to 1.\n\nThis is the card that matters to me more than the pretty one: **with the view off (A) there is almost nothing on screen to read at all** — an ant is two dark cells. So the question is not whether B is nicer, it is whether B tells you something A cannot.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — as the lab looks today",
+      "files": [
+        "20260914T063101470Z-06554c/000-frame_0000.png",
+        "20260914T063101470Z-06554c/001-frame_0001.png",
+        "20260914T063101470Z-06554c/002-frame_0002.png",
+        "20260914T063101470Z-06554c/003-frame_0003.png",
+        "20260914T063101470Z-06554c/004-frame_0004.png",
+        "20260914T063101470Z-06554c/005-frame_0005.png",
+        "20260914T063101470Z-06554c/006-frame_0006.png",
+        "20260914T063101470Z-06554c/007-frame_0007.png",
+        "20260914T063101470Z-06554c/008-frame_0008.png",
+        "20260914T063101470Z-06554c/009-frame_0009.png",
+        "20260914T063101470Z-06554c/010-frame_0010.png",
+        "20260914T063101470Z-06554c/011-frame_0011.png"
+      ],
+      "caption": "the same world and the same frames with nothing drawn over it",
+      "meta": {
+        "ants alive at the end": "1 of 52"
+      },
+      "focus": null
+    },
+    {
+      "label": "B — F7, road + harvest",
+      "files": [
+        "20260914T063101470Z-06554c/012-frame_0000.png",
+        "20260914T063101470Z-06554c/013-frame_0001.png",
+        "20260914T063101470Z-06554c/014-frame_0002.png",
+        "20260914T063101470Z-06554c/015-frame_0003.png",
+        "20260914T063101470Z-06554c/016-frame_0004.png",
+        "20260914T063101470Z-06554c/017-frame_0005.png",
+        "20260914T063101470Z-06554c/018-frame_0006.png",
+        "20260914T063101470Z-06554c/019-frame_0007.png",
+        "20260914T063101470Z-06554c/020-frame_0008.png",
+        "20260914T063101470Z-06554c/021-frame_0009.png",
+        "20260914T063101470Z-06554c/022-frame_0010.png",
+        "20260914T063101470Z-06554c/023-frame_0011.png"
+      ],
+      "caption": "everything they do happens in the left third; the food was heaped at the far wall",
+      "meta": {
+        "mouthfuls taken out of the world": 45,
+        "furthest one from home": "under 180 cells, in a 512-wide box",
+        "what they were eating": "their own dead, every mouthful",
+        "steps taken carrying food": 189,
+        "steps taken empty-handed": 2498,
+        "ants alive at the end": "1 of 52"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
