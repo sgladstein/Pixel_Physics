@@ -2,10 +2,14 @@
 
 *State 2026-09-14: diagnosis complete, nothing shipped, nothing to ship in
 this lane's files. **PR [#415](https://github.com/sgladstein/Pixel_Physics/pull/415)**,
-head `bb7fc1e8`, **CI green on all nine jobs**, merges clean against `main`
-(4 behind, 7 files, well under the 300 threshold). **Ready to merge, and the
-merge is the coordinator's** — `CLAUDE.md`: an independent session merges its
-own PR, a coordinator merges its lanes'. Full account with every arm and number:
+**CI green on all nine jobs**, merges clean against `main` (7 behind, 7 files,
+far under the 300 threshold). **Ready to merge, and the merge is the
+coordinator's** — `CLAUDE.md`: an independent session merges its own PR, a
+coordinator merges its lanes'. **GitHub shows `mergeable_state: unstable` and
+it is not a failure** — this repo publishes only Actions *check runs* and no
+legacy commit *statuses*, so the combined-status API answers `pending` with
+`total_count: 0` and GitHub downgrades the state on that alone. Read the check
+runs, not the state word; all nine are `success`. Full account with every arm and number:
 [`Reports/absorb-and-the-garden-2026-09-14.md`](../absorb-and-the-garden-2026-09-14.md).*
 
 Owner: *"Absorbing creature energy, destroys plants around it. The energy
