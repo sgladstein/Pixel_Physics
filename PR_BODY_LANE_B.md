@@ -84,6 +84,28 @@ live organism, so harvesting one is surgery on the plant line's reproduction
 path, and it would let her hoover up the regeneration she is there to
 encourage.
 
+### It also relieves the organism-slot ceiling, and is designed against it
+
+Lane C measured (§Z21) that `Cell::organism_id` gives 12 bits to the slot
+index, so the world holds **4,095 organisms** — and on a *grown* start
+`Druid::new` already arrives at **4,093** of them, with further births
+silently refused.
+
+Zeroing the densities is probably the largest relief that pressure gets from
+anything currently in flight: on `Start::Bare`, the default and what is
+actually played, the slot table now starts **empty**. That is relief, not a
+fix — grown and dead starts are untouched and §Z21 stays open.
+
+The supply is designed against the ceiling rather than around it. The pouch is
+finite and capped, so free sowing cannot run the table up on its own; and a
+refusal at the ceiling is **said out loud and costs no seed**.
+`plant_tree_species` answers a bare `false` both for "this cell is occupied"
+and for "the engine is out of slots", so `plant_seed` samples
+`World::organisms_refused` across the call and separates them — *"the world is
+full - nothing can be born until something dies"* rather than *"no room
+here"*, which would send a player hunting for better ground that does not
+exist.
+
 **The assumption worth flagging**, since it is the owner's call and not mine:
 *that a refill should exist at all.* A supply that can only go down makes the
 outcome binary — you have seeds or the run is over — which is the failure law 1

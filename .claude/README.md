@@ -106,6 +106,6 @@ Paid by **every session, agent and subagent** — ten heads is ~228,430 tokens b
 
 Consulted by lookup, paid unconditionally: 62% (~14,144 tokens) across Method, Gotchas, Conventions. On demand instead, the floor would be ~8,800. That gap is the work; the ceiling only holds the line.
 
-Cache-prefix churn, distinct versions per day (newest first): 2026-09-13 x5, 2026-09-12 x4. Each one is a prefix no later session can share. A running session keeps the version it started with, so the remedy is batching edits into one commit near session end, not editing less.
+Cache-prefix churn, distinct versions per day (newest first): 2026-09-14 x1, 2026-09-13 x5, 2026-09-12 x4. Each one is a prefix no later session can share. A running session keeps the version it started with, so the remedy is batching edits into one commit near session end, not editing less.
 
 <!-- END GENERATED CONTEXT BUDGET -->

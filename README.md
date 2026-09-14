@@ -8839,15 +8839,64 @@ that is what it is: a standing instruction.
 
 ### The interface
 
-**Fourteen keys, listed on screen, on by default** (`/` or `F1` hides them),
-with the state of the world in the opposite corner. This shipped a day late
-and the owner found it the hard way: *"I just tried to playtest and there is
-no GUI at all? I have no idea how to control anything other than run and
-jump."* Every key existed and worked — in a doc comment at the top of
-`src/bin/druid.rs` and in the OS window title, neither of which is on screen.
-`druid::hud::KEYS` is now the single list, and
+**Every key, listed on screen, on by default** (`/` or `F1` hides the full
+list), with the state of the world in the opposite corner. This shipped a
+day late and the owner found it the hard way: *"I just tried to playtest and
+there is no GUI at all? I have no idea how to control anything other than
+run and jump."* Every key existed and worked — in a doc comment at the top
+of `src/bin/druid.rs` and in the OS window title, neither of which is on
+screen. `druid::hud::KEYS` is the single canonical list, and
 `the_legend_names_every_key_the_binary_binds` reads the binary's own source
 and fails if a binding is not named there.
+
+**A two-row button bar along the bottom, added on the owner's second
+playtest**: *"buttons for the main actions (with subtle hotkey always
+visible). I don't want to have to remember all these shortcuts and the menu
+isn't even a menu, it is a shortcut list."* Ported from the evolution lab's
+own control bar (`lab::ui`) rather than invented — a retained, measured,
+self-fitting `Widget`/`Bar`, with each button's key drawn dimmer underneath
+its label as the "subtle hotkey". Thirteen of the game's verbs have a button;
+three continuous dials (place radius, carried-circle reach, speed) and the
+held movement keys stay keyboard-only, on the same reasoning the lab's own
+stocking dial uses — a button pressed dozens of times to walk a ladder is
+not a control. The on-screen key legend shrank to match: a key with a
+button no longer also gets a corner row, so what remains is only what has
+no button. `Handler::act` in `src/bin/druid.rs` is the single dispatch
+point both the keyboard and the bar's clicks route through, with
+`druid::hud::Druid::act` underneath it for the pure game-state verbs.
+Clicking never reaches the world through an open modal — the options menu
+and the founding screen already own the keyboard exclusively while up, and
+the mouse agrees.
+
+The bar's own rectangle is fixed and fully repainted every drawn frame
+regardless of hover, so — unlike the biosphere page below — it needs no
+repaint decision of its own; measured at **0.055 ms/frame**
+(`PIXEL_PHYSICS_DRUID_BENCH_BAR=1`).
+
+**A biosphere page, `TAB`**, opened by default — plants, animals, biomass,
+births and deaths, generations, reproduction — ported from the evolution
+lab's own `lab::stats::Stats` almost unchanged: the page was already
+`&World`-only, and the one line that assumed the lab's control bar now takes
+its floor from a caller (`Stats::rect`/`Stats::draw_at_floor`), so the
+druid's own bar supplies its own. Because the page's height depends on its
+content, it is *not* repainted unconditionally the way the bar is: doing so
+measured **1.11 ms/frame** (`PIXEL_PHYSICS_DRUID_BENCH_BAR=1`) and, worse,
+risked a stale strip below a page that had just shrunk. `Handler::frame`
+instead forces a full world repaint only on the frames the page's own
+rectangle (or the cursor hovering it) actually changed — a few times a
+second at 1x, not sixty.
+
+**The energy pull lost its arrow.** Owner, same playtest: *"The big arrows
+above the ants needs to go... you should just see how much energy you get by
+how many particles come."* The stream of motes already carried an `amount`
+that the renderer never read — a fixed 26 particles regardless of how much
+was actually drawn — so the chevron over a charged animal's head was the
+*only* on-screen reading of how much energy was waiting, and it is gone
+along with the corner's `CHARGE … NEAR YOU` line. `druid::hud::
+mote_count_for_amount` now scales the mote count with the draw's `amount`
+(a floor of 6 so a small pull still reads as *several* particles, per this
+game's own no-arrows-no-orbs rule for the flow), covering both an absorb and
+a founding's reversed flow with one formula.
 
 **The circles are drawn as rings**, because under `HeldLook::Unchanged` — the
 owner's pick and the default — held ground draws *exactly* as running ground

@@ -37,6 +37,15 @@ unbound. But it is your call — the legend guard
 (`the_legend_names_every_key_the_binary_binds`) is in your file and will tell
 you if the legend and the binding disagree.
 
+**And one more line in `src/bin/druid.rs` that is not mine to write.** `Z`/`V`
+write `Druid::speed` directly, with no `Druid` method in between, so the note
+the dial raises is entirely yours. Lane E's finding is that the dial
+multiplies **grazing** as well as cost — ants eating a wood inside a
+quickening, 228 plant cells at speed 1 against **2,217** at speed 8 — and
+nothing on screen says so. `Druid::speed`'s doc now carries the measurement;
+the sentence the player needs is still missing. Either bind it to a method
+here and I will write it, or say it in the dial's own note.
+
 **My footprint in `src/druid/hud.rs`**, all in one commit (`8c980361`) and all
 inside `:185-258`, which is ~140 lines clear of `Interface::draw`:
 
@@ -153,6 +162,29 @@ The four numbers are first guesses and say so at their definitions. **The one
 to sweep first is `SEED_FROM_CELLS`**, because it alone decides whether the
 mechanic has a *middle*: too low and every sprout pays, which is the unlimited
 supply again; too high and nothing ever pays and the pouch is a countdown.
+
+### What happens near the organism ceiling — §Z21
+
+Lane C's finding, routed here by the coordinator: `Cell::organism_id` gives 12
+bits to the slot index, so the world holds **4,095 organisms**, and on a
+*grown* start `Druid::new` already arrives at 4,093 of them.
+
+**Zeroing the densities is the largest relief that pressure gets from
+anything here, and it is relief rather than a fix.** On `Start::Bare` — the
+default, and what the owner plays — `life_scatter` now writes nothing, so the
+slot table starts empty and her seeds populate a world instead of competing
+for the tail of one. Grown and dead starts are untouched.
+
+**The supply is designed against that ceiling rather than ignoring it.** Two
+properties, both deliberate: the pouch is finite and capped, so free sowing
+cannot run the table up on its own; and a refusal at the ceiling is now **said
+out loud and does not cost a seed**. `plant_tree_species` answers a bare
+`false` for both "this cell is occupied" and "the engine is out of slots", so
+`plant_seed` samples `World::organisms_refused` across the call and
+distinguishes them — *"the world is full - nothing can be born until something
+dies"* rather than *"no room here"*, which would send a player looking for
+better ground that does not exist. A refusal nobody can see is the shape of
+bug this game keeps filing.
 
 ---
 

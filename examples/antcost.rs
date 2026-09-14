@@ -100,8 +100,19 @@ fn world_hash(w: &World) -> u64 {
     h
 }
 
+/// One point for the per-bed fit: which arm it came from (`par` and the
+/// `(width, height, founders)` the bed was built at) and the pair being
+/// regressed — mean population over the quietest rep, and that rep's µs/tick.
+type FitPoint = (creature::ParMode, (i32, i32, usize), f64, f64);
+
 struct Arm {
     want: usize,
+    /// Bed size this arm was built at — the second axis, and the one that
+    /// separates density from count.
+    bw: i32,
+    bh: i32,
+    /// Herb founders this arm's bed was built with — the plant axis.
+    nf: usize,
     /// **Which read-phase schedule this arm runs** — round 33's creature-pass
     /// parallelism. Held per arm rather than per process precisely so both
     /// arms sit in one run: the thing under test is the parallelism, and
@@ -165,6 +176,52 @@ struct Arm {
     rep_awake: Vec<u64>,
     rep_swvisited: Vec<u64>,
     rep_swsoil: Vec<u64>,
+    /// **Standing depth of the scheduler's site heaps, summed over the timed
+    /// window** — `World::active_site_count`, which is
+    /// `active_sites.len() + creature_sites.len()`.
+    ///
+    /// Round 34's first candidate for the knee, and the reason it is a
+    /// *standing* count rather than a rate: `scheduler::step` pops until the
+    /// soonest-due site is in the future **or** it has taken
+    /// `MAX_SITES_PER_FRAME` (2,000) background sites and
+    /// `MAX_CREATURE_SITES_PER_FRAME` (256) creature ones. Below saturation
+    /// the frame does only what is due; at saturation it does the cap every
+    /// frame and a backlog stands behind it. That is a *step change in work
+    /// per frame*, not a gradual one, and it is exactly the shape a knee
+    /// has. `CLAUDE.md`: measure the standing state, not the event rate.
+    rep_sites: Vec<u64>,
+    /// Summed creature scheduling lateness over the window, and the
+    /// run-cumulative worst single lateness (`CreatureStats::tick_lag_sum`
+    /// delta / `tick_lag_max` absolute). Zero is the healthy value — a
+    /// creature reschedules itself to an exact frame, so anything above zero
+    /// is the creature budget binding. **The pair matters**: a mean near zero
+    /// with a large max is a burst, and a burst and a standing starvation
+    /// want opposite fixes.
+    rep_lag: Vec<u64>,
+    rep_lagmax: Vec<u64>,
+    /// Standing plant count at the end of each rep's window — the other
+    /// population in the bed, and the one an ant-count axis silently varies.
+    rep_plants: Vec<u64>,
+    /// **Cells inside every awake chunk's expanded dirty rect, summed over the
+    /// timed window** — what the CA sweep is *asked* for, the same quantity
+    /// `examples/labperf.rs` calls `swept`, and the one that names the half of
+    /// an ant's cost that is not in the creature pass.
+    ///
+    /// Off unless `swept=1`, because unlike the other columns here it
+    /// allocates a `Vec` per frame inside the timed loop. Counters are
+    /// load-independent, so the honest shape is a second run for the counter
+    /// rather than a tax on the headline timing.
+    rep_swept: Vec<u64>,
+    /// **Plant *cells*, not plant *count*** — summed `OrganismState::cells`
+    /// over every live organism that is not a creature, read once at the end
+    /// of each rep.
+    ///
+    /// Here because the plant term is what a cost curve in ant count reads
+    /// when nobody controls it, and `plants` is the wrong ruler for it: a bed
+    /// whose ants have eaten the canopy has the same number of plants and a
+    /// fraction of the tissue. `labbox_cost` prices a plant at ~0.7 µs per
+    /// plant cell per tick, which is the unit this column is in.
+    rep_pcells: Vec<u64>,
 }
 
 /// **Stock the bed to `want` ants using only the shipped founding path.**
@@ -222,11 +279,40 @@ fn main() {
     let seed: u64 = arg("seed").unwrap_or(1);
     let d = LabBox::default();
     let width: i32 = arg("width").unwrap_or(d.width);
+    // **`widths=` and `heights=` put the bed-size axis in the same process as
+    // the ant-count axis, and that is the round-34 discriminator.**
+    //
+    // Hold the animal count fixed and vary the bed: if the per-ant cost falls
+    // as the bed widens, what is being measured is *density* — crowding, a
+    // neighbourhood query, ants queueing for the same cell. If it does not
+    // move, it is raw count. That comparison is worthless across two
+    // processes (`CLAUDE.md`: a timing is only as trustworthy as the box was
+    // quiet, and two runs of a byte-identical binary once disagreed 2.42x),
+    // so the widths become arms of one round-robin like everything else here.
+    let widths: Vec<i32> = arg::<String>("widths")
+        .map(|v| v.split(',').map(|s| s.parse().expect("a width")).collect())
+        .unwrap_or_else(|| vec![width]);
     // **512, because that is what the owner raised the box to during setup**
     // and the log header states it. Not the `LabBox` default.
     let height: i32 = arg("height").unwrap_or(512);
+    let heights: Vec<i32> = arg::<String>("heights")
+        .map(|v| v.split(',').map(|s| s.parse().expect("a height")).collect())
+        .unwrap_or_else(|| vec![height]);
     let soil: i32 = arg("soil").unwrap_or(d.soil_depth);
     let founders: usize = arg("founders").unwrap_or(d.founders);
+    // **`plants=` is the third axis, and it exists because the second regime
+    // of round 32's knee is a plant count, not an ant count.**
+    //
+    // Ants eat. In a planted bed the arms with more ants have *fewer* plants,
+    // so the ant term and the plant term move in opposite directions and a
+    // cost curve fitted in ant count alone reads the difference. Crossing
+    // herb founders with ant count breaks that collinearity: it is the only
+    // way to ask what a plant costs in the same run that asks what an ant
+    // costs, and `CLAUDE.md`'s rule about a term in a weighted sum applies to
+    // a regression exactly as it does to a brain.
+    let founder_arms: Vec<usize> = arg::<String>("plants")
+        .map(|v| v.split(',').map(|s| s.parse().expect("a founder count")).collect())
+        .unwrap_or_else(|| vec![founders]);
     let species: String = arg("species").unwrap_or_else(|| d.species.clone());
     let colony_species: String = arg("colony_species").unwrap_or_else(|| "longant".to_string());
     // Frames of plant growth before any ant arrives, so the intercept is
@@ -234,6 +320,23 @@ fn main() {
     // seeds. The played bed had 264–409 plants.
     let grow: u64 = arg("grow").unwrap_or(6_000);
     let rounds: usize = arg("rounds").unwrap_or(200);
+    // **`age=N` equalises bed age across arms, and without it the ant count
+    // is confounded with it.** The stocking loop alternates founding with
+    // `settle` dispersal frames, so a 400-ant arm leaves the loop thousands
+    // of frames older than the `ants=0` arm — measured at frame 4,440 against
+    // 1,000, with 27 plants standing against 8. Every arm is then a different
+    // *bed* as well as a different population, and the difference is charged
+    // to the ants because they are the x-axis. `CLAUDE.md`'s worst-recurring
+    // failure, arriving through the harness rather than through the metric.
+    //
+    // Set it above the oldest arm's post-stocking frame and every arm is
+    // ticked forward to it before the clock starts. It does **not** equalise
+    // plant *count* — ants eat, and that is a real consequence of the
+    // population rather than an artifact of the loop — but it removes the
+    // part that is purely bookkeeping.
+    let age: u64 = arg("age").unwrap_or(0);
+    // See `Arm::rep_swept`. Quote a headline timing from a run without it.
+    let swept_on: bool = arg::<u32>("swept").unwrap_or(0) == 1;
     let settle: u64 = arg("settle").unwrap_or(40);
     // `PLANT_LOAD_FAILURE false` — the one dial off in the played session.
     let plant_load: bool = arg::<u32>("plant_load").unwrap_or(0) == 1;
@@ -246,17 +349,17 @@ fn main() {
     // exactly like a run that does not unless the header says so.
     let moisture = std::env::var("PIXEL_PHYSICS_MOISTURE").unwrap_or_else(|_| "on".to_string());
     println!(
-        "antcost: ants={wants:?} frames={frames} reps={reps} seed={seed} width={width} height={height} \
-         soil={soil} founders={founders} species={species} colony_species={colony_species} grow={grow} \
+        "antcost: ants={wants:?} frames={frames} reps={reps} seed={seed} widths={widths:?} heights={heights:?} \
+         soil={soil} founders={founder_arms:?} species={species} colony_species={colony_species} grow={grow} \
          rounds={rounds} settle={settle} plant_load={plant_load} RAYON_NUM_THREADS={threads} SCHED_PASS={sched} \
          PIXEL_PHYSICS_MOISTURE={moisture}"
     );
 
-    let spec = LabBox {
+    let spec_for = |width: i32, height: i32, founders: usize| LabBox {
+        founders,
         width,
         height,
         soil_depth: soil,
-        founders,
         species: species.clone(),
         // **Founded by the stocking loop, never by the scene**, so the
         // `ants=0` arm is an identical bed with nothing standing in it
@@ -264,27 +367,41 @@ fn main() {
         colonies: 0,
         colony_species: colony_species.clone(),
         seed,
-        ..d
+        ..d.clone()
     };
-    let ground_y = spec.ground_y;
 
     let mut arms: Vec<Arm> = Vec::new();
+    for &bw in &widths {
+    for &bh in &heights {
+    for &nf in &founder_arms {
     for &want in &wants {
         for &par in &pars {
-            let mut lab = Lab::new(spec.clone());
+            let spec = spec_for(bw, bh, nf);
+            let ground_y = spec.ground_y;
+            let width = bw;
+            let mut lab = Lab::new(spec);
             lab.world.plant_load_failure = plant_load;
             lab.world.creature_par.mode = par;
             for _ in 0..grow {
                 lab.tick_for_harness();
             }
             let stocked = stock(&mut lab, &colony_species, want, ground_y, width, rounds, settle);
+            let stocked_at = lab.world.frame;
+            while lab.world.frame < age {
+                lab.tick_for_harness();
+            }
+            let stocked = stocked.max(lab.world.live_creature_count());
             println!(
-                "  stocking: want {want:>5} par {par:?} -> standing {stocked:>5} ants, {:>5} plants, frame {}",
-                lab.world.live_organism_count() - stocked,
+                "  stocking: {bw}x{bh} founders {nf:>3} want {want:>5} par {par:?} -> standing {:>5} ants, {:>5} plants, stocked at frame {stocked_at}, aged to {}",
+                lab.world.live_creature_count(),
+                lab.world.live_organism_count() - lab.world.live_creature_count(),
                 lab.world.frame
             );
             arms.push(Arm {
                 want,
+                bw,
+                bh,
+                nf,
                 par,
                 lab,
                 stocked,
@@ -298,8 +415,17 @@ fn main() {
                 rep_awake: Vec::new(),
                 rep_swvisited: Vec::new(),
                 rep_swsoil: Vec::new(),
+                rep_sites: Vec::new(),
+                rep_lag: Vec::new(),
+                rep_lagmax: Vec::new(),
+                rep_plants: Vec::new(),
+                rep_swept: Vec::new(),
+                rep_pcells: Vec::new(),
             });
         }
+    }
+    }
+    }
     }
 
     // **Round-robin, and the reps interleave rather than nest per arm.** A
@@ -314,6 +440,7 @@ fn main() {
             let ticks_before = arm.lab.world.creature_stats.ticks;
             let moves_before = arm.lab.world.creature_stats.moves;
             let blocked_before = arm.lab.world.creature_stats.moves_blocked;
+            let lag_before = arm.lab.world.creature_stats.tick_lag_sum;
             // **Accumulated inside the timed loop, and that is a real cost
             // this harness pays.** `soil_water_stats` is overwritten every
             // frame, so it cannot be read afterwards; three `u64` adds and one
@@ -325,12 +452,22 @@ fn main() {
             let mut awake = 0u64;
             let mut swv = 0u64;
             let mut sws = 0u64;
+            let mut sites = 0u64;
+            let mut swept = 0u64;
             let t = Instant::now();
             for _ in 0..frames {
                 arm.lab.tick_for_harness();
                 awake += arm.lab.world.active_chunk_count() as u64;
                 swv += arm.lab.world.soil_water_stats.visited;
                 sws += arm.lab.world.soil_water_stats.soil;
+                sites += arm.lab.world.active_site_count() as u64;
+                if swept_on {
+                    for c in arm.lab.world.chunks_to_sweep() {
+                        if let Some(r) = arm.lab.world.sweep_region(c) {
+                            swept += ((r.max_x - r.min_x + 1) as i64 * (r.max_y - r.min_y + 1) as i64) as u64;
+                        }
+                    }
+                }
             }
             let ns = t.elapsed().as_nanos();
             let ants_after = arm.lab.world.live_creature_count();
@@ -345,16 +482,39 @@ fn main() {
             arm.rep_awake.push(awake);
             arm.rep_swvisited.push(swv);
             arm.rep_swsoil.push(sws);
+            arm.rep_sites.push(sites);
+            arm.rep_swept.push(swept);
+            // Outside the timed loop: one walk of the organism table per rep.
+            let pcells: u64 = arm
+                .lab
+                .world
+                .live_organism_ids()
+                .into_iter()
+                .filter_map(|id| arm.lab.world.organism_state(id))
+                .filter(|st| arm.lab.world.species.get(st.species).creature.is_none())
+                .map(|st| st.cells.len() as u64)
+                .sum();
+            arm.rep_pcells.push(pcells);
+            arm.rep_plants.push((arm.lab.world.live_organism_count() - arm.lab.world.live_creature_count()) as u64);
+            arm.rep_lag.push(arm.lab.world.creature_stats.tick_lag_sum - lag_before);
+            // **Absolute, not a delta.** `tick_lag_max` is a running maximum,
+            // so a window's "growth" reads zero whenever stocking already saw
+            // something worse — which is most of the time and would look like
+            // a healthy scheduler. Quoted as what it is: the worst lateness
+            // this arm's bed has ever seen, stocking included.
+            arm.rep_lagmax.push(arm.lab.world.creature_stats.tick_lag_max);
         }
         eprintln!("  rep {}/{reps} done", rep + 1);
     }
 
     println!(
-        "\n{:>6} {:>9} {:>7} {:>8} {:>10} {:>8} {:>9} {:>8} {:>6} {:>8} {:>10} {:>10} {:>9} {:>7} {:>8} {:>10}",
-        "want", "par", "stocked", "ants", "µs/tick", "min/med", "crtick/f", "moves/f", "blk%", "awake/f", "sw seen", "sw soil", "µs/ant", "spread", "cached%", "spec µs/f"
+        "\n{:>6} {:>12} {:>9} {:>7} {:>8} {:>7} {:>8} {:>10} {:>8} {:>9} {:>8} {:>6} {:>8} {:>10} {:>10} {:>10} {:>9} {:>8} {:>9} {:>7} {:>8} {:>10} {:>10}",
+        "want", "bed", "par", "stocked", "ants", "plants", "pcells", "µs/tick", "min/med", "crtick/f", "moves/f", "blk%", "awake/f", "swept/f", "sites/f", "lag/tick", "lag max", "µs/ant", "spread", "cached%", "spec µs/f", "sw seen", "sw soil"
     );
+    let mut beds: Vec<(i32, i32, usize)> = arms.iter().map(|a| (a.bw, a.bh, a.nf)).collect();
+    beds.dedup();
     // Points for the fit: (mean ants over the quietest rep, µs/tick).
-    let mut pts: Vec<(creature::ParMode, f64, f64)> = Vec::new();
+    let mut pts: Vec<FitPoint> = Vec::new();
     for arm in &arms {
         let mut us: Vec<f64> = arm.rep_ns.iter().map(|&n| n as f64 / 1000.0 / frames as f64).collect();
         let best = us.iter().cloned().fold(f64::INFINITY, f64::min);
@@ -378,36 +538,46 @@ fn main() {
         // **The "did it fire" pair for the parallel read phase.** A parallel
         // arm whose cached share is near zero has measured the overhead and
         // none of the benefit, and the wall clock alone cannot say so.
+        // Mean creature scheduling lateness in frames: zero means every
+        // dispatched creature ran on the frame it asked for.
+        let lag_per_tick = if arm.rep_ticks[best_i] > 0 { arm.rep_lag[best_i] as f64 / arm.rep_ticks[best_i] as f64 } else { 0.0 };
         let (cached, fresh) = arm.rep_spec[best_i];
         let spec_us = arm.rep_spec_ns[best_i] as f64 / 1000.0 / frames as f64;
         let cached_pct = if cached + fresh > 0 { 100.0 * cached as f64 / (cached + fresh) as f64 } else { f64::NAN };
         println!(
-            "{:>6} {:>9} {:>7} {:>8.0} {:>10.1} {:>8.2} {:>9.1} {:>8.1} {:>6.1} {:>8.1} {:>10.0} {:>10.0} {:>9.3} {:>7.2} {:>8.1} {:>10.1}",
+            "{:>6} {:>12} {:>9} {:>7} {:>8.0} {:>7} {:>8} {:>10.1} {:>8.2} {:>9.1} {:>8.1} {:>6.1} {:>8.1} {:>10.0} {:>10.0} {:>10.3} {:>9} {:>8.3} {:>9.2} {:>7.1} {:>8.1} {:>10.0} {:>10.0}",
             arm.want,
+            format!("{}x{}f{}", arm.bw, arm.bh, arm.nf),
             format!("{:?}", arm.par),
             arm.stocked,
             ants,
+            arm.rep_plants[best_i],
+            arm.rep_pcells[best_i],
             best,
             best / med,
             crticks,
             moves,
             blk,
             arm.rep_awake[best_i] as f64 / frames as f64,
-            arm.rep_swvisited[best_i] as f64 / frames as f64,
-            arm.rep_swsoil[best_i] as f64 / frames as f64,
+            arm.rep_swept[best_i] as f64 / frames as f64,
+            arm.rep_sites[best_i] as f64 / frames as f64,
+            lag_per_tick,
+            arm.rep_lagmax[best_i],
             per,
             us[us.len() - 1] / best,
             cached_pct,
-            spec_us
+            spec_us,
+            arm.rep_swvisited[best_i] as f64 / frames as f64,
+            arm.rep_swsoil[best_i] as f64 / frames as f64
         );
-        pts.push((arm.par, ants, best));
+        pts.push((arm.par, (arm.bw, arm.bh, arm.nf), ants, best));
     }
 
     // **The gate, printed per arm and read across them.** Arms of one ant
     // count must agree bit for bit; see `world_hash`.
     println!("\n  world hash after the run, by arm (arms of one ant count must match):");
     for arm in &arms {
-        println!("    want {:>5} par {:>9} -> {:#018x}", arm.want, format!("{:?}", arm.par), world_hash(&arm.lab.world));
+        println!("    want {:>5} bed {:>10} par {:>9} -> {:#018x}", arm.want, format!("{}x{}f{}", arm.bw, arm.bh, arm.nf), format!("{:?}", arm.par), world_hash(&arm.lab.world));
     }
 
     // **Ordinary least squares over the arms' lower envelope**, which is the
@@ -418,8 +588,13 @@ fn main() {
     // and a parallel arm into one regression measures their average and
     // describes neither -- the same error the round-32 report had to repair
     // when it fitted one line through the owner's two regimes.
+    // **One fit per (bed, par) pair, never one across beds either.** A wider
+    // bed is a different intercept — more cells to sweep, more soil for the
+    // moisture pass — so pooling two bed sizes fits a line through two
+    // backgrounds and calls the difference an ant.
+    for &(bw, bh, nf) in &beds {
     for &mode in &pars {
-        let pts: Vec<(f64, f64)> = pts.iter().filter(|(m, _, _)| *m == mode).map(|&(_, x, y)| (x, y)).collect();
+        let pts: Vec<(f64, f64)> = pts.iter().filter(|(m, b, _, _)| *m == mode && *b == (bw, bh, nf)).map(|&(_, _, x, y)| (x, y)).collect();
         if pts.len() < 2 {
             continue;
         }
@@ -432,7 +607,7 @@ fn main() {
             let slope = sxy / sxx;
             let intercept = my - slope * mx;
             println!(
-                "\n  fit [{mode:?}]: cost ≈ {:.0} µs/tick + {:.3} µs per ant per tick   ({} arms)",
+                "\n  fit [{bw}x{bh} f{nf} {mode:?}]: cost ≈ {:.0} µs/tick + {:.3} µs per ant per tick   ({} arms)",
                 intercept,
                 slope,
                 pts.len()
@@ -445,8 +620,9 @@ fn main() {
             }
             println!();
         } else {
-            println!("\n  fit [{mode:?}]: every arm reports the same ant count -- nothing to regress");
+            println!("\n  fit [{bw}x{bh} f{nf} {mode:?}]: every arm reports the same ant count -- nothing to regress");
         }
+    }
     }
     println!("  playtest §1, on the owner's own wall clock: ≈ 1000 µs/tick + 2.100 µs per ant per tick");
     let (absent, moved, dirty, dirty_org, dirty_field) = creature::speculation_misses();

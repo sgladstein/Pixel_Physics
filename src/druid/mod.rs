@@ -473,6 +473,21 @@ pub struct Druid {
     /// passes; `Reports/dead-ends.md` carries the entry.
     ///
     /// One dial has no cross-talk to leak, because every circle runs at it.
+    ///
+    /// **It multiplies what EATS your garden as well as what it costs you,
+    /// and nothing on screen says so.** Lane E's diagnosis of the owner's
+    /// *"absorbing destroys plants"* report, 2026-09-14: absorbing never
+    /// touches the world at all — what eats a wood is ants grazing inside a
+    /// quickening, and the dial runs them too. Measured, **228 plant cells
+    /// eaten at speed 1 against 2,217 at speed 8**.
+    ///
+    /// So this doc and [`drain_for`] both price the dial honestly in *power*,
+    /// and the player is told nothing about the other half of what he just
+    /// bought. Closing it wants the on-screen note that the dial raises to
+    /// name grazing as well as cost — which lives in `src/bin/druid.rs`,
+    /// where `Z`/`V` write this field directly with no `Druid` method in
+    /// between, so it is not a change this lane could make. Recorded here
+    /// rather than dropped: the next session to touch the dial reads this.
     pub speed: u32,
     /// Income and drain as of the last recompute, for the readout. Per
     /// second, so a person can read them against a clock.
@@ -819,23 +834,6 @@ impl Druid {
         self.message.as_ref().filter(|(_, until)| self.ticks < *until).map(|(text, _)| text.as_str())
     }
 
-    /// **Where the charged animals are, in world cells, and how full each
-    /// is.** For the tell over their heads — see [`hud`].
-    ///
-    /// Only those with something worth taking: a mark over every ant in a
-    /// colony of two hundred is not a tell, it is a texture.
-    pub fn charged_animals(&self) -> Vec<((i32, i32), f32)> {
-        self.reserves
-            .iter()
-            .filter(|(_, held)| **held > RESERVE_CAP * 0.15)
-            .filter_map(|(id, held)| {
-                let state = self.world.organism(*id)?;
-                let at = state.chain.first().copied().or_else(|| state.cells.keys().next().copied())?;
-                Some((at, (held / RESERVE_CAP).clamp(0.0, 1.0)))
-            })
-            .collect()
-    }
-
     /// Everything the corner readout says, as numbers. See [`hud::Readout`].
     pub fn readout(&self) -> hud::Readout {
         hud::Readout {
@@ -903,6 +901,26 @@ impl Druid {
             self.note(format!("no {kind} seed left - stand in a grown wood to gather"));
             return false;
         }
+        // **Read before, so a refusal can say which refusal it was.** Both
+        // planters answer a bare `false`/nothing, and two completely different
+        // failures arrive that way: the cell is occupied, or the engine has
+        // run out of organism slots. `World::organisms_refused` is the only
+        // thing that separates them, and it is a counter rather than a return
+        // value, so it has to be sampled across the call.
+        //
+        // **The slot ceiling is real and the held world sits near it.**
+        // `Cell::organism_id` gives 12 bits to the slot index, so the world
+        // holds 4,095 organisms; measured by Lane C on a *grown* start, 2026-
+        // 09-14, `Druid::new` arrives at **4,093 of them** and further births
+        // are refused (`open-bugs-handoff.md` §Z21). On `Start::Bare` --
+        // the default, and with `life_scatter` now writing nothing -- the
+        // table starts empty, which is the most relief that pressure gets
+        // from anything in this change. It is relief and not a fix: a player
+        // sowing freely in a running world can still reach the ceiling, and
+        // the failure there is a birth that silently does not happen. Saying
+        // so is this game's own standing rule, and a refusal nobody can see
+        // is the shape of bug it keeps filing.
+        let refused_before = self.world.organisms_refused();
         // Moss is not tree-shaped and has its own planter; everything else
         // goes through the species-named one.
         let placed = if kind == MOSS {
@@ -934,6 +952,17 @@ impl Druid {
             } else {
                 format!("{kind} seed sown - it waits for time ({left} left)")
             });
+        } else if self.world.organisms_refused() > refused_before {
+            // **The world is full, and the seed is still in her pouch.** A
+            // different sentence from the one below on purpose: "no room
+            // here" sends a player looking for better ground, and there is
+            // none -- no cell anywhere in the world will take a seed until
+            // something dies. See §Z21.
+            println!(
+                "druid: {kind} seed REFUSED at {x},{y} - the organism table is full ({} refused so far)",
+                self.world.organisms_refused()
+            );
+            self.note("the world is full - nothing can be born until something dies");
         } else {
             println!("druid: {kind} seed REFUSED at {x},{y} - the cell is not empty, or the species is not loaded");
             self.note(format!("no room for a {kind} seed here"));
