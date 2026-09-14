@@ -93,10 +93,19 @@ pub fn step(
     // exists: the lab drives the same tick, and a second binary re-deriving
     // the order would be a fork of the simulation wearing another name. Costs
     // one `Option` check per tick in a world that is not held.
-    if world.held {
+    //
+    // **`carried_off` is the only way to have a player and no circle**, and
+    // it is a flag rather than a radius of zero on purpose — `World::
+    // carried_radius`'s own doc refuses to let a dial reach off by accident,
+    // and `Quickening::contains` is `<=`, so even `r == 0` would still run
+    // time for the cell he is standing on. See `World::carried_off`.
+    if world.held && !world.carried_off {
         world.carried = world.player.as_ref().map(|p| {
             let (x, y) = p.center();
-            crate::sim::world::Quickening { x, y, r: crate::sim::world::CARRIED_RADIUS }
+            // The radius is a field, not the constant: the held world lets
+            // the player buy a wider one. See `World::carried_radius`.
+            let r = if world.carried_radius > 0 { world.carried_radius } else { crate::sim::world::CARRIED_RADIUS };
+            crate::sim::world::Quickening::at(x, y, r)
         });
     } else {
         world.carried = None;

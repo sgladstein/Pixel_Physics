@@ -18,6 +18,7 @@
 
 pub mod app;
 pub mod druid;
+pub mod food_road;
 pub mod hud;
 pub mod lab;
 pub mod render;

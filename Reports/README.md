@@ -127,6 +127,44 @@ by somebody about to try it on creatures.
   things it makes reachable that nothing else has: alarm without paying every
   ant the measured 4%-of-a-life eye, and a real reason for `Caution`, a
   shipped working lever **no species has ever authored**.
+- [absorb-and-the-garden-2026-09-14.md](absorb-and-the-garden-2026-09-14.md)
+  — **diagnosis, held world, nothing shipped.** The owner reported that
+  absorbing creature energy destroys nearby plants and proposed that the
+  energy particles are colliding with the world. **The `F` key does not touch
+  the world**: seven paired arms differing only in whether it is pressed came
+  back equal in every column — every plant material, every organism count,
+  every death cause, every unit of `harvested_plant` — at both world sizes and
+  **again after an engine merge that moved `creature.rs` by 247 lines**, with
+  `Druid::power` the only thing in the world that differed. The proposed fix is
+  *already true* (the motes are screen-pixel values painted into the finished
+  frame), so shipping it would be a no-op with the report marked addressed.
+  **His observation is nonetheless real and is reproduced**: on the shipped
+  `bare` start at speed 8, the same circle holds **690 live plants with no
+  colony in it and 573 with one** (**407 against 289** near the colony), and
+  the ants eat **21,813** units of plant tissue — about a sixth of the garden,
+  up to a third of what stands beside it, with the speed dial multiplying it
+  (eaten 912 → 21,813, felled 39 → 672, everything else fixed). Absorbing is
+  *upstream* twice over — you must stand in a running colony to press it, and
+  with the economy live the power it buys keeps the circle standing longer,
+  which is **+114% of plant tissue eaten** from ten presses worth 723 power —
+  so the misattribution is a fair reading, and absorbing genuinely does cost
+  plants, just not by the proposed mechanism. **Two halves generalise past the
+  held world.** The method: the nulls are only readable because the same
+  harness was shown to move, on a known-broken case (`control=selftest`, 100
+  cells erased and 100 reported) and on the one arm where absorbing *can*
+  matter. And the cautionary half, recorded in its §8: the colony's cost was
+  first measured at **half** the garden and is a **sixth** on today's `main` —
+  `claude/thicket-founding`'s *a floor of plants is a floor a colony can stand
+  on* gave the colony more founders (32 → 40) and **less** damage (177 → 295
+  plants), so a single sample was off threefold for a reason unrelated to the
+  seed, and the first review card had to be reposted. Names
+  `energy_ledger.harvested_plant` as the counter a "did something eat this"
+  question wants — a death count cannot answer it, because a grazed plant
+  usually survives being grazed — and rules out `plant_bending` (269 against
+  274) and `step_extra_ticks`'s `player.take()` by measurement. The
+  prescription is legibility, not a patch: the player has a number for what a
+  circle costs him in *power* and none at all for what it costs him in
+  *plants*. Instrument: `examples/druid_garden.rs`.
 - [regional-time-scope-2026-09-13.md](regional-time-scope-2026-09-13.md) —
   **scope, nothing built, no option recommended for immediate build.** What it
   would take to give each held-world quickening its own speed, after a
@@ -422,6 +460,25 @@ by somebody about to try it on creatures.
 
 ## Liquids and granular  ·  `engine`
 
+- [aquatic-life-research-2026-09-14.md](aquatic-life-research-2026-09-14.md) —
+  **research and brainstorm, 2026-09-14; nothing built, no build order.**
+  Aquatic creatures and plants across all three games. Four one-line
+  predicates make water a floor; buoyancy, drag, the water ledger, the scent
+  plane and the density table are already built and correct. Measured: water
+  passes light like air (positive control — rock reads black), and the lab
+  bed makes films rather than a pond even at STEADY rain. Carries the
+  finding that E9's *float* already ships, and that the plant height ceiling
+  is hydrostatic, so the waterline could set how tall a plant grows.
+- [aquatic-implementation-plan-2026-09-14.md](aquatic-implementation-plan-2026-09-14.md) —
+  **plan of record for aquatic work, 2026-09-14. Phase 0 built and measured;
+  Phases 1-4 specified, not built.** Turns the research above into a build
+  order with guards and briefs. Three measurements set the order and two
+  overturn the research: a pond in the lab is a **scenario file**, not a
+  `LabBox` field (`the_pond.ron`, 4,256 cells flat to frame 40,000); it holds
+  only over an **impermeable** floor (soil drains it to zero by frame 4,000);
+  and a pond as a bare **barrier buys nothing** (flat 3 / water 4 / dry pit 28
+  ants at 90,000). So the order is bed -> plant -> animal -> gradient, and the
+  swimmer comes last.
 - [liquid-simulation-research.md](liquid-simulation-research.md) —
   **research, round 1.** Why poured water piled like sand; SPH → PBF →
   PIC/FLIP survey.
@@ -1009,6 +1066,36 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology  ·  `engine`
 
+- [animal-conflict-research-2026-09-14.md](animal-conflict-research-2026-09-14.md)
+  — **research plus implementation, 2026-09-14, round 35 lane D. `engine`.**
+  When animals fight, why they mostly do not, and what this engine can do
+  about it: the contest literature, then a mapping onto every lever we have,
+  then a build. **The finding that reframes the question: a stranger is
+  already food.** `ant` material is `food_class: 1.0` against a neutral gut,
+  so the moment two colonies fall outside each other's tolerance each is prey
+  to the other's **ordinary mouth** — total `eats` **54 → ~1,100** from
+  nothing but turning kin recognition on, with cross-colony kills outnumbering
+  `Attack` kills. The engine models **intraguild predation** by default and
+  **interference competition** only through the unwired `Attack` verb. Two
+  more measured corrections: **`scent_spread = 1.0` does not make two
+  colonies strangers** (4.2% of ordered pairs, one seed in four never meets;
+  it saturates at 0.497 by `spread=4`, which is the ceiling), and
+  **`nearest_foe` targets any living non-kin *organism*, so an armed ant
+  bites plants** — pre-existing, invisible because no shipped species authors
+  `Attack`, caught by the new arena's specificity control in its first
+  minute. **Built:** `sim::contest`, assessment before commitment — the
+  engine's own `(bite/armour)²` both ways round plus the local numerical
+  odds, through a floored logistic, so an encounter is graded rather than a
+  coin with one face; a withdrawal writes a quiet alarm mark, which is the
+  *Myrmecocystus* tournament and the verb the second law asks for. **94% of
+  contact is now withdrawal** (escalation 0.058, stable across a tenfold
+  range of contact), against 100% escalation before. Ships **on**, four dials
+  in the environment, invisible to everything that ships and byte-identical
+  down to the random stream when off. `COMMIT_FLOOR` is the
+  capacity-not-exemption rule `dead-ends.md` :272/:276/:403 binds this to.
+  **§10 is six things it deliberately does not build**, dear-enemy/nasty-
+  neighbour first, because the sign of that effect is genuinely unsettled in
+  ants. Instrument: `examples/conflict_arena.rs`
 - [colony-economy-design-2026-09-09.md](colony-economy-design-2026-09-09.md)
   — **design of record for the creature line's energy economy, 2026-09-09.
   Nothing built.** Asks the question §Z6's diagnosis leaves open — *where does
@@ -2220,6 +2307,29 @@ drift that two of these documents still reflect.**
   bias) and states the composed Move row both lanes hit. Its first
   measurement is in README's "Trophallaxis status", and it is a null with a
   warning sign.
+- [why-colonies-do-not-fight-2026-09-14.md](why-colonies-do-not-fight-2026-09-14.md)
+  — **review of the owner's "why don't colonies fight or eat each other",
+  round 35, 2026-09-14. Nothing is proposed for landing.** The answer is one
+  number: `CreatureDef::scent_spread` ships at `0`, so every colony of a kind
+  founds at one point in scent space, `is_living_kin` is true for every
+  ant-to-ant pair, and `nearest_foe` returns `None` for every animal in the
+  bed — no eye and no brain wire can change that. Move it alone and colonies
+  kill each other with nothing else touched, on the seeds where the draw
+  separates them. **Corrects the standing account twice**: `held-world-game-
+  concept-2026-09-13.md` §10a names the blind ant and the retaliation-only
+  `Alarm` wire and neither is binding (closed together, attacks do not move);
+  and **initiation already exists and it is the mouth** — a stranger is food,
+  the swallow calls `cry_alarm`, and `ant.ron`'s shipped `(Alarm, Attack,
+  2.0)` does the rest, so predation is the ignition the combat layer was said
+  to lack. **Eating each other already happens**: a corpse is a `Powder` with
+  no colony, so any ant scavenges any dead, measured at 2–4% of intake and
+  100% of it in a plantless box — a readout gap (`harvested_corpse` is one
+  global `f64`), not a mechanism gap, and the account Lane B's per-colony
+  ledger would split. Files `open-bugs-handoff.md` §Z23: `nearest_foe` counts
+  a **plant** as a foe, so every one of the played bed's 344–475 "attacks" is
+  an ant biting a leaf, and `attacks` is not a fighting counter. Harness
+  `examples/rivalry.rs`, both controls in `control=selftest`, two of whose
+  four arms began as predictions it falsified
 - [plant-evolution-design.md](plant-evolution-design.md) — **design, all
   nine §8 calls signed off 2026-08-19; partly implemented.** The plant
   ecology: litter, decay, grass and the creeper; §4a's register holds the
@@ -2565,6 +2675,18 @@ was **no food verb** (there is one now: `E`) although hand-placed food is the on
 intervention measured to separate generation 13 from generation 0, and the plant mutation rates the
 design guide's §7b-i calls "already data" are Rust `const`s.
 
+- [druid-rounds-archive.md](druid-rounds-archive.md) — **record, 2026-09-14.**
+  Finished rounds of the **held world**'s coordinator note, moved out of
+  `Reports/lanes/druid-program-coordinator.md` so that note can stay a
+  standing one — the same split the lab made, and for the same reason: what a
+  round *overturned* is the part a later session cannot reconstruct, and also
+  the part nobody needs loaded to do today's work. Round 1 is the seven
+  playtest items of 2026-09-14 (five lanes, PRs #411, #413, #414, #415, #418),
+  including the two findings that outlived it — that four of the seven items
+  were sized off doc comments and two of those were wrong, and that a lane
+  overturned the coordinator's own brief. **A record, not a work order**: the
+  live round and the standing owner rulings are in the lane note.
+
 - [evolution-lab-rounds-archive.md](evolution-lab-rounds-archive.md) —
   **record, 2026-09-08.** Rounds one to nineteen of the lab's coordinator note,
   verbatim, moved out of `Reports/lanes/evolution-lab-coordinator.md` when that
@@ -2667,6 +2789,80 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   warning that the dangerous merge is the conflict-free one: a clean
   `merge-tree` broke the build on a `ChunkSet` type alias neither side's lines
   touched.
+- [colony-food-economy-design-2026-09-14.md](colony-food-economy-design-2026-09-14.md)
+  — **design, 2026-09-14, round 35. `engine`.** How a player is to understand a
+  colony's food economy, written from the owner's ask before any lane started.
+  **The finding that reframes it: the books already exist and already balance.**
+  `World::energy_ledger` is a closed double-entry ledger with conservation
+  identities asserted by tests — its shape was forced by an old free `eaten`
+  account that **conjured 300 joules** when a beetle bit an ant, and the
+  property it protects is the one evolution needs (*no lineage may extract
+  unbounded energy from a cycle it controls*). So the job is not an economy but
+  three absences: it is **world-wide rather than per colony, it has no face, and
+  no account knows where a joule came from.** Sizes itself on one live fact:
+  **70–90% of ant deaths in the lab bed are starvation, on every seed.** Names
+  what is already there to build on (`OrganismState::colony`, `Crop`,
+  `diet_yield`, and the three CLI food harnesses — **none of which a player ever
+  sees**, which is the gap), the five pieces and which lane owns each, and eight
+  traps each paid for once: **count joules not cells**; **splitting a closed
+  ledger per colony breaks closure unless inter-colony transfer is its own
+  account**; **a standing count cannot tell a store from a conveyor** (dwell
+  time can); show a distribution, not an average. **§5 answers "why do colonies
+  never fight or eat each other"** — three gaps, all *authorship rather than
+  machinery*: `scent_spread` defaults to 0 so **the shipped bed holds no rivals,
+  only one extended family**; the shipped ant is **blind**; and nothing wires
+  `ThreatNear`/`ThreatBearing` to `Attack`, so the only route in is retaliation.
+  The fight itself works — **296–478 attacks over 9,000 frames** with non-kin in
+  reach, against **`attacks 0` over nine runs of 300,000 frames** on the bed the
+  owner plays. **Rivalry ships ON**, owner ruling 2026-09-14 (*"You can ship it
+  on"*), overturning the coordinator's default-off call and restoring *ship new
+  behaviours as default* — with the knob kept, an `off` control kept for
+  measurement, and the constants rivalry reallocates named and re-derived,
+  since a correct mechanism at inherited constants is a regression.
+- [evolution-lab-round-36-brief-2026-09-14.md](evolution-lab-round-36-brief-2026-09-14.md)
+  — **brief, 2026-09-14, rewritten the same day. `lab`/`engine`.** What round 36
+  is for. **The first version led with performance and was wrong at the top**:
+  the owner then answered the round-35 cards and **the food-economy
+  instruments failed on his eye** (*"I don't understand what these visuals are
+  trying to tell"*; *"the amber hatch it bad — is it too much to track actual
+  paths and make trail?"*), which by this repo's ethos outranks everything
+  queued behind it. Four lanes: **A** making the food economy readable (lead,
+  and start by rendering the road and the harvest map *apart* — the tile grid
+  may simply be burying the trail); **B** a census of what the **29.4 cells an
+  ant dirties per frame** are made of, since half an ant's cost is not in the
+  creature pass; **C** the pheromones — *do they fade too fast to be useful*,
+  where the decay LUT caps an unreinforced trail at **255 passes ≈ 3,060
+  frames against a ~2,200-frame round trip** and the harness that set the
+  constants re-lays continuously so it cannot answer the question; **D** the
+  economy constants a live rivalry reallocates. Also carries the verdicts
+  verbatim, the zoom ruling (*"get rid of stop 3"*, which overturns
+  `dead-ends.md` `rendering:049`), and a process finding — **four cards asked
+  one question**, so read the open queue before posting.
+- [evolution-lab-round-35-2026-09-14.md](evolution-lab-round-35-2026-09-14.md)
+  — **coordinator record, 2026-09-14. `lab`/`engine`.** The round that gave the
+  food economy a face and answered *why don't colonies fight* with a finding
+  nobody had named: **a stranger is already food.** `ant` material carries
+  `food_class: 1.0` against the shipped neutral gut, so two colonies outside
+  each other's tolerance eat each other through the **ordinary mouth** —
+  `eats` **54 → 750** from nothing but kin recognition, cross-colony kills
+  outnumbering `Attack` kills two to one. **Turning rivalry on produces
+  predation, not war.** Only `Behavior::scent_spread` is binding, and it is a
+  **threshold rather than a slope**, saturating by 2: at `spread = 1` just
+  **9.3%** of ordered pairs are strangers and one seed in four never meets, so
+  a dial topping out at 1 ships a mechanism a third of beds never show. Also:
+  **an encounter is no longer a bite** (`src/sim/contest.rs`, escalation
+  **1.000 → 0.520**, the rest withdrawals that *display*); per-colony books in
+  joules and a per-cell food road, whose **two food numbers disagree on
+  purpose**; and both overlays defeat the dirty-rect skip, so **the settled bed
+  is the price**. Landed #416, #417, #419, #420, then #421 and **#423, which
+  ships rivalry ON** — `ant.ron` authors `scent_spread: 2.0`, chosen on an
+  order statistic (cross-colony kills in **0 of 12** seeds at 0, **9 of 12** at
+  1, **11 of 12** at 2) after an instrument bug that made `spread=0` not an off
+  arm was caught by requiring the authored value and the runtime override to
+  agree byte-for-byte. §8 carries that and the rule it produced: **the founding
+  draw is not stable across engine changes**, so tune on the threshold
+  argument, never on a table of particular seeds. Open: the economy constants
+  rivalry reallocates, and §Z23's designed repair.
 - [evolution-lab-round-33-2026-09-13.md](evolution-lab-round-33-2026-09-13.md)
   — **coordinator record, 2026-09-13. `lab`/`engine`.** The round that answered
   the owner's #1 with a **no**. **The creature pass can run across cores and is
@@ -3453,6 +3649,28 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   worth 1.09x on the background and 1.20x on the ants — and at the owner's
   population that leaves ~86% of the frame single-threaded. Harness:
   `examples/antcost.rs`.
+
+- [evolution-lab-knee-2026-09-14.md](evolution-lab-knee-2026-09-14.md)
+  — **what changes at the knee: nothing, because there is no knee.** Round 34,
+  lane A, and a well-evidenced negative with a redirect under it. Once bed age
+  and plant load are held still, **one line fits 0 to 793 ants** on two bed
+  widths and two seeds — `925 + 3.94·ants`, residuals ±78 µs — and the chord
+  running through the 400–600 threshold reads **4.34 µs/ant** against 3.78
+  below it. **The cheap sub-knee regime is reproducible as an artifact**: on a
+  planted bed with arms left at their natural ages the same harness gives 1.04
+  µs/ant then 5.22, a 5.0x step, because ants eat and a plant costs 2.0–6.4 µs
+  against an ant's ~4 — the marginal cost of an ant in a planted bed is
+  **negative** over part of the range. The redirect for round 35: measured with
+  `SCHED_PASS` rather than by subtraction, **the creature pass is only 45% of
+  what an ant costs** and the cost of one decision is flat over a 17x
+  population range; the other 55% is the CA sweep over the **29.4 cells per ant
+  per frame** it leaves dirty, which is the same 0.35 share round 33 measured
+  as its parallel hit rate, and which makes round 32's 86% an over-attribution
+  rather than a measurement. Strikes off the scheduler (`lag` 0 to 793 ants),
+  density (4x bed width at fixed count does not lower the per-ant cost),
+  jamming, and contention. Carries the four rules any later population sweep
+  inherits. Harness: `examples/antcost.rs`, which gains `age=`, `widths=`,
+  `heights=`, `plants=` and `swept=1`.
 
 - [evolution-lab-creature-parallelism-2026-09-13.md](evolution-lab-creature-parallelism-2026-09-13.md)
   — **the build the report above asked for: it works exactly, and it does not

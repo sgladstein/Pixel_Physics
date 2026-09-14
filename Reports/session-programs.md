@@ -60,6 +60,31 @@ pull request even if it could push. The only recovery is to spawn it again
 correctly and archive the original, so two lanes are not building the same
 thing.
 
+**A lane's own `task_summary` is not evidence it has a checkout, and that is
+the half that will fool you.** Recurred 2026-09-14 — this section already
+existed and the coordinator dispatched four lanes without reading it, which is
+the first thing worth recording. The second is new and nastier. Of the four,
+**one inherited `sources` and three did not**, and of those three:
+
+| lane | `sources` | what its record said it was doing |
+|---|---|---|
+| A | absent | *"set up branch, reading render code for aura_disc_count baseline"* |
+| B | absent | *"setup release build, reading placement specs for lane B"* |
+| C | absent | *"let me know which one (a clone URL or org/repo) and I'll pick up the actual task"* |
+
+Only C was telling the truth. A and B produced summaries that read like
+ordinary progress against files that were not on their disks — so a
+coordinator glancing down a status list would have scored three of four as
+healthy and gone away. **The only signal that crosses the container is a
+pushed branch**: `git ls-remote origin 'refs/heads/claude/<prefix>-*'` was
+empty for all four, which settled it in one command. That is the same rule as
+*A lane being healthy is not evidence its work is durable* below, one step
+earlier — here the lane is not merely un-durable, it is working on nothing.
+
+Cost of the repeat: about a dollar and twenty minutes, because C stopped and
+the branch check was cheap. It would have been a session if the coordinator
+had trusted the summaries.
+
 **Carry the dead lane's findings into the relaunch.** The one that got seven
 minutes in had already found three stale line numbers in its own brief and
 confirmed what a just-merged PR did and did not touch. That is real work and
@@ -265,6 +290,23 @@ Two consequences, both of which should shape how a program is set up:
 If a future harness gives lanes the MCP tools, check it rather than assume it:
 have one lane try `create_trigger` against the coordinator early, while a
 failure is still cheap to route around.
+
+**A measured counter-example, 2026-09-14, and it narrows the claim rather than
+killing it.** Lane A of the druid program was poked by exactly the mechanism
+above at 03:47 and again at 03:51, and at 03:59 it opened **its own** pull
+request — `mcp__github__create_pull_request`, called from inside a woken lane.
+So the strip is not total: either it does not reach `mcp__github__*`, or it
+binds only the turn the trigger starts and a lane that keeps working past that
+turn has its tools back. **What that does not touch is the half the protocol
+rests on** — no lane in that round reached its coordinator, and `SendMessage`
+and `ListAgents` failed exactly as described above. So the return path is still
+files, and "the coordinator opens every lane's PR" drops from a fact to a
+belt-and-braces default: it costs one call, and being wrong the other way
+leaves finished work with no PR at all, which is the failure
+`branchcheck.sh --prs` exists to catch. **The clean test is still unrun** —
+one lane calling `mcp__github__get_me` in the first turn after a poke would
+settle which of the two readings is right, and it is cheap. Until someone does
+it this is a qualification, not a refutation.
 
 ### Coordinators can talk to each other, and that channel is two-way
 

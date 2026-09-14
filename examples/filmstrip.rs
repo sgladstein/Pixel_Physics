@@ -6451,7 +6451,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
     // own convention, so a held sheet is reproducible rather than depending on
     // what hour `build` happened to leave the clock at.
     world.held = args.held;
-    world.quickenings = args.quickenings.iter().map(|&(x, y, r)| pixel_physics::sim::world::Quickening { x, y, r }).collect();
+    world.quickenings = args.quickenings.iter().map(|&(x, y, r)| pixel_physics::sim::world::Quickening::at(x, y, r)).collect();
     if args.held {
         world.set_sky_hold(pixel_physics::sim::clock::SkyPin::Noon.hold());
     }

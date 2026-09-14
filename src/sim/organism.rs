@@ -6029,11 +6029,14 @@ pub struct OrganismState {
     /// **Two readers today, and one rule.** The lab's population strip and
     /// the renderer's creature colour both key on `(species, colony)`, so
     /// what is drawn on screen and what is graphed under it are the same
-    /// partition. The rule is `World::colony_rivalry`: with it on,
-    /// `creature::is_living_kin` requires the same colony as well as the
-    /// same species, so two ant colonies stop reading each other as
-    /// nestmates. Off, this number is a label and nothing more, which is
-    /// the shipped behaviour.
+    /// partition. **This number is a label and nothing more**, which is the
+    /// shipped behaviour: whether two colonies read each other as nestmates
+    /// is decided by `creature::is_living_kin`, which turns on *smell*, and
+    /// `Behavior::scent_spread` ships at 0 -- every colony at the species'
+    /// authored point, so two clicks are one extended family. The narrow end
+    /// of that dial is what makes every click a stranger, and is what the
+    /// retired `World::colony_rivalry` switch used to do in one bit. This
+    /// doc named that switch as the live rule until 2026-09-14.
     ///
     /// Monotonic like `lineage`, and for the same reason: a colony label
     /// built on a reusable handle would merge two colonies part way

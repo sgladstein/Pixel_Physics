@@ -28,6 +28,7 @@
 //! | `[` / `]` | the brush, narrower and wider |
 //! | `O` / `L` | the field and organism overlays |
 //! | `F1` / `F2` / `F3` | the plants, ants and box pages |
+//! | `F7` | the food road and the harvest map — off / road / harvest / both |
 //! | `F` | minimum framerate at speed-up: 60 / 30 / 20 / 10 Hz |
 //! | `T` | what the clock does on a notable event: LINGER / STOP / OFF |
 //! | `Tab` | the stats page |
@@ -69,6 +70,8 @@
 //!   cannot zoom out at all** — it is no bigger than the viewport — so without
 //!   a way to open a larger one there is no way to photograph the thing
 //!   `Lab::pixel_budget` changes.
+//! - `PIXEL_PHYSICS_LAB_FOOD=N` presses `F7` N times before the shot, which is
+//!   the only headless route to a view with no bar cell.
 //!
 //! Both are debug hooks. A real pointer overrides the first the moment it
 //! moves, and the second is spent after its last click.
@@ -179,6 +182,18 @@ struct Handler {
     start_pixels: Option<i32>,
     /// `PIXEL_PHYSICS_LAB_ZOOM_OUT=N` — rungs to pull back on the first frame.
     start_zoom_out: Option<i32>,
+    /// `PIXEL_PHYSICS_LAB_FOOD=N` — presses `F7` N times on the first frame,
+    /// so the food channels can be photographed **through this binary** and
+    /// not only through a harness.
+    ///
+    /// The same debug-hook shape as the four above and for the same reason,
+    /// which `CLAUDE.md` states as a rule paid for once: the zoom buffer
+    /// panicked in the real app under `xvfb` while all 1,687 tests passed,
+    /// because every test applied the budget before drawing and `main.rs` did
+    /// not. A view with no bar cell has no other headless route in — the
+    /// scripted-click hook can only reach things the bar draws, and this one
+    /// is a keystroke.
+    start_food: Option<u32>,
     /// `PIXEL_PHYSICS_LAB_CLICK=x,y;x,y` — clicks to play back, one per
     /// rendered frame. Stored reversed so the next one is a `pop`.
     scripted_clicks: Vec<(i32, i32)>,
@@ -269,6 +284,7 @@ impl Handler {
             // than only what the bar looks like unpressed.
             start_pixels: std::env::var("PIXEL_PHYSICS_LAB_PIXELS").ok().and_then(|v| v.parse().ok()),
             start_zoom_out: std::env::var("PIXEL_PHYSICS_LAB_ZOOM_OUT").ok().and_then(|v| v.parse().ok()),
+            start_food: std::env::var("PIXEL_PHYSICS_LAB_FOOD").ok().and_then(|v| v.parse().ok()),
             scripted_clicks: std::env::var("PIXEL_PHYSICS_LAB_CLICK")
                 .ok()
                 .map(|v| v.split(';').filter_map(parse_at).rev().collect())
@@ -333,6 +349,12 @@ impl Handler {
             for _ in 0..n {
                 self.zoom(-1);
             }
+        }
+        if let Some(n) = self.start_food.take() {
+            for _ in 0..n {
+                self.lab.renderer.cycle_food_overlay();
+            }
+            self.lab.ui.say(format!("FOOD {}", self.lab.renderer.food.mode.label()));
         }
         let advance = self.lab.advance(elapsed);
 
@@ -695,6 +717,29 @@ impl Handler {
             // since reaching the menu cannot itself depend on already
             // knowing a key.
             KeyCode::F6 => self.lab.act(Action::Panel(Panel::Menu)),
+            // **`F7` — the food economy on the ground.** Owner, round 35:
+            // *"I want to know what they are eating, where it is coming from,
+            // if/where it is being stored or movement paths."* This is the
+            // half of that which is seen rather than read — the haul routes
+            // and the patches the food is coming out of (`food_road`).
+            //
+            // **A key rather than a letter because there is no letter left**,
+            // which was checked rather than assumed: every one of `A`-`Z` is
+            // bound in this match. So it goes on the end of the `F1..F6` run,
+            // which is also where the sandbox puts its view toggles (`F10` is
+            // the tree-depth switch there). The two overlay *letters* it
+            // belongs beside, `O` and `L`, are the field and organism
+            // channels; this is a third of the same kind and composes with
+            // both — a scent plane under a haul route is exactly the pairing
+            // that says whether the ants are following the trail they laid.
+            //
+            // Poked straight at the renderer, the way `L` already is, rather
+            // than through an `Action`: it is a view and owns no lab state.
+            KeyCode::F7 => {
+                self.lab.renderer.cycle_food_overlay();
+                let label = self.lab.renderer.food.mode.label();
+                self.lab.ui.say(format!("FOOD {label}"));
+            }
             // The parameters page. `P` rather than `F4`: it is the one page
             // you open to *change* something rather than to read something,
             // and it sits with the tools on the bar's top row for the same
