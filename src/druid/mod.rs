@@ -388,6 +388,35 @@ const PLACE_RADIUS_START: i32 = 60;
 pub const PLACE_RADIUS_MIN: i32 = 20;
 pub const PLACE_RADIUS_MAX: i32 = 240;
 
+/// **What the carried circle should read, given the one shared dial.**
+///
+/// Owner's playtest, 2026-09-14: *"there should just be one bubble control
+/// size for the druid and placeable bubbles."* `Q`/`E` used to walk
+/// [`Druid::place_radius`] alone, with `[`/`]` walking `World::carried_radius`
+/// on its own separate scale — two dials for what reads, from outside the
+/// code, as one question ("how big is a bubble"). [`Druid::set_bubble_radius`]
+/// is the one place both are set now, and this is the rule it applies to the
+/// carried side.
+///
+/// **An offset from each circle's own base, not a shared absolute radius.**
+/// The two circles start at different sizes for reasons that are still true:
+/// [`PLACE_RADIUS_START`] is what a placed circle needs to be worth walking
+/// away from, [`CARRIED_RADIUS`] is deliberately small so presence stays
+/// free (`carried_cost`'s own doc). Sharing one absolute number would either
+/// start the carried circle already costing power at the dial's own default,
+/// or cap every placed circle at the carried one's much smaller ceiling.
+/// Sharing the *offset* keeps both: at the dial's own start
+/// (`place_radius == PLACE_RADIUS_START`) the offset is zero and this
+/// returns exactly [`CARRIED_RADIUS`] — `a_widened_carried_circle_costs_and_
+/// an_untouched_one_does_not`'s "the circle you already are must stay free"
+/// is unchanged. Above that, both circles grow together until the carried
+/// one hits its own lower ceiling and pins there while the placed one keeps
+/// going.
+fn carried_radius_for(place_radius: i32) -> i32 {
+    let offset = place_radius - PLACE_RADIUS_START;
+    (CARRIED_RADIUS + offset).clamp(CARRIED_RADIUS, CARRIED_RADIUS_MAX)
+}
+
 /// **How far the player walks before his carried circle wakes the ground
 /// ahead of him.**
 ///
@@ -1534,6 +1563,18 @@ impl Druid {
         placed
     }
 
+    /// **The one bubble-size dial — `Q`/`E`.** Sets [`Self::place_radius`]
+    /// (clamped to [`PLACE_RADIUS_MIN`]..=[`PLACE_RADIUS_MAX`], what a placed
+    /// circle and its preview ring use) and, from the same number,
+    /// `World::carried_radius` (via [`carried_radius_for`], clamped to its
+    /// own narrower range). One key pair, both bubbles — see that function's
+    /// doc for why they share an *offset* rather than the same absolute
+    /// radius.
+    pub fn set_bubble_radius(&mut self, r: i32) {
+        self.place_radius = r.clamp(PLACE_RADIUS_MIN, PLACE_RADIUS_MAX);
+        self.world.carried_radius = carried_radius_for(self.place_radius);
+    }
+
     /// **Place a standing quickening where he is standing.**
     ///
     /// The economy's verb, as against the carried circle, which is free and
@@ -2102,6 +2143,49 @@ mod tests {
             last = c;
         }
         assert!(last > 0.0, "the widest carried circle must cost something");
+    }
+
+    /// **One dial, both bubbles — and the one it already costs power to
+    /// widen must not start pre-charged.** Owner's playtest, 2026-09-14:
+    /// *"there should just be one bubble control size for the druid and
+    /// placeable bubbles."* `Druid::set_bubble_radius` is the one place both
+    /// [`Druid::place_radius`] and `World::carried_radius` are set now
+    /// (`Q`/`E`, `src/bin/druid.rs`), and the property this guards is the
+    /// one the merge could quietly break: `a_widened_carried_circle_costs_
+    /// and_an_untouched_one_does_not`'s "the circle you already are must
+    /// stay free" is about `World::carried_radius` sitting at
+    /// [`CARRIED_RADIUS`] *by default*, and a naive merge (one shared
+    /// absolute radius) would start the carried circle at the placed
+    /// circle's own default of 60 instead — costing power from the very
+    /// first frame with nobody having touched the dial.
+    #[test]
+    fn the_one_dial_leaves_the_carried_circle_free_at_its_own_default_and_clamps_each_side_on_its_own_range() {
+        let mut d = Druid::bare_for_test();
+
+        // Untouched: the dial's own start reads back as each circle's own
+        // free default, not some shared number in between.
+        assert_eq!(d.place_radius, PLACE_RADIUS_START, "test setup: the dial starts where Q/E starts");
+        assert_eq!(d.world.carried_radius, CARRIED_RADIUS, "an untouched dial must leave the carried circle at its free default");
+
+        // Widen past the carried circle's own ceiling -- it pins there while
+        // the placed radius keeps climbing, rather than the dial being
+        // capped by the narrower of the two circles it drives.
+        d.set_bubble_radius(PLACE_RADIUS_MAX);
+        assert_eq!(d.place_radius, PLACE_RADIUS_MAX, "the placed circle must reach its own ceiling");
+        assert_eq!(d.world.carried_radius, CARRIED_RADIUS_MAX, "the carried circle must pin at its own, lower ceiling");
+
+        // Narrow past the carried circle's own floor -- it pins at
+        // `CARRIED_RADIUS` (never below "the circle you already are") while
+        // the placed radius keeps shrinking to its own, lower floor.
+        d.set_bubble_radius(PLACE_RADIUS_MIN);
+        assert_eq!(d.place_radius, PLACE_RADIUS_MIN, "the placed circle must reach its own floor");
+        assert_eq!(d.world.carried_radius, CARRIED_RADIUS, "the carried circle must not be driven below presence");
+
+        // Back to the start: the carried circle is free again, not stuck
+        // wherever the last extreme left it.
+        d.set_bubble_radius(PLACE_RADIUS_START);
+        assert_eq!(d.world.carried_radius, CARRIED_RADIUS, "returning the dial to its start must return the carried circle to free");
+        assert_eq!(carried_radius_for(PLACE_RADIUS_START), CARRIED_RADIUS, "the pure function agrees with the method");
     }
 
     /// **Off is a state the dial cannot reach, and the flag is what reaches

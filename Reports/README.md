@@ -3638,6 +3638,33 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   inherits. Harness: `examples/antcost.rs`, which gains `age=`, `widths=`,
   `heights=`, `plants=` and `swept=1`.
 
+- [evolution-lab-ant-dirty-cells-2026-09-14.md](evolution-lab-ant-dirty-cells-2026-09-14.md)
+  — **what the 29.4 swept cells an ant dirties are made of, and the answer is
+  not about ants.** Round 36, lane B, the census the round asked for before
+  anything is proposed. An ant changes **0.76–0.82 cells a frame** and the
+  sweep is asked for 12–22 on its behalf; **three of those are the ant** and
+  the rest is one rule — a dirty mark is expanded sideways by the *largest*
+  `Material::sweep_reach` of any cell in its whole 4,096-cell chunk. Censused:
+  water sets that maximum to **24 for a majority of awake chunks, which hold
+  an average of 1.4 water cells**, against soil's own 2. Computing the same
+  guarantee **per mark** instead of per chunk — a superset of everything that
+  can reach it, so no conservatism is lost and `parallel.rs`'s box-stated
+  proof is untouched — cuts the region the sweep is *asked* for **4.8–5.7x**,
+  landing within 6–23% of the absolute floor, and it does it at zero ants
+  too: **an engine finding the ant census surfaced.** Explains
+  `PIXEL_PHYSICS_SWEEP=rows` measuring 1.05x on the tick: the two inflations
+  overlap, so per-row spans are worth 6% of the marginal cost and only cutting
+  the reach as well is worth 75%. Strikes off the pheromone trail (never marks
+  the sweep at all), stale wakefulness (1% of swept), the awake *count* (flat
+  at 0.01 chunks per ant) and adjacency as a marginal term. **Gated on §E2**,
+  not on economics — row spans are also strictly conservative and still
+  diverge at frame 4,330 — and carries **no timing at all** on purpose.
+  Harness: `examples/antdirt.rs`, new, whose two fixes generalise: an age pin
+  over a bed with no income is a starvation budget and must be derived from
+  the arms, and a grid-diff reconstruction of the dirty region needs the
+  moisture writes filtered out and the `touch_neighbours` marks put in before
+  its own control passes (0.98–1.06 here, 2.33–4.39 without).
+
 - [evolution-lab-creature-parallelism-2026-09-13.md](evolution-lab-creature-parallelism-2026-09-13.md)
   — **the build the report above asked for: it works exactly, and it does not
   pay.** `sense` and `eval_brain` are pure reads of an immutable `&World`, so
