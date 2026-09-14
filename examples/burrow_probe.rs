@@ -1423,8 +1423,34 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>,
             for i in (1..slots.len()).rev() {
                 slots.swap(i, draw.below(i as u32 + 1) as usize);
             }
+            // **One colony, not fifty-five** -- the repair `examples/ascii.rs`
+            // made to three of its own scenes on 2026-09-14 and which this
+            // file never got. `World::plant_ant` places through
+            // `Origin::Founder { colony: None }`, which claims a **fresh
+            // label per call**, so a loop of it builds a crowd of strangers
+            // that only looks like a colony. It was inert while `ant.ron`
+            // left `scent_spread` at 0 and every label smelled identical;
+            // with the dial live those labels are mutual strangers, and a
+            // stranger is *food* before it is ever a target for the fight
+            // verb. The first ant founds the label and every later one joins
+            // it, which is `creature::colony_of_site`'s whole purpose.
+            //
+            // **This is why the walk gate read zero.** Measured on this
+            // harness, `arms=colony`, 12 seeds, frame 8,000: `roofed` void
+            // 5-9 cells as strangers against this file's own published 130,
+            // with `lgroof 0` -- the largest void run had no roof at all,
+            // which is this file's own definition of a quarried face rather
+            // than a gallery. They spent the run fighting instead of
+            // digging, exactly as `ascii`'s excavation scene did (`digs`
+            // 62 -> 354, roofed 0 -> 42 on the same repair). Any number
+            // taken from this harness between `ant.ron` gaining a live
+            // `scent_spread` and this commit is a measurement of a brawl.
+            let mut colony = None;
             for &(x, y) in slots.iter().take(ants as usize) {
-                world.plant_ant(x, y);
+                if let Some(site) = pixel_physics::sim::creature::plant_creature_seed_in(&mut world, x, y, "ant", colony) {
+                    colony = colony.or_else(|| pixel_physics::sim::creature::colony_of_site(&world, &site));
+                    world.schedule_active_site(site);
+                }
             }
         }
         // **The scene check, asserted rather than printed** -- the same rule

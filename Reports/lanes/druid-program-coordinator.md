@@ -19,43 +19,25 @@ carries only what is specific to this round. Kept small on purpose.
 
 ## What the sizing probe overturned, before any lane was dispatched
 
-Four parallel reads, and **three of the seven items are not the size they
-look**:
+All seven items have landed, so the per-item sizing is now in the PR bodies.
+**Two findings outlived the round**, and both are the same shape — *a doc
+comment claiming a behaviour the code does not have*:
 
-- **Item 1 is wiring, not porting.** Two different things here are called
-  "census". `lab::census` (`src/lab/census.rs:209`) takes `&LabBox` and cannot
-  serve the druid. The panel the owner means is `lab::stats::Stats`, which is
-  **already `&World`-only** (`observe` `stats.rs:565`, `draw_at` `:624`) and
-  already proven to run outside a `Lab` (`examples/labstats.rs:1291`). **One
-  lab-bound line in the whole panel**: `stats.rs:710` clamps its bottom to
-  `super::ui::bar_top()`. Births/deaths need nothing new — cumulative on
-  `World` at `world.rs:1740` / `:1684`.
-- **Item 2 is not an arrow deletion.** The particle count is a hard constant,
-  `PER_DRAW = 26` (`hud.rs:732`), and `Draw::amount` — which already carries
-  the energy and whose doc at `mod.rs:368` already *claims* it "sets how heavy
-  the flow looks" — **is never read by the renderer**. So the order is forced:
-  make the count proportional first, then delete the chevrons, or the player
-  is left with no readout at all. A false doc claim, the same shape as the
-  `ant_wide` blurb PR #408 unshipped.
-- **Item 5's premise is partly false, and that changes what gets built.** The
-  carried sphere at base radius **already costs exactly zero** —
-  `carried_cost` is `(r/28)^2 - 1` floored at 0 (`mod.rs:1488`), area *added*
-  rather than area held, with a guard whose message is *"the circle you already
-  are must stay free"* (`mod.rs:1603`). What is actually missing is an **off**
-  state: `carried_radius = 0` is silently read as the default 28
-  (`frame.rs:101`), which `world.rs:3951-3954` documents as deliberate —
-  *"a dial that can be turned to off by accident is a different mechanic."* So
-  off means `world.carried = None`, and the engine's own comment says that is
-  authoring rather than tuning.
-- **Item 3 has a complete precedent** in `src/lab/ui.rs` and no lane should
-  invent one: `Rect`+`contains` (`:267`), `Widget` whose `line2` **is** the
-  subtle hotkey (`:1042`), `Bar::hit` (`:1074`), a press/release protocol where
-  sliding off takes the press back (`:2982`), widths **measured not written
-  down** (`:1164`, `:1183`), and one dispatch point — `Lab::act`
-  (`lab/mod.rs:2680`) — documented as "no second copy of what SPACE does".
-  The druid reads **no mouse at all** today, and its mapping is 1:1 (`zoom`
-  untouched, `Hud::new(w,h,1)` at `hud.rs:376`), so `window_pos_to_pixel` is
-  the whole conversion.
+- **Item 2 was not an arrow deletion.** `Draw::amount` carried the energy and
+  its own doc at `mod.rs:368` already claimed it *"sets how heavy the flow
+  looks"*; the renderer never read it, and the count was the constant
+  `PER_DRAW = 26`. So the order was forced — make the count proportional
+  first, then delete the chevrons, or the player is left with no readout at
+  all. Same shape as the `ant_wide` blurb PR #408 unshipped.
+- **Item 5's premise was partly false.** The carried sphere at base radius
+  **already cost exactly zero** — `carried_cost` prices area *added* — so
+  there was no power to save, and what was actually missing was an **off**
+  state. Reading the words rather than the code would have built the wrong
+  thing.
+
+The general one: **before sizing an item from a doc comment, check the code
+does what the comment says.** Four of the seven were sized off docs and two of
+those four were wrong.
 
 ## Why three lanes and not seven
 
@@ -136,30 +118,43 @@ untouched. Both lanes were told; §Z21 is being tightened to name the starts
 rather than "the held world", because an entry that overstates its scope
 gets discounted later.
 
-## Where the round got to, 04:40 — and one correction to the protocol
+## Where the round closed, 13:0x — five lanes, five PRs
 
-**Landed:** item 6 (one hue, `91567399`), PR #408 (scent channel A + the false
-`ant_wide` blurb + the shared `open_by_box`), and **PR #411 — Lane A's whole
-screen brief**: a two-row button bar over thirteen verbs with the hotkey drawn
-dimmer beneath, the biosphere page on `TAB` reusing `lab::stats` almost
-unchanged, and the energy arrows gone with the mote count finally a function of
-the amount drawn. Nine of nine green; `main` at `79c0b639`.
+| PR | lane | what landed |
+|---|---|---|
+| #411 | A — the screen | items 3, 2, 1: a two-row button bar over thirteen verbs with the hotkey drawn dimmer beneath, the biosphere page on `TAB` reusing `lab::stats` almost unchanged, the energy arrows gone and the mote count finally a function of the amount drawn |
+| #413 | B — world and sphere | items 4, 5: the world generates with nothing growing in it and she carries a pouch per seed kind; the sphere switches fully off and the world holds still where she stands |
+| #414 | C — thicket | item 7: a floor of plants is a floor — the station search steps up through plant tissue |
+| #415 | E — absorb | the owner's absorb bug, diagnosed rather than patched: absorb never touches the world, and the plants are eaten by grazing that the speed dial multiplies. Filed §Z22 |
+| #418 | D — bubble aura | the hazy shimmering aura, and speed carried in the haze rather than in a number |
 
-**Open with CI running:** #413 (Lane B — bare world, seed pouch, sphere off),
-#414 (Lane C — a floor of plants is a floor). Lanes D and E still building.
+Item 6 (one hue) landed direct from the coordinator, `91567399`.
 
-**A claim in `session-programs.md` that did not hold here, and I had built a
-plan on it.** That report says a trigger stamps its own `allowed_tools` with no
-`mcp__*` entries, so *"a lane woken this way therefore has no `create_trigger`,
-no `fire_trigger`, and no `SendMessage`"* — from which I concluded the
-coordinator must open every poked lane's PR. **Lane A was poked at 03:47 and
-again at 03:51, and opened its own PR #411 at 03:59.** So either the strip does
-not apply to `mcp__github__*`, or it applies only to the turn the trigger
-starts. Not filed as a refutation, because I did not run the clean test: one
-lane trying `mcp__github__get_me` immediately after a poke would settle it, and
-that is worth doing while it is cheap. Until then, assume the coordinator opens
-the PRs — it costs one call and being wrong the other way loses the work's
-visibility.
+**Three review verdicts from the 2026-09-13 cards were answered by this round
+without anyone routing them there**, which is worth noticing: the charge-flow
+asks (*"goes to the top of the gnome instead of the middle"*, *"make it
+slower"*, *"pixels + a diffuse aura around each"*) are all three on `main` —
+the bow now decays before it arrives, `DRAW_FRAMES` went 42 → 90, and each
+mote gets an aura pass. The scent verdict (*"more diffuse, not a single sharp
+line"*) is `SCENT_HALO = 4` cells in eight bands. **A card's verdict and a
+playtest item can be the same defect wearing two descriptions**, so read the
+inbox before dispatching a round, not after.
+
+**A claim in `session-programs.md` did not hold here, and the correction is
+now in that report rather than this note** (search *"A measured
+counter-example, 2026-09-14"*): a poked lane is **not** stripped of
+`mcp__github__*` — Lane A was poked twice and opened its own PR #411 — so the
+coordinator-opens-every-PR rule drops to a belt-and-braces default. The half
+that did hold is the half the protocol rests on: no lane reached back, and the
+return path is still files.
+
+**What the round cost the coordinator, recorded because it is the recurring
+one.** Three CI restarts on #408 were my own successive pushes cancelling
+in-progress runs — **a push while CI is running is a decision to start CI
+again**, and on this repo that is a twenty-minute round trip. And my brief to
+Lane C named the wrong scene (`Start::Grown` grows to saturation; it does not
+make a thicket), which cost Lane E a threefold-overstated headline and a
+reposted card.
 
 **Two lanes caught their own guards being blind, which is the part worth
 keeping.** Lane B put the faults back and found its first pouch guard passed
@@ -177,9 +172,6 @@ missing material rather than as a confusing assertion.
 
 ## Standing facts for this round
 
-- **Lanes A and B are based on `claude/determined-ramanujan-c9szc5`, not
-  `main`**, because PR #408 carries druid changes in their files. Lane C is on
-  `main` because its change is shared engine code and wants the trunk.
 - **Run `git ls-remote origin 'refs/heads/claude/*'` at every check-in, for
   every live lane.** A lane three hours and $7.85 into a working build once
   had never pushed a branch; every other signal comes from inside the
