@@ -71,15 +71,22 @@ anyone re-runs it.** Its whole delta comes from `life_scatter`'s seed cells —
 the 45 blocked columns in the bare census are grassroot 21, rootwood 14, moss
 10 and nothing else, which on a zero-grow world can only be scatter.
 `claude/druid-seeds-and-sphere` zeroes the druid preset's three life
-densities (`life_scatter` 993 cells → 0), so after it lands a bare world has
-no plant cell anywhere and this arm's delta goes to zero.
-`thicket_probe start=bare ablate=1` is the arm that settles it without
-touching `assets/worldgen.ron`: it deletes every plant cell before censusing,
-which on a zero-grow world is exactly what zeroing the scatter does.
-**Run pending — this line carries its numbers or is withdrawn before merge.**
-What is measured today is the composition above; the prediction follows from
-it rather than standing on its own. That is the correct outcome — a change
-about thickets does nothing on ground with no thicket — and it makes the bare
+densities, so after it lands a bare world has no plant cell anywhere and this
+arm's delta goes to zero. (Lane B reports `life_scatter` writing 993 cells →
+0 from `pass_ablation`; the 676 below is a different count — plant cells
+standing in the finished 2560x960 world — and the two are not meant to
+match.)
+**Measured, not predicted.** `thicket_probe start=bare ablate=1` settles it
+without touching `assets/worldgen.ron`: it deletes every plant cell before
+censusing, which on a zero-grow world is exactly what zeroing the scatter
+does. It removed **676** plant cells (printed, because an ablation that
+removed nothing is a control arm wearing the treatment's label), and the two
+arms then come back **identical** — 221 of 221 columns are sites with no
+climb at all, 173 stations and **152 animals placed in both**. Note that 152
+is *above* both current bare numbers: the scatter was itself costing the
+non-ablated world four placements even with this change on. That is the
+correct outcome — a change about thickets does nothing on ground with no
+thicket — and it makes the bare
 arm a *cleaner* negative control rather than an invalid one. The grown-start
 numbers, which carry the finding, are untouched.
 
