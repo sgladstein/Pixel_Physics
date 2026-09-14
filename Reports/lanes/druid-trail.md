@@ -34,94 +34,38 @@ Measured in the real app (`Druid::update`/`Druid::draw`, the calls
 **Both of the owner's complaints turned out to be one defect**, which is why
 one constant answers both.
 
-## What was actually wrong
+## What was wrong, in one paragraph
 
-**Diffusion, not decay, is what kills a trail here, and nothing in the
-codebase said so.** `pheromone::DIFFUSE` blends every cell a quarter of the
-way toward its own 3x3 mean each pass. For a cell on a **one-cell-wide line**
-six of its nine neighbours are empty, so that mean is about `v/3` and the line
-sheds roughly **17% a pass** — against `DECAY_RHO`'s **3%**. Diffusion is five
-to six times the term everyone reaches for, and it is invisible in the
-module's own write-up, which frames trail lifetime entirely around the decay
-LUT's strict-decrease floor.
+**Diffusion, not decay, is what removes a trail here.** `pheromone::DIFFUSE`
+blends every cell a quarter of the way to its own 3x3 mean each pass, and a
+one-cell line has six empty neighbours of nine — so it sheds **~17% a pass**
+sideways against `DECAY_RHO`'s **3%**. Depositing harder barely helps (the 255
+ceiling on a line reaches 4.8s; an `r = 3` band at the *unchanged* deposit
+reaches 10.8s). The same fact is why it looked like dots: a one-cell mark
+rounds to nothing a cell or two out, so the readout was drawing the spine of a
+cloud that did not exist. Two more defects fell out of looking at the picture
+rather than the numbers — the scent was laid at his **chest** (`Player::center`,
+a median 3 cells above the floor, the half of the plane no ant can smell), and
+the readout's band was `v * SCENT_BANDS / 256` while the plane never held more
+than ~31 along a route, so **every mark of every trail drew in the same single
+dimmest colour**.
 
-Three consequences, all measured:
+**The full write-up, the four changes and what they cost is `PR_BODY_LANE_D.md`
+on this branch** — not repeated here, because a lane note is for what another
+lane needs.
 
-- **Depositing harder barely helps.** On the plane, a one-cell line at the
-  shipped deposit stays legible 1.0 s; pushing that deposit all the way to the
-  255 ceiling reaches **4.8 s**. The lifetime is not in the deposit.
-- **Width is the lever.** A cell in the middle of a *band* has a 3x3 mean of
-  roughly its own value and sheds almost nothing. At an **unchanged** deposit,
-  an `r = 3` band measures **10.8 s** against the line's 1.0 s.
-- **The same fact makes the trail look like dots.** A mark laid one cell wide
-  rounds to nothing a cell or two out, so there is no cloud to draw — the
-  readout was drawing the spine of a cloud that did not exist.
+## The owner's aside — *"is this a problem for ant laid trails too"*
 
-Two more defects fell out of looking at the picture rather than the numbers:
-
-- **The scent was laid at his chest.** `lay_trail` marked `Player::center`,
-  which this build measures at a median **3 cells above the floor**. The
-  trail hung in the air over its own route — visible as a band of green mist
-  at waist height once the swath made it wide enough to see — and it is the
-  half of the plane an ant can never read, since an ant senses around its own
-  head while walking the floor. Now `Player::feet`.
-- **The readout had one colour and seven unreachable ones.** The band was
-  `v * SCENT_BANDS / 256`, so everything under 32 landed in band 0 — and the
-  plane never held more than about 31 along a walked route. **Every mark of
-  every trail drew in the same single dimmest colour.** A readout with one
-  value has no gradient, which is the other half of "a bunch of dots".
-
-## What shipped
-
-1. **`druid::TRAIL_RADIUS = 3`** — `lay_trail` lays a graded swath about him
-   rather than a single cell, strongest under his feet and fading to the rim.
-   Graded rather than a flat disc for the ethos reason: a uniform disc is a
-   hard-edged slab whose rim is a step down to nothing, which is the dots with
-   bigger dots.
-2. **`lay_trail` anchors at `Player::feet`**, not `center`.
-3. **`hud::band_of`** — the readout's bands come off `sqrt(v/255)` rather than
-   a straight scale, so the small values a cloud's *edge* is made of resolve
-   into their own bands instead of all collapsing into band 0.
-4. **The readout blends rather than stamps** — alpha as well as colour carries
-   strength, so the core lands opaque and the rim fades into the world.
-
-**`TRAIL_DEPOSIT` is deliberately not raised.** Raising it alongside the swath
-pins the plane at 255 for about 2.8 s more life, and a pinned trail is one no
-ant walking it can reinforce — `pheromone::DEPOSIT`'s own P-14 note says halve
-it rather than let that happen.
-
-### What this costs, stated plainly
-
-- **29 plane writes a tick while `G` is held**, against 1. Deposits are a `u8`
-  write plus a `write_watch` mark; nothing in the sweep changed.
-- **The plane does now run close to saturation along his route** — peak 241 of
-  255, against about 80 before — because he re-marks each cell some ten times
-  as he walks over it at 0.6 cells/tick. That is the trade the extra lifetime
-  is bought with, and it means an ant walking his road adds 14 rather than 40.
-  Recorded here rather than tuned away: reducing `TRAIL_DEPOSIT` to restore
-  the headroom is a second decision and the owner asked for lifetime.
-
-## The owner's aside, measured — *"is this a problem for ant laid trails too"*
-
-**Yes, identically, and the answer is free because the shipped gnome trail
-*was* an ant trail.** `TRAIL_DEPOSIT` was defined as `pheromone::DEPOSIT` and
-laid one cell at a time, so every number in the "before" column above is also
-the number for one ant laying one unreinforced route.
-
-- An ant-laid mark, not re-walked, is legible for about **1 second** on the
-  plane and its trail is off the ground in **3.5 s** in a real world.
-- A colony round trip is roughly 2,200 frames — about **37 s**, or **367
-  ant-cells**. So a route a scout lays and does not re-walk is gone before the
-  scout can get home, by a factor of ten.
-- **What keeps ant trails alive is reinforcement, not the mark's own life.**
-  That is a working system, not a bug — but it means a colony cannot recruit
-  to anything a single ant found and left.
-- **The lever is not `DECAY_RHO`.** At 3% a pass it is not what is removing
-  the trail; the 17% going sideways into empty ground is. Anything the lab
-  does about ant trail persistence should be aimed at reinforcement rate or
-  mark width, and a decay sweep will measure a small term.
-
-**Measuring this was mine; fixing it is not.** Nothing ant-laid was changed.
+**Yes, identically**, and it was free: the shipped gnome trail *was* an ant
+trail (`TRAIL_DEPOSIT` was defined as `pheromone::DEPOSIT`, laid one cell at a
+time), so every "before" number above is also one ant laying one unreinforced
+route. A mark a scout lays and does not re-walk is off the ground in ~3.5s
+against a ~37s round trip. **What keeps ant trails alive is reinforcement, not
+the mark's own life** — a working system, but it means a colony cannot recruit
+to anything one ant found and left. **The lever is not `DECAY_RHO`**: at 3% a
+pass it is not what removes the trail, so a decay sweep measures a small term.
+Independently confirmed by PR #432 from the lab side, below. Measuring this was
+mine; fixing it is not, and nothing ant-laid was changed.
 
 ## Instrument
 
@@ -189,3 +133,95 @@ horizontal line is a best case; a real walk is not.
   radius: r=3 **14s**, r=4 15s, r=5 ~17s, r=7 ~18s, and every radius above 3
   pins the plane at 255 outright. Five times the per-tick write for four
   seconds.
+
+## Reply to the coordinator's correction (received 19:40Z, after this was built)
+
+The correction said `DECAY_RHO` is inert, the lever is `DIFFUSE`, the new
+per-channel setter in PR #432 is shared with the ants, and therefore *"the
+question your item actually turns on is: is there a druid-only way to make her
+mark persist?"* — listing re-laying, a higher deposit, or a non-pheromone mark,
+and adding that **"if the honest answer is still 'the only lever is shared',
+that is a complete and correct result."**
+
+**The two measurements agree, arrived at independently**, which is worth more
+than either alone:
+
+| | #432 (`pherolife`) | this lane (`druid_trail`) |
+|---|---|---|
+| diffusion's share, per pass | 16.7% | ~17% |
+| decay's share, per pass | 2.9% | ~3% |
+| ant-laid trails have the same defect | yes | yes |
+
+**But the answer to its question is yes, and the lever is not on its list: the
+mark's *width*.** Diffusion only drains a line *into empty neighbours* — that
+is the whole of the 16.7%. A cell in the middle of a band has a 3x3 mean of
+roughly its own value and sheds almost nothing, so widening the mark defeats
+the dominant term **without touching `DIFFUSE` at all**. Nothing is shared: the
+swath is laid by `Druid::lay_trail` and by nothing else, ant-laid marks are
+untouched, and no per-channel dial is needed. Real app, 3.5s → ~14s.
+
+**Why #432 could not have found it, and this is the reusable part.**
+`pherolife` sweeps `rho`, `diffuse` and `deposit` over a trail it lays **one
+cell wide**, so width is not a variable it has — it is a constant of the
+harness. An instrument that holds the answer fixed reports that the levers it
+*does* sweep are the only ones there are. `CLAUDE.md`'s "ask which object this
+rule evaluates" in its measurement costume: ask what the harness is holding
+still.
+
+**The correction's own suggestion, measured, is the weak one.** Deposit is
+listed as promising on the grounds that the loudest cell anywhere is 98 of 255
+so there is headroom. There is, and it does not buy much: a one-cell line at
+the **255 ceiling** reaches 4.8s against the swath's 10.8s at the *unchanged*
+deposit. Depositing harder moves the exponential's starting point; widening
+changes its rate.
+
+**And the headroom is now spent** — the swath peaks at **241 of 255** along his
+route, because he re-marks each cell some ten times at 0.6 cells/tick. So #432's
+"the plane is three-quarters empty at its peak" is true of a shipped ant trail
+and is no longer true of the gnome's. Already stated above as the trade.
+
+### What this lane did *not* measure, and which instrument answers it
+
+`pherolife` carries a **run drive** counter — frames until the ant's steering
+contribution at mid-trail falls under an absolute bar — and reports that the
+shipped trail **stops steering at frame 48** while 77 cells are still standing.
+That is the right question and a better one than presence.
+
+**This lane measured presence and strength, not steering.** The swath's peak
+runs 3x higher over the same window (241 against 80) and the along-route slope
+guard `a_laid_trail_slopes_toward_the_newest_end` still passes, so the absolute
+gradient an ant reads should be several times larger for several times longer —
+but that is an **inference, not a measurement**, and it is exactly the kind this
+repo keeps having overturned. Whoever owns #432 can settle it in one run by
+giving `pherolife` a radius dial and re-reading its own run-drive column; that
+is a smaller change than either instrument.
+
+**Instrument overlap, stated so nobody builds a third.** `druid_trail`'s
+plane-side sweep and `pherolife` genuinely overlap and `pherolife` is the better
+of the two there — it has the run-drive effect counter and the `DIFFUSE` setter.
+What it does not have, and what `druid_trail shot=` is for, is the **real
+`Druid::update`/`Druid::draw` loop**: route geometry, and the clearance-to-ground
+column that found the trail was being laid at the gnome's chest. Neither is a
+plane question and neither would have surfaced on a synthetic line.
+
+**#432 was not merged when this was written**, so nothing here builds against
+`set_channel_diffuse`, and `DIFFUSE` is untouched.
+
+## One proposed rule, for the coordinator or the owner to place — not edited in
+
+The reusable half of the above is a *measurement* rule and reads universally:
+
+> **Ask what your harness is holding still, not only what it sweeps.** An
+> instrument that fixes the answer as a constant will report that the levers it
+> does vary are the only ones there are — and it looks exactly like a thorough
+> sweep. `pherolife` varied `rho`, `diffuse` and `deposit` over a trail it laid
+> **one cell wide**, and concluded the only lever was a shared constant; width
+> was not a variable it had. The tell is a sweep in which every arm fails the
+> same way, which `CLAUDE.md` already has — but that rule says *suspect the
+> rider*, and this one says *suspect the constant*.
+
+**Deliberately not added to `CLAUDE.md` by this lane.** It is the most
+contested file in the repo, it is loaded before every session in all three
+games, and a rule about one afternoon's measurement is exactly the kind whose
+placement the removal criterion says to weigh rather than append. Placing it is
+the owner's call.
