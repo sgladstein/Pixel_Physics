@@ -236,6 +236,28 @@ const DRAW_FRAMES: u32 = 42;
 /// How often the economy is recomputed, in ticks. Walking every organism is
 /// `O(organisms)` and there are thousands, so this runs twice a second rather
 /// than sixty times and scales what it charges.
+/// **What laying scent costs**, per second held.
+///
+/// Priced at one standing circle, because that is what it is: a standing
+/// instruction to the colony. A first guess like everything else in this
+/// economy.
+const TRAIL_PER_SECOND: f32 = 1.0;
+
+/// **How strong the druid's mark is**, per tick, against one ant's
+/// `pheromone::DEPOSIT` of 40.
+///
+/// The same, deliberately, and the strength comes from *repetition*: he walks
+/// slower than one cell a tick, so each cell takes two or three marks and
+/// ends at two to three ants' worth. A larger number here would saturate the
+/// plane at 255 along the whole path, and a saturated trail is flat — which
+/// is precisely the thing an ant cannot follow (see [`Druid::lay_trail`]).
+const TRAIL_DEPOSIT: u8 = crate::sim::pheromone::DEPOSIT;
+
+/// How many marks the trail readout remembers. Older ones have decayed out
+/// of the plane long before this, so the cap is a memory bound and not a
+/// rule.
+const TRAIL_MARKS: usize = 900;
+
 /// **How many streams a founding draws**, however many founders it places.
 ///
 /// A cap rather than one per station: twenty-four streams is a wall of motes
@@ -243,6 +265,16 @@ const DRAW_FRAMES: u32 = 42;
 /// which is what a colony arriving is. The flow is the event, not a census of
 /// it.
 const FOUNDING_STREAMS: usize = 8;
+
+/// **The tick rate the game is driven at.**
+///
+/// Here rather than in `src/bin/druid.rs`, which is where it lived and where
+/// only the event loop could see it. Anything in the game that prices
+/// something *per second* has to divide by it — `ECONOMY_INTERVAL` below is
+/// "twice a second" expressed in ticks, and [`TRAIL_PER_SECOND`] is a rate —
+/// and a second copy of the number in the lib would be the side table that
+/// goes stale the day the loop is retimed.
+pub const TICKS_PER_SECOND: u32 = 60;
 
 const ECONOMY_INTERVAL: u64 = 30;
 
@@ -419,6 +451,15 @@ pub struct Druid {
     pub reserves: std::collections::HashMap<u16, f32>,
     /// Energy in flight from an animal to the player — see [`Draw`].
     pub draws: Vec<Draw>,
+    /// **Where he has laid scent**, newest last — see [`Druid::lay_trail`].
+    ///
+    /// The marks are drawn by sampling the *plane* at these points rather
+    /// than by remembering how bright they were, so a mark fades exactly as
+    /// its scent does and vanishes when the scent is gone. Remembering the
+    /// brightness instead would leave a drawn trail standing over ground that
+    /// no longer smells of anything, which is the worst kind of readout: one
+    /// that is a picture of the gesture rather than of the world.
+    pub trail: std::collections::VecDeque<(i32, i32)>,
     /// **The founding screen, while it is open.** `None` the rest of the
     /// time, which is also what says whether the game is showing it — one
     /// piece of state rather than an `open: bool` beside an `Offer` that can
@@ -583,6 +624,7 @@ impl Druid {
             seed_kinds,
             seed_kind: 0,
             sown: 0,
+            trail: std::collections::VecDeque::new(),
             offer: None,
             reserves: std::collections::HashMap::new(),
             draws: Vec::new(),
@@ -832,6 +874,59 @@ impl Druid {
             n => self.note(format!("founded {n} animals at your feet")),
         }
         placed
+    }
+
+    /// **Lay a scent trail where he is standing.** Held, not tapped: the
+    /// gesture is walking a route, and the route is the instruction.
+    ///
+    /// **Channel B, and which channel it is was measured rather than
+    /// guessed.** `ant.ron`'s hidden units 2 and 3 carry `PheroBAlong` into
+    /// `Move` at ±2.5 behind `(Bias, 45.0)` and `(Carrying, -75.0)` — so they
+    /// fire on an ant that is **empty**, and channel B is the "there is food
+    /// that way" trail. Units 0 and 1 are the mirror image on channel A,
+    /// gated the other way, which is the laden ant's road home. Laying A
+    /// would tell a colony where its own nest is, which it already knows.
+    ///
+    /// **Why a trail he lays is followable at all**, which is not obvious and
+    /// is the whole mechanic: the ant reads `PheroBAlong`, the *gradient*
+    /// along its heading, so a trail of uniform strength says nothing. What
+    /// supplies the slope is `DECAY_RHO` — every mark is fading from the
+    /// moment it is laid, so the freshest cell on the path is the strongest,
+    /// and the slope points back along the route to wherever he is now. Walk
+    /// from the nest to where you want them and they come up the path behind
+    /// you; stop, and the peak stays where you stopped. **He does not push
+    /// them, he is the thing they are walking toward.**
+    ///
+    /// **And it is the cold start.** `dead-ends.md` records that channel B is
+    /// emitted only by an ant *already carrying* — so a colony that never
+    /// reaches a first meal never lays a trail for anyone to follow, and sits
+    /// at random walk with a full larder out of reach. A finger that can put
+    /// scent down is exactly the missing first mark.
+    ///
+    /// Returns whether anything was laid, so a refusal is a real answer.
+    pub fn lay_trail(&mut self) -> bool {
+        let Some(player) = &self.world.player else {
+            return false;
+        };
+        let (x, y) = player.center();
+        let cost = TRAIL_PER_SECOND / TICKS_PER_SECOND as f32;
+        if !self.unlimited {
+            if self.power < cost {
+                return false;
+            }
+            self.power -= cost;
+        }
+        self.world.deposit_pheromone(crate::sim::pheromone::Channel::B, x, y, TRAIL_DEPOSIT);
+        // One entry per cell, not per tick: standing still would otherwise
+        // fill the readout with nine hundred copies of one point and push
+        // the rest of the route out of it.
+        if self.trail.back() != Some(&(x, y)) {
+            if self.trail.len() >= TRAIL_MARKS {
+                self.trail.pop_front();
+            }
+            self.trail.push_back((x, y));
+        }
+        true
     }
 
     /// **Open the founding screen, or shut it again.**
@@ -1335,6 +1430,49 @@ fn grow_from_env() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A trail he lays has a slope, and the slope points at him.**
+    ///
+    /// This is the assumption the whole of [`Druid::lay_trail`] rests on, and
+    /// it is not obvious enough to leave unguarded: an ant reads
+    /// `PheroBAlong`, the *gradient* along its heading, so a trail of uniform
+    /// strength is a trail nothing can follow. What supplies the slope is
+    /// `DECAY_RHO` — every mark starts fading the moment it is laid, so the
+    /// newest cell on the route is the strongest.
+    ///
+    /// **The control is the same walk with the plane never stepped**, which
+    /// is the world in which the decay does not happen: there the two ends
+    /// read *equal*, so this guard is known to be measuring the decay rather
+    /// than something about the deposit. Without it, a deposit that happened
+    /// to write more at the far end would pass and mean nothing.
+    #[test]
+    fn a_laid_trail_slopes_toward_the_newest_end() {
+        use crate::sim::pheromone::{Channel, DEPOSIT};
+        let walk: Vec<i32> = (40..70).collect();
+
+        // The arm: lay along the row, letting the plane age between marks.
+        let mut w = World::new(256, 128);
+        for &x in &walk {
+            w.deposit_pheromone(Channel::B, x, 64, DEPOSIT);
+            for _ in 0..12 {
+                w.frame += 1;
+                w.step_pheromones();
+            }
+        }
+        let (first, last) = (w.pheromone_at(Channel::B, walk[0], 64), w.pheromone_at(Channel::B, *walk.last().unwrap(), 64));
+        assert!(
+            last > first,
+            "the newest end reads {last} against the oldest {first} -- a flat trail has no gradient, and `PheroBAlong` is a gradient, so nothing would follow it"
+        );
+
+        // The control: the identical walk with the plane frozen.
+        let mut c = World::new(256, 128);
+        for &x in &walk {
+            c.deposit_pheromone(Channel::B, x, 64, DEPOSIT);
+        }
+        let (cf, cl) = (c.pheromone_at(Channel::B, walk[0], 64), c.pheromone_at(Channel::B, *walk.last().unwrap(), 64));
+        assert_eq!(cf, cl, "with the plane never stepped the two ends must be equal ({cf} vs {cl}); if they are not, the slope above is not the decay and this guard is measuring the wrong thing");
+    }
 
     /// **Widening the circle you carry is not free, and leaving it alone
     /// still is.**

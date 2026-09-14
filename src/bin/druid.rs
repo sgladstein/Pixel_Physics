@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use pixel_physics::app::{HEIGHT, WIDTH};
-use pixel_physics::druid::Druid;
+use pixel_physics::druid::{Druid, TICKS_PER_SECOND};
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -33,7 +33,8 @@ use winit::window::{Window, WindowId};
 /// The simulation advances at a fixed rate regardless of frame rate, for the
 /// reason `main.rs` gives: every CA rule is "one cell per step" rather than a
 /// velocity, so a variable timestep changes behaviour with the frame rate.
-const TICKS_PER_SECOND: u32 = 60;
+/// The rate itself is `druid::TICKS_PER_SECOND`, in the lib, because the
+/// game prices things per second and the loop is not the only reader.
 const TICK: Duration = Duration::from_nanos(1_000_000_000 / TICKS_PER_SECOND as u64);
 /// Ceiling on catch-up ticks per frame — without it a stall makes the next
 /// frame simulate the whole missing interval and stall further.
@@ -78,6 +79,8 @@ struct Handler {
     accumulator: Duration,
     fps: f32,
     held: HeldKeys,
+    /// `G` — laying scent, held rather than tapped.
+    laying: bool,
     /// A jump press seen since the last frame's input assembly. Separate from
     /// `held.jump` so a press and release faster than one frame still jumps.
     jump_pressed: bool,
@@ -95,6 +98,8 @@ struct Handler {
     gif: Option<GifCapture>,
     /// See `PIXEL_PHYSICS_DRUID_WALK`.
     walk: (u64, u64),
+    /// See `PIXEL_PHYSICS_DRUID_LAY`.
+    lay: (u64, u64),
     result: Result<(), Box<dyn std::error::Error>>,
 }
 
@@ -224,6 +229,17 @@ impl Handler {
                 Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
             })
             .unwrap_or((0, 0));
+        // `PIXEL_PHYSICS_DRUID_LAY=a,b` -- hold `G` between those player
+        // ticks, the same shape as `WALK` above and normally paired with it:
+        // a trail is a route walked while holding a key, so a headless run
+        // needs both halves or it lays one dot and calls it a trail.
+        let lay: (u64, u64) = std::env::var("PIXEL_PHYSICS_DRUID_LAY")
+            .ok()
+            .and_then(|v| {
+                let (a, b) = v.split_once(',')?;
+                Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
+            })
+            .unwrap_or((0, 0));
         Self {
             window: None,
             pixels: None,
@@ -233,6 +249,7 @@ impl Handler {
             accumulator: Duration::ZERO,
             fps: 0.0,
             held: HeldKeys::default(),
+            laying: false,
             jump_pressed: false,
             screenshot_countdown: std::env::var("PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES").ok().and_then(|v| v.parse().ok()),
             census_after,
@@ -240,6 +257,7 @@ impl Handler {
             found_at,
             gif,
             walk,
+            lay,
             result: Ok(()),
         }
     }
@@ -293,6 +311,12 @@ impl Handler {
         self.game.player_input.down = self.held.down;
         self.game.player_input.grab = self.held.grab;
         self.game.player_input.jump_pressed |= std::mem::take(&mut self.jump_pressed);
+
+        // Per tick rather than per frame: it is priced per second, and a
+        // frame is worth several ticks on a slow box.
+        if self.laying || (self.game.ticks >= self.lay.0 && self.game.ticks < self.lay.1) {
+            self.game.lay_trail();
+        }
 
         if let Some(n) = self.found_at {
             if self.game.ticks >= n {
@@ -457,6 +481,7 @@ impl Handler {
                 // the screen, which does not track it -- and he walks off the
                 // site he is founding on.
                 self.held = HeldKeys::default();
+                self.laying = false;
                 self.game.toggle_founding();
             }
             // **The verb the whole game is built on.** A seed sown on held
@@ -569,6 +594,7 @@ impl ApplicationHandler for Handler {
                     // way in (`key`), so he stops rather than keeping the
                     // direction he was going.
                     if self.game.offer.is_some() {
+                        self.laying = false;
                         if pressed && !event.repeat {
                             self.key(code, event_loop);
                         }
@@ -584,6 +610,11 @@ impl ApplicationHandler for Handler {
                             }
                         }
                         KeyCode::KeyS => self.held.down = pressed,
+                        // **Held, not tapped**, and so it lives here beside
+                        // the walk rather than in `key`: the gesture is
+                        // walking a route while holding it down, and a tap
+                        // would put one dot on the ground.
+                        KeyCode::KeyG => self.laying = pressed,
                         // Either shift, so it does not matter which hand is
                         // on the movement keys.
                         KeyCode::ShiftLeft | KeyCode::ShiftRight => self.held.grab = pressed,
@@ -638,6 +669,39 @@ fn census(game: &Druid) {
     println!("  outside every circle : {outside} living plant cells");
     let (charge, holders) = game.charge_in_reach();
     println!("  animals {} ({} awake), charge {charge:.0} in {holders} within reach", game.animals, game.animals_awake);
+    // **Where the animals actually are**, which is the only thing that can
+    // answer whether a laid trail was followed. A picture cannot: an ant is
+    // two cells at this zoom, and "the colony drifted east" and "the colony
+    // milled about" look identical on a contact sheet. Reported against the
+    // trail's own far end rather than in absolute cells, because the number
+    // that matters is *did they close on where he pointed*.
+    let mut n = 0usize;
+    let (mut sx, mut sy) = (0i64, 0i64);
+    for id in w.live_organism_ids() {
+        let Some(state) = w.organism(id) else { continue };
+        if w.species.get(state.species).creature.is_none() {
+            continue;
+        }
+        let Some((x, y)) = state.cells.keys().next().copied() else { continue };
+        n += 1;
+        sx += x as i64;
+        sy += y as i64;
+    }
+    if n > 0 {
+        let (mx, my) = ((sx / n as i64) as i32, (sy / n as i64) as i32);
+        print!("  {n} animals, mean at {mx},{my}");
+        if let Some(&(tx, ty)) = game.trail.back() {
+            let d = (((tx - mx) as f32).powi(2) + ((ty - my) as f32).powi(2)).sqrt();
+            let near = w
+                .live_organism_ids()
+                .filter_map(|id| w.organism(id))
+                .filter(|s| w.species.get(s.species).creature.is_some())
+                .filter(|s| s.cells.keys().next().is_some_and(|&(x, y)| (x - tx).abs() < 40 && (y - ty).abs() < 40))
+                .count();
+            print!(" — trail head {tx},{ty}, mean is {d:.0} cells off it, {near} animals within 40");
+        }
+        println!(" (trail {} marks)", game.trail.len());
+    }
 }
 
 /// Write the captured frames out as a looping animation.

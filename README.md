@@ -8451,6 +8451,45 @@ blind, thin-shelled, slow lineage is simply cheap rather than a discount to
 farm. A default founding — common ant, twelve, neutral — is 144 against a full
 pool of 600. Like every other number in this economy, first guesses.
 
+### Telling the colony where to go
+
+The colony was a thing you owned and watched. `G`, held while you walk, lays a
+scent trail — and it is the difference between owning one and commanding one.
+
+**Channel B, and which channel it is was measured rather than guessed.**
+`ant.ron`'s hidden units 2 and 3 carry `PheroBAlong` into `Move` at ±2.5
+behind `(Bias, 45.0)` and `(Carrying, -75.0)`, so they fire on an ant that is
+**empty**: channel B is the "there is food that way" trail. Units 0 and 1 are
+the mirror image on channel A, gated the other way — the laden ant's road
+home, emitted at the nest by hidden unit 4. Laying A would tell a colony where
+its own nest is, which it already knows.
+
+**Why a trail he lays is followable at all** is the whole mechanic and is not
+obvious. The ant reads the *gradient* along its heading, so a trail of uniform
+strength says nothing. What supplies the slope is `DECAY_RHO`: every mark
+fades from the moment it is laid, so the freshest cell is the strongest and
+the slope points back along the route to wherever he is standing now. Walk
+from the nest to where you want them and they come up the path behind you;
+stop, and the peak stays where you stopped. **He does not push them — he is
+the thing they are walking toward.** `a_laid_trail_slopes_toward_the_newest_end`
+guards it, **with the frozen plane as its control**: with the plane never
+stepped the two ends read equal, so the guard is known to be measuring the
+decay rather than something about the deposit.
+
+**And it is the cold start.** `dead-ends.md` records that channel B is emitted
+only by an ant *already carrying* — so a colony that never reaches a first
+meal never lays a trail for anyone to follow, and random-walks with a full
+larder out of reach. A finger that can put scent down is the missing first
+mark.
+
+The mark is drawn by sampling the plane at the cells he laid, **not** by
+remembering how bright each was: a mark fades exactly as its scent does and
+vanishes when the scent is gone, rather than leaving a drawn trail standing
+over ground that no longer smells of anything. Only those cells are read, not
+the screen — a per-pixel plane read every frame is sweep-scale work for a
+readout. `TRAIL_PER_SECOND` is 1.0, the price of one standing circle, since
+that is what it is: a standing instruction.
+
 ### The interface
 
 **Fourteen keys, listed on screen, on by default** (`/` or `F1` hides them),

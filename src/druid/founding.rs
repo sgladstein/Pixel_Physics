@@ -350,6 +350,11 @@ mod tests {
         }
         let neutral_share = neutral as f32 / total as f32;
         let strong_share = strong as f32 / total as f32;
+        // Printed, not just gated: the shares are quoted in the README and in
+        // this change's commit message, and a number nobody can see the value
+        // of is a number somebody eventually writes down from memory.
+        // `cargo test --lib --release a_roll_has_a_middle -- --nocapture`.
+        println!("roll over {total} slots: {:.1}% neutral, {:.1}% strong", neutral_share * 100.0, strong_share * 100.0);
         assert!((0.10..0.35).contains(&neutral_share), "neutral share {neutral_share:.3} -- the draw has lost its middle");
         assert!((0.10..0.40).contains(&strong_share), "strong share {strong_share:.3} -- extremes are either impossible or ordinary");
     }

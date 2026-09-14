@@ -91,6 +91,10 @@ const CHARGED_LOW: [u8; 4] = [150, 120, 60, 255];
 /// and the mark is only the promise.
 const FLOW: [u8; 4] = [255, 250, 225, 255];
 /// The halo around a mote, and what the landing ring fades to.
+/// The scent the druid lays — a cold green, so it reads as something put
+/// down rather than as the warm energy of the drain.
+const SCENT: [u8; 4] = [120, 235, 170, 255];
+
 const FLOW_FAINT: [u8; 4] = [190, 150, 70, 255];
 
 /// One row of text. 7-pixel glyphs and two of air, the same step
@@ -126,6 +130,7 @@ pub const KEYS: &[(&str, &str)] = &[
     ("Q E", "ITS RADIUS"),
     ("[ ]", "HOW FAR YOUR OWN CIRCLE REACHES"),
     ("Z V", "HOW FAST TIME RUNS IN THEM"),
+    ("G", "LAY A SCENT TRAIL AS YOU WALK"),
     ("T", "SOW A SEED WHERE YOU STAND"),
     ("TAB", "WHICH SEED"),
     ("C", "FOUND A COLONY - OPENS AN OFFER"),
@@ -286,6 +291,8 @@ pub struct Interface {
     motes: Vec<Mote>,
     /// Screen position and 0..1 age of each arrival bloom.
     landings: Vec<(i32, i32, f32)>,
+    /// Scent he has laid, in screen pixels, with how strong it still is.
+    scent: Vec<(i32, i32, f32)>,
     /// The founding screen, while it is open.
     founding: Option<Founding>,
 }
@@ -301,6 +308,7 @@ impl Interface {
             marks: marks(game),
             motes: motes(game),
             landings: landings(game),
+            scent: scent(game),
             founding: founding(game),
         }
     }
@@ -318,6 +326,12 @@ impl Interface {
         // Rings under the panels, so text is never crossed by one.
         for ring in &self.rings {
             hc.circle(frame, ring.cx, ring.cy, ring.r, ring.colour);
+        }
+
+        // **What he has told them.** Under the marks and motes, over the
+        // rings: it is ground he has written on, not an event.
+        for (x, y, strength) in &self.scent {
+            hc.put(frame, *x, *y, lerp(PANEL, SCENT, 0.25 + strength * 0.75));
         }
 
         // **The promise: a mark over an animal holding charge.** A chevron
@@ -455,6 +469,31 @@ impl Interface {
             hc.text(frame, MARGIN + PAD + KEY_COL, y, what, TEXT);
         }
     }
+}
+
+/// **The scent trail, read back off the plane rather than remembered.**
+///
+/// The brightness of every mark is `pheromone_at` at that cell *now*, so a
+/// mark fades exactly as its scent does and is dropped when the scent is
+/// gone. Remembering how bright it was when it was laid would draw a trail
+/// standing over ground that no longer smells of anything — a picture of the
+/// gesture instead of a picture of the world, which is the failure mode this
+/// repo's overlay rule is about.
+///
+/// Only the cells he laid are sampled, not the screen: a per-pixel read of
+/// the plane every frame is sweep-scale work for a readout.
+fn scent(game: &Druid) -> Vec<(i32, i32, f32)> {
+    game.trail
+        .iter()
+        .filter_map(|&(x, y)| {
+            let v = game.world.pheromone_at(crate::sim::pheromone::Channel::B, x, y);
+            if v == 0 {
+                return None;
+            }
+            let (sx, sy) = game.renderer.world_to_screen(x, y)?;
+            Some((sx, sy, v as f32 / 255.0))
+        })
+        .collect()
 }
 
 /// **Flatten the offer into what the screen draws.**
@@ -922,6 +961,7 @@ mod tests {
             marks: vec![Mark { x: 120, y: 140, fullness: 0.8 }],
             motes: vec![Mote { x: 160, y: 130, bright: 0.5 }],
             landings: vec![(200, 150, 0.3)],
+            scent: vec![(140, 152, 0.9), (141, 152, 0.6), (142, 153, 0.2)],
             // **The screen is in the idempotence guard, not beside it.** It
             // draws the biggest panel in the game, and a panel is exactly the
             // shape that compounded last time.
@@ -947,6 +987,7 @@ mod tests {
             marks: Vec::new(),
             motes: Vec::new(),
             landings: Vec::new(),
+            scent: Vec::new(),
             founding: None,
         };
         let b = a.clone();
