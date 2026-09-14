@@ -1,0 +1,46 @@
+{
+  "id": "20260914T215649928Z-91968a",
+  "created": "2026-09-14T21:56:49Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/druid-founding",
+    "commit": "a0dcedd1",
+    "agent": null,
+    "session_id": "e1540bcb-9e00-52ac-ad9b-3aa57be21c20",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Founding a colony: can you still see where the nest went?",
+  "question": "Founding happened at his feet in both. In which one can you still tell that something was put on the ground?",
+  "context_md": "You rated the last attempt at this 1 of 5: *\"None. There should be no color. If we have to have this, it should be invisible.\"*\n\nThat was right — I had only changed the patch's *shape*. The worked ground now has **no colour of its own at all**: each cell keeps the exact tone of the earth it replaced, so it draws as whatever it was painted over. The drains you accepted as load-bearing are untouched and still do their job.\n\n**Measured as pixels, not as an impression**, because \"invisible\" is a claim about the screen: two frames of one world, the patch painted in one and the ground put back cell for cell in the other. Over the patch, **19 of 25 cells still differ, by at most 12 of 255 in one channel** — against about **130** before. So it is not bitwise identical and I am not claiming it is; the question is whether 12 is something you can see. The rest of the frame is 0, which is the control that makes those numbers mean anything.\n\nIf you can still pick it out, the last of it needs a change in the renderer, which belongs to another lane's open PR — say so and it gets handed on rather than bodged.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "as you played it",
+      "files": [
+        "20260914T215649928Z-91968a/000-A_nest_before.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "no colour of its own",
+      "files": [
+        "20260914T215649928Z-91968a/001-D_nest_nocolour.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
