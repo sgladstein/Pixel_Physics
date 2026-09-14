@@ -940,6 +940,10 @@ impl Handler {
         }
         self.last_stats_state = None;
         self.bar_pressed = None;
+        // The founding screen's armed press belongs to the run too: the new
+        // `Druid` has no offer open, so one left armed here could only ever
+        // fire on a screen that is not the screen it was pressed on.
+        self.offer_pressed = None;
     }
 
     /// **The single dispatch point this binary's controls actually route
