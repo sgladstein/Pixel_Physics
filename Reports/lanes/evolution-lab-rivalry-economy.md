@@ -227,6 +227,38 @@ pointer, not weakened: **un-ignoring it is the acceptance test for that work.**
 
 ---
 
+## 5b. Lane C's routed change, taken
+
+**`ancestor.ron` now carries `(Alarm, Move, -1.0)` and `(Alarm, Attack, 2.0)`.**
+Lane C found it the only species in the ant family reading the trail planes
+and not the alarm — the word did not appear in the file at all. Verified here
+before acting on it: every other ant-family species and the flitter carry five
+`Alarm` mentions, `ancestor` carried zero.
+
+It matters because round 35 shipped rivalry on and `ancestor` is a foundable
+stock in the held world, so that is a real bed whose founding lineage heard
+every fight and could not act on one.
+
+**The same two weights, not tuned ones** — the claim is that this species was
+missing what its siblings have, and a value picked for it would be a second,
+unmeasured change wearing this one's justification.
+
+**Guarded by `every_ant_family_species_can_hear_an_alarm`**, which sweeps the
+family and asserts on the **genome past `W_EPS`**, not on the file. That is
+Lane C's own warning turned into machinery: `eval_brain` drops a weight under
+0.01, so a row present in the `.ron` and authored small is dead on arrival and
+greps as wired. Watched going red for both faults — the row deleted, and the
+row present at 0.001.
+
+**Not sold as recruitment, per Lane C's §2d**: at the alarm plane's measured
+two-cell reach these fire only for an animal already touching the fight.
+
+**Lane C's item 2 — the flitter lays and reads no trail — is left alone.** It
+is a design question about the one animal the lateral slots were justified
+for, not a defect, and it is not mine to settle.
+
+---
+
 ## 6. For whoever runs the next round
 
 - **§Z26 is the one worth taking.** It is a live pump in the plant economy,
@@ -252,7 +284,7 @@ pointer, not weakened: **un-ignoring it is the acceptance test for that work.**
 ## 7. Gates
 
 `cargo clippy --all-targets --release --locked -- -D warnings`; `cargo test
---lib` (1,804 passed / 0 failed / 86 ignored); `cargo test --test worldgen
+--lib` (1,805 passed / 0 failed / 86 ignored); `cargo test --test worldgen
 --test determinism` (44 passed); `cargo run --release --example ascii` (31
 scenes, 0 skipped — the excavation scene still reads digs 354 / roofed void
 42, unmoved by this branch); `bash scripts/docscheck.sh` clean. All measured
