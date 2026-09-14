@@ -13332,21 +13332,41 @@ mod tests {
         assert_eq!(colony_ant_site(&w, 32, 0), None, "one row past the bound is a tree, not a floor");
     }
 
-    /// **The climb goes through plants and nothing else.** Two refusals that
-    /// share a shape and have completely different reasons to exist, so both
-    /// are here: stone over a floor is an overhang and stays a refusal, and
-    /// water over a floor is `open-bugs-handoff.md` §R2, whose whole finding
-    /// is that an ant placed on water never moves again.
+    /// **The climb goes through plants and nothing else.**
     ///
-    /// The third case is the one a naive "find the first free cell above"
-    /// would get wrong and this rule must not: soil, a leaf, a slab of stone,
-    /// then air. There *is* a free cell up there; it is on the far side of a
-    /// wall, and stepping to it would put an ant on a roof it cannot have
-    /// walked to.
+    /// **Which cells can the climb loop actually see? Far fewer than they
+    /// look**, and the first two versions of this guard were both scenes that
+    /// could not reach it. Worth writing down, because the obvious guard here
+    /// is the wrong one and the next person will write it too.
+    ///
+    /// The loop only runs on a cell that is (a) not `World::is_empty` and (b)
+    /// directly above the row [`colony_surface`] stopped on. But
+    /// `colony_surface` stops on the first cell that is **not**
+    /// `Empty | Gas | Plant` — so anything `Solid`, `Powder`, `Liquid` or
+    /// `Creature` sitting over the soil *becomes* the surface rather than
+    /// standing on it. A slab of stone lying on soil is not an overhang, it
+    /// is **higher ground**, and founding on top of it is correct; that is
+    /// what the first two attempts at this guard asserted was a refusal, and
+    /// the engine was right and the scene was wrong (`CLAUDE.md`'s *a scene
+    /// that contradicts the code will look like a bug in the code*).
+    ///
+    /// So the reachable non-plant blocker is a **`Gas`** — passable to the
+    /// surface scan, and not `is_empty`. Both cases below are built out of
+    /// one, and both were watched failing against a climb that tested
+    /// `!is_empty` alone instead of the material.
+    ///
+    /// Water gets its own case and is refused a row earlier, by the floor
+    /// rule rather than by the climb: `open-bugs-handoff.md` §R2, whose whole
+    /// finding is that an ant placed on water never moves again.
     #[test]
     fn the_climb_refuses_everything_that_is_not_a_plant() {
-        let (w, _) = matted_bed("stone", 2);
-        assert_eq!(colony_ant_site(&w, 32, 0), None, "stone over a floor is an overhang, not a thicket");
+        let (mut w, ground) = matted_bed("leaf", 0);
+        let smoke = w.materials.id_of("smoke").expect("smoke material");
+        for x in 0..=63 {
+            w.set(x, ground - 1, Cell::new(smoke, 0));
+        }
+        assert!(!w.is_empty(32, ground - 1), "smoke must read as occupied, or this case cannot reach the climb at all");
+        assert_eq!(colony_ant_site(&w, 32, 0), None, "a drift of smoke over the ground is not a floor to stand on");
 
         let (mut w, ground) = matted_bed("leaf", 0);
         for x in 0..=63 {
@@ -13354,13 +13374,17 @@ mod tests {
         }
         assert_eq!(colony_ant_site(&w, 32, 0), None, "§R2: an ant must not be founded standing on water");
 
+        // Soil, a leaf, a drift of smoke, then air. The case a naive "find
+        // the first free cell above" gets wrong: there *is* free space up
+        // there, and the climb must stop at the smoke rather than cross it.
         let (mut w, ground) = matted_bed("leaf", 1);
-        let stone = w.materials.id_of("stone").expect("stone material");
+        let smoke = w.materials.id_of("smoke").expect("smoke material");
         for x in 0..=63 {
-            w.set(x, ground - 2, Cell::new(stone, 0));
+            w.set(x, ground - 2, Cell::new(smoke, 0));
         }
-        assert!(w.is_empty(32, ground - 3), "the bed must have air above the slab, or this guard cannot fail");
-        assert_eq!(colony_ant_site(&w, 32, 0), None, "the climb must not jump a slab of stone to reach the air over it");
+        assert_eq!(colony_surface(&w, 32, 0), Some(ground), "the surface scan must still land on the soil, or this case tests nothing");
+        assert!(w.is_empty(32, ground - 3), "the bed must have air above the drift, or this guard cannot fail");
+        assert_eq!(colony_ant_site(&w, 32, 0), None, "the climb must stop at the smoke, not cross it to the air beyond");
     }
 
     /// **Dead wood is still a floor.** `Start::Dead` is the held world's own
