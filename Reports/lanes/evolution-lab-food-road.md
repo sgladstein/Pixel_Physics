@@ -108,6 +108,30 @@ a defect of the channel — but it means **a card of a haul *route* needs a bed
 with a distance in it that the colony survives**, and this round did not find
 one. Worth a scenario.
 
+## Two things left for whoever owns `src/lab/ui.rs`
+
+This lane was told not to touch that file, so `F7` is reachable by the key and
+by nothing else:
+
+- **the key page does not list it** (`HELP`), and
+- **the master menu has no row for it**, which is the page the owner asked for
+  in 2026-09-12 precisely so a view is not *"only accessible by knowing the F
+  key"*.
+
+Both are one line each beside the `O`/`L` overlay rows that are already there.
+
+## Verified live, and the limit of that
+
+`PIXEL_PHYSICS_LAB_FOOD=N` presses `F7` N times before the headless shot, so
+the real binary can be photographed with the channel on — a view with no bar
+cell has no other route in, and `CLAUDE.md` records the zoom buffer panicking
+in the real app while all 1,687 tests passed. Run under `xvfb` with lavapipe
+at `ROAD + HARVEST`: **the binary draws and does not panic.** What that shot
+cannot show is the channel *working*, because the lab opens an empty box and
+there is no env hook that stocks it; the drawing itself is exercised through
+`Lab::draw` — the same call the binary makes, bar and all — by
+`examples/foodroad.rs`.
+
 ## Review cards posted
 
 *(Collect with `review.py get <id>`, never off `inbox`.)*

@@ -70,6 +70,8 @@
 //!   cannot zoom out at all** — it is no bigger than the viewport — so without
 //!   a way to open a larger one there is no way to photograph the thing
 //!   `Lab::pixel_budget` changes.
+//! - `PIXEL_PHYSICS_LAB_FOOD=N` presses `F7` N times before the shot, which is
+//!   the only headless route to a view with no bar cell.
 //!
 //! Both are debug hooks. A real pointer overrides the first the moment it
 //! moves, and the second is spent after its last click.
@@ -180,6 +182,18 @@ struct Handler {
     start_pixels: Option<i32>,
     /// `PIXEL_PHYSICS_LAB_ZOOM_OUT=N` — rungs to pull back on the first frame.
     start_zoom_out: Option<i32>,
+    /// `PIXEL_PHYSICS_LAB_FOOD=N` — presses `F7` N times on the first frame,
+    /// so the food channels can be photographed **through this binary** and
+    /// not only through a harness.
+    ///
+    /// The same debug-hook shape as the four above and for the same reason,
+    /// which `CLAUDE.md` states as a rule paid for once: the zoom buffer
+    /// panicked in the real app under `xvfb` while all 1,687 tests passed,
+    /// because every test applied the budget before drawing and `main.rs` did
+    /// not. A view with no bar cell has no other headless route in — the
+    /// scripted-click hook can only reach things the bar draws, and this one
+    /// is a keystroke.
+    start_food: Option<u32>,
     /// `PIXEL_PHYSICS_LAB_CLICK=x,y;x,y` — clicks to play back, one per
     /// rendered frame. Stored reversed so the next one is a `pop`.
     scripted_clicks: Vec<(i32, i32)>,
@@ -270,6 +284,7 @@ impl Handler {
             // than only what the bar looks like unpressed.
             start_pixels: std::env::var("PIXEL_PHYSICS_LAB_PIXELS").ok().and_then(|v| v.parse().ok()),
             start_zoom_out: std::env::var("PIXEL_PHYSICS_LAB_ZOOM_OUT").ok().and_then(|v| v.parse().ok()),
+            start_food: std::env::var("PIXEL_PHYSICS_LAB_FOOD").ok().and_then(|v| v.parse().ok()),
             scripted_clicks: std::env::var("PIXEL_PHYSICS_LAB_CLICK")
                 .ok()
                 .map(|v| v.split(';').filter_map(parse_at).rev().collect())
@@ -334,6 +349,12 @@ impl Handler {
             for _ in 0..n {
                 self.zoom(-1);
             }
+        }
+        if let Some(n) = self.start_food.take() {
+            for _ in 0..n {
+                self.lab.renderer.cycle_food_overlay();
+            }
+            self.lab.ui.say(format!("FOOD {}", self.lab.renderer.food.mode.label()));
         }
         let advance = self.lab.advance(elapsed);
 
