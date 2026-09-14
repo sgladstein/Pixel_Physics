@@ -1,0 +1,56 @@
+{
+  "id": "20260914T044811000Z-26d062",
+  "created": "2026-09-14T04:48:11Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/druid-seeds-and-sphere",
+    "commit": "5c44286f",
+    "agent": null,
+    "session_id": "34aeb288-fc93-5ada-abfb-f68e281016d3",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Turning the sphere off",
+  "question": "Does switching it off read as the world holding still around her — or just as the ring being hidden?",
+  "context_md": "Your playtest item: *\"There should be an easy way to full turn off the sphere around the druid so no power is being used.\"*\n\n**One thing you should know, because it changes what this is.** The sphere at its normal size already costs **exactly nothing** — the price is the ground you *add* by widening it with `]`, not the ground you stand in. Both panes below read `OUT 0.0/S`. So this is not a saving; it is a way to make the world **stop** where you are, which is the thing the held world could not do while you were standing in it.\n\nIt is a real trade rather than a free button: with it off, a colony under your feet stores no charge, a seed you sowed does not come up, the wood you are in stops growing, and your seed pouch stops filling.\n\nSame world, same seed, same frame — one switch and nothing else. The readout line says `YOUR CIRCLE OFF` in red rather than a number, because no number could say it: the size dial cannot reach zero, and the engine reads a zero radius as the default size.\n\n**The key is Lane A's to bind** — this is the state and the verb, not the keystroke.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "circle on",
+      "files": [
+        "20260914T044811000Z-26d062/000-wood_on.png"
+      ],
+      "caption": "as it ships — time runs in the disc at her feet",
+      "meta": {
+        "carried circle": "r28",
+        "world cells inside running time": 2453,
+        "drain": "0.0/s",
+        "seed the wood pays her": "yes, while she stands in it"
+      },
+      "focus": null
+    },
+    {
+      "label": "circle off",
+      "files": [
+        "20260914T044811000Z-26d062/001-wood_off.png"
+      ],
+      "caption": "the new off state — world.carried is None",
+      "meta": {
+        "carried circle": "none",
+        "world cells inside running time": 0,
+        "drain": "0.0/s",
+        "seed the wood pays her": "nothing"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
