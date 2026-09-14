@@ -81,15 +81,33 @@
 //! understates — one-directional, and in the safe direction, which is the
 //! crop's own doc's reasoning and not a second one.)
 //!
-//! # Sampling, and where this is observed from
+//! # Where this is observed from, and the world it belongs to
 //!
-//! [`FoodRoad::observe`] is idempotent per `World::frame`, so it can be
-//! called from the tick loop (exact) *and* from `Renderer::draw` (sampled)
-//! without double-counting. The lab calls it per tick. Anything that only
-//! draws — the sandbox, a headless harness at a stride — gets the sampled
-//! version, and **the sampling is visible in the counters**
-//! ([`FoodRoad::observed_frames`] against the frames actually run), because a
-//! smeared road and a real one look identical in a picture.
+//! **Observed from the tick loop and from nowhere else.** [`FoodRoad::observe`]
+//! is idempotent per `World::frame` so it is safe to call more than once, but
+//! `Renderer::draw` deliberately does **not** call it — and that is not a
+//! simplification, it is a bug that was built and removed.
+//!
+//! The lab holds a *rack* of worlds and draws thumbnails of the inactive ones
+//! **through the same `Renderer`** (`Lab::thumb`, a forced-full draw of
+//! `ch.world`). Observing at draw time therefore read another chamber's
+//! animals into this chamber's map — and worse, the per-animal counter
+//! readings are keyed on a `u16` organism handle that every world reissues
+//! from its own first tick, so the deltas would be nonsense rather than
+//! merely foreign. Cycling the rack would quietly rewrite the road.
+//!
+//! So the observation is the tick loop's, and the *drawing* is guarded by
+//! [`FoodRoad::describes`]: the channels are drawn only for the world this map
+//! was actually built from. A chamber thumbnail draws with no overlay rather
+//! than with somebody else's.
+//!
+//! **The consequence, stated rather than left to be discovered: a binary that
+//! only draws gets nothing.** Today that is only the outdoor sandbox, which
+//! has no key for this view; whoever gives it one has to hook `observe` into
+//! that game's own tick. [`FoodRoad::observed_frames`] against the frames
+//! actually run is what says whether that was done — a road built from one
+//! sample in two hundred is a smear, and a smear and a road look identical in
+//! a picture.
 //!
 //! **It is free when the overlay is off.** `observe` returns on one enum
 //! compare, the maps stay empty, and `Renderer::draw` never asks them
@@ -547,6 +565,18 @@ impl FoodRoad {
         self.mode != FoodOverlay::Off
     }
 
+    /// **Is this the world this map was built from?**
+    ///
+    /// The guard that keeps a chamber thumbnail from being painted with the
+    /// active box's road — see the module doc. Two cheap comparisons: the
+    /// clock and the bounds. A second world at the identical frame *and*
+    /// identical size is not separated by this and does not need to be; what
+    /// it would cost is one thumbnail wearing the wrong overlay, against the
+    /// alternative of the map itself being rewritten.
+    pub fn describes(&self, world: &World) -> bool {
+        self.on() && self.last_frame == Some(world.frame) && self.last_bounds == world.bounds()
+    }
+
     /// The per-tile colour lookup for one frame, resolved **once per draw**
     /// rather than per pixel.
     ///
@@ -873,6 +903,31 @@ mod tests {
         road.harvest.entry((1, (0, 0))).or_default().add(50_000.0, 0, road.harvest_half_life);
         road.refresh(0);
         assert!((road.harvest_scale() - 50_000.0).abs() < 1.0, "got {}", road.harvest_scale());
+    }
+
+    #[test]
+    fn another_world_is_not_drawn_with_this_one_s_road() {
+        // The lab's rack draws inactive chambers through the same `Renderer`.
+        // Painting one of those with the active box's road is the cosmetic
+        // half of that bug; the expensive half -- observing another world's
+        // animals into this map, against `u16` handles every world reissues
+        // from its own first tick -- is prevented by `observe` simply not
+        // being called from `draw` at all.
+        let mut road = FoodRoad::new();
+        road.mode = FoodOverlay::Road;
+        let mine = World::new(crate::sim::chunk::Rect::new(0, 0, 63, 63));
+        road.observe(&mine);
+        assert!(road.describes(&mine), "the world it was built from");
+
+        let mut elsewhere = World::new(crate::sim::chunk::Rect::new(0, 0, 63, 63));
+        elsewhere.frame = 900;
+        assert!(!road.describes(&elsewhere), "a chamber at another frame is another world");
+
+        let bigger = World::new(crate::sim::chunk::Rect::new(0, 0, 127, 127));
+        assert!(!road.describes(&bigger), "a box of another size is another world");
+
+        road.mode = FoodOverlay::Off;
+        assert!(!road.describes(&mine), "off draws nothing, its own world included");
     }
 
     #[test]

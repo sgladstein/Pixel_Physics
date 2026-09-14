@@ -4254,15 +4254,24 @@ impl Renderer {
         // sandbox, a harness capturing at a stride) and a no-op in the lab,
         // whose tick loop has already taken this frame. Both return on one
         // compare while the channel is off.
-        self.food.observe(world);
-        // Both ramps track the bed rather than sitting on an authored
-        // constant -- see `FoodRoad::refresh` for the two-and-a-half orders
-        // of magnitude between two shipped scenarios that ruled a fixed bar
-        // out. Once per draw, never per pixel.
-        self.food.refresh(world.frame);
+        // **The food channels are observed by the tick loop, never here**,
+        // and the guard below is why: the lab draws inactive chambers through
+        // this same `Renderer`, so a `draw`-time observation read another
+        // world's animals into this map against organism handles every world
+        // reissues from its own first tick. See `food_road`'s module doc.
+        //
+        // `describes` is two comparisons and is false whenever the channel is
+        // off, so an ordinary frame pays exactly that.
         self.food_tiles.clear();
-        if matches!(self.food.mode, crate::food_road::FoodOverlay::Harvest | crate::food_road::FoodOverlay::Both) {
-            self.food_tiles = self.food.tile_colours(world.frame);
+        if self.food.describes(world) {
+            // Both ramps track the bed rather than sitting on an authored
+            // constant -- see `FoodRoad::refresh` for the two-and-a-half
+            // orders of magnitude between two shipped scenarios that ruled a
+            // fixed bar out. Once per draw, never per pixel.
+            self.food.refresh(world.frame);
+            if matches!(self.food.mode, crate::food_road::FoodOverlay::Harvest | crate::food_road::FoodOverlay::Both) {
+                self.food_tiles = self.food.tile_colours(world.frame);
+            }
         }
         // The animated variants are the ones whose output changes with
         // nothing in the world changing, so they have to defeat the
@@ -7802,7 +7811,7 @@ impl Renderer {
         // no harvest, so the two compose: a scent plane under a haul route
         // is exactly the pairing that says whether the ants are following
         // the trail they laid.
-        if self.food.on() {
+        if self.food.describes(world) {
             let mut hit = None;
             // `food_tiles` is empty unless the harvest channel is drawn
             // (`draw` clears it and only refills it then), so the emptiness

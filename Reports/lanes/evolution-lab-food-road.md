@@ -38,12 +38,19 @@ and one in `Renderer::draw`.
 ## What it costs, measured
 
 `foodroad cost=4`, played bed at frame 20,000, arms alternated **inside one
-run** with the order swapped each round, `RAYON_NUM_THREADS=4`:
+run** with the order swapped each round, `RAYON_NUM_THREADS=4`. **Two runs,
+because the box moved under me**: the second is after merging `main` (which
+changed `creature.rs`, so the bed itself is not identical) and on a container
+that had got busier. Both arms moved together in both runs, so **the ratio is
+what transfers and the milliseconds are not**.
 
-| bed | off | on | delta |
+| bed | off | ROAD + HARVEST | delta |
 |---|---|---|---|
-| running (one tick per draw) | 3.93 ms | 4.80 ms road / 4.71 harvest / **5.60 both** | +0.87 / +0.82 / **+1.62 ms** |
-| **settled** (no tick between draws) | 1.95 ms | **3.67 ms** both | **+1.72 ms (+88%)** |
+| running (one tick per draw) | 3.93 → 5.62 ms | 5.60 → 8.39 ms | +1.62 / +2.76 ms — **+41% and +49%** |
+| **settled** (no tick between draws) | 1.95 → 3.21 ms | 3.67 → 6.41 ms | +1.72 / +3.20 ms — **+88% and +100%** |
+
+Each channel alone is about half of "both": **+22%/+23%** for the road and
+**+21%/+24%** for the harvest map, across the same two runs.
 
 **The settled row is the real price and it is the one the brief asked for**:
 both channels decay every tick, so they defeat the dirty-rect render skip by
@@ -157,7 +164,7 @@ stays reachable either way, which is why it is a field and not a decision.
 
 ## Head and gates
 
-Gates green at `5772ea79`: `cargo clippy --all-targets --release
---locked -- -D warnings`; `cargo test --release --lib` (1,759 passed, 0
+Gates green at the head the PR names: `cargo clippy --all-targets --release
+--locked -- -D warnings`; `cargo test --release --lib` (1,766 passed, 0
 failed); `cargo test --release --test worldgen --test determinism` (44 passed,
 0 failed); `bash scripts/docscheck.sh` clean.
