@@ -1835,7 +1835,7 @@ impl App {
         if let Some(player) = &self.world.player {
             let target = player.center();
             let bounds = self.world.bounds();
-            self.renderer.follow(target, self.viewport(), bounds);
+            self.renderer.follow(target, (WIDTH, HEIGHT), bounds);
         }
         // The census and the trend sample, both behind the same flag as the
         // panel itself: closed, this whole line is one boolean test.
@@ -3808,7 +3808,7 @@ impl App {
             return false;
         }
         let bounds = self.world.bounds();
-        self.renderer.pan(dir, seconds, self.viewport(), bounds);
+        self.renderer.pan(dir, seconds, (WIDTH, HEIGHT), bounds);
         true
     }
 

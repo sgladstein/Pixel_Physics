@@ -712,17 +712,9 @@ impl TimeControl {
         vec![(format!("FRAME {frame}"), grey)]
     }
 
-    pub fn draw(&self, frame: &mut [u8], world: &crate::sim::world::World) {
+    pub fn draw(&self, hc: crate::render::Hud, frame: &mut [u8], world: &crate::sim::world::World) {
         for (i, (line, colour)) in self.readout(world.frame).into_iter().enumerate() {
-            crate::hud::draw_text(
-                frame,
-                super::WIDTH,
-                super::HEIGHT,
-                4,
-                4 + 10 * i as i32,
-                &line,
-                colour,
-            );
+            hc.text(frame, 4, 4 + 10 * i as i32, &line, colour);
         }
     }
 }

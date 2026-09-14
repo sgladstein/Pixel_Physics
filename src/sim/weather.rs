@@ -54,6 +54,31 @@
 //! * **Two things a storm does are deliberately outside the ledger**: the
 //!   field moisture write and the soil soak. Both are commented at their own
 //!   sites with why.
+//!
+//! # The sky is world-wide; what it *does* is not
+//!
+//! The held world (`cargo run --release --bin druid`,
+//! `Reports/held-world-game-concept-2026-09-13.md`) stops life everywhere
+//! except inside the circles of running time the player carries and places.
+//! Weather sat outside that gate until 2026-09-13, and a snowing held world
+//! is the whole premise falling over: drifts building, ponds freezing and a
+//! frost creeping across a country whose one claim is that nothing in it
+//! moves.
+//!
+//! **[`at`] is untouched, and that is the shape of the fix.** The sky above a
+//! held world still has weather — it is still a pure function of
+//! `(seed, frame)`, a forecast still answers, the renderer still draws the
+//! front — and every *write into the world* is gated per position on
+//! [`World::time_runs_at`]. Four of them, and they are easy to miss because
+//! only one of them looks like rain: the gust dipole in [`gust`], the
+//! sealed-box drip in `condense_under_a_lid`, the clear-night frost sweep in
+//! `hold_the_ground_cold`, and the precipitation columns in [`step`]. Each is
+//! commented at its own site with what the position means there.
+//!
+//! Per position rather than a switch on `World::held`, because a quickening
+//! is a circle of *running time* and rain falling inside one is the concept
+//! doc's own picture of the rim (§1c, §7) as well as its spell list (§6).
+//! Free when the world is not held: `time_runs_at` returns on one bool.
 
 use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::chunk::Rect;
@@ -1336,6 +1361,47 @@ pub fn planned_gust(world: &World, w: Weather) -> Option<Gust> {
 /// `organism::wind_lean_dir` leans trees, both off the field this writes to.
 fn gust(world: &mut World, w: Weather) {
     let Some(g) = planned_gust(world, w) else { return };
+    // **Held air does not move, and a gust is all-or-nothing across the
+    // rim.** The held-world gate (`World::time_runs_at`), asked at *both*
+    // poles of the dipole below rather than at the squall's centre — and
+    // that is a correctness requirement, not tidiness. Delivering one pole
+    // and gating the other is exactly the "lone positive impulse" the
+    // comment below records as measured-and-reverted: net pressure in a
+    // closed world that never reconverges, permanently unsettled field
+    // tiles, and a held world whose whole premise is that it draws for free
+    // paying `field::step`'s five-pass solve for ever.
+    //
+    // **What this costs is worth stating, because it is nearly all of the
+    // wind.** A gust fires *in the upper air* by construction — see
+    // `planned_gust`'s span arithmetic, which puts `y` in
+    // `[min_y + span/8, min_y + 3*span/8)`, a band 70 to 150 cells above the
+    // ground on a druid world — and a quickening is a circle centred on
+    // something standing on the ground. The dipole is also about 91 cells
+    // across (`GUST_RADIUS * 2 + lead`) against `CARRIED_RADIUS` 28. So the
+    // honest reading is that **held worlds get essentially no wind, in or
+    // out of a circle**, not that wind is scaled down inside one.
+    //
+    // That is the right trade today and it is not the end of the story. An
+    // ungated gust is the single most expensive thing that can happen to a
+    // held world: `add_pressure_impulse` clears `fields_settled` and
+    // unsettles tiles, so a world whose whole claim is that it costs nothing
+    // to stand still would pay `field::step`'s five-pass solve every
+    // `GUST_INTERVAL` frames for as long as the wind channel is up — the
+    // "outside is a photograph and draws for free" promise, gone, for a
+    // channel nothing inside the circle is reading.
+    //
+    // **When the gale spell arrives** (the concept doc's §6, *"call a gale to
+    // disperse seed further than it would go"*), it will need the impulse
+    // *aimed* rather than merely permitted: pinning `weather::Pin::Gale`
+    // raises what a gust delivers, and does nothing about the fact that
+    // where it lands is drawn from `(seed, frame)` over the whole map.
+    //
+    // `planned_gust` is deliberately left ungated: it is the forecast, and a
+    // harness asking what the sky intends should get the same answer held or
+    // not.
+    if !world.time_runs_at(g.x, g.y) || !world.time_runs_at(g.x + g.lead, g.y) {
+        return;
+    }
     // **A dipole, not a single blob.** A lone positive impulse injects net
     // pressure into a closed world, and there is nowhere for it to go: it
     // drives velocity, velocity drives advection, and the tiles around it
@@ -1444,6 +1510,16 @@ fn condense_under_a_lid(world: &mut World) {
         // this frame, which is the same all-or-nothing rule `spend_atmosphere`
         // imposes everywhere else.
         if !world.get(x, ceiling).is_empty() {
+            continue;
+        }
+        // Held ground gets no drip, asked per drop at the cell it would
+        // land in -- the same granularity `scheduler::step` gates at. A
+        // sealed box is the lab's shape and the lab is never held, so this
+        // is unreachable today and is here because the alternative is a
+        // gate that is *nearly* complete: `weather::step` has four ways to
+        // put water into the world and three of them being stopped is how a
+        // held world ends up mysteriously wet.
+        if !world.time_runs_at(x, ceiling) {
             continue;
         }
         if !world.spend_atmosphere(1.0) {
@@ -1579,6 +1655,43 @@ pub fn step(world: &mut World) {
         let Some(surface_y) = surface_under_sky(world, x, bounds.min_y, bounds.max_y) else {
             continue;
         };
+        // **Rain falls where time runs, and nowhere else.**
+        //
+        // The held-world gate (`World::time_runs_at`), asked once per
+        // column at the cell the drop actually meets — which is one test
+        // covering everything below it: the field moisture write, the soak
+        // walk, the snow chill and its five-column run, and the spawned
+        // water or snow cell. `weather::step` simulates precipitation
+        // *where it lands, not where it falls* (this function's own doc),
+        // so the landing cell is the only position this frame of weather
+        // has, and it is therefore the only place the question can be put.
+        //
+        // **Per cell rather than a switch on `world.held`**, and the
+        // concept doc settles which: *"Rain hangs in the air outside as
+        // beads and falls inside"* (§1c) and *"the rim is where the game
+        // reads"* (§7) both describe a rim rain crosses, and §6 makes the
+        // sky the druid's spell list — call rain on a bank to break its
+        // seed dormancy, call frost to kill back what is winning. A
+        // wholesale `if held { return }` deletes that list before it is
+        // built, and buys nothing: the branch below is already a loop over
+        // positions.
+        //
+        // **The rain a circle gets is the rain it would have got**, with no
+        // second constant to tune. The column budget is scaled by world
+        // *width* (see `MAX_COLUMNS_PER_FRAME`), so drops are uniform over
+        // the map and a circle keeps its own share of them — same density
+        // inside the rim as an unheld world of the same seed, just none
+        // outside it.
+        //
+        // **Filtering here cannot shift the weather.** Each column's
+        // position comes from `rng::stream(seed, tag, frame, i)`, keyed on
+        // the loop index rather than drawn from a running generator, so a
+        // rejected column leaves every other column of this frame exactly
+        // where it was. A gate placed before the draw would have made the
+        // storm itself a function of where the player is standing.
+        if !world.time_runs_at(x, surface_y) {
+            continue;
+        }
         // Rain only. Snow sits on the surface and wets nothing until it
         // melts -- at which point it becomes water and the ordinary
         // infiltration path takes over, which is both correct and one less
@@ -1737,6 +1850,16 @@ pub fn step(world: &mut World) {
                         break;
                     };
                     hint = cy;
+                    // The landing column's gate above does not cover its
+                    // neighbours: this run reaches `WATER_CHILL_RADIUS`
+                    // columns either side, so a drop landing just inside a
+                    // rim would otherwise freeze five columns of held pond
+                    // outside it. `continue`, not `break` -- the run is a
+                    // walk along the surface and a gap in the middle of it
+                    // is a gap, not the end.
+                    if !world.time_runs_at(cx, cy) {
+                        continue;
+                    }
                     hold_column_cold(world, cx, cy, bounds, snow, cold, water_cold, SNOW_CHILL_DEPTH, WATER_CHILL_DEPTH);
                 }
             }
@@ -1955,6 +2078,14 @@ fn hold_the_ground_cold(world: &mut World, w: Weather, bounds: Rect, snow: Optio
             continue;
         };
         hint = Some(y);
+        // **A held frost does not bite.** Per column, after `hint` is set:
+        // the hint is a pure read used to save the next column a full sky
+        // walk, so keeping it current across a skipped column costs nothing
+        // and stops a held world from paying a fresh walk on every column
+        // that follows a gated one.
+        if !world.time_runs_at(x, y) {
+            continue;
+        }
         hold_column_cold(world, x, y, bounds, snow, cold, water_cold, CRUST_CHILL_DEPTH, SWEEP_LIQUID_DEPTH);
     }
 }
@@ -2130,6 +2261,7 @@ mod tests {
     use super::*;
     use crate::sim::chunk::Rect;
     use crate::sim::parallel;
+    use crate::sim::world::Quickening;
 
     /// The opening frames of a world, where `window` is 0 and the "previous
     /// window" probe has nowhere to go.
@@ -4093,6 +4225,342 @@ is what this measures rather than the rule"
         // answers really are different, so the assertions above are about the
         // pin rather than about seed 7.
         assert_ne!(stormy, count(None), "seed 7 unpinned already behaves like a pinned storm; pick another");
+    }
+
+
+    /// Every cell that differs between two snapshots of one world, by the
+    /// three channels the sky writes: what material stands there, a
+    /// `Powder`'s wetness or a `Liquid`'s fill (both `aux`), and the cell's
+    /// own temperature.
+    ///
+    /// **A census of `Solid` cells would have answered "nothing happened" to
+    /// every arm below** — `CLAUDE.md`'s standing trap, a number that is
+    /// arithmetically right about the wrong question. A frost writes only
+    /// temperature, a soak writes only `aux`, and only a spawned flake
+    /// writes a material; an instrument that misses any one of the three
+    /// reads a gated channel as a working one.
+    ///
+    /// **And what it counts is "the world changed", not "the sky wrote".**
+    /// `structural::tick` also keeps a `Solid`'s support distance in `aux`,
+    /// so an *unheld* arm's count is weather plus settling support. That is
+    /// exactly what a control needs — it only has to be non-zero for the
+    /// instrument to be trusted — and it is why the sky's own contribution
+    /// is read separately below, off `World::atmospheric_bank`, which
+    /// `spend_atmosphere` debits for every cell and every soak the sky
+    /// deposits and nothing else touches on a world with no standing water.
+    fn cells_differing(before: &World, after: &World, bounds: Rect) -> Vec<(i32, i32)> {
+        let mut out = Vec::new();
+        for y in bounds.min_y..=bounds.max_y {
+            for x in bounds.min_x..=bounds.max_x {
+                let (a, b) = (before.get(x, y), after.get(x, y));
+                if a.material != b.material || a.aux() != b.aux() || a.temperature() != b.temperature() {
+                    out.push((x, y));
+                }
+            }
+        }
+        out
+    }
+
+    /// A flat stone shelf under a sky that is precipitating from frame 0.
+    ///
+    /// Seed 3 is the positive control `tests/worldgen.rs` already documents:
+    /// `weather::at` is a pure function of `(seed, frame)` and seed 3 opens
+    /// on Snow at intensity 0.36. Flat bare stone rather than a generated
+    /// world, so the only thing that can write a cell is the sky — a scene
+    /// that contradicts the code looks like a bug in the code
+    /// (`CLAUDE.md`), and a loose pile settling under the CA sweep would
+    /// land in the census as weather.
+    fn held_weather_world() -> World {
+        let mut w = World::new(Rect::new(0, 0, 255, 191));
+        w.seed = 3;
+        for x in 0..256 {
+            for y in 150..192 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        w
+    }
+
+    /// **Weather does not run where time does not run** — the held world's
+    /// (`bin/druid`) whole premise applied to the one system that was still
+    /// outside its gate. Owner's report, 2026-09-13: *"Rain/other
+    /// environmental effects are not frozen outside the bubble."*
+    ///
+    /// Three arms in one test, because the claim is a *comparison* and each
+    /// arm is the control for the next:
+    ///
+    /// 1. **unheld** — the sky writes, and writes a lot. Without this the
+    ///    two arms below would both pass on a seed that simply never
+    ///    precipitated, which is most seeds most of the time (see this
+    ///    module's own note on `first_frame_with`).
+    /// 2. **held, no circle** — nothing anywhere. This is the bug.
+    /// 3. **held, one circle** — inside it and nowhere else. The gate is a
+    ///    *filter*, not an off switch, and this arm is what says so: a
+    ///    wholesale `if held { return }` passes arm 2 and fails here.
+    ///
+    /// **Watched going red, 2026-09-13**, per `CLAUDE.md` — with every one of
+    /// the seven position gates stripped out of `weather.rs` and `spring.rs`
+    /// and the tests left standing, arm 2 fires at **383 cells of weather on
+    /// a world with no quickening in it**, and both spring guards fire too.
+    #[test]
+    fn weather_does_not_run_where_time_does_not_run() {
+        let bounds = Rect::new(0, 0, 255, 191);
+        const FRAMES: usize = 1_200;
+
+        // **Two ways of driving one world, and the difference is the whole
+        // reason there are two.**
+        //
+        // `Full` is the real tick — `parallel::step`, active sites, the
+        // field — and is what the *a held world is still* claim has to be
+        // made against: a gate that stopped weather while some other phase
+        // went on writing would pass anything narrower.
+        //
+        // `SkyOnly` calls `weather::step` and advances the frame, and
+        // nothing else. It is what the *the sky writes only inside the rim*
+        // claim has to be made against, and the first version of this test
+        // got that wrong — it asserted the positional claim against the full
+        // driver and failed on a cell **seven** columns past a rim the sky
+        // reaches four past. The sky had not written there. A flake landed
+        // inside the circle and the CA sweep, which is physics and which a
+        // held world deliberately leaves running, rolled it down the slope
+        // and out. Snow tumbling off a hillside is not a leaking gate, and a
+        // bound loose enough to admit it would not be a bound at all: a
+        // loose grain can travel any distance.
+        enum Driver {
+            Full,
+            SkyOnly,
+        }
+        let run = |driver: Driver, held: bool, circles: &[Quickening]| {
+            let mut w = held_weather_world();
+            w.held = held;
+            w.quickenings = circles.to_vec();
+            let before = w.clone();
+            for f in 0..FRAMES {
+                match driver {
+                    Driver::Full => {
+                        parallel::step(&mut w);
+                        w.step_active_sites();
+                        w.step_fields();
+                    }
+                    // The frame is what `at` is a function of, and only the
+                    // drivers advance it — so a sky-only run has to.
+                    Driver::SkyOnly => {
+                        w.frame = f as u64;
+                        step(&mut w);
+                    }
+                }
+            }
+            // The bank spend is the sky's own contribution, exactly: this
+            // scene holds no standing water, so nothing credits it back.
+            (cells_differing(&before, &w, bounds), STORM_RESERVE - w.atmospheric_bank)
+        };
+
+        // Arm 1, the control. Read first: every assertion below is about a
+        // sky that is doing something.
+        let (unheld, unheld_spend) = run(Driver::Full, false, &[]);
+        assert!(
+            unheld.len() > 100,
+            "seed 3 changed only {} cells in {FRAMES} unheld frames -- the control is dead and this guard is blind",
+            unheld.len()
+        );
+        assert!(unheld_spend > 0.0, "the sky deposited nothing at all in the control arm");
+
+        // Arm 2, the bug.
+        let (held, held_spend) = run(Driver::Full, true, &[]);
+        assert!(
+            held.is_empty(),
+            "a held world with no quickening took {} cells of weather (first at {:?}); it is meant to be a photograph",
+            held.len(),
+            held.first()
+        );
+        assert_eq!(held_spend, 0.0, "a held world's sky spent {held_spend} cell-equivalents on a world nothing may reach");
+
+        // Arm 3: the gate is a filter. A circle well clear of the world's
+        // edges, so "outside" is a real region in every direction.
+        let circle = Quickening { x: 128, y: 150, r: 40 };
+        let (quickened, quickened_spend) = run(Driver::Full, true, &[circle]);
+        assert!(
+            !quickened.is_empty(),
+            "a quickened circle got no weather at all -- the gate is an off switch, not a rim"
+        );
+
+        // Arm 4: where the sky itself wrote, with the physics that carries
+        // material afterwards taken out of the picture. See `Driver`.
+        let (sky_only, _) = run(Driver::SkyOnly, true, &[circle]);
+        assert!(!sky_only.is_empty(), "the sky wrote nothing at all into the circle");
+        let outside: Vec<(i32, i32)> = sky_only.iter().copied().filter(|&(x, y)| !circle.contains(x, y)).collect();
+        // **The rim is soft by exactly one drop's reach, and that is not the
+        // gate leaking.** A drop landing just inside it writes past it in
+        // three directions: the soak walks `SOAK_DEPTH` cells *down* from
+        // the landing cell, the flake is placed one cell *up* from it, and
+        // the snow chill runs `WATER_CHILL_RADIUS` columns to either
+        // *side*. So the claim is not "nothing outside the circle changed",
+        // which would be false and would have to be weakened until it meant
+        // nothing — it is that every cell outside is within one drop of a
+        // landing cell that was inside. Weather arriving somewhere no drop
+        // could have landed is the failure this catches.
+        let reach = SOAK_DEPTH.max(WATER_CHILL_RADIUS) + 1;
+        for &(x, y) in &outside {
+            let near = (-reach..=reach).any(|dx| (-reach..=reach).any(|dy| circle.contains(x + dx, y + dy)));
+            assert!(near, "weather reached ({x}, {y}), which is not within one drop's reach of the circle");
+        }
+        println!(
+            "in {FRAMES} frames -- cells the world changed / cell-equivalents the sky deposited:\n  \
+             unheld {:>6} / {unheld_spend:.1}\n  \
+             held   {:>6} / {held_spend:.1}\n  \
+             circle {:>6} / {quickened_spend:.1}\n  \
+             ...of which the sky itself wrote {} cells, {} of them just past the rim",
+            unheld.len(),
+            held.len(),
+            quickened.len(),
+            sky_only.len(),
+            outside.len()
+        );
+    }
+
+    /// **The other two games cannot see the held-world weather gate.**
+    ///
+    /// Modelled on `render.rs`'s `the_other_games_cannot_see_the_held_world_
+    /// look`, and it makes the same claim from the simulation side: `held` is
+    /// `false` in the sandbox and the lab, so nothing about their weather may
+    /// move. Asserted as an *equality between two arms of this binary*
+    /// rather than against a recorded hash, because that is the stronger
+    /// statement — a world entirely inside one quickening must step to the
+    /// identical grid as a world that is not held at all. That can only hold
+    /// if the gate is a pure filter: one that consumed a draw, reordered a
+    /// loop or moved a `hint` would diverge here even though every cell it
+    /// gates is running.
+    ///
+    /// **Watched going red, 2026-09-13**, against the fault it is named for
+    /// rather than against the general one: stripping the position gates
+    /// leaves this test **green**, correctly — a world with no gates and a
+    /// world entirely inside a circle both get weather everywhere. What
+    /// fails it is the shape this deliberately is *not*, a wholesale
+    /// `if world.held { return }` at the top of [`step`], which diverges at
+    /// **157 cells**.
+    #[test]
+    fn a_world_entirely_inside_a_quickening_weathers_exactly_like_an_unheld_one() {
+        let bounds = Rect::new(0, 0, 255, 191);
+        let run = |held: bool| {
+            let mut w = held_weather_world();
+            w.held = held;
+            if held {
+                w.quickenings = vec![Quickening { x: 128, y: 96, r: 5_000 }];
+            }
+            for _ in 0..400 {
+                parallel::step(&mut w);
+                w.step_active_sites();
+                w.step_fields();
+            }
+            w
+        };
+        let unheld = run(false);
+        let all_quickened = run(true);
+        let diff = cells_differing(&unheld, &all_quickened, bounds);
+        assert!(
+            diff.is_empty(),
+            "a fully quickened world diverged from an unheld one at {} cells (first {:?}) -- the gate is not a pure filter",
+            diff.len(),
+            diff.first()
+        );
+        // ...and the arm is not vacuously equal because nothing happened.
+        let bare = held_weather_world();
+        assert!(
+            !cells_differing(&bare, &unheld, bounds).is_empty(),
+            "neither arm's sky did anything, so this comparison proves nothing"
+        );
+    }
+
+
+    /// **What still moves in a held world, by channel** — the probe behind
+    /// README's "what was deliberately left running" table, and the reason
+    /// that table has numbers in it rather than arguments.
+    ///
+    /// A probe rather than a guard: it asserts only that the arms differ, and
+    /// prints the rest. The question it answers is not "is weather gated"
+    /// (the guard above owns that) but *"having gated weather and springs,
+    /// what is left changing on a held map"* — which is a scoping question
+    /// and reopens every time a phase is added to `frame::step`.
+    ///
+    /// The scene deliberately has **soil and standing water in it**, which
+    /// the guard above deliberately does not: `World::step_soil_water` is the
+    /// one remaining ungated phase that writes cells, and a bare-stone world
+    /// cannot see it at all.
+    ///
+    /// **It settles the world before holding it, and that is the whole
+    /// measurement rather than a nicety.** The first version censused from
+    /// frame 0 on a hand-filled bed and reported 1,450 wet cells moving in a
+    /// held world — a real count, of a soil column relaxing out of the
+    /// initial condition *I* wrote, not of anything the held world does.
+    /// `Druid::new` runs `GROW_FRAMES` of full ticks and *then* sets `held`,
+    /// so a held world is by construction a settled one, and settling here
+    /// is what makes the arms comparable to it. Both arms fork from the same
+    /// settled world, so the comparison is paired.
+    #[test]
+    fn probe_what_still_moves_in_a_held_world() {
+        let build = || {
+            let mut w = World::new(Rect::new(0, 0, 255, 191));
+            w.seed = 3;
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            for x in 0..256 {
+                for y in 170..192 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+                // A damp soil bed on the rock. `aux` on a Powder is wetness
+                // and 0 means dry -- the opposite of the Liquid convention,
+                // and getting it backwards hands every root a full drink.
+                for y in 150..170 {
+                    w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_SATURATED / 2));
+                }
+            }
+            // A pond standing on the bed, so evaporation and freezing both
+            // have something to reach.
+            for x in 100..140 {
+                for y in 146..150 {
+                    w.set(x, y, Cell::new(material::WATER, 0));
+                }
+            }
+            w
+        };
+        let census = |before: &World, after: &World| {
+            let (mut mat, mut aux, mut temp) = (0u32, 0u32, 0u32);
+            for y in 0..192 {
+                for x in 0..256 {
+                    let (a, b) = (before.get(x, y), after.get(x, y));
+                    mat += u32::from(a.material != b.material);
+                    aux += u32::from(a.aux() != b.aux());
+                    temp += u32::from(a.temperature() != b.temperature());
+                }
+            }
+            (mat, aux, temp)
+        };
+        let advance = |w: &mut World, frames: usize| {
+            for _ in 0..frames {
+                parallel::step(w);
+                w.step_active_sites();
+                w.step_fields();
+            }
+        };
+        let mut settled = build();
+        advance(&mut settled, SETTLE);
+        let run = |held: bool| {
+            let mut w = settled.clone();
+            w.held = held;
+            // The clone carries the settled world's frame with it, so both
+            // arms see the same weather over the same window.
+            let before = w.clone();
+            advance(&mut w, WINDOW);
+            census(&before, &w)
+        };
+        const SETTLE: usize = 3_000;
+        const WINDOW: usize = 600;
+        let (m0, a0, t0) = run(false);
+        let (m1, a1, t1) = run(true);
+        println!("after {SETTLE} frames of settling, what moves in the next {WINDOW}, by channel:");
+        println!("           material     wetness  temperature");
+        println!("  unheld  {m0:>9} {a0:>11} {t0:>12}");
+        println!("  held    {m1:>9} {a1:>11} {t1:>12}");
+        assert!(m0 + a0 + t0 > 0, "the unheld arm changed nothing, so this probe is measuring a dead scene");
     }
 
 }
