@@ -225,3 +225,100 @@ needing two pinned individuals on a bed whose colonies have died back. Not
 filed as a bug — it is a harness fragility, not engine behaviour — but it will
 waste somebody's twenty minutes.
 
+## 6. He answered the FOOD card with a design, and the graphs came out
+
+Card `20260914T205807355Z-12829d`, verdict 2026-09-14, quoted in full because
+it overturns §5's half-measure and because the diagnosis under it generalises:
+
+> *"We really should have discussed this more. #1 issue is your graphs, (top)
+> they are showing how much a colony is eating in unknown scale at a fast pace.
+> This is not answering any questions that I would ask. (bottom) it shows what
+> a colony is eating at any given time, but again the pace is too fast (if the
+> graph is all spikes that isn't useful), the bigger issue is that there is no
+> legend for me to know which line is which. In general, I prefer graphs to
+> tables, but I don't think they are helping here. Here is my suggestion: top
+> page is basically the stats you have (foraged/meat/fed, ate rivals/eaten by,
+> etc.) for each colony. Get rid of the graphs. If you click a colony, it goes
+> to a more detailed page for that specific colony, which lists what they are
+> eating (deadleaf, ant, seed, corpse, etc.) and other detailed info. If this
+> is possible, I would love to have another layer, so if the colony is eating
+> lots of ants, i can click and see which colony they are coming from, I can
+> click flower and see which plants the flowers are being eaten from, etc. I am
+> guessing you chose the graphs because these change over time and that is
+> valid but we are about what was eaten over the past 2-3 minutes, not the past
+> 10 seconds. Maybe we keep all the stats but there is a range options (all
+> time, 10 min, 5 min, 1 min, etc) for them."*
+
+**Adding the peak label to the charts was the wrong fix and he named why.** The
+charts plotted a window of `SAMPLE_EVERY` = 120 frames, `HISTORY` = 56 times —
+**a rate**, where the quantity asked of them was **an amount**. So the picture
+was drawing the sampling interval rather than the colony, which is the whole of
+*"if the graph is all spikes that isn't useful"*. A scale label makes a
+mis-framed picture readable, not right. **The general rule, worth carrying: a
+chart of a differenced series answers "how fast", and a question of the form
+"how much, lately" wants a number over a span the reader picks.**
+
+**Shipped, to his spec:**
+
+| | |
+|---|---|
+| top page | every colony's stats, no charts; each colony's line is a `Body::Choice` and opens it |
+| colony page | what that colony eats, ranked, in joules, each source in its material's own colour, then spend / loads / trophallaxis |
+| `COUNTING THE LAST` | a clickable stop on `RANGES` — 2 MIN, 1 MIN, 5 MIN, 10 MIN, ALL TIME — and **every figure on both layers is read over it** |
+
+Two minutes is the default because it is the span he named, and because all
+time is dominated by founding. `Body::Choice` gained a per-row tint in the same
+change: a colony is identified by the colour it wears in the box, and a row
+that opens it still has to say which colony it is.
+
+**The range needed a ring of its own, which is the one non-obvious part.** The
+population ring is 56 samples at 120 frames — **under two minutes** — so it
+cannot answer a five-minute question at all, and deepening it would have moved
+the ANTS page's chart span. `BooksSnap` is a second, coarser ring: every
+colony's accounts and per-colony diet, every 600 frames, 64 deep = **10.7
+minutes**, one sample of headroom over the longest stop. The population ring's
+`food` and `diet` fields and its four series methods are **deleted**, not left
+for a future caller — `CLAUDE.md` on a superseded mechanism.
+
+### Two traps this hit, both caught
+
+**`range_reaches` was wrong in the direction that reads as working.** Written
+as *"is the oldest snapshot at or before `now - frames`"*, it says **yes** for
+every range on a young box, because `now - frames` saturates to zero and the
+first snapshot is trivially inside it — so a ten-minute reading over a
+thirty-second box reported itself as a full ten minutes. Correct arithmetic,
+different question. It now also requires `now >= frames`, and the row says
+`(SO FAR)`.
+
+**The fit guard's fixture stopped measuring the tall block, silently.** With
+the rivals row now drawn only when raiding happened *inside the window*, and
+`colonised` booking its raids before the first snapshot, every finite range put
+the fixture's raid in the past — so the block being height-checked was the
+short one. Caught by the guard's own `rivals == named` assertion going red,
+which is the assertion added for exactly this. The fixture now pins ALL TIME.
+
+### The third layer, and why it is not here
+
+*"If the colony is eating lots of ants, i can click and see which colony they
+are coming from, I can click flower and see which plants the flowers are being
+eaten from."* **Neither is buildable on what the engine records today**, and
+saying so is cheaper than building the wrong half:
+
+- **Which colony the ants came off.** `ColonyBooks::raided` is a **scalar per
+  colony**. With two colonies it is determined by subtraction; with three it is
+  not, and the page would be guessing. The fix is small and additive — a
+  `HashMap<u32, f64>` beside `raided`, filled at `World::book_raid`, which
+  already has both colonies in hand — and it is in `src/sim/world.rs`, the most
+  contested file in the repo and not this lane's. **Not done, deliberately, and
+  it is one commit whenever it is wanted.**
+- **Which plants the flowers came off.** Nothing attributes a harvested cell to
+  the organism it grew on; the bite reads a *material*, not an individual. That
+  is a real piece of engine work, not a readout.
+
+**What the box can already answer is *where on the ground*** — the harvest map
+on `F7`, which is per colony and per tile. Each diet row's note says so, so the
+missing layer reads as a pointer rather than as a dead end.
+
+**Card `20260914T221442287Z-1add4b`** — *"The FOOD page, rebuilt the way you
+asked"*, both layers. Verdict: *pending*.
+

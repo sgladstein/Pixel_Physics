@@ -89,7 +89,7 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Lifespan status — an ant gets old, and the colony's fall becomes a slope](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) | 8246 |
 | [Held world status — the third game, and time you carry in a circle](#held-world-status--the-third-game-and-time-you-carry-in-a-circle) | 8392 |
 | [Colony books status — what each colony is living on, in joules](#colony-books-status--what-each-colony-is-living-on-in-joules) | 9128 |
-| [Food road status — the trail the colony actually walks, and the box that was not there](#food-road-status--the-trail-the-colony-actually-walks-and-the-box-that-was-not-there) | 9209 |
+| [Food road status — the trail the colony actually walks, and the box that was not there](#food-road-status--the-trail-the-colony-actually-walks-and-the-box-that-was-not-there) | 9259 |
 
 ### Milestones, in numeric order
 
@@ -135,7 +135,7 @@ your time goes, not a rule about what you may read.
 | Topic | Game | Sections, primary first |
 |---|---|---|
 | **plants, trees and moss** | engine | [M16 status](#m16-status) 1907, [Soil nutrient status](#soil-nutrient-status--ground-is-worth-something-water-is-not) 7566, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1427, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 4635, [Parameter-genome status](#parameter-genome-status--a-species-file-is-a-starting-point-and-it-ships-inert) 4738, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1549, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1839, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1497, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1757, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4918, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 5155, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 5232, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6693, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 5552, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5600, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5831, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6585 |
-| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2320, [The ant colony](#the-ant-colony--status) 3843, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6693, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5600, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5831, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6755, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6585, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7609, [Hunger status](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) 7909, [Rest status](#rest-status--a-rest-that-ends-so-a-resting-animal-is-not-a-stopped-one) 8020, [Hopper status](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) 7989, [Trophallaxis status](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) 8151, [Trail status](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) 8209, [Lifespan status](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) 8246, [Colony books status](#colony-books-status--what-each-colony-is-living-on-in-joules) 9128, [Food road status](#food-road-status--the-trail-the-colony-actually-walks-and-the-box-that-was-not-there) 9209 |
+| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2320, [The ant colony](#the-ant-colony--status) 3843, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6693, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5600, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5831, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6755, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6585, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7609, [Hunger status](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) 7909, [Rest status](#rest-status--a-rest-that-ends-so-a-resting-animal-is-not-a-stopped-one) 8020, [Hopper status](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) 7989, [Trophallaxis status](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) 8151, [Trail status](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) 8209, [Lifespan status](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) 8246, [Colony books status](#colony-books-status--what-each-colony-is-living-on-in-joules) 9128, [Food road status](#food-road-status--the-trail-the-colony-actually-walks-and-the-box-that-was-not-there) 9259 |
 | **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 2093, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4918, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 5155, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 5232, [M8 status](#m8-status--started-not-complete) 3037 |
 | **fire, heat and phase change** | engine | [M14 status](#m14-status) 1014, [Materials](#materials) 294 |
 | **explosions, particles and debris** | outdoor | [M15 status](#m15-status) 1191, [M7 status](#m7-status) 1162 |
@@ -9197,14 +9197,64 @@ reads 13% and 9%. **Both charts also state their own peak**, top right: they
 are normalised to the tallest sample and that number appeared nowhere, so the
 same peaked line meant six hundred joules on one bed and six on another.
 
-**The verdict rides on a line that already existed, and that is a constraint
-rather than a preference.** The page budget is 228 px, two charts take 108 of
-it, and a colony block carrying the rivals row is 49 — so a two-colony bed fits
-in exactly the 98 px left. **One extra row anywhere on this page, per block or
-not, drops the second colony to `MORE COLONIES +1`**, silently, and telling two
-colonies apart is what the page is for. `the_food_page_stays_on_the_screen` now
-asserts both blocks are drawn at two colonies; it was watched going red with a
-deliberate extra row.
+**And then the owner read that version too, and the charts came out.** His
+ruling, 2026-09-14:
+
+> *"#1 issue is your graphs. (top) they are showing how much a colony is eating
+> in unknown scale at a fast pace. This is not answering any questions that I
+> would ask. (bottom) it shows what a colony is eating at any given time, but
+> again the pace is too fast (if the graph is all spikes that isn't useful),
+> the bigger issue is that there is no legend… In general, I prefer graphs to
+> tables, but I don't think they are helping here."*
+
+**The diagnosis under that generalises past this page.** Both charts plotted a
+window of `SAMPLE_EVERY` = 120 frames, `HISTORY` = 56 times. That is a **rate**,
+and the thing being asked of them was an **amount** — so the picture was drawing
+the *sampling interval* rather than the colony, which is why it was all spikes.
+A smoother chart does not fix that. What the quantity wanted was a number over a
+span the player chooses.
+
+**So the page is now two layers and a range**, which is the shape he specified:
+
+- **Top page** — every colony's stats side by side, no charts. Each colony's
+  line is a `Body::Choice`, so it draws as a button and opens that colony.
+- **The colony page** — what that one is eating, ranked, in joules, each source
+  in its own material's colour, then what it spent, carried home and gave away.
+- **`COUNTING THE LAST`** — a clickable stop on `RANGES` (2 MIN, 1 MIN, 5 MIN,
+  10 MIN, ALL TIME), and **every figure on both layers is read over it**. It
+  opens on two minutes, the span he named; all time is on the ladder but is not
+  the default, because all time is dominated by founding.
+
+**The range needed a ring of its own, and that is the one non-obvious part.**
+The population ring is 56 samples at 120 frames — **under two minutes** — so it
+cannot answer a five-minute question at all, and deepening it would have changed
+the span of the ANTS page's chart. `BooksSnap` is a second, coarser ring: every
+colony's accounts and per-colony diet, every 600 frames, 64 deep — **10.7
+minutes of box time**, one sample of headroom over the longest stop. Cumulative
+and never per-window, because the ring drops its oldest entry and a stored
+window is a number whose meaning depends on a sample that no longer exists.
+**`History::range_reaches` is the honesty half**: when the box has not run the
+span asked for, the row says `(SO FAR)` rather than relabelling everything it
+has. Its second clause is not obvious — `now - frames` saturates to zero on a
+young box, so the oldest snapshot is trivially inside the window and a
+ten-minute reading over a thirty-second box reports itself as ten minutes.
+
+**Dropping the charts gave the page back 108 px**, so it holds four colonies
+where it held two. `the_food_page_stays_on_the_screen` still asserts both blocks
+are drawn at two colonies — the bar it was given when an extra row silently cost
+one, watched going red with a deliberate extra row.
+
+**Known limitation, and it is a recorded ask rather than an oversight.** The
+owner asked for a third layer — *"if the colony is eating lots of ants, i can
+click and see which colony they are coming from… I can click flower and see
+which plants the flowers are being eaten from."* **Neither is buildable on what
+the engine records today.** `ColonyBooks::raided` is one scalar per colony, so
+with three colonies the victim of a given mouthful is not recoverable; and
+nothing anywhere attributes a harvested plant cell to the organism it came off.
+The first is a small addition (a per-victim map beside `raided`); the second is
+not. What the box *can* already answer is **where on the ground** a colony's
+food came from, which is the harvest map on `F7`, and the diet rows' notes say
+so rather than leaving the layer to be discovered missing.
 
 ## Food road status — the trail the colony actually walks, and the box that was not there
 

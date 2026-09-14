@@ -427,6 +427,14 @@ pub enum Action {
     /// fires it, where an index would silently open whatever slid into its
     /// place.
     HistoryOpen(u32),
+    /// **Open one colony's own page on FOOD** -- the second layer of that
+    /// page. A stable colony id, never a row index: `HistoryOpen` below
+    /// carries the reasoning, and it applies here for the same reason.
+    FoodOpen(u32),
+    /// Back to the list of every colony from one colony's FOOD page.
+    FoodBack,
+    /// Step the FOOD page's range one stop along `RANGES`, `-1` or `+1`.
+    FoodRange(i32),
     /// Close a HISTORY colony back to the SUMMARY view -- `BACK`'s target
     /// while one is open; `Action::Panel(Panel::Log)` is `BACK`'s target the
     /// rest of the time, `Ui::paint_history`'s own doc.
@@ -1738,7 +1746,13 @@ enum Body {
     /// MENU complaint ("looks more like a list") was this, not the click
     /// mechanism, which already worked. `paint_rows` now gives it the bar
     /// button's own face/edge chrome, hover and pressed included.
-    Choice { label: String, value: String, action: Action },
+    ///
+    /// **The value carries its own tint**, added when the FOOD page's colony
+    /// rows became clickable: a colony is identified by the colour it wears
+    /// in the box, and a row that opens it must still say which colony it is.
+    /// `GOOD` stays the default for every other `Choice` on every page, which
+    /// is what they all drew before.
+    Choice { label: String, value: String, action: Action, tint: [u8; 4] },
     /// **A named group of rows, and whether it is showing.** Clickable: the
     /// action opens this group and closes whichever was open. `hidden` is how
     /// many rows are behind it while it is shut, which is the whole reason a
@@ -1784,7 +1798,12 @@ impl Row {
         Self { body: Body::Lines { caption: caption.into(), series }, note: note.into() }
     }
     fn choice(label: impl Into<String>, value: impl Into<String>, action: Action, note: impl Into<String>) -> Self {
-        Self { body: Body::Choice { label: label.into(), value: value.into(), action }, note: note.into() }
+        Self { body: Body::Choice { label: label.into(), value: value.into(), action, tint: GOOD }, note: note.into() }
+    }
+    /// A `Choice` whose value is drawn in a colour of its own -- see
+    /// [`Body::Choice`].
+    fn choice_tinted(label: impl Into<String>, value: impl Into<String>, action: Action, tint: [u8; 4], note: impl Into<String>) -> Self {
+        Self { body: Body::Choice { label: label.into(), value: value.into(), action, tint }, note: note.into() }
     }
     fn gap() -> Self {
         Self { body: Body::Gap, note: String::new() }
@@ -1877,21 +1896,63 @@ struct Sample {
     /// that has not been founded yet and one that died out must look the
     /// same on the chart: the floor.
     groups: Vec<(SpeciesId, u32, u32)>,
-    /// **Each colony's books at this sample** — `(colony, intake, outgo)`,
-    /// cumulative joules straight off `World::colony_books`.
-    ///
-    /// Cumulative and not per-window, deliberately: the ring drops its
-    /// oldest sample, and a stored *window* would be a number whose meaning
-    /// depended on a sample that no longer exists. A window is a
-    /// subtraction between two samples that are both still here, which is
-    /// what `colony_intake_series` does — and it is also why the first
-    /// sample of the ring draws a zero rather than a spike.
-    food: Vec<(u32, f64, f64)>,
-    /// **Cumulative joules in by source material**, summed over colonies —
-    /// the diet band's series. Sparse, because most of a registry is not
-    /// food and a dense row per sample would be mostly zeroes.
-    diet: Vec<(u16, f64)>,
 }
+
+/// **A snapshot of every colony's books, kept for the range selector.**
+///
+/// Separate from `Sample` above, and the reason is reach. The population ring
+/// is 56 samples at `SAMPLE_EVERY` = 120 frames, which is **under two minutes
+/// of box time**; the owner asked the FOOD page for *"a range options (all
+/// time, 10 min, 5 min, 1 min, etc)"*, and a ring that cannot see back five
+/// minutes cannot answer for five minutes. Deepening the population ring
+/// instead would have changed the span of the ANTS page's chart, which is a
+/// different page's meaning.
+///
+/// **Cumulative, never per-window**, and the reason is the ring itself: it
+/// drops its oldest entry, so a stored *window* would be a number whose
+/// meaning depended on a sample that no longer exists. A range is a
+/// subtraction between two snapshots that are both still here, which is also
+/// why the youngest ring reads as a leading zero rather than a spike.
+#[derive(Clone, Default, Debug)]
+struct BooksSnap {
+    frame: u64,
+    /// `(colony, [accounts], raided, raided_by_others)`, one entry per colony
+    /// that has books — a colony that has died out still has an economy, and
+    /// it is usually the one worth reading.
+    colonies: Vec<(u32, [f64; Account::COUNT], f64, f64)>,
+    /// `(colony, material, cumulative joules)`. **Per colony**, where the
+    /// population ring's `diet` is summed over all of them: the colony page
+    /// asks what *this* colony is eating, and a world total cannot be
+    /// narrowed back down.
+    diet: Vec<(u32, u16, f64)>,
+}
+
+/// **Simulated frames between book snapshots.** Ten seconds of box time at
+/// 60 Hz — coarse enough that 64 of them reach past ten minutes, fine enough
+/// that the shortest range on the ladder is still eight samples wide.
+const BOOKS_EVERY: u64 = 600;
+/// **How many snapshots are kept.** At `BOOKS_EVERY` this is 38,400 frames,
+/// **10.7 minutes of box time** — one sample of headroom over the longest
+/// range the ladder offers, so `RANGES`' ten-minute stop is never answered
+/// out of a ring that has already dropped its far end.
+const BOOKS_SNAPS: usize = 64;
+
+/// **The range ladder the FOOD page's stats are read over**, as
+/// `(caption, frames)`; `0` frames is all time.
+///
+/// Owner, 2026-09-14: *"we are about what was eaten over the past 2-3
+/// minutes, not the past 10 seconds… Maybe we keep all the stats but there is
+/// a range options (all time, 10 min, 5 min, 1 min, etc)."* Two minutes is on
+/// the ladder because it is the span he named, and it is the default for the
+/// same reason — a page that opens on *all time* opens on a number dominated
+/// by whatever happened at founding.
+///
+/// **Box time, not wall-clock time.** Every sample here is taken on
+/// `World::frame`, which is the lab's own convention (`the_series_is_sampled_
+/// on_simulated_time_not_on_draws`) and the only one under which the same run
+/// reads the same however fast it was watched. At `1X` a minute of box time
+/// is a minute of watching; at `64X` the box lives it in a second.
+const RANGES: [(&str, u64); 5] = [("2 MIN", 7_200), ("1 MIN", 3_600), ("5 MIN", 18_000), ("10 MIN", 36_000), ("ALL TIME", 0)];
 
 /// **One sample of one watched individual.**
 ///
@@ -2278,6 +2339,10 @@ pub struct History {
     samples: VecDeque<Sample>,
     last_frame: u64,
     next_at: u64,
+    /// The coarse book ring behind the FOOD page's range selector. See
+    /// [`BooksSnap`] for why it is not the population ring.
+    books: VecDeque<BooksSnap>,
+    books_at: u64,
 }
 
 impl History {
@@ -2305,36 +2370,116 @@ impl History {
             // is explicit that the world owns the split and a page only
             // draws it.
             groups: world.live_creature_groups().into_iter().map(|g| (g.species, g.colony, g.alive)).collect(),
-            // **Every colony with books, not every colony still standing.**
-            // A colony that has died out still has an economy worth
-            // drawing, and it is the most interesting one on the page --
-            // the same lesson `examples/colonybooks.rs` paid for by
-            // reading its report off the live groups and watching a
-            // starved colony's whole history disappear.
-            food: world
-                .all_colony_books()
-                .iter()
-                .enumerate()
-                .map(|(colony, books)| (colony as u32, books.intake(), books.outgo()))
-                .filter(|&(_, intake, outgo)| intake > 0.0 || outgo > 0.0)
-                .collect(),
-            diet: {
-                let mut by_material: Vec<(u16, f64)> = Vec::new();
-                for books in world.all_colony_books() {
-                    for (m, j) in books.diet() {
-                        match by_material.iter_mut().find(|(id, _)| *id == m.0) {
-                            Some((_, total)) => *total += j,
-                            None => by_material.push((m.0, j)),
-                        }
-                    }
-                }
-                by_material
-            },
         });
         while self.samples.len() > HISTORY {
             self.samples.pop_front();
         }
         self.next_at = world.frame + SAMPLE_EVERY;
+        self.snap_books(world);
+    }
+
+    /// Take one book snapshot, if one is due. See [`BooksSnap`].
+    fn snap_books(&mut self, world: &World) {
+        if world.frame < self.books_at && !self.books.is_empty() {
+            return;
+        }
+        let all = world.all_colony_books();
+        self.books.push_back(BooksSnap {
+            frame: world.frame,
+            colonies: all
+                .iter()
+                .enumerate()
+                .filter(|(_, b)| b.intake() > 0.0 || b.outgo() > 0.0)
+                .map(|(colony, b)| {
+                    let mut accounts = [0.0f64; Account::COUNT];
+                    for a in Account::ALL {
+                        accounts[a as usize] = b.get(a);
+                    }
+                    (colony as u32, accounts, b.raided, b.raided_by_others)
+                })
+                .collect(),
+            diet: all
+                .iter()
+                .enumerate()
+                .flat_map(|(colony, b)| b.diet().into_iter().map(move |(m, j)| (colony as u32, m.0, j)))
+                .collect(),
+        });
+        while self.books.len() > BOOKS_SNAPS {
+            self.books.pop_front();
+        }
+        self.books_at = world.frame + BOOKS_EVERY;
+    }
+
+    /// **The snapshot to subtract for a range of `frames`, or `None` for all
+    /// time.**
+    ///
+    /// The oldest snapshot still at or before `now - frames`. **Not the
+    /// nearest one**: a nearest-match would silently answer a five-minute
+    /// question out of a two-minute window whenever the ring is young, and
+    /// would do it without saying so. Taking the oldest available instead
+    /// makes a too-short ring read as *more* history rather than less, and
+    /// [`History::range_reaches`] is what the page uses to say which it got.
+    fn books_before(&self, now: u64, frames: u64) -> Option<&BooksSnap> {
+        if frames == 0 {
+            return None;
+        }
+        let cut = now.saturating_sub(frames);
+        self.books.iter().rev().find(|s| s.frame <= cut).or_else(|| self.books.front())
+    }
+
+    /// **Whether the ring actually reaches back the whole range asked for.**
+    /// A page that cannot say this is a page that quietly relabels its own
+    /// window, which is the `CLAUDE.md` failure of a number that is correct
+    /// and about a different question.
+    fn range_reaches(&self, now: u64, frames: u64) -> bool {
+        // **Both halves, and the second one is not obvious.** The ring can
+        // hold enough snapshots and the *box* still not have run the span
+        // asked for -- and then `now - frames` saturates to zero, the oldest
+        // snapshot is trivially at or before it, and a ten-minute window over
+        // a thirty-second box reports itself as a full ten minutes. Correct
+        // arithmetic, different question.
+        frames == 0 || (now >= frames && self.books.front().is_some_and(|s| s.frame <= now - frames))
+    }
+
+    /// One colony's account over a range: the reading now, less the reading
+    /// at the far end of the window.
+    fn account_over(&self, books: &world::ColonyBooks, colony: u32, account: Account, now: u64, frames: u64) -> f64 {
+        let then = self
+            .books_before(now, frames)
+            .and_then(|s| s.colonies.iter().find(|&&(c, _, _, _)| c == colony))
+            .map_or(0.0, |&(_, accounts, _, _)| accounts[account as usize]);
+        (books.get(account) - then).max(0.0)
+    }
+
+    /// The same for the two raid totals, which are fields rather than
+    /// accounts: `(taken, lost)`.
+    fn raids_over(&self, books: &world::ColonyBooks, colony: u32, now: u64, frames: u64) -> (f64, f64) {
+        let (mut took, mut lost) = (0.0, 0.0);
+        if let Some(&(_, _, r, rb)) = self.books_before(now, frames).and_then(|s| s.colonies.iter().find(|&&(c, _, _, _)| c == colony)) {
+            took = r;
+            lost = rb;
+        }
+        ((books.raided - took).max(0.0), (books.raided_by_others - lost).max(0.0))
+    }
+
+    /// **What one colony ate over a range, by source material, heaviest
+    /// first.** The colony page's whole middle section.
+    fn diet_over(&self, books: &world::ColonyBooks, colony: u32, now: u64, frames: u64) -> Vec<(material::MaterialId, f64)> {
+        let then = self.books_before(now, frames);
+        let mut rows: Vec<(material::MaterialId, f64)> = books
+            .diet()
+            .into_iter()
+            .map(|(m, j)| {
+                let was = then.and_then(|s| s.diet.iter().find(|&&(c, id, _)| c == colony && id == m.0)).map_or(0.0, |&(_, _, j)| j);
+                (m, (j - was).max(0.0))
+            })
+            .filter(|&(_, j)| j > 0.0)
+            .collect();
+        // Descending on a stable sort, so two equal materials keep registry
+        // order -- `ColonyBooks::diet`'s own reason, which is `CLAUDE.md`'s
+        // `sort_unstable` gotcha.
+        rows.sort_by(|a, b| b.1.total_cmp(&a.1));
+        rows
     }
 
     fn series(&self, pick: fn(&Sample) -> u32) -> Vec<u32> {
@@ -2374,52 +2519,17 @@ impl History {
         out
     }
 
-    /// **One colony's food intake per window**, in joules, across the ring.
-    ///
-    /// A *window* and not a running total, because the question the FOOD
-    /// page asks is "is this colony feeding itself *now*" and a cumulative
-    /// line can only ever climb — it answers that question by its slope,
-    /// which is exactly the reading a chart is bad at. A colony that has
-    /// stopped eating draws on the floor here, which is what
-    /// `CLAUDE.md`'s first law asks of an outcome: the fall is graded and
-    /// visible before the death is.
-    ///
-    /// Clamped at zero into `u32` because `Body::Lines` is a population
-    /// chart and takes counts; the books are monotone, so a negative
-    /// window can only be the ring crossing a rebuild, which
-    /// `History::observe` already clears.
-    fn colony_intake_series(&self, colony: u32) -> Vec<u32> {
-        self.window_series(|s| s.food.iter().find(|&&(c, _, _)| c == colony).map_or(0.0, |&(_, intake, _)| intake))
-    }
-
-    /// The same, for one source material summed over every colony — one
-    /// line of the diet band.
-    fn diet_series(&self, material: u16) -> Vec<u32> {
-        self.window_series(|s| s.diet.iter().find(|&&(m, _)| m == material).map_or(0.0, |&(_, j)| j))
-    }
-
-    /// The shared arithmetic behind both: a cumulative reading per sample,
-    /// differenced into per-window values with a leading zero.
-    fn window_series(&self, pick: impl Fn(&Sample) -> f64) -> Vec<u32> {
-        let totals: Vec<f64> = self.samples.iter().map(&pick).collect();
-        totals.iter().enumerate().map(|(i, &now)| if i == 0 { 0.0 } else { (now - totals[i - 1]).max(0.0) }).map(|v| v.round() as u32).collect()
-    }
-
-    /// **Every source material the ring has seen eaten, heaviest first.**
-    ///
-    /// Ranked over the *whole ring* rather than over the last sample, so the
-    /// diet band's line order and colours hold still while it is watched. A
-    /// legend that reshuffles every sample is unreadable, and this is the
-    /// same reason `ColonyBooks::diet` sorts at all.
-    fn diet_materials(&self) -> Vec<u16> {
-        let last = match self.samples.back() {
-            Some(s) => s,
-            None => return Vec::new(),
-        };
-        let mut rows: Vec<(u16, f64)> = last.diet.clone();
-        rows.sort_by(|a, b| b.1.total_cmp(&a.1));
-        rows.into_iter().filter(|&(_, j)| j > 0.0).map(|(m, _)| m).collect()
-    }
+    // **The population ring's two food series are gone with the FOOD page's
+    // charts**, on the owner's reading of them: *"they are showing how much a
+    // colony is eating in unknown scale at a fast pace. This is not answering
+    // any questions that I would ask… if the graph is all spikes that isn't
+    // useful."* A window of `SAMPLE_EVERY` frames plotted `HISTORY` times is
+    // a *rate*, and the quantity wanted was an *amount over a span he
+    // chooses* -- so the chart was drawing the sampling interval rather than
+    // the colony. That span is `RANGES`, read off the coarse `books` ring
+    // above. Deleted rather than left for a future caller, per `CLAUDE.md` on
+    // a superseded mechanism: kept, they would pass their tests and exercise
+    // nothing.
 
     fn group_series(&self, matches: impl Fn(SpeciesId, u32) -> bool) -> Vec<u32> {
         self.samples
@@ -2516,8 +2626,11 @@ fn group_losses(world: &World, species: SpeciesId, colony: Option<u32>) -> (u64,
 
 /// **Is this colony feeding itself, and by how much?**
 ///
-/// Returns the share of everything the colony has *spent* that it has found
-/// in the world for itself, and a word for it.
+/// Returns the share of what the colony has *spent* in the window that it
+/// found in the world for itself, and a word for it. **The caller chooses
+/// which accounts `found` is made of, and that choice is the whole of the
+/// judgement** — it is guarded on the rendered page rather than here, by
+/// `the_colony_page_does_not_count_the_grant_the_dead_or_a_handout`.
 ///
 /// **This is the sentence the FOOD page did not say.** The owner read the
 /// first version of that page and answered *"Nope. I don't understand what
@@ -2547,27 +2660,41 @@ fn group_losses(world: &World, species: SpeciesId, colony: Option<u32>) -> (u64,
 /// distribution and a readout that can only say thriving or gone has the
 /// defect the uniform rubble had. A colony finding half its own keep is a
 /// real and common state and the page says so.
-fn feeding_itself(books: &world::ColonyBooks) -> (f64, &'static str) {
-    let outgo = books.outgo();
-    if outgo <= 0.0 {
+fn feeding_itself(found: f64, spent: f64) -> (f64, &'static str) {
+    if spent <= 0.0 {
+        // A colony that has spent nothing cannot be scored, and must say so
+        // rather than divide by zero into a confident answer.
         return (0.0, "NOT YET");
     }
-    let share = books.get(Account::HarvestedPlant) / outgo;
+    let share = found / spent;
     (share, if share >= 0.9 { "YES" } else if share >= 0.25 { "PART WAY" } else { "NO" })
 }
 
-/// **How many colonies the FOOD page draws in full.**
+/// **What a named food source is, in the world's words**, appended to that
+/// row's note on a colony's own FOOD page.
 ///
-/// Three blocks of six rows plus two charts is the page; a fourth overflows
-/// it. Measured on `examples/labui`, not guessed. The cap is named on the page (`MORE COLONIES +n`) rather than
-/// swallowed, which is `Body::Head`'s rule — a page that quietly stops at
-/// the bottom of the screen has lost something and does not say so.
-const FOOD_LINES: usize = 8;
+/// A material name on its own is not self-explaining: `ANT` on a diet list
+/// reads as *"they eat ants"* and does not say whose, and `CORPSE` does not
+/// say that it is anything already dead rather than an ant specifically. The
+/// owner's ask went one layer further than this — *"if the colony is eating
+/// lots of ants, i can click and see which colony they are coming from"* —
+/// and **that layer is not buildable off what the engine records today**:
+/// `ColonyBooks::raided` is a scalar per colony, so with three colonies in
+/// the box the victim of any one mouthful is not recoverable. Saying which
+/// ones are ambiguous is the honest half of that, and the note says it.
+fn source_note(name: &str) -> &'static str {
+    match name {
+        "ANT" => " THIS IS ANOTHER COLONY'S LIVING ANIMALS, EATEN THROUGH THE ORDINARY MOUTH. WHICH COLONY THEY CAME OFF IS NOT RECORDED YET -- ONLY THE TOTAL IS, ON THE ATE RIVALS ROW BELOW.",
+        "CORPSE" => " ANYTHING ALREADY DEAD, WHOEVER IT WAS. A CORPSE CARRIES THE WORTH OF THE ANIMAL IT WAS, SO THIS IS FOOD SOMETHING ELSE ALREADY PAID FOR, AND A COLONY LIVING ON IT IS EATING ITSELF.",
+        "SPOIL" => " THE MIDDEN -- WHAT A COLONY THROWS OUT. EATING IT BACK IS NOT INCOME; IT IS THE SAME JOULES GOING ROUND.",
+        _ => " WHICH PLANTS IT CAME OFF IS NOT RECORDED YET. WHERE ON THE GROUND IT CAME FROM IS: PRESS F7 FOR THE HARVEST MAP AND THE PATCHES THIS COLONY HAS BEEN STRIPPING LIGHT UP IN ITS OWN COLOUR.",
+    }
+}
 
-/// **How many source materials the diet band plots.**
+/// **How many source materials a colony's own FOOD page lists.**
 ///
-/// Six lines is the most one shared axis stays readable at, and the band is
-/// ranked so the six are the six that matter. Everything else is still in
+/// Six rows, ranked, with anything past them counted into the total and named
+/// as `MORE SOURCES +n` rather than dropped. Everything else is still in
 /// the books and still in the `FORAGED / SCAVENGED` totals — this is what is
 /// *drawn*, not what is counted.
 const FOOD_SOURCES: usize = 6;
@@ -2580,14 +2707,35 @@ const FOOD_SOURCES: usize = 6;
 /// entry, because the panel is dark and a material's dark shades are what
 /// it looks like in shadow — `CLAUDE.md`'s overlay rule in miniature, that a
 /// readout blended toward the thing's own dim colour reads as blank.
+///
+/// **And then lifted to a floor, which the band did not need and a list
+/// does.** On the chart a dark line was still a line against the plot's own
+/// dark ground; as a row of text it is a row nobody can read. `ant` is the
+/// case that found it: the brightest entry in its palette is dark enough that
+/// `ANT  228 J  11%` came out barely distinguishable from the panel, which is
+/// the one row on that list a player most wants to see — it is another colony
+/// being eaten. Scaled rather than replaced, so the hue still says which
+/// material it is; the floor is `FAINT`'s own luma, so no source row is
+/// harder to read than the page's quietest label.
 fn food_tint(world: &World, material: material::MaterialId) -> [u8; 4] {
-    let palette = &world.materials.get(material).palette;
-    palette
-        .iter()
-        .copied()
-        .max_by_key(|c| 299 * c[0] as u32 + 587 * c[1] as u32 + 114 * c[2] as u32)
-        .unwrap_or(VALUE)
+    let luma = |c: &[u8; 4]| (299 * c[0] as u32 + 587 * c[1] as u32 + 114 * c[2] as u32) / 1000;
+    let brightest =
+        world.materials.get(material).palette.iter().copied().max_by_key(|c| 299 * c[0] as u32 + 587 * c[1] as u32 + 114 * c[2] as u32);
+    let Some(mut c) = brightest else { return VALUE };
+    let have = luma(&c).max(1);
+    if have < TEXT_LUMA_FLOOR {
+        for ch in c.iter_mut().take(3) {
+            *ch = ((*ch as u32 * TEXT_LUMA_FLOOR) / have).min(255) as u8;
+        }
+    }
+    c[3] = 255;
+    c
 }
+
+/// The dimmest a row of text on a panel may be, in luma — `FAINT`'s own, so
+/// nothing is harder to read than the page's quietest label. See
+/// [`food_tint`].
+const TEXT_LUMA_FLOOR: u32 = 138;
 
 /// **A colony's living animals by how full their banks are**, in five bands
 /// of `CreatureDef::start_energy`.
@@ -2929,6 +3077,15 @@ pub struct Ui {
     /// `Action::HistoryOpen`'s own doc for why. The one field that switches
     /// `paint_history` between its two painters, `rack_grouped`'s own shape.
     history_open: Option<u32>,
+    /// **Which colony the FOOD page has open, or `None` for the list of all
+    /// of them.** A stable colony id and never a row index, for
+    /// `Action::HistoryOpen`'s reason: a colony can die between the frame a
+    /// row was built and the click that fires it, and an index would open
+    /// whatever slid into its place.
+    food_colony: Option<u32>,
+    /// Which stop of [`RANGES`] every figure on the FOOD page is read over.
+    /// An index rather than a span so the row can name the stop it is on.
+    food_range: usize,
     /// The dial being typed into and the digits so far, if any.
     typing: Option<(TypedField, String)>,
     /// Which column the rack is sorted on, and whether it is descending.
@@ -3957,6 +4114,26 @@ impl Ui {
         self.history_scroll = 0;
     }
 
+    /// **Open one colony's own books on the FOOD page.** The second layer the
+    /// owner asked for; `Action::FoodOpen`.
+    pub fn open_food_colony(&mut self, colony: u32) {
+        self.food_colony = Some(colony);
+    }
+
+    /// Back to every colony. `Action::FoodBack`.
+    pub fn close_food_colony(&mut self) {
+        self.food_colony = None;
+    }
+
+    /// Step the FOOD page's range one stop along [`RANGES`]. The range is
+    /// deliberately **not** reset by opening or closing a colony: a player
+    /// who has chosen to look at the last two minutes wants the last two
+    /// minutes on both layers.
+    pub fn cycle_food_range(&mut self, by: i32) {
+        let n = RANGES.len() as i32;
+        self.food_range = ((self.food_range as i32 + by).rem_euclid(n)) as usize;
+    }
+
     /// Close a colony back to the SUMMARY view -- `open_history_colony`'s
     /// own reason for resetting the scroll, reversed.
     pub fn close_history_colony(&mut self) {
@@ -4310,133 +4487,124 @@ impl Ui {
     }
 
 
-    /// **One colony's block on the FOOD page**: the label with its bank, and
-    /// three rows saying where the food came from, what it went on, what is
-    /// in transit and how empty the animals are running.
+    /// **The range every figure on the FOOD page is read over**, as
+    /// `(caption, frames)` — see [`RANGES`].
+    fn food_range(&self) -> (&'static str, u64) {
+        RANGES[self.food_range % RANGES.len()]
+    }
+
+    /// The clickable row that cycles it, and the note that says what a range
+    /// on this page means.
+    fn food_range_row(&self, world: &World) -> Row {
+        let (caption, frames) = self.food_range();
+        let short = !self.history.range_reaches(world.frame, frames);
+        Row::choice(
+            "COUNTING THE LAST",
+            if short { format!("{caption} (SO FAR)") } else { caption.to_string() },
+            Action::FoodRange(1),
+            format!(
+                "EVERY FIGURE ON THIS PAGE IS WHAT HAPPENED INSIDE THIS WINDOW, NOT SINCE THE BOX WAS MADE. CLICK TO CHANGE IT: 2 MIN, 1 MIN, 5 MIN, 10 MIN, ALL TIME. ALL TIME IS DOMINATED BY WHAT HAPPENED AT FOUNDING, WHICH IS WHY IT IS NOT WHERE THIS OPENS. THE CLOCK IS THE BOX'S OWN, SO AT 1X A MINUTE HERE IS A MINUTE OF WATCHING AND AT 64X THE BOX LIVES IT IN A SECOND.{}",
+                if short { " RIGHT NOW THE BOX HAS NOT RUN THAT LONG, SO THIS IS EVERYTHING SINCE IT STARTED AND THE ROW SAYS SO FAR." } else { "" }
+            ),
+        )
+    }
+
+    /// **One colony's block on the FOOD page**: a clickable line that opens
+    /// the colony, and the four rows of where its food came from, what it
+    /// went on, and how empty its animals are running.
     ///
     /// Split out of `food_rows` so the page can ask how tall a block is
     /// *before* committing to drawing it — see there for why the colony cap
     /// is measured rather than authored.
+    ///
+    /// **The header is a `Choice` and not a `Value`, which is the whole of
+    /// the drill-down.** Owner, 2026-09-14: *"If you click a colony, it goes
+    /// to a more detailed page for that specific colony, which lists what
+    /// they are eating."* `Choice` draws the bar button's own face and edge,
+    /// so a row that can be opened looks like one — the exact complaint that
+    /// made MENU read as a list rather than a menu.
     fn food_block(&self, world: &World, species: SpeciesId, colony: u32, alive: u32, tint: [u8; 4]) -> Vec<Row> {
         let books = world.colony_books(colony);
-        let (income, outgo) = (books.income(), books.outgo());
-        let share = |part: f64| if outgo > 0.0 { format!("{:.0}%", 100.0 * part / outgo) } else { "--".to_string() };
-        let (shared_in, shared_out) = (books.get(Account::SharedIn), books.get(Account::SharedOut));
+        let (_, frames) = self.food_range();
+        let now = world.frame;
+        let over = |a: Account| self.history.account_over(&books, colony, a, now, frames);
+        let spent = over(Account::Metabolized) + over(Account::Moved) + over(Account::SynapseTax);
+        let pct = |part: f64| if spent > 0.0 { format!("{:.0}%", 100.0 * part / spent) } else { "--".to_string() };
+        let (shared_in, shared_out) = (over(Account::SharedIn), over(Account::SharedOut));
+        let (took, lost) = self.history.raids_over(&books, colony, now, frames);
         let (in_crops, mut loads) = colony_carrying(world, colony);
         loads.sort_unstable_by(|a, b| b.cmp(a));
-        let carried: u32 = loads.iter().sum();
         let idle = loads.iter().filter(|&&n| n == 0).count();
-        let ranked: Vec<String> = loads.iter().take(12).map(|n| n.to_string()).collect();
         let bands = hunger_bands(world, colony, species);
         let thin = bands[0] + bands[1];
-        let (found, verdict) = feeding_itself(&books);
+        let found = over(Account::HarvestedPlant);
+        let (share, verdict) = feeding_itself(found, spent);
+        let finds = 100.0 * share;
         let mut rows = vec![
             // **`FINDS n%` leads this line, and it is the sentence the page
-            // did not say.** *Finds*, deliberately, and not *feeds*: `FED` on
-            // the row directly below is mouth-to-mouth between ants, and two
-            // words a letter apart meaning opposite things is how a dense
-            // page stops being read at all. The owner read the first version of the page and
-            // answered *"Nope. I don't understand what these visuals are
-            // trying to tell"* -- not a complaint about a chart type, but
-            // that every row was true and none of them was an *answer*. This
-            // one is: is the colony paying its own way? See `feeding_itself`
-            // for why the number is what it is.
+            // did not say.** The owner read the first version and answered
+            // *"Nope. I don't understand what these visuals are trying to
+            // tell"* -- not a complaint about a chart type, but that every
+            // row was true and none of them was an *answer*. This one is: is
+            // the colony paying its own way? See `feeding_itself`.
             //
-            // **On this row rather than on one of its own, and that is not
-            // tidiness.** The page budget is 228 px and a colony block with a
-            // rivals row is 49 of it, so a two-colony bed fits in exactly the
-            // 98 px left after the two charts -- measured, by rendering the
-            // page with and without. An extra row per block, or even an extra
-            // row on the page, drops the second colony to `MORE COLONIES +1`,
-            // and a page whose whole job is telling two colonies apart must
-            // not buy its headline with one of them.
-            Row::value(
+            // *Finds*, deliberately, and not *feeds*: `FED` on the row below
+            // is mouth-to-mouth between ants, and two words a letter apart
+            // meaning opposite things is how a dense page stops being read.
+            Row::choice_tinted(
                 world.group_label(species, colony),
-                format!("FINDS {:.0}%   {alive} ALIVE   {}", 100.0 * found, compact(income - outgo)),
+                format!("FINDS {finds:.0}%   {alive} ALIVE   +"),
+                Action::FoodOpen(colony),
                 tint,
                 format!(
-                    "IS THIS COLONY FEEDING ITSELF? {verdict}. {:.0}% OF EVERYTHING IT HAS SPENT, IT FOUND IN THE WORLD FOR ITSELF -- {} J OF LEAF, LITTER, SEED, NECTAR AND RIVAL FLESH AGAINST A BILL OF {} J. NEITHER THE {} J IT WAS PLACED WITH NOR A CORPSE COUNTS: THE GRANT RUNS OUT ONCE, AND A CORPSE IS FOOD SOMETHING ELSE ALREADY PAID FOR. THEN THE BANK, ALL TOLD: EVERYTHING TAKEN IN LESS EVERYTHING SPENT, WHICH IS WHAT ITS LIVING ANIMALS ARE HOLDING BETWEEN THEM RIGHT NOW -- IN {} J, OUT {} J. A COLONY WITH NOTHING ALIVE STILL SHOWS ITS BOOKS, AND THAT IS OFTEN THE ONE WORTH READING.",
-                    100.0 * found,
-                    compact(books.get(Account::HarvestedPlant)),
-                    compact(outgo),
-                    compact(books.get(Account::Granted)),
-                    compact(income),
-                    compact(outgo)
+                    "OPEN THIS COLONY. IS IT FEEDING ITSELF? {verdict}. {:.0}% OF WHAT IT SPENT IN THIS WINDOW, IT FOUND IN THE WORLD FOR ITSELF -- {} J OF LEAF, LITTER, SEED, NECTAR AND RIVAL FLESH AGAINST A BILL OF {} J. THE FOOD IT WAS PLACED WITH DOES NOT COUNT, BECAUSE THAT RUNS OUT ONCE, AND NEITHER DOES A CORPSE, BECAUSE THAT IS FOOD SOMETHING ELSE ALREADY PAID FOR. IT HAS {} J IN THE BANK, ALL TOLD.",
+                    finds,
+                    compact(found),
+                    compact(spent),
+                    compact(books.income() - books.outgo())
                 ),
             ),
             Row::value(
                 "  FORAGED / MEAT / FED",
-                format!(
-                    "{} / {} / {}",
-                    compact(books.get(Account::HarvestedPlant)),
-                    compact(books.get(Account::HarvestedCorpse)),
-                    compact(shared_in)
-                ),
+                format!("{} / {} / {}", compact(found), compact(over(Account::HarvestedCorpse)), compact(shared_in)),
                 VALUE,
                 format!(
-                    "WHERE THE FOOD CAME FROM. FORAGED IS ANYTHING WHOSE WORTH IS IN WHAT IT IS MADE OF -- LEAF, LITTER, SEED, NECTAR, AND ALSO THE FLESH OF A LIVING ANIMAL THIS COLONY DOES NOT RECOGNISE, WHICH IS WHY A RIVALS ROW APPEARS BELOW WHEN THAT IS HAPPENING. MEAT IS SCAVENGED: A CORPSE CARRIES THE WORTH OF THE ANIMAL IT WAS, SO IT IS FOOD SOMETHING ELSE ALREADY PAID FOR, AND A COLONY LIVING ON IT IS EATING ITSELF. FED IS MOUTH TO MOUTH FROM ANOTHER ANT -- FAMILY IS DECIDED BY SMELL RATHER THAN BY WHICH COLONY YOU PUT DOWN, SO SOME OF IT CROSSES BETWEEN COLONIES: THIS ONE GAVE {} J AWAY, TOOK {} J OFF OTHER COLONIES' LIVING ANIMALS AND LOST {} J TO THEM.",
-                    compact(shared_out),
-                    compact(books.raided),
-                    compact(books.raided_by_others)
+                    "WHERE THE FOOD CAME FROM IN THIS WINDOW. FORAGED IS ANYTHING WHOSE WORTH IS IN WHAT IT IS MADE OF -- LEAF, LITTER, SEED, NECTAR, AND ALSO THE FLESH OF A LIVING ANIMAL THIS COLONY DOES NOT RECOGNISE, WHICH IS WHY A RIVALS ROW APPEARS BELOW WHEN THAT IS HAPPENING. MEAT IS SCAVENGED: A CORPSE CARRIES THE WORTH OF THE ANIMAL IT WAS, SO IT IS FOOD SOMETHING ELSE ALREADY PAID FOR, AND A COLONY LIVING ON IT IS EATING ITSELF. FED IS MOUTH TO MOUTH FROM ANOTHER ANT -- FAMILY IS DECIDED BY SMELL RATHER THAN BY WHICH COLONY YOU PUT DOWN, SO SOME OF IT CROSSES BETWEEN COLONIES: THIS ONE GAVE {} J AWAY. OPEN THE COLONY TO SEE WHAT THE FORAGED JOULES WERE MADE OF.",
+                    compact(shared_out)
                 ),
             ),
             Row::value(
                 "  UPKEEP / WALK / BRAIN",
-                format!(
-                    "{} / {} / {}",
-                    share(books.get(Account::Metabolized)),
-                    share(books.get(Account::Moved)),
-                    share(books.get(Account::SynapseTax))
-                ),
+                format!("{} / {} / {}", pct(over(Account::Metabolized)), pct(over(Account::Moved)), pct(over(Account::SynapseTax))),
                 FAINT,
                 format!(
-                    "WHAT IT SPENT ITS FOOD ON. UPKEEP IS STAYING ALIVE -- BREATHING, DIGGING, CHEWING, KEEPING WARM. WALK IS GETTING ABOUT, AND IT RIDES ON WHAT AN ANT IS CARRYING, SO A COLONY THAT FORAGES FAR PAYS MORE OF IT. BRAIN IS WHAT THE THINKING COSTS, CHARGED PER LIVE CONNECTION. {} J, {} J AND {} J OF {} J SPENT.",
-                    compact(books.get(Account::Metabolized)),
-                    compact(books.get(Account::Moved)),
-                    compact(books.get(Account::SynapseTax)),
-                    compact(outgo)
+                    "WHAT IT SPENT ITS FOOD ON IN THIS WINDOW. UPKEEP IS STAYING ALIVE -- BREATHING, DIGGING, CHEWING, KEEPING WARM. WALK IS GETTING ABOUT, AND IT RIDES ON WHAT AN ANT IS CARRYING, SO A COLONY THAT FORAGES FAR PAYS MORE OF IT. BRAIN IS WHAT THE THINKING COSTS, CHARGED PER LIVE CONNECTION. {} J, {} J AND {} J OF {} J SPENT.",
+                    compact(over(Account::Metabolized)),
+                    compact(over(Account::Moved)),
+                    compact(over(Account::SynapseTax)),
+                    compact(spent)
                 ),
             ),
             // **Two questions on one row, and both are distributions.**
             // "Empty" is `CLAUDE.md`'s first law -- a colony is not thriving
             // or starving, it empties out, and only a spread says so before
-            // the deaths do. The note ranks the carriers, because a mean
-            // forager hides "a fifth do all of it" exactly as a pooled idle
-            // rate hid "a fifth are frozen" (round 33).
+            // the deaths do.
             //
-            // **"Carrying" says in transit, and the wording is the whole
-            // care.** `Reports/colony-food-economy-design-2026-09-14.md` §4:
-            // a standing count cannot tell a store from a conveyor --
-            // `larder_probe` already found a "granary of ten cells" that was
-            // ten cells on their way somewhere, `resident` 0 from frame 200,
-            // and the readout that answers *is it stored* is turnover rather
-            // than quantity. **That readout already exists for food on the
-            // ground** -- `larder_probe mode=turnover` tracks the band as a
-            // set of positions and reports entries, exits and residents --
-            // so this row deliberately does not try to be it. There is no
-            // granary in this box at all: a dropped load is a cell on the
-            // floor like any other and the midden is spoil rather than food,
-            // so a crop total is the honest answer to "what is the colony
-            // holding" and is not offered as an answer to "what has it put
-            // by". The one thing still unmeasured is dwell time *inside* a
-            // crop, which would say whether a carrier is ferrying or
-            // hoarding.
+            // **These two are the page's one pair of standing counts**, and
+            // they are deliberately not read over the range: how many animals
+            // are hungry *right now* is a state, not a flow, and a window
+            // over it would mean nothing. The note says so.
             Row::value(
                 "  EMPTY / CARRYING",
-                format!(
-                    "{} / {}",
-                    if alive == 0 { "--".to_string() } else { format!("{thin} OF {alive}") },
-                    compact(in_crops as f64)
-                ),
+                format!("{} / {}", if alive == 0 { "--".to_string() } else { format!("{thin} OF {alive}") }, compact(in_crops as f64)),
                 if alive > 0 && thin * 2 >= alive { POOR } else { FAINT },
                 format!(
-                    "HOW MANY OF ITS LIVING ANIMALS ARE UNDER A QUARTER OF THE BANK THEY WERE PLACED WITH, AND HOW MUCH FOOD IS IN ITS CROPS RIGHT NOW -- WHICH IS FOOD IN TRANSIT, NOT FOOD PUT BY. BANKS: UNDER A TENTH {}, A TENTH TO A QUARTER {}, TO A HALF {}, TO FULL {}, FULL OR BETTER {}. {carried} LOADS HAVE REACHED THE NEST, BY ANT AND MOST FIRST: {}. {idle} OF {} HAVE CARRIED NOTHING HOME, WHICH AN AVERAGE WOULD HIDE.",
+                    "RIGHT NOW, NOT OVER THE WINDOW -- HOW MANY THINGS ARE IS A STATE AND A RANGE OVER IT WOULD MEAN NOTHING. HOW MANY OF ITS LIVING ANIMALS ARE UNDER A QUARTER OF THE BANK THEY WERE PLACED WITH, AND HOW MUCH FOOD IS IN ITS CROPS -- WHICH IS FOOD IN TRANSIT, NOT FOOD PUT BY. BANKS: UNDER A TENTH {}, A TENTH TO A QUARTER {}, TO A HALF {}, TO FULL {}, FULL OR BETTER {}. {idle} OF {} HAVE CARRIED NOTHING HOME, WHICH AN AVERAGE WOULD HIDE.",
                     bands[0],
                     bands[1],
                     bands[2],
                     bands[3],
                     bands[4],
-                    if ranked.is_empty() { "NONE ALIVE".to_string() } else { ranked.join(" ") },
                     loads.len()
                 ),
             ),
@@ -4451,21 +4619,17 @@ impl Ui {
         // `FORAGED` above, because living flesh is not `worth_in_aux` --
         // arithmetically right, and it reads as "they found some plants".
         // This row is what lets the page say the true sentence instead.
-        //
-        // Inserted rather than appended: it belongs beside where the food
-        // came from, not after what the food was spent on. Third, so the
-        // block still reads top to bottom as bank, sources, bill, state.
-        if books.raided > 0.0 || books.raided_by_others > 0.0 {
+        if took > 0.0 || lost > 0.0 {
             rows.insert(
                 2,
                 Row::value(
                     "  ATE RIVALS / EATEN BY",
-                    format!("{} / {}", compact(books.raided), compact(books.raided_by_others)),
-                    if books.raided_by_others > books.raided { POOR } else { VALUE },
+                    format!("{} / {}", compact(took), compact(lost)),
+                    if lost > took { POOR } else { VALUE },
                     format!(
-                        "THIS COLONY IS EATING ANOTHER COLONY'S LIVING ANIMALS, AND BEING EATEN BY THEM. TWO COLONIES THAT DO NOT KNOW EACH OTHER'S SMELL ARE FOOD TO EACH OTHER THROUGH THE ORDINARY MOUTH -- NOTHING HAS TO BE TAUGHT TO FIGHT FOR THIS TO HAPPEN. THESE JOULES ARE ALSO COUNTED IN FORAGED ABOVE, BECAUSE THAT IS THE ACCOUNT THE MOUTHFUL WAS BOOKED TO; THIS ROW SAYS WHAT THE MOUTHFUL WAS. {} J TAKEN, {} J LOST.",
-                        compact(books.raided),
-                        compact(books.raided_by_others)
+                        "THIS COLONY IS EATING ANOTHER COLONY'S LIVING ANIMALS, AND BEING EATEN BY THEM. TWO COLONIES THAT DO NOT KNOW EACH OTHER'S SMELL ARE FOOD TO EACH OTHER THROUGH THE ORDINARY MOUTH -- NOTHING HAS TO BE TAUGHT TO FIGHT FOR THIS TO HAPPEN. THESE JOULES ARE ALSO COUNTED IN FORAGED ABOVE, BECAUSE THAT IS THE ACCOUNT THE MOUTHFUL WAS BOOKED TO; THIS ROW SAYS WHAT THE MOUTHFUL WAS. {} J TAKEN, {} J LOST, IN THIS WINDOW.",
+                        compact(took),
+                        compact(lost)
                     ),
                 ),
             );
@@ -4473,31 +4637,49 @@ impl Ui {
         rows
     }
 
-    /// **The FOOD page: what each colony is living on.**
+    /// **The FOOD page: what each colony is living on, and no charts.**
     ///
-    /// Two charts and then a block per colony. The charts come first because
-    /// the owner's question is a *trend* — *"is this colony feeding
-    /// itself"* — and a standing total answers that only by being
-    /// remembered. Both are `Body::Lines`, which already shares one axis
-    /// across several tints, so this page adds no painter: what is new is
-    /// what is plotted, not how.
+    /// **The charts were removed on the owner's own reading of them**, and
+    /// the reasoning is his, 2026-09-14:
+    ///
+    /// > *"#1 issue is your graphs. (top) they are showing how much a colony
+    /// > is eating in unknown scale at a fast pace. This is not answering any
+    /// > questions that I would ask. (bottom) it shows what a colony is
+    /// > eating at any given time, but again the pace is too fast (if the
+    /// > graph is all spikes that isn't useful), the bigger issue is that
+    /// > there is no legend for me to know which line is which. In general, I
+    /// > prefer graphs to tables, but I don't think they are helping here."*
+    ///
+    /// **He is right about what they were, and the diagnosis is worth keeping
+    /// because it generalises past this page.** A window of 120 simulated
+    /// frames plotted 56 times is a *rate*, and the thing being asked about
+    /// is an *amount* — so the chart drew the sampling interval rather than
+    /// the colony, which is why it was all spikes. The answer is not a
+    /// smoother chart; it is that the quantity wanted a number over a span he
+    /// chooses, which is [`RANGES`].
+    ///
+    /// **So the page is now two layers**, which is the shape he asked for:
+    /// this one is every colony's stats side by side, and clicking a colony
+    /// opens [`Ui::food_colony_rows`] — what that one is eating, by source.
     ///
     /// **Every line is joules and none of them is cells.** `Crop` carries a
-    /// material and a cell count and it would have been easy to chart the
-    /// count; a cell of moss and a cell of corpse are not the same food, and
-    /// a cell-count diet chart is a confident wrong answer of exactly the
-    /// shape `CLAUDE.md` calls this repo's worst-recurring failure. Every
-    /// figure here is priced by `creature::diet_yield` at the call that
-    /// credits the animal (`World::book_meal`), so the page cannot disagree
-    /// with the verb.
+    /// material and a cell count and it would have been easy to count cells;
+    /// a cell of moss and a cell of corpse are not the same food, and a
+    /// cell-count diet is a confident wrong answer of exactly the shape
+    /// `CLAUDE.md` calls this repo's worst-recurring failure. Every figure is
+    /// priced by `creature::diet_yield` at the call that credits the animal
+    /// (`World::book_meal`), so the page cannot disagree with the verb.
     ///
-    /// **How many colonies fit is measured, not authored.** The first
-    /// version capped at a number chosen by eye and drew the last colony's
-    /// bottom row off the edge of the screen — a page that quietly stops at
-    /// the bottom, which is the exact failure `fit_rows` exists to prevent
-    /// and `Body::Head`'s own doc calls dishonest. Blocks are now added
-    /// while there is room for a whole one, and what did not fit is named.
+    /// **How many colonies fit is measured, not authored.** The first version
+    /// capped at a number chosen by eye and drew the last colony's bottom row
+    /// off the edge of the screen. Blocks are added while there is room for a
+    /// whole one, and what did not fit is named. Dropping the two charts gave
+    /// this page back **108 px**, which is two more colonies than it could
+    /// hold before.
     fn food_rows(&self, world: &World) -> Vec<Row> {
+        if let Some(colony) = self.food_colony {
+            return self.food_colony_rows(world, colony);
+        }
         let colonies = world.live_creature_groups();
         // **Ranked by what they have eaten, not by what is alive**, because
         // the colony a player wants the books of is as likely to be the one
@@ -4509,20 +4691,6 @@ impl Ui {
             tint_of(render::group_colour(render::CreatureColour::Colony, species, colony, false).unwrap_or(render::GROUP_NONE))
         };
 
-        let intake: Vec<(Vec<u32>, [u8; 4])> = shown
-            .iter()
-            .take(FOOD_LINES)
-            .map(|&(species, colony)| (self.history.colony_intake_series(colony), tint_for(species, colony)))
-            .collect();
-        let band_materials = self.history.diet_materials();
-        let band: Vec<(Vec<u32>, [u8; 4])> = band_materials
-            .iter()
-            .take(FOOD_SOURCES)
-            .map(|&m| (self.history.diet_series(m), food_tint(world, material::MaterialId(m))))
-            .collect();
-        let top: Vec<String> =
-            band_materials.iter().take(FOOD_SOURCES).map(|&m| world.materials.get(material::MaterialId(m)).name.to_uppercase()).collect();
-
         let mut rows = vec![
             Row::head(
                 "BACK TO THE ANTS PAGE",
@@ -4531,21 +4699,7 @@ impl Ui {
                 Action::Panel(Panel::Ants),
                 "RETURN TO THE COLONY PAGE. THIS PAGE IS ABOUT WHAT THEY EAT; THAT ONE IS ABOUT HOW MANY THERE ARE AND WHAT KILLED THE REST.",
             ),
-            Row::lines(
-                "FOOD IN, PER SAMPLE -- ONE LINE PER COLONY",
-                intake,
-                "JOULES EACH COLONY TOOK IN BETWEEN THE LAST TWO SAMPLES, ALL ON ONE SCALE, IN THE COLOUR THAT COLONY WEARS IN THE BOX. PER WINDOW AND NOT A RUNNING TOTAL: A RUNNING TOTAL CAN ONLY CLIMB, SO A COLONY THAT HAS STOPPED EATING WOULD STILL DRAW A RISING LINE. HERE IT FALLS TO THE FLOOR, WHICH IS THE THING WORTH SEEING COMING.",
-            ),
-            // The two charts read as one block without this: `Body::Lines`
-            // draws its caption directly under its own plot, so a second
-            // plot starting on the next line puts a caption and a chart in
-            // contact and the eye takes the caption for the axis.
-            Row::gap(),
-            Row::lines(
-                if top.is_empty() { "EATING -- NOTHING YET".to_string() } else { format!("EATING: {}", top.join("  ")) },
-                band,
-                "THE DIET BAND: JOULES IN PER SAMPLE BY WHAT THEY CAME OUT OF, EVERY COLONY SUMMED, EACH LINE IN THAT MATERIAL'S OWN COLOUR. JOULES AND NOT CELLS -- A CELL OF MOSS AND A CELL OF CORPSE ARE NOT THE SAME FOOD, AND EVERY FIGURE HERE IS WHAT THE ANT ACTUALLY GOT AFTER ITS GUT, NOT WHAT THE CELL WAS WORTH TO SOMEBODY.",
-            ),
+            self.food_range_row(world),
             Row::gap(),
         ];
 
@@ -4571,7 +4725,7 @@ impl Ui {
                 "MORE COLONIES",
                 format!("+{dropped}"),
                 FAINT,
-                "MORE COLONIES THAN THIS SCREEN HOLDS IN FULL. THE ONES THAT HAVE EATEN THE MOST ARE SHOWN; THE REST ARE STILL KEEPING BOOKS AND STILL DRAWN ON THE TOP CHART IF THEY FIT IT.",
+                "MORE COLONIES THAN THIS SCREEN HOLDS IN FULL. THE ONES THAT HAVE EATEN THE MOST ARE SHOWN; THE REST ARE STILL KEEPING BOOKS.",
             ));
         }
         if shown.is_empty() {
@@ -4583,6 +4737,144 @@ impl Ui {
             ));
         }
         rows
+    }
+
+    /// **One colony, opened: what it is eating, in the colony's own words.**
+    ///
+    /// The second layer the owner asked for — *"if you click a colony, it
+    /// goes to a more detailed page for that specific colony, which lists
+    /// what they are eating (deadleaf, ant, seed, corpse, etc.) and other
+    /// detailed info."*
+    ///
+    /// **Ranked and in joules, with each material in its own colour**, so the
+    /// list reads against the box: the colour beside `DEADLEAF` is the colour
+    /// deadleaf draws as on the ground. The share is of what this colony ate
+    /// in the window, so the rows add to 100% and a diet is legible without
+    /// arithmetic.
+    ///
+    /// **A dead colony still opens.** Its books outlive it and are usually
+    /// the ones worth reading — `examples/colonybooks.rs` paid for that
+    /// lesson by listing off the live groups and watching a starved colony's
+    /// whole history disappear.
+    fn food_colony_rows(&self, world: &World, colony: u32) -> Vec<Row> {
+        let books = world.colony_books(colony);
+        let (_, frames) = self.food_range();
+        let now = world.frame;
+        let species = world
+            .live_creature_groups()
+            .into_iter()
+            .find(|g| g.colony == colony)
+            .map(|g| g.species)
+            .or_else(|| self.history.remembered_groups().into_iter().find(|&(_, c)| c == colony).map(|(sp, _)| sp));
+        let (name, tint) = match species {
+            Some(sp) => (world.group_label(sp, colony), tint_of(render::group_colour(render::CreatureColour::Colony, sp, colony, false).unwrap_or(render::GROUP_NONE))),
+            None => (format!("COLONY {colony}"), VALUE),
+        };
+        let alive = world.live_creature_groups().into_iter().find(|g| g.colony == colony).map_or(0, |g| g.alive);
+        let over = |a: Account| self.history.account_over(&books, colony, a, now, frames);
+        let spent = over(Account::Metabolized) + over(Account::Moved) + over(Account::SynapseTax);
+        let (share, verdict) = feeding_itself(over(Account::HarvestedPlant), spent);
+        let finds = 100.0 * share;
+        let (took, lost) = self.history.raids_over(&books, colony, now, frames);
+
+        let diet = self.history.diet_over(&books, colony, now, frames);
+        let eaten: f64 = diet.iter().map(|&(_, j)| j).sum();
+
+        let mut rows = vec![
+            Row::head(
+                "BACK TO EVERY COLONY",
+                false,
+                0,
+                Action::FoodBack,
+                "RETURN TO THE LIST OF COLONIES. THIS PAGE IS ONE COLONY'S OWN BOOKS.",
+            ),
+            self.food_range_row(world),
+            Row::gap(),
+            Row::value(
+                name,
+                format!("FINDS {finds:.0}%   {alive} ALIVE   {}", compact(books.income() - books.outgo())),
+                tint,
+                format!(
+                    "IS THIS COLONY FEEDING ITSELF? {verdict}. {:.0}% OF WHAT IT SPENT IN THIS WINDOW IT FOUND IN THE WORLD FOR ITSELF. IT HAS {} J IN THE BANK, ALL TOLD -- EVERYTHING EVER TAKEN IN LESS EVERYTHING SPENT, WHICH IS WHAT ITS LIVING ANIMALS ARE HOLDING BETWEEN THEM. IT WAS PLACED WITH {} J OF THAT, WHICH IS NOT FOOD IT FOUND.",
+                    finds,
+                    compact(books.income() - books.outgo()),
+                    compact(books.get(Account::Granted))
+                ),
+            ),
+            Row::gap(),
+            Row::value(
+                if eaten > 0.0 { "WHAT THEY ARE EATING".to_string() } else { "WHAT THEY ARE EATING -- NOTHING".to_string() },
+                if eaten > 0.0 { format!("{} J", compact(eaten)) } else { "--".to_string() },
+                FAINT,
+                "EVERY SOURCE THIS COLONY HAS TAKEN FOOD OUT OF INSIDE THE WINDOW, HEAVIEST FIRST, EACH IN THE COLOUR IT DRAWS AS ON THE GROUND. JOULES AND NOT CELLS -- A CELL OF MOSS AND A CELL OF CORPSE ARE NOT THE SAME FOOD -- AND EVERY FIGURE IS WHAT THE ANT ACTUALLY GOT AFTER ITS GUT, NOT WHAT THE CELL WAS WORTH TO SOMEBODY ELSE. ANT IS ANOTHER COLONY'S LIVING ANIMALS; CORPSE IS ANYTHING ALREADY DEAD.",
+            ),
+        ];
+
+        for (m, joules) in diet.iter().take(FOOD_SOURCES) {
+            let share = if eaten > 0.0 { 100.0 * joules / eaten } else { 0.0 };
+            let name = world.materials.get(*m).name.to_uppercase();
+            rows.push(Row::value(
+                format!("  {name}"),
+                format!("{} J   {share:.0}%", compact(*joules)),
+                food_tint(world, *m),
+                format!(
+                    "{} J OUT OF THE {} J THIS COLONY ATE IN THE WINDOW -- {:.0}% OF ITS DIET.{}",
+                    compact(*joules),
+                    compact(eaten),
+                    share,
+                    source_note(&name)
+                ),
+            ));
+        }
+        if diet.len() > FOOD_SOURCES {
+            rows.push(Row::value(
+                "  MORE SOURCES",
+                format!("+{}", diet.len() - FOOD_SOURCES),
+                FAINT,
+                "MORE KINDS OF FOOD THAN THIS LIST SHOWS. THE HEAVIEST ARE NAMED; THE REST ARE COUNTED IN THE TOTAL ABOVE.",
+            ));
+        }
+
+        rows.push(Row::gap());
+        if took > 0.0 || lost > 0.0 {
+            rows.push(Row::value(
+                "ATE RIVALS / EATEN BY",
+                format!("{} / {}", compact(took), compact(lost)),
+                if lost > took { POOR } else { VALUE },
+                "LIVING FLESH TAKEN OFF ANOTHER COLONY'S ANIMALS, AND TAKEN OFF THIS ONE'S. TWO COLONIES THAT DO NOT KNOW EACH OTHER'S SMELL ARE FOOD TO EACH OTHER THROUGH THE ORDINARY MOUTH -- NOTHING HAS TO BE TAUGHT TO FIGHT FOR THIS TO HAPPEN. WHICH COLONY THE MOUTHFULS CAME OFF IS NOT RECORDED ANYWHERE YET; ONLY THE TOTAL IS.",
+            ));
+        }
+        let (in_crops, mut loads) = colony_carrying(world, colony);
+        loads.sort_unstable_by(|a, b| b.cmp(a));
+        let ranked: Vec<String> = loads.iter().take(12).map(|n| n.to_string()).collect();
+        let carried: u32 = loads.iter().sum();
+        let idle = loads.iter().filter(|&&n| n == 0).count();
+        rows.push(Row::value(
+            "LOADS CARRIED HOME",
+            format!("{carried}   {idle} OF {} EMPTY-HANDED", loads.len()),
+            if !loads.is_empty() && idle * 2 >= loads.len() { POOR } else { VALUE },
+            format!(
+                "HOW MANY LOADS HAVE REACHED THE NEST, ALL TOLD, AND HOW MANY OF THE COLONY'S ANIMALS HAVE NEVER BROUGHT ONE. BY ANT AND MOST FIRST: {}. A MEAN FORAGER WOULD HIDE THIS -- IT IS USUALLY A FIFTH OF THEM DOING ALL OF IT. {} J IS IN THEIR CROPS RIGHT NOW, WHICH IS FOOD IN TRANSIT AND NOT FOOD PUT BY: THERE IS NO GRANARY IN THIS BOX.",
+                if ranked.is_empty() { "NONE ALIVE".to_string() } else { ranked.join(" ") },
+                compact(in_crops as f64)
+            ),
+        ));
+        rows.push(Row::value(
+            "UPKEEP / WALK / BRAIN",
+            format!("{} / {} / {}", compact(over(Account::Metabolized)), compact(over(Account::Moved)), compact(over(Account::SynapseTax))),
+            FAINT,
+            format!(
+                "WHAT IT SPENT, IN JOULES, INSIDE THE WINDOW. UPKEEP IS STAYING ALIVE -- BREATHING, DIGGING, CHEWING, KEEPING WARM. WALK IS GETTING ABOUT, AND IT RIDES ON WHAT AN ANT IS CARRYING, SO A COLONY THAT FORAGES FAR PAYS MORE OF IT. BRAIN IS WHAT THE THINKING COSTS, CHARGED PER LIVE CONNECTION. {} J SPENT IN ALL.",
+                compact(spent)
+            ),
+        ));
+        rows.push(Row::value(
+            "GIVEN AWAY / TAKEN IN",
+            format!("{} / {}", compact(over(Account::SharedOut)), compact(over(Account::SharedIn))),
+            FAINT,
+            "MOUTH TO MOUTH. FAMILY IS DECIDED BY SMELL RATHER THAN BY WHICH COLONY YOU PUT DOWN, SO SOME OF THIS CROSSES BETWEEN COLONIES: TWO COLONIES INSIDE EACH OTHER'S TOLERANCE FEED EACH OTHER ACROSS THE BOX. THESE JOULES ARE THE COLONY'S OWN GOING ROUND AGAIN AND ARE NOT FOOD IT FOUND, WHICH IS WHY THEY DO NOT COUNT TOWARDS FINDS.",
+        ));
+        fit_rows(rows, page_content_budget())
     }
 
     fn compare_rows(&self, world: &World) -> Vec<Row> {
@@ -5533,7 +5825,7 @@ fn paint_rows(
                 draw_lines(hc, frame, Rect { x: left, y, w: right - left, h: CHART_H }, series);
                 text(hc, frame, left, y + CHART_H + 2, caption, FAINT);
             }
-            Body::Choice { label, value, action } => {
+            Body::Choice { label, value, action, tint } => {
                 // The bar button's own idiom (`paint_widget`), scaled to one
                 // 9px row: a filled face and a 1px edge, face and edge alone
                 // changing for hover and press. `LINE` (`GLYPH_HEIGHT` + 2)
@@ -5550,7 +5842,7 @@ fn paint_rows(
                 fill(hc, frame, btn, face);
                 outline(hc, frame, btn, edge);
                 text(hc, frame, left, y + 1, label, LABEL);
-                text(hc, frame, right - hud::text_width(value), y + 1, value, GOOD);
+                text(hc, frame, right - hud::text_width(value), y + 1, value, *tint);
                 // The same hit target `Head` pushes below -- a `Choice` is a
                 // `Head` that draws as a button instead of a heading, and the
                 // click mechanism does not care which one drew it.
@@ -11132,6 +11424,14 @@ mod tests {
             let world = colonised(colonies);
             let mut ui = Ui::new();
             ui.history.observe(&world);
+            // **All time, because that is where the block is tallest.** The
+            // rivals row is drawn only when raiding happened *inside the
+            // window*, and `colonised` books its raids before the first
+            // snapshot -- so at any finite range the fixture's raid is
+            // already in the past and the block measured would be the short
+            // one. The assertion below is what would otherwise pass over it
+            // silently.
+            ui.food_range = RANGES.iter().position(|&(_, f)| f == 0).expect("an all-time stop");
             let rows = ui.food_rows(&world);
             let height: i32 = rows.iter().map(Row::height).sum();
             assert!(
@@ -11144,7 +11444,7 @@ mod tests {
             // must be in every block drawn -- without this the fit test
             // could be passing over the *short* block and saying nothing
             // about the one a stranger bed actually draws.
-            let named = rows.iter().filter(|r| matches!(&r.body, Body::Value { label, .. } if label.starts_with("ANT"))).count();
+            let named = rows.iter().filter(|r| matches!(&r.body, Body::Choice { label, .. } if label.starts_with("ANT"))).count();
             let rivals = rows.iter().filter(|r| matches!(&r.body, Body::Value { label, .. } if label.trim() == "ATE RIVALS / EATEN BY")).count();
             assert_eq!(rivals, named, "{colonies} colonies: {named} blocks drawn but {rivals} carry the rivals row");
             let overflowed = rows.iter().any(|r| matches!(&r.body, Body::Value { label, .. } if label == "MORE COLONIES"));
@@ -11177,50 +11477,158 @@ mod tests {
         assert!(saw_overflow, "no colony count in this sweep overflowed the page, so the honest-cap half is untested");
     }
 
-    /// **`FINDS n%` must not count food the colony did not find.**
+    /// **`FINDS n%` must not count food the colony did not find**, and this
+    /// is asserted on the **rendered page** rather than on the arithmetic.
+    ///
+    /// `feeding_itself` only divides; *which accounts go into the numerator*
+    /// is the caller's, and that choice is the judgement. So the guard reads
+    /// the row a player sees.
     ///
     /// The three ways it could read solvent while starving, and all three are
-    /// live on a shipped bed: the founding grant (every colony is placed with
-    /// one and it is most of what they ever have), scavenged corpse (84-95%
-    /// of what they eat, round 35 §4), and trophallaxis, which is the
-    /// colony's own joules going round again. A row that counted any of them
-    /// would answer *yes* for the whole of this bed, and the page would be
-    /// back to being true and saying nothing — which is what it was.
+    /// live on a shipped bed: the **founding grant** (every colony is placed
+    /// with one and it is most of what these colonies ever have), **scavenged
+    /// corpse** (84-95% of what they eat, round 35 §4), and **trophallaxis**,
+    /// which is the colony's own joules going round again. A page that
+    /// counted any of them would answer *yes* for the whole of this bed and
+    /// be back to being true and saying nothing — which is what it was.
     #[test]
-    fn finding_your_own_food_does_not_count_the_grant_the_dead_or_a_handout() {
+    fn the_colony_page_does_not_count_the_grant_the_dead_or_a_handout() {
+        let finds = |ui: &Ui, world: &World, colony: u32| -> String {
+            ui.food_colony_rows(world, colony)
+                .iter()
+                .find_map(|r| match &r.body {
+                    Body::Value { value, .. } if value.starts_with("FINDS ") => Some(value.clone()),
+                    _ => None,
+                })
+                .expect("the colony page leads with its FINDS row")
+        };
+
         let mut world = peopled(0, 0);
         let corpse = world.materials.id_of("corpse").or_else(|| world.materials.id_of("litter")).expect("a material to book meat against");
+        let litter = world.materials.id_of("litter").expect("litter must be loaded");
         // Colony 1: a bill, and every source of food except going and
         // finding some.
         world.book(1, Account::Granted, 10_000.0);
         world.book_meal(1, Account::HarvestedCorpse, corpse, 5_000.0);
         world.book(1, Account::SharedIn, 2_000.0);
         world.book(1, Account::Metabolized, 4_000.0);
-        assert_eq!(feeding_itself(&world.colony_books(1)), (0.0, "NO"), "a colony living on its grant, its dead and handouts has found nothing");
-
-        // Colony 2: the positive control — the same bill, paid out of the
-        // world. Without it the assertion above would pass on a function
-        // that returns zero unconditionally.
-        let litter = world.materials.id_of("litter").expect("litter must be loaded");
+        // Colony 2: the positive control -- the same bill, paid out of the
+        // world. Without it the assertion below would pass on a page that
+        // prints zero unconditionally.
         world.book(2, Account::Metabolized, 4_000.0);
         world.book_meal(2, Account::HarvestedPlant, litter, 4_000.0);
-        let (share, verdict) = feeding_itself(&world.colony_books(2));
-        assert!((share - 1.0).abs() < 1e-9, "a colony that foraged its whole bill has found all of it, got {share}");
-        assert_eq!(verdict, "YES");
-
         // Colony 3: the middle, because an outcome is a distribution and a
         // readout that can only say thriving or gone has the defect the
-        // uniform rubble had. Half a bill is a real and common state.
+        // uniform rubble had.
         world.book(3, Account::Metabolized, 4_000.0);
         world.book_meal(3, Account::HarvestedPlant, litter, 2_000.0);
-        assert_eq!(feeding_itself(&world.colony_books(3)).1, "PART WAY");
 
-        // And a colony that has spent nothing cannot be scored — it must
-        // say so rather than divide by zero into a confident answer.
-        assert_eq!(feeding_itself(&world.colony_books(4)), (0.0, "NOT YET"));
+        let mut ui = Ui::new();
+        ui.history.observe(&world);
+        // All time, so the window is not what is under test here.
+        ui.food_range = RANGES.iter().position(|&(_, f)| f == 0).expect("an all-time stop");
+
+        assert!(finds(&ui, &world, 1).starts_with("FINDS 0%"), "a colony living on its grant, its dead and handouts has found nothing: {}", finds(&ui, &world, 1));
+        assert!(finds(&ui, &world, 2).starts_with("FINDS 100%"), "a colony that foraged its whole bill has found all of it: {}", finds(&ui, &world, 2));
+        assert!(finds(&ui, &world, 3).starts_with("FINDS 50%"), "half a bill is the middle and must read as it: {}", finds(&ui, &world, 3));
+        // And a colony that has spent nothing must not divide by zero into a
+        // confident answer.
+        assert_eq!(feeding_itself(0.0, 0.0), (0.0, "NOT YET"));
+        assert_eq!(feeding_itself(9.0, 10.0).1, "YES");
+        assert_eq!(feeding_itself(5.0, 10.0).1, "PART WAY");
+        assert_eq!(feeding_itself(1.0, 10.0).1, "NO");
     }
 
-    /// **The page's numbers are the books', and the books' are the world's.**
+    /// **A range must actually narrow the figures, and must say when it
+    /// cannot.**
+    ///
+    /// The owner asked for this page in spans — *"we are about what was eaten
+    /// over the past 2-3 minutes, not the past 10 seconds… maybe we keep all
+    /// the stats but there is a range options"* — and a range that silently
+    /// answers for all time whenever the ring is young is the
+    /// arithmetically-correct-about-a-different-question failure `CLAUDE.md`
+    /// calls this repo's worst-recurring one. So: the same books read over
+    /// two spans must give two answers, and the page must be able to tell
+    /// which one it actually got.
+    #[test]
+    fn a_range_counts_only_what_happened_inside_it() {
+        let mut world = peopled(0, 0);
+        let litter = world.materials.id_of("litter").expect("litter must be loaded");
+        let mut history = History::default();
+
+        // Old news: 1,000 J eaten, then a long quiet stretch so it falls out
+        // of the short window.
+        world.book_meal(1, Account::HarvestedPlant, litter, 1_000.0);
+        for _ in 0..40 {
+            history.observe(&world);
+            world.frame += BOOKS_EVERY;
+        }
+        // ...and 50 J just now.
+        world.book_meal(1, Account::HarvestedPlant, litter, 50.0);
+        history.observe(&world);
+
+        let books = world.colony_books(1);
+        let now = world.frame;
+        let all = history.account_over(&books, 1, Account::HarvestedPlant, now, 0);
+        let recent = history.account_over(&books, 1, Account::HarvestedPlant, now, 3_600);
+        assert!((all - 1_050.0).abs() < 1e-6, "all time is everything it ever ate: {all}");
+        assert!((recent - 50.0).abs() < 1e-6, "a minute counts only the mouthful taken inside it: {recent}");
+        assert!(history.range_reaches(now, 3_600), "the ring is 40 snapshots deep here and a minute is four of them");
+
+        // The honesty half: a ring younger than the range asked for must say
+        // so rather than relabel everything it has.
+        let mut young = History::default();
+        let mut fresh = peopled(0, 0);
+        fresh.book_meal(1, Account::HarvestedPlant, litter, 7.0);
+        young.observe(&fresh);
+        assert!(!young.range_reaches(fresh.frame, 36_000), "one snapshot cannot answer for ten minutes and the row says SO FAR");
+        let got = young.account_over(&fresh.colony_books(1), 1, Account::HarvestedPlant, fresh.frame, 36_000);
+        assert!((got - 0.0).abs() < 1e-6, "and what it reports is measured from its own oldest snapshot, not invented: {got}");
+    }
+
+    /// **Every colony's diet is on its own page, ranked, and it is the
+    /// colony's own.**
+    ///
+    /// The owner's second layer — *"if you click a colony, it goes to a more
+    /// detailed page for that specific colony, which lists what they are
+    /// eating (deadleaf, ant, seed, corpse, etc.)"*. Two things could go
+    /// wrong invisibly and both look like a working page: the list could be
+    /// the **world's** diet rather than this colony's, and it could be
+    /// ranked by whatever order the registry happens to be in.
+    #[test]
+    fn a_colonys_page_lists_that_colonys_own_diet_heaviest_first() {
+        let mut world = peopled(0, 0);
+        let litter = world.materials.id_of("litter").expect("litter must be loaded");
+        let seed = world.materials.id_of("seed").or_else(|| world.materials.id_of("corpse")).expect("a second food material");
+        world.book(1, Account::Metabolized, 100.0);
+        world.book_meal(1, Account::HarvestedPlant, litter, 90.0);
+        world.book_meal(1, Account::HarvestedPlant, seed, 300.0);
+        // A second colony eating only the first material, so a page reading
+        // the world total instead of this colony's would put litter on top.
+        world.book(2, Account::Metabolized, 100.0);
+        world.book_meal(2, Account::HarvestedPlant, litter, 5_000.0);
+
+        let mut ui = Ui::new();
+        ui.history.observe(&world);
+        ui.food_range = RANGES.iter().position(|&(_, f)| f == 0).expect("an all-time stop");
+        let rows = ui.food_colony_rows(&world, 1);
+        let sources: Vec<String> = rows
+            .iter()
+            .filter_map(|r| match &r.body {
+                Body::Value { label, .. } if label.starts_with("  ") && !label.contains('/') => Some(label.trim().to_string()),
+                _ => None,
+            })
+            .collect();
+        let seed_name = world.materials.get(seed).name.to_uppercase();
+        let litter_name = world.materials.get(litter).name.to_uppercase();
+        assert_eq!(
+            sources,
+            vec![seed_name.clone(), litter_name.clone()],
+            "this colony ate more {seed_name} than {litter_name}; the other colony's 5,000 J of {litter_name} is not its diet"
+        );
+    }
+
+    /// **The page's numbers are the books', and the books' are the world's.**    /// **The page's numbers are the books', and the books' are the world's.**
     ///
     /// The page could drift from the ledger in two places and neither would
     /// look wrong on screen: a row reading the world total where it means a

@@ -2840,6 +2840,13 @@ impl Lab {
             ui::Action::HistoryScroll(d) => self.ui.scroll_history(d),
             ui::Action::HistoryOpen(colony) => self.ui.open_history_colony(colony),
             ui::Action::HistoryBack => self.ui.close_history_colony(),
+            // The FOOD page's own two layers, the same shape HISTORY already
+            // has: a stable colony id in, a back out, and a range the player
+            // chooses because the owner asked for one ("we are about what was
+            // eaten over the past 2-3 minutes, not the past 10 seconds").
+            ui::Action::FoodOpen(colony) => self.ui.open_food_colony(colony),
+            ui::Action::FoodBack => self.ui.close_food_colony(),
+            ui::Action::FoodRange(by) => self.ui.cycle_food_range(by),
             ui::Action::ParamSelect(i) => self.ui.select_param(i),
             ui::Action::ParamAdjust(i, sign) => self.adjust_param(i, sign),
             ui::Action::ParamSave => self.save_param(),
