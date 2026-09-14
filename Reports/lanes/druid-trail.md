@@ -69,9 +69,9 @@ mine; fixing it is not, and nothing ant-laid was changed.
 
 ## Instrument
 
-`examples/druid_trail.rs` — new, and `Reports/instruments.md` was grepped
-first (26 existing; `trailfollow` answers *does a laid trail move a colony*,
-which is the other half and is deliberately not duplicated). Two modes:
+`examples/druid_trail.rs` — new; `Reports/instruments.md` grepped first
+(`trailfollow` answers *does a laid trail move a colony*, not duplicated).
+Two modes:
 
 - the default sweep, on the plane alone, printing the peak-on-route decay
   curve per arm in seconds **and in ant-cells**, against a colony round trip;
@@ -96,9 +96,9 @@ one the gnome never steps on, and so reported the newest end of the trail
 *weaker* than the oldest — the exact reverse of the property it exists to
 check.
 
-**And the harness disagreed with the app by 3x even after both repairs**,
-which is why every headline number above is the app's. The plane model's clean
-horizontal line is a best case; a real walk is not.
+**And the harness disagreed with the app by 3x even after both repairs**, so
+every headline number above is the app's. A clean line on an empty plane is a
+best case; a real walk is not.
 
 ## Gates
 
@@ -119,9 +119,8 @@ horizontal line is a best case; a real walk is not.
 
 ## Notes for whoever follows
 
-- **`PR_BODY_LANE_D.md` at the repo root was overwritten**, as the brief asked.
-  What was there was the already-merged bubble-aura lane's body from an
-  earlier round; its content lives in that PR on GitHub.
+- **`PR_BODY_LANE_D.md` was overwritten**, as the brief asked; what was there
+  was the already-merged bubble-aura lane's body, which lives in that PR.
 - **The next lever, if 14s is judged short**, is the trail as a *standing*
   instruction — he keeps paying `TRAIL_PER_SECOND` and the remembered route
   keeps being re-laid, age-graded from the oldest end so the slope survives.
@@ -160,13 +159,9 @@ the dominant term **without touching `DIFFUSE` at all**. Nothing is shared: the
 swath is laid by `Druid::lay_trail` and by nothing else, ant-laid marks are
 untouched, and no per-channel dial is needed. Real app, 3.5s → ~14s.
 
-**Why #432 could not have found it, and this is the reusable part.**
-`pherolife` sweeps `rho`, `diffuse` and `deposit` over a trail it lays **one
-cell wide**, so width is not a variable it has — it is a constant of the
-harness. An instrument that holds the answer fixed reports that the levers it
-*does* sweep are the only ones there are. `CLAUDE.md`'s "ask which object this
-rule evaluates" in its measurement costume: ask what the harness is holding
-still.
+**Why #432 could not have found it.** `pherolife` sweeps `rho`, `diffuse` and
+`deposit` over a trail it lays **one cell wide**, so width is not a variable it
+has — it is a constant of the harness. See the proposed rule at the end.
 
 **The correction's own suggestion, measured, is the weak one.** Deposit is
 listed as promising on the grounds that the loudest cell anywhere is 98 of 255
@@ -196,13 +191,11 @@ repo keeps having overturned. Whoever owns #432 can settle it in one run by
 giving `pherolife` a radius dial and re-reading its own run-drive column; that
 is a smaller change than either instrument.
 
-**Instrument overlap, stated so nobody builds a third.** `druid_trail`'s
-plane-side sweep and `pherolife` genuinely overlap and `pherolife` is the better
-of the two there — it has the run-drive effect counter and the `DIFFUSE` setter.
-What it does not have, and what `druid_trail shot=` is for, is the **real
-`Druid::update`/`Druid::draw` loop**: route geometry, and the clearance-to-ground
-column that found the trail was being laid at the gnome's chest. Neither is a
-plane question and neither would have surfaced on a synthetic line.
+**Instrument overlap, so nobody builds a third.** `druid_trail`'s plane-side
+sweep and `pherolife` overlap, and `pherolife` is the better of the two there —
+it has the run-drive counter and the `DIFFUSE` setter. What it lacks, and what
+`druid_trail shot=` is for, is the **real `Druid` loop**: route geometry, and
+the clearance-to-ground column that caught the trail being laid at his chest.
 
 **#432 was not merged when this was written**, so nothing here builds against
 `set_channel_diffuse`, and `DIFFUSE` is untouched.
@@ -220,8 +213,6 @@ The reusable half of the above is a *measurement* rule and reads universally:
 > same way, which `CLAUDE.md` already has — but that rule says *suspect the
 > rider*, and this one says *suspect the constant*.
 
-**Deliberately not added to `CLAUDE.md` by this lane.** It is the most
-contested file in the repo, it is loaded before every session in all three
-games, and a rule about one afternoon's measurement is exactly the kind whose
-placement the removal criterion says to weigh rather than append. Placing it is
+**Deliberately not added to `CLAUDE.md` by this lane** — the most contested
+file in the repo, loaded before every session in all three games. Placing it is
 the owner's call.
