@@ -216,3 +216,11 @@ The reusable half of the above is a *measurement* rule and reads universally:
 **Deliberately not added to `CLAUDE.md` by this lane** — the most contested
 file in the repo, loaded before every session in all three games. Placing it is
 the owner's call.
+
+## Head
+
+PR [#438](https://github.com/sgladstein/Pixel_Physics/pull/438) (opened by the
+coordinator from an earlier draft of `PR_BODY_LANE_D.md`; its body has since
+been updated in place to carry the #432 reconciliation and the merged-tree
+gate results). Head `6edfbea854dc8f40e6610de05c72cba91e2b0520`, plus this
+commit.
