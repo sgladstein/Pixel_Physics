@@ -141,18 +141,63 @@ the merge (the property a naive shared-absolute-radius design would have
 broken), and that each side pins at its own, independent range boundary
 rather than the narrower of the two.
 
+## The `structural.rs` boundary — the coordinator's own follow-up
+
+The coordinator flagged, after the first commit landed, that `structural.rs`
+is shared engine code (the outdoor sandbox and the evolution lab both run
+it) and my brief never named it. Fair catch — my brief listed only
+`src/druid/menu.rs`, `src/bin/druid.rs` and `src/druid/mod.rs`.
+
+**Changing it was genuinely necessary here, not a choice**: item 1's actual
+defect is in `structural.rs`'s own scheduling (see above), not in the
+druid's wiring of it — the switch reaches the sim fine, it is the *queue*
+that never gets re-armed. So the fix has to live where the bug does.
+
+**The change is additive and unreachable from any existing call path.**
+`schedule_structural_recheck_of_all_living_plants` has exactly two callers
+in the whole tree: its own guard test, and `druid::menu::Setting::
+PlantBreak::advance` — confirmed by grep, not assumed. `over_span`,
+`break_free`, `schedule_structural_check`, every existing rule and every
+existing call site are byte-for-byte untouched. Nothing in the outdoor
+sandbox, the evolution lab, or any procedural-content path can reach the
+new method, so there is no model to re-derive constants against and no
+sweep result that could plausibly move.
+
+**Paired evidence anyway, per the coordinator's ask:**
+- `bash scripts/acceptance.sh` on this branch: **all five cases met their
+  expectations** (`worked`, `undercut`, `ligament`, `strike`, `snap`/`fell`),
+  frame-cost bars held (worst 7.32 ms against acceptance's much higher
+  ceiling). This is the structural gate CI runs.
+- `bash scripts/seedsweep.sh` (`dig=6` over 6 presets x 4 seeds, the
+  order-statistic sweep `CLAUDE.md` asks for before any change to the load,
+  bearing or fracture model): 24 runs, exit 0, numbers in the ordinary shape
+  for this instrument (cells lost: max 788, p90 604, median 0; rock
+  destroyed: max 6, p90 1, median 0) — no crash, no blown-up outlier, no
+  NaN. Not a before/after diff (there is no "before" version of an addition
+  with no prior callers to compare against), but confirms the sweep itself
+  runs clean on this tree.
+
 ## Gates
 
 `cargo clippy --all-targets --release --locked -- -D warnings`: clean.
-`cargo test --release` (full suite, reaches `tests/*.rs`): PENDING — result
-in the PR body. `bash scripts/docscheck.sh`: clean (pre-existing lane-note
-size warnings from other lanes, unrelated to this branch).
-`python3 scripts/deadendindex.py --touching`: PENDING, run after committing.
+`cargo test --release` (full suite, reaches `tests/*.rs`): **1,806 passed,
+0 failed, 85 ignored** (lib) + 3/3 `tests/determinism.rs` + 44 passed / 18
+ignored `tests/worldgen.rs` + 10/10 `src/main.rs` + 2/2 new `src/bin/
+druid.rs` tests — no regressions anywhere in the suite.
+`bash scripts/docscheck.sh`: clean (pre-existing lane-note size warnings
+from unrelated lanes). `python3 scripts/deadendindex.py --touching`: 7
+files changed, 0 identifiers named, 0 dead-end entries to write back.
+`bash scripts/acceptance.sh` and `bash scripts/seedsweep.sh`: see above.
 
 ## Rendered
 
-See `PR_BODY_LANE_C.md` for the headless screenshots and the review card, if
-posted.
+Verified live, headlessly (`xvfb-run` + lavapipe), not just described: the
+options menu (item 1's row, `PLANTS BREAK UNDER STRESS`), and the on-screen
+key legend showing the merged `Q E` row and the new `N` row, both fitting
+the panel (`both_panels_fit_inside_the_viewport` also green). No review card
+posted — nothing here is a judge-by-eye question (no new visual look, no
+graded outcome to compare); all three items are "does the control do what
+it now says it does," which the tests above answer directly.
 
 ## Head
 

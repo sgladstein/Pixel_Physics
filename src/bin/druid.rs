@@ -1208,3 +1208,82 @@ fn save_framebuffer_png(rgba: &[u8], width: u32, height: u32) {
         Err(e) => eprintln!("screenshot failed: {e}"),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A `Handler` with no window and no `pixels` surface — everything
+    /// `Handler::new` does is env-var reads and `Druid::new`, neither of
+    /// which touches a display. `PIXEL_PHYSICS_DRUID_START=bare` skips
+    /// worldgen's growth phase (`Druid::new`'s own doc: "Bare is the one
+    /// that does not grow"), and a 64x64 world is fast to generate — this
+    /// is a test about `Handler`'s own bookkeeping, not about worldgen.
+    fn bare_handler() -> Handler {
+        // SAFETY (env mutation in a test): this is the only test in this
+        // binary that reads these two variables, so there is no other
+        // thread in this process for a race to reach.
+        unsafe {
+            std::env::set_var("PIXEL_PHYSICS_DRUID_START", "bare");
+            std::env::set_var("PIXEL_PHYSICS_DRUID_SIZE", "64x64");
+        }
+        let h = Handler::new();
+        unsafe {
+            std::env::remove_var("PIXEL_PHYSICS_DRUID_START");
+            std::env::remove_var("PIXEL_PHYSICS_DRUID_SIZE");
+        }
+        h
+    }
+
+    /// **`request_restart` arms the countdown and says so on screen; it does
+    /// not restart.** The property `restart_countdown`'s own doc depends on:
+    /// if this fired the block immediately, the message it just set would
+    /// never reach a presented frame — see that field's doc for why the
+    /// block has to wait a frame.
+    #[test]
+    fn request_restart_arms_a_message_and_a_one_frame_countdown_without_blocking() {
+        let mut h = bare_handler();
+        assert!(h.restart_countdown.is_none(), "test setup: nothing pending yet");
+
+        let ticks_before = h.game.ticks;
+        h.request_restart();
+        assert_eq!(h.restart_countdown, Some(1), "one press must arm exactly a one-frame countdown");
+        assert!(h.game.message().is_some(), "the player must see something the instant the key is pressed");
+        assert_eq!(h.game.ticks, ticks_before, "arming a restart must not itself advance or replace the world");
+
+        // A second press while one is already pending changes nothing --
+        // not a longer countdown, not two worlds racing to replace `game`.
+        h.request_restart();
+        assert_eq!(h.restart_countdown, Some(1), "a repeated press must not extend or reset the countdown");
+    }
+
+    /// **`perform_restart` is the block itself, and it resets the run, not
+    /// the window.** A fresh `Druid` (a different world -- `bare_for_test`'s
+    /// vs. `Handler::new`'s own generated one -- so the two are
+    /// distinguishable by more than address), the tick accumulator cleared,
+    /// held movement keys released, and the biosphere page's history reset
+    /// while whether it was *open* survives.
+    #[test]
+    fn perform_restart_replaces_the_game_and_resets_only_what_belongs_to_the_run() {
+        let mut h = bare_handler();
+        h.held.left = true;
+        h.accumulator = Duration::from_millis(500);
+        h.stats.toggle(); // flip from its `Handler::new` default
+        let stats_open_before = h.stats.showing();
+        let ticks_before = h.game.ticks;
+        // Walk the old world forward so its tick counter is provably
+        // nonzero -- otherwise "ticks reset" and "ticks were already zero"
+        // look identical.
+        for _ in 0..3 {
+            h.game.update();
+        }
+        assert!(h.game.ticks > ticks_before, "test setup: the old game must have actually ticked");
+
+        h.perform_restart();
+
+        assert_eq!(h.game.ticks, 0, "a freshly generated world must start at tick 0");
+        assert_eq!(h.accumulator, Duration::ZERO, "a stale accumulator must not survive into the new run");
+        assert!(!h.held.left, "held movement keys must not walk the new player off his spawn");
+        assert_eq!(h.stats.showing(), stats_open_before, "whether the biosphere page was open must survive a restart");
+    }
+}

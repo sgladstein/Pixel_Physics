@@ -72,14 +72,36 @@ each_side_on_its_own_range`, which checks the free-at-default property the
 merge could have quietly broken, and that each side pins at its own range
 boundary rather than the narrower of the two.
 
+## A note on `structural.rs`
+
+The plant bend/break fix touches `src/sim/structural.rs`, which is shared
+by the outdoor sandbox and the evolution lab — outside this brief's named
+files. It was necessary: item 1's actual defect lives in the scheduler, not
+in the druid's wiring of it. The added method
+(`World::schedule_structural_recheck_of_all_living_plants`) is additive and
+has exactly two callers in the tree — its own test and the one menu arm —
+confirmed by grep, so it cannot change outdoor or lab behaviour. Paired
+evidence anyway: `scripts/acceptance.sh` (the structural gate CI runs) and
+`scripts/seedsweep.sh` (the order-statistic sweep `CLAUDE.md` asks for
+before any load/bearing/fracture change) both run clean on this branch —
+full numbers in `Reports/lanes/druid-shell.md`.
+
 ## Gates
 
 `cargo clippy --all-targets --release --locked -- -D warnings`: clean.
-`cargo test --release`: PASSED_OR_FAILED_PLACEHOLDER.
+`cargo test --release`: 1,806 passed / 0 failed / 85 ignored (lib), plus
+`tests/determinism.rs` 3/3, `tests/worldgen.rs` 44 passed / 18 ignored,
+`src/main.rs` 10/10, `src/bin/druid.rs` 2/2 (new) — no regressions.
 `bash scripts/docscheck.sh`: clean (pre-existing lane-note size warnings
-from unrelated lanes). `python3 scripts/deadendindex.py --touching`:
-DEADEND_PLACEHOLDER.
+from unrelated lanes). `python3 scripts/deadendindex.py --touching`: 0
+entries name anything this branch touches. `bash scripts/acceptance.sh`:
+all cases met expectations. `bash scripts/seedsweep.sh`: clean, ordinary
+numbers (see `Reports/lanes/druid-shell.md`).
 
 ## Rendered
 
-RENDER_PLACEHOLDER
+Verified live and headlessly (`xvfb-run` + lavapipe software rasteriser):
+the options menu and the on-screen key legend (merged `Q E` row, new `N`
+row), both fitting their panel. No review card — nothing here is a
+judge-by-eye visual change; all three items are "does the control do what
+it says," answered by the tests above.
