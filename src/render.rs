@@ -8845,7 +8845,7 @@ mod tests {
         // And the inside of a quickening is untouched even when the world IS
         // held, which is the other half of what the look means.
         world.held = true;
-        world.quickenings = vec![crate::sim::world::Quickening { x: 100, y: 100, r: 5_000 }];
+        world.quickenings = vec![crate::sim::world::Quickening::at(100, 100, 5_000)];
         let all_quickened = shot(&mut r, &world);
         assert_eq!(plain, all_quickened, "a world entirely inside a quickening must draw exactly as a running one");
     }

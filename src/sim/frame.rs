@@ -96,7 +96,10 @@ pub fn step(
     if world.held {
         world.carried = world.player.as_ref().map(|p| {
             let (x, y) = p.center();
-            crate::sim::world::Quickening { x, y, r: crate::sim::world::CARRIED_RADIUS }
+            // The radius is a field, not the constant: the held world lets
+            // the player buy a wider one. See `World::carried_radius`.
+            let r = if world.carried_radius > 0 { world.carried_radius } else { crate::sim::world::CARRIED_RADIUS };
+            crate::sim::world::Quickening::at(x, y, r)
         });
     } else {
         world.carried = None;

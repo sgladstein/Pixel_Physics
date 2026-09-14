@@ -15430,7 +15430,7 @@ they are the same world. Got {median}, which means something other than the leve
         );
 
         // And the spatial half: a circle over the left tree only.
-        let (one_l, one_r) = arm(true, &[crate::sim::world::Quickening { x: 60, y: PY, r: 40 }]);
+        let (one_l, one_r) = arm(true, &[crate::sim::world::Quickening::at(60, PY, 40)]);
         assert!(
             one_l > live_l / 4,
             "the quickened tree must grow: {one_l} against an unheld {live_l} and a stopped {stop_l}"
@@ -15541,7 +15541,7 @@ they are the same world. Got {median}, which means something other than the leve
 
             let before = w.live_organism_ids().iter().filter_map(|&i| w.organism(i)).map(|st| st.cells.len()).sum::<usize>();
             if circle {
-                w.quickenings = vec![crate::sim::world::Quickening { x: 100, y: PY, r: 60 }];
+                w.quickenings = vec![crate::sim::world::Quickening::at(100, PY, 60)];
                 if lurch {
                     w.wake_region(100, PY, 60);
                 }
@@ -15572,7 +15572,7 @@ they are the same world. Got {median}, which means something other than the leve
     #[test]
     fn an_unheld_world_never_consults_its_quickenings() {
         let mut w = test_world();
-        w.quickenings = vec![crate::sim::world::Quickening { x: 0, y: 0, r: 1 }];
+        w.quickenings = vec![crate::sim::world::Quickening::at(0, 0, 1)];
         w.held = false;
         assert!(w.time_runs_at(180, 180), "not held means time runs everywhere");
         w.held = true;
