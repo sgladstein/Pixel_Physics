@@ -136,6 +136,45 @@ untouched. Both lanes were told; §Z21 is being tightened to name the starts
 rather than "the held world", because an entry that overstates its scope
 gets discounted later.
 
+## Where the round got to, 04:40 — and one correction to the protocol
+
+**Landed:** item 6 (one hue, `91567399`), PR #408 (scent channel A + the false
+`ant_wide` blurb + the shared `open_by_box`), and **PR #411 — Lane A's whole
+screen brief**: a two-row button bar over thirteen verbs with the hotkey drawn
+dimmer beneath, the biosphere page on `TAB` reusing `lab::stats` almost
+unchanged, and the energy arrows gone with the mote count finally a function of
+the amount drawn. Nine of nine green; `main` at `79c0b639`.
+
+**Open with CI running:** #413 (Lane B — bare world, seed pouch, sphere off),
+#414 (Lane C — a floor of plants is a floor). Lanes D and E still building.
+
+**A claim in `session-programs.md` that did not hold here, and I had built a
+plan on it.** That report says a trigger stamps its own `allowed_tools` with no
+`mcp__*` entries, so *"a lane woken this way therefore has no `create_trigger`,
+no `fire_trigger`, and no `SendMessage`"* — from which I concluded the
+coordinator must open every poked lane's PR. **Lane A was poked at 03:47 and
+again at 03:51, and opened its own PR #411 at 03:59.** So either the strip does
+not apply to `mcp__github__*`, or it applies only to the turn the trigger
+starts. Not filed as a refutation, because I did not run the clean test: one
+lane trying `mcp__github__get_me` immediately after a poke would settle it, and
+that is worth doing while it is cheap. Until then, assume the coordinator opens
+the PRs — it costs one call and being wrong the other way loses the work's
+visibility.
+
+**Two lanes caught their own guards being blind, which is the part worth
+keeping.** Lane B put the faults back and found its first pouch guard passed
+with the decrement deleted, passed with the crediting rule wrong, passed with
+the carried-circle gate dropped and passed with the maturity bar dropped —
+because the guard's world had no ground, so `plant_seed` returned on its first
+line and every assertion was about the refusal path. A false *pass*, from a
+scene that did not contain the situation. Lane C shipped one of four new guards
+asserting against a material named `rock`, which does not exist in this engine
+(`stone` does) — caught not by review and not by the assertion but by the scene
+builder's own `panic!` naming the material it could not resolve. Its remedy
+generalises and is cheaper than the discipline: **make a scene builder panic on
+a name it cannot resolve**, so a test that has lost its subject fails as a
+missing material rather than as a confusing assertion.
+
 ## Standing facts for this round
 
 - **Lanes A and B are based on `claude/determined-ramanujan-c9szc5`, not
