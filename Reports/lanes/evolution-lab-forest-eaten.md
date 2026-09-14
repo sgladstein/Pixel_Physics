@@ -138,6 +138,68 @@ matter the moment two colonies share a box, which is now the default. So the
 answer can wait without blocking anything — but it should not be settled by
 implementation.
 
+## The routing collision, and what I did about it
+
+The coordinator's poke reached me at ~21:25Z, after this lane had already
+built and pushed both rulings. **Lane D shipped ruling 2 in PR #436 at 19:47Z
+— eleven minutes before the poke handing `creature.rs` to this lane fired.**
+Both lanes implemented it, **identically in semantics** and differently in
+shape.
+
+**D's shape is the one that stands.** Its `is_animal_cell(world, cell)` takes
+a `Cell` rather than coordinates and leaves the organism-id test to the
+caller; both feeding sites bind `bitten` before gating. Adopted verbatim
+(`fddd586d`), so where the two branches meet the overlap is **textual rather
+than a conflict** in the function both lanes are in — and extended to the two
+readers ruling 1 needs, which makes four readers of one definition.
+
+**What I did NOT do is strip my half**, and the reason is state rather than
+pride: **#436 is `mergeable_state: dirty` and unmerged.** Dropping ruling 2
+here would have left `main` with neither ruling if #436 stalls. Taking D's
+shape gets the same outcome — D's version wins on merge — with no window in
+which the fix is nowhere.
+
+**D's own struck claim is the one this lane was asked to settle, and it is
+settled.** #436's body says it does not claim every remaining swing is
+animal-directed, because `xcol` and `killedA` are both *kill* counters.
+`attacks_at_plants` and `attack_plant_cells` are the split-by-victim-kind
+counters that answer it: before ruling 1, **100% of swings and 100% of cells
+on the played bed were plant-directed**. Plant-directed swings did not merely
+survive #436 — on this bed they were all of them.
+
+## §Z26 — I disagree with the framing, and censused it rather than arguing
+
+D filed §Z26 off the same moss-lawn move this lane hit independently. **The two
+measurements agree byte-for-byte** — lawn 456 → 912 J, litter wall 684 → 684 —
+which is two lanes, two harness routes, one number.
+
+**The reading differs.** §Z26 reads the doubled yield as *"the moss pump is
+live"* and `#[ignore]`s the guard pending a per-cell grazing cooldown. Two
+things say that is a diet-quality artifact rather than a pump:
+
+- **The wall arm is a ceiling on mouthfuls, not on joules.** `litter` is
+  `food_class: -1.0` against the shipped neutral gut and moss is not, so the
+  comparison was 37 cheap mouthfuls against 18 expensive ones. On mouthfuls
+  the lawn is bounded, comfortably: **18 against 37**, and 9 against 37 before
+  the repair.
+- **The lawn is not being mined.** Censused rather than inferred — standing
+  moss cells owned by a live organism, same run: **20 → 26 with the defect
+  live, 20 → 22 with it fixed.** The lawn is net *producing* in both arms. The
+  fixed arm ends smaller because the ant eats twice as much of the regrowth,
+  which is what a renewable niche is.
+
+**So the guard is re-derived and left ACTIVE here rather than `#[ignore]`d** —
+which happens to satisfy §Z26's own stated acceptance test (*"un-ignoring it
+is the acceptance test"*), though not by the route it expected.
+
+**§Z26 is qualified, not closed, and that is deliberate.** What would
+establish a pump — a standing lawn that falls, or mouthfuls exceeding the
+wall's — neither does. What this does **not** establish is the thing the
+test's name asks for: that the lawn is bounded over an *unbounded* horizon.
+One seed, one scene, 1.1 idle lifetimes, and 20 → 22 is a small number. **The
+cooldown remedy should not be built on the joule evidence**; the long-horizon
+census is the thing still missing. That is D's bug and D's call.
+
 ## Two instrument checks after the fix, and one of them is a hand-off
 
 **`conflict_arena control=selftest` — PASS, and it is the best specificity /
@@ -180,6 +242,6 @@ species files, rivalry (felled 161 vs 165, `plantkill` 0 both arms).
 
 ## Gates
 
-clippy clean · `cargo test --lib` 1807 passed / 0 failed / 85 ignored ·
+clippy clean · `cargo test --lib` 1812 passed (post-merge) / 0 failed / 85 ignored ·
 `--test worldgen --test determinism` 47 passed · `ascii` 31 scenes, 0 skipped
 · `docscheck` clean.
