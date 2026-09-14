@@ -103,9 +103,20 @@ coordinator to sequence against Lane B.
 
 ## Head SHA
 
-`55efeb17c12c3db1b30af20b014b1c42870289e3` on `claude/evolution-lab-rivalry`.
-Gates at that SHA: clippy `--all-targets --release --locked -- -D warnings`
-clean; `cargo test --release --lib` **1,750 passed / 0 failed / 85 ignored**;
+**`afb6bfe1dd80253f9cd486c180e5da2abd71acb6`** on `claude/evolution-lab-rivalry`
+— `main` moved 7 commits under this branch while it was measuring, so that
+commit merges it in and **CI is 9 of 9 green on it**. The one conflict was
+`Reports/open-bugs-handoff.md`, the contested file the rules warn about: the
+generated index block was taken whole from `main` and regenerated with
+`scripts/bugindex.py` rather than hand-merged, and the two bug sections
+appended to the same end of the file — **§Z21 from `main` and §Z22 from here**
+— were both kept. `docscheck` was re-run after the merge, unconditionally.
+
+Gates re-run **after** the merge: clippy clean; `cargo test --release --lib`
+**1,756 passed / 0 failed / 85 ignored**; `--test worldgen --test determinism`
+**47 passed / 0 failed**; `docscheck` clean.
+
+The pre-merge SHA was `55efeb17`, whose gates were: clippy clean; `cargo test --release --lib` **1,750 passed / 0 failed / 85 ignored**;
 `--test worldgen --test determinism` **47 passed / 0 failed**; `docscheck`
 clean; `deadendindex --touching` 0 hits.
 
