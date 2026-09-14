@@ -31,6 +31,7 @@
 //! *"what did I keep?"* is actually asked, and a shelf full of names is not
 //! an answer.
 
+use crate::sim::cell::OrganismId;
 use crate::sim::brain::{self, BrainInput, BrainOutput};
 use crate::sim::organism::{self, SpeciesId};
 use crate::sim::specimen::Genetics;
@@ -651,14 +652,14 @@ pub fn describe_born_with(born_with: u16) -> Option<String> {
 /// `slot << 8 | step`, and re-deriving the direction would mean re-reading
 /// the individual's live traits, which may no longer exist by the time this
 /// is read). This names what drifted and how far, never which way.
-pub fn describe_record(other: u16) -> String {
+pub fn describe_record(other: OrganismId) -> String {
     let slot = (other >> 8) as usize;
-    let step = (other & 0x00FF) as u32;
+    let step = other & 0x00FF;
     format!("{} {}%", trait_word(slot), step * 50)
 }
 
 /// **Describe the individual `id` in `world`.**
-pub fn describe(world: &World, id: u16) -> Vec<Phrase> {
+pub fn describe(world: &World, id: OrganismId) -> Vec<Phrase> {
     let Some(state) = world.organism(id) else { return Vec::new() };
     let species = state.species;
     if world.species.get(species).creature.is_some() {
@@ -1099,7 +1100,7 @@ mod tests {
     }
 
     /// A live animal of `name`, carrying its species' authored brain.
-    fn animal(world: &mut World, name: &str) -> u16 {
+    fn animal(world: &mut World, name: &str) -> OrganismId {
         let species = world.species.id_of(name).unwrap_or_else(|| panic!("{name} must be loaded"));
         let id = world.push_organism(species).expect("slots free");
         let genome = world.species.get(species).genome.clone();

@@ -26,6 +26,7 @@
 //! because the binary predated the argument: a knob nobody can see the value
 //! of is a knob nobody can tell is disconnected.
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::lab::stats::{self, Stats};
 use pixel_physics::lab::{Lab, HEIGHT, WIDTH};
@@ -48,7 +49,7 @@ fn set_allele_on(lab: &mut Lab, species: &str, slot: usize, v: f32) -> usize {
         def.traits[slot] = v;
         lab.world.species.set_creature(sid, def);
     }
-    let living: Vec<u16> = lab
+    let living: Vec<OrganismId> = lab
         .world
         .live_organism_ids()
         .into_iter()
@@ -72,7 +73,7 @@ fn set_genome_slot_on(lab: &mut Lab, species: &str, slot: usize, weight: f32) ->
     let mut genome = lab.world.species.get(sid).genome.clone();
     genome[slot] = weight;
     lab.world.species.set_genome(sid, genome);
-    let living: Vec<u16> = lab
+    let living: Vec<OrganismId> = lab
         .world
         .live_organism_ids()
         .into_iter()
@@ -184,7 +185,7 @@ fn main() {
                 def.traits[slot] = v;
                 lab.world.species.set_creature(sid, def);
             }
-            let living: Vec<u16> = lab
+            let living: Vec<OrganismId> = lab
                 .world
                 .live_organism_ids()
                 .into_iter()
@@ -237,7 +238,7 @@ fn main() {
                     lab.world.species.set_creature(bid, def);
                 }
             }
-            let living: Vec<u16> = lab
+            let living: Vec<OrganismId> = lab
                 .world
                 .live_organism_ids()
                 .into_iter()
@@ -286,7 +287,7 @@ fn main() {
                 def.traits[pixel_physics::sim::organism::TRAIT_ARMOUR] = v;
                 lab.world.species.set_creature(id, def);
             }
-            let living: Vec<u16> = lab
+            let living: Vec<OrganismId> = lab
                 .world
                 .live_organism_ids()
                 .into_iter()
@@ -308,7 +309,7 @@ fn main() {
                 def.traits[pixel_physics::sim::organism::TRAIT_DIG_FORCE] = v;
                 lab.world.species.set_creature(id, def);
             }
-            let living: Vec<u16> = lab
+            let living: Vec<OrganismId> = lab
                 .world
                 .live_organism_ids()
                 .into_iter()
@@ -356,7 +357,7 @@ fn main() {
                 lab.world.species.set_creature(id, def);
             }
             let world_seed = lab.world.seed;
-            let living: Vec<(u16, u32)> = lab
+            let living: Vec<(OrganismId, u32)> = lab
                 .world
                 .live_organism_ids()
                 .into_iter()
@@ -382,7 +383,7 @@ fn main() {
         // intolerant one, which is the asymmetry `TRAIT_TOLERANCE` is
         // built around and the design report's §5.5.
         if let Some(v) = arg::<f32>("tolerance2") {
-            let living: Vec<u16> = lab
+            let living: Vec<OrganismId> = lab
                 .world
                 .live_organism_ids()
                 .into_iter()

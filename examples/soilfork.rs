@@ -65,6 +65,7 @@
 //! creature counters downstream of the checkerboard move with the thread
 //! count (`CLAUDE.md`, *a counter is only load-independent at fixed
 //! parallelism*).
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::lab::scenario::{Placement, Scenario};
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::render::Renderer;
@@ -151,7 +152,7 @@ fn is_ground(world: &World, cell: Cell) -> bool {
 // ---------------------------------------------------------------------------
 
 struct PlantRow {
-    id: u16,
+    id: OrganismId,
     species: String,
     x: i32,
     shoot_before: usize,

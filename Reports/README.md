@@ -2785,6 +2785,30 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   behaviours as default* — with the knob kept, an `off` control kept for
   measurement, and the constants rivalry reallocates named and re-derived,
   since a correct mechanism at inherited constants is a regression.
+- [pheromone-lifetime-and-wiring-2026-09-14.md](pheromone-lifetime-and-wiring-2026-09-14.md)
+  — **measurement, 2026-09-14, round 36 lane C. `engine`.** The owner's two
+  questions about the trail planes, answered: *do they fade too fast* and *is
+  all of it wired*. **A trail here is a live map of where ants are standing,
+  not a memory of where they went.** The 255-pass ceiling is real and its
+  1.4x margin is not — 255 passes is what a cell *at 255* survives and
+  nothing writes 255, so a cell laid at `DEPOSIT` (40) has a **40-pass**
+  ceiling and dies in **12**: **144 frames against a 2,200-frame round trip,
+  0.065x**. **`DECAY_RHO` is inert** — setting it to zero leaves that 144
+  unchanged, because a one-cell-wide line loses **16.7% per pass to `DIFFUSE`
+  against decay's 2.9%**, putting the realised rate at ~0.19, *inside* the
+  literature band it is documented as sitting below. **`DEPOSIT` must not be
+  halved**: P-14's trigger has never fired, peak is 39–98 of 255 over six
+  seeds. The bed confirms it with the colony size as control — 52→46 ants
+  holds the network, 46→20 takes it from 342 cells to 35. **Wiring**: nothing
+  is broken in the Rust, and **four of seven reader slots are read by no
+  species** — the laterals deliberately, but `PheroAFront`/`PheroBFront` are
+  the only *concentration* inputs, so **nothing reads trail height**, which is
+  the sole justification `DIFFUSE`'s value was chosen on. **`ancestor.ron`
+  cannot hear the alarm** (Lane D), `flitter` neither lays nor reads a trail
+  (Lane D), and the **alarm plane's audible radius is two cells** — a display
+  deposit is inaudible to anyone but the displayer, which is the measurement
+  `contest.rs` asked for. Ships one dial (`set_channel_diffuse`) and two
+  harnesses; **no default moved**.
 - [evolution-lab-round-36-brief-2026-09-14.md](evolution-lab-round-36-brief-2026-09-14.md)
   — **brief, 2026-09-14, rewritten the same day. `lab`/`engine`.** What round 36
   is for. **The first version led with performance and was wrong at the top**:

@@ -103,6 +103,7 @@
 //! cargo run --release --example vision_probe -- mode=overlay out=/tmp/sight.png
 //! ```
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::organism::{self, CellType, CreatureDef};
 use pixel_physics::sim::material::MaterialId;
@@ -512,7 +513,7 @@ fn run(seed: u64, frames: usize, every: usize, beetles: usize, occl: Occl, cone:
     let cos_cone = (cone.to_radians()).cos();
 
     let mut row = Row::default();
-    let mut ever: std::collections::HashSet<u16> = std::collections::HashSet::new();
+    let mut ever: std::collections::HashSet<OrganismId> = std::collections::HashSet::new();
     let mut blocked: std::collections::HashMap<MaterialId, u64> = std::collections::HashMap::new();
 
     // **`settle` exists because the placement is a confound and had to be
@@ -534,7 +535,7 @@ fn run(seed: u64, frames: usize, every: usize, beetles: usize, occl: Occl, cone:
 
         // --- where the heads are ------------------------------------------
         let mut prey: Vec<(i32, i32)> = Vec::new();
-        let mut preds: Vec<(i32, i32, u16)> = Vec::new();
+        let mut preds: Vec<(i32, i32, OrganismId)> = Vec::new();
         for py in 0..wh {
             for px in 0..ww {
                 let c = world.get(px, py);

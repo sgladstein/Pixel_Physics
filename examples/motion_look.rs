@@ -46,6 +46,7 @@
 //! that was not stepped differ in **zero** pixels. So every changed pixel
 //! here is the simulation moving, which is what the question is about.
 
+use pixel_physics::sim::cell::OrganismId;
 use std::collections::HashSet;
 
 use pixel_physics::app::{HEIGHT, WIDTH};
@@ -575,13 +576,13 @@ fn live(mut world: World, a: &Args) {
     // -- can you tell a dead ant from a live one -- is exactly this
     // quantity. Accumulated over every sampled gap, so an ant that moved
     // in any of them counts.
-    let mut ever_moved: HashSet<u16> = HashSet::new();
-    let mut ever_seen: HashSet<u16> = HashSet::new();
+    let mut ever_moved: HashSet<OrganismId> = HashSet::new();
+    let mut ever_seen: HashSet<OrganismId> = HashSet::new();
     let mut still_d = Vec::new();
     let mut moving_d = Vec::new();
     for _ in 0..a.samples {
         let cells_a = body_cells(&world);
-        let ids_a: HashSet<u16> = cells_a.iter().map(|&(x, y)| world.get(x, y).organism_id()).collect();
+        let ids_a: HashSet<OrganismId> = cells_a.iter().map(|&(x, y)| world.get(x, y).organism_id()).collect();
         render(&world, &mut fa);
         let pa = plane(&fa);
         for _ in 0..a.gap {
@@ -607,7 +608,7 @@ fn live(mut world: World, a: &Args) {
         // did not move in this gap is invisible to it -- and that is the
         // number a decoy count cannot show, because it is about the target
         // rather than the field.
-        let mut moved_ids: HashSet<u16> = HashSet::new();
+        let mut moved_ids: HashSet<OrganismId> = HashSet::new();
         for &(x, y) in cells_a.iter().chain(cells_b.iter()) {
             if changed[(y * WIDTH as i32 + x) as usize] {
                 moved_ids.insert(world.get(x, y).organism_id());
