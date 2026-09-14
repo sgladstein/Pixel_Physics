@@ -457,6 +457,46 @@ the hole is the mechanic.** A brief that proposes water as spatial structure is
 proposing something four measurements say is not there; a brief that puts food
 in the water first is proposing the only thing that would change that.
 
+### 1.10 The owner's sloped entrance, measured: it gives back 92% of the loss
+
+§0a's second verdict — *"in nature it would need a sloped enterance or
+creatures will get stuck"* — arrived after §1.9 had independently measured the
+sticking. `shore_slope_dry` tests the remedy: **identical footprint and depth**
+to the vertical pit, walls stepped **2 rows per 4 columns**. The step height is
+deliberately the small number, because what an ant climbs is a step, not an
+average gradient.
+
+| arm | `cols` per seed | median | `unvisited` |
+|---|---|---|---|
+| vertical pit, dry | 196, 192, 207, 236, 191, 197 | 196.5 | 154.5 |
+| **sloped pit, dry** | 290, 273, 272, 252, 251, 276 | **272.5** | 137.5 |
+| no pit at all | 307, 308, 273, 286, 253, 269 | 279.5 | 138.5 |
+
+**The vertical wall costs 83 columns of range and the slope returns 76 of them
+— 92%.** Sloped against vertical is **completely separated on 6 of 6 seeds**
+(worst slope 251, best vertical 236), and sloped against no-pit-at-all overlaps
+heavily (251–290 against 253–308), which is the shape of a fix rather than an
+improvement. `unvisited` says the same from the larder's side: 137.5 against
+the flat bed's 138.5, where the vertical pit left 154.5 standing.
+
+**So the bed gets a sloped bank, and the vertical-walled basin should be
+understood as an obstacle rather than a habitat.** That reaches back through
+this whole document: `the_pond.ron`, `the_pond_sediment.ron`,
+`the_pond_stocked.ron` and `the_pond_shore.ron` are all stone-lined boxes, and
+every one of them is costing a third of the colony's range for reasons that
+have nothing to do with water.
+
+**What this arm does *not* license, stated because the columns are right there
+and invite it.** The sloped arm places **8,576 cells against the vertical's
+6,688** — the ramp is made of stone, so it replaces soil the vertical wall left
+alone. `eats` (621 against 827) and `alive` (4.0 against 8.5) are therefore
+**not a clean comparison** and are not read here: the two beds differ in how
+much diggable, plantable ground they contain as well as in wall shape. The
+range claim survives that confound because `cols` is about where an ant can
+walk and the effect is large, separated and mechanically direct — a 32-row
+vertical face against a 2-row step. A claim that the sloped pond is *better for
+the colony* would not survive it, and is not made.
+
 ---
 
 ## 2. Phase 1 — the margin
