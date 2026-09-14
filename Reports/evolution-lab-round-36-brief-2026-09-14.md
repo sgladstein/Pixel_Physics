@@ -55,29 +55,56 @@ momentum passes made the frame *slower* in 7 of 8 paired runs, because the
 arithmetic went away and the memory traffic only moved. **The phase a change is
 made cheaper against is the whole frame**, measured paired and alternating.
 
-## Task 2 — ship rivalry on, which the owner asked for and round 35 did not do
+## Task 2 — the economy rivalry now sits on, which is the half that was left
 
-**Owner, 2026-09-14: *"You can ship it on."*** Round 35 measured rivalry
-thoroughly (#416, #417) and **changed no default**, so the ruling is
-unimplemented. This is not a re-litigation: he has ruled, and *ship new
-behaviours as default* is the standing rule.
+*Rewritten 2026-09-14: the switch shipped after this brief was first written.
+`assets/species/ant.ron` authors `scent_spread: 2.0` (#423), chosen on an order
+statistic over 12 seeds — cross-colony kills in **0 of 12** at spread 0, **9 of
+12** at 1, **11 of 12** at 2. The task below is what lane C correctly declined
+to do inside a one-line asset change.*
 
-What makes it more than a one-line edit:
+**A stranger is food now, and the constants that price the colony were all
+calibrated on a bed where no ant was.** The commit names three: **the birth
+bar, `colony_ants`, and the starvation balance.** *A correct mechanism at
+inherited constants is a regression* — that is this repo's own rule and it is
+pointing straight at these.
 
-- **It is a choice of value, not of boolean.** `Behavior::scent_spread` is a
-  **threshold, not a slope** — the acceptance radius is `tolerance + 1`, so
-  `spread = 1` makes strangers of only **9.3%** of ordered pairs and one seed
-  in four never produces an encounter. It saturates by **2**.
-- **Keep the knob and keep an `off` arm.** Shipping on is not hardcoding, and
-  his standing direction is *"give me the tools, data, access to the parameters
-  that need to be tweaked and I do that testing myself in the game."*
-- **Name and re-derive the constants it reallocates** before claiming it works.
-  A correct mechanism at inherited constants is a regression.
-- **Sweep seeds and gate an order statistic. Six seeds is not a sweep** — §S2's
-  census read 1.64x over its first six seeds and 1.08x over the next twelve.
-- **What ships is predation before it is a war.** A stranger is food to the
-  ordinary mouth; the `Attack` verb is a second, separate thing. Say which one
-  a number is about, every time.
+What the switch already moved, paired off(0) against shipped(2) over 12 seeds:
+**deaths +99 median**, up on 11 of 12 and down on none; **starvation share −4.3
+points**, down on 10 of 12, because killing displaces starving; **population
+and births both unmoved, medians exactly 0.** So the bed absorbs it today —
+which is the reason this is a re-derivation rather than an emergency, and also
+the reason it is easy to leave undone.
+
+The questions worth a lane:
+
+- **Is a colony that can eat its neighbours meant to need the same birth bar?**
+  Meat arriving from a rival is income the bar was never set against.
+- **Starvation fell because killing replaced it.** Does that make the
+  starvation balance right, or does it mean it was never doing the work?
+- **`colony_ants` sets how many founders stand together.** At a live dial that
+  is also how big a war party is.
+
+**Gate any change on an order statistic over seeds, and keep an `off` arm** —
+shipping on is not hardcoding, and the owner's standing direction is *"give me
+the tools, data, access to the parameters that need to be tweaked and I do that
+testing myself in the game."* **Six seeds is not a sweep.**
+
+**Two traps this specific work has already sprung once, both recorded in
+[`evolution-lab-round-35-2026-09-14.md`](evolution-lab-round-35-2026-09-14.md)
+§8.** The `spread=` override *added* its offset to the scent an animal already
+carried, so once a live default existed every arm measured `authored +
+requested` and **`spread=0` was not an off arm**; it was caught by running the
+authored value and the runtime override at one seed and requiring them
+byte-identical, and they disagreed on one column **while every outcome column
+matched**. And the founding draw **is not stable across engine changes** — one
+seed's gap moved 0.907 → 2.170 at an unchanged setting, because the offsets
+hash the colony *label* and which labels get claimed moved upstream. **Tune on
+the threshold argument, never on a table of particular seeds.**
+
+**And what ships is predation before it is a war.** A stranger is food to the
+ordinary mouth; the `Attack` verb is a second, separate thing. Say which one a
+number is about, every time.
 
 ## Task 3 — §Z23, which is a contained first job
 

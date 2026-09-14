@@ -2724,9 +2724,10 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   that phase, the other 55% is the CA sweep over the **29.4 cells an ant
   dirties per frame**. Two jobs fall out, *fewer dirty cells* (census first,
   nobody has looked at what the multiplier is made of) and *a cheaper sweep*.
-  Also carries the two unfinished items round 35 leaves: the owner's *"you can
-  ship it on"*, which is a choice of **value** because `scent_spread` saturates
-  by 2, and **§Z23**, whose obvious repair is the wrong one.
+  Also carries what round 35 leaves: **the economy constants a live rivalry
+  reallocates** — the birth bar, `colony_ants` and the starvation balance, all
+  calibrated on a bed where no ant was food — and **§Z23**, whose obvious
+  repair is the wrong one.
 - [evolution-lab-round-35-2026-09-14.md](evolution-lab-round-35-2026-09-14.md)
   — **coordinator record, 2026-09-14. `lab`/`engine`.** The round that gave the
   food economy a face and answered *why don't colonies fight* with a finding
@@ -2743,8 +2744,15 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   **1.000 → 0.520**, the rest withdrawals that *display*); per-colony books in
   joules and a per-cell food road, whose **two food numbers disagree on
   purpose**; and both overlays defeat the dirty-rect skip, so **the settled bed
-  is the price**. Landed #416, #417, #419, #420. Open: the owner's *"you can
-  ship it on"* is not yet implemented, and §Z23 has a designed repair.
+  is the price**. Landed #416, #417, #419, #420, then #421 and **#423, which
+  ships rivalry ON** — `ant.ron` authors `scent_spread: 2.0`, chosen on an
+  order statistic (cross-colony kills in **0 of 12** seeds at 0, **9 of 12** at
+  1, **11 of 12** at 2) after an instrument bug that made `spread=0` not an off
+  arm was caught by requiring the authored value and the runtime override to
+  agree byte-for-byte. §8 carries that and the rule it produced: **the founding
+  draw is not stable across engine changes**, so tune on the threshold
+  argument, never on a table of particular seeds. Open: the economy constants
+  rivalry reallocates, and §Z23's designed repair.
 - [evolution-lab-round-33-2026-09-13.md](evolution-lab-round-33-2026-09-13.md)
   — **coordinator record, 2026-09-13. `lab`/`engine`.** The round that answered
   the owner's #1 with a **no**. **The creature pass can run across cores and is
