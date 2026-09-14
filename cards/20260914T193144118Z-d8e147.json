@@ -1,0 +1,84 @@
+{
+  "id": "20260914T193144118Z-d8e147",
+  "created": "2026-09-14T19:31:44Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-food-readable",
+    "commit": "dae17893",
+    "agent": null,
+    "session_id": "65a4d947-1bc8-5f1b-b8de-5d815018976b",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The amber hatch, no longer a box",
+  "question": "Does the amber now read as ground that fed them, rather than as blocks dropped on the scene -- and can you follow the ants' road through it?",
+  "context_md": "You said of this view: ***\"the amber hatch it bad\"***, and on the other bed ***\"why is the amber hatch drop like a huge box?\"***\n\nRendering the two channels apart said why in one frame, and it was not subtle. **The amber was being painted on the sky.** Every patch of ground a colony feeds off sits in the surface band; the wash covered a square eight cells on a side around it, and seven of those eight rows are open air. So the shape you were seeing was the grid, not the ground -- a hard-edged block with a dead straight top edge hanging over the terrain.\n\nIt now marks only the **exposed face of the ground**, so its outline is the land. Same run, same seed, same frames; the only difference is where the amber is allowed to fall.\n\n- **amber** -- ground this colony has taken food out of, brighter the more it gave up, fading over about a minute of play\n- **red-orange** -- an ant walked here **carrying**\n- **blue** -- an ant walked here with nothing\n\n**The second thing this bought, and it is the bigger one:** the seven rows it stops painting were the rows sitting on top of the road. In A the road is underneath the hatch and in nearly the same colour. In B you can see it.\n\n**What I am unsure of and would rather you judged:** whether the amber has now gone too quiet to say anything. It covers about a fifth of the pixels it used to.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- as you saw it",
+      "files": [
+        "20260914T193144118Z-d8e147/000-frame_0000.png",
+        "20260914T193144118Z-d8e147/001-frame_0001.png",
+        "20260914T193144118Z-d8e147/002-frame_0002.png",
+        "20260914T193144118Z-d8e147/003-frame_0003.png",
+        "20260914T193144118Z-d8e147/004-frame_0004.png",
+        "20260914T193144118Z-d8e147/005-frame_0005.png",
+        "20260914T193144118Z-d8e147/006-frame_0006.png",
+        "20260914T193144118Z-d8e147/007-frame_0007.png",
+        "20260914T193144118Z-d8e147/008-frame_0008.png",
+        "20260914T193144118Z-d8e147/009-frame_0009.png",
+        "20260914T193144118Z-d8e147/010-frame_0010.png",
+        "20260914T193144118Z-d8e147/011-frame_0011.png",
+        "20260914T193144118Z-d8e147/012-frame_0012.png",
+        "20260914T193144118Z-d8e147/013-frame_0013.png",
+        "20260914T193144118Z-d8e147/014-frame_0014.png"
+      ],
+      "caption": "the wash covers its whole tile, air included",
+      "meta": {
+        "steps taken carrying food": 622,
+        "steps taken empty-handed": 657,
+        "mouthfuls taken out of the ground": 980,
+        "ground marked as fed-from": "35 patches"
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- clipped to the ground",
+      "files": [
+        "20260914T193144118Z-d8e147/015-frame_0000.png",
+        "20260914T193144118Z-d8e147/016-frame_0001.png",
+        "20260914T193144118Z-d8e147/017-frame_0002.png",
+        "20260914T193144118Z-d8e147/018-frame_0003.png",
+        "20260914T193144118Z-d8e147/019-frame_0004.png",
+        "20260914T193144118Z-d8e147/020-frame_0005.png",
+        "20260914T193144118Z-d8e147/021-frame_0006.png",
+        "20260914T193144118Z-d8e147/022-frame_0007.png",
+        "20260914T193144118Z-d8e147/023-frame_0008.png",
+        "20260914T193144118Z-d8e147/024-frame_0009.png",
+        "20260914T193144118Z-d8e147/025-frame_0010.png",
+        "20260914T193144118Z-d8e147/026-frame_0011.png",
+        "20260914T193144118Z-d8e147/027-frame_0012.png",
+        "20260914T193144118Z-d8e147/028-frame_0013.png",
+        "20260914T193144118Z-d8e147/029-frame_0014.png"
+      ],
+      "caption": "the same marks, drawn only where there is ground to mark",
+      "meta": {
+        "steps taken carrying food": 622,
+        "steps taken empty-handed": 657,
+        "mouthfuls taken out of the ground": 980,
+        "ground marked as fed-from": "35 patches"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
