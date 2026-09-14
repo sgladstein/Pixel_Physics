@@ -1,8 +1,10 @@
 # Round 34, lane B — the soft rung of the zoom ladder, put to the owner
 
-*2026-09-14. Branch `claude/lab-zoom-rung-three`. **Deliverable: one blind
-review card, `20260914T000047337Z-693fcc`, board `druid`, still open.** Nothing
-is built on the answer and nothing should be until it lands.*
+*2026-09-14. Branch `claude/lab-zoom-rung-three`, **PR #406**, code at
+`39170d31`. **Deliverable: one blind review card,
+`20260914T000047337Z-693fcc`, board `druid`, still open.** Nothing is built on
+the answer and nothing should be until it lands. The coordinator owns the
+merge.*
 
 The lane's whole job was to stop asking a look question in prose. It has been
 asked three times in writing — `Reports/held-world-zoom-plan-2026-09-13.md` §6
