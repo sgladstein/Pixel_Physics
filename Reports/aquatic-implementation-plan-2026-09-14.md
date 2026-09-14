@@ -422,7 +422,7 @@ that dodges the `Cell::aux` tagged-union trap entirely.
 
 | lane | owns | disjoint from |
 |---|---|---|
-| **1a — sediment** | `src/lab/scenario.rs`, `assets/lab_scenarios/*.ron` | everything; lands first and alone |
+| **1a — sediment** | `assets/lab_scenarios/*.ron` **only** — §1.6 removed the `scenario.rs` change | everything; lands first and alone |
 | **1b — the reed** | `src/sim/plant.rs`, `src/sim/organism.rs` (one `SpeciesDef` field), `assets/species/reed.ron`, two new materials, one `include_str!` line | **2** entirely — run them together |
 | **2 — E9** | `src/sim/creature.rs`, `src/sim/organism.rs` (trait slot) | **1b** except `organism.rs`; see below |
 | **3 — depth** | `src/sim/field.rs`, `assets/materials/*.ron` | both |
@@ -445,9 +445,11 @@ one harness change this plan asks for.
 **Every brief carries the same cost fork:** build it, or write the finding and
 stop; never a half-built fix. **Every brief's creature card is a moving
 sequence** (`labgif`, or `filmstrip gif=1`), never a still — an ant is two dark
-cells at play zoom and is picked out of dark soil by *moving*. **Every brief's
-measurement is `scenario=the_pond_stocked`, 6+ seeds, 90,000 frames,
-`RAYON_NUM_THREADS` pinned.**
+cells at play zoom and is picked out of dark soil by *moving*. **Each brief measures in the bed
+that contains its defect** (§1.7): Phase 1 in `the_pond_sediment.ron`, Phase 2
+in `the_pond_shore.ron`, ecology questions in `the_pond_stocked.ron` — 6+
+seeds, 90,000 frames, `RAYON_NUM_THREADS` pinned. **A brief measured in the
+wrong pond measures nothing and cannot tell that from a broken verb.**
 
 ---
 
