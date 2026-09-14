@@ -1,0 +1,60 @@
+{
+  "id": "20260914T200958975Z-da3b1a",
+  "created": "2026-09-14T20:09:58Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/determined-ramanujan-c9szc5",
+    "commit": "34874ded",
+    "agent": null,
+    "session_id": "79abafe2-f617-546c-9fed-7bebff67abba",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "A small animal, not a slow one",
+  "question": "You said the shrink looked good and you wanted to move a bit faster. Same script, same ground, same 120 ticks, both clips. Is this the faster you meant, or should she go further still?",
+  "context_md": "The old small gnome covered **exactly as many of her own body-lengths per tick as the tall one** -- 0.043 both. That is the whole defect in one number: she was a shrunk *picture* of the gnome rather than a small creature, so everything took four and a half times as long.\n\nNow she scurries: 0.093 of her own lengths a tick, a bit over twice the tall gnome's gait, while still being slower than him in plain world cells (0.28 against his 0.60). She also gets going in 6 ticks instead of 12 -- a small thing accelerates hard, because gravity did not shrink with her.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before",
+      "files": [
+        "20260914T200958975Z-da3b1a/000-zbefore.gif"
+      ],
+      "caption": "what you played: 16 cells in 120 ticks",
+      "meta": {
+        "cells walked": "15.7",
+        "cells / tick": "0.129",
+        "her own lengths / tick": "0.043",
+        "ticks to top speed": "12.5",
+        "the tall gnome, same clip": "79.2 cells, 0.043 lengths/tick"
+      },
+      "focus": null,
+      "gif_frames": 60
+    },
+    {
+      "label": "after",
+      "files": [
+        "20260914T200958975Z-da3b1a/001-zafter.gif"
+      ],
+      "caption": "now: 33 cells in 120 ticks, 2.15x",
+      "meta": {
+        "cells walked": "32.8",
+        "cells / tick": "0.278",
+        "her own lengths / tick": "0.093",
+        "ticks to top speed": "5.8",
+        "the tall gnome, same clip": "79.2 cells, 0.043 lengths/tick"
+      },
+      "focus": null,
+      "gif_frames": 60
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
