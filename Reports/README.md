@@ -131,34 +131,40 @@ by somebody about to try it on creatures.
   — **diagnosis, held world, nothing shipped.** The owner reported that
   absorbing creature energy destroys nearby plants and proposed that the
   energy particles are colliding with the world. **The `F` key does not touch
-  the world**: five paired arms differing only in whether it is pressed came
+  the world**: seven paired arms differing only in whether it is pressed came
   back equal in every column — every plant material, every organism count,
-  every death cause, every unit of `harvested_plant` — with `Druid::power` the
-  only thing in the world that differed. The proposed fix is *already true*
-  (the motes are screen-pixel values painted into the finished frame), so
-  shipping it would be a no-op with the report marked addressed. **His
-  observation is nonetheless real and is reproduced**: on the shipped `bare`
-  start at speed 8, the same circle holds **352 live plants with no colony in
-  it and 177 with one**, and the ants eat **15,010** units of plant tissue —
-  the colony eats half the garden, and the speed dial is a **9.7x** multiplier
-  on it (eaten 228 → 2,217, felled 28 → 274, everything else fixed).
-  Absorbing is *upstream* of that twice over — you must stand in a running
-  colony to press it, and with the economy live the power it buys keeps the
-  circle standing longer — which is why the misattribution is a fair reading
-  and not a silly one. **That second coupling is large at full scale and is
-  the one real cost absorbing has**: ten presses worth 650 power moved plant
-  energy eaten **7,097 → 11,606, +64%**, and plants felled 380 → 528. What it
-  buys is more *time running*, so it buys more growth too (544 → 608 live
-  plants). **The generalisable half is the method**: the nulls are only readable
-  because the same harness was shown to move, both on a known-broken case
-  (`control=selftest`, 100 cells erased and 100 reported) and on the one arm
-  where absorbing *can* matter. Names `energy_ledger.harvested_plant` as the
-  counter a "did something eat this" question wants — a death count cannot
-  answer it, because a grazed plant usually survives being grazed — and rules
-  out `plant_bending` (269 against 274) and `step_extra_ticks`'s
-  `player.take()` by measurement. The prescription is legibility, not a patch:
-  the player has a number for what a circle costs him in *power* and none at
-  all for what it costs him in *plants*. Instrument: `examples/druid_garden.rs`.
+  every death cause, every unit of `harvested_plant` — at both world sizes and
+  **again after an engine merge that moved `creature.rs` by 247 lines**, with
+  `Druid::power` the only thing in the world that differed. The proposed fix is
+  *already true* (the motes are screen-pixel values painted into the finished
+  frame), so shipping it would be a no-op with the report marked addressed.
+  **His observation is nonetheless real and is reproduced**: on the shipped
+  `bare` start at speed 8, the same circle holds **690 live plants with no
+  colony in it and 573 with one** (**407 against 289** near the colony), and
+  the ants eat **21,813** units of plant tissue — about a sixth of the garden,
+  up to a third of what stands beside it, with the speed dial multiplying it
+  (eaten 912 → 21,813, felled 39 → 672, everything else fixed). Absorbing is
+  *upstream* twice over — you must stand in a running colony to press it, and
+  with the economy live the power it buys keeps the circle standing longer,
+  which is **+114% of plant tissue eaten** from ten presses worth 723 power —
+  so the misattribution is a fair reading, and absorbing genuinely does cost
+  plants, just not by the proposed mechanism. **Two halves generalise past the
+  held world.** The method: the nulls are only readable because the same
+  harness was shown to move, on a known-broken case (`control=selftest`, 100
+  cells erased and 100 reported) and on the one arm where absorbing *can*
+  matter. And the cautionary half, recorded in its §8: the colony's cost was
+  first measured at **half** the garden and is a **sixth** on today's `main` —
+  `claude/thicket-founding`'s *a floor of plants is a floor a colony can stand
+  on* gave the colony more founders (32 → 40) and **less** damage (177 → 295
+  plants), so a single sample was off threefold for a reason unrelated to the
+  seed, and the first review card had to be reposted. Names
+  `energy_ledger.harvested_plant` as the counter a "did something eat this"
+  question wants — a death count cannot answer it, because a grazed plant
+  usually survives being grazed — and rules out `plant_bending` (269 against
+  274) and `step_extra_ticks`'s `player.take()` by measurement. The
+  prescription is legibility, not a patch: the player has a number for what a
+  circle costs him in *power* and none at all for what it costs him in
+  *plants*. Instrument: `examples/druid_garden.rs`.
 - [held-world-zoom-plan-2026-09-13.md](held-world-zoom-plan-2026-09-13.md)
   — **plan, not built.** How the held world gets a zoom control, on the owner's
   instruction that it should have one. The number that makes it worth

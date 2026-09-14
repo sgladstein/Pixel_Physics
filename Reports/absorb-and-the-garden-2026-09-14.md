@@ -5,82 +5,88 @@ measured and named. The owner's **observation** is reproduced and is real.
 Lane note: [`Reports/lanes/absorb-destroys-plants.md`](lanes/absorb-destroys-plants.md);
 filed as `open-bugs-handoff.md` **§Z22**.*
 
-Owner report, verbatim: *"Absorbing creature energy, destroys plants around
-it. The energy particles need to be foreground and not interact with the
-world."*
+**Every number here was re-taken on `main` after PR #414
+(`claude/thicket-founding`) landed**, and that mattered: its repair — *a floor
+of plants is a floor a colony can stand on* — changes where ants can stand and
+moved the colony's cost by a factor of three. §8 keeps the superseded figures
+and says what they were, because the size of the revision is itself the
+warning.
 
 ---
 
 ## 1. The short answer
 
-**The `F` key does not touch the world.** Five paired arms — same world, same
+**The `F` key does not touch the world.** Seven paired arms — same world, same
 seed, same elapsed time, differing only in whether `F` is pressed — came back
 **equal in every column**: every plant material, every organism count, every
-death cause, and every unit of `harvested_plant`. The only thing in the entire
-world that differed was `Druid::power`.
+death cause, every unit of `harvested_plant`. At `1024x512` and at the shipped
+`2560x960`, at speed 1 and speed 8, before the merge and again after it, over
+drawings up to 779 power. The only thing in the entire world that differed was
+`Druid::power`.
 
-**The proposed fix is therefore already true in both of its senses**, and
-shipping it would be a no-op with the owner told his bug was addressed. The
-motes are `Mote { x, y, bright }` in **screen pixels**, painted by
-`render::put` straight into the finished RGBA frame (`hud.rs::motes`, and
-`hc.put` at `hud.rs:396` onward) — they cannot touch the simulation, and being
-painted after the world *is* foreground. `Druid::absorb` writes exactly three
-things: `self.reserves` (the druid's own bookkeeping mirror, not the animal's
-gut), `self.draws` (read only by the HUD and by the income readout), and
-`self.power`.
+**So the proposed fix is already true in both of its senses**, and shipping it
+would be a no-op with the owner told his bug was addressed. The motes are
+`Mote { x, y, bright }` in **screen pixels**, painted by `render::put` into the
+finished RGBA frame (`hud.rs::motes`; `hc.put` from `hud.rs:396`) — they cannot
+touch the simulation, and being painted after the world *is* foreground.
+`Druid::absorb` writes exactly three things: `self.reserves` (the druid's own
+bookkeeping mirror, **not** the animal's gut), `self.draws` (read only by the
+HUD and the income readout), and `self.power`.
 
 **His observation is nonetheless correct, and it is worth saying that first.**
-A circle with a colony in it really is chewed back to bare ground. What does
-it is **ants grazing inside a quickening, multiplied by the speed dial** — and
-absorbing is *upstream* of that rather than the mechanism of it. Measured on
-the shipped `bare` start, 3,000 ticks, speed 8, one circle, the only
-difference being whether a colony stands in it:
+A circle with a colony in it really is thinner than the same circle without
+one. What does it is **ants grazing inside a quickening, multiplied by the
+speed dial** — and absorbing is *upstream* of that rather than the mechanism.
+Bare start, 3,000 ticks, speed 8, one circle, the only difference being
+whether a colony stands in it:
 
 | | no colony | with a colony | |
 |---|---|---|---|
-| live plants at end, `1024x512`, 33 ants | **352** | **177** | -50% |
-| ...`2560x960`, 31 ants (plants near) | **407** | **326** | -20% |
-| plant energy eaten, full scale | 0 | **19,732** | |
-| plants felled, full scale | 432 | **807** | |
+| live plants, `1024x512`, 40 founders | **352** | **295** | −16% |
+| live plants, `2560x960`, 41 founders | **690** | **573** | −17% |
+| ...of those, near the colony (full scale) | **407** | **289** | **−29%** |
+| plant energy eaten (full scale) | 0 | **21,813** | |
+| plants felled (full scale) | 432 | **672** | |
 
-**The colony eats between a fifth and a half of the garden.** Two worlds, one
-seed each, and the spread between them is why this is a range rather than a
-number — it is nowhere near a sweep and nothing should be tuned on it. Card
-`20260914T043140244Z-b56729` is the small-world pair side by side; the
-difference is obvious by eye.
+**The colony costs about a sixth of the garden world-wide and up to about a
+third of the plants standing next to it.** Card
+`20260914T071714820Z-8f4d71` is that pair rendered side by side.
 
 ---
 
 ## 2. Why absorbing still gets the blame, and it is not the player being silly
 
-Three separate couplings tie the `F` key to the destruction without `F` ever
-writing a cell. Any one of them is enough to make the two look like cause and
-effect from the chair.
+Three couplings tie the `F` key to the destruction without `F` ever writing a
+cell. Any one of them is enough to make the two look like cause and effect
+from the chair.
 
 1. **You have to stand in the colony to press it.** `ABSORB_RADIUS` is 60
    cells, and an animal only accumulates charge where `time_runs_at` is true.
    So a productive absorb *requires* the configuration that eats the garden —
    a colony inside running time, next to plants.
-2. **Absorbing pays for the circle to keep standing.** With the economy live,
-   the same world and the same 2,000 ticks, the only difference being six
-   presses of `F` worth 45 units of power:
+2. **Absorbing pays for the circle to keep standing, and this is large.** With
+   the economy live, same world, same 3,000 ticks, 41 founders, the only
+   difference being ten presses of `F` worth 723 power:
 
    | | quiet | absorb | |
    |---|---|---|---|
-   | eaten, `1024x512`, 1 ant, 45 power drawn | 1,026 | **1,260** | +23% |
-   | eaten, `2560x960`, 31 ants, 650 power drawn | 7,097 | **11,606** | **+64%** |
-   | felled, full scale | 380 | **528** | +39% |
-   | live plants, full scale | 544 | 608 | |
+   | plant energy eaten | 6,459 | **13,809** | **+114%** |
+   | plants felled | 319 | **535** | +68% |
+   | live plants at end | 545 | 563 | |
+   | animals at end | 30 | 35 | |
+   | power at end | 0 | 190 | |
 
    Both arms ran out of power and closed their circle; the absorbing one
-   closed it later. **That is a real effect of absorbing on the plants and it
-   is not a small one** — at full scale, ten presses of `F` worth 650 power
-   bought 4,509 more units of plant eaten. It buys *more growth* as well as
-   more grazing (544 → 608 live plants), which is the honest shape of it: what
-   absorbing buys is **more time running**, and more time running is more of
-   everything.
-3. **The speed dial multiplies it about tenfold.** Same colony, same world,
-   only the dial moved.
+   closed it later. **Absorbing more than doubles what the colony eats** —
+   and it buys *more growth* as well (545 → 563 plants), which is the honest
+   shape of it: what absorbing buys is **more time running**, and more time
+   running is more of everything.
+3. **The speed dial multiplies it.** Full scale, 41 founders, same 3,000
+   player ticks, only the dial moved: plant energy eaten **912 → 21,813**,
+   plants felled **39 → 672**.
+
+**So absorbing really does cost the player plants — just not by the mechanism
+he proposed, and only through the economy.**
 
 ---
 
@@ -105,8 +111,7 @@ material**, world-wide, inside a 200-cell window on the colony, and inside the
 **`harvested_plant` is the finding that made the diagnosis tractable**, and it
 was already in the engine. A death count cannot answer "did the colony eat the
 garden", because a grazed plant usually survives being grazed — eating and
-dying are different events and only one of them is grazing. This counter is
-the far side of the call and it is load-independent.
+dying are different events and only one of them is grazing.
 
 ### The controls, both directions
 
@@ -117,145 +122,90 @@ and the nulls in §1 are worthless without both.
   cells from a grown world and asserts the census reports exactly 100. It does.
 - **Positive control on the *question*.** The economy-live pair in §2.2 is the
   arm where absorbing *can* affect the world, and the same harness sees it:
-  1,026 → 1,260 eaten. **So the nulls are not the harness being unable to see
+  6,459 → 13,809 eaten. **So the nulls are not the harness being unable to see
   an absorb effect** — it sees one the moment there is one to see.
-- **Sensitivity across the range.** The same census reports 228 units eaten
-  (1 ant, speed 1), 2,217 (1 ant, speed 8), 15,010 (33 ants, speed 8) and 0
-  (no colony). It is not stuck.
+- **Sensitivity across the range.** The same census reports 0, 912, 6,459,
+  13,809 and 21,813 units eaten across the arms. It is not stuck.
 
 **The pairs being bit-identical is exactly the "tidy first result" this repo
 warns about**, and it is the expected result here rather than a suspicious
 one: the sim is deterministic same-build, absorb provably writes nothing the
 sim reads, so identity is the prediction and the three controls above are what
-license reading it as one.
+license reading it as one. It also survived an engine change — the null held
+byte-identically before and after a merge that moved `src/sim/creature.rs` by
+247 lines — which is stronger evidence than either measurement alone.
 
 ---
 
 ## 4. The arms and their numbers
 
-All on the `druid` preset, seed 1, `1024x512` (the full-scale confirmation
-is §5). `unlimited=1` unless stated, so the economy cannot silently close a
-circle and make "no absorb" secretly mean "less world running" — which is the
+`druid` preset, seed 1, `PIXEL_PHYSICS_DRUID_START=bare` (the shipped default)
+unless stated. `unlimited=1` unless stated, so the economy cannot silently
+close a circle and make "no absorb" secretly mean "less world running" — the
 confound the whole measurement exists to remove.
 
-### 4a. Arm 1 vs 2 — does `F` do anything at all
+### 4a. Does `F` do anything at all
 
-`START=grown`, 2,000 ticks, one circle, a colony at the player's feet.
-
-| | speed 1 quiet | speed 1 absorb | speed 8 quiet | speed 8 absorb |
+| | quiet | absorb | absorbs | drawn |
 |---|---|---|---|---|
-| plant cells (world) | 22,983 | 22,983 | 23,156 | 23,156 |
-| within r60 | 6,416 | 6,416 | 6,900 | 6,900 |
-| live plants | 1,021 | 1,021 | 1,181 | 1,181 |
-| plant energy eaten | 228 | 228 | 2,217 | 2,217 |
-| felled | 28 | 28 | 274 | 274 |
-| starved | 0 | 0 | 59 | 59 |
-| absorbs fired | 0 | **6** | 0 | **6** |
-| energy drawn | 0 | **45** | 0 | **47** |
-| power at end | 600 | **645** | 600 | **647** |
+| `1024x512`, speed 8, 40 founders | 295 plants / 7,821 eaten | **identical** | 10 | 481 |
+| `2560x960`, speed 8, 41 founders | 573 plants / 21,813 eaten | **identical** | 10 | 753 |
 
-Repeated on `START=bare` with 32 ants and 10 absorbs drawing 708: identical
-again in every column.
+Every column equal, not merely the two shown. Repeated pre-merge at both
+scales, on `START=grown` as well, and at speed 1: same answer every time.
 
-### 4b. Arm 3 — the speed dial, everything else fixed
+### 4b. The speed dial, everything else fixed
 
-Same world, same colony, same elapsed player time.
+Full scale, 41 founders, 3,000 player ticks:
 
-| | speed 1 | speed 8 | ratio |
-|---|---|---|---|
-| plant energy eaten | 228 | 2,217 | **9.7x** |
-| felled | 28 | 274 | **9.8x** |
-| starved | 0 | 59 | — |
+| | speed 1 | speed 8 |
+|---|---|---|
+| plant energy eaten | 912 | **21,813** |
+| plants felled | 39 | **672** |
+| live plants at end | 394 | 573 |
 
-On `bare` with 32 ants: eaten **1,112 → 15,010**, felled 42 → 335.
+Note the plants *rise* with the dial even as eating rises 24-fold: running
+time fast grows the garden and eats it at once, and only the paired
+colony/no-colony arm separates those.
 
 **This is the dial doing what it is documented to do.** `step_extra_ticks`
 runs `frame::step` `speed - 1` extra times, and on a held world that is the
-whole world's physics restricted to wherever time runs — so everything inside
-a circle has eight times as much life happen to it, grazing included.
+whole world's physics restricted to wherever time runs.
 `Reports/dead-ends.md` already records the clock half of this (the withdrawn
 per-circle rate, 2026-09-13: *"every organism's cadence is `frame + interval`
 in the **global** counter"*). **The grazing half is new here.**
 
-### 4c. Arm 4 — is it the ants, or the dial
+### 4c. Is it the ants, or the dial
 
-`bare`, 3,000 ticks, speed 8.
+The table in §1. **Both.** The dial sets the rate; the colony is what converts
+that rate into tissue leaving. Note that felling is high (432) even *without*
+a colony: most of what `deaths_by_cause` calls FELLED is seed-bank churn, not
+the garden — which is why the live-plant counts, not the death count, are the
+ones to read. (`FelledOrLost` is assigned at `free_organism` to any plant
+arriving with no cells and no declared cause — `world.rs:6042`.)
 
-| | no colony | 33 ants |
-|---|---|---|
-| live plants at end | 352 | **177** |
-| plants near | 328 | **152** |
-| plant cells | 5,811 | 5,163 |
-| eaten | 0 | 15,010 |
-| felled | 273 | 335 |
-
-**Both.** The dial sets the rate; the colony is what converts that rate into
-tissue leaving. Note that felling (273) is nearly as high *without* a colony:
-most of what `deaths_by_cause` calls FELLED is seed-bank churn, not the
-garden — which is why the cell and live-plant counts, not the death count, are
-the ones to read here. (`FelledOrLost` is assigned at `free_organism` to any
-plant arriving with no cells and no declared cause — `world.rs:6042`.)
-
-### 4d. Arm 5 — `plant_bending`, ruled out by measurement
+### 4d. `plant_bending`, ruled out by measurement
 
 The brief flagged it as unchecked: `Druid::new` sets
 `world.plant_load_failure = false` but leaves `plant_bending` at its `true`
 default. Turned off, speed 8, everything else fixed: felled **269 against
-274**, eaten 3,197 against 2,217 (the wrong direction, and inside this
-scene's spread). **Bending is not it.**
+274**, within this scene's spread. **Bending is not it.**
 
 ---
 
-## 5. Full scale
+## 5. Two things found on the way that are not this bug
 
-The numbers above are `1024x512`; the shipped world is `2560x960`. Every finding
-reproduces there.
-
-- **The null.** `START=grown`, 4,000 ticks, speed 1, 13 absorbs drawing 195:
-  **every column equal** (plant cells 181,171 → 181,281 in both arms, felled
-  67 in both), power 600 against 795 the only difference in the world. Again
-  on `START=bare`, 3,000 ticks, speed 8, 31 ants, 10 absorbs drawing **779**:
-  every column equal (plant cells 5,325, live plants 610, eaten 19,732, felled
-  807 in both arms), power 600 against 1,379.
-- **The colony**, and the dial, and the economy coupling: the tables in §1 and
-  §2.2 carry the full-scale rows beside the small-world ones. The *direction*
-  is the same everywhere; the *size* moves a lot between worlds, which is the
-  §9 caveat.
-
-**One thing is larger at scale rather than the same**, and it is the one that
-matters: the economy coupling went from +23% of plant eaten to **+64%**. A
-bigger world with a real colony in it is a world where power is scarce enough
-for absorbing to be what decides how long the circle stands.
-
----
-
-## 6. Two things found on the way that are not this bug
-
-- **A founding in a grown wood places 2 of its 12 ants; on bare ground, 31 of
-  48** — and **my explanation was wrong for the full-scale case, corrected by
-  §Z21, which landed on `main` while this was being written.** I put it down to
-  `colony_stations` dropping stations for want of ground under a wood's litter.
-  §Z21 measured the real cause at 2560x960: that world grows **4,093 organisms
-  against a hard ceiling of 4,095**, so `push_organism` refuses almost every
-  founder an identity while `found_colony` reports *"nothing founded - no
-  ground here"* — a confident, specific and wrong cause **which I then
-  repeated**. The tell was in my own log and I read past it:
-  `grew 4093 organisms`.
-
-  **The ceiling is not the whole of it, and this part is still open.** The
-  1024x512 grown world grows **973** organisms — nowhere near 4,095 — and
-  still places only **1 of 12**. So a second, independent shortfall exists on
-  small grown ground that §Z21 does not cover and nothing here has measured.
-  My original guess is not *disproved* for that case; it is merely
-  unestablished, and I am not going to assert it twice.
-
-  **What the ceiling costs the numbers here, stated rather than buried.** Only
-  the **full-scale grown** pair (§5) ran at the ceiling. The 1024x512 grown
-  arms in §4a and §4b did not — 973 of 4,095 — so they stand as measured. The
-  **absorb null is untouched** either way: both arms of every pair sat in the
-  same world, and the claim is that absorb writes nothing the sim reads. And
-  the grown-world **colony arm was weak regardless**, at one or two ants,
-  which is why §1 and §4c take their headline from `START=bare`.
+- **Founding places far fewer animals than it asks for, and the shortfall has
+  two independent causes.** Asked for 48, a **bare** world places 40–41; a
+  **grown** one places 14, and the plain `C` key (12 founders) places 5. At
+  full scale on a grown world it is worse still, and `open-bugs-handoff.md`
+  **§Z21** has that case: a grown druid world holds **4,093 organisms against
+  a hard ceiling of 4,095**, so `push_organism` refuses almost every founder
+  an identity while `found_colony` reports *"nothing founded - no ground
+  here"* — a confident, specific and wrong cause. **§8 records that I
+  repeated that wrong cause before §Z21 landed.** The `1024x512` grown world
+  holds only 973 organisms and still places 5 of 12, so the ceiling is not all
+  of it and something else is still unmeasured there.
 - **`step_extra_ticks` taking the player out is clean**, contrary to the
   brief's suspicion that it deserved a look in its own right. `frame::step`
   sets `world.carried = None` when there is no player and `player::step`
@@ -265,48 +215,46 @@ for absorbing to be what decides how long the circle stands.
 
 ---
 
-## 7. The prescription
+## 6. The prescription
 
 **There is no bug to patch in `absorb` and nothing to fix in the motes.** The
 defect is that a real, large, ongoing cost is invisible and its apparent cause
 is the wrong one. Two changes, neither in this lane's files.
 
-### 7a. `src/druid/hud.rs` (Lane A) — say what the circle is costing in tissue
+### 6a. `src/druid/hud.rs` (Lane A) — say what the circle is costing in tissue
 
 The readout says `CHARGE 266 IN 10 NEAR YOU` and names power, drain and
 income. It says nothing about the garden. Add one line to the readout, beside
 the drain:
 
 ```
-EATEN 15010   PLANTS 352 -> 177
+EATEN 21813   PLANTS 690 -> 573
 ```
 
 sourced from `World::energy_ledger.harvested_plant` and a live plant count —
 both already on the world, neither needing a new pass. **This is the ethos
 clause literally**: *a consequence with no visible cause is unfinished*. The
 player currently has a number for what the circle costs him in power and no
-number at all for what it costs him in plants, which is the thing he actually
-minds.
+number at all for what it costs him in plants, which is the thing he minds.
 
-### 7b. `src/druid/mod.rs` (Lane B) — the dial is a destruction multiplier and does not say so
+### 6b. `src/druid/mod.rs` (Lane B) — the dial is a destruction multiplier and does not say so
 
 `Druid::speed`'s own doc already records *"a plant inside a rate-4 circle is
 having four times as much life happen to it"*, and `drain_for` prices that
 honestly in power. What is not priced anywhere the player can see is that the
 same multiplier applies to **grazing**. One line in the note raised when the
-dial is changed — `self.note(format!("time runs x{} - and so does everything
-eating"))` or similar — closes the gap for the cost of a string.
+dial is changed closes the gap for the cost of a string.
 
 **No change is recommended to the dial itself, and the grazing is not a bug.**
-*An outcome is a distribution, not a binary*: the colony eating the garden at a
-rate the player set is graded, legible and reversible, and it is the game
-working. What fails the ethos is only that the player cannot see it happening
-or attribute it. Whether a colony *should* be able to halve a garden is a
-balance question for the owner and is not mine to answer.
+*An outcome is a distribution, not a binary*: the colony eating a sixth of the
+garden at a rate the player set is graded, legible and reversible, and it is
+the game working. What fails the ethos is only that the player cannot see it
+happening or attribute it. Whether a colony *should* cost that much is a
+balance question for the owner.
 
 ---
 
-## 8. Where this brief was wrong, and where it was right
+## 7. Where the dispatching brief was wrong, and where it was right
 
 The coordinator asked to be told plainly.
 
@@ -319,16 +267,15 @@ anyway, since it exits at the census.
 
 **The leading hypothesis was half right.** *"Circles at speed > 1 run the
 world N times → plants near the colony have N times as much life happen to
-them, including being eaten"* — that is exactly what the numbers say, 9.7x.
-But the brief's framing of it as **"absorbing funds the power that keeps
-circles alive"** as the *chain* understates the case: with the economy on it
-contributes (§2.2, +234 eaten), and with power abundant it contributes
-**nothing at all**, yet the plants still die. So funding is the *smaller*
-coupling. The larger one is that **you must stand in a running colony to
-press `F`**, which the brief did not name.
+them, including being eaten"* — that is what the numbers say. But the brief
+framed **"absorbing funds the power that keeps circles alive"** as *the*
+chain, and with power abundant it contributes **nothing at all** while the
+plants still die. Funding is a large coupling (§2.2, +114%) but not the only
+one; the other is that **you must stand in a running colony to press `F`**,
+which the brief did not name.
 
 **Wrong, but harmlessly:** `step_extra_ticks`'s `world.player.take()` was
-flagged as "worth a look in its own right". It is clean — §6.
+flagged as "worth a look in its own right". It is clean — §5.
 
 **Wrong, and worth correcting:** *"None of them census plants"* said of
 `bin/druid.rs`'s hooks — `PIXEL_PHYSICS_DRUID_CENSUS` does census living plant
@@ -339,19 +286,55 @@ tissue per circle. It is still the wrong instrument, for a different reason
 than the `F` keypress, it is `step_extra_ticks` and/or grazing."* It tracks
 the dial, and it is **both**, and they are not alternatives — the dial is the
 rate and the grazing is the mechanism. Separating them needed the two
-instruments to be read together, which is why `harvested_plant` is in the
-harness beside the death counts.
+instruments read together, which is why `harvested_plant` is in the harness
+beside the death counts.
+
+---
+
+## 8. Where *I* was wrong, and what it cost
+
+**The colony's cost was overstated threefold, and the first review card was
+built on it.** Measured before PR #414 landed, the colony took the garden from
+352 plants to **177** — half — and I posted card
+`20260914T043140244Z-b56729` showing a circle chewed back to bare ground.
+`claude/thicket-founding`'s repair (*a floor of plants is a floor a colony can
+stand on*) changed where founders can stand: the colony went from 32 to 40
+animals and the garden from 177 to **295**, i.e. from −50% to −16%. **More
+ants, less damage** — the colony is differently distributed and now starves
+rather than thriving (40 → 32 alive, against 32 → 33 before).
+
+I reposted rather than amended, per the review protocol's rule — *amend for a
+defect in the writing, repost for a defect in the artifact* — so the old card
+stands as its own record and the new one
+(`20260914T071714820Z-8f4d71`) opens by telling the owner to ignore it and
+why. He had not answered, so nothing was judged on the superseded picture.
+
+**And I repeated a wrong cause the game states out loud.** I reported that a
+founding in a grown wood places 2 of 12 ants and attributed it to
+`colony_stations` dropping stations for want of ground. §Z21 measured the
+real cause at full scale — the organism-slot ceiling — and `found_colony`'s
+*"no ground here"* is exactly the wrong explanation I echoed. **The tell was
+in my own logs at full scale and I read past it:** `grew 4093 organisms`,
+against a ceiling of 4,095.
+
+Two rules of this repo would each have caught one of these, and neither is new:
+*compare two runs, not one run against a remembered number* (the colony figure
+was a single pre-merge sample), and *a measurement taken on a branch that is
+behind is a measurement of a tree nobody else has* — this branch was 19 behind
+when the repair landed.
 
 ---
 
 ## 9. What is not settled
 
-- **My reproduction is not certainly his.** On a *grown* world nothing is
-  destroyed at all on net — plant cells rise at every speed. The destruction
-  is visible on the shipped `bare` start, where the garden is small enough for
-  a colony to matter. If the owner was playing `grown`, or saw something else
-  entirely, the card asks him directly and says so in as many words.
-- **No arm sweeps seeds.** Everything here is seed 1. Outcomes in this engine
-  are chaotic in the seed and the ratios above are single samples; the null is
-  a determinism argument and does not need a sweep, but **the 2x on the
-  garden does** before anything is tuned on it.
+- **Everything here is seed 1.** Outcomes in this engine are chaotic in the
+  seed, and §8 is a demonstration that a single sample can be off by a factor
+  of three for reasons that have nothing to do with the seed at all. The
+  **−16%/−17% agreement across two world sizes** is the strongest thing here
+  and it is still two samples. Nothing should be tuned on it without a sweep.
+- **My reproduction may not be his.** On a *grown* world nothing is destroyed
+  on net at any speed — plant cells rise. The destruction is visible on the
+  shipped `bare` start, where the garden is small enough for a colony to
+  matter. The card asks the owner directly and says so in as many words.
+- **The small-world grown founding shortfall is unexplained** — 5 of 12 on a
+  world holding 973 organisms, nowhere near §Z21's ceiling.

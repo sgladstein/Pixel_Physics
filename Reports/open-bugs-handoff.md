@@ -162,7 +162,7 @@ point.
 | Z17 | **OPEN** | 12241 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
 | Z20 | closed | 12293 | labgif wire= was a silent no-op for every card it has ever produced (lab) |
 | Z21 | **OPEN** | 12334 | The held world's grown and dead starts fill every organism slot, so C founds nothing |
-| Z22 | **OPEN** | 12433 | A colony inside a quickening eats a fifth to a half of the garden, and nothing on screen ... |
+| Z22 | **OPEN** | 12433 | A colony inside a quickening eats about a sixth of the garden, and nothing on screen says so |
 
 <!-- END GENERATED INDEX -->
 
@@ -12430,29 +12430,29 @@ like a colony that will not.
 
 ---
 
-### Z22. **A colony inside a quickening eats a fifth to a half of the garden, and nothing on screen says so — so the player blames the verb he last pressed** — **OPEN, from the owner's report 2026-09-14 (held)**
+### Z22. **A colony inside a quickening eats about a sixth of the garden, and nothing on screen says so — so the player blames the verb he last pressed** — **OPEN, from the owner's report 2026-09-14 (held)**
 
 **The report, verbatim:** *"Absorbing creature energy, destroys plants around
 it. The energy particles need to be foreground and not interact with the
 world."*
 
-**The stated cause is disproved; the observation is real.** Full account, every
-arm and number, in
+**The stated cause is disproved; the observation is real.** Full account,
+every arm and number, in
 [`Reports/absorb-and-the-garden-2026-09-14.md`](absorb-and-the-garden-2026-09-14.md).
 What is open is the last clause of the heading, not the first.
 
 **Ruled out by measurement, so nobody re-does it.** `Druid::absorb` writes
-`reserves` (the druid's own mirror, not the animal's gut), `draws` (read by the
-HUD and the income readout only) and `power`. Five paired arms — same world,
-same seed, same elapsed time, differing only in whether `F` is pressed — came
-back **equal in every column**: every plant material, every organism count,
-every death cause, every unit of `harvested_plant`, at `1024x512` and
-`2560x960`, at speed 1 and speed 8, with 1 ant and with 31, over drawings up to
-779 power. `Druid::power` is the only thing in the world that differs. The
-motes are screen-pixel `Mote`s painted by `render::put` into the finished RGBA
-frame, so *"foreground and not interacting"* is **already true** and shipping
-it would be a no-op with the report marked addressed. Also ruled out:
-`plant_bending` (off, speed 8: felled 269 against 274) and
+`reserves` (the druid's own mirror, not the animal's gut), `draws` (read by
+the HUD and the income readout only) and `power`. Seven paired arms — same
+world, same seed, same elapsed time, differing only in whether `F` is pressed
+— came back **equal in every column**: every plant material, every organism
+count, every death cause, every unit of `harvested_plant`, at `1024x512` and
+`2560x960`, at speed 1 and speed 8, **before and after the PR #414 merge**,
+over drawings up to 779 power. `Druid::power` is the only thing in the world
+that differs. The motes are screen-pixel `Mote`s painted by `render::put` into
+the finished RGBA frame, so *"foreground and not interacting"* is **already
+true** and shipping it would be a no-op with the report marked addressed. Also
+ruled out: `plant_bending` (off, speed 8: felled 269 against 274) and
 `step_extra_ticks`'s `world.player.take()` (`frame::step` sets
 `carried = None` with no player; `player::step` returns at once).
 
@@ -12464,47 +12464,42 @@ cargo run --release --example druid_garden -- arm=quiet ticks=3000 speed=8 colon
 ```
 (`PIXEL_PHYSICS_DRUID_START=bare`, the shipped default.) Live plants at end,
 the only difference being whether a colony stands in the circle: **352 against
-177** at `1024x512`, **407 against 326** near the colony at full scale, with
-**19,732** units of plant tissue eaten. The speed dial is a **9.7x** multiplier
-on it (eaten 228 → 2,217, felled 28 → 274, everything else fixed) — which is
-`Druid::speed` doing exactly what its own doc says, applied to grazing.
+295** at `1024x512` and **690 against 573** at full scale, and near the colony
+**407 against 289** — about a sixth of the garden world-wide and up to a third
+of what stands next to it, with **21,813** units of plant tissue eaten. The
+speed dial multiplies it: eaten **912 → 21,813**, felled **39 → 672**,
+everything else fixed — `Druid::speed` doing exactly what its own doc says,
+applied to grazing.
 
 **Why it is filed as open rather than closed as working-as-designed.** The
 grazing is the game working and needs no fix. What is broken is that a large,
-ongoing, player-caused cost has **no visible cause**, which is the ethos clause
-directly: the readout prices a circle in *power* and says nothing about
-*plants*, and the dial is priced honestly in power while nothing says the same
-multiplier applies to what eats them. So the player attributes it to whatever
-he pressed last, and the report above is what that looks like. Two one-line
-changes, in two lanes' files, are prescribed in the report's §7 — a tissue
-figure beside the drain (`hud.rs`, from `energy_ledger.harvested_plant` and a
-live plant count, both already on the world) and a word in the note the dial
-raises (`druid/mod.rs`).
+ongoing, player-caused cost has **no visible cause**: the readout prices a
+circle in *power* and says nothing about *plants*, and the dial is priced
+honestly in power while nothing says the same multiplier applies to what eats
+them. So the player attributes it to whatever he pressed last, and the report
+above is what that looks like. Two one-line changes, in two lanes' files, are
+prescribed in the report's §6 — a tissue figure beside the drain (`hud.rs`,
+from `energy_ledger.harvested_plant` and a live plant count, both already on
+the world) and a word in the note the dial raises (`druid/mod.rs`).
 
-**Not settled.** The colony's cost is a *range* because it is two worlds at one
-seed each. Outcomes here are chaotic in the seed and nothing should be tuned on
-those numbers until they are swept.
+**Absorbing does cost plants, through the economy rather than directly**, and
+that is the part worth keeping if the rest is ever tuned away. Economy live,
+full scale, 41 founders, ten presses worth 723 power: plant energy eaten
+**6,459 → 13,809 (+114%)**, felled 319 → 535. It buys more growth too
+(545 → 563 live plants), because what it buys is time running.
 
-**Found on the way, and §Z21 names the cause at full scale — my attribution
-was wrong there.** A founding in a **grown** wood places **2 of its 12 ants**
-on the shipped 2560x960 world; on bare ground, 31 of 48. I put that down to
-`colony_stations` dropping stations for want of ground under a wood's litter.
-**§Z21 measured it and it is the organism-slot ceiling**: that world grows
-4,093 organisms against a hard 4,095, so almost every founder is refused an
-identity while `found_colony` reports *"no ground here"* — a wrong cause the
-game states out loud, which I repeated. My own log carries the tell:
-`grew 4093 organisms`.
+**Not settled, and one of these is a warning.** Everything here is seed 1, and
+the first version of this entry put the colony's cost at **half** the garden —
+measured on this branch before PR #414 landed, whose *a floor of plants is a
+floor a colony can stand on* repair moved it to a sixth. More founders (32 →
+40), **less** damage (177 → 295 plants). A single sample was off threefold for
+a reason that had nothing to do with the seed. Do not tune on these numbers
+without a sweep.
 
-**But the ceiling is not the whole of it, and that is worth filing too.** The
-1024x512 grown world grows **973** organisms — nowhere near 4,095 — and still
-places only **1 of 12**. So there is a second, independent shortfall on small
-grown ground that §Z21 does not cover and that nothing here has measured.
-Bare places 31 of 48 at either size (95–378 organisms).
-
-**What the ceiling costs the numbers above**, stated rather than buried: the
-**full-scale grown** pair ran at the ceiling with births refused, so its
-germination is capped. The 1024x512 grown arms did **not** — 973 of 4,095 —
-so §4a and §4b are not ceiling-bound. The headline colony figures are from
-`START=bare` and are unaffected. The absorb null is untouched either way:
-both arms of every pair sat in the same world, and the claim is that absorb
-writes nothing the simulation reads.
+**A wrong cause I repeated, corrected by §Z21.** I reported that a founding in
+a grown wood places 2 of 12 ants and blamed `colony_stations` dropping
+stations for want of ground — which is `found_colony`'s own *"no ground
+here"*, the wrong cause §Z21 shows the game states out loud. The real one at
+full scale is the organism-slot ceiling. It is not all of it: the `1024x512`
+grown world holds 973 organisms, nowhere near the ceiling, and still places
+5 of 12 (14 of 48 asked). That residue is unmeasured.
