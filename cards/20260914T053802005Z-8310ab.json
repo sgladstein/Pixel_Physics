@@ -1,0 +1,76 @@
+{
+  "id": "20260914T053802005Z-8310ab",
+  "created": "2026-09-14T05:38:02Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/druid-bubble-aura",
+    "commit": "e0585623",
+    "agent": null,
+    "session_id": "953c9af7-0516-5029-b369-4dee29d8841c",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Does the speed of a circle read from a still frame?",
+  "question": "Going x1 to x8, can you tell these apart at a glance, and does the difference read as 'time is running faster in there'?",
+  "context_md": "The old look said speed twice — the ring warmed from blue toward white, and it gained one more hard circle inside per two steps of the dial. Both of those are gone with the outline, so the haze has to carry speed itself, and it has to carry it **two** ways or a screenshot says nothing.\n\nIn motion the readout is the pulse rate, and it is not really a mapping at all: the haze is keyed to the world's own clock, so a x8 circle pulses eight times faster **because time in there really is running eight times faster**. The first card is the one to judge that on.\n\nThis card is the other half — the one a paused screen still carries. It is **how far the haze reaches inward**: 7 cells at x1, 22 at x8, so a fast circle reads as full of running time rather than merely rimmed with it.\n\n**What I am unsure about, and why I am asking rather than declaring**: under ONE HUE the sky inside a circle already keeps its true colour while the sky outside goes cold, so there is a soft disc there before the haze adds anything. The depth may be reading against that instead of on its own. If x1 and x2 look the same to you, the fix is a steeper step per notch of the dial and it is one number.\n\nThe thin arc crossing every tile is the placement preview at the gnome, unchanged and still a hard line.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "speed x1",
+      "files": [
+        "20260914T053802005Z-8310ab/000-sp1.png"
+      ],
+      "caption": "the dial at x1 — time inside runs 1 times faster than outside",
+      "meta": {
+        "how deep the haze reaches": "7 cells",
+        "how often it pulses": "1x real time"
+      },
+      "focus": null
+    },
+    {
+      "label": "speed x2",
+      "files": [
+        "20260914T053802005Z-8310ab/001-sp2.png"
+      ],
+      "caption": "the dial at x2 — time inside runs 2 times faster than outside",
+      "meta": {
+        "how deep the haze reaches": "9 cells",
+        "how often it pulses": "2x real time"
+      },
+      "focus": null
+    },
+    {
+      "label": "speed x4",
+      "files": [
+        "20260914T053802005Z-8310ab/002-sp4.png"
+      ],
+      "caption": "the dial at x4 — time inside runs 4 times faster than outside",
+      "meta": {
+        "how deep the haze reaches": "14 cells",
+        "how often it pulses": "4x real time"
+      },
+      "focus": null
+    },
+    {
+      "label": "speed x8",
+      "files": [
+        "20260914T053802005Z-8310ab/003-sp8.png"
+      ],
+      "caption": "the dial at x8 — time inside runs 8 times faster than outside",
+      "meta": {
+        "how deep the haze reaches": "22 cells",
+        "how often it pulses": "8x real time"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
