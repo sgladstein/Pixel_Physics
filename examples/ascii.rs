@@ -1704,10 +1704,28 @@ fn forage_loop_scene() {
             }
         }
     }
+    // **One colony, not fifty-five** — the same repair this file already
+    // made to the moisture scene below, for the same reason and now for a
+    // second time. `World::plant_ant` places through
+    // `Origin::Founder { colony: None }`, which claims a **fresh label per
+    // call**, so a loop of it builds a crowd of strangers that only looks
+    // like a colony. It was inert while `ant.ron` left `scent_spread` at 0
+    // and every label smelled identical; with the dial live (2026-09-14)
+    // those labels are mutual strangers, which makes each other *food*
+    // before it makes them targets. The first ant founds the label and every
+    // later one joins it — `creature::colony_of_site`'s whole purpose.
+    //
+    // Measured on this scene: at 12,000 frames the colony keeps **15 of 15**
+    // animals against 12, `deliveries` 703 -> 849 and `nest-visits`
+    // 474 -> 776. It was quietly losing a fifth of its ants to the artifact.
+    let mut colony = None;
     for i in 0..55 {
         let ax = 24 + i * 4;
         let sy = surface(&world, ax);
-        world.plant_ant(ax, sy - 1);
+        if let Some(site) = pixel_physics::sim::creature::plant_creature_seed_in(&mut world, ax, sy - 1, "ant", colony) {
+            colony = colony.or_else(|| pixel_physics::sim::creature::colony_of_site(&world, &site));
+            world.schedule_active_site(site);
+        }
     }
 
     let print_state = |world: &World, label: &str| {
@@ -2234,8 +2252,28 @@ fn double_bridge_scene() {
             world.set(x, y, Cell::new(corpse, 0));
         }
     }
+    // One colony, not sixty — see the note on the first `plant_ant` loop in
+    // this file: a loop of `plant_ant` claims a fresh label per call, and
+    // since `ant.ron` authors a live `scent_spread` those labels are mutual
+    // strangers.
+    //
+    // **This scene's numbers move a long way on that repair, and the OLD
+    // ones were the artifact**: `deliveries` **1,076 -> 13**, `pickups`
+    // 1,210 -> 84, against `moves` 2,574 -> 17,768 and `nest-visits`
+    // 283 -> 1,624. Sixty one-ant colonies each satisfied "laden animal
+    // reaches its colony's nest" trivially; one colony of sixty has to
+    // actually make the trip, so 13 is the honest count of round trips over
+    // this bridge and 1,076 was counting something else. `deaths` is
+    // **59 either way**, so nothing here is animals eating each other —
+    // unlike the excavation scene below. The assertions this scene gates
+    // still pass; the delivery rate it reports is now a real and rather
+    // low number, which is a finding about the bridge and not a regression.
+    let mut colony = None;
     for i in 0..60 {
-        world.plant_ant(20 + i * 2, floor - 1);
+        if let Some(site) = pixel_physics::sim::creature::plant_creature_seed_in(&mut world, 20 + i * 2, floor - 1, "ant", colony) {
+            colony = colony.or_else(|| pixel_physics::sim::creature::colony_of_site(&world, &site));
+            world.schedule_active_site(site);
+        }
     }
 
     // **Integrated over the run, not read off the end.** A trail is a
@@ -2334,8 +2372,23 @@ fn nest_dig_scene() {
             .count()
     };
     let soil_before = bank(&world);
+    // **One colony, not fifty-five — and this is the scene that caught it.**
+    // Same repair as the two `plant_ant` loops above, and the one whose gate
+    // went red when `ant.ron` authored a live `scent_spread` (2026-09-14):
+    // `digs 62` with **`deaths 52`** and not one roofed cell, in a bank the
+    // scene expects hollowed. Fifty-five one-ant colonies standing shoulder
+    // to shoulder are fifty-five mutual strangers, and a stranger is *food*
+    // to the ordinary mouth before it is ever a target for the fight verb —
+    // so they ate each other instead of digging. `CLAUDE.md`'s *a scene that
+    // contradicts the code will look like a bug in the code*: the code was
+    // right and the placement was the artifact.
+    let mut colony = None;
     for i in 0..55 {
-        world.plant_ant(20 + i % 10 * 2, floor - 1 - (i / 10));
+        let (ax, ay) = (20 + i % 10 * 2, floor - 1 - (i / 10));
+        if let Some(site) = pixel_physics::sim::creature::plant_creature_seed_in(&mut world, ax, ay, "ant", colony) {
+            colony = colony.or_else(|| pixel_physics::sim::creature::colony_of_site(&world, &site));
+            world.schedule_active_site(site);
+        }
     }
 
     run_colony(&mut world, 8000);
