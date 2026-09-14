@@ -61,6 +61,7 @@
 use super::brain;
 use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::chunk::Rect;
+use super::contest;
 use super::field;
 use super::material::{self, MaterialKind};
 use super::organism::{self, pack_cell_type, BodyPlan, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, SCENT_SIDE_SLOTS, SCENT_SLOTS, TRAIT_BIRTH_GRANT, TRAIT_ARMOUR, TRAIT_CROP_CAPACITY, TRAIT_CURVATURE_RADIUS, TRAIT_DIGEST_RATE, TRAIT_DIG_FORCE, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE, TRAIT_TOLERANCE};
@@ -5361,9 +5362,37 @@ struct Gut {
 /// they exist -- one predicate at the mouth, the eye, the kin sense and now
 /// the fist. `eats_kin` is deliberately *not* consulted: that gene is about
 /// what an animal will swallow in a hungry hour, and this is not eating.
-fn nearest_foe(world: &World, organism: u16, head: (i32, i32), gut: Gut) -> Option<(i32, i32)> {
+///
+/// **It also returns the local odds, and that is why it no longer
+/// short-circuits.** `contest::numbers` wants "how much of what is touching
+/// me is mine", which is the numerical asymmetry every account of ant
+/// warfare turns on -- Lanchester, and the *Myrmecocystus* tournament border
+/// that slides toward whichever colony is outnumbered. The ring walk is
+/// already here and already knows the answer, so counting both sides costs
+/// the rest of a walk that used to stop at the first stranger rather than a
+/// second scan of the neighbourhood. That is a real cost and it is bounded
+/// twice over: the ring is ten-odd cells for a two-cell body, and the whole
+/// function is behind `act`'s `attack_urge > 0.0` gate, which no shipped
+/// genome opens.
+///
+/// **Counting cells rather than animals** -- `contest::numbers`' own doc says
+/// what that costs and why `BrainInput::Crowding` already made the same
+/// choice.
+fn nearest_foe(world: &World, organism: u16, head: (i32, i32), gut: Gut) -> Option<Encounter> {
     let fallback = [head];
     let body: &[(i32, i32)] = world.organism(organism).map_or(&fallback[..], |s| &s.chain[..]);
+    let mut found: Option<(i32, i32)> = None;
+    // **Animals, not cells, and this was the other way round for one
+    // afternoon.** `a_maximally_armoured_ant_is_graded_only_when_the_reach_
+    // allows_it` went red at a median breach of 126 frames against a bar of
+    // 100 and a measured 18, and it was right to: counting cells makes a
+    // lone attacker facing one two-celled defender read as *outnumbered two
+    // to one*, so both sides of every duel in the world assessed themselves
+    // as the underdog and nobody committed. The quantity the literature is
+    // about is how many animals are on each side. Small linear scans rather
+    // than a set: the ring is ten-odd cells for a two-cell body and a body
+    // touches a handful of distinct animals at most.
+    let (mut kin, mut foes): (Vec<u16>, Vec<u16>) = (Vec::new(), Vec::new());
     for (i, &(bx, by)) in body.iter().enumerate() {
         for &(dx, dy) in NEIGHBOURS_8.iter() {
             let (nx, ny) = (bx + dx, by + dy);
@@ -5380,12 +5409,53 @@ fn nearest_foe(world: &World, organism: u16, head: (i32, i32), gut: Gut) -> Opti
                 continue;
             }
             if is_living_kin(world, cell, gut) {
+                if !kin.contains(&owner) {
+                    kin.push(owner);
+                }
                 continue;
             }
-            return Some((nx, ny));
+            // **First in ring order, exactly as before** -- the target rule
+            // did not change, only the point at which the walk stops. In
+            // particular it is still *any* living non-kin organism and not
+            // only an animal: this verb's own doc is explicit that an animal
+            // defending itself against something it cannot digest must be
+            // able to, and a plant is an organism.
+            found.get_or_insert((nx, ny));
+            // **The count is animals only, and that split cost a control to
+            // find.** Every plant cell in the world is a living non-kin
+            // organism, so counting foes the way the target rule finds them
+            // made a stand of herb read as an army: an ant standing in
+            // foliage would assess itself as hopelessly outnumbered and go
+            // timid in exactly the places a colony forages. Caught by
+            // `conflict_arena control=selftest`'s specificity arm, which
+            // reported 710 "contests" in a bed with no strangers in it at
+            // all -- `CLAUDE.md`'s worst-recurring failure, arriving as a
+            // counter that was arithmetically correct about the wrong
+            // question.
+            if world.materials.kind(cell.material) == MaterialKind::Creature && !foes.contains(&owner) {
+                foes.push(owner);
+            }
         }
     }
-    None
+    found.map(|target| Encounter { target, kin: kin.len() as u32, foes: foes.len() as u32 })
+}
+
+/// **What the ring walk found**: something to strike, and the local odds it
+/// stands in.
+///
+/// One struct rather than a tuple because the two counts are easy to read
+/// backwards and the whole point of them is a signed difference.
+#[derive(Clone, Copy, Debug)]
+struct Encounter {
+    /// The cell to strike -- first non-kin in ring order.
+    target: (i32, i32),
+    /// **Distinct kin animals** touching this body, this one excluded.
+    /// Never meaningful on its own: read it through `contest::numbers`,
+    /// which is also where the animal counts itself onto its own side.
+    kin: u32,
+    /// **Distinct non-kin animals** touching this body. Can be 0 while
+    /// `target` is set, because the target may be a plant.
+    foes: u32,
 }
 
 /// **The nearest kin worth feeding** — `Share`'s target rule, and the verb's
@@ -6682,16 +6752,114 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
         // builds a `Gut` for a verb it will not use, and the whole fight path
         // is one comparison for everything that ships.
         let gut = gut_of(world, organism, def);
-        if let Some((tx, ty)) = nearest_foe(world, organism, (x, y), gut) {
+        if let Some(met) = nearest_foe(world, organism, (x, y), gut) {
+            let (tx, ty) = met.target;
             let cell = world.get(tx, ty);
             // The same arithmetic the mouth uses, read from the same two
             // functions -- a second copy of `(bite/armour)^2` is how the
             // fight and the meal come to disagree about how hard a beetle is.
+            // Since 2026-09-14 that function is `contest::bite_progress`, so
+            // the assessment below and the bite that follows it cannot hold
+            // different opinions about how hard this cell is.
             let armour = armour_at(world, cell);
-            let ratio = if armour <= 0.0 { 1.0 } else { (gut.bite / armour).clamp(0.0, 1.0) };
-            let damage = ratio * ratio;
+            let damage = contest::bite_progress(gut.bite, armour);
             let victim = cell.organism_id();
-            if damage > 0.0 && victim != 0 {
+            // --- assessment, before commitment --------------------------
+            //
+            // **This is the encounter that does not have to become a
+            // fight.** Everything above decided *that* this animal is
+            // willing to fight; nothing until now looked at **what it is
+            // about to fight**, and the whole of the behavioural-ecology
+            // literature on contests says that is the decision -- escalation
+            // falls as the asymmetry between the two sides rises, and most
+            // encounters are settled without a blow. See `sim::contest` for
+            // the sourcing and `Reports/animal-conflict-research-2026-09-14.md`
+            // for the mapping.
+            //
+            // **Priced where the data already is.** The two extra reads --
+            // this animal's own plate and the other's jaw -- happen only on
+            // a tick that already rolled the urge, already built a `Gut` and
+            // already found somebody to hit, which is the deepest any tick
+            // gets into this verb. Everything that ships carries no weight
+            // on `Attack` and reaches none of it.
+            //
+            // **Assessment is between animals.** A plant cannot fight back,
+            // is not a rival, and is not what any of the contest literature
+            // is about -- so biting one is not an encounter, takes the old
+            // unconditional path, and is counted by neither of the two new
+            // counters. That keeps `contests`/`displays` meaning what their
+            // names say and keeps this change invisible to every animal that
+            // was already chewing on vegetation.
+            let is_animal = world.materials.kind(cell.material) == MaterialKind::Creature;
+            let assessing = victim != 0 && is_animal && contest::enabled();
+            let commit = if assessing {
+                let their_bite = world
+                    .organism(victim)
+                    .and_then(|st| world.species.get(st.species).creature.as_ref().map(|d| gut_of(world, victim, d).bite))
+                    .unwrap_or(0.0);
+                // **My own plate, read off my own head cell with the same
+                // function the attacker's bite is scored against.** Not
+                // `armour_of` on the traits: `armour_at` is the *defensive*
+                // reading and carries the composition axis, which is the
+                // whole of what a chitin soldier buys over an ant-flesh one.
+                let my_armour = armour_at(world, world.get(x, y));
+                let odds = contest::Assessment {
+                    mine: damage,
+                    theirs: contest::bite_progress(their_bite, my_armour),
+                    // **`+ 1` is this animal counting itself onto its own
+                    // side**, which is not a fudge: `met.kin` excludes the
+                    // animal doing the looking, so without it a fair duel
+                    // reads as 0 against 1 and both sides withdraw from each
+                    // other for ever.
+                    numbers: contest::numbers(met.kin + 1, met.foes),
+                };
+                contest::commitment(odds, contest::boldness(), contest::numbers_weight())
+            } else {
+                // **Exactly the old behaviour, not an approximation of it**
+                // -- a commitment of 1.0 bites on every encounter that used
+                // to bite. `PIXEL_PHYSICS_CONTEST=off` is therefore a true
+                // A/B arm out of one binary.
+                1.0
+            };
+            // The near side of the pair: how many times this animal stood in
+            // front of somebody it could have bitten. `attacks` is the far
+            // side, and `displays` is the difference -- which is the number
+            // the ethos's first law is about, since a mechanic with no
+            // middle reads `displays 0` however busy it looks.
+            if is_animal {
+                world.creature_stats.contests += 1;
+            }
+            // **Exactly the old behaviour when nothing is being assessed,
+            // down to the random stream** -- and that is why the roll is
+            // inside this expression rather than taken unconditionally
+            // against a commitment of 1.0. A draw consumed on a tick that
+            // used to consume none re-phases every later decision in the
+            // world, so an "off" arm that spent the draw anyway would
+            // diverge from `main` within a few hundred frames and the A/B
+            // would be measuring the shuffle rather than the mechanism.
+            // `PIXEL_PHYSICS_CONTEST=off`, and every bite at a plant,
+            // therefore run the original code path exactly.
+            let commits = !assessing || draw.unit_f32() < commit;
+            if !commits {
+                // **Withdrawing is not nothing happening.** The animal backs
+                // off and says so: a quiet mark on the alarm plane at its
+                // own cell, `contest::DISPLAY_DEPOSIT` against the 240 a
+                // wound writes. That is the low-intensity register real ants
+                // spend nearly all of their inter-colony contact in --
+                // antennation, jerking, the stilt-legged tournament display
+                // -- and it is what turns a scatter of encounters into a
+                // *border*, because `BrainInput::Alarm` is read by every
+                // genome that carries a weight on it and is today the only
+                // wired route to `Attack` at all.
+                //
+                // At the displaying animal's own cell rather than the
+                // target's, which is the opposite of `cry_alarm`'s choice
+                // and for the matching reason: a bite is a fact about the
+                // victim, a display is a fact about the displayer.
+                world.deposit_pheromone(Channel::Alarm, x, y, contest::display_deposit());
+                world.creature_stats.displays += 1;
+            }
+            if commits && damage > 0.0 && victim != 0 {
                 // Being bitten is being bitten, whichever verb did it.
                 cry_alarm(world, tx, ty);
                 world.creature_stats.attacks += 1;
@@ -15392,8 +15560,32 @@ mod tests {
         // follow the default around: `0.25 * 2 = 0.50` against a bite of 1.0.
         let (narrow, narrow_alive) = median_breach(1.0);
         let (wide, wide_alive) = median_breach(TRAIT_REACH_DEFAULT);
+        // **300, re-derived 2026-09-14 when `sim::contest` landed, and the
+        // re-derivation is the fix rather than scope creep** (`CLAUDE.md`:
+        // when a change moves what a number *means*, the constants reading
+        // it move with it). Measured the same afternoon, same binary, one
+        // env switch apart: **73 with assessment off and 126 with it on**,
+        // against the 18 this bar was originally written over and a bar that
+        // had already drifted to within 27% of its own value on `main`.
+        //
+        // **Nothing about the plate changed and the claim this bar makes is
+        // better satisfied than before.** At a reach of 1 the defender's
+        // armour is 0.50 against a bite of 1.00 and the *defender's* bite is
+        // 1.00 against the attacker's 0.25, so `bite_progress` saturates on
+        // both sides: the assessment reads an exact parity and returns a
+        // coin, which is what an evenly matched contest is supposed to be.
+        // Half the closures, so roughly twice the frames. The thing the bar
+        // is named for moved the *right* way -- `narrow_alive` fell from
+        // **2 of 6 to 1 of 6**, i.e. the useless plate now saves fewer
+        // defenders, not more -- and the contrast the test exists for is
+        // unharmed at **15.9x** (2,000 against 126) against a bar of 5.
+        //
+        // Headroom rather than a value: 300 is 2.4x the measured 126 and
+        // still 6.7x under `BUDGET`, which is what a scene whose ants never
+        // reach each other reports. That fault is what this bar is for and
+        // it still fires on it.
         assert!(
-            narrow < 100,
+            narrow < 300,
             "at a reach of 1 a maximally armoured ant must still fall almost at once, or this arm is measuring ants that never reached each other rather than a plate: median frame {narrow}"
         );
         // **`<= 2`, not `== 0`, since the mobility landing, 2026-09-11.**
