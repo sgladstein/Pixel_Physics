@@ -14,6 +14,7 @@
 
 mod common;
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::sim::organism;
 use pixel_physics::sim::parallel;
 
@@ -188,7 +189,7 @@ fn main() {
             // that own any cell at all -- `live_organism_ids` is
             // crate-private, and a set built from the grid is the same
             // question asked from the side a harness can see.
-            let mut owners: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+            let mut owners: std::collections::BTreeSet<OrganismId> = std::collections::BTreeSet::new();
             for y in 0..height {
                 for x in 0..width {
                     let c = w.get(x, y);
@@ -259,7 +260,7 @@ fn main() {
     // the two numbers the owner's original complaint was actually about
     // ("one cell thick", "still a tiny tree"), so they get reported per
     // tree across the ensemble rather than as one run's figure.
-    let mut per_organism: std::collections::BTreeMap<u16, (usize, usize, i32, i32)> = std::collections::BTreeMap::new();
+    let mut per_organism: std::collections::BTreeMap<OrganismId, (usize, usize, i32, i32)> = std::collections::BTreeMap::new();
     for y in 0..height {
         for x in 0..width {
             let c = w.get(x, y);
@@ -282,22 +283,22 @@ fn main() {
     // Thickest contiguous run per organism, so a wide row is only counted
     // when it belongs to one tree -- the same distinction the whole-world
     // measure got wrong once already (see `thickest` below).
-    let mut thickest_per_organism: std::collections::BTreeMap<u16, usize> = std::collections::BTreeMap::new();
+    let mut thickest_per_organism: std::collections::BTreeMap<OrganismId, usize> = std::collections::BTreeMap::new();
     // Same measure, but ignoring the three rows sitting on the ground. The
     // whole-tree figure is dominated by `thicken()` spreading sideways
     // along the open row at the trunk's foot, which is a pancake rather
     // than a trunk; this one answers "how thick is the stem *above* its
     // base", which is what "one cell thick" was ever about.
-    let mut thickest_above_base: std::collections::BTreeMap<u16, usize> = std::collections::BTreeMap::new();
+    let mut thickest_above_base: std::collections::BTreeMap<OrganismId, usize> = std::collections::BTreeMap::new();
     // "Thickest" is a *max over rows*: a tree with one 5-wide row and sixty
     // 1-wide rows scores 5, which reads as "5 cells thick" and is not what
     // anyone means by it. This counts what share of a tree's occupied rows
     // are wider than one cell -- the difference between a tapered trunk and
     // a whip with a lump on it.
-    let mut rows_total: std::collections::BTreeMap<u16, usize> = std::collections::BTreeMap::new();
-    let mut rows_wide: std::collections::BTreeMap<u16, usize> = std::collections::BTreeMap::new();
+    let mut rows_total: std::collections::BTreeMap<OrganismId, usize> = std::collections::BTreeMap::new();
+    let mut rows_wide: std::collections::BTreeMap<OrganismId, usize> = std::collections::BTreeMap::new();
     for y in 0..height {
-        let (mut run, mut owner) = (0usize, 0u16);
+        let (mut run, mut owner) = (0usize, 0 as OrganismId);
         for x in 0..=width {
             // Woody cells only. A leaf now sits *beside* the stem it
             // grew from, so counting every organism cell makes a bare
@@ -394,7 +395,7 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
             let weighted: f64 = v.iter().enumerate().map(|(i, x)| (2.0 * (i as f64 + 1.0) - n - 1.0) * x).sum();
             weighted / (n * sum)
         }
-        let established: Vec<u16> = per_organism.iter().filter(|(_, v)| v.0 >= ESTABLISHED).map(|(id, _)| *id).collect();
+        let established: Vec<OrganismId> = per_organism.iter().filter(|(_, v)| v.0 >= ESTABLISHED).map(|(id, _)| *id).collect();
         if established.len() >= 2 {
             let mass: Vec<f64> = established.iter().map(|id| per_organism[id].0 as f64).collect();
             let seed: Vec<f64> =
@@ -565,8 +566,8 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
         //    the silhouette is set by foliage or by twig, and it was
         //    measured at 3-6% across all three species.
         const BANDS: usize = 5;
-        let mut profile: std::collections::BTreeMap<u16, [(i32, i32, usize); BANDS]> = std::collections::BTreeMap::new();
-        let mut leaf_centre: std::collections::BTreeMap<u16, (i64, usize)> = std::collections::BTreeMap::new();
+        let mut profile: std::collections::BTreeMap<OrganismId, [(i32, i32, usize); BANDS]> = std::collections::BTreeMap::new();
+        let mut leaf_centre: std::collections::BTreeMap<OrganismId, (i64, usize)> = std::collections::BTreeMap::new();
         for y in 0..height {
             for x in 0..width {
                 let c = w.get(x, y);
@@ -679,7 +680,7 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
             "  {:>4}  {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6}   {:>6} {:>6} {:>6} {:>6}",
             "id", "branch", "rootbr", "plast", "turgor", "pipe", "roottr", "alloc", "stoma", "penetr", "strain", "cells", "leaves", "height", "stem"
         );
-        let mut ids: Vec<u16> = per_organism.keys().copied().collect();
+        let mut ids: Vec<OrganismId> = per_organism.keys().copied().collect();
         ids.sort_unstable();
         for id in ids {
             let g = |slot: usize| pixel_physics::sim::plant::genotype(&w, id, slot, variance[slot]);
@@ -737,7 +738,7 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
         // sympodial run whose counter reads zero is a monopodial tree that
         // happened to fork, and a "conifer" with zero plagiotropic steps
         // is a mislabelled poplar.
-        let mut ids: Vec<u16> = per_organism.keys().copied().collect();
+        let mut ids: Vec<OrganismId> = per_organism.keys().copied().collect();
         ids.sort_unstable();
         let counters: Vec<String> = ids
             .iter()
@@ -1175,7 +1176,7 @@ when he counted all four. §Z is cards-only. Reports/open-bugs-handoff.md §Z ha
             // 60-row ceiling when what it had measured was 60 rows of shoot
             // plus 4 of root. `thirst` is charged against `path_len_at` on
             // foliage cells, so that is what this has to read.
-            let mut reach: std::collections::BTreeMap<u16, f32> = std::collections::BTreeMap::new();
+            let mut reach: std::collections::BTreeMap<OrganismId, f32> = std::collections::BTreeMap::new();
             for &(x, y, ty, _, _) in &cells {
                 if !matches!(ty, Some(organism::CellType::Leaf) | Some(organism::CellType::GrowingTip)) {
                     continue;
@@ -1311,7 +1312,7 @@ when he counted all four. §Z is cards-only. Reports/open-bugs-handoff.md §Z ha
     {
         const ESTABLISHED: usize = 20;
         let surface = ground_y();
-        let mut per_plant: std::collections::BTreeMap<u16, (usize, usize, i32, i32, i32, usize)> = std::collections::BTreeMap::new();
+        let mut per_plant: std::collections::BTreeMap<OrganismId, (usize, usize, i32, i32, i32, usize)> = std::collections::BTreeMap::new();
         let mut depth_bands = [0usize; 5];
         let mut root_total = 0usize;
         let mut depths: Vec<i32> = Vec::new();

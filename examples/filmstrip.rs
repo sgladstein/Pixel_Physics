@@ -47,6 +47,7 @@
 //! cargo run --release --example filmstrip -- scene=pour crop=160,180,120,80 zoom=4
 //! ```
 
+use pixel_physics::sim::cell::OrganismId;
 use std::collections::HashSet;
 
 use pixel_physics::render::{BubbleMode, FieldOverlay, GasMode, GrainMode, OrganismOverlay, Renderer, SkyLight, TreeDepth};
@@ -4581,9 +4582,9 @@ struct Gnome {
     /// clippy's `too_many_arguments` ceiling of 7, and three more scene-
     /// specific ones would trip it for every one of its three call sites.
     /// `fight_defender == 0` for every scene but that one, so the check
-    /// `advance` runs each frame is one cheap comparison against a `u16`
+    /// `advance` runs each frame is one cheap comparison against a handle
     /// that never moves elsewhere.
-    fight_defender: u16,
+    fight_defender: OrganismId,
     fight_defender_start: usize,
     /// First tick `fight_defender`'s cell count dropped below where it
     /// started. `None` for "never happened", not zero, so a plate that
@@ -6425,7 +6426,7 @@ fn report_colony(world: &World, render: bool) {
 /// already shipped a collapse that looked right on screen with its own
 /// counter sitting at zero for the whole run (`CLAUDE.md`: "did it fire at
 /// all" needs a counter, not a picture).
-fn print_fight_summary(world: &World, defender: u16, first_loss: Option<usize>) {
+fn print_fight_summary(world: &World, defender: OrganismId, first_loss: Option<usize>) {
     println!("scene=fight gnaws={}", world.creature_stats.gnaws);
     println!("scene=fight frames_to_first_lost_cell={}", first_loss.map_or_else(|| "never".to_string(), |f| f.to_string()));
     println!("scene=fight defender_alive={}", world.organism(defender).is_some());
@@ -8701,7 +8702,7 @@ impl FellCensus {
         let (mut standing, mut shoot, mut root) = (0usize, 0usize, 0usize);
         let (mut detached, mut furthest) = (0usize, 0u16);
         let (mut deadwood, mut litter, mut log) = (0usize, 0usize, 0usize);
-        let mut ids: HashSet<u16> = HashSet::new();
+        let mut ids: HashSet<OrganismId> = HashSet::new();
         for y in 0..HEIGHT {
             for x in 0..WIDTH {
                 let cell = world.get(x, y);

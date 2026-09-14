@@ -31,6 +31,7 @@
 //! cargo run --release --example clone_identity -- species=tree plants=2 frames=8000
 //! cargo run --release --example clone_identity -- species=tree plants=2 frames=8000 gap=200
 //! ```
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::render::Renderer;
 use pixel_physics::sim::{organism, parallel, plant, World};
 use std::collections::{BTreeMap, BTreeSet};
@@ -44,7 +45,7 @@ type Body = BTreeSet<(i32, i32)>;
 
 /// One arm of an ablation: the column it was planted at, the organism id it
 /// was given, and what grew.
-type Arm = (i32, u16, Body);
+type Arm = (i32, OrganismId, Body);
 
 fn arg<T: std::str::FromStr>(name: &str) -> Option<T> {
     std::env::args().find_map(|a| a.strip_prefix(&format!("{name}="))?.parse::<T>().ok())
@@ -61,8 +62,8 @@ fn sarg(name: &str) -> Option<String> {
 /// and is the frame of reference the developmental key already uses -- so two
 /// clones that grew the same shape have identical sets here whatever column
 /// they are standing in.
-fn relative_bodies(w: &World) -> BTreeMap<u16, Body> {
-    let mut out: BTreeMap<u16, Body> = BTreeMap::new();
+fn relative_bodies(w: &World) -> BTreeMap<OrganismId, Body> {
+    let mut out: BTreeMap<OrganismId, Body> = BTreeMap::new();
     let Some(b) = w.bounds() else { return out };
     for x in b.min_x..=b.max_x {
         for y in b.min_y..=b.max_y {
@@ -200,7 +201,7 @@ fn main() {
     }
 
     // The founders, in column order, with where each was planted.
-    let mut ids: Vec<(u16, i32, i32)> = Vec::new();
+    let mut ids: Vec<(OrganismId, i32, i32)> = Vec::new();
     if let Some(b) = w.bounds() {
         for x in b.min_x..=b.max_x {
             for y in b.min_y..=b.max_y {
@@ -332,7 +333,7 @@ fn main() {
             }
             let gy = ids[0].2;
             assert!(wk.plant_tree_species(cx, gy, &species), "nothing planted at column {cx}");
-            let planted: Vec<u16> = {
+            let planted: Vec<OrganismId> = {
                 let mut v = Vec::new();
                 if let Some(b) = wk.bounds() {
                     for x in b.min_x..=b.max_x {
@@ -383,7 +384,7 @@ fn main() {
             // cases. `dead-ends.md` records the neighbouring failure (a freed
             // slot leaving 160 orphan cells carrying its id) but not this one.
             {
-                let mut per_id: BTreeMap<u16, usize> = BTreeMap::new();
+                let mut per_id: BTreeMap<OrganismId, usize> = BTreeMap::new();
                 let mut unowned_plant = 0usize;
                 if let Some(bb) = wk.bounds() {
                     for x in bb.min_x..=bb.max_x {
@@ -452,7 +453,7 @@ fn main() {
 
     // Step, checking for the first frame at which any two of them differ.
     let mut diverged_at: Option<u64> = None;
-    let mut first_diff: Option<(u16, u16, usize)> = None;
+    let mut first_diff: Option<(OrganismId, OrganismId, usize)> = None;
     for f in 0..frames {
         parallel::step(&mut w);
         w.step_active_sites();
@@ -461,7 +462,7 @@ fn main() {
             continue;
         }
         let bodies = relative_bodies(&w);
-        let live: Vec<(&u16, &BTreeSet<(i32, i32)>)> =
+        let live: Vec<(&OrganismId, &BTreeSet<(i32, i32)>)> =
             ids.iter().filter_map(|&(id, _, _)| bodies.get_key_value(&id)).collect();
         // Only compare once every founder has actually germinated: a plant
         // that is still a seed has no body, and "one has a body and one does
@@ -502,7 +503,7 @@ fn main() {
     let bodies = relative_bodies(&w);
     println!("\n  --- how alike they ended up ---");
     println!("  {:<10} {:>8} {:>10} {:>12}", "pair", "cells", "shared", "jaccard");
-    let live: Vec<(u16, &BTreeSet<(i32, i32)>)> =
+    let live: Vec<(OrganismId, &BTreeSet<(i32, i32)>)> =
         ids.iter().filter_map(|&(id, _, _)| bodies.get(&id).map(|b| (id, b))).collect();
     for i in 0..live.len() {
         for j in (i + 1)..live.len() {

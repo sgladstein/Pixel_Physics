@@ -63,6 +63,7 @@
 //! cargo run --release --example labforage -- control=selftest
 //! ```
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::lab::scenario::{Placement, Scenario};
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::sim::brain;
@@ -227,7 +228,7 @@ struct CellProbe {
     /// Per probed cell, the last (organism id, head cell) seen there, so a
     /// line can say `moved` or `STILL` rather than leaving the reader to
     /// diff two coordinates by eye.
-    last: Vec<Option<(u16, (i32, i32))>>,
+    last: Vec<Option<(OrganismId, (i32, i32))>>,
     /// Per probed cell: stops at which it held a creature, and stops at
     /// which that creature's head had not moved since the previous stop.
     occupied: Vec<u64>,
@@ -235,7 +236,7 @@ struct CellProbe {
     /// Distinct organism ids ever seen at the cell -- the cheap tell for
     /// "one animal stands here for ever" against "the crowd keeps
     /// rearranging itself and there is always somebody here".
-    seen: Vec<std::collections::BTreeSet<u16>>,
+    seen: Vec<std::collections::BTreeSet<OrganismId>>,
     /// Probe stops taken, so the first one can print a full baseline and
     /// the rest print only what changed.
     stops: u64,
@@ -250,8 +251,8 @@ struct CellProbe {
     /// First and last reading per probed cell, each `(id, moves,
     /// moves_blocked, energy)`; compared in `report` only where the id is
     /// the same at both ends, since two animals' counters do not subtract.
-    first_seen: Vec<Option<(u16, u32, u32, f32)>>,
-    last_seen: Vec<Option<(u16, u32, u32, f32)>>,
+    first_seen: Vec<Option<(OrganismId, u32, u32, f32)>>,
+    last_seen: Vec<Option<(OrganismId, u32, u32, f32)>>,
     /// **The positive control on the pair above.** `moves` and
     /// `moves_blocked` both flat is the finding; it is also exactly what a
     /// *dead or unticked* animal would read, and those are different
@@ -260,8 +261,8 @@ struct CellProbe {
     /// so any of them climbing proves the animal's tick is running and it
     /// is doing work -- it simply is not asking to walk.
     /// `(id, bites, digs, deliveries)`, first and last.
-    first_act: Vec<Option<(u16, u32, u32, u32)>>,
-    last_act: Vec<Option<(u16, u32, u32, u32)>>,
+    first_act: Vec<Option<(OrganismId, u32, u32, u32)>>,
+    last_act: Vec<Option<(OrganismId, u32, u32, u32)>>,
 }
 
 impl CellProbe {
@@ -507,7 +508,7 @@ struct Piles {
     largest_at: (u64, i32, i32),
     /// Live streak per organism id, and the completed ones as a histogram
     /// of length -> count.
-    live: std::collections::HashMap<u16, (u32, bool)>,
+    live: std::collections::HashMap<OrganismId, (u32, bool)>,
     hist: std::collections::BTreeMap<u32, u64>,
     /// The same histogram over bodies of three cells or more alone.
     hist_long: std::collections::BTreeMap<u32, u64>,
@@ -536,7 +537,7 @@ struct Piles {
     long_first_age_n: u64,
     /// Ids already counted into `first_age_*`, so each animal contributes
     /// its *first* boxed tick once rather than every stop of its streak.
-    first_boxed_seen: std::collections::HashSet<u16>,
+    first_boxed_seen: std::collections::HashSet<OrganismId>,
     /// **The population the pile census cannot see, and the one the owner's
     /// own markers landed on.** `body_boxed` requires `open == 0`; an animal
     /// with somewhere to go is excluded by construction, however long it
@@ -560,7 +561,7 @@ struct Piles {
     /// Head cell per animal at the previous stop, so "did not move" is a
     /// measurement rather than an inference from `moves_blocked` -- which is
     /// exactly the counter that stays flat for this population.
-    heads: std::collections::HashMap<u16, (i32, i32)>,
+    heads: std::collections::HashMap<OrganismId, (i32, i32)>,
     /// **The rate above is not the finding, and its own control says so.**
     /// Measured 2026-09-12 on the shipped two-cell ant (`played_bed`, seed
     /// 3, 30,400 frames): `idle_with_room` **4,543 of 6,040 readings, 75%**,
@@ -576,7 +577,7 @@ struct Piles {
     /// same streak machinery `hist`/`max_streak` runs over `body_boxed`, run
     /// instead over "had somewhere to go and did not go", for bodies of
     /// three cells or more.
-    idle_live: std::collections::HashMap<u16, u32>,
+    idle_live: std::collections::HashMap<OrganismId, u32>,
     idle_hist: std::collections::BTreeMap<u32, u64>,
     idle_max_streak: u32,
     /// **The same streak over *every* body size, because the 3+-cell one
@@ -590,7 +591,7 @@ struct Piles {
     /// measure with the body-length gate removed, so `played_bed` produces a
     /// real number and the long ant's tail has something to be long
     /// *against*.
-    idle_live_any: std::collections::HashMap<u16, u32>,
+    idle_live_any: std::collections::HashMap<OrganismId, u32>,
     idle_hist_any: std::collections::BTreeMap<u32, u64>,
     idle_max_streak_any: u32,
     /// **Per *animal*, not pooled -- and the distinction is the whole
@@ -612,9 +613,9 @@ struct Piles {
     /// pair is the **latch test**: a rest the world can no longer end shows
     /// up as *"once an animal goes quiet it is never seen moving again"*,
     /// which no aggregate over the population can show.
-    seen: std::collections::HashMap<u16, u32>,
-    idle_stops: std::collections::HashMap<u16, u32>,
-    best_streak: std::collections::HashMap<u16, u32>,
+    seen: std::collections::HashMap<OrganismId, u32>,
+    idle_stops: std::collections::HashMap<OrganismId, u32>,
+    best_streak: std::collections::HashMap<OrganismId, u32>,
     /// Long runs (>= `LATCH_MIN` stops) that ended because the animal was
     /// next seen somewhere else -- it came back.
     long_runs_ended_by_moving: u64,
@@ -626,8 +627,8 @@ struct Piles {
     /// that answers the question: an animal with three long runs that came
     /// back twice and then stopped for good is one latched animal, and a
     /// per-run tally would score it 2/3 "fine".
-    came_back: std::collections::HashSet<u16>,
-    had_long_run: std::collections::HashSet<u16>,
+    came_back: std::collections::HashSet<OrganismId>,
+    had_long_run: std::collections::HashSet<OrganismId>,
     /// **What tells a frozen animal from a busy one at the moment it is
     /// frozen** -- the fourth thing the owner's reading asks for. Summed over
     /// readings rather than animals, so they are weighted by how long each
@@ -657,10 +658,10 @@ impl Piles {
     /// three things the two candidate mechanisms differ on.
     fn sample(&mut self, world: &World, f: u64, follow: bool) -> usize {
         self.stops += 1;
-        let mut next_heads: std::collections::HashMap<u16, (i32, i32)> = std::collections::HashMap::new();
-        let mut next_idle: std::collections::HashMap<u16, u32> = std::collections::HashMap::new();
-        let mut next_idle_any: std::collections::HashMap<u16, u32> = std::collections::HashMap::new();
-        let mut members: Vec<u16> = Vec::new();
+        let mut next_heads: std::collections::HashMap<OrganismId, (i32, i32)> = std::collections::HashMap::new();
+        let mut next_idle: std::collections::HashMap<OrganismId, u32> = std::collections::HashMap::new();
+        let mut next_idle_any: std::collections::HashMap<OrganismId, u32> = std::collections::HashMap::new();
+        let mut members: Vec<OrganismId> = Vec::new();
         let mut reads: Vec<pixel_physics::sim::creature::HeadBlock> = Vec::new();
         let mut longs: Vec<bool> = Vec::new();
         for id in world.live_organism_ids() {
@@ -788,7 +789,7 @@ impl Piles {
         // so a very long streak on a busy bed could in principle be two
         // animals' -- noted rather than defended against, because the
         // alternative is a second identity scheme for a diagnostic.
-        let mut next: std::collections::HashMap<u16, (u32, bool)> = std::collections::HashMap::new();
+        let mut next: std::collections::HashMap<OrganismId, (u32, bool)> = std::collections::HashMap::new();
         for (i, &id) in members.iter().enumerate() {
             let n = self.live.get(&id).map(|&(n, _)| n).unwrap_or(0) + 1;
             let long = longs[i];
@@ -855,7 +856,7 @@ impl Piles {
 
         let piles = pixel_physics::sim::creature::piles_of(world, &members);
         let largest = piles.first().map(Vec::len).unwrap_or(0);
-        let long_members: Vec<u16> = members.iter().zip(&longs).filter(|(_, &l)| l).map(|(&id, _)| id).collect();
+        let long_members: Vec<OrganismId> = members.iter().zip(&longs).filter(|(_, &l)| l).map(|(&id, _)| id).collect();
         self.largest_long = self.largest_long.max(pixel_physics::sim::creature::piles_of(world, &long_members).first().map(Vec::len).unwrap_or(0));
         if largest >= 3 {
             self.pile_stops += 1;
@@ -2555,7 +2556,7 @@ fn main() {
     // never once seen elsewhere afterwards -- they went quiet and stayed
     // quiet. A rest the world can end reads near 0 here; a latch reads near
     // the whole of `had_long_run`.
-    let never: Vec<u16> = piles.had_long_run.difference(&piles.came_back).copied().collect();
+    let never: Vec<OrganismId> = piles.had_long_run.difference(&piles.came_back).copied().collect();
     // **The confound in `never`, closed.** An animal that goes quiet and then
     // dies of old age a stop later is "never seen moving again" without
     // anything having latched. What separates the two is **how long it stood

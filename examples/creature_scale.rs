@@ -38,6 +38,7 @@
 //! that never had them.
 
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::app::{HEIGHT, WIDTH};
 use pixel_physics::render::Renderer;
 use pixel_physics::sim::chunk::Rect;
@@ -291,7 +292,7 @@ fn chamber_scene(species: &str, count: i32, body_override: &str) -> (World, i32,
 /// Read off the **world**, not off `BodyPlan`, deliberately: the plan is
 /// what was asked for and this is what arrived, and the gap between them is
 /// exactly what a placement refusal or a clipped body looks like.
-fn body_cells(world: &World, id: u16) -> Vec<(i32, i32)> {
+fn body_cells(world: &World, id: OrganismId) -> Vec<(i32, i32)> {
     let b = world.bounds().expect("bounded world");
     let mut out = Vec::new();
     for y in b.min_y..=b.max_y {

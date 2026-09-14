@@ -67,6 +67,7 @@
 
 mod common;
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::render::Renderer;
 use pixel_physics::sim::organism;
 use pixel_physics::sim::parallel;
@@ -135,9 +136,9 @@ type Tally = (u32, u32, i32, i32, i32, i32, i64);
 /// `genome_drift` both do it: the cell **type** lives in the grid cell's
 /// `aux`, and `OrganismCell` carries resources and support distance without
 /// it.
-fn shapes(w: &World, ids: &[(u16, i32, i32)]) -> Vec<Shape> {
+fn shapes(w: &World, ids: &[(OrganismId, i32, i32)]) -> Vec<Shape> {
     let Some(b) = w.bounds() else { return Vec::new() };
-    let mut acc: std::collections::HashMap<u16, Tally> = std::collections::HashMap::new();
+    let mut acc: std::collections::HashMap<OrganismId, Tally> = std::collections::HashMap::new();
     for y in b.min_y..=b.max_y {
         for x in b.min_x..=b.max_x {
             let c = w.get(x, y);
@@ -362,7 +363,7 @@ enum Arm {
     Spread,
 }
 
-fn build(species: &str, founders: usize, worldseed: Option<u64>, width_override: Option<i32>, key: organism::DevelopmentalKey) -> (World, Vec<(u16, i32, i32)>) {
+fn build(species: &str, founders: usize, worldseed: Option<u64>, width_override: Option<i32>, key: organism::DevelopmentalKey) -> (World, Vec<(OrganismId, i32, i32)>) {
     let d = common::PlantScene::default();
     let scene = common::PlantScene {
         trees: founders,
@@ -394,7 +395,7 @@ fn build(species: &str, founders: usize, worldseed: Option<u64>, width_override:
     // repo's standing tell for a knob that was never connected. The arm was
     // not wrong so much as vacuous -- a clone stand of the species mean,
     // reported as a clone of a sampled individual.
-    let mut ids: Vec<(u16, i32, i32)> = Vec::new();
+    let mut ids: Vec<(OrganismId, i32, i32)> = Vec::new();
     if let Some(b) = w.bounds() {
         for x in b.min_x..=b.max_x {
             for y in b.min_y..=b.max_y {
@@ -408,7 +409,7 @@ fn build(species: &str, founders: usize, worldseed: Option<u64>, width_override:
     (w, ids)
 }
 
-fn apply_arm(w: &mut World, ids: &[(u16, i32, i32)], arm: Arm, reference: usize) {
+fn apply_arm(w: &mut World, ids: &[(OrganismId, i32, i32)], arm: Arm, reference: usize) {
     match arm {
         Arm::Pop => {}
         Arm::Clone => {
@@ -564,7 +565,7 @@ fn run_and_maybe_render(bed: Bed<'_>, arm: Arm, reference: usize, png: Option<&s
     // species mean, and the spread arm at developmental seed 0). A clone bed
     // that reads 10 distinct genomes is not a clone bed, and a card built on
     // one would be a picture of the harness.
-    let distinct = |w: &World, ids: &[(u16, i32, i32)]| -> (usize, usize) {
+    let distinct = |w: &World, ids: &[(OrganismId, i32, i32)]| -> (usize, usize) {
         let mut genomes: std::collections::BTreeSet<Vec<u32>> = std::collections::BTreeSet::new();
         let mut seeds: std::collections::BTreeSet<u64> = std::collections::BTreeSet::new();
         for &(id, _, _) in ids {

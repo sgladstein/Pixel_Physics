@@ -48,6 +48,7 @@
 //! plumbing and the loop; `Ids`, `Sample`, `census`, `ant_gut_bias` and
 //! `colony_deaths` are `pixel_physics::lab::census`'s.
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::lab::census::{self, Ids};
 use pixel_physics::lab::scenario::Scenario;
 use pixel_physics::lab::scene::LabBox;
@@ -419,7 +420,7 @@ fn main() {
             // bounds it and keeps two identical worlds reporting identical
             // numbers, which a random sample would not.
             {
-                let ids: Vec<u16> = world
+                let ids: Vec<OrganismId> = world
                     .live_organism_ids()
                     .into_iter()
                     .filter(|id| world.organism(*id).is_some_and(|st| world.species.get(st.species).creature.is_some()))

@@ -34,6 +34,7 @@
 //! species files are `include_str!`d, so an edited `.ron` and a prebuilt
 //! example produce a bit-identical "run" that swept nothing.
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::world::World;
 use pixel_physics::worldgen::{self, Spec, WorldgenPresets};
@@ -59,8 +60,8 @@ struct Census {
 fn census(world: &World) -> Census {
     let seed_material = world.materials.id_of("seed");
     let bounds = world.bounds().expect("bounded world");
-    let mut grown: BTreeMap<u16, bool> = BTreeMap::new();
-    let mut cells: BTreeMap<u16, usize> = BTreeMap::new();
+    let mut grown: BTreeMap<OrganismId, bool> = BTreeMap::new();
+    let mut cells: BTreeMap<OrganismId, usize> = BTreeMap::new();
     for y in bounds.min_y..=bounds.max_y {
         for x in bounds.min_x..=bounds.max_x {
             let cell = world.get(x, y);
@@ -499,7 +500,7 @@ fn report_mix(params: &pixel_physics::worldgen::WorldgenParams, seeds: usize, w:
         worldgen::generate(&mut world, Spec::Generated { params, seed });
         // Every planted organism as (x, species), in world order.
         let bounds = world.bounds().expect("bounded world");
-        let mut seen: BTreeMap<u16, (i32, String)> = BTreeMap::new();
+        let mut seen: BTreeMap<OrganismId, (i32, String)> = BTreeMap::new();
         for y in bounds.min_y..=bounds.max_y {
             for x in bounds.min_x..=bounds.max_x {
                 let id = world.get(x, y).organism_id();

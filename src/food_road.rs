@@ -116,6 +116,7 @@
 //! until the animals move again, which is correct for a channel whose whole
 //! claim is *this is the road they are using now*.
 
+use crate::sim::cell::OrganismId;
 use std::collections::HashMap;
 
 use crate::sim::world::World;
@@ -232,7 +233,7 @@ pub struct FoodRoad {
     /// Harvest by `(colony, tile)`, sparse: only tiles food has come out of.
     harvest: HashMap<(u32, (i32, i32)), Mark>,
     /// Per-animal counter readings as of the last observation.
-    seen: HashMap<u16, Seen>,
+    seen: HashMap<OrganismId, Seen>,
     /// The last `World::frame` observed, so `observe` is idempotent per tick
     /// and can be called from both the tick loop and `draw`.
     last_frame: Option<u64>,
@@ -395,7 +396,7 @@ impl FoodRoad {
         self.observed_frames += 1;
 
         let live = world.live_organism_ids();
-        let mut alive: std::collections::HashSet<u16> = std::collections::HashSet::with_capacity(live.len());
+        let mut alive: std::collections::HashSet<OrganismId> = std::collections::HashSet::with_capacity(live.len());
         for id in live {
             let Some(state) = world.organism(id) else { continue };
             // Plants share the state type and have no `moves` or `bites` to
