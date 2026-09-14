@@ -414,6 +414,17 @@ const CARRY_WAKE_STEP: i32 = CARRIED_RADIUS / 2;
 /// vanish in three eighths of a second. See [`Druid::ticks`].
 const MESSAGE_FRAMES: u64 = 180;
 
+/// **How small she gets**, in cells, against her authored 7x14.
+///
+/// Three tall because `creature::SPOIL_HEADROOM` is 3 and that is what an
+/// ant's gallery clears at its most generous; two wide because an ant cuts a
+/// one-cell bore and the rind either side leaves four to six void cells per
+/// row, so two is through with room and three is wedged. A first guess like
+/// every other number in this game's economy -- but a *derived* one: it
+/// comes off the digger's own constants rather than off a feel, so the thing
+/// to re-derive it against is a change to how ants dig, not a sweep.
+const SMALL: (i32, i32) = (2, 3);
+
 /// **Energy on its way from an animal to the player.**
 ///
 /// Owner: *"There should be a visual for when creatures have built up energy
@@ -1301,6 +1312,60 @@ impl Druid {
     /// event at one cell written by a bite, and painting a swath of it would
     /// be a player-only quantity nothing in the engine ever produces
     /// (`lab::ui::Tool::Alarm` makes the same argument at more length).
+    /// **Small enough to walk into a nest, or back to her own size.**
+    ///
+    /// The verb behind step 2 of the held world's plan. The geometry decides
+    /// it and no new rule was needed: an ant digs one cell at a time, so a
+    /// gallery is `SPOIL_HEADROOM` = 3 cells of headroom at its most
+    /// generous, and `SPOIL_HEADROOM` is this engine's own definition of
+    /// *indoors* -- `creature::is_sheltered` reads three empty cells
+    /// overhead as outdoors. So [`SMALL`] is 2x3: it fits the widest third
+    /// of an ant's galleries and is stopped by the 1- and 2-tall stretches,
+    /// which is a **graded** outcome rather than a door that is open or
+    /// shut.
+    ///
+    /// **Measured before it was built, which is what licensed building it.**
+    /// `examples/burrow_probe arms=colony box=2x3`, twelve seeds at frame
+    /// 8,000: a 2x3 body reaches **54 to 92 percent** of the roofed void a
+    /// colony digs, and on eleven of twelve seeds the largest single region
+    /// *is* that whole reach -- one connected run rather than a set of
+    /// pockets. The same probe at `box=7x14`, her own size, reads **0% at
+    /// every sample on every seed**: she cannot get in at all, which is the
+    /// premise of the feature stated as a number.
+    ///
+    /// **Growing back can be refused, and that refusal is the mechanic**
+    /// rather than a failure of it. `player::try_resize` tests her full
+    /// rectangle before committing and declines rather than shoving, so
+    /// being small in a tunnel is a thing you have to get yourself out of.
+    /// `SPOIL_THROW` is unscaled, so digging while small can seal the way
+    /// she came -- the most interesting hazard in the feature, and it needed
+    /// no code.
+    /// Whether she is in her small shape. Read from the body itself rather
+    /// than from a flag beside it — a second copy of "am I small" is a
+    /// second thing that can be wrong, and `player::try_resize` can refuse.
+    pub fn is_small(&self) -> bool {
+        self.world.player.as_ref().is_some_and(|p| (p.w, p.h) == SMALL)
+    }
+
+    pub fn toggle_small(&mut self) -> bool {
+        let Some(mut p) = self.world.player.take() else {
+            return false;
+        };
+        let want = if (p.w, p.h) == SMALL { (player::PLAYER_WIDTH, player::PLAYER_HEIGHT) } else { SMALL };
+        let done = player::try_resize(&self.world, &mut p, want, &self.player_tuning);
+        self.world.player = Some(p);
+        // **A refusal says so, in the world's words rather than the code's.**
+        // A verb that silently does nothing is the failure the ethos names:
+        // if an event produces no visible consequence it is not finished.
+        self.note(match (done, want == SMALL) {
+            (true, true) => "you are small, and the ground is a country",
+            (true, false) => "you stand your own height again",
+            (false, true) => "there is not room here to change",
+            (false, false) => "no room to grow -- find somewhere it opens out",
+        });
+        done
+    }
+
     pub fn cycle_scent(&mut self) {
         use crate::sim::pheromone::Channel;
         self.scent = if self.scent == Channel::A { Channel::B } else { Channel::A };

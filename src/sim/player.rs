@@ -43,11 +43,6 @@ use super::world::World;
 pub const PLAYER_WIDTH: i32 = 7;
 pub const PLAYER_HEIGHT: i32 = 14;
 
-/// How far the depenetration pass will push to free an invaded rectangle
-/// before giving up and declaring the player buried. Small on purpose: a
-/// large push is a teleport, and popping through a thin ceiling reads far
-/// worse than being stuck under it.
-const DEPENETRATE_REACH: i32 = 4;
 
 /// How far past the bore a dig may throw its spoil, and how far a *buried*
 /// dig may throw it. Constants rather than tunables on purpose: neither is
@@ -82,6 +77,50 @@ const PLATFORM_STICK: i32 = 6;
 /// `Player::at_scaled`.
 fn grip_rows(h: i32) -> i32 {
     h / 2
+}
+
+/// How far the depenetration pass will push to free an invaded rectangle
+/// before giving up and declaring the player buried.
+///
+/// **A function of his height, not a constant**, for the same reason
+/// [`grip_rows`] is one and for a sharper one: the old constant 4 was
+/// "small on purpose -- a large push is a teleport", and *small* is a claim
+/// about a distance **relative to the body being pushed**. At
+/// `PLAYER_HEIGHT` it is four cells of a fourteen-cell gnome, under a third
+/// of him. At three cells tall the same 4 is more than his whole body, so
+/// the pass would shove him clean past the gallery he is standing in and
+/// out the far side of its wall -- precisely the teleport the constant
+/// exists to forbid, arriving through the constant itself.
+///
+/// **Not moved into [`Tuning`]**, which is where a number like this
+/// otherwise belongs: `Tuning` membership puts it in `assets/player.ron`
+/// and on the debug panel, sweepable to zero, and a safety bound that can
+/// be swept to zero is not a safety bound. A free function beside
+/// [`grip_rows`] is the pattern this file already has for exactly this.
+///
+/// Returns 4 at `PLAYER_HEIGHT`, so nothing about the authored gnome moves.
+fn depenetrate_reach(h: i32) -> i32 {
+    ((h * 4) / PLAYER_HEIGHT).max(1)
+}
+
+/// How far the cursor must move before the bore will change direction. See
+/// `Dir::sticky`.
+///
+/// **A function of his height**, and its own former doc is the argument:
+/// *"12 cells is just under the gnome's own height, so a re-point anywhere
+/// off his body counts and hand jitter never does."* That sentence defines
+/// the number in terms of the body, so a fixed 12 stops meaning it the
+/// moment the body changes. At three cells tall, 12 is four body-heights --
+/// the cursor could be a long way off him and still be read as jitter, and
+/// the bore would never turn.
+///
+/// `h - 2` keeps the stated relationship at every size: just under his own
+/// height, floored at 1 so the deadzone never rounds away to nothing and
+/// leaves the bore flickering on sub-pixel hand movement.
+///
+/// Returns 12 at `PLAYER_HEIGHT`, so nothing about the authored gnome moves.
+fn reaim_deadzone(h: i32) -> i32 {
+    (h - 2).max(1)
 }
 
 /// How long the swing pose stays up after a blow, **at the defaults**.
@@ -765,7 +804,7 @@ impl Dir {
     ///
     /// So this asks the question the complaint actually asks: **has the
     /// player moved the mouse since they chose this direction?** Inside
-    /// `REAIM_DEADZONE` of the cursor position the direction was last set
+    /// [`reaim_deadzone`] of the cursor position the direction was last set
     /// at, the held direction stands however far the gnome has walked.
     /// Outside it, the cursor is somewhere new and the raw aim decides.
     ///
@@ -779,9 +818,14 @@ impl Dir {
     /// by the same distance the walk just took off the offset, so
     /// `Dir::toward` hands back the direction the latch was holding. The
     /// latch lets go exactly where letting go costs nothing.
-    pub fn sticky(from: (i32, i32), aim: (i32, i32), held: Option<(Dir, (i32, i32))>) -> Self {
+    ///
+    /// **`h` is the body's height, and it is a parameter because the
+    /// deadzone is defined in terms of the body** -- see [`reaim_deadzone`].
+    /// Passing a constant here would restore the bug the shrink verb
+    /// introduces: four body-heights of slack on a three-cell gnome.
+    pub fn sticky(from: (i32, i32), aim: (i32, i32), held: Option<(Dir, (i32, i32))>, h: i32) -> Self {
         match held {
-            Some((dir, set_at)) if (aim.0 - set_at.0).abs().max((aim.1 - set_at.1).abs()) < REAIM_DEADZONE => dir,
+            Some((dir, set_at)) if (aim.0 - set_at.0).abs().max((aim.1 - set_at.1).abs()) < reaim_deadzone(h) => dir,
             _ => Dir::toward(from, aim),
         }
     }
@@ -1189,6 +1233,71 @@ impl Tuning {
     /// scaling it again would double-count. `surface_hop` (a fraction of a
     /// standing jump) and `air_control` (a multiplier on `run_accel`) are
     /// the same case.
+    /// **This same feel in a gnome `k` times his own size, in a world that
+    /// did not change.**
+    ///
+    /// The sibling of [`Tuning::scaled`] and emphatically not the same
+    /// transform, which is the whole reason this exists rather than calling
+    /// that one. `scaled` describes *a world built at `k` times the cell
+    /// resolution*: there a metre is `k` cells, so **everything** in cells
+    /// multiplies, gravity included. Here the world's cells are exactly the
+    /// size they were and only *he* changed, so the two differ on precisely
+    /// the terms that belong to the world rather than to him.
+    ///
+    /// **`gravity` and `fall_clamp` are the world's and do not move.** A
+    /// small thing and a large thing fall at the same rate in this engine —
+    /// the gnome's own `gravity` doc says it is pinned to `rigid`'s and
+    /// `particle`'s for exactly that reason, *"the gnome falling at a
+    /// different rate than the debris beside him would read as a bug even if
+    /// neither number is wrong"*. Scaling them would make a shrunk gnome
+    /// drift down like ash.
+    ///
+    /// **And that forces `jump_impulse` to `sqrt(k)`, not `k`.** A jump rises
+    /// `v^2 / 2g`. In `scaled`'s world both `v` and `g` take a factor and the
+    /// height comes out `k` — the derivation its own doc gives. Here `g` is
+    /// fixed, so `v * k` would give a height of `k^2` and he would barely
+    /// leave the ground; `v * sqrt(k)` restores a jump that is the same
+    /// number of *his own heights* at any size.
+    ///
+    /// **Why this is not optional, and what it was fixing.** Three numbers in
+    /// this struct are authored in cells against a 7x14 body and are plainly
+    /// broken at 2x3 without it: `step_up` is "about a third of his height"
+    /// and would be *taller* than him, so he would walk up ledges he could
+    /// not see over; `dig_radius` is documented as "clearance for a 14-tall
+    /// gnome" and would bore a 15-cell hole for a 3-cell one; and
+    /// `wade_rows` is 4, which makes `rect_free`'s `chest = h - wade`
+    /// **negative**, so not one powder cell would ever count against him and
+    /// he would stroll through any depth of drift. That last one is an
+    /// outright bug rather than a matter of feel, and it is the reason this
+    /// is part of the shrink rather than a follow-up: `CLAUDE.md`'s *name the
+    /// constants calibrated against the current behaviour and budget
+    /// re-deriving them as part of the work — if that is unaffordable, the
+    /// change is not scoped, it is merely started*.
+    ///
+    /// **What is a first guess and says so.** The belt's ballistic terms
+    /// (`hammer_force`, `hammer_recoil`, `stroke_impulse`) take `scaled`'s
+    /// single `k`. Strictly they have `jump_impulse`'s problem — a fragment
+    /// thrown at `k * v` against unchanged gravity carries `k^2` as far — so
+    /// a shrunk gnome's hammer throws rock shorter than his size alone
+    /// suggests. That is left as it is deliberately: it is a question about
+    /// how a small gnome's blows should *feel*, which is settled by playing
+    /// and not by algebra, and `sqrt` on a term nobody has looked at yet
+    /// would be precision standing in for a decision.
+    pub fn for_body(&self, k: f32) -> Self {
+        let scaled = self.scaled(k);
+        Self {
+            // The world's, not his — restored to what was authored.
+            gravity: self.gravity,
+            fall_clamp: self.fall_clamp,
+            // `scaled` gave this `k`; against an unscaled gravity it wants
+            // `sqrt(k)`. Written as a correction to `scaled`'s value rather
+            // than recomputed from `self`, so the two cannot drift apart if
+            // somebody reclassifies `jump_impulse` later.
+            jump_impulse: if k > 0.0 { scaled.jump_impulse / k.sqrt() } else { scaled.jump_impulse },
+            ..scaled
+        }
+    }
+
     pub fn scaled(&self, k: f32) -> Self {
         // Exhaustive, no `..`, for the reason `WorldgenParams::scaled` gives:
         // a field added later stops compiling here until somebody says which
@@ -1401,6 +1510,20 @@ impl Player {
     pub fn center(&self) -> (i32, i32) {
         let (x, y) = self.rect_origin();
         (x + self.w / 2, y + self.h / 2)
+    }
+
+    /// **Where his feet are** — the row below the bottom of his rectangle.
+    ///
+    /// Split out because it is the anchor every resize has to hold still,
+    /// and `Reports/dead-ends.md:1694` is the entry where that was got
+    /// wrong: a scaling change kept the bounding box exactly right, moved
+    /// the **anchor**, made the body unplaceable at every site in the world
+    /// — and the size guard stayed green throughout, because *"a shape and
+    /// its anchor are two facts, and a test over the shape is blind to the
+    /// anchor."*
+    pub fn feet(&self) -> (i32, i32) {
+        let (x, y) = self.rect_origin();
+        (x + self.w / 2, y + self.h)
     }
 
     /// Whether the next click will land a blow, rather than being eaten by
@@ -1712,6 +1835,106 @@ fn rect_free(world: &World, bodies: &Bodies, x: i32, y: i32, (w, h): (i32, i32),
 
 /// One simulation tick. Runs in `App::update`'s serial phase; reads the
 /// grid, never writes it (the ghost contract).
+/// **Try to become `(w, h)` cells, feet where they are.** Returns whether it
+/// happened.
+///
+/// The verb behind "shrink small enough to walk into a nest, and grow back
+/// when there is room". Two things about it are deliberate and one of them
+/// is load-bearing.
+///
+/// **It tests the target size with the same predicate every other move
+/// uses, and declines.** [`rect_free`] already takes `(w, h)` as a
+/// *parameter* rather than reading the player, so asking "would I fit if I
+/// were that size" is the ordinary question asked one size ahead — no new
+/// geometry, and a growth that would end inside rock simply does not happen.
+/// The refusal is the mechanic: standing in a gallery an ant dug, you are
+/// small until you find a room, and `SPOIL_THROW` is unscaled, so digging
+/// down there can seal the way you came.
+///
+/// **It must never fall through to [`depenetrate`], and that is the trap.**
+/// Depenetration would shove a three-cell gnome up to a body-length to make
+/// room — the teleport its own reach exists to forbid — and failing that it
+/// sets `buried`, so a growth inside a tunnel would *entomb* rather than
+/// refuse. So this returns `false` and changes nothing at all.
+///
+/// **The anchor is the feet, not the centre** — `Reports/dead-ends.md:1694`
+/// is a scaling change that kept the bounding box right, moved the anchor,
+/// and made the body unplaceable everywhere while its size guard stayed
+/// green. Growing lifts the head; it never pushes him into the floor.
+///
+/// Horizontal centre is held, so a shrink does not slide him sideways out
+/// from under whatever he was standing beneath.
+pub fn try_resize(world: &World, p: &mut Player, (w, h): (i32, i32), tuning: &Tuning) -> bool {
+    if w < 1 || h < 1 || (w, h) == (p.w, p.h) {
+        return false;
+    }
+    // **The target body's tuning, not the current one's, and not the
+    // authored one's.** `rect_free` reads `wade` and `shoulder`, and both are
+    // properties of the body being tested — asking "would I fit at 2x3" with
+    // a 7x14 gnome's four wade rows tests a body that does not exist. `step`
+    // does this same derivation every tick; this is it asked one size ahead,
+    // which is the whole idiom of this function.
+    let expected = ((PLAYER_HEIGHT as f32 * world.cell_scale()).round() as i32).max(1);
+    let tuning_for = |body_h: i32| tuning.scaled(world.cell_scale()).for_body(body_h as f32 / expected as f32);
+    let target = tuning_for(h);
+    let wade = target.wade_rows as i32;
+    let shoulder = target.shoulder_grains as i32;
+    // **A body with no chest is refused**, and it is refused here rather
+    // than clamped, because the failure is silent. `rect_free` tests powder
+    // against `chest = h - wade`; at `wade >= h` that is zero or negative,
+    // the `dy < chest` arm never fires, and he walks through any depth of
+    // drift with nothing anywhere saying so. `wade_rows` floors at 1 (see
+    // `Tuning::scaled`'s `cells`, which will not round a live rule away to
+    // nothing), so this bites at one cell tall and is the reason the verb
+    // has a floor at all rather than an arbitrary one.
+    if h - wade < 1 {
+        return false;
+    }
+    let (fx, fy) = p.feet();
+    // Feet held, horizontal centre held. `rect_origin` rounds, so derive the
+    // target from the anchor rather than from the current float position.
+    let tx = fx - w / 2;
+    // **He may rise out of the soft ground he was standing in, and no
+    // further.** Without this the verb is refused on every soil surface in
+    // the world, which is not a corner case: `wade_rows` is "4 of his 14
+    // rows -- about knee-deep", so a gnome standing on *any* powder is sunk
+    // four rows into it by design. Anchoring a 2x3 body on those buried feet
+    // puts the whole of it underground, and `rect_free` quite rightly says
+    // no. Measured on the real app before this existed: `grounded true`,
+    // `buried false`, and every one of the four rows under his chest solid --
+    // a correct refusal that would have left `R` working only on bare rock.
+    //
+    // **The bound is the wade depth, not the body height**, and that is what
+    // keeps it from being a teleport. He may climb out of exactly the mud he
+    // was already in; he may not step up a ledge, drift through a ceiling, or
+    // rise to meet a roof while growing. At the authored gnome that is four
+    // cells, at 2x3 it is one, and at either size it moves him only through
+    // cells his own body already occupied.
+    let rise = {
+        let here = tuning_for(p.h);
+        here.wade_rows as i32
+    };
+    // The margin is the authored gnome's depenetration reach for the same
+    // reason `step` uses it: this is a safety window, and over-scanning is
+    // the cheap direction.
+    let bodies = Bodies::near(world, tx, fy - h - rise, (w, h + rise), depenetrate_reach(PLAYER_HEIGHT) + 1);
+    // Lowest first, so he ends as deep as he legally can rather than perched
+    // at the top of the search -- the shrink should feel like settling into
+    // the ground, not like being lifted out of it.
+    let Some(ty) = (0..=rise).map(|up| fy - h - up).find(|&ty| rect_free(world, &bodies, tx, ty, (w, h), wade, shoulder)) else {
+        return false;
+    };
+    p.w = w;
+    p.h = h;
+    p.x = tx as f32;
+    p.y = ty as f32;
+    // A resize is not a shove: he keeps neither momentum from a refused
+    // attempt nor any claim to have been buried, since the rect he now
+    // stands in was just proved free.
+    p.buried = false;
+    true
+}
+
 pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     let Some(mut p) = world.player.take() else {
         return;
@@ -1726,6 +1949,27 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     // -- 27 float multiplies once a tick, against a sweep that walks
     // thousands of cells.
     let scaled = tuning.scaled(world.cell_scale());
+    // **...and then scaled again for a body that is not the size this world
+    // builds him at**, which is the shrink verb (`player::try_resize`).
+    //
+    // Two transforms rather than one because they are two different facts:
+    // `cell_scale` says how many cells a metre is, and this says how many of
+    // those cells *he* is. See [`Tuning::for_body`] for why it is not simply
+    // another `scaled` — it leaves the world's own gravity alone, which
+    // `scaled` by construction cannot.
+    //
+    // **It has to be here rather than at the druid's call site**, because
+    // three of these numbers are not feel but correctness: at 2x3,
+    // `wade_rows` 4 makes `rect_free`'s `chest` negative and no powder
+    // anywhere counts against him. A caller that forgot would get a gnome
+    // who walks through drifts, and nothing would say so.
+    //
+    // **Exactly the identity at the authored size**, so the sandbox and the
+    // lab are byte-identical: `expected` is what `Player::at_scaled` built
+    // him at, the ratio is 1.0, and `for_body(1.0)` reduces to
+    // `scaled(1.0)`, which is documented as the identity and guarded as one.
+    let expected = ((PLAYER_HEIGHT as f32 * world.cell_scale()).round() as i32).max(1);
+    let scaled = if p.h == expected { scaled } else { scaled.for_body(p.h as f32 / expected as f32) };
     let tuning = &scaled;
     let wade = tuning.wade_rows as i32;
     let shoulder = tuning.shoulder_grains as i32;
@@ -1735,13 +1979,21 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     //
     // **Sized from the *unscaled* tuning, deliberately.** A dilated gnome
     // moves less per tick, so scaling this with him would shrink the window
-    // to `DEPENETRATE_REACH + 1` = 6 at four times slower -- exactly
+    // to `depenetrate_reach + 1` = 6 at four times slower -- exactly
     // `PLATFORM_STICK`, leaving the deepest probe in this function with zero
     // slack. Nothing about a probe radius is a rate; it is the reach the
     // *rest* of the tick needs, and paying for the un-dilated worst case
     // costs a handful of cells of scan.
+    //
+    // **And it asks for the *authored* gnome's reach, not this body's**, for
+    // the same reason and in the same direction. A shrunk gnome depenetrates
+    // a shorter distance, so `depenetrate_reach(p.h)` here would narrow the
+    // window exactly when the argument above says to widen it. This scan is
+    // a safety margin: over-scanning costs a handful of cells and
+    // under-scanning gathers a window that has gone stale by the time the
+    // tick is done with it.
     let (xi, yi) = p.rect_origin();
-    let reach = tuning.fall_clamp.max(tuning.run_max).ceil() as i32 + DEPENETRATE_REACH + 1;
+    let reach = tuning.fall_clamp.max(tuning.run_max).ceil() as i32 + depenetrate_reach(PLAYER_HEIGHT) + 1;
     let bodies = Bodies::near(world, xi, yi, (p.w, p.h), reach);
 
     // Everything from here reads the *dilated* character (`Tuning::dilated`,
@@ -1761,7 +2013,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     // **Buried, but not helpless: jump and he heaves himself out on top.**
     //
     // `depenetrate` above already prefers "up" and already means to leave
-    // him on top of the pile, and its reach is `DEPENETRATE_REACH` = 4 on
+    // him on top of the pile, and its reach is `depenetrate_reach` = 4 on
     // the stated grounds that *"a large push is a teleport, and popping
     // through a thin ceiling reads far worse than being stuck under it"*.
     // That is right for a push the world does *to* him and wrong for one he
@@ -1782,7 +2034,13 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     // `depenetrate` finding him inside the settled result that buries him.
     if p.buried && (input.jump_pressed || p.jump_buffer > 0) {
         let (xi, yi) = p.rect_origin();
-        if let Some(d) = (1..=PLAYER_HEIGHT).find(|&d| rect_free(world, &bodies, xi, yi - d, (p.w, p.h), wade, shoulder)) {
+        // **`p.h`, not `PLAYER_HEIGHT`** -- the sentence above says "as far
+        // as his own height" and the constant only says that at
+        // `cell_scale` 1. It was wrong in both directions before the shrink
+        // verb existed: a dilated gnome could not heave as far as himself,
+        // and a shrunk one heaves four body-lengths, which is the teleport
+        // the reach above is written to forbid.
+        if let Some(d) = (1..=p.h).find(|&d| rect_free(world, &bodies, xi, yi - d, (p.w, p.h), wade, shoulder)) {
             p.y -= d as f32;
             p.buried = false;
             p.jump_buffer = 0;
@@ -2783,7 +3041,7 @@ pub fn bore_rect(world: &World, p: &Player, aim: (i32, i32), tuning: &Tuning) ->
     // with `&Player` and once per stroke by `dig`; both read the same held
     // direction, and only `dig` writes it back. That ordering is what makes
     // the drawn box a promise about the next stroke rather than a guess.
-    let dir = Dir::sticky(p.center(), aim, p.bore_dir);
+    let dir = Dir::sticky(p.center(), aim, p.bore_dir, p.h);
     let flush = bore_rect_at(p, dir, 0);
     // How far forward the box may slide before the swing gives up and
     // lands where he stands.
@@ -2920,14 +3178,6 @@ fn bore_slab(dir: Dir, (x0, y0, x1, y1): (i32, i32, i32, i32), offset: i32, thic
     }
 }
 
-/// How far the cursor must move before the bore will change direction. See
-/// `Dir::sticky`.
-///
-/// A constant rather than a tunable: this is not a feel knob to sweep, it
-/// is the difference between a control that obeys the hand and one that
-/// obeys the legs. 12 cells is just under the gnome's own height, so a
-/// re-point anywhere off his body counts and hand jitter never does.
-const REAIM_DEADZONE: i32 = 12;
 
 /// One cell of clearance on each side. A constant rather than a tunable
 /// because it is not a feel knob: below 1 the passage is exactly his own
@@ -3843,7 +4093,7 @@ fn inside_player(p: &Player, x: i32, y: i32) -> bool {
 }
 
 /// Push an invaded rectangle to the nearest clear position within
-/// `DEPENETRATE_REACH`, or mark the player buried. Up is preferred at
+/// [`depenetrate_reach`] of his own height, or mark the player buried. Up is preferred at
 /// each distance (see `step`'s call-site comment), then sideways, then
 /// down — down last because being squeezed downward through a floor gap
 /// is the least expected outcome of being landed on.
@@ -3853,7 +4103,7 @@ fn depenetrate(world: &World, bodies: &Bodies, p: &mut Player, wade: i32, should
         p.buried = false;
         return;
     }
-    for d in 1..=DEPENETRATE_REACH {
+    for d in 1..=depenetrate_reach(p.h) {
         for (dx, dy) in [(0, -d), (-d, 0), (d, 0), (0, d)] {
             if rect_free(world, bodies, xi + dx, yi + dy, (p.w, p.h), wade, shoulder) {
                 p.x += dx as f32;
@@ -3889,6 +4139,255 @@ mod tests {
 
     fn tick(world: &mut World, input: PlayerInput) {
         step(world, input, &Tuning::default());
+    }
+
+    /// **`for_body(1.0)` is the identity**, which is what makes the shrink
+    /// free for the other two games: `step` applies it on every tick, so if
+    /// it moved anything at the authored size the sandbox and the lab would
+    /// both change.
+    #[test]
+    fn a_body_at_its_authored_size_is_tuned_exactly_as_authored() {
+        let t = Tuning::default();
+        assert_eq!(t.for_body(1.0), t, "for_body(1.0) is not the identity -- every world pays for the shrink verb");
+    }
+
+    /// **The world's own constants do not move when only he does.** A gnome
+    /// who shrank and started falling like ash would be the most visible
+    /// possible version of getting this wrong.
+    #[test]
+    fn shrinking_him_does_not_change_how_fast_things_fall() {
+        let t = Tuning::default();
+        let small = t.for_body(3.0 / PLAYER_HEIGHT as f32);
+        assert_eq!(small.gravity, t.gravity, "gravity scaled with the body");
+        assert_eq!(small.fall_clamp, t.fall_clamp, "terminal velocity scaled with the body");
+    }
+
+    /// **The bug `for_body` exists to fix, asserted as a bug rather than as
+    /// a feel.** `rect_free` computes `chest = h - wade`; at 2x3 with the
+    /// authored `wade_rows` of 4 that is **negative**, so the `dy < chest`
+    /// test never fires, no powder cell is ever counted, and he walks
+    /// through any depth of drift untouched.
+    ///
+    /// Written as a sweep over every size rather than a spot check at 3,
+    /// because the failure is a sign change and a spot check only ever
+    /// visits the size you were already worried about.
+    #[test]
+    fn a_small_body_still_has_a_chest_for_powder_to_reach() {
+        let t = Tuning::default();
+        assert!(t.wade_rows as i32 > 3, "the scene no longer contains the situation: authored wade_rows fits a 3-tall body, so this guard proves nothing");
+        let mut chestless = Vec::new();
+        for h in 1..=PLAYER_HEIGHT {
+            let tuned = t.for_body(h as f32 / PLAYER_HEIGHT as f32);
+            if h - (tuned.wade_rows as i32) < 1 {
+                chestless.push(h);
+            }
+            assert!(tuned.step_up as i32 <= h, "a gnome {h} tall steps up {} cells, over his own head", tuned.step_up);
+        }
+        // **One cell tall has no chest and cannot be given one**, because
+        // `wade_rows` floors at 1 rather than rounding a live rule away.
+        // That is why `try_resize` refuses such a body outright, and this
+        // asserts the *exact* set rather than "some sizes are fine": a
+        // regression that made two or three chestless would otherwise pass.
+        assert_eq!(chestless, vec![1], "the set of body heights with no chest for powder to reach has changed");
+    }
+
+    /// **A jump stays the same number of his own heights.** Against an
+    /// unscaled gravity that needs `sqrt(k)`, and `scaled`'s `k` would leave
+    /// him barely able to leave the ground -- the arithmetic is in
+    /// [`Tuning::for_body`]'s doc and this is it checked.
+    #[test]
+    fn a_smaller_gnome_jumps_the_same_number_of_his_own_heights() {
+        let t = Tuning::default();
+        let rise = |tuning: &Tuning| tuning.jump_impulse * tuning.jump_impulse / (2.0 * tuning.gravity);
+        let full = rise(&t) / PLAYER_HEIGHT as f32;
+        for h in [3, 5, 7, 10] {
+            let tuned = t.for_body(h as f32 / PLAYER_HEIGHT as f32);
+            let heights = rise(&tuned) / h as f32;
+            assert!(
+                (heights - full).abs() < 0.05 * full,
+                "a gnome {h} tall jumps {heights:.2} of his own heights against {full:.2} for the authored one"
+            );
+        }
+    }
+
+    /// **The two reaches that are stated in terms of the body must stay
+    /// stated in terms of the body**, and the authored gnome must not move.
+    ///
+    /// The identity half is what makes this diff safe to land: every number
+    /// on the shipped gnome is the number that was compiled in before.
+    #[test]
+    fn the_body_reaches_are_the_authored_ones_at_the_authored_size() {
+        assert_eq!(depenetrate_reach(PLAYER_HEIGHT), 4, "the shipped gnome's depenetration reach moved");
+        assert_eq!(reaim_deadzone(PLAYER_HEIGHT), 12, "the shipped gnome's re-aim deadzone moved");
+    }
+
+    /// **Neither reach may exceed the body it belongs to**, which is the
+    /// whole defect the shrink verb would otherwise introduce: a push longer
+    /// than the gnome is the teleport `depenetrate_reach`'s doc forbids, and
+    /// a deadzone longer than the gnome is a bore that never turns.
+    ///
+    /// Swept rather than spot-checked, because the failure is at the small
+    /// end and a spot check picks the size you were already thinking about.
+    #[test]
+    fn no_body_reach_is_longer_than_the_body() {
+        for h in 1..=PLAYER_HEIGHT * 2 {
+            assert!(depenetrate_reach(h) <= h, "a gnome {h} tall would be shoved {} cells", depenetrate_reach(h));
+            assert!(reaim_deadzone(h) <= h, "a gnome {h} tall has a deadzone of {} cells", reaim_deadzone(h));
+            assert!(depenetrate_reach(h) >= 1, "a reach of 0 silently disables depenetration at h={h}");
+            assert!(reaim_deadzone(h) >= 1, "a deadzone of 0 leaves the bore flickering at h={h}");
+        }
+    }
+
+    /// **A shrink holds the feet, and the test asserts where he stands**
+    /// rather than only how big he is -- `Reports/dead-ends.md:1694`, where
+    /// a scaling change kept the box right, moved the anchor, and its size
+    /// guard stayed green.
+    #[test]
+    fn shrinking_holds_the_feet_and_growing_lifts_the_head() {
+        let mut world = world_with_floor();
+        world.player = Some(Player::at(64, 80));
+        let tuning = Tuning::default();
+        for _ in 0..300 {
+            tick(&mut world, PlayerInput::default());
+        }
+        let standing = world.player.as_ref().unwrap().feet();
+        let mut p = world.player.take().unwrap();
+
+        assert!(try_resize(&world, &mut p, (2, 3), &tuning), "a gnome standing on an open floor could not shrink");
+        assert_eq!((p.w, p.h), (2, 3));
+        assert_eq!(p.feet(), standing, "the shrink moved his feet");
+
+        assert!(try_resize(&world, &mut p, (PLAYER_WIDTH, PLAYER_HEIGHT), &tuning), "he could not grow back on open ground");
+        assert_eq!((p.w, p.h), (PLAYER_WIDTH, PLAYER_HEIGHT));
+        assert_eq!(p.feet(), standing, "growing back pushed him into the floor or lifted him off it");
+    }
+
+    /// **He can shrink while standing on ordinary ground, and that is the
+    /// case the whole verb lives or dies on.**
+    ///
+    /// Found by looking at the real app rather than by any test. `wade_rows`
+    /// is "4 of his 14 rows -- about knee-deep", so a gnome standing on *any*
+    /// powder is sunk four rows into it **by design**; [`Player::feet`] is
+    /// therefore four rows underground, and a 2x3 body anchored there is
+    /// entirely below the surface. `rect_free` refused it, correctly, and the
+    /// verb would have worked only on bare rock — inert on every soil surface
+    /// in the world, which no unit test in this file would have noticed
+    /// because they all build stone floors.
+    ///
+    /// So the guard is built on **powder**, deliberately, and asserts he
+    /// both shrinks and ends up *higher* than his buried feet.
+    #[test]
+    fn he_can_shrink_while_standing_knee_deep_in_soft_ground() {
+        let mut world = World::new(Rect::new(0, 0, 127, 95));
+        for y in 70..=95 {
+            for x in 0..=127 {
+                world.set(x, y, Cell::new(material::SAND, 0));
+            }
+        }
+        world.player = Some(Player::at(64, 50));
+        let tuning = Tuning::default();
+        for _ in 0..400 {
+            tick(&mut world, PlayerInput::default());
+        }
+        let mut p = world.player.take().unwrap();
+        let sunk = p.feet();
+        // The scene check: he must actually be wading, or this guard is about
+        // a gnome on a hard floor and proves nothing.
+        assert!(
+            !world.is_empty(sunk.0, sunk.1 - 1),
+            "the scene does not contain the situation: his feet are not in the ground, so nothing here tests the wade case"
+        );
+
+        assert!(try_resize(&world, &mut p, (2, 3), &tuning), "he could not shrink while standing on ordinary soft ground");
+        assert_eq!((p.w, p.h), (2, 3));
+        assert!(p.feet().1 <= sunk.1, "the shrink left his feet below where he was standing");
+        // **The bound is NOT asserted here, and that is deliberate.** The
+        // search takes the lowest free position first, so in this scene the
+        // very first candidate fits and the bound never binds -- an
+        // assertion on it passes whatever the bound is set to. Measured by
+        // putting the fault back: widening the bound four-fold left this
+        // test green. A guard that cannot go red is blind rather than weak,
+        // so the bound gets its own scene below instead of a clause here.
+    }
+
+    /// **The rise is bounded, so a resize can never become a teleport.**
+    ///
+    /// The scene the guard above structurally cannot provide: his feet are
+    /// deep inside solid rock with open air well above, so every candidate
+    /// within the bound is blocked and only an unbounded search would find
+    /// the sky. An unbounded one *would* -- which is the failure this exists
+    /// to catch, `depenetrate`'s own doc calling a large push "a teleport"
+    /// and `DEPENETRATE_REACH` existing to forbid exactly it.
+    #[test]
+    fn a_resize_never_lifts_him_out_of_solid_rock() {
+        let mut world = World::new(Rect::new(0, 0, 127, 95));
+        for y in 60..=95 {
+            for x in 0..=127 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        let tuning = Tuning::default();
+        let mut p = Player::at(64, 80);
+        let (fx, fy) = p.feet();
+        // Open sky starts well above his feet -- further than any legitimate
+        // rise, and reachable only by a search that has lost its bound.
+        assert!(fy - 8 > 60, "the scene does not reach the open air it is built around");
+        assert!(
+            !rect_free(&world, &Bodies::none(), fx - 1, fy - 3, (2, 3), tuning.wade_rows as i32, tuning.shoulder_grains as i32),
+            "the scene does not contain the situation: a 2x3 body already fits at his feet, so nothing here tests the bound"
+        );
+
+        assert!(!try_resize(&world, &mut p, (2, 3), &tuning), "a resize lifted him out of solid rock -- the rise is unbounded");
+        assert_eq!((p.w, p.h), (PLAYER_WIDTH, PLAYER_HEIGHT), "a refused resize changed his size anyway");
+        assert_eq!(p.feet(), (fx, fy), "a refused resize moved him");
+    }
+
+    /// **A growth that would not fit is refused, and refused means nothing
+    /// moves** -- not shoved, not buried. The trap this guards is that
+    /// `depenetrate` would happily "fix" a bad growth by teleporting him,
+    /// and failing that would entomb him.
+    #[test]
+    fn growing_where_there_is_no_room_changes_nothing() {
+        // A gallery: a floor, a roof three cells above it, and stone
+        // everywhere else -- the shape an ant actually digs.
+        let mut world = World::new(Rect::new(0, 0, 127, 95));
+        for y in 40..=95 {
+            for x in 0..=127 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for y in 85..=87 {
+            for x in 40..=90 {
+                world.set(x, y, Cell::default());
+            }
+        }
+        let tuning = Tuning::default();
+        // **He is placed already small, and that is the scene being
+        // honest.** `Player::at` centres a `PLAYER_WIDTH`x`PLAYER_HEIGHT`
+        // body on the point given, which in a 3-tall gallery puts eleven of
+        // his fourteen rows inside stone -- so `feet()` would anchor below
+        // the floor and the refusal under test would fire for the wrong
+        // reason. The first version of this test did exactly that and its
+        // own assertion caught it, which is `CLAUDE.md`'s *a scene that
+        // contradicts the code will look like a bug in the code*. How he
+        // got small is the other guard's subject; this one is about what
+        // happens when he tries to get big again.
+        let mut p = Player::at(64, 86);
+        p.w = 2;
+        p.h = 3;
+        p.x = 64.0;
+        p.y = 85.0;
+        assert!(
+            rect_free(&world, &Bodies::none(), 64, 85, (2, 3), tuning.wade_rows as i32, tuning.shoulder_grains as i32),
+            "the scene does not contain the situation: a 2x3 body does not fit in the gallery this test carved"
+        );
+        let (w, h, x, y, feet) = (p.w, p.h, p.x, p.y, p.feet());
+
+        assert!(!try_resize(&world, &mut p, (PLAYER_WIDTH, PLAYER_HEIGHT), &tuning), "he grew to full size inside a 3-tall gallery");
+        assert_eq!((p.w, p.h), (w, h), "a refused growth changed his size anyway");
+        assert_eq!((p.x, p.y), (x, y), "a refused growth moved him");
+        assert_eq!(p.feet(), feet, "a refused growth moved his feet");
+        assert!(!p.buried, "a refused growth buried him -- depenetrate ran when it must not");
     }
 
     #[test]
@@ -4189,8 +4688,9 @@ mod tests {
 
         // Entomb him completely: buried, and motionless.
         let (xi, yi) = world.player.as_ref().unwrap().rect_origin();
-        for dy in -(DEPENETRATE_REACH + 1)..(PLAYER_HEIGHT + DEPENETRATE_REACH + 1) {
-            for dx in -(DEPENETRATE_REACH + 1)..(PLAYER_WIDTH + DEPENETRATE_REACH + 1) {
+        let reach = depenetrate_reach(PLAYER_HEIGHT);
+        for dy in -(reach + 1)..(PLAYER_HEIGHT + reach + 1) {
+            for dx in -(reach + 1)..(PLAYER_WIDTH + reach + 1) {
                 world.set(xi + dx, yi + dy, Cell::new(material::SAND, 0));
             }
         }
@@ -4435,8 +4935,9 @@ mod tests {
         }
         // Entomb him in sand, as a dumped pile would.
         let (xi, yi) = world.player.as_ref().unwrap().rect_origin();
-        for dy in -(DEPENETRATE_REACH + 2)..(PLAYER_HEIGHT + DEPENETRATE_REACH + 2) {
-            for dx in -(DEPENETRATE_REACH + 2)..(PLAYER_WIDTH + DEPENETRATE_REACH + 2) {
+        let reach = depenetrate_reach(PLAYER_HEIGHT);
+        for dy in -(reach + 2)..(PLAYER_HEIGHT + reach + 2) {
+            for dx in -(reach + 2)..(PLAYER_WIDTH + reach + 2) {
                 if yi + dy < 88 {
                     world.set(xi + dx, yi + dy, Cell::new(material::SAND, 0));
                 }

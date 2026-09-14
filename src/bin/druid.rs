@@ -94,6 +94,8 @@ struct Handler {
     census_after: Option<u64>,
     /// See `PIXEL_PHYSICS_DRUID_ABSORB_AT`.
     absorb_at: Option<u64>,
+    /// See `PIXEL_PHYSICS_DRUID_SMALL`.
+    small_at: Option<u64>,
     /// `PIXEL_PHYSICS_DRUID_FOUND_AT` — the tick to commit the open offer on.
     found_at: Option<u64>,
     /// See `PIXEL_PHYSICS_DRUID_GIF`.
@@ -180,6 +182,30 @@ impl Handler {
         if std::env::var("PIXEL_PHYSICS_DRUID_FOUND").is_ok_and(|v| v != "0") {
             game.found_colony();
         }
+        // `PIXEL_PHYSICS_DRUID_ZOOM=N` -- start at that zoom rung, because a
+        // headless run cannot press `=`. Needed to render the shrink at all:
+        // at 2x3 she is six pixels at zoom 1, so a contact sheet of the
+        // feature at the default rung is a picture of the ground with
+        // nothing in it, which reads as "the feature does nothing".
+        if let Some(n) = std::env::var("PIXEL_PHYSICS_DRUID_ZOOM").ok().and_then(|v| v.trim().parse::<i32>().ok()) {
+            // **Press until the rung is reached, not `n` times.** The first
+            // version did `n - 1` presses and never left the default rung,
+            // because `adjust_zoom` walks the zoom-*out* stride back to 1
+            // before it starts raising `zoom` -- so three presses bought
+            // three stride steps and no magnification, and the render came
+            // back with a two-pixel gnome that read as "the shrink is
+            // invisible" rather than "the hook did nothing". A knob nobody
+            // can see the value of is a knob nobody can tell is disconnected,
+            // so it echoes what it reached.
+            let want = n.max(1);
+            for _ in 0..64 {
+                if game.renderer.zoom >= want && game.renderer.zoom_out_stride <= 1 {
+                    break;
+                }
+                game.renderer.adjust_zoom(1);
+            }
+            println!("druid: zoom {} (stride {}), asked for {want}", game.renderer.zoom, game.renderer.zoom_out_stride);
+        }
         // `PIXEL_PHYSICS_DRUID_MENU=1` -- open the options menu at startup,
         // and `=<n>` to put the cursor on the nth row. Same shape and same
         // reason as every hook here: a headless screenshot cannot press `M`,
@@ -259,6 +285,21 @@ impl Handler {
         // will miss. Pair it with `PIXEL_PHYSICS_DRUID_OFFER` to choose
         // which lineage.
         let found_at: Option<u64> = std::env::var("PIXEL_PHYSICS_DRUID_FOUND_AT").ok().and_then(|v| v.parse().ok());
+        // `PIXEL_PHYSICS_DRUID_SMALL=<tick>` -- press `R` at that player tick.
+        // The control arm for the shrink, so a before and an after can be
+        // rendered off one binary.
+        //
+        // **A tick rather than a flag, and that distinction cost a render.**
+        // The first version shrank her in `Druid::new` and was refused every
+        // time, with the on-screen refusal the only thing that differed
+        // between the two arms. `spawn_point` returns a *surface* cell and
+        // `Player::at_scaled` CENTRES the body on it, so at construction her
+        // feet are seven rows inside the ground -- `try_resize` anchors on
+        // the feet, so the target rect was buried and declining it was
+        // correct. She has to have landed first. `CLAUDE.md`'s *a scene that
+        // contradicts the code will look like a bug in the code*, caught by
+        // looking at the render rather than by any test.
+        let small_at: Option<u64> = std::env::var("PIXEL_PHYSICS_DRUID_SMALL").ok().and_then(|v| v.trim().parse().ok());
         // `PIXEL_PHYSICS_DRUID_GIF=start,every,count[,out.gif]` -- capture an
         // animation instead of a still.
         //
@@ -317,6 +358,7 @@ impl Handler {
             screenshot_countdown: std::env::var("PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES").ok().and_then(|v| v.parse().ok()),
             census_after,
             absorb_at,
+            small_at,
             found_at,
             gif,
             walk,
@@ -396,6 +438,33 @@ impl Handler {
                 if self.game.commit_founding() > 0 {
                     let catch = std::env::var("PIXEL_PHYSICS_DRUID_CATCH").ok().and_then(|v| v.parse().ok());
                     self.screenshot_countdown = Some(catch.unwrap_or(1));
+                }
+            }
+        }
+
+        if let Some(n) = self.small_at {
+            if self.game.ticks >= n {
+                self.small_at = None;
+                // **Loud when it refuses.** A hook that quietly did nothing
+                // reads as "the feature is not wired", which is the
+                // disconnected-knob trap by name -- and is exactly how the
+                // buried-feet bug above presented.
+                if self.game.toggle_small() {
+                    println!("druid: small at tick {n} -- {:?}", self.game.world.player.as_ref().map(|p| (p.w, p.h)));
+                    // **The shrink schedules its own shutter**, the same way
+                    // the pull below does and for the same reason: the two
+                    // clocks do not line up. `screenshot_countdown` counts
+                    // *drawn frames* and this counts *player ticks*, and on a
+                    // software rasteriser one drawn frame is worth several
+                    // ticks. Scheduled by hand it fired at tick 36 against a
+                    // shrink at 40, so the render came back showing her at
+                    // full size with the button unlatched -- a picture of the
+                    // feature not working, taken four ticks too early.
+                    // Overridden by `PIXEL_PHYSICS_DRUID_CATCH` like the pull.
+                    let catch = std::env::var("PIXEL_PHYSICS_DRUID_CATCH").ok().and_then(|v| v.parse().ok());
+                    self.screenshot_countdown = Some(catch.unwrap_or(2));
+                } else {
+                    println!("druid: PIXEL_PHYSICS_DRUID_SMALL={n} was refused -- no room where she stands at that tick");
                 }
             }
         }
@@ -696,6 +765,26 @@ impl Handler {
             // `G` is *held* here rather than armed, so a second press cannot
             // mean anything different from the first.
             KeyCode::KeyI => self.act(Action::CycleScent),
+            // **Small enough to go underground.** `R` for the shape she
+            // takes rather than for a word -- the free keys left were `R`,
+            // `N` and `B`, and this is the only verb among them that is
+            // about *her* rather than about the world. See
+            // `Druid::toggle_small`: the geometry decides whether it works,
+            // and growing back can be refused.
+            KeyCode::KeyR => self.act(Action::ToggleSmall),
+            // **Zoom, and it is part of the shrink rather than a nicety.**
+            // At her own size she is 7x14 pixels at play zoom; at 2x3 she is
+            // a six-pixel blob, and so is the gallery she is standing in.
+            // `Renderer::adjust_zoom` and the five magnify looks were built
+            // and reviewed for the lab already -- this game simply never
+            // bound them, so this is a binding and not a feature, and it
+            // touches no line of `render.rs`.
+            //
+            // `Equal` and `Minus` rather than `+`/`-`, because the unshifted
+            // key is what a player actually presses and the legend says
+            // `- =` for the same reason.
+            KeyCode::Equal => self.act(Action::Zoom(1)),
+            KeyCode::Minus => self.act(Action::Zoom(-1)),
             // The economy's verb: a circle that runs while you are elsewhere.
             KeyCode::Space => self.act(Action::PlaceCircle),
             KeyCode::KeyX => self.act(Action::LiftCircle),
