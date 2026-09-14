@@ -1,0 +1,78 @@
+{
+  "id": "20260914T053549208Z-49137a",
+  "created": "2026-09-14T05:35:49Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/druid-bubble-aura",
+    "commit": "e0585623",
+    "agent": null,
+    "session_id": "953c9af7-0516-5029-b369-4dee29d8841c",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "A circle of running time: outline vs haze",
+  "question": "Which one reads as a bubble of running time you would want to place, rather than a line drawn over the world?",
+  "context_md": "You asked for this: *\"They shouldn't be a solid line it blocks too much. I am thinking hazy shimmering aura. Think about how to indicate speed visual.\"*\n\nBoth arms are the same world, the same seed, the same frames, at **speed x8** — the top of the dial, which is where the old look was worst because it added one more hard circle per two steps.\n\n**Look at the filled circle on the right.** The large thin circle around the gnome is the *placement preview* — what SPACE would put down — and it is unchanged in both arms. It is still a hard line, and that is the obvious next thing to soften if you want it softened.\n\n**Watch it move.** Speed is meant to read two ways: how fast the haze pulses (it is not a mapping — the pulse is the world's own clock, so a x8 circle pulses eight times faster because time there really is running eight times faster), and how deep the haze reaches inward, which is the half a still frame keeps. The second card has the four speeds side by side as stills.\n\n**One thing I did not fix, because the file belongs to another session tonight**: above x1 the gnome's own circle disappears from the picture entirely — his warm halo is missing here and the ground under him greys out. That is not new and not the haze; `step_extra_ticks` lifts the player out of the world for the catch-up passes and never puts his circle back, so nothing that draws between two updates can see it. It needs one line in `src/druid/mod.rs`.",
+  "kind": "frames",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — outline (current)",
+      "files": [
+        "20260914T053549208Z-49137a/000-old_00.png",
+        "20260914T053549208Z-49137a/001-old_01.png",
+        "20260914T053549208Z-49137a/002-old_02.png",
+        "20260914T053549208Z-49137a/003-old_03.png",
+        "20260914T053549208Z-49137a/004-old_04.png",
+        "20260914T053549208Z-49137a/005-old_05.png",
+        "20260914T053549208Z-49137a/006-old_06.png",
+        "20260914T053549208Z-49137a/007-old_07.png",
+        "20260914T053549208Z-49137a/008-old_08.png",
+        "20260914T053549208Z-49137a/009-old_09.png",
+        "20260914T053549208Z-49137a/010-old_10.png",
+        "20260914T053549208Z-49137a/011-old_11.png"
+      ],
+      "caption": "one hard 1px circle per quickening, plus one more inside it per two steps of the dial",
+      "meta": {
+        "pixels the marking paints over": 916,
+        "pixels it tints without covering": 0,
+        "circles drawn at x8": 4,
+        "extra whole-frame cost": "none"
+      },
+      "focus": null
+    },
+    {
+      "label": "B — haze (proposed)",
+      "files": [
+        "20260914T053549208Z-49137a/012-new_00.png",
+        "20260914T053549208Z-49137a/013-new_01.png",
+        "20260914T053549208Z-49137a/014-new_02.png",
+        "20260914T053549208Z-49137a/015-new_03.png",
+        "20260914T053549208Z-49137a/016-new_04.png",
+        "20260914T053549208Z-49137a/017-new_05.png",
+        "20260914T053549208Z-49137a/018-new_06.png",
+        "20260914T053549208Z-49137a/019-new_07.png",
+        "20260914T053549208Z-49137a/020-new_08.png",
+        "20260914T053549208Z-49137a/021-new_09.png",
+        "20260914T053549208Z-49137a/022-new_10.png",
+        "20260914T053549208Z-49137a/023-new_11.png"
+      ],
+      "caption": "a per-cell tint in the world pass; nothing is painted over",
+      "meta": {
+        "pixels the marking paints over": 0,
+        "pixels it tints without covering": 4716,
+        "how deep the haze reaches": "7 cells at x1, 22 at x8",
+        "extra whole-frame cost": "+0.05 ms mean of 1.79"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
