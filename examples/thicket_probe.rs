@@ -347,6 +347,41 @@ fn lab_bed(founders: usize, seed: u64, frames: u64) -> (Vec<usize>, Vec<usize>) 
     (stations, placed)
 }
 
+/// **Render one stand through the shipped `Renderer`, cropped to it.**
+///
+/// `CLAUDE.md`'s standing instruction: a change that alters anything on
+/// screen is posted, not described. Founding a colony in a thicket is
+/// visible, so this writes the picture the owner's verdict is actually about
+/// — one arm per file, the same world, the same stand, the same crop, so a
+/// pair can be put side by side without either being a remembered
+/// impression.
+///
+/// **The count goes in the card, not in the picture.** Two very different
+/// mechanisms look identical at the zoom a contact sheet is read at, and a
+/// collapse once read as "chunks are working" from an image whose body count
+/// was zero for the whole run. This prints `placed` beside the filename for
+/// exactly that reason.
+fn shoot(world: &pixel_physics::sim::world::World, at: (i32, i32), zoom: i32, out: &str) {
+    use pixel_physics::app::{HEIGHT, WIDTH};
+    use pixel_physics::render::Renderer;
+    use pixel_physics::sim::particle::ParticleSystem;
+
+    let (vw, vh) = (WIDTH, HEIGHT);
+    let mut renderer = Renderer::new();
+    for _ in 1..zoom {
+        renderer.adjust_zoom(1);
+    }
+    // Aim before drawing. `adjust_zoom` alone leaves the camera wherever it
+    // defaulted, which on a 960-row world is the sky — `labshot`'s own
+    // hard-won note, and the reason `look` and `zoom` are a pair rather than
+    // two knobs.
+    let span = (vw as i32 / zoom, vh as i32 / zoom);
+    renderer.set_camera(at.0 - span.0 / 2, at.1 - span.1 / 2, (vw, vh), world.bounds());
+    let mut buf = vec![0u8; (vw * vh * 4) as usize];
+    renderer.draw(world, &ParticleSystem::default(), &Default::default(), &mut buf, (vw, vh), true);
+    image::save_buffer(out, &buf, vw, vh, image::ColorType::Rgba8).expect("writing the frame");
+}
+
 fn main() {
     let mut start = "grown".to_string();
     let mut half = 110;
@@ -355,6 +390,8 @@ fn main() {
     let mut lab = 0usize;
     let mut seeds = 1u64;
     let mut frames = 6000u64;
+    let mut shot: Option<String> = None;
+    let mut zoom = 4;
     for arg in std::env::args().skip(1) {
         let (k, v) = arg.split_once('=').unwrap_or((arg.as_str(), ""));
         match k {
@@ -362,6 +399,8 @@ fn main() {
             "lab" => lab = v.parse().unwrap_or(0),
             "seeds" => seeds = v.parse().unwrap_or(1),
             "frames" => frames = v.parse().unwrap_or(frames),
+            "shot" => shot = Some(v.to_string()),
+            "zoom" => zoom = v.parse().unwrap_or(zoom),
             "half" => half = v.parse().unwrap_or(half),
             "stands" => stands = v.parse().unwrap_or(stands),
             "spacing" => spacing = v.parse().unwrap_or(spacing),
@@ -381,7 +420,7 @@ fn main() {
     // Echo every parameter, the arm included: a log that does not name its
     // arm was written by a binary that never had one.
     let arm = std::env::var("PIXEL_PHYSICS_THICKET_CLIMB").unwrap_or_else(|_| "default".into());
-    println!("thicket_probe: start={start} half={half} stands={stands} spacing={spacing} lab={lab} seeds={seeds} frames={frames} climb_arm={arm} max_step={MAX_STEP}");
+    println!("thicket_probe: start={start} half={half} stands={stands} spacing={spacing} lab={lab} seeds={seeds} frames={frames} shot={shot:?} zoom={zoom} climb_arm={arm} max_step={MAX_STEP}");
 
     if lab > 0 {
         let (mut all_stations, mut all_placed) = (Vec::new(), Vec::new());
@@ -423,6 +462,10 @@ fn main() {
         // number the player actually sees rather than instead of it.
         let placed = game.found_colony();
         println!("thicket_probe: found_colony at the gnome's feet placed {placed} animals");
+        if let Some(out) = &shot {
+            shoot(&game.world, (x, y), zoom, out);
+            println!("thicket_probe: wrote {out} at {x},{y} zoom {zoom} — placed {placed} animals");
+        }
     }
 }
 

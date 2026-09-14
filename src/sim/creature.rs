@@ -3455,11 +3455,18 @@ pub fn colony_ant_site(world: &World, cx: i32, cursor_y: i32) -> Option<i32> {
 ///
 /// Set from the measured distribution with headroom, never from taste. The
 /// druid world's forest floor, over the 135 blocked columns of the census in
-/// [`colony_ant_site`]'s doc: **min 2, p50 5, p90 15, max 59** rows from soil
-/// to the first free cell. The long tail is trunks -- a 59 is a tree, and
-/// putting a founder up it is the thing this bound exists to refuse. 16 sits
-/// just past p90 and a long way short of the tail, so it takes the floor and
-/// leaves the canopy.
+/// [`colony_ant_site`]'s doc, counting **contiguous plant tissue** -- the
+/// quantity this bound is actually over, not "the first free cell at any
+/// height", which is a different and larger number: **min 2, p50 5, p90 14,
+/// max 35**. The tail is trunks; a 35 is a tree, and putting a founder up it
+/// is the thing this bound exists to refuse. 16 sits just past p90 and a
+/// long way short of the tail, so it takes the floor and leaves the canopy.
+///
+/// The recovery curve behind that choice, same census (columns of 221 that
+/// become sites): bound 0 → 86, 2 → 109, 4 → 147, 6 → 169, 8 → 183,
+/// **16 → 209**, 32 → 219, 64 → 220. It is a saturating curve with no knee
+/// to sit on, which is why the bound is set from the tail rather than from
+/// the shape.
 ///
 /// `PIXEL_PHYSICS_THICKET_CLIMB=off` (or `=0`) restores the pre-2026-09-14
 /// rule exactly, which is the **paired arm** every measurement over this
@@ -13327,19 +13334,19 @@ mod tests {
 
     /// **The climb goes through plants and nothing else.** Two refusals that
     /// share a shape and have completely different reasons to exist, so both
-    /// are here: rock over a floor is an overhang and stays a refusal, and
+    /// are here: stone over a floor is an overhang and stays a refusal, and
     /// water over a floor is `open-bugs-handoff.md` §R2, whose whole finding
     /// is that an ant placed on water never moves again.
     ///
     /// The third case is the one a naive "find the first free cell above"
-    /// would get wrong and this rule must not: soil, a leaf, a slab of rock,
+    /// would get wrong and this rule must not: soil, a leaf, a slab of stone,
     /// then air. There *is* a free cell up there; it is on the far side of a
     /// wall, and stepping to it would put an ant on a roof it cannot have
     /// walked to.
     #[test]
     fn the_climb_refuses_everything_that_is_not_a_plant() {
-        let (w, _) = matted_bed("rock", 2);
-        assert_eq!(colony_ant_site(&w, 32, 0), None, "rock over a floor is an overhang, not a thicket");
+        let (w, _) = matted_bed("stone", 2);
+        assert_eq!(colony_ant_site(&w, 32, 0), None, "stone over a floor is an overhang, not a thicket");
 
         let (mut w, ground) = matted_bed("leaf", 0);
         for x in 0..=63 {
@@ -13348,12 +13355,12 @@ mod tests {
         assert_eq!(colony_ant_site(&w, 32, 0), None, "§R2: an ant must not be founded standing on water");
 
         let (mut w, ground) = matted_bed("leaf", 1);
-        let rock = w.materials.id_of("rock").expect("rock material");
+        let stone = w.materials.id_of("stone").expect("stone material");
         for x in 0..=63 {
-            w.set(x, ground - 2, Cell::new(rock, 0));
+            w.set(x, ground - 2, Cell::new(stone, 0));
         }
         assert!(w.is_empty(32, ground - 3), "the bed must have air above the slab, or this guard cannot fail");
-        assert_eq!(colony_ant_site(&w, 32, 0), None, "the climb must not jump a slab of rock to reach the air over it");
+        assert_eq!(colony_ant_site(&w, 32, 0), None, "the climb must not jump a slab of stone to reach the air over it");
     }
 
     /// **Dead wood is still a floor.** `Start::Dead` is the held world's own
