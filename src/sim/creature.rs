@@ -3430,9 +3430,15 @@ fn nest_mask(half_width: i32, core: i32, drain_period: usize) -> Vec<bool> {
         // function happens to be about. Measured the first time it did not:
         // the arm painted 39 columns where it has always painted 53, which
         // is a control quietly wearing another point's label.
-        let take = if drain_period == 0 {
-            true
-        } else if d <= core {
+        // **Two ways a column is painted outright**, folded into one arm
+        // because they produce the same answer and clippy is right that two
+        // blocks reading `true` are one block. `drain_period == 0` is the
+        // unbroken patch -- `PIXEL_PHYSICS_NEST_DRAINS=off`'s documented
+        // meaning, the whole of the pre-2026-09-12 shape and the arm every
+        // measurement over this is read against. `d <= core` is the
+        // threshold's own middle, the one place the §T2 drain rule is
+        // relaxed, priced by `examples/nestdoor`'s water pair.
+        let take = if drain_period == 0 || d <= core {
             true
         } else if run >= 1 {
             // **The fringe is scatter, never a dash**, and this one line is
