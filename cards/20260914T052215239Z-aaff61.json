@@ -1,0 +1,406 @@
+{
+  "id": "20260914T052215239Z-aaff61",
+  "created": "2026-09-14T05:22:15Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "HEAD",
+    "commit": "79c0b639",
+    "agent": null,
+    "session_id": "d4356c9c-62fb-5b4d-9012-42ef486e9a14",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Two ant colonies meeting at a border",
+  "question": "Does this read as two colonies holding a line against each other, rather than one crowd of ants? And does the way they meet feel like rivalry, or just like traffic?",
+  "context_md": "Round 35 lane D. Yellow is one colony, blue is the other -- they were founded 58 cells apart and have walked into each other. 4,000 frames, one seed, 24 ants per colony.\n\n**The counts for this exact run:** 31 encounters where an ant stood in reach of a stranger, of which **8 became a bite and 23 ended in a display and a step back** -- escalation 0.26. 6 kills. Before tonight's change every one of those 31 would have been a bite, because an encounter and a fight were the same event.\n\nWhat I am asking about is only what is on screen: whether two colours meeting in the middle of a bed reads as two colonies, and whether it has the feel of a border. The numbers above are not the question.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "item 1",
+      "files": [
+        "20260914T052215239Z-aaff61/000-f0000.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 2",
+      "files": [
+        "20260914T052215239Z-aaff61/001-f0001.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 3",
+      "files": [
+        "20260914T052215239Z-aaff61/002-f0002.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 4",
+      "files": [
+        "20260914T052215239Z-aaff61/003-f0003.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 5",
+      "files": [
+        "20260914T052215239Z-aaff61/004-f0004.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 6",
+      "files": [
+        "20260914T052215239Z-aaff61/005-f0005.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 7",
+      "files": [
+        "20260914T052215239Z-aaff61/006-f0006.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 8",
+      "files": [
+        "20260914T052215239Z-aaff61/007-f0007.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 9",
+      "files": [
+        "20260914T052215239Z-aaff61/008-f0008.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 10",
+      "files": [
+        "20260914T052215239Z-aaff61/009-f0009.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 11",
+      "files": [
+        "20260914T052215239Z-aaff61/010-f0010.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 12",
+      "files": [
+        "20260914T052215239Z-aaff61/011-f0011.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 13",
+      "files": [
+        "20260914T052215239Z-aaff61/012-f0012.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 14",
+      "files": [
+        "20260914T052215239Z-aaff61/013-f0013.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 15",
+      "files": [
+        "20260914T052215239Z-aaff61/014-f0014.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 16",
+      "files": [
+        "20260914T052215239Z-aaff61/015-f0015.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 17",
+      "files": [
+        "20260914T052215239Z-aaff61/016-f0016.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 18",
+      "files": [
+        "20260914T052215239Z-aaff61/017-f0017.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 19",
+      "files": [
+        "20260914T052215239Z-aaff61/018-f0018.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 20",
+      "files": [
+        "20260914T052215239Z-aaff61/019-f0019.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 21",
+      "files": [
+        "20260914T052215239Z-aaff61/020-f0020.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 22",
+      "files": [
+        "20260914T052215239Z-aaff61/021-f0021.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 23",
+      "files": [
+        "20260914T052215239Z-aaff61/022-f0022.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 24",
+      "files": [
+        "20260914T052215239Z-aaff61/023-f0023.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 25",
+      "files": [
+        "20260914T052215239Z-aaff61/024-f0024.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 26",
+      "files": [
+        "20260914T052215239Z-aaff61/025-f0025.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 27",
+      "files": [
+        "20260914T052215239Z-aaff61/026-f0026.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 28",
+      "files": [
+        "20260914T052215239Z-aaff61/027-f0027.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 29",
+      "files": [
+        "20260914T052215239Z-aaff61/028-f0028.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 30",
+      "files": [
+        "20260914T052215239Z-aaff61/029-f0029.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 31",
+      "files": [
+        "20260914T052215239Z-aaff61/030-f0030.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 32",
+      "files": [
+        "20260914T052215239Z-aaff61/031-f0031.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 33",
+      "files": [
+        "20260914T052215239Z-aaff61/032-f0010.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 34",
+      "files": [
+        "20260914T052215239Z-aaff61/033-f0011.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 35",
+      "files": [
+        "20260914T052215239Z-aaff61/034-f0012.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 36",
+      "files": [
+        "20260914T052215239Z-aaff61/035-f0013.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 37",
+      "files": [
+        "20260914T052215239Z-aaff61/036-f0014.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 38",
+      "files": [
+        "20260914T052215239Z-aaff61/037-f0015.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 39",
+      "files": [
+        "20260914T052215239Z-aaff61/038-f0016.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 40",
+      "files": [
+        "20260914T052215239Z-aaff61/039-f0017.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 41",
+      "files": [
+        "20260914T052215239Z-aaff61/040-f0018.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "item 42",
+      "files": [
+        "20260914T052215239Z-aaff61/041-f0019.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
