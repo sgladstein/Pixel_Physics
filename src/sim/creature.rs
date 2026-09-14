@@ -5526,25 +5526,53 @@ fn nearest_foe(world: &World, organism: u16, head: (i32, i32), gut: Gut) -> Opti
                 }
                 continue;
             }
-            // **First in ring order, exactly as before** -- the target rule
-            // did not change, only the point at which the walk stops. In
-            // particular it is still *any* living non-kin organism and not
-            // only an animal: this verb's own doc is explicit that an animal
-            // defending itself against something it cannot digest must be
-            // able to, and a plant is an organism.
+            // **A PLANT IS NOT A FOE. Owner's ruling, 2026-09-14, and it
+            // has no exception.** The target rule used to be *any* living
+            // non-kin organism, on this verb's own argument that an animal
+            // cornered by something it cannot digest must still be able to
+            // hit it. That argument is sound in principle and **has no
+            // instance**: nothing in this engine lets a plant harm an
+            // animal, so the case it defends has never once arisen, while
+            // the cost it carried was §Z23 -- a grazing ant's own feeding
+            // alarm aimed the fight verb at the leaf it was eating, and
+            // `wood` feeds nobody, so every cell it took was pure loss.
+            //
+            // **The condition that reopens this is a plant that can damage
+            // an animal**, and it lives in `Reports/dead-ends.md` rather
+            // than here, with the entry, because that is where a re-test
+            // clause is looked for.
+            //
+            // Measured on the played longant bed before the rule, three
+            // seeds at 40,000 frames: **100% of attacks and 100% of cells
+            // taken were at plants** (3,501/4,497/7,442 swings, 2,782/2,761/
+            // 5,071 cells), against **112/317/364** plant cells the mouth
+            // took in the same runs. The jaw was removing nine of every ten
+            // cells a colony took off a living plant, and feeding on none
+            // of them.
+            //
+            // **One predicate, both readings.** The odds count below asked
+            // this question already (a stand of herb read as an army until
+            // it did); asking it in one place and not the other is what
+            // §Z23 was.
+            if world.materials.kind(cell.material) != MaterialKind::Creature && !plant_is_a_foe() {
+                continue;
+            }
+            // **First in ring order, exactly as before** -- the point at
+            // which the walk stops is unchanged; what it will stop on is.
             found.get_or_insert((nx, ny));
             // **The count is animals only, and that split cost a control to
             // find.** Every plant cell in the world is a living non-kin
-            // organism, so counting foes the way the target rule finds them
-            // made a stand of herb read as an army: an ant standing in
-            // foliage would assess itself as hopelessly outnumbered and go
-            // timid in exactly the places a colony forages. Caught by
-            // `conflict_arena control=selftest`'s specificity arm, which
-            // reported 710 "contests" in a bed with no strangers in it at
-            // all -- `CLAUDE.md`'s worst-recurring failure, arriving as a
-            // counter that was arithmetically correct about the wrong
-            // question.
-            if world.materials.kind(cell.material) == MaterialKind::Creature && !foes.contains(&owner) {
+            // organism, so counting foes the way the target rule used to
+            // find them made a stand of herb read as an army: an ant
+            // standing in foliage would assess itself as hopelessly
+            // outnumbered and go timid in exactly the places a colony
+            // forages. Caught by `conflict_arena control=selftest`'s
+            // specificity arm, which reported 710 "contests" in a bed with
+            // no strangers in it at all -- `CLAUDE.md`'s worst-recurring
+            // failure, arriving as a counter that was arithmetically correct
+            // about the wrong question. The skip above now makes the two
+            // rules agree by construction rather than by both being right.
+            if !foes.contains(&owner) {
                 foes.push(owner);
             }
         }
@@ -5633,6 +5661,48 @@ fn neediest_kin(world: &World, organism: u16, head: (i32, i32), gut: Gut, start_
 /// of the same fight.
 fn cry_alarm(world: &mut World, x: i32, y: i32) {
     world.deposit_pheromone(Channel::Alarm, x, y, pheromone::ALARM_DEPOSIT);
+}
+
+/// **Is the cell at `(x, y)` part of a living animal?**
+///
+/// One predicate rather than the four open-coded `materials.kind(..) ==
+/// MaterialKind::Creature` tests this file had grown, because §Z23 is what
+/// happens when the *same* question is asked in one place and not in
+/// another: `nearest_foe`'s odds count asked it, `nearest_foe`'s target rule
+/// did not, and a stand of herb was a foe to the fist while not being an
+/// army to the arithmetic.
+///
+/// **A corpse is deliberately not an animal here** and needs no clause to
+/// say so: `corpse` is `kind: Powder` and carries no organism id, so both
+/// halves of this test already exclude it. Being eaten is the one thing a
+/// corpse is for.
+fn is_animal_cell(world: &World, x: i32, y: i32) -> bool {
+    let cell = world.get(x, y);
+    cell.organism_id() != 0 && world.materials.kind(cell.material) == MaterialKind::Creature
+}
+
+/// **The ablation switch for the owner's 2026-09-14 rulings** — a plant is
+/// not a foe, and eating a plant raises no alarm. `PIXEL_PHYSICS_PLANT_FOE=on`
+/// restores the pre-ruling behaviour of both, exactly and together.
+///
+/// **Off by default, which is the shipped game**: the rulings have no
+/// exception and this is not a game option. It exists because the control for
+/// a change of this shape is to *hold the semantic rule fixed and change
+/// nothing else* — one env switch, one run, rather than a metric built around
+/// the confound (`CLAUDE.md`, *a cost that vanishes may be work that
+/// vanished*). Without it, sizing §Z23 means building the before-binary from
+/// a commit, and the two arms are then two builds rather than two arms.
+///
+/// **They are one switch rather than two on purpose.** They are one loop:
+/// grazing writes the alarm, the alarm aims the fist, the fist lands on the
+/// plant being grazed. Separating them would license arms that never existed
+/// in any shipped build and whose numbers no one could read against `main`.
+///
+/// Read once through a `OnceLock`, the `trophallaxis_enabled` pattern, so the
+/// sweep pays a load and not a `getenv`.
+fn plant_is_a_foe() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_PLANT_FOE").as_deref() == Ok("on"))
 }
 
 fn gut_of(world: &World, organism: u16, def: &CreatureDef) -> Gut {
@@ -6974,7 +7044,15 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
             if commits && damage > 0.0 && victim != 0 {
                 // Being bitten is being bitten, whichever verb did it.
                 cry_alarm(world, tx, ty);
+                world.creature_stats.alarm_attack += 1;
                 world.creature_stats.attacks += 1;
+                // **The near side of the §Z23 pair**, taken here rather than
+                // at the target rule because this is the point at which the
+                // swing is actually thrown: a target found and then declined
+                // by the commitment gate is not a swing at anything.
+                if !is_animal {
+                    world.creature_stats.attacks_at_plants += 1;
+                }
                 // Priced as jaw work, per closure, exactly as gnawing is --
                 // `Did::gnaws` is the count `creature_tick` bills, and
                 // routing through it rather than through a second account is
@@ -7001,6 +7079,12 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                         .map(|s| (s.species, s.colony, s.energy));
                     world.set(tx, ty, Cell::EMPTY);
                     world.creature_stats.attack_cells += 1;
+                    // The far side of the same pair. `CLAUDE.md`: a count of
+                    // swings is not a count of cells, and this is the column
+                    // §Z23's repair has to drive to zero.
+                    if !is_animal {
+                        world.creature_stats.attack_plant_cells += 1;
+                    }
                     if !reconcile_chain(world, victim) {
                         world.creature_stats.attack_kills += 1;
                         if let (Some(v), Some(me)) = (victim_group, world.organism(organism).map(|s| (s.species, s.colony))) {
@@ -7174,7 +7258,37 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 let victim = world.get(fxx, fyy).organism_id();
                 may_swallow = false;
                 if victim != 0 {
-                    cry_alarm(world, fxx, fyy);
+                    // **EATING A PLANT RAISES NO ALARM. Owner's ruling,
+                    // 2026-09-14.** `cry_alarm`'s doc says what it is for in
+                    // its first line -- *an animal being bitten calls out* --
+                    // and this site was added for exactly that, so that an
+                    // animal worn down by chewing is not a silent death. It
+                    // reached every leaf in the world because the predicate
+                    // was `victim != 0` and a plant cell carries an organism
+                    // id like anything else alive.
+                    //
+                    // That is the near half of §Z23: alarm is the only wired
+                    // route to `Attack` in the engine (all nine armed species
+                    // author exactly `(Alarm, Attack, 2.0)`), so an ant
+                    // grazing wrote the signal that aimed the fight verb at
+                    // what it was grazing. **The owner's own positive
+                    // control** -- alarm signals in a single-colony box
+                    // holding nothing but trees, where nothing can attack
+                    // anything -- is this line, and it is now silent there:
+                    // `al_eat_plant` was 13,296/24,420/32,129 over three
+                    // seeds of the played longant bed and must read 0.
+                    //
+                    // **A corpse is silent too and needs no clause**: it is
+                    // `kind: Powder` and carries no organism id.
+                    if !is_animal_cell(world, fxx, fyy) {
+                        world.creature_stats.alarm_eat_plant += 1;
+                        if plant_is_a_foe() {
+                            cry_alarm(world, fxx, fyy);
+                        }
+                    } else {
+                        world.creature_stats.alarm_eat_animal += 1;
+                        cry_alarm(world, fxx, fyy);
+                    }
                     let done = world.organism(victim).is_some_and(|st| st.gnawed + bite_damage >= 1.0);
                     if let Some(st) = world.organism_mut(victim) {
                         st.gnawed = if done { 0.0 } else { st.gnawed + bite_damage };
@@ -7214,7 +7328,21 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
         // to nobody.
         if let Some((_, fxx, fyy, _)) = offered.filter(|_| may_swallow) {
             if world.get(fxx, fyy).organism_id() != 0 {
-                cry_alarm(world, fxx, fyy);
+                // The swallow's half of the same ruling -- see the gnaw site
+                // above. **Both sites or neither**: a signal written at only
+                // one of them is a colony that hears its members chewed and
+                // not its members killed, which is what `cry_alarm` exists as
+                // one function to prevent, and the same argument applies to
+                // the silence.
+                if !is_animal_cell(world, fxx, fyy) {
+                    world.creature_stats.alarm_eat_plant += 1;
+                    if plant_is_a_foe() {
+                        cry_alarm(world, fxx, fyy);
+                    }
+                } else {
+                    world.creature_stats.alarm_eat_animal += 1;
+                    cry_alarm(world, fxx, fyy);
+                }
             }
         }
         if let Some((offer, fxx, fyy, food)) = offered.filter(|_| may_swallow).filter(|&(_, _, _, m)| crop.is_none_or(|c| c.material == m)) {
@@ -7371,6 +7499,15 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                     _ => worth,
                 };
                 if !seed_saved.survived() {
+                    // **The mouth's half of the §Z23 ledger**, booked at the
+                    // one line where a cell actually leaves the world and on
+                    // the same predicate the jaw's half uses, so the two are
+                    // a ratio rather than two numbers about different
+                    // things. A bite that the seed survived removed nothing
+                    // and is deliberately outside the brace.
+                    if bite.organism_id() != 0 && world.materials.kind(bite.material) == MaterialKind::Plant {
+                        world.creature_stats.eaten_plant_cells += 1;
+                    }
                     world.set(fxx, fyy, Cell::EMPTY);
                 }
                 // **A2 -- ride home instead of standing.** `seed_saved` just
@@ -22331,11 +22468,57 @@ mod tests {
         //
         // `ceiling` and `renewable` are still computed and still printed on
         // failure, because the efficiency is worth seeing next to the yield.
+        // **Compared on MOUTHFULS, not on joules, and that changed on
+        // 2026-09-14 when §Z23's repair took the joule ordering red.**
+        //
+        // The wall arm is a ceiling on *how often a stationary animal can
+        // get something into its mouth in the time available* -- that is
+        // what its own doc claims for it, and it is true. It is **not** a
+        // ceiling on joules, because the two larders are different foods:
+        // `litter` is `food_class: -1.0` against the shipped neutral gut and
+        // moss is not, so the wall arm is 37 cheap mouthfuls and the lawn arm
+        // is 18 expensive ones. A joule comparison between them is a
+        // comparison of *diet quality*, which is not what this test is named
+        // for.
+        //
+        // It read the right way round only for as long as the lawn arm
+        // carried §Z23. Measured the day it was fixed, one binary, the
+        // ablation switch the only difference (`plant_is_a_foe`):
+        //
+        //     arm                        intake  eats  attacks  alarm-bites
+        //     wall,  plant-a-foe on         684    37        0            0
+        //     wall,  plant-a-foe off        684    37        0            0
+        //     lawn,  plant-a-foe on         456     9        1           20
+        //     lawn,  plant-a-foe off        912    18        0           20
+        //
+        // **The wall arm is byte-identical across the switch** -- painted
+        // `litter` carries no organism id, so nothing in that arm can raise
+        // an alarm or be struck, and it is the control that says the move is
+        // the lawn's. The lawn arm exactly doubled, and the jaw is not what
+        // did it: **one** attack in the whole run. What did it is the alarm.
+        // An ant grazing moss raised its own alarm twenty times, `ant.ron`'s
+        // `(Alarm, Attack, 2.0)` spent those ticks on the fight verb, and the
+        // mouthfuls it did not take are the other half of `eats`.
+        //
+        // So `CLAUDE.md`'s *fixing a bug often exposes a constant that was
+        // compensating for it*, with the constant being this bar: it was
+        // calibrated against a quantity that was being held down by the
+        // defect. The claim the test is named for -- **a renewable lawn is a
+        // bounded niche** -- is intact and is still comfortably true on the
+        // quantity the wall arm actually bounds: 18 against 37, and 9 against
+        // 37 before the repair. `dead-ends.md` carries the withdrawal.
+        //
+        // `lawn_intake`, `larder_intake` and the two efficiencies are still
+        // computed and still printed on failure, because the joules are worth
+        // seeing next to the bites -- they are just not the assertion.
         assert!(
-            lawn_intake <= larder_intake,
-            "a renewable lawn yielded more food than an inexhaustible one ({lawn_intake:.0} J against {larder_intake:.0} J), \
+            lawn.creature_stats.eats <= unlimited.creature_stats.eats,
+            "a renewable lawn fed a stationary animal more mouthfuls than an inexhaustible wall did ({} against {}), \
              which is not a fact about moss -- it is a fact about the scene, and the scene is wrong. \
-             (efficiencies, for context: renewable {renewable:.3}, unlimited {ceiling:.3})"
+             (intake, for context: renewable {lawn_intake:.0} J against unlimited {larder_intake:.0} J; \
+             efficiencies: renewable {renewable:.3}, unlimited {ceiling:.3})",
+            lawn.creature_stats.eats,
+            unlimited.creature_stats.eats
         );
         assert!(
             lawn.creature_stats.births <= unlimited.creature_stats.births,
