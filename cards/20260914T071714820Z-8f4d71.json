@@ -1,0 +1,58 @@
+{
+  "id": "20260914T071714820Z-8f4d71",
+  "created": "2026-09-14T07:17:14Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/absorb-destroys-plants",
+    "commit": "b761d6be",
+    "agent": null,
+    "session_id": "ab498c15-38be-5a0b-a525-bdfb54ed80d6",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "What eats the plants around your colony (re-taken on today's main)",
+  "question": "Is this the thing you saw when you reported that absorbing destroys plants - a circle thinned out like B? And was the speed dial up at the time?",
+  "context_md": "**This replaces card `20260914T043140244Z-b56729`, which I posted an hour ago and which you should ignore.** That pair was rendered before `claude/thicket-founding` landed on main. Its repair - a floor of plants is a floor a colony can stand on - changes where ants can stand, and it moved the numbers a long way: the colony used to cost **half** the garden and on today's main it costs about **a sixth**. The old picture was more dramatic than the code now is, and I would rather you judged the code you have.\n\nSame world, same seed, same 3000 player ticks, speed x8, one circle. The ONLY difference between A and B is whether a colony is standing in it.\n\nI still could not reproduce your report from the `F` key. Pressing `F` leaves the world **bit-identical** - every plant material, every organism, every death cause, every unit of plant eaten - and that held again after today's merge, with 10 presses drawing 481 power. The energy motes never touch the world; they are painted into the finished frame.\n\nWhat does eat the garden is **ants grazing inside a circle, multiplied by the speed dial**. Absorbing is upstream of it rather than the cause: it buys the power that keeps the circle standing, and you have to be standing in the colony to press `F` at all.\n\nIf B is not what you saw, tell me what was on screen instead - I would rather know my reproduction is wrong than ship a fix for it.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - no colony",
+      "files": [
+        "20260914T071714820Z-8f4d71/000-m-nocolony-after.png"
+      ],
+      "caption": "the same circle with nothing living in it",
+      "meta": {
+        "plants at end": 352,
+        "plant cells": 5811,
+        "plant energy eaten": 0,
+        "plants felled": 273,
+        "ants": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "B - 40 ants",
+      "files": [
+        "20260914T071714820Z-8f4d71/001-m-colony-after.png"
+      ],
+      "caption": "a colony founded at the player's feet",
+      "meta": {
+        "plants at end": 295,
+        "plant cells": 5645,
+        "plant energy eaten": 7821,
+        "plants felled": 318,
+        "ants at end": 32
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
