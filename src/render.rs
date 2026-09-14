@@ -2956,7 +2956,7 @@ impl Default for AuraTuning {
             wave: 7.0,
             period: 48.0,
             grain: 0.55,
-            fast_gain: 1.45,
+            fast_gain: 2.0,
             rim_rough: 4.5,
             rim_scale: 5.0,
         }
@@ -3014,7 +3014,19 @@ const AURA_CARRIED: [u8; 4] = [255, 214, 140, 255];
 /// on the haze. Choosing a *new* hue would have been a second thing to
 /// learn, and it would have collided with [`AURA_CARRIED`], which is the
 /// warm end of the only other colour distinction the haze makes.
-const AURA_FAST: [u8; 4] = [255, 250, 225, 255];
+///
+/// **Warmed from `hud::FLOW`'s own `[255, 250, 225]` on 2026-09-14**, after
+/// the owner saw the ramp: *"This is the idea, but make the color change a
+/// little more visible. You are close."* Pushed toward gold rather than all
+/// the way to amber, and that ceiling is the constraint worth stating:
+/// [`AURA_CARRIED`] is `[255, 214, 140]`, so a hot end much past this stops
+/// being "a fast circle" and starts reading as "his circle". The gap that
+/// survives is 29 of green and 45 of blue — visible side by side, where the
+/// old `[255, 250, 225]` differed from the sky mostly in being brighter.
+///
+/// The other half of *more visible* is density, not hue, and it went up at
+/// the same time: see [`AuraTuning::fast_gain`].
+const AURA_FAST: [u8; 4] = [255, 243, 185, 255];
 
 /// The top of the held game's speed dial (`druid::SPEED_MAX`), mirrored
 /// rather than imported: `render.rs` is shared by three games and
@@ -9984,9 +9996,13 @@ mod tests {
         // dial said, so switching the channel off satisfied it — the bar
         // moved with the fault, and the test stayed green through the very
         // thing it is named for. `CLAUDE.md`'s *set bars from measurement
-        // with headroom*: measured 2026-09-14, this ratio is **1.37** at the
-        // shipped `fast_gain` of 1.45 and **0.94** with the channel switched
-        // off, so 1.20 sits in the gap rather than on either value.
+        // with headroom*: measured 2026-09-14, this ratio is **0.94** with
+        // the channel switched off, against 1.37 at the `fast_gain` of 1.45
+        // first shipped and more again at the 2.0 the owner asked for when
+        // he saw it (*"make the color change a little more visible"*). 1.20
+        // sits in the gap above the off value and below every on value, and
+        // is deliberately **not** re-tightened each time the dial moves — a
+        // bar that tracks the dial is the bug this constant exists to avoid.
         const DENSER: f64 = 1.20;
         let got = strength[1] / strength[0].max(f64::MIN_POSITIVE);
         assert!(

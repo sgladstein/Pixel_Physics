@@ -138,6 +138,33 @@ better. The speed card was amended (unanswered) to say so and to name
 `cargo test --release` · `scripts/docscheck.sh` clean ·
 `deadendindex.py --touching` 0 · merged `origin/main` (36 behind at the time).
 
+## The owner's verdicts, and what is left
+
+Two of the four cards came back on 2026-09-14.
+
+**Speed colour — *"This is the idea, but make the color change a little more
+visible. You are close."*** Acted on in this branch: `AURA_FAST` warmed from
+`[255, 250, 225]` to `[255, 243, 185]` and `fast_gain` raised 1.45 → 2.0. A x8
+bubble now carries **1.72x** the tint of a x1 one, against 1.37x before.
+Re-posted as card `20260914T223428380Z-a1c555`.
+
+**The ceiling on that lever is worth knowing before anyone pushes it again.**
+`AURA_CARRIED` is `[255, 214, 140]`. A hot end much past `[255, 243, 185]`
+stops reading as *a fast circle* and starts reading as *his circle* — one
+distinction bought with another. If more heat is wanted, the carried colour
+has to move first. `fast_gain` has no such ceiling and is the lever to reach
+for.
+
+**Overlays — *"'there is no key or menu row to turn these on yet.' - this was
+the main issue, but the after does look better."*** The rendering half is
+accepted; **the switch is what he actually wants, and it is not in this
+lane.** Re-derived from the branch list rather than from the brief:
+`origin/claude/druid-founding` is unlanded and is editing both
+`src/druid/menu.rs` and `src/bin/druid.rs` right now, so a row added here
+would land in a file someone else has open. **Coordinator: this is one menu
+row, and it is the difference between item 3 being done and not.** The three
+`cycle_*` calls are in the table at the top of this note.
+
 ## Status for the coordinator
 
 **PR [#437](https://github.com/sgladstein/Pixel_Physics/pull/437) — open,
