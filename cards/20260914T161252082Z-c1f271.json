@@ -1,0 +1,55 @@
+{
+  "id": "20260914T161252082Z-c1f271",
+  "created": "2026-09-14T16:12:52Z",
+  "board": "aquatic",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/dreamy-feynman-uq21ka",
+    "commit": "f8dd2fb8",
+    "agent": null,
+    "session_id": "03a661b6-8a97-557a-bb54-646ad0fd7092",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Three pond shapes, and the wall that hid the water",
+  "question": "You said a pond would need a sloped entrance or creatures would get stuck. It does -- but chasing it turned up something bigger: every pond we have is a stone box whose vertical wall stops an ant at the rim, so four separate measurements said water was indistinguishable from the same hole left dry. They were measuring the wall. Give the ants a bank they can walk down and the identical water costs them 49.5 columns of range, 6 of 6 seeds. Is the bottom one the pond you want -- earth banks, thin stone liner, holds water -- and is the slope gentle enough?",
+  "context_md": "**Range = columns the colony ever occupied, labforage, 6 seeds, 24,000 frames, one binary.**\n\n| bed | cols |\n|---|---|\n| no pit at all | 279.5 |\n| C, dry | 254.5 |\n| **C, with water** | **205.0** |\n| A, with water | 199.5 |\n| A, dry | 196.5 |\n\nC dry vs C watered is one file and 16 lines apart: **water costs 49.5 columns, 6 of 6 seeds completely separated.** A dry vs A watered is that same water costing **nothing** -- because nobody ever reaches it.\n\nStone is unavoidable: the bed's own soil column has exactly enough room to swallow a pond, so a soil-lined basin drains to zero. But the seal only needs to be one tread thick -- B fills the whole wedge, C just lines it.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A boxed (what we ship today)",
+      "files": [
+        "20260914T161252082Z-c1f271/000-vert_big.png"
+      ],
+      "caption": "vertical stone walls. Ants stop at the rim. cols 199.5",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "B solid stone slope",
+      "files": [
+        "20260914T161252082Z-c1f271/001-bank_big.png"
+      ],
+      "caption": "ants can walk down, but it reads as a concrete tank. cols 272.5 DRY",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "C thin liner, earth bank",
+      "files": [
+        "20260914T161252082Z-c1f271/002-bowl_big.png"
+      ],
+      "caption": "the shape that looks like a pond AND holds. cols 254.5 dry, 205.0 with water",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
