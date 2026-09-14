@@ -89,6 +89,8 @@ struct Handler {
     census_after: Option<u64>,
     /// See `PIXEL_PHYSICS_DRUID_ABSORB_AT`.
     absorb_at: Option<u64>,
+    /// `PIXEL_PHYSICS_DRUID_FOUND_AT` — the tick to commit the open offer on.
+    found_at: Option<u64>,
     /// See `PIXEL_PHYSICS_DRUID_GIF`.
     gif: Option<GifCapture>,
     /// See `PIXEL_PHYSICS_DRUID_WALK`.
@@ -121,6 +123,18 @@ impl Handler {
         // number rather than a picture.
         if std::env::var("PIXEL_PHYSICS_DRUID_FOUND").is_ok_and(|v| v != "0") {
             game.found_colony();
+        }
+        // `PIXEL_PHYSICS_DRUID_OFFER=1` -- open the founding screen at
+        // startup, and `=<n>` to put the cursor on the nth lineage. The
+        // screen is the one part of this game a still image *can* settle, so
+        // it is the one that most needs to be reachable without a keyboard.
+        if let Ok(v) = std::env::var("PIXEL_PHYSICS_DRUID_OFFER") {
+            if v != "0" {
+                game.toggle_founding();
+                if let (Ok(n), Some(offer)) = (v.parse::<i32>(), game.offer.as_mut()) {
+                    offer.step_pick(n);
+                }
+            }
         }
         // `PIXEL_PHYSICS_DRUID_CIRCLES=x,y,r,rate;x,y,r,rate` -- place
         // standing quickenings at startup. Third hook of the same shape and
@@ -170,6 +184,13 @@ impl Handler {
         // catching it needs the press and the screenshot to be scheduled
         // together; a headless run cannot press anything.
         let absorb_at: Option<u64> = std::env::var("PIXEL_PHYSICS_DRUID_ABSORB_AT").ok().and_then(|v| v.parse().ok());
+        // `PIXEL_PHYSICS_DRUID_FOUND_AT=<tick>` -- commit whatever the offer is
+        // showing, at that player tick. Same shape and same reason as
+        // `ABSORB_AT` above: the founding throws a flow, and a flow is a
+        // claim about several frames that a screenshot scheduled by hand
+        // will miss. Pair it with `PIXEL_PHYSICS_DRUID_OFFER` to choose
+        // which lineage.
+        let found_at: Option<u64> = std::env::var("PIXEL_PHYSICS_DRUID_FOUND_AT").ok().and_then(|v| v.parse().ok());
         // `PIXEL_PHYSICS_DRUID_GIF=start,every,count[,out.gif]` -- capture an
         // animation instead of a still.
         //
@@ -216,6 +237,7 @@ impl Handler {
             screenshot_countdown: std::env::var("PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES").ok().and_then(|v| v.parse().ok()),
             census_after,
             absorb_at,
+            found_at,
             gif,
             walk,
             result: Ok(()),
@@ -271,6 +293,26 @@ impl Handler {
         self.game.player_input.down = self.held.down;
         self.game.player_input.grab = self.held.grab;
         self.game.player_input.jump_pressed |= std::mem::take(&mut self.jump_pressed);
+
+        if let Some(n) = self.found_at {
+            if self.game.ticks >= n {
+                self.found_at = None;
+                if self.game.offer.is_none() {
+                    self.game.toggle_founding();
+                }
+                // **The founding schedules its own screenshot**, for the
+                // reason the pull below already learned the hard way: the
+                // countdown counts *drawn frames* and this counts *player
+                // ticks*, and on a software rasteriser one drawn frame is
+                // worth several ticks. Scheduling both by hand renders the
+                // moment after the flow has finished and reads as the flow
+                // not existing.
+                if self.game.commit_founding() > 0 {
+                    let catch = std::env::var("PIXEL_PHYSICS_DRUID_CATCH").ok().and_then(|v| v.parse().ok());
+                    self.screenshot_countdown = Some(catch.unwrap_or(1));
+                }
+            }
+        }
 
         if let Some(n) = self.absorb_at {
             if self.game.ticks >= n {
@@ -366,6 +408,29 @@ impl Handler {
     }
 
     fn key(&mut self, code: KeyCode, event_loop: &ActiveEventLoop) {
+        // **While the founding screen is up it owns every binding.** Handled
+        // before the main list rather than by adding a guard to each arm:
+        // eighteen arms each remembering to check is eighteen chances to
+        // forget, and the one that forgets is a key that quietly still works
+        // behind a modal screen.
+        if let Some(offer) = self.game.offer.as_mut() {
+            match code {
+                KeyCode::KeyA => offer.step_pick(-1),
+                KeyCode::KeyD => offer.step_pick(1),
+                KeyCode::KeyQ => offer.step_founders(-1),
+                KeyCode::KeyE => offer.step_founders(1),
+                KeyCode::KeyC => {
+                    self.game.commit_founding();
+                }
+                // **Escape closes the screen rather than the game.** Quitting
+                // out of a modal is the classic way to lose a session to one
+                // keystroke, and `X` -- lift, elsewhere -- is the natural
+                // "put this down" here too.
+                KeyCode::KeyX | KeyCode::Escape => self.game.offer = None,
+                _ => {}
+            }
+            return;
+        }
         match code {
             KeyCode::Escape => event_loop.exit(),
             KeyCode::KeyP => {
@@ -387,7 +452,12 @@ impl Handler {
             // running time to tick at all, and the circle you carry is at
             // your feet -- see `Druid::found_colony`.
             KeyCode::KeyC => {
-                self.game.found_colony();
+                // **Stop walking on the way in.** Otherwise a key held at the
+                // moment the screen opens stays held -- the release goes to
+                // the screen, which does not track it -- and he walks off the
+                // site he is founding on.
+                self.held = HeldKeys::default();
+                self.game.toggle_founding();
             }
             // **The verb the whole game is built on.** A seed sown on held
             // ground lies there until a circle reaches it -- see
@@ -492,6 +562,18 @@ impl ApplicationHandler for Handler {
             WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(code) = event.physical_key {
                     let pressed = event.state == ElementState::Pressed;
+                    // **The founding screen takes the whole keyboard.** A/D
+                    // choose a lineage there, and the same press reaching the
+                    // walk would have the gnome stroll off the colony site
+                    // while you read about it. Held state is cleared on the
+                    // way in (`key`), so he stops rather than keeping the
+                    // direction he was going.
+                    if self.game.offer.is_some() {
+                        if pressed && !event.repeat {
+                            self.key(code, event_loop);
+                        }
+                        return;
+                    }
                     match code {
                         KeyCode::KeyA => self.held.left = pressed,
                         KeyCode::KeyD => self.held.right = pressed,

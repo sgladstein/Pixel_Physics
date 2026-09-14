@@ -21,11 +21,13 @@
 //! world-edge behaviour beyond the sandbox's. Named here as out of scope
 //! rather than discovered later.
 
+pub mod founding;
 pub mod hud;
 
 use crate::render::Renderer;
 use crate::sim::chunk::Rect;
 use crate::sim::clock::SkyPin;
+use crate::sim::creature;
 use crate::sim::explosion::{self, Blasts};
 use crate::sim::frame;
 use crate::sim::material;
@@ -234,6 +236,14 @@ const DRAW_FRAMES: u32 = 42;
 /// How often the economy is recomputed, in ticks. Walking every organism is
 /// `O(organisms)` and there are thousands, so this runs twice a second rather
 /// than sixty times and scales what it charges.
+/// **How many streams a founding draws**, however many founders it places.
+///
+/// A cap rather than one per station: twenty-four streams is a wall of motes
+/// and reads as noise, while four to eight reads as *several places at once*,
+/// which is what a colony arriving is. The flow is the event, not a census of
+/// it.
+const FOUNDING_STREAMS: usize = 8;
+
 const ECONOMY_INTERVAL: u64 = 30;
 
 /// **How fast the world may be run inside the circles**, in ticks per frame.
@@ -294,8 +304,16 @@ const MESSAGE_FRAMES: u64 = 180;
 /// travels, and it takes [`DRAW_FRAMES`] to arrive.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Draw {
-    /// Where it came from, in world cells.
+    /// The far end of the flow, in world cells — where it came *from* on a
+    /// pull, and where it is going *to* on a founding.
     pub from: (i32, i32),
+    /// **Which way it runs.** A pull converges on the player; a founding is
+    /// the same flow reversed, spending the pool out into the ground.
+    ///
+    /// One flag rather than a second list, because the whole value of this
+    /// being the drain's own machinery is that the founding then *looks* like
+    /// the drain running backwards — which is what it is.
+    pub outward: bool,
     /// Ticks since it was pulled; it lands at [`DRAW_FRAMES`].
     pub age: u32,
     /// How much, which sets how heavy the flow looks.
@@ -401,6 +419,15 @@ pub struct Druid {
     pub reserves: std::collections::HashMap<u16, f32>,
     /// Energy in flight from an animal to the player — see [`Draw`].
     pub draws: Vec<Draw>,
+    /// **The founding screen, while it is open.** `None` the rest of the
+    /// time, which is also what says whether the game is showing it — one
+    /// piece of state rather than an `open: bool` beside an `Offer` that can
+    /// disagree with it.
+    ///
+    /// It survives being closed and reopened: walking away from an offer
+    /// leaves the same three standing, and only committing rerolls. See
+    /// [`founding`].
+    pub offer: Option<founding::Offer>,
     /// How many seeds the player has sown, for the readout — *"did it fire at
     /// all needs a counter"*, and a seed dropped outside a quickening does
     /// nothing visible until time reaches it, so the picture cannot say.
@@ -556,6 +583,7 @@ impl Druid {
             seed_kinds,
             seed_kind: 0,
             sown: 0,
+            offer: None,
             reserves: std::collections::HashMap::new(),
             draws: Vec::new(),
         }
@@ -750,7 +778,7 @@ impl Druid {
             self.reserves.insert(id, 0.0);
         }
         for (at, amount) in from {
-            self.draws.push(Draw { from: at, age: 0, amount });
+            self.draws.push(Draw { from: at, outward: false, age: 0, amount });
         }
         if taken > 0.0 {
             self.power += taken;
@@ -803,6 +831,129 @@ impl Druid {
             0 => self.note("nothing founded - no ground here"),
             n => self.note(format!("founded {n} animals at your feet")),
         }
+        placed
+    }
+
+    /// **Open the founding screen, or shut it again.**
+    ///
+    /// The offer itself outlives the screen — see [`Druid::offer`] — so
+    /// closing is genuinely walking away rather than declining, and the same
+    /// three lineages are there when you come back.
+    pub fn toggle_founding(&mut self) {
+        if self.offer.take().is_some() {
+            return;
+        }
+        self.offer = Some(founding::Offer::new(self.world.seed));
+    }
+
+    /// **Put the chosen lineage in the ground.**
+    ///
+    /// Composed from public engine parts rather than a new one:
+    /// `paint_nest_patch` puts a home down, `colony_stations` lays out where
+    /// the founders stand — terrain-following, and derived from the body
+    /// plan's own width, which is why a nine-cell stock does not get the
+    /// two-cell ant's corridor — and `release_creature_specimen` places each
+    /// founder with this lineage's traits stamped on it.
+    ///
+    /// **The species' own genome goes in untouched.** That is the whole of
+    /// why this is safe: the trail-following circuit lives in `ant.ron`'s
+    /// hidden layer, and a rolled genome would produce a colony that walks at
+    /// random and takes an evening to tell apart from an unlucky one.
+    ///
+    /// **It lands at his feet on purpose, and that is a rule rather than a
+    /// convenience.** A colony in held ground does not tick: creatures run on
+    /// the active-site schedule, which `scheduler::step` gates on
+    /// `time_runs_at`. So a colony has to be founded *inside* running time or
+    /// it stands there as scenery — and the carried quickening is exactly the
+    /// circle at his feet. The rule needs no code; it falls out of the gate.
+    ///
+    /// Returns how many animals were placed. **Zero is a real answer** and
+    /// every route to it says which one it was: too little power, no ground,
+    /// a species that is not loaded. A silent no-op is indistinguishable from
+    /// a broken feature, which is how the whole of this milestone was once
+    /// reported missing.
+    pub fn commit_founding(&mut self) -> usize {
+        let Some(offer) = &self.offer else {
+            return 0;
+        };
+        let candidate = offer.picked().clone();
+        let founders = offer.founders;
+        let cost = candidate.cost(founders);
+        if !self.unlimited && self.power < cost {
+            self.note(format!("not enough power - that founding costs {cost:.0}"));
+            return 0;
+        }
+        let Some(player) = &self.world.player else {
+            return 0;
+        };
+        let (x, y) = player.center();
+        let species = candidate.stock().species;
+        let Some(species_id) = self.world.species.id_of(species) else {
+            self.note(format!("{species} is not loaded"));
+            return 0;
+        };
+        let Some(def) = self.world.species.get(species_id).creature.clone() else {
+            self.note(format!("{species} is not an animal"));
+            return 0;
+        };
+        let genome = self.world.species.get(species_id).genome.clone();
+        // **The stock's own traits, moved by the roll.** Clamped to the
+        // slots' shared domain rather than trusted: a delta that pushed a
+        // baseline past ±1 would be read by `ratio_factor_reach` as an
+        // allele no birth could ever produce.
+        let mut traits = def.traits;
+        for (t, d) in traits.iter_mut().zip(candidate.deltas.iter()) {
+            *t = (*t + *d).clamp(-1.0, 1.0);
+        }
+        if !def.nest.is_empty() {
+            if self.world.materials.id_of(&def.nest).is_none() {
+                self.note(format!("{species} wants a nest of {} and there is none", def.nest));
+                return 0;
+            }
+            self.world.paint_nest_patch(x, y);
+        }
+        // **One colony per founding**, exactly as `found_colony_of` does it:
+        // the first founder that fits claims the label and every later one
+        // joins it, so a founding in which nothing fits claims nothing.
+        let mut colony: Option<u32> = None;
+        let mut placed = 0;
+        let stations = self.world.colony_stations(x, y, species_id, founders);
+        for &(cx, cy) in &stations {
+            let Some(organism) = creature::release_creature_specimen(&mut self.world, cx, cy, species, genome.clone(), traits, colony) else {
+                continue;
+            };
+            if colony.is_none() {
+                colony = self.world.organism(organism).map(|s| s.colony);
+            }
+            placed += 1;
+        }
+        println!("druid: founded {placed} {species} at {x},{y} for {cost:.0} power (asked for {founders})");
+        // **Spend it where you can see it go.** The pool coming off the meter
+        // is a number changing in the corner; this is the same event as
+        // something leaving the caster and arriving in the ground, and it is
+        // the drain's own flow with `outward` set — *"if an event produces no
+        // visible consequence it is not finished regardless of what the
+        // simulation believes"*. Capped so a twenty-four founder colony is a
+        // heavier flow than a four without being a wall of motes.
+        for &(cx, cy) in stations.iter().take(FOUNDING_STREAMS) {
+            self.draws.push(Draw { from: (cx, cy), outward: true, age: 0, amount: cost / placed.max(1) as f32 });
+        }
+        if placed == 0 {
+            self.note("nothing founded - no ground here");
+            return 0;
+        }
+        if !self.unlimited {
+            self.power -= cost;
+        }
+        self.animals += placed;
+        self.note(format!("{placed} {} founded for {cost:.0}", candidate.stock().name.to_lowercase()));
+        // **Committing is what costs you the other two.** Walking away does
+        // not reroll, and neither does a refusal above — only a founding that
+        // actually happened.
+        if let Some(offer) = &mut self.offer {
+            offer.reroll();
+        }
+        self.offer = None;
         placed
     }
 

@@ -357,6 +357,39 @@ So "when may you found" is a real decision the player should be making, not a
 button that is always available. *Found it on a stand you grew* is the rule the
 measurement already suggests.
 
+### Built 2026-09-14: three of the four steps, and step 2 is the one that is missing
+
+`C` opens a founding screen (`src/druid/founding.rs`; README's *Founding a
+colony*). Against the ritual above it lands **1, 3 and 4** and **not 2**:
+
+- **1, choose a body** — six stocks, priced on body cells. The five excluded
+  species were each excluded on a measurement rather than on taste, and the
+  guard that holds the line uses `beetle` as its positive control.
+- **3, buy a sense** — `TRAIT_SIGHT_RANGE` is the dearest thing on the roll,
+  at `premium 0.50` against `0.15` for pace. It is rolled rather than bought,
+  which is weaker than this section asks for and is the obvious next turn of
+  the screw.
+- **4, the world rolls the rest** — six trait slots, triangular so most land
+  neutral. First law, as an assertion: `a_roll_has_a_middle` fails for a
+  constant draw (0% strong) *and* for a uniform one (~55%).
+
+**Step 2 — writing instincts as sentences — is not built and was deliberately
+not attempted here**, and the reason is worth recording because it does *not*
+generalise from "rolling the genome is unsafe" to "authoring it is". The
+founding screen passes the species genome through untouched because a
+*randomly rolled* one produces a colony that cannot forage — `ant.ron`'s
+homing circuit is four hidden-layer wires, and losing them looks exactly like
+a colony that is merely unlucky. A *written* genome has no such problem: the
+player would be adding to the authored instincts, not replacing them, and the
+plain-speech readout this section names already renders the view that would
+have to become writable. So step 2 is open, wanted, and unblocked.
+
+**And this section's own caution is still unenforced.** *Found it on a stand
+you grew* — 5 ants against 39 at frame 6,000 on the same bed — is a rule the
+screen does not apply: `C` is available on bare ground and says nothing about
+it. The cheapest form is a line on the screen reading what is alive inside the
+carried circle, which the economy already counts.
+
 ## 4a. Making the colony load-bearing, not resident
 
 **The owner's objection to the first draft, and it was correct:** *"this

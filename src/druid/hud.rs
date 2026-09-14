@@ -128,7 +128,7 @@ pub const KEYS: &[(&str, &str)] = &[
     ("Z V", "HOW FAST TIME RUNS IN THEM"),
     ("T", "SOW A SEED WHERE YOU STAND"),
     ("TAB", "WHICH SEED"),
-    ("C", "FOUND A COLONY AT YOUR FEET"),
+    ("C", "FOUND A COLONY - OPENS AN OFFER"),
     ("F", "DRAW THE CHARGE OUT OF THEM"),
     ("H", "HOLD OR RELEASE THE WORLD"),
     ("L", "HOW HELD GROUND IS DRAWN"),
@@ -248,6 +248,31 @@ struct Ring {
     colour: [u8; 4],
 }
 
+/// **The founding screen**, flattened to text the moment it is built.
+///
+/// Rows first, then a detail pane for the one you are on: three candidates at
+/// this width cannot each carry a blurb and six trait lines side by side, and
+/// the version that tried read as a wall. A list you scan plus a pane for the
+/// one under the cursor is the same information in a third of the pixels.
+#[derive(Clone, PartialEq, Debug)]
+struct Founding {
+    rows: Vec<Row>,
+    picked: usize,
+    blurb: String,
+    dial: String,
+}
+
+/// One lineage's row: what it is, what the roll gave it, what it costs, and
+/// whether the pool can pay for it.
+#[derive(Clone, PartialEq, Debug)]
+struct Row {
+    name: String,
+    /// Each rolled word with how far from neutral it is, 0..1.
+    words: Vec<(String, f32)>,
+    cost: String,
+    afford: bool,
+}
+
 /// **One frame of interface, as a value that can be compared with the last
 /// one.** See the module doc for why that comparison exists.
 #[derive(Clone, PartialEq, Debug)]
@@ -261,6 +286,8 @@ pub struct Interface {
     motes: Vec<Mote>,
     /// Screen position and 0..1 age of each arrival bloom.
     landings: Vec<(i32, i32, f32)>,
+    /// The founding screen, while it is open.
+    founding: Option<Founding>,
 }
 
 impl Interface {
@@ -274,6 +301,7 @@ impl Interface {
             marks: marks(game),
             motes: motes(game),
             landings: landings(game),
+            founding: founding(game),
         }
     }
 
@@ -370,6 +398,51 @@ impl Interface {
             hc.text(frame, MARGIN + PAD, y, text, *colour);
         }
 
+        // **The founding screen goes over everything and takes the keys with
+        // it.** Drawn last so nothing crosses it, and it returns before the
+        // legend below: while the screen is up, `KEYS` is a list of bindings
+        // that are not live, and a legend that lies is worse than none.
+        if let Some(f) = &self.founding {
+            let h = PAD * 2 + LINE * (f.rows.len() as i32 + 4) + 4;
+            let left = (viewport.0 as i32 - OFFER_W) / 2;
+            let top = (viewport.1 as i32 - h) / 2;
+            panel(hc, frame, viewport, (left, top, OFFER_W, h));
+            hc.text(frame, left + PAD, top + PAD, "FOUND A COLONY", ACCENT);
+            for (i, row) in f.rows.iter().enumerate() {
+                let y = top + PAD + (i as i32 + 1) * LINE + 2;
+                let on = i == f.picked;
+                // **The cursor is a character, not a highlight.** A filled
+                // row behind text is one more thing to get right against the
+                // panel fill, and at 5x7 an arrow reads from further away.
+                if on {
+                    hc.text(frame, left + PAD, y, ">", ACCENT);
+                }
+                hc.text(frame, left + PAD + 8, y, &row.name, if on { TEXT } else { DIM });
+                let mut x = left + OFFER_COL;
+                for (word, strength) in &row.words {
+                    let w = hud::text_width(word);
+                    // Stop before the cost column rather than drawing under
+                    // it; a lineage with six loud traits is rare and reads
+                    // fine truncated.
+                    if x + w > left + OFFER_W - 40 {
+                        break;
+                    }
+                    // Strength as brightness, so a strong roll is visibly a
+                    // strong roll before a word of it is read.
+                    let tint = if on { lerp(DIM, ACCENT, *strength) } else { lerp(EDGE, DIM, *strength) };
+                    hc.text(frame, x, y, word, tint);
+                    x += w + 6;
+                }
+                let cw = hud::text_width(&row.cost);
+                hc.text(frame, left + OFFER_W - PAD - cw, y, &row.cost, if row.afford { GOOD } else { WARN });
+            }
+            let blurb_y = top + PAD + (f.rows.len() as i32 + 1) * LINE + 6;
+            hc.text(frame, left + PAD + 8, blurb_y, &f.blurb, DIM);
+            hc.text(frame, left + PAD + 8, blurb_y + LINE, &f.dial, TEXT);
+            hc.text(frame, left + PAD + 8, blurb_y + LINE * 2, FOUNDING_KEYS, KEYCAP);
+            return;
+        }
+
         if !self.keys {
             return;
         }
@@ -383,6 +456,45 @@ impl Interface {
         }
     }
 }
+
+/// **Flatten the offer into what the screen draws.**
+///
+/// Done here rather than at draw time for the reason every other field on
+/// `Interface` is: the comparison against last frame is what tells the
+/// dirty-rect skip that the corner owes a repaint, and a screen built out of
+/// a live `&Druid` at draw time cannot be compared with anything.
+fn founding(game: &Druid) -> Option<Founding> {
+    let offer = game.offer.as_ref()?;
+    let rows = offer
+        .candidates()
+        .iter()
+        .map(|c| {
+            let cost = c.cost(offer.founders);
+            Row {
+                name: c.stock().name.to_string(),
+                words: c.lines().into_iter().map(|l| (l.word.to_string(), l.strength)).collect(),
+                cost: format!("{cost:.0}"),
+                afford: game.unlimited || game.power >= cost,
+            }
+        })
+        .collect();
+    Some(Founding {
+        rows,
+        picked: offer.picked,
+        blurb: offer.picked().stock().blurb.to_string(),
+        dial: format!("FOUNDERS {}    COST {:.0}    POWER {:.0}", offer.founders, offer.cost(), game.power),
+    })
+}
+
+/// What the founding screen binds, drawn along its bottom. Not in [`KEYS`]:
+/// these are live only while the screen is up, and the legend is a list of
+/// what works *now*.
+const FOUNDING_KEYS: &str = "A D CHOOSE    Q E HOW MANY    C FOUND    X LEAVE";
+
+/// Where the words start, past the widest stock name.
+const OFFER_COL: i32 = 88;
+/// Where the cost is right-aligned to.
+const OFFER_W: i32 = 340;
 
 fn lerp(a: [u8; 4], b: [u8; 4], t: f32) -> [u8; 4] {
     let t = t.clamp(0.0, 1.0);
@@ -434,7 +546,12 @@ fn motes(game: &Druid) -> Vec<Mote> {
     let mut out = Vec::new();
     for d in &game.draws {
         let head = d.age as f32 / super::DRAW_FRAMES as f32;
-        let (dx, dy) = ((px - d.from.0) as f32, (py - d.from.1) as f32);
+        // The two ends, in flow order. Everything below is written in terms
+        // of "origin" and "destination" rather than "animal" and "player", so
+        // an outward founding is the same arithmetic with the ends swapped
+        // and needs no second generator.
+        let ((ox, oy), (tx, ty)) = if d.outward { ((px, py), d.from) } else { (d.from, (px, py)) };
+        let (dx, dy) = ((tx - ox) as f32, (ty - oy) as f32);
         let len = (dx * dx + dy * dy).sqrt().max(1.0);
         // Perpendicular to the path, for the wander.
         let (nx, ny) = (-dy / len, dx / len);
@@ -447,12 +564,13 @@ fn motes(game: &Druid) -> Vec<Mote> {
                 continue;
             }
             let ease = t * t * (3.0 - 2.0 * t);
-            // Narrows to nothing at the player: the stream converges on him.
+            // Narrows to nothing at the destination: the stream converges
+            // on wherever it is going.
             let spread = (1.0 - ease) * 7.0;
             let wander = ((t * 7.0 + seed * 2.399).sin() + (seed * 1.7).sin()) * 0.5 * spread;
             let arc = (t * std::f32::consts::PI).sin() * 11.0;
-            let wx = d.from.0 as f32 + dx * ease + nx * wander;
-            let wy = d.from.1 as f32 + dy * ease + ny * wander - arc;
+            let wx = ox as f32 + dx * ease + nx * wander;
+            let wy = oy as f32 + dy * ease + ny * wander - arc;
             if let Some((sx, sy)) = game.renderer.world_to_screen(wx.round() as i32, wy.round() as i32) {
                 // Brightest as it lands, with a per-mote offset so the stream
                 // shimmers rather than fading uniformly.
@@ -475,14 +593,20 @@ fn landings(game: &Druid) -> Vec<(i32, i32, f32)> {
         return Vec::new();
     };
     let (px, py) = player.center();
-    let Some((sx, sy)) = game.renderer.world_to_screen(px, py) else {
-        return Vec::new();
-    };
     game.draws
         .iter()
         .filter_map(|d| {
             let head = d.age as f32 / super::DRAW_FRAMES as f32;
-            (head >= 1.0 - BLOOM).then(|| (sx, sy, ((head - (1.0 - BLOOM)) / BLOOM).clamp(0.0, 1.0)))
+            if head < 1.0 - BLOOM {
+                return None;
+            }
+            // **The bloom belongs at the far end, not on the player.** An
+            // outward founding that punctuated itself back at the caster
+            // would read as the ground paying *him*, which is the opposite
+            // of what just happened.
+            let (ex, ey) = if d.outward { d.from } else { (px, py) };
+            let (sx, sy) = game.renderer.world_to_screen(ex, ey)?;
+            Some((sx, sy, ((head - (1.0 - BLOOM)) / BLOOM).clamp(0.0, 1.0)))
         })
         .collect()
 }
@@ -577,6 +701,10 @@ fn rings(game: &Druid, _viewport: (u32, u32)) -> Vec<Ring> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // The offer's own types, for the two screen guards below. Scoped to the
+    // tests because nothing outside them names it: the screen is built from
+    // a `&Druid` and flattened to strings before it reaches this module.
+    use crate::druid::founding;
 
     /// **Every key the binary binds is named on screen.**
     ///
@@ -674,6 +802,58 @@ mod tests {
         }
     }
 
+    /// **The widest founding screen the offer can produce**, for the two
+    /// guards below. Built by hand rather than rolled: a random offer is a
+    /// sample, and what these guards need is the worst case.
+    fn widest_offer() -> Founding {
+        let longest = founding::STOCKS.iter().max_by_key(|s| s.blurb.len()).unwrap();
+        Founding {
+            rows: (0..founding::OFFERED)
+                .map(|i| Row {
+                    name: founding::STOCKS.iter().max_by_key(|s| s.name.len()).unwrap().name.to_string(),
+                    // Every rolled slot loud at once -- rare, and the case the
+                    // row has to survive.
+                    words: founding::Candidate { stock: i.min(founding::STOCKS.len() - 1), deltas: [1.0; crate::sim::organism::CREATURE_TRAITS] }
+                        .lines()
+                        .into_iter()
+                        .map(|l| (l.word.to_string(), l.strength))
+                        .collect(),
+                    cost: "9999".to_string(),
+                    afford: false,
+                })
+                .collect(),
+            picked: 0,
+            blurb: longest.blurb.to_string(),
+            dial: format!("FOUNDERS {}    COST 9999    POWER 9999", founding::FOUNDERS_MAX),
+        }
+    }
+
+    /// **The founding screen fits too, and every character of it has a
+    /// glyph.** Its strings never pass through `Readout`, so the sweep above
+    /// cannot see them, and a missing glyph draws as a blank gap rather than
+    /// as an error.
+    #[test]
+    fn the_founding_screen_fits_and_has_glyphs_for_everything() {
+        let (w, h) = (crate::app::WIDTH as i32, crate::app::HEIGHT as i32);
+        let f = widest_offer();
+        let panel_h = PAD * 2 + LINE * (f.rows.len() as i32 + 4) + 4;
+        assert!(OFFER_W <= w, "the founding screen is {OFFER_W} wide in a {w}-wide window");
+        assert!(panel_h <= h, "the founding screen is {panel_h} tall in a {h}-tall window");
+        // The three text rows under the list are drawn full width, so they
+        // are the ones that can run off the right edge.
+        let inner = OFFER_W - PAD * 2 - 8;
+        let mut checked = 0;
+        for text in [f.blurb.as_str(), f.dial.as_str(), FOUNDING_KEYS] {
+            let tw = hud::text_width(text);
+            assert!(tw <= inner, "{text:?} is {tw} wide inside {inner}");
+            for c in text.chars() {
+                assert!(hud::has_glyph(c), "the founding screen draws {c:?} in {text:?}, which the font renders as a blank gap");
+                checked += 1;
+            }
+        }
+        assert!(checked > 100, "only {checked} characters swept; this guard would pass on nothing");
+    }
+
     /// Both panels fit the screen they are drawn on. The failure this guards
     /// is `App::help_columns`'s: a page that ran three lines past its own
     /// panel, so the last thing it drew off-screen was the row saying which
@@ -742,6 +922,10 @@ mod tests {
             marks: vec![Mark { x: 120, y: 140, fullness: 0.8 }],
             motes: vec![Mote { x: 160, y: 130, bright: 0.5 }],
             landings: vec![(200, 150, 0.3)],
+            // **The screen is in the idempotence guard, not beside it.** It
+            // draws the biggest panel in the game, and a panel is exactly the
+            // shape that compounded last time.
+            founding: Some(widest_offer()),
         };
         ui.draw(&mut frame, (w, h));
         let once = frame.clone();
@@ -763,6 +947,7 @@ mod tests {
             marks: Vec::new(),
             motes: Vec::new(),
             landings: Vec::new(),
+            founding: None,
         };
         let b = a.clone();
         assert_eq!(a, b, "an unchanged interface must compare equal, or the render skip never fires at all");
@@ -773,6 +958,19 @@ mod tests {
         let mut c = b.clone();
         c.keys = false;
         assert_ne!(c, b, "hiding the legend must force the repaint, or it stays on screen after the key");
+
+        // **Moving the cursor on the founding screen must force one too.**
+        // Without the screen in this comparison the offer would draw once and
+        // then sit there, and every keypress after that would change nothing
+        // on a settled world -- which reads exactly like the keys being dead.
+        let mut e = b.clone();
+        e.founding = Some(widest_offer());
+        assert_ne!(e, b, "opening the founding screen must force the repaint");
+        let mut moved = e.clone();
+        if let Some(f) = moved.founding.as_mut() {
+            f.picked = 1;
+        }
+        assert_ne!(moved, e, "moving the cursor must force the repaint, or the keys look dead on settled ground");
 
         let mut d = b.clone();
         d.rings = vec![Ring { cx: 10, cy: 10, r: 28, colour: RING_CARRIED }];

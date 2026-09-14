@@ -8381,11 +8381,75 @@ one look identical.
 
 **Nothing in worldgen places a creature.** `World::found_colony_of` had only
 tests and the lab as callers, so an economy whose only income is animal
-metabolism could at first only ever drain. `C` founds twelve `ant` at the
-player's feet, and **it has to be at his feet**: creatures run on the
-active-site schedule, which the held gate covers, so a colony founded outside
-running time stands there as scenery. That rule needs no code — it falls out
-of the gate.
+metabolism could at first only ever drain. `C` founds a colony at the player's
+feet, and **it has to be at his feet**: creatures run on the active-site
+schedule, which the held gate covers, so a colony founded outside running time
+stands there as scenery. That rule needs no code — it falls out of the gate.
+
+### Founding a colony
+
+`C` opened by dropping twelve stock `ant` and printing how many landed. That
+is a keypress, not an act — nothing about the colony was yours and every
+founding was the same founding — against a brief asking for *"part random,
+part user design, some user input"* with *"each attempt rare and costly"*.
+
+So `C` opens an **offer**: three lineages drawn from the world's own seed. You
+pick one, pick how many founders to pay for (4–24), and spend the pool.
+**Walking away costs nothing and leaves the same three standing**; only
+committing rerolls them, which is the whole of what makes it a choice — a free
+reroll is a slot machine you play until you win.
+
+**Six stocks, and the five excluded species were each excluded for a measured
+reason.** `ancestor` and `flitter` declare no nest, so their animals stand on
+the ground with no home gradient and nobody forages; `beetle` carries **zero**
+pheromone wires and no `Attack`, so it run-and-tumbles at random —
+`dead-ends.md` already records that as what made beetles useless as predation
+pressure; `ant_block`/`ant_block_shaded` are render fixtures.
+`a_stock_is_a_species_that_can_actually_keep_house` holds that line, **with
+`beetle` as its positive control**, so the guard is known to discriminate
+rather than merely to pass.
+
+| stock | cells | |
+|---|---|---|
+| common ant | 2 | cheap, quick, dies whole |
+| hopper | 3 | the only shipped consumer of `BrainOutput::Impulse` |
+| long ant | 6 | a body with a middle — loses a tail and lives |
+| segmented ant | 7 | jointed; bends round corners |
+| broad ant | 9 | digs a room rather than a corridor |
+| pale chitin | 9 | plated from birth: `0.5` against the ant's `0.25` |
+
+**Six trait slots are rolled, and the draw is triangular rather than
+uniform** — *an outcome is a distribution, not a binary*. Two summed uniforms
+put most slots near neutral, so a lineage usually has one or two things to say
+about itself and occasionally something worth paying for; a uniform draw gives
+every candidate six loud traits and none of them mean anything. Neutral draws
+no line at all: an unremarkable slot should read as unremarkable, not as a weak
+version of something. Rolled: `GUT_BIAS`, `PACE`, `DIG_FORCE`, `ARMOUR`,
+`CROP_CAPACITY`, `SIGHT_RANGE` — the last being the dearest and the rarest,
+since every shipped ant is blind.
+
+**The brain genome goes in untouched, and that is what makes this safe.**
+`organism.rs` keeps traits outside the genome on purpose (*"a gut is not a
+synapse"*), and `ant.ron`'s hidden layer is where the whole homing circuit
+lives — `PheroAAlong`/`PheroBAlong` into `Move` at ±6.0, gated on `Carrying`.
+A rolled genome would hand the player colonies that cannot forage, which is
+both a worse game and a bug that takes an evening to recognise, because a
+colony walking at random looks exactly like one that is merely unlucky.
+
+**No engine change went with any of it.** The screen composes public parts:
+`paint_nest_patch` puts a home down, `colony_stations` lays out the founders
+(terrain-following, and derived from the body plan's own width, which is why a
+nine-cell stock does not inherit the two-cell ant's corridor), and
+`creature::release_creature_specimen` places each one as an `Origin::Stock` —
+the variant that already takes explicit traits and stamps the colony's scent
+offset on top.
+
+Cost is three terms, each of them something visible on the screen that charges
+for it: how many founders, how much animal each one is (body cells), and how
+much the roll gave you — and **only the good half of a roll is charged**, so a
+blind, thin-shelled, slow lineage is simply cheap rather than a discount to
+farm. A default founding — common ant, twelve, neutral — is 144 against a full
+pool of 600. Like every other number in this economy, first guesses.
 
 ### The interface
 
