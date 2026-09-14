@@ -1,6 +1,20 @@
 # Ants
 
-*Current as of: 2026-09-13, when **a resting animal stopped being an animal
+*Current as of: 2026-09-14, when **a colony stopped tearing up the plants it
+was eating from.** A cry of alarm is what an animal makes when something is
+biting it, and every ant is born knowing to go and bite whatever is at a cry.
+But the cry used to go up when an ant bit *anything* alive -- including a leaf
+-- so a well-fed colony grazing a stand would call itself over and hack the
+stand down, and the pieces were not eaten by anybody. It was the colony's own
+larder, and it was loudest exactly when the colony was feeding best: on a
+played bed nearly five hundred swings over a session, every one of them at a
+plant. Now only an animal being bitten cries out. Nothing about *what* an ant
+may hit has changed -- an animal cornered by something it cannot chew can
+still turn and fight it -- only what calls the colony over. **One consequence
+is known and is being looked at:** a patch of moss now regrows faster than a
+grazer strips it, so an ant parked on a lawn can live off it indefinitely,
+which is a thing the box is not supposed to allow. Earlier, on 2026-09-13,
+when **a resting animal stopped being an animal
 that has stopped.** An ant that has held one spot for a while now grows
 restless: it shifts, takes a step and settles again, and the longer it has
 been still the sooner that happens. Before, a fed ant with food in reach and
