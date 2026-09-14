@@ -295,3 +295,12 @@ restores the pre-change rule exactly, and under it
 `the_climb_stops_before_it_becomes_a_tree` both fail. That is the fault put
 back through the documented arm rather than through an edit, so it is
 repeatable by anyone reading this.
+
+## 11. PR and head
+
+**PR [#414](https://github.com/sgladstein/Pixel_Physics/pull/414)** — already
+open when I got there, opened on my behalf at 04:35; I updated the body rather
+than opening a second one. I do have `mcp__github__get_me`, so I could have
+opened it myself had it not existed.
+
+**Head SHA: `58f2ac1e98925d176b6860e6f57ffa9f0fd7a75f`.**
