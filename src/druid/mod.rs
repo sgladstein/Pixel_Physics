@@ -338,7 +338,7 @@ const TRAIL_PER_SECOND: f32 = 1.0;
 /// ends at two to three ants' worth. A larger number here would saturate the
 /// plane at 255 along the whole path, and a saturated trail is flat — which
 /// is precisely the thing an ant cannot follow (see [`Druid::lay_trail`]).
-const TRAIL_DEPOSIT: u8 = crate::sim::pheromone::DEPOSIT;
+const TRAIL_DEPOSIT: crate::sim::pheromone::Scent = crate::sim::pheromone::DEPOSIT;
 
 /// **How wide a swath his scent lies in**, as a radius about him in cells.
 ///
@@ -422,7 +422,7 @@ const TRAIL_LIFE_SECONDS: f32 = 30.0;
 /// that falls with age* means the trail visibly dims along its whole length
 /// as it ages, and the oldest end is always the faintest, which is also the
 /// slope an ant walks up.
-const TRAIL_HOLD: u8 = 180;
+const TRAIL_HOLD: crate::sim::pheromone::Scent = 180 * crate::sim::pheromone::SCALE;
 
 /// How many marks the trail readout remembers. Older ones have decayed out
 /// of the plane long before this, so the cap is a memory bound and not a
@@ -1532,7 +1532,7 @@ impl Druid {
                 // the swath must receive *something*, or the rim rounds away
                 // and the band has a hard edge after all.
                 let fall = 1.0 - (d2 as f32).sqrt() / (TRAIL_RADIUS + 1) as f32;
-                let amount = (TRAIL_DEPOSIT as f32 * fall).round().max(1.0) as u8;
+                let amount = (TRAIL_DEPOSIT as f32 * fall).round().max(1.0) as crate::sim::pheromone::Scent;
                 self.world.deposit_pheromone(self.scent, x + dx, y + dy, amount);
             }
         }
@@ -2148,7 +2148,7 @@ impl Druid {
         let channel = self.scent;
         for ((x, y), laid) in marks {
             let age = now.saturating_sub(laid) as f32 / life as f32;
-            let target = (TRAIL_HOLD as f32 * (1.0 - age)).round().max(0.0) as u8;
+            let target = (TRAIL_HOLD as f32 * (1.0 - age)).round().max(0.0) as crate::sim::pheromone::Scent;
             let standing = self.world.pheromone_at(channel, x, y);
             if standing < target {
                 self.world.deposit_pheromone(channel, x, y, target - standing);
