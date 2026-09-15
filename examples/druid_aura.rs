@@ -71,6 +71,14 @@ struct Args {
     zoom: u32,
     /// `cost=1` — what the haze costs, instead of what it looks like.
     cost: bool,
+    /// `overlap=N` — place N standing circles in a cluster that genuinely
+    /// interpenetrates, instead of the single one `build` places.
+    ///
+    /// Owner, 2026-09-14: *"when you place multiple overlapping, they should
+    /// merge instead of just looking like overlapping circles."* One circle
+    /// cannot show that, and the whole previous round measured one — so the
+    /// defect was invisible to every card the aura has ever been judged on.
+    overlap: usize,
     /// `seq=/path/prefix` — write each captured frame as `prefix_00.png` and
     /// so on, which is what a review card's *frame sequence* wants.
     /// `.claude/skills/review/SKILL.md` prefers those to a GIF: the page
@@ -94,6 +102,7 @@ fn main() {
         crop: None,
         zoom: 1,
         cost: false,
+        overlap: 0,
         seq: String::new(),
     };
     for arg in std::env::args().skip(1) {
@@ -109,6 +118,7 @@ fn main() {
             "wave" => a.tune.wave = f(),
             "period" => a.tune.period = f(),
             "grain" => a.tune.grain = f(),
+            "gain" => a.tune.fast_gain = f(),
             "rough" => a.tune.rim_rough = f(),
             "scale" => a.tune.rim_scale = f(),
             "frames" => a.frames = v.parse().unwrap_or(90),
@@ -118,6 +128,7 @@ fn main() {
             "out" => a.out = v.into(),
             "sheet" => a.sheet = v.into(),
             "cost" => a.cost = v != "false",
+            "overlap" => a.overlap = v.parse().unwrap_or(0),
             "seq" => a.seq = v.into(),
             "zoom" => a.zoom = v.parse().unwrap_or(1).max(1),
             "crop" => {
@@ -129,16 +140,18 @@ fn main() {
     }
     let gif = a.out.to_ascii_lowercase().ends_with(".gif");
     println!(
-        "druid_aura: look={} speed=x{} r={} alpha={:.2} depth={:.1}+{:.1}/step wave={:.1} period={:.0} grain={:.2} rough={:.1}@{:.0} | {} frames, {}",
+        "druid_aura: look={} speed=x{} r={} overlap={} alpha={:.2} depth={:.1}+{:.1}/step wave={:.1} period={:.0} grain={:.2} gain={:.2} rough={:.1}@{:.0} | {} frames, {}",
         a.look,
         a.speed,
         a.radius,
+        a.overlap,
         a.tune.alpha,
         a.tune.depth,
         a.tune.depth_per_step,
         a.tune.wave,
         a.tune.period,
         a.tune.grain,
+        a.tune.fast_gain,
         a.tune.rim_rough,
         a.tune.rim_scale,
         a.frames,
@@ -158,6 +171,14 @@ fn main() {
     let mut shots: Vec<image::RgbaImage> = Vec::new();
     let mut tinted_total = 0u64;
     let mut tinted_peak = 0u64;
+    // **Read inside the loop, immediately after the aura draw, and the first
+    // version read it after.** The control draw below sets `alpha = 0`, and
+    // `refresh_quicken_aura` clears the disc list before it returns on that
+    // test — so a count taken at the end reported `0 discs` beside a
+    // 5,538-pixel footprint, which is `CLAUDE.md`'s arithmetically-correct
+    // number about the wrong thing, and would have read as "the aura never
+    // fired" on exactly the card built to prove it did.
+    let mut discs = (0usize, 0usize);
     let mut buf = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
     let mut control = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
 
@@ -170,6 +191,7 @@ fn main() {
         // skipped chunk left over from the other.
         game.renderer.aura = if a.look == "old" { AuraTuning::off() } else { a.tune };
         game.draw(&mut buf, (WIDTH, HEIGHT), true);
+        discs = game.renderer.aura_disc_count();
         if a.look == "old" {
             draw_old_rings(&mut game, &mut buf, a.speed);
         }
@@ -187,8 +209,10 @@ fn main() {
         }
     }
 
+    let (standing, carried) = discs;
     println!(
         "  haze footprint: {} pixels/frame mean, {} peak (0 would mean the aura never fired) | \
+         {standing} standing disc(s) + {carried} carried built this draw | \
          the renderer measured x{} against the dial's x{}, so the haze reaches {:.1} cells inward",
         tinted_total / a.frames.max(1) as u64,
         tinted_peak,
@@ -320,7 +344,22 @@ fn build(a: &Args) -> Druid {
     // thing `RING_CARRIED` used to do with a colour and the haze now has to.
     if let Some(p) = game.world.player.as_ref() {
         let (px, py) = p.center();
-        game.world.quickenings.push(Quickening::at(px + a.radius + 18, py - 6, a.radius));
+        if a.overlap >= 2 {
+            // **Centre distance `r`, not `2r`.** Two circles that merely
+            // touch have nothing to merge; the defect the owner is pointing
+            // at is the pair of arcs *crossing*, which needs a real lens.
+            // Laid out in two rows so a three- or four-circle cluster has an
+            // interior cell covered by three of them at once — the case a
+            // chain never produces and the union rule has to get right.
+            let r = a.radius;
+            let cx = px + r + 18;
+            for i in 0..a.overlap {
+                let (ox, oy) = ((i % 2) as i32 * r, (i / 2) as i32 * -(r * 4 / 5));
+                game.world.quickenings.push(Quickening::at(cx + ox - r / 2, py - 6 + oy, r));
+            }
+        } else {
+            game.world.quickenings.push(Quickening::at(px + a.radius + 18, py - 6, a.radius));
+        }
     }
     game
 }
@@ -389,8 +428,9 @@ fn sheet_of_speeds(a: &Args) {
         if a.look == "old" {
             draw_old_rings(&mut game, &mut buf, s);
         }
+        let (standing, carried) = game.renderer.aura_disc_count();
         println!(
-            "  x{s}: renderer measured x{}, haze reaches {:.1} cells inward",
+            "  x{s}: renderer measured x{}, haze reaches {:.1} cells inward, from {standing}+{carried} disc(s)",
             game.renderer.aura_rate(),
             a.tune.depth + (game.renderer.aura_rate().saturating_sub(1)) as f32 * a.tune.depth_per_step
         );

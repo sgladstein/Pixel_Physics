@@ -958,6 +958,16 @@ impl Druid {
             renderer: {
                 let mut r = Renderer::new();
                 r.held_look = crate::render::HeldLook::OneHue;
+                // **Every animal wears its colony's colour, as in the lab.**
+                //
+                // Owner, 2026-09-14: *"change creature colors to match the
+                // evolution lab game."* The mode is `render::CreatureColour`
+                // and the lab has set it to `Colony` since 2026-09-06, for a
+                // complaint that reaches this game word for word — the ants
+                // and the beetles could only be told apart with an overlay
+                // on. `Off` stays the *outdoor* game's default; it is the
+                // one of the three that is not about watching groups.
+                r.creature_colour = crate::render::CreatureColour::Colony;
                 r
             },
             player_tuning,

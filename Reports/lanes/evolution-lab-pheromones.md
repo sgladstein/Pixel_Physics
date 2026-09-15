@@ -11,118 +11,76 @@ because the parameter that turned out to matter had none.
 
 ---
 
-## Q1 — yes, but say it precisely
+## Q1 and Q2, in one screen — **detail in the report, not here**
 
-**A trail here is a live map of where ants are standing now. It is not a
-memory of where they went.**
+Full account, with every table:
+[`../pheromone-lifetime-and-wiring-2026-09-14.md`](../pheromone-lifetime-and-wiring-2026-09-14.md).
 
-- **Unreinforced, a trail is gone in 144 frames** — 0.065x a 2,200-frame
-  round trip, where the module's own arithmetic reads **1.4x**.
-- **The 255-pass ceiling is real and its margin is not.** 255 passes is what
-  a cell *at 255* survives, and nothing writes 255: the floor is
-  subtractive, so a cell's ceiling in passes **equals its own value**. A cell
-  laid at `DEPOSIT` (40) has a **40-pass** ceiling, and with the blend
-  running it dies in **12**.
-- **It stops steering before it is gone** — the ant's own run drive hits zero
-  at frame 48 with 77 cells still standing, because quantization flattens the
-  ramp into plateaus and `here == ahead` reads exactly 0.
-- **A cell needs re-laying every ≤36 frames.** At 60 frames it is gone. On a
-  2,200-frame circuit that is ~20–30 ants walking one route cell-for-cell.
-- **The real bed agrees** (`mode=world`, six seeds): at ~50 ants the network
-  stands at **149–393 cells, peak 39–98 of 255**. It is superlinear in colony
-  size — 52→46 ants holds it, **46→20 takes it from 342 cells to 35**.
+**Q1 — do they fade too fast?** Yes. **A trail is a live map of where ants
+are standing, not a memory of where they went.** Unreinforced it is gone in
+**144 frames** against a 2,200-frame round trip (0.065x), where the module's
+own arithmetic reads 1.4x — because the 255-pass ceiling prices a cell at 255
+and nothing writes 255. **`DECAY_RHO` is inert**: setting it to zero leaves
+that 144 unchanged, because a one-cell line loses **16.7%/pass to `DIFFUSE`**
+against decay's 2.9%. A cell needs re-laying every **≤36 frames**. Real bed,
+six seeds: at ~50 ants the network stands at 149–393 cells, peak 39–98 of 255
+— **superlinear in colony size** (46→20 ants takes 342 cells to 35). **Do not
+halve `DEPOSIT`**; P-14's trigger has never fired.
 
-**So the classic job of a trail — a scout recruiting the colony to a patch it
-found — is not reachable.** The scout's trail is gone long before the scout
-is home.
+**Q2 — is it wired?** Nothing is broken in the Rust. **Four of seven reader
+slots are read by no species**: the laterals deliberately, but
+`PheroAFront`/`PheroBFront` are the only *concentration* inputs, so **nothing
+reads trail height** — which is the sole justification `DIFFUSE`'s value was
+chosen on. Named, not changed: it reallocates a shared weighted sum.
 
-### The knob the doc names is inert
+## The alarm is fixed (2026-09-14, `claude/pheromone-trail-lifetime`)
 
-**`DECAY_RHO` is not *"the parameter the whole mechanism balances on"*.**
-Setting it to **zero** leaves that 144 frames **unchanged**. A trail is a
-one-cell-wide line, so the blend takes **16.7% per pass** against decay's
-**2.9%** — realised rate ~0.19, *inside* the literature band `DECAY_RHO` is
-documented as sitting deliberately below.
+**The owner asked "are we fixing any of these?" and he was right to.** Two
+answers, because the two planes are different problems.
 
-**`DIFFUSE` is the term, and it had no setter at all.** This branch ships
-`Pheromones::set_channel_diffuse` (per channel, alarm's pending-value split
-handled as `alarm_rho` already does it), `DIFFUSE` unchanged at 0.25.
-Lowering it is not free: `DIFFUSE`'s own sweep scores 0.10 at 0.623 on-trail
-against 0.25's 0.817. **Long-lived and hard to track, or short-lived and easy
-— the existing sweep only ever saw one of those axes.**
+**Fixed.** §2d's two-cell reach is not a tuning failure — the ceiling is the
+*stencil*. A 3x3 mean attenuates ~9x per cell, so even at `DIFFUSE = 1.0` a
+wound reads 20 at one cell and 1 at two. **The error was modelling a shout as
+a substance**: a mean filter conserves, which is right for a trail (deposits
+adding up *is* path selection) and fatal for an alarm. `Spread::ActiveSpace`
+propagates by distance falloff — louder of (this cell, neighbour −
+`ALARM_FALL`) — which is the *active space* of the real thing. One wound:
 
-### Do NOT halve `DEPOSIT`
+| | d=1 | d=2 | d=4 |
+|---|---|---|---|
+| before (`arm=diffuse`, kept reachable) | 4 | **0** | 0 |
+| after | **148** | **88** | 24 |
 
-P-14 says halve it if trails pin at 255. **Measured: the loudest cell in the
-bed is 98 of 255, over six seeds.** The trigger has never fired; the plane is
-three-quarters empty at its peak and the problem is at the other end.
+`->Attack` +1.161 and +0.690 against `ant.ron`'s weight of 2.0, from +0.031
+and zero. **The falloff is also the grading** — middle and edge of a fight
+read different numbers through the same weight, so the response is a
+distribution rather than a binary, free.
 
----
+**`ALARM_RHO` 0.25 → 0.35 came with it.** Diffusion had been doing a share of
+decay's job, so the constant's *"gone in ~150 frames"* was right by accident;
+without it 0.25 left a bite audible for 204 frames. Caught by `creature.rs`'s
+`the_alarm_forgets_faster_than_a_trail` going **red rather than quiet** —
+which passes again untouched, so **no other lane's file was edited.**
 
-## Q2 — nothing is broken in the Rust; four findings in the authored half
+**My own guard was found blind and rewritten**: it dialled every arm, so the
+shipped default was never under test and reverting the whole change passed;
+and it credited termination to the `− fall` contraction when `ALARM_RHO` does
+that work. Both faults now go red.
 
-All seven reader slots are computed every tick, both trail planes have a live
-reader and a live writer, and the alarm plane's writers fire — **though not
-the writer anyone meant; see the Lane E section below, which corrects a
-number I published earlier today.** `examples/pherowire` walks every shipped
-genome rather than grepping the `.ron` — `ant.ron` wires through hidden
-units, and a weight under `brain::W_EPS` is dead on arrival to `eval_brain`.
+**Not fixed — and it is a trade, not a defect.** No combination of trail
+constants reaches a round trip: the best corner of the whole space
+(`DEPOSIT` 240 + diffuse every 8 + decay every 4) is **0.64x**, and that is
+three stacked behavioural changes. The ceiling is not quantization either —
+diffusion at 0.25 costs a one-cell line **16.7% of peak per pass**, so even
+at infinite precision an unreinforced trail is gone in ~30 passes.
+**Diffusion and trail life are one knob pulling opposite ways**, which is the
+owner's call, not a lane's. `set_channel_diffuse` is the dial; a *cadence*
+dial is the companion worth building.
 
-**1. Four of seven reader slots are read by no species at all** —
-`PheroAFront`, `PheroALateral`, `PheroBFront`, `PheroBLateral`, **0 of 11**.
-The laterals are deliberate and documented (both sit in open air in a
-side-view world, measured 0.000). **The Fronts are not**, and they are the
-only *concentration* inputs — the Along slots are scale-free by construction.
-**So no shipped animal can tell a strong trail from a weak one**, and that is
-the sole justification `DIFFUSE`'s value was chosen on (*"the height of a
-well-used trail against a lightly-used one … is the entire path-selection
-algorithm"*). The trade was made for a benefit no shipped genome can collect.
-*Not proposed here* — it reallocates a shared weighted sum and wants a seed
-sweep on an order statistic, not an A/B.
-
-**2. The alarm plane's audible radius is about two cells.** A wound (240):
-the loudest a neighbour **one cell away** ever hears is **6 of 255** — input
-0.024, **+0.047** into `Attack` against an authored weight of 2.0. Two cells:
-**zero, ever**. A **`DISPLAY_DEPOSIT` (40) is inaudible to anyone but the
-displaying animal** — that is the measurement `contest.rs` asked for and
-nobody had taken. Controlled with a sustained arm (a wound every 6 frames
-over a 2-cell body, 40 bites): even then, two cells off reads 0.059, four
-cells off reads zero for the whole fight. `creature::sense` calls the
-here-read *"a limitation of one slot, not of the plane"* — **it is the
-plane**: `ALARM_RHO` grinds the signal down faster than `DIFFUSE` spreads it,
-so there is no distance for a directional slot to read even if one existed.
-
----
-
-## Routed to Lane D — `assets/species/*.ron` is yours, not mine
-
-**1. `ancestor.ron` cannot hear the alarm.** Every other ant-family species
-carries `(Alarm, Move, -1.0)` and `(Alarm, Attack, 2.0)`. `ancestor.ron`
-carries **neither**, and the word "alarm" does not appear in the file — an
-omission, not a recorded choice. It is the only species that reads the trail
-planes and not the alarm. **It matters now** because round 35 shipped
-rivalry **on**: in a bed founded on the ancestor, fights write the plane
-every time and the founding lineage cannot act on it.
-
-**The change I want**: the two weights the other nine already carry, added to
-`ancestor.ron`'s instinct list.
-
-**Read it against my §2d before deciding how much it buys.** At the measured
-two-cell reach, those weights only fire for an animal already touching the
-fight — so this closes a real gap in the wiring and should not be sold as
-recruitment. It is cheap and it is correct; it is not a fix for the plane.
-
-**2. `flitter` neither lays nor reads a trail.** It carries the two alarm
-weights and nothing else — no `EmitA`/`EmitB`, no reader on any trail slot.
-The laterals in finding 1 above are kept in the codebase explicitly *for*
-something moving in open space, and the one animal that does is the one that
-does not read them. **A design question rather than a defect** — recorded
-because the slots' stated justification names this animal.
-
-`beetle` has a brain and no pheromone wiring of any kind; for a solitary
-animal that is coherent and I am not flagging it.
-
----
+**The fix I first proposed for the trail was wrong and is recorded as such**:
+a threshold snap-to-zero in `build_decay_lut`. `dead-ends.md` already rejects
+the rounding it needs, and it targets the floor when **truncation** is what
+caps lifetime at `deposit` passes.
 
 ## For Lane E and the open ruling — evidence, before the decision
 

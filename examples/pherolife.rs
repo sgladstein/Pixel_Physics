@@ -65,7 +65,7 @@
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::lab::Lab;
 use pixel_physics::sim::chunk::Rect;
-use pixel_physics::sim::pheromone::{self, Channel, Pheromones};
+use pixel_physics::sim::pheromone::{self, Channel, Pheromones, Spread};
 
 /// The ant's `sensor_offset` (`assets/species/ant.ron`). The along-input
 /// reads `here` and the cell this far ahead.
@@ -284,6 +284,7 @@ fn main() {
     match args.mode.as_str() {
         "traffic" => traffic(&args),
         "alarm" => alarm(&args),
+        "junction" => junction(&args),
         "world" => world(&args),
         _ => life(&args),
     }
@@ -383,6 +384,101 @@ fn traffic(args: &Args) {
     println!();
     println!("A pass over this cell every N frames sustains it at the level in column three.");
     println!("`drive` is the same effect counter as above: what that level puts into Move.");
+}
+
+/// **Can an ant tell a well-used branch from a lightly-used one — and does
+/// diffusion smear the two together?**
+///
+/// The double-bridge question (`stigmergy-research.md` §2), asked of the
+/// input this engine actually has. It exists because a claim in
+/// `pheromone-lifetime-and-wiring-2026-09-14.md` needed checking: that
+/// report observed that **no species reads `PheroAFront`/`PheroBFront`**,
+/// the only *concentration* inputs, and implied that left trail height
+/// unread and path selection unserved.
+///
+/// The first half is true and the implication is wrong, which is what this
+/// measures. `PheroAAlong` is `(ahead - here) / (ahead + here + 1)` — a
+/// relative difference normalised by the total, i.e. a **Weber's-Law
+/// response**, which is what Perna et al. measured individual Argentine ants
+/// to actually use, against the sigmoidal absolute response the classical
+/// model assumes. An ant standing on the trunk reads ~0 down the strong
+/// branch and a large negative down the weak one, so it discriminates
+/// without reading height at all.
+///
+/// **Scene caveat, and it is load-bearing: these branches are laid in open
+/// air.** A creature here is held to the surface by the whole-chain support
+/// rule, so it walks a one-dimensional manifold and **cannot walk a fork on
+/// open ground** -- there isn't one. What this measures is therefore the
+/// *input's* discriminating power, which is a real and answerable question,
+/// and not the frequency of the situation. Where a fork genuinely exists in
+/// this world is underground in the dug galleries, and over/under a
+/// obstacle; pointing this at one of those is the follow-on nobody has run.
+///
+/// **The part arithmetic cannot answer, and the reason this runs in the
+/// engine**: two branches a few cells apart share a diffusion stencil, so a
+/// blend high enough smears the weak branch up and the strong one down until
+/// the contrast is gone. That is a real cost of `DIFFUSE` and a different
+/// one from the peak loss its own doc argues about. `gap=` sets how far
+/// apart the branches are; `blend=` is swept.
+fn junction(args: &Args) {
+    println!("two branches from one trunk: can the along-input tell them apart,");
+    println!("and does the blend smear them into each other?");
+    println!();
+    let strong_every = 1u64;
+    let weak_every = 10u64;
+    println!("trunk re-laid every pass; strong branch every {strong_every}, weak every {weak_every};");
+    println!("branches fork at 45 degrees so the 8-way sensor lands on one of them.");
+    println!();
+    println!("{:>7}  {:>7} {:>7}  {:>9} {:>9}  {:>15}", "blend", "strong", "weak", "along str", "along weak", "discrimination");
+    for blend in [0.10f32, 0.25, 0.50, 1.00] {
+        let mut p = Pheromones::new(bounds());
+        p.set_channel_diffuse(Channel::A, blend);
+        p.set_channel_rho(Channel::A, args.rho);
+        let fork = TRAIL_X0 + 60;
+        let mut passes = 0u64;
+        for frame in 1..=(args.interval * 400) {
+            if frame.is_multiple_of(args.interval) {
+                // trunk, into the fork
+                for x in TRAIL_X0..=fork {
+                    p.deposit(Channel::A, x, TRAIL_Y, args.deposit);
+                }
+                // **The two branches diverge at 45 degrees, one cell of
+                // rise per cell of run.** They have to: the sensor sits
+                // `SENSOR_OFFSET` cells along one of the eight `DIRS`, so a
+                // shallower fork puts both sensors on the *same cell* and
+                // the scene stops containing the thing being measured. The
+                // first version of this diverged by `gap` over sixty cells
+                // and read a discrimination of exactly 0.000 in every arm --
+                // `CLAUDE.md`'s tidiness tell, and it was integer division
+                // collapsing both branches onto the trunk.
+                for i in 1..=60 {
+                    if passes.is_multiple_of(strong_every) {
+                        p.deposit(Channel::A, fork + i, TRAIL_Y - i, args.deposit);
+                    }
+                    if passes.is_multiple_of(weak_every) {
+                        p.deposit(Channel::A, fork + i, TRAIL_Y + i, args.deposit);
+                    }
+                }
+                passes += 1;
+            }
+            p.step(frame, args.interval);
+        }
+        // What an ant standing at the fork reads down each branch. The
+        // sensor is `SENSOR_OFFSET` cells along, which is where the two
+        // branches have separated by `gap`.
+        let here = p.sample(Channel::A, fork, TRAIL_Y) as f32;
+        let s_ahead = p.sample(Channel::A, fork + SENSOR_OFFSET, TRAIL_Y - SENSOR_OFFSET) as f32;
+        let w_ahead = p.sample(Channel::A, fork + SENSOR_OFFSET, TRAIL_Y + SENSOR_OFFSET) as f32;
+        let a_s = (s_ahead - here) / (s_ahead + here + 1.0);
+        let a_w = (w_ahead - here) / (w_ahead + here + 1.0);
+        let strong_peak = p.sample(Channel::A, fork + 40, TRAIL_Y - 40);
+        let weak_peak = p.sample(Channel::A, fork + 40, TRAIL_Y + 40);
+        println!("{blend:>7.2}  {strong_peak:>7} {weak_peak:>7}  {a_s:>9.3} {a_w:>9.3}  {:>15.3}", (a_s - a_w).abs());
+    }
+    println!();
+    println!("`discrimination` is what the ant's own input separates the two branches by.");
+    println!("If it holds as the blend rises, the peak loss DIFFUSE's doc argues about");
+    println!("is not costing path selection; if it collapses, the branches are smearing.");
 }
 
 /// **The same question asked of the real bed, because an isolated harness
@@ -496,12 +592,19 @@ fn alarm(args: &Args) {
     println!("how far does an alarm carry, and for how long?");
     println!("(`input` is what BrainInput::Alarm reads: value/255. `->Attack` is that");
     println!(" times ant.ron's authored `(Alarm, Attack, 2.0)`.)");
+    // **`arm=diffuse` puts the old mechanism back**, which is what makes any
+    // claim about the new one checkable rather than asserted. Default is
+    // what ships.
+    let arm = std::env::args().find_map(|a| a.strip_prefix("arm=").map(str::to_string)).unwrap_or_else(|| "shipped".into());
+    let spread = if arm == "diffuse" { Spread::Diffuse } else { Spread::ActiveSpace { fall: pheromone::ALARM_FALL } };
+    println!("arm={arm} -> {spread:?}");
     for (label, deposit) in [("a wound  (ALARM_DEPOSIT 240)", pheromone::ALARM_DEPOSIT), ("a display (DISPLAY_DEPOSIT 40)", 40u8)] {
         println!();
         println!("{label}");
         println!("{:>7}  {:>6} {:>6} {:>6} {:>6} {:>6}", "frame", "d=0", "d=1", "d=2", "d=4", "d=8");
         let mut p = Pheromones::new(bounds());
         p.set_alarm_rho(pheromone::ALARM_RHO);
+        p.set_alarm_spread(spread);
         p.deposit(Channel::Alarm, TRAIL_X0, TRAIL_Y, deposit);
         let sample = |p: &Pheromones| -> Vec<u8> { [0, 1, 2, 4, 8].iter().map(|d| p.sample(Channel::Alarm, TRAIL_X0 + d, TRAIL_Y)).collect() };
         let mut rows = vec![(0u64, sample(&p))];
@@ -536,6 +639,7 @@ fn alarm(args: &Args) {
     println!("a SUSTAINED fight -- a wound every 6 frames over a 2-cell body, 40 bites");
     let mut p = Pheromones::new(bounds());
     p.set_alarm_rho(pheromone::ALARM_RHO);
+    p.set_alarm_spread(spread);
     let mut bites = 0u32;
     println!("{:>7}  {:>6} {:>6} {:>6} {:>6} {:>6}  {:>6}", "frame", "d=0", "d=1", "d=2", "d=4", "d=8", "bites");
     for frame in 1..=(args.interval * 22) {
