@@ -402,6 +402,48 @@ fn shoot(world: &pixel_physics::sim::world::World, at: (i32, i32), zoom: i32, ou
     image::save_buffer(out, &big, ow, oh, image::ColorType::Rgba8).expect("writing the frame");
 }
 
+/// **Found, then let it run, writing one frame per stop** — the motion arm.
+///
+/// **A still could not answer the question the change actually raises, and
+/// the owner said so.** Review card `20260914T050513804Z-623a4b` asked
+/// whether ants standing on a mat of plants read as settled undergrowth or as
+/// floating, and came back *"Cannot tell from the image. need to playtest"* —
+/// no arm chosen. That is a defect in the card, not a verdict on the change:
+/// whether something looks like it is *perched* rather than *stuck in the
+/// air* is a fact about what it does next, and a single frame has no next.
+///
+/// So this founds a colony and then ticks the game — `Druid::update`, the
+/// real one, so the ants run on the same schedule the player would see — and
+/// writes a numbered sequence. The review page scrubs those with its own
+/// timer, which the skill records as more reliable than a GIF.
+///
+/// **The colony has to be founded inside the carried quickening or nothing
+/// moves at all**, which is the held world's own rule rather than a quirk of
+/// this harness: `scheduler::step` gates creature ticks on `time_runs_at`, so
+/// a colony founded in held ground is scenery. Founding at the gnome's feet
+/// is what puts it inside the circle, and it is why `at=` is not used here.
+/// The per-frame live count is printed for exactly the reason the card's
+/// `meta` carries one: a sequence in which nothing moves and a sequence in
+/// which nothing is alive look identical.
+fn sequence(game: &mut pixel_physics::druid::Druid, at: (i32, i32), zoom: i32, frames: u64, every: u64, out_prefix: &str) -> Vec<String> {
+    let mut files = Vec::new();
+    let mut shot = 0usize;
+    for f in 0..=frames {
+        if f % every == 0 {
+            let out = format!("{out_prefix}_{shot:02}.png");
+            let ground = creature::colony_surface(&game.world, at.0, at.1).unwrap_or(at.1);
+            shoot(&game.world, (at.0, ground), zoom, &out);
+            println!("  frame {f:5}: {} live animals", game.world.live_creature_count());
+            files.push(out);
+            shot += 1;
+        }
+        if f < frames {
+            game.update();
+        }
+    }
+    files
+}
+
 fn main() {
     let mut start = "grown".to_string();
     let mut half = 110;
@@ -414,6 +456,8 @@ fn main() {
     let mut zoom = 4;
     let mut ablate = false;
     let mut at: Option<i32> = None;
+    let mut seq = 0u64;
+    let mut seq_every = 30u64;
     for arg in std::env::args().skip(1) {
         let (k, v) = arg.split_once('=').unwrap_or((arg.as_str(), ""));
         match k {
@@ -425,6 +469,8 @@ fn main() {
             "zoom" => zoom = v.parse().unwrap_or(zoom),
             "ablate" => ablate = v != "0" && v != "off",
             "at" => at = v.parse().ok(),
+            "seq" => seq = v.parse().unwrap_or(0),
+            "every" => seq_every = v.parse().unwrap_or(seq_every),
             "half" => half = v.parse().unwrap_or(half),
             "stands" => stands = v.parse().unwrap_or(stands),
             "spacing" => spacing = v.parse().unwrap_or(spacing),
@@ -444,7 +490,7 @@ fn main() {
     // Echo every parameter, the arm included: a log that does not name its
     // arm was written by a binary that never had one.
     let arm = std::env::var("PIXEL_PHYSICS_THICKET_CLIMB").unwrap_or_else(|_| "default".into());
-    println!("thicket_probe: start={start} half={half} stands={stands} spacing={spacing} lab={lab} seeds={seeds} frames={frames} shot={shot:?} zoom={zoom} ablate={ablate} at={at:?} climb_arm={arm} max_step={MAX_STEP}");
+    println!("thicket_probe: start={start} half={half} stands={stands} spacing={spacing} lab={lab} seeds={seeds} frames={frames} shot={shot:?} zoom={zoom} ablate={ablate} at={at:?} seq={seq} every={seq_every} climb_arm={arm} max_step={MAX_STEP}");
 
     if lab > 0 {
         let (mut all_stations, mut all_placed) = (Vec::new(), Vec::new());
@@ -534,9 +580,14 @@ fn main() {
             // the ants, and showed a handsome thicket with the thing being
             // judged entirely out of frame. `CLAUDE.md`'s *look before you
             // measure*, in the form where you look and it is the wrong place.
-            let ground = creature::colony_surface(&game.world, sx, sy_cursor).unwrap_or(sy_cursor);
-            shoot(&game.world, (sx, ground), zoom, out);
-            println!("thicket_probe: wrote {out} centred on the ground at {sx},{ground} zoom {zoom} — placed {placed} animals");
+            if seq > 0 {
+                let files = sequence(&mut game, (sx, sy_cursor), zoom, seq, seq_every, out);
+                println!("thicket_probe: wrote {} frames from {out}_00.png — founded {placed} animals", files.len());
+            } else {
+                let ground = creature::colony_surface(&game.world, sx, sy_cursor).unwrap_or(sy_cursor);
+                shoot(&game.world, (sx, ground), zoom, out);
+                println!("thicket_probe: wrote {out} centred on the ground at {sx},{ground} zoom {zoom} — placed {placed} animals");
+            }
         }
     }
 }
