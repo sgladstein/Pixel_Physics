@@ -65,7 +65,7 @@
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::lab::Lab;
 use pixel_physics::sim::chunk::Rect;
-use pixel_physics::sim::pheromone::{self, Channel, Pheromones, Spread};
+use pixel_physics::sim::pheromone::{self, Channel, Pheromones, Scent, Spread};
 
 /// The ant's `sensor_offset` (`assets/species/ant.ron`). The along-input
 /// reads `here` and the cell this far ahead.
@@ -94,7 +94,7 @@ fn run_drive(along: f32) -> f32 {
 struct Args {
     mode: String,
     sweep: String,
-    deposit: u8,
+    deposit: Scent,
     rho: f32,
     diffuse: f32,
     interval: u64,
@@ -162,7 +162,7 @@ fn lay(p: &mut Pheromones, args: &Args) {
             _ => {
                 let d = i as f32 / args.len as f32;
                 let f = 1.0 / (1.0 + 8.0 * d);
-                (args.deposit as f32 * f).round().max(1.0) as u8
+                (args.deposit as f32 * f).round().max(1.0) as Scent
             }
         };
         p.deposit(Channel::A, x, TRAIL_Y, amount);
@@ -199,17 +199,17 @@ struct Life {
     /// [`DRIVE_FLOOR`]. The trail is still *there* after this; it has
     /// stopped steering.
     frames_to_unusable: u64,
-    peak0: u8,
+    peak0: Scent,
     drive0: f32,
     /// `(frame, peak, live cells, drive)` every `TRACE_EVERY` passes,
     /// so the crossing above is never the only readout.
-    trace: Vec<(u64, u8, usize, f32)>,
+    trace: Vec<(u64, Scent, usize, f32)>,
 }
 
 /// Passes between trace samples.
 const TRACE_EVERY: u64 = 2;
 
-fn measure_life(args: &Args, rho: f32, diffuse: f32, deposit: u8) -> Life {
+fn measure_life(args: &Args, rho: f32, diffuse: f32, deposit: Scent) -> Life {
     let a = Args { rho, diffuse, deposit, ..clone_args(args) };
     let mut p = Pheromones::new(bounds());
     p.set_channel_rho(Channel::A, rho);
@@ -285,13 +285,14 @@ fn main() {
         "traffic" => traffic(&args),
         "alarm" => alarm(&args),
         "junction" => junction(&args),
+        "cost" => cost(&args),
         "world" => world(&args),
         _ => life(&args),
     }
 }
 
 fn life(args: &Args) {
-    let rows: Vec<(String, f32, f32, u8)> = match args.sweep.as_str() {
+    let rows: Vec<(String, f32, f32, Scent)> = match args.sweep.as_str() {
         "rho" => vec![
             ("rho 0.03 shipped".into(), 0.03, args.diffuse, args.deposit),
             ("rho 0.10 lit low".into(), 0.10, args.diffuse, args.deposit),
@@ -299,10 +300,10 @@ fn life(args: &Args) {
             ("rho 0.50 lit top".into(), 0.50, args.diffuse, args.deposit),
         ],
         "deposit" => vec![
-            ("dep  40 one ant".into(), args.rho, args.diffuse, 40),
-            ("dep  80 two ants".into(), args.rho, args.diffuse, 80),
-            ("dep 240 six ants".into(), args.rho, args.diffuse, 240),
-            ("dep 255 saturated".into(), args.rho, args.diffuse, 255),
+            ("dep  40 one ant".into(), args.rho, args.diffuse, 40 * pheromone::SCALE),
+            ("dep  80 two ants".into(), args.rho, args.diffuse, 80 * pheromone::SCALE),
+            ("dep 240 six ants".into(), args.rho, args.diffuse, 240 * pheromone::SCALE),
+            ("dep 255 saturated".into(), args.rho, args.diffuse, Scent::MAX),
         ],
         // **The decomposition, and it is the point of the whole file.**
         // `diffuse = 0` leaves decay alone on the trail; `rho = 0` leaves
@@ -384,6 +385,96 @@ fn traffic(args: &Args) {
     println!();
     println!("A pass over this cell every N frames sustains it at the level in column three.");
     println!("`drive` is the same effect counter as above: what that level puts into Move.");
+}
+
+/// **What the plane costs, measured so a storage change can be held to
+/// "speed is unchanged".**
+///
+/// Owner's acceptance test for widening the planes, 2026-09-15: *"More memory
+/// is fine as long as speed is unchanged."* So this has to answer that
+/// honestly, and the honest answer needs two numbers rather than one.
+///
+/// **`isolated` is the primary, and it is the only arm that is a valid A/B.**
+/// It drives `PheromonePlane::step` over a fixed, hand-built load -- the same
+/// deposits, the same awake tiles, the same pass count -- so the two builds do
+/// **identical work by construction** and the only difference is the storage.
+/// `tiles` is printed beside the clock as the load-independent check that the
+/// work really was identical (`CLAUDE.md`: gate on counters, never on wall
+/// clock; a timing here is only as trustworthy as the box was quiet).
+///
+/// **`bed` is the secondary and it is NOT a clean A/B**, which is stated
+/// rather than hidden: more resolution changes what an ant reads, so the two
+/// builds diverge into different worlds within a few hundred frames and the
+/// later frames price different colonies. Read it for "does the frame notice
+/// at all", not for a ratio. Its ant count is printed for the same reason the
+/// world census prints one.
+///
+/// ```text
+/// RAYON_NUM_THREADS=4 pherolife mode=cost        # both arms
+/// RAYON_NUM_THREADS=4 pherolife mode=cost only=isolated reps=9
+/// ```
+fn cost(args: &Args) {
+    let reps: usize = std::env::args().find_map(|a| a.strip_prefix("reps=").and_then(|v| v.parse().ok())).unwrap_or(7);
+    let only = std::env::args().find_map(|a| a.strip_prefix("only=").map(str::to_string)).unwrap_or_default();
+    println!("pherolife cost: reps={reps} threads={:?}", std::env::var("RAYON_NUM_THREADS").ok());
+    println!("(quote the RATIO against the other build, never these milliseconds --");
+    println!(" they do not transfer off this box. `CLAUDE.md`, measurement-under-contention.)");
+
+    if only != "bed" {
+        println!();
+        println!("--- isolated: identical work by construction ---");
+        let mut best = f64::MAX;
+        let mut tiles = 0u64;
+        for _ in 0..reps {
+            let mut p = Pheromones::new(bounds());
+            // **Re-laid every pass, and that is the point.** The first version
+            // of this deposited once and timed 600 passes: the trail decayed
+            // inside twenty of them and every tile then slept, so it measured
+            // the sleep check (744 tiles processed across 600 passes) rather
+            // than the per-cell work a storage change would move. A busy plane
+            // is the case where width could cost something, so the load is
+            // held awake.
+            let t = std::time::Instant::now();
+            for pass in 1..=600u64 {
+                for x in 20..480 {
+                    p.deposit(Channel::A, x, TRAIL_Y, args.deposit);
+                    p.deposit(Channel::B, x, TRAIL_Y - 40, args.deposit);
+                }
+                for i in 0..200 {
+                    p.deposit(Channel::A, 30 + i, 100 + (i % 7), args.deposit);
+                }
+                p.step(pass * args.interval, args.interval);
+            }
+            let ms = t.elapsed().as_secs_f64() * 1000.0;
+            best = best.min(ms);
+            tiles = p.stats.tiles_processed;
+        }
+        // **The minimum, not the mean.** Every source of error on a shared box
+        // adds time; none removes it, so the fastest run is the closest to the
+        // work itself. The mean here is a measure of the other agents.
+        println!("  600 passes over a fixed load: {best:.2} ms (best of {reps})");
+        println!("  tiles processed: {tiles}   <- must match across builds, or the work differed");
+        println!("  per pass: {:.4} ms", best / 600.0);
+    }
+
+    if only != "isolated" {
+        println!();
+        println!("--- bed: the whole frame, NOT a clean A/B (the worlds diverge) ---");
+        let spec = LabBox { width: 512, height: 320, soil_depth: 80, founders: 8, colonies: 1, compartments: 1, seed: 1, colony_species: "ant".into(), ..LabBox::default() };
+        let mut lab = Lab::new(spec);
+        for frame in 1..=2_000u64 {
+            let _ = frame;
+            pixel_physics::sim::frame::step(&mut lab.world, &mut lab.particles, &mut lab.blasts, pixel_physics::sim::player::PlayerInput::default(), &pixel_physics::sim::player::Tuning::default());
+        }
+        let t = std::time::Instant::now();
+        for frame in 2_001..=4_000u64 {
+            let _ = frame;
+            pixel_physics::sim::frame::step(&mut lab.world, &mut lab.particles, &mut lab.blasts, pixel_physics::sim::player::PlayerInput::default(), &pixel_physics::sim::player::Tuning::default());
+        }
+        let ms = t.elapsed().as_secs_f64() * 1000.0;
+        println!("  2,000 frames after a 2,000-frame warm-up: {ms:.0} ms, {:.3} ms/frame", ms / 2000.0);
+        println!("  ants {} | pheromone tiles processed {}", lab.world.live_creature_count(), lab.world.pheromones.stats.tiles_processed);
+    }
 }
 
 /// **Can an ant tell a well-used branch from a lightly-used one — and does
@@ -598,7 +689,7 @@ fn alarm(args: &Args) {
     let arm = std::env::args().find_map(|a| a.strip_prefix("arm=").map(str::to_string)).unwrap_or_else(|| "shipped".into());
     let spread = if arm == "diffuse" { Spread::Diffuse } else { Spread::ActiveSpace { fall: pheromone::ALARM_FALL } };
     println!("arm={arm} -> {spread:?}");
-    for (label, deposit) in [("a wound  (ALARM_DEPOSIT 240)", pheromone::ALARM_DEPOSIT), ("a display (DISPLAY_DEPOSIT 40)", 40u8)] {
+    for (label, deposit) in [("a wound  (ALARM_DEPOSIT 240)", pheromone::ALARM_DEPOSIT), ("a display (DISPLAY_DEPOSIT 40)", 40 * pheromone::SCALE)] {
         println!();
         println!("{label}");
         println!("{:>7}  {:>6} {:>6} {:>6} {:>6} {:>6}", "frame", "d=0", "d=1", "d=2", "d=4", "d=8");
@@ -606,7 +697,7 @@ fn alarm(args: &Args) {
         p.set_alarm_rho(pheromone::ALARM_RHO);
         p.set_alarm_spread(spread);
         p.deposit(Channel::Alarm, TRAIL_X0, TRAIL_Y, deposit);
-        let sample = |p: &Pheromones| -> Vec<u8> { [0, 1, 2, 4, 8].iter().map(|d| p.sample(Channel::Alarm, TRAIL_X0 + d, TRAIL_Y)).collect() };
+        let sample = |p: &Pheromones| -> Vec<Scent> { [0, 1, 2, 4, 8].iter().map(|d| p.sample(Channel::Alarm, TRAIL_X0 + d, TRAIL_Y)).collect() };
         let mut rows = vec![(0u64, sample(&p))];
         for frame in 1..=(args.interval * 14) {
             p.step(frame, args.interval);
@@ -623,8 +714,8 @@ fn alarm(args: &Args) {
         }
         let peak_at_1 = rows.iter().map(|(_, v)| v[1]).max().unwrap_or(0);
         let peak_at_2 = rows.iter().map(|(_, v)| v[2]).max().unwrap_or(0);
-        println!("  loudest a neighbour one cell away ever hears: {peak_at_1}  (input {:.3}, ->Attack {:+.3})", f32::from(peak_at_1) / 255.0, 2.0 * f32::from(peak_at_1) / 255.0);
-        println!("  ...and two cells away:                        {peak_at_2}  (input {:.3}, ->Attack {:+.3})", f32::from(peak_at_2) / 255.0, 2.0 * f32::from(peak_at_2) / 255.0);
+        println!("  loudest a neighbour one cell away ever hears: {peak_at_1}  (input {:.3}, ->Attack {:+.3})", peak_at_1 as f32 / Scent::MAX as f32, 2.0 * peak_at_1 as f32 / Scent::MAX as f32);
+        println!("  ...and two cells away:                        {peak_at_2}  (input {:.3}, ->Attack {:+.3})", peak_at_2 as f32 / Scent::MAX as f32, 2.0 * peak_at_2 as f32 / Scent::MAX as f32);
     }
 
     // **The sustained arm, and it is here because a one-bite scene could
@@ -657,7 +748,7 @@ fn alarm(args: &Args) {
             println!("  {bites:>6}");
         }
     }
-    let audible = |d: i32| f32::from(p.sample(Channel::Alarm, TRAIL_X0 + d, TRAIL_Y)) / 255.0;
+    let audible = |d: i32| p.sample(Channel::Alarm, TRAIL_X0 + d, TRAIL_Y) as f32 / Scent::MAX as f32;
     println!("  even sustained, an ant 2 cells off reads {:.3} -> Attack {:+.3}", audible(2), 2.0 * audible(2));
 
     println!();

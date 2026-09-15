@@ -125,7 +125,7 @@ pub const NUMBERS_WEIGHT_DEFAULT: f32 = 1.0;
 /// within about a second and a half of play is a *small, self-clearing*
 /// price paid in signal rather than in energy; if measurement says it wants
 /// an energy account too, that is a change to make with a number in hand.
-pub const DISPLAY_DEPOSIT: u8 = 40;
+pub const DISPLAY_DEPOSIT: super::pheromone::Scent = 40 * super::pheromone::SCALE;
 
 /// **What one closure of this jaw takes off a cell of that armour**, 0..=1.
 ///
@@ -293,11 +293,11 @@ pub fn numbers_weight() -> f32 {
 /// Saturating rather than wrapping on a value past 255, so a fat-fingered
 /// dial reads as "as loud as this plane goes" instead of as silence — which
 /// is the failure mode that looks exactly like the mechanism being dead.
-pub fn display_deposit() -> u8 {
+pub fn display_deposit() -> super::pheromone::Scent {
     use std::sync::OnceLock;
-    static V: OnceLock<u8> = OnceLock::new();
+    static V: OnceLock<super::pheromone::Scent> = OnceLock::new();
     *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_CONTEST_DISPLAY") {
-        Ok(s) => s.parse::<f32>().map(|v| v.clamp(0.0, 255.0) as u8).unwrap_or(DISPLAY_DEPOSIT),
+        Ok(s) => s.parse::<f32>().map(|v| (v.clamp(0.0, 255.0) * super::pheromone::SCALE as f32) as super::pheromone::Scent).unwrap_or(DISPLAY_DEPOSIT),
         Err(_) => DISPLAY_DEPOSIT,
     })
 }

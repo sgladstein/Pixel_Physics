@@ -625,6 +625,111 @@ Authoring one now pre-judges that.
 
 ---
 
+## 3c. The planes widened to `u16`, and that is the fix §3b said was a trade
+
+**Owner, 2026-09-15, on the recommendation below: *"More memory is fine as
+long as speed is unchanged."*** So the acceptance condition was speed, and it
+is measured rather than argued.
+
+### Why a width and not a constant
+
+§3b measured the whole candidate space and found no combination of `DEPOSIT`,
+`DIFFUSE` and decay cadence that reaches a round trip, then called it a trade.
+That was right about the arms and wrong about the reason. **The binding
+constraint is the `u8` dynamic range**, and it binds because channel A is a
+*ramp*: the odometer that lays it falls off with distance from the nest, so
+the far end of a trail is the faint end, and at a byte that end runs out of
+bits. Measured on the shipped ramp, the ant's own along-reading:
+
+| distance along trail | peak 120 | **peak 40 (shipped)** | peak 8 |
+|---|---|---|---|
+| 0.1 | −0.098 | −0.098 | +0.000 |
+| 0.5 | −0.043 | −0.062 | −0.250 |
+| **0.7** | −0.028 | **+0.000** | +0.000 |
+| **0.9** | −0.033 | **+0.000** | +0.000 |
+
+**The trail went flat past its own midpoint.** An ant more than halfway out
+read *exactly zero* — the trail was still there and had stopped pointing
+anywhere. That single mechanism is also §1c's "stops steering while 77 cells
+are still standing" and §1's recruitment failure; they were one defect seen
+three ways.
+
+**`DEPOSIT` could not buy it**, which is why the type moved instead: the
+busiest trails already peak at 39–98 of 255 in a real bed, so tripling the
+deposit to fix the faint end clips the loud end into saturation and flattens
+the differential reinforcement P-14 exists to protect. **The scale-free reader
+is scale-free in *ratio*, not in *resolution*.**
+
+### What it cost, which was the condition
+
+`Scent = u16` as 8.8 fixed point: the same 0..255 *semantic* range with eight
+fractional bits under it, so every constant keeps its meaning and only the
+resolution moves. Measured with `examples/pherocost`, **written to compile
+against both widths** so the two binaries differ only by the library, with
+identical tile counts in every row:
+
+| world | cells | `u8` | `u16` | ratio |
+|---|---|---|---|---|
+| 512x320 | 164 K | 1,261 ms | 1,075 ms | **0.85x** |
+| 2048x1024 | 2.1 M | 4,178 ms | 3,839 ms | **0.92x** |
+| 4096x2048 | 8.4 M | 4,705 ms | 4,322 ms | **0.92x** |
+
+**Faster at every size, including far out of cache**, and the margin narrows
+with world size exactly as a memory cost should. The win is that the decay
+**table became arithmetic**: at `u8` a 256-byte LUT was free in L1, which is
+why it was a table; at `u16` the same shape is **128 KB**, out of L1 and into
+the middle of the plane's own working set. A multiply and a shift touch no
+memory at all. The table was an optimisation for a width that no longer
+applies.
+
+**`world=` is the load-bearing argument** and the reason the small number is
+not the answer: at 512x320 a plane is cache-resident and a width change is
+pure arithmetic. `CLAUDE.md` — the current world is a test environment, not
+the target.
+
+### What it bought
+
+Same constants, nothing tuned:
+
+| | `u8` | `u16` |
+|---|---|---|
+| unreinforced trail gone | 144 frames (0.07x) | **1,476 frames (0.67x)** |
+| stops steering | 36 frames (0.02x) | **1,080 frames (0.49x)** |
+| standing network, 52 ants | 208–342 cells | **1,405–2,057 cells** |
+| peak, real bed | 39–98 of 255 (15–38%) | 15,160–25,004 of 65,535 (23–38%) |
+
+**Ten times the life, thirty times the steering range, a six-fold network, and
+no saturation** — from resolution alone.
+
+### Three things this corrects
+
+- **§1d's "a cell needs re-laying every ≤36 frames"** was measured *mid-ramp*,
+  at the trail's faintest point. Measured with a uniform deposit there is **no
+  traffic cliff at all**: a trail settles at a nonzero value at any spacing,
+  even one pass per 480 frames. The cliff is in **deposit height**.
+- **§2d's "two cells away reads zero, ever"** was the *byte's* way of saying
+  inaudible. Widened, the old diffuse arm reads **100 of 65,535** two cells
+  out — 0.15% of scale, **+0.003** into `Attack` against a weight of 2.0. Still
+  inaudible; no longer zero. The active-space change still earns its keep by
+  **226x** there, and its guard now asserts that ratio rather than a zero.
+- **The tile-seam guard's `assert_eq!` was passing on quantisation.** At `u8`
+  the two sides of a seam were bit-equal at every distance; widened they are
+  57887/57894, 30861/30880, 12542/12559 — and the byte was rounding all of it
+  to 226/226, 120/120, 49/49. The residual is float rounding rather than a
+  seam bias, checked rather than assumed: the absolute difference *shrinks*
+  with distance (19 at d=1 to 0 by d=6) and never exceeds one quantum in the
+  tail, where a real bias would grow. The guard now allows 1% and still
+  catches an injected seam block by **15x**.
+
+**A constant the widening would have changed silently, caught and scaled**:
+`PheroAAlong`'s divide-by-zero guard is `+ 1.0` in *value* units, so at the new
+width a literal 1 would have become 256 times weaker without a word written.
+One faint cell against an empty one reads 0.500 at the old width and 0.996 at
+the new — not more resolution, a different input. It is `+ SCALE` now, which
+confines the change to what happens *below* one old unit, which is the point.
+
+---
+
 ## 4. What would overturn this
 
 - §1 is measured at `PHEROMONE_INTERVAL = 12` unscaled. `World::step_

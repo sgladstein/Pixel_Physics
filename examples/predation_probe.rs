@@ -825,7 +825,7 @@ fn run(seed: u64, frames: usize, every: usize, beetles: usize, paint: Paint, ove
             (Channel::B, &mut row.b, I::PheroBFront, I::PheroBAlong),
             (Channel::A, &mut row.a, I::PheroAFront, I::PheroAAlong),
         ] {
-            let (mut mass, mut cells, mut peak) = (0u64, 0u64, 0u8);
+            let (mut mass, mut cells, mut peak) = (0u64, 0u64, 0 as pixel_physics::sim::pheromone::Scent);
             for py in 0..H {
                 for px in 0..W {
                     let v = world.pheromone_at(channel, px, py);
