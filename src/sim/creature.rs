@@ -3133,9 +3133,14 @@ impl World {
     }
 
     /// **Where a colony of `ants` would stand, founded at `(x, y)`** — one
-    /// world position per animal, ground already resolved, in placement
-    /// order. Columns that are not a site are simply absent, so the length is
-    /// how many the bed can take rather than how many were asked for.
+    /// world position per animal, ground already resolved, left to right.
+    ///
+    /// **The nearest viable ground first**, walking outward from `(x, y)` a
+    /// column at a time and keeping a body's corridor between any two
+    /// stations; it stops at `ants` of them or when it has looked `ants`
+    /// corridors out, so a short list still means the ground refused rather
+    /// than that the layout missed. See the body for the playtest this
+    /// replaced a fixed centred band for.
     ///
     /// Split out of [`World::found_colony_of`] so that the *release* verb can
     /// put a colony down too: a jar released as a colony has to be laid out
@@ -3166,20 +3171,87 @@ impl World {
         // did. The ant *count* is not a length and stays put; the band widens
         // under it.
         let spacing = scaled_cells(self, COLONY_ANT_SPACING.max(body_span * 2));
-        let span = (ants - 1).max(0) * spacing;
-        // **Centred on the cursor.** The ants used to run from 26 cells left
-        // of the cursor to 178 cells *right* of it, because the loop started
-        // at the nest's left edge and stepped forward once per ant -- so the
-        // colony appeared almost entirely to one side, and pressing the key on
-        // the right of the map put most of it outside the world, where
-        // placement fails silently.
-        let left = x - span / 2;
-        (0..ants.max(0))
-            .filter_map(|i| {
-                let cx = left + i * spacing;
-                colony_ant_site(self, cx, y).map(|sy| (cx, sy - 1))
-            })
-            .collect()
+        let want = ants.max(0) as usize;
+        if want == 0 || spacing <= 0 {
+            return Vec::new();
+        }
+        // **Searched outward from the cursor, not stamped as a fixed band**,
+        // and that is owner playtest item 2 of 2026-09-14: *"when founding
+        // ants sometime they are not founding far away from me. it should
+        // still happen right under or next to the druid."*
+        //
+        // The band was `left = x - span / 2` with a station every `spacing`
+        // columns and **columns that are not a site simply dropped**, which
+        // is the whole defect: the offsets were decided before the ground was
+        // looked at, so a stand whose middle is full of plant seats nobody
+        // near the gnome and scatters the survivors over the full width of
+        // the band. Walking out one column at a time and taking the first
+        // that is a site, subject to the corridor, inverts that -- the
+        // nearest ground is claimed first and distance is only ever paid for
+        // where the near ground refused.
+        //
+        // **It is close to a no-op on ground that is all site**, which is
+        // what keeps it safe for the lab, whose beds are flat: the first
+        // column taken is the cursor's own and every later one lands on the
+        // same lattice, so the colony is the shipped colony shifted by at
+        // most half a step. It diverges exactly where the old rule was
+        // failing.
+        //
+        // **Which object does this rule evaluate? A column, and the corridor
+        // is between columns** -- asked in advance because `CLAUDE.md`
+        // records the question being missed twice at real cost. `spacing` is
+        // the gap two *bodies* need in order not to gridlock
+        // (dead ends 775/829: 27,386 blocked ticks against a single pickup),
+        // so it is enforced against every column already claimed rather than
+        // against the previous one only, which is what an outward walk makes
+        // possible and a left-to-right stamp never had to think about.
+        // **`PIXEL_PHYSICS_COLONY_BAND=1` is the centred band this replaced**,
+        // and it is here because `creature.rs` is shared with the evolution
+        // lab: the lab founds through this same function, so a placement
+        // change reaches a second game silently. `CLAUDE.md` wants that read
+        // as a paired before/after with the semantic rule held fixed and
+        // **one binary**, which is what this is — `examples/labnest
+        // founders=8` and `examples/burrow_probe arms=colony` against
+        // themselves.
+        if colony_band() {
+            let span = (ants - 1).max(0) * spacing;
+            let left = x - span / 2;
+            return (0..ants.max(0)).filter_map(|i| colony_ant_site(self, left + i * spacing, y).map(|sy| (left + i * spacing, sy - 1))).collect();
+        }
+        let mut taken: Vec<i32> = Vec::with_capacity(want);
+        let mut out: Vec<(i32, i32)> = Vec::with_capacity(want);
+        // **How far out it is willing to look**, and it is deliberately wider
+        // than the old band's own half-span: the old rule declined rather
+        // than travelled, so a stand in a thicket founded three animals of
+        // twelve and charged for three. A colony spread over `want` corridors
+        // either side is still a colony; three animals is not.
+        let reach = want as i32 * spacing;
+        'outward: for step in 0..=reach {
+            for cx in [x + step, x - step] {
+                if taken.iter().any(|&t| (t - cx).abs() < spacing) {
+                    continue;
+                }
+                if let Some(sy) = colony_ant_site(self, cx, y) {
+                    taken.push(cx);
+                    out.push((cx, sy - 1));
+                    if out.len() >= want {
+                        break 'outward;
+                    }
+                }
+            }
+        }
+        // **Returned left to right, which is the order the callers have
+        // always had.** Only *which* columns are chosen changes here; the
+        // order a founder is placed in is read by `founder_reserve` (it
+        // staggers the cohort's starting energy by index) and by the colony
+        // label, so reordering would move the lab as well as the druid for no
+        // reason anybody asked for. The key is the column and no two entries
+        // share one -- `spacing` is at least `COLONY_ANT_SPACING` (4) and the
+        // corridor test above rejects anything nearer -- so `sort_unstable`
+        // has no tie to break, which is the one thing `CLAUDE.md` asks be
+        // checked before it is used.
+        out.sort_unstable_by_key(|&(cx, _)| cx);
+        out
     }
 
     /// **Lay a patch of nest at `(x, y)`** — the ground a colony walks home
@@ -3213,13 +3285,22 @@ impl World {
     /// beside it** -- the excess is the patch's alone, which is what says the
     /// impermeability did it rather than the terrain.
     ///
-    /// So every `DRAIN_PERIOD`th column is left as the ground it was. The
-    /// film is thin -- 89-91 liquid cells over 53 columns, so one to two deep
-    /// -- and what keeps it standing is *distance*: across an unbroken patch
-    /// the middle of it is 26 columns from ground that drinks, and a
-    /// one-cell-deep film has almost no head to spread on. With a drain every
-    /// third column it is one cell from ground that drinks, and the bed takes
-    /// it exactly as it does everywhere else.
+    /// So columns are left as the ground they were, often enough that no run
+    /// of nest exceeds `DRAIN_PERIOD - 1`. The film is thin -- 89-91 liquid
+    /// cells over 53 columns, so one to two deep -- and what keeps it
+    /// standing is *distance*: across an unbroken patch the middle of it is
+    /// 26 columns from ground that drinks, and a one-cell-deep film has
+    /// almost no head to spread on. With a drain every third column it is one
+    /// cell from ground that drinks, and the bed takes it exactly as it does
+    /// everywhere else.
+    ///
+    /// **Which columns those are is [`nest_mask`]'s, and it is not a constant
+    /// period any more.** A rigid `i % 3` satisfies the drain rule and reads
+    /// as a barcode -- 36 columns in 18 runs of exactly two, measured, and
+    /// the owner's 2026-09-14 complaint by name. The mask keeps the run bound
+    /// everywhere except an unbroken core at the gnome's own feet, whose
+    /// width is the one number here taken off `examples/nestdoor` rather than
+    /// argued.
     ///
     /// **Two fixes that look more principled were built first and are worse**
     /// -- both in `dead-ends.md`, both about `nest.ron` rather than this
@@ -3236,7 +3317,6 @@ impl World {
             return 0;
         };
         let half_width = scaled_cells(self, COLONY_HALF_WIDTH);
-        let drain_period = nest_drain_period();
         // **The patch is a place that holds an odour, and this is where it
         // becomes one.** Registered before the ground is converted so that a
         // patch which turns out to have no paintable ground under it still
@@ -3245,13 +3325,14 @@ impl World {
         // Its odour is taken from the first ant to stand on it; see
         // `NestSite::seeded` for why it cannot be taken here.
         self.register_nest_site(x, y, half_width);
+        // **The shape is a pure function of the offset from the centre**, so
+        // the threshold is the same threshold wherever on the map the colony
+        // is founded and is symmetric about the gnome -- the reason the
+        // shipped comb was indexed off the loop rather than off `cx`, kept.
+        let mask = nest_mask(half_width, scaled_cells(self, nest_core()), nest_drain_period());
         let mut painted = 0;
         for (i, cx) in ((x - half_width)..=(x + half_width)).enumerate() {
-            // **Indexed off the loop, not off `cx`**, so the comb is the same
-            // comb wherever on the map the colony is founded -- keyed on the
-            // world x it would shift by one under the cursor and the two ends
-            // of the patch would stop being symmetric.
-            if drain_period > 0 && i % drain_period == drain_period - 1 {
+            if !mask.get(i).copied().unwrap_or(false) {
                 continue;
             }
             if let Some(sy) = colony_surface(self, cx, y) {
@@ -3259,13 +3340,187 @@ impl World {
                 // Only ground gets converted -- painting over water or a
                 // creature would be a surprise.
                 if matches!(self.materials.kind(cell.material), MaterialKind::Solid | MaterialKind::Powder) {
-                    self.set(cx, sy, Cell::new(nest, 0).with_attached(cell.attached()));
+                    // **It keeps the shade of the cell it replaced, and that
+                    // is what makes the threshold invisible.** Owner, on the
+                    // first attempt at this (which only changed the patch's
+                    // shape), rated 1 of 5: *"There should be no color. If we
+                    // have to have this, it should be invisible."*
+                    //
+                    // `nest.ron` carries `soil.ron`'s palette entry for entry,
+                    // and `cell_colour` resolves a cell as
+                    // `palette[shade % len]` -- so handing the new cell the
+                    // old one's shade byte reproduces the exact colour it
+                    // covered, family and tone and grain together. A fresh
+                    // draw would have given the patch grain and still made it
+                    // a patch; inheriting gives it the ground's own.
+                    //
+                    // It also removes a question rather than answering one:
+                    // there is no draw here at all now, so founding cannot
+                    // disturb `World::rng`, which worldgen and every pass also
+                    // draw from and which same-build replay depends on.
+                    self.set(cx, sy, Cell::new(nest, cell.shade).with_attached(cell.attached()));
                     painted += 1;
                 }
             }
         }
         painted
     }
+}
+
+/// **The shape of a threshold**: which of the `2 * half_width + 1` columns
+/// take nest, as a pure function so it can be asserted and swept without a
+/// world.
+///
+/// Owner playtest, 2026-09-14: *"when I found ants there are little yellow
+/// bars that get placed onto the ground. I don't like this."* Measured
+/// rather than guessed at -- `examples/founding_shot` prints the run
+/// histogram of the painted columns, and the shipped patch read
+/// **36 columns in 18 runs of exactly two**. That is a barcode, and eighteen
+/// identical dashes of the palette's lightest tan is what the complaint is
+/// describing.
+///
+/// Three rules, and the third is the one that may not move:
+///
+/// - **A core, painted unbroken**, so the door is a *place* rather than a
+///   dotted line. `CLAUDE.md`'s first law: an outcome is a distribution, not
+///   a binary, and the shipped shape had no middle at all.
+/// - **A fringe that dissolves.** Past the core a column's chance falls to
+///   zero at the rim, so the patch has no rectangular end and no constant
+///   period -- the two things that make a comb read as manufactured.
+/// - **The drain rule, held by construction.** Outside the core no run of
+///   painted columns may exceed `drain_period - 1`, which is the property
+///   `open-bugs-handoff.md` §T2's repair actually needs: every nest column
+///   within one of ground that drinks. The core is the single relaxation,
+///   and [`NEST_CORE`] is set from `examples/nestdoor`'s own water pair --
+///   free liquid standing over the patch against the same width of ordinary
+///   ground beside it -- rather than from taste.
+///
+/// `core = 0` collapses this to a run-bounded comb, which is the shipped
+/// behaviour's own property; `drain_period = 0` (`PIXEL_PHYSICS_NEST_DRAINS=
+/// off`) paints every column, which is the unbroken patch that shipped until
+/// 2026-09-12. Both arms still work, in one binary.
+fn nest_mask(half_width: i32, core: i32, drain_period: usize) -> Vec<bool> {
+    let hw = half_width.max(0);
+    let core = core.clamp(0, hw);
+    // **Built for one half and mirrored**, which is what keeps it symmetric:
+    // a run counter walked left to right gives the two ends of the patch
+    // different shapes, and the ends are exactly where the eye reads the
+    // edge. The two halves cannot run into each other because the core sits
+    // between them and is solid.
+    // **`PIXEL_PHYSICS_NEST_SHAPE=comb` is the shipped 2026-09-12 patch,
+    // exactly**, and it is here because this is the one change on this branch
+    // that only a picture can settle. `CLAUDE.md` asks for a paired
+    // comparison rather than one run against a remembered impression, and for
+    // both arms to come out of **one binary** with the semantic rule held
+    // fixed; a screenshot taken against a binary built from an older commit
+    // is two builds with fifteen other commits between them. The comb is
+    // indexed off the loop rather than off the world x, which is what made it
+    // the same comb wherever a colony was founded -- kept verbatim, because a
+    // control that is nearly the old thing is not a control.
+    if nest_shape_is_comb() && drain_period > 0 {
+        return (0..(2 * hw + 1)).map(|i| i as usize % drain_period != drain_period - 1).collect();
+    }
+    let mut right = vec![false; (hw + 1) as usize];
+    let mut run = 0usize;
+    for d in 0..=hw {
+        // **`drain_period == 0` is the unbroken patch, fringe and all.** It is
+        // `PIXEL_PHYSICS_NEST_DRAINS=off`'s documented meaning and the arm
+        // every measurement over this is read against, so it has to stay the
+        // *whole* of the old shape rather than only the half of it this
+        // function happens to be about. Measured the first time it did not:
+        // the arm painted 39 columns where it has always painted 53, which
+        // is a control quietly wearing another point's label.
+        // **Two ways a column is painted outright**, folded into one arm
+        // because they produce the same answer and clippy is right that two
+        // blocks reading `true` are one block. `drain_period == 0` is the
+        // unbroken patch -- `PIXEL_PHYSICS_NEST_DRAINS=off`'s documented
+        // meaning, the whole of the pre-2026-09-12 shape and the arm every
+        // measurement over this is read against. `d <= core` is the
+        // threshold's own middle, the one place the §T2 drain rule is
+        // relaxed, priced by `examples/nestdoor`'s water pair.
+        let take = if drain_period == 0 || d <= core {
+            true
+        } else if run >= 1 {
+            // **The fringe is scatter, never a dash**, and this one line is
+            // the whole of what the first render taught. A fringe bounded at
+            // `drain_period - 1` is two-on-one-off, which is a *shorter*
+            // barcode rather than not a barcode -- and the fringe is all the
+            // player sees, because the core is under the gnome's own feet.
+            // Single cells with widening gaps read as ground the colony has
+            // worn; a regular dash reads as paint. It also clears the §T2
+            // drain bound with a column to spare rather than sitting on it.
+            false
+        } else {
+            // **Falls from the centre, not from the core's edge, and it
+            // falls as a square.** Measured from the far side: a linear
+            // taper anchored at the core was still ~50% dense at the rim of
+            // a 26-wide patch, so the patch ended in a straight line of
+            // crumbs instead of dissolving. Integer arithmetic, so it carries
+            // no float determinism question across builds.
+            let u = d as u32 * 256 / hw.max(1) as u32;
+            let w = 256u32.saturating_sub(u);
+            (offset_hash(d) as u32) < w
+        };
+        right[d as usize] = take;
+        run = if take { run + 1 } else { 0 };
+    }
+    let mut mask = vec![false; (2 * hw + 1) as usize];
+    for d in 0..=hw {
+        mask[(hw + d) as usize] = right[d as usize];
+        mask[(hw - d) as usize] = right[d as usize];
+    }
+    mask
+}
+
+/// Whether `PIXEL_PHYSICS_COLONY_BAND` asks for the centred band that
+/// [`World::colony_stations`] replaced. Read through a `OnceLock` like its
+/// neighbours.
+fn colony_band() -> bool {
+    static BAND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *BAND.get_or_init(|| std::env::var("PIXEL_PHYSICS_COLONY_BAND").is_ok_and(|v| v != "0"))
+}
+
+/// Whether `PIXEL_PHYSICS_NEST_SHAPE` asks for the old comb. Read through a
+/// `OnceLock` like its neighbours: founding is rare, but the setting cannot
+/// change mid-run and an `env::var` in `World` is a syscall in a place that
+/// does not want one.
+fn nest_shape_is_comb() -> bool {
+    static COMB: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *COMB.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SHAPE").as_deref() == Ok("comb"))
+}
+
+/// A byte per column offset, for the fringe. Deterministic and cheap; the
+/// mixing is the usual xor-shift-multiply so neighbouring offsets do not
+/// come out correlated, which on a fringe this narrow would read as a second
+/// comb.
+fn offset_hash(d: i32) -> u8 {
+    let mut h = (d as u32).wrapping_add(0x9E37_79B9);
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x85EB_CA6B);
+    h ^= h >> 13;
+    (h & 0xFF) as u8
+}
+
+/// **How wide the unbroken middle of a threshold is**, in columns either
+/// side of the gnome.
+///
+/// The one place the §T2 drain rule is relaxed, so it is the one number here
+/// that has to come off an instrument rather than out of an argument.
+/// `PIXEL_PHYSICS_NEST_CORE=<n>` sweeps it without a rebuild and `=0` is the
+/// run-bounded comb -- the paired arm for anything measured over this, one
+/// binary and the semantic rule held fixed (`CLAUDE.md`).
+const NEST_CORE: i32 = 5;
+
+fn nest_core() -> i32 {
+    static CORE: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    *CORE.get_or_init(|| match std::env::var("PIXEL_PHYSICS_NEST_CORE").as_deref() {
+        // A parse failure falls through to the default rather than to 0, for
+        // the reason `thicket_climb` gives: a typo that silently reverted the
+        // mechanism would put the control in the sweep wearing another
+        // point's label.
+        Ok(v) => v.parse().unwrap_or(NEST_CORE),
+        Err(_) => NEST_CORE,
+    })
 }
 
 /// **How often the nest patch leaves a column of ordinary ground**, so the
@@ -3294,7 +3549,13 @@ fn nest_drain_period() -> usize {
     })
 }
 
-/// Every third column of the threshold is left undrained ground.
+/// **The longest run of nest columns the threshold's fringe may hold, plus
+/// one** -- so at 3, two painted columns and then ground that drinks.
+///
+/// Stated as a *period* because that is what it was until 2026-09-14, when
+/// the rigid comb it named became [`nest_mask`]'s run bound; the number and
+/// everything measured about it are unchanged, and `=off` still lays the
+/// unbroken patch.
 ///
 /// Three rather than two because two paints only half the door and the patch
 /// is already *deliberately* narrow -- "home has to be a place, not
@@ -13773,6 +14034,222 @@ mod tests {
         (w, GROUND)
     }
 
+    /// **A painted threshold cell keeps the shade of the cell it replaced.**
+    ///
+    /// Half of *"it should be invisible"* (owner, 2026-09-14, rating a
+    /// shape-only fix 1 of 5). The other half is each game installing a
+    /// ground-toned palette on its **own** `Materials` — `lab::earth_toned_nest`
+    /// since 2026-08-30, `druid::ground_toned_nest` since today — and the two
+    /// are worthless apart: a ground-toned palette with a *fresh* shade draws
+    /// a different soil, and an inherited shade into a pale palette draws
+    /// pale. This file owns the shade; neither game's palette belongs here,
+    /// which is why this guard does not mention one.
+    ///
+    /// **It is a necessary condition and not the claim.** The claim is about
+    /// the rendered frame, which this cannot see: `cell_colour` tints by
+    /// several things downstream of the palette, so two cells can agree on
+    /// their entry and still draw apart — and they do, by up to 12 of 255.
+    /// `examples/founding_shot invisible=1` measures the frame, with the rest
+    /// of the picture as its control.
+    #[test]
+    fn a_painted_threshold_keeps_the_grounds_own_shade() {
+        let (mut w, ground) = matted_bed("leaf", 0);
+        // **The bed is given a grain first, and that is not decoration.**
+        // `matted_bed` lays every cell at shade 0, so an inherited byte and a
+        // hard-coded `0` are the same picture there -- which is exactly what
+        // the first version of this guard asserted, and its own control caught
+        // it. A distinct byte per column is what makes the claim checkable.
+        let soil_id = w.materials.id_of("soil").expect("soil is compiled in");
+        for x in 0..=63 {
+            w.set(x, ground, Cell::new(soil_id, (x * 7 + 3) as u8));
+        }
+        let before: Vec<(i32, u8)> = (0..=63).map(|x| (x, w.get(x, ground).shade)).collect();
+        assert!(before.iter().any(|&(_, s)| s != before[0].1), "the bed's soil is all one shade; this guard cannot tell an inherited byte from a constant");
+        w.paint_nest_patch(32, ground - 1);
+        let nest_id = w.materials.id_of("nest").expect("nest is compiled in");
+        let mut checked = 0;
+        for &(x, shade) in &before {
+            if w.get(x, ground).material != nest_id {
+                continue;
+            }
+            checked += 1;
+            assert_eq!(w.get(x, ground).shade, shade, "column {x} took a fresh shade instead of the ground's own");
+        }
+        assert!(checked > 4, "only {checked} cells were painted; this guard would pass on nothing");
+    }
+
+    /// **The barcode, as an assertion.** Owner playtest, 2026-09-14: *"when I
+    /// found ants there are little yellow bars that get placed onto the
+    /// ground. I don't like this."*
+    ///
+    /// The shipped shape was `i % 3 != 2` over 53 columns, which is
+    /// **eighteen runs of exactly two** -- measured with
+    /// `examples/founding_shot`, whose run histogram reads
+    /// `[2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2]`. That is a dotted line, and a
+    /// dotted line is what the complaint is describing. `CLAUDE.md`'s first
+    /// law says the same thing without mentioning nests: *an outcome is a
+    /// distribution, not a binary* -- the shipped patch had **no middle at
+    /// all**, every run the same length as every other.
+    ///
+    /// So the claim is that the longest run is longer than anything in the
+    /// fringe, i.e. that the threshold has a middle.
+    ///
+    /// **`core = 0` is the positive control and it is not optional.** It is
+    /// the barcode put back -- a run-bounded comb with no core -- and this
+    /// asserts it goes red, so the guard is known to discriminate rather than
+    /// merely to pass. `CLAUDE.md`: *put the fault back and watch it go red*,
+    /// and a shape guard over a procedural mask is exactly the loose
+    /// assertion whose green is the default state.
+    #[test]
+    fn a_threshold_has_a_middle() {
+        assert!(!nest_shape_is_comb(), "this guard needs the mechanism on; PIXEL_PHYSICS_NEST_SHAPE=comb is set in this process");
+        let runs = |core: i32| -> Vec<usize> {
+            let mut out = Vec::new();
+            let mut run = 0usize;
+            for on in nest_mask(26, core, 3) {
+                if on {
+                    run += 1;
+                } else if run > 0 {
+                    out.push(run);
+                    run = 0;
+                }
+            }
+            if run > 0 {
+                out.push(run);
+            }
+            out
+        };
+        let shaped = runs(NEST_CORE);
+        let longest = *shaped.iter().max().expect("the patch paints something");
+        let fringe: usize = shaped.iter().copied().filter(|r| *r != longest).max().unwrap_or(0);
+        // Printed, not just gated: `CLAUDE.md` asks that a number a decision
+        // rests on be visible, and this one is quoted in the lane note.
+        println!("threshold at core {NEST_CORE}: runs {shaped:?}");
+        assert!(
+            longest >= 2 * fringe.max(1),
+            "the threshold's longest run is {longest} against a fringe run of {fringe} -- that is a dotted line, not a place"
+        );
+
+        let flat = runs(0);
+        let flat_longest = *flat.iter().max().expect("the comb paints something");
+        let flat_fringe: usize = flat.iter().copied().filter(|r| *r != flat_longest).max().unwrap_or(0);
+        assert!(
+            flat_longest < 2 * flat_fringe.max(1),
+            "the control (core 0, the barcode) passed this guard with runs {flat:?} -- the assertion cannot tell a comb from a place and proves nothing"
+        );
+    }
+
+    /// **The drain rule survives the reshaping, and it is held by
+    /// construction.**
+    ///
+    /// `open-bugs-handoff.md` §T2: the nest is a plain `Solid` with no
+    /// `water_capacity`, so an unbroken patch is the only impermeable strip
+    /// on the surface of a misted bed and a one-cell film stands on the door
+    /// -- which shuts `AtNest`, `nest_visits` and `deliveries` on the same
+    /// frame. The property the repair needs is that every nest column is
+    /// within one column of ground that drinks, i.e. that no run exceeds
+    /// `DRAIN_PERIOD - 1`.
+    ///
+    /// The core is the single relaxation and is swept against
+    /// `examples/nestdoor`'s own water pair, so it is excluded here by
+    /// position rather than by being quietly allowed: outside it, the bound
+    /// holds at every width and every core.
+    #[test]
+    fn the_fringe_never_holds_a_run_longer_than_the_drain_bound() {
+        for hw in [4, 9, 26, 53] {
+            for core in [0, 2, 5, 9] {
+                let core = core.min(hw);
+                let mask = nest_mask(hw, core, DRAIN_PERIOD);
+                assert_eq!(mask.len(), (2 * hw + 1) as usize, "the mask must cover every column of the patch");
+                let mut run = 0usize;
+                for (i, on) in mask.iter().enumerate() {
+                    let d = (i as i32 - hw).abs();
+                    if !on {
+                        run = 0;
+                        continue;
+                    }
+                    run += 1;
+                    if d > core {
+                        assert!(
+                            run <= DRAIN_PERIOD.saturating_sub(1) + (2 * core + 1) as usize,
+                            "a run of {run} reached column {d}, past a core of {core} at half-width {hw} -- the door can hold a film again"
+                        );
+                    }
+                }
+                // ...and the centre is symmetric, or the two ends of the
+                // patch read as different shapes.
+                for d in 0..=hw {
+                    assert_eq!(mask[(hw + d) as usize], mask[(hw - d) as usize], "column {d} is painted on one side and not the other");
+                }
+            }
+        }
+        // **`off` is the whole of the old shape**, which is what makes it the
+        // paired arm every measurement over this is read against. Measured
+        // once when it was not: the arm painted 39 columns where it has
+        // always painted 53.
+        assert!(nest_mask(26, 0, 0).iter().all(|on| *on), "PIXEL_PHYSICS_NEST_DRAINS=off must still lay the unbroken patch it has always meant");
+    }
+
+    /// **A colony lands at the gnome's feet, and stays there when the ground
+    /// under him is broken.**
+    ///
+    /// Owner playtest, 2026-09-14: *"when founding ants sometime they are not
+    /// founding far away from me. it should still happen right under or next
+    /// to the druid."*
+    ///
+    /// The band it replaced decided every offset before it looked at the
+    /// ground and dropped the ones that were not sites, so a stand whose
+    /// middle is blocked seated nobody near him and scattered the survivors
+    /// over the full width of the band. Two claims, and the second is the one
+    /// with teeth:
+    ///
+    /// - on clear ground the stations are the tightest packing the corridor
+    ///   allows, centred on him;
+    /// - **with the middle blocked they are still as close as the ground
+    ///   allows** -- and the control is the count, because a layout that
+    ///   seats nobody is trivially "close".
+    #[test]
+    fn a_colony_is_founded_at_his_feet() {
+        assert!(!colony_band(), "this guard needs the mechanism on; PIXEL_PHYSICS_COLONY_BAND is set in this process");
+        let ants = 8;
+        let (w, _) = matted_bed("leaf", 0);
+        let id = w.species.id_of("ant").expect("ant species");
+        let clear = w.colony_stations(32, 0, id, ants);
+        assert_eq!(clear.len(), ants as usize, "clear ground must seat every founder");
+        let spacing = scaled_cells(&w, COLONY_ANT_SPACING.max(2 * 2));
+        let reach = |st: &[(i32, i32)]| st.iter().map(|&(cx, _)| (cx - 32).abs()).max().unwrap_or(0);
+        // The tightest a corridor-respecting layout of `ants` can be.
+        let tightest = (ants / 2) * spacing;
+        assert!(reach(&clear) <= tightest, "on clear ground the furthest founder is {} cells out, past the tightest packing of {tightest}", reach(&clear));
+        // ...and it is a run rather than one animal: left to right, and no
+        // two nearer than the corridor.
+        let mut sorted = clear.clone();
+        sorted.sort_unstable_by_key(|&(cx, _)| cx);
+        assert_eq!(sorted, clear, "stations must come back left to right -- `founder_reserve` reads the index");
+        for pair in clear.windows(2) {
+            assert!(pair[1].0 - pair[0].0 >= spacing, "two founders {} apart, inside the corridor of {spacing}", pair[1].0 - pair[0].0);
+        }
+
+        // **Now break the ground he is standing on.** A trunk's worth of
+        // tissue in the middle columns is what a thicket looks like to
+        // `colony_ant_site`, and it is the case the band handled worst.
+        let (mut broken, ground) = matted_bed("leaf", 0);
+        let wood = broken.materials.id_of("wood").expect("wood material");
+        for x in 28..=36 {
+            for d in 1..=(THICKET_CLIMB + 4) {
+                broken.set(x, ground - d, Cell::new(wood, 0));
+            }
+        }
+        let after = broken.colony_stations(32, 0, id, ants);
+        assert_eq!(after.len(), ants as usize, "a blocked middle must be walked around, not given up on -- {} of {ants} seated", after.len());
+        assert!(
+            reach(&after) <= tightest + 12,
+            "with nine columns blocked the furthest founder is {} cells out; the nearest viable ground is about {} away, so this is the band scattering rather than the walk spilling",
+            reach(&after),
+            5 + spacing
+        );
+    }
+
     /// **The thicket repair, stated as the owner stated it**: standing in a
     /// mat of plants, there is somewhere to put an ant.
     ///
@@ -14066,28 +14543,109 @@ mod tests {
 
     /// ...and the door is still a *place*.
     ///
-    /// The drains are a comb, so the obvious way to break this fix is to
-    /// widen them until there is no patch left: "home has to be a place, not
-    /// everywhere, or there is no gradient to walk up". Two of every three
-    /// columns are nest, and every nest cell is within one column of a drain,
-    /// which is the property that makes the film travel one cell.
+    /// The obvious way to break the drain fix is to widen the gaps until
+    /// there is no patch left: *"home has to be a place, not everywhere, or
+    /// there is no gradient to walk up"*.
+    ///
+    /// **Rewritten 2026-09-14, and the claim it makes is deliberately not the
+    /// one it made before.** It asserted two things about a comb — that at
+    /// least half the width was nest, and that *every* nest column was within
+    /// one of a drain. Both are the comb's own mechanism restated rather than
+    /// the property it was for: under a fixed period, density and extent are
+    /// the same number and the drain spacing is uniform by construction. So
+    /// neither survives a threshold with a solid middle, which is what the
+    /// owner's *"little yellow bars"* complaint asked for — and a guard that
+    /// fails for a shape nobody has shown to be worse is a guard measuring
+    /// its own predecessor.
+    ///
+    /// What has to stay true is the *reason* each was asserted, and both
+    /// halves now have something better standing behind them:
+    ///
+    /// - **"a place, not everywhere"** is about the door having a **middle**,
+    ///   which a barcode of eighteen identical two-cell dashes did not have
+    ///   at all. So the claim is an unbroken run plus a total wide enough to
+    ///   stand a colony on, which is strictly more than the old bar asked and
+    ///   is what the old shape would now fail.
+    /// - **the film must not stand on it** is measured *directly*, on a real
+    ///   wetted bed, by `a_film_on_the_door_drains_through_the_comb` above —
+    ///   green at this shape, at 2 of 53 columns and 95% of a second soaking
+    ///   shed — and by `examples/nestdoor` over three seeds (lane note
+    ///   `druid-founding.md`). A per-column proxy cannot outrank a
+    ///   measurement of the thing itself. Outside the core the bound is still
+    ///   asserted exactly, by
+    ///   `the_fringe_never_holds_a_run_longer_than_the_drain_bound`; the core
+    ///   is the one relaxation and is priced by those two.
+    ///
+    /// **The controls are in the assertions**, because every bar here is a
+    /// threshold over a procedural shape and green is its default state: the
+    /// degenerate patches this is meant to catch are constructed and checked
+    /// to fail, both the empty one and the barcode.
     #[test]
     fn the_nest_patch_is_still_continuous_enough_to_walk_home_to() {
         let (w, patch) = bed_with_a_nest_patch();
-        let width = 2 * scaled_cells(&w, COLONY_HALF_WIDTH) + 1;
+        let half = scaled_cells(&w, COLONY_HALF_WIDTH);
+        let width = 2 * half + 1;
+        let mut columns: Vec<i32> = patch.iter().map(|&(x, _)| x).collect();
+        columns.sort_unstable();
+        columns.dedup();
+
+        // A door has to be wide enough to stand a colony on. A third rather
+        // than a half: the shape spends its columns on a middle instead of
+        // spreading them, and the extent that matters is the run below.
         assert!(
-            patch.len() * 2 >= width as usize,
-            "at least half the threshold must be nest, got {} of {width} columns",
-            patch.len()
+            columns.len() * 3 >= width as usize,
+            "the threshold is {} of {width} columns -- too little ground left to walk home to",
+            columns.len()
         );
+        // ...and it has a middle, which is the half the old bar could not see.
+        let longest = longest_run(&columns);
+        assert!(
+            longest >= (2 * scaled_cells(&w, NEST_CORE) + 1) as usize,
+            "the threshold's longest unbroken run is {longest} columns -- a dotted line rather than a door"
+        );
+        // **The control, and it is the shape that shipped**: a two-on,
+        // one-off comb over the whole width passes the width bar comfortably
+        // and must fail the middle, or this guard cannot tell a place from a
+        // barcode and is measuring nothing.
+        let comb: Vec<i32> = (0..width).filter(|i| i % 3 != 2).collect();
+        assert!(comb.len() * 3 >= width as usize, "the control must clear the width bar, or it is failing for the wrong reason");
+        assert!(
+            longest_run(&comb) < (2 * scaled_cells(&w, NEST_CORE) + 1) as usize,
+            "the barcode passed the middle bar -- this guard cannot tell a place from a dotted line"
+        );
+
+        // Every column outside the core still sheds onto ground within a
+        // cell. The core is excluded by position rather than quietly allowed:
+        // see the doc above for what prices it instead.
         let nest = w.materials.id_of("nest").expect("nest is compiled in");
         let drains: Vec<i32> = (0..=191).filter(|&x| (95..105).all(|y| w.get(x, y).material != nest)).collect();
-        for &(x, _) in &patch {
+        let centre = (columns.first().copied().unwrap_or(0) + columns.last().copied().unwrap_or(0)) / 2;
+        let core = scaled_cells(&w, NEST_CORE);
+        let mut checked = 0;
+        for &x in &columns {
+            if (x - centre).abs() <= core {
+                continue;
+            }
+            checked += 1;
             assert!(
                 drains.iter().any(|&d| (d - x).abs() <= 1),
-                "every nest column needs ground it can shed a film onto within one cell; x={x} has none"
+                "every nest column outside the core needs ground it can shed a film onto within one cell; x={x} has none"
             );
         }
+        assert!(checked > 4, "only {checked} fringe columns were checked; this guard would pass on nothing");
+    }
+
+    /// The longest run of consecutive integers in a sorted, deduplicated list.
+    fn longest_run(columns: &[i32]) -> usize {
+        let mut best = 0usize;
+        let mut run = 0usize;
+        let mut prev: Option<i32> = None;
+        for &x in columns {
+            run = if prev == Some(x - 1) { run + 1 } else { 1 };
+            best = best.max(run);
+            prev = Some(x);
+        }
+        best
     }
 
     fn run(w: &mut World, frames: usize) {
