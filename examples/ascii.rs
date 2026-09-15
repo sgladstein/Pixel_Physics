@@ -455,12 +455,17 @@ fn pheromone_decay_scene() {
         for by in 0..14 {
             let row: String = (0..64)
                 .map(|bx| {
-                    let mut peak = 0u8;
+                    let mut peak = 0 as pixel_physics::sim::pheromone::Scent;
                     for dy in 0..8 {
                         for dx in 0..8 {
                             peak = peak.max(world.pheromone_at(Channel::A, bx * 8 + dx, cy - 56 + by * 8 + dy));
                         }
                     }
+                    // **Shown on the old 0..255 scale so this picture is the
+                    // same picture.** The planes widened to `Scent` (u16) on
+                    // 2026-09-15 as 8.8 fixed point; the bands below were
+                    // chosen against the byte and still mean what they meant.
+                    let peak = (peak / pixel_physics::sim::pheromone::SCALE) as u8;
                     match peak {
                         0 => ' ',
                         1..=15 => '.',

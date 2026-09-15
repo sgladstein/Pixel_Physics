@@ -143,7 +143,8 @@ bash scripts/branchcheck.sh                 # how far behind main this branch is
 bash scripts/branchcheck.sh --brief         # ...summary only; this is what the SessionStart hook runs (`.claude/README.md`)
 bash scripts/branchcheck.sh --prs           # ...and say which unlanded branches have NO OPEN PR -- i.e. which finished work is invisible
 bash scripts/branchcheck.sh --prs-from F    # ...reading the PR listing from F, because the in-session credential gets 403 (use the MCP GitHub tools to write F)
-bash scripts/branchcheck.sh --selftest      # the six sensitivity rows over the PR annotation; row F mutates the file to prove row C is not blind
+bash scripts/branchcheck.sh --who-touched src/sim/foo.rs   # WHICH LIVE BRANCH IS IN THIS FILE, and what landed in it while you were not looking. Run it before handing a file to anyone
+bash scripts/branchcheck.sh --selftest      # the ten sensitivity rows over the PR annotation and --who-touched; rows F and J mutate the file to prove rows C and I are not blind
 ```
 
 **The real app can be screenshotted headlessly**, which this file previously
@@ -414,10 +415,20 @@ per-area breakdown, and the two claims the census overturned, are in
 `Reports/concurrent-sessions.md`; recompute it rather than trusting it.
 
 **A file-ownership split is only as current as your last look at the branch
-list**, and nothing prompts a re-read — the drift check has `branchcheck.sh`
-nagging for it, this has nothing. **Before writing into a file another lane
-owns, re-list the branches.** It costs one command, and the roster you were
-handed is a claim about the past, not evidence about who is running now.
+list**, and until 2026-09-15 nothing prompted a re-read — the drift check had
+`branchcheck.sh` nagging for it and this had nothing, which is the whole
+reason it kept failing: the rule was in front of the session and named no
+command. **Before writing into a file another lane owns, or handing one to
+somebody, run `bash scripts/branchcheck.sh --who-touched <path>`.** It names
+every branch holding an unlanded commit in that path, newest first, and
+prints what landed on `main` while you were not looking — the quieter half,
+because a branch that merged an hour ago reads as 0 ahead, so a scan of
+unlanded branches calls a file free at the moment it is most contested. A
+pathspec it cannot match renders UNANSWERABLE, never "clear". 2.5 s, and the
+roster you were handed is a claim about the past, not evidence about who is
+running now. Measured 2026-09-14, the round-36 case it was built from: a
+reassignment of `src/sim/creature.rs` went out **eleven minutes** after the
+lane that already owned the fix had opened its PR.
 
 **The general case is that a shared append-only file must be *read* before it
 is appended to**, and `Reports/open-bugs-handoff.md` is where that bites —

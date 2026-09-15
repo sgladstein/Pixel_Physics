@@ -27,20 +27,16 @@ three, and it has not been superseded):
 (*"ship everything on"*). Reach is not behaviour: nothing born swinging or
 listening is the second law failing quietly.
 
-**Read the bed at a session, not at a minute** — a few hundred thousand frames,
-and a million is several sessions (owner's framing). **The owner's machine is
-the ruler, not this container's**: a full box runs at 1–4x there, and every
-creature result in archived rounds twelve to eighteen was taken at a few
-minutes of play and is true only at that length. `latecensus scenario=…
-frames=N` grows the bed, so it is **played by construction**. **Read it as an
-order statistic over seeds, never one trajectory** (§Z14) — adjacent
-20,000-frame stops of one run read 3,099 and 16 ants.
+**Read the bed at a session, not at a minute** — a few hundred thousand frames
+(owner's framing), and **his machine is the ruler, not this container's**.
+`latecensus scenario=… frames=N` grows the bed, so it is **played by
+construction**. **Read it as an order statistic over seeds, never one
+trajectory** (§Z14) — adjacent 20,000-frame stops of one run read 3,099 and 16
+ants.
 
 **Deliberately not built yet:** the score and the economy, the guide's Gate 5.
 **Gate 2 — does selection have teeth in *this* bed — passes for creatures**
-(`creature_arena arm=lethal`, 12 of 12 seed-runs; a maximal-effect test
-licensing only that, and the arena's 2.42–3.12x seed noise is why the flight
-races nulled). **Gate 2 for plants is untouched.**
+(`creature_arena arm=lethal`, 12 of 12) **and is untouched for plants.**
 
 **Re-derive file ownership from the open PR list, never from a table in a
 note.** `sim::frame::step` is the tick sequence both binaries share; its guard
@@ -48,14 +44,13 @@ hashes the sequence, so **red means either a phase moved deliberately (re-take
 the number) or a phase was added to one binary's loop and not to
 `frame::step`**.
 
-**From rounds twenty-five to twenty-eight.** **A one-cell event is unreadable
-on a card even ringed and zoomed** — show the stand, the door or the colony
-over a long span. **Movement, not stills, is how animals are seen** — but a
-*follow camera* ruins a colony card ("shaking gif"), and a scrubbable sequence
-plays for him where a GIF did not. **Sonnet refuses a brief dense in genetics
-vocabulary on a `[bio]` classifier**: use the world's words or run Opus.
-**Conserve tokens.** **`labforage`, `labstats` and `latecensus`
-`SUMMARY` lines are contested** — keep `main`'s fields first, append yours.
+**On cards:** **a one-cell event is unreadable even ringed and zoomed** — show
+the stand, the door or the colony over a long span; **movement, not stills, is
+how animals are seen**, but a *follow camera* ruins a colony card ("shaking
+gif") and a scrubbable sequence plays where a GIF did not. **Sonnet refuses a
+brief dense in genetics vocabulary**: use the world's words or run Opus.
+**`labforage`, `labstats` and `latecensus` `SUMMARY` lines are contested** —
+keep `main`'s fields first, append yours.
 
 **Not to be re-litigated:** `nectar_only` stays; trophallaxis is a brain output
 the genome evolves, never a rule; a queen is three authored values over
@@ -66,112 +61,118 @@ now one of those reasons** (`brain::BrainInput::Stillness`): *"If they never
 ask to move that is still stuck."* Direction: *the colony that gardens
 survives*.
 
-**The perf line's handed-forward list**
-([`../evolution-lab-frame-cost-2026-09-01.md`](../evolution-lab-frame-cost-2026-09-01.md)
-§18.5): the **~21% in the kernel and rayon**, the moisture pass, then the
-pheromone `roundf`, which is **not** behaviour-free. **Rebuild the baseline
-binary after every merge.**
+**Rebuild the baseline binary after every merge.** The perf line's older
+handed-forward list is in
+[`../evolution-lab-frame-cost-2026-09-01.md`](../evolution-lab-frame-cost-2026-09-01.md)
+§18.5; round 36's section below supersedes its ant half.
 
 ## Rounds twenty-nine to thirty-four, 2026-09-12/14 — archived
 
 *Narratives in
 [`../evolution-lab-rounds-archive.md`](../evolution-lab-rounds-archive.md).
-**What still binds is here.***
+**Round 36 supersedes the ant-cost half** — the knee is still gone, but 29.4
+was never an ant's number. What still binds:*
 
-**THERE IS NO KNEE** (#407,
-[`../evolution-lab-knee-2026-09-14.md`](../evolution-lab-knee-2026-09-14.md)),
-which overturns round 32. Pin the two things that were moving under the ant
-axis — **bed age, and plants paying the ants' bill** — and one line fits **0 to
-793 ants at 3.4–4.3 µs/ant**, right across the supposed threshold. **Pin them
-in any creature-cost harness or it measures them instead.** **The redirect,
-and the owner's #1: about half of what an ant costs is not in the creature
-pass** — that phase is **45%** of the frame's growth to 428 ants, and the CA
-sweep over the **29.4 cells an ant dirties per frame** is the other **55%**.
-The cost is **diffuse, no term over 31%**, so no lever halves it. Relatedly,
-**the creature pass runs across cores and is not worth switching on here**
-(#398, ships `ParMode::Off`, 3–4% of the frame): a speculation pays only if
-`hit rate x parallel speedup > 1`, here `0.35 x 2.1` — **both terms belong to
-the box and the bed, not the code.**
+**THERE IS NO KNEE** (#407). Pin **bed age and plants paying the ants' bill** in
+any creature-cost harness or it measures those instead. **The creature pass runs
+across cores and is not worth switching on here** (#398, ships `ParMode::Off`,
+3–4%): a speculation pays only if `hit rate x parallel speedup > 1`, here
+`0.35 x 2.1` — **both terms belong to the box and the bed, not the code.**
 
 **Nobody here can build the owner's bed** (1000+ long ants against a shipped
-median of 111), so **a card is a picture of a different world** — but the
-defect in a box beats a replica. **A scene can fail to contain the defect you
-are removing**, and a working fix and a dead one then look identical.
+median of 111), so **a card is a picture of a different world** — and **a scene
+can fail to contain the defect you are removing**, at which point a working fix
+and a dead one look identical.
 
-**`review.py get <id>` is the only authoritative read; `inbox` is a filtered
-view** — cards vanish from it entirely, and one with three marker notes read as
-having none. **A card can be archived carrying no stored response even after he
-answers**, so write the verdict into the record, not a pointer to it. **The
-queue is for visual evaluations ONLY** (owner ruling).
+**`review.py get <id>` is the only authoritative read; `inbox` has lost cards
+outright**, and a card can be archived carrying no stored response even after he
+answers — **write the verdict into the record, not a pointer to it**. **The
+queue is for visual evaluations ONLY** (owner ruling). **A card whose OPTIONS do
+not match its QUESTION does not answer it** — round 36 asked "what should an
+alarm mean?" over before/after panes of a different change; the click endorsed
+the change and settled nothing.
 
 **A pooled rate cannot tell "everyone does it briefly" from "a few are stuck" —
-census per individual.** That hid #396 (every degree of "would rather not"
-clamped to exactly 0.0; **18.5–21.9% of a bed went quiet for good**) and it is
-the same shape as round 35's forager distributions. **A repair can remove the
-picture and leave the mechanism: census the mechanism, not its consequence.**
-**Read a conservation failure as a question about the ruler before the
-engine.** **`life_half_life: 40000` survives on a floor, not population**; **the nest is
-not where the colony lives** on two beds in three (#350).
-
-**A *look* ships default-off pending his eye; *ship everything on* governs
+census per individual.** **A repair can remove the picture and leave the
+mechanism.** **Read a conservation failure as a question about the ruler before
+the engine.** **`life_half_life: 40000` survives on a floor, not population**;
+**the nest is not where the colony lives** on two beds in three (#350). **A
+*look* ships default-off pending his eye; *ship everything on* governs
 behaviours.** **Verify live** — the zoom buffer panicked in the real app under
-xvfb while 1,687 tests passed, because every test applied the budget before
-drawing and `main.rs` did not.
+xvfb while 1,687 tests passed.
 
-**A stalled lane's finished work is the coordinator's to land.** Every conflict
-across six landings was a **generated** file — **regenerate it, never
+**A stalled lane's finished work is the coordinator's to land**, and every
+conflict across six landings was a **generated** file: **regenerate it, never
 `--theirs` a whole file**, which drops its prose.
 
-## Round thirty-five, 2026-09-14 — the live round
+## Round thirty-six, 2026-09-14/15 — the live round
 
-*Record:
-[`../evolution-lab-round-35-2026-09-14.md`](../evolution-lab-round-35-2026-09-14.md).
-Landed #416, #417, #419, #420.*
+*Record: [`../evolution-lab-round-36-2026-09-14.md`](../evolution-lab-round-36-2026-09-14.md).
+Next: [`../evolution-lab-round-37-brief-2026-09-15.md`](../evolution-lab-round-37-brief-2026-09-15.md).
+Landed #431, #432, #433, #436, #440, #441, #442, #444, #445, #446, #447.*
 
-**A STRANGER IS ALREADY FOOD.** `ant` material is `food_class: 1.0` against the
-shipped neutral gut, so two colonies outside each other's tolerance eat each
-other through the **ordinary mouth** — `eats` **54 → 750** from nothing but kin
-recognition. **Turning rivalry on produces predation, not war.**
+**ANTS WERE EATING THE FOREST AND THE JAW WAS 100% OF IT.** Grazing a plant
+raised an alarm; alarm is the only route to attacking; `nearest_foe` counted
+the plant as the foe. Both owner rulings shipped (#440), reopening condition in
+`dead-ends.md` `creatures:082`, and **`PIXEL_PHYSICS_PLANT_FOE=on` restores it
+byte-identically** so the A/B is one binary.
 
-**Only `Behavior::scent_spread` is binding, and it is a threshold, not a
-slope**: the acceptance radius is `tolerance + 1`, so `spread = 1` makes
-strangers of **9.3%** of ordered pairs and **one seed in four never meets**. It
-saturates by **2**, so **a dial topping out at 1 ships a mechanism a third of
-beds never show.**
+**TWO NUMBERS WERE RETRACTED BY THE LANES THAT MADE THEM, after being quoted
+onward.** *"29.4 cells per ant"* is **per-bed** (1.75x across three seeds; 21.7
+vs 13.3 on one seed at two bed ages). The plant fix did **not** raise plants
+standing: 243→275, 161→**97**, 190→187, **median −3**. **It removes the jaw's
+pure loss; what happens next is set by what the colony does with the freed
+energy** — seed 1 stays flat and recovers to the unhunted control, seed 2
+nearly doubles and grazing replaces the jaw. **Seed 2 is the birth bar's case.**
 
-**An encounter is no longer a bite** (`src/sim/contest.rs`): escalation
-**1.000 → 0.520**, the rest withdrawals that *display* into the alarm plane.
-**No setting makes an animal unattackable** (`COMMIT_FLOOR`).
+**A STANDING CENSUS CANNOT MEASURE A FLOW**: the paired standing-plant count
+moved **−84, +3,463, +3,484**, one arm reading *more* plant with the colony on.
+Count where the cell leaves the world.
 
-**Food has a face** — per-colony books in joules (#419), a per-cell road and
-per-tile harvest map on `F7` (#420). **The two food numbers disagree on
-purpose**: the books price a mouthful by the eater's gut, the map prices what
-left the world at that tile. **Both overlays decay every tick, so they defeat
-the dirty-rect skip and the SETTLED bed is the price** (+88–100%).
+**PERFORMANCE: THREE ROUNDS, NO SHIPPED WIN, AND A KILL CONDITION NOW EXISTS.**
+Single-rect reach narrowing is **1.9%** because at reach 24 on a 64-wide chunk
+**the rect is already full width** — the prize is a **shape** prize, never
+priced at whole-frame. **Round 37 is the last attempt; under ~5% whole-frame
+and the line closes** (owner, 2026-09-15). §E2 is now **frame 237, four soil
+cells, the soil-moisture channel**. Located, not diagnosed.
 
-**Open, and he ruled on it:** *"You can ship it on"* — **nothing in the round
-implements it**, and it is now a choice of *value*: the constants it
-reallocates want re-deriving, on a seed sweep gating an order statistic.
-**§Z23** is open, repair designed.
+**THE TRAIL IS DIAGNOSED, NOT FIXED.** `DECAY_RHO` is **inert**; `DIFFUSE` is
+the lever and is not free (a mean filter flattens a shared trail's peak 153→63,
+and that height *is* path selection). **Channel A is 3,421 at frame 10,000 and
+0–9 from 20,000 on; laden ants are 0–10% at the food; cutting the homing
+circuit out of the genome leaves deliveries inside the noise.** Every trail
+constant still ships unchanged. **The ALARM plane did change** (#442): a shout
+is not a substance, so it spreads as an active space (`ALARM_RHO` 0.35,
+`ALARM_FALL` 12) — its audible radius had been **two cells**.
+
+**THE NEST IS RESEARCHED, NOT BUILT** (#446). **A site, not a material** — the
+gap is one function. **NOT a blob**: a wider footprint **kills the colony
+monotonically on 3 of 3 seeds**, and the case it defends never arises (0/0/4
+cells lost over 120k frames). **Real ants home by path integration**, corrected
+at short range by nest odour — which is what `AtNest` already is. **`nest`'s
+resistance 6.0 against every `dig_force` 1.0 means a colony cannot dig its own
+doorstep.** **Do not quote "414 deliveries"** — that scene places 15 of 55
+ants and has no channel A by frame 6,000.
+
+**UNRULED, AND THE OWNER'S:** the alarm semantics. Shipped as *a living animal
+bitten, whichever verb*, **inert on his bed**. Not his decision.
+
+**A POKE CROSSED A LANDING** — the reassignment handing `creature.rs` to Lane E
+fired eleven minutes after Lane D opened a PR on the same fix. **Read the branch
+head before you write a poke, not after.**
+
+**Model tally**: five Opus lanes, two retracting their own headline unprompted;
+one Fable research lane that argued against the owner with a measurement and
+found **two errors in its own brief**. With round 30's one bad Fable point:
+one each way. Keep counting.
 
 ## The earlier rounds
 
-All of one to thirty-four is in
+All of one to thirty-five is in
 [`../evolution-lab-rounds-archive.md`](../evolution-lab-rounds-archive.md),
-priced per round. **Read the one round, not the file** — they are concurrent
-lines braided into one sequence, and knowing which is yours is most of the
-saving:
-
-| line | rounds | design of record |
-|---|---|---|
-| the lab as an instrument — interface, shelf, rosters, persistence, soil, scenarios, forage | 3, 4, 5, 7, 9, 10, 11, 21, 25 | `evolution-lab-gui-physics-2026-08-30.md` |
-| frame cost and the speed dial | 2, 6, 8, 17, 18, 19 | `evolution-lab-frame-cost-2026-09-01.md` |
-| creatures — groups, kin, armour, castes, verbs, gates, lifespan, fission | 12, 13, 14, 15, 16, 20, 22, 23, 24, 25, 29 | `creature-signature-and-castes-2026-09-06.md`, `evolution-lab-late-game-design-2026-09-12.md` |
-| the ecology — fruit, seed, nectar, flowers, the pollinator | 26, 27, 28, 29 | `evolution-lab-ecology-design-2026-09-10.md`, `evolution-lab-flight-design-2026-09-11.md` |
-
-*Cross-cutting rather than on one line: 30 colony survival, 31 the playtest
-gap, 32 the creature cost, 33 parallelism and rest, 34 the knee that was not
-there.*
+priced per round and **mapped there to the concurrent lines they braid**.
+**Read the one round, not the file**; the archive's own table says which
+concurrent line each belongs to.
 
 ## Environment notes that cost time here
 

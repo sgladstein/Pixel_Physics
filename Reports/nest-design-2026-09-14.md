@@ -16,6 +16,11 @@ same one that overturns the sequencing the brief proposed.
 
 ## 0. The answer
 
+*Re-measured 2026-09-15 against PR #450 (the scent planes widened to
+`u16`): §12. The homing numbers in §4–5 are the `u8` numbers and are now
+dated; the site, blob, crust and footprint findings are not. Read §12
+before quoting §5.1 or §5.3.*
+
 **Attach the nest to a site, not to a material — his first instinct is right,
 and the engine is already two-thirds of the way there.** `World::NestSite`
 holds the position and the odour, four readers already find it through
@@ -547,3 +552,97 @@ Two harness faults were caught by the tidiness rule and are recorded in
 `load_scenario` is thrown away by `reset()` (three arms byte-identical), and
 a surface scan from row 0 on the lidded bed paints the widened patch on the
 ceiling (four widths byte-identical). Both results looked like findings.
+
+## 12. Re-measured on PR #450 — the planes widened to `u16` (2026-09-15)
+
+PR #450 widened both scent planes from a byte to `u16` with no constant
+tuned, and its own numbers say an unreinforced trail now lives 1,476 frames
+against 144. That is the lever §5.3 reached for with `DIFFUSE` on channel A,
+obtained by resolution instead of blend, so it costs the food trail nothing.
+The question is whether it changes what this report found. Same harness,
+same scene (`scene=bed`, 40,000 frames, `RAYON_NUM_THREADS=1`), built
+against `claude/pheromone-u16` at `9899a2d2`, seeds 1–3, channel A quoted
+in the old 0–255 units (`u16` total ÷ 256):
+
+| seed | deliveries shipped / noemit / nosteer | laden at door, shipped / noemit / nosteer | channel A near band at 30,000, `u8` → `u16` |
+|---|---|---|---|
+| 1 | 71 / 34 / 24 | **8.7%** / 1.9% / 1.2% | 9 → **42** |
+| 2 | 2,293 / 1,664 / 1,456 | 51.5% / 51.7% / 53.6% | 0 → **313** |
+| 3 | 6,506 / 6,608 / 8,095 | **30.7%** / 13.7% / 16.8% | — → **201** |
+
+**What changes.**
+
+- **§4's "the plane is gone by 20,000" is a `u8` fact and is overturned.**
+  On `u16` the home plane stands for the whole run: 42–313 old units in the
+  near band at frame 30,000 against 0–9 before, and a mid band that reads
+  nonzero for the first time (573 and 1,906 `u16` units on seeds 1 and 3).
+- **§5.1's "nothing steers a laden ant home" is no longer true as stated.**
+  With the plane standing, the shipped circuit puts more laden ants at the
+  door than either cut arm on 2 of 3 seeds — 8.7% against 1.9/1.2, and
+  30.7% against 13.7/16.8 — and ties on the third, where every arm sits
+  above 50% because that colony lives on its patch. Deliveries move the
+  same way on seed 1 (2–3x) and not on the others. **Three seeds is not a
+  sweep** (the same table on `u8` needed six to say "nothing"), so the
+  claim this licenses is the weak one: the circuit is now *detectable*,
+  and the owner's reading 2 was the right one — the plane's life was the
+  fault.
+- **§5.3 and §9 item 4 are superseded.** The per-channel `DIFFUSE` on A is
+  no longer the lever to reach for; #450 bought the lifetime without the
+  trade §5.3 priced. Withdraw the "0.02 on A" suggestion.
+- **§9 item 4's "then build C, the home bearing"** drops from *next* to
+  *conditional*: run the §5.1 sweep on `main` after #450 lands, six seeds,
+  and build the bearing only if laden-at-door still reads as floor-level on
+  the seeds where the round trip fails. On this evidence it may not be
+  needed, which is the better outcome — the trail was the homing mechanism
+  all along, and now it works.
+
+**What does not change.** The site over the material (§0, §8 option B); the
+blob (§3.4 — the patch is never dug because of the crust, not because of
+the plane); the crust (§6); the footprint mortality gradient (§5.2 — its
+mechanism is `AtNest` gating the drop and the dig, not the plane; not
+re-run here); the 414-scene and probe-scene findings (§5.1's parenthesis —
+placement and a flat floor, not the plane); and the three held-world
+answers (§10). The recommendation's order is unchanged except that item 4
+is now #450 itself, landed or landing.
+
+## 13. Owner ruling, 2026-09-15 — no paint
+
+> *"I don't like the paint, so it should stay gone. Otherwise sounds good."*
+
+The recommendation stands with one change: §9 item 1's *"the paint is what
+the player sees and the gnome cuts"* is withdrawn. **A nest is a site and
+nothing else. No material is painted at founding.** What that removes, and
+what it leaves:
+
+- **`nest` retires as a material.** Nothing paints it, so `nest.ron`, its
+  crust, `earth_toned_nest` (the lab's palette swap that already hid it),
+  the drainage comb (`DRAIN_PERIOD`, `nest_drain_period`,
+  `PIXEL_PHYSICS_NEST_DRAINS`), the two door guards
+  (`a_film_on_the_door_drains_through_the_comb`,
+  `the_nest_patch_is_still_continuous_enough_to_walk_home_to`) and
+  `nestdoor`'s patch census all go with it. **§T2 closes outright**: the
+  impermeable strip was the whole of the water problem, and its last 1%
+  film goes with the strip.
+- **The crust question (§6) is moot** rather than answered: there is
+  nothing to dig through. The ground under the door is ground.
+- **`paint_nest_patch` becomes `found_nest_site`**: it registers the site
+  and records the founding surface row (`colony_surface` at `site.x`), which
+  the reach is measured from now that no cell marks it. `AtNest` is
+  `|hx − site.x| ≤ COLONY_HALF_WIDTH` and `|hy − site.surface| ≤ 2`.
+- **`CreatureDef::nest` stops naming a material.** A species has a home iff
+  it was founded with a site; `ancestor` (no nest, by design) keeps reading
+  `false` because nothing founds one for it. The field becomes a flag or
+  goes.
+- **Held world (§10).** `a_nest_still_stops_him` tests a wall nothing
+  builds and is deleted with the material; `is_tool_target` is untouched;
+  `Druid::found_colony` loses its *"REFUSED — no nest material"* branch and
+  can no longer fail for that reason.
+- **What the player sees.** At rest, nothing — which is the ruling. The
+  ethos still wants the founding verb to deliver something visible, and it
+  does: the founders themselves standing at the door, and, once the crust
+  is gone, the hall they dig under it. If a marker is ever wanted for
+  *reading* the box rather than playing it, it is an overlay on the site
+  list (an `F7`-class debug draw), never a world material.
+
+Nothing here is built; it is the design of record for whoever picks the
+site up.

@@ -227,7 +227,7 @@ fn arithmetic(base: &[f32]) {
 fn lay(w: &mut pixel_physics::sim::world::World, nest_x: i32, target_x: i32, surface: i32) {
     for x in nest_x..=target_x {
         let t = (x - nest_x) as f32 / (target_x - nest_x) as f32;
-        let amount = (t * pheromone::DEPOSIT as f32) as u8;
+        let amount = (t * pheromone::DEPOSIT as f32) as pheromone::Scent;
         for y in (surface - 3)..=(surface + 1) {
             w.deposit_pheromone(Channel::B, x, y, amount);
         }

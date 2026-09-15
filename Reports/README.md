@@ -2915,7 +2915,45 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   site, the odour and the per-ant anchor already exist — the material kept
   as paint, the crust dropped to soil's, and a
   per-ant home bearing built next — the trail ordering is wrong, the nest
-  work can start now. No `src/` change; nothing landed.
+  work can start now. No `src/` change; nothing landed. **§12 (2026-09-15)
+  re-measures on PR #450's `u16` planes: the home plane now stands for the
+  whole run and the homing circuit is detectable (laden-at-door 8.7% vs
+  1.9% cut, 2 of 3 seeds); the `DIFFUSE` suggestion is withdrawn and the
+  home bearing becomes conditional. The site, blob and crust findings
+  stand.** **§13: owner ruling 2026-09-15 — no paint; the nest is a site and
+  nothing else, `nest` retires as a material and §T2 closes with it.**
+- [evolution-lab-round-37-brief-2026-09-15.md](evolution-lab-round-37-brief-2026-09-15.md)
+  — **brief, 2026-09-15. `lab`/`engine`/`held`.** Opens with **two retracted
+  numbers** a reader may have inherited (29.4 is per-bed, not per-ant; the
+  plant fix's standing-plant gain is withdrawn, median −3). **Lane 1 is the
+  LAST performance attempt and carries the owner's kill condition** — three
+  rounds have shipped no frame-rate win, so §E2 is fixed, the narrow mark
+  shape shipped, and **if the whole-frame paired figure is under ~5% the
+  performance line closes**. Lane 2 builds the nest as a **site, not a blob**
+  (a wider footprint kills the colony on 3 of 3 seeds) and retires the crust
+  that stops a colony digging its own doorstep. Lane 3 takes the real finding
+  — **nothing steers a laden ant home**, channel A is 0–9 from frame 20,000 —
+  with `DIFFUSE` the lever and path integration the candidate. Lane 4 gets the
+  birth bar with **seed 2 as a named tuning case**. The alarm semantics remain
+  **the owner's and unruled**.
+- [evolution-lab-round-36-2026-09-14.md](evolution-lab-round-36-2026-09-14.md)
+  — **round record, 2026-09-14/15. `lab`/`engine`.** Six lanes; landed #431,
+  #432, #433, #436, #440, #441, #444, #445, #446, #447. **A live regression
+  took the lead**: grazing a plant raised an alarm, alarm is the only route to
+  attacking, and `nearest_foe` counted the plant as the foe — **100% of swings
+  and 100% of jaw cells were plant-directed**, feeding nobody. Both owner
+  rulings shipped (#440). **The round's most valuable outputs are two
+  retractions**, both by the lanes themselves: E's *"plants standing up on
+  every seed"* is withdrawn (re-measured: 243→275, 161→**97**, 190→187, median
+  −3) and the better reading is that **the fix removes the pure loss while
+  what happens next is set by what the colony does with the freed energy**;
+  and B's **"29.4 cells per ant" is a per-bed number, not an ant's**, with the
+  mark-local saving a **shape** prize, not a reach prize (single-rect buys
+  1.9%). **§E2 bisected from 4,330 frames to frame 237 and four soil cells in
+  the soil-moisture channel.** Also carries the FOOD page rebuilt to the
+  owner's own spec, the nest research arguing him out of a blob with a
+  measurement, and the coordinator's own routing error — **a poke crossed a
+  landing by eleven minutes**.
 - [evolution-lab-round-36-brief-2026-09-14.md](evolution-lab-round-36-brief-2026-09-14.md)
   — **brief, 2026-09-14, rewritten the same day. `lab`/`engine`.** What round 36
   is for. **The first version led with performance and was wrong at the top**:

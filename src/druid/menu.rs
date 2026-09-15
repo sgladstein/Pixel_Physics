@@ -39,9 +39,33 @@ pub enum Setting {
     Held,
     /// [`Druid::scent`] — which plane `G` writes to.
     Scent,
+    /// `Renderer::field_overlay` — the per-cell scalars, scent among them.
+    FieldOverlay,
+    /// `Renderer::organism_overlay` — the per-plant channels.
+    LifeOverlay,
+    /// `Renderer::creature_colour` — what an animal is painted by.
+    AnimalColour,
 }
 
-pub const SETTINGS: &[Setting] = &[Setting::PlantBreak, Setting::PlantBend, Setting::Scent, Setting::Unlimited, Setting::Keys, Setting::HeldLook, Setting::Held];
+pub const SETTINGS: &[Setting] = &[
+    Setting::PlantBreak,
+    Setting::PlantBend,
+    Setting::Scent,
+    // **The three the owner asked for, and the reason they are rows.**
+    // Verdict on the overlay card, 2026-09-14: *"there is no key or menu row
+    // to turn these on yet — this was the main issue."* The channels were
+    // already drawn and already readable on held ground (PR #437 stopped the
+    // held look painting over them); nothing here adds a channel. This is
+    // the module doc's own case — a switch the engine already has, reachable
+    // from nowhere at all.
+    Setting::FieldOverlay,
+    Setting::LifeOverlay,
+    Setting::AnimalColour,
+    Setting::Unlimited,
+    Setting::Keys,
+    Setting::HeldLook,
+    Setting::Held,
+];
 
 impl Setting {
     pub fn label(self) -> &'static str {
@@ -53,6 +77,9 @@ impl Setting {
             Setting::HeldLook => "HOW HELD GROUND IS DRAWN",
             Setting::Held => "TIME IS HELD",
             Setting::Scent => "SCENT TRAIL WRITES",
+            Setting::FieldOverlay => "GROUND OVERLAY",
+            Setting::LifeOverlay => "PLANT OVERLAY",
+            Setting::AnimalColour => "ANIMALS WEAR",
         }
     }
 
@@ -74,6 +101,14 @@ impl Setting {
             Setting::Held => "OFF - THE WHOLE WORLD RUNS. A CONTROL, NOT THE GAME",
             // The one row whose note is a warning rather than a trade.
             Setting::Scent => "FOOD IS A REAL ROUTE THAT NO ANT CAN READ YET",
+            // **Three notes that name the channel rather than the feature**,
+            // because the label already says which overlay it is and what a
+            // player needs is what they will be looking at. `O` is on the
+            // first because it is the only one of the three with a key --
+            // see `hud::KEYS` for why that one earned it.
+            Setting::FieldOverlay => "SCENT, WATER, HEAT - ALSO ON THE O KEY",
+            Setting::LifeOverlay => "PER PLANT - LIGHT, WATER, HOW IT IS DOING",
+            Setting::AnimalColour => "THEIR OWN COLOUR, THEIR SPECIES, OR COLONY",
         }
     }
 
@@ -90,6 +125,13 @@ impl Setting {
                 crate::sim::pheromone::Channel::A => "HOME".to_string(),
                 _ => "FOOD".to_string(),
             },
+            // `label()` is the renderer's own word for the channel, not a
+            // second table here: a copied list would go stale silently the
+            // day somebody adds a channel, and the menu would then name the
+            // wrong one rather than fail.
+            Setting::FieldOverlay => game.renderer.field_overlay.label().to_uppercase(),
+            Setting::LifeOverlay => game.renderer.organism_overlay.label().to_uppercase(),
+            Setting::AnimalColour => game.renderer.creature_colour.label().to_uppercase(),
         }
     }
 
@@ -116,6 +158,9 @@ impl Setting {
             Setting::HeldLook => game.renderer.cycle_held_look(),
             Setting::Held => game.world.held = !game.world.held,
             Setting::Scent => game.cycle_scent(),
+            Setting::FieldOverlay => game.renderer.cycle_field_overlay(),
+            Setting::LifeOverlay => game.renderer.cycle_organism_overlay(),
+            Setting::AnimalColour => game.renderer.cycle_creature_colour(),
         }
     }
 }

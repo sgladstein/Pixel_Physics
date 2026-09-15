@@ -1,6 +1,43 @@
 # Ants
 
-*Current as of: 2026-09-14, when **a cry of alarm started carrying.** An
+*Current as of: 2026-09-15, when **a trail started reaching all the way out.**
+An ant lays a lot of scent near home and less the further it gets, so a trail
+has always been a slope running downhill away from the nest — and the far half
+of that slope was too shallow for the world to hold. It was still *there*; it
+had simply flattened into a single flat shade, and an animal standing on it
+read no downhill at all and no longer knew which way home was. Past about the
+halfway mark a trail was a mark on the ground rather than a direction. **The
+ground now holds a much finer range of scent**, so the same slope keeps
+falling the whole way out: a trail laid once and abandoned stays worth
+following about ten times longer, an animal keeps taking direction from one
+roughly thirty times further along, and a colony that used to hold a few
+hundred cells of trail now holds a few thousand. Nothing about how much an ant
+lays, how fast scent fades or how it spreads was touched — the world simply
+stopped rounding the quiet end away.*
+
+*Before that: 2026-09-14, when **the ground a new colony walks home to
+stopped being something you can see.** The worked earth went down as a row of
+identical little pale dashes, two cells on and one off, straight across —
+a dotted line rather than a place, and every cell of it the same flat colour
+while everything else in the world is mottled. It is a worn patch now: solid
+under the founders themselves, breaking into scattered single cells as it
+gets further out. And in the held world it has **no colour of its
+own at all** — each cell keeps the exact tone of the earth it replaced, so
+founding a colony leaves the ground looking like ground. (The lab's beds have
+been the same since 2026-08-30. In the sandbox the nest is still pale and
+findable, which is wanted there.) It still drains, which is what the gaps were
+always for and has not been given up; the gaps are simply single cells set
+about rather than a comb. (The door is still a door to everything that has to
+find it: an ant knows it by touch, not by looking at it.) The same
+day, **a colony is founded where you are standing.** Founders used to be set
+out on a ruled line either side of you, and any place on that line that could
+not take one was skipped rather than swapped — so founding in a thicket
+seated a handful scattered across the whole width and charged you for them.
+They are placed from your feet outward now, onto the nearest ground that will
+hold one: on open ground the colony is the tightest huddle its bodies allow,
+and only ground that refuses anyone pushes the rest further out.*
+
+*And before that, the same day: 2026-09-14, when **a cry of alarm started carrying.** An
 animal being hurt has left a smell where it happened since 2026-09-06, and
 until now no other animal could hear it: the smell was being spread the way a
 food trail is spread, which is the right way to move something a colony is
@@ -96,10 +133,11 @@ plants does see it, so grazing a standing stand is something a bloodline can
 walks home to used to be the one piece of the bed that could not soak up
 water; every misting left a film sitting on it, and since nothing walks into
 water, the whole colony simply lost its front door — food kept being picked up and none of it ever came home. The threshold
-has drains in it now: every third column of it is left as ordinary ground, so
-a film has one cell to travel before the earth drinks it. The door looks very
-slightly speckled and is otherwise the same place; a thin sheen can still
-catch on it after heavy misting. See "Coming home" below. The same day,
+has drains in it now: ordinary ground is left in it often enough that a film
+never has more than a cell to travel before the earth drinks it. A thin sheen
+can still catch on it after heavy misting. **In the held world you cannot see the door**,
+as of 2026-09-14 — it takes the colour of whatever it was painted over — so the
+way to find a colony's home there is to watch where the ants go. The same day,
 **a nest became a place that holds a smell** -- ants blend with the
 mound they stand on, scent drift ships on at last, and two mounds nobody
 walks between become two colonies within a session. See "Who is family".

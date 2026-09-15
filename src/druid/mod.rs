@@ -348,7 +348,7 @@ const TRAIL_PER_SECOND: f32 = 1.0;
 /// ends at two to three ants' worth. A larger number here would saturate the
 /// plane at 255 along the whole path, and a saturated trail is flat — which
 /// is precisely the thing an ant cannot follow (see [`Druid::lay_trail`]).
-const TRAIL_DEPOSIT: u8 = crate::sim::pheromone::DEPOSIT;
+const TRAIL_DEPOSIT: crate::sim::pheromone::Scent = crate::sim::pheromone::DEPOSIT;
 
 /// **How wide a swath his scent lies in**, as a radius about him in cells.
 ///
@@ -432,7 +432,7 @@ const TRAIL_LIFE_SECONDS: f32 = 30.0;
 /// that falls with age* means the trail visibly dims along its whole length
 /// as it ages, and the oldest end is always the faintest, which is also the
 /// slope an ant walks up.
-const TRAIL_HOLD: u8 = 180;
+const TRAIL_HOLD: crate::sim::pheromone::Scent = 180 * crate::sim::pheromone::SCALE;
 
 /// How many marks the trail readout remembers. Older ones have decayed out
 /// of the plane long before this, so the cap is a memory bound and not a
@@ -765,6 +765,13 @@ pub struct Druid {
     /// leaves the same three standing, and only committing rerolls. See
     /// [`founding`].
     pub offer: Option<founding::Offer>,
+    /// **What the founding screen was left set to.** Owner playtest,
+    /// 2026-09-14: *"When I change things they should stay as the default
+    /// next time I open the menu."* See [`founding::Memory`] for the two
+    /// bugs that were one bug, and why the dials could not simply live on
+    /// [`Druid::offer`]: that field is `None` while the screen is shut, which
+    /// is exactly when the choices have to survive.
+    pub offer_memory: founding::Memory,
     /// How many seeds the player has sown, for the readout — *"did it fire at
     /// all needs a counter"*, and a seed dropped outside a quickening does
     /// nothing visible until time reaches it, so the picture cannot say.
@@ -832,6 +839,11 @@ impl Druid {
         // species file silently did nothing.
         let _ = world.materials.reload(material::ASSET_DIR);
         let _ = world.species.reload(organism::ASSET_DIR);
+        // **The colony's threshold draws as ground here, not as pale sand.**
+        // Owner playtest, 2026-09-14, rating a first attempt that only changed
+        // the patch's *shape* 1 of 5: *"There should be no color. If we have
+        // to have this, it should be invisible."* See [`ground_toned_nest`].
+        ground_toned_nest(&mut world);
         // **Plants do not come apart under their own load here, by default.**
         // Owner, 2026-09-14, asking for the menu this sits behind: *"the
         // ability to turn off plant destruction or breaking due to stress
@@ -1008,6 +1020,7 @@ impl Druid {
             trail_laid: std::collections::VecDeque::new(),
             menu: None,
             offer: None,
+            offer_memory: founding::Memory::default(),
             reserves: std::collections::HashMap::new(),
             draws: Vec::new(),
         }
@@ -1225,6 +1238,7 @@ impl Druid {
             trail_laid: std::collections::VecDeque::new(),
             menu: None,
             offer: None,
+            offer_memory: founding::Memory::default(),
             reserves: std::collections::HashMap::new(),
             draws: Vec::new(),
         }
@@ -1552,7 +1566,7 @@ impl Druid {
                 // the swath must receive *something*, or the rim rounds away
                 // and the band has a hard edge after all.
                 let fall = 1.0 - (d2 as f32).sqrt() / (TRAIL_RADIUS + 1) as f32;
-                let amount = (TRAIL_DEPOSIT as f32 * fall).round().max(1.0) as u8;
+                let amount = (TRAIL_DEPOSIT as f32 * fall).round().max(1.0) as crate::sim::pheromone::Scent;
                 self.world.deposit_pheromone(self.scent, x + dx, y + dy, amount);
             }
         }
@@ -1665,10 +1679,44 @@ impl Druid {
     /// closing is genuinely walking away rather than declining, and the same
     /// three lineages are there when you come back.
     pub fn toggle_founding(&mut self) {
-        if self.offer.take().is_some() {
+        if self.close_founding() {
             return;
         }
-        self.offer = Some(founding::Offer::new(self.world.seed));
+        self.offer = Some(founding::Offer::resumed(self.world.seed, self.offer_memory));
+    }
+
+    /// **Shut the screen, keeping what it was set to.** Returns whether it
+    /// was open, so [`Druid::toggle_founding`] can be one line of it.
+    ///
+    /// The saving is the whole of this function, and it is why closing is not
+    /// `self.offer = None` at four call sites: three of them forgot, which is
+    /// the shape `CLAUDE.md` warns about when a guard has to be remembered
+    /// rather than made a command.
+    pub fn close_founding(&mut self) -> bool {
+        match self.offer.take() {
+            Some(offer) => {
+                self.offer_memory = offer.memory();
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// **Whether the clock is stopped.**
+    ///
+    /// Owner playtest, 2026-09-14: *"The game should pause when in the
+    /// founding menu."* Derived rather than stored — the screen opening does
+    /// **not** write `paused`, it only answers this — because the alternative
+    /// is saving and restoring the player's own pause across the modal, and a
+    /// restore that misses one exit path unpauses a game the player had
+    /// deliberately stopped. A derived answer cannot get that wrong.
+    ///
+    /// It is also the honest reading of what the screen is: a founding is
+    /// *"the one act in this game you do not get back"*, and reading three
+    /// lineages while the world keeps eating the ground you are standing on
+    /// is a decision taken under a clock nobody asked for.
+    pub fn time_stopped(&self) -> bool {
+        self.paused || self.offer.is_some()
     }
 
     /// **Put the chosen lineage in the ground.**
@@ -1814,7 +1862,11 @@ impl Druid {
         if let Some(offer) = &mut self.offer {
             offer.reroll();
         }
-        self.offer = None;
+        // **Through `close_founding`, so the reroll is kept.** It used to be
+        // `self.offer = None`, which dropped the three that had just been
+        // drawn -- so the next open served attempt 0 again and "committing is
+        // what costs you the other two" had never once happened in the game.
+        self.close_founding();
         placed
     }
 
@@ -2098,7 +2150,7 @@ impl Druid {
 
     /// One tick.
     pub fn update(&mut self) {
-        if self.paused {
+        if self.time_stopped() {
             return;
         }
         self.ticks += 1;
@@ -2168,7 +2220,7 @@ impl Druid {
         let channel = self.scent;
         for ((x, y), laid) in marks {
             let age = now.saturating_sub(laid) as f32 / life as f32;
-            let target = (TRAIL_HOLD as f32 * (1.0 - age)).round().max(0.0) as u8;
+            let target = (TRAIL_HOLD as f32 * (1.0 - age)).round().max(0.0) as crate::sim::pheromone::Scent;
             let standing = self.world.pheromone_at(channel, x, y);
             if standing < target {
                 self.world.deposit_pheromone(channel, x, y, target - standing);
@@ -2204,6 +2256,63 @@ impl Druid {
         self.renderer.draw(&self.world, &self.particles, &touched, frame_buf, viewport, force_full || ui_changed);
         ui.draw(frame_buf, viewport);
     }
+}
+
+/// **Draw the colony's threshold as the ground it was painted over.**
+///
+/// Owner playtest, 2026-09-14: *"when I found ants there are little yellow
+/// bars that get placed onto the ground. I don't like this."* — and, rating a
+/// first attempt that changed only the patch's *shape*, **1 of 5**: *"None.
+/// There should be no color. If we have to have this, it should be
+/// invisible."*
+///
+/// **This is `lab::earth_toned_nest` ported, not a second answer to the same
+/// question.** That function solved this complaint for the second game on
+/// 2026-08-30, from the same owner's *"we don't need a visible line for where
+/// the colony is placed"*, and its doc already rules out the three things this
+/// is deliberately not — an edit to `creature.rs` (the patch is functional and
+/// deliberately narrow: *"home has to be a place, not everywhere"*, measured
+/// at 414 deliveries), an edit to `nest.ron` (which would change the sandbox
+/// too, where a findable nest is wanted), and a per-pixel material test in
+/// `render.rs` (163,840 comparisons a frame for a stripe, where a palette
+/// swap costs **nothing at draw time at all** — which is what
+/// `Materials::get_mut` is for). Read that doc before changing this one.
+///
+/// **What this game does differently, and why.** The lab installs
+/// `packedsoil`'s four-tone worked-earth family, because a lab bed is
+/// packedsoil and one family is all it needs. This world's surface is
+/// `soil`, which ships **three** four-tone families — reference loam, wet,
+/// and dry — and `worldgen::passes::soil_shade` picks between them per
+/// region. So a fixed family would be right in one part of the map and wrong
+/// in the next. Installing soil's *whole* palette instead, and having
+/// [`World::paint_nest_patch`] hand each new cell **the shade byte of the cell
+/// it replaced**, makes the threshold reproduce the exact tone it covered —
+/// family, tone and grain together. The two halves are worthless apart: a
+/// matching palette with a fresh shade draws a *different* soil.
+///
+/// **Read off `soil.ron` at runtime rather than written down here**, unlike
+/// the lab's constant. A copied table is a copy that goes stale, and this one
+/// would go stale silently — the wrong tone is not a crash, it is a faint
+/// stripe nobody looks for. `a_founding_leaves_no_colour_on_the_ground` is the
+/// guard.
+///
+/// **What it costs is exactly what the lab's costs**: the ability to spot a
+/// colony at a glance. The colour carries no behaviour — `AtNest` is a contact
+/// scan for the material and an ant's route home is a pheromone gradient that
+/// never asks where the nest is.
+///
+/// **Follow-up, deliberately not taken here**: this and `lab::earth_toned_nest`
+/// want to be one helper. A cross-game refactor is not worth doing inside a
+/// playtest item, so each game keeps its own call for now.
+pub fn ground_toned_nest(world: &mut World) {
+    let (Some(nest), Some(soil)) = (world.materials.id_of("nest"), world.materials.id_of("soil")) else {
+        return;
+    };
+    let ground = world.materials.get(soil);
+    let (palette, base) = (ground.palette.clone(), ground.base_shades);
+    let def = world.materials.get_mut(nest);
+    def.palette = palette;
+    def.base_shades = base;
 }
 
 /// **A dry standing spot near the middle of the world.**
@@ -2364,6 +2473,55 @@ fn grow_from_env() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A founding leaves no colour on the ground.**
+    ///
+    /// Owner playtest, 2026-09-14, rating a first attempt that changed only
+    /// the patch's shape **1 of 5**: *"None. There should be no color. If we
+    /// have to have this, it should be invisible."*
+    ///
+    /// Three claims, and the middle one is the control:
+    ///
+    /// - [`ground_toned_nest`] installs `soil`'s palette on the threshold, and
+    ///   reads it off the material registry rather than a table written down
+    ///   here — a copied palette is a copy that goes stale, and this one would
+    ///   go stale *silently*, since the wrong tone is a faint stripe rather
+    ///   than a crash;
+    /// - **the two materials genuinely differ before it runs.** Without this
+    ///   the assertion would pass just as happily on a `nest.ron` that had
+    ///   been edited to match, which is the fix this deliberately is *not* —
+    ///   `lab::earth_toned_nest`'s own doc rules it out, because the sandbox
+    ///   wants a findable nest;
+    /// - `base_shades` moves with the palette. A random draw that stayed
+    ///   inside the old three-entry bound would sample a third of the new one
+    ///   and quietly lose the wet and dry families.
+    ///
+    /// **It is a necessary condition and not the claim**, which is about the
+    /// rendered frame: `examples/founding_shot invisible=1` is what measures
+    /// that, two framebuffers of one world with the rest of the picture as its
+    /// control.
+    #[test]
+    fn a_founding_leaves_no_colour_on_the_ground() {
+        let mut world = World::new(crate::sim::chunk::Rect::new(0, 0, 63, 63));
+        let _ = world.materials.reload(material::ASSET_DIR);
+        let (nest, soil) = (world.materials.id_of("nest").expect("nest is compiled in"), world.materials.id_of("soil").expect("soil is compiled in"));
+        let ground = world.materials.get(soil).palette.clone();
+        // The control: the shipped asset is *not* already soil-coloured, so a
+        // `ground_toned_nest` that did nothing at all would be caught here.
+        assert_ne!(
+            world.materials.get(nest).palette,
+            ground,
+            "nest.ron already carries soil's palette -- either the asset was edited (which would change the sandbox too) or this guard is testing nothing"
+        );
+
+        ground_toned_nest(&mut world);
+        assert_eq!(world.materials.get(nest).palette, ground, "the threshold did not take the ground's palette");
+        assert_eq!(
+            world.materials.get(nest).base_shades,
+            world.materials.get(soil).base_shades,
+            "the palette moved and the shade bound did not -- a random draw would lose soil's wet and dry families"
+        );
+    }
 
     /// **A world out of organism slots says so, rather than blaming the
     /// ground.** §Z21's whole content: `found_colony_of` returns 0 for three
