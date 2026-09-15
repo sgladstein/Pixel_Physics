@@ -173,3 +173,60 @@ generalises and is cheaper than the discipline: **make a scene builder panic on
 a name it cannot resolve**, so a test that has lost its subject fails as a
 missing material rather than as a confusing assertion.
 
+## Round 37 — the twelve playtest items (2026-09-14 to 2026-09-15)
+
+Four lanes, twelve items, all landed. PRs #430 (the vanishing circle, the
+simplified readout), #435 (the stress setting, restart, one size dial), #437
+(bubbles merge, speed as colour, creature colours, the lab's overlays made
+readable), #438 (the scent trail), #449 (founding: the patch, the placement,
+the menu), plus #439 (the shrunk gnome's speed) and #402 (a scope report that
+had been stuck un-mergeable for two days).
+
+**What it overturned, which is the part a later session cannot reconstruct:**
+
+- **A body scaled against a world that did not scale must not scale its
+  speeds by the same factor.** The first shrunk gnome covered **0.043 of her
+  own body-lengths a tick — the identical figure as the 14-tall one**, which
+  is what a uniformly scaled picture does and not what a small animal does.
+  In plain cells per tick the same arm read 0.129 against 0.600 and looked
+  like an ordinary consequence of being small, which is why nobody caught it
+  from the numbers. With gravity fixed, a velocity goes as `sqrt(k)` and an
+  acceleration goes as nothing at all.
+- **A nest patch that is regular has no middle**, and that is the ethos's
+  first law failing on a patch of ground: 36 columns in eighteen runs of
+  exactly two, equally dense at the centre and the rim, then a hard edge.
+  The repair is a solid core thinning to scattered cells — and then the
+  owner rated the *shape* fix 1 of 5 anyway, because what he objected to was
+  that it could be seen at all.
+- **The evolution lab had already solved the visible-nest complaint** in
+  August, from the same owner's words, and the third game simply never
+  inherited it. A palette swap on the game's own `Materials` costs nothing at
+  draw time; the three tempting alternatives (edit `creature.rs`, edit
+  `nest.ron`, test per pixel in `render.rs`) are each ruled out in
+  `lab::earth_toned_nest`'s doc. **Check the sibling game before designing.**
+- **A debug overlay can be routed, drawn, and still invisible.**
+  `apply_held_look` is a full replace that ran *after* the overlays, so on a
+  held world every ramp arrived with only its luminance left — heat wrong on
+  **43,456 cells**. A guard asking "is the overlay on the path" was green
+  throughout.
+- **Committing a founding had never once cost the other two offers.**
+  `commit_founding` called `reroll()` and *then* dropped the offer, so the
+  fresh draw went out with it. The design was correct from day one and the
+  code had never executed it.
+- **Diffusion, not decay, is what removes a pheromone trail here**, and
+  nothing in the codebase said so: `DIFFUSE` sheds ~17% a pass off a
+  one-cell line against `DECAY_RHO`'s 3%. So a decay sweep measures a small
+  term, and width is the lever.
+- **`Player::feet()` is not ground level on soil.** `wade_rows` sinks a
+  standing gnome knee-deep by design, so "at her feet" is about four cells
+  underground on any powder surface. It cost the trail lane a render and the
+  shrink verb a refusal on every soil surface in the world.
+
+**On running the round itself:** a lane that finishes writes its PR body to a
+file on its own branch and has no way to tell you — the tell is a last commit
+reading *"lane note, PR body"*, and a finished branch with no PR is invisible
+to everyone. A merged lane's branch then disappears from the remote, which
+looks identical to work deleted out from under you; pin the sha before
+`--prune`. And a finished lane that keeps polishing holds its own PR open:
+five CI restarts on one branch, the last two for a PR body and a twelve-line
+note edit, each costing a full thirty-minute cycle.
