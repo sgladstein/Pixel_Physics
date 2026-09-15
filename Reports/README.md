@@ -2880,6 +2880,20 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   as paint, the crust dropped to soil's, and a
   per-ant home bearing built next — the trail ordering is wrong, the nest
   work can start now. No `src/` change; nothing landed.
+- [evolution-lab-round-37-brief-2026-09-15.md](evolution-lab-round-37-brief-2026-09-15.md)
+  — **brief, 2026-09-15. `lab`/`engine`/`held`.** Opens with **two retracted
+  numbers** a reader may have inherited (29.4 is per-bed, not per-ant; the
+  plant fix's standing-plant gain is withdrawn, median −3). **Lane 1 is the
+  LAST performance attempt and carries the owner's kill condition** — three
+  rounds have shipped no frame-rate win, so §E2 is fixed, the narrow mark
+  shape shipped, and **if the whole-frame paired figure is under ~5% the
+  performance line closes**. Lane 2 builds the nest as a **site, not a blob**
+  (a wider footprint kills the colony on 3 of 3 seeds) and retires the crust
+  that stops a colony digging its own doorstep. Lane 3 takes the real finding
+  — **nothing steers a laden ant home**, channel A is 0–9 from frame 20,000 —
+  with `DIFFUSE` the lever and path integration the candidate. Lane 4 gets the
+  birth bar with **seed 2 as a named tuning case**. The alarm semantics remain
+  **the owner's and unruled**.
 - [evolution-lab-round-36-2026-09-14.md](evolution-lab-round-36-2026-09-14.md)
   — **round record, 2026-09-14/15. `lab`/`engine`.** Six lanes; landed #431,
   #432, #433, #436, #440, #441, #444, #445, #446, #447. **A live regression
