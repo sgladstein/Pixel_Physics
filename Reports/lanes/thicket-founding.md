@@ -421,3 +421,14 @@ It cost nothing today and that is luck, not design: `sync_now` exchanges
 the container. Anything that adds `seen/` to that list, or a session on the
 owner's own machine where worktree paths differ, turns this into other lanes
 silently losing verdicts.
+
+**PR [#427](https://github.com/sgladstein/Pixel_Physics/pull/427)**, head
+`b8b57e3d`, **CI green on all nine checks**, 0 behind `main`. Body rewritten
+to match — its first version argued §Z21 should stay OPEN and was overtaken
+while it sat.
+
+**Ready to merge and I have not merged it.** `CLAUDE.md` gives an independent
+session its own merge and says *a coordinator merges its lanes'* — I am a
+lane. If the round is closed and nobody is holding the merge, it is a
+documentation-only PR with CI green and the register correction is doing
+nobody any good sitting on a branch.
