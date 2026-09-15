@@ -190,14 +190,14 @@ fn main() {
         // next (`CLAUDE.md`). `force_full` on both so neither is reading a
         // skipped chunk left over from the other.
         game.renderer.aura = if a.look == "old" { AuraTuning::off() } else { a.tune };
-        game.draw(&mut buf, (WIDTH, HEIGHT), true);
+        game.draw(&mut buf, true);
         discs = game.renderer.aura_disc_count();
         if a.look == "old" {
             draw_old_rings(&mut game, &mut buf, a.speed);
         }
         let saved = game.renderer.aura;
         game.renderer.aura = AuraTuning::off();
-        game.draw(&mut control, (WIDTH, HEIGHT), true);
+        game.draw(&mut control, true);
         game.renderer.aura = saved;
         let tinted = buf.chunks_exact(4).zip(control.chunks_exact(4)).filter(|(p, q)| p != q).count() as u64;
         tinted_total += tinted;
@@ -255,7 +255,7 @@ fn cost(a: &Args) {
     let mut buf = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
     for _ in 0..60 {
         game.update();
-        game.draw(&mut buf, (WIDTH, HEIGHT), false);
+        game.draw(&mut buf, false);
     }
 
     // --- the counter -------------------------------------------------------
@@ -301,7 +301,7 @@ fn cost(a: &Args) {
             for _ in 0..a.frames {
                 game.update();
                 let t = Instant::now();
-                game.draw(&mut buf, (WIDTH, HEIGHT), false);
+                game.draw(&mut buf, false);
                 let dt = t.elapsed().as_secs_f64() * 1000.0;
                 ms_total[idx] += dt;
                 ms_worst[idx] = ms_worst[idx].max(dt);
@@ -423,7 +423,7 @@ fn sheet_of_speeds(a: &Args) {
         // game does.
         for _ in 0..a.frames {
             game.update();
-            game.draw(&mut buf, (WIDTH, HEIGHT), true);
+            game.draw(&mut buf, true);
         }
         if a.look == "old" {
             draw_old_rings(&mut game, &mut buf, s);

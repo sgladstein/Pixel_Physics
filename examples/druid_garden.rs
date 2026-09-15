@@ -294,7 +294,7 @@ fn shoot(game: &mut Druid, prefix: &str, when: &str, crop: Option<(u32, u32, u32
     // on a list of bindings.
     game.show_keys = false;
     let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
-    game.draw(&mut frame, (WIDTH, HEIGHT), true);
+    game.draw(&mut frame, true);
     let path = format!("{prefix}-{when}.png");
     // **Cropped and magnified, because the subject is often two cells
     // across.** An ant is 1-2 cells and the held world is 2560 wide, so a

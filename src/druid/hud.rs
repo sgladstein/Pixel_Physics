@@ -397,6 +397,15 @@ pub struct Interface {
     founding: Option<Founding>,
     /// The options menu, while it is open.
     options: Option<Options>,
+    /// **The zoom-out pixel budget, but only when it was refused** — see
+    /// [`Druid::pixel_budget_refusal`]. `None` on every frame the player is
+    /// getting what he asked for, which is almost all of them, so the line
+    /// costs nothing to carry and nothing to draw.
+    ///
+    /// In the comparison like everything else here: it appears and vanishes
+    /// with the zoom rung, and a line drawn over settled ground that nothing
+    /// repaints is the smear this whole struct exists to prevent.
+    pixels: Option<String>,
 }
 
 impl Interface {
@@ -413,18 +422,28 @@ impl Interface {
             scent: scent(game),
             founding: founding(game),
             options: options(game),
+            pixels: game.pixel_budget_refusal().map(|(got, why)| format!("PIXELS X{} -> X{got} ({why})", game.pixel_budget)),
         }
     }
 
-    pub fn draw(&self, frame: &mut [u8], viewport: (u32, u32)) {
-        // **Scale 1, stated rather than asked for.** `render::Hud` exists
-        // because the sandbox grows its framebuffer past the logical
-        // 512x320 at zoom-out; this game never does — it hands
-        // `Renderer::draw` exactly `(WIDTH, HEIGHT)` — so a logical pixel and
-        // a buffer pixel are the same thing here. Reading
-        // `Renderer::pixel_scale` instead would size the HUD against a budget
-        // the buffer is not honouring.
-        let hc = Hud::new(viewport.0, viewport.1, 1);
+    /// Draw the interface over the world.
+    ///
+    /// **`viewport` is logical and `scale` says how many buffer pixels carry
+    /// each of them.** Every measurement in this module — `MARGIN`,
+    /// `BAR_HEIGHT`, `bar_top`, the panel centring below — is in logical
+    /// pixels and stays that way at every budget; `Hud` is what multiplies
+    /// them up. Until 2026-09-15 this passed `1` unconditionally, on the
+    /// grounds that *"the sandbox grows its framebuffer past the logical
+    /// 512x320 at zoom-out; this game never does"*. It does now, so a
+    /// hardcoded 1 would land the whole interface in the top-left quarter of
+    /// the screen at x2 and the top-left sixteenth at x4.
+    ///
+    /// Taken as an argument rather than read off the renderer for the reason
+    /// `Druid::pixel_scale`'s own doc gives: the renderer's copy is pushed,
+    /// and a caller that reads it back gets last frame's answer.
+    pub fn draw(&self, frame: &mut [u8], viewport: (u32, u32), scale: i32) {
+        let scale = scale.max(1);
+        let hc = Hud::new(viewport.0 * scale as u32, viewport.1 * scale as u32, scale);
 
         // Rings under the panels, so text is never crossed by one.
         for ring in &self.rings {
@@ -505,6 +524,15 @@ impl Interface {
         let status_w = self.status.iter().map(|(t, _)| hud::text_width(t)).max().unwrap_or(0).max(BAR_W) + PAD * 2;
         let status_h = self.status.len() as i32 * LINE + PAD * 2 - 2;
         panel(hc, frame, viewport, (MARGIN, MARGIN, status_w, status_h));
+        // **A request the machine cannot meet is how the readout earns its
+        // keep** — `time::PRESETS`' own principle, which the lab already
+        // applies to this same dial. Under the readout rather than in it: the
+        // panel's rows are the *world's* state and this is the window's, and a
+        // line that is absent on nearly every frame would otherwise resize the
+        // panel the moment it appeared.
+        if let Some(note) = &self.pixels {
+            hc.text(frame, MARGIN + PAD, MARGIN + status_h + 3, note, [190, 170, 110, 255]);
+        }
         for (i, (text, colour)) in self.status.iter().enumerate() {
             let y = MARGIN + PAD + i as i32 * LINE;
             if text.is_empty() {
@@ -1546,8 +1574,11 @@ fn paint_widget(hc: Hud, frame: &mut [u8], w: &Widget, hover: bool, down: bool) 
 /// **Paint the bar. Called every drawn frame, unconditionally** — see the
 /// section doc above for why that is what keeps a hover highlight safe
 /// without folding the bar into [`Interface`]'s repaint comparison.
-pub fn draw_bar(bar: &Bar, frame: &mut [u8], viewport: (u32, u32), cursor: Option<(i32, i32)>, pressed: Option<Action>) {
-    let hc = Hud::new(viewport.0, viewport.1, 1);
+pub fn draw_bar(bar: &Bar, frame: &mut [u8], viewport: (u32, u32), scale: i32, cursor: Option<(i32, i32)>, pressed: Option<Action>) {
+    // Logical viewport, buffer-sized canvas — see `Interface::draw`. `cursor`
+    // is logical too, which is `Druid::to_logical`'s whole job.
+    let scale = scale.max(1);
+    let hc = Hud::new(viewport.0 * scale as u32, viewport.1 * scale as u32, scale);
     let plate = Rect { x: 0, y: bar_top(), w: viewport.0 as i32, h: BAR_HEIGHT };
     fill_rect(hc, frame, plate, BAR_BG);
     for x in 0..viewport.0 as i32 {
@@ -2039,10 +2070,11 @@ mod tests {
             // shape that compounded last time.
             founding: Some(widest_offer()),
             options: Some(widest_menu()),
+            pixels: None,
         };
-        ui.draw(&mut frame, (w, h));
+        ui.draw(&mut frame, (w, h), 1);
         let once = frame.clone();
-        ui.draw(&mut frame, (w, h));
+        ui.draw(&mut frame, (w, h), 1);
         let differing = frame.chunks_exact(4).zip(once.chunks_exact(4)).filter(|(a, b)| a != b).count();
         assert_eq!(differing, 0, "{differing} pixels changed on the second identical draw — the interface is not idempotent, so it compounds over a skipped frame");
     }
@@ -2063,6 +2095,7 @@ mod tests {
             scent: Vec::new(),
             founding: None,
             options: None,
+            pixels: None,
         };
         let b = a.clone();
         assert_eq!(a, b, "an unchanged interface must compare equal, or the render skip never fires at all");

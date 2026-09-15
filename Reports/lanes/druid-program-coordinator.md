@@ -85,6 +85,19 @@ finished mechanic.
   PR #431 — found by reading the open PR list before routing it. **A verdict
   on the druid board is not automatically druid-program work**, and the check
   is the same one this note already prescribes before dispatching a round.
+- **...but the zoom-out *pixel budget* was, and it was missed for two days.**
+  Reported from play 2026-09-15 as *"it works well in the lab and looks really
+  crisp when we zoom out, but it doesn't look as good in the druid game"*. The
+  cause was not in the renderer at all: `bin/druid.rs` built its `Pixels`
+  buffer at `(WIDTH, HEIGHT)` and never resized it, so this game alone kept
+  taking 2048x1280 cells through 512x320 pixels while the other two grew the
+  buffer. **The lesson for routing is the inverse of the bullet above**: a
+  shared-renderer feature landing in `src/app.rs` and `src/lab/` is not
+  automatically in this game, because this game has its own binary and its own
+  HUD, and nothing fails when it is left out — it just looks worse. When a
+  render feature lands for "both games", check which two.
+  `Druid::pixel_budget` ships from 2026-09-15; the headless hook is
+  `PIXEL_PHYSICS_DRUID_ZOOM_OUT=<rung>,<budget>`.
 
 ## Environment facts that have cost time here
 
@@ -96,7 +109,7 @@ finished mechanic.
   `for p in $(pgrep -x druid); do kill $p; done` is the one that works. Both
   cost twenty minutes, one after the other, on 2026-09-14.
 - **The headless hooks are the only way to reach a key**, and each one is its
-  own env var: `_SMALL=<tick>`, `_ZOOM=<rung>`, `_CIRCLES=x,y,r,rate;...`,
+  own env var: `_SMALL=<tick>`, `_ZOOM=<rung>`, `_ZOOM_OUT=<rung>,<budget>`, `_CIRCLES=x,y,r,rate;...`,
   `_OFFER`, `_MENU`, `_FOUND`, `_FOUND_AT`, `_ABSORB_AT`, `_WALK=<a>,<b>`,
   `_GIF`, `_CATCH`, `_KEYS=0`, `_SIZE`, `_GROW`, `_START`, `_CIRCLE=off`,
   `_UNLIMITED`, `_LOOK`, `_PRESET`, `_CENSUS`, `_LAY`, `_MARK`,

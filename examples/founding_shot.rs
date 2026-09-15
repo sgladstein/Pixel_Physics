@@ -237,7 +237,7 @@ fn main() {
     }
     let mut buf = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
     if a.screen {
-        game.draw(&mut buf, (WIDTH, HEIGHT), true);
+        game.draw(&mut buf, true);
     } else {
         if let Some(player) = &game.world.player {
             game.renderer.follow(player.center(), (WIDTH, HEIGHT), game.world.bounds());
