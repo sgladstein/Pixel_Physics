@@ -2880,6 +2880,26 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   verbatim, the zoom ruling (*"get rid of stop 3"*, which overturns
   `dead-ends.md` `rendering:049`), and a process finding — **four cards asked
   one question**, so read the open queue before posting.
+- [evolution-lab-food-readable-2026-09-14.md](evolution-lab-food-readable-2026-09-14.md)
+  — **lane record, 2026-09-14, PR #444. `lab`/`engine`.** Round 36 lane A: the
+  three food instruments round 35 shipped were each rejected, and each
+  complaint was one defect that the instrument itself was not arguing about.
+  **The harvest wash was painting sky** — every live tile sits on the surface
+  band, where an 8-cell tile is one row of ground and seven of air, so the
+  shape on screen was the tile grid; shrinking the tile was ruled out by
+  rendering it, because the box is the air and not the size. **The food road
+  was already tracking actual paths and was forgetting them** after ten
+  seconds: `road_half_life` 600 → 3,600 turns a scatter of 279 lit cells into
+  an unbroken line of 1,024, and **costs nothing measurable** — a map 87%
+  larger came out cheaper than the short one, twice, against a positive
+  control that moves the same delta to +1.17 ms. **The FOOD page's charts were
+  plotting a rate at a question about an amount**, which is the general rule
+  worth carrying: a chart of a differenced series answers *how fast*, and
+  *how much, lately* wants a number over a span the reader picks. Rebuilt on
+  the owner's own spec into two layers and a range selector, with which rival
+  a colony's meat came off named per line. Also: `range_reaches` wrong in the
+  direction that reads as working, and a page-fit guard whose fixture had
+  quietly stopped measuring the tall block.
 - [evolution-lab-round-35-2026-09-14.md](evolution-lab-round-35-2026-09-14.md)
   — **coordinator record, 2026-09-14. `lab`/`engine`.** The round that gave the
   food economy a face and answered *why don't colonies fight* with a finding

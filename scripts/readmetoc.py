@@ -215,6 +215,9 @@ TOPICS = {
         # both *mechanisms*, and this is the reading that says what either
         # one is costing a particular colony.
         "Colony books status — what each colony is living on, in joules",
+        # ...and the seen half of the same ask: the books say what a colony
+        # ate, this says where it came out of the ground and how it travelled.
+        "Food road status — the trail the colony actually walks, and the box that was not there",
     ],
     "structural collapse, felling and rigid bodies": [
         "M17 status",

@@ -181,6 +181,12 @@ fn main() {
     if let Some(v) = arg::<u32>("walked") {
         lab.renderer.food.show_walked = v == 1;
     }
+    // `ground=0` puts the round-35 drawing back: the harvest wash covering
+    // its whole tile, air included. The arm of the comparison that asks
+    // whether clipping to ground is what fixed the box.
+    if let Some(v) = arg::<u32>("ground") {
+        lab.renderer.food.harvest_on_ground = v == 1;
+    }
     if let Some(v) = arg::<f32>("roadhalf") {
         lab.renderer.food.road_half_life = v;
     }
@@ -203,10 +209,11 @@ fn main() {
     let f = &lab.renderer.food;
     println!(
         "foodroad: scenario={scenario_name} seed={seed} start={start} frames={frames} every={every} mode={} \
-         tile={} show_walked={} road_half_life={} harvest_half_life={} road_full={} harvest_full={} out={out}",
+         tile={} show_walked={} harvest_on_ground={} road_half_life={} harvest_half_life={} road_full={} harvest_full={} out={out}",
         f.mode.label(),
         f.tile,
         f.show_walked,
+        f.harvest_on_ground,
         f.road_half_life,
         f.harvest_half_life,
         f.road_full.map_or_else(|| "tracked".into(), |v| v.to_string()),
@@ -219,7 +226,7 @@ fn main() {
     }
 
     if cost > 0 {
-        price(&mut lab, cost, mode, arg::<u32>("settled").unwrap_or(0) == 1);
+        price(&mut lab, cost, mode, arg::<u32>("settled").unwrap_or(0) == 1, arg::<u32>("whole").unwrap_or(0) == 1);
         return;
     }
 
@@ -386,15 +393,25 @@ fn report(lab: &Lab, base: (u64, u64, u64, f64, u64), start: u64, frames: u64) {
 /// render skip — and a settled world is exactly where that skip does its
 /// work. Both food channels decay every tick and so defeat it by
 /// construction, the same way `FieldOverlay` already does.
-fn price(lab: &mut Lab, rounds: u32, mode: FoodOverlay, settled: bool) {
+fn price(lab: &mut Lab, rounds: u32, mode: FoodOverlay, settled: bool, whole: bool) {
     // **The warm has to be long enough to rebuild the map the other arm
     // dropped, and "long enough" is set by the road's own half-life rather
     // than by taste.** At the shipped 600-frame half-life and the played
     // bed's step rate the road settles near 260 cells; a 40-tick warm
     // reached **13**, so the first honest-looking version of this still
-    // priced an almost-empty map and said so in its own counter. 1,500 is
-    // two and a half half-lives.
-    let warm: u32 = arg("warm").unwrap_or(1500);
+    // priced an almost-empty map and said so in its own counter.
+    //
+    // **Raised 1,500 -> 6,000 when the road's memory went to a minute, and
+    // the old value had quietly become a confound rather than merely a short
+    // warm.** Each arm re-warms from nothing (the off arm drops both maps by
+    // design), so at 1,500 ticks *every* setting of `roadhalf` was priced on
+    // the same young map: a run at ten seconds and a run at no decay at all
+    // came out holding **420 and 431 cells**, which is `CLAUDE.md`'s own tell
+    // -- identical output across a change that must have moved something.
+    // At 6,000 the same two hold 623 and 1,165, which is the thing the
+    // question was about. Still under two half-lives, so it is a floor on
+    // what the warm has to be and not a settled map.
+    let warm: u32 = arg("warm").unwrap_or(6000);
     /// Draws timed per block, after the warm.
     const TIMED: u32 = 120;
     let mut buf = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
@@ -417,10 +434,21 @@ fn price(lab: &mut Lab, rounds: u32, mode: FoodOverlay, settled: bool) {
             }
             lab.draw(&mut buf, 60.0);
             for _ in 0..TIMED {
+                // **`whole=1` puts the tick inside the timed span**, which is
+                // the figure `CLAUDE.md` says to quote: a subsystem harness
+                // aims the work and the whole frame sizes it, and the same
+                // field change once measured -50% in its own harness and
+                // -27% through `App::update`. On the settled arm there is no
+                // tick to include and the two are the same number.
+                let mut t = std::time::Instant::now();
                 if !settled {
                     lab.tick_for_harness();
                 }
-                let t = std::time::Instant::now();
+                if !whole {
+                    // Restarted after the tick, which is the original
+                    // instrument: the draw alone.
+                    t = std::time::Instant::now();
+                }
                 lab.draw(&mut buf, 60.0);
                 let ms = t.elapsed().as_secs_f64() * 1000.0;
                 if arm == FoodOverlay::Off {
@@ -440,9 +468,10 @@ fn price(lab: &mut Lab, rounds: u32, mode: FoodOverlay, settled: bool) {
     let (off_med, off_worst) = stat(&mut off);
     let (on_med, on_worst) = stat(&mut on);
     println!(
-        "  COST, {} blocks per arm, {warm}-tick warm then {TIMED} timed draws ({}): overlay OFF median {off_med:.2} ms worst {off_worst:.2} ms | \
+        "  COST, {} blocks per arm, {warm}-tick warm then {TIMED} timed {} ({}): overlay OFF median {off_med:.2} ms worst {off_worst:.2} ms | \
          {} median {on_med:.2} ms worst {on_worst:.2} ms | median delta {:+.2} ms ({:+.0}%)",
         rounds,
+        if whole && !settled { "whole frames -- tick AND draw" } else { "draws" },
         if settled { "settled -- no tick between draws, so the dirty-rect skip can fire" } else { "running -- one tick before every draw" },
         mode.label(),
         on_med - off_med,
