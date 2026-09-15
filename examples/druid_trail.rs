@@ -457,7 +457,7 @@ fn shot(args: &[String]) {
         }
         elapsed = s;
         let mut buf = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
-        game.draw(&mut buf, (WIDTH, HEIGHT), true);
+        game.draw(&mut buf, true);
 
         // **The count beside the picture**, per `CLAUDE.md`: a sheet showing a
         // plausible green haze is exactly what a dead readout over a lit world

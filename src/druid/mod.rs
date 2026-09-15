@@ -55,6 +55,27 @@ use crate::worldgen::{self, WorldgenPresets};
 pub const WORLD_WIDTH: u32 = 2560;
 pub const WORLD_HEIGHT: u32 = 960;
 
+/// What [`Druid::pixel_budget`] starts at — how many buffer pixels a logical
+/// pixel is given at the widest zoom-out.
+///
+/// **4, and it is the same number the other two games ship**, which is the
+/// point rather than a coincidence. Owner, 2026-09-13, on being told the
+/// sandbox would default to x2 and the lab to x4: *"I am not sure what
+/// questions that I answered that suggests zoom should be different between
+/// the games, but that doesn't seem like what I want."* Shown a bed at x1, x2
+/// and x4 he picked the finest (card `20260913T083914900Z-764956`, *"C is
+/// best"*). This game was built while that work was landing and was never
+/// wired in, so until 2026-09-15 it alone discarded fifteen cells in sixteen
+/// at the widest rung. See `Reports/zoom-out-resolution-2026-09-13.md`.
+///
+/// **Free at play zoom**, which is the whole of the cost argument: the budget
+/// is spent only at `zoom_out_stride > 1`, so an unzoomed frame is
+/// bit-identical to every build before it and allocates nothing extra. What
+/// it costs when spent is priced in the report above — 1.66x the whole frame
+/// at x4 in the sandbox — and bounded again by the window
+/// ([`Druid::pixel_scale_cap`]).
+pub const DEFAULT_PIXEL_BUDGET: i32 = 4;
+
 /// **How long the world lives before it stops.**
 ///
 /// The land was alive and *then* stopped, which is the fiction and also the
@@ -667,6 +688,19 @@ pub struct Druid {
     /// How the land arrived — see [`Start`]. Kept for the readout, so a
     /// player can tell a dead world from a bare one without counting trees.
     pub start: Start,
+    /// **How many buffer pixels a logical pixel may be given at zoom-out** —
+    /// the player's *request*, see [`DEFAULT_PIXEL_BUDGET`].
+    ///
+    /// Held here rather than on the `Renderer` for the reason `App` and `Lab`
+    /// hold their own copies: the renderer's field is a *pushed* one, bounded
+    /// by [`Self::pixel_scale_cap`], and reading it back as the choice loses
+    /// what the player asked for the moment a small window refuses it.
+    pub pixel_budget: i32,
+    /// What the window can actually resolve, in logical pixels per side.
+    /// `bin/druid.rs` writes it from the real window size each frame; 1 until
+    /// something does, so a headless harness never grows a buffer nobody
+    /// asked for.
+    pub pixel_scale_cap: i32,
     /// **What `T` plants**, and the kinds it can cycle through.
     ///
     /// Built at run time from the loaded species rather than written down:
@@ -1046,6 +1080,8 @@ impl Druid {
             animals: 0,
             animals_awake: 0,
             last_ui: None,
+            pixel_budget: DEFAULT_PIXEL_BUDGET,
+            pixel_scale_cap: 1,
             start,
             seeds: vec![SEED_START; seed_kinds.len()],
             seed_growth: vec![0.0; seed_kinds.len()],
@@ -1264,6 +1300,8 @@ impl Druid {
             animals: 0,
             animals_awake: 0,
             last_ui: None,
+            pixel_budget: DEFAULT_PIXEL_BUDGET,
+            pixel_scale_cap: 1,
             start: Start::Bare,
             seeds: Vec::new(),
             seed_growth: Vec::new(),
@@ -2266,13 +2304,105 @@ impl Druid {
         }
     }
 
+    /// **The frame buffer this game wants drawn into** — `WIDTH`x`HEIGHT`
+    /// times whatever [`Self::pixel_budget`] is buying. `bin/druid.rs` must
+    /// resize the `Pixels` buffer to match before calling [`Self::draw`].
+    ///
+    /// At budget 1, and at every zoom that is not a zoom-out, this is exactly
+    /// `(WIDTH, HEIGHT)` — the literal every caller passed before 2026-09-15.
+    pub fn viewport(&self) -> (u32, u32) {
+        let s = self.pixel_scale() as u32;
+        (crate::app::WIDTH * s, crate::app::HEIGHT * s)
+    }
+
+    /// The scale in force — buffer pixels per logical pixel.
+    ///
+    /// **Derived from the authoritative pair, never read back from the
+    /// renderer's pushed copy.** The sandbox shipped that bug for one
+    /// afternoon and it panicked in a HUD blend a hundred lines from its
+    /// cause, because the binary sized the buffer before `draw` had pushed
+    /// the budget. One derivation, so there is no ordering to get right.
+    pub fn pixel_scale(&self) -> i32 {
+        self.renderer.pixel_scale_for(self.effective_pixel_budget()).max(1)
+    }
+
+    /// The player's choice, bounded by what the window can show.
+    fn effective_pixel_budget(&self) -> i32 {
+        self.pixel_budget.min(self.pixel_scale_cap).max(1)
+    }
+
+    fn apply_pixel_budget(&mut self) {
+        self.renderer.pixel_budget = self.effective_pixel_budget();
+    }
+
+    /// `Shift`+`=`, cycling x1 -> x2 -> x4 -> x1. Returns the new setting.
+    ///
+    /// The same binding and the same ladder as the other two games, so a
+    /// player who learns it in the lab already knows it here.
+    pub fn cycle_pixel_budget(&mut self) -> i32 {
+        self.pixel_budget = match self.pixel_budget {
+            1 => 2,
+            2 => 4,
+            _ => 1,
+        };
+        self.apply_pixel_budget();
+        // **Nothing to invalidate by hand.** The buffer changes size, so no
+        // byte already in it is reusable — and `Renderer::draw` already folds
+        // `pixel_scale` into the `last_zoom_state` it compares, so the skip
+        // is refused for this frame without a second mechanism saying so.
+        self.pixel_budget
+    }
+
+    /// **A window pixel, as the interface understands it.** The cursor arrives
+    /// in *buffer* pixels and the bar, the founding screen and the biosphere
+    /// page are all laid out in logical ones, so this is the conversion every
+    /// input path goes through. The identity at budget 1, which is every
+    /// frame that is not zoomed out.
+    pub fn to_logical(&self, x: i32, y: i32) -> (i32, i32) {
+        let s = self.pixel_scale();
+        (x.div_euclid(s), y.div_euclid(s))
+    }
+
+    /// Whether the player asked for more pixels than he is getting, and which
+    /// of the two refusals it was — the window is too small, or the zoom rung
+    /// cannot divide the budget. `None` when the request is met, which is the
+    /// usual case and costs one integer comparison.
+    ///
+    /// **A refused request has to say so**, the same principle the lab's clock
+    /// readout already states: a player who sets x4 and sees x2 otherwise has
+    /// no way to know which, or that anything was refused at all.
+    pub fn pixel_budget_refusal(&self) -> Option<(i32, &'static str)> {
+        let got = self.pixel_scale();
+        if got == self.pixel_budget {
+            return None;
+        }
+        Some((got, if self.pixel_budget > self.pixel_scale_cap { "WINDOW" } else { "THIS ZOOM" }))
+    }
+
     /// One drawn frame.
-    pub fn draw(&mut self, frame_buf: &mut [u8], viewport: (u32, u32), force_full: bool) {
+    ///
+    /// **Takes no viewport**, unlike every build before 2026-09-15. It has to
+    /// derive one, because there are now two: the camera and the interface
+    /// work in *logical* pixels and the renderer draws into *buffer* ones,
+    /// and a caller handing one number to both is precisely the two-sources-
+    /// of-truth shape that panicked the sandbox and silently halved the lab's
+    /// zoom reach on the same afternoon
+    /// (`Reports/zoom-out-resolution-2026-09-13.md`).
+    pub fn draw(&mut self, frame_buf: &mut [u8], force_full: bool) {
+        self.apply_pixel_budget();
+        // **Logical, and that is the whole distinction.** The camera is about
+        // *cells*, so nothing in it may depend on how many buffer pixels are
+        // carrying them — `Renderer::visible_span` multiplies this by the
+        // ladder stride itself. The buffer viewport below goes to `draw` and
+        // nowhere else.
+        let logical = (crate::app::WIDTH, crate::app::HEIGHT);
+        let viewport = self.viewport();
+        let scale = self.pixel_scale();
         // The view follows him, outside the tick loop: the camera is view
         // state, so running it several times in a catch-up frame would move
         // it several times for one drawn picture.
         if let Some(player) = &self.world.player {
-            self.renderer.follow(player.center(), viewport, self.world.bounds());
+            self.renderer.follow(player.center(), logical, self.world.bounds());
         }
         // **The interface is built before the world is drawn, because
         // whether it *changed* decides whether the world has to be repainted
@@ -2283,7 +2413,7 @@ impl Druid {
         // what the lab does and is wrong here: this game's premise is a world
         // standing still, which is exactly where the render skip earns its
         // keep. See `hud::Interface`.
-        let ui = hud::Interface::build(self, viewport);
+        let ui = hud::Interface::build(self, logical);
         let ui_changed = self.last_ui.as_ref() != Some(&ui);
         self.last_ui = Some(ui.clone());
 
@@ -2292,7 +2422,7 @@ impl Druid {
         // they redraw as stale pixels with no error anywhere.
         let touched = self.world.take_touched_chunks();
         self.renderer.draw(&self.world, &self.particles, &touched, frame_buf, viewport, force_full || ui_changed);
-        ui.draw(frame_buf, viewport);
+        ui.draw(frame_buf, logical, scale);
     }
 }
 
@@ -2582,6 +2712,182 @@ mod tests {
             held.world.plant_load_failure, bed.plant_load_failure,
             "plant_load_failure: the held world and the lab must agree"
         );
+    }
+
+    // ------------------------------------------- the zoom-out pixel budget
+
+    /// A `Druid` with a player and a world big enough to zoom out over, for
+    /// the budget guards. `bare_for_test`'s 64x64 box is smaller than one
+    /// viewport, which is fine for these because nothing here reads
+    /// `max_zoom_out_stride` — the rung is written directly, exactly as a
+    /// player's `-` key writes it.
+    #[cfg(test)]
+    fn zoomed_out_for_test(rung: i32) -> Druid {
+        let mut game = Druid::bare_for_test();
+        game.renderer.zoom_out_stride = rung;
+        game.pixel_scale_cap = crate::app::MAX_PIXEL_SCALE;
+        game
+    }
+
+    /// **The budget must be invisible until the view is actually pulled
+    /// back.** Normal play pays nothing and looks the same, which is the whole
+    /// cost argument for defaulting to x4 — see [`DEFAULT_PIXEL_BUDGET`].
+    ///
+    /// Asserting the viewport is the claim; the constant is bookkeeping, kept
+    /// so a silent change to the shipped default is still caught. It is 4
+    /// because the other two games ship 4 and the owner asked for the games
+    /// not to differ here.
+    #[test]
+    fn the_default_held_world_draws_into_the_buffer_it_always_did() {
+        let game = Druid::bare_for_test();
+        assert_eq!(game.pixel_budget, DEFAULT_PIXEL_BUDGET, "the shipped default, and the same one both other games ship");
+        assert_eq!(game.pixel_budget, 4);
+        assert_eq!(
+            game.viewport(),
+            (crate::app::WIDTH, crate::app::HEIGHT),
+            "a game that is not zoomed out must draw into the buffer every build before 2026-09-15 drew into"
+        );
+        assert_eq!(game.pixel_scale(), 1, "and a logical pixel is still a buffer pixel");
+    }
+
+    /// The two terms, and which one wins. The player's choice is *remembered*
+    /// when the window cannot show it rather than clobbered, so maximising
+    /// gives him what he asked for without asking again.
+    #[test]
+    fn the_window_caps_the_held_budget_without_forgetting_it() {
+        let mut game = zoomed_out_for_test(4);
+
+        game.pixel_scale_cap = 1;
+        assert_eq!(game.viewport(), (crate::app::WIDTH, crate::app::HEIGHT), "a window that can only show x1 must get x1");
+        assert_eq!(game.pixel_budget, 4, "the choice must survive being capped");
+
+        game.pixel_scale_cap = 2;
+        assert_eq!(game.viewport(), (crate::app::WIDTH * 2, crate::app::HEIGHT * 2));
+
+        game.pixel_scale_cap = 4;
+        assert_eq!(game.viewport(), (crate::app::WIDTH * 4, crate::app::HEIGHT * 4), "the choice must come back when the window grows");
+    }
+
+    /// A budget that cannot be *spent* at this rung must buy nothing rather
+    /// than widening the view — the scale has to **divide** the rung, and 3
+    /// has no power-of-two divisor above 1. 3 is off the ladder
+    /// (`ZOOM_OUT_RUNGS`, the owner's *"get rid of stop 3"*) and still
+    /// reachable through the debug hook, which is why this is a test rather
+    /// than an assumption.
+    #[test]
+    fn an_odd_rung_spends_no_held_budget() {
+        let mut game = zoomed_out_for_test(3);
+        assert_eq!(game.viewport(), (crate::app::WIDTH, crate::app::HEIGHT), "rung 3 cannot absorb a power-of-two budget");
+        game.renderer.zoom_out_stride = 4;
+        assert_eq!(game.viewport(), (crate::app::WIDTH * 4, crate::app::HEIGHT * 4), "rung 4 can");
+    }
+
+    #[test]
+    fn the_held_pixel_budget_key_cycles_one_two_four() {
+        let mut game = zoomed_out_for_test(4);
+        // Entered explicitly rather than from the shipped default: the claim
+        // is that the key walks the ring, not where the ring is entered.
+        game.pixel_budget = 1;
+        assert_eq!(game.cycle_pixel_budget(), 2);
+        assert_eq!(game.cycle_pixel_budget(), 4);
+        assert_eq!(game.cycle_pixel_budget(), 1);
+    }
+
+    /// **The regression the sandbox shipped for an afternoon, guarded here
+    /// before it can happen again.** `bin/druid.rs` sizes the frame buffer
+    /// from `viewport()` and *then* calls `draw`, which pushes the budget at
+    /// the renderer. If `viewport` read the renderer's pushed copy the two
+    /// would disagree for exactly one frame after any change to the choice or
+    /// the cap — and the HUD's first blend past the halfway mark would index
+    /// off the end of the buffer.
+    ///
+    /// The order below is the order the binary uses, and it is the whole test.
+    #[test]
+    fn the_held_viewport_is_right_before_the_budget_is_pushed() {
+        let mut game = zoomed_out_for_test(4);
+        // Both terms move and nothing is applied — exactly a key press or a
+        // window resize arriving between two frames.
+        game.pixel_budget = 4;
+        game.pixel_scale_cap = 2;
+        let want = game.viewport();
+        assert_eq!(want, (crate::app::WIDTH * 2, crate::app::HEIGHT * 2), "the viewport must not lag a frame behind the choice");
+
+        // ...and drawing into a buffer of that size must not read past it.
+        let mut frame = vec![0u8; (want.0 * want.1 * 4) as usize];
+        game.draw(&mut frame, true);
+        assert_eq!(game.viewport(), want, "the draw must not have moved the viewport under the caller");
+    }
+
+    /// **The interface has to stay the same apparent size on a grown buffer**,
+    /// which is the half of this change that is not in the renderer at all.
+    /// Drawn into a x4 buffer the key legend must sit against the bottom of
+    /// the *picture*, not a sixteenth of the way into a corner of it.
+    ///
+    /// Measured as ink per row rather than by matching glyphs: the claim is
+    /// about where the interface lands, and a pixel comparison would fail on
+    /// the world behind it. **The unscaled band is the control** — it is where
+    /// a hardcoded `Hud::new(w, h, 1)` leaves everything, which is what this
+    /// game did until 2026-09-15, so putting that `1` back turns this red.
+    #[test]
+    fn the_held_interface_stays_the_same_size_when_the_buffer_grows() {
+        let mut game = zoomed_out_for_test(4);
+        game.show_keys = true;
+        let (w, h) = game.viewport();
+        assert_eq!((w, h), (crate::app::WIDTH * 4, crate::app::HEIGHT * 4), "the bed for this test must actually be at x4");
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        game.draw(&mut frame, true);
+
+        // Opaque ink only: the world is drawn underneath at full alpha too, so
+        // the discriminator is *where the panels are*, and a panel is the one
+        // thing that fills a band of rows edge to edge. Count bright pixels,
+        // which the interface's text and borders are and soil is not.
+        let bright = |y: u32| (0..w).filter(|x| { let i = ((y * w + x) * 4) as usize; frame[i] > 180 && frame[i + 1] > 180 }).count();
+        // The status panel's own rows, logical y = MARGIN..MARGIN+status_h.
+        // At x4 they are four times further down.
+        let scaled: usize = (4 * 6..4 * 60).map(bright).sum();
+        let unscaled: usize = (6..60).map(bright).sum();
+        assert!(scaled > 0, "no interface ink where a scaled readout belongs -- the HUD did not follow the buffer");
+        assert!(
+            scaled > unscaled,
+            "more interface ink at the unscaled position ({unscaled}) than the scaled one ({scaled}) -- the HUD is drawing at logical size in a grown buffer"
+        );
+    }
+
+    /// The cursor arrives in buffer pixels and every hit test is laid out in
+    /// logical ones. The identity at x1, which is every frame that is not
+    /// zoomed out — and that is why the missing divide was invisible for as
+    /// long as this game could not zoom out with a budget at all.
+    #[test]
+    fn a_held_cursor_is_read_in_logical_pixels() {
+        let mut game = zoomed_out_for_test(4);
+        assert_eq!(game.to_logical(0, 0), (0, 0));
+        assert_eq!(
+            game.to_logical(crate::app::WIDTH as i32 * 4 - 4, crate::app::HEIGHT as i32 * 4 - 4),
+            (crate::app::WIDTH as i32 - 1, crate::app::HEIGHT as i32 - 1),
+            "the far corner of the buffer is the far corner of the interface"
+        );
+        game.pixel_budget = 1;
+        assert_eq!(game.to_logical(511, 319), (511, 319), "...and at x1 it is the identity, which is every build before this");
+    }
+
+    /// **A refused request has to say so**, and it can be refused two ways.
+    /// Silent refusal is the defect: a player who sets x4 and sees x2 has no
+    /// way to know which of the two refused it, or that anything was refused.
+    #[test]
+    fn a_refused_held_budget_names_which_of_the_two_refused_it() {
+        let mut game = zoomed_out_for_test(4);
+        assert_eq!(game.pixel_budget_refusal(), None, "a budget that is met must say nothing at all");
+
+        game.pixel_scale_cap = 2;
+        assert_eq!(game.pixel_budget_refusal(), Some((2, "WINDOW")), "a small window is the window's refusal");
+
+        game.pixel_scale_cap = crate::app::MAX_PIXEL_SCALE;
+        game.renderer.zoom_out_stride = 3;
+        assert_eq!(game.pixel_budget_refusal(), Some((1, "THIS ZOOM")), "a rung no power of two divides is the zoom's refusal");
+
+        game.renderer.zoom_out_stride = 1;
+        game.pixel_budget = 1;
+        assert_eq!(game.pixel_budget_refusal(), None, "and asking for nothing is never a refusal");
     }
 
     /// **A founding leaves no colour on the ground.**

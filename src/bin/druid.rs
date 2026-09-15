@@ -147,11 +147,12 @@ struct Handler {
     /// action and last frame's laid-out bar live here instead. See
     /// `hud`'s button-bar section doc for the full reasoning.
     ///
-    /// Where the cursor is, in framebuffer pixels — `None` once it has left
-    /// the window. `pixels.window_pos_to_pixel` is the only conversion this
-    /// needs: `Druid` never zooms or resizes its buffer away from the
-    /// window (`hud::Interface::draw`'s own comment on `Hud::new(w, h, 1)`),
-    /// unlike `src/bin/lab.rs`'s `to_logical` divide.
+    /// Where the cursor is, in **logical** pixels — `None` once it has left
+    /// the window. Two conversions, not one: `pixels.window_pos_to_pixel`
+    /// lands in framebuffer pixels and `Druid::to_logical` divides out the
+    /// zoom-out pixel budget, the same pair `src/bin/lab.rs` runs. It was one
+    /// conversion until 2026-09-15, when this game stopped drawing every frame
+    /// into a fixed 512x320 buffer.
     cursor: Option<(i32, i32)>,
     /// Last frame's laid-out bar — retained so a click arriving between
     /// frames is tested against the bar the player was actually looking at,
@@ -254,6 +255,27 @@ impl Handler {
                 game.renderer.adjust_zoom(1);
             }
             println!("druid: zoom {} (stride {}), asked for {want}", game.renderer.zoom, game.renderer.zoom_out_stride);
+        }
+        // `PIXEL_PHYSICS_DRUID_ZOOM_OUT=<rung>,<budget>` -- start *pulled
+        // back*, with a zoom-out pixel budget, the mirror of `main.rs`'s hook
+        // of the same name and for the same reason: this game has no keyboard
+        // in a headless run, so every "verify live at zoom-out" check would
+        // otherwise go through a harness that reimplements the app rather than
+        // through the app. `PIXEL_PHYSICS_DRUID_SCREENSHOT` and the GIF
+        // capture are both useless at zoom-out without it.
+        //
+        // The rung is written rather than pressed for: `adjust_zoom` walks the
+        // ladder (1, 2, 4) and the debug hook is exactly the place rung 3 --
+        // off the ladder, on the owner's ruling, and still a reachable state
+        // through `zoom_within`'s cap -- has to stay photographable from.
+        if let Some((rung, budget)) = std::env::var("PIXEL_PHYSICS_DRUID_ZOOM_OUT").ok().and_then(|spec| {
+            let (rung, budget) = spec.split_once(',')?;
+            Some((rung.trim().parse::<i32>().ok()?, budget.trim().parse::<i32>().ok()?))
+        }) {
+            game.renderer.zoom = 1;
+            game.renderer.zoom_out_stride = rung.clamp(1, 4);
+            game.pixel_budget = budget.clamp(1, pixel_physics::app::MAX_PIXEL_SCALE);
+            println!("druid: zoom-out stride {}, pixel budget x{}", game.renderer.zoom_out_stride, game.pixel_budget);
         }
         // `PIXEL_PHYSICS_DRUID_OVERLAY=<n>` -- press `O` n times before the
         // first frame, so a headless run can render a debug channel. Same
@@ -663,9 +685,43 @@ impl Handler {
         let stats_shape_changed = stats_state != self.last_stats_state;
         self.last_stats_state = stats_state;
 
+        // **How many logical pixels the window can actually resolve.** The
+        // buffer may grow at zoom-out up to what the display can show and no
+        // further: pixels past that are paid for in full and then discarded by
+        // the GPU on the way down, which would put the zoom-out dropout back
+        // somewhere `ZoomOutFilter` cannot reach. Same rule, same arithmetic,
+        // as `main.rs` and `bin/lab.rs`.
+        if let Some(window) = &self.window {
+            let size = window.inner_size();
+            let mut cap = 1;
+            while cap * 2 <= pixel_physics::app::MAX_PIXEL_SCALE && WIDTH * (cap as u32) * 2 <= size.width && HEIGHT * (cap as u32) * 2 <= size.height {
+                cap *= 2;
+            }
+            self.game.pixel_scale_cap = cap;
+        }
+        // `resize_buffer` before `frame_mut`, or the slice is last frame's
+        // size. It reallocates, so it is guarded on an actual change: at
+        // budget 1, and at every zoom that is not a zoom-out, this is one
+        // comparison of two tuples.
+        let want = self.game.viewport();
+        let resize_error = match &mut self.pixels {
+            Some(pixels) if (pixels.texture().width(), pixels.texture().height()) != want => {
+                pixels.resize_buffer(want.0, want.1).err().map(|e| format!("buffer resize failed: {e}"))
+            }
+            _ => None,
+        };
+        if let Some(message) = resize_error {
+            self.fail(event_loop, message);
+            return;
+        }
+        // **Logical, not `want`.** Everything below this line lays out in
+        // logical pixels and hands `render::Hud` the scale to multiply by —
+        // see `hud::Interface::draw`. The buffer size is `Druid::draw`'s own
+        // business and nothing out here needs it.
+        let scale = self.game.pixel_scale();
         let render_error = match &mut self.pixels {
             Some(pixels) => {
-                self.game.draw(pixels.frame_mut(), (WIDTH, HEIGHT), stats_shape_changed);
+                self.game.draw(pixels.frame_mut(), stats_shape_changed);
                 // **Hidden while a modal owns the screen.** The options menu
                 // and the founding screen are centred over the world and
                 // (for the founding screen especially) can reach close to
@@ -675,9 +731,9 @@ impl Handler {
                 // live. See `Handler::mouse_button` for the matching input
                 // guard.
                 if show_overlay {
-                    hud::draw_bar(&self.bar, pixels.frame_mut(), (WIDTH, HEIGHT), self.cursor, self.bar_pressed);
+                    hud::draw_bar(&self.bar, pixels.frame_mut(), (WIDTH, HEIGHT), scale, self.cursor, self.bar_pressed);
                     self.stats.draw_at_floor(
-                        pixel_physics::render::Hud::new(WIDTH, HEIGHT, 1),
+                        pixel_physics::render::Hud::new(want.0, want.1, scale),
                         pixels.frame_mut(),
                         &self.game.world,
                         self.cursor,
@@ -695,12 +751,12 @@ impl Handler {
                     let mut scratch = pixels.frame().to_vec();
                     let t0 = std::time::Instant::now();
                     for _ in 0..n {
-                        hud::draw_bar(&self.bar, &mut scratch, (WIDTH, HEIGHT), self.cursor, self.bar_pressed);
+                        hud::draw_bar(&self.bar, &mut scratch, (WIDTH, HEIGHT), scale, self.cursor, self.bar_pressed);
                     }
                     let bar_ns = t0.elapsed().as_nanos() as f64 / n as f64;
                     let t1 = std::time::Instant::now();
                     for _ in 0..n {
-                        self.stats.draw_at_floor(pixel_physics::render::Hud::new(WIDTH, HEIGHT, 1), &mut scratch, &self.game.world, self.cursor, hud::bar_top());
+                        self.stats.draw_at_floor(pixel_physics::render::Hud::new(want.0, want.1, scale), &mut scratch, &self.game.world, self.cursor, hud::bar_top());
                     }
                     let stats_ns = t1.elapsed().as_nanos() as f64 / n as f64;
                     eprintln!("druid: bar paint {:.3} us/frame, stats paint {:.3} us/frame, combined {:.3} us/frame", bar_ns / 1000.0, stats_ns / 1000.0, (bar_ns + stats_ns) / 1000.0);
@@ -720,7 +776,7 @@ impl Handler {
                     if g.frames.len() >= g.count {
                         let here = self.game.world.player.as_ref().map(|p| (p.x, p.w, p.h));
                         let g = self.gif.take().expect("just checked");
-                        save_gif(&g, here, self.game.ticks);
+                        save_gif(&g, want, here, self.game.ticks);
                         event_loop.exit();
                         return;
                     }
@@ -736,7 +792,7 @@ impl Handler {
                             self.game.renderer.aura_disc_count(),
                             self.game.world.carried.map(|q| (q.x, q.y, q.r)),
                         );
-                        save_framebuffer_png(pixels.frame(), WIDTH, HEIGHT);
+                        save_framebuffer_png(pixels.frame(), want.0, want.1);
                     } else {
                         self.screenshot_countdown = Some(n - 1);
                     }
@@ -902,6 +958,18 @@ impl Handler {
             // `Equal` and `Minus` rather than `+`/`-`, because the unshifted
             // key is what a player actually presses and the legend says
             // `- =` for the same reason.
+            // **`Shift`+`=` cycles the zoom-out pixel budget**, the same
+            // binding and the same reasoning as the other two games: you reach
+            // for the control while you are already looking at the thing it
+            // changes. Unconditional, like `bin/lab.rs`'s and unlike
+            // `main.rs`'s, because this game ships no magnify styles competing
+            // for the shifted key.
+            KeyCode::Equal if self.held.grab => {
+                let got = self.game.cycle_pixel_budget();
+                let live = self.game.pixel_scale();
+                self.game.note(format!("zoom-out pixels x{got} (x{live} in force)"));
+                eprintln!("zoom-out pixels: x{got} (x{live} in force)");
+            }
             KeyCode::Equal => self.act(Action::Zoom(1)),
             KeyCode::Minus => self.act(Action::Zoom(-1)),
             // The economy's verb: a circle that runs while you are elsewhere.
@@ -1216,15 +1284,19 @@ impl ApplicationHandler for Handler {
             }
             // **The bar's mouse plumbing.** The druid read no mouse at all
             // before item 3 of the 2026-09-14 playtest — `window_event` had
-            // only the four arms above. **The mapping is 1:1 and needs no
-            // `to_logical` divide**, unlike `src/bin/lab.rs`'s own cursor
-            // handling: the druid never touches `zoom` or a `pixel_budget`,
-            // `hud::Interface::draw` hardcodes `Hud::new(w, h, 1)`, and the
-            // window is built at exactly `(WIDTH, HEIGHT)` above — so
-            // `window_pos_to_pixel` is the whole conversion.
+            // only the four arms above. **`window_pos_to_pixel` lands in
+            // *buffer* pixels and every hit test below is laid out in logical
+            // ones**, so `Druid::to_logical` is the second half of the
+            // conversion, exactly as in `src/bin/lab.rs`. It was genuinely 1:1
+            // until 2026-09-15, when this game got the zoom-out pixel budget
+            // the other two already had; without the divide every button would
+            // be four screens off at x4.
             WindowEvent::CursorMoved { position, .. } => {
-                self.cursor =
-                    self.pixels.as_ref().and_then(|p| p.window_pos_to_pixel((position.x as f32, position.y as f32)).ok()).map(|(x, y)| (x as i32, y as i32));
+                self.cursor = self
+                    .pixels
+                    .as_ref()
+                    .and_then(|p| p.window_pos_to_pixel((position.x as f32, position.y as f32)).ok())
+                    .map(|(x, y)| self.game.to_logical(x as i32, y as i32));
                 self.hover_offer();
             }
             WindowEvent::CursorLeft { .. } => {
@@ -1352,7 +1424,11 @@ fn census(game: &Druid) {
 /// The delay is derived from the capture interval and the fixed 60 ticks a
 /// second, so the result plays at the speed the game actually ran — the whole
 /// point being to judge motion, which a GIF at an arbitrary rate cannot do.
-fn save_gif(g: &GifCapture, here: Option<(f32, i32, i32)>, tick: u64) {
+/// `size` is the **buffer** the frames were captured at, which is no longer
+/// `WIDTH`x`HEIGHT`: a capture taken while zoomed out at a pixel budget holds
+/// bigger frames, and hardcoding the logical size here made every one of them
+/// fail `from_raw` with a message blaming the frame.
+fn save_gif(g: &GifCapture, size: (u32, u32), here: Option<(f32, i32, i32)>, tick: u64) {
     let delay_ms = (g.every * 1000 / u64::from(TICKS_PER_SECOND)).max(16);
     let delay = image::Delay::from_saturating_duration(Duration::from_millis(delay_ms));
     let file = match std::fs::File::create(&g.out) {
@@ -1364,8 +1440,8 @@ fn save_gif(g: &GifCapture, here: Option<(f32, i32, i32)>, tick: u64) {
         return eprintln!("gif failed: {e}");
     }
     for f in &g.frames {
-        let Some(buf) = image::RgbaImage::from_raw(WIDTH, HEIGHT, f.clone()) else {
-            return eprintln!("gif failed: a frame was not {WIDTH}x{HEIGHT}");
+        let Some(buf) = image::RgbaImage::from_raw(size.0, size.1, f.clone()) else {
+            return eprintln!("gif failed: a frame was not {}x{}", size.0, size.1);
         };
         if let Err(e) = encoder.encode_frame(image::Frame::from_parts(buf, 0, 0, delay)) {
             return eprintln!("gif failed: {e}");
