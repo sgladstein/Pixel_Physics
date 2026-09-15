@@ -161,6 +161,30 @@ condition; a recorded poke crossed one and worked.
 went to the wrong lane because the id was copied from notes rather than
 re-checked.
 
+**That guards the address. The claim needs its own re-read.** A poke that
+reassigns a file, hands over a task, or says nobody has done X yet is a
+statement about what the receiving lane has *not* done — and it is drafted
+minutes before it is sent, against a trunk moving ~40 commits a night. Round
+36: a reassignment of `src/sim/creature.rs` went out at 19:58 to a lane that
+had committed that exact fix at 19:47 and opened its PR at 19:51. Eleven
+minutes, and the message read as correct the whole way, because nothing in
+the loop read a branch head. So before any poke that moves work between
+lanes, run
+
+```
+bash scripts/branchcheck.sh --who-touched src/sim/creature.rs
+```
+
+and **quote a head SHA rather than your notes**. It fetches first, names
+every branch holding an unlanded commit in that path, and prints what landed
+on `main` since — which is the half a branch scan cannot see, a lane that
+merged an hour ago being 0 ahead. Cheap enough to be unconditional: 2.5 s.
+
+With six lanes running this is the expected case, not bad luck. The window
+scales with how fast `main` moves, which scales with the number of lanes — so
+a bigger round buys a higher coordinator error rate unless the check is
+mechanical.
+
 **The lane cannot reply.** A trigger stamps its own `allowed_tools` onto the
 session it fires and that list carries no `mcp__*` entries — so a woken lane
 has no `create_trigger`, no `fire_trigger`, and no `SendMessage` that resolves.

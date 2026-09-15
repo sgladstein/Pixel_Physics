@@ -79,6 +79,33 @@
 #    a 403 would send the next session to open a duplicate of a PR that
 #    already exists.
 #
+# 4. **A file-ownership split going stale under you.** CLAUDE.md: "a file-
+#    ownership split is only as current as your last look at the branch
+#    list", and, in the same paragraph, "nothing prompts a re-read -- the
+#    drift check has `branchcheck.sh` nagging for it, this has nothing."
+#    `--who-touched` is that nothing, filled in.
+#
+#    Measured 2026-09-14, round 36 of the evolution lab: a coordinator's
+#    message reassigning `src/sim/creature.rs` to one lane crossed another
+#    lane's landing of a fix in that same file by **eleven minutes** -- the
+#    second lane had committed at 19:47 and opened its PR at 19:51, and the
+#    reassignment went out at 19:58. The message was correct when it was
+#    drafted and wrong when it was sent. Nothing in the loop read a branch
+#    head, because nothing asked it to; the rule was in front of the session
+#    and named no command, which is the same failure mode that made the drift
+#    check a hook rather than a convention.
+#
+#    **It answers about landings too, not only about branches.** The sibling
+#    case is worse and quieter: work that reached `main` an hour ago leaves
+#    its branch at 0 ahead, so a scan of unlanded branches reports the file
+#    as free at the exact moment it is most contested.
+#
+#    **And it must refuse rather than guess.** A pathspec that matches
+#    nothing is silent in git, and silence reads as "no lane is in this
+#    file" -- the wrong answer, delivered confidently, to the one question
+#    whose wrong answer costs somebody's work. A miss renders UNANSWERABLE,
+#    for the same reason a failed PR lookup renders `?` and never `NO PR`.
+#
 # Usage:
 #   scripts/branchcheck.sh            # full drift report + the divergence gate
 #   scripts/branchcheck.sh --gate     # divergence gate only (quiet, for CI)
@@ -86,9 +113,12 @@
 #   scripts/branchcheck.sh --brief    # summary only, no per-branch table
 #   scripts/branchcheck.sh --prs      # ...and say which unlanded branches have a PR
 #   scripts/branchcheck.sh --prs-from FILE   # read the PR listing from FILE, not the API
+#   scripts/branchcheck.sh --who-touched PATH  # which live branch is in this file, and what landed in it
 #   scripts/branchcheck.sh --selftest # put each fault back, watch the check go red
 #
 # STALE_AFTER=<n> overrides the advisory staleness bar (default 40).
+# WHO_SINCE=<git date> overrides --who-touched's landing window (default
+# "7 days ago"); it bounds the LANDED section only, never the branch scan.
 # BRANCHCHECK_PRS=<file> supplies a PR listing and turns --prs on by itself,
 # which is how the SessionStart hook gets the annotation at zero latency: a
 # file costs no network call, so --brief can use it without a timeout risk.
@@ -112,6 +142,8 @@ do_fetch=1
 brief=0
 want_prs=0
 selftest=0
+who_mode=0
+who_paths=()
 prs_from="${BRANCHCHECK_PRS:-}"
 # A file configured by env turns the annotation on by itself: it costs no
 # network call, so there is no reason to make the hook pass a second flag.
@@ -131,6 +163,14 @@ while [ "$#" -gt 0 ]; do
       [ "$#" -gt 0 ] || { printf 'branchcheck: --prs-from needs a file\n' >&2; exit 2; }
       prs_from="$1"; want_prs=1 ;;
     --prs-from=*) prs_from="${1#*=}"; want_prs=1 ;;
+    # Repeatable, because a reassignment usually names more than one file and
+    # a second invocation is a second fetch. Takes any pathspec git takes, so
+    # a directory (`src/sim/`) asks the ownership question about a whole area.
+    --who-touched)
+      shift
+      [ "$#" -gt 0 ] || { printf 'branchcheck: --who-touched needs a path\n' >&2; exit 2; }
+      who_mode=1; who_paths+=("$1") ;;
+    --who-touched=*) who_mode=1; who_paths+=("${1#*=}") ;;
     # Prints the header block by structure -- every comment line after the
     # shebang, stopping at the first line that is not one. A hardcoded line
     # range rots the moment the header is edited, and prints `set -u`.
@@ -265,6 +305,101 @@ if ! git rev-parse --verify --quiet origin/main >/dev/null; then
   exit 1
 fi
 
+# --- --who-touched: who else is in this file, right now ---------------------
+# Header defect 4. One question, asked of the refs rather than of your notes:
+# WHICH LIVE BRANCH HOLDS AN UNLANDED COMMIT TOUCHING THIS PATH, and did
+# anything touching it reach main while you were not looking.
+#
+# It runs after the fetch and exits before the drift report, because the
+# moment it is for -- about to hand a file to somebody -- is one where a
+# thirty-line table is noise and staleness is the whole risk.
+#
+# **The `?`-not-`NO PR` property, restated for paths.** A pathspec that
+# matches nothing produces an empty `git log`, which is indistinguishable
+# from a file nobody is in. So the tree is consulted first, and a miss is
+# UNANSWERABLE with a non-zero exit. CLAUDE.md's rule that exhausting a
+# limit must produce *less work* and never an *answer* is the same rule:
+# "clear" is an answer, and it is the one that costs a lane its afternoon.
+who_touched_report() {
+  local since="${WHO_SINCE:-7 days ago}"
+  local rc=0 path in_tree anywhere holders n_hold landed n_land age
+  load_prs
+  for path in "$@"; do
+    printf '\n'
+    # Validate before reporting. `ls-tree` answers for a path that exists
+    # now; the `--all` fallback catches one that has been deleted or renamed,
+    # which is a real query here -- a lane that deleted a file is exactly a
+    # lane you need to know about.
+    in_tree=$(git ls-tree -r --name-only origin/main -- "$path" 2>/dev/null | head -1)
+    anywhere=""
+    [ -z "$in_tree" ] && anywhere=$(git log --all --format=%h -1 -- "$path" 2>/dev/null)
+    if [ -z "$in_tree" ] && [ -z "$anywhere" ]; then
+      printf 'branchcheck --who-touched: UNANSWERABLE for %s -- the pathspec matches nothing in origin/main and no commit on any fetched ref touches it. Check the spelling, and fetch if the file is new. This is NOT "no branch has touched it".\n' "$path"
+      rc=2
+      continue
+    fi
+    if [ -n "$in_tree" ]; then
+      printf 'branchcheck --who-touched: %s (in origin/main)\n' "$path"
+    else
+      printf 'branchcheck --who-touched: %s (NOT in origin/main -- matched on a ref only: a new file on a branch, or one deleted or renamed)\n' "$path"
+    fi
+
+    # One rev-list per ref, path-filtered: a ref that is merged or behind
+    # yields 0 without a second call to ask whether it is ahead.
+    holders=$(git for-each-ref --format='%(refname:short)' refs/remotes/origin | while read -r ref; do
+      short="${ref#origin/}"
+      case "$short" in main|master|trunk|HEAD) continue ;; esac
+      n=$(git rev-list --count "origin/main..$ref" -- "$path" 2>/dev/null || printf '0')
+      [ "$n" = "0" ] && continue
+      ahead=$(git rev-list --count "origin/main..$ref" 2>/dev/null || printf '?')
+      last=$(git log -1 --format='%ad' --date=short "$ref" -- "$path" 2>/dev/null)
+      # A DATA branch shares no merge base, so its "unlanded" count is its
+      # whole history rather than a claim about this file's ownership. Said,
+      # not hidden: an orphan that genuinely holds the path is worth seeing.
+      if git merge-base "$ref" origin/main >/dev/null 2>&1; then tag=""; else tag="  DATA"; fi
+      printf '%s\t%s\t%s\t%s\t%s\n' "$short" "$n" "$last" "$ahead" "$tag"
+    done)
+    n_hold=$(printf '%s\n' "$holders" | grep -c . || true)
+
+    if [ "$n_hold" = "0" ]; then
+      printf '  CLEAR -- no fetched branch holds a commit touching it that main does not already have.\n'
+    else
+      # Ranked by when each branch last touched THIS path, newest first --
+      # the ownership question is "who is in here now", and a branch that
+      # touched it yesterday and one that touched it three weeks ago are not
+      # the same finding. Ranking by commit count puts them in either order.
+      printf '  HELD -- %s branch(es) hold unlanded commits touching it, most recent first:\n' "$n_hold"
+      printf '%s\n' "$holders" | sort -t$'\t' -k3,3r | while IFS=$'\t' read -r short n last ahead tag; do
+        [ -z "$short" ] && continue
+        printf '      %-44s %3s commit(s) here, last %s, branch %s ahead%s%s\n' \
+          "$short" "$n" "$last" "$ahead" "$tag" \
+          "$(ann=$(pr_for "$short"); [ -n "$ann" ] && printf '  %s' "$ann")"
+      done
+    fi
+
+    # The quiet half. A branch that landed an hour ago reads as 0 ahead, so
+    # the scan above calls the file free at the moment it is most contested.
+    landed=$(git log origin/main --no-merges --since="$since" --format='      %h %ad  %s' --date=short -- "$path" 2>/dev/null | head -6)
+    n_land=$(git rev-list --count --no-merges origin/main --since="$since" -- "$path" 2>/dev/null || printf '?')
+    if [ "$n_land" != "0" ] && [ -n "$landed" ]; then
+      age=$(git log -1 --no-merges --format='%ar' origin/main -- "$path" 2>/dev/null)
+      printf '  LANDED -- %s change(s) touching it reached main since %s; the most recent %s:\n' \
+        "$n_land" "$since" "$age"
+      printf '%s\n' "$landed"
+      [ "$n_land" -gt 6 ] 2>/dev/null && printf '      ... and %s more.\n' "$((n_land - 6))"
+    else
+      printf '  LANDED -- nothing touching it reached main since %s.\n' "$since"
+    fi
+  done
+  printf '\nbranchcheck: a reassignment drafted before this was read is a claim about work that may already exist. Quote a head, not your notes.\n'
+  return "$rc"
+}
+
+if [ "$who_mode" = "1" ]; then
+  who_touched_report "${who_paths[@]}"
+  exit "$?"
+fi
+
 # --- 1. The divergence gate -------------------------------------------------
 # Only asks whether some other name for the trunk holds work that `main`
 # cannot reach. Add names here if another mirror is ever created; do not
@@ -301,11 +436,27 @@ done
 # So F does not re-implement anything -- it MUTATES this very file, inverting
 # pr_for's unknown branch to `NO PR`, and asserts row C catches the mutant.
 # A green C with a green mutant means C is blind, not that the code is right.
+#
+# G-J cover --who-touched on the same plan: G is sensitivity (a branch in the
+# file is named -- the thing that failed in round 36), H specificity, I the
+# wrong-answer row (a pathspec matching nothing must not render CLEAR), and J
+# is I's mutation control, built the same way F is and for the same reason.
+#
+# G and H were written after the code, so they were watched going red before
+# being cited, per CLAUDE.md. Measured 2026-09-15: emptying the holders scan
+# (`n=0`) reddens G and only G; naming every ref for every path reddens H.
+# **Both injections have to be made to `scripts/branchcheck.sh` itself, not
+# to a copy** -- every row shells out to that path by name, so a mutated copy
+# runs the real code in the rows that matter and comes back all-green, which
+# reads exactly like a passing control. That is why F and J write their
+# mutant into `scripts/` and invoke it explicitly. The four rows cost about
+# 8s: the suite was 1m22 before them and 1m30 after, on a quiet box.
 if [ "$selftest" = "1" ]; then
   st_fail=0
   d=$(mktemp -d)
   mutant="scripts/.branchcheck-selftest-mutant.sh"
-  trap 'rm -rf "$d" "$mutant"' EXIT
+  mutant2="scripts/.branchcheck-selftest-mutant2.sh"
+  trap 'rm -rf "$d" "$mutant" "$mutant2"' EXIT
   st() { if [ "$1" = "0" ]; then printf '  ok   %s\n' "$2"; else printf '  FAIL %s\n' "$2"; st_fail=1; fi; }
 
   # Every row needs a branch that is ahead of main, or it passes vacuously --
@@ -329,16 +480,38 @@ if [ "$selftest" = "1" ]; then
   }
   probe_sha=$(mk_probe 'branchcheck selftest probe seen') || probe_sha=""
   probe2_sha=$(mk_probe 'branchcheck selftest probe unseen') || probe2_sha=""
-  if [ -z "$probe_sha" ] || [ -z "$probe2_sha" ]; then
+
+  # A THIRD probe for --who-touched, and it cannot be an empty commit: the
+  # rows below are about a path, so the probe has to change one. Built
+  # through a temporary index so the working tree is never touched -- a
+  # selftest that leaves a file behind in a shared checkout is a defect in
+  # the other session, not in this one.
+  probe3="branchcheck-selftest-touches"
+  who_path=".branchcheck-selftest-probe.txt"   # not in main's tree, by design
+  who_clear="scripts/branchcheck.sh"           # in main's tree; probe3 never touches it
+  who_absent=".branchcheck-selftest-no-such-path"   # in no tree and no history
+  probe3_sha=$(
+    GIT_INDEX_FILE="$d/idx" git read-tree origin/main 2>/dev/null &&
+    b=$(printf 'branchcheck selftest\n' | git hash-object -w --stdin) &&
+    GIT_INDEX_FILE="$d/idx" git update-index --add --cacheinfo "100644,$b,$who_path" &&
+    t=$(GIT_INDEX_FILE="$d/idx" git write-tree) &&
+    GIT_AUTHOR_NAME=selftest GIT_AUTHOR_EMAIL=selftest@invalid \
+    GIT_COMMITTER_NAME=selftest GIT_COMMITTER_EMAIL=selftest@invalid \
+    git commit-tree "$t" -p origin/main -m 'branchcheck selftest probe touches a path' 2>/dev/null
+  ) || probe3_sha=""
+
+  if [ -z "$probe_sha" ] || [ -z "$probe2_sha" ] || [ -z "$probe3_sha" ]; then
     printf 'branchcheck --selftest: CANNOT RUN -- could not build probe commits off origin/main.\n' >&2
     exit 1
   fi
   git update-ref "refs/remotes/origin/$probe"  "$probe_sha"  || exit 1
   git update-ref "refs/remotes/origin/$probe2" "$probe2_sha" || exit 1
-  trap 'rm -rf "$d" "$mutant"
+  git update-ref "refs/remotes/origin/$probe3" "$probe3_sha" || exit 1
+  trap 'rm -rf "$d" "$mutant" "$mutant2"
         git update-ref -d refs/remotes/origin/branchcheck-selftest-seen 2>/dev/null || true
-        git update-ref -d refs/remotes/origin/branchcheck-selftest-unseen 2>/dev/null || true' EXIT
-  printf 'branchcheck --selftest: probes %s / %s\n' "$probe" "$probe2"
+        git update-ref -d refs/remotes/origin/branchcheck-selftest-unseen 2>/dev/null || true
+        git update-ref -d refs/remotes/origin/branchcheck-selftest-touches 2>/dev/null || true' EXIT
+  printf 'branchcheck --selftest: probes %s / %s / %s\n' "$probe" "$probe2" "$probe3"
 
   # The annotation for ONE named branch, so every row asserts on a probe this
   # test controls rather than on "some line somewhere". Asserting `grep -c
@@ -403,6 +576,54 @@ if [ "$selftest" = "1" ]; then
       st 0 "F  row C is NOT blind: the inverted-fallback mutant fails it"
     else
       st 1 "F  row C is BLIND: the mutant renders no NO PR either, so C proves nothing"
+    fi
+  fi
+
+  # --- --who-touched -------------------------------------------------------
+  # G is the row the mode exists for: the round-36 reassignment went out
+  # because nothing named the branch that was already in the file. H is its
+  # specificity half. I is the row a wrong answer hides in -- the same shape
+  # as C, and for the same reason: a pathspec that matches nothing is silent
+  # in git, and silence reads as "nobody is in this file". J is I's control.
+  who() { bash scripts/branchcheck.sh --no-fetch --who-touched "$1" 2>&1; }
+
+  g=$(who "$who_path")
+  if printf '%s\n' "$g" | grep -q 'HELD' && printf '%s\n' "$g" | grep -q "$probe3"; then
+    st 0 "G  a branch holding an unlanded change to a path is named"
+  else
+    st 1 "G  a branch holding an unlanded change to a path is named (probe3 absent from the report)"
+  fi
+
+  h=$(who "$who_clear")
+  if printf '%s\n' "$h" | grep -q "$probe3"; then
+    st 1 "H  a path a branch never touched is NOT attributed to it (probe3 named anyway)"
+  elif printf '%s\n' "$h" | grep -q 'UNANSWERABLE'; then
+    st 1 "H  a path a branch never touched is NOT attributed to it (path in main read as UNANSWERABLE)"
+  else
+    st 0 "H  a path a branch never touched is NOT attributed to it"
+  fi
+
+  i=$(who "$who_absent"); i_rc=$?
+  if printf '%s\n' "$i" | grep -q 'UNANSWERABLE' \
+     && ! printf '%s\n' "$i" | grep -q 'CLEAR' && [ "$i_rc" != "0" ]; then
+    st 0 "I  a pathspec matching NOTHING renders UNANSWERABLE, never CLEAR"
+  else
+    st 1 "I  a pathspec matching NOTHING renders UNANSWERABLE, never CLEAR (rc $i_rc)"
+  fi
+
+  # J -- the control. Defeat the validation and require I to catch it. As
+  # with F, an injection that matched nothing is itself the failure: it
+  # means the control never ran, which reads exactly like a pass.
+  sed 's/if \[ -z "$in_tree" \] \&\& \[ -z "$anywhere" \]; then/if false; then/' \
+    scripts/branchcheck.sh > "$mutant2"
+  if cmp -s scripts/branchcheck.sh "$mutant2"; then
+    st 1 "J  the mutation matched nothing -- row I's control never ran"
+  else
+    mj=$(bash "$mutant2" --no-fetch --who-touched "$who_absent" 2>&1)
+    if printf '%s\n' "$mj" | grep -q 'CLEAR'; then
+      st 0 "J  row I is NOT blind: the unvalidated mutant calls a typo CLEAR"
+    else
+      st 1 "J  row I is BLIND: the mutant says nothing either, so I proves nothing"
     fi
   fi
 
