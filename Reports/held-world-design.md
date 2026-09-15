@@ -294,14 +294,54 @@ Two constraints to carry:
   counter and looks cheap, but it is unbuilt and unmeasured.
 - That report's own recommendation is **ship nothing per-circle yet**; do the
   two pieces of groundwork every option needs first.
+- **A per-circle rate was already built and withdrawn** —
+  `dead-ends.md:1895`, `Quickening::rate`, 2026-09-13. Two circles on
+  equivalent ground: control at rate 1 both, **58 and 75** living plant cells;
+  a rate-1 circle beside a rate-8 one, **3 and 143**, then **127 and 109**
+  after a recheck fix — the *slow* circle running **faster than real time**,
+  because organism cadence is `frame + interval` on the **global** counter and
+  extra passes advance it eight times per update. The entry's verdict:
+  *"there is no narrowing that fixes this — the leak is the clock, not the
+  set"*, and **do not re-add a per-circle rate without a per-region counter.**
+  §3d's step 4 (`frame + interval * k`) is precisely what that build left out,
+  so it answers the entry on its own terms — but §3d declines the per-region
+  counter the entry asks for, and **rescales only what goes through the
+  scheduler**. Everything else reading `world.frame` modulo an interval —
+  day/night, weather, `PHEROMONE_INTERVAL`, spring emission — would run at the
+  fine clock's rate. Naming those constants and budgeting their re-derivation
+  is part of this work, not scope creep (`CLAUDE.md`, the shared-budget rule).
+  **And carry the entry's measurement trap**: the fast circle's own number
+  looks right the whole way — 143 then 109 — so anyone who measures only the
+  circle they sped up will report success.
 
 **And the prize beyond the fix.** The concept's §10 already prefers, of three
 costing models, *"charge what is actually awake inside — it is what the engine
-truly costs."* Run that all the way and **the frame budget and the game's
-currency become one number**: a fast small circle and a slow wide one cost the
-same, the price of every hearth kept lit is visible, and there is no way for
-the game's arithmetic and the frame rate to disagree. The processor stops
-being a constraint to work around and becomes the thing the game is about.
+truly costs."* Run that all the way and **the thing the engine pays for and the
+thing the game charges for become one number**: a fast small circle and a slow
+wide one cost the same, and the price of every hearth kept lit is visible.
+
+**That number must be a deterministic COUNT, and the first draft of this
+section said "frame budget", which reads as wall-clock and is wrong.**
+Determinism is required here (`CLAUDE.md`, same-build, reasoning in
+`emergent-world-architecture.md` §8), and the standing rule is *"gate on
+counters, never on wall clock"* — a wall-clock currency would differ per
+machine and per driver, break replay, and make the difficulty un-tunable. So
+the currency is **awake chunks plus live organisms**, an integer. And a counter
+is not automatically safe either: the burrow lane measured **610 digs idle
+against 278 loaded from the same binary**, a 2.2x swing in a pure count,
+because rayon's thread count moves with the box — so the count must come from
+the serial driver's decisions and must not sit downstream of `parallel.rs`'s
+checkerboard.
+
+**And one consequence to state out loud rather than sell as elegance.** The
+concept's §2a establishes that creature cost is linear in population with no
+lever under it (*"an ant's tick is its brain rather than an economy that can
+run slower"*), and the owner's playtest puts it at 10x with a bed of plants
+falling to 1x past a thousand creatures. This design wants many hearths, each
+breeding for generations, each fighting bodies out of the tide — so **the
+player's currency tightens exactly as they succeed**, and the counter-play is
+to let colonies die. That may be a fine mechanic; it is not a free one, and it
+needs sizing before it is adopted.
 
 ### 2i. The format — it is a cross-section, not a side-scroller
 
@@ -377,13 +417,34 @@ depth in a plane does not; and **position is scarce** — top-down the player is
 effectively a cursor, here being somewhere means not being somewhere else,
 which a carried circle already makes load-bearing.
 
-**The cost to know before acting on this.** Turning caves on is three zeroed
-parameters, so it is cheap — and it is not free. `CLAUDE.md`'s registry rule
-bites: adding to a preset enrols it in every `tests/worldgen.rs` guard that
-sweeps `presets()`, one of which asserts **not one cell moves in the 120 frames
-after generation** — and `druid` already has a documented lottery relationship
-with that guard because of its 380-row soil (`worldgen/params.rs`'s
-`world_age` doc). Cheap experiment, real test surface.
+**The cost to know before acting on this — and the first draft of this section
+got it badly wrong.** It said turning caves on is "three zeroed parameters, so
+it is cheap". Read at the code on 2026-09-15, it is not:
+
+- **`pockets` does not make voids.** `passes.rs` writes `ctx.sand` or
+  `ctx.gravel` — the param doc says *"expected sand/gravel lenses per 64x64
+  region"*. It is a strata generator, not a cave generator.
+- **`brow_chance` is rock in the air**, zeroed deliberately with
+  `talus_max_height` and `residual_density` as *"landforms for a game with a
+  pick in it"*.
+- **`vaults` is the only cave code and it makes the wrong shape.** Its own doc:
+  *"**Sealed** cave systems and geode vugs, buried far below the surface: the
+  found-a-secret moment"*, concealed because *"at 200 rows below the surface it
+  is simply never on screen until someone digs to it."* `vault_density` is a
+  count for the whole world, and `vault_min_depth` is 200.
+
+So the three parameters buy roughly **one sealed, unconnected chamber per
+world, 200+ rows down, entirely inside rock.** §2i(a)'s underground — the enemy
+arriving from below, cave-mouth chokepoints, three fronts in one frame — needs
+a *connected* underground that reaches daylight, and **nothing in the generator
+makes one.** That is a worldgen programme, not a parameter flip, and it is the
+single largest piece of unbuilt work this document leans on.
+
+The `tests/worldgen.rs` registry surface is also worse than stated: the guard
+asserts not one cell moves in 120 frames, and the vault doc itself warns that
+*"a chamber that clips an existing void spills its floor into that void on
+frame one and the world is no longer at rest"* — under 380 rows of `Powder`
+soil that is the expected outcome, not a risk.
 
 ---
 
@@ -523,11 +584,27 @@ pillar here, that is the designed-and-unbuilt piece to cash in.
 
 ### 5a. Free or nearly
 
-Terrain weapons (hammer, pick, fire, water all ship). The whole fight:
-`Attack`, swarm damage banking on the victim, severing long bodies, the chitin
-armour ladder, and the mouth-ignition of §2d. Soldiers as a caste — a species
-file, no code. Held-ness itself. Plants, growth, the seed bank. A debug overlay
-path for a new field.
+The whole fight: `Attack`, swarm damage banking on the victim, severing long
+bodies, the chitin armour ladder, and the mouth-ignition of §2d. Soldiers as a
+caste — a species file, no code. Held-ness itself. Plants, growth, the seed
+bank. A debug overlay path for a new field.
+
+**Corrected 2026-09-15, and this one mattered: the terrain verbs are NOT free
+and this section claimed they were.** `player::Tool::{Pick, Hammer, Axe}`
+exists in `src/sim/player.rs`, but the dispatcher, aim marks, cooldown UI and
+dig styles live in `src/app.rs` — the *gnome's* binary. Grepped across
+`src/druid/` and `src/bin/druid.rs`, `Tool::Pick`, `Tool::Hammer`, `Tool::Axe`,
+`strike` and `mine_swept` return **nothing**. The druid's shipped verbs are
+move, place/lift the circle, radius, speed, sow, found, absorb, cycle seed,
+cycle scent, lay scent, grab.
+
+**So "the player fights the tide with terrain, fire and water" (§2a, §2c, §3)
+rests on verbs that do not exist in this game**, and until they do, the
+player's only counter-play to the tide is to pull the circle in and let the
+ground freeze — which is the withholding the owner rejected in §2a, arriving
+back as the sole answer. Building a dig/burn verb into `druid` is therefore
+not a nicety in §5b's list; it is the precondition for the enemy being
+fightable at all. Found by adversarial review, 2026-09-15.
 
 ### 5b. Genuinely new
 
@@ -624,12 +701,27 @@ is close to binary.
 
 **Three findings, and the middle one is the useful one.**
 
-**1. The subsidy is real, and it reproduces at twelve seeds.** A predator at
-*shipped* values leaves the colony **better off**: it goes extinct on **3 of 12
-seeds with no predator and 0 of 12 with six beetles in the box**, median alive
-4.0 → 6.5. This is [`selective-environments-2026-09-05.md`](selective-environments-2026-09-05.md)'s
-*"a hazard that also feeds you is a subsidy with a variance"* reproduced on
-today's engine, at a horizon twice the original's.
+**1. The subsidy POINTS the right way and is not significant — corrected
+2026-09-15, having first been recorded here as a finding.** A predator at
+*shipped* values appears to leave the colony better off: extinct on 3 of 12
+seeds with no predator against 0 of 12 with six beetles. **Fisher's exact,
+one-sided, is p = 0.109** — computed, not estimated — and the x4 row (2/12 vs
+0/12) is **p = 0.239**, with no multiplicity correction across five arms. That
+is a direction, not a result, and this section first wrote it up as *"the
+subsidy is real, and it reproduces at twelve seeds."* It does not reproduce;
+it fails to be refuted.
+
+**Two further reasons not to lean on it.** The "median alive 4.0 → 6.5" figure
+quoted in support reads **the very column §7c condemned** — a median over
+twelve seeds of a floor-limited count is the same column with a different
+summary, not an order statistic that escapes the objection. And the mechanism
+is *this bed's starvation*: ant starvation falls 49.5 → 23.5 as beetles are
+added, so "predator is a subsidy" decodes to *"adding a food source, disguised
+as an enemy, helps a starving colony."* **In a well-fed valley the food term
+goes to zero and only the bite remains, so the sign may invert.** Found by
+adversarial review; it is `CLAUDE.md`'s worst-recurring failure — arithmetically
+correct, answering a different question — committed here in the same document
+that cites the rule.
 
 **2. There is a wide playable middle, and that is the first law arriving on
 the predator line.** Killed-by-beetle rises monotonically **0 → 7 → 12.5 → 17
@@ -638,10 +730,13 @@ the predator line.** Killed-by-beetle rises monotonically **0 → 7 → 12.5 →
 region at the top of a ladder**, and most of the ladder is a graded fight
 rather than a wipeout. That is the band the tide's bodies get to live in.
 
-**3. The collapse is real and it is at the ceiling.** At x9 plate the median
-colony is **zero** and **9 of 12 seeds are wiped**. So the precondition §10a
-parked is answered: armour can still kill a colony outright, and the threshold
-sits between x4 and x9.
+**3. The collapse is real, it is at the ceiling, and it is the one row that
+clears significance.** At x9 plate the median colony is **zero** and **9 of 12
+seeds are wiped** — Fisher's exact, one-sided, **p = 1.7e-4**, three orders
+below the subsidy row. So the precondition §10a parked is answered: armour can
+still kill a colony outright, and the threshold sits between x4 and x9. **Read
+the three findings at their own weights**: this one is evidence, finding 2 is a
+monotone trend worth acting on, finding 1 is a direction only.
 
 **The obvious confound is checked and ruled out.** A plated beetle could be
 collapsing the colony by *eating its food* rather than by eating it — but ant
@@ -700,3 +795,8 @@ Append here; do not rewrite the sections above.
 | 2026-09-15 | Competition ruled out as the cause: ant starvation *falls* across the ladder while predation goes 0% → 53% of deaths | §7d |
 | 2026-09-15 | **The world is a cross-section, not a side-scroller** — 190 sky / 380 soil / ~390 rock, and the cave generator is switched off for `druid` | §2i |
 | 2026-09-15 | Held time inverts the two-front problem (neglect is a defence); **hearths re-introduce it on the player's terms** | §2i |
+| 2026-09-15 | **CORRECTION.** The terrain verbs do **not** exist in `druid` — no pick, hammer, axe, strike or mine. "Fight the tide with terrain" is unbuilt, not free | §5a |
+| 2026-09-15 | **CORRECTION.** Caves are not three zeroed parameters: `pockets` writes sand/gravel lenses, `vaults` makes one *sealed* chamber 200+ rows down. A connected underground is a worldgen programme | §2i |
+| 2026-09-15 | **CORRECTION.** The subsidy is **p = 0.109**, not a ruling; only the x9 collapse clears significance (p = 1.7e-4). It was recorded here as a finding and was not one | §7d |
+| 2026-09-15 | **CORRECTION.** The economy's currency is a deterministic **count**, never a frame budget — wall-clock breaks the determinism this repo requires | §2h |
+| 2026-09-15 | Dead end **`dead-ends.md:1895`**: a per-circle rate was built and withdrawn 2026-09-13; do not re-add one without a per-region clock | §2h |
