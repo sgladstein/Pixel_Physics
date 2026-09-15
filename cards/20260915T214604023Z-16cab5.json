@@ -1,0 +1,46 @@
+{
+  "id": "20260915T214604023Z-16cab5",
+  "created": "2026-09-15T21:46:04Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/keen-albattani-d741y0",
+    "commit": "71c999cc",
+    "agent": null,
+    "session_id": "dff4d9a1-ed9e-57f1-83c1-be5b8213ddde",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The held world's widest zoom-out, before and after its own pixels",
+  "question": "Zooming all the way out in the druid game. Which reads better? The lab and the sandbox have looked like one of these since 2026-09-13; this game was still drawing the other one.",
+  "context_md": "Rung 4 (the widest stop), same world, same camera, same Coverage filter. Window 1024x640. Buffers: 512x320 against 1024x640, both shown at the same physical size exactly as the window scales them. Cells discarded per pixel: 15 of 16 against 3 of 4. Whole-frame cost measured in the sandbox: 1.29x at x2, 1.66x at x4, and nothing at all at play zoom. Default is x4 in all three games now; at a bigger window this pane would be finer again.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "x1 - what shipped until today: 16 world cells per screen pixel",
+      "files": [
+        "20260915T214604023Z-16cab5/000-card_before.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "x4 asked for, x2 at this window: 4 world cells per screen pixel",
+      "files": [
+        "20260915T214604023Z-16cab5/001-card_after.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
