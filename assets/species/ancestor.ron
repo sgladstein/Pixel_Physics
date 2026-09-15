@@ -827,6 +827,35 @@
             // a step, and this species inherits that Move row unchanged.
             (Stillness, Move, 1.5),
 
+            // -- standing where a fight is ---------------------------
+            // **The two alarm rows every other animal in the ant family
+            // already carried, and this species alone did not.** Routed here
+            // by round 36's pheromone lane, which found `ancestor` the only
+            // species that reads the trail planes and not the alarm -- the
+            // word did not appear in this file at all. An omission rather
+            // than a recorded choice: nothing anywhere argued that the
+            // founding stock should be deaf to a fight.
+            //
+            // **It matters now because round 35 shipped rivalry on.** A bed
+            // founded on the ancestor has fights writing the alarm plane
+            // every time two colonies meet, and the founding lineage had no
+            // way to act on what it was hearing. `ancestor` is a foundable
+            // stock in the held world, so that is a real bed and not a
+            // hypothetical one.
+            //
+            // **Deliberately the same two weights, not tuned ones.** The
+            // whole claim here is that this species was missing what its
+            // siblings have; a value chosen for it would be a second,
+            // unmeasured change wearing this one's justification.
+            // `ant.ron`'s rows carry the measurement behind -1.0 and 2.0.
+            //
+            // **What it does NOT buy, and the routing lane said so first:**
+            // at the alarm plane's measured two-cell reach these fire only
+            // for an animal already touching the fight. This closes a gap in
+            // the wiring; it is not recruitment and must not be sold as it.
+            (Alarm, Move, -1.0),
+            (Alarm, Attack, 2.0),
+
             // -- what gets laid down ---------------------------------
             // Laden ants lay the food trail; that is what makes a
             // discovered patch recruit.
