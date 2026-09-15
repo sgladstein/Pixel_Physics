@@ -88,8 +88,8 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Trail status — the ant reads its way home, and the food trail is the larder's problem](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) | 8238 |
 | [Lifespan status — an ant gets old, and the colony's fall becomes a slope](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) | 8275 |
 | [Held world status — the third game, and time you carry in a circle](#held-world-status--the-third-game-and-time-you-carry-in-a-circle) | 8421 |
-| [Colony books status — what each colony is living on, in joules](#colony-books-status--what-each-colony-is-living-on-in-joules) | 9261 |
-| [Food road status — the trail the colony actually walks, and the box that was not there](#food-road-status--the-trail-the-colony-actually-walks-and-the-box-that-was-not-there) | 9392 |
+| [Colony books status — what each colony is living on, in joules](#colony-books-status--what-each-colony-is-living-on-in-joules) | 9329 |
+| [Food road status — the trail the colony actually walks, and the box that was not there](#food-road-status--the-trail-the-colony-actually-walks-and-the-box-that-was-not-there) | 9460 |
 
 ### Milestones, in numeric order
 
@@ -135,7 +135,7 @@ your time goes, not a rule about what you may read.
 | Topic | Game | Sections, primary first |
 |---|---|---|
 | **plants, trees and moss** | engine | [M16 status](#m16-status) 1936, [Soil nutrient status](#soil-nutrient-status--ground-is-worth-something-water-is-not) 7595, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1427, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 4664, [Parameter-genome status](#parameter-genome-status--a-species-file-is-a-starting-point-and-it-ships-inert) 4767, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1578, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1868, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1497, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1786, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4947, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 5184, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 5261, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6722, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 5581, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5629, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5860, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6614 |
-| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2349, [The ant colony](#the-ant-colony--status) 3872, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6722, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5629, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5860, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6784, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6614, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7638, [Hunger status](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) 7938, [Rest status](#rest-status--a-rest-that-ends-so-a-resting-animal-is-not-a-stopped-one) 8049, [Hopper status](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) 8018, [Trophallaxis status](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) 8180, [Trail status](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) 8238, [Lifespan status](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) 8275, [Colony books status](#colony-books-status--what-each-colony-is-living-on-in-joules) 9261, [Food road status](#food-road-status--the-trail-the-colony-actually-walks-and-the-box-that-was-not-there) 9392 |
+| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2349, [The ant colony](#the-ant-colony--status) 3872, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6722, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5629, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5860, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6784, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6614, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7638, [Hunger status](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) 7938, [Rest status](#rest-status--a-rest-that-ends-so-a-resting-animal-is-not-a-stopped-one) 8049, [Hopper status](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) 8018, [Trophallaxis status](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) 8180, [Trail status](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) 8238, [Lifespan status](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) 8275, [Colony books status](#colony-books-status--what-each-colony-is-living-on-in-joules) 9329, [Food road status](#food-road-status--the-trail-the-colony-actually-walks-and-the-box-that-was-not-there) 9460 |
 | **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 2122, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4947, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 5184, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 5261, [M8 status](#m8-status--started-not-complete) 3066 |
 | **fire, heat and phase change** | engine | [M14 status](#m14-status) 1014, [Materials](#materials) 294 |
 | **explosions, particles and debris** | outdoor | [M15 status](#m15-status) 1191, [M7 status](#m7-status) 1162 |
@@ -9122,22 +9122,54 @@ constant-level disc reads as a soap bubble, which `Quickening::contains`' own
 doc and `Reports/dead-ends.md` both warn about, and keying it to the screen
 would make it crawl when the camera moves.
 
-Speed reads two ways, because a screenshot keeps only one of them:
+**Overlapping circles draw one outline.** Owner, 2026-09-14, on the first
+build: *"when you place multiple overlapping, they should merge instead of
+just looking like overlapping circles."* The haze already took the strongest
+circle rather than the sum, which is right and was not the defect — every
+disc still drew its own rim all the way round, including the stretch buried
+inside a neighbour, so three bubbles read as three arcs crossing. The rim now
+follows the edge of the **union**: to leave the union you have to leave every
+circle you are in, so a point's depth is the `max` over the discs, and the
+disc attaining it is the one whose arc is the boundary there — which also
+settles the tint. A point deep inside any circle therefore has a large
+maximum, fails the reach test, and draws nothing. Over a lone circle a `max`
+is the identity, so the approved single-bubble look is untouched. Measured on
+three interpenetrating circles at equal band depth: **4,419 hazed pixels
+before, 2,450 after**; on one circle, 1,394 against 1,404.
+
+**Speed is the colour, and only the colour.** Owner, same playtest: *"The
+speed indication should just be bubble color, not animation speed (it looks
+bad when moving fast)."*
 
 | | |
 |---|---|
-| **how fast the haze pulses** | not a mapping — the phase is `World::frame`, and `Druid::update` steps the world `speed` times per drawn frame, so a x8 circle pulses eight times faster *because time in there is running eight times faster* |
-| **how far it reaches inward** | 7 cells at real time, 22 at x8 — the half a paused screen, a contact sheet or a review card still carries |
+| **hue** | `AURA_STANDING` (cold blue) toward `AURA_FAST` at the top of the dial — `druid::hud::speed_tint`'s own ramp, so a player who learned it on the ring reads it unchanged |
+| **density** | `AuraTuning::fast_gain`, 1.45x the tint strength at x8. Hue alone measured as a mechanism that fires and cannot be seen: the cold end is a pale blue against a pale blue sky |
+
+Two channels are **gone**, and both are in `Reports/dead-ends.md`. The pulse
+no longer rides `World::frame` — both arms run off the renderer's own draw
+counter, so the shimmer runs at one rate whatever the dial says. And
+`depth_per_step` defaults to **0.0**: a band that thickens with speed stacks
+to the flat saturated block this whole change exists to avoid. The phase
+moving off the world clock also halved the repaint rate at speed: **12,420 →
+6,365 pixels recomputed per frame** on three circles at x4, `druid_aura
+cost=1`.
 
 The dial is **measured rather than told**: `Druid::speed` is not visible from
 `render.rs`, so the renderer takes the difference between two readings of
 `World::frame`, which *is* the dial.
 `the_rate_the_aura_draws_is_the_rate_the_world_ran` is the positive control on
 that, and a frame with nothing stepped holds the last reading so a pause does
-not change what the picture says. **The circle he carries is exempt** and runs
-off the renderer's own draw counter: `step_extra_ticks` lifts the player out
-for the catch-up passes, so his ground genuinely runs at real time whatever
-the dial says.
+not change what the picture says. **The circle he carries is exempt from the
+tint**: `step_extra_ticks` lifts the player out for the catch-up passes, so
+his ground genuinely runs at real time whatever the dial says, and painting
+the dial's speed onto it would be the readout lying about the one circle the
+player is always looking at.
+
+`Renderer::aura_disc_count()` returns `(standing, carried)` for the draw just
+made, and is the counter to print beside any picture of the haze: a haze drawn
+too faint and a haze never built look identical on a contact sheet and want
+opposite fixes.
 
 **It does not cost the dirty-rect render skip**, and that is what the phase
 being quantised buys. The pulse is *not* in the `LookKey`; the discs' bounding
@@ -9147,14 +9179,50 @@ with one radius-40 circle: **0 pixels recomputed with the aura off, 8,649 with
 it on** — the circle's own bounding box — against 40,000 for a full repaint,
 and only on the frames the phase steps, which at real time is every other one.
 
-**Known limitations.** Above x1 the gnome's own circle is missing from the
-picture entirely: `step_extra_ticks` restores the player after the catch-up
-passes and does not restore `World::carried`, so anything drawing between two
-updates sees no carried circle. That predates the aura — the old outline
-vanished the same way. The `SPACE` placement preview is still a hard 1px
+**Known limitations.** *Fixed since this was written, and the entry is kept
+because it outlived its fix for a day:* the gnome's own circle used to be
+missing from the picture above x1, because `step_extra_ticks` restored the
+player after the catch-up passes and not `World::carried`. `a26f6567` (PR
+#435) restores it with her. It predated the aura — the old outline vanished
+the same way. The `SPACE` placement preview is still a hard 1px
 circle, because it is not world state and the renderer cannot see it. There is
 no runtime selector for the aura's dials; `examples/druid_aura.rs` sweeps them
-from the command line instead.
+from the command line instead. `AURA_FRAME_QUANTUM` now holds the phase for
+two drawn frames at *every* speed rather than only at real time, so a
+single-frame reading of "did the haze repaint" is a coin toss on parity — read
+it over a window as long as the quantum.
+
+### What this game took from the lab
+
+Two of the lab's render dials were reachable from here all along and were not
+being used. Owner, 2026-09-14: *"change creature colors to match the evolution
+lab game"* and *"the overlays from the evolution lab should also work in this
+game."*
+
+**Animals wear their colony's colour.** `Renderer::creature_colour` is set to
+`CreatureColour::Colony` in `Druid::new`, beside `held_look` and for the same
+reason — a default nobody else can observe is better stated where it is meant.
+The lab has done this since 2026-09-06, for a complaint that lands here word
+for word: at an animal's own body colour the ants disappear into soil. The
+outdoor sandbox keeps `Off`; it is the one of the three that is not about
+watching groups.
+
+**The debug overlays now survive held ground**, and the bug was an ordering
+one. `cell_colour` is shared by all three games and nothing ever skipped the
+overlays — but `apply_held_look` is a *full replace* onto one hue and ran
+after them, so on a held world (which is nearly the whole map) every ramp
+arrived with only its luminance left. A channel whose reading depended on
+whether time was running there is precisely the debug readout that is a
+function of the thing it debugs. The held look now yields on any cell a debug
+channel painted, tested by comparing four bytes against what the chain started
+with — **not** by keying on whether an overlay is switched on, which would
+drop the held look off the whole world to make a few hundred ant cells
+readable.
+
+**Still missing: a way to turn them on.** `Renderer::cycle_field_overlay`,
+`cycle_organism_overlay` and `cycle_creature_colour` are public and ready;
+`druid::menu` has no row for them and `bin/druid.rs` has no key. Until then
+`examples/druid_garden.rs` reaches them with `overlay=` and `colour=`.
 
 ### Small enough to go underground
 
