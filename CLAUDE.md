@@ -344,9 +344,12 @@ trigger-fired session does **not**, because the trigger stamps its own
 branch, writes the PR body to a file on it, and reports the head SHA; whoever
 coordinates opens the PR. **Either way the coordinating agent owns the
 merge.** Why `create_trigger`'s `connectors:` is not the fix, and what it cost
-to leave unsaid (133 CI runs, every one on `main` or `master`, none from a
-`pull_request` event — so the first time CI saw a branch's code was *after* it
-landed): `Reports/concurrent-sessions.md`.
+to leave unsaid — 133 CI runs, every one on `main` or `master`, none from a
+`pull_request` event — is in `Reports/concurrent-sessions.md`. **That was
+fixed on 2026-08-23, hours after it was measured, and this file quoted it as
+live for three weeks after.** CI gates `claude/**` on every push and every PR
+on `pull_request`: 1,252 such runs by 2026-09-15, so a branch is seen twice
+before it lands.
 
 **When to land**, from this repo's own 49 two-parent merges, each replayed
 with `git merge-tree` to count the conflicts it actually produced:
