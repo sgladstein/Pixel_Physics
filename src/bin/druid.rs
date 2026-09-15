@@ -255,6 +255,19 @@ impl Handler {
             }
             println!("druid: zoom {} (stride {}), asked for {want}", game.renderer.zoom, game.renderer.zoom_out_stride);
         }
+        // `PIXEL_PHYSICS_DRUID_OVERLAY=<n>` -- press `O` n times before the
+        // first frame, so a headless run can render a debug channel. Same
+        // reason as every hook here and the same shape as `_ZOOM` above: it
+        // echoes the channel it reached, because a knob nobody can see the
+        // value of is a knob nobody can tell is disconnected. `Off` is one of
+        // the stops, so `n` past the end of the cycle is a legitimate way to
+        // ask for "back to normal" rather than an error.
+        if let Some(n) = std::env::var("PIXEL_PHYSICS_DRUID_OVERLAY").ok().and_then(|v| v.trim().parse::<u32>().ok()) {
+            for _ in 0..n {
+                game.renderer.cycle_field_overlay();
+            }
+            println!("druid: ground overlay {} after {n} press(es) of O", game.renderer.field_overlay.label());
+        }
         // `PIXEL_PHYSICS_DRUID_MENU=1` -- open the options menu at startup,
         // and `=<n>` to put the cursor on the nth row. Same shape and same
         // reason as every hook here: a headless screenshot cannot press `M`,
@@ -839,6 +852,10 @@ impl Handler {
             // decision, because this is precisely the question no amount of
             // argument settles -- see `render::HeldLook`.
             KeyCode::KeyL => self.act(Action::CycleLook),
+            // **The lab's overlay key, same letter.** See `hud::KEYS`'s `O`
+            // row for why this one gets a key and the other two channels are
+            // menu rows.
+            KeyCode::KeyO => self.act(Action::CycleFieldOverlay),
             // **The options menu.** Settings rather than verbs -- see
             // `druid::menu` for why they are not more keys.
             KeyCode::KeyM => self.act(Action::ToggleOptions),
