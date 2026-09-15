@@ -1,5 +1,10 @@
 # Lane E — the forest being eaten (round 36)
 
+**LANDED. PR #440 merged as `58caa5fd`, all nine CI checks green, 2026-09-14.**
+§Z23 is CLOSED on `main`. Nothing here is pending except the owner's own
+alarm-semantics question, which is his to rule on and is deliberately not
+wired.
+
 *Branch `claude/evolution-lab-forest-eaten`. Owns `src/sim/creature.rs` for
 this fix — handed over from Lane D, so it is held in slices and landed fast.
 Opened 2026-09-14.*
@@ -295,6 +300,47 @@ the title that is already on `main`; the odd sides are old unlanded branches
 **This lane filed no new letter at all** — §Z23 already existed and was
 closed in place — so there was nothing here for `--branches` to collide with.
 Recorded so the condition is not read as this round's.
+
+## Close-out: what Lane D did with this, and what is left
+
+**Lane D stood down on §Z23 entirely** and reverted `creature.rs`,
+`wiki/ants.md` and the bug register on its branch to `main` rather than leave
+this lane resolving a conflict against a subset of its own work. #436
+therefore carries no part of the fix and needed nothing merged behind #440.
+
+**Two things came back the other way, and both are improvements on what this
+lane could do alone.**
+
+- **The `rivalry` selftest is repaired, by its owner.** This lane established
+  only that the failure was byte-identical with and without the plant rule,
+  i.e. *not ours*. D found the two actual causes: `Apart::No` set no
+  `scent_spread` at all and inherited whatever `ant.ron` authored — 0 until
+  #423, the shipped stranger bed after it — and the separated arms added
+  their offset to the scent an animal already carried, the same trap round 35
+  repaired in the `spread=` path and missed here because this function keeps
+  its own copy. **A control that names no value changes meaning silently when
+  the default moves, and nothing gates it**: CI does not run
+  `control=selftest`.
+- **§Z26 is withdrawn by D in favour of `creatures:083`.** Its paired numbers
+  (lawn 456 → 912 J, litter larder byte-identical at 684) are kept as evidence
+  *for* that entry rather than re-filed, and they are worth more than this
+  lane's own because they were taken independently by a different harness.
+  The standing-lawn census (20 → 22, net producing) rules the mining reading
+  out rather than leaving it merely unsupported. Still a long-horizon open
+  question, not a closed one.
+
+**One correction was sent back to D**, because #436 routes next-round work off
+this lane's *pre-merge* ants figures: `66 → 123, 81 → 146, 156 → 190` is
+withdrawn, and post-merge the colony grows on 2 of 3 seeds rather than 3
+(seed 1 **shrinks**, 198 → 137). D's conclusion is unaffected and better
+supported by the corrected pair.
+
+**Left open, and it is the owner's:** should eating another *creature* raise
+an alarm, or should alarm mean only *"I was attacked"*? He answered the card
+(`20260914T211725703Z-094f70`, 21:25Z) by **picking the "after" pane with no
+comment** — an endorsement of the fix by eye, not an answer to the question.
+Shipped behaviour is *a living animal being bitten, whichever verb did it*,
+and nothing in #440 anticipates his ruling.
 
 ## Gates
 
