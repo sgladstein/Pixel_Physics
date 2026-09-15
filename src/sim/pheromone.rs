@@ -43,6 +43,40 @@
 
 use super::chunk::Rect;
 
+/// What one cell of a plane holds.
+///
+/// **`u16`, widened from `u8` on 2026-09-15, and the reason is resolution
+/// rather than range.** The planes are read through a *scale-free* input --
+/// `BrainInput::PheroAAlong` is `(ahead - here) / (ahead + here + 1)`, a
+/// Weber-law relative difference -- and that reader is scale-free in **ratio**
+/// and not in **resolution**. Channel A is a ramp, because the odometer that
+/// lays it falls off with distance from the nest, so the far end of a trail is
+/// the faint end; at `u8` that end ran out of bits. Measured on the shipped
+/// ramp: past the halfway point an ant read an along-gradient of **exactly
+/// 0.000** -- the trail was still there and had stopped pointing anywhere.
+/// At the same ramp three times taller the same cells read -0.043, -0.028,
+/// -0.033, a real slope all the way out.
+///
+/// **`DEPOSIT` alone could not buy that**, which is why the type moved
+/// instead: the busiest trails already peak at 39-98 of 255 in a real bed, so
+/// tripling the deposit to fix the faint end clips the loud end into
+/// saturation and flattens the differential reinforcement P-14 exists to
+/// protect. 255:1 is simply not enough dynamic range for a ramp that has to
+/// stay readable from the nest to the food. Everything else about the plane is
+/// unchanged.
+pub type Scent = u16;
+
+/// One old `u8` unit, in [`Scent`] units. The representation is 8.8 fixed
+/// point: the same 0..255 *semantic* range with eight fractional bits under
+/// it, so every constant keeps its old meaning and only the resolution moves.
+pub const SCALE: Scent = 256;
+
+/// Fixed-point shift for the decay multiply. 16 bits of fraction on a
+/// `u32` product: the largest input is `Scent::MAX * DECAY_ONE`, which is
+/// 65,535 x 65,536 -- exactly `u32::MAX`, so it cannot overflow.
+const DECAY_SHIFT: u32 = 16;
+const DECAY_ONE: u32 = 1 << DECAY_SHIFT;
+
 /// Frames between diffusion/decay passes.
 ///
 /// **12, not the 4 this started at, and the reason is a hard ceiling
@@ -183,7 +217,7 @@ pub const DECAY_RHO: f32 = 0.03;
 /// other end. What a low deposit does cost is lifetime, since the LUT's
 /// `min(v - 1)` floor makes a cell's maximum survival equal to its own
 /// value in passes: see [`PHEROMONE_INTERVAL`].
-pub const DEPOSIT: u8 = 40;
+pub const DEPOSIT: Scent = 40 * SCALE;
 
 /// Sleep granularity, in cells. Equal to `CHUNK_SIZE` by choice rather than
 /// by coupling — nothing here indexes chunks, and a plane that outlived the
@@ -243,7 +277,7 @@ pub const ALARM_RHO: f32 = 0.35;
 /// a single event that has to be legible on its own against a plane that is
 /// otherwise zero, and nothing reinforces it. Saturating on a bad enough
 /// fight is the right failure: a swarm on one animal should read as loud.
-pub const ALARM_DEPOSIT: u8 = 240;
+pub const ALARM_DEPOSIT: Scent = 240 * SCALE;
 
 /// **How much an alarm loses per cell of distance from its source**, on the
 /// same 0..255 scale as [`ALARM_DEPOSIT`].
@@ -288,7 +322,7 @@ pub const ALARM_DEPOSIT: u8 = 240;
 /// `CLAUDE.md`'s first law -- an outcome is a distribution, not a binary --
 /// arriving for free, and it is what the concentration gradient does in a
 /// real colony (Wilson's alarm-defence grading).
-pub const ALARM_FALL: u8 = 12;
+pub const ALARM_FALL: Scent = 12 * SCALE;
 
 /// How a plane carries a value to the cell next door.
 ///
@@ -306,7 +340,7 @@ pub enum Spread {
     /// Take the louder of this cell and the best neighbour minus `fall`.
     /// Non-conserving: it describes a *distance from a source*, not an
     /// amount of stuff. **The alarm plane.**
-    ActiveSpace { fall: u8 },
+    ActiveSpace { fall: Scent },
 }
 
 /// Which plane. **Meaning-free by construction for the two trail planes** —
@@ -367,13 +401,30 @@ pub enum Channel {
 ///
 /// So the strict decrease is forced (`min(v - 1)`) and asserted at
 /// construction rather than reasoned about (P-13).
-fn build_decay_lut(rho: f32) -> [u8; 256] {
-    let mut lut = [0u8; 256];
-    for (v, slot) in lut.iter_mut().enumerate().skip(1) {
-        let decayed = ((v as f32) * (1.0 - rho)) as u8;
-        *slot = decayed.min(v as u8 - 1);
+fn decay_factor(rho: f32) -> u32 {
+    ((1.0 - rho).clamp(0.0, 1.0) * DECAY_ONE as f32) as u32
+}
+
+/// One decay step: multiply, then force the strict decrease.
+///
+/// **A 65,536-entry table was the obvious port of the `u8` LUT and is the
+/// wrong shape.** At `u8` the table was 256 bytes and lived in L1 for free,
+/// which is why it was a table. At `u16` it is **128 KB** — out of L1, into
+/// the middle of the plane's own working set, and read once per cell of every
+/// awake tile. The arithmetic is a multiply and a shift and touches no memory
+/// at all, so this is both faster and smaller here. The table was an
+/// optimisation for a width that no longer applies, not a design.
+///
+/// Integer rather than `f32` on purpose: determinism is required (`PLAN.md`)
+/// and this way it is exact by construction rather than by same-build
+/// argument.
+#[inline]
+fn decayed(v: Scent, factor: u32) -> Scent {
+    if v == 0 {
+        return 0;
     }
-    lut
+    let scaled = ((v as u32 * factor) >> DECAY_SHIFT) as Scent;
+    scaled.min(v - 1)
 }
 
 /// One channel's world-sized u8 plane, double-buffered for the pass.
@@ -391,20 +442,21 @@ pub struct PheromonePlane {
     /// World coordinate of plane index 0 — the planes cover the world's
     /// bounds `Rect`, which does not have to start at the origin.
     origin: (i32, i32),
-    front: Vec<u8>,
-    back: Vec<u8>,
+    front: Vec<Scent>,
+    back: Vec<Scent>,
     /// Tiles across and down.
     tw: usize,
     th: usize,
     /// Highest value in each tile as of the last pass. A tile at 0 with no
     /// deposits since is skipped entirely — this is "pheromone sleep", the
     /// same law field sleeping exists for.
-    tile_max: Vec<u8>,
+    tile_max: Vec<Scent>,
     /// Set by `deposit`, cleared when the tile is next processed. A tile
     /// that was empty and has just been written to must not be skipped
     /// because its *stale* max still reads 0.
     deposited: Vec<bool>,
-    decay_lut: [u8; 256],
+    /// `(1 - rho)` in `DECAY_SHIFT`-bit fixed point. See [`decayed`].
+    decay_factor: u32,
     /// Held per plane rather than read from the const inside `step`, so a
     /// sweep can vary it — see `diffusion_spread_profile_sweep`, which is
     /// how `DIFFUSE`'s value was chosen rather than guessed.
@@ -428,7 +480,7 @@ impl PheromonePlane {
     /// readout said the new one. Rebuilding 256 bytes is cheaper than the
     /// branch that would avoid it.
     fn set_rho(&mut self, rho: f32) {
-        self.decay_lut = build_decay_lut(rho);
+        self.decay_factor = decay_factor(rho);
     }
 
     /// Set the blend toward the 3x3 mean, in place.
@@ -454,8 +506,11 @@ impl PheromonePlane {
         let w = (bounds.max_x - bounds.min_x + 1).max(1) as usize;
         let h = (bounds.max_y - bounds.min_y + 1).max(1) as usize;
         let (tw, th) = (w.div_ceil(TILE), h.div_ceil(TILE));
-        let lut = build_decay_lut(rho);
-        debug_assert!((1..256).all(|v| (lut[v] as usize) < v), "decay LUT must strictly decrease, or evaporation never reaches zero");
+        let factor = decay_factor(rho);
+        debug_assert!(
+            (1..=Scent::MAX).all(|v| decayed(v, factor) < v),
+            "decay must strictly decrease every nonzero value, or evaporation never reaches zero"
+        );
         Self {
             w,
             h,
@@ -466,7 +521,7 @@ impl PheromonePlane {
             th,
             tile_max: vec![0; tw * th],
             deposited: vec![false; tw * th],
-            decay_lut: lut,
+            decay_factor: factor,
             diffuse,
             spread: Spread::Diffuse,
         }
@@ -488,13 +543,13 @@ impl PheromonePlane {
     /// instead of a field channel. Out-of-plane reads 0, so a creature at
     /// the world edge senses nothing rather than sampling garbage.
     #[inline]
-    pub fn sample(&self, x: i32, y: i32) -> u8 {
+    pub fn sample(&self, x: i32, y: i32) -> Scent {
         self.index(x, y).map_or(0, |i| self.front[i])
     }
 
     /// Add to a cell, saturating. Out-of-plane deposits are dropped
     /// silently — an ant walking off the edge of the world is not an error.
-    fn deposit(&mut self, x: i32, y: i32, amount: u8) -> bool {
+    fn deposit(&mut self, x: i32, y: i32, amount: Scent) -> bool {
         let Some(i) = self.index(x, y) else {
             return false;
         };
@@ -558,7 +613,7 @@ impl PheromonePlane {
                     continue;
                 }
                 processed += 1;
-                let mut tile_peak = 0u8;
+                let mut tile_peak: Scent = 0;
                 let x0 = tx * TILE;
                 let y0 = ty * TILE;
                 let x1 = (x0 + TILE).min(self.w);
@@ -625,7 +680,7 @@ impl PheromonePlane {
                         }
                         for lx in x0..x1 {
                             let i = lx - x0 + 1;
-                            let neighbourhood = cols[i - 1].max(cols[i]).max(cols[i + 1]) as u8;
+                            let neighbourhood = cols[i - 1].max(cols[i]).max(cols[i + 1]) as Scent;
                             // **`max` against this cell's own value, so
                             // propagation never pulls a cell down.** The
                             // decay LUT is the only thing that lowers a
@@ -635,7 +690,7 @@ impl PheromonePlane {
                             // of it, so the plane provably empties.
                             let here = self.front[base + lx];
                             let raised = neighbourhood.saturating_sub(fall).max(here);
-                            let out = self.decay_lut[raised as usize];
+                            let out = decayed(raised, self.decay_factor);
                             self.back[base + lx] = out;
                             tile_peak = tile_peak.max(out);
                         }
@@ -667,8 +722,8 @@ impl PheromonePlane {
                         let sum = cols[i - 1] + cols[i] + cols[i + 1];
                         let here = f32::from(self.front[base + lx]);
                         let mean = sum as f32 / 9.0;
-                        let blended = (here + (mean - here) * self.diffuse).round().clamp(0.0, 255.0) as u8;
-                        let out = self.decay_lut[blended as usize];
+                        let blended = (here + (mean - here) * self.diffuse).round().clamp(0.0, Scent::MAX as f32) as Scent;
+                        let out = decayed(blended, self.decay_factor);
                         self.back[base + lx] = out;
                         tile_peak = tile_peak.max(out);
                     }
@@ -703,7 +758,7 @@ impl PheromonePlane {
 
     /// Highest value anywhere in the plane. For scenes and tests; walks the
     /// whole plane, so not for the hot path.
-    pub fn max(&self) -> u8 {
+    pub fn max(&self) -> Scent {
         self.front.iter().copied().max().unwrap_or(0)
     }
 }
@@ -940,7 +995,7 @@ impl Pheromones {
     }
 
     #[inline]
-    pub fn sample(&self, channel: Channel, x: i32, y: i32) -> u8 {
+    pub fn sample(&self, channel: Channel, x: i32, y: i32) -> Scent {
         match channel {
             Channel::A | Channel::B => self.planes[channel as usize].sample(x, y),
             // A world in which nothing has been bitten reads a flat zero
@@ -950,7 +1005,7 @@ impl Pheromones {
         }
     }
 
-    pub fn deposit(&mut self, channel: Channel, x: i32, y: i32, amount: u8) {
+    pub fn deposit(&mut self, channel: Channel, x: i32, y: i32, amount: Scent) {
         if amount == 0 {
             return;
         }
@@ -1053,11 +1108,11 @@ mod tests {
     fn an_alarm_carries_past_its_own_cell_and_still_ends() {
         /// Peak ever seen at 0..4 cells from one wound, the frame the plane
         /// emptied, and whether the global max ever failed to fall.
-        fn reach(p: &mut Pheromones) -> ([u8; 5], u64, bool) {
+        fn reach(p: &mut Pheromones) -> ([Scent; 5], u64, bool) {
             p.deposit(Channel::Alarm, 64, 64, ALARM_DEPOSIT);
-            let mut best = [0u8; 5];
+            let mut best = [0 as Scent; 5];
             let (mut frame, mut gone, mut monotone) = (0u64, 0u64, true);
-            let mut prev = 255u8;
+            let mut prev = Scent::MAX;
             while frame < 20_000 {
                 frame += 1;
                 p.step(frame, PHEROMONE_INTERVAL);
@@ -1092,7 +1147,28 @@ mod tests {
         let mut old = Pheromones::new(Rect::new(0, 0, 127, 127));
         old.set_alarm_spread(Spread::Diffuse);
         let (old_heard, old_gone, _) = reach(&mut old);
-        assert_eq!(old_heard[2], 0, "the diffuse arm is supposed to be inaudible two cells out; it read {}", old_heard[2]);
+        // **`< 1%` rather than `== 0`, and the change is a correction rather
+        // than a loosening.** This asserted an exact zero, which was true at
+        // `u8` and was the *byte's* way of saying "inaudible": widened to
+        // `Scent`, the same arm reads **100 of 65,535** two cells out, which
+        // is 0.15% of scale and **+0.003** into `Attack` against an authored
+        // weight of 2.0. The claim this test is for was never "the number is
+        // zero", it was "nothing can hear it", so it now says that -- and
+        // says it in a form no future width change can quietly satisfy.
+        assert!(
+            old_heard[2] < Scent::MAX / 100,
+            "the diffuse arm must still be inaudible two cells out: it read {} of {}",
+            old_heard[2],
+            Scent::MAX
+        );
+        // And the shipped arm has to be *dramatically* louder there, or the
+        // whole active-space change is buying nothing. Measured 226x.
+        assert!(
+            heard[2] > old_heard[2].saturating_mul(50),
+            "the shipped arm must be far louder two cells out than the one it replaced, or this change earns nothing: {} vs {}",
+            heard[2],
+            old_heard[2]
+        );
         assert!(old_gone > 0, "and it terminated before, so it must still");
     }
 
@@ -1376,15 +1452,19 @@ mod tests {
     }
 
     #[test]
-    fn decay_lut_strictly_decreases_every_nonzero_value() {
+    fn decay_strictly_decreases_every_nonzero_value() {
         // P-13, asserted over the whole domain rather than sampled: the
         // canopy-density fixed point lived at the *bottom* of its range and
-        // its test looked at the top.
-        for rho in [0.05f32, 0.1, 0.3, 0.5, 0.9] {
-            let lut = build_decay_lut(rho);
-            assert_eq!(lut[0], 0);
-            for (v, &out) in lut.iter().enumerate().skip(1) {
-                assert!((out as usize) < v, "rho={rho}: lut[{v}] = {out} did not decrease");
+        // its test looked at the top. **Still the whole domain after the
+        // widening**, which is now 65,535 values rather than 255 -- and it
+        // matters more, not less: the widening exists to put usable values
+        // down near the bottom, which is exactly where a fixed point would
+        // live.
+        for rho in [0.0f32, 0.05, 0.1, 0.3, 0.5, 0.9, 1.0] {
+            let factor = decay_factor(rho);
+            assert_eq!(decayed(0, factor), 0);
+            for v in 1..=Scent::MAX {
+                assert!(decayed(v, factor) < v, "rho={rho}: decayed({v}) = {} did not decrease", decayed(v, factor));
             }
         }
     }
@@ -1413,10 +1493,13 @@ mod tests {
         // as *empty*, which is the strongest possible signal pointing the
         // opposite way.
         let mut p = plane_world();
+        // Expressed in old byte units times `SCALE`, so the test still asks
+        // "does ten times a big deposit clip rather than wrap" at whatever
+        // width the plane is.
         for _ in 0..10 {
-            p.deposit(Channel::A, 50, 50, 200);
+            p.deposit(Channel::A, 50, 50, 200 * SCALE);
         }
-        assert_eq!(p.sample(Channel::A, 50, 50), 255);
+        assert_eq!(p.sample(Channel::A, 50, 50), Scent::MAX);
     }
 
     #[test]
@@ -1471,7 +1554,26 @@ mod tests {
         for d in 0..8 {
             let left = p.sample(Channel::A, 63 - d, 100);
             let right = p.sample(Channel::B, 64 + d, 100);
-            assert_eq!(left, right, "spread at distance {d} differs across the seam: {left} vs {right}");
+            // **A tolerance, and it replaced an `assert_eq!` that was passing
+            // for the wrong reason.** At `u8` the two sides were bit-equal at
+            // every distance -- and measured after the widening they never
+            // were: 57887/57894, 30861/30880, 12542/12559, and the byte was
+            // rounding all of it away (226/226, 120/120, 49/49). So the
+            // stronger-looking assertion was a quantisation artifact, not a
+            // symmetry proof.
+            //
+            // The residual is float rounding rather than a seam bias, which
+            // is the distinction this test exists for and is checked rather
+            // than assumed: the **absolute** difference *shrinks* with
+            // distance (19 at d=1 down to 0 by d=6) and never exceeds one
+            // quantum in the tail. A seam that blocked or biased would do the
+            // opposite -- grow, or hold one side at zero -- and 1% still
+            // catches that by an enormous margin.
+            let bar = 1 + left.max(right) / 100;
+            assert!(
+                left.abs_diff(right) <= bar,
+                "spread at distance {d} differs across the seam by more than rounding: {left} vs {right} (bar {bar})"
+            );
         }
         // And the spread genuinely crossed the seam, or every assertion
         // above was comparing two columns of zeroes.
@@ -1525,8 +1627,8 @@ mod tests {
                 p.deposit(Channel::B, 200 - i * 2, 120, 70);
                 p.step(i as u64 * PHEROMONE_INTERVAL, PHEROMONE_INTERVAL);
             }
-            let a: Vec<u8> = (0..256).map(|x| p.sample(Channel::A, x, 90)).collect();
-            let b: Vec<u8> = (0..256).map(|x| p.sample(Channel::B, x, 120)).collect();
+            let a: Vec<Scent> = (0..256).map(|x| p.sample(Channel::A, x, 90)).collect();
+            let b: Vec<Scent> = (0..256).map(|x| p.sample(Channel::B, x, 120)).collect();
             (a, b)
         };
         assert_eq!(run(), run());

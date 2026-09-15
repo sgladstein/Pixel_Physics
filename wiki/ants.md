@@ -1,6 +1,21 @@
 # Ants
 
-*Current as of: 2026-09-14, when **a cry of alarm started carrying.** An
+*Current as of: 2026-09-15, when **a trail started reaching all the way out.**
+An ant lays a lot of scent near home and less the further it gets, so a trail
+has always been a slope running downhill away from the nest — and the far half
+of that slope was too shallow for the world to hold. It was still *there*; it
+had simply flattened into a single flat shade, and an animal standing on it
+read no downhill at all and no longer knew which way home was. Past about the
+halfway mark a trail was a mark on the ground rather than a direction. **The
+ground now holds a much finer range of scent**, so the same slope keeps
+falling the whole way out: a trail laid once and abandoned stays worth
+following about ten times longer, an animal keeps taking direction from one
+roughly thirty times further along, and a colony that used to hold a few
+hundred cells of trail now holds a few thousand. Nothing about how much an ant
+lays, how fast scent fades or how it spreads was touched — the world simply
+stopped rounding the quiet end away.*
+
+*Before that: 2026-09-14, when **a cry of alarm started carrying.** An
 animal being hurt has left a smell where it happened since 2026-09-06, and
 until now no other animal could hear it: the smell was being spread the way a
 food trail is spread, which is the right way to move something a colony is

@@ -139,23 +139,35 @@ trail read exactly zero.** The widening moved the trail an order of magnitude:
 | stops steering | 36 frames | **1,080** |
 | standing network, 52 ants | 208–342 cells | **1,405–2,057** |
 
-**So the central null — *cutting the homing circuit out of the genome changes
-deliveries not at all* — may be an artifact of the byte rather than a fact
-about homing.** If the trail read zero past its own midpoint, the homing
-circuit had nothing to read, and removing something that was already receiving
-nothing would of course change nothing. That is this repo's *a mechanism
-appears inert because the scene does not contain the situation* in a new
-costume. **Re-run the genome-ablation null on `u16` before building or
-abandoning anything on it.** Its channel-A standing figures (3,421 at frame
-10,000, 0–9 from 20,000) are likewise pre-widening.
+**THE NEST LANE ALREADY RE-MEASURED THIS ON `u16` AND THE NULL DID NOT
+SURVIVE** (`nest-design-2026-09-14.md` §12, on `main`). It was an artifact of
+the byte: a homing circuit reading zero loses nothing by being deleted.
 
-**And do not apply `DIFFUSE` and the widening together without re-measuring.**
-`DIFFUSE` 0.25 → 0.02 was the lever found *against the byte*, lifting
-laden-at-door 1.6% → 14.5%. #450 fixes a different half of the same problem —
-**resolution, not spread** — without touching `DIFFUSE`. Stacking both may
-over-correct, and `DIFFUSE` is explicitly not free: a full mean filter flattens
-a shared trail's peak **153 → 63**, and that height *is* the path-selection
-algorithm. **Measure whether `DIFFUSE` is still needed at all now.**
+| seed | laden at door — shipped / noemit / nosteer | channel A near band at 30,000, `u8` → `u16` |
+|---|---|---|
+| 1 | **8.7%** / 1.9% / 1.2% | 9 → **42** |
+| 2 | 51.5% / 51.7% / 53.6% | 0 → **313** |
+| 3 | **30.7%** / 13.7% / 16.8% | — → **201** |
+
+**Two of its own findings are overturned by its own re-measurement.** *"The
+plane is gone by 20,000"* is a `u8` fact — on `u16` the home plane stands for
+the whole run. *"Nothing steers a laden ant home"* is no longer true as stated:
+the shipped circuit beats both cut arms on 2 of 3 seeds and ties on the third.
+**And the `DIFFUSE` 0.25 → 0.02 suggestion is WITHDRAWN** — #450 bought the
+lifetime by resolution rather than blend, so it costs the food trail nothing
+and the trade §5.3 priced is not needed.
+
+**What is still owed, and it is the lane's own framing: three seeds is not a
+sweep.** The `u8` version of this table needed six seeds to say "nothing". So
+**run the sweep at six seeds on `main` now that #450 has landed**, and treat
+the claim as the weak one it licenses: *the circuit is detectable*, and the
+owner's reading 2 — the plane's life was the fault — was right.
+
+**Building the home bearing drops from *next* to *conditional*.** Run the
+six-seed sweep first and build it **only if laden-at-door still reads at floor
+level on the seeds where the round trip fails**. On the evidence above it may
+not be needed at all — which is the cheapest possible outcome and the one to
+check for before spending a lane on it.
 
 **What the widening does NOT touch, so these stand**: the nest-as-a-site
 finding, the blob refusal (a footprint sweep and colony deaths, nothing to do

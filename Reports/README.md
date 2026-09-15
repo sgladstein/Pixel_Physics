@@ -2898,6 +2898,12 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   site, the odour and the per-ant anchor already exist — the material kept
   as paint, the crust dropped to soil's, and a
   per-ant home bearing built next — the trail ordering is wrong, the nest
+  work can start now. No `src/` change; nothing landed. **§12 (2026-09-15)
+  re-measures on PR #450's `u16` planes: the home plane now stands for the
+  whole run and the homing circuit is detectable (laden-at-door 8.7% vs
+  1.9% cut, 2 of 3 seeds); the `DIFFUSE` suggestion is withdrawn and the
+  home bearing becomes conditional. The site, blob and crust findings
+  stand.**
   work can start now. No `src/` change; nothing landed.
 - [evolution-lab-round-37-brief-2026-09-15.md](evolution-lab-round-37-brief-2026-09-15.md)
   — **brief, 2026-09-15. `lab`/`engine`/`held`.** Opens with **two retracted

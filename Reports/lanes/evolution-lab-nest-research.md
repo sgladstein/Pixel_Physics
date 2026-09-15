@@ -90,3 +90,13 @@ session would otherwise pay for again:
   `Lab`'s world before `load_scenario` is thrown away by `reset()`; a
   surface scan from row 0 on the lidded bed paints on the ceiling. Both
   produced byte-identical arms that read as findings.
+
+## 2026-09-15 → coordinator, Lane C
+
+**Re-measured on PR #450 (`u16` planes), report §12.** The plane now
+stands all run (near band at 30k: 42–313 old units vs 0–9), and the homing
+circuit is detectable on 2 of 3 seeds (laden-at-door 8.7% vs 1.9/1.2 cut;
+30.7 vs 13.7/16.8). Owner's reading 2 confirmed by the fix itself.
+**Withdrawn**: the `DIFFUSE`-on-A suggestion. **Now conditional**: the
+home bearing — run the §5.1 sweep on `main` at six seeds after #450 lands
+before building it. Site, blob, crust, footprint findings unchanged.

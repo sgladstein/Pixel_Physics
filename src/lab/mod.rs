@@ -2172,7 +2172,7 @@ impl Lab {
                 let dx = (x - origin.0) as f32;
                 let dy = (y - origin.1) as f32;
                 let t = ((dx * dx + dy * dy).sqrt() / SCENT_TRAIL_RAMP).clamp(0.0, 1.0);
-                let amount = (t * pheromone::DEPOSIT as f32) as u8;
+                let amount = (t * pheromone::DEPOSIT as f32) as pheromone::Scent;
                 // Out-of-world deposits are dropped silently by
                 // `deposit_pheromone` itself, so no bounds check is needed
                 // here. A `0` this close to the origin is a real value, not
@@ -6510,7 +6510,7 @@ mod tests {
         // The untrailed floor, read at the same three points before any
         // scent exists -- the control that says a nonzero reading below is
         // the drag's doing and not some ambient default.
-        let untrailed: Vec<u8> = [70, 85, 100].iter().map(|&x| lab.world.pheromone_at(Channel::A, x, surface)).collect();
+        let untrailed: Vec<crate::sim::pheromone::Scent> = [70, 85, 100].iter().map(|&x| lab.world.pheromone_at(Channel::A, x, surface)).collect();
         assert_eq!(untrailed, vec![0, 0, 0], "an unpainted bed must read zero everywhere, or a nonzero reading below proves nothing");
 
         lab.act(ui::Action::Tool(ui::Tool::Scent));
@@ -6532,7 +6532,7 @@ mod tests {
         // the brush's own rounded caps cannot be mistaken for the slope.
         // Each must be **higher than the last** -- climbing toward the
         // target, which is the one shape a flat deposit cannot produce.
-        let samples: Vec<u8> = [70, 85, 100].iter().map(|&x| lab.world.pheromone_at(Channel::A, x, surface)).collect();
+        let samples: Vec<crate::sim::pheromone::Scent> = [70, 85, 100].iter().map(|&x| lab.world.pheromone_at(Channel::A, x, surface)).collect();
         assert!(
             samples[0] > 0 && samples[1] > samples[0] && samples[2] > samples[1],
             "the deposit does not climb toward the target: {samples:?} at x=70,85,100 -- a flat plateau (or nothing) would read this way, and only a real slope would not"
