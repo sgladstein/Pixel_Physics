@@ -2880,6 +2880,24 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   as paint, the crust dropped to soil's, and a
   per-ant home bearing built next — the trail ordering is wrong, the nest
   work can start now. No `src/` change; nothing landed.
+- [evolution-lab-round-36-2026-09-14.md](evolution-lab-round-36-2026-09-14.md)
+  — **round record, 2026-09-14/15. `lab`/`engine`.** Six lanes; landed #431,
+  #432, #433, #436, #440, #441, #444, #445, #446, #447. **A live regression
+  took the lead**: grazing a plant raised an alarm, alarm is the only route to
+  attacking, and `nearest_foe` counted the plant as the foe — **100% of swings
+  and 100% of jaw cells were plant-directed**, feeding nobody. Both owner
+  rulings shipped (#440). **The round's most valuable outputs are two
+  retractions**, both by the lanes themselves: E's *"plants standing up on
+  every seed"* is withdrawn (re-measured: 243→275, 161→**97**, 190→187, median
+  −3) and the better reading is that **the fix removes the pure loss while
+  what happens next is set by what the colony does with the freed energy**;
+  and B's **"29.4 cells per ant" is a per-bed number, not an ant's**, with the
+  mark-local saving a **shape** prize, not a reach prize (single-rect buys
+  1.9%). **§E2 bisected from 4,330 frames to frame 237 and four soil cells in
+  the soil-moisture channel.** Also carries the FOOD page rebuilt to the
+  owner's own spec, the nest research arguing him out of a blob with a
+  measurement, and the coordinator's own routing error — **a poke crossed a
+  landing by eleven minutes**.
 - [evolution-lab-round-36-brief-2026-09-14.md](evolution-lab-round-36-brief-2026-09-14.md)
   — **brief, 2026-09-14, rewritten the same day. `lab`/`engine`.** What round 36
   is for. **The first version led with performance and was wrong at the top**:
