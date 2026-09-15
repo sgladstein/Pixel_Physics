@@ -4247,8 +4247,8 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         // ant past `nest_memory` used to contribute nothing at all.
         let emit_a = outputs[brain::BrainOutput::EmitA as usize].clamp(0.0, 1.0);
         let emit_b = outputs[brain::BrainOutput::EmitB as usize].clamp(0.0, 1.0);
-        world.deposit_pheromone(Channel::A, hx, hy, (emit_a * pheromone::DEPOSIT as f32) as u8);
-        world.deposit_pheromone(Channel::B, hx, hy, (emit_b * pheromone::DEPOSIT as f32) as u8);
+        world.deposit_pheromone(Channel::A, hx, hy, (emit_a * pheromone::DEPOSIT as f32) as pheromone::Scent);
+        world.deposit_pheromone(Channel::B, hx, hy, (emit_b * pheromone::DEPOSIT as f32) as pheromone::Scent);
         // **Laying a trail costs, and until 2026-09-05 it did not.** Charged
         // on the sum of both planes and in proportion to what was actually
         // put down, so a whisper is cheaper than a shout -- a per-event
@@ -4547,9 +4547,13 @@ fn sense(
     for (channel, front_slot, lateral_slot) in
         [(Channel::A, I::PheroAFront, I::PheroALateral), (Channel::B, I::PheroBFront, I::PheroBLateral)]
     {
-        let f = world.pheromone_at(channel, fx, fy) as f32 / 255.0;
-        let l = world.pheromone_at(channel, lx, ly) as f32 / 255.0;
-        let r = world.pheromone_at(channel, rx, ry) as f32 / 255.0;
+        // **Normalised by the plane's own maximum, not by 255.** The planes
+        // widened to `pheromone::Scent` (u16) on 2026-09-15; dividing by 255
+        // here would hand the brain a number up to 257 and throw away the
+        // resolution the widening exists to provide, in the same breath.
+        let f = world.pheromone_at(channel, fx, fy) as f32 / pheromone::Scent::MAX as f32;
+        let l = world.pheromone_at(channel, lx, ly) as f32 / pheromone::Scent::MAX as f32;
+        let r = world.pheromone_at(channel, rx, ry) as f32 / pheromone::Scent::MAX as f32;
         inputs[front_slot as usize] = f;
         inputs[lateral_slot as usize] = r - l;
     }
@@ -4558,12 +4562,25 @@ fn sense(
     // can actually read. Normalized by the sum rather than scaled by a
     // constant, so it is scale-free: a faint trail and a saturated one both
     // produce a usable -1..1, which matters because a trail's absolute
-    // height varies by two orders of magnitude over its life. The `+ 1.0`
+    // height varies by two orders of magnitude over its life. The guard term
     // makes an empty pair read exactly 0 instead of dividing by zero.
+    //
+    // **That term is `SCALE`, not 1, and the difference is a whole semantics
+    // change riding along with a storage change.** It is in *value* units, so
+    // when the planes widened to `u16` on 2026-09-15 a literal `1.0` would
+    // have become 256 times weaker without a word being written about it: a
+    // single faint cell against an empty one reads `1/2 = 0.500` at the old
+    // width and `256/257 = 0.996` at the new one, which is not more
+    // resolution, it is a different input. Scaling the guard keeps this
+    // function's output identical at equal trail heights and confines the
+    // change to what happens *below* one old unit -- which is the entire
+    // point of the widening. `CLAUDE.md`: when a fix changes what a number
+    // means, re-deriving the constants that read it is part of the fix.
+    let guard = pheromone::SCALE as f32;
     for (channel, slot) in [(Channel::A, I::PheroAAlong), (Channel::B, I::PheroBAlong)] {
         let here = world.pheromone_at(channel, x, y) as f32;
         let ahead = world.pheromone_at(channel, fx, fy) as f32;
-        inputs[slot as usize] = (ahead - here) / (ahead + here + 1.0);
+        inputs[slot as usize] = (ahead - here) / (ahead + here + guard);
     }
 
     // **The alarm is read where the animal IS, not on the cell ahead of it**
@@ -4593,7 +4610,7 @@ fn sense(
     // plane that was never allocated is a null test, not a read, so a world
     // in which nothing has ever fought pays one branch per animal per tick
     // for this and touches no memory.
-    inputs[I::Alarm as usize] = world.pheromone_at(Channel::Alarm, x, y) as f32 / 255.0;
+    inputs[I::Alarm as usize] = world.pheromone_at(Channel::Alarm, x, y) as f32 / pheromone::Scent::MAX as f32;
 
     let moisture_at = |px: i32, py: i32| world.field_at_bilinear(px as f32, py as f32).moisture / WORM_MOISTURE_SATURATION;
     inputs[I::MoistureFront as usize] = moisture_at(fx, fy);

@@ -727,8 +727,8 @@ fn scent(game: &Druid) -> Vec<(i32, i32, u8)> {
 /// Banded at all, rather than continuous, for the reason `Interface::scent`
 /// gives: this value decides whether the corner owes a repaint, and a raw
 /// strength would move on every frame and cost the dirty-rect skip its job.
-fn band_of(v: u8) -> u8 {
-    let t = (v as f32 / 255.0).sqrt();
+fn band_of(v: crate::sim::pheromone::Scent) -> u8 {
+    let t = (v as f32 / crate::sim::pheromone::Scent::MAX as f32).sqrt();
     (t * (SCENT_BANDS - 1) as f32).round() as u8
 }
 

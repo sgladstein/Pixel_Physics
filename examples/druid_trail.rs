@@ -65,7 +65,7 @@ const HALO: i32 = 4;
 #[derive(Clone)]
 struct Arm {
     /// What one tick of `G` writes (`druid::TRAIL_DEPOSIT`).
-    deposit: u8,
+    deposit: pixel_physics::sim::pheromone::Scent,
     /// Seconds the route keeps being re-laid after he stops walking. 0 is
     /// shipped behaviour: he marks a cell once and it is on its own.
     hold: f64,
@@ -100,9 +100,9 @@ struct Life {
     /// unfollowable (an ant reads the *gradient*), so the count was measuring
     /// how long the last ember takes to round down. `CLAUDE.md`'s own metric
     /// trap, on a plane instead of a liquid: measure fill, not occupancy.
-    curve: Vec<u8>,
+    curve: Vec<pixel_physics::sim::pheromone::Scent>,
     /// Peak value anywhere on the route, one pass after the walk ends.
-    peak: u8,
+    peak: pixel_physics::sim::pheromone::Scent,
     /// Cells of the route still nonzero one pass after the walk ends, against
     /// the route's length — the "bunch of dots" number at full strength.
     laid_of: (usize, usize),
@@ -121,7 +121,7 @@ struct Life {
     /// reported the newest end *weaker* than the oldest, the exact reverse of
     /// the property it exists to check, off a cell that only ever held a
     /// diffusion leak from its neighbour.
-    slope: (u8, u8),
+    slope: (pixel_physics::sim::pheromone::Scent, pixel_physics::sim::pheromone::Scent),
 }
 
 /// **The bar the lifetime column is read against**, in plane units.
@@ -131,12 +131,12 @@ struct Life {
 /// 256`, so everything under 32 draws in the bottom band -- and below it one
 /// ant walking past deposits more than the gnome's standing instruction
 /// holds, so what he wrote stops outranking the colony's own traffic.
-const LEGIBLE: u8 = DEPOSIT / 4;
+const LEGIBLE: pixel_physics::sim::pheromone::Scent = DEPOSIT / 4;
 
 impl Life {
     /// Peak on the route `s` seconds after laying stopped. Saturates at the
     /// end of the curve, which is zero by construction.
-    fn at_seconds(&self, s: f64) -> u8 {
+    fn at_seconds(&self, s: f64) -> pixel_physics::sim::pheromone::Scent {
         let pass = (s * FPS / PHEROMONE_INTERVAL as f64).round() as usize;
         self.curve.get(pass).copied().unwrap_or(0)
     }
@@ -277,7 +277,7 @@ fn run(arm: &Arm, walk_cells: i32) -> Life {
         let fade = 1.0 - t as f64 / hold_ticks.max(1) as f64;
         for (i, &x) in marked.iter().enumerate() {
             let age = 1.0 - i as f64 / marked.len().max(1) as f64;
-            let amount = (arm.deposit as f64 * fade * (1.0 - 0.5 * age)) as u8;
+            let amount = (arm.deposit as f64 * fade * (1.0 - 0.5 * age)) as pixel_physics::sim::pheromone::Scent;
             if amount > 0 {
                 p.deposit(Channel::A, x, y, amount);
             }
@@ -475,8 +475,8 @@ fn shot(args: &[String]) {
 
 /// Peak value on the gnome's remembered route, and how many of its cells the
 /// plane still holds anything at.
-fn trail_census(game: &pixel_physics::druid::Druid) -> (u8, usize) {
-    let mut peak = 0u8;
+fn trail_census(game: &pixel_physics::druid::Druid) -> (pixel_physics::sim::pheromone::Scent, usize) {
+    let mut peak = 0 as pixel_physics::sim::pheromone::Scent;
     let mut live = 0usize;
     for &(x, y) in &game.trail {
         let v = game.world.pheromone_at(game.scent, x, y);

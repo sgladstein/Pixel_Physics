@@ -5525,7 +5525,7 @@ impl World {
 
     /// Add to a pheromone channel at `(x, y)`. Out-of-world deposits are
     /// dropped silently.
-    pub fn deposit_pheromone(&mut self, channel: Channel, x: i32, y: i32, amount: u8) {
+    pub fn deposit_pheromone(&mut self, channel: Channel, x: i32, y: i32, amount: super::pheromone::Scent) {
         // `sense` reads six pheromone samples around the head, so a
         // deposit changes what a neighbour's cached sense would have said.
         self.write_watch.mark(x, y);
@@ -5534,7 +5534,7 @@ impl World {
 
     /// Read a pheromone channel at `(x, y)`. Nearest-cell — the plane is
     /// already at CA resolution. Out of world reads 0.
-    pub fn pheromone_at(&self, channel: Channel, x: i32, y: i32) -> u8 {
+    pub fn pheromone_at(&self, channel: Channel, x: i32, y: i32) -> super::pheromone::Scent {
         self.pheromones.sample(channel, x, y)
     }
 

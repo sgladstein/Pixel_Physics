@@ -8652,7 +8652,7 @@ impl Renderer {
             _ => None,
         };
         if let Some((channel, full)) = pheromone_channel {
-            let t = world.pheromone_at(channel, x, y) as f32 / 255.0;
+            let t = world.pheromone_at(channel, x, y) as f32 / crate::sim::pheromone::Scent::MAX as f32;
             let ramp = scalar_ramp(t, full);
             let mut out = base;
             for (c, r) in out.iter_mut().take(3).zip(ramp) {
