@@ -218,6 +218,42 @@ by somebody about to try it on creatures.
   hole** as a decision for all three games rather than for druid: the ladder is
   1,2,3,4 and 3 has no power-of-two divisor, so the budget buys nothing there
   and a player walking out gets sharp, sharp, blurry, sharp.
+- [held-world-design.md](held-world-design.md) — **living design document,
+  nothing built. `held`.** The design of record for the held world *beyond*
+  the founding concept, and **deliberately undated in its filename** because it
+  is edited in place as the design moves. Opened 2026-09-15 from a design
+  conversation whose first finding was that §10a of the concept report was the
+  only design the enemy had. **Three owner rulings reshape it.**
+  **Un-quickening is not the primary enemy** — *"it could be a specific type of
+  enemy or enemy weapon, but I don't think it should be primary"* — so what
+  replaces it keeps §10a's surviving idea (the dial that funds the garden is
+  the dial that calls them) and throws away its verb: the enemy is the
+  stillness advancing as a **substance**, and **it is held too, so it moves
+  only where the player has made time**, which is what makes a world-spanning
+  fluid admissible in an engine whose whole performance model is that settled
+  things sleep. **Two ranges**, the owner's own: an inner *quickening* running a
+  whole world at r², and a much larger *waking* radius running **the enemy and
+  nothing else**, whose price is the tide's front — a line, not a disc — so the
+  dread radius can be several screens for nearly nothing. And **tower defence
+  is to be mined rather than avoided**, which resolves the building question —
+  **the hearth is the tower**, and the player's works split into *built* (few,
+  permanent) and *grown* (many, cheap, alive). Carries the rule against the
+  trap the owner named — **if a decision can be a number in a HUD, make it a
+  place on the ground** — and the answer to his processor worry, which is that
+  a hearth at quarter speed **is already the design of record**
+  (`regional-time-scope-2026-09-13.md` §3d's per-region stride, where chunks
+  overlapping no live region are forced asleep for that pass and a slow region
+  is *bit-identical* to today's world), with two constraints carried: rates
+  must be divisors of the maximum, so *"a tenth"* is not on the ladder. Its
+  larger proposal is to **make the frame budget the economy**, so the machine's
+  limit and the game's currency are one number. **Corrects the coordinator
+  note**, which gates the enemy on `creature_arena` — the wrong instrument for
+  the question it describes; `labstats` is the one carrying `predators=`. And
+  it records why the gate's question had to change: **"inedible" cannot be
+  built since the graded bite**, and on the lab bed the alive column is the
+  floor (**0, 3, 2** across three arms) while killed-by-beetle moves
+  **0 → 8 → 25**, so death causes are the readout and a predator may currently
+  be a *subsidy* — which §7d turns into a per-enemy dial rather than a defect.
 - [why-changes-cost-so-much-2026-08-27.md](why-changes-cost-so-much-2026-08-27.md)
   — **method finding, from a live instance.** Why every change here seems to
   demand a global retune: most large levers have **no counterweight**, so
