@@ -78,6 +78,12 @@ Neither direction lands exactly on its target (1,406 against 1,296;
 488 against 188), which is the shape of a real effect rather than an artifact
 — three switches interacting, not one knob with a clean multiplier.
 
+**The bands also say why the ablation is not a clean multiplier.** The switch
+does nothing at all to a seedling and a great deal to a grown tree, so its
+effect on a stand depends on the stand's size distribution at the moment you
+look — which is itself moving, because the switch changes how fast plants
+grow into the next band.
+
 **And it is not only leaves moving to the floor: the stand itself is
 smaller.** Every cadence-off arm ends around 22,000 living cells against
 ~30,000 for every cadence-on arm. A big tree running its economy four times as
@@ -90,8 +96,12 @@ so in as many words: *"It is a behaviour change and not a hidden one. The tick
 growth draws on — so a tree on a 4x interval does not merely update less, it
 lives slower."* Leaf abscission is evaluated on that same tick: the shade roll
 (`plant.rs:11027`, `shade_death * darkness^3`) and the drought roll
-(`:11061`) fire once per organism tick. So a big tree in the lab rolls to shed
-a quarter as often as the identical tree in the held world.
+(`:11061`) fire once per organism tick. So the identical tree rolls to shed
+far less often in the lab than in the held world — **how much less depends on
+its size**, which is the point of the switch. `PLANT_SIZE_CADENCE`
+(`plant.rs:7946`) bands it: up to 50 cells x1, 200 x2, 800 x3, 3,200 x4, and
+anything larger **x5**. A seedling is unaffected in either game; a grown tree
+in the lab runs its whole economy at a fifth the rate.
 
 ## The time model, which is a different effect than it looks
 
