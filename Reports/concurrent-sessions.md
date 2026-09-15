@@ -9,7 +9,7 @@ failure mode of one specific manoeuvre does not need to sit in every
 session's context in full narrative detail, but it does need to exist
 somewhere findable when the manoeuvre goes wrong.
 
-Current as of: 2026-09-05.
+Current as of: 2026-09-15.
 
 ## The `git reset --mixed` that strands stale files
 
@@ -82,7 +82,12 @@ from the Claude Code Remote environment instead (checked 2026-08-25: the only
 connector installed is Google Drive). Connecting the GitHub App at org level,
 as the section below says, is still the real one.
 
-## What no pull requests cost, measured 2026-08-23
+## What no pull requests cost, measured 2026-08-23 — and closed the same day
+
+**This section is a closed case, kept for its reasoning.** Its numbers were
+true for about a day and are quoted elsewhere as if they still were; the
+correction is at the bottom. Read it for *why* an ungated branch is
+expensive, not for what CI does now.
 
 What it cost to leave unsaid, measured 2026-08-23: **133 CI runs, every one on
 `main` or `master`. Zero on any feature branch, zero from a `pull_request`
@@ -92,6 +97,38 @@ branch's code was *after* it landed, when a red suite can no longer tell you
 whether the branch broke it or the merge resolution did. And a branch nobody
 can see is a branch nobody merges: 27 accumulated, ten of them cut in one
 fan-out and never once pulled forward.
+
+**Both halves were fixed on 2026-08-23, hours after the measurement, and the
+measurement is what prompted it.** `f891825f` widened the push trigger from
+`branches: [main]` to `[main, master, 'claude/**']`, so a feature branch is
+now gated on every push; and the owner's standing authorisation to open a PR,
+given the same day, made the `pull_request` trigger fire for the first time —
+it had been configured since `9af8955d` on **2026-08-11** and had simply never
+had a PR to fire on. **The trigger was never missing. What was missing was
+pull requests.**
+
+The tell that it worked is two more commits the same day: `8b1324bb` and
+`c6ffba2f` exist only to stop the *nine-job matrix running twice* on a PR
+push, a problem you cannot have until PR runs happen. The concurrency block
+in `ci.yml` carries that forensics in full.
+
+**Measured 2026-09-15, the same census re-run: 1,252 runs from a
+`pull_request` event against 2,502 from a push.** Verified first-hand the
+same day on PR #457 — run 3749 was a `pull_request` event that ran the full
+nine-job matrix against the branch head *before* the merge, and superseded
+the branch's own push run through the concurrency group. So a branch's code
+is now seen by CI twice before it lands, and the sentence to stop quoting is
+"the first time CI saw a branch's code was after it landed."
+
+**Why this sat wrong for three weeks is the reusable part.** A measurement
+whose whole purpose is to justify a fix reads, afterwards, exactly like a
+description of the system — the number is real, the prose is present tense,
+and nothing in a document says "and then we fixed it". `CLAUDE.md` quoted
+this one as a live consequence until 2026-09-15. **When a measurement is
+taken to motivate a change, the entry recording it owes a line saying what
+the change was**, written at the time, because the person best placed to add
+it is the one who made the measurement and they are the least likely to
+think it needs saying.
 
 ## Where the 300 landing threshold comes from, and what it cannot see
 
