@@ -97,7 +97,17 @@ const GROW_ENV: &str = "PIXEL_PHYSICS_DRUID_GROW";
 /// is built around is **putting something back**.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Start {
-    /// **The default.** The land lived, and then it died: grown for
+    /// **Not the default any more — [`Bare`](Self::Bare) carries
+    /// `#[default]`**, and this line said "The default" for a day after that
+    /// moved. Left as a warning rather than quietly corrected: a reader
+    /// checking *which start ships* naturally reads the variant docs and not
+    /// the derive, so a stale word here is a confident wrong answer about
+    /// what is on screen. It cost one 2026-09-15 session a whole hypothesis
+    /// — that the floor the owner was seeing was a standing dead wood
+    /// rotting into litter, in a world that in fact ships with nothing in it
+    /// at all. `Bare`'s own doc records the playtest that moved it.
+    ///
+    /// The land lived, and then it died: grown for
     /// [`GROW_FRAMES`], then every plant marked senescent, then held.
     ///
     /// **Senescent rather than deleted, and that is the whole trick.**
@@ -834,20 +844,58 @@ impl Druid {
         // the patch's *shape* 1 of 5: *"There should be no color. If we have
         // to have this, it should be invisible."* See [`ground_toned_nest`].
         ground_toned_nest(&mut world);
-        // **Plants do not come apart under their own load here, by default.**
-        // Owner, 2026-09-14, asking for the menu this sits behind: *"the
-        // ability to turn off plant destruction or breaking due to stress
-        // (which should be off by default)."* The engine default is `true`
-        // and stays `true` — the outdoor game and `scripts/acceptance.sh`'s
-        // `fell` case are untouched; this is the held world choosing
-        // differently, which is what a per-game field is for.
+        // **The three plant rules, set to the evolution lab's values.**
         //
-        // **Only a *living* plant is held.** A senescent one comes apart
-        // exactly as before, so culling, rot and felling still work — the
-        // switch's own doc records the owner reporting *"I turned COLLAPSE
-        // UNDER LOAD off, but trees are still falling over"* against an
-        // earlier version that got that distinction wrong.
-        world.plant_load_failure = false;
+        // Owner, 2026-09-15: *"I want all three plant rules in the druid game
+        // to match the lab."* They had drifted to three different settings
+        // with no two of the three games agreeing, which nothing stated
+        // anywhere until it was measured
+        // (`Reports/lab-vs-druid-plant-mechanics-2026-09-15.md`): the held
+        // world was running **6.9x the standing leaf litter** of the lab on
+        // one bed at one seed, and `plant_size_cadence` was almost all of it.
+        //
+        // **This is the lab's set, copied deliberately and not shared.**
+        // `lab::scene::LabBox::build_counted` writes the first two and leaves
+        // the third; this writes all three, so the held world says what it
+        // runs rather than inheriting two of them from `World::new` by
+        // accident. `two-games-one-repo` is why they are copied rather than
+        // hoisted into a shared constructor: the *outdoor* game is a third
+        // set, still on the engine defaults, and a shared "game plant rules"
+        // helper would be a fourth thing to keep in step.
+        // `druid::tests::the_three_plant_rules_match_the_lab` is the guard
+        // that catches the next drift; it reads the lab's own bed rather than
+        // a written-down copy of its values, so it cannot go stale if the lab
+        // retunes.
+        //
+        // **`plant_size_cadence` is a behaviour change, not a cost setting**,
+        // and it is the one that moves the floor. `World`'s own doc: *"the
+        // tick **is** the plant's economy... a tree on a 4x interval does not
+        // merely update less, it lives slower."* Leaf abscission is evaluated
+        // on that tick, and `plant::PLANT_SIZE_CADENCE` bands it 1/2/3/4/5x
+        // by cell count — so a grown tree now runs its economy, and rolls to
+        // shed, at a fifth the rate it did. Expect visibly less litter, and
+        // also slower-growing big plants; the two are the same lever.
+        world.plant_size_cadence = true;
+        world.plant_bending = false;
+        // **This one reverses an earlier ruling of the owner's, deliberately
+        // and on his say-so.** 2026-09-14 he asked for the menu this sits
+        // behind: *"the ability to turn off plant destruction or breaking due
+        // to stress (which should be off by default)."* The 2026-09-15 ruling
+        // above is newer and explicitly names all three, so it wins — but the
+        // reversal is worth having in front of whoever reads this next,
+        // because *"trees are falling over"* was a real complaint and this is
+        // the switch it was about. **It is still a menu row** (`PLANTS BREAK
+        // UNDER STRESS`, `menu::Setting::PlantBreak`), so turning it back off
+        // is one keypress and putting the old default back is one line here.
+        //
+        // **Only a *living* plant was ever held by this.** A senescent one
+        // comes apart regardless, so culling, rot and felling worked either
+        // way — the switch's own doc records the owner reporting *"I turned
+        // COLLAPSE UNDER LOAD off, but trees are still falling over"* against
+        // an earlier version that got that distinction wrong. Which means
+        // turning it back on does **not** re-enable something that was fully
+        // off: it re-enables it for the living.
+        world.plant_load_failure = true;
 
         // **The druid preset, not the shipped default.** `rolling` is a
         // mining world -- the first druid build generated one and put the
@@ -2463,6 +2511,78 @@ fn grow_from_env() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **The three plant rules run the same values here as in the lab.**
+    ///
+    /// Owner, 2026-09-15: *"I want all three plant rules in the druid game to
+    /// match the lab."* They had drifted apart without anyone noticing,
+    /// because each was set at a different time for a different good reason
+    /// and nothing ever compared them: measured, the held world was carrying
+    /// **6.9x the standing leaf litter** of the lab on one bed at one seed
+    /// (`Reports/lab-vs-druid-plant-mechanics-2026-09-15.md`).
+    ///
+    /// **It reads the lab's live bed rather than three literals**, which is
+    /// the whole point: a written-down `true, false, true` would pass for ever
+    /// while the lab retuned underneath it, and "matches the lab" would
+    /// quietly become "matches what the lab used to be". The failure mode
+    /// this guards is silent in both directions — a plant rule diverging
+    /// changes what grows, not whether anything crashes.
+    ///
+    /// **A tiny world on purpose.** `Druid::new` generates 2560x960, and the
+    /// shipped `Start::Bare` skips the grow phase, so the only cost here is
+    /// worldgen — which `PIXEL_PHYSICS_DRUID_SIZE=64x64` makes negligible.
+    /// The same trick `bin/druid.rs`'s own `bare_handler` uses, for the same
+    /// reason: this is a test about which switches got written, not about
+    /// worldgen.
+    #[test]
+    fn the_three_plant_rules_match_the_lab() {
+        // SAFETY (env mutation in a test): `Druid::new` reads these two, and
+        // the lock keeps this the only test in this binary doing so at once.
+        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let restore = (std::env::var(SIZE_ENV).ok(), std::env::var(START_ENV).ok());
+        unsafe {
+            std::env::set_var(SIZE_ENV, "64x64");
+            std::env::set_var(START_ENV, "bare");
+        }
+        let held = Druid::new();
+        unsafe {
+            match &restore.0 {
+                Some(v) => std::env::set_var(SIZE_ENV, v),
+                None => std::env::remove_var(SIZE_ENV),
+            }
+            match &restore.1 {
+                Some(v) => std::env::set_var(START_ENV, v),
+                None => std::env::remove_var(START_ENV),
+            }
+        }
+
+        let bed = crate::lab::scene::LabBox::default().build();
+
+        // **The control, and it is not decoration.** Two of these three are
+        // `World::new`'s own defaults on one side or the other, so an
+        // assertion that the two worlds agree could be satisfied by a
+        // `Druid::new` that writes nothing at all — which is exactly the bug
+        // that was here. If the lab ever stops overriding anything, this
+        // says so rather than passing blind.
+        let fresh = World::new(Rect::new(0, 0, 63, 63));
+        assert_ne!(
+            (bed.plant_size_cadence, bed.plant_bending, bed.plant_load_failure),
+            (fresh.plant_size_cadence, fresh.plant_bending, fresh.plant_load_failure),
+            "the lab no longer differs from World::new on any of the three, so this guard cannot fail \
+             for the reason it was written and must be replaced rather than widened"
+        );
+
+        assert_eq!(
+            held.world.plant_size_cadence, bed.plant_size_cadence,
+            "plant_size_cadence: the held world and the lab must agree -- it is the one that moves the forest floor"
+        );
+        assert_eq!(held.world.plant_bending, bed.plant_bending, "plant_bending: the held world and the lab must agree");
+        assert_eq!(
+            held.world.plant_load_failure, bed.plant_load_failure,
+            "plant_load_failure: the held world and the lab must agree"
+        );
+    }
 
     /// **A founding leaves no colour on the ground.**
     ///
