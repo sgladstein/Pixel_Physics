@@ -1,6 +1,25 @@
 # Ants
 
-*Current as of: 2026-09-13, when **a resting animal stopped being an animal
+*Current as of: 2026-09-14, when **a cry of alarm started carrying.** An
+animal being hurt has left a smell where it happened since 2026-09-06, and
+until now no other animal could hear it: the smell was being spread the way a
+food trail is spread, which is the right way to move something a colony is
+supposed to add up and follow, and the wrong way to move a shout. An ant one
+body-length from a fight read almost nothing, and one two body-lengths away
+read nothing at all, ever — so a bite was a private event between the two
+animals in it, however many others were standing around. **A cry now makes a
+patch of disturbed ground around wherever it happened**, loud in the middle
+and fading outward over several body-lengths, and it still goes quiet a second
+or so after the biting stops. What an animal does about it is still up to what
+that line has grown into: some come in, some leave, most of them were never
+born knowing. But the ones that do something can now be animals that were not
+themselves touched — which is the whole difference between fifty animals each
+having a bad day and a colony noticing one.*
+
+*Before that, the same day: 2026-09-14, when **ants stopped attacking plants
+and stopped raising the alarm over a mouthful of leaf**.*
+
+*And before that: 2026-09-13, when **a resting animal stopped being an animal
 that has stopped.** An ant that has held one spot for a while now grows
 restless: it shifts, takes a step and settles again, and the longer it has
 been still the sooner that happens. Before, a fed ant with food in reach and
@@ -1108,8 +1127,28 @@ was never going to open. This is what makes armour worth growing at all:
 without a price on the attempt, a plate would only ever have slowed a meal
 down, never prevented one.
 
+**An ant will not bite a plant to hurt it, and this is now absolute.** It
+will eat one — grazing a leaf is ordinary and is most of what a colony does
+all day — but it will never pick a fight with a tree. It used to, and nobody
+meant it to: a plant is alive, so as far as the fighting instinct was
+concerned it was somebody, and an ant that had just taken a bite out of a leaf
+would turn round and start hacking at the plant it was eating. **Wood is not
+food and never has been**, so every cell it took that way simply came off and
+fed nobody. On the bed the owner plays, **every single swing any ant threw was
+at a plant**, and the jaw was destroying nine of every ten cells a colony took
+off a living plant while eating none of them — which is why a bed with ants in
+it lost its forest and the same bed without them kept it. Plants standing at
+the end of a long run went up by a third to two and a half times once it
+stopped.
+
 **Being bitten leaves a smell, and it is not a trail.** An animal that
-something has hold of marks the ground where it is happening. It is a third
+something has hold of marks the ground where it is happening. **Being *eaten*
+counts as being bitten, and being *grazed* does not** — a plant does not cry
+out. That sounds like a detail and it was the whole of the problem above: the
+smell is the only thing in the box that makes an ant reach for its jaws, so an
+ant that raised it every time it took a mouthful of leaf was calling its own
+colony to a fight with the plant it was standing on. A stand of herb is now
+silent under a feeding ant, and the smell means what it says. It is a third
 smell, quite separate from the two an ant lays while it walks, and the
 difference that matters is how long it lasts: a trail is meant to survive
 being laid once and come back to minutes later, and this is gone in about a
@@ -1121,7 +1160,7 @@ scatter is something a line would have to work out, and both are possible.
 
 **A colony now stops for a fight, and this is on by default.** An ant that
 is standing on ground where something is being bitten stops walking and bites
-whatever is there that is not family. Those are two things it is born
+whatever **animal** is there that is not family. Those are two things it is born
 knowing, and they are the first fighting instincts any animal here has ever
 had.
 

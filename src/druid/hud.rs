@@ -169,11 +169,12 @@ pub const KEYS: &[(&str, &str, bool)] = &[
     ("SHIFT", "HOLD ON IN A TREE", false),
     ("SPACE", "PLACE A CIRCLE OF TIME", true),
     ("X", "LIFT THE NEAREST CIRCLE", true),
-    ("Q E", "ITS RADIUS", false),
-    ("[ ]", "HOW FAR YOUR OWN CIRCLE REACHES", false),
+    ("Q E", "BUBBLE SIZE - YOURS, AND THE NEXT ONE PLACED", false),
     ("Z V", "HOW FAST TIME RUNS IN THEM", false),
     ("G", "LAY A SCENT TRAIL AS YOU WALK", false),
     ("I", "WHICH SCENT - HOME, OR FOOD", true),
+    ("R", "SMALL ENOUGH TO GO UNDERGROUND", true),
+    ("- =", "CLOSER IN, FURTHER OUT", false),
     // `T` still sows; `K` now cycles which seed. `TAB` moved to the
     // biosphere page below, matching the key the lab already uses for its
     // own — a player who has touched both games gets the same reflex.
@@ -183,6 +184,7 @@ pub const KEYS: &[(&str, &str, bool)] = &[
     ("F", "DRAW THE CHARGE OUT OF THEM", true),
     ("M", "OPTIONS", true),
     ("H", "HOLD OR RELEASE THE WORLD", true),
+    ("N", "RESTART - A FRESH WORLD, ABOUT A MINUTE", false),
     ("L", "HOW HELD GROUND IS DRAWN", true),
     ("U", "UNLIMITED POWER (PLAYTEST)", true),
     ("P", "PAUSE", true),
@@ -215,13 +217,7 @@ pub struct Readout {
     /// be told: an empty power bar beside `YOUR CIRCLE R28` reads as a fault
     /// rather than as a choice the player made.
     pub carried_off: bool,
-    /// How many seeds of the selected kind are left in the pouch.
-    pub seeds: u32,
-    pub held: bool,
     pub paused: bool,
-    pub look: &'static str,
-    pub seed_kind: String,
-    pub sown: usize,
     /// Charge standing within reach, and how many animals hold it.
     ///
     /// **No longer drawn.** Item 2 of the 2026-09-14 playtest: *"no
@@ -273,26 +269,20 @@ impl Readout {
             if self.carried_off { "YOUR CIRCLE OFF".to_string() } else { format!("YOUR CIRCLE R{}", self.carried_radius) },
             if self.carried_off { WARN } else { TEXT },
         ));
-        // **What T would sow, and how many have gone in.** A seed dropped on
-        // held ground is invisible until time reaches it, so without the
-        // count a working key and a broken one look the same.
-        // **The pouch is on this line rather than a new one**, because "what
-        // T sows" and "how many of it are left" are one question now that the
-        // supply is finite. Red at zero: the key still works for every other
-        // kind, so a silent nothing-happens would read as a broken key.
+        // **The seed line and the world/look line are gone**, owner playtest
+        // 2026-09-14: *"simplify the top left info box: remove world held,
+        // look one hue, seed moss, sown number."* Every one of them was
+        // already said better somewhere else — the seed kind and the look
+        // are their own bar buttons and read as their own labels, and
+        // `WORLD HELD` restates what the whole screen is showing. `SOWN` was
+        // a running total nobody acts on.
         //
-        // Merge note, 2026-09-14: `main` dropped the `CHARGE n IN m NEAR YOU`
-        // row that used to sit under this one. That deletion is kept -- it is
-        // the newer side and it is deliberate -- and only the seed count is
-        // carried across from this branch.
-        lines.push((
-            format!("SEED {} x{}   SOWN {}", self.seed_kind.to_uppercase(), self.seeds, self.sown),
-            if self.seeds == 0 { WARN } else { TEXT },
-        ));
-        lines.push((
-            format!("WORLD {}   LOOK {}", if self.held { "HELD" } else { "RUNNING" }, self.look.to_uppercase()),
-            if self.held { TEXT } else { WARN },
-        ));
+        // **The pouch count moved to the SOW button rather than being
+        // deleted**, because it is the one thing on that line that was not
+        // duplicated and it is load-bearing: the supply is finite, so a key
+        // that quietly does nothing at zero would read as broken. It is the
+        // button's own label now — `SOW MOSS 8` — which is `lab::ui`'s chip
+        // idiom and the same one the seed-kind and look buttons already use.
         if self.paused {
             lines.push(("PAUSED".to_string(), WARN));
         }
@@ -425,9 +415,27 @@ impl Interface {
 
         // **What he has told them.** Under the marks and motes, over the
         // rings: it is ground he has written on, not an event.
+        // **Blended by strength, not stamped.** Owner, 2026-09-14: *"The
+        // animation can be improved too. it should be more diffuse looking,
+        // not like a bunch of dots."* An opaque `put` gives every drawn cell
+        // a hard edge against its neighbour and the whole trail against the
+        // ground, which is what makes a cloud read as a sausage; the strength
+        // already varies the *green* and now it varies the alpha as well, so
+        // the rim of the cloud fades out instead of stopping.
+        //
+        // **This does not reinstate the failure `SCENT_FAINT` records.** The
+        // version that vanished blended *toward the panel colour* — a fixed
+        // navy, at an alpha set by a mark that could only ever be 40 of 255,
+        // so the strongest thing the trail ever had was a 16% wash of dark
+        // green over dark ground. Both halves of that are gone: the mark is a
+        // graded swath now (`druid::TRAIL_RADIUS`) and reaches 241, and the
+        // blend is over the *world*, so the core lands opaque and only the
+        // edge is translucent. `SCENT_FAINT`'s rule survives intact — how
+        // strong a mark is still varies the green first.
         let (faint, full) = if self.scent_b { (SCENT_B_FAINT, SCENT_B) } else { (SCENT_FAINT, SCENT) };
         for (x, y, band) in &self.scent {
-            hc.put(frame, *x, *y, lerp(faint, full, *band as f32 / (SCENT_BANDS - 1) as f32));
+            let t = *band as f32 / (SCENT_BANDS - 1) as f32;
+            hc.blend(frame, *x, *y, lerp(faint, full, t), t);
         }
 
         // **The event: energy on its way in.** Brighter and larger as it
@@ -641,11 +649,36 @@ fn scent(game: &Druid) -> Vec<(i32, i32, u8)> {
                 if !seen.insert((sx, sy)) {
                     continue;
                 }
-                out.push((sx, sy, (v as u16 * SCENT_BANDS as u16 / 256) as u8));
+                out.push((sx, sy, band_of(v)));
             }
         }
     }
     out
+}
+
+/// **Which brightness band a plane reading falls in — on a square root, not
+/// a straight scale.**
+///
+/// The straight `v * SCENT_BANDS / 256` this replaced put everything under 32
+/// in band 0, and until `druid::TRAIL_RADIUS` landed the plane never held
+/// more than about 31 along a walked route: **every mark of every trail drew
+/// in the same single colour, the dimmest one, and the other seven bands
+/// were unreachable.** A readout with one value is a readout with no
+/// gradient, which is half of what "a bunch of dots" was describing.
+///
+/// The swath fixed the range and the root fixes the *distribution*. What a
+/// cloud's edge is made of is small values — the rim of a diffused mark is
+/// single digits, and on a straight scale those all land in band 0 and draw
+/// identically, so the cloud still ends in a step. `sqrt` spends the bands
+/// where the picture needs them: a reading of 8 draws at band 1 rather than
+/// band 0, 32 at band 2 rather than 1, and only the core reaches the top.
+///
+/// Banded at all, rather than continuous, for the reason `Interface::scent`
+/// gives: this value decides whether the corner owes a repaint, and a raw
+/// strength would move on every frame and cost the dirty-rect skip its job.
+fn band_of(v: u8) -> u8 {
+    let t = (v as f32 / 255.0).sqrt();
+    (t * (SCENT_BANDS - 1) as f32).round() as u8
 }
 
 fn options(game: &Druid) -> Option<Options> {
@@ -1107,6 +1140,10 @@ pub enum Action {
     CycleScent,
     ToggleOptions,
     ToggleUnlimited,
+    /// Small enough to walk into a nest, or back to her own size.
+    ToggleSmall,
+    /// Closer in, or further out. `delta` is the direction.
+    Zoom(i32),
     /// The biosphere page (item 1 of the playtest). Not handled by
     /// [`Druid::act`] below — the page itself lives on `Handler`, for the
     /// same reason the bar's own state does.
@@ -1176,6 +1213,12 @@ struct BarState {
     menu_open: bool,
     unlimited: bool,
     stats_open: bool,
+    /// How many of the selected seed kind are left — the button's own label,
+    /// since the readout no longer carries it.
+    seeds: u32,
+    /// Whether she is in her small shape. Latches the button, which is how
+    /// a toggle says which way it is without a second readout.
+    small: bool,
     seed_kind: String,
     look: String,
     scent: &'static str,
@@ -1189,6 +1232,8 @@ fn bar_state(game: &Druid, stats_open: bool) -> BarState {
         menu_open: game.menu.is_some(),
         unlimited: game.unlimited,
         stats_open,
+        small: game.is_small(),
+        seeds: game.seeds_in_hand(),
         seed_kind: game.seed_kind_name().to_uppercase(),
         look: game.renderer.held_look.label().to_uppercase(),
         scent: match game.scent {
@@ -1220,12 +1265,21 @@ fn bar_specs(state: &BarState, pad: i32) -> Vec<Spec> {
         btn(0, "LIFT".to_string(), "X", Action::LiftCircle, false, pad),
         btn(0, "FOUND".to_string(), "C", Action::FoundColony, state.offer_open, pad),
         btn(0, "ABSORB".to_string(), "F", Action::Absorb, false, pad),
-        btn(1, "SOW".to_string(), "T", Action::SowSeed, false, pad),
+        // **The pouch count lives on the button**, moved off the readout with
+        // the rest of that line — see `Readout::lines`. Red is not available
+        // on a button, so an empty pouch reads from the number alone; the
+        // refusal note is what says it out loud when the key is pressed.
+        btn(1, format!("SOW {}", state.seeds), "T", Action::SowSeed, false, pad),
         btn(1, state.seed_kind.clone(), "K", Action::CycleSeedKind, false, pad),
         btn(1, state.look.clone(), "L", Action::CycleLook, false, pad),
         btn(1, state.scent.to_string(), "I", Action::CycleScent, false, pad),
         btn(1, "OPTIONS".to_string(), "M", Action::ToggleOptions, state.menu_open, pad),
         btn(1, "UNLIMITED".to_string(), "U", Action::ToggleUnlimited, state.unlimited, pad),
+        // **A main action**, so it gets a button: it changes where in the
+        // world she can go, which is the test the rest of this bar passes.
+        // Latched, because "am I small" is a state and the button is the
+        // only thing on screen that says so.
+        btn(1, "SMALL".to_string(), "R", Action::ToggleSmall, state.small, pad),
         btn(1, "STATS".to_string(), "TAB", Action::ToggleStats, state.stats_open, pad),
     ]
 }
@@ -1357,6 +1411,10 @@ impl Druid {
                 self.note(format!("held ground drawn: {look}"));
             }
             Action::CycleScent => self.cycle_scent(),
+            Action::ToggleSmall => {
+                self.toggle_small();
+            }
+            Action::Zoom(delta) => self.renderer.adjust_zoom(delta),
             Action::ToggleOptions => self.toggle_menu(),
             Action::ToggleUnlimited => {
                 self.unlimited = !self.unlimited;
@@ -1403,6 +1461,13 @@ mod tests {
                 // twice, once for `TAB` and once for these.
                 "BracketLeft" => "[".to_string(),
                 "BracketRight" => "]".to_string(),
+                // The zoom pair, added with the shrink verb: at 2x3 she is a
+                // six-pixel blob and so is the gallery, so magnify is part
+                // of that feature rather than a nicety. Spelled out here for
+                // the same reason as the brackets above -- `KeyCode::Equal`
+                // reads as `EQUAL` and the legend quite rightly says `=`.
+                "Equal" => "=".to_string(),
+                "Minus" => "-".to_string(),
                 // `KeyA` .. `KeyZ` and the function keys read straight
                 // across; anything else added later shows up as itself and
                 // fails loudly rather than being silently skipped.
@@ -1444,7 +1509,7 @@ mod tests {
         // glyph missing from the other — which is the whole thing this test
         // is for. `YOUR CIRCLE OFF` and `SEED ... x0` are the two strings
         // that only exist on one arm.
-        for (power, income, drain, unlimited, paused, carried_off, seeds) in [
+        for (power, income, drain, unlimited, paused, carried_off, _seeds) in [
             (0.0, 0.0, 0.0, false, false, false, 8),
             (612.4, 7.25, 1.5, false, true, true, 0),
             (0.0, 0.0, 99.9, false, false, true, 24),
@@ -1462,12 +1527,7 @@ mod tests {
                 rate: 4,
                 carried_radius: 28,
                 carried_off,
-                seeds,
-                held: true,
                 paused,
-                look: "one hue",
-                seed_kind: "conifer".to_string(),
-                sown: 3,
                 charge: (123.0, 7),
                 reserve_cap: 40.0,
                 power_full: 600.0,
@@ -1603,14 +1663,9 @@ mod tests {
             carried_radius: 96,
             // The tallest panel is the one with every optional row on it, and
             // `OFF` is one character shorter than `R96` — so the *on* arm is
-            // the one that sizes this, and the seed count is at its widest.
+            // the one that sizes this.
             carried_off: false,
-            seeds: 24,
-            held: true,
             paused: true,
-            look: "unchanged",
-            seed_kind: "scrambler".to_string(),
-            sown: 999,
             charge: (4321.0, 210),
             reserve_cap: 40.0,
             power_full: 600.0,
@@ -1645,6 +1700,8 @@ mod tests {
             menu_open: true,
             unlimited: true,
             stats_open: true,
+            small: true,
+            seeds: 24,
             seed_kind: "SCRAMBLER".to_string(),
             look: "UNCHANGED".to_string(),
             scent: "FOOD",
@@ -1653,7 +1710,7 @@ mod tests {
 
     #[test]
     fn the_bar_fits_the_screen_and_no_two_widgets_overlap() {
-        for state in [BarState { paused: false, held: false, offer_open: false, menu_open: false, unlimited: false, stats_open: false, ..widest_bar_state() }, widest_bar_state()] {
+        for state in [BarState { paused: false, held: false, offer_open: false, menu_open: false, unlimited: false, stats_open: false, small: false, ..widest_bar_state() }, widest_bar_state()] {
             let bar = layout_for(&state);
             assert!(bar.fits(), "the bar does not fit a {}-wide window even at its tightest spacing", crate::app::WIDTH);
             for (i, a) in bar.widgets.iter().enumerate() {

@@ -73,6 +73,7 @@
 //! reads the environment once through a `OnceLock`, so a knob nobody can see
 //! the value of is a knob nobody can tell is disconnected.
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::lab::Lab;
 use pixel_physics::sim::material::{MaterialId, MaterialKind, EMPTY};
@@ -290,7 +291,7 @@ fn tick(lab: &mut Lab) {
 /// cull, so a repeated-disturbance run puts the box through the button the
 /// owner actually has rather than through a harness-only total wipe.
 fn cull_half(world: &mut World) -> usize {
-    let ids: Vec<u16> = world
+    let ids: Vec<OrganismId> = world
         .live_organism_ids()
         .into_iter()
         .filter(|id| world.organism(*id).is_some_and(|s| world.species.get(s.species).creature.is_none()))

@@ -65,11 +65,35 @@ struct GifCapture {
     /// First tick to capture on.
     start: u64,
     /// Ticks between captures. 1 is every tick, which at 60/s is real time.
+    ///
+    /// **Only honoured because `last` below exists.** Without it this is not
+    /// a stride at all: the test runs at *draw* time, and on the software
+    /// rasteriser a run can draw several times inside one player tick, so a
+    /// qualifying tick was captured over and over. Measured 2026-09-14 on the
+    /// first walk clip: 60 frames spanning **38 ticks**, an animation of
+    /// mostly the same instant, and the per-tick speed read off it was a
+    /// third of the real one. The standing note already had the two clocks
+    /// written down (`PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES` counts drawn
+    /// frames, the hooks count player ticks); this is the same fact biting
+    /// from the other side.
     every: u64,
     /// How many frames to take before writing the file and exiting.
     count: usize,
     out: std::path::PathBuf,
     frames: Vec<Vec<u8>>,
+    /// Her position and the tick, as of the **first captured frame** --
+    /// filled in there rather than at construction so it is the start of the
+    /// clip rather than the start of the run.
+    ///
+    /// **A GIF of a walk cannot be read for speed and this is why it is
+    /// here.** The camera follows her, so two clips at two speeds differ only
+    /// in how fast the ground goes past, which is exactly the judgement
+    /// `CLAUDE.md`'s *"did it fire at all" needs a counter, not a picture*
+    /// says an image cannot carry. This is the number that goes in the review
+    /// card's `meta`: cells covered over a fixed number of ticks.
+    from: Option<(f32, u64)>,
+    /// The last tick a frame was taken on -- see `every`.
+    last: Option<u64>,
 }
 
 struct Handler {
@@ -90,10 +114,25 @@ struct Handler {
     /// binaries carry, and the only way to see a rendered window on a
     /// headless box, since this build's swapchain is invisible to OS capture.
     screenshot_countdown: Option<u32>,
+    /// **`N` — restart, counted in drawn frames.** Owner's playtest,
+    /// 2026-09-14: *"there should be a restart option."*
+    ///
+    /// Not acted on the same frame the key arrives. `Druid::new` generates
+    /// 2560x960 and grows it -- about a minute of wall clock -- on this
+    /// thread, with nothing else able to run while it does, so a restart
+    /// that fires immediately blocks the window the instant the key is
+    /// pressed and the message this counts down to would never be drawn at
+    /// all: the freeze and the notice would race, and the freeze always
+    /// wins. `Some(1)` at the keypress buys one drawn-and-presented frame
+    /// with `Druid::note`'s message on screen before `Handler::
+    /// perform_restart` actually blocks -- see `Handler::request_restart`.
+    restart_countdown: Option<u32>,
     /// See `PIXEL_PHYSICS_DRUID_CENSUS`.
     census_after: Option<u64>,
     /// See `PIXEL_PHYSICS_DRUID_ABSORB_AT`.
     absorb_at: Option<u64>,
+    /// See `PIXEL_PHYSICS_DRUID_SMALL`.
+    small_at: Option<u64>,
     /// `PIXEL_PHYSICS_DRUID_FOUND_AT` — the tick to commit the open offer on.
     found_at: Option<u64>,
     /// See `PIXEL_PHYSICS_DRUID_GIF`.
@@ -180,6 +219,30 @@ impl Handler {
         if std::env::var("PIXEL_PHYSICS_DRUID_FOUND").is_ok_and(|v| v != "0") {
             game.found_colony();
         }
+        // `PIXEL_PHYSICS_DRUID_ZOOM=N` -- start at that zoom rung, because a
+        // headless run cannot press `=`. Needed to render the shrink at all:
+        // at 2x3 she is six pixels at zoom 1, so a contact sheet of the
+        // feature at the default rung is a picture of the ground with
+        // nothing in it, which reads as "the feature does nothing".
+        if let Some(n) = std::env::var("PIXEL_PHYSICS_DRUID_ZOOM").ok().and_then(|v| v.trim().parse::<i32>().ok()) {
+            // **Press until the rung is reached, not `n` times.** The first
+            // version did `n - 1` presses and never left the default rung,
+            // because `adjust_zoom` walks the zoom-*out* stride back to 1
+            // before it starts raising `zoom` -- so three presses bought
+            // three stride steps and no magnification, and the render came
+            // back with a two-pixel gnome that read as "the shrink is
+            // invisible" rather than "the hook did nothing". A knob nobody
+            // can see the value of is a knob nobody can tell is disconnected,
+            // so it echoes what it reached.
+            let want = n.max(1);
+            for _ in 0..64 {
+                if game.renderer.zoom >= want && game.renderer.zoom_out_stride <= 1 {
+                    break;
+                }
+                game.renderer.adjust_zoom(1);
+            }
+            println!("druid: zoom {} (stride {}), asked for {want}", game.renderer.zoom, game.renderer.zoom_out_stride);
+        }
         // `PIXEL_PHYSICS_DRUID_MENU=1` -- open the options menu at startup,
         // and `=<n>` to put the cursor on the nth row. Same shape and same
         // reason as every hook here: a headless screenshot cannot press `M`,
@@ -259,6 +322,21 @@ impl Handler {
         // will miss. Pair it with `PIXEL_PHYSICS_DRUID_OFFER` to choose
         // which lineage.
         let found_at: Option<u64> = std::env::var("PIXEL_PHYSICS_DRUID_FOUND_AT").ok().and_then(|v| v.parse().ok());
+        // `PIXEL_PHYSICS_DRUID_SMALL=<tick>` -- press `R` at that player tick.
+        // The control arm for the shrink, so a before and an after can be
+        // rendered off one binary.
+        //
+        // **A tick rather than a flag, and that distinction cost a render.**
+        // The first version shrank her in `Druid::new` and was refused every
+        // time, with the on-screen refusal the only thing that differed
+        // between the two arms. `spawn_point` returns a *surface* cell and
+        // `Player::at_scaled` CENTRES the body on it, so at construction her
+        // feet are seven rows inside the ground -- `try_resize` anchors on
+        // the feet, so the target rect was buried and declining it was
+        // correct. She has to have landed first. `CLAUDE.md`'s *a scene that
+        // contradicts the code will look like a bug in the code*, caught by
+        // looking at the render rather than by any test.
+        let small_at: Option<u64> = std::env::var("PIXEL_PHYSICS_DRUID_SMALL").ok().and_then(|v| v.trim().parse().ok());
         // `PIXEL_PHYSICS_DRUID_GIF=start,every,count[,out.gif]` -- capture an
         // animation instead of a still.
         //
@@ -274,7 +352,7 @@ impl Handler {
             let n: Vec<&str> = v.split(',').collect();
             let (start, every, count) = (n.first()?.trim().parse().ok()?, n.get(1)?.trim().parse().ok()?, n.get(2)?.trim().parse().ok()?);
             let out = n.get(3).map_or_else(|| std::env::temp_dir().join("pixel_physics_druid.gif"), |o| o.trim().into());
-            Some(GifCapture { start, every, count, out, frames: Vec::new() })
+            Some(GifCapture { start, every, count, out, frames: Vec::new(), from: None, last: None })
         });
         // `PIXEL_PHYSICS_DRUID_WALK=N` -- hold `D` for the first N player
         // ticks. A colony is founded at the gnome's feet, so a scripted
@@ -315,8 +393,10 @@ impl Handler {
             laying: false,
             jump_pressed: false,
             screenshot_countdown: std::env::var("PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES").ok().and_then(|v| v.parse().ok()),
+            restart_countdown: None,
             census_after,
             absorb_at,
+            small_at,
             found_at,
             gif,
             walk,
@@ -371,6 +451,21 @@ impl Handler {
         let instant_fps = 1.0 / elapsed.as_secs_f32().max(1e-6);
         self.fps = if self.fps == 0.0 { instant_fps } else { self.fps * 0.9 + instant_fps * 0.1 };
 
+        // **`restart_countdown` reaching 0 is the frame that actually pays
+        // for it.** The frame that set it to `Some(1)` (`request_restart`)
+        // already drew and presented the "regenerating" message on the
+        // *old* game before this one runs -- see that field's own doc.
+        // Everything below this block, for the rest of this `frame` call,
+        // runs against the freshly generated `self.game`.
+        if let Some(n) = self.restart_countdown {
+            if n == 0 {
+                self.restart_countdown = None;
+                self.perform_restart();
+            } else {
+                self.restart_countdown = Some(n - 1);
+            }
+        }
+
         // Held state copied fresh; the jump press ORs in, so a press made on
         // a frame that ran zero ticks survives until a tick consumes it.
         self.game.player_input.left = self.held.left;
@@ -396,6 +491,33 @@ impl Handler {
                 if self.game.commit_founding() > 0 {
                     let catch = std::env::var("PIXEL_PHYSICS_DRUID_CATCH").ok().and_then(|v| v.parse().ok());
                     self.screenshot_countdown = Some(catch.unwrap_or(1));
+                }
+            }
+        }
+
+        if let Some(n) = self.small_at {
+            if self.game.ticks >= n {
+                self.small_at = None;
+                // **Loud when it refuses.** A hook that quietly did nothing
+                // reads as "the feature is not wired", which is the
+                // disconnected-knob trap by name -- and is exactly how the
+                // buried-feet bug above presented.
+                if self.game.toggle_small() {
+                    println!("druid: small at tick {n} -- {:?}", self.game.world.player.as_ref().map(|p| (p.w, p.h)));
+                    // **The shrink schedules its own shutter**, the same way
+                    // the pull below does and for the same reason: the two
+                    // clocks do not line up. `screenshot_countdown` counts
+                    // *drawn frames* and this counts *player ticks*, and on a
+                    // software rasteriser one drawn frame is worth several
+                    // ticks. Scheduled by hand it fired at tick 36 against a
+                    // shrink at 40, so the render came back showing her at
+                    // full size with the button unlatched -- a picture of the
+                    // feature not working, taken four ticks too early.
+                    // Overridden by `PIXEL_PHYSICS_DRUID_CATCH` like the pull.
+                    let catch = std::env::var("PIXEL_PHYSICS_DRUID_CATCH").ok().and_then(|v| v.parse().ok());
+                    self.screenshot_countdown = Some(catch.unwrap_or(2));
+                } else {
+                    println!("druid: PIXEL_PHYSICS_DRUID_SMALL={n} was refused -- no room where she stands at that tick");
                 }
             }
         }
@@ -562,12 +684,17 @@ impl Handler {
                 // is drawn by the HUD, not by the world.
                 if let Some(g) = &mut self.gif {
                     let t = self.game.ticks;
-                    if t >= g.start && g.frames.len() < g.count && (t - g.start).is_multiple_of(g.every) {
+                    if t >= g.start && g.frames.len() < g.count && (t - g.start).is_multiple_of(g.every) && g.last != Some(t) {
+                        g.last = Some(t);
+                        if g.from.is_none() {
+                            g.from = self.game.world.player.as_ref().map(|p| (p.x, t));
+                        }
                         g.frames.push(pixels.frame().to_vec());
                     }
                     if g.frames.len() >= g.count {
+                        let here = self.game.world.player.as_ref().map(|p| (p.x, p.w, p.h));
                         let g = self.gif.take().expect("just checked");
-                        save_gif(&g);
+                        save_gif(&g, here, self.game.ticks);
                         event_loop.exit();
                         return;
                     }
@@ -576,10 +703,12 @@ impl Handler {
                     if n <= 1 {
                         self.screenshot_countdown = None;
                         println!(
-                            "druid: shutter at tick {} — {} draws in flight, {} motes drawn",
+                            "druid: shutter at tick {} — {} draws in flight, {} motes drawn, aura discs {:?} (standing, carried), carried {:?}",
                             self.game.ticks,
                             self.game.draws.len(),
-                            pixel_physics::druid::hud::mote_count(&self.game)
+                            pixel_physics::druid::hud::mote_count(&self.game),
+                            self.game.renderer.aura_disc_count(),
+                            self.game.world.carried.map(|q| (q.x, q.y, q.r)),
                         );
                         save_framebuffer_png(pixels.frame(), WIDTH, HEIGHT);
                     } else {
@@ -696,6 +825,26 @@ impl Handler {
             // `G` is *held* here rather than armed, so a second press cannot
             // mean anything different from the first.
             KeyCode::KeyI => self.act(Action::CycleScent),
+            // **Small enough to go underground.** `R` for the shape she
+            // takes rather than for a word -- the free keys left were `R`,
+            // `N` and `B`, and this is the only verb among them that is
+            // about *her* rather than about the world. See
+            // `Druid::toggle_small`: the geometry decides whether it works,
+            // and growing back can be refused.
+            KeyCode::KeyR => self.act(Action::ToggleSmall),
+            // **Zoom, and it is part of the shrink rather than a nicety.**
+            // At her own size she is 7x14 pixels at play zoom; at 2x3 she is
+            // a six-pixel blob, and so is the gallery she is standing in.
+            // `Renderer::adjust_zoom` and the five magnify looks were built
+            // and reviewed for the lab already -- this game simply never
+            // bound them, so this is a binding and not a feature, and it
+            // touches no line of `render.rs`.
+            //
+            // `Equal` and `Minus` rather than `+`/`-`, because the unshifted
+            // key is what a player actually presses and the legend says
+            // `- =` for the same reason.
+            KeyCode::Equal => self.act(Action::Zoom(1)),
+            KeyCode::Minus => self.act(Action::Zoom(-1)),
             // The economy's verb: a circle that runs while you are elsewhere.
             KeyCode::Space => self.act(Action::PlaceCircle),
             KeyCode::KeyX => self.act(Action::LiftCircle),
@@ -710,18 +859,14 @@ impl Handler {
             // both are free.
             KeyCode::KeyZ => self.game.speed = (self.game.speed - 1).max(pixel_physics::druid::SPEED_MIN),
             KeyCode::KeyV => self.game.speed = (self.game.speed + 1).min(pixel_physics::druid::SPEED_MAX),
-            // **Your own circle.** `[`/`]` because that is brush size in the
-            // sandbox and this is the same gesture: how far your hand reaches.
-            KeyCode::BracketLeft => {
-                self.game.world.carried_radius =
-                    (self.game.world.carried_radius - 8).max(pixel_physics::sim::world::CARRIED_RADIUS)
-            }
-            KeyCode::BracketRight => {
-                self.game.world.carried_radius =
-                    (self.game.world.carried_radius + 8).min(pixel_physics::druid::CARRIED_RADIUS_MAX)
-            }
-            KeyCode::KeyQ => self.game.place_radius = (self.game.place_radius - 10).max(pixel_physics::druid::PLACE_RADIUS_MIN),
-            KeyCode::KeyE => self.game.place_radius = (self.game.place_radius + 10).min(pixel_physics::druid::PLACE_RADIUS_MAX),
+            // **One dial, both bubbles.** Owner's playtest, 2026-09-14:
+            // *"there should just be one bubble control size for the druid
+            // and placeable bubbles."* `Q`/`E` used to walk the placed
+            // circle alone, with `[`/`]` walking the carried one on its own
+            // scale — see `Druid::set_bubble_radius` for the one rule that
+            // now drives both from these two keys.
+            KeyCode::KeyQ => self.game.set_bubble_radius(self.game.place_radius - 10),
+            KeyCode::KeyE => self.game.set_bubble_radius(self.game.place_radius + 10),
             // **Unlimited power, for playtesting.** The economy's numbers are
             // first guesses and nobody has played this, so being able to take
             // them out of the way is what makes the mechanics judgeable at
@@ -732,8 +877,56 @@ impl Handler {
             // colour tell, so whether "held" reads at all is a question you
             // answer by flipping it and watching, not by looking at a still.
             KeyCode::KeyH => self.act(Action::ToggleHeld),
+            // **Restart.** `N` for "new world" -- the free letters left were
+            // `B`, `J`, `N`, `O`, `Y`, and this is the only one of them that
+            // reads as the verb. See `Handler::request_restart`.
+            KeyCode::KeyN => self.request_restart(),
             _ => {}
         }
+    }
+
+    /// **Arm a restart.** Does not restart on this frame -- see
+    /// `restart_countdown`'s own doc for why the block has to be deferred a
+    /// frame behind the message that announces it.
+    ///
+    /// A second press while one is already pending is a no-op rather than a
+    /// restart of the restart: `Druid::note` would just overwrite the same
+    /// message with itself, and there is nothing else pending state could
+    /// mean here.
+    fn request_restart(&mut self) {
+        if self.restart_countdown.is_some() {
+            return;
+        }
+        self.game.note("restarting -- generating a new world, about a minute");
+        self.restart_countdown = Some(1);
+    }
+
+    /// **The block `request_restart` warned the player about.** Everything
+    /// here is state that belongs to the *run*, not to the window -- a
+    /// stale accumulator would burn its backlog as catch-up ticks against a
+    /// world that was never running while it built up, held movement keys
+    /// would walk the new player off whatever he spawns standing on (the
+    /// same reason `Handler::act` clears them before a modal opens), and
+    /// the biosphere page's history is a chronicle of the *old* population,
+    /// which would draw as a graph of a species that no longer exists.
+    ///
+    /// **Whether the biosphere page was open survives; what it was showing
+    /// does not** -- `Stats::showing` is read before the replacement and
+    /// restored after, `Stats::new`'s own history starts empty either way.
+    fn perform_restart(&mut self) {
+        let stats_open = self.stats.showing();
+        self.game = Druid::new();
+        self.game.note("world restarted");
+        self.accumulator = Duration::ZERO;
+        self.held = HeldKeys::default();
+        self.laying = false;
+        self.jump_pressed = false;
+        self.stats = Stats::new();
+        if !stats_open {
+            self.stats.toggle();
+        }
+        self.last_stats_state = None;
+        self.bar_pressed = None;
     }
 
     /// **The single dispatch point this binary's controls actually route
@@ -1015,7 +1208,7 @@ fn census(game: &Druid) {
 /// The delay is derived from the capture interval and the fixed 60 ticks a
 /// second, so the result plays at the speed the game actually ran — the whole
 /// point being to judge motion, which a GIF at an arbitrary rate cannot do.
-fn save_gif(g: &GifCapture) {
+fn save_gif(g: &GifCapture, here: Option<(f32, i32, i32)>, tick: u64) {
     let delay_ms = (g.every * 1000 / u64::from(TICKS_PER_SECOND)).max(16);
     let delay = image::Delay::from_saturating_duration(Duration::from_millis(delay_ms));
     let file = match std::fs::File::create(&g.out) {
@@ -1036,6 +1229,16 @@ fn save_gif(g: &GifCapture) {
     }
     drop(encoder);
     eprintln!("gif saved ({} frames, {delay_ms}ms apart): {}", g.frames.len(), g.out.display());
+    // The clip's own measurement -- see `GifCapture::from`.
+    if let (Some((from_x, from_t)), Some((x, w, h))) = (g.from, here) {
+        let ticks = tick.saturating_sub(from_t).max(1);
+        eprintln!(
+            "gif walk: {:.1} cells in {ticks} ticks ({:.3} cells/tick, {:.3} of her own {w}x{h} lengths a tick)",
+            x - from_x,
+            (x - from_x) / ticks as f32,
+            (x - from_x) / ticks as f32 / h as f32,
+        );
+    }
 }
 
 /// Its own filename, so a druid screenshot and a sandbox one can both exist.
@@ -1044,5 +1247,84 @@ fn save_framebuffer_png(rgba: &[u8], width: u32, height: u32) {
     match image::save_buffer(&path, rgba, width, height, image::ColorType::Rgba8) {
         Ok(()) => eprintln!("screenshot saved: {}", path.display()),
         Err(e) => eprintln!("screenshot failed: {e}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A `Handler` with no window and no `pixels` surface — everything
+    /// `Handler::new` does is env-var reads and `Druid::new`, neither of
+    /// which touches a display. `PIXEL_PHYSICS_DRUID_START=bare` skips
+    /// worldgen's growth phase (`Druid::new`'s own doc: "Bare is the one
+    /// that does not grow"), and a 64x64 world is fast to generate — this
+    /// is a test about `Handler`'s own bookkeeping, not about worldgen.
+    fn bare_handler() -> Handler {
+        // SAFETY (env mutation in a test): this is the only test in this
+        // binary that reads these two variables, so there is no other
+        // thread in this process for a race to reach.
+        unsafe {
+            std::env::set_var("PIXEL_PHYSICS_DRUID_START", "bare");
+            std::env::set_var("PIXEL_PHYSICS_DRUID_SIZE", "64x64");
+        }
+        let h = Handler::new();
+        unsafe {
+            std::env::remove_var("PIXEL_PHYSICS_DRUID_START");
+            std::env::remove_var("PIXEL_PHYSICS_DRUID_SIZE");
+        }
+        h
+    }
+
+    /// **`request_restart` arms the countdown and says so on screen; it does
+    /// not restart.** The property `restart_countdown`'s own doc depends on:
+    /// if this fired the block immediately, the message it just set would
+    /// never reach a presented frame — see that field's doc for why the
+    /// block has to wait a frame.
+    #[test]
+    fn request_restart_arms_a_message_and_a_one_frame_countdown_without_blocking() {
+        let mut h = bare_handler();
+        assert!(h.restart_countdown.is_none(), "test setup: nothing pending yet");
+
+        let ticks_before = h.game.ticks;
+        h.request_restart();
+        assert_eq!(h.restart_countdown, Some(1), "one press must arm exactly a one-frame countdown");
+        assert!(h.game.message().is_some(), "the player must see something the instant the key is pressed");
+        assert_eq!(h.game.ticks, ticks_before, "arming a restart must not itself advance or replace the world");
+
+        // A second press while one is already pending changes nothing --
+        // not a longer countdown, not two worlds racing to replace `game`.
+        h.request_restart();
+        assert_eq!(h.restart_countdown, Some(1), "a repeated press must not extend or reset the countdown");
+    }
+
+    /// **`perform_restart` is the block itself, and it resets the run, not
+    /// the window.** A fresh `Druid` (a different world -- `bare_for_test`'s
+    /// vs. `Handler::new`'s own generated one -- so the two are
+    /// distinguishable by more than address), the tick accumulator cleared,
+    /// held movement keys released, and the biosphere page's history reset
+    /// while whether it was *open* survives.
+    #[test]
+    fn perform_restart_replaces_the_game_and_resets_only_what_belongs_to_the_run() {
+        let mut h = bare_handler();
+        h.held.left = true;
+        h.accumulator = Duration::from_millis(500);
+        h.stats.toggle(); // flip from its `Handler::new` default
+        let stats_open_before = h.stats.showing();
+        let ticks_before = h.game.ticks;
+        // Walk the old world forward so its tick counter is provably
+        // nonzero -- otherwise "ticks reset" and "ticks were already zero"
+        // look identical.
+        for _ in 0..3 {
+            h.game.update();
+        }
+        assert!(h.game.ticks > ticks_before, "test setup: the old game must have actually ticked");
+
+        h.perform_restart();
+
+        assert_eq!(h.game.ticks, 0, "a freshly generated world must start at tick 0");
+        assert_eq!(h.accumulator, Duration::ZERO, "a stale accumulator must not survive into the new run");
+        assert!(!h.held.left, "held movement keys must not walk the new player off his spawn");
+        assert_eq!(h.stats.showing(), stats_open_before, "whether the biosphere page was open must survive a restart");
     }
 }

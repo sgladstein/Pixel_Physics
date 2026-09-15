@@ -2840,6 +2840,13 @@ impl Lab {
             ui::Action::HistoryScroll(d) => self.ui.scroll_history(d),
             ui::Action::HistoryOpen(colony) => self.ui.open_history_colony(colony),
             ui::Action::HistoryBack => self.ui.close_history_colony(),
+            // The FOOD page's own two layers, the same shape HISTORY already
+            // has: a stable colony id in, a back out, and a range the player
+            // chooses because the owner asked for one ("we are about what was
+            // eaten over the past 2-3 minutes, not the past 10 seconds").
+            ui::Action::FoodOpen(colony) => self.ui.open_food_colony(colony),
+            ui::Action::FoodBack => self.ui.close_food_colony(),
+            ui::Action::FoodRange(by) => self.ui.cycle_food_range(by),
             ui::Action::ParamSelect(i) => self.ui.select_param(i),
             ui::Action::ParamAdjust(i, sign) => self.adjust_param(i, sign),
             ui::Action::ParamSave => self.save_param(),
@@ -3704,6 +3711,7 @@ fn draw_help(hc: crate::render::Hud, frame: &mut [u8]) {
 
 #[cfg(test)]
 mod tests {
+    use crate::sim::cell::OrganismId;
     use super::*;
 
     // --------------------------------------------- the zoom-out pixel budget
@@ -4343,10 +4351,17 @@ mod tests {
         // Read the wrong way round this reports "the copy mechanism is
         // broken" for a source bed that simply had no plants in it, which is
         // `CLAUDE.md`'s check-that-a-guard's-inputs-vary-what-it-guards.
-        let plants_here = (1..4096u16)
-            .filter(|&id| {
-                lab.world.organism(id).is_some_and(|st| lab.world.species.get(st.species).creature.is_none())
-            })
+        // **Counted off `live_organism_ids`, not a range over the slot
+        // ceiling.** This read `(1..4096u16)`, which hardcoded the old
+        // 4,095 ceiling *and* only ever resolved slots still at generation
+        // 0 -- a bare index carries no generation, so any plant in a reused
+        // slot was missed. The accessor gives encoded handles for the live
+        // slots and nothing else.
+        let plants_here = lab
+            .world
+            .live_organism_ids()
+            .into_iter()
+            .filter(|&id| lab.world.organism(id).is_some_and(|st| lab.world.species.get(st.species).creature.is_none()))
             .count();
         assert!(plants_here > 0, "the bed germinated no PLANTS, so this test cannot see the thing it is about (organisms alive: {})", lab.world.live_organism_count());
 
@@ -5209,7 +5224,7 @@ mod tests {
         let (fx, fy) = bench_cell(&lab);
         let before = lab.world.live_organism_ids().len();
         lab.use_tool((fx, fy));
-        let placed: Vec<u16> = lab
+        let placed: Vec<OrganismId> = lab
             .world
             .live_organism_ids()
             .into_iter()
@@ -5248,7 +5263,7 @@ mod tests {
         lab.act(ui::Action::ShelfSelect(0));
         assert_eq!(lab.ui.tool(), ui::Tool::Release);
 
-        let animals = |lab: &Lab| -> Vec<u16> {
+        let animals = |lab: &Lab| -> Vec<OrganismId> {
             lab.world
                 .live_organism_ids()
                 .into_iter()

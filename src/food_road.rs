@@ -45,6 +45,14 @@
 //! ant has ever crossed is lit and the picture says nothing about where the
 //! colony is working *now*. So both channels are exponential in age.
 //!
+//! **But the first setting of the road's half-life was far too short, and
+//! that was the whole of the owner's *"is it too much to track actual paths
+//! and make trail?"*.** At ten seconds the map holds the last ~350 cells
+//! anybody walked and draws as a scatter of specks; at a minute it holds
+//! ~900 and closes into one unbroken line. The paths were always being
+//! tracked — they were being forgotten. See [`FoodRoad::road_half_life`] for
+//! the measurement that says the longer memory is free.
+//!
 //! **Nothing is decayed on a timer.** Each entry stores the weight and the
 //! frame it was last written, and the decay is applied when it is *read* —
 //! so the per-tick cost is one hash write per animal and nothing else,
@@ -116,6 +124,7 @@
 //! until the animals move again, which is correct for a channel whose whole
 //! claim is *this is the road they are using now*.
 
+use crate::sim::cell::OrganismId;
 use std::collections::HashMap;
 
 use crate::sim::world::World;
@@ -232,7 +241,7 @@ pub struct FoodRoad {
     /// Harvest by `(colony, tile)`, sparse: only tiles food has come out of.
     harvest: HashMap<(u32, (i32, i32)), Mark>,
     /// Per-animal counter readings as of the last observation.
-    seen: HashMap<u16, Seen>,
+    seen: HashMap<OrganismId, Seen>,
     /// The last `World::frame` observed, so `observe` is idempotent per tick
     /// and can be called from both the tick loop and `draw`.
     last_frame: Option<u64>,
@@ -259,8 +268,58 @@ pub struct FoodRoad {
     /// `true` ships, because a road with no *"and here is where they went
     /// empty-handed"* cannot show the difference the owner asked to see.
     pub show_walked: bool,
-    /// Frames for a road mark to halve. Ten seconds at the shipped 60 Hz —
-    /// short, because the road's claim is *now*.
+    /// **Whether the harvest wash is clipped to ground, or covers its whole
+    /// tile including the air in it.**
+    ///
+    /// `true` ships, and `false` is what round 35 drew. The owner's verdict
+    /// on that sheet was *"Why is the amber hatch drop like a huge box?"*,
+    /// and rendering the two channels apart said why in one frame: **every
+    /// live harvest tile sits on the surface band**, where an 8-cell tile is
+    /// about one row of ground and seven rows of *sky*. The wash covered the
+    /// whole tile, so what was drawn was a rectangle whose top edge is the
+    /// tile grid rather than the ground — a hard-edged block hanging over
+    /// the terrain, which is exactly what he described.
+    ///
+    /// **Shrinking the tile does not fix it**, which is the measurement that
+    /// sent this at the clip rather than at `tile`: at `tile=4` the sheet
+    /// still draws boxes in the sky, only smaller, and at `tile=1` the
+    /// channel disappears into the road entirely. The box is the *air*, not
+    /// the size.
+    ///
+    /// Clipped, the mark's outline is the terrain silhouette, and the seven
+    /// rows of amber it stops drawing are seven rows that were burying the
+    /// road underneath.
+    pub harvest_on_ground: bool,
+    /// **Frames for a road mark to halve — a minute of play, raised from ten
+    /// seconds because ten seconds is not a trail.**
+    ///
+    /// The owner's question on the round-35 card was *"is it too much to
+    /// track actual paths and make trail?"*, and the road was already
+    /// tracking actual paths, per cell, every tick. What it was not doing was
+    /// **remembering them**: at ten seconds the map holds about the last 350
+    /// cells anybody walked, which draws as a scatter of coloured specks
+    /// along the surface. At a minute it holds ~900 and draws as one
+    /// unbroken line — red-orange where they carried, blue where they came
+    /// back empty — which is the picture he asked for.
+    ///
+    /// **It is not free by luck; it was measured.** A map 87% larger cost
+    /// nothing the instrument could see on the settled bed where this
+    /// channel is most expensive (`examples/foodroad cost=4 settled=1
+    /// warm=6000`): the shipped memory came out **+0.82 ms** over its own
+    /// off arm at 623 cells and an unlimited memory **+0.69 and +0.71 ms**
+    /// at 1,165, twice. The positive control that says the instrument can
+    /// see drawing work at all is the second channel on the same bed, which
+    /// moves the same delta to **+1.17 ms**. What this view costs is having
+    /// it on at all — it decays every tick and so defeats the dirty-rect
+    /// skip — and that is paid the moment it is switched on, whatever it
+    /// remembers.
+    ///
+    /// **Not unlimited, and the module doc says why**: a road that never
+    /// fades is an all-time smear, and after an hour every cell an ant has
+    /// ever crossed is lit and the picture no longer says where the colony
+    /// is working *now*. A minute is where the line closes up — it is
+    /// already the harvest map's own half-life — and the sheets at a minute
+    /// and at no decay at all are hard to tell apart on the played bed.
     pub road_half_life: f32,
     /// Frames for a harvest mark to halve. A minute: where the food has been
     /// coming from is a slower question than where the traffic is, and a
@@ -316,7 +375,8 @@ impl FoodRoad {
             last_bounds: None,
             tile: 8,
             show_walked: true,
-            road_half_life: 600.0,
+            harvest_on_ground: true,
+            road_half_life: 3600.0,
             harvest_half_life: 3600.0,
             road_full: None,
             harvest_full: None,
@@ -395,7 +455,7 @@ impl FoodRoad {
         self.observed_frames += 1;
 
         let live = world.live_organism_ids();
-        let mut alive: std::collections::HashSet<u16> = std::collections::HashSet::with_capacity(live.len());
+        let mut alive: std::collections::HashSet<OrganismId> = std::collections::HashSet::with_capacity(live.len());
         for id in live {
             let Some(state) = world.organism(id) else { continue };
             // Plants share the state type and have no `moves` or `bites` to
@@ -725,9 +785,22 @@ const ROAD_WALKED_HIGH: [f32; 3] = [138.0, 186.0, 246.0];
 const HARVEST_DITHER: [[f32; 4]; 4] =
     [[0.0625, 0.5625, 0.1875, 0.6875], [0.8125, 0.3125, 0.9375, 0.4375], [0.25, 0.75, 0.125, 0.625], [1.0, 0.5, 0.875, 0.375]];
 
-/// The most of a tile the wash may ever take, so even a tile the whole
-/// colony is living off still shows the ground it is drawn over.
-const HARVEST_MAX_COVER: f32 = 0.8;
+/// The most of a tile the wash may ever take.
+///
+/// **Raised to solid when the wash was clipped to the ground's skin**
+/// ([`FoodRoad::harvest_on_ground`]), and the two changes are one change. The
+/// 0.8 it was held at existed so that a tile the whole colony lives off still
+/// showed the ground underneath — a real worry when the wash covered all 64
+/// cells of its tile, including the seven rows of air that made it read as a
+/// dropped box. Confined to the exposed face it covers a few cells per
+/// column, the plants it points at are no longer underneath it, and holding
+/// a fifth of *those* back only made the strongest patch in the bed read as
+/// faint speckle.
+///
+/// There is still a middle, which is the point of a cover at all: `ramp`'s
+/// floor puts the quietest live tile at 18% dots and only a tile at the top
+/// of the bed's own scale goes solid.
+const HARVEST_MAX_COVER: f32 = 1.0;
 
 /// The floor of every ramp here, matching `render.rs`'s `SCALAR_RAMP_FLOOR`:
 /// a faint mark is still a mark, and a road's thin end should recede without
@@ -786,6 +859,31 @@ fn two_stop(low: [f32; 3], high: [f32; 3], t: f32) -> [f32; 3] {
     [low[0] + (high[0] - low[0]) * k, low[1] + (high[1] - low[1]) * k, low[2] + (high[2] - low[2]) * k]
 }
 
+/// **How far under the exposed face of the ground the harvest wash reaches.**
+///
+/// Three cells. The wash marks *ground that gave up food*, and a colony
+/// harvests what it can reach — so the mark belongs on the skin, not down
+/// the whole depth of the tile that happens to contain it. Small enough that
+/// the band follows the terrain instead of squaring off against the tile
+/// grid, big enough that one cell of litter lying on soil still reads as a
+/// stripe rather than a dotted line.
+const HARVEST_SKIN: i32 = 3;
+
+/// Whether this ground cell is within [`HARVEST_SKIN`] of open air above it.
+///
+/// The second half of the fix for *"why is the amber hatch drop like a huge
+/// box?"* — see [`FoodRoad::harvest_on_ground`] for the first. A harvest tile
+/// lands on the surface band and is part sky, part litter, part soil;
+/// refusing the sky alone leaves a block anchored to the bottom of the tile
+/// instead of hanging off its top, which is the same box upside down.
+///
+/// The roof and floor of a tunnel pass this too, deliberately: a colony that
+/// eats underground has taken food out of ground that is exposed there, and
+/// the mark should say so.
+pub fn near_open_air(world: &World, x: i32, y: i32) -> bool {
+    (1..=HARVEST_SKIN).any(|d| world.get(x, y - d).material == crate::sim::material::EMPTY)
+}
+
 /// A colony's hue, taken from the same palette the animals themselves wear
 /// under `CreatureColour::Colony` — so a harvest patch and the ants coming
 /// out of it are the same colour, deliberately, rather than two unrelated
@@ -822,6 +920,41 @@ mod tests {
         m.add(1.0, 0, 100.0);
         m.add(1.0, 100, 100.0);
         assert!((m.read(100, 100.0) - 1.5).abs() < 1e-5, "got {}", m.read(100, 100.0));
+    }
+
+    #[test]
+    fn a_single_crossing_outlives_the_harvest_patch_it_leads_to() {
+        // **The two channels are read together, so the road has to last as
+        // long as the thing it leads to.** A harvest patch stays lit for a
+        // minute; a road that has faded out while that patch is still amber
+        // cannot say *this is how that food travelled*, and the picture
+        // falls back to a scatter of specks -- which is what the owner saw
+        // and asked about ("is it too much to track actual paths and make
+        // trail?").
+        //
+        // One crossing, laid once and never reinforced, is the hard case:
+        // it is what a forager walking out to a new patch leaves behind.
+        let mut road = FoodRoad::new();
+        road.mode = FoodOverlay::Road;
+        let hl = road.road_half_life;
+        road.trail.entry((7, 7)).or_default().laden.add(1.0, 0, hl);
+        let span = road.harvest_half_life as u64;
+        road.refresh(0);
+        road.refresh(span);
+        assert!(road.road_at(7, 7, span).is_some(), "a cell crossed once must still be road when the patch it leads to is still lit");
+
+        // **The fault put back.** At the ten-second memory that shipped in
+        // round 35 the same crossing is under `VISIBLE` against
+        // `ROAD_SCALE_MIN` long before the patch fades, so this test is
+        // about the memory and not about a channel that draws everything
+        // regardless.
+        let mut short = FoodRoad::new();
+        short.mode = FoodOverlay::Road;
+        short.road_half_life = 600.0;
+        short.trail.entry((7, 7)).or_default().laden.add(1.0, 0, short.road_half_life);
+        short.refresh(0);
+        short.refresh(span);
+        assert!(short.road_at(7, 7, span).is_none(), "at the old memory it is gone, which is what made the road a scatter rather than a trail");
     }
 
     #[test]

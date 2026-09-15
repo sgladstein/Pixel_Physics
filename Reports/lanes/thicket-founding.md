@@ -386,3 +386,38 @@ merged, so this is a fresh branch off `main` and a new PR, per the
 merged-PR rule — not commits stacked on merged history).
 
 **Head SHA: see the PR head; this note's own commit is the last one on it.**
+
+---
+
+## 2026-09-15 → coordinator. §Z21 is FIXED, and my own correction to it was overtaken
+
+Merging `main` (155 behind) conflicted on `Reports/open-bugs-handoff.md`, and
+the newer side won: **another lane fixed the ceiling.** `Cell::organism_id`
+is now a `u32` split 20/12 — **4,095 slots → 1,048,575** — and
+`Druid::found_colony` names which of the three refusals fired. Those are
+exactly the two things I said would survive the density change, so the entry
+is closed and closed correctly. I took their `FIXED` heading whole.
+
+**What I kept, trimmed to a footnote, is the reasoning error rather than the
+bug.** The reproduction had already stopped reproducing before their fix
+landed, by an unrelated route, and the coordinator's note and I both had the
+interaction backwards in the same direction: *"relieves §Z21 where the owner
+meets it while leaving grown and dead untouched"*. Grown and dead were
+relieved **hardest** — their whole 4,093 organisms came from growing the
+scatter. **The grow phase looks like an independent source of plants and is
+not.** That is the shape worth carrying; the entry itself is not in doubt.
+
+**One tooling defect found and filed on the way** — see the register. Running
+`review.py inbox` here returned **14 answered cards belonging to other
+lanes**, with no warning, and `--mark-seen` marked them all. `_is_mine`
+matches on branch **or** worktree, and every cloud session clones to
+`/home/user/Pixel_Physics`: measured, **472 of 472 cards in the queue carry
+that exact worktree**, so the worktree clause is true for every card ever
+posted and the `or` makes it sufficient. In a cloud container `inbox` is
+`--all` wearing the name of a filter.
+
+It cost nothing today and that is luck, not design: `sync_now` exchanges
+`cards`, `media` and `responses` and **not `seen/`**, so the markers died with
+the container. Anything that adds `seen/` to that list, or a session on the
+owner's own machine where worktree paths differ, turns this into other lanes
+silently losing verdicts.

@@ -165,6 +165,40 @@ by somebody about to try it on creatures.
   prescription is legibility, not a patch: the player has a number for what a
   circle costs him in *power* and none at all for what it costs him in
   *plants*. Instrument: `examples/druid_garden.rs`.
+- [regional-time-scope-2026-09-13.md](regional-time-scope-2026-09-13.md) —
+  **scope, nothing built, no option recommended for immediate build.** What it
+  would take to give each held-world quickening its own speed, after a
+  per-circle dial was built and withdrawn the same day (`dead-ends.md`
+  `other:124`). The concept report's §8 answered the **spatial** half — can a
+  tick be restricted to a region; this is the **temporal** half, which nobody
+  had written down and which is what killed the dial. Censuses all **303**
+  `World::frame` reads (163 production, 140 test) into seven classes and says
+  which need a regional clock: the sky and the weather are legitimately global
+  and in a held world already stopped. Three findings drive it. **The schedule
+  seam already exists and already draws the line a regional clock needs** —
+  eight sites bypass `organism_due`, and **six of them are deliberate**: a
+  seed's cadence tracks how fast a seed *falls*, not how fast it grows, and
+  scaling it *"was written and reverted"* in a comment sitting on the line.
+  The audit's value is the rule it recovers (a growth duration goes through
+  the seam, a physics duration does not) and the two sites that really are
+  outside it — and it is a live case of `CLAUDE.md`'s *source comments are
+  load-bearing*, since the first draft of this report filed all eight as bugs.
+  **Ageing is neither answer you would guess**: the hazard
+  is quadratic in age, so a creature at rate `m` dies at `1/sqrt(m)` of the age
+  after `sqrt(m)` times as many of its own ticks — 0.353x and 2.83x at 8x,
+  wrong in both directions at once, fixed by counting age in the individual's
+  own ticks. **And a region ticking N times inside one `world.frame` keeps its
+  event *rate* and loses its *distribution*** — measured against a reproduced
+  positive control, the cells a p=0.02 event ever reaches fall from 200/200 to
+  **4/200** and a p=0.002 event stops happening at all, while the total fire
+  count moves under 2%. Prices one global speed against a per-circle interval
+  divisor (cheap, and against the concept's own *"more ticks, never faster
+  subsystems"* ruling) against a fine clock with a per-region stride (§8's own
+  answer, and it needs no per-region counter). Names the bias nobody would look
+  for: a gated region sweeps `rightward` on every pass it is awake for, for
+  ever. The first measurement is the **spread** of a single 1x circle over
+  twelve seeds, because every number in the record is n = 1 and the acceptance
+  bar for every option is *"the slow circle is unchanged"*.
 - [held-world-zoom-plan-2026-09-13.md](held-world-zoom-plan-2026-09-13.md)
   — **plan, not built.** How the held world gets a zoom control, on the owner's
   instruction that it should have one. The number that makes it worth
@@ -426,6 +460,25 @@ by somebody about to try it on creatures.
 
 ## Liquids and granular  ·  `engine`
 
+- [aquatic-life-research-2026-09-14.md](aquatic-life-research-2026-09-14.md) —
+  **research and brainstorm, 2026-09-14; nothing built, no build order.**
+  Aquatic creatures and plants across all three games. Four one-line
+  predicates make water a floor; buoyancy, drag, the water ledger, the scent
+  plane and the density table are already built and correct. Measured: water
+  passes light like air (positive control — rock reads black), and the lab
+  bed makes films rather than a pond even at STEADY rain. Carries the
+  finding that E9's *float* already ships, and that the plant height ceiling
+  is hydrostatic, so the waterline could set how tall a plant grows.
+- [aquatic-implementation-plan-2026-09-14.md](aquatic-implementation-plan-2026-09-14.md) —
+  **plan of record for aquatic work, 2026-09-14. Phase 0 built and measured;
+  Phases 1-4 specified, not built.** Turns the research above into a build
+  order with guards and briefs. Three measurements set the order and two
+  overturn the research: a pond in the lab is a **scenario file**, not a
+  `LabBox` field (`the_pond.ron`, 4,256 cells flat to frame 40,000); it holds
+  only over an **impermeable** floor (soil drains it to zero by frame 4,000);
+  and a pond as a bare **barrier buys nothing** (flat 3 / water 4 / dry pit 28
+  ants at 90,000). So the order is bed -> plant -> animal -> gradient, and the
+  swimmer comes last.
 - [liquid-simulation-research.md](liquid-simulation-research.md) —
   **research, round 1.** Why poured water piled like sand; SPH → PBF →
   PIC/FLIP survey.
@@ -2622,6 +2675,18 @@ was **no food verb** (there is one now: `E`) although hand-placed food is the on
 intervention measured to separate generation 13 from generation 0, and the plant mutation rates the
 design guide's §7b-i calls "already data" are Rust `const`s.
 
+- [druid-rounds-archive.md](druid-rounds-archive.md) — **record, 2026-09-14.**
+  Finished rounds of the **held world**'s coordinator note, moved out of
+  `Reports/lanes/druid-program-coordinator.md` so that note can stay a
+  standing one — the same split the lab made, and for the same reason: what a
+  round *overturned* is the part a later session cannot reconstruct, and also
+  the part nobody needs loaded to do today's work. Round 1 is the seven
+  playtest items of 2026-09-14 (five lanes, PRs #411, #413, #414, #415, #418),
+  including the two findings that outlived it — that four of the seven items
+  were sized off doc comments and two of those were wrong, and that a lane
+  overturned the coordinator's own brief. **A record, not a work order**: the
+  live round and the standing owner rulings are in the lane note.
+
 - [evolution-lab-rounds-archive.md](evolution-lab-rounds-archive.md) —
   **record, 2026-09-08.** Rounds one to nineteen of the lab's coordinator note,
   verbatim, moved out of `Reports/lanes/evolution-lab-coordinator.md` when that
@@ -2754,18 +2819,125 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   behaviours as default* — with the knob kept, an `off` control kept for
   measurement, and the constants rivalry reallocates named and re-derived,
   since a correct mechanism at inherited constants is a regression.
+- [pheromone-lifetime-and-wiring-2026-09-14.md](pheromone-lifetime-and-wiring-2026-09-14.md)
+  — **measurement, 2026-09-14, round 36 lane C. `engine`.** The owner's two
+  questions about the trail planes, answered: *do they fade too fast* and *is
+  all of it wired*. **A trail here is a live map of where ants are standing,
+  not a memory of where they went.** The 255-pass ceiling is real and its
+  1.4x margin is not — 255 passes is what a cell *at 255* survives and
+  nothing writes 255, so a cell laid at `DEPOSIT` (40) has a **40-pass**
+  ceiling and dies in **12**: **144 frames against a 2,200-frame round trip,
+  0.065x**. **`DECAY_RHO` is inert** — setting it to zero leaves that 144
+  unchanged, because a one-cell-wide line loses **16.7% per pass to `DIFFUSE`
+  against decay's 2.9%**, putting the realised rate at ~0.19, *inside* the
+  literature band it is documented as sitting below. **`DEPOSIT` must not be
+  halved**: P-14's trigger has never fired, peak is 39–98 of 255 over six
+  seeds. The bed confirms it with the colony size as control — 52→46 ants
+  holds the network, 46→20 takes it from 342 cells to 35. **Wiring**: nothing
+  is broken in the Rust, and **four of seven reader slots are read by no
+  species** — the laterals deliberately, but `PheroAFront`/`PheroBFront` are
+  the only *concentration* inputs, so **nothing reads trail height**, which is
+  the sole justification `DIFFUSE`'s value was chosen on. **`ancestor.ron`
+  cannot hear the alarm** (Lane D), `flitter` neither lays nor reads a trail
+  (Lane D), and the **alarm plane's audible radius is two cells** — a display
+  deposit is inaudible to anyone but the displayer, which is the measurement
+  `contest.rs` asked for. Ships one dial (`set_channel_diffuse`) and two
+  harnesses; **no default moved**. **§3b, added the same day after the owner
+  asked "are we fixing any of these?", is the fix and the correction.** The
+  alarm's two-cell reach was never a tuning failure — the ceiling is the
+  *stencil*, and even at `DIFFUSE = 1.0` a wound reads 20 at one cell and 1
+  at two. **The error was modelling a shout as a substance**: a mean filter
+  conserves, which is right for a trail and fatal for an alarm.
+  `Spread::ActiveSpace` propagates by distance falloff instead — the *active
+  space* of the real thing — taking one wound from **4/0/0** at one, two and
+  four cells to **148/88/24**, `->Attack` +1.161 where it was +0.031, and the
+  falloff gives the graded response free. **`ALARM_RHO` 0.25 → 0.35 came with
+  it**, because diffusion had been doing a share of decay's job; caught by
+  `the_alarm_forgets_faster_than_a_trail` going red rather than quiet. **The
+  trail is NOT fixed and §3b says why that is right**: no combination reaches
+  a round trip (best corner 0.64x, three stacked changes), and the ceiling is
+  not quantization — diffusion costs a one-cell line 16.7% of peak per pass,
+  so **diffusion and trail life are one knob pulling opposite ways**, the
+  owner's trade to make. It also records the fix first proposed for the trail
+  **and why it was wrong** (a `build_decay_lut` snap-to-zero: the rounding it
+  needs is already in `dead-ends.md`, and truncation rather than the floor is
+  what caps lifetime).
+- [evolution-lab-nest-question-2026-09-14.md](evolution-lab-nest-question-2026-09-14.md)
+  — **research brief, 2026-09-14, nothing started. `lab`/`engine`/`held`.**
+  What a nest should be, handed from the druid program on the owner's ask
+  (*"it should be attached to a world location, not a material… but do more
+  research first"*). **The nest is already a sensed marker rather than a
+  structure** — `AtNest` is one 8-neighbour material test, and
+  `world.rs`'s `NestSite` already records a logical site nothing reads for
+  location. **Real ants do not home on the queen**: the mechanism that fits
+  this engine is **path integration** — a per-ant home vector attached to no
+  cell, so digging cannot break it — corrected at short range by nest odour,
+  which is what `AtNest` already is. **The sequencing call is that the trail
+  question comes first**: Lane C measured `DECAY_RHO` inert, and a druid lane
+  found a mark gone in ~3.5 s against a ~37 s round trip, so *"the nest does
+  nothing"* may be a symptom of the trail. Carries the constraint any
+  redesign must hold (**414 deliveries** at a footprint deliberately narrower
+  than the ant band), the three held-world requirements, and the finding that
+  **`nest`'s `penetration_resistance` 6.0 against every shipped `dig_force`
+  of 1.0 means a colony cannot dig its own doorstep**.
+- [nest-design-2026-09-14.md](nest-design-2026-09-14.md) — **research and
+  a recommendation, 2026-09-14. `lab`/`held`/`engine`.** What a nest should
+  *be*, against the owner's two proposals (a world location, not a material;
+  a blob so a dug door can still be reached) and the brief's sequencing
+  claim (trail first). Real ant homing is path integration corrected at
+  short range by the nest's own plume, never the queen; every other colony
+  sim attaches home to a coordinate. **Measured with `examples/nesthome`**:
+  the 414-delivery scene places 15 of its 55 ants and has no channel A by
+  frame 6,000, so it is not a homing scene; on the played bed cutting the
+  homing circuit entirely leaves deliveries inside the noise between two
+  mechanically identical arms (up to 3.6x on one seed), so **nothing steers
+  a laden ant home today** and the owner's "the nest does nothing" is right
+  in the strong sense; the patch is never dug (`lost 0`) because the crust
+  is 6.0 against a jaw ceiling of 2.0. **Recommends** a site-based `AtNest`
+  at the colony's own half-width and two rows — a value, not a dial; the
+  site, the odour and the per-ant anchor already exist — the material kept
+  as paint, the crust dropped to soil's, and a
+  per-ant home bearing built next — the trail ordering is wrong, the nest
+  work can start now. No `src/` change; nothing landed.
 - [evolution-lab-round-36-brief-2026-09-14.md](evolution-lab-round-36-brief-2026-09-14.md)
-  — **brief, 2026-09-14. `lab`/`engine`.** What round 36 is for, written by
-  round 35's coordinator. The lead is the owner's #1 and it finally has a
-  measured target rather than a premise: **about half of what an ant costs is
-  not in the creature pass at all** — 45% of the frame's growth to 428 ants is
-  that phase, the other 55% is the CA sweep over the **29.4 cells an ant
-  dirties per frame**. Two jobs fall out, *fewer dirty cells* (census first,
-  nobody has looked at what the multiplier is made of) and *a cheaper sweep*.
-  Also carries what round 35 leaves: **the economy constants a live rivalry
-  reallocates** — the birth bar, `colony_ants` and the starvation balance, all
-  calibrated on a bed where no ant was food — and **§Z23**, whose obvious
-  repair is the wrong one.
+  — **brief, 2026-09-14, rewritten the same day. `lab`/`engine`.** What round 36
+  is for. **The first version led with performance and was wrong at the top**:
+  the owner then answered the round-35 cards and **the food-economy
+  instruments failed on his eye** (*"I don't understand what these visuals are
+  trying to tell"*; *"the amber hatch it bad — is it too much to track actual
+  paths and make trail?"*), which by this repo's ethos outranks everything
+  queued behind it. Four lanes: **A** making the food economy readable (lead,
+  and start by rendering the road and the harvest map *apart* — the tile grid
+  may simply be burying the trail); **B** a census of what the **29.4 cells an
+  ant dirties per frame** are made of, since half an ant's cost is not in the
+  creature pass; **C** the pheromones — *do they fade too fast to be useful*,
+  where the decay LUT caps an unreinforced trail at **255 passes ≈ 3,060
+  frames against a ~2,200-frame round trip** and the harness that set the
+  constants re-lays continuously so it cannot answer the question; **D** the
+  economy constants a live rivalry reallocates. Also carries the verdicts
+  verbatim, the zoom ruling (*"get rid of stop 3"*, which overturns
+  `dead-ends.md` `rendering:049`), and a process finding — **four cards asked
+  one question**, so read the open queue before posting.
+- [evolution-lab-food-readable-2026-09-14.md](evolution-lab-food-readable-2026-09-14.md)
+  — **lane record, 2026-09-14, PR #444. `lab`/`engine`.** Round 36 lane A: the
+  three food instruments round 35 shipped were each rejected, and each
+  complaint was one defect that the instrument itself was not arguing about.
+  **The harvest wash was painting sky** — every live tile sits on the surface
+  band, where an 8-cell tile is one row of ground and seven of air, so the
+  shape on screen was the tile grid; shrinking the tile was ruled out by
+  rendering it, because the box is the air and not the size. **The food road
+  was already tracking actual paths and was forgetting them** after ten
+  seconds: `road_half_life` 600 → 3,600 turns a scatter of 279 lit cells into
+  an unbroken line of 1,024, and **costs nothing measurable** — a map 87%
+  larger came out cheaper than the short one, twice, against a positive
+  control that moves the same delta to +1.17 ms. **The FOOD page's charts were
+  plotting a rate at a question about an amount**, which is the general rule
+  worth carrying: a chart of a differenced series answers *how fast*, and
+  *how much, lately* wants a number over a span the reader picks. Rebuilt on
+  the owner's own spec into two layers and a range selector, with which rival
+  a colony's meat came off named per line. Also: `range_reaches` wrong in the
+  direction that reads as working, and a page-fit guard whose fixture had
+  quietly stopped measuring the tall block.
 - [evolution-lab-round-35-2026-09-14.md](evolution-lab-round-35-2026-09-14.md)
   — **coordinator record, 2026-09-14. `lab`/`engine`.** The round that gave the
   food economy a face and answered *why don't colonies fight* with a finding
@@ -3599,6 +3771,33 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   jamming, and contention. Carries the four rules any later population sweep
   inherits. Harness: `examples/antcost.rs`, which gains `age=`, `widths=`,
   `heights=`, `plants=` and `swept=1`.
+
+- [evolution-lab-ant-dirty-cells-2026-09-14.md](evolution-lab-ant-dirty-cells-2026-09-14.md)
+  — **what the 29.4 swept cells an ant dirties are made of, and the answer is
+  not about ants.** Round 36, lane B, the census the round asked for before
+  anything is proposed. An ant changes **0.76–0.82 cells a frame** and the
+  sweep is asked for 12–22 on its behalf; **three of those are the ant** and
+  the rest is one rule — a dirty mark is expanded sideways by the *largest*
+  `Material::sweep_reach` of any cell in its whole 4,096-cell chunk. Censused:
+  water sets that maximum to **24 for a majority of awake chunks, which hold
+  an average of 1.4 water cells**, against soil's own 2. Computing the same
+  guarantee **per mark** instead of per chunk — a superset of everything that
+  can reach it, so no conservatism is lost and `parallel.rs`'s box-stated
+  proof is untouched — cuts the region the sweep is *asked* for **4.8–5.7x**,
+  landing within 6–23% of the absolute floor, and it does it at zero ants
+  too: **an engine finding the ant census surfaced.** Explains
+  `PIXEL_PHYSICS_SWEEP=rows` measuring 1.05x on the tick: the two inflations
+  overlap, so per-row spans are worth 6% of the marginal cost and only cutting
+  the reach as well is worth 75%. Strikes off the pheromone trail (never marks
+  the sweep at all), stale wakefulness (1% of swept), the awake *count* (flat
+  at 0.01 chunks per ant) and adjacency as a marginal term. **Gated on §E2**,
+  not on economics — row spans are also strictly conservative and still
+  diverge at frame 4,330 — and carries **no timing at all** on purpose.
+  Harness: `examples/antdirt.rs`, new, whose two fixes generalise: an age pin
+  over a bed with no income is a starvation budget and must be derived from
+  the arms, and a grid-diff reconstruction of the dirty region needs the
+  moisture writes filtered out and the `touch_neighbours` marks put in before
+  its own control passes (0.98–1.06 here, 2.33–4.39 without).
 
 - [evolution-lab-creature-parallelism-2026-09-13.md](evolution-lab-creature-parallelism-2026-09-13.md)
   — **the build the report above asked for: it works exactly, and it does not

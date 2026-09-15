@@ -1,6 +1,14 @@
 # The Gnome
 
-*Current as of: 2026-09-13. New since the last pass: **he walks over roots
+*Current as of: 2026-09-14. New since the last pass: **in the held world he
+can make himself small enough to go underground** — two cells across and
+three tall, which is the size of the galleries an ant digs. Small, most of a
+colony's nest is walkable; at his own height none of it is, not a single
+cell. Growing back is refused where there is no room for him, so going down
+is a thing you have to get yourself out of. Also 2026-09-14: **small, he
+scurries** — a short quick stride rather than the same walk played slowly,
+covering twice as much of his own length per step as he does at full size,
+and up to speed in half the time. Also 2026-09-13: **he walks over roots
 instead of falling into them** — a forest floor is threaded with root, and
 every root cell in it used to be a hole he could sink through, so walking
 into a grown wood dropped him under the ground and wedged him there. Roots
@@ -513,6 +521,40 @@ tunnel can't be cut out of the way (it doesn't *stop* him, since it is
 ground he shoulders past, but pointing at it shakes the tree instead of
 cutting), and spoil that has nowhere solid to land stays in the bore rather
 than being thrown into the air.
+
+## Small enough to go underground
+
+*The held world only.* He can take a smaller shape — two cells across and
+three tall against his usual seven by fourteen — and at that size the tunnels
+an ant digs are corridors he can walk. It is not a costume: everything about
+him scales with it. He is shoved a shorter distance when something falls on
+him, he heaves himself out of a burial by his own height rather than by a
+stranger's, and the bore turns as soon as the cursor leaves his body instead
+of waiting for it to travel four times his height.
+
+**The size is the ant's, not his.** An ant cuts one cell at a time and leaves
+three cells of headroom at the most generous, so three tall fits the widest
+stretches of a nest and is stopped by the rest. That is deliberate: the nest
+grades from walkable to impassable on its own, with no rule anywhere deciding
+where he may go.
+
+**He scurries — he does not trudge.** Small, his stride is short but quick:
+he covers a little over twice as much of his own length in a step as he does
+at full size, and he is up to his top speed in about half the time, because
+a small thing gets going against the same gravity a large one does. In the
+world's own terms he is still slower than his full-sized self — about half
+as many cells a second — which is what being small ought to cost. But he
+moves like a small animal rather than like a large one played back slowly,
+and the difference between those two is most of what the shape feels like.
+He also jumps the same number of *his own heights* at either size, so a hop
+that clears a pebble when he is small clears a boulder when he is not.
+
+**Growing back can be refused.** He tests his full height before taking it,
+and if the rock is in the way nothing happens and he is told so. Nothing
+shoves him to make room — being shoved a body-length is worse than staying
+small. So the way out of a nest is the way you came, and since the spoil a
+dig throws is not scaled down with him, digging while small can seal that
+behind you.
 
 ## Changing how he feels
 

@@ -574,6 +574,68 @@ pub enum BrainInput {
     /// The lateral inputs are kept, unwired, rather than removed. They are
     /// correct for anything moving in open space (a flier, a swimmer) and
     /// removing a slot is the one thing the positional law forbids.
+    ///
+    /// # Why the *front* inputs are unwired too, which is a different reason
+    ///
+    /// **`PheroAFront`/`PheroBFront` have never carried a weight in any
+    /// species file, in any commit** -- checked with `git log -S`, 2026-09-14
+    /// -- and that is deliberate rather than an omission, though nothing said
+    /// so until it was queried. They are the only *concentration* inputs, so
+    /// their absence means **no shipped animal reads trail height**, and the
+    /// obvious reading is that path selection must therefore be unserved.
+    /// **Measured, it is not** (`examples/pherolife mode=junction`).
+    ///
+    /// This input is `(ahead - here) / (ahead + here + 1)` -- a relative
+    /// difference normalised by the total, which is a **Weber's-Law
+    /// response**. That is what Perna et al. measured individual Argentine
+    /// ants to actually use, against the sigmoidal *absolute* response the
+    /// classical Deneubourg model assumes, and their agent simulations with
+    /// the Weber response still reproduced the literature's trails
+    /// (`Reports/stigmergy-research.md` §2). So the engine already
+    /// implements the individual rule the biology has, and a front-sensor
+    /// weight would add the one it does not.
+    ///
+    /// **And it discriminates.** At a fork whose strong branch carries ten
+    /// times the traffic, an ant on the trunk reads about **-0.01 down the
+    /// strong branch and -0.98 down the weak one** -- a separation of 0.97,
+    /// with nothing reading a height anywhere. Height is not what a choice
+    /// point needs; *contrast* is, and a scale-free reader gets contrast for
+    /// free. §2's own summary of the unequal-bridge result is the same point
+    /// from the colony's side: *"the colony finds the shorter path without
+    /// any ant measuring anything."*
+    ///
+    /// **And the geometry is the deeper reason, which the biology alone does
+    /// not give.** The Jones/Physarum triad this input list was modelled on
+    /// -- a front sample plus two laterals at +/-45 degrees -- assumes an
+    /// agent in **open 2D** whose problem is *staying on* a line it could
+    /// drift off in any direction. A creature here cannot drift off: it is
+    /// held to the surface by the whole-chain support rule (`creature.rs`,
+    /// P-25 -- a chain falls unless some cell of it touches solid ground),
+    /// so it walks a **one-dimensional manifold** through a 2D world. The
+    /// surface *is* the line. That is why the laterals measure 0.000: at
+    /// full offset they point into open air and into rock.
+    ///
+    /// A creature confined to a line does not need "am I on it" -- it needs
+    /// **which way along it**, which is one signed scalar, and which is
+    /// exactly this input. Absolute concentration answers a *different*
+    /// question ("is this branch the busy one"), and on a surface that
+    /// question rarely arises: **there is no fork on open ground.** Where
+    /// forks genuinely exist here is underground, in the galleries the
+    /// colony digs, and in over/under routes around an obstacle -- so that
+    /// is where a concentration reader would first be worth measuring, not
+    /// on the trail planes generally.
+    ///
+    /// The triad was imported from open-2D prior art without being
+    /// re-derived for this geometry; this input *is* that re-derivation, and
+    /// the laterals are kept because the import is still right for the one
+    /// thing here that does move in open 2D -- a flier.
+    ///
+    /// **They are kept rather than removed** for the reason the laterals are,
+    /// plus one: a zero weight is one mutation from existing
+    /// (`MUT_ABS_FLOOR`), so a lineage for which absolute concentration *is*
+    /// worth something can evolve the connection. Authoring one now would
+    /// pre-judge that, and would reallocate a shared weighted sum for a
+    /// benefit no measurement has found.
     PheroAAlong = 14,
     PheroBAlong = 15,
     /// **How close the nearest prey animal this creature can actually see

@@ -25,6 +25,7 @@ pub mod founding;
 pub mod hud;
 pub mod menu;
 
+use crate::sim::cell::OrganismId;
 use crate::render::Renderer;
 use crate::sim::chunk::Rect;
 use crate::sim::clock::SkyPin;
@@ -339,6 +340,90 @@ const TRAIL_PER_SECOND: f32 = 1.0;
 /// is precisely the thing an ant cannot follow (see [`Druid::lay_trail`]).
 const TRAIL_DEPOSIT: u8 = crate::sim::pheromone::DEPOSIT;
 
+/// **How wide a swath his scent lies in**, as a radius about him in cells.
+///
+/// Owner, 2026-09-14 playtest: *"my pheramone trail should last way longer.
+/// it dissapears so much faster than an ant could even move... it should be
+/// more diffuse looking, not like a bunch of dots."* Two complaints, and this
+/// one constant is the answer to both, which is why it is a swath and not a
+/// slower decay rate.
+///
+/// **What kills a trail here is diffusion, not decay, and that is measured
+/// rather than reasoned.** `pheromone::DIFFUSE` blends every cell a quarter
+/// of the way toward its own 3x3 mean each pass. For a cell on a **one-cell**
+/// line that mean is about `v/3` — six of its nine neighbours are empty — so
+/// the line sheds roughly **17% a pass** into ground that then evaporates it,
+/// against `DECAY_RHO`'s **3%**. Diffusion is five to six times the term
+/// everyone reaches for. A cell in the middle of a *band* has a 3x3 mean of
+/// roughly its own value and sheds almost nothing, so widening the mark buys
+/// lifetime that no amount of depositing harder can: measured on the plane at
+/// an unchanged [`TRAIL_DEPOSIT`], a one-cell line stays legible **1.0s** and
+/// an `r = 3` band **10.8s**, while pushing the line's deposit all the way to
+/// the 255 ceiling only reaches **4.8s**.
+///
+/// **3, and the curve is why.** Lifetime against radius at shipped deposit
+/// runs 1.0s / 7.0s / 10.8s / (r=4, deposit 120) 14.8s / (r=5) 15.6s — it is
+/// most of the way to its plateau at 3 and the last cells are bought at 2x
+/// the per-tick write for a fifth of the gain. It also lands the band on the
+/// ground: he lays at `Player::center`, which this build measures at a median
+/// **3 cells** above the floor, so `r = 3` is the first radius whose scent
+/// reaches the ground an ant actually walks on. Before it, the trail was
+/// drawn — and laid — hanging in the air above its own route.
+///
+/// **[`TRAIL_DEPOSIT`] is deliberately *not* raised alongside it.** Raising
+/// both saturates: `r = 3` at deposit 120 pins the plane at 247 of 255 for
+/// 2.8s more life, and a pinned trail is one no ant walking it can reinforce
+/// — `pheromone::DEPOSIT`'s own P-14 note says halve it rather than let that
+/// happen, and differential reinforcement is the whole path-selection
+/// algorithm. At the shipped 40 the band peaks at 182 and leaves that
+/// headroom standing.
+const TRAIL_RADIUS: i32 = 3;
+
+/// **How long a route he has walked keeps being renewed**, in seconds.
+///
+/// Owner, on the first swath: *"Make it last even longer (at least 2x
+/// more)."*
+///
+/// **No width and no deposit can do this, which is why there is a renewal at
+/// all.** A cell that is laid once and left has a hard ceiling set by
+/// `DECAY_RHO` and the decay LUT's forced strict decrease: from a saturated
+/// 255 it takes about 67 passes to fall to 33 at 3% a pass and 33 more at the
+/// floor's one-per-pass, so **20 seconds is the most a single mark can
+/// possibly survive**, and that is before any diffusion. Measured against
+/// that: a swath at `r = 12` — wide enough that spreading costs its middle
+/// almost nothing — reaches **15.8s**, against `r = 3`'s 10.8s. Five times the
+/// per-tick write for 1.5x, and still not 2x. The ceiling is real and it is
+/// made of a constant this game does not own.
+///
+/// **So the trail becomes what its own price already called it.**
+/// [`TRAIL_PER_SECOND`] is documented as "a standing instruction to the
+/// colony", and until now it bought a mark that faded on its own within a few
+/// seconds. It now buys one that *stands* for this long and then goes.
+///
+/// **This is not the plant line's treadmill**, which
+/// `Reports/dead-ends.md` records twice: re-laying what decay removes was a
+/// dead end there because construction was *charged* both times, so the plant
+/// paid twice for standing still. Renewal here is charged once, when he walks
+/// the route; holding it costs frames and nothing else.
+const TRAIL_LIFE_SECONDS: f32 = 30.0;
+
+/// **The level a fresh mark is held at while it stands**, of 255.
+///
+/// Not [`TRAIL_DEPOSIT`], which is what one *tick* of walking adds, and not
+/// the ceiling. 180 leaves 75 of headroom under saturation, so an ant walking
+/// his road still adds a readable 40 on top of the instruction rather than
+/// clipping flat against it — `pheromone::DEPOSIT`'s own P-14 note, which is
+/// about exactly this failure.
+///
+/// **Held, not added, and that is what makes the death graded.** Topping a
+/// cell up by a fixed amount every pass pins it at the ceiling for the whole
+/// life and then drops it off a cliff at expiry — a binary, which is the
+/// defect this project's first law is named for. Renewing *toward a target
+/// that falls with age* means the trail visibly dims along its whole length
+/// as it ages, and the oldest end is always the faintest, which is also the
+/// slope an ant walks up.
+const TRAIL_HOLD: u8 = 180;
+
 /// How many marks the trail readout remembers. Older ones have decayed out
 /// of the plane long before this, so the cap is a memory bound and not a
 /// rule.
@@ -388,6 +473,35 @@ const PLACE_RADIUS_START: i32 = 60;
 pub const PLACE_RADIUS_MIN: i32 = 20;
 pub const PLACE_RADIUS_MAX: i32 = 240;
 
+/// **What the carried circle should read, given the one shared dial.**
+///
+/// Owner's playtest, 2026-09-14: *"there should just be one bubble control
+/// size for the druid and placeable bubbles."* `Q`/`E` used to walk
+/// [`Druid::place_radius`] alone, with `[`/`]` walking `World::carried_radius`
+/// on its own separate scale — two dials for what reads, from outside the
+/// code, as one question ("how big is a bubble"). [`Druid::set_bubble_radius`]
+/// is the one place both are set now, and this is the rule it applies to the
+/// carried side.
+///
+/// **An offset from each circle's own base, not a shared absolute radius.**
+/// The two circles start at different sizes for reasons that are still true:
+/// [`PLACE_RADIUS_START`] is what a placed circle needs to be worth walking
+/// away from, [`CARRIED_RADIUS`] is deliberately small so presence stays
+/// free (`carried_cost`'s own doc). Sharing one absolute number would either
+/// start the carried circle already costing power at the dial's own default,
+/// or cap every placed circle at the carried one's much smaller ceiling.
+/// Sharing the *offset* keeps both: at the dial's own start
+/// (`place_radius == PLACE_RADIUS_START`) the offset is zero and this
+/// returns exactly [`CARRIED_RADIUS`] — `a_widened_carried_circle_costs_and_
+/// an_untouched_one_does_not`'s "the circle you already are must stay free"
+/// is unchanged. Above that, both circles grow together until the carried
+/// one hits its own lower ceiling and pins there while the placed one keeps
+/// going.
+fn carried_radius_for(place_radius: i32) -> i32 {
+    let offset = place_radius - PLACE_RADIUS_START;
+    (CARRIED_RADIUS + offset).clamp(CARRIED_RADIUS, CARRIED_RADIUS_MAX)
+}
+
 /// **How far the player walks before his carried circle wakes the ground
 /// ahead of him.**
 ///
@@ -413,6 +527,17 @@ const CARRY_WAKE_STEP: i32 = CARRIED_RADIUS / 2;
 /// world's frame counter advances at that circle's rate, and a message would
 /// vanish in three eighths of a second. See [`Druid::ticks`].
 const MESSAGE_FRAMES: u64 = 180;
+
+/// **How small she gets**, in cells, against her authored 7x14.
+///
+/// Three tall because `creature::SPOIL_HEADROOM` is 3 and that is what an
+/// ant's gallery clears at its most generous; two wide because an ant cuts a
+/// one-cell bore and the rind either side leaves four to six void cells per
+/// row, so two is through with room and three is wedged. A first guess like
+/// every other number in this game's economy -- but a *derived* one: it
+/// comes off the digger's own constants rather than off a feel, so the thing
+/// to re-derive it against is a change to how ants dig, not a sweep.
+const SMALL: (i32, i32) = (2, 3);
 
 /// **Energy on its way from an animal to the player.**
 ///
@@ -574,7 +699,7 @@ pub struct Druid {
     /// organism dies, so the map is pruned to the ids seen on each pass —
     /// otherwise a dead ant's charge would be inherited by whatever is
     /// allocated its slot next.
-    pub reserves: std::collections::HashMap<u16, f32>,
+    pub reserves: std::collections::HashMap<OrganismId, f32>,
     /// Energy in flight from an animal to the player — see [`Draw`].
     pub draws: Vec<Draw>,
     /// **Which plane `G` writes to.** `Channel::A` by default — and that
@@ -605,6 +730,19 @@ pub struct Druid {
     /// no longer smells of anything, which is the worst kind of readout: one
     /// that is a picture of the gesture rather than of the world.
     pub trail: std::collections::VecDeque<(i32, i32)>,
+    /// **When each mark of [`Druid::trail`] was laid**, in player ticks, one
+    /// entry per entry there and in the same order.
+    ///
+    /// **Parallel to `trail` rather than folded into it, and that is a
+    /// deliberate cost.** `(i32, i32)` is what `src/bin/druid.rs` reads out of
+    /// `trail` to print the route, and that file belongs to another lane this
+    /// round — changing the element type would have made this change collide
+    /// with theirs for no gain the player can see. The invariant is
+    /// maintained in exactly two places ([`Druid::lay_trail`] pushes, and
+    /// [`Druid::step_trail`] pops from the front), asserted in debug, and
+    /// **read through `zip`, which truncates**: a desync degrades to renewing
+    /// fewer marks rather than to a panic in the player's game.
+    trail_laid: std::collections::VecDeque<u64>,
     /// **The options menu, while it is open** — see [`menu`]. `None` the
     /// rest of the time, the same one-piece-of-state shape as [`Druid::offer`].
     pub menu: Option<menu::Menu>,
@@ -626,6 +764,42 @@ pub struct Druid {
 impl Default for Druid {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Why a founding placed nobody, in the player's words.
+///
+/// **Three refusals used to wear one message and that was the bug.** `C` is
+/// the first thing a player presses and the only thing in the held world that
+/// makes an animal, so a refusal that names the wrong cause reads as the
+/// whole feature being broken. "nothing founded - no ground here" was said
+/// while standing plainly on ground, because the world was at the 4,095
+/// organism ceiling and every station reached the allocator and was turned
+/// away (`Reports/open-bugs-handoff.md` §Z21). The ground rule and the
+/// allocator are independent walls: with the thicket repair on, the same
+/// nine stands were offered **63 stations against 31** and placed the
+/// **identical 2** animals.
+///
+/// A free function taking the two facts rather than a method, so both
+/// founding paths -- `Druid::found_colony` at the player's feet and
+/// `found_from_offer` -- reach the same wording from the same inputs. Two
+/// call sites choosing their own strings is how the third case went unnamed
+/// in the first place.
+///
+/// `no_slots` is read from `World::organisms_refused` either side of the
+/// founding, never inferred: a stand that seats nobody because the ground
+/// refused it and one that seats nobody because the world is out of
+/// identities are the same number without that counter.
+fn refusal_note(stations_offered: usize, no_slots: bool) -> &'static str {
+    // Slots first, and deliberately: it is the only one of the three the
+    // player cannot act on by moving, which is what both other wordings
+    // tell them to do.
+    if no_slots {
+        "no room for another living thing - the world is full"
+    } else if stations_offered == 0 {
+        "no ground here - stand on something solid"
+    } else {
+        "no room - the ground here is full. try open ground"
     }
 }
 
@@ -707,7 +881,7 @@ impl Druid {
         // none yet -- nothing in worldgen places one, and founding a colony
         // is the player's verb.
         if start == Start::Dead {
-            let plants: Vec<u16> = world
+            let plants: Vec<OrganismId> = world
                 .live_organism_ids()
                 .into_iter()
                 .filter(|id| world.organism(*id).is_some_and(|st| world.species.get(st.species).creature.is_none()))
@@ -784,6 +958,16 @@ impl Druid {
             renderer: {
                 let mut r = Renderer::new();
                 r.held_look = crate::render::HeldLook::OneHue;
+                // **Every animal wears its colony's colour, as in the lab.**
+                //
+                // Owner, 2026-09-14: *"change creature colors to match the
+                // evolution lab game."* The mode is `render::CreatureColour`
+                // and the lab has set it to `Colony` since 2026-09-06, for a
+                // complaint that reaches this game word for word — the ants
+                // and the beetles could only be told apart with an overlay
+                // on. `Off` stays the *outdoor* game's default; it is the
+                // one of the three that is not about watching groups.
+                r.creature_colour = crate::render::CreatureColour::Colony;
                 r
             },
             player_tuning,
@@ -811,6 +995,7 @@ impl Druid {
             gathered: 0,
             scent: crate::sim::pheromone::Channel::default(),
             trail: std::collections::VecDeque::new(),
+            trail_laid: std::collections::VecDeque::new(),
             menu: None,
             offer: None,
             reserves: std::collections::HashMap::new(),
@@ -848,12 +1033,7 @@ impl Druid {
             rate: self.speed,
             carried_radius: self.world.carried_radius,
             carried_off: self.world.carried_off,
-            seeds: self.seeds_in_hand(),
-            held: self.world.held,
             paused: self.paused,
-            look: self.renderer.held_look.label(),
-            seed_kind: self.seed_kind_name().to_string(),
-            sown: self.sown,
             charge: self.charge_in_reach(),
             reserve_cap: RESERVE_CAP,
             power_full: POWER_START,
@@ -1032,6 +1212,7 @@ impl Druid {
             gathered: 0,
             scent: crate::sim::pheromone::Channel::default(),
             trail: std::collections::VecDeque::new(),
+            trail_laid: std::collections::VecDeque::new(),
             menu: None,
             offer: None,
             reserves: std::collections::HashMap::new(),
@@ -1155,7 +1336,7 @@ impl Druid {
         let (px, py) = player.center();
         let mut taken = 0.0;
         let mut from: Vec<((i32, i32), f32)> = Vec::new();
-        let ids: Vec<u16> = self.reserves.keys().copied().collect();
+        let ids: Vec<OrganismId> = self.reserves.keys().copied().collect();
         for id in ids {
             let held = self.reserves.get(&id).copied().unwrap_or(0.0);
             if held <= 0.0 {
@@ -1220,14 +1401,43 @@ impl Druid {
             return 0;
         };
         let (x, y) = player.center();
+        // **The slot ceiling is a *third* refusal and it has to be read, not
+        // inferred.** `found_colony_of` returns 0 for three unrelated
+        // reasons -- no ground, no nest material, and no organism slots --
+        // and this line said "no ground here" for all three. On a world at
+        // the ceiling that is a confident, specific and wrong cause: the
+        // ground is fine and the world is out of identities
+        // (`Reports/open-bugs-handoff.md` §Z21, measured at 4,095 of 4,095
+        // with 26 births refused over nine stands). `World::organisms_refused`
+        // is the engine's own counter, incremented inside `push_organism` on
+        // the far side of the call, so reading it either side of the
+        // founding is the one thing that tells the three apart -- and it is
+        // what the investigation itself needed before it could.
+        let refused_before = self.world.organisms_refused();
         let placed = self.world.found_colony_of(x, y, COLONY_SPECIES, COLONY_SIZE);
-        println!("druid: founded {placed} animals at {x},{y} (colony {})", if placed > 0 { "took" } else { "REFUSED - no ground, or no nest material" });
+        let no_slots = self.world.organisms_refused() > refused_before;
+        println!(
+            "druid: founded {placed} animals at {x},{y} (colony {})",
+            if placed > 0 {
+                "took"
+            } else if no_slots {
+                "REFUSED - no organism slots"
+            } else {
+                "REFUSED - no ground, or no nest material"
+            }
+        );
         // Counted here rather than waiting for the next economy pass: half a
         // second of a readout still saying zero, right after the key that was
         // meant to change it, reads as the key not working.
         self.animals += placed;
         match placed {
-            0 => self.note("nothing founded - no ground here"),
+            // Through the same classifier as `found_from_offer`, so the two
+            // verbs cannot drift apart in what they call the same refusal.
+            // `found_colony_of` does its own siting and hands back no
+            // station list, so the ground case is reported as "no ground"
+            // -- which is right, since that path declines for want of
+            // ground or nest material and nothing else.
+            0 => self.note(refusal_note(0, no_slots)),
             n => self.note(format!("founded {n} animals at your feet")),
         }
         placed
@@ -1268,7 +1478,41 @@ impl Druid {
         let Some(player) = &self.world.player else {
             return false;
         };
-        let (x, y) = player.center();
+        // **On the ground surface under him, one cell clear of it — not his
+        // middle, and not his feet either.** Both of the obvious anchors are
+        // wrong and each was shipped before this one.
+        //
+        // `Player::center` is half a body up, so the swath drew as a band of
+        // green mist hanging at his waist over ground he had walked clean.
+        // `Player::feet` is the bottom of his *rectangle*, which is only the
+        // surface on bare rock: `player::Tuning::wade_rows` is 4 of his 14
+        // rows — "about knee-deep" by its own doc — so **a gnome standing on
+        // any powder is sunk four rows into it by design**, and his feet are
+        // four cells *under* the soil. Owner, on the swath at `feet`: *"if it
+        // is fully underground, an ant wont smell it either... it should be a
+        // little height, just at/slightly above ground versus fully below."*
+        //
+        // **The census that said `feet` was right could not have said
+        // otherwise**, which is the part worth remembering: it measured "drop
+        // to the first solid cell below the mark", and that is 0 both for a
+        // mark resting on the surface and for one buried inside it. A number
+        // that cannot tell two opposite states apart reports the one you
+        // expected. It is signed now.
+        //
+        // `creature::colony_surface` is the right question asked properly —
+        // it rises out of solid to open air first and *then* takes the top
+        // solid row, so it answers from a point that may be buried, and it
+        // looks through a canopy rather than stopping on leaves. One cell
+        // above that row is "just at/slightly above ground"; the swath's
+        // lower half still soaks in.
+        let (fx, fy) = player.feet();
+        let (x, y) = match crate::sim::creature::colony_surface(&self.world, fx, fy) {
+            Some(surface) => (fx, surface - 1),
+            // No ground in the column at all — over a chasm or off the world.
+            // Lay where he is rather than refusing: a verb that silently does
+            // nothing is the thing this game's ethos is most against.
+            None => (fx, fy),
+        };
         let cost = TRAIL_PER_SECOND / TICKS_PER_SECOND as f32;
         if !self.unlimited {
             if self.power < cost {
@@ -1276,16 +1520,49 @@ impl Druid {
             }
             self.power -= cost;
         }
-        self.world.deposit_pheromone(self.scent, x, y, TRAIL_DEPOSIT);
+        // **A swath, not a cell.** See [`TRAIL_RADIUS`] for the measurement:
+        // a one-cell line loses five times more per pass to `DIFFUSE`
+        // spreading it into empty ground than to `DECAY_RHO` forgetting it,
+        // so the mark's *width* is the lifetime knob and the deposit is not.
+        //
+        // **Graded from the middle out rather than a uniform disc**, which is
+        // the same ruling as everywhere else in this engine: an outcome is a
+        // distribution. A flat disc lays a hard-edged slab whose rim is a
+        // step down to nothing, and the readout draws exactly what is in the
+        // plane — which is the "bunch of dots" with bigger dots. The ramp
+        // puts the peak under his feet and lets the edge fade out, so what is
+        // in the world and what is on the screen are both a cloud.
+        for dy in -TRAIL_RADIUS..=TRAIL_RADIUS {
+            for dx in -TRAIL_RADIUS..=TRAIL_RADIUS {
+                let d2 = dx * dx + dy * dy;
+                if d2 > TRAIL_RADIUS * TRAIL_RADIUS {
+                    continue;
+                }
+                // Linear in the radius, floored at 1: a cell that is inside
+                // the swath must receive *something*, or the rim rounds away
+                // and the band has a hard edge after all.
+                let fall = 1.0 - (d2 as f32).sqrt() / (TRAIL_RADIUS + 1) as f32;
+                let amount = (TRAIL_DEPOSIT as f32 * fall).round().max(1.0) as u8;
+                self.world.deposit_pheromone(self.scent, x + dx, y + dy, amount);
+            }
+        }
         // One entry per cell, not per tick: standing still would otherwise
         // fill the readout with nine hundred copies of one point and push
         // the rest of the route out of it.
         if self.trail.back() != Some(&(x, y)) {
             if self.trail.len() >= TRAIL_MARKS {
                 self.trail.pop_front();
+                self.trail_laid.pop_front();
             }
             self.trail.push_back((x, y));
+            self.trail_laid.push_back(self.ticks);
+        } else if let Some(last) = self.trail_laid.back_mut() {
+            // Standing still on a cell he has already marked renews it rather
+            // than adding a duplicate: the instruction is "here", and holding
+            // the key on one spot should keep that spot fresh.
+            *last = self.ticks;
         }
+        debug_assert_eq!(self.trail.len(), self.trail_laid.len(), "the trail and its ages must stay in lockstep");
         true
     }
 
@@ -1301,6 +1578,60 @@ impl Druid {
     /// event at one cell written by a bite, and painting a swath of it would
     /// be a player-only quantity nothing in the engine ever produces
     /// (`lab::ui::Tool::Alarm` makes the same argument at more length).
+    /// **Small enough to walk into a nest, or back to her own size.**
+    ///
+    /// The verb behind step 2 of the held world's plan. The geometry decides
+    /// it and no new rule was needed: an ant digs one cell at a time, so a
+    /// gallery is `SPOIL_HEADROOM` = 3 cells of headroom at its most
+    /// generous, and `SPOIL_HEADROOM` is this engine's own definition of
+    /// *indoors* -- `creature::is_sheltered` reads three empty cells
+    /// overhead as outdoors. So [`SMALL`] is 2x3: it fits the widest third
+    /// of an ant's galleries and is stopped by the 1- and 2-tall stretches,
+    /// which is a **graded** outcome rather than a door that is open or
+    /// shut.
+    ///
+    /// **Measured before it was built, which is what licensed building it.**
+    /// `examples/burrow_probe arms=colony box=2x3`, twelve seeds at frame
+    /// 8,000: a 2x3 body reaches **54 to 92 percent** of the roofed void a
+    /// colony digs, and on eleven of twelve seeds the largest single region
+    /// *is* that whole reach -- one connected run rather than a set of
+    /// pockets. The same probe at `box=7x14`, her own size, reads **0% at
+    /// every sample on every seed**: she cannot get in at all, which is the
+    /// premise of the feature stated as a number.
+    ///
+    /// **Growing back can be refused, and that refusal is the mechanic**
+    /// rather than a failure of it. `player::try_resize` tests her full
+    /// rectangle before committing and declines rather than shoving, so
+    /// being small in a tunnel is a thing you have to get yourself out of.
+    /// `SPOIL_THROW` is unscaled, so digging while small can seal the way
+    /// she came -- the most interesting hazard in the feature, and it needed
+    /// no code.
+    /// Whether she is in her small shape. Read from the body itself rather
+    /// than from a flag beside it — a second copy of "am I small" is a
+    /// second thing that can be wrong, and `player::try_resize` can refuse.
+    pub fn is_small(&self) -> bool {
+        self.world.player.as_ref().is_some_and(|p| (p.w, p.h) == SMALL)
+    }
+
+    pub fn toggle_small(&mut self) -> bool {
+        let Some(mut p) = self.world.player.take() else {
+            return false;
+        };
+        let want = if (p.w, p.h) == SMALL { (player::PLAYER_WIDTH, player::PLAYER_HEIGHT) } else { SMALL };
+        let done = player::try_resize(&self.world, &mut p, want, &self.player_tuning);
+        self.world.player = Some(p);
+        // **A refusal says so, in the world's words rather than the code's.**
+        // A verb that silently does nothing is the failure the ethos names:
+        // if an event produces no visible consequence it is not finished.
+        self.note(match (done, want == SMALL) {
+            (true, true) => "you are small, and the ground is a country",
+            (true, false) => "you stand your own height again",
+            (false, true) => "there is not room here to change",
+            (false, false) => "no room to grow -- find somewhere it opens out",
+        });
+        done
+    }
+
     pub fn cycle_scent(&mut self) {
         use crate::sim::pheromone::Channel;
         self.scent = if self.scent == Channel::A { Channel::B } else { Channel::A };
@@ -1402,6 +1733,13 @@ impl Druid {
         // joins it, so a founding in which nothing fits claims nothing.
         let mut colony: Option<u32> = None;
         let mut placed = 0;
+        // See `found_colony`: the refusal counter either side of the loop is
+        // the only thing that separates "every station is occupied" from
+        // "every station reached the allocator and was turned away". §Z21
+        // measured those two as *the same picture* -- 63 stations offered
+        // against 31 with the ground rule repaired, and the identical 2
+        // animals placed, because the wall was downstream of the ground.
+        let refused_before = self.world.organisms_refused();
         let stations = self.world.colony_stations(x, y, species_id, founders);
         for &(cx, cy) in &stations {
             let Some(organism) = creature::release_creature_specimen(&mut self.world, cx, cy, species, genome.clone(), traits, colony) else {
@@ -1441,12 +1779,18 @@ impl Druid {
             // Measured 2026-09-14 -- and it is the first thing a player
             // presses, so a refusal that does not say what to do about it is
             // the whole feature reading as broken.
-            self.note(if stations.is_empty() {
-                "no ground here - stand on something solid"
-            } else {
-                "no room - the ground here is full. try open ground"
-            });
-            println!("druid: founding REFUSED — {} stations offered, 0 took", stations.len());
+            // **Three refusals, three messages, and the third one is not a
+            // property of the ground at all.** "the ground here is full" is
+            // as wrong at the slot ceiling as "no ground here" was, and it
+            // sends the player walking somewhere else to get the same
+            // result.
+            let no_slots = self.world.organisms_refused() > refused_before;
+            self.note(refusal_note(stations.len(), no_slots));
+            println!(
+                "druid: founding REFUSED — {} stations offered, 0 took{}",
+                stations.len(),
+                if no_slots { " (out of organism slots)" } else { "" }
+            );
             return 0;
         }
         if !self.unlimited {
@@ -1462,6 +1806,18 @@ impl Druid {
         }
         self.offer = None;
         placed
+    }
+
+    /// **The one bubble-size dial — `Q`/`E`.** Sets [`Self::place_radius`]
+    /// (clamped to [`PLACE_RADIUS_MIN`]..=[`PLACE_RADIUS_MAX`], what a placed
+    /// circle and its preview ring use) and, from the same number,
+    /// `World::carried_radius` (via [`carried_radius_for`], clamped to its
+    /// own narrower range). One key pair, both bubbles — see that function's
+    /// doc for why they share an *offset* rather than the same absolute
+    /// radius.
+    pub fn set_bubble_radius(&mut self, r: i32) {
+        self.place_radius = r.clamp(PLACE_RADIUS_MIN, PLACE_RADIUS_MAX);
+        self.world.carried_radius = carried_radius_for(self.place_radius);
     }
 
     /// **Place a standing quickening where he is standing.**
@@ -1543,6 +1899,25 @@ impl Druid {
             return;
         }
         let held_player = self.world.player.take();
+        // **Her circle is put back with her, and leaving it out was a bug the
+        // owner reported as *"my own circle disappears but still
+        // functions"*.** Removing the player is what keeps the carried circle
+        // out of these passes — that is the paragraph above and it is
+        // correct — but `frame::step` derives `world.carried` *from* the
+        // player, so a player-less pass sets it to `None` and the last extra
+        // pass is the last thing that touches it before the renderer reads
+        // it. This runs after the tick's own `frame::step`, so the circle was
+        // blanked on **every** frame at any speed above 1x with a standing
+        // circle on the map.
+        //
+        // **What made it read as a power bug is that it is invisible at 1x.**
+        // A player only reaches the dial once they have circles to run, and
+        // they only run out of power when the dial is up — so the symptom
+        // arrives alongside an empty pool and turning `UNLIMITED` on, which
+        // changes neither the dial nor the circle count, does nothing for it.
+        // The readout went on saying `YOUR CIRCLE R28` throughout, because it
+        // reads `carried_radius` and not `carried`.
+        let held_circle = self.world.carried;
         for _ in 1..self.speed {
             frame::step(
                 &mut self.world,
@@ -1553,6 +1928,7 @@ impl Druid {
             );
         }
         self.world.player = held_player;
+        self.world.carried = held_circle;
     }
 
     /// **Income and drain, and what the pool does about them.**
@@ -1575,7 +1951,7 @@ impl Druid {
         // Rebuilt rather than updated in place: organism slots are reused, so
         // an entry left behind by a dead animal would be inherited by
         // whatever is allocated its slot next.
-        let mut fresh: std::collections::HashMap<u16, f32> = std::collections::HashMap::with_capacity(self.reserves.len());
+        let mut fresh: std::collections::HashMap<OrganismId, f32> = std::collections::HashMap::with_capacity(self.reserves.len());
         for id in self.world.live_organism_ids() {
             let Some(state) = self.world.organism(id) else { continue };
             let Some((x, y)) = state.chain.first().copied().or_else(|| state.cells.keys().next().copied()) else {
@@ -1746,6 +2122,48 @@ impl Druid {
         self.draws.retain(|d| d.age <= DRAW_FRAMES);
 
         self.step_economy();
+        self.step_trail();
+    }
+
+    /// **Hold up the route he has walked, and let it go when its time is
+    /// up.** See [`TRAIL_LIFE_SECONDS`] for why a laid-once mark cannot last
+    /// long enough however it is shaped, and [`TRAIL_HOLD`] for why this
+    /// renews *toward a falling target* rather than adding a fixed amount.
+    ///
+    /// **Once per pheromone pass, not once per tick.** The plane only decays
+    /// on its own pass (`pheromone::PHEROMONE_INTERVAL`), so renewing between
+    /// two passes writes over a value nothing has touched — eleven twelfths
+    /// of the work for none of the effect.
+    ///
+    /// Renewal writes the **core cell only**, not the whole swath the walk
+    /// laid: `pheromone::DIFFUSE` spreads a standing mark outward every pass
+    /// by itself, so holding the middle up holds the cloud up. That is the
+    /// case `DIFFUSE`'s own profile sweep measures as "a continuously re-laid
+    /// one-cell trail", and it is 29 times cheaper than re-laying the disc.
+    fn step_trail(&mut self) {
+        if !self.ticks.is_multiple_of(crate::sim::pheromone::PHEROMONE_INTERVAL) {
+            return;
+        }
+        let life = (TRAIL_LIFE_SECONDS * TICKS_PER_SECOND as f32) as u64;
+        let now = self.ticks;
+        // Oldest first, so expiry is a drain from the front and stops at the
+        // first mark still alive.
+        while self.trail_laid.front().is_some_and(|&laid| now.saturating_sub(laid) >= life) {
+            self.trail.pop_front();
+            self.trail_laid.pop_front();
+        }
+        // Collected first because the walk borrows `self.trail` and the
+        // deposit needs `self.world` mutably.
+        let marks: Vec<((i32, i32), u64)> = self.trail.iter().copied().zip(self.trail_laid.iter().copied()).collect();
+        let channel = self.scent;
+        for ((x, y), laid) in marks {
+            let age = now.saturating_sub(laid) as f32 / life as f32;
+            let target = (TRAIL_HOLD as f32 * (1.0 - age)).round().max(0.0) as u8;
+            let standing = self.world.pheromone_at(channel, x, y);
+            if standing < target {
+                self.world.deposit_pheromone(channel, x, y, target - standing);
+            }
+        }
     }
 
     /// One drawn frame.
@@ -1937,6 +2355,55 @@ fn grow_from_env() -> u64 {
 mod tests {
     use super::*;
 
+    /// **A world out of organism slots says so, rather than blaming the
+    /// ground.** §Z21's whole content: `found_colony_of` returns 0 for three
+    /// unrelated reasons and the bar named the wrong one, confidently.
+    ///
+    /// **The `no_slots` arm is checked against a real ceiling rather than a
+    /// hand-set flag**, because the claim being guarded is that the counter
+    /// moves when the world is full -- a flag would guard the `if` and not
+    /// the mechanism. Filling every slot costs ~0.6 s, measured, which is
+    /// why it is done for real here.
+    #[test]
+    fn a_world_out_of_slots_says_so_instead_of_blaming_the_ground() {
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        let species = w.species.id_of("moss").expect("moss is compiled in");
+
+        // The control first: a world with slots free refuses nothing, so the
+        // counter is known to be quiet when nothing is wrong. Without this
+        // the assertion below cannot tell "the world is full" from "this
+        // counter is always non-zero".
+        let quiet = w.organisms_refused();
+        let id = w.push_organism(species).expect("a slot is free in a fresh world");
+        w.free_organism(id);
+        assert_eq!(w.organisms_refused(), quiet, "an allocation that succeeds must not count as a refusal");
+
+        // Now fill it. `push_organism` is the only allocator, so this is the
+        // same wall a germination or a founding hits.
+        while w.push_organism(species).is_some() {}
+        let before = w.organisms_refused();
+        assert!(w.push_organism(species).is_none(), "a full world must refuse, not wrap an index into the generation bits");
+        assert!(w.organisms_refused() > before, "a refused birth must be counted -- it is the only signal the message can read");
+
+        // And the wording follows the counter, not the ground. Both of the
+        // ground wordings tell the player to move, which is useless here.
+        let full = refusal_note(63, true);
+        assert!(full.contains("world is full"), "a slot refusal must name the world being full, not the ground: {full:?}");
+        assert!(!full.contains("ground"), "a slot refusal must not mention ground at all -- that is the wrong cause: {full:?}");
+    }
+
+    /// The other two arms still say what they used to, so the fix names a
+    /// third case rather than renaming the two that were already right.
+    #[test]
+    fn the_two_ground_refusals_are_unchanged_and_distinct() {
+        let none = refusal_note(0, false);
+        let full = refusal_note(63, false);
+        assert!(none.contains("no ground here"), "{none:?}");
+        assert!(full.contains("the ground here is full"), "{full:?}");
+        assert_ne!(none, full, "standing off ground and standing on crowded ground are different things to do about it");
+        assert_ne!(full, refusal_note(63, true), "the same station count must read differently when the refusal was the allocator");
+    }
+
     /// **A trail he lays has a slope, and the slope points at him.**
     ///
     /// This is the assumption the whole of [`Druid::lay_trail`] rests on, and
@@ -2014,6 +2481,49 @@ mod tests {
         assert!(last > 0.0, "the widest carried circle must cost something");
     }
 
+    /// **One dial, both bubbles — and the one it already costs power to
+    /// widen must not start pre-charged.** Owner's playtest, 2026-09-14:
+    /// *"there should just be one bubble control size for the druid and
+    /// placeable bubbles."* `Druid::set_bubble_radius` is the one place both
+    /// [`Druid::place_radius`] and `World::carried_radius` are set now
+    /// (`Q`/`E`, `src/bin/druid.rs`), and the property this guards is the
+    /// one the merge could quietly break: `a_widened_carried_circle_costs_
+    /// and_an_untouched_one_does_not`'s "the circle you already are must
+    /// stay free" is about `World::carried_radius` sitting at
+    /// [`CARRIED_RADIUS`] *by default*, and a naive merge (one shared
+    /// absolute radius) would start the carried circle at the placed
+    /// circle's own default of 60 instead — costing power from the very
+    /// first frame with nobody having touched the dial.
+    #[test]
+    fn the_one_dial_leaves_the_carried_circle_free_at_its_own_default_and_clamps_each_side_on_its_own_range() {
+        let mut d = Druid::bare_for_test();
+
+        // Untouched: the dial's own start reads back as each circle's own
+        // free default, not some shared number in between.
+        assert_eq!(d.place_radius, PLACE_RADIUS_START, "test setup: the dial starts where Q/E starts");
+        assert_eq!(d.world.carried_radius, CARRIED_RADIUS, "an untouched dial must leave the carried circle at its free default");
+
+        // Widen past the carried circle's own ceiling -- it pins there while
+        // the placed radius keeps climbing, rather than the dial being
+        // capped by the narrower of the two circles it drives.
+        d.set_bubble_radius(PLACE_RADIUS_MAX);
+        assert_eq!(d.place_radius, PLACE_RADIUS_MAX, "the placed circle must reach its own ceiling");
+        assert_eq!(d.world.carried_radius, CARRIED_RADIUS_MAX, "the carried circle must pin at its own, lower ceiling");
+
+        // Narrow past the carried circle's own floor -- it pins at
+        // `CARRIED_RADIUS` (never below "the circle you already are") while
+        // the placed radius keeps shrinking to its own, lower floor.
+        d.set_bubble_radius(PLACE_RADIUS_MIN);
+        assert_eq!(d.place_radius, PLACE_RADIUS_MIN, "the placed circle must reach its own floor");
+        assert_eq!(d.world.carried_radius, CARRIED_RADIUS, "the carried circle must not be driven below presence");
+
+        // Back to the start: the carried circle is free again, not stuck
+        // wherever the last extreme left it.
+        d.set_bubble_radius(PLACE_RADIUS_START);
+        assert_eq!(d.world.carried_radius, CARRIED_RADIUS, "returning the dial to its start must return the carried circle to free");
+        assert_eq!(carried_radius_for(PLACE_RADIUS_START), CARRIED_RADIUS, "the pure function agrees with the method");
+    }
+
     /// **Off is a state the dial cannot reach, and the flag is what reaches
     /// it.**
     ///
@@ -2068,6 +2578,42 @@ mod tests {
         let at = step(&mut w);
         assert!(w.carried.is_some(), "clearing carried_off must bring the circle back");
         assert!(w.time_runs_at(at.0, at.1), "time must run again where he stands");
+    }
+
+    /// **The speed dial must not take her own circle away.**
+    ///
+    /// Owner playtest, 2026-09-14: *"sometimes the druid's own time circle
+    /// disappears but still functions... I turn unlimited power on and it is
+    /// working but no visual."* The attribution to power was the correlation
+    /// rather than the cause, and that is why this guard is about the dial:
+    /// [`Druid::step_extra_ticks`] takes the player out so the carried circle
+    /// stays free, `frame::step` derives `world.carried` from the player, and
+    /// the extra passes run *after* the tick's own step — so the last thing
+    /// to touch `carried` before the renderer read it was a player-less pass
+    /// that set it to `None`. Power only ever ran out once the dial was up,
+    /// which is what put the two together.
+    ///
+    /// Swept over the whole dial rather than checked at one setting, because
+    /// the failure is "anything above 1x" and a spot check picks the setting
+    /// you were already thinking about. 1x is in the sweep as the arm that
+    /// was always fine.
+    #[test]
+    fn running_the_dial_up_does_not_take_her_own_circle_away() {
+        for speed in 1..=8 {
+            let mut g = Druid::bare_for_test();
+            g.speed = speed;
+            // The scene has to contain the situation: `step_extra_ticks`
+            // returns early with no standing circle, so without one this
+            // would pass at every setting and guard nothing.
+            g.world.quickenings.push(crate::sim::world::Quickening::at(32, 40, 16));
+            g.update();
+            let (x, y) = g.world.player.as_ref().expect("the test world keeps its player").center();
+            assert!(
+                g.world.carried.is_some(),
+                "at speed x{speed} her own circle is gone after a tick -- the readout would still say it is there"
+            );
+            assert!(g.world.time_runs_at(x, y), "at speed x{speed} time does not run where she stands");
+        }
     }
 
     /// **Sowing spends a seed, an empty pouch refuses, and gathering is what

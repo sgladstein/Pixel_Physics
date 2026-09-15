@@ -63,6 +63,7 @@
 //! 3.5-hour study in this repo produced eight byte-identical logs for
 //! exactly that reason.
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::lab::Lab;
 use pixel_physics::sim::creature;
@@ -110,7 +111,7 @@ fn set_genome_slot_on(lab: &mut Lab, species: &str, slot: usize, weight: f32) ->
     living.len()
 }
 
-fn ants_of(lab: &Lab, species: &str) -> Vec<u16> {
+fn ants_of(lab: &Lab, species: &str) -> Vec<OrganismId> {
     lab.world
         .live_organism_ids()
         .into_iter()
@@ -121,7 +122,7 @@ fn ants_of(lab: &Lab, species: &str) -> Vec<u16> {
 /// **Every living animal's head, with its expressed traits and colony.**
 /// Expressed rather than raw, because `is_living_kin` compares expressed
 /// vectors and a developmental channel can move a signature.
-fn standing(world: &World) -> Vec<(u16, i32, i32, u32, [f32; organism::CREATURE_TRAITS])> {
+fn standing(world: &World) -> Vec<(OrganismId, i32, i32, u32, [f32; organism::CREATURE_TRAITS])> {
     let mut out = Vec::new();
     for id in world.live_organism_ids() {
         let Some(st) = world.organism(id) else { continue };
@@ -305,18 +306,26 @@ fn main() {
         (v[0], v[1], v[2], v[3])
     });
 
+    // **`colony_ants=` -- how many founders stand together, and at a live
+    // rivalry dial that is also how big a war party is.** One of the three
+    // constants #423's commit names as calibrated on a bed where no ant was
+    // food. It was a bed field and a lab slider (`lab/params.rs`, span
+    // 1..120) and reachable from no harness, so the one question nobody
+    // could ask of it was what it does to a bed with two colonies in it.
+    let colony_ants: i32 = arg("colony_ants").unwrap_or(creature::COLONY_ANTS);
     let spec = LabBox {
         width: arg("width").unwrap_or(512),
         height: arg("height").unwrap_or(320),
         soil_depth: arg("soil").unwrap_or(80),
         founders,
         colonies,
+        colony_ants,
         compartments: arg("walls").unwrap_or(1),
         seed,
         ..LabBox::default()
     };
     println!(
-        "rivalry: label={label} frames={frames} seed={seed} colonies={colonies} founders={founders} walls={} spread={} tolerance={} drift={} sight={} wire={}",
+        "rivalry: label={label} frames={frames} seed={seed} colonies={colonies} colony_ants={colony_ants} founders={founders} walls={} spread={} tolerance={} drift={} sight={} wire={}",
         spec.compartments,
         spread.map_or("-".into(), |v| v.to_string()),
         tolerance.map_or("-".into(), |v| v.to_string()),
@@ -361,6 +370,43 @@ fn main() {
             .unwrap_or(0.0),
     );
 
+    // **The economy this bed is founded on, echoed in the units the
+    // questions are asked in.** A stranger is food now, so the three
+    // constants the switch reallocates -- the birth bar, what a mouthful of
+    // rival is worth, and how many founders stand together -- are what any
+    // reading of this log is against, and none of them was visible in it.
+    // `CLAUDE.md`'s harness rule, applied to the *economy* rather than to
+    // the dial: a constant nobody can see the value of is a constant nobody
+    // can tell has been re-derived.
+    //
+    // Priced through `creature::diet_quality`, the same function the mouth
+    // credits a swallow with, so this line cannot disagree with the verb.
+    if let Some(def) = lab.world.species.id_of("ant").and_then(|id| lab.world.species.get(id).creature.as_ref().cloned()) {
+        let gut = def.traits[organism::TRAIT_GUT_BIAS];
+        let flesh = lab
+            .world
+            .materials
+            .id_of("ant")
+            .map(|m| lab.world.materials.get(m).food_energy * creature::diet_quality(&lab.world, m, gut))
+            .unwrap_or(0.0);
+        // **Off `BodyPlan::len`, never a literal.** The shipped ant is
+        // `Chain(2)`, so a hardcoded 2 would have been right today and
+        // silently wrong for `ant_long` and for the day open question #1 is
+        // answered -- a constant nobody can see the value of, in the arm of
+        // this file whose whole job is making constants visible.
+        let body = def.body.len();
+        println!(
+            "rivalry: economy -- birth bar {:.0} J, start_energy {:.0} J, gut_bias {gut:.2}; one cell of rival flesh yields {flesh:.0} J, \
+             so a whole {body}-cell rival is {:.0} J = {:.0}% of one child, and a birth costs {:.1} rivals eaten whole. colony_ants={}",
+            def.reproduce_threshold,
+            def.start_energy,
+            flesh * body as f32,
+            if def.reproduce_threshold > 0.0 { 100.0 * flesh * body as f32 / def.reproduce_threshold } else { 0.0 },
+            if flesh > 0.0 { def.reproduce_threshold / (flesh * body as f32) } else { 0.0 },
+            colony_ants,
+        );
+    }
+
     // **Link 1.** The offset is drawn at founding, keyed on the seed and the
     // label (`creature::colony_scent_offset`), so re-deriving it for every
     // standing animal is byte-identical to having founded the bed at this
@@ -399,7 +445,7 @@ fn main() {
             lab.world.species.set_creature(id, def);
         }
         let world_seed = lab.world.seed;
-        let living: Vec<(u16, u32)> = lab
+        let living: Vec<(OrganismId, u32)> = lab
             .world
             .live_organism_ids()
             .into_iter()
@@ -651,6 +697,47 @@ fn summary(world: &World, label: &str, contact_ticks: u64, cross_ticks: u64, sam
     let deaths: u64 = world.deaths_by_cause.iter().sum();
     let starved = world.deaths_by_cause[organism::DeathCause::Starved.index()];
     let killed = world.deaths_by_cause[organism::DeathCause::Killed.index()];
+    // **The same census over ANIMALS ONLY, and the split is the whole reason
+    // these columns exist.** `World::deaths_by_cause` is every organism in
+    // the bed, and on a played lab box the bed is mostly plants: seed 1 of
+    // the shipped arm reports 656 deaths of which **415 are `felled`**, over
+    // a population that never held more than 94 animals. So `starv%` --
+    // "starved as a share of all deaths" -- has a denominator that is three
+    // parts vegetation, and anything that fells more plants lowers it
+    // without one fewer ant starving.
+    //
+    // That is `CLAUDE.md`'s worst-recurring failure in its *share* costume,
+    // and it reached a shipped finding: round 35 priced the rivalry switch
+    // at "starvation share -4.3 points, because killing displaces starving".
+    // The share is real; the mechanism read off it is not necessarily.
+    //
+    // **`World::group_deaths` is the animal-only tally and it already
+    // exists** -- `World::kill_organism` books a row there only `if
+    // creature`, so summing it is the same census restricted to animals,
+    // taken from the engine's own booking rather than re-derived here.
+    let mut a_by_cause = [0u64; organism::DEATH_CAUSES];
+    for g in &world.group_deaths {
+        for (i, n) in g.by_cause.iter().enumerate() {
+            a_by_cause[i] += n;
+        }
+    }
+    let a_deaths: u64 = a_by_cause.iter().sum();
+    let a_starved = a_by_cause[organism::DeathCause::Starved.index()];
+    let a_killed = a_by_cause[organism::DeathCause::Killed.index()];
+    // **Predation income, in joules, from the engine's own books** --
+    // `ColonyBooks::raided`, "joules of living flesh this colony has
+    // swallowed off another colony's animals" (#419). This is the number the
+    // birth-bar question needs and the reason it could not be asked before:
+    // `EnergyLedger::harvested_plant` books a mouthful of rival and a
+    // mouthful of leaf into one account, so predation income was invisible
+    // in every ledger column this harness printed. Face value, per its own
+    // doc -- what came off the victim, not what the eater digested.
+    //
+    // Over `all_colony_books`, not over the live groups: a colony that was
+    // eaten to extinction has no live group and is exactly the colony whose
+    // books this question is about.
+    let raided: f64 = world.all_colony_books().iter().map(|b| b.raided).sum();
+    let raided_by_others: f64 = world.all_colony_books().iter().map(|b| b.raided_by_others).sum();
     let causes: Vec<String> = DEATH_CAUSE_LIST
         .iter()
         .enumerate()
@@ -663,7 +750,8 @@ fn summary(world: &World, label: &str, contact_ticks: u64, cross_ticks: u64, sam
          contacts={contact_ticks} cross={cross_ticks} samples={samples} \
          attacks={} cells={} kills={} xcol={xcol} own={own} plantkill={plantkill} unlogged={} \
          births={} deaths={deaths} starved={starved} killed={killed} starv%={:.1} \
-         corpse_j={:.0} plant_j={:.0} corpse_cells={}",
+         corpse_j={:.0} plant_j={:.0} corpse_cells={} \
+         deathsA={a_deaths} starvedA={a_starved} killedA={a_killed} starvA%={:.1} raided_j={raided:.0} raided_by_others_j={raided_by_others:.0}",
         st.attacks,
         st.attack_cells,
         st.attack_kills,
@@ -673,8 +761,21 @@ fn summary(world: &World, label: &str, contact_ticks: u64, cross_ticks: u64, sam
         l.harvested_corpse,
         l.harvested_plant,
         corpse_cells(world, dims.0, dims.1),
+        if a_deaths > 0 { 100.0 * a_starved as f64 / a_deaths as f64 } else { 0.0 },
     );
     println!("SUMMARY-causes label={label} {}", causes.join(" "));
+    // The animal-only causes beside the whole-bed ones, so the two are
+    // readable against each other in one log rather than one replacing the
+    // other -- the whole-bed row is still the right answer to "what died in
+    // this box", it is just not the right answer to "did rivalry change how
+    // ants die".
+    let a_causes: Vec<String> = DEATH_CAUSE_LIST
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| a_by_cause[*i] > 0)
+        .map(|(i, c)| format!("{}={}", c.label().to_lowercase().replace(' ', "_"), a_by_cause[i]))
+        .collect();
+    println!("SUMMARY-causes-animal label={label} {}", a_causes.join(" "));
 }
 
 /// **The controls, in one short run — and two of them started life as wrong
@@ -847,25 +948,57 @@ fn arena_at(apart: Apart, wired: bool, seed: u64) -> Option<Arm> {
         def.scent_drift = 0.0;
         lab.world.species.set_creature(id, def);
     }
-    if apart != Apart::No {
-        if let Some(id) = lab.world.species.id_of("ant") {
-            let mut def = lab.world.species.get(id).creature.as_ref().expect("creature").clone();
-            def.scent_spread = 1.0;
-            lab.world.species.set_creature(id, def);
+    // **EVERY arm pins `scent_spread` explicitly and re-derives each standing
+    // ant's signature from the species' ANCESTRAL point.** Two repairs, and
+    // both are #423's live default arriving inside a control written before
+    // it existed -- `CLAUDE.md`'s "adding a member to a set enrols it in
+    // every rule over that set", with the set being "every arm that did not
+    // name its own spread".
+    //
+    // **1. `Apart::No` set nothing at all**, so it inherited whatever
+    // `ant.ron` authored. That was 0 until #423 and the arm genuinely meant
+    // "everyone is kin"; from #423 it silently meant "the shipped stranger
+    // bed", and the two claims resting on it -- `shipped` reads `cross 0,
+    // attacks 0`, and `wire-only` shows a swinging ant with no target --
+    // have been failing ever since, on `main`, gated by nothing (CI does not
+    // run `control=selftest`). Measured 2026-09-14 on unmodified `origin/
+    // main`: byte-identical failures to this branch, which is what says the
+    // defect is the default's and not this lane's.
+    //
+    // **2. The separated arms ADDED their offset to the scent an animal
+    // already carried**, which is precisely the trap round 35 recorded and
+    // repaired in the `spread=` path above -- and missed here, because this
+    // function has its own copy. At a live default `Apart::Spread` was
+    // measuring `authored 2.0 + requested 1.0`; the tell is in the log, where
+    // it reported a founding gap of **2.170** against the 1.62 median round
+    // 35 measured for a true `spread=1`.
+    //
+    // Resetting to the ancestral point first makes `requested` mean "founded
+    // at this spread" for any authored default, 0 included -- so the kin arm
+    // is kin again by construction rather than by luck.
+    let requested = if apart == Apart::No { 0.0 } else { 1.0 };
+    let ancestral = lab
+        .world
+        .species
+        .id_of("ant")
+        .and_then(|id| lab.world.species.get(id).creature.as_ref().map(|d| d.traits))
+        .unwrap_or([0.0; organism::CREATURE_TRAITS]);
+    if let Some(id) = lab.world.species.id_of("ant") {
+        let mut def = lab.world.species.get(id).creature.as_ref().expect("creature").clone();
+        def.scent_spread = requested;
+        lab.world.species.set_creature(id, def);
+    }
+    let world_seed = lab.world.seed;
+    let pairs: Vec<(OrganismId, u32)> =
+        ants_of(&lab, "ant").into_iter().filter_map(|id| lab.world.organism(id).map(|st| (id, st.colony))).collect();
+    for (id, col) in pairs {
+        let off = creature::colony_scent_offset(world_seed, col, requested);
+        for (i, slot) in organism::SCENT_SLOTS.iter().enumerate() {
+            lab.world.set_organism_trait(id, *slot, (ancestral[*slot] + off[i]).clamp(-1.0, 1.0));
         }
-        let world_seed = lab.world.seed;
-        let pairs: Vec<(u16, u32)> =
-            ants_of(&lab, "ant").into_iter().filter_map(|id| lab.world.organism(id).map(|st| (id, st.colony))).collect();
-        for (id, col) in pairs {
-            let off = creature::colony_scent_offset(world_seed, col, 1.0);
-            let traits = lab.world.organism(id).expect("live").traits;
-            for (i, slot) in organism::SCENT_SLOTS.iter().enumerate() {
-                lab.world.set_organism_trait(id, *slot, (traits[*slot] + off[i]).clamp(-1.0, 1.0));
-            }
-        }
-        if apart == Apart::Rivalry {
-            set_allele_on(&mut lab, "ant", organism::TRAIT_TOLERANCE, -1.0);
-        }
+    }
+    if apart == Apart::Rivalry {
+        set_allele_on(&mut lab, "ant", organism::TRAIT_TOLERANCE, -1.0);
     }
     if wired {
         let slot = pixel_physics::sim::brain::io_slot(pixel_physics::sim::brain::BrainInput::Bias, pixel_physics::sim::brain::BrainOutput::Attack);

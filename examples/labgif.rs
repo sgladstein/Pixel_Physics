@@ -33,6 +33,7 @@
 //! image -- an image says whether the rate *looks* like rain, and only the
 //! counters say whether it *did* anything.
 
+use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::lab::rain::Rain;
 use pixel_physics::lab::scenario::{Placement, Scenario};
 use pixel_physics::lab::{Lab, HEIGHT, WIDTH};
@@ -110,7 +111,7 @@ fn wire_rider() -> Vec<(brain::BrainInput, brain::BrainOutput, f32)> {
 ///
 /// Opt-in: unset, `follow=` behaves exactly as it did, so every existing
 /// card reproduces.
-fn airborne_of(world: &World, species: &str) -> Option<u16> {
+fn airborne_of(world: &World, species: &str) -> Option<OrganismId> {
     let sid = world.species.id_of(species)?;
     world.live_organism_ids().into_iter().find(|&id| {
         world.organism(id).is_some_and(|s| s.species == sid && s.flight.is_some() && !s.chain.is_empty())
@@ -118,7 +119,7 @@ fn airborne_of(world: &World, species: &str) -> Option<u16> {
 }
 
 /// The head cell of one named organism, or `None` once it has died.
-fn head_of_id(world: &World, id: u16) -> Option<(i32, i32)> {
+fn head_of_id(world: &World, id: OrganismId) -> Option<(i32, i32)> {
     world.organism(id)?.chain.first().copied()
 }
 
@@ -547,7 +548,7 @@ fn main() {
     let bounds = pixel_physics::sim::chunk::Rect::new(0, 0, lab.spec.width - 1, lab.spec.height - 1);
     let (span_x, span_y) = lab.renderer.visible_span((full_w, full_h));
     // The organism `follow_air=N` locked onto, and how long it has been down.
-    let mut locked: Option<u16> = None;
+    let mut locked: Option<OrganismId> = None;
     let mut grounded: u64 = 0;
     // **How many times the camera had to change animal**, printed at the end:
     // it is the card's own "did it fire" counter for the follow rule, and on
@@ -752,7 +753,7 @@ fn main() {
             // the numbers support (`Reports/lanes/evolution-lab-garden-
             // loop.md`).
             if let Ok(want) = std::env::var("PIP_TRACE") {
-                if let Ok(want_id) = want.parse::<u16>() {
+                if let Ok(want_id) = want.parse::<OrganismId>() {
                     match lab.world.organism(want_id) {
                         Some(st) => {
                             let cells: Vec<(i32, i32)> = st.cells.keys().copied().collect();

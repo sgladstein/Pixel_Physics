@@ -109,7 +109,7 @@
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
-use super::cell::Cell;
+use super::cell::{Cell, OrganismId};
 use super::chunk::{Rect, CHUNK_SIZE};
 use super::material::{self, MaterialId, MaterialKind};
 use super::organism;
@@ -1382,7 +1382,7 @@ const LOAD_SEARCH_RADIUS: i32 = 3;
 /// only: a `Solid` neighbour is a wall the branch might be growing against
 /// rather than a burden, and counting it would make a tree weaker for
 /// having grown near rock.
-fn supported_load(world: &World, x: i32, y: i32, organism_id: u16) -> u16 {
+fn supported_load(world: &World, x: i32, y: i32, organism_id: OrganismId) -> u16 {
     let mut load = 0u16;
     for dx in -LOAD_SEARCH_RADIUS..=LOAD_SEARCH_RADIUS {
         for dy in -LOAD_SEARCH_RADIUS..=LOAD_SEARCH_RADIUS {
@@ -1437,7 +1437,7 @@ fn supported_load(world: &World, x: i32, y: i32, organism_id: u16) -> u16 {
 /// Unbounded, deliberately. A cap here would be a cap on *whether* a big
 /// piece comes off, which is the mistake `rigid::fracture_failing_region`'s
 /// own doc records having shipped once already.
-fn detached_organism_piece(world: &World, x: i32, y: i32, organism_id: u16) -> Vec<(i32, i32)> {
+fn detached_organism_piece(world: &World, x: i32, y: i32, organism_id: OrganismId) -> Vec<(i32, i32)> {
     let mut seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::from([(x, y)]);
     let mut queue = std::collections::VecDeque::from([(x, y)]);
     let mut out = Vec::new();
@@ -1516,7 +1516,7 @@ pub(crate) fn snap_organism_cell(world: &mut World, x: i32, y: i32) -> Vec<Activ
     schedule_organism_neighbours(world, x, y, organism_id)
 }
 
-fn schedule_organism_neighbours(world: &World, x: i32, y: i32, organism_id: u16) -> Vec<ActiveSite> {
+fn schedule_organism_neighbours(world: &World, x: i32, y: i32, organism_id: OrganismId) -> Vec<ActiveSite> {
     // **Eight, because `Grow` places at eight.** This walked four, so a
     // cascade through a crown -- which is mostly diagonal twigs -- skipped
     // every diagonally-attached neighbour and the chain simply stopped at
@@ -4956,6 +4956,38 @@ impl World {
         }
     }
 
+    /// **Re-queue a structural check on every cell of every organism.**
+    ///
+    /// What flipping `World::plant_load_failure` needs and a bare field
+    /// write does not buy. `over_span` (this module) and the detached-
+    /// living-plant clause beside it both read the switch live, but a cell
+    /// the switch exempted is never rescheduled — `over_span`'s own doc
+    /// says so: with the rule off, an unsupported cell is "always an exact
+    /// answer... nothing more to do until something else disturbs this
+    /// organism's own structure." Turning the rule back on is not a
+    /// disturbance any existing call site raises, so an already-settled
+    /// beam that should now fail sits exactly where it was until growth or
+    /// damage happens to touch it — which on a mature, senescent-free stand
+    /// may be a long wait. This is that disturbance, named and callable.
+    ///
+    /// Public for `druid::menu::Setting::PlantBreak`'s `advance`, the one
+    /// caller: a menu toggle is exactly the "something else" the doc above
+    /// asks for, and nothing else in the engine flips this switch at
+    /// runtime. Cheap to call: `schedule_structural_check` dedups into the
+    /// existing scheduler queue, and the queue's own per-frame cap
+    /// (`MAX_SITES_PER_FRAME`) spreads a large stand's catch-up over several
+    /// frames rather than snapping everything on one — a graded response
+    /// rather than a single-frame stall, which is also the cheaper one.
+    pub fn schedule_structural_recheck_of_all_living_plants(&mut self) {
+        for id in self.live_organism_ids() {
+            let Some(state) = self.organism(id) else { continue };
+            let positions: Vec<(i32, i32)> = state.cells.keys().copied().collect();
+            for (x, y) in positions {
+                self.schedule_structural_check(x, y);
+            }
+        }
+    }
+
     /// Record that something actually happened at `(x, y)` — a blow, a
     /// cut, a blast. See `World::chain_reach`: with a reach set, failures
     /// are only permitted near one of these, so anything that should be
@@ -6931,7 +6963,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    fn organism_wood_cell(w: &mut World, organism_id: u16) -> Cell {
+    fn organism_wood_cell(w: &mut World, organism_id: OrganismId) -> Cell {
         let wood = w.materials.id_of("wood").unwrap();
         Cell::new(wood, 0).with_organism_id(organism_id).with_aux(organism::pack_cell_type(organism::CellType::MatureBody))
     }
@@ -7081,7 +7113,7 @@ mod tests {
     fn the_load_failure_switch_stops_the_span_rule_and_not_severing() {
         const BASE: i32 = 10;
         const TIP: i32 = BASE + 11;
-        let build = |rule: bool| -> (World, u16) {
+        let build = |rule: bool| -> (World, OrganismId) {
             let mut w = test_world();
             w.plant_load_failure = rule;
             let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
@@ -7129,6 +7161,77 @@ mod tests {
         );
     }
 
+    /// **REPRODUCTION -- lane C, held-world menu item 1.** A beam settles
+    /// with the switch off (nothing schedules a further check on a cell the
+    /// span rule refused, per `over_span`'s own doc a few hundred lines up:
+    /// "nothing more to do until something else disturbs this organism's own
+    /// structure"). The player then flips `World::plant_load_failure` back
+    /// on exactly the way `Setting::advance` in `src/druid/menu.rs` does --
+    /// a bare field write, no `schedule_structural_check` anywhere near it.
+    /// If nothing else re-queues the beam's cells, it never gets re-judged
+    /// and stands forever at a span the rule would now reject on sight.
+    #[test]
+    fn flipping_the_load_failure_switch_the_way_the_menu_does_does_not_retroactively_recheck_a_settled_beam() {
+        const BASE: i32 = 10;
+        const TIP: i32 = BASE + 11;
+        let mut w = test_world();
+        w.plant_load_failure = false;
+        let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
+        let organism_id = w.push_organism(tree_species).expect("an organism slot is free");
+        pin_wood_reach(&mut w, 8);
+        w.set(BASE, 31, Cell::new(material::STONE, 0));
+        for x in BASE..BASE + 12 {
+            let cell = organism_wood_cell(&mut w, organism_id);
+            w.set(x, 30, cell);
+        }
+        w.schedule_structural_check(TIP, 30);
+        run_organisms(&mut w, 200);
+        assert_eq!(w.get(TIP, 30).organism_id(), organism_id, "test setup: the beam must still be standing with the switch off");
+
+        // The bare field write `Setting::advance` performs -- nothing else.
+        w.plant_load_failure = true;
+        run_organisms(&mut w, 200);
+        assert_eq!(
+            w.get(TIP, 30).organism_id(),
+            organism_id,
+            "a bare field write left an over-span beam standing after the switch went back on -- \
+             the menu needs to re-schedule what it just re-armed"
+        );
+    }
+
+    /// **THE FIX.** Same scene as the reproduction just above, but the
+    /// switch flips through `schedule_structural_recheck_of_all_living_
+    /// plants` the way `druid::menu::Setting::PlantBreak::advance` now
+    /// does, instead of through a bare field write. The over-span beam that
+    /// stood forever above must come down promptly instead.
+    #[test]
+    fn schedule_structural_recheck_of_all_living_plants_catches_up_a_beam_the_switch_had_exempted() {
+        const BASE: i32 = 10;
+        const TIP: i32 = BASE + 11;
+        let mut w = test_world();
+        w.plant_load_failure = false;
+        let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
+        let organism_id = w.push_organism(tree_species).expect("an organism slot is free");
+        pin_wood_reach(&mut w, 8);
+        w.set(BASE, 31, Cell::new(material::STONE, 0));
+        for x in BASE..BASE + 12 {
+            let cell = organism_wood_cell(&mut w, organism_id);
+            w.set(x, 30, cell);
+        }
+        w.schedule_structural_check(TIP, 30);
+        run_organisms(&mut w, 200);
+        assert_eq!(w.get(TIP, 30).organism_id(), organism_id, "test setup: the beam must still be standing with the switch off");
+
+        w.plant_load_failure = true;
+        w.schedule_structural_recheck_of_all_living_plants();
+        run_organisms(&mut w, 200);
+        assert_ne!(
+            w.get(TIP, 30).organism_id(),
+            organism_id,
+            "the menu's own re-check call left an over-span beam standing after the switch went back on"
+        );
+    }
+
     /// **With the rule off a living plant is held; a dead one still comes
     /// apart.** The three arms are one test because no two of them are
     /// evidence on their own: holding everything would break felling
@@ -7168,7 +7271,7 @@ mod tests {
     fn the_load_failure_switch_holds_a_living_plant_that_lost_its_anchor_and_not_a_dead_one() {
         const BASE: i32 = 10;
         const SPAN: std::ops::Range<i32> = BASE..BASE + 10;
-        let build = |rule: bool, senescent: bool| -> (World, u16) {
+        let build = |rule: bool, senescent: bool| -> (World, OrganismId) {
             let mut w = test_world();
             w.plant_load_failure = rule;
             let tree = w.species.id_of("tree").expect("tree species must be loaded");
@@ -7193,7 +7296,7 @@ mod tests {
             let _ = tick(&mut w, &ActiveSite { x: BASE + 9, y: 30, kind: ActiveKind::StructuralCheck, next_frame: 0 });
             (w, organism_id)
         };
-        let standing = |w: &World, organism_id: u16| SPAN.filter(|&x| w.get(x, 30).organism_id() == organism_id).count();
+        let standing = |w: &World, organism_id: OrganismId| SPAN.filter(|&x| w.get(x, 30).organism_id() == organism_id).count();
 
         // The positive control, first, because everything below is a claim
         // about a beam that had to be capable of coming down. `CLAUDE.md`:

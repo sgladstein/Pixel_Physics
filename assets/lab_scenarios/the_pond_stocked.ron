@@ -1,0 +1,74 @@
+// **The pond, stocked** -- the measurement bed for every aquatic brief in
+// `Reports/aquatic-implementation-plan-2026-09-14.md`.
+//
+// `the_pond.ron` asks whether a placed body of water holds. It does: 4,256
+// cells, exactly constant to frame 40,000. This file is that basin with a
+// bed around it -- plants on both banks and a colony on the near one -- so
+// the question becomes ecological rather than hydraulic.
+//
+// **The colony arrives at frame 6,000, not at frame 0, and that is the whole
+// reason this is a separate file.** `Reports/evolution-lab-direction-2026-09-
+// 09.md` records the owner's correction: the harness bed is not the played
+// bed, and a colony dropped onto seedlings at frame 0 collapses at once and
+// never recovers, where one founded on a grown bed holds. Measured there,
+// same seed: 5 ants at frame 6,000 founded-at-zero against 39 founded-at-
+// six-thousand. A pond arm measured against a frame-0 colony would be
+// measuring that collapse, not the water.
+//
+// **Food is on the far bank and the colony is on the near one**, so the pond
+// stands between the animals and half the larder. That was authored as the
+// reachability experiment and **it is not one**. Three arms, six seeds each,
+// frame 90,000, colony arriving at 6,000, ants alive at the end: flat bed
+// median 1.0, this bed 2.0, the same pit left *dry* 2.5. Water is not
+// distinguishable from the same hole left dry, and what little a pit buys, it
+// buys dry. (A one-seed reading of the same arms said 3 / 4 / 28; the 28 was
+// the outlier of the whole sweep, which is what one seed looks like here.)
+//
+// **And every arm ends with one to three ants out of 52 founders**, so this
+// bed at this horizon has almost no power to discriminate anything. Do not
+// read it as "the pond is spatial structure", and do not measure a swim verb
+// by colony size in it -- measure the verb. The plan's §1.4 has the table.
+//
+// Two herbs stand on the near bank as well as four on the far one, so a
+// colony that never crosses is not simply starved by placement.
+(
+    name: "the_pond_stocked",
+    title: "THE POND, STOCKED",
+    question: "A colony on one bank, most of the larder on the other, and a pond between them -- does the water change anything the bed would not have done anyway?",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 96,
+        ground_y: 160,
+        compartments: 1,
+        founders: 0,
+        species: "herb",
+        colonies: 0,
+        colony_ants: 52,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [],
+    placements: [
+        Clear(x: 176, y: 160, w: 160, h: 36),
+        Fill(material: "stone", x: 176, y: 160, w: 4, h: 36),
+        Fill(material: "stone", x: 332, y: 160, w: 4, h: 36),
+        Fill(material: "stone", x: 176, y: 192, w: 160, h: 4),
+        Fill(material: "water", x: 180, y: 164, w: 152, h: 28),
+        // The far bank: most of the larder.
+        Plant(species: "herb", x: 360),
+        Plant(species: "herb", x: 400),
+        Plant(species: "herb", x: 440),
+        Plant(species: "herb", x: 480),
+        // The near bank, so the colony is not merely stranded.
+        Plant(species: "herb", x: 60),
+        Plant(species: "herb", x: 100),
+    ],
+    timeline: [
+        (at: 6000, every: 0, until: 0, what: Colony(species: "ant", x: 90, count: 52)),
+    ],
+    horizon: 90000,
+)
