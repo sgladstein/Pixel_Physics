@@ -604,3 +604,45 @@ re-run here); the 414-scene and probe-scene findings (§5.1's parenthesis —
 placement and a flat floor, not the plane); and the three held-world
 answers (§10). The recommendation's order is unchanged except that item 4
 is now #450 itself, landed or landing.
+
+## 13. Owner ruling, 2026-09-15 — no paint
+
+> *"I don't like the paint, so it should stay gone. Otherwise sounds good."*
+
+The recommendation stands with one change: §9 item 1's *"the paint is what
+the player sees and the gnome cuts"* is withdrawn. **A nest is a site and
+nothing else. No material is painted at founding.** What that removes, and
+what it leaves:
+
+- **`nest` retires as a material.** Nothing paints it, so `nest.ron`, its
+  crust, `earth_toned_nest` (the lab's palette swap that already hid it),
+  the drainage comb (`DRAIN_PERIOD`, `nest_drain_period`,
+  `PIXEL_PHYSICS_NEST_DRAINS`), the two door guards
+  (`a_film_on_the_door_drains_through_the_comb`,
+  `the_nest_patch_is_still_continuous_enough_to_walk_home_to`) and
+  `nestdoor`'s patch census all go with it. **§T2 closes outright**: the
+  impermeable strip was the whole of the water problem, and its last 1%
+  film goes with the strip.
+- **The crust question (§6) is moot** rather than answered: there is
+  nothing to dig through. The ground under the door is ground.
+- **`paint_nest_patch` becomes `found_nest_site`**: it registers the site
+  and records the founding surface row (`colony_surface` at `site.x`), which
+  the reach is measured from now that no cell marks it. `AtNest` is
+  `|hx − site.x| ≤ COLONY_HALF_WIDTH` and `|hy − site.surface| ≤ 2`.
+- **`CreatureDef::nest` stops naming a material.** A species has a home iff
+  it was founded with a site; `ancestor` (no nest, by design) keeps reading
+  `false` because nothing founds one for it. The field becomes a flag or
+  goes.
+- **Held world (§10).** `a_nest_still_stops_him` tests a wall nothing
+  builds and is deleted with the material; `is_tool_target` is untouched;
+  `Druid::found_colony` loses its *"REFUSED — no nest material"* branch and
+  can no longer fail for that reason.
+- **What the player sees.** At rest, nothing — which is the ruling. The
+  ethos still wants the founding verb to deliver something visible, and it
+  does: the founders themselves standing at the door, and, once the crust
+  is gone, the hall they dig under it. If a marker is ever wanted for
+  *reading* the box rather than playing it, it is an overlay on the site
+  list (an `F7`-class debug draw), never a world material.
+
+Nothing here is built; it is the design of record for whoever picks the
+site up.

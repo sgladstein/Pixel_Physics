@@ -2903,8 +2903,8 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   whole run and the homing circuit is detectable (laden-at-door 8.7% vs
   1.9% cut, 2 of 3 seeds); the `DIFFUSE` suggestion is withdrawn and the
   home bearing becomes conditional. The site, blob and crust findings
-  stand.**
-  work can start now. No `src/` change; nothing landed.
+  stand.** **§13: owner ruling 2026-09-15 — no paint; the nest is a site and
+  nothing else, `nest` retires as a material and §T2 closes with it.**
 - [evolution-lab-round-37-brief-2026-09-15.md](evolution-lab-round-37-brief-2026-09-15.md)
   — **brief, 2026-09-15. `lab`/`engine`/`held`.** Opens with **two retracted
   numbers** a reader may have inherited (29.4 is per-bed, not per-ant; the

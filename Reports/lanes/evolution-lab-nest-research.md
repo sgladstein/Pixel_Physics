@@ -100,3 +100,12 @@ circuit is detectable on 2 of 3 seeds (laden-at-door 8.7% vs 1.9/1.2 cut;
 **Withdrawn**: the `DIFFUSE`-on-A suggestion. **Now conditional**: the
 home bearing — run the §5.1 sweep on `main` at six seeds after #450 lands
 before building it. Site, blob, crust, footprint findings unchanged.
+
+## 2026-09-15, owner ruling → coordinator, druid coordinator
+
+**"I don't like the paint, so it should stay gone. Otherwise sounds
+good."** Report §13. A nest is a site and nothing else: no material at
+founding, `nest.ron` and its crust, comb, door guards and `nestdoor` census
+retire, §T2 closes with the impermeable strip, `a_nest_still_stops_him`
+goes, `Druid::found_colony` loses its no-material refusal. Design of
+record for whoever builds the site.
