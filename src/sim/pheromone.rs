@@ -99,12 +99,34 @@ pub const PHEROMONE_INTERVAL: u64 = 12;
 ///
 /// Tracking keeps improving to 1.0, and 0.25 is still the right pick,
 /// because the two ends buy different things (`CLAUDE.md`: when several
-/// knobs move the same number, check what each one trades). A full mean
-/// filter flattens a shared trail's peak from 153 to 63 — and the
-/// *height* of a well-used trail against a lightly-used one is
-/// differential reinforcement, which is the entire path-selection
-/// algorithm. 0.25 takes 96% of the available tracking for 40% of the
-/// peak loss.
+/// knobs move the same number, check what each one trades).
+///
+/// **The reason recorded here for years was the wrong one, measured
+/// 2026-09-14.** It ran: a full mean filter flattens a shared trail's peak
+/// from 153 to 63, and *"the height of a well-used trail against a
+/// lightly-used one is differential reinforcement, which is the entire
+/// path-selection algorithm"*, so 0.25 buys 96% of the tracking for 40% of
+/// the peak. **Nothing reads height.** The only concentration inputs,
+/// `BrainInput::PheroAFront`/`PheroBFront`, have never carried a weight in
+/// any species file in any commit; what every animal reads is
+/// `PheroAAlong`, a Weber's-Law *relative* difference that is scale-free by
+/// construction. So the peak loss this paid 4% of tracking to avoid costs
+/// path selection nothing: measured at a fork where one branch carries ten
+/// times the traffic (`examples/pherolife mode=junction`), the ant's own
+/// discrimination is **0.845 / 0.969 / 0.899 / 0.881** at blends 0.10 /
+/// 0.25 / 0.50 / 1.00 — flat, while the peak falls 234 to 99.
+///
+/// **0.25 is still defensible, for a reason nobody had measured: what a
+/// high blend destroys is the weak branch itself.** In the same run the
+/// lightly-used branch stands at **19** at blend 0.10, **2** at 0.25 and
+/// **0 at 0.50 and above** — erased, not merely quieter. The high
+/// discrimination at those settings is the *absence* of the alternative
+/// rather than a clean reading of it (`CLAUDE.md`: a cost that vanishes may
+/// be work that vanished), and a colony that cannot re-find an abandoned
+/// route is the ossification `DECAY_RHO`'s doc guards against, arriving by
+/// another road. That makes this a **trail-lifetime** knob, which is the
+/// same axis `Pheromones::set_channel_diffuse` exists for, and **0.25 sits
+/// close to the cliff** — the weak branch is at 2 of 255.
 pub const DIFFUSE: f32 = 0.25;
 
 /// Evaporation per pass. The literature band is 0.1–0.5.
@@ -181,13 +203,36 @@ const TILE: usize = 64;
 /// `pheromone.rs`'s module doc means by resisting a third plane that is not
 /// its own signal.
 ///
-/// **0.25 is a burst that is gone in about a hundred and fifty frames**:
-/// `0.75^n` passes under 5% at n = 11, and a pass is `PHEROMONE_INTERVAL`
-/// (12) frames, so a bite is loud for roughly a second and a half of play and
-/// then is not there. It is a dial on the parameters page rather than a
-/// tuned constant -- what the box wants has not been measured, and the
-/// standing direction is to expose rather than to balance.
-pub const ALARM_RHO: f32 = 0.25;
+/// **0.35, re-derived from 0.25 on 2026-09-14 when the plane stopped
+/// conserving, and the re-derivation is part of that fix rather than a
+/// second change.** `CLAUDE.md`: fixing a bug often exposes a constant that
+/// was compensating for it.
+///
+/// At 0.25 this number never was the alarm's forget rate. A lone deposit
+/// also lost about a fifth of itself per pass to the 3x3 mean -- diffusion
+/// was doing a share of decay's job -- so the *effective* rate was nearer
+/// 0.4 and the doc's arithmetic below happened to land on the right answer
+/// for the wrong reason. [`Spread::ActiveSpace`] does not spread a cell's
+/// value away, so decay is now the only thing lowering it, and at 0.25 a
+/// bite stayed audible for **204 frames** against the hundred and fifty this
+/// doc claims. The guard that caught it is `creature.rs`'s
+/// `the_alarm_forgets_faster_than_a_trail`, which is exactly the shape
+/// `CLAUDE.md` asks a guard to be: it was calibrated on the old behaviour
+/// and it went red rather than quiet.
+///
+/// **0.35 is a burst that is gone in about a hundred and fifty frames**:
+/// measured against the shipped propagation, the plane empties in **12
+/// passes = 144 frames**, so a bite is loud for roughly a second and a half
+/// of play and then is not there.
+///
+/// **Reach and duration are now separable, which they were not before.**
+/// [`ALARM_FALL`] sets how far a cry carries and this sets how long it
+/// lasts; sweeping this from 0.25 to 0.50 moves the clearing time 204 -> 96
+/// frames while one cell out only moves 171 -> 114. Both are dials on the
+/// parameters page rather than tuned constants -- what the box wants is the
+/// owner's to find, and the standing direction is to expose rather than to
+/// balance.
+pub const ALARM_RHO: f32 = 0.35;
 
 /// What one bite writes into the alarm plane, of 255.
 ///
@@ -199,6 +244,70 @@ pub const ALARM_RHO: f32 = 0.25;
 /// otherwise zero, and nothing reinforces it. Saturating on a bad enough
 /// fight is the right failure: a swarm on one animal should read as loud.
 pub const ALARM_DEPOSIT: u8 = 240;
+
+/// **How much an alarm loses per cell of distance from its source**, on the
+/// same 0..255 scale as [`ALARM_DEPOSIT`].
+///
+/// **This is a reach constant, and the alarm plane had none because it was
+/// spreading like a trail.** Measured 2026-09-14 (`examples/pherolife
+/// mode=alarm`): under the shipped 3x3 mean the loudest a neighbour **one
+/// cell** from a wound ever hears is **6 of 255**, two cells is **zero,
+/// ever** -- and that is not a tuning failure, because at `DIFFUSE = 1.0`,
+/// the maximum the blend can be, it is still 20 and 1. A 3x3 mean attenuates
+/// by about nine per cell, so no setting of any existing constant gives an
+/// alarm a radius.
+///
+/// **The mistake was modelling a shout as a substance.** A mean filter
+/// *conserves*, which is exactly right for a trail -- reinforcement against
+/// evaporation is the whole path-selection algorithm -- and exactly wrong
+/// here: spreading one fixed deposit over area makes every cell small, and a
+/// `u8` floors small at zero within two cells. Real ants do not share one
+/// chemistry between the two either. A trail pheromone is heavy and
+/// substrate-bound; an alarm pheromone is a small volatile molecule that
+/// goes into the air, and what it makes is an **active space** -- the volume
+/// around a source in which concentration is over the response threshold
+/// (Bossert & Wilson's term). For *Pogonomyrmex badius* that space is about
+/// six body lengths across and gone in under a minute.
+///
+/// So the alarm plane propagates by *distance falloff* rather than by
+/// blending: a cell takes the louder of what it already holds and its
+/// neighbour minus this. At 12 a wound is audible out to about six cells --
+/// three ant-lengths -- reading 171 / 119 / 80 / 51 / 12 at one, two, three,
+/// four and six cells away.
+///
+/// **It still ends, and that is asserted rather than hoped.** Propagation is
+/// a contraction (a cell can only inherit *less* than its neighbour) and
+/// [`ALARM_RHO`] still runs on top, so once nothing is being bitten the
+/// plane empties in about **16 passes** -- ~190 frames, which is the
+/// second-and-a-half `ALARM_RHO`'s own doc asks for.
+///
+/// **And the falloff is the grading.** `ant.ron` authors
+/// `(Alarm, Attack, 2.0)`; with a real gradient an animal in the middle of
+/// the fight reads a number that drives attacking and one at the edge reads
+/// a number that merely disturbs it, from the same weight. That is
+/// `CLAUDE.md`'s first law -- an outcome is a distribution, not a binary --
+/// arriving for free, and it is what the concentration gradient does in a
+/// real colony (Wilson's alarm-defence grading).
+pub const ALARM_FALL: u8 = 12;
+
+/// How a plane carries a value to the cell next door.
+///
+/// **Two planes want opposite answers and shared one for a year.** See
+/// [`ALARM_FALL`] for the measurement; the short form is that a trail is a
+/// *substance* whose conservation is load-bearing, and an alarm is a
+/// *field around a source* whose conservation is what kills it.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Spread {
+    /// Blend toward the 3x3 mean by [`DIFFUSE`]. Conserving (up to
+    /// rounding and the decay that follows). **The trail planes, and they
+    /// must stay this way** -- differential reinforcement is the path
+    /// selection algorithm and it needs a quantity that adds up.
+    Diffuse,
+    /// Take the louder of this cell and the best neighbour minus `fall`.
+    /// Non-conserving: it describes a *distance from a source*, not an
+    /// amount of stuff. **The alarm plane.**
+    ActiveSpace { fall: u8 },
+}
 
 /// Which plane. **Meaning-free by construction for the two trail planes** —
 /// see the module doc. `Alarm` is the exception and says so in its own name:
@@ -300,6 +409,10 @@ pub struct PheromonePlane {
     /// sweep can vary it — see `diffusion_spread_profile_sweep`, which is
     /// how `DIFFUSE`'s value was chosen rather than guessed.
     diffuse: f32,
+    /// How this plane carries a value sideways. [`Spread::Diffuse`] for the
+    /// two trail planes, [`Spread::ActiveSpace`] for the alarm — see
+    /// [`ALARM_FALL`].
+    spread: Spread,
 }
 
 impl PheromonePlane {
@@ -333,6 +446,10 @@ impl PheromonePlane {
         self.diffuse
     }
 
+    fn set_spread(&mut self, spread: Spread) {
+        self.spread = spread;
+    }
+
     fn with_params(bounds: Rect, diffuse: f32, rho: f32) -> Self {
         let w = (bounds.max_x - bounds.min_x + 1).max(1) as usize;
         let h = (bounds.max_y - bounds.min_y + 1).max(1) as usize;
@@ -351,6 +468,7 @@ impl PheromonePlane {
             deposited: vec![false; tw * th],
             decay_lut: lut,
             diffuse,
+            spread: Spread::Diffuse,
         }
     }
 
@@ -473,6 +591,56 @@ impl PheromonePlane {
                     let base = ly * self.w;
                     let up = if ly > 0 { Some(base - self.w) } else { None };
                     let down = if ly + 1 < self.h { Some(base + self.w) } else { None };
+                    // **The active-space path is a separate row, not a branch
+                    // per cell.** The trail planes are the hot ones -- two of
+                    // them, every awake tile, every pass -- and the alarm
+                    // plane only exists in a world that has had a fight, so
+                    // the cost belongs on the rare arm. Keeping the blend
+                    // row below character-for-character is also what makes
+                    // the determinism guard's world hash unmoved by this
+                    // change: `Spread::Diffuse` executes exactly the code it
+                    // executed before.
+                    if let Spread::ActiveSpace { fall } = self.spread {
+                        // Separable, like the sum below and for the same
+                        // reason: max is associative, so a column max over
+                        // three rows then a 3-wide window over those gives
+                        // the exact 3x3 maximum in three loads per cell.
+                        for (i, slot) in cols.iter_mut().take(span + 2).enumerate() {
+                            let Some(lx) = (x0 + i).checked_sub(1) else {
+                                *slot = 0;
+                                continue;
+                            };
+                            if lx >= self.w {
+                                *slot = 0;
+                                continue;
+                            }
+                            let mut m = self.front[base + lx];
+                            if let Some(u) = up {
+                                m = m.max(self.front[u + lx]);
+                            }
+                            if let Some(d) = down {
+                                m = m.max(self.front[d + lx]);
+                            }
+                            *slot = u32::from(m);
+                        }
+                        for lx in x0..x1 {
+                            let i = lx - x0 + 1;
+                            let neighbourhood = cols[i - 1].max(cols[i]).max(cols[i + 1]) as u8;
+                            // **`max` against this cell's own value, so
+                            // propagation never pulls a cell down.** The
+                            // decay LUT is the only thing that lowers a
+                            // value, which is what keeps the termination
+                            // argument in one place: inheriting is a
+                            // contraction (`- fall`), and decay runs on top
+                            // of it, so the plane provably empties.
+                            let here = self.front[base + lx];
+                            let raised = neighbourhood.saturating_sub(fall).max(here);
+                            let out = self.decay_lut[raised as usize];
+                            self.back[base + lx] = out;
+                            tile_peak = tile_peak.max(out);
+                        }
+                        continue;
+                    }
                     for (i, slot) in cols.iter_mut().take(span + 2).enumerate() {
                         // `i` runs over `lx - x0 + 1`, so `i == 0` is the
                         // column left of the tile and `i == span + 1` the one
@@ -589,6 +757,10 @@ pub struct Pheromones {
     /// setting that only reached planes made afterwards would read as
     /// disconnected in the box the player is looking at.
     alarm_diffuse: f32,
+    /// How the alarm plane carries sideways. Held here as well as inside the
+    /// plane for the reason `alarm_rho` is: the plane may not exist when the
+    /// dial moves.
+    alarm_spread: Spread,
     pub stats: PheromoneStats,
 }
 
@@ -600,6 +772,7 @@ impl Pheromones {
             bounds,
             alarm_rho: ALARM_RHO,
             alarm_diffuse: DIFFUSE,
+            alarm_spread: Spread::ActiveSpace { fall: ALARM_FALL },
             stats: PheromoneStats::default(),
         }
     }
@@ -679,6 +852,36 @@ impl Pheromones {
         }
     }
 
+    /// **How the alarm plane carries a value sideways** — the reach dial,
+    /// and the one the plane had no form of at all before 2026-09-14.
+    ///
+    /// Ships as [`Spread::ActiveSpace`] at [`ALARM_FALL`], which is the
+    /// behaviour change: under the old [`Spread::Diffuse`] a wound was
+    /// inaudible two cells away at *any* setting of `DIFFUSE` or
+    /// `ALARM_RHO`, so there was nothing to tune. **The old arm stays
+    /// reachable** — pass `Spread::Diffuse` — because a claim that the new
+    /// one is better has to be checkable against the thing it replaced, and
+    /// `examples/pherolife mode=alarm arm=diffuse` is how.
+    ///
+    /// **Refuses to put a trail plane on `ActiveSpace`**, and that is not
+    /// tidiness. A trail's whole mechanism is that a dozen ants' deposits
+    /// *add up* and the taller path wins; a max-filter throws the addition
+    /// away, so channel A under this would stop being a gradient anything
+    /// could choose between. Silently allowing it would read as a dial and
+    /// behave as a deletion of the path-selection algorithm.
+    pub fn set_alarm_spread(&mut self, spread: Spread) {
+        self.alarm_spread = spread;
+        if let Some(plane) = &mut self.alarm {
+            plane.set_spread(spread);
+        }
+    }
+
+    /// What the alarm plane is propagating by — the stored setting, which is
+    /// what a plane built later will get.
+    pub fn alarm_spread(&self) -> Spread {
+        self.alarm_spread
+    }
+
     /// What a plane is blending at — `None` for an alarm plane nothing has
     /// written yet, whose pending setting is [`Self::alarm_diffuse`].
     pub fn channel_diffuse(&self, channel: Channel) -> Option<f32> {
@@ -701,6 +904,7 @@ impl Pheromones {
             bounds,
             alarm_rho: ALARM_RHO,
             alarm_diffuse: DIFFUSE,
+            alarm_spread: Spread::ActiveSpace { fall: ALARM_FALL },
             stats: PheromoneStats::default(),
         }
     }
@@ -753,8 +957,12 @@ impl Pheromones {
         if channel == Channel::Alarm {
             // **The allocation happens here and nowhere else.** First bite in
             // the world's life; every one after it is an ordinary deposit.
-            let (bounds, rho, diffuse) = (self.bounds, self.alarm_rho, self.alarm_diffuse);
-            let plane = self.alarm.get_or_insert_with(|| PheromonePlane::with_params(bounds, diffuse, rho));
+            let (bounds, rho, diffuse, spread) = (self.bounds, self.alarm_rho, self.alarm_diffuse, self.alarm_spread);
+            let plane = self.alarm.get_or_insert_with(|| {
+                let mut p = PheromonePlane::with_params(bounds, diffuse, rho);
+                p.set_spread(spread);
+                p
+            });
             if plane.deposit(x, y, amount) {
                 self.stats.deposits_alarm += 1;
             }
@@ -814,6 +1022,80 @@ impl Pheromones {
 
 #[cfg(test)]
 mod tests {
+    /// **An alarm must reach past the cell it was written on, and it must
+    /// still stop.**
+    ///
+    /// **This guard was written, passed, and was then found blind** — both
+    /// faults it is named for were injected and it stayed green, which
+    /// `CLAUDE.md` says to replace rather than widen. Both defects are worth
+    /// recording because neither is obvious:
+    ///
+    /// * it called `set_alarm_spread` on every arm, so **the shipped default
+    ///   was never under test at all** — putting the alarm plane back on
+    ///   `Spread::Diffuse` in `Pheromones::new`, i.e. reverting the whole
+    ///   change, left it green. The shipped arm below now builds a plain
+    ///   `Pheromones::new` and touches nothing.
+    /// * it claimed to test termination against the `- fall` contraction,
+    ///   and **the contraction is not what terminates this**. Setting `fall`
+    ///   to 0 leaves the plane terminating perfectly well, because
+    ///   [`ALARM_RHO`] is doing that work. The real argument is below and is
+    ///   now asserted directly.
+    ///
+    /// **Why it terminates, stated properly**: `decay_lut[v] < v` for every
+    /// `v > 0` (`build_decay_lut`, asserted at construction), and
+    /// propagation can never raise a cell above the previous pass's global
+    /// maximum — a cell takes a *neighbour's* value minus `fall`, and
+    /// `fall >= 0`. So the global maximum strictly decreases every pass and
+    /// reaches zero in at most 255 of them, whatever `fall` is. That is the
+    /// invariant the third assertion checks, and it is the one that would
+    /// actually break if someone made propagation additive.
+    #[test]
+    fn an_alarm_carries_past_its_own_cell_and_still_ends() {
+        /// Peak ever seen at 0..4 cells from one wound, the frame the plane
+        /// emptied, and whether the global max ever failed to fall.
+        fn reach(p: &mut Pheromones) -> ([u8; 5], u64, bool) {
+            p.deposit(Channel::Alarm, 64, 64, ALARM_DEPOSIT);
+            let mut best = [0u8; 5];
+            let (mut frame, mut gone, mut monotone) = (0u64, 0u64, true);
+            let mut prev = 255u8;
+            while frame < 20_000 {
+                frame += 1;
+                p.step(frame, PHEROMONE_INTERVAL);
+                for (d, slot) in best.iter_mut().enumerate() {
+                    *slot = (*slot).max(p.sample(Channel::Alarm, 64 + d as i32, 64));
+                }
+                if frame.is_multiple_of(PHEROMONE_INTERVAL) {
+                    let now = p.plane_opt(Channel::Alarm).map_or(0, |pl| pl.max());
+                    monotone &= now < prev;
+                    prev = now;
+                    if now == 0 {
+                        gone = frame;
+                        break;
+                    }
+                }
+            }
+            (best, gone, monotone)
+        }
+
+        // **The shipped arm touches no dial**, so a change to the default in
+        // `Pheromones::new` is what this fails for.
+        let mut shipped = Pheromones::new(Rect::new(0, 0, 127, 127));
+        let (heard, gone, monotone) = reach(&mut shipped);
+        assert!(heard[2] > 64, "an ant two cells from a wound must hear it: got {} of 255", heard[2]);
+        assert!(heard[4] > 0, "...and four cells should not be silent: got {}", heard[4]);
+        assert!(gone > 0, "the alarm plane must empty once nothing is being bitten; still loud at 20,000 frames");
+        assert!(monotone, "the global maximum must fall every pass -- that is why this terminates at all");
+
+        // The arm this replaced, kept reachable and kept asserted: it must
+        // still be unable to do the thing above, or the bar is not measuring
+        // the change rather than the weather.
+        let mut old = Pheromones::new(Rect::new(0, 0, 127, 127));
+        old.set_alarm_spread(Spread::Diffuse);
+        let (old_heard, old_gone, _) = reach(&mut old);
+        assert_eq!(old_heard[2], 0, "the diffuse arm is supposed to be inaudible two cells out; it read {}", old_heard[2]);
+        assert!(old_gone > 0, "and it terminated before, so it must still");
+    }
+
     /// **The blend dial must actually change how fast a trail goes.**
     ///
     /// `set_channel_diffuse` is the knob that turns out to set a trail's

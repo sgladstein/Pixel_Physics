@@ -1,7 +1,25 @@
 # Ants
 
-*Current as of: 2026-09-14, when **ants stopped attacking plants and stopped
-raising the alarm over a mouthful of leaf**. Before that: 2026-09-13, when **a resting animal stopped being an animal
+*Current as of: 2026-09-14, when **a cry of alarm started carrying.** An
+animal being hurt has left a smell where it happened since 2026-09-06, and
+until now no other animal could hear it: the smell was being spread the way a
+food trail is spread, which is the right way to move something a colony is
+supposed to add up and follow, and the wrong way to move a shout. An ant one
+body-length from a fight read almost nothing, and one two body-lengths away
+read nothing at all, ever — so a bite was a private event between the two
+animals in it, however many others were standing around. **A cry now makes a
+patch of disturbed ground around wherever it happened**, loud in the middle
+and fading outward over several body-lengths, and it still goes quiet a second
+or so after the biting stops. What an animal does about it is still up to what
+that line has grown into: some come in, some leave, most of them were never
+born knowing. But the ones that do something can now be animals that were not
+themselves touched — which is the whole difference between fifty animals each
+having a bad day and a colony noticing one.*
+
+*Before that, the same day: 2026-09-14, when **ants stopped attacking plants
+and stopped raising the alarm over a mouthful of leaf**.*
+
+*And before that: 2026-09-13, when **a resting animal stopped being an animal
 that has stopped.** An ant that has held one spot for a while now grows
 restless: it shifts, takes a step and settles again, and the longer it has
 been still the sooner that happens. Before, a fed ant with food in reach and
