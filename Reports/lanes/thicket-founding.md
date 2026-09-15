@@ -306,3 +306,129 @@ opened it myself had it not existed.
 **Head SHA: `27d72abc358cbee23e47bab2ccaa0699c7b825dc`** (this note's own
 commit; the code and every measurement above are unchanged since
 `58f2ac1e`).
+
+---
+
+## 2026-09-14, later → coordinator. The verdict came back, and the world moved under all of it
+
+PR #414 merged. Three things since, two of which correct something.
+
+### 1. The owner could not judge the card, and he is right
+
+`20260914T050513804Z-623a4b`: **choice `null`**, comment *"Cannot tell from
+the image. need to playtest"*.
+
+That is a defect in my card, not a verdict on the change. I asked whether ants
+standing on a mat of plants read as settled undergrowth or as floating —
+and **whether something looks perched rather than stuck in the air is a fact
+about what it does next.** A single frame has no next. The review skill says
+this in as many words (*GIF or frame sequence when the question is feel*) and
+I posted a still anyway, because the still was what I had.
+
+`thicket_probe` now has `seq=`/`every=`, which founds and then ticks the real
+`Druid::update` and writes a numbered sequence. **It is built and it works —
+and I have not posted a second card, because there is nothing left to point it
+at. See below.**
+
+### 2. §Z21 no longer reproduces, on ANY start — and that corrects you as well as me
+
+Lane B's density change landed (PR #412). `life_scatter` is what seeds the
+world, and **the grow phase grows the scatter's seeds** — so with the
+densities at zero there is nothing to grow. Measured on `main` at `20628c10`,
+all three starts:
+
+| | grown | dead | bare |
+|---|---|---|---|
+| organisms after the grow phase | **0** | **0** | **0** |
+| births refused for want of a slot | **0** | **0** | **0** |
+| animals placed per stand with ground | **12 of 12** | 12 of 12 | 12 of 12 |
+
+`Start::Dead` prints *"marked 0 of 0 organisms senescent"*.
+
+**Your note says the density change "relieves §Z21 where the owner meets it
+while leaving grown and dead untouched".** Grown and dead are not untouched —
+they are relieved *hardest*, because their whole 4,093 organisms came from
+growing the scatter. Reasonable at the time and wrong: the grow phase looks
+like an independent source of plants and is not. I had the same blind spot —
+I scoped §Z21 to "the two non-default starts" and said those stand.
+
+§Z21 now carries a dated correction at the top of the entry, and its heading
+says the reproduction is stale, so nobody spends a session on a world that no
+longer exists. It stays **OPEN** for the two things that survive: the ceiling
+is real and now purely latent (a played world can still grow into it, still
+unmeasured), and *"nothing founded - no ground here"* is still shipped and
+still names one of three refusals it cannot tell apart.
+
+### 3. What the thicket fix is worth on the world as it now stands
+
+**On a fresh druid world: nothing, in any start.** 221 of 221 columns are
+sites with no climb needed, because there are no plants. The paired arms are
+**byte-identical at every frame** of a 570-frame sequence — I checked with
+`md5sum` rather than by eye, and the frames do move over time, so that is two
+identical worlds and not a dead harness.
+
+That is not a regression and the fix is not wasted:
+
+- **It fires the moment the player grows a thicket**, which is now the game's
+  entire premise — the druid plants, and the ground she has planted is exactly
+  the ground she will want to found on.
+- **The lab numbers are untouched by any of this** — `LabBox` builds its own
+  bed and does not read the druid preset. 147 → 188 placed over 24 stands
+  stands.
+
+**So a playtest of this needs a thicket grown first**, and on a fresh world
+pressing the key shows nothing either way. Worth telling the owner before he
+spends the session looking for a difference that cannot be there yet — that,
+rather than another card, is what I would route.
+
+**PR [#427](https://github.com/sgladstein/Pixel_Physics/pull/427)** (#414 was
+merged, so this is a fresh branch off `main` and a new PR, per the
+merged-PR rule — not commits stacked on merged history).
+
+**Head SHA: see the PR head; this note's own commit is the last one on it.**
+
+---
+
+## 2026-09-15 → coordinator. §Z21 is FIXED, and my own correction to it was overtaken
+
+Merging `main` (155 behind) conflicted on `Reports/open-bugs-handoff.md`, and
+the newer side won: **another lane fixed the ceiling.** `Cell::organism_id`
+is now a `u32` split 20/12 — **4,095 slots → 1,048,575** — and
+`Druid::found_colony` names which of the three refusals fired. Those are
+exactly the two things I said would survive the density change, so the entry
+is closed and closed correctly. I took their `FIXED` heading whole.
+
+**What I kept, trimmed to a footnote, is the reasoning error rather than the
+bug.** The reproduction had already stopped reproducing before their fix
+landed, by an unrelated route, and the coordinator's note and I both had the
+interaction backwards in the same direction: *"relieves §Z21 where the owner
+meets it while leaving grown and dead untouched"*. Grown and dead were
+relieved **hardest** — their whole 4,093 organisms came from growing the
+scatter. **The grow phase looks like an independent source of plants and is
+not.** That is the shape worth carrying; the entry itself is not in doubt.
+
+**One tooling defect found and filed on the way** — see the register. Running
+`review.py inbox` here returned **14 answered cards belonging to other
+lanes**, with no warning, and `--mark-seen` marked them all. `_is_mine`
+matches on branch **or** worktree, and every cloud session clones to
+`/home/user/Pixel_Physics`: measured, **472 of 472 cards in the queue carry
+that exact worktree**, so the worktree clause is true for every card ever
+posted and the `or` makes it sufficient. In a cloud container `inbox` is
+`--all` wearing the name of a filter.
+
+It cost nothing today and that is luck, not design: `sync_now` exchanges
+`cards`, `media` and `responses` and **not `seen/`**, so the markers died with
+the container. Anything that adds `seen/` to that list, or a session on the
+owner's own machine where worktree paths differ, turns this into other lanes
+silently losing verdicts.
+
+**PR [#427](https://github.com/sgladstein/Pixel_Physics/pull/427)**, head
+`b8b57e3d`, **CI green on all nine checks**, 0 behind `main`. Body rewritten
+to match — its first version argued §Z21 should stay OPEN and was overtaken
+while it sat.
+
+**Ready to merge and I have not merged it.** `CLAUDE.md` gives an independent
+session its own merge and says *a coordinator merges its lanes'* — I am a
+lane. If the round is closed and nobody is holding the merge, it is a
+documentation-only PR with CI green and the register correction is doing
+nobody any good sitting on a branch.

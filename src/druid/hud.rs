@@ -186,6 +186,17 @@ pub const KEYS: &[(&str, &str, bool)] = &[
     ("H", "HOLD OR RELEASE THE WORLD", true),
     ("N", "RESTART - A FRESH WORLD, ABOUT A MINUTE", false),
     ("L", "HOW HELD GROUND IS DRAWN", true),
+    // **`O`, and it is the lab's own key for this.** The owner asked for the
+    // lab's overlays here and then said the missing half was that nothing
+    // turned them on; `src/bin/lab.rs` binds `O` to the field overlay, so a
+    // player who has used the other game presses the same letter. The lab's
+    // other two keys were not free here -- `L` is the held look and `H`
+    // holds the world, both core verbs of this game -- and rather than pick
+    // two arbitrary letters for them, they are menu rows. That follows the
+    // lab's own reasoning at its `KeyL` arm: the field overlay "is the one
+    // that earned the button" because it is where the pheromones are, which
+    // in this game is what `G` writes into.
+    ("O", "GROUND OVERLAY - SCENT, WATER, HEAT", false),
     ("U", "UNLIMITED POWER (PLAYTEST)", true),
     ("P", "PAUSE", true),
     ("TAB", "PLANTS, ANIMALS, BIRTHS - THE BIOSPHERE PAGE", true),
@@ -1295,6 +1306,10 @@ pub enum Action {
     ToggleSmall,
     /// Closer in, or further out. `delta` is the direction.
     Zoom(i32),
+    /// The ground overlay — the per-cell scalars, scent among them. The
+    /// other two debug channels are menu rows only; see [`KEYS`]'s `O` row
+    /// for why this one has a key.
+    CycleFieldOverlay,
     /// The biosphere page (item 1 of the playtest). Not handled by
     /// [`Druid::act`] below — the page itself lives on `Handler`, for the
     /// same reason the bar's own state does.
@@ -1585,6 +1600,11 @@ impl Druid {
                 self.toggle_small();
             }
             Action::Zoom(delta) => self.renderer.adjust_zoom(delta),
+            Action::CycleFieldOverlay => {
+                self.renderer.cycle_field_overlay();
+                let channel = self.renderer.field_overlay.label();
+                self.note(format!("ground overlay: {channel}"));
+            }
             Action::ToggleOptions => self.toggle_menu(),
             Action::ToggleUnlimited => {
                 self.unlimited = !self.unlimited;

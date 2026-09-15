@@ -44,58 +44,21 @@ These are decisions, not findings. They do not expire when a round closes.
 - **It is a separate game.** *"I don't want to build this into the existing
   gnome game. This is a fully new and separate game."*
 
-## The live round — round 2, the twelve playtest items
+## The live round — none
 
-Owner playtest 2026-09-14. Items in their words are in the round-2 dispatch;
-state:
+Round 37 (the twelve playtest items from the 2026-09-14 playtest) **closed
+2026-09-15**: all twelve items landed across PRs #430, #435, #437, #438, #449,
+plus #439 and #402. What it overturned is in
+[`../druid-rounds-archive.md`](../druid-rounds-archive.md).
 
-| # | item | where |
-|---|---|---|
-| 8 | her own circle vanished above 1x | **landed**, PR #430 |
-| 10 | simplify the top-left readout | **landed**, PR #430 |
-| 3, 4, 11a | the stress setting, restart, one size dial | **landed**, Lane C, PR #435 |
-| 1, 6, 7 | bubbles merge + speed as colour, creature colours, lab overlays | Lane A, **PR #437** open |
-| 11b | longer gnome-laid trail, diffuse look | Lane D, **PR #438** open |
-| 2, 5, 9 | the yellow bars, founding far away, the founding screen | Lane B, `claude/druid-founding` — pushed, amending |
-| — | the shrunk gnome moves too slowly (card verdict, not a playtest item) | **landed**, PR #439 |
-| — | the regional-time scope report, stuck un-mergeable since 2026-09-13 | **landed**, PR #402 |
-
-**Round 37's verdicts, all four answered 2026-09-14 evening.** Speed: *"Looks
-good"*, 5 of 5 — closed. Founding menu: approved as built. The other two sent
-work back: the trail wants **2x more lifetime again** and its anchor raised,
-and the founding patch's colour **dies entirely** rather than softening (1 of
-5). The trail anchor is the one worth keeping — the lane set it to
-`Player::feet`, which is about four cells *under* any soil surface, because
-`wade_rows` sinks a standing gnome knee-deep by design. Same fact that made
-the shrink verb refuse on every soil surface in the world.
-
-**Lane A and Lane D finished without the GitHub tools**, in the shape
-`CLAUDE.md` describes: branch pushed, `PR_BODY_LANE_*.md` written on it, head
-SHA reported. The coordinator opened both. **The tell that a lane is done is
-a last commit reading "lane note, PR body"** — there is no other signal, and a
-finished branch with no PR is invisible to everyone.
-
-**A merged lane's branch disappears from the remote.** Lane C's
-`claude/druid-shell` was gone from `git ls-remote` while the local
-remote-tracking ref still named it, which reads exactly like a branch deleted
-out from under finished work. It had merged as PR #435; `git fetch --prune`
-then `git branch -r --contains <sha>` settles it in one command. Pin the sha
-to a local branch *before* pruning, because the prune is what removes the only
-handle you have if the answer turns out to be the bad one.
-
-**Item 3 is a suspicion, not a confirmed bug**, and Lane C's brief says so: it
-may be working and merely invisible, which wants a different answer than a
-wiring fix.
-
-**Lane D's brief named the wrong dial and was corrected in flight.** PR #432
-(the lab's own pheromone lane) measured that **`pheromone::DECAY_RHO` is
-inert** — set to zero, trail life does not move — and that the lever is
-`DIFFUSE`, at 16.7% a pass against decay's 2.9%. The correction carries a
-constraint the original brief did not: **the dial is per *channel*, not per
-layer**, and the gnome lays on channel A, which is also the ants' road home.
-So turning channel A's diffusion down to lengthen her trail reaches the ants
-too, and the owner's split — her trail is ours, theirs is the lab's — is not
-automatically satisfied by staying out of `DECAY_RHO`.
+**Next is the enemy**, and it is gated on one measurement before any of it is
+built: `creature_arena` at **>= 24,000 frames**, read at an order statistic
+over seeds. The last predator numbers predate both the graded bite and the
+trait reach going to 8, so they would null. And the concept report's own top
+risk is a design risk rather than a technical one — *"an enemy that attacks
+your economy is often the least fun kind. This is the first thing to
+playtest"* — so a crude playable version and a review card come before a
+finished mechanic.
 
 ## Standing: what this program does NOT own
 
@@ -136,7 +99,15 @@ automatically satisfied by staying out of `DECAY_RHO`.
   own env var: `_SMALL=<tick>`, `_ZOOM=<rung>`, `_CIRCLES=x,y,r,rate;...`,
   `_OFFER`, `_MENU`, `_FOUND`, `_FOUND_AT`, `_ABSORB_AT`, `_WALK=<a>,<b>`,
   `_GIF`, `_CATCH`, `_KEYS=0`, `_SIZE`, `_GROW`, `_START`, `_CIRCLE=off`,
-  `_UNLIMITED`, `_LOOK`, `_PRESET`, `_CENSUS`, `_LAY`, `_MARK`.
+  `_UNLIMITED`, `_LOOK`, `_PRESET`, `_CENSUS`, `_LAY`, `_MARK`,
+  `_OVERLAY=<n>` (presses `O` n times).
+- **A still cannot show her scent trail, and the two clocks are why.**
+  `_OVERLAY=5` selects the pheromone plane, but the shutter counts *drawn
+  frames* while `_WALK`/`_LAY` count *player ticks*, so a shutter early
+  enough to be affordable fires after she has walked about four cells and
+  the overlay draws an empty plane. That is a vacuous arm, not a broken
+  feature — the same trap `render.rs`'s own overlay guard records under
+  `FieldOverlay::Light`. Use `_GIF`, whose stride **is** in ticks.
 - **A hook that fires at construction fires too early.** `spawn_point` returns
   a *surface* cell and `Player::at_scaled` **centres** the body on it, so at
   construction her feet are seven rows inside the ground. Anything that tests
@@ -163,6 +134,30 @@ automatically satisfied by staying out of `DECAY_RHO`.
   of the feature is a picture of a hillside and reads as "it does nothing".
 
 ## Findings that outlived their round
+
+- **`review.py inbox` is not a filter in a cloud container — use
+  `list --board druid` and `get <id>` instead.** `_is_mine` is an `or` over
+  branch / worktree / agent, and every cloud session clones to
+  `/home/user/Pixel_Physics`, so the worktree clause is true for **every card
+  in the queue**. It also marks what it returns as seen. Verified by reading
+  the predicate, not taken from the report. What that cost here on
+  2026-09-14: the first `inbox` call returned other lanes' cards, and the
+  second returned **zero** — which reads as *"no new verdicts"* and actually
+  meant *"the first call consumed them"*. No verdict was lost, because the
+  board listing was used from then on, but by luck rather than method. Filed
+  as **§Z26** by the thicket-founding lane (PR #427), which carries an
+  explicit *do not fix this by syncing `seen/`* until the filter is tightened
+  — syncing the markers is what turns a harmless bug into a lane silently
+  eating another lane's answers.
+- **The grow phase is not an independent source of plants — it grows the
+  scatter's seeds**, and this note had that backwards. It recorded the
+  density change as *"relieves §Z21 where the owner meets it while leaving
+  grown and dead untouched"*. Grown and dead were not untouched; they were
+  relieved **hardest**, because their entire organism count came from growing
+  the scatter, so zeroing the scatter left the grow phase nothing to work on.
+  Measured by the thicket-founding lane in PR #427: 0 organisms after the
+  grow phase on all three starts. Two sessions had it backwards in the same
+  direction at the same time.
 
 - **Before sizing an item from a doc comment, check the code does what the
   comment says.** Four of round 1's seven items were sized off docs and two of
