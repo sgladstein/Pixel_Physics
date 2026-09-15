@@ -479,6 +479,27 @@ fn diffuse_heat<S: CellSurface>(surface: &S, x: i32, y: i32, cell: &mut Cell) {
     // even while every value involved reads as "settled" — caught by a test
     // with 40 connected cooling ash cells, which real burnt content and not
     // the single-isolated-cell case the original fix was built against.
+    // **This gate defends one direction only, and the other one is §Z27.**
+    // `already_settled` is measured against `AMBIENT_TEMPERATURE` rather
+    // than against this cell's own local equilibrium, so the nudge is
+    // switched off exactly where a cell sits at ambient -- which is the
+    // *receiving* end of every shallow gradient. It rescues a hot cell
+    // cooling down; it cannot rescue an at-ambient cell warming up.
+    // Measured 2026-09-15 by `examples/quantgrad`: 24 ash cells at exact
+    // ambient beside a +4C block of the same material, **0 of 24 warmed at
+    // all** over 500 frames of `parallel::step`, and the identical gradient
+    // at a tenth-degree quantum moves the full 4.00C -- representational,
+    // not physical.
+    //
+    // Left as it stands deliberately, and not for lack of a fix. The gap
+    // needs a cell-level heat source within a few degrees of ambient and
+    // the engine has none (every `burn_temperature` is 320-900C, the only
+    // `intrinsic_temperature` is lava at 1000C, a corpse inherits exact
+    // ambient), while removing the gate reopens the 40-connected-ash-cell
+    // churn described above and no chunk ever sleeps again. **Re-derive
+    // this against local equilibrium the day any gentle heat source lands**
+    // -- body heat, solar warming of a surface, geothermal. Full account:
+    // `Reports/decaying-gradient-quantization-2026-09-15.md` §2a.
     let raw_delta = new_temp - here;
     let rounded = new_temp.round();
     let already_settled = (here - AMBIENT_TEMPERATURE as f32).abs() <= THERMAL_SETTLE_EPSILON;

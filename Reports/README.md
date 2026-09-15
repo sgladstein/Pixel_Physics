@@ -2862,6 +2862,25 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   **and why it was wrong** (a `build_decay_lut` snap-to-zero: the rounding it
   needs is already in `dead-ends.md`, and truncation rather than the floor is
   what caps lifetime).
+- [decaying-gradient-quantization-2026-09-15.md](decaying-gradient-quantization-2026-09-15.md)
+  — **survey, 2026-09-15. `engine`.** Does the pheromone line's root cause
+  generalise — a scalar that both **decays** and is read as a **gradient**, in
+  storage too narrow for both? **One more instance, already half-defended.**
+  `Cell::temperature` is an `i16` of whole degrees whose consumer reads the raw
+  neighbour difference with no threshold: **0 of 24 ash cells at ambient warmed
+  at all** beside a +4 °C block over 500 frames, and the same gradient at a
+  tenth-degree quantum moves the full 4.00 °C — representational, not physical.
+  **Registered as §Z27, not fixed**: unreachable today (every heat source is
+  320–1000 °C), and the gate that causes it is what lets chunks sleep. Every
+  other narrow per-cell scalar is a **null**, killed by one cheap discriminator
+  — put the consumer's decision threshold next to the storage quantum, and note
+  that both confirmed instances had **no threshold at all**. Soil water's is
+  **50x** the quantum (median gradient 0.6250 over 281 root tips), liquid
+  fill's **16x**. The finding worth keeping is §4: **both remedies this engine
+  already uses — the strict-decrease decay LUT and the minimum-progress nudge —
+  are per-cell monotonicity guarantees, so neither can see a difference between
+  two cells.** A channel carrying one looks defended and is half defended,
+  which is how the pheromone plane passed for as long as it did.
 - [evolution-lab-nest-question-2026-09-14.md](evolution-lab-nest-question-2026-09-14.md)
   — **research brief, 2026-09-14, nothing started. `lab`/`engine`/`held`.**
   What a nest should be, handed from the druid program on the owner's ask
