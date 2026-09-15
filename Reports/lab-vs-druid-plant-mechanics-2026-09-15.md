@@ -1,6 +1,10 @@
 # Why the lab and the held world grow differently — and where the leaves come from
 
-**Status: measured, no behaviour changed.** Owner, 2026-09-15: *"I thought
+**Status: measured, then fixed.** The measurement came first and the fix is
+the owner's call on it — *"fix it. I want all three plant rules in the druid
+game to match the lab"*, 2026-09-15. **§Fixed, immediately below, is what ships
+now; everything after it describes the world as it was** and is kept because
+it is the evidence the fix rests on. Owner, 2026-09-15: *"I thought
 they were identical but I feel like they are different. The most obvious is
 there seems to be way more leaves piling up on the ground in the druid
 game."*
@@ -15,7 +19,64 @@ brain is one set of code shared by both games. Nothing in `plant.rs` or
 in **what each game does to the `World` before it starts**, and there are
 three plant-rule switches, one time model, and a light model between them.
 
-## The headline
+## Fixed
+
+`druid::Druid::new` now writes all three switches, to the lab's values:
+
+```rust
+world.plant_size_cadence = true;   // was false (the engine default, unwritten)
+world.plant_bending = false;       // was true  (the engine default, unwritten)
+world.plant_load_failure = true;   // was false (written, and reversed here)
+```
+
+Measured on the same bed, same seed, 36,000 frames
+(`held_litter -- profile=now`):
+
+| | standing litter | peak | living plant cells |
+|---|---|---|---|
+| `lab` | 188 | 230 | 31,131 |
+| `held_before` | 1,296 | 2,480 | 22,079 |
+| **`held_now`** | **188** | **230** | **31,131** |
+
+**`held_now` comes back bit-identical to `lab`**, which is what "match the
+lab" has to mean and is also the specificity control: with all three switches
+agreeing and a circle over every cell, holding changes nothing at all. The
+floor falls **6.9x** and the stand is **41% bigger** (22,079 -> 31,131 living
+cells) — the same lever, from the other end. A grown tree was spending and
+shedding five times too fast.
+
+**Two things a player will notice, and both are the same change.** Less litter
+on the ground, and **big plants growing about five times more slowly** —
+`plant::PLANT_SIZE_CADENCE` bands the interval 1/2/3/4/5x by cell count, so
+seedlings are untouched and a grown tree is at 5x. That is the lab's bargain
+and it is now the held world's too.
+
+**One of the three reverses an earlier owner ruling, deliberately.** On
+2026-09-14 he asked for plant breaking off by default in the held world (*"the
+ability to turn off plant destruction or breaking due to stress (which should
+be off by default)"*); the 2026-09-15 ruling is newer and names all three, so
+it wins. It is still a menu row — `PLANTS BREAK UNDER STRESS` — so it is one
+keypress to put back, and one line in `Druid::new` to restore as the default.
+Recorded here rather than left as a surprise, because *"trees are falling
+over"* was a real complaint and this is the switch it was about. Note the
+switch only ever held **living** plants: a senescent one came apart either
+way.
+
+**Guarded.** `druid::tests::the_three_plant_rules_match_the_lab` builds a
+64x64 held world and a `LabBox::default()` bed and asserts all three agree —
+**reading the lab's live bed, not three literals**, so it cannot rot into
+"matches what the lab used to be". It carries its own control (the lab must
+still differ from `World::new` on at least one, or the guard could pass on a
+`Druid::new` that writes nothing — which is exactly the bug it is for), and
+each of the three was reverted in turn and watched go red, each naming its own
+switch.
+
+**What did not change**: the engine defaults, the outdoor game,
+`scripts/acceptance.sh`'s `fell` case, and the lab. The held world now also
+carries a `BIG PLANTS TICK LESS OFTEN` row in its options menu, since a switch
+this large with no row is what let it drift unseen in the first place.
+
+## The headline, as it was
 
 `examples/held_litter -- profile=1 grow=8000 frames=36000 senescent=0`, one
 bed, one seed, one species set, 8 founders grown 8,000 frames and then run
@@ -190,14 +251,15 @@ grown 0 frames`. The line is now a warning rather than a silent correction
 
 ## What this does not say
 
+- **The held gate is untouched and still real.** Matching the three switches
+  does not give the held world a forest-floor sink outside her circle; it only
+  means far less litter arrives there in the first place. The ratchet below is
+  still the model.
 - **Nothing here is a bug.** Every switch is an owner ruling with its reasoning
   recorded next to it. The finding is that the two games have drifted into
   three different plant rules without that ever being stated in one place.
-- **It does not say the lab's setting is the right one**, only that it is the
-  one making the difference. Which floor *looks* right is an owner call, and a
-  judge-by-eye one: the held world's floor is the one he can see, and the
-  question of whether 188 or 1,296 is the forest floor he wants is not a
-  number this report can settle.
+- **It did not say which floor was right** — that was the owner's call, and he
+  made it: the lab's. What this report established is which lever moved it.
 - **It does not touch creatures beyond the population numbers.** Brains,
   foraging, digging and breeding are one shared implementation and neither
   game overrides any of it.

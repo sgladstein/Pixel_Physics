@@ -42,9 +42,11 @@
 //! into floor.
 //!
 //! ```text
-//! cargo run --release --example held_litter
-//! cargo run --release --example held_litter -- grow=8000 frames=12000 senescent=1
-//! cargo run --release --example held_litter -- selftest
+//! cargo run --release --example held_litter -- selftest        # the controls
+//! cargo run --release --example held_litter                    # the held gate alone
+//! cargo run --release --example held_litter -- profile=now     # what the 2026-09-15 fix bought
+//! cargo run --release --example held_litter -- profile=1       # the two settings sets
+//! cargo run --release --example held_litter -- profile=ablate  # which of the three switches
 //! ```
 //!
 //! `selftest` is the positive control and it is not optional: it asserts the
@@ -127,17 +129,33 @@ impl Arm {
             load_failure: Some(true),
         }
     }
-    /// `druid::Druid::new`: it sets only `plant_load_failure`, leaves the
-    /// other two at the engine default, and holds.
-    fn druid(leaves_at: u64) -> Self {
+    /// **The held world as it was until 2026-09-15**: it set only
+    /// `plant_load_failure`, left the other two at the engine default, and
+    /// held. Kept after the fix rather than deleted, because this is the arm
+    /// that carries the finding — the settings are gone from `Druid::new` and
+    /// the 6.9x they produced is the reason they went.
+    fn held_before(leaves_at: u64) -> Self {
         Arm {
-            label: "druid",
+            label: "held_before",
             held: true,
             leaves_at,
             size_cadence: Some(false),
             bending: Some(true),
             load_failure: Some(false),
         }
+    }
+
+    /// **The held world as it ships now** — the owner's 2026-09-15 *"I want
+    /// all three plant rules in the druid game to match the lab"*, so this is
+    /// [`Arm::lab`]'s three switches with `held` on.
+    ///
+    /// Its own control: against `lab` it isolates what *holding* does, since
+    /// nothing else differs between the two arms any more.
+    /// `druid::tests::the_three_plant_rules_match_the_lab` is what keeps this
+    /// arm honest — it reads the real `Druid::new`, where this only restates
+    /// it.
+    fn held_now(leaves_at: u64) -> Self {
+        Arm { label: "held_now", held: true, leaves_at, ..Arm::lab() }
     }
 }
 
@@ -257,7 +275,12 @@ fn main() {
     // each binary sets, set the way it sets it. The default three arms are
     // the held gate on its own, which is a different question -- *what does
     // holding do* against *why do my two games differ*.
-    let arms: Vec<Arm> = if arg("profile=").as_deref() == Some("ablate") {
+    let arms: Vec<Arm> = if arg("profile=").as_deref() == Some("now") {
+        // What the fix bought, and what is left once it has landed. `lab` and
+        // `held_now` differ by the held gate and nothing else, so the gap
+        // between *those* two is the whole of what holding costs the floor.
+        vec![Arm::lab(), Arm::held_before(u64::MAX), Arm::held_now(u64::MAX), Arm::held_now(frames / 2)]
+    } else if arg("profile=").as_deref() == Some("ablate") {
         // **Which of the three switches is the leaf fall.** Both directions,
         // because a one-way ablation cannot tell "this switch does it" from
         // "this switch does it *given the other two*": lab with the switch
@@ -269,11 +292,11 @@ fn main() {
             Arm { label: "lab+cadence_off", size_cadence: Some(false), ..Arm::lab() },
             Arm { label: "lab+bending_on", bending: Some(true), ..Arm::lab() },
             Arm { label: "lab+breaks_off", load_failure: Some(false), ..Arm::lab() },
-            Arm { label: "druid", ..Arm::druid(u64::MAX) },
-            Arm { label: "druid+cadence_on", size_cadence: Some(true), ..Arm::druid(u64::MAX) },
+            Arm { label: "held_before", ..Arm::held_before(u64::MAX) },
+            Arm { label: "held_before+cadence_on", size_cadence: Some(true), ..Arm::held_before(u64::MAX) },
         ]
     } else if arg("profile=").is_some_and(|v| v != "0") {
-        vec![Arm::lab(), Arm::druid(u64::MAX), Arm::druid(frames / 2)]
+        vec![Arm::lab(), Arm::held_before(u64::MAX), Arm::held_before(frames / 2)]
     } else {
         vec![
             Arm::plain("running", false, u64::MAX),

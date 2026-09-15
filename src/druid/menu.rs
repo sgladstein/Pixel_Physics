@@ -29,6 +29,17 @@ pub enum Setting {
     PlantBreak,
     /// `World::plant_bending` — whether it leans under load and wind.
     PlantBend,
+    /// `World::plant_size_cadence` — whether a big plant ticks less often
+    /// than a seedling.
+    ///
+    /// **A row because it is a behaviour change, not a cost setting.** It
+    /// arrived here on the owner's 2026-09-15 *"I want all three plant rules
+    /// in the druid game to match the lab"*, and it is the one of the three
+    /// that actually moved the forest floor — 6.9x the standing litter
+    /// between the two games, almost all of it this
+    /// (`Reports/lab-vs-druid-plant-mechanics-2026-09-15.md`). A switch that
+    /// large with no row is the case this module's doc exists for.
+    PlantCadence,
     /// [`Druid::unlimited`].
     Unlimited,
     /// [`Druid::show_keys`].
@@ -50,6 +61,7 @@ pub enum Setting {
 pub const SETTINGS: &[Setting] = &[
     Setting::PlantBreak,
     Setting::PlantBend,
+    Setting::PlantCadence,
     Setting::Scent,
     // **The three the owner asked for, and the reason they are rows.**
     // Verdict on the overlay card, 2026-09-14: *"there is no key or menu row
@@ -72,6 +84,7 @@ impl Setting {
         match self {
             Setting::PlantBreak => "PLANTS BREAK UNDER STRESS",
             Setting::PlantBend => "PLANTS BEND UNDER LOAD",
+            Setting::PlantCadence => "BIG PLANTS TICK LESS OFTEN",
             Setting::Unlimited => "UNLIMITED POWER",
             Setting::Keys => "SHOW THE KEY LIST",
             Setting::HeldLook => "HOW HELD GROUND IS DRAWN",
@@ -95,6 +108,10 @@ impl Setting {
         match self {
             Setting::PlantBreak => "OFF - NOTHING LIVING IS TORN APART BY ITS WEIGHT",
             Setting::PlantBend => "OFF - A STEM STANDS WHERE IT GREW, WIND OR NOT",
+            // Names what it *costs*, not what it saves: the frame budget is
+            // the reason the lever exists and the plant time is the reason a
+            // player would touch the row.
+            Setting::PlantCadence => "ON - A GROWN TREE LIVES AT A FIFTH THE SPEED",
             Setting::Unlimited => "ON - NOTHING CHARGED AND NOTHING COLLECTED",
             Setting::Keys => "THE LIST IN THE BOTTOM CORNER",
             Setting::HeldLook => "UNCHANGED, OR ONE COLD HUE OUTSIDE YOUR CIRCLES",
@@ -117,6 +134,7 @@ impl Setting {
         match self {
             Setting::PlantBreak => on(game.world.plant_load_failure),
             Setting::PlantBend => on(game.world.plant_bending),
+            Setting::PlantCadence => on(game.world.plant_size_cadence),
             Setting::Unlimited => on(game.unlimited),
             Setting::Keys => on(game.show_keys),
             Setting::HeldLook => game.renderer.held_look.label().to_uppercase(),
@@ -135,7 +153,7 @@ impl Setting {
         }
     }
 
-    /// **Advance the row.** A toggle for five of them and a cycle for the
+    /// **Advance the row.** A toggle for six of them and a cycle for the
     /// look, which is why this is one verb rather than a `bool` the caller
     /// flips: the menu should not have to know which rows are two-valued.
     pub fn advance(self, game: &mut Druid) {
@@ -153,6 +171,14 @@ impl Setting {
                 game.world.schedule_structural_recheck_of_all_living_plants();
             }
             Setting::PlantBend => game.world.plant_bending = !game.world.plant_bending,
+            // **A bare write, unlike `PlantBreak` above, and that asymmetry is
+            // deliberate.** `plant::size_cadence` is read live inside each
+            // organism's own tick, so a plant picks the new interval up the
+            // next time it runs and nothing is left holding a stale schedule
+            // — there is no settled-beam case here to reach back for. It is
+            // also exactly what the lab's own parameters page does for this
+            // dial (`lab::params`), so the two games' switches behave alike.
+            Setting::PlantCadence => game.world.plant_size_cadence = !game.world.plant_size_cadence,
             Setting::Unlimited => game.unlimited = !game.unlimited,
             Setting::Keys => game.show_keys = !game.show_keys,
             Setting::HeldLook => game.renderer.cycle_held_look(),
