@@ -1731,6 +1731,52 @@ pub struct CreatureStats {
     /// bites a fight is taking, which is the quantity the arms-race reach
     /// moves and the one a bite count alone cannot report.
     pub attack_cells: u64,
+    /// **Of `attacks`, the swings whose target was not an animal** — a plant,
+    /// in every bed shipped today.
+    ///
+    /// The near side of the §Z23 pair. `attacks` has always been
+    /// arithmetically correct about "the `Attack` branch reached a target"
+    /// and has already been read as a fighting figure by one report; this
+    /// column is what separates the two readings without changing what
+    /// either counter means. `attacks - attacks_at_plants` is animals
+    /// fighting animals, which is the number a war wants.
+    ///
+    /// **Since the owner's 2026-09-14 ruling this must read 0 in every bed
+    /// for ever**, and it is kept for exactly that: it is the repair's own
+    /// standing guard, and the column that would say out loud if a later
+    /// change to `nearest_foe` put plants back in front of the fist.
+    pub attacks_at_plants: u64,
+    /// **Of `attack_cells`, the cells that came off a plant** — the far side
+    /// of the same pair, and the one a repair is judged on.
+    ///
+    /// This is the quantity §Z23 is about, and nothing counted it before:
+    /// `attack_cells` pools plant with animal and `plantkill` counts whole
+    /// organisms, so a stand being taken apart one cell at a time reads
+    /// zero on both. **Pure loss by construction** — the `Attack` path's
+    /// own comment is *"the cell comes off and nobody eats it"*, and
+    /// `wood`/`rootwood`/`grassroot` carry no `food_energy` at all, so
+    /// nothing in the world is fed by any of these.
+    pub attack_plant_cells: u64,
+    /// **Plant cells taken off a plant by the MOUTH** — the denominator
+    /// `attack_plant_cells` is read against, and the reason it had to be a
+    /// cell count rather than joules.
+    ///
+    /// Grazing and vandalism remove the same thing — one cell of standing
+    /// plant — and until this existed they were counted in different units:
+    /// `harvested_plant` is joules at the eater's gut, `eats` pools every
+    /// material, and `attack_cells` is cells. **A ratio between a joule
+    /// figure and a cell figure is not a share of anything**, which is
+    /// exactly `CLAUDE.md`'s worst-recurring failure in its *difference*
+    /// costume, so both halves are counted here in cells at the moment the
+    /// cell leaves the world.
+    ///
+    /// **A standing plant census cannot replace this**, and that was
+    /// measured rather than assumed: over three seeds of the played longant
+    /// bed the paired standing count moved −84, **+3,463** and +3,484 — one
+    /// arm reading *more* plant with the colony on it — because a stock
+    /// carries everything the bed did about the loss as well as the loss.
+    /// This is the flow.
+    pub eaten_plant_cells: u64,
     /// **Attacks that killed** — the effect counter from the far side of the
     /// call, paired with `attacks` for the reason `CLAUDE.md` insists on:
     /// a count of swings is not a count of hits, and this repo has already
@@ -1759,6 +1805,35 @@ pub struct CreatureStats {
     /// `displays / contests` is the withdrawal rate, which in real ants is
     /// nearly all of inter-colony contact — see `sim::contest`.
     pub displays: u64,
+    /// **Where the alarm plane's writes come from**, split three ways at the
+    /// three `cry_alarm` call sites: a bite landed by the `Attack` verb, and
+    /// the two feeding sites — an animal being eaten, and a plant being
+    /// grazed.
+    ///
+    /// Built for §Z23, which is the loop these three make between them:
+    /// grazing writes alarm, every armed genome ships `(Alarm, Attack, 2.0)`,
+    /// and the swing lands on the plant that was being grazed. The split is
+    /// what says which site feeds the loop — a single total cannot, and the
+    /// owner's own positive control (alarm signals in a box holding one
+    /// colony and nothing but trees) is exactly this column being non-zero
+    /// where the other two must be 0.
+    pub alarm_attack: u64,
+    /// See `alarm_attack`. An animal bitten by the feeding path (gnaw or
+    /// swallow) — being eaten, which from the victim's side is being
+    /// attacked.
+    pub alarm_eat_animal: u64,
+    /// See `alarm_attack`. A plant cell bitten by the feeding path — and
+    /// since the owner's 2026-09-14 ruling, **a cry that was suppressed**
+    /// rather than one that was made. It is deliberately still counted.
+    ///
+    /// **This is the §Z23 term**: ordinary, legitimate, universal foraging,
+    /// writing on the plane the fight verb listens to. `CLAUDE.md`, *a
+    /// repair can remove the picture and leave the mechanism: census the
+    /// mechanism, not its consequence* — a column that went to zero because
+    /// the call site was deleted cannot tell a repair that works from a bed
+    /// that stopped grazing, so this one keeps counting the bites and the
+    /// alarm plane keeps not hearing them.
+    pub alarm_eat_plant: u64,
     /// **Severing events**: a creature that lost a body cell and came apart
     /// at it, rather than merely shortening.
     ///
@@ -2434,6 +2509,36 @@ pub struct ColonyBooks {
     /// What other colonies have eaten off this one's living animals. Sums
     /// equal to [`ColonyBooks::raided`] across all colonies.
     pub raided_by_others: f64,
+    /// **[`ColonyBooks::raided`] split by whose animals it came off**, as
+    /// `(colony, joules)`, and [`ColonyBooks::lost_to`] is the far side.
+    ///
+    /// The owner asked the lab's FOOD page for this in as many words, 2026-
+    /// 09-14: *"if the colony is eating lots of ants, i can click and see
+    /// which colony they are coming from."* **The totals above cannot be
+    /// narrowed back down** — with two colonies the split is forced by
+    /// subtraction, with three it is not — so a page built on them would have
+    /// been guessing, and the split has to be kept at the call that already
+    /// knows both ends.
+    ///
+    /// A `Vec` rather than a map, for two reasons that are not tidiness: a
+    /// box holds a handful of colonies, so a linear scan is cheaper than a
+    /// hash; and **insertion order is stable**, where a map's iteration order
+    /// is not, and this is read by a page that ranks it —
+    /// `CLAUDE.md`'s `sort_unstable`/tie-order gotcha is exactly this shape.
+    pub raided_from: Vec<(u32, f64)>,
+    /// The far side of [`ColonyBooks::raided_from`]: which colonies have been
+    /// eating *this* one's animals, and for how much.
+    pub lost_to: Vec<(u32, f64)>,
+}
+
+/// Add `joules` to `colony`'s entry in a sparse `(colony, joules)` list,
+/// appending it if this is the first. Shared by both halves of a raid so the
+/// two sides cannot drift apart in how they accumulate.
+fn add_to(rows: &mut Vec<(u32, f64)>, colony: u32, joules: f64) {
+    match rows.iter_mut().find(|(c, _)| *c == colony) {
+        Some((_, total)) => *total += joules,
+        None => rows.push((colony, joules)),
+    }
 }
 
 impl ColonyBooks {
@@ -5624,8 +5729,15 @@ impl World {
     /// on both colonies at once. See [`ColonyBooks::raided`] for what the
     /// number is and, just as importantly, what it is not.
     pub fn book_raid(&mut self, eater: u32, victim: u32, joules: f64) {
-        self.colony_books_mut(eater).raided += joules;
-        self.colony_books_mut(victim).raided_by_others += joules;
+        let books = self.colony_books_mut(eater);
+        books.raided += joules;
+        // Split by whose animals it was, at the one call that knows both
+        // ends -- see `ColonyBooks::raided_from` for why the totals cannot be
+        // taken apart afterwards.
+        add_to(&mut books.raided_from, victim, joules);
+        let books = self.colony_books_mut(victim);
+        books.raided_by_others += joules;
+        add_to(&mut books.lost_to, eater, joules);
     }
 
     fn colony_books_mut(&mut self, colony: u32) -> &mut ColonyBooks {

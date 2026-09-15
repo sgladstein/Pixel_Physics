@@ -200,6 +200,39 @@ fn main() {
         fired.push(format!("FOOD: {}", if books.is_empty() { "no colony has books".to_string() } else { books.join("; ") }));
         tiles.push(("PAGE: Food (RESTING)".into(), shot(&mut lab)));
     }
+
+    // **The FOOD page's second layer, opened the way a player opens it** --
+    // by clicking the colony's own row, not by setting the field. That is
+    // the half a unit test cannot cover: the row has to be a hit target and
+    // the click has to resolve to this colony, and a page reached by hand
+    // would look identical with the button wired to nothing. The count
+    // beside it is what says the click landed on the colony it named.
+    {
+        let opened: Option<u32> = lab.world.live_creature_groups().first().map(|g| g.colony);
+        if let Some(colony) = opened {
+            let at = reach(&mut lab, Action::FoodOpen(colony));
+            click(&mut lab, at);
+            lab.set_cursor(None);
+            let books = lab.world.colony_books(colony);
+            fired.push(format!(
+                "FOOD colony {colony} opened: {} | eating {} sources, {:.0} J in, {:.0} J out",
+                lab.ui.panel == Some(Panel::Food),
+                books.diet().len(),
+                books.income(),
+                books.outgo()
+            ));
+            tiles.push((format!("PAGE: Food, colony {colony}"), shot(&mut lab)));
+            // ...and the range selector, which every figure on both layers
+            // is read over. Stepped once so the sheet shows a second stop
+            // rather than only the default.
+            let at = reach(&mut lab, Action::FoodRange(1));
+            click(&mut lab, at);
+            lab.set_cursor(None);
+            tiles.push((format!("PAGE: Food, colony {colony}, range stepped"), shot(&mut lab)));
+        } else {
+            fired.push("FOOD colony: no colony alive to open".into());
+        }
+    }
     leave_open_panel(&mut lab);
 
     // 6a2. **The two rosters, opened the way a player opens them** -- through

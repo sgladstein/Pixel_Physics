@@ -428,6 +428,203 @@ experiment is named and not run (§2a).
 
 ---
 
+## 3b. What was then done about it (same day, `claude/pheromone-trail-lifetime`)
+
+The owner read §3 and asked the question it deserved — *"are we fixing any of
+these?"* Two answers, and they are different because the two planes are.
+
+### The alarm is fixed
+
+**§2d's numbers are not a tuning failure and the fix is not a constant.** The
+ceiling is the *stencil*: a 3x3 mean attenuates about nine per cell, so at
+`DIFFUSE = 1.0` — the largest the blend can be — a wound still reads 20 at one
+cell and 1 at two. Nothing in the parameter space reaches.
+
+**The error was modelling a shout as a substance.** A mean filter conserves.
+That is exactly right for a trail, where a dozen ants' deposits adding up *is*
+the path-selection algorithm, and exactly wrong for an alarm: spreading one
+deposit over area makes every cell small and a `u8` floors small at zero. Real
+ants do not share a chemistry between the two — a trail pheromone is heavy and
+substrate-bound, an alarm pheromone is a small volatile molecule, and what it
+makes is an **active space**, the volume around a source in which
+concentration is over the response threshold (Bossert & Wilson's term; ~6 body
+lengths for *Pogonomyrmex badius*, gone inside a minute).
+
+`Spread::ActiveSpace` propagates by distance falloff — a cell takes the louder
+of what it holds and its neighbour minus `ALARM_FALL` (12). Measured:
+
+| one wound | d=1 | d=2 | d=4 |
+|---|---|---|---|
+| before (`arm=diffuse`, kept reachable) | 4 | **0** | 0 |
+| after | **148** | **88** | 24 |
+
+`->Attack` **+1.161** and **+0.690** against `ant.ron`'s weight of 2.0, where
+it was +0.047 and exactly zero; and the plane still empties in **12 passes,
+144 frames**, which is the second-and-a-half `ALARM_RHO`'s doc asks for. **The falloff is also
+the grading** — middle-of-the-fight and edge-of-the-fight now read different
+numbers through the same weight, so the response is a distribution rather than
+a binary, for free.
+
+**`ALARM_RHO` moved 0.25 -> 0.35 with it, and that is part of the fix.** At
+0.25 the constant never was the alarm's forget rate — a lone deposit also lost
+about a fifth of itself per pass to the 3x3 mean, so diffusion was doing a
+share of decay's job and the doc's *"gone in about a hundred and fifty
+frames"* was right by accident. With the plane no longer spreading its value
+away, 0.25 left a bite audible for **204 frames**; 0.35 restores the
+documented **144**. This is `CLAUDE.md`'s *fixing a bug often exposes a
+constant that was compensating for it* — and the thing that caught it was
+`creature.rs`'s `the_alarm_forgets_faster_than_a_trail` going **red rather
+than quiet**, which is the whole argument for that guard existing. It passes
+again untouched; no other lane's file was edited.
+
+**Reach and duration also separated, which may be the more useful outcome.**
+They were one quantity while the plane conserved. Now `ALARM_FALL` sets how
+far a cry carries and `ALARM_RHO` how long it lasts: sweeping the latter
+0.25 -> 0.50 moves clearing time **204 -> 96 frames** while one cell out only
+moves **171 -> 114**. Two dials the owner can turn independently, where
+before there were none that reached.
+
+### The trail is not, and the fix I proposed for it was wrong
+
+**Recorded because it was proposed in this report's own PR discussion.** The
+plan was to replace `build_decay_lut`'s `min(v - 1)` floor with a
+threshold snap-to-zero. Two things kill it:
+
+* **`dead-ends.md` already rejects half of it** — *"at small rho, or with
+  rounding instead of truncation, a low value maps to itself forever"*. The
+  rounding the snap needs is a recorded ghost-trail bug.
+* **It targets the wrong term anyway**, which is §1b's mistake repeated. The
+  floor is not what caps lifetime — **truncation** is. `(v * (1-rho)) as u8`
+  loses at least 1 whenever `v * rho < 1`, so **lifetime ≤ deposit in passes
+  for every rho**, and the explicit floor only binds at `rho = 0`.
+
+With that understood, the whole candidate space was measured rather than
+argued. Passes until an unreinforced line is gone, against a 183-pass round
+trip:
+
+| arm | passes | vs round trip |
+|---|---|---|
+| shipped | 11 | 0.06x |
+| `DEPOSIT` 120 | 16 | 0.09x |
+| diffuse every 4 passes | 22 | 0.12x |
+| decay every 4 passes | 17 | 0.09x |
+| `DEPOSIT` 120 + diffuse every 4 + decay every 4 | 61 | 0.33x |
+| `DEPOSIT` 240 + diffuse every 8 + decay every 4 | **117** | **0.64x** |
+
+**Stacking three behavioural changes at extreme settings still does not reach
+one round trip.** And the ceiling is not quantization: diffusion at 0.25 costs
+a one-cell line **16.7% of its peak per pass**, so even at infinite precision
+an unreinforced trail is gone in ~30 passes. **Diffusion and long trail life
+are the same knob pulling opposite ways**, and `DIFFUSE`'s own sweep prices
+what lowering it costs (0.623 on-trail at 0.10 against 0.817 at 0.25).
+
+So this one is **not a defect with a fix — it is a trade**, and by the
+standing direction it is the owner's to make rather than a lane's to settle.
+`set_channel_diffuse` (§3) is the dial for it; a *cadence* dial is the
+companion worth building, because rate and frequency reach the same 2x while
+trading different things — rate makes the spread permanently shallower,
+cadence keeps its shape and delays it.
+
+### The front sensors stay unwired, and that corrects §2a
+
+**The owner's follow-up: wire them if I recommend it, but find out why it was
+not done first.** Researched, and the recommendation is **no** — §2a's
+observation is true and the implication I left standing under it was wrong.
+
+**It was never done, rather than undone.** `git log -S "PheroAFront" --
+assets/species/` returns nothing: those slots have never carried a weight in
+any species file in any commit.
+
+**The design intended concentration to be read somewhere else entirely.**
+`creature-direction.md`'s motor stage specifies a probabilistic choice among
+three forward candidates weighted by `(k + s_i)^2` — Deneubourg's nonlinearity
+over three sampled *concentrations*. That is not what ants do here: `p_move`
+comes from the brain and the animal steps or tumbles, with `choose_weighted`
+used for other contested decisions but never scored on pheromone. So the
+concentration reader the design called for was to be a movement rule, not a
+brain input, and the run-and-tumble that replaced it is what `PheroAAlong`'s
+own doc argues for on a surface.
+
+**And the biology says the absent reader is the wrong one.**
+`stigmergy-research.md` §2: Perna et al. measured individual Argentine ants
+showing a **proportional (Weber's Law)** response to pheromone, *not* the
+sigmoidal absolute response the classical model assumes, and agent
+simulations with the Weber response still reproduced the literature's trails.
+`PheroAAlong` is `(ahead - here) / (ahead + here + 1)` — a relative
+difference normalised by the total. **That is a Weber response.** The engine
+already implements the individual rule the biology has; a front-sensor weight
+would add the one it does not. §2 puts the colony's side of it plainly:
+*"the colony finds the shorter path without any ant measuring anything."*
+
+**Measured, the existing input discriminates** (`pherolife mode=junction`, a
+fork whose strong branch carries ten times the traffic of the weak one):
+
+| blend | strong branch | weak branch | the ant's discrimination |
+|---|---|---|---|
+| 0.10 | 234 | **19** | 0.845 |
+| 0.25 | 221 | **2** | 0.969 |
+| 0.50 | 162 | **0** | 0.899 |
+| 1.00 | 99 | **0** | 0.881 |
+
+An ant on the trunk reads about **-0.01 down the strong branch and -0.98 down
+the weak one**, with nothing reading a height anywhere. **Height is not what a
+choice point needs; contrast is**, and a scale-free reader gets contrast free.
+
+**Read the two middle columns rather than the last one.** Discrimination is
+high at every blend, but above 0.25 it is high because **the weak branch has
+been erased** — 0 of 255, not merely quieter. That is `CLAUDE.md`'s *a cost
+that vanishes may be work that vanished*, and it is the real finding here: a
+colony that cannot re-find an abandoned route is the ossification
+`DECAY_RHO`'s doc guards against, reached by another road.
+
+**So two doc corrections land instead of a wiring change.** `DIFFUSE`'s
+stated justification — preserve peak height, because height *is* the
+path-selection algorithm — is measurably not what path selection needs, and
+its 4%-of-tracking payment buys nothing there. The value 0.25 survives for a
+reason nobody had measured: it is a **trail-lifetime** knob, the same axis
+§3b's table is about, and it **sits close to a cliff** (the weak branch at 2
+of 255). `BrainInput::PheroAAlong` now records why the front slots stay
+empty, matching how the laterals are already treated.
+
+**And the geometry is the deeper reason, which the biology alone does not
+give.** The owner's follow-up — *consider what real ants do, but also our 2D
+geometry and if that changes anything* — and it does, in the direction of
+making the answer firmer.
+
+The Jones/Physarum triad this input list was modelled on (a front sample plus
+two laterals at ±45°) assumes an agent in **open 2D**, whose problem is
+*staying on* a line it could drift off in any direction. A creature here
+cannot drift off. The whole-chain support rule holds it to the surface — a
+chain falls unless some cell of it touches solid — so it walks a
+**one-dimensional manifold** through a 2D world, and the surface *is* the
+line. That is the real reason the laterals measure 0.000: at full offset they
+point into open air and into rock.
+
+A creature confined to a line does not need *"am I on it"*. It needs **which
+way along it**, which is one signed scalar — and that is `PheroAAlong`.
+Absolute concentration answers a different question (*"is this branch the
+busy one"*), and in this geometry that question rarely arises: **there is no
+fork on open ground.** So the triad was imported from open-2D prior art
+without being re-derived for a side-view world; `PheroAAlong` *is* that
+re-derivation, and the laterals are rightly kept because the import still
+fits the one thing here that does move in open 2D — a flier.
+
+**This also caveats the table above, and the caveat is load-bearing.** Those
+branches are laid in **open air**, which no ant can walk. The measurement is
+honest about the *input's* discriminating power — a real, answerable question
+— and says nothing about how often the situation occurs. **Where forks
+genuinely exist in this world is underground**, in the galleries the colony
+digs, and over/under an obstacle. That is where a concentration reader would
+first be worth measuring, and pointing `mode=junction` at a dug nest is the
+follow-on nobody has run.
+
+**Kept rather than removed**, for the laterals' reason plus one: a zero
+weight is one mutation from existing (`MUT_ABS_FLOOR`), so a lineage for
+which absolute concentration *is* worth something can evolve the connection.
+Authoring one now pre-judges that.
+
+---
+
 ## 4. What would overturn this
 
 - §1 is measured at `PHEROMONE_INTERVAL = 12` unscaled. `World::step_

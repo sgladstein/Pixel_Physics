@@ -2842,7 +2842,26 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   (Lane D), and the **alarm plane's audible radius is two cells** — a display
   deposit is inaudible to anyone but the displayer, which is the measurement
   `contest.rs` asked for. Ships one dial (`set_channel_diffuse`) and two
-  harnesses; **no default moved**.
+  harnesses; **no default moved**. **§3b, added the same day after the owner
+  asked "are we fixing any of these?", is the fix and the correction.** The
+  alarm's two-cell reach was never a tuning failure — the ceiling is the
+  *stencil*, and even at `DIFFUSE = 1.0` a wound reads 20 at one cell and 1
+  at two. **The error was modelling a shout as a substance**: a mean filter
+  conserves, which is right for a trail and fatal for an alarm.
+  `Spread::ActiveSpace` propagates by distance falloff instead — the *active
+  space* of the real thing — taking one wound from **4/0/0** at one, two and
+  four cells to **148/88/24**, `->Attack` +1.161 where it was +0.031, and the
+  falloff gives the graded response free. **`ALARM_RHO` 0.25 → 0.35 came with
+  it**, because diffusion had been doing a share of decay's job; caught by
+  `the_alarm_forgets_faster_than_a_trail` going red rather than quiet. **The
+  trail is NOT fixed and §3b says why that is right**: no combination reaches
+  a round trip (best corner 0.64x, three stacked changes), and the ceiling is
+  not quantization — diffusion costs a one-cell line 16.7% of peak per pass,
+  so **diffusion and trail life are one knob pulling opposite ways**, the
+  owner's trade to make. It also records the fix first proposed for the trail
+  **and why it was wrong** (a `build_decay_lut` snap-to-zero: the rounding it
+  needs is already in `dead-ends.md`, and truncation rather than the floor is
+  what caps lifetime).
 - [evolution-lab-nest-question-2026-09-14.md](evolution-lab-nest-question-2026-09-14.md)
   — **research brief, 2026-09-14, nothing started. `lab`/`engine`/`held`.**
   What a nest should be, handed from the druid program on the owner's ask
@@ -2861,6 +2880,25 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   than the ant band), the three held-world requirements, and the finding that
   **`nest`'s `penetration_resistance` 6.0 against every shipped `dig_force`
   of 1.0 means a colony cannot dig its own doorstep**.
+- [nest-design-2026-09-14.md](nest-design-2026-09-14.md) — **research and
+  a recommendation, 2026-09-14. `lab`/`held`/`engine`.** What a nest should
+  *be*, against the owner's two proposals (a world location, not a material;
+  a blob so a dug door can still be reached) and the brief's sequencing
+  claim (trail first). Real ant homing is path integration corrected at
+  short range by the nest's own plume, never the queen; every other colony
+  sim attaches home to a coordinate. **Measured with `examples/nesthome`**:
+  the 414-delivery scene places 15 of its 55 ants and has no channel A by
+  frame 6,000, so it is not a homing scene; on the played bed cutting the
+  homing circuit entirely leaves deliveries inside the noise between two
+  mechanically identical arms (up to 3.6x on one seed), so **nothing steers
+  a laden ant home today** and the owner's "the nest does nothing" is right
+  in the strong sense; the patch is never dug (`lost 0`) because the crust
+  is 6.0 against a jaw ceiling of 2.0. **Recommends** a site-based `AtNest`
+  at the colony's own half-width and two rows — a value, not a dial; the
+  site, the odour and the per-ant anchor already exist — the material kept
+  as paint, the crust dropped to soil's, and a
+  per-ant home bearing built next — the trail ordering is wrong, the nest
+  work can start now. No `src/` change; nothing landed.
 - [evolution-lab-round-36-brief-2026-09-14.md](evolution-lab-round-36-brief-2026-09-14.md)
   — **brief, 2026-09-14, rewritten the same day. `lab`/`engine`.** What round 36
   is for. **The first version led with performance and was wrong at the top**:
@@ -2880,6 +2918,26 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   verbatim, the zoom ruling (*"get rid of stop 3"*, which overturns
   `dead-ends.md` `rendering:049`), and a process finding — **four cards asked
   one question**, so read the open queue before posting.
+- [evolution-lab-food-readable-2026-09-14.md](evolution-lab-food-readable-2026-09-14.md)
+  — **lane record, 2026-09-14, PR #444. `lab`/`engine`.** Round 36 lane A: the
+  three food instruments round 35 shipped were each rejected, and each
+  complaint was one defect that the instrument itself was not arguing about.
+  **The harvest wash was painting sky** — every live tile sits on the surface
+  band, where an 8-cell tile is one row of ground and seven of air, so the
+  shape on screen was the tile grid; shrinking the tile was ruled out by
+  rendering it, because the box is the air and not the size. **The food road
+  was already tracking actual paths and was forgetting them** after ten
+  seconds: `road_half_life` 600 → 3,600 turns a scatter of 279 lit cells into
+  an unbroken line of 1,024, and **costs nothing measurable** — a map 87%
+  larger came out cheaper than the short one, twice, against a positive
+  control that moves the same delta to +1.17 ms. **The FOOD page's charts were
+  plotting a rate at a question about an amount**, which is the general rule
+  worth carrying: a chart of a differenced series answers *how fast*, and
+  *how much, lately* wants a number over a span the reader picks. Rebuilt on
+  the owner's own spec into two layers and a range selector, with which rival
+  a colony's meat came off named per line. Also: `range_reaches` wrong in the
+  direction that reads as working, and a page-fit guard whose fixture had
+  quietly stopped measuring the tall block.
 - [evolution-lab-round-35-2026-09-14.md](evolution-lab-round-35-2026-09-14.md)
   — **coordinator record, 2026-09-14. `lab`/`engine`.** The round that gave the
   food economy a face and answered *why don't colonies fight* with a finding

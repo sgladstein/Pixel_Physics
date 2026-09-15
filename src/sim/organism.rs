@@ -8996,6 +8996,49 @@ mod tests {
     /// `#[serde(default)]` fires only for a field that is **absent**. So the
     /// silent case is a misspelling, and the loud case is everything about
     /// widening a slot.
+    /// **Every animal in the ant family can hear an alarm, and the check is
+    /// on the GENOME rather than on the file.**
+    ///
+    /// Round 36: `ancestor.ron` was the only species reading the trail planes
+    /// and not the alarm -- the word did not appear in the file at all, an
+    /// omission rather than a recorded choice. It matters because round 35
+    /// shipped rivalry on, so a bed founded on the ancestor has fights
+    /// writing that plane every time and the founding lineage could not act
+    /// on it.
+    ///
+    /// **Asserted past `W_EPS`, not merely non-zero**, which is the trap the
+    /// pheromone lane names in the same breath: `eval_brain` drops a weight
+    /// under `brain::W_EPS` (0.01), so a row present in the `.ron` and
+    /// authored small is dead on arrival and greps as wired. The file is the
+    /// claim; the genome is the fact.
+    ///
+    /// Swept over the family rather than asserted for one species, because
+    /// the failure this is written against is a *new* variant being added
+    /// without the rows -- which is how the ancestor came to be missing them
+    /// in the first place.
+    #[test]
+    fn every_ant_family_species_can_hear_an_alarm() {
+        let reg = SpeciesRegistry::builtin();
+        // `flitter` and `hopper` are in the family for this purpose: they
+        // carry the rows today and the claim is about what an animal with a
+        // brain in this lineage can hear. `beetle` is deliberately out --
+        // solitary, no pheromone wiring of any kind, and coherent that way.
+        let family = ["ancestor", "ant", "ant_block", "ant_block_shaded", "ant_long", "ant_wide", "chitin_pale", "flitter", "hopper", "longant"];
+        let attack = crate::sim::brain::io_slot(crate::sim::brain::BrainInput::Alarm, crate::sim::brain::BrainOutput::Attack);
+        for name in family {
+            let id = reg.id_of(name).unwrap_or_else(|| panic!("{name}.ron should define \"{name}\""));
+            let species = reg.get(id);
+            assert!(species.creature.is_some(), "{name} must be a creature for this sweep to mean anything");
+            let w = species.genome[attack];
+            assert!(
+                w.abs() > crate::sim::brain::W_EPS,
+                "{name} carries no live (Alarm, Attack) weight -- it reads {w}, which `eval_brain` drops at W_EPS {}. \
+                 A bed founded on it hears every fight and cannot act on one.",
+                crate::sim::brain::W_EPS
+            );
+        }
+    }
+
     #[test]
     fn the_authored_gut_bias_survives_the_ron_round_trip() {
         let reg = SpeciesRegistry::builtin();

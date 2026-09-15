@@ -11,7 +11,7 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 <!-- BEGIN GENERATED INDEX -- regenerate with scripts/bugindex.py -->
 
-**61 open, 120 bugs** (plus 20 landing-note items,
+**59 open, 120 bugs** (plus 20 landing-note items,
 marked `note`). Generated from the headings by
 `scripts/bugindex.py` -- a bug's verdict is written into its own heading, so
 this is derived, never maintained by hand. Entries are never moved when they
@@ -163,9 +163,9 @@ point.
 | Z20 | closed | 12296 | labgif wire= was a silent no-op for every card it has ever produced (lab) |
 | Z21 | closed | 12337 | The held world's grown and dead starts fill every organism slot, so C founds nothing |
 | Z22 | **OPEN** | 12504 | A colony inside a quickening eats about a sixth of the garden, and nothing on screen says so |
-| Z23 | **OPEN** | 12599 | nearest_foe counts a plant as a foe, so a fed colony quietly vandalises its own larder |
-| Z24 | **OPEN** | 12690 | A loop of plant_ant is a crowd of strangers, and nine harnesses still do it |
-| Z25 | **OPEN** | 12771 | Nothing can hear an alarm: the plane's audible radius is about two cells |
+| Z23 | closed | 12599 | nearest_foe counts a plant as a foe, so a fed colony quietly vandalises its own larder |
+| Z24 | **OPEN** | 12809 | A loop of plant_ant is a crowd of strangers, and nine harnesses still do it |
+| Z25 | closed | 12890 | Nothing can hear an alarm: the plane's audible radius is about two cells |
 
 <!-- END GENERATED INDEX -->
 
@@ -12596,7 +12596,7 @@ grown world holds 973 organisms, nowhere near the ceiling, and still places
 
 ---
 
-### Z23. `nearest_foe` counts a plant as a foe, so a fed colony quietly vandalises its own larder — and `attacks` is not a fighting counter (creature) — **OPEN, round 35, 2026-09-14**
+### Z23. `nearest_foe` counts a plant as a foe, so a fed colony quietly vandalises its own larder — and `attacks` is not a fighting counter (creature) — **CLOSED, round 36, 2026-09-14**
 
 **What it is.** `creature::nearest_foe` — `BrainOutput::Attack`'s own walk of
 the attacker's body ring — skips a cell only if it is unowned, the attacker's
@@ -12687,6 +12687,125 @@ reaches every leaf in the world. Gating those two sites on the victim being
 an animal leaves the target rule, and #417's argument for it, entirely
 intact.
 
+---
+
+**CLOSED 2026-09-14 (round 36, lane `evolution-lab-forest-eaten`), by two
+owner rulings rather than by an argument this file could have settled.**
+
+**1. Creatures do not attack plants. No exception.** He asked to be argued
+with and the argument was not made: #417's defence — *an animal cornered by
+something it cannot digest must be able to hit it* — is sound in principle and
+**has no instance**, because nothing in this engine lets a plant harm an
+animal. `nearest_foe`'s target rule now skips any cell that is not
+`MaterialKind::Creature`, which is the predicate its own odds count was
+already using one line below. **The condition that reopens it is a plant that
+can damage an animal**, and it is recorded in `Reports/dead-ends.md`
+(`creatures:082`) with the entry rather than in a code comment, which is where
+a re-test clause is looked for.
+
+**2. Eating a plant raises no alarm.** Both feeding call sites gated on the
+victim being a living animal. A corpse needs no clause: `kind: Powder`, no
+organism id.
+
+**It was the dominant term, which this section did not establish and the
+round was told not to assume.** §Z22 measured the druid garden and found the
+attack path a *tenth* of the gap there; this is the lab bed the owner plays,
+and it is the other way round. `latecensus scenario=played_bed_longant`, three
+seeds, 40,000 frames, `RAYON_NUM_THREADS=1` — **cells taken off a LIVING
+plant**, which is the comparison this section never made because no counter
+existed for either half in the same unit:
+
+| seed | by the mouth | by the jaw | jaw share |
+|---|---|---|---|
+| 1 | 112 | **2,782** | 96.1% |
+| 2 | 317 | **2,761** | 89.7% |
+| 3 | 364 | **5,071** | 93.3% |
+
+**100% of attacks and 100% of attack cells were at plants on every seed**
+(3,501 / 4,497 / 7,442 swings). The paired `no_colony=1` control is exact:
+every column 0. On `longant` this is an order of magnitude worse than the
+`ant` bed measured above — 1,147 cells at 20,000 frames against 58–86 at
+24,000 — which is the nearest thing anyone has to an explanation for *"worse
+than yesterday"*, still unconfirmed.
+
+**The standing plant census cannot answer this, and that was measured rather
+than assumed.** The paired standing count over the same three seeds moved
+**−84, +3,463 and +3,484** — one arm reading *more* plant with the colony on
+it. A stock carries everything the bed did about the loss as well as the loss;
+`CreatureStats::eaten_plant_cells` is the flow, counted in cells at the line
+where the cell leaves the world, so the two routes are a ratio rather than two
+numbers about different things.
+
+**After: `attacks` 0 and `attack_plant_cells` 0 on every seed.** That half is
+exact and does not move.
+
+**The stand's response is NOT a clean win, and an earlier version of this
+closure said it was.** Those first numbers (173 → 206, 134 → 191, 60 → 158,
+three for three) were taken before `main` landed 21 commits including
+`Cell::organism_id`'s u16 → u32 widening. **Re-measured paired on the merged
+tree**, one binary, the ablation switch the only difference:
+
+| seed | plants, loop live | plants, fixed | no-colony control | ants, live → fixed |
+|---|---|---|---|---|
+| 1 | 243 | **275** | 270 | 198 → 137 |
+| 2 | 161 | **97** | 268 | 127 → 224 |
+| 3 | 190 | 187 | 200 | 2 → 8 |
+
+Up on one, down hard on one, flat on one — **median −3**, and three seeds is
+not a sweep. The withdrawn reading was a sample from a wide distribution on a
+tree that no longer exists; `CLAUDE.md`'s *re-measure the baseline in the same
+session* is what caught it.
+
+**The mechanism figures above are untouched and reproduce on the merged
+tree** — 100% of swings plant-directed, the jaw taking 77–93% of every cell
+removed from a living plant (seed 1: 3,839 jaw cells against 659 by mouth).
+
+**What the two columns say together is the more useful finding.** Where the
+colony does not grow the stand recovers to the unhunted control (seed 1 ends
+at **275 against a no-ant 270** — a colony that stays its size now costs the
+bed essentially nothing in plant count); where it explodes, grazing replaces
+the jaw (seed 2's ants nearly double and the stand falls with them). **The fix
+removes the pure loss completely; what happens to the forest next is decided
+by what the colony does with the energy it is no longer wasting** — which puts
+the birth bar and the starvation balance, calibrated against a colony paying a
+bill that has gone, in front of whoever owns the economy.
+
+**`PIXEL_PHYSICS_PLANT_FOE=on` restores both halves together**, and its arm
+reproduces every pre-fix column byte-identically, so this is one binary rather
+than two builds.
+
+**The second half of this section — `attacks` is not a fighting counter — is
+closed differently, by making the number exist.** `CreatureStats` now carries
+`attacks_at_plants` beside `attacks` (so `attacks - attacks_at_plants` is
+animals fighting animals) and `attack_plant_cells` beside `attack_cells`. Both
+must read **0 in every bed for ever** now, which is what makes them the
+repair's standing guard rather than dead weight. The alarm plane's three
+sources are split the same way — `alarm_attack`, `alarm_eat_animal`,
+`alarm_eat_plant` — and `alarm_eat_plant` deliberately keeps counting the
+*suppressed* cries: `CLAUDE.md`, *a repair can remove the picture and leave
+the mechanism*.
+
+**One thing is open and it is the owner's, not this file's:** should eating
+another **creature** raise an alarm, or should alarm mean only *"I was
+attacked"*? Shipped today as *a living animal being bitten, whichever verb did
+it*. It is inert on the bed either way — over three 40,000-frame runs of the
+single-colony longant bed `alarm_eat_animal` is **0**, because a lone colony
+has no stranger to eat — and it starts to matter the moment two colonies share
+a box, which is now the default. Asked as review card
+`20260914T211725703Z-094f70` (board `lab`, *"What should an alarm MEAN?"*).
+
+**One guard was re-derived rather than weakened, and the reasoning is in
+`dead-ends.md` (`creatures:083`)**:
+`a_lone_grazer_cannot_farm_a_moss_lawn_forever` compared a moss lawn against a
+wall of `litter` in **joules**, and the wall arm is a ceiling on *mouthfuls*,
+not on joules — the two larders are different foods. It was ordered correctly
+only while the lawn arm carried this bug. One binary, the switch the only
+difference: the wall arm is **byte-identical** (684 J, 37 eats — painted
+litter carries no organism id, so it is the control), the lawn arm **doubled**
+(456 → 912 J, 9 → 18 eats) off **one** attack and twenty silenced alarms. It
+now asserts on mouthfuls, 18 against 37, and the bar was put back tight and
+watched go red.
+
 ### Z24. A loop of `plant_ant` is a crowd of strangers, and nine harnesses still do it — **OPEN, found 2026-09-14 while re-reading a gate that had passed the day before**
 
 **The symptom is that a measurement silently changes meaning with no code
@@ -12768,7 +12887,7 @@ filed as a second bug, because the instruments row quotes two different lining
 figures (~750 and 416) for the same arm and the comparison is muddier than a
 bug entry should be.
 
-### Z25. Nothing can hear an alarm: the plane's audible radius is about two cells — **OPEN, measured 2026-09-14, round 36 lane C**
+### Z25. Nothing can hear an alarm: the plane's audible radius is about two cells — **FIXED 2026-09-14** (found and fixed the same day, round 36 lane C)
 
 `BrainInput::Alarm` is *"the one signal that lets a colony act as a colony in
 a fight -- recruit, swarm, flee -- rather than as fifty animals each deciding
@@ -12862,6 +12981,67 @@ so the recruitment argument for either answer buys nothing measurable today.
 The semantics can be decided on what the word should mean; if the answer is
 meant to *do* something, the constants have to move with it, which is this
 entry.
+
+**THE FIX, landed the same day.** The reach numbers above are not a tuning
+failure and no constant could have closed them — the ceiling is the *stencil*.
+A 3x3 mean attenuates by about nine per cell, so at `DIFFUSE = 1.0`, the
+largest the blend can be, a wound still reads only 20 at one cell and 1 at
+two. **The mistake was modelling a shout as a substance.** A mean filter
+conserves, which is exactly right for a trail (reinforcement against
+evaporation is the whole path-selection algorithm) and exactly wrong here:
+spreading one deposit over area makes every cell small, and a `u8` floors
+small at zero within two cells.
+
+So the alarm plane stopped conserving. `pheromone::Spread::ActiveSpace`
+propagates by **distance falloff** — a cell takes the louder of what it holds
+and its neighbour minus `ALARM_FALL` (12) — which is the *active space* of the
+real thing rather than a cloud of stuff. Real ants do not share a chemistry
+between the two either: a trail pheromone is heavy and substrate-bound, an
+alarm pheromone is a small volatile molecule, and what it makes is a volume
+around a source in which concentration is over the response threshold
+(Bossert & Wilson's term; about six body lengths for *Pogonomyrmex badius*).
+
+Measured in the engine, one wound, `examples/pherolife mode=alarm`:
+
+| | d=1 | d=2 | d=4 |
+|---|---|---|---|
+| before (`arm=diffuse`, still reachable) | 4 | **0** | 0 |
+| after | **148** | **88** | 24 |
+
+That is `->Attack` **+1.161** at one cell and **+0.690** at two, against
+`ant.ron`'s authored weight of 2.0, where it was +0.047 and exactly zero. A
+sustained fight carries further still. **And it ends**: the plane empties in
+**12 passes, 144 frames**, the second-and-a-half `ALARM_RHO`'s own doc asks
+for.
+
+**The falloff is also the grading**, which was not the point and may be the
+better half: an animal in the middle of a fight and one at its edge now read
+different numbers through the *same* weight, so the response is a
+distribution rather than a binary — `CLAUDE.md`'s first law, arriving for
+free, and what a concentration gradient does in a real colony.
+
+**`ALARM_RHO` moved 0.25 -> 0.35 as part of this, not as a second change.**
+At 0.25 that constant never was the alarm's forget rate: a lone deposit also
+lost about a fifth of itself per pass to the 3x3 mean, so diffusion was doing
+a share of decay's job and the doc's *"gone in about a hundred and fifty
+frames"* was right by accident. With the plane no longer spreading its value
+away, 0.25 left a bite audible for **204 frames**; 0.35 restores the
+documented 144. `CLAUDE.md`: fixing a bug often exposes a constant that was
+compensating for it, and re-deriving it is part of the fix. **The guard that
+caught this is `creature.rs`'s `the_alarm_forgets_faster_than_a_trail`** --
+it was calibrated on the old behaviour and went red rather than quiet, which
+is what a guard is for. It passes again untouched; no file of another lane's
+was edited.
+
+**Guarded by `an_alarm_carries_past_its_own_cell_and_still_ends`, which was
+found blind first and rewritten.** Both faults it is named for were injected
+and it stayed green: it called the dial on every arm, so the shipped default
+was never under test at all and reverting the whole change passed; and it
+credited termination to the `- fall` contraction, when `ALARM_RHO` is what
+does that (setting `fall` to 0 terminates fine). The rewrite tests an
+untouched `Pheromones::new` and asserts the actual invariant — the global
+maximum strictly falls every pass, because `decay_lut[v] < v` and propagation
+can never exceed the previous pass's maximum. Both faults now go red.
 
 **Related, same lane, not filed separately**: `ancestor.ron` carries no
 `Alarm` weight at all, so the lab's founding lineage cannot act on this plane
