@@ -110,16 +110,35 @@ recommends:
   band **kills the colony monotonically on 3 of 3 seeds** (alive at 40k: 59 →
   38 → 19 → 2 over widths 36/72/144/288), and the case a blob defends does not
   arise — the patch loses **0/0/4 cells over 120,000 frames**.
-- **The crust retires with it** (`nest.ron` `penetration_resistance` 6.0 →
-  0.8). At 6.0 against every shipped `dig_force` of 1.0, **a colony cannot
-  excavate its own doorstep** — the owner noticed this himself.
+- **AND THE MATERIAL GOES ENTIRELY — owner ruling, 2026-09-15, after this
+  brief was first written:** *"I don't like the paint, so it should stay gone.
+  Otherwise sounds good."* (`nest-design-2026-09-14.md` §13.) **A nest is a
+  site and nothing else; nothing is painted at founding.** So this is not
+  "retune the crust from 6.0 to 0.8" — **`nest` retires as a material**, and
+  `nest.ron`, its crust, `earth_toned_nest`, the drainage comb
+  (`DRAIN_PERIOD`, `nest_drain_period`, `PIXEL_PHYSICS_NEST_DRAINS`), the two
+  door guards and `nestdoor`'s patch census all go with it. **§T2 closes
+  outright** — the impermeable strip *was* the whole water problem.
+- **The crust question is therefore moot rather than answered.** There is
+  nothing to dig through; the ground under the door is ground.
+- `paint_nest_patch` becomes **`found_nest_site`**, recording the founding
+  surface row, and `AtNest` is `|hx − site.x| ≤ COLONY_HALF_WIDTH` and
+  `|hy − site.surface| ≤ 2`. **`CreatureDef::nest` stops naming a material** —
+  a species has a home iff it was founded with a site, and `ancestor` keeps
+  reading `false` because nothing founds one for it.
+- **What the player sees at rest is nothing, which is the ruling.** The ethos
+  still wants the founding verb to deliver something visible and it does: the
+  founders at the door, and the hall they dig under it once the crust is gone.
+  A marker for *reading* the box is an `F7`-class overlay on the site list,
+  **never a world material.**
 
-**Three held-world requirements, non-negotiable**: founding is a player verb at
-an arbitrary cursor (`Druid::found_colony`); the shrunk gnome walks colony
-galleries and `a_nest_still_stops_him` asserts today's behaviour, while
-`rigid::is_tool_target` is true for any non-bedrock `Solid` — **so if nest
-stops being `Solid`, both change**; and **tell the druid coordinator before it
-lands**, not after.
+**Held-world requirements, updated by the same ruling**: founding stays a
+player verb at an arbitrary cursor, and `Druid::found_colony` **loses its
+"REFUSED — no nest material" branch** and can no longer fail for that reason.
+**`a_nest_still_stops_him` tests a wall nothing builds any more and is deleted
+with the material** — that supersedes this brief's earlier framing, which
+treated it as behaviour to preserve. `rigid::is_tool_target` is untouched. And
+**tell the druid coordinator before it lands**, not after.
 
 **Do not quote "414 deliveries" as a constraint.** That scene places **15 of 55
 ants and has no channel A by frame 6,000**, so it cannot carry a homing or
