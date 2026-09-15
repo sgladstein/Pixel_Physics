@@ -1,113 +1,191 @@
-## What this does
+# Held world: bubbles merge, speed is colour, and the lab's look comes across
 
-The held world's first real GUI — the owner's 2026-09-14 playtest, item 3:
-*"We need an actual GUI. We can keep it minimalistic, but buttons for the
-main actions (with subtle hotkey always visible). I don't want to have to
-remember all these shortcuts and the menu isn't even a menu, it is a
-shortcut list."* Three things, all from that same playtest:
+Round 37, Lane A — items 1–3 of the owner's 2026-09-14 playtest of
+`cargo run --release --bin druid`.
 
-- **A two-row button bar** along the bottom of the screen — thirteen of the
-  game's verbs get a button (a label, and the key that also fires it drawn
-  dimmer underneath), ported from the evolution lab's own control bar
-  rather than invented. The on-screen key legend shrank to match: a key
-  with a button no longer repeats itself as a corner row, so what is left
-  is only what has no button — three continuous dials and the held
-  movement keys.
-- **A biosphere page (`TAB`)** — plants, animals, biomass, births and
-  deaths, generations, reproduction — reusing the evolution lab's own
-  `lab::stats::Stats` almost unchanged.
-- **The energy pull lost its arrow.** Item 2 of the same playtest: *"no
-  indication of how much life energy the ants have... you should just see
-  how much energy you get by how many particles come."* The chevron over a
-  charged animal's head (the only on-screen reading of how much was
-  waiting) and the corner's `CHARGE … NEAR YOU` line are both gone; the
-  stream of particles itself now scales with how much energy the draw
-  actually carries, which it never did before — a flat 26 particles
-  regardless of the amount, so the number the whole complaint is about was
-  computed and thrown away before it reached the screen.
+## What changes on screen
 
-## Where it sits
+**Bubbles placed on top of each other now read as one shape.** *"When you place
+multiple overlapping, they should merge instead of just looking like
+overlapping circles."* The haze already took the strongest circle rather than
+the sum — that was right, and it was not the defect. Every disc still drew its
+own rim all the way round, including the stretch buried inside a neighbour, so
+three bubbles came out as three arcs crossing. The rim now follows the edge of
+the **union**.
 
-Last of the three playtest items from the *screen* brief — a colleague
-lane is doing the held world's third item (the plane/rim look) separately.
-This closes out "the game has no interface at all," which was the owner's
-very first reaction to playing it.
+**Speed is what colour the bubble is, and nothing else.** *"The speed
+indication should just be bubble color, not animation speed (it looks bad when
+moving fast)."* The shimmer no longer speeds up with the dial; the bubble runs
+cold blue at real time and warms — and thickens in tint, not in width —
+towards the top.
 
-## Mechanism
+**The ants wear their colony's colour, as in the lab**, instead of
+disappearing into soil at their own body colour.
 
-- `druid::hud::mote_count_for_amount(amount) = round(6 + amount * 0.6)`
-  replaces the old fixed `PER_DRAW = 26`, applied per `Draw` so both an
-  absorb and a founding's reversed flow read honestly. Verified it moves
-  with the amount (a headless run) before removing the chevron, per the
-  brief's own ordering, so a readout existed throughout.
-- The bar (`Rect`/`Widget`/`Bar`, `bar_layout`'s measured, loosest-spacing-
-  first `layout`) lives in `src/druid/hud.rs`; mouse plumbing
-  (`CursorMoved`/`MouseInput`/`CursorLeft`) and the retained per-frame state
-  live in `src/bin/druid.rs`'s `Handler`, mapped 1:1 through
-  `pixels.window_pos_to_pixel` (this game never zooms, so no logical-size
-  divide is needed). `Handler::act` is the single dispatch point both the
-  keyboard and the bar's clicks call; it wraps a new `Druid::act` (an
-  `impl Druid` block added from `hud.rs`, legal across files in one crate)
-  for the pure game-state verbs, and handles the two concerns that belong
-  to the event loop rather than the game itself (clearing held movement
-  keys before a modal opens; the biosphere page toggle, since `Stats` also
-  lives on `Handler`). **This deviates from the brief, which expected
-  `Druid::act` alone to be the single dispatch point — `src/druid/mod.rs`
-  is a different lane's file for the length of this program, so `Druid`
-  could not gain the fields this needed. See `Reports/lanes/druid-screen.md`
-  for the full reasoning.**
-- `src/lab/stats.rs` — the one file this lane shared a line with another
-  game already using it. `Stats::rect`'s hardcoded `super::ui::bar_top()`
-  became a `floor: i32` parameter (`Stats::draw_at`'s own external
-  signature is unchanged — it now calls a new `draw_at_floor` internally
-  with the lab's own floor, so nothing outside this file needed editing),
-  and a new `pub fn draw_at_floor(.., floor)` is the druid's entry point,
-  supplying its own bar's `bar_top()` instead.
-- **The repaint decision** (the one the brief called out as the hard part):
-  the bar needed none of the quantisation the brief anticipated — its plate
-  is a fixed rectangle, unconditionally fully repainted every frame
-  regardless of hover, measured at **0.055 ms/frame**. The biosphere page
-  is the real case: its rectangle's bottom edge tracks its own content, so
-  drawing it unconditionally risked leaving stale pixels below a *shrinking*
-  page on a frame the world's own repaint was skipped — found by reasoning
-  through the design, not by a test. Its own paint costs **1.11 ms/frame**,
-  which is also why it is not simply always-on like the bar. `Handler::frame`
-  now compares `(Stats::rect, cursor)` frame to frame and passes that into
-  `Druid::draw`'s existing (already-public) `force_full` parameter, so a
-  full world repaint fires only on the frames the page's content or the
-  hovered row actually changed — a few times a second at 1x while the page
-  is open, never while it is closed.
+**The lab's debug overlays are readable here.** They were always drawn; they
+were being painted over.
 
-## What I left on the keyboard, and why
+## The mechanisms
 
-Three continuous dials (place radius `Q`/`E`, carried-circle reach `[`/`]`,
-speed `Z`/`V`) and the held movement keys (`A`/`D`/`W`/`S`/`SHIFT`/`G`) have
-no button — a button pressed dozens of times to walk a ladder is not a
-control (the lab's own `STOCK_LADDER` doc makes the same call), and a
-press-and-release button cannot express "held". `TAB` was reassigned from
-seed-kind cycling (now `K`) to the biosphere page, matching the lab's own
-key for the same panel.
+### The union, in one line of geometry
 
-## Testing
+To leave the union of the circles you have to leave every circle you are in,
+so a point's depth inside the union is the `max` over the discs of its depth
+inside each — and the disc attaining that maximum is the one whose arc *is*
+the union boundary there, so it settles the tint and the reach too. A point
+deep inside any circle therefore has a large maximum, fails the reach test,
+and draws nothing, whichever neighbour's rim it lies under. Over a lone circle
+a `max` is the identity, so the single-bubble look the owner approved is
+untouched.
 
-- `cargo clippy --all-targets --release --locked -- -D warnings`: clean.
-- `cargo test --lib --release`: 1,752 passed, 0 failed, 85 ignored.
-- `cargo test` (full): run because `src/lab/stats.rs` is shared with the
-  lab and `examples/labstats.rs`.
-- `bash scripts/docscheck.sh`: clean.
-- Verified live: headless screenshots and GIF captures via
-  `PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES`/`PIXEL_PHYSICS_DRUID_GIF` under
-  Xvfb + lavapipe, confirming the bar, the legend's new shorter form, the
-  biosphere page, and the chevron's removal all render correctly together
-  with no overlap (also covered by
-  `both_panels_fit_inside_the_viewport`/`the_bar_fits_the_screen_and_no_two_widgets_overlap`).
-- Posted a blind A/B of the mote-count formula against a steeper
-  alternative, at a small pull where the two diverge most:
-  `python3 scripts/review.py get 20260914T034825842Z-e892f1` (board
-  `held-world`). Fire-and-forget; verdict pending.
+The per-disc inner cull had to go: it skipped exactly the pixel the rule needs
+to see.
 
----
+| | hazed pixels |
+|---|---|
+| three interpenetrating circles, before | 4,419 |
+| …after | 2,450 |
+| one circle alone, before → after | 1,394 → 1,404 |
+
+**Cost.** Measured at matched repaint cadence on an identical **7,970
+px/frame** work set (`druid_aura cost=1 overlap=3 speed=1 perstep=0`): 0.613 →
+0.487 ms mean whole-frame. Two binaries on an unpinned box, so that reads as
+*no measurable cost*, not as a speed-up. The pixel counter is the
+load-independent half and it is identical in both arms.
+
+### Speed, moved into the colour
+
+Both phase clocks are the renderer's own draw counter now — the standing arm's
+used to be `World::frame`, which a held world advances up to eight times per
+drawn frame, and that *was* the animation speed being complained about. Hue
+runs `AURA_STANDING` → `AURA_FAST`, which is `druid::hud::speed_tint`'s own
+ramp, so a player who learned it on the ring reads it unchanged.
+
+`AuraTuning::fast_gain` carries density beside the hue, **because hue alone
+measured as a mechanism that fires and cannot be seen**: the cold end is a
+pale blue against a pale blue sky.
+
+**Both halves were then widened on the owner's verdict** (card
+`20260914T195956622Z-357e6d`: *"This is the idea, but make the color change a
+little more visible. You are close."*) — `AURA_FAST` from `[255, 250, 225]` to
+`[255, 243, 185]`, and `fast_gain` from 1.45 to 2.0. Recovered blend fraction
+x1→x8, the quantity the guard reads: **1.72** now, against 1.37 before and
+**0.94** with the density channel switched off.
+
+**The hot end stops short of amber deliberately, and that ceiling is worth
+carrying.** `AURA_CARRIED` is `[255, 214, 140]`, so a hotter end makes a fast
+*placed* bubble read as the one he is *carrying* — one distinction bought by
+spending another. If more heat is wanted, the carried colour has to move
+first; `fast_gain` has no such ceiling and is the lever to reach for.
+
+`depth_per_step` defaults to `0.0` — a band that thickens with speed stacks to
+exactly the flat saturated block this change exists to avoid. Both withdrawn
+channels are in `Reports/dead-ends.md` (`rendering:001`) with the condition
+each rejection depends on.
+
+Side effect worth having: the phase off the world clock **halved the repaint
+rate at speed**, 12,420 → 6,365 px recomputed/frame on three circles at x4.
+
+### The overlays were being painted over
+
+`cell_colour` is shared by all three games and nothing ever skipped the
+overlays. But `apply_held_look` is a *full replace* onto one hue and ran after
+them, so on a held world — nearly the whole map — every ramp arrived at the
+screen with only its luminance left. A debug channel whose reading depends on
+whether time is running there is precisely the readout that is a function of
+the thing it debugs.
+
+The held look now yields on any cell a debug channel painted, tested by
+comparing four bytes against what the chain started with. **Not** by keying on
+whether an overlay is switched on: a field overlay covers the screen and an
+organism overlay covers a few hundred cells, so the mode test would drop the
+held look off the whole world to make a handful of ant cells readable, and
+where time has stopped is this game's premise. Heat channel, on a world that
+is one temperature throughout: **43,456 cells wrong → 0**.
+
+**There is still no key or menu row to turn them on.** `cycle_field_overlay`,
+`cycle_organism_overlay` and `cycle_creature_colour` are public and ready;
+`menu.rs` and `bin/druid.rs` belong to another lane this round and the row is
+theirs to add. Until then `examples/druid_garden.rs overlay=… colour=…`
+reaches them.
+
+## Guards
+
+Five faults injected, five go red; the tree is green at 129 render guards.
+**Two of the new guards were blind on the first attempt** and both are
+recorded in the source rather than quietly fixed:
+
+- the strength assertion summed the raw channel difference, which the hue
+  dominates (blue→near-white moves red by 105 on its own), so it reported a
+  healthy rise with the density channel switched off. It now recovers the
+  blend fraction and reads it at a quantile — a *sum* is over the pixels that
+  registered a change at all, and that set is itself a function of the hue;
+- the bar was then read back off `fast_gain`, so the fault moved the
+  expectation with it. Fixed bar of 1.20, in the gap above the 0.94 the
+  channel reaches switched off and below every value it reaches switched on.
+  **It was deliberately not re-tightened when `fast_gain` went to 2.0** — a
+  bar that tracks the dial it guards is the original bug, not a stricter
+  version of the fix.
+
+`a_faster_quickening_hazes_deeper` asserted the channel the owner removed, so
+it is replaced rather than left passing. The dirty-rect guard read a single
+frame, which was a parity coin toss that happened to land right while the
+phase rode `World::frame`; it now reads a window as long as
+`AURA_FRAME_QUANTUM`.
+
+New: `overlapping_quickenings_draw_the_outline_of_their_union`,
+`one_quickening_on_its_own_is_untouched_by_the_merge`,
+`a_debug_overlay_is_readable_on_held_ground`.
+
+## Instruments
+
+`druid_aura` gains `overlap=N`, `gain=`, and the disc counts on its footprint
+line. The whole previous round measured **one** circle, so the defect the
+owner reported was invisible to every card the aura had ever been judged on.
+Read the disc count *inside* the loop — the control draw's `alpha=0` clears
+the disc list, and the first version reported `0 discs` beside a 5,538-pixel
+footprint.
+
+`druid_garden` gains `colour=`, `overlay=`, `crop=` and `zoom=`, so both arms
+of a look comparison come out of one binary rather than two builds. An ant is
+1–2 cells in a 2560-wide world: the same change is 25 pixels whole-frame and
+400 cropped and magnified.
+
+## Judged by eye
+
+Four cards on board `druid`:
+`20260914T195923263Z-cfdfa0` (the merge),
+`20260914T195956622Z-357e6d` (is speed legible from colour?),
+`20260914T200008969Z-75f7c5` (the animal colour),
+`20260914T200025758Z-8c5504` (the overlays).
+
+Two are answered. **Speed colour**: *"This is the idea, but make the color
+change a little more visible. You are close"* — acted on above and re-posted
+as `20260914T223428380Z-a1c555`. **Overlays**: *"'there is no key or menu row
+to turn these on yet.' - this was the main issue, but the after does look
+better"* — the rendering half is accepted; the switch is what he wants, and
+`src/druid/menu.rs` and `src/bin/druid.rs` are held by an unlanded branch
+(`claude/druid-founding`), so the row is not this lane's to add. It is one
+menu row, and it is the difference between item 3 being done and not.
+
+## Gates
+
+All run on the merged tree, after the third `origin/main` merge:
+
+- `cargo clippy --all-targets --release --locked -- -D warnings` — clean
+- `cargo test --release` — **1,878 passed, 0 failed**, 103 ignored
+  (1,819 lib · 44 `tests/worldgen.rs` · 10 `main.rs` · 3 `tests/determinism.rs`
+  · 2 doc). The full command, not `--lib`, so the preset and worldgen guards
+  actually ran
+- and CI green on this head: all 9 checks, run `34904860288`
+- `bash scripts/docscheck.sh` — clean
+- `python3 scripts/deadendindex.py --touching` — one hit, this branch's own
+  new entry naming `fast_gain`
+
+**Note for whoever integrates:** `aura_disc_count()` landed on `main` via
+PR #430 while this branch was running, and git merged both copies into one
+file. Resolved by keeping #430's and deleting this branch's.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
-https://claude.ai/code/session_013etYZf9Wg3HZMgiz9aj62J
+https://claude.ai/code/session_01PTgbJ31QFWqWp3yEXpmzKh

@@ -52,6 +52,7 @@
 //! prints plausible numbers from a world nobody asked for.
 
 use pixel_physics::app::{HEIGHT, WIDTH};
+use pixel_physics::render;
 use pixel_physics::druid::Druid;
 use pixel_physics::sim::cell::Cell;
 use pixel_physics::sim::material::MaterialKind;
@@ -283,7 +284,7 @@ fn selftest() {
 /// The same `Druid::draw` the window calls, into a plain RGBA buffer — so
 /// what lands in the file is the picture, interface and all, rather than a
 /// debug view of it.
-fn shoot(game: &mut Druid, prefix: &str, when: &str) {
+fn shoot(game: &mut Druid, prefix: &str, when: &str, crop: Option<(u32, u32, u32, u32)>, zoom: u32) {
     if prefix.is_empty() {
         return;
     }
@@ -295,8 +296,23 @@ fn shoot(game: &mut Druid, prefix: &str, when: &str) {
     let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
     game.draw(&mut frame, (WIDTH, HEIGHT), true);
     let path = format!("{prefix}-{when}.png");
-    match image::save_buffer(&path, &frame, WIDTH, HEIGHT, image::ColorType::Rgba8) {
-        Ok(()) => println!("druid_garden: wrote {path}"),
+    // **Cropped and magnified, because the subject is often two cells
+    // across.** An ant is 1-2 cells and the held world is 2560 wide, so a
+    // whole-frame shot of a creature-colour change moves 25 pixels out of
+    // half a million — a picture in which the thing under discussion is
+    // genuinely invisible. Nearest-neighbour, so a cell stays a square.
+    let full = image::RgbaImage::from_raw(WIDTH, HEIGHT, frame).expect("the frame is WIDTH*HEIGHT RGBA");
+    let cut = match crop {
+        Some((x, y, w, h)) => image::imageops::crop_imm(&full, x, y, w, h).to_image(),
+        None => full,
+    };
+    let out = if zoom <= 1 {
+        cut
+    } else {
+        image::imageops::resize(&cut, cut.width() * zoom, cut.height() * zoom, image::imageops::FilterType::Nearest)
+    };
+    match out.save(&path) {
+        Ok(()) => println!("druid_garden: wrote {path} ({}x{})", out.width(), out.height()),
         Err(e) => eprintln!("druid_garden: {path}: {e}"),
     }
 }
@@ -325,6 +341,10 @@ fn main() {
     // need a surface; `Druid::draw` needs neither, so an example can render
     // the same frame the player sees straight into a buffer.
     let mut png = String::new();
+    let mut creature_colour = String::new();
+    let mut overlay = String::new();
+    let mut crop: Option<(u32, u32, u32, u32)> = None;
+    let mut zoom = 1u32;
     for a in std::env::args().skip(1) {
         let Some((k, v)) = a.split_once('=') else { continue };
         match k {
@@ -345,6 +365,26 @@ fn main() {
             "absorbevery" => absorb_every = v.parse::<u64>().expect("absorbevery=N").max(1),
             "control" => control = v.to_string(),
             "png" => png = v.to_string(),
+            // **`colour=` and `overlay=` — the two render dials the held
+            // world inherited from the lab**, 2026-09-14, so both arms of a
+            // comparison come out of one binary rather than out of two
+            // builds. `CLAUDE.md` wants a paired comparison and wants the
+            // arms to differ only by the thing under test; a rebuilt "before"
+            // differs by whatever else landed in between.
+            //
+            // `colour=off|species|colony` is `render::CreatureColour`, which
+            // the lab has set to `colony` since 2026-09-06 and this game now
+            // sets too. `overlay=` takes either a field channel or an
+            // organism one, because the owner's *"the overlays from the
+            // evolution lab"* means both and a harness that could only reach
+            // one would answer half the question.
+            "crop" => {
+                let n: Vec<u32> = v.split(',').filter_map(|t| t.parse().ok()).collect();
+                crop = (n.len() == 4).then(|| (n[0], n[1], n[2], n[3]));
+            }
+            "zoom" => zoom = v.parse().unwrap_or(1).max(1),
+            "colour" => creature_colour = v.to_string(),
+            "overlay" => overlay = v.to_string(),
             _ => panic!("unknown argument {a:?}"),
         }
     }
@@ -354,6 +394,30 @@ fn main() {
     }
 
     let mut game = Druid::new();
+    // Applied over whatever `Druid::new` chose, so the default is what an
+    // un-argued run photographs and the switch is a deliberate departure
+    // from it rather than a second source of truth.
+    match creature_colour.as_str() {
+        "" => {}
+        "off" => game.renderer.creature_colour = render::CreatureColour::Off,
+        "species" => game.renderer.creature_colour = render::CreatureColour::Species,
+        "colony" => game.renderer.creature_colour = render::CreatureColour::Colony,
+        other => eprintln!("druid_garden: colour={other:?} is not off|species|colony -- leaving the game's own default"),
+    }
+    match overlay.as_str() {
+        "" => {}
+        "pressure" => game.renderer.field_overlay = render::FieldOverlay::Pressure,
+        "temperature" => game.renderer.field_overlay = render::FieldOverlay::Temperature,
+        "light" => game.renderer.field_overlay = render::FieldOverlay::Light,
+        "moisture" => game.renderer.field_overlay = render::FieldOverlay::Moisture,
+        "pheromonea" => game.renderer.field_overlay = render::FieldOverlay::PheromoneA,
+        "pheromoneb" => game.renderer.field_overlay = render::FieldOverlay::PheromoneB,
+        "alarm" => game.renderer.field_overlay = render::FieldOverlay::Alarm,
+        "soilmoisture" => game.renderer.organism_overlay = render::OrganismOverlay::SoilMoisture,
+        "foodvalue" => game.renderer.organism_overlay = render::OrganismOverlay::FoodValue,
+        "lineage" => game.renderer.organism_overlay = render::OrganismOverlay::Lineage,
+        other => eprintln!("druid_garden: overlay={other:?} is not a channel this harness knows -- drawing none"),
+    }
     game.unlimited = unlimited;
     game.speed = speed.clamp(pixel_physics::druid::SPEED_MIN, pixel_physics::druid::SPEED_MAX);
     let at = game.world.player.as_ref().map(|p| p.center()).expect("the druid world spawns a player");
@@ -372,13 +436,16 @@ fn main() {
         game.place_quickening();
     }
     println!(
-        "druid_garden: arm={arm} ticks={ticks} speed={} colony={placed} circle={} unlimited={unlimited} bending={bending} at={at:?}",
+        "druid_garden: arm={arm} ticks={ticks} speed={} colony={placed} circle={} unlimited={unlimited} bending={bending} at={at:?} colour={} overlay={}/{}",
         game.speed,
-        game.world.quickenings.len()
+        game.world.quickenings.len(),
+        game.renderer.creature_colour.label(),
+        game.renderer.field_overlay.label(),
+        game.renderer.organism_overlay.label()
     );
 
     let before = census(&game.world, at);
-    shoot(&mut game, &png, "before");
+    shoot(&mut game, &png, "before", crop, zoom);
     let mut absorbs = 0usize;
     let mut drawn = 0.0f32;
     for t in 1..=ticks {
@@ -390,7 +457,7 @@ fn main() {
         }
     }
     let after = census(&game.world, at);
-    shoot(&mut game, &png, "after");
+    shoot(&mut game, &png, "after", crop, zoom);
 
     report(&format!("{arm} speed={} colony={placed} circle={} unlimited={unlimited}", game.speed, circle as u8), &before, &after);
     // **The discrete event count, beside the numbers it is meant to explain.**
