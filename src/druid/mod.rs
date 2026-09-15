@@ -97,7 +97,17 @@ const GROW_ENV: &str = "PIXEL_PHYSICS_DRUID_GROW";
 /// is built around is **putting something back**.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Start {
-    /// **The default.** The land lived, and then it died: grown for
+    /// **Not the default any more — [`Bare`](Self::Bare) carries
+    /// `#[default]`**, and this line said "The default" for a day after that
+    /// moved. Left as a warning rather than quietly corrected: a reader
+    /// checking *which start ships* naturally reads the variant docs and not
+    /// the derive, so a stale word here is a confident wrong answer about
+    /// what is on screen. It cost one 2026-09-15 session a whole hypothesis
+    /// — that the floor the owner was seeing was a standing dead wood
+    /// rotting into litter, in a world that in fact ships with nothing in it
+    /// at all. `Bare`'s own doc records the playtest that moved it.
+    ///
+    /// The land lived, and then it died: grown for
     /// [`GROW_FRAMES`], then every plant marked senescent, then held.
     ///
     /// **Senescent rather than deleted, and that is the whole trick.**

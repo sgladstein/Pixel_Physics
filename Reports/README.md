@@ -520,6 +520,23 @@ by somebody about to try it on creatures.
 
 ## Plants and trees  ·  `engine`
 
+- [lab-vs-druid-plant-mechanics-2026-09-15.md](lab-vs-druid-plant-mechanics-2026-09-15.md)
+  — **measured, 2026-09-15; no behaviour changed. `engine`, `lab`, `held`.**
+  The owner's *"I thought they were identical... way more leaves piling up on
+  the ground in the druid game"*, answered: he is right, it is **6.9x the
+  standing litter** on one bed at one seed, and it is **one switch**.
+  `plant_size_cadence` is `true` in the lab and `false` in the held world, and
+  the tick it bands *is* the plant's economy — so a big tree in the lab rolls
+  to shed a quarter as often. Ablated both ways: lab with it off goes 188 ->
+  1,406, held world with it on goes 1,296 -> 488; bending moves the floor the
+  *wrong* way and load-failure is worth about 2x. **Read the held-gate section
+  before quoting it as the cause** — `held` does not make more litter, it
+  *freezes* the floor at whatever it held when she walked away, and the arm
+  that departs holds **less** than the running one. Also: the two games differ
+  on all three plant-rule switches and no two agree; and `Start::Dead`'s doc
+  said "The default" when `#[default]` had moved to `Bare`, which cost this
+  session a whole hypothesis. Instrument: `examples/held_litter.rs`.
+
 - [canopy-throughfall-2026-09-07.md](canopy-throughfall-2026-09-07.md)
   — **built and measured, 2026-09-07; §7 added 2026-09-11.** The owner's
   *"water also pools on the top of our plants; it should drip through"*,
