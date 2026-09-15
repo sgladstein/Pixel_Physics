@@ -985,6 +985,44 @@ exactly like "the mechanism does nothing". **When a mechanism appears inert,
 check the scene still contains the situation you think it does** before
 touching the mechanism.
 
+### A channel that decays *and* is read as a gradient needs range for both
+
+Three instances, in three unrelated subsystems, each filed as a local defeat
+before the cause was named: **canopy density** at 4 bits (decay could not
+release space), the **pheromone plane** at `u8` (the ant read `+0.000` past
+the trail's midpoint while the plane peaked at a healthy 39-98 of 255), and
+`Cell::temperature` at whole degrees (§Z27). Decay needs headroom
+*underneath* it or it hits a fixed point; a gradient needs resolution
+*between neighbours* or it reads flat. **Narrow storage takes the gradient
+away first, and silently** -- the code stays correct and every gate stays
+green.
+
+**Measure the number the consumer computes, never the stored value.** That
+is what separated the real defect from two earlier wrong diagnoses on the
+pheromone line: same data, two readers, one of them silent.
+
+**Exactly zero is the signature** -- a weak-but-working mechanism reads
+0.003; an exhausted representation reads 0.000 at several sample points and
+keeps reading it. Two things cause an exact zero, and the cheap one goes
+first: a degenerate condition (*A change that moves nothing*, in
+Conventions) before an exhausted representation.
+
+**The discriminator is one ratio: the consumer's decision threshold against
+the storage quantum.** Where a *designed* threshold sits far above the
+quantum, widening cannot move a single decision and there is nothing to fix
+however flat the channel reads -- that killed two of four candidates in the
+2026-09-15 survey without building a world (soil water 50x, liquid fill
+16x). **The risk condition is a consumer with no threshold at all**, which
+both confirmed instances had.
+
+**And do not read an existing defence as covering this.** Both remedies in
+this engine -- the pheromone plane's forced strict-decrease decay LUT, and
+`fire::diffuse_heat`'s minimum-progress nudge -- are per-cell monotonicity
+guarantees, and **a gradient is not a property of a cell**, so neither can
+see one. The pheromone plane *had* its LUT, the LUT worked, and the trail
+was flat past its midpoint anyway. Full survey:
+`Reports/decaying-gradient-quantization-2026-09-15.md`.
+
 ### Metric traps, each of which has already cost real time
 
 - **Liquids: measure column *volume*, not the topmost cell.** A `Liquid` cell
