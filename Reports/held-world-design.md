@@ -303,6 +303,88 @@ same, the price of every hearth kept lit is visible, and there is no way for
 the game's arithmetic and the frame rate to disagree. The processor stops
 being a constraint to work around and becomes the thing the game is about.
 
+### 2i. The format — it is a cross-section, not a side-scroller
+
+**Owner question, 2026-09-15:** most of the games this design borrows from are
+3D or top-down, where an enemy can come from any direction and a chokepoint is
+easy to make. *"In our game the enemy is either coming from the left or the
+right and you're either pushing them left or pushing them right? So it's very
+limiting in some ways but it could also make it unique."*
+
+**The premise is half wrong, and the half that is wrong is the opening.**
+Measured from `assets/worldgen.ron`, the druid world is 2560 x 960 and splits
+**190 rows of sky, 380 rows of soil, ~390 of rock** — *two and a half screens
+of ground* beneath a surface line that is the only part the game presently
+uses. And three parameters say why it reads as flat: `pocket_density: 0.0`,
+`vault_density: 0.0`, `brow_chance: 0.0`. **The cave generator exists and is
+switched off for this preset.** So "left or right" is true of the surface, and
+the surface is currently the whole game.
+
+**The limitation is nonetheless real, and the game that did this best could not
+solve it either.** Kingdom's own community states it almost exactly: units are
+*"either in-range or out-of-range on a one-dimensional line, with not much more
+to gain from squad placement."* Two Crowns' answer was **co-op** — a second
+monarch so one holds the left flank and the other the right. That is the best
+shipped answer to this constraint and it is one this game cannot copy.
+
+**Three answers that are ours.**
+
+**(a) The axis is vertical.** 570 rows of diggable ground is an unused
+dimension. With caves on, the enemy arrives from *below*, the colony nests
+*below*, and defence stops being a line and becomes a section — surface,
+subsurface and sky, **three fronts visible in one frame**. That is not a
+mitigation but the format's advantage: a 2D cross-section is the only view that
+shows the underground and the surface *at once* (Dwarf Fortress pages through
+layers; Oxygen Not Included is a cross-section for exactly this reason). It is
+also the correct view for the subject — a plant is roots down and canopy up, so
+the plant simulation already *is* a vertical simulation. And **gravity makes
+terrain editing mean something**: top-down a trench is a line to walk around;
+here it is a hole things fall into, a wall is a thing that must be climbed, a
+dam holds water, an undercut cliff comes down — every one of those already
+ships. Chokepoints become vertical features (a ravine that pools, a cliff, a
+land bridge, a cave mouth) **that the player makes**, which is the most natural
+verb a falling-sand engine has.
+
+**(b) An enemy that wells up rather than rolling in** — an option for §2a, not
+a ruling, since the tide's workings are deliberately unsettled. If the
+stillness is *in the ground* and rises where nothing holds it back: it is
+gravity-consistent; the perimeter becomes **a disc rather than two points**;
+low ground is fertile *and* exposed with a mechanism rather than a balance pass
+(`table_offset: 6.0` with a 36-row capillary fringe puts the best soil where
+the danger is nearest); digging becomes dangerous because it can be breached;
+and the world reads as legible bands — sky, garden, roots, contested soil, the
+deep.
+
+**(c) The held premise inverts the two-front problem, and this one is ours
+alone.** In Kingdom the side you are not on is being attacked while you are
+away. **Here the side you are not on is frozen** — you cannot be everywhere,
+but everywhere you are not is paused, so *neglect is a valid defence.* Which
+would be too safe on its own, except that **hearths (§2e) are exactly what
+re-introduces the problem, deliberately and on the player's own terms**:
+
+> **Every hearth lit is a front you have agreed to defend in absentia.**
+
+The thing that grows the world is the thing that spreads the player thin.
+Kingdom takes that tension from a metronome; this takes it from the player's
+own expansion decisions, which is better because the player chose it.
+
+**What the format is straightforwardly good at**, as against the top-down games
+this design borrows from: **total legibility** — the whole frontage is visible
+at once, and the "where is it attacking" problem that top-down tower defence
+spends half its interface on does not arise; **a line has an order**, so
+layered defence (outer thicket, trench, inner thicket) reads instantly in a way
+depth in a plane does not; and **position is scarce** — top-down the player is
+effectively a cursor, here being somewhere means not being somewhere else,
+which a carried circle already makes load-bearing.
+
+**The cost to know before acting on this.** Turning caves on is three zeroed
+parameters, so it is cheap — and it is not free. `CLAUDE.md`'s registry rule
+bites: adding to a preset enrols it in every `tests/worldgen.rs` guard that
+sweeps `presets()`, one of which asserts **not one cell moves in the 120 frames
+after generation** — and `druid` already has a documented lottery relationship
+with that guard because of its 380-row soil (`worldgen/params.rs`'s
+`world_age` doc). Cheap experiment, real test surface.
+
 ---
 
 ## 3. What ten minutes of play looks like
@@ -517,37 +599,82 @@ measurement and is the number that says how tough the tide's bodies may be.
 
 ### 7c. The population column is junk on this bed — read death causes
 
-Probe, one seed, 24,000 frames, `RAYON_NUM_THREADS=4`:
+The one-seed probe that set the sweep up read ants alive as **0 / 3 / 2**
+across no-predator, authored-plate and double-plate arms — the floor, not a
+signal, exactly as `instruments.md` warns for beds with one to seventeen
+survivors. Killed-by-beetle over the same three arms read **0 / 8 / 25**.
+**Reading population the way the original finding did would have measured
+noise**, so the sweep below is gated on death causes and the alive column is
+only ever read as an order statistic over seeds.
 
-| arm | ants alive | starved | killed by beetle | beetles alive |
-|---|---|---|---|---|
-| no predators | **0** | 51 | — | — |
-| 6 beetles, authored plate | **3** | 40 | 8 | 2 |
-| 6 beetles, double plate | **2** | 21 | **25** | 4 |
+### 7d. The sweep: the armour ladder, 12 seeds, 24,000 frames
 
-**What this licenses.** The instrument separates the arms on the right column:
-killed-by-beetle moves **0 → 8 → 25**. That is the positive control passing,
-so the sweep is worth its half hour. And the alive column is **0, 3, 2** —
-the floor, not a signal. `instruments.md` already warns that at one-to-seventeen
-survivors these beds cannot see a small effect; reading population the way the
-original finding did would have measured noise.
+`labstats`, `RAYON_NUM_THREADS=4` throughout, `trait_reach` 8. Medians over
+twelve seeds; the *"colony gone"* column is the share of seeds ending at zero
+ants, which is the order statistic that matters because the per-seed outcome
+is close to binary.
 
-**What it does not license.** It is **one seed**, and this file's own rules say
-six is not a sweep. The hint that the colony died out *without* a predator and
-survived *with* one is not a finding until the twelve-seed sweep says so.
+| arm | ants alive (med) | **colony gone** | killed by beetle (med) | predation share of ant deaths | beetles alive (med) |
+|---|---|---|---|---|---|
+| no predator | 4.0 | **3 / 12** | 0 | 0% | 0 |
+| plate x1 (as authored) | **6.5** | **0 / 12** | 7 | 17% | 2 |
+| plate x2 | 6.0 | **0 / 12** | 12.5 | 31% | 3 |
+| plate x4 | 4.5 | 2 / 12 | 17 | 35% | 4 |
+| plate x9 (ceiling) | **0.0** | **9 / 12** | 24 | **53%** | 7 |
 
-**And the bed is not the game.** This is the lab bed, which starves its colony
-to near-extinction in every arm. It is the right bed for a *relative* question
-and is not evidence about a well-fed valley in the held world.
+**Three findings, and the middle one is the useful one.**
 
-### 7d. If it holds, it is a design lever rather than a defect
+**1. The subsidy is real, and it reproduces at twelve seeds.** A predator at
+*shipped* values leaves the colony **better off**: it goes extinct on **3 of 12
+seeds with no predator and 0 of 12 with six beetles in the box**, median alive
+4.0 → 6.5. This is [`selective-environments-2026-09-05.md`](selective-environments-2026-09-05.md)'s
+*"a hazard that also feeds you is a subsidy with a variance"* reproduced on
+today's engine, at a horizon twice the original's.
 
+**2. There is a wide playable middle, and that is the first law arriving on
+the predator line.** Killed-by-beetle rises monotonically **0 → 7 → 12.5 → 17
+→ 24** while the colony holds all the way through x4. The old binary finding —
+*an inedible predator collapses the colony four- to fivefold* — is now **a
+region at the top of a ladder**, and most of the ladder is a graded fight
+rather than a wipeout. That is the band the tide's bodies get to live in.
+
+**3. The collapse is real and it is at the ceiling.** At x9 plate the median
+colony is **zero** and **9 of 12 seeds are wiped**. So the precondition §10a
+parked is answered: armour can still kill a colony outright, and the threshold
+sits between x4 and x9.
+
+**The obvious confound is checked and ruled out.** A plated beetle could be
+collapsing the colony by *eating its food* rather than by eating it — but ant
+**starvation** deaths fall monotonically across the ladder (49.5 → 37 → 32.5 →
+32.5 → 23.5) while killed deaths rise (0 → 26), taking predation from 0% to
+**53%** of all ant deaths. Ants starve *less* with more beetles in the box.
+The x9 collapse is predation.
+
+**What it does not license.** This is the **lab bed**, which starves its colony
+to near-extinction in every arm; it answers a *relative* question and is not
+evidence about a well-fed valley in the held world. Per-seed spread is large
+(alive ranges 0–21 within a single arm), which is why every row above is an
+order statistic and no mean appears in the table.
+
+### 7e. What that buys the design — an armour dial with a measured range
+
+**The subsidy is a lever rather than a defect, and it now has numbers on it.**
 An edible enemy is a **harvest**: dangerous, but a wave survived leaves the
-colony fatter. An armoured one is a real threat at the cost of that subsidy.
-**It is a dial per enemy type**, which is how §2c's three tiers can differ
-without inventing a mechanic — early bodies edible and feeding you, late ones
-plated and not. It also gives the still-bearer a clean identity: *the one that
-is not food.*
+colony fatter — measured, it leaves the colony *alive* on seeds where nothing
+attacking it at all did not. An armoured one is a real threat at the cost of
+that subsidy. **It is a dial per enemy type**, which is how §2c's three tiers
+differ without inventing a mechanic:
+
+| tier (§2c) | plate | what it is to the colony |
+|---|---|---|
+| early bodies out of the tide | **x1–x2** | food that bites back — a harvest |
+| later bodies | **x4** | a real fight, colony holds at about the unattacked baseline |
+| the **still-bearer** | **x9** | *the one that is not food* — wipes 9 of 12 beds unaided |
+
+So the still-bearer's identity is measured rather than asserted, and the top of
+the ladder is a thing to deploy **rarely and deliberately**, because at x9 a
+handful of them clear a colony on their own. The playable band is x1–x4 and it
+is wide.
 
 ---
 
@@ -567,3 +694,9 @@ Append here; do not rewrite the sections above.
 | 2026-09-15 | Coordinator note names the wrong instrument for the enemy gate | §7a |
 | 2026-09-15 | "Inedible" is unbuildable since the graded bite; use an armour ladder | §7b |
 | 2026-09-15 | On the lab bed, read death causes, not population | §7c |
+| 2026-09-15 | **Sweep landed.** A shipped-plate predator is a *subsidy*: colony extinct on 3/12 seeds unattacked, **0/12** with six beetles | §7d |
+| 2026-09-15 | **The collapse threshold is between x4 and x9 plate** — x9 wipes 9/12. §10a's parked precondition is answered | §7d |
+| 2026-09-15 | **The playable band is x1–x4 and it is wide**; the binary finding is now a region at the top of a ladder | §7d, §7e |
+| 2026-09-15 | Competition ruled out as the cause: ant starvation *falls* across the ladder while predation goes 0% → 53% of deaths | §7d |
+| 2026-09-15 | **The world is a cross-section, not a side-scroller** — 190 sky / 380 soil / ~390 rock, and the cave generator is switched off for `druid` | §2i |
+| 2026-09-15 | Held time inverts the two-front problem (neglect is a defence); **hearths re-introduce it on the player's terms** | §2i |
