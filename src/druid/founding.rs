@@ -251,6 +251,85 @@ impl Candidate {
     }
 }
 
+/// **One line of the screen the cursor can sit on.**
+///
+/// The founding menu is a vertical list, and that is the whole of what makes
+/// it an arrow-key menu. Owner playtest, 2026-09-14: *"the found menu needs
+/// to be way improved. it should be fully controlled by arrow keys and/or
+/// wasd and/or mouse."* The bindings it had were six **letters**, one per
+/// dial and none of them related — `A`/`D` a lineage, `Q`/`E` a body,
+/// `Z`/`V` a count — which is a shortcut list wearing a panel, and is the
+/// owner's own words for it elsewhere in the same playtest: *"the menu isn't
+/// even a menu, it is a shortcut list."*
+///
+/// A list has an up and a down, so a cursor is all it takes for every device
+/// to reach every dial: arrows and `WASD` move it, left and right work the
+/// dial it is on, the mouse names a row directly. Nothing here is a second
+/// copy of the key handler's opinion — [`Offer::adjust`] and
+/// [`Offer::activate`] are the only two verbs, and the keyboard and the
+/// mouse both call them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Row {
+    /// The stock, which settles how the animal moves.
+    Body,
+    /// One of the three lineages on offer. Landing on it picks it — a cursor
+    /// that sat on a row without choosing it would be two selections on one
+    /// list.
+    Lineage(usize),
+    /// How many founders to spend on.
+    Founders,
+    /// Commit. A row rather than only a letter, because a menu you can drive
+    /// with the arrows has to have somewhere for the arrows to *arrive*.
+    Found,
+    /// Walk away. Costs nothing and leaves the same three standing.
+    Leave,
+}
+
+/// Every row, in the order the screen draws them. The cursor is an index
+/// into this, so the list and the order are stated once.
+pub const ROWS: &[Row] = &[Row::Body, Row::Lineage(0), Row::Lineage(1), Row::Lineage(2), Row::Founders, Row::Found, Row::Leave];
+
+/// What [`Offer::activate`] asks the caller to do — the two things this
+/// module cannot do for itself, because they need the world.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Activate {
+    Commit,
+    Close,
+    /// Handled here; the caller has nothing to do.
+    Done,
+}
+
+/// **What the player set last time, kept across closes.**
+///
+/// Owner playtest, 2026-09-14: *"When I change things they should stay as the
+/// default next time I open the menu."* They did not, and the module doc
+/// above claimed they did — `toggle_founding` built a fresh [`Offer`] on
+/// every open, so the body, the count and the pick all snapped back. **The
+/// same line lost the reroll**: `commit_founding` called [`Offer::reroll`]
+/// and *then* dropped the offer, so the fresh three it drew went out with it
+/// and the next open served attempt 0 again. "Committing is what costs you
+/// the other two" was the design and had never once happened in the game.
+/// Both are one bug — the screen's state had nowhere to live between opens —
+/// and this is that somewhere.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Memory {
+    pub body: usize,
+    pub founders: i32,
+    pub picked: usize,
+    /// Which row the cursor was on. Kept for the same reason as the rest: a
+    /// menu that reopens with the cursor somewhere you did not leave it is a
+    /// menu you have to re-read.
+    pub row: usize,
+    /// Which draw is on the table. Bumped by a commit and by nothing else.
+    pub attempt: u32,
+}
+
+impl Default for Memory {
+    fn default() -> Self {
+        Memory { body: 0, founders: FOUNDERS_DEFAULT, picked: 0, row: 0, attempt: 0 }
+    }
+}
+
 /// **The screen's state**: what is on offer, what is picked, how many.
 pub struct Offer {
     attempt: u32,
@@ -262,24 +341,132 @@ pub struct Offer {
     /// split.
     pub body: usize,
     pub founders: i32,
+    /// Where the cursor is, as an index into [`ROWS`].
+    pub row: usize,
+    /// The row the pointer is over, or `None` when it is elsewhere. Held here
+    /// rather than on the window handler so that it rides the interface's own
+    /// frame-to-frame comparison: this game skips the repaint of a settled
+    /// world, and a highlight that moved without the comparison noticing
+    /// would simply not be drawn.
+    pub hover: Option<Row>,
 }
 
 impl Offer {
     pub fn new(seed: u64) -> Self {
-        let mut offer = Offer { attempt: 0, seed, candidates: Vec::new(), picked: 0, body: 0, founders: FOUNDERS_DEFAULT };
-        offer.reroll();
+        Self::resumed(seed, Memory::default())
+    }
+
+    /// **Open the screen on what the player left it at.** See [`Memory`] for
+    /// the playtest this exists for.
+    ///
+    /// Every field is clamped on the way in rather than trusted: the stock
+    /// list and the founder bounds are both things a later change can
+    /// shorten, and a remembered index past the end of a shortened list is a
+    /// panic on the one screen the player cannot avoid.
+    pub fn resumed(seed: u64, memory: Memory) -> Self {
+        let mut offer = Offer {
+            attempt: memory.attempt,
+            seed,
+            candidates: Vec::new(),
+            picked: memory.picked.min(OFFERED - 1),
+            body: memory.body.min(STOCKS.len() - 1),
+            founders: memory.founders.clamp(FOUNDERS_MIN, FOUNDERS_MAX),
+            row: memory.row.min(ROWS.len() - 1),
+            hover: None,
+        };
+        offer.draw_candidates();
         offer
+    }
+
+    /// What to hand [`Offer::resumed`] next time.
+    pub fn memory(&self) -> Memory {
+        Memory { body: self.body, founders: self.founders, picked: self.picked, row: self.row, attempt: self.attempt }
+    }
+
+    /// Roll the three on the table for the current attempt. **Does not bump
+    /// the attempt**, so an offer rebuilt from its own memory is the same
+    /// offer rather than the next one.
+    fn draw_candidates(&mut self) {
+        self.candidates = (0..OFFERED).map(|i| Candidate::roll(self.seed, self.attempt, i)).collect();
     }
 
     /// Draw a fresh three. Called on commit and never on a refusal, so a
     /// founding you could not afford leaves the offer exactly as it was.
     pub fn reroll(&mut self) {
-        self.candidates = (0..OFFERED).map(|i| Candidate::roll(self.seed, self.attempt, i)).collect();
         self.attempt = self.attempt.wrapping_add(1);
+        self.draw_candidates();
         self.picked = 0;
+        // ...and the cursor comes back to the first lineage if it was on one
+        // of the others, so the highlight and the pick cannot disagree.
+        if matches!(ROWS.get(self.row), Some(Row::Lineage(_))) {
+            self.row = 1;
+        }
         // The body is not rerolled: it is the player's standing choice, and
         // resetting it every founding would make the dial feel like it had
         // not been set.
+    }
+
+    /// The row the cursor is on.
+    pub fn row(&self) -> Row {
+        ROWS[self.row.min(ROWS.len() - 1)]
+    }
+
+    /// Move the cursor, wrapping — same reason [`Offer::step_pick`] wraps.
+    pub fn step_row(&mut self, delta: i32) {
+        let n = ROWS.len() as i32;
+        self.row = (((self.row as i32 + delta) % n + n) % n) as usize;
+        self.sync_pick();
+    }
+
+    /// Put the cursor on a named row. What a click does, and what a hover
+    /// does not.
+    pub fn go_to(&mut self, row: Row) {
+        if let Some(i) = ROWS.iter().position(|r| *r == row) {
+            self.row = i;
+            self.sync_pick();
+        }
+    }
+
+    /// **Landing on a lineage row picks it.** The alternative is a cursor and
+    /// a selection that can point at different rows, which is two highlights
+    /// on one list and reads as the keys not working.
+    fn sync_pick(&mut self) {
+        if let Row::Lineage(i) = self.row() {
+            self.picked = i.min(self.candidates.len().saturating_sub(1));
+        }
+    }
+
+    /// **Work the dial the cursor is on.** Left and right, from any device.
+    pub fn adjust(&mut self, delta: i32) {
+        match self.row() {
+            Row::Body => self.step_body(delta),
+            // On a lineage row the dial *is* the list, so left and right walk
+            // it rather than doing nothing — a direction that is dead on four
+            // of seven rows reads as the menu being half-wired.
+            Row::Lineage(_) => {
+                self.step_pick(delta);
+                self.row = 1 + self.picked;
+            }
+            Row::Founders => self.step_founders(delta),
+            Row::Found | Row::Leave => {}
+        }
+    }
+
+    /// **Choose the row the cursor is on**, which is what `ENTER` and a click
+    /// both mean. The two outcomes the screen cannot carry out itself come
+    /// back as [`Activate`].
+    pub fn activate(&mut self) -> Activate {
+        match self.row() {
+            Row::Found => Activate::Commit,
+            Row::Leave => Activate::Close,
+            // On a dial, choosing is stepping it forward — the same thing
+            // `SPACE` means on the options menu, so the two screens do not
+            // disagree about what the confirm key does.
+            _ => {
+                self.adjust(1);
+                Activate::Done
+            }
+        }
     }
 
     pub fn candidates(&self) -> &[Candidate] {
@@ -410,6 +597,124 @@ mod tests {
         println!("roll over {total} slots: {:.1}% neutral, {:.1}% strong", neutral_share * 100.0, strong_share * 100.0);
         assert!((0.10..0.35).contains(&neutral_share), "neutral share {neutral_share:.3} -- the draw has lost its middle");
         assert!((0.10..0.40).contains(&strong_share), "strong share {strong_share:.3} -- extremes are either impossible or ordinary");
+    }
+
+    /// **What the player set is what the screen opens on.** Owner playtest,
+    /// 2026-09-14: *"When I change things they should stay as the default
+    /// next time I open the menu."*
+    ///
+    /// **The control is that the default does not already satisfy it**: an
+    /// offer built from `Memory::default()` has body 0, the default founder
+    /// count and pick 0, so a `resumed` that quietly ignored its argument
+    /// would pass a guard written against a default-shaped memory. Every
+    /// field here is set to something the default is not.
+    #[test]
+    fn the_screen_opens_on_what_was_left_set() {
+        let mut offer = Offer::new(11);
+        offer.body = 3;
+        offer.founders = FOUNDERS_MAX;
+        offer.step_row(1);
+        offer.adjust(1);
+        let memory = offer.memory();
+        assert_ne!(memory, Memory::default(), "this guard is testing a memory the default already matches and would pass on a `resumed` that ignored it");
+
+        let back = Offer::resumed(11, memory);
+        assert_eq!(back.memory(), memory, "the screen came back on something other than what it was left on");
+        // ...and the three on the table are the same three, because walking
+        // away is not what costs you them.
+        let before: Vec<_> = offer.candidates().iter().map(|c| c.deltas).collect();
+        let after: Vec<_> = back.candidates().iter().map(|c| c.deltas).collect();
+        assert_eq!(before, after, "closing the screen rerolled the offer -- walking away must cost nothing");
+    }
+
+    /// **Committing is what costs you the other two, and it has to survive
+    /// the close.**
+    ///
+    /// It did not: `commit_founding` called `reroll` and then dropped the
+    /// offer, so the fresh three went out with it and the next open served
+    /// attempt 0 again. The design was in the module doc from the first day
+    /// and had never once happened in the game.
+    #[test]
+    fn a_commit_is_still_a_commit_after_the_screen_closes() {
+        let mut offer = Offer::new(11);
+        let before: Vec<_> = offer.candidates().iter().map(|c| c.deltas).collect();
+        offer.reroll();
+        // The close: everything the game keeps, and nothing else.
+        let reopened = Offer::resumed(11, offer.memory());
+        let after: Vec<_> = reopened.candidates().iter().map(|c| c.deltas).collect();
+        assert_ne!(before, after, "the reroll did not survive the close -- committing costs you nothing and the choice is not a choice");
+    }
+
+    /// **Every row is reachable and every row does something**, which is the
+    /// whole of what "fully controlled by arrow keys" means.
+    ///
+    /// The shape of the check is `CLAUDE.md`'s *check that a planned step can
+    /// demonstrate itself*: a cursor that moves over a row whose left and
+    /// right do nothing is a menu that is half-wired, and it looks identical
+    /// to one that works until you are on that row.
+    #[test]
+    fn every_row_of_the_menu_is_reachable_and_does_something() {
+        let mut offer = Offer::new(5);
+        // Reachable: `ROWS.len()` presses of down come back where they
+        // started, having visited every row exactly once.
+        let mut seen = Vec::new();
+        for _ in 0..ROWS.len() {
+            seen.push(offer.row());
+            offer.step_row(1);
+        }
+        assert_eq!(seen, ROWS.to_vec(), "down did not walk the list in order");
+        assert_eq!(offer.row(), ROWS[0], "the cursor must wrap -- a list that stops dead at the end is a worse keyboard");
+
+        // Does something: each dial row's `adjust` moves its own dial and
+        // nothing else's.
+        let state = |o: &Offer| (o.body, o.founders, o.picked);
+        offer.go_to(Row::Body);
+        let was = state(&offer);
+        offer.adjust(1);
+        assert_ne!(offer.body, was.0, "left and right on BODY moved nothing");
+        assert_eq!((offer.founders, offer.picked), (was.1, was.2), "BODY moved a dial that was not its own");
+
+        offer.go_to(Row::Founders);
+        let was = state(&offer);
+        offer.adjust(-1);
+        assert_ne!(offer.founders, was.1, "left and right on FOUNDERS moved nothing");
+        assert_eq!((offer.body, offer.picked), (was.0, was.2), "FOUNDERS moved a dial that was not its own");
+
+        // Landing on a lineage row picks it -- one highlight, not two.
+        for i in 0..OFFERED {
+            offer.go_to(Row::Lineage(i));
+            assert_eq!(offer.picked, i, "the cursor sat on lineage {i} while lineage {} was picked", offer.picked);
+        }
+        // ...and left and right walk the list rather than being dead on it.
+        offer.go_to(Row::Lineage(0));
+        offer.adjust(1);
+        assert_eq!(offer.row(), Row::Lineage(1), "left and right are dead on a lineage row");
+        assert_eq!(offer.picked, 1, "the cursor and the pick parted company");
+
+        // The two buttons are the only rows where choosing is not stepping.
+        offer.go_to(Row::Found);
+        assert_eq!(offer.activate(), Activate::Commit);
+        offer.go_to(Row::Leave);
+        assert_eq!(offer.activate(), Activate::Close);
+        offer.go_to(Row::Body);
+        assert_eq!(offer.activate(), Activate::Done, "ENTER on a dial must work it, the same as SPACE does on the options menu");
+    }
+
+    /// **A remembered index past the end of a shortened list must not
+    /// panic.** [`STOCKS`] and [`FOUNDERS_MAX`] are both things a later
+    /// change can make smaller, and the screen is the one the player cannot
+    /// avoid.
+    #[test]
+    fn a_stale_memory_is_clamped_rather_than_trusted() {
+        let wild = Memory { body: 999, founders: 9_999, picked: 999, row: 999, attempt: 3 };
+        let offer = Offer::resumed(2, wild);
+        assert!(offer.body < STOCKS.len());
+        assert!(offer.picked < OFFERED);
+        assert!(offer.row < ROWS.len());
+        assert!((FOUNDERS_MIN..=FOUNDERS_MAX).contains(&offer.founders));
+        // The dials still answer, which is the thing a clamp is for.
+        assert!(offer.cost() > 0.0);
+        let _ = offer.stock();
     }
 
     /// Every stock draws a word for every band, and every character of it has

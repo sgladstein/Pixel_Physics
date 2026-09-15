@@ -42,7 +42,7 @@
 //! *before* the world is drawn, compared with last frame's, and only a
 //! difference forces the repaint.
 
-use super::Druid;
+use super::{founding, Druid};
 use crate::hud;
 use crate::render::Hud;
 
@@ -338,6 +338,13 @@ struct Founding {
     body: String,
     blurb: String,
     dial: String,
+    /// Where the keyboard cursor is, as an index into [`founding::ROWS`].
+    cursor: usize,
+    /// The row the pointer is over. **In the comparison on purpose**: this
+    /// game skips the repaint of a settled world, so a highlight that moved
+    /// without `Interface` noticing would simply never be drawn, and the
+    /// mouse would read as dead on exactly the screen it was added for.
+    hover: Option<founding::Row>,
 }
 
 /// One lineage's row: what it is, what the roll gave it, what it costs, and
@@ -547,15 +554,27 @@ impl Interface {
         // legend below: while the screen is up, `KEYS` is a list of bindings
         // that are not live, and a legend that lies is worse than none.
         if let Some(f) = &self.founding {
-            let h = PAD * 2 + LINE * (f.rows.len() as i32 + 5) + 6;
+            let h = offer_height();
             let left = (viewport.0 as i32 - OFFER_W) / 2;
             let top = (viewport.1 as i32 - h) / 2;
             panel(hc, frame, viewport, (left, top, OFFER_W, h));
             hc.text(frame, left + PAD, top + PAD, "FOUND A COLONY", ACCENT);
+            let layout = offer_layout(viewport);
+            let cursor = founding::ROWS.get(f.cursor).copied();
+            // **The hover is painted under everything else**, so a pointer
+            // resting on a row cannot swallow the text on it. A fill rather
+            // than a second arrow: the keyboard already owns the arrow, and
+            // two cursors drawn the same way is the ambiguity this screen is
+            // being rebuilt to remove.
+            for (row, rect) in &layout {
+                if f.hover == Some(*row) {
+                    fill_rect(hc, frame, *rect, HOVER);
+                }
+            }
             // **The body first, because it applies to all three lineages**
             // and because it is the dial the first version did not have.
-            hc.text(frame, left + PAD + 8, top + PAD + LINE + 2, &f.body, TEXT);
-            hc.text(frame, left + PAD + 8, top + PAD + LINE * 2 + 2, &f.blurb, DIM);
+            hc.text(frame, left + PAD + OFFER_GUTTER + OFFER_ARROW, top + PAD + LINE + 2, &f.body, TEXT);
+            hc.text(frame, left + PAD + OFFER_GUTTER + OFFER_ARROW, top + PAD + LINE * 2 + 2, &f.blurb, DIM);
             for (i, row) in f.rows.iter().enumerate() {
                 let y = top + PAD + (i as i32 + 3) * LINE + 6;
                 let on = i == f.picked;
@@ -584,9 +603,41 @@ impl Interface {
                 let cw = hud::text_width(&row.cost);
                 hc.text(frame, left + OFFER_W - PAD - cw, y, &row.cost, if row.afford { GOOD } else { WARN });
             }
-            let foot = top + PAD + (f.rows.len() as i32 + 3) * LINE + 10;
-            hc.text(frame, left + PAD + 8, foot, &f.dial, TEXT);
-            hc.text(frame, left + PAD + 8, foot + LINE, FOUNDING_KEYS, KEYCAP);
+            for (row, rect) in &layout {
+                let here = cursor == Some(*row);
+                // **The keyboard cursor is a bar in the margin, not a third
+                // arrow.** Three things have to read off this panel at once —
+                // where the cursor is, which lineage is picked, and what the
+                // pointer is over — and the first render of it drew two of
+                // them as the same `>` glyph, one at the gutter and one on
+                // the picked line, which is a panel with two cursors on it.
+                // A bar, an arrow and a wash: three states, three channels,
+                // which is the rule this repo keeps relearning about colour
+                // being one channel.
+                if here {
+                    fill_rect(hc, frame, Rect { x: rect.x - 3, y: rect.y + 1, w: 2, h: rect.h - 2 }, ACCENT);
+                }
+                match row {
+                    // **The two dials wear their own arrows.** Without them
+                    // the mouse has nothing to aim at on the rows that are
+                    // continuous, and a player who has not read the footer
+                    // has no way to learn that left and right do anything.
+                    founding::Row::Body | founding::Row::Founders => {
+                        let tint = if here { ACCENT } else { KEYCAP };
+                        hc.text(frame, rect.x + OFFER_GUTTER, rect.y + 1, "<", tint);
+                        hc.text(frame, rect.right() - 7, rect.y + 1, ">", tint);
+                    }
+                    founding::Row::Found | founding::Row::Leave => {
+                        let label = if matches!(row, founding::Row::Found) { OFFER_FOUND } else { OFFER_LEAVE };
+                        outline(hc, frame, *rect, if here { ACCENT } else { EDGE });
+                        hc.text(frame, rect.x + PAD, rect.y + 1, label, if here { ACCENT } else { TEXT });
+                    }
+                    founding::Row::Lineage(_) => {}
+                }
+            }
+            let dial_y = top + PAD + (f.rows.len() as i32 + 3) * LINE + 10;
+            hc.text(frame, left + PAD + OFFER_GUTTER + OFFER_ARROW, dial_y, &f.dial, TEXT);
+            hc.text(frame, left + PAD + OFFER_GUTTER, dial_y + LINE * 2 + 6, FOUNDING_KEYS, KEYCAP);
             return;
         }
 
@@ -729,13 +780,113 @@ fn founding(game: &Druid) -> Option<Founding> {
         body: format!("BODY  {}", offer.stock().name),
         blurb: offer.stock().blurb.to_string(),
         dial: format!("FOUNDERS {}    COST {:.0}    POWER {:.0}", offer.founders, offer.cost(), game.power),
+        cursor: offer.row,
+        hover: offer.hover,
     })
 }
 
+/// **Where every row of the founding screen is**, in framebuffer pixels.
+///
+/// **One definition, read by the drawing and by the click**, which is the
+/// whole reason it is a function rather than arithmetic inlined in
+/// `Interface::draw`: `open-bugs-handoff.md` §R2 is what a second copy of a
+/// placement rule cost last time, and a hit box that disagrees with the thing
+/// it is under is that bug wearing a mouse.
+///
+/// Pure — it takes the viewport and nothing else — because the panel's shape
+/// depends only on [`founding::OFFERED`], which is a constant. That is what
+/// lets the click be tested against the same rectangles the player was
+/// looking at without retaining a layout the way [`Bar`] has to.
+pub fn offer_layout(viewport: (u32, u32)) -> Vec<(founding::Row, Rect)> {
+    let rows = founding::OFFERED as i32;
+    let h = offer_height();
+    let left = (viewport.0 as i32 - OFFER_W) / 2;
+    let top = (viewport.1 as i32 - h) / 2;
+    let full = |y: i32| Rect { x: left + PAD, y: y - 1, w: OFFER_W - PAD * 2, h: LINE };
+    let mut out = vec![(founding::Row::Body, full(top + PAD + LINE + 2))];
+    for i in 0..rows {
+        out.push((founding::Row::Lineage(i as usize), full(top + PAD + (i + 3) * LINE + 6)));
+    }
+    let dial_y = top + PAD + (rows + 3) * LINE + 10;
+    out.push((founding::Row::Founders, full(dial_y)));
+    // The two buttons share the line below the dial. Sized off their own
+    // labels through `text_width`, never written down — `bar_layout`'s own
+    // discipline, and for the same reason: a renamed label must not be able
+    // to leave its face narrower than its text.
+    let btn_y = dial_y + LINE + 2;
+    let fw = hud::text_width(OFFER_FOUND) + PAD * 2;
+    let lw = hud::text_width(OFFER_LEAVE) + PAD * 2;
+    out.push((founding::Row::Found, Rect { x: left + PAD + 8, y: btn_y - 1, w: fw, h: LINE }));
+    out.push((founding::Row::Leave, Rect { x: left + PAD + 8 + fw + 8, y: btn_y - 1, w: lw, h: LINE }));
+    out
+}
+
+/// How tall the panel is. Named because three places need it and one of them
+/// is a guard that checks it fits the window.
+fn offer_height() -> i32 {
+    PAD * 2 + LINE * (founding::OFFERED as i32 + 7) + 10
+}
+
+/// **What the pointer is over on the founding screen**, or `None`.
+///
+/// `Less`/`More` are the two ends of a dial row, so a dial can be worked with
+/// the mouse alone rather than only selected with it — the owner asked for
+/// the menu to be *controlled* by the mouse, and a click that can only move a
+/// cursor is not control.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum OfferHit {
+    Row(founding::Row),
+    Less(founding::Row),
+    More(founding::Row),
+}
+
+impl OfferHit {
+    pub fn row(self) -> founding::Row {
+        match self {
+            OfferHit::Row(r) | OfferHit::Less(r) | OfferHit::More(r) => r,
+        }
+    }
+}
+
+/// The hit under `(x, y)`, against the same rectangles [`offer_layout`] draws.
+pub fn offer_hit(viewport: (u32, u32), x: i32, y: i32) -> Option<OfferHit> {
+    let (row, rect) = offer_layout(viewport).into_iter().find(|(_, r)| r.contains(x, y))?;
+    let dial = matches!(row, founding::Row::Body | founding::Row::Founders);
+    if !dial {
+        return Some(OfferHit::Row(row));
+    }
+    if x < rect.x + OFFER_GUTTER + OFFER_ARROW {
+        Some(OfferHit::Less(row))
+    } else if x >= rect.right() - OFFER_ARROW {
+        Some(OfferHit::More(row))
+    } else {
+        Some(OfferHit::Row(row))
+    }
+}
+
+/// How wide the `<` and `>` ends of a dial row are, as a click target. Wider
+/// than the glyph: a two-pixel arrow is a target nobody can hit, and the row
+/// between them is doing nothing with the width anyway.
+const OFFER_ARROW: i32 = 14;
+/// The left gutter every row reserves for the keyboard cursor's own `>`.
+///
+/// **It is a gutter rather than "wherever the text happens to start"**, and
+/// that is the first thing the rebuilt screen got wrong: the dial rows drew
+/// their `<` at the row's own left edge, which is exactly where the cursor
+/// arrow goes, so `BODY` came back as `%BODY` with two glyphs in one cell.
+/// Caught by looking at the render, which is the only thing that could have
+/// caught it -- every guard over this panel was green.
+const OFFER_GUTTER: i32 = 8;
+const OFFER_FOUND: &str = "FOUND";
+const OFFER_LEAVE: &str = "LEAVE";
+
 /// What the founding screen binds, drawn along its bottom. Not in [`KEYS`]:
 /// these are live only while the screen is up, and the legend is a list of
-/// what works *now*.
-const FOUNDING_KEYS: &str = "A D LINE   Q E BODY   Z V HOW MANY   C FOUND   X LEAVE";
+/// what works *now*. **It is still swept by
+/// `the_legend_names_every_key_the_binary_binds`** — see that guard for why
+/// naming a key *somewhere* on screen is the claim it makes, rather than
+/// naming it in the world's own corner.
+const FOUNDING_KEYS: &str = "ARROWS OR WASD  ENTER CHOOSE  C FOUND  X LEAVE";
 
 /// Where the words start, past the widest stock name.
 const OFFER_COL: i32 = 52;
@@ -1099,7 +1250,7 @@ fn bar_row_y(row: usize) -> i32 {
 /// module doc), and a `pub` bridge between them for one struct is the wrong
 /// direction to reach for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Rect {
+pub struct Rect {
     x: i32,
     y: i32,
     w: i32,
@@ -1323,6 +1474,25 @@ fn layout_for(state: &BarState) -> Bar {
     lay_out(state, pad, gap)
 }
 
+/// What a row under the pointer is washed with. Dark and low-contrast: it
+/// has to read as *the pointer is here* without competing with the keyboard
+/// cursor's own arrow, which is the thing that says what `ENTER` will do.
+const HOVER: [u8; 4] = [46, 62, 84, 255];
+
+/// A one-pixel frame, for the two buttons. Drawn rather than filled so a
+/// button reads as a button at 5x7 without a fill that would have to be got
+/// right against the panel behind it.
+fn outline(hc: Hud, frame: &mut [u8], r: Rect, colour: [u8; 4]) {
+    for x in r.x..r.right() {
+        hc.put(frame, x, r.y, colour);
+        hc.put(frame, x, r.bottom() - 1, colour);
+    }
+    for y in r.y..r.bottom() {
+        hc.put(frame, r.x, y, colour);
+        hc.put(frame, r.right() - 1, y, colour);
+    }
+}
+
 fn fill_rect(hc: Hud, frame: &mut [u8], r: Rect, colour: [u8; 4]) {
     for y in r.y..r.bottom() {
         for x in r.x..r.right() {
@@ -1442,10 +1612,24 @@ mod tests {
     /// invisible — documented only in a source comment and the window title.
     /// Reading the binary rather than a hand-kept list is the point; a list
     /// maintained beside the match statement is the copy that goes stale.
+    ///
+    /// **"On screen" means any of the three legends, not [`KEYS`] alone**,
+    /// widened 2026-09-14 when the founding screen gained arrow and `ENTER`
+    /// bindings. The claim this guard makes is *a player can find out what
+    /// this key does without reading the source*, and a key that is live only
+    /// while a modal is up is discoverable on that modal's own footer — where
+    /// it belongs. Listing it in the world's corner instead would put four
+    /// rows there for keys that do nothing in the world, which is the
+    /// opposite of the complaint the legend exists for.
     #[test]
     fn the_legend_names_every_key_the_binary_binds() {
         let source = include_str!("../bin/druid.rs");
-        let listed: Vec<&str> = KEYS.iter().flat_map(|(keys, _, _)| keys.split_whitespace()).collect();
+        let listed: Vec<&str> = KEYS
+            .iter()
+            .flat_map(|(keys, _, _)| keys.split_whitespace())
+            .chain(FOUNDING_KEYS.split_whitespace())
+            .chain(MENU_KEYS.split_whitespace())
+            .collect();
 
         let mut bound: Vec<String> = Vec::new();
         for (i, _) in source.match_indices("KeyCode::") {
@@ -1468,6 +1652,13 @@ mod tests {
                 // reads as `EQUAL` and the legend quite rightly says `=`.
                 "Equal" => "=".to_string(),
                 "Minus" => "-".to_string(),
+                // **The four arrows are one legend word.** They are bound as
+                // a set and they mean one thing -- move the cursor -- so
+                // `ARROWS` is what a footer can honestly say; four rows
+                // reading `ARROWUP`, `ARROWDOWN` and so on would be the guard
+                // dictating the interface's prose rather than checking it.
+                "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight" => "ARROWS".to_string(),
+                "Enter" | "NumpadEnter" => "ENTER".to_string(),
                 // `KeyA` .. `KeyZ` and the function keys read straight
                 // across; anything else added later shows up as itself and
                 // fails loudly rather than being silently skipped.
@@ -1565,6 +1756,8 @@ mod tests {
             body: format!("BODY  {}", founding::STOCKS.iter().max_by_key(|s| s.name.len()).unwrap().name),
             blurb: longest.blurb.to_string(),
             dial: format!("FOUNDERS {}    COST 9999    POWER 9999", founding::FOUNDERS_MAX),
+            cursor: 0,
+            hover: None,
         }
     }
 
@@ -1616,22 +1809,76 @@ mod tests {
     fn the_founding_screen_fits_and_has_glyphs_for_everything() {
         let (w, h) = (crate::app::WIDTH as i32, crate::app::HEIGHT as i32);
         let f = widest_offer();
-        let panel_h = PAD * 2 + LINE * (f.rows.len() as i32 + 5) + 6;
+        // **`offer_height` rather than a second copy of the arithmetic.** The
+        // panel grew a row when the screen gained its two buttons, and a
+        // guard carrying its own height would have gone on measuring the old
+        // one -- green, and about a panel that is no longer drawn.
+        let panel_h = offer_height();
         assert!(OFFER_W <= w, "the founding screen is {OFFER_W} wide in a {w}-wide window");
         assert!(panel_h <= h, "the founding screen is {panel_h} tall in a {h}-tall window");
         // The three text rows under the list are drawn full width, so they
         // are the ones that can run off the right edge.
         let inner = OFFER_W - PAD * 2 - 8;
+        // **The dial row is drawn inside the two arrow gutters**, so it has
+        // less width than the rest and is the one that overflows first. Given
+        // its own bound rather than tightening everyone's: a key line held to
+        // the dial's width would be a guard failing on a row that fits.
         let mut checked = 0;
         for text in [f.body.as_str(), f.blurb.as_str(), f.dial.as_str(), FOUNDING_KEYS] {
             let tw = hud::text_width(text);
-            assert!(tw <= inner, "{text:?} is {tw} wide inside {inner}");
+            let bound = if text == f.dial { inner - OFFER_GUTTER - OFFER_ARROW * 2 } else { inner };
+            assert!(tw <= bound, "{text:?} is {tw} wide inside {bound}");
             for c in text.chars() {
                 assert!(hud::has_glyph(c), "the founding screen draws {c:?} in {text:?}, which the font renders as a blank gap");
                 checked += 1;
             }
         }
         assert!(checked > 100, "only {checked} characters swept; this guard would pass on nothing");
+    }
+
+    /// **The click lands on the row it is drawn under.**
+    ///
+    /// The mouse and the drawing read the same [`offer_layout`], so this
+    /// cannot drift the way a hand-kept hit table would -- but it can still
+    /// be *wrong*, and the two ways it can be are what this checks: rows that
+    /// overlap (so one is unreachable) and rows that fall outside the panel
+    /// (so the pointer lands on the world behind it).
+    ///
+    /// **The dial ends are the half with teeth.** `Less` and `More` are
+    /// slices of a row rather than rectangles of their own, so an off-by-one
+    /// in the arrow width makes one end of a dial silently unclickable, which
+    /// reads exactly like the mouse not being wired at all.
+    #[test]
+    fn every_row_of_the_founding_screen_can_be_clicked() {
+        let viewport = (crate::app::WIDTH, crate::app::HEIGHT);
+        let layout = offer_layout(viewport);
+        assert_eq!(layout.len(), founding::ROWS.len(), "a row exists that the pointer can never reach");
+        let h = offer_height();
+        let (left, top) = ((viewport.0 as i32 - OFFER_W) / 2, (viewport.1 as i32 - h) / 2);
+        for (row, rect) in &layout {
+            assert!(rect.x >= left && rect.right() <= left + OFFER_W, "{row:?} is drawn outside the panel");
+            assert!(rect.y >= top && rect.bottom() <= top + h, "{row:?} is drawn outside the panel");
+            let mid = (rect.x + rect.w / 2, rect.y + rect.h / 2);
+            assert_eq!(offer_hit(viewport, mid.0, mid.1).map(|hit| hit.row()), Some(*row), "the middle of {row:?} does not hit {row:?}");
+        }
+        for (a, ra) in &layout {
+            for (b, rb) in &layout {
+                if a == b {
+                    continue;
+                }
+                let apart = ra.right() <= rb.x || rb.right() <= ra.x || ra.bottom() <= rb.y || rb.bottom() <= ra.y;
+                assert!(apart, "{a:?} and {b:?} overlap -- one of them can never be clicked");
+            }
+        }
+        for row in [founding::Row::Body, founding::Row::Founders] {
+            let rect = layout.iter().find(|(r, _)| *r == row).map(|(_, r)| *r).expect("a dial row");
+            let y = rect.y + rect.h / 2;
+            assert_eq!(offer_hit(viewport, rect.x, y), Some(OfferHit::Less(row)), "the left end of {row:?} does not step it down");
+            assert_eq!(offer_hit(viewport, rect.right() - 1, y), Some(OfferHit::More(row)), "the right end of {row:?} does not step it up");
+        }
+        // ...and a point outside the panel is not a hit, or a click anywhere
+        // on the screen would work the last row in the list.
+        assert_eq!(offer_hit(viewport, 0, 0), None, "a click outside the panel registered as a row");
     }
 
     /// Both panels fit the screen they are drawn on. The failure this guards

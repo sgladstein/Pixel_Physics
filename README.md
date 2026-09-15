@@ -88,8 +88,8 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Trail status — the ant reads its way home, and the food trail is the larder's problem](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) | 8238 |
 | [Lifespan status — an ant gets old, and the colony's fall becomes a slope](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) | 8275 |
 | [Held world status — the third game, and time you carry in a circle](#held-world-status--the-third-game-and-time-you-carry-in-a-circle) | 8421 |
-| [Colony books status — what each colony is living on, in joules](#colony-books-status--what-each-colony-is-living-on-in-joules) | 9225 |
-| [Food road status — the trail the colony actually walks, and the box that was not there](#food-road-status--the-trail-the-colony-actually-walks-and-the-box-that-was-not-there) | 9356 |
+| [Colony books status — what each colony is living on, in joules](#colony-books-status--what-each-colony-is-living-on-in-joules) | 9329 |
+| [Food road status — the trail the colony actually walks, and the box that was not there](#food-road-status--the-trail-the-colony-actually-walks-and-the-box-that-was-not-there) | 9460 |
 
 ### Milestones, in numeric order
 
@@ -135,7 +135,7 @@ your time goes, not a rule about what you may read.
 | Topic | Game | Sections, primary first |
 |---|---|---|
 | **plants, trees and moss** | engine | [M16 status](#m16-status) 1936, [Soil nutrient status](#soil-nutrient-status--ground-is-worth-something-water-is-not) 7595, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1427, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 4664, [Parameter-genome status](#parameter-genome-status--a-species-file-is-a-starting-point-and-it-ships-inert) 4767, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1578, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1868, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1497, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1786, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4947, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 5184, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 5261, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6722, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 5581, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5629, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5860, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6614 |
-| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2349, [The ant colony](#the-ant-colony--status) 3872, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6722, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5629, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5860, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6784, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6614, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7638, [Hunger status](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) 7938, [Rest status](#rest-status--a-rest-that-ends-so-a-resting-animal-is-not-a-stopped-one) 8049, [Hopper status](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) 8018, [Trophallaxis status](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) 8180, [Trail status](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) 8238, [Lifespan status](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) 8275, [Colony books status](#colony-books-status--what-each-colony-is-living-on-in-joules) 9225, [Food road status](#food-road-status--the-trail-the-colony-actually-walks-and-the-box-that-was-not-there) 9356 |
+| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2349, [The ant colony](#the-ant-colony--status) 3872, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6722, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5629, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5860, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6784, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6614, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7638, [Hunger status](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) 7938, [Rest status](#rest-status--a-rest-that-ends-so-a-resting-animal-is-not-a-stopped-one) 8049, [Hopper status](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) 8018, [Trophallaxis status](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) 8180, [Trail status](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) 8238, [Lifespan status](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) 8275, [Colony books status](#colony-books-status--what-each-colony-is-living-on-in-joules) 9329, [Food road status](#food-road-status--the-trail-the-colony-actually-walks-and-the-box-that-was-not-there) 9460 |
 | **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 2122, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4947, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 5184, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 5261, [M8 status](#m8-status--started-not-complete) 3066 |
 | **fire, heat and phase change** | engine | [M14 status](#m14-status) 1014, [Materials](#materials) 294 |
 | **explosions, particles and debris** | outdoor | [M15 status](#m15-status) 1191, [M7 status](#m7-status) 1162 |
@@ -8738,6 +8738,36 @@ pick one, pick how many founders to pay for (4–24), and spend the pool.
 committing rerolls them, which is the whole of what makes it a choice — a free
 reroll is a slot machine you play until you win.
 
+**It is a menu rather than a shortcut list, since 2026-09-14** — owner
+playtest: *"the found menu needs to be way improved. it should be fully
+controlled by arrow keys and/or wasd and/or mouse. When I change things they
+should stay as the default next time I open the menu. The game should pause
+when in the founding menu."* Three separate repairs, and the middle one turned
+out to be two bugs:
+
+- **A cursor over `founding::ROWS`** — body, the three lineages, the founder
+  count, and `FOUND`/`LEAVE` as rows of their own so the arrows have somewhere
+  to arrive. Up and down walk it (arrows or `W`/`S`), left and right work
+  whatever it is on (arrows or `A`/`D`), `ENTER` chooses. Every row carries a
+  hit box from `hud::offer_layout` — **one definition, read by the drawing and
+  by the click**, since a hit box that disagrees with the thing it is under is
+  `open-bugs-handoff.md` §R2 wearing a mouse — and the two dials carry `<`/`>`
+  ends so the pointer can work them rather than only select them. The press/
+  release protocol is the button bar's: a press is taken back by sliding off
+  it. **Every old letter still works**; nothing was taken away to make room.
+- **The dials survive a close** (`founding::Memory`). They did not:
+  `toggle_founding` built a fresh `Offer` on every open. **The same line was
+  eating the reroll** — `commit_founding` called `reroll` and *then* dropped
+  the offer, so the three it had just drawn went out with it and the next open
+  served attempt 0 again. "Committing is what costs you the other two" was the
+  design from day one and had never once happened in the game.
+- **Time stops while the screen is up** (`Druid::time_stopped`), *derived*
+  rather than written into `paused` — the alternative is saving and restoring
+  the player's own pause across a modal, and a restore that misses one exit
+  path unpauses a game they had deliberately stopped. Measured in
+  `examples/founding_shot`, with its control in the same run: twenty updates
+  move the clock by **0** with the screen open and by **20** with it shut.
+
 **Six stocks, and the five excluded species were each excluded for a measured
 reason.** `ancestor` and `flitter` declare no nest, so their animals stand on
 the ground with no home gradient and nobody forages; `beetle` carries **zero**
@@ -8808,6 +8838,80 @@ seated **3**, because `colony_stations` lays out a corridor and a station that
 does not fit is declined. Paying 224 for three animals is unfairness a player
 notices at once and cannot see the cause of. Affordability is still checked
 against the full ask, so a founding can never overdraw the pool.
+
+**The threshold has no colour of its own, since 2026-09-14.** The shape fix
+above went to the owner and came back rated **1 of 5**: *"None. There should be
+no color. If we have to have this, it should be invisible."* He accepts that
+the patch has to stay broken — the drains are load-bearing, see §T2 — and
+rejects that a player can see it.
+
+**This is `lab::earth_toned_nest` ported, not a second answer.** The evolution
+lab solved this same complaint from the same owner on 2026-08-30 (*"we don't
+need a visible line for where the colony is placed"*), and its doc already
+rules out the three tempting fixes: an edit to `creature.rs` (the patch is
+functional and deliberately narrow, measured at 414 deliveries), an edit to
+`nest.ron` (which would change the sandbox too, where a findable nest is
+wanted), and a per-pixel material test in `render.rs` (163,840 comparisons a
+frame for a stripe, where a palette swap costs **nothing at draw time at
+all**). `druid::ground_toned_nest` does the same thing on this game's own
+`Materials` at world construction.
+
+**What this game does differently is measured rather than copied.** The lab
+installs `packedsoil`'s single worked-earth family, because a lab bed is
+packedsoil. This world's surface is `soil`, which ships **three** four-tone
+families that `worldgen::passes::soil_shade` picks between per region — so a
+fixed family would be right in one part of the map and wrong in the next.
+`founding_shot`'s census says the patch paints over **soil in 25 of 25 cells**
+here, so the whole of soil's palette is installed and read off the registry
+rather than written down (a copied table goes stale, and a wrong tone is a
+faint stripe rather than a crash). `paint_nest_patch` then hands each new cell
+the **shade byte of the cell it replaced**, so the threshold reproduces the
+exact tone it covered — family, tone and grain together. The halves are
+worthless apart, which is why there are two guards:
+`a_founding_leaves_no_colour_on_the_ground` (with the control that `nest.ron`
+is *not* already soil-coloured) and
+`a_painted_threshold_keeps_the_grounds_own_shade`.
+
+**One consequence that reaches the other two games**, flagged rather than
+assumed: the inherited shade is in shared code, so a nest cell in the lab and
+the sandbox now draws a varied entry of its own palette instead of always the
+first. Both gain grain where they had a flat tone; neither changes colour.
+**Follow-up not taken**: this and `lab::earth_toned_nest` want to be one
+helper, and a cross-game refactor is not worth doing inside a playtest item.
+
+**"Invisible" is a claim about the rendered frame, and it is measured as one.**
+`examples/founding_shot invisible=1` takes two framebuffers of one world — the
+patch painted, the ground put back cell for cell, drawn again — and counts the
+pixels that differ over the patch, with the rest of the frame as the control.
+That control is what makes the number mean anything: it read **1,023 pixels**
+on the first run, which was the carried quickening's animated haze rather than
+the ground, and the haze is switched off for both arms now. Clean, the patch
+reads **19 of 25 cells differing, worst channel 12 of 255**, down from a pale
+tan against dark loam — about 130. The residue is a material-keyed term
+downstream of the palette in `cell_colour`, and it is **not reachable from the
+engine side**: giving `nest` a `water_capacity` is a recorded dead end (on a
+`Solid`, `Cell::aux` is the structural anchor distance, so it would be painted
+as dampness), and making the door a flag on `soil` re-creates the other one
+(`soil` is a `Powder`, and `player::footing` then lets the gnome wade through
+a nest wall — `a_nest_still_stops_him`). See `Reports/lanes/druid-founding.md`.
+
+**And the colony now lands at his feet rather than on a ruled line**, owner
+playtest 2026-09-14: *"when founding ants sometime they are not founding far
+away from me. it should still happen right under or next to the druid."*
+`colony_stations` decided every offset before it looked at the ground and
+dropped the ones that were not sites, so a stand whose middle is blocked
+seated nobody near him and scattered the survivors over the band's full width.
+It walks outward from the cursor a column at a time now, taking the first that
+is a site and keeping a body's corridor between any two — so the nearest
+ground is claimed first and distance is only ever paid where the near ground
+refused. Measured by `a_colony_is_founded_at_his_feet`, watched red against
+the band it replaced: nine columns of trunk through the middle of a stand
+seated **6 of 8** on the band and **8 of 8** on the walk.
+
+**It is close to a no-op on ground that is all site**, which is what keeps it
+safe for the lab — `found_colony_of` is shared, and the lab's beds are flat,
+so the first column taken is the cursor's own and every later one lands on the
+same lattice. `PIXEL_PHYSICS_COLONY_BAND=1` is the paired arm, in one binary.
 
 ### The options menu
 
