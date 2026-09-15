@@ -1,0 +1,65 @@
+{
+  "id": "20260915T040234033Z-93117c",
+  "created": "2026-09-15T04:02:34Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/determined-ramanujan-c9szc5",
+    "commit": "4a30e9c4",
+    "agent": null,
+    "session_id": "79abafe2-f617-546c-9fed-7bebff67abba",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The overlays have a way in",
+  "question": "You said the overlays looked better but that the main issue was there was no key or menu row to turn them on. There is now: O cycles the ground overlay, and all three sit in OPTIONS. Is that the way in you wanted, and is O the right key?",
+  "context_md": "**`O` is the evolution lab's own key for this**, so the reflex carries between the two games. The lab's other two overlay keys were not free here — `L` is the held look and `H` holds the world, both core verbs — so rather than pick two arbitrary letters, those two are menu rows only. That follows the lab's own reasoning: the ground overlay *earned* the key because it is where the pheromones are, which in this game is what `G` writes into.\n\n**One honest gap.** The channel that matters most here is her own scent trail, and I could not get a still of it: the screenshot hook counts drawn frames while the walk counts player ticks, so the shutter fired after she had walked four cells and the overlay drew an empty plane. Rather than post a picture of nothing and call it a trail, the arm below is temperature, which paints every cell and proves the channel reaches the screen. The scent one wants a GIF, next time.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "off",
+      "files": [
+        "20260915T040234033Z-93117c/000-ov_off.png"
+      ],
+      "caption": "the held world as you play it",
+      "meta": {
+        "ground overlay": "OFF"
+      },
+      "focus": null
+    },
+    {
+      "label": "on — O pressed twice",
+      "files": [
+        "20260915T040234033Z-93117c/001-ov_temp.png"
+      ],
+      "caption": "a full-replace debug ramp over every cell",
+      "meta": {
+        "ground overlay": "TEMPERATURE",
+        "pixels changed vs off": "121,174 of 163,840 (74%)",
+        "why it is one flat colour": "the world really is one temperature"
+      },
+      "focus": null
+    },
+    {
+      "label": "the menu rows",
+      "files": [
+        "20260915T040234033Z-93117c/002-ov_menu.png"
+      ],
+      "caption": "three new rows in OPTIONS, cursor on the first",
+      "meta": {
+        "rows added": "GROUND OVERLAY, PLANT OVERLAY, ANIMALS WEAR",
+        "shown behind the panel": "AIR HUMIDITY",
+        "each row's value": "read from the renderer, not a copied list"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
