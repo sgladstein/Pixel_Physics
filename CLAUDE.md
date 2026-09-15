@@ -679,6 +679,57 @@ lines, and a blind `sed` on the field name dragged the root's deliberate
 `0.0` along with the shoot's through every data point. Prove the edit
 touched only its target before trusting anything downstream of it.
 
+### When every knob trades one end against the other, the container is the constraint
+
+**The sibling of the sweep rule above, pointing at the storage rather than at
+the experiment.** If every lever you have improves one end of a range at the
+cost of the other, what binds is the **range itself**, and the fix is the
+container — more bits, more resolution, a different representation — rather
+than any value inside it. Sweeping harder cannot find a setting that does not
+exist.
+
+**Measured on the pheromone planes, 2026-09-15.** `DEPOSIT` up lifted faint
+trails off the floor and clipped busy ones into saturation; `DIFFUSE` down
+bought trail life and erased the weak branch a colony needs in order to
+re-find an abandoned route; the odometer ramp that makes a trail's far end
+faint *is* the homing mechanism and cannot be flattened. Three levers, three
+trades, and the whole reachable space topped out at **0.64x** of the one
+number that mattered — which read as "this is a trade for the owner" and was
+not. At `u16`, with **every constant unchanged**, the same code gave **10x the
+trail life and 30x the steering range**, and ran **8–15% faster**: the decay
+table that was free in L1 at a byte is 128 KB at two, and becomes a multiply.
+
+**It has happened twice here, in unrelated subsystems, and the first time was
+filed as two dead ends rather than as a cause.** `Reports/dead-ends.md`'s
+canopy-density entries — 4-bit density could not decay at all (`0.267 x 0.5`
+rounds straight back to `0.267`, a permanent floor under every cell that ever
+received a deposit), the remedy was the identical one (*"as f32 it reaches
+zero"*), and before anyone reached it a behaviour constant had been tuned
+around the quantum: *"the tail wagging the dog"*. Same shape, same fix, no
+rule — which is why this one is here.
+
+**The diagnostic is to measure at the consumer, not at the mechanism**, and it
+is what separates this from ordinary tuning. A trail's own numbers looked
+healthy the whole way — peak 39–98 of 255, hundreds of cells standing — while
+the value the **ant** computed from them was **+0.000** past the trail's
+midpoint. One set of data, two readers, and only the far one said the
+mechanism had stopped. This file already asks for an effect counter from the
+far side of the call; this is that rule applied to **stored state** rather
+than to an event, and nothing else in the suite catches it, because the code
+is correct and merely cannot express the answer.
+
+**Exactly zero is the signature.** A weak-but-working mechanism reads 0.003;
+a representation that has run out reads 0.000, at several sample points, and
+goes on reading it. *A change that moves nothing* in Conventions names the
+other cause of an exact zero — a degenerate condition — and that is the one to
+rule out first, because it is cheaper to check.
+
+**The at-risk shape, for anything: a scalar that both decays and is read as a
+gradient.** Decay needs headroom underneath it or it hits a fixed point;
+a gradient needs resolution between neighbours or it reads flat. A channel
+doing both at once needs the range for both, and narrow storage takes the
+gradient away first and silently.
+
 ### A designed oscillator must be divided out of every number it reaches — measurements as much as decisions
 
 **Any** number sampled from a world that contains a designed cycle — day/night,
@@ -1076,6 +1127,12 @@ consider it at all.
   to discriminate. An exactly-zero delta means suspect the condition you keyed
   on is degenerate, before concluding the lever is dead — and re-test any
   do-not-retry entry of that shape after something changes its condition.
+  **A degenerate condition is one of two causes of an exact zero, and this
+  bullet named only the first.** The other is that the *representation* ran
+  out: a scalar too narrow to hold the difference reads 0.000 at every sample
+  and goes on reading it, with the code correct and every gate green. Rule
+  out the degenerate condition first, because it is cheaper to check; then
+  see *When every knob trades one end against the other* in Method.
 - **A constant nobody can tune in either direction may be a counterweight, not
   a model.** That same divisor existed to cancel the eager rooting above: two
   modelling errors roughly annulling each other. Every attempt to tune it made
