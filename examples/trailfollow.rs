@@ -243,6 +243,34 @@ fn arithmetic(base: &[f32]) {
 /// `SCENT` tool's own shape: `t * pheromone::DEPOSIT`, climbing toward the
 /// target, over a band deep enough that an ant walking a row or two off the
 /// nominal surface still reads it.
+/// **A hand-laid channel A ramp peaking at the NEST** -- the homing signal the
+/// ant's own odometer is supposed to produce, supplied from outside.
+///
+/// This exists to test a causal chain the owner named, 2026-09-16: channel B is
+/// laid only by laden ants, so if laden ants do not walk home they draw a
+/// wander-field rather than a route, and no follower can climb it. Measured and
+/// it holds -- laden movement is **-418 net homeward cells over 2,146,526
+/// carrying ant-ticks**, i.e. no homeward component at all.
+///
+/// If that is the whole story, then handing the colony a working homing
+/// gradient should let it lay a route-shaped channel B of its own and start
+/// recruiting -- which no arm has ever done. If it still does not, homing is
+/// not sufficient and something else is missing too.
+///
+/// Mirror image of `lay`: `t` falls from 1 at the nest to 0 at the food, which
+/// is the shape `EmitA` off a nest-charged, distance-decaying unit 4 would
+/// draw. The ants' own `EmitA` is left alone in every arm -- only `EmitB` is
+/// ever muted -- so this supplements their homing rather than replacing it.
+fn lay_home(w: &mut pixel_physics::sim::world::World, nest_x: i32, target_x: i32, surface: i32) {
+    for x in nest_x..=target_x {
+        let t = 1.0 - (x - nest_x) as f32 / (target_x - nest_x) as f32;
+        let amount = (t * pheromone::DEPOSIT as f32) as pheromone::Scent;
+        for y in (surface - 3)..=(surface + 1) {
+            w.deposit_pheromone(Channel::A, x, y, amount);
+        }
+    }
+}
+
 fn lay(w: &mut pixel_physics::sim::world::World, nest_x: i32, target_x: i32, surface: i32) {
     for x in nest_x..=target_x {
         let t = (x - nest_x) as f32 / (target_x - nest_x) as f32;
@@ -626,7 +654,7 @@ fn mute_channel_b(g: &mut [f32]) -> usize {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, near: i32, food: i32, stop: u64, gap: i32, refill: u64, diet: Diet, mute: bool) -> Arm {
+fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, near: i32, food: i32, stop: u64, gap: i32, refill: u64, diet: Diet, mute: bool, home: bool) -> Arm {
     // **The box grows with the gap.** `far_larder` pins food 363 cells from
     // its colony and every one of its 52 ants starves by frame 20,000 --
     // measured, `latecensus scenario=far_larder`: ants 52 -> 0, eats 87 in
@@ -779,8 +807,13 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         // naturally laid trail needs commuters, and commuters need a trail
         // worth following. After it, the only channel B in the world is what
         // the ants themselves put down.
-        if trail && (stop == 0 || f <= stop) && (f == 1 || f.is_multiple_of(relay)) {
-            lay(&mut w, nest_x, target_x, surface);
+        if (stop == 0 || f <= stop) && (f == 1 || f.is_multiple_of(relay)) {
+            if trail {
+                lay(&mut w, nest_x, target_x, surface);
+            }
+            if home {
+                lay_home(&mut w, nest_x, target_x, surface);
+            }
         }
         frame::step(&mut w, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
         if food > 0 && refill > 0 && f.is_multiple_of(refill) {
@@ -1134,8 +1167,19 @@ fn main() {
             .unwrap_or_else(|| vec![90, 150, 220, 300]);
         for g in gaps {
             for s in seed0..seed0 + seeds {
-                for (name, trail, mute) in [("hand", true, false), ("hmute", true, true), ("self", false, false), ("mute", false, true)] {
-                    let a = run(s, trail, gate, frames, ants, relay, near, food, stop, g, refill, diet, mute);
+                for (name, trail, mute, home) in [
+                    ("hand", true, false, false),
+                    ("hmute", true, true, false),
+                    ("self", false, false, false),
+                    ("mute", false, true, false),
+                    // **The homing arm.** No food trail is laid; a channel A
+                    // ramp peaking at the nest is, and the ants lay their own
+                    // channel B as usual. If the owner's chain is the whole
+                    // story, this is the arm where a colony finally builds a
+                    // trail for itself.
+                    ("homeA", false, false, true),
+                ] {
+                    let a = run(s, trail, gate, frames, ants, relay, near, food, stop, g, refill, diet, mute, home);
                     if diet.only {
                         assert_eq!(a.ate_other_j, 0.0, "gap {g} seed {s} arm {name}: {} J eaten off something that is not the larder, so onlyfood did not hold and no column in this row is attributable", a.ate_other_j);
                     }
@@ -1203,6 +1247,9 @@ fn main() {
         println!("    means food is picked up and wandered with, which is a different fault from not finding it.");
         println!("    far it ever got, as a share of the gap, so a commuting population is visible as a shape.");
         println!("  `hand` vs `self` only says whether a laid ramp beats what they bootstrap.");
+        println!("  `hmute` is the DECAY BASELINE for `route pk`: our ramp laid, the ants silenced.");
+        println!("  `homeA` lays a channel A HOMING ramp and no food trail -- if laden ants only fail");
+        println!("    to route because they cannot find their way home, this is where their own B appears.");
         println!("  `carry` is ant-ticks holding larder in the crop; `carry@nest` is those inside the +-26 nest band --");
         println!("    that pair is the answer to \"is food being carried back\", which a cell census cannot give.");
         println!("  `other J` must read 0 in every row: it is the check that `onlyfood` held.");
@@ -1235,7 +1282,7 @@ fn main() {
         println!("{:->5} {:->5} {:->7} {:->7} {:->9} {:->9} {:->10} {:->9} {:->20} {:->6}", "", "", "", "", "", "", "", "", "", "");
         for a in [10, 20, 40, 80] {
             for s in seed0..seed0 + seeds {
-                let r = run(s, true, gate, frames, a, relay, near, food, stop, gap, refill, diet, false);
+                let r = run(s, true, gate, frames, a, relay, near, food, stop, gap, refill, diet, false, false);
                 let lt: u64 = r.laden_by_third.iter().sum();
                 let pc = |n: u64| if lt == 0 { 0.0 } else { 100.0 * n as f64 / lt as f64 };
                 println!(
@@ -1268,8 +1315,8 @@ fn main() {
     let (mut on_tot, mut off_tot) = (0u64, 0u64);
     let mut moved_up = 0;
     for s in seed0..seed0 + seeds {
-        let on = run(s, true, gate, frames, ants, relay, near, food, stop, gap, refill, diet, false);
-        let off = run(s, false, gate, frames, ants, relay, near, food, stop, gap, refill, diet, false);
+        let on = run(s, true, gate, frames, ants, relay, near, food, stop, gap, refill, diet, false, false);
+        let off = run(s, false, gate, frames, ants, relay, near, food, stop, gap, refill, diet, false, false);
         // Ant-ticks differ between arms if one arm's ants die sooner, so the
         // share is what compares: a raw count that fell because the colony
         // shrank is not a colony that stopped following.
