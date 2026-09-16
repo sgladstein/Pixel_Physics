@@ -218,6 +218,63 @@ by somebody about to try it on creatures.
   hole** as a decision for all three games rather than for druid: the ladder is
   1,2,3,4 and 3 has no power-of-two divisor, so the budget buys nothing there
   and a player walking out gets sharp, sharp, blurry, sharp.
+- [held-world-design.md](held-world-design.md) — **living design document,
+  nothing built. `held`.** The design of record for the held world *beyond*
+  the founding concept, and **deliberately undated in its filename** because it
+  is edited in place as the design moves. Opened 2026-09-15 from a design
+  conversation whose first finding was that §10a of the concept report was the
+  only design the enemy had. **Three owner rulings reshape it.**
+  **Un-quickening is not the primary enemy** — *"it could be a specific type of
+  enemy or enemy weapon, but I don't think it should be primary"* — so what
+  replaces it keeps §10a's surviving idea (the dial that funds the garden is
+  the dial that calls them) and throws away its verb: the enemy is the
+  stillness advancing as a **substance**, and **it is held too, so it moves
+  only where the player has made time**, which is what makes a world-spanning
+  fluid admissible in an engine whose whole performance model is that settled
+  things sleep. **Two ranges**, the owner's own: an inner *quickening* running a
+  whole world at r², and a much larger *waking* radius running **the enemy and
+  nothing else**, whose price is the tide's front — a line, not a disc — so the
+  dread radius can be several screens for nearly nothing. And **tower defence
+  is to be mined rather than avoided**, which resolves the building question —
+  **the hearth is the tower**, and the player's works split into *built* (few,
+  permanent) and *grown* (many, cheap, alive). Carries the rule against the
+  trap the owner named — **if a decision can be a number in a HUD, make it a
+  place on the ground** — and the answer to his processor worry, which is that
+  a hearth at quarter speed **is already the design of record**
+  (`regional-time-scope-2026-09-13.md` §3d's per-region stride, where chunks
+  overlapping no live region are forced asleep for that pass and a slow region
+  is *bit-identical* to today's world), with two constraints carried: rates
+  must be divisors of the maximum, so *"a tenth"* is not on the ladder. Its
+  larger proposal is to **make the frame budget the economy**, so the machine's
+  limit and the game's currency are one number. **Corrects the coordinator
+  note**, which gates the enemy on `creature_arena` — the wrong instrument for
+  the question it describes; `labstats` is the one carrying `predators=`. And
+  **"inedible" cannot be built since the graded bite**, so the gate became an
+  armour *ladder*, read on death causes because the alive column sits on the
+  floor. **The sweep landed** — 12 seeds x 24,000 frames, threads pinned — and
+  it answers §10a's parked precondition three ways. A predator at *shipped*
+  plate is a **subsidy**: the colony goes extinct on **3 of 12 seeds with
+  nothing attacking it and 0 of 12 with six beetles in the box.** The
+  **collapse is real and sits between x4 and x9** plate, where x9 wipes **9 of
+  12**. And between them is a **wide playable middle** — killed-by-beetle
+  rising monotonically 0 → 7 → 12.5 → 17 → 24 while the colony holds — so the
+  old binary *"an inedible predator collapses the colony"* is now **a region at
+  the top of a ladder**, which is the first law arriving on the predator line
+  and gives §2c's three enemy tiers a measured armour band each. The obvious
+  confound is ruled out rather than waved off: ant **starvation** deaths *fall*
+  across the ladder (49.5 → 23.5) while predation goes **0% → 53%** of all ant
+  deaths, so the x9 collapse is being eaten and not out-competed. **§2i is the
+  format**, answering whether a side-scroller is too limiting for this: it is
+  **a cross-section, not a side-scroller** — 190 rows of sky, **380 of soil**,
+  ~390 of rock, with `pocket_density`/`vault_density`/`brow_chance` all **0.0**,
+  so the cave generator exists and is *switched off* and the surface line is
+  currently the whole game. Kingdom's own answer to the one-dimensional
+  constraint was **co-op**, which this cannot copy; the three that are
+  available are a **vertical axis** (the only view that shows underground and
+  surface at once, and the correct view for a plant), an enemy that **wells up**
+  rather than rolling in, and the inversion that **held time makes neglect a
+  defence** — with hearths as the thing that re-introduces the two-front
+  problem on the player's own terms.
 - [why-changes-cost-so-much-2026-08-27.md](why-changes-cost-so-much-2026-08-27.md)
   — **method finding, from a live instance.** Why every change here seems to
   demand a global retune: most large levers have **no counterweight**, so

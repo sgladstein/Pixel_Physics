@@ -37,10 +37,9 @@ These are decisions, not findings. They do not expire when a round closes.
   you get by how many particles come."*
 - **Order of the big pieces, given 2026-09-13**: *"1) I dont want you working
   on pheramone trial mechanics... 2) Shink and walk the nests. 3) The enemy.
-  In that order."* Steps 1 and 2 are done; **the enemy is next**, and it is
-  gated on one `creature_arena` sweep at >= 24,000 frames read at an order
-  statistic over seeds — the last predator numbers predate the graded bite and
-  would null.
+  In that order."* Steps 1 and 2 are done; **the enemy is next**, and its
+  design now lives in [`../held-world-design.md`](../held-world-design.md) —
+  a living document, edited in place, carrying the 2026-09-15 rulings.
 - **It is a separate game.** *"I don't want to build this into the existing
   gnome game. This is a fully new and separate game."*
 
@@ -51,14 +50,18 @@ Round 37 (the twelve playtest items from the 2026-09-14 playtest) **closed
 plus #439 and #402. What it overturned is in
 [`../druid-rounds-archive.md`](../druid-rounds-archive.md).
 
-**Next is the enemy**, and it is gated on one measurement before any of it is
-built: `creature_arena` at **>= 24,000 frames**, read at an order statistic
-over seeds. The last predator numbers predate both the graded bite and the
-trait reach going to 8, so they would null. And the concept report's own top
-risk is a design risk rather than a technical one — *"an enemy that attacks
-your economy is often the least fun kind. This is the first thing to
-playtest"* — so a crude playable version and a review card come before a
-finished mechanic.
+**Next is the enemy.** The design is
+[`../held-world-design.md`](../held-world-design.md); read it rather than
+§10a, which the owner has since overruled on the primary verb.
+
+**This note used to gate it on `creature_arena` and that is the wrong
+instrument** — it races two genomes for share of animals. The gate is
+**`labstats`**, read on **death causes** (the alive column is the floor on
+that bed) over an armour *ladder*, since "inedible" cannot be built after the
+graded bite. Numbers in that report's §7. Its top risk is still a design one —
+*"an enemy that attacks your economy is often the least fun kind. This is the
+first thing to playtest"* — so a crude playable version and a review card come
+before a finished mechanic.
 
 ## Standing: what this program does NOT own
 
