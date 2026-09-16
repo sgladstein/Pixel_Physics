@@ -789,8 +789,8 @@ rows of `alive 0/0`.
 
 ### 7.6 With food replenished, a trail buys survival at 90 cells and nothing beyond
 
-`trailfollow mode=gap`, 6 seeds, `food=200 refill=4000` (168,000 J, 3.6x need),
-trail hand-laid to frame 6,000 then released:
+`trailfollow mode=gap`, 6 seeds, `food=200 refill=4000`, trail hand-laid to
+frame 6,000 then released:
 
 | gap | alive on (median) | alive off (median) | pooled | seeds up |
 |---|---|---|---|---|
@@ -801,6 +801,32 @@ trail hand-laid to frame 6,000 then released:
 
 **This is the first colony-level benefit a trail has bought anywhere in this
 work** — 4.4x pooled survival at 90 cells — and it is gone by 150.
+
+**Two corrections to this run, found on 2026-09-16 while building the larder
+isolation §7.7 asked for. The survival comparison survives both; the
+provisioning reading does not.**
+
+*The energy figure was wrong by 4x.* This section first said the run supplied
+"168,000 J, 3.6x need". That took the material table's face value and dropped
+the gut filter: at the shipped **neutral** gut (`ant.ron` `traits` slot 0 =
+0.0) `creature::diet_quality` returns 0.25 against either end of the food-class
+axis, so a placed `corpse` cell is worth **30 J, not 120**. The run supplied
+about **42,000 J against ~46,800 J of need** — roughly 90%, not 360%. It was
+under-provisioned, and §7.5's whole point is that I should have run this
+arithmetic before the sweep rather than after.
+
+*And the colony had a better food source than the larder.* A placed
+`Cell::new(corpse, 0)` carries `aux` 0 and is priced by `food_energy` (120 face,
+30 J eaten). A **dead ant's** corpse is stamped with its `body_energy`, 480, and
+`creature::food_value` prefers that stamp — **120 J eaten, four times the
+larder**. So in a scene that kills most of its colony, the richest food in the
+world was lying inside the nest, and it was free.
+
+**What still stands:** both arms of every pair had the same corpses, on the same
+seed, so the paired survival difference is real. **What does not:** any reading
+of *why* those colonies survived. "A trail buys survival at 90 cells" is a
+statement about survival only — it is not evidence that anything was eaten at
+the target, and the instrument that could have said so did not exist yet.
 
 ### 7.7 `deliveries` does not measure provisioning, and a claim was withdrawn on it
 
@@ -821,17 +847,72 @@ inferred from a contaminated counter. The observed "trail lowers deliveries in
 home to shuffle corpses*.
 
 **What is needed instead is food removed from the target heap**, which
-nest-local handling cannot fake. Not yet built.
+nest-local handling cannot fake. Built on 2026-09-16 — §7.8.
 
-### 7.8 What this leaves standing
+### 7.8 The larder is isolable, and two instrument traps on the way to it
+
+The owner's question was whether corpses, and anything else that is not the
+deliberately placed larder, can be made non-food, so that a colony can only eat
+what is intended and intake can be attributed. Yes — `trailfollow onlyfood=on`,
+now the default.
+
+**Zeroing `food_energy` is not enough, and corpse is exactly the material it
+fails for.** `creature::food_value` prefers the *cell's* `aux` stamp wherever
+the material sets `worth_in_aux`, and corpse is the **only** material in the
+tree that sets it. Clearing the energy alone leaves every stamped corpse in the
+world worth precisely what it was worth before. The flag has to come off too,
+which is the whole difference between isolating the larder and appearing to.
+
+**Trap one: the first provisioning column was counting rot.** It was
+`placed − still standing`, which looks principled, and it read **240/300 in all
+four arms of a two-seed control** — `CLAUDE.md`'s tidiness signature exactly.
+`windfall.ron` sets `decays_into: "soil"`, and `decay.rs` checks every 200 ticks
+at a 0.05 chance once damp, so about 87% of a placement leaves on its own over
+8,000 frames. **240 cells vanished while the colony ate five.** A dead colony
+scored the same "intake" as a live one. Replaced with
+`EnergyLedger::harvested_plant`, which rot cannot reach.
+
+**Trap two, from the same measurement: a rotting larder cannot host a distance
+sweep at all.** `fruit`, `seed` and `moss` are the only edible materials in the
+tree with no `decays_into`. The default larder is now `fruit` — 960 face, the
+same 240 J/cell at the neutral gut that windfall had, so a `food=` setting means
+what it meant before.
+
+The isolation carries its own check rather than an assertion:
+`EnergyLedger::harvested_corpse` is printed as `corpseJ` and must read 0.
+**Put the fault back and it goes red** — 3 seeds, gap 90, 8,000 frames:
+
+| arm | corpseJ | ate J on | ate J off |
+|---|---|---|---|
+| `onlyfood=on` | **0, 0, 0** | 1,200 / 1,404 / 228 | **0, 0, 0** |
+| `onlyfood=off` | **138, 342, 228** | 960 / 5,971 / 1,416 | 0, 0, 0 |
+
+Two readings, both first-of-their-kind here and both small:
+
+- **`ate J off` is zero in every seed while `ate J on` is not.** This is the
+  first attributable provisioning signal in the whole investigation: with a
+  trail, the colony eats from the larder; without one, it eats nothing at all.
+- **`home on` is 0 throughout.** Not one larder cell ever stood inside the nest
+  band. The ants eat where they find it and bring nothing back, which is what
+  §7.8's earlier "go eat over there, rather than provisioning" reading
+  predicted, now measured on a counter that cannot be faked.
+
+Intake also runs at roughly 1–8% of `supply J`, so these colonies are not
+short of food — they are short of ants that reach it. That points at range and
+discovery, not at scarcity, and agrees with A.2's `near on` collapsing to
+exactly 0 by gap 300.
+
+### 7.9 What this leaves standing
 
 - Re-gating channel B moves a colony (7.1), and at 90 cells it keeps one alive
-  (7.6). Both measured against honest controls.
-- A trail appears to work as **"go eat over there" for individuals** rather
-  than as provisioning for the nest — survival rises while nothing demonstrably
-  comes home. That is consistent with the dilution finding of §2.0 and with the
-  bed's own eats-to-deliveries ratio, and it is **not yet established**, because
-  the provisioning half has no trustworthy instrument.
+  (7.6). Both measured against honest controls. The 7.6 survival result stands;
+  its energy figure and any provisioning reading of it do not — see 7.6's
+  corrections.
+- A trail works as **"go eat over there" for individuals** rather than as
+  provisioning for the nest — survival rises, the larder is eaten, and nothing
+  comes home. No longer an inference: §7.8 measures intake on the energy ledger
+  and hauling on a material census, and reads `ate J on > 0 = ate J off` with
+  `home` flat at zero.
 - Every bed available either removes distance (`played_bed`) or starves the
   colony (`far_larder` as shipped). A usable bed needs food **far, fixed,
   non-spreading and sufficient**, which is `far_larder` with its larder resized.
@@ -911,6 +992,12 @@ anything when they get there.
 `trailfollow mode=gap`, `food=200 refill=4000`, trail hand-laid to frame 6,000
 then released, 24,000 frames. `alive` is written as *end/min*. `near on` counts
 ant-ticks within 10 cells of the food in the trail arm.
+
+**Taken before `onlyfood` existed** (§7.8), so every row here had corpses as
+edible as the larder and four times as rich per cell, and the larder itself was
+`corpse` at 30 J. The paired `alive` comparison is unaffected — both arms of a
+pair share a seed and the same corpses — but nothing here attributes intake.
+To reproduce these exact rows: `onlyfood=off larder=corpse`.
 
 | gap | seed | alive on | alive off | deliv on | deliv off | trips on | near on |
 |---|---|---|---|---|---|---|---|
