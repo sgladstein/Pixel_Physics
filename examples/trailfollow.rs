@@ -379,7 +379,25 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         alive_min = alive_min.min(w.live_creature_count());
         // Only sampled once hand-laying has stopped, so this counts the ants'
         // own trail rather than the one we kept refreshing.
-        if stop > 0 && f > stop && f.is_multiple_of(100) {
+        // **Not `f > stop` -- that catches the hand-laid trail before it has
+        // decayed, and every arm then reports a peak of exactly the route
+        // length, which is `CLAUDE.md`'s tidiness tell rather than a result.**
+        //
+        // **The window is 1,500 frames, not the 288 an earlier version used,
+        // and the correction is a finding rather than a tweak.** That 288 came
+        // from doubling the "a cell laid at `DEPOSIT` dies in ~144 frames"
+        // figure in `pheromone-lifetime-and-wiring-2026-09-14.md` -- **a u8-era
+        // measurement that the `u16` widening (#450, 2026-09-15) invalidated
+        // the day after it was written.** `DEPOSIT` is now `40 * SCALE` =
+        // 10,240 rather than 40, and `pherolife` on current `main` reports
+        // `trail gone` at **1,476 frames** and the ant's drive falling under
+        // threshold at **1,080** -- 0.67x and 0.49x of a 2,200-frame round
+        // trip, against the 0.065x that report records. Ten times longer.
+        //
+        // Sampling at `stop + 288` therefore still caught the hand-laid trail
+        // fully intact, and every arm reported a peak of exactly the route
+        // length twice over before this was caught.
+        if stop > 0 && f > stop + 1500 && f.is_multiple_of(100) {
             let live = (nest_x..=target_x).filter(|&x| w.pheromone_at(Channel::B, x, surface) > 0).count();
             peak_cells = peak_cells.max(live);
         }
@@ -502,12 +520,19 @@ fn main() {
     if mode == "loop" {
         // **Phase 1b: seed the loop, then let go of it.** Hand-lay to frame
         // `stop` with food at the target, then read what the ants' own trail
-        // looks like. `ants=` is the swept axis because a cell laid at
-        // `DEPOSIT` survives ~144 frames unreinforced and a 90-cell round trip
-        // is ~2,700 frames at `P(move)` 0.4 -- so holding the route up needs
-        // roughly `round_trip / 144` ~= 19 commuters, and the shipped default
-        // of 20 sits exactly on that knife-edge. Stated before running so the
-        // result is falsifiable rather than rationalised.
+        // looks like.
+        //
+        // **`ants=` is swept because trail persistence was predicted to be the
+        // binding constraint, and that prediction was WRONG -- recorded here
+        // because being wrong for a nameable reason is the useful part.** It
+        // read `round_trip / 144` ~= 19 commuters, from the u8-era "a cell
+        // laid at `DEPOSIT` dies in ~144 frames". The `u16` widening took
+        // `DEPOSIT` from 40 to 10,240 and `pherolife` now measures the trail
+        // gone at **1,476 frames**, so the real figure is `2,700 / 1,476` ~=
+        // **2 commuters**. Persistence is not the constraint; it was never
+        // close. The sweep is kept because it is now measuring something else
+        // worth having -- how the dilution split and the colony's survival
+        // move with population.
         assert!(stop > 0, "mode=loop needs stop= (the frame hand-laying stops); without it nothing is ever the ants' own trail");
         assert!(food > 0, "mode=loop needs food= at the target, or there is no round trip to close");
         println!(
