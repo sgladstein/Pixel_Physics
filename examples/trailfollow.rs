@@ -315,8 +315,15 @@ struct Arm {
 // Eight against clippy's ceiling of seven: these are the arm's axes, and a
 // struct would hide that each one is independently swept.
 #[allow(clippy::too_many_arguments)]
-fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, near: i32, food: i32, stop: u64) -> Arm {
-    let spec = LabBox { width: 256, height: 192, ground_y: 96, soil_depth: 48, founders: 0, colonies: 0, seed, ..LabBox::default() };
+fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, near: i32, food: i32, stop: u64, gap: i32) -> Arm {
+    // **The box grows with the gap.** `far_larder` pins food 363 cells from
+    // its colony and every one of its 52 ants starves by frame 20,000 --
+    // measured, `latecensus scenario=far_larder`: ants 52 -> 0, eats 87 in
+    // 30,000 frames. The shipped 90-cell run here survives. So the distance at
+    // which a food trail is *both* necessary and survivable is somewhere
+    // between, and nobody has swept it. A fixed-width box cannot ask.
+    let width = (40 + gap + 60).max(256);
+    let spec = LabBox { width, height: 192, ground_y: 96, soil_depth: 48, founders: 0, colonies: 0, seed, ..LabBox::default() };
     let mut w = spec.build();
     let species_id = w.species.id_of("ant").expect("the ant species is compiled in");
     let mut genome = w.species.get(species_id).genome.clone();
@@ -324,7 +331,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     assert!(gate.name == "shipped" || moved > 0, "gate {} changed no slot, so both arms carry one genome", gate.name);
 
     let surface = spec.ground_y - 2;
-    let (nest_x, target_x) = (40, 130);
+    let (nest_x, target_x) = (40, 40 + gap);
     // The species' own sensor reach, not a literal -- see the along readout.
     let sensor_offset = w.species.get(species_id).creature.as_ref().expect("ant is a creature").sensor_offset;
     let placed = w.found_colony_of(nest_x, surface, "ant", ants);
@@ -494,6 +501,8 @@ fn main() {
     // standing for the whole run, which is the pull question. Any positive
     // value turns this into the loop question: seed it, then let go.
     let stop: u64 = arg("stop").unwrap_or(0);
+    // Cells between the nest and the food. The box widens to fit it.
+    let gap: i32 = arg("gap").unwrap_or(90);
 
     if flag("spec") {
         println!("{}", gate.spec());
@@ -514,6 +523,48 @@ fn main() {
     if mode == "arith" {
         println!("P(move) for a fed ant (Energy 1.0), by gate and by along-gradient reading:\n");
         arithmetic(&base);
+        return;
+    }
+
+    if mode == "gap" {
+        // **How far can food be before the colony cannot reach it, and how
+        // near before a trail stops mattering?** Both ends are measured and
+        // neither is where the work has been happening:
+        //
+        //   ~0 cells   `played_bed` after ~frame 30,000 -- the deliberate bare
+        //              band 210..310 fills in completely (`bare/band` 129/129
+        //              -> 0/129 by 30,000 frames, 18 plants -> 259), so food
+        //              ends up underfoot and a trail has no distance to serve.
+        //   90 cells   this box -- the colony survives (15-30 of 40-80 alive).
+        //   363 cells  `far_larder` -- every one of 52 ants starves by frame
+        //              20,000; `eats` 87 in 30,000 frames. Never arrives.
+        //
+        // The band where a trail is BOTH necessary and survivable lies
+        // between, and this is the sweep that finds it. Each gap is run twice
+        // on the same seed: with a hand-laid trail and without.
+        //
+        // Read it as three columns, not one. `alive` says whether the colony
+        // can live there at all; `deliv off` says whether it reaches the food
+        // *unaided*, so a gap where that is already healthy cannot show a
+        // trail doing anything; `deliv on` against it says whether the trail
+        // buys reach. The testable band is where the colony lives, the
+        // unaided arm is near zero, and the trail arm is not.
+        assert!(food > 0, "mode=gap needs food= at the target, or there is nothing to reach");
+        println!("{:>6} {:>5} {:>11} {:>11} {:>9} {:>9} {:>9} {:>9}", "gap", "seed", "alive on", "alive off", "deliv on", "deliv off", "trips on", "near on");
+        println!("{:->6} {:->5} {:->11} {:->11} {:->9} {:->9} {:->9} {:->9}", "", "", "", "", "", "", "", "");
+        for g in [90, 150, 220, 300] {
+            for s in seed0..seed0 + seeds {
+                let on = run(s, true, gate, frames, ants, relay, near, food, stop, g);
+                let off = run(s, false, gate, frames, ants, relay, near, food, stop, g);
+                println!(
+                    "{g:>6} {s:>5} {:>5}/{:<5} {:>5}/{:<5} {:>9} {:>9} {:>9} {:>9}",
+                    on.alive_end, on.alive_min, off.alive_end, off.alive_min, on.deliveries, off.deliveries, on.trips, on.near_ticks
+                );
+            }
+        }
+        println!("\n  Testable band = colony alive, `deliv off` ~0, `deliv on` > 0.");
+        println!("  A gap where `deliv off` is already healthy cannot show a trail doing anything.");
+        println!("  A gap where `alive on` reaches 0 is measuring a dead colony, not a deaf one.");
         return;
     }
 
@@ -542,7 +593,7 @@ fn main() {
         println!("{:->5} {:->5} {:->7} {:->7} {:->9} {:->9} {:->10} {:->9} {:->20} {:->6}", "", "", "", "", "", "", "", "", "", "");
         for a in [10, 20, 40, 80] {
             for s in seed0..seed0 + seeds {
-                let r = run(s, true, gate, frames, a, relay, near, food, stop);
+                let r = run(s, true, gate, frames, a, relay, near, food, stop, gap);
                 let lt: u64 = r.laden_by_third.iter().sum();
                 let pc = |n: u64| if lt == 0 { 0.0 } else { 100.0 * n as f64 / lt as f64 };
                 println!(
@@ -575,8 +626,8 @@ fn main() {
     let (mut on_tot, mut off_tot) = (0u64, 0u64);
     let mut moved_up = 0;
     for s in seed0..seed0 + seeds {
-        let on = run(s, true, gate, frames, ants, relay, near, food, stop);
-        let off = run(s, false, gate, frames, ants, relay, near, food, stop);
+        let on = run(s, true, gate, frames, ants, relay, near, food, stop, gap);
+        let off = run(s, false, gate, frames, ants, relay, near, food, stop, gap);
         // Ant-ticks differ between arms if one arm's ants die sooner, so the
         // share is what compares: a raw count that fell because the colony
         // shrank is not a colony that stopped following.
