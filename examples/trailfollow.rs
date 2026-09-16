@@ -48,6 +48,7 @@ use pixel_physics::sim::brain::{self, BrainInput as I, BrainOutput as O};
 use pixel_physics::sim::explosion::Blasts;
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::pheromone::{self, Channel};
+use pixel_physics::sim::Cell;
 use pixel_physics::sim::{frame, player};
 
 fn arg<T: std::str::FromStr>(name: &str) -> Option<T> {
@@ -90,6 +91,11 @@ struct Gate {
 /// holds, so a run names the twelve numbers it actually used rather than
 /// inheriting them.
 const GATES: &[Gate] = &[
+    // The genome exactly as `ant.ron` authors it: units 0/1 at b2
+    // (Bias -45, Carrying 45.5) and units 2/3 saturated at Bias 45,
+    // Carrying -75. `off`/`on`/`along` are descriptive here and unused --
+    // `apply` returns early.
+    Gate { name: "shipped", off: -45.0, on: 0.5, along: 6.0 },
     // `Bias -45, Carrying +75` is `off = -45, on = +30`.
     Gate { name: "saturated", off: -45.0, on: 30.0, along: 6.0 },
     // §Z7 candidate (a): gate on the slope, symmetric and shallow.
@@ -153,6 +159,17 @@ impl Gate {
     }
 
     fn apply(&self, g: &mut [f32]) -> usize {
+        // **`shipped` applies nothing, and it exists because every other preset
+        // here is a claim about `ant.ron` rather than a read of it.**
+        // `saturated` was the shipped animal once and is now stale in three
+        // places: it writes `Carrying:0:75` where the file ships **45.5** (so it
+        // saturates the *homing* pair, which landed at b2 on 2026-09-09) and
+        // `Bias:2:30` where the file ships **45**. Using it as a control makes
+        // a channel-B comparison a three-change comparison, and the delta then
+        // includes homing. The only honest control is the untouched genome.
+        if self.name == "shipped" {
+            return 0;
+        }
         let mut moved = 0;
         for (i, u, w) in self.wires() {
             let s = brain::ih_slot(i, u);
@@ -234,19 +251,61 @@ fn lay(w: &mut pixel_physics::sim::world::World, nest_x: i32, target_x: i32, sur
     }
 }
 
+/// What one arm reports.
+///
+/// **`alive` is here because without it a null is uninterpretable.** A
+/// near-target count that does not move has two causes that look identical from
+/// outside -- the colony cannot read the trail, or the colony is dead -- and
+/// this scene starves its ants by construction (`founders: 0`, and no food
+/// unless `food=` places some). `pherolife` learned the same lesson the same
+/// way: "7,039 deposits and no trail" became "52 -> 3 ants" the moment the ant
+/// count was printed beside the planes.
+struct Arm {
+    near_ticks: u64,
+    ant_ticks: u64,
+    along: f32,
+    alive_end: usize,
+    alive_min: usize,
+}
+
 /// One arm: one seed, trail on or off, one gate.
-fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, near: i32) -> (u64, u64, f32) {
+// Eight against clippy's ceiling of seven: these are the arm's axes, and a
+// struct would hide that each one is independently swept.
+#[allow(clippy::too_many_arguments)]
+fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, near: i32, food: i32) -> Arm {
     let spec = LabBox { width: 256, height: 192, ground_y: 96, soil_depth: 48, founders: 0, colonies: 0, seed, ..LabBox::default() };
     let mut w = spec.build();
     let species_id = w.species.id_of("ant").expect("the ant species is compiled in");
     let mut genome = w.species.get(species_id).genome.clone();
     let moved = gate.apply(&mut genome);
-    assert!(gate.name == "saturated" || moved > 0, "gate {} changed no slot, so both arms carry one genome", gate.name);
+    assert!(gate.name == "shipped" || moved > 0, "gate {} changed no slot, so both arms carry one genome", gate.name);
 
     let surface = spec.ground_y - 2;
     let (nest_x, target_x) = (40, 130);
+    // The species' own sensor reach, not a literal -- see the along readout.
+    let sensor_offset = w.species.get(species_id).creature.as_ref().expect("ant is a creature").sensor_offset;
     let placed = w.found_colony_of(nest_x, surface, "ant", ants);
     assert!(placed > 0, "no ants placed at the nest end; there is nothing to measure");
+
+    // **`food=` is the positive control for the READOUT, not for the trail.**
+    // Every recorded result from this harness is an exact tie -- 595 = 595 here,
+    // 1,903 = 1,903 on the tools lane's independent harness -- so nothing has
+    // ever shown that `near_ticks` *can* move. Food at the target draws ants by
+    // a mechanism that has nothing to do with channel B, so if the count does
+    // not rise with it, the instrument is blind and no null from it means
+    // anything (`CLAUDE.md`: a guard that cannot go red is blind, not strong).
+    //
+    // It is also what a round-trip arm needs, and that is a deliberate
+    // departure from this file's "no food at the target" rule: that rule exists
+    // so the count is attributable to the trail alone, which is right for the
+    // pull question and wrong for the loop question.
+    if food > 0 {
+        let corpse = w.materials.id_of("corpse").expect("corpse is compiled in");
+        for i in 0..food {
+            let (fx, fy) = (target_x + (i % 8) - 4, surface - (i / 8));
+            w.set(fx, fy, Cell::new(corpse, 0));
+        }
+    }
     for id in w.live_organism_ids() {
         if w.organism(id).is_some_and(|s| s.species == species_id) {
             assert!(w.set_organism_genome(id, genome.clone()), "the founder must be live when its genome is set");
@@ -255,6 +314,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
 
     let (mut particles, mut blasts, tuning) = (ParticleSystem::default(), Blasts::default(), player::Tuning::default());
     let (mut near_ticks, mut ant_ticks) = (0u64, 0u64);
+    let mut alive_min = usize::MAX;
     // The along reading a real ant would get, averaged over every sample —
     // the instrument's own positive control, because a count that does not
     // move against a gradient that was never there says nothing.
@@ -264,6 +324,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             lay(&mut w, nest_x, target_x, surface);
         }
         frame::step(&mut w, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
+        alive_min = alive_min.min(w.live_creature_count());
         for id in w.live_organism_ids() {
             let Some(s) = w.organism(id) else { continue };
             if s.species != species_id {
@@ -275,14 +336,28 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 near_ticks += 1;
             }
             if f.is_multiple_of(100) {
+                // **Guard `SCALE`, offset `sensor_offset` -- both were wrong.**
+                // This read `+ 1.0` and `hx + 4` from before the planes widened
+                // to `u16`. `creature::sense` uses `pheromone::SCALE` (256) and
+                // the species' `sensor_offset` (6), and the difference is not
+                // cosmetic: at guard 1.0 a single faint cell against an empty
+                // one reads 0.996 instead of what the animal actually computes.
+                // A positive-control column that does not use the consumer's
+                // own arithmetic is not a control.
                 let here = w.pheromone_at(Channel::B, hx, hy) as f32;
-                let ahead = w.pheromone_at(Channel::B, hx + 4, hy) as f32;
-                along_sum += ((ahead - here) / (ahead + here + 1.0)) as f64;
+                let ahead = w.pheromone_at(Channel::B, hx + sensor_offset, hy) as f32;
+                along_sum += ((ahead - here) / (ahead + here + pheromone::SCALE as f32)) as f64;
                 along_n += 1;
             }
         }
     }
-    (near_ticks, ant_ticks, if along_n == 0 { 0.0 } else { (along_sum / along_n as f64) as f32 })
+    Arm {
+        near_ticks,
+        ant_ticks,
+        along: if along_n == 0 { 0.0 } else { (along_sum / along_n as f64) as f32 },
+        alive_end: w.live_creature_count(),
+        alive_min: if alive_min == usize::MAX { 0 } else { alive_min },
+    }
 }
 
 fn main() {
@@ -294,6 +369,10 @@ fn main() {
     let ants: i32 = arg("ants").unwrap_or(20);
     let relay: u64 = arg("relay").unwrap_or(60);
     let near: i32 = arg("near").unwrap_or(10);
+    // Cells of corpse at the target. 0 keeps this file's original "nothing but
+    // the trail pulls an ant there" design; >0 is the readout's positive
+    // control and the round-trip arm. See `run`.
+    let food: i32 = arg("food").unwrap_or(0);
 
     if flag("spec") {
         println!("{}", gate.spec());
@@ -303,7 +382,7 @@ fn main() {
     // The harness names its own parameters, so a log that does not name a
     // knob was written by a binary that never had one — `CLAUDE.md`'s
     // stale-harness gotcha, which cost a 3.5-hour study.
-    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near}", gate.name);
+    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food}", gate.name);
     println!("  gate {}: off {:+.1}  on {:+.1}  along ±{:.1}", gate.name, gate.off, gate.on, gate.along);
     println!("  {LANDED_NOTE}\n");
 
@@ -317,27 +396,33 @@ fn main() {
         return;
     }
 
-    println!("{:>5} {:>10} {:>10} {:>9} {:>10} {:>8}", "seed", "trail on", "trail off", "delta", "ratio", "along");
+    println!("{:>5} {:>10} {:>10} {:>9} {:>10} {:>8} {:>14}", "seed", "trail on", "trail off", "delta", "ratio", "along", "alive end/min");
     let (mut on_tot, mut off_tot) = (0u64, 0u64);
     let mut moved_up = 0;
     for s in seed0..seed0 + seeds {
-        let (on, on_ants, along) = run(s, true, gate, frames, ants, relay, near);
-        let (off, off_ants, _) = run(s, false, gate, frames, ants, relay, near);
+        let on = run(s, true, gate, frames, ants, relay, near, food);
+        let off = run(s, false, gate, frames, ants, relay, near, food);
         // Ant-ticks differ between arms if one arm's ants die sooner, so the
         // share is what compares: a raw count that fell because the colony
         // shrank is not a colony that stopped following.
         let share = |n: u64, d: u64| if d == 0 { 0.0 } else { 100.0 * n as f64 / d as f64 };
         println!(
-            "{s:>5} {on:>10} {off:>10} {:>+9} {:>9.2}x {:>8.3}   (share {:.2}% vs {:.2}%)",
-            on as i64 - off as i64,
-            if off == 0 { f64::INFINITY } else { on as f64 / off as f64 },
-            along,
-            share(on, on_ants),
-            share(off, off_ants)
+            "{s:>5} {:>10} {:>10} {:>+9} {:>9.2}x {:>8.3}   {:>3}/{:<3} vs {:>3}/{:<3}   (share {:.2}% vs {:.2}%)",
+            on.near_ticks,
+            off.near_ticks,
+            on.near_ticks as i64 - off.near_ticks as i64,
+            if off.near_ticks == 0 { f64::INFINITY } else { on.near_ticks as f64 / off.near_ticks as f64 },
+            on.along,
+            on.alive_end,
+            on.alive_min,
+            off.alive_end,
+            off.alive_min,
+            share(on.near_ticks, on.ant_ticks),
+            share(off.near_ticks, off.ant_ticks)
         );
-        on_tot += on;
-        off_tot += off;
-        if on > off {
+        on_tot += on.near_ticks;
+        off_tot += off.near_ticks;
+        if on.near_ticks > off.near_ticks {
             moved_up += 1;
         }
     }
@@ -345,5 +430,12 @@ fn main() {
         "\n  pooled: {on_tot} with the trail against {off_tot} without ({:+}), {moved_up} of {seeds} seeds up",
         on_tot as i64 - off_tot as i64
     );
-    println!("  arena:  hidden={}", gate.spec());
+    if gate.name == "shipped" {
+        // `spec()` prints what a preset *would* write, and `shipped` writes
+        // nothing -- printing its nominal numbers would be a readout that lies
+        // about the genome under test.
+        println!("  arena:  genome untouched -- `ant.ron` as authored (units 0/1 Bias -45 / Carrying 45.5; units 2/3 Bias 45 / Carrying -75)");
+    } else {
+        println!("  arena:  hidden={}", gate.spec());
+    }
 }
