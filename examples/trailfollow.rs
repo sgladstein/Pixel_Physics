@@ -358,6 +358,11 @@ struct Arm {
     /// could plausibly have happened, distance is not being tested at all --
     /// lifespan is.
     all_dead_frame: u64,
+    /// **Creature sites the scheduler actually dispatched** -- the
+    /// "was it asked at all" counter. A colony that survives while eating
+    /// nothing is either being fed or is not being ticked, and only this
+    /// separates them.
+    ticks: u64,
     /// Times a body traded places with a nestmate -- the "did it fire" counter
     /// for `kinpass`, which must read 0 when the switch is off.
     kin_swaps: u64,
@@ -934,6 +939,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         eaten_j: diet_by_material(&w, larder).0,
         ate_other_j: diet_by_material(&w, larder).1,
         founded: if founded.0 == i32::MAX { (0, 0) } else { founded },
+        ticks: st.ticks,
         kin_swaps: st.kin_swaps,
         blocked: st.moves_blocked,
         first_arrival,
@@ -1152,8 +1158,8 @@ fn main() {
                     // positive means it rises toward the NEST, which is §1c's
                     // prediction and the wrong way round for finding food.
                     println!(
-                        "{:>16}own trail: route pk {:>4} end {:>4} along {:>+7.4}   blocked {:>9}  kin swaps {:>8}",
-                        "", a.peak_cells, a.live_cells, a.natural_along, a.blocked, a.kin_swaps
+                        "{:>16}own trail: route pk {:>4} end {:>4} along {:>+7.4}   blocked {:>8}  kin swaps {:>7}  ticks {:>9}",
+                        "", a.peak_cells, a.live_cells, a.natural_along, a.blocked, a.kin_swaps, a.ticks
                     );
                 }
             }
