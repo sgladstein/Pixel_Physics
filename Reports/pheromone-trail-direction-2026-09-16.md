@@ -845,3 +845,155 @@ nest-local handling cannot fake. Not yet built.
 - `examples/trailfollow.rs` — the colony-scale question and the `gate=`
   presets. Note its presets each overwrite **both** gate pairs, so no row of
   its `mode=arith` table is the shipped ant, which is a mix.
+
+## Appendix A. Raw per-seed data
+
+Kept in full because outcomes here have enormous spread, and every headline in
+§7 is a pooled or median figure over six seeds. A reader who wants to check a
+claim, or re-derive a different statistic from the same runs, needs the rows.
+All four datasets were produced on this branch between 2026-09-16 14:00 and
+17:30 and existed nowhere but a scratch directory until now.
+
+### A.1 Laden homing on the played bed — Phase 1.0, six seeds, three arms
+
+`nesthome scene=bed`, 40,000 frames. `shipped` is the untouched genome;
+`noemit` pins `ho_slot(4, EmitA)` to zero, so no channel A is laid at all;
+`nosteer` cuts the reader. This is the six-seed version of the sweep
+`nest-design-2026-09-14.md` §12 asked for on `main`.
+
+| arm | seed | alive | pickups | deliv | trips | deepest | laden nest% | laden food% |
+|---|---|---|---|---|---|---|---|---|
+| shipped | 1 | 75 | 6,943 | 290 | 35 | 28 | 9.2 | 29.8 |
+| shipped | 2 | 80 | 6,975 | 646 | 6 | 17 | 31.1 | 39.5 |
+| shipped | 3 | 122 | 17,669 | 7,505 | 10 | 13 | 18.8 | 19.3 |
+| shipped | 4 | 30 | 3,126 | 139 | 0 | 7 | 2.8 | 84.1 |
+| shipped | 5 | 85 | 10,164 | 2,853 | 8 | 10 | 11.6 | 39.9 |
+| shipped | 6 | 61 | 6,011 | 218 | 21 | 35 | 30.3 | 24.8 |
+| noemit | 1 | 90 | 7,144 | 34 | 42 | 25 | 0.1 | 37.3 |
+| noemit | 2 | 82 | 7,356 | 529 | 12 | 17 | 26.0 | 42.5 |
+| noemit | 3 | 120 | 17,396 | 7,667 | 4 | 11 | 17.6 | 13.9 |
+| noemit | 4 | 51 | 3,745 | 48 | 0 | 7 | 4.0 | 81.9 |
+| noemit | 5 | 97 | 11,170 | 3,105 | 3 | 8 | 15.4 | 47.0 |
+| noemit | 6 | 77 | 7,057 | 357 | 22 | 45 | 47.7 | 21.1 |
+| nosteer | 1 | 85 | 7,429 | 45 | 46 | 38 | 2.8 | 24.3 |
+| nosteer | 2 | 71 | 6,640 | 839 | 15 | 18 | 35.1 | 34.9 |
+| nosteer | 3 | 159 | 17,419 | 4,878 | 15 | 17 | 16.7 | 16.1 |
+| nosteer | 4 | 45 | 3,085 | 63 | 1 | 18 | 1.7 | 83.0 |
+| nosteer | 5 | 113 | 12,251 | 3,707 | 5 | 45 | 17.2 | 47.8 |
+| nosteer | 6 | 68 | 5,480 | 181 | 15 | 49 | 17.5 | 36.9 |
+
+Medians:
+
+| arm | laden nest% | deepest | trips |
+|---|---|---|---|
+| shipped | **15.2** | 15 | 9 |
+| noemit | 16.5 | 21 | 8 |
+| nosteer | 17.0 | 28 | 15 |
+
+**Read `laden nest%`, not `deliv`.** The delivery column here is the same
+contaminated counter §7.7 disproves — any drop inside the nest band scores one
+— so it cannot attribute provisioning in this sweep either. `laden nest%` is
+positional (the share of *laden* ant-samples standing in the nest band) and is
+not affected by that defect.
+
+On that column the arms do not separate, and **the shipped arm has the lowest
+median of the three** — cutting the homing circuit does not measurably reduce
+the share of laden ants found at home. Per §7.4 this is **inconclusive rather
+than negative**: the bed's moat fills in, so by the time these samples are
+taken there is food inside the nest band and a laden ant has no trip to make.
+The one column that does move is `deepest` — cutting the reader (`nosteer`)
+nearly doubles the median excursion, 15 to 28 — which is what a circuit that
+pulls ants home would do, and which says nothing about whether they carry
+anything when they get there.
+
+### A.2 The gap sweep, provisioned — the data behind §7.6
+
+`trailfollow mode=gap`, `food=200 refill=4000`, trail hand-laid to frame 6,000
+then released, 24,000 frames. `alive` is written as *end/min*. `near on` counts
+ant-ticks within 10 cells of the food in the trail arm.
+
+| gap | seed | alive on | alive off | deliv on | deliv off | trips on | near on |
+|---|---|---|---|---|---|---|---|
+| 90 | 1 | 10/10 | 0/0 | 4 | 5 | 7 | 190,921 |
+| 90 | 2 | 5/5 | 5/2 | 1 | 78 | 6 | 186,196 |
+| 90 | 3 | 9/9 | 1/1 | 9 | 16 | 7 | 163,819 |
+| 90 | 4 | 1/1 | 3/2 | 13 | 18 | 8 | 166,015 |
+| 90 | 5 | 17/17 | 2/1 | 14 | 20 | 6 | 183,173 |
+| 90 | 6 | 15/15 | 2/2 | 9 | 13 | 13 | 215,979 |
+| 150 | 1 | 1/1 | 4/3 | 0 | 36 | 7 | 141,798 |
+| 150 | 2 | 0/0 | 9/8 | 32 | 16 | 6 | 82,799 |
+| 150 | 3 | 13/13 | 10/10 | 10 | 13 | 13 | 118,433 |
+| 150 | 4 | 4/4 | 0/0 | 4 | 28 | 4 | 142,351 |
+| 150 | 5 | 2/2 | 4/2 | 19 | 56 | 7 | 139,517 |
+| 150 | 6 | 4/4 | 5/5 | 1 | 22 | 11 | 174,781 |
+| 220 | 1 | 0/0 | 0/0 | 31 | 58 | 10 | 4,554 |
+| 220 | 2 | 3/2 | 0/0 | 7 | 19 | 6 | 17,845 |
+| 220 | 3 | 2/2 | 0/0 | 16 | 31 | 15 | 25,611 |
+| 220 | 4 | 0/0 | 0/0 | 18 | 20 | 6 | 6,114 |
+| 220 | 5 | 0/0 | 0/0 | 22 | 13 | 6 | 5,292 |
+| 220 | 6 | 2/2 | 0/0 | 0 | 36 | 7 | 13,146 |
+| 300 | 1 | 0/0 | 0/0 | 0 | 30 | 4 | 0 |
+| 300 | 2 | 0/0 | 0/0 | 0 | 41 | 5 | 0 |
+| 300 | 3 | 0/0 | 0/0 | 6 | 60 | 10 | 0 |
+| 300 | 4 | 0/0 | 0/0 | 4 | 37 | 4 | 0 |
+| 300 | 5 | 0/0 | 0/0 | 13 | 12 | 4 | 0 |
+| 300 | 6 | 0/0 | 0/0 | 10 | 48 | 10 | 0 |
+
+The gap-300 block is §7.7's disproof in one glance: `near on` is **0 in every
+seed** — no ant ever came within 10 cells of the food — while `deliv on` reads
+0, 0, 6, 4, 13, 10.
+
+Note also that `near on` does not collapse gradually. It is ~180,000 at gap 90,
+~130,000 at 150, ~12,000 at 220 and exactly 0 at 300. The trail stops being
+reachable somewhere between 150 and 220, which is a **range** limit rather than
+a reading limit, and it is upstream of everything in Phase 2.
+
+### A.3 The same sweep under-provisioned — the data behind §7.5
+
+`food=60`, placed once, no refill: 7,200 J against a ~46,800 J need.
+
+| gap | seed | alive on | alive off | deliv on | deliv off | trips on | near on |
+|---|---|---|---|---|---|---|---|
+| 90 | 1 | 0/0 | 0/0 | 5 | 21 | 8 | 88,224 |
+| 90 | 2 | 0/0 | 0/0 | 17 | 33 | 7 | 96,726 |
+| 90 | 3 | 0/0 | 0/0 | 46 | 67 | 14 | 86,424 |
+| 150 | 1 | 0/0 | 0/0 | 0 | 65 | 6 | 61,200 |
+| 150 | 2 | 0/0 | 0/0 | 20 | 27 | 7 | 88,344 |
+| 150 | 3 | 0/0 | 0/0 | 29 | 44 | 13 | 82,674 |
+| 220 | 1 | 0/0 | 0/0 | 0 | 17 | 6 | 1,386 |
+| 220 | 2 | 0/0 | 0/0 | 2 | 20 | 5 | 540 |
+| 220 | 3 | 0/0 | 0/0 | 20 | 121 | 13 | 1,098 |
+| 300 | 1 | 0/0 | 0/0 | 0 | 19 | 4 | 0 |
+| 300 | 2 | 0/0 | 0/0 | 4 | 7 | 8 | 0 |
+| 300 | 3 | 0/0 | 0/0 | 11 | 64 | 11 | 0 |
+
+**Every row reads `alive 0/0`, at every gap including the shortest.** That is
+what a supply of 15% of need looks like, and it is why no distance conclusion
+can be drawn from it. Running the energy arithmetic before the sweep would have
+cost a minute and saved the run.
+
+### A.4 What a laden ant on the bed is actually carrying
+
+`foodroad`-style census of `played_bed`, seed 1, 40,000 frames, sampled every
+50:
+
+```
+ant-samples:  empty 811,919   crop-only 24,205   spoil 1,091   both 1,523
+laden total 26,819  =  3.2% of all samples
+of laden samples:  crop 90.3%   spoil-involved 9.7%
+digs 378   pickups 6,943   deliveries 290   forage trips 35   moves 18,382
+plane totals:  A 22,738     B 549,429
+```
+
+Three things to take from it, each load-bearing for Phase 2.1:
+
+- **An ant is laden 3.2% of the time**, so channel B is written by a small
+  minority of moves — but that minority writes **24x more plane mass than
+  channel A**, because `(Carrying, EmitB, 2.5)` is a direct wire while `EmitA`
+  comes off a decaying odometer.
+- **9.7% of laden samples involve spoil**, not food. That fraction of channel B
+  is dig tailings, written onto the plane a forager is supposed to read as a
+  route.
+- **6,943 pickups against 35 forage trips.** Almost all laden movement is
+  local handling, not commuting — which is the dilution §2.0 describes, and the
+  reason the fix is to charge the emitter from food rather than from `Carrying`.
