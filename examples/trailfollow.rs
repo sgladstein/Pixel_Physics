@@ -45,7 +45,9 @@
 
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::sim::brain::{self, BrainInput as I, BrainOutput as O};
+use pixel_physics::sim::creature;
 use pixel_physics::sim::explosion::Blasts;
+use pixel_physics::sim::material::MaterialId;
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::pheromone::{self, Channel};
 use pixel_physics::sim::Cell;
@@ -271,6 +273,56 @@ struct Arm {
     /// about trail shape, it is a loop that never seeded.
     trips: u64,
     deliveries: u64,
+    /// **What those cells were worth to this ant**, in joules -- the
+    /// provisioning denominator, and the number whose absence produced two
+    /// wrong published claims on this branch.
+    ///
+    /// It is `larder_placed * creature::diet_yield(larder, gut)`, so it carries
+    /// the gut filter that face value drops. At the shipped **neutral** gut
+    /// `diet_quality` is 0.25 against either end of the food-class axis, which
+    /// is a 4x difference from the face value in the material table -- and
+    /// reading face value is exactly how `food=200 refill=4000` was published
+    /// as 168,000 J when it was about 42,000 J, against a need near 46,800 J
+    /// for 52 ants over 24,000 frames. Print the denominator beside the intake
+    /// and a starving colony stops looking like a deaf one.
+    supply_j: f64,
+    /// **Joules the colony actually ate**, from `EnergyLedger::harvested_plant`
+    /// -- the provisioning measure `deliveries` cannot be.
+    ///
+    /// `CreatureStats::deliveries` increments on *any* drop while `at_nest`
+    /// (`creature.rs:8012`), whatever was dropped and wherever it came from, so
+    /// in a scene where the colony dies in its own nest it mostly counts corpse
+    /// shuffling. The disproof is in this harness's own gap sweep: at gap 300
+    /// `near on` is **0 in all six seeds** -- not one ant ever came within ten
+    /// cells of the food -- while `deliv on` reads 0, 0, 6, 4, 13, 10.
+    ///
+    /// With `onlyfood` set this is attributable by construction: the larder is
+    /// the only thing in the world with a non-zero food value, so every joule
+    /// here came off it.
+    ///
+    /// **It replaced a cell census that was counting rot.** The first version
+    /// of this column was `placed - still standing`, which looked principled
+    /// and read **240/300 in all four arms of a two-seed control** -- exactly
+    /// `CLAUDE.md`'s tidiness tell. `windfall.ron` sets `decays_into: "soil"`,
+    /// so the larder rots on its own schedule whether or not an ant is alive to
+    /// eat it, and a colony that was already dead scored the same "intake" as
+    /// one that was not. The ledger cannot be fooled that way: rot books
+    /// nowhere.
+    eaten_j: f64,
+    /// **Joules eaten off `aux`-stamped corpses, which under `onlyfood` must be
+    /// exactly 0** -- the isolation check, printed rather than asserted so a
+    /// leak is visible in the table instead of killing a sweep.
+    ///
+    /// `EnergyLedger::harvested_corpse` books the `worth_in_aux` branch of
+    /// `creature::food_value`. `Diet::isolate` clears that flag everywhere, so
+    /// a non-zero here means the isolation did not hold and no other column in
+    /// the row can be attributed.
+    corpse_j: f64,
+    /// **Larder cells standing inside the nest band at any sample** -- food
+    /// physically hauled home, as opposed to eaten where it was found. Peak
+    /// rather than final, because it is a "did this ever happen" counter and
+    /// the cells are consumed after they arrive.
+    larder_home_peak: u64,
     /// Route cells still holding any channel B at the end. With `stop=` set,
     /// this is the *ants'* trail -- the hand-laid one stopped being refreshed
     /// at frame `stop` and a cell laid at `DEPOSIT` dies in ~144 frames.
@@ -314,8 +366,81 @@ struct Arm {
 /// One arm: one seed, trail on or off, one gate.
 // Eight against clippy's ceiling of seven: these are the arm's axes, and a
 // struct would hide that each one is independently swept.
+/// **What the colony is allowed to eat**, and why it is a knob rather than a
+/// constant.
+///
+/// Owner's question, 2026-09-16: *"can we turn off corpses (or anything other
+/// than the intentionally placed larder) counting as food, so that ants can
+/// only eat what we intend and we can only record if they are eating what we
+/// intend?"* Yes -- and the arithmetic it exposes is worse than the tidiness
+/// problem it was asked about.
+///
+/// At the shipped ant's **neutral gut** (`ant.ron` `traits` slot 0 = 0.0)
+/// `creature::diet_quality` returns `(1 - |0 - class|/2)^2` = **0.25** against
+/// either end of the axis, so a cell is worth a quarter of its face value. The
+/// two kinds of corpse in this scene are then not worth the same thing at all:
+///
+/// | cell | priced by | face | yield at a neutral gut |
+/// |---|---|---|---|
+/// | larder placed here, `Cell::new(corpse, 0)` | `food_energy`, since `aux` is 0 | 120 | **30 J** |
+/// | a dead ant's corpse | its `aux` stamp, `body_energy` | 480 | **120 J** |
+///
+/// **A dead nestmate is worth four larder cells.** So every `mode=gap` row
+/// recorded before this knob existed was a colony with a richer food source
+/// lying inside its own nest than the one it was being asked to walk to -- and
+/// the energy figure published for those runs took face value and dropped the
+/// 0.25 entirely: `food=200 refill=4000` is about **42,000 J**, not the
+/// 168,000 J claimed, against a need near 46,800 J. Under-provisioned, not
+/// 3.6x over.
+#[derive(Clone, Copy)]
+struct Diet {
+    /// The material placed at the target. **Never `corpse`** when `only` is
+    /// set -- see `isolate`.
+    larder: &'static str,
+    /// Zero every other material's food value, so intake is attributable.
+    only: bool,
+}
+
+impl Diet {
+    /// **Make the placed larder the only food in the world.**
+    ///
+    /// Two steps, and the second is what a `food_energy = 0.0` sweep on its own
+    /// gets wrong. `creature::food_value` prefers the *cell's* `aux` stamp
+    /// wherever the material sets `worth_in_aux`, and **`corpse` is the only
+    /// material in the tree that sets it**. A starved ant's corpse is stamped
+    /// with its `body_energy` (480) at death, so zeroing `corpse.food_energy`
+    /// leaves every corpse in the world worth exactly what it was worth before.
+    /// The flag has to come off too, and that is not a detail: it is the whole
+    /// difference between isolating the larder and appearing to.
+    ///
+    /// Enumerated from the table rather than listed by name, per `CLAUDE.md`'s
+    /// "adding a member to a set enrols it in every rule over that set" -- a
+    /// food added tomorrow is covered without anyone remembering to come back.
+    fn isolate(self, w: &mut pixel_physics::sim::world::World, larder: MaterialId) {
+        if !self.only {
+            return;
+        }
+        let dead = w.materials.id_of("corpse").expect("corpse is compiled in");
+        assert_ne!(
+            larder, dead,
+            "larder=corpse defeats onlyfood: with `worth_in_aux` cleared a dead ant's corpse is \
+             priced by the same `food_energy` as a placed larder cell, so the colony still eats \
+             itself and intake is still unattributable. Use a material the ants cannot produce -- \
+             fruit is the default for exactly this reason."
+        );
+        let keep = w.materials.get(larder).food_energy;
+        assert!(keep > 0.0, "the larder material carries no food_energy; there would be nothing to eat");
+        for id in (0..w.materials.len() as u16).map(MaterialId) {
+            let m = w.materials.get_mut(id);
+            m.food_energy = 0.0;
+            m.worth_in_aux = false;
+        }
+        w.materials.get_mut(larder).food_energy = keep;
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
-fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, near: i32, food: i32, stop: u64, gap: i32, refill: u64) -> Arm {
+fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, near: i32, food: i32, stop: u64, gap: i32, refill: u64, diet: Diet) -> Arm {
     // **The box grows with the gap.** `far_larder` pins food 363 cells from
     // its colony and every one of its 52 ants starves by frame 20,000 --
     // measured, `latecensus scenario=far_larder`: ants 52 -> 0, eats 87 in
@@ -349,7 +474,11 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // departure from this file's "no food at the target" rule: that rule exists
     // so the count is attributable to the trail alone, which is right for the
     // pull question and wrong for the loop question.
-    let corpse = w.materials.id_of("corpse").expect("corpse is compiled in");
+    let larder = w
+        .materials
+        .id_of(diet.larder)
+        .unwrap_or_else(|| panic!("larder material {:?} is not compiled in", diet.larder));
+    diet.isolate(&mut w, larder);
     // **Placed as a closure because it has to be REPLENISHED, and the arithmetic
     // says why.** 52 ants at two cells, `idle_cost_per_cell` 0.05 and
     // `move_cost_per_cell` 0.125 on a 6-frame tick, need roughly **46,800 J**
@@ -366,15 +495,48 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // scale: all food sits at one far coordinate, so abundance there does not
     // shorten the journey. It isolates distance from scarcity, which is the
     // whole point of the sweep.
-    let place_food = |w: &mut pixel_physics::sim::world::World, n: i32| {
+    //
+    // **It counts what it actually introduced**, not what it was asked for: a
+    // refill overwrites coordinates that may still hold larder from last time,
+    // and counting the request would book those twice and make `taken` read
+    // high for ever.
+    let place_food = |w: &mut pixel_physics::sim::world::World, n: i32, placed: &mut u64| {
         for i in 0..n {
             let (fx, fy) = (target_x + (i % 12) - 6, surface - (i / 12));
-            w.set(fx, fy, Cell::new(corpse, 0));
+            if w.get(fx, fy).material != larder {
+                *placed += 1;
+            }
+            w.set(fx, fy, Cell::new(larder, 0));
         }
     };
+    let mut larder_placed = 0u64;
     if food > 0 {
-        place_food(&mut w, food);
+        place_food(&mut w, food, &mut larder_placed);
     }
+    // **Whole world, not the target box.** A cell that has been carried
+    // anywhere has left the larder, and a box census would book a hauled cell
+    // as an eaten one. `home` mirrors `creature.rs`'s private
+    // `COLONY_HALF_WIDTH` (26) -- the nest band an ant is judged `AtNest`
+    // against -- so a rise in it is food that arrived where it was wanted.
+    let census_larder = |w: &pixel_physics::sim::world::World| -> (u64, u64) {
+        let (mut total, mut home) = (0u64, 0u64);
+        for x in 0..width {
+            for y in 0..spec.height {
+                if w.get(x, y).material == larder {
+                    total += 1;
+                    if (x - nest_x).abs() <= 26 {
+                        home += 1;
+                    }
+                }
+            }
+        }
+        (total, home)
+    };
+    let mut larder_home_peak = 0u64;
+    // The larder priced the way the animal prices it, not the way the material
+    // table reads. See `Arm::supply_j`.
+    let gut_bias = w.species.get(species_id).creature.as_ref().expect("ant is a creature").traits[0];
+    let per_cell_j = creature::diet_yield(&w, Cell::new(larder, 0), gut_bias) as f64;
     for id in w.live_organism_ids() {
         if w.organism(id).is_some_and(|s| s.species == species_id) {
             assert!(w.set_organism_genome(id, genome.clone()), "the founder must be live when its genome is set");
@@ -403,7 +565,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         }
         frame::step(&mut w, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
         if food > 0 && refill > 0 && f.is_multiple_of(refill) {
-            place_food(&mut w, food);
+            place_food(&mut w, food, &mut larder_placed);
         }
         alive_min = alive_min.min(w.live_creature_count());
         // Only sampled once hand-laying has stopped, so this counts the ants'
@@ -426,6 +588,9 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         // Sampling at `stop + 288` therefore still caught the hand-laid trail
         // fully intact, and every arm reported a peak of exactly the route
         // length twice over before this was caught.
+        if food > 0 && f.is_multiple_of(100) {
+            larder_home_peak = larder_home_peak.max(census_larder(&w).1);
+        }
         if stop > 0 && f > stop + 1500 && f.is_multiple_of(100) {
             let live = (nest_x..=target_x).filter(|&x| w.pheromone_at(Channel::B, x, surface) > 0).count();
             peak_cells = peak_cells.max(live);
@@ -497,6 +662,10 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         alive_min: if alive_min == usize::MAX { 0 } else { alive_min },
         trips: st.forage_trips,
         deliveries: st.deliveries,
+        supply_j: larder_placed as f64 * per_cell_j,
+        eaten_j: w.energy_ledger.harvested_plant,
+        corpse_j: w.energy_ledger.harvested_corpse,
+        larder_home_peak,
         live_cells,
         peak_cells,
         natural_along: if nat_n == 0 { 0.0 } else { (nat_sum / nat_n as f64) as f32 },
@@ -528,6 +697,44 @@ fn main() {
     // Frames between food replenishments at the target. 0 places it once,
     // which the arithmetic above shows is a guaranteed starvation.
     let refill: u64 = arg("refill").unwrap_or(0);
+    // **`onlyfood` defaults ON, and that changes what every earlier row of this
+    // harness meant.** See `Diet`: a dead ant's corpse is worth four placed
+    // larder cells, so a colony measured without this was being fed mostly by
+    // its own dead and no intake figure from it was attributable. To reproduce
+    // a row recorded before 2026-09-16, pass `onlyfood=off larder=corpse`.
+    let onlyfood = match arg_str("onlyfood").as_deref() {
+        None | Some("on") => true,
+        Some("off") => false,
+        Some(other) => panic!("onlyfood={other:?}; expected on or off"),
+    };
+    // **`fruit`, and the choice is measured rather than picked.** Two
+    // properties are needed and only three materials have both.
+    //
+    // *Nothing in the world may produce it*, or the larder is not isolable --
+    // `Diet::isolate`'s assert. With `founders: 0` there are no plants here, so
+    // any plant food qualifies and `corpse` does not.
+    //
+    // *It must not rot*, and this is the one that had to be caught by running
+    // it. `windfall` was the first default and it sets `decays_into: "soil"`;
+    // `decay.rs` checks every 200 ticks at a 0.05 chance once damp, so over
+    // 8,000 frames about 87% of a placement is gone on its own. Measured on a
+    // two-seed control: **240 of 300 cells vanished while the colony ate 5.**
+    // A larder that rots fifty times faster than the colony eats it cannot
+    // measure foraging at any distance.
+    //
+    // `fruit`, `seed` and `moss` are the three edible materials in the tree
+    // with no `decays_into`. `fruit` is the richest at 960 face -- 240 J at the
+    // shipped neutral gut, the same per-cell value `windfall` had, so a food=
+    // setting means what it meant before.
+    // Leaked rather than whitelisted: a match arm per material is a list that
+    // goes stale the moment somebody adds a food, and `Diet::isolate` already
+    // panics by name for anything not in the table.
+    let larder: &'static str = arg_str("larder").map_or("fruit", |v| &*Box::leak(v.into_boxed_str()));
+    let diet = Diet { larder, only: onlyfood };
+    // Echo it, because a knob nobody can see the value of is a knob nobody can
+    // tell is disconnected -- `CLAUDE.md`, after a 3.5-hour study came back as
+    // three populations wearing 24 logs.
+    println!("  diet: larder={larder} onlyfood={}", if onlyfood { "on" } else { "off" });
 
     if flag("spec") {
         println!("{}", gate.spec());
@@ -569,26 +776,49 @@ fn main() {
         // on the same seed: with a hand-laid trail and without.
         //
         // Read it as three columns, not one. `alive` says whether the colony
-        // can live there at all; `deliv off` says whether it reaches the food
+        // can live there at all; `ate J off` says whether it reaches the food
         // *unaided*, so a gap where that is already healthy cannot show a
-        // trail doing anything; `deliv on` against it says whether the trail
+        // trail doing anything; `ate J on` against it says whether the trail
         // buys reach. The testable band is where the colony lives, the
         // unaided arm is near zero, and the trail arm is not.
         assert!(food > 0, "mode=gap needs food= at the target, or there is nothing to reach");
-        println!("{:>6} {:>5} {:>11} {:>11} {:>9} {:>9} {:>9} {:>9}", "gap", "seed", "alive on", "alive off", "deliv on", "deliv off", "trips on", "near on");
+        println!(
+            "{:>6} {:>5} {:>11} {:>11} {:>10} {:>10} {:>10} {:>7} {:>7} {:>8}",
+            "gap", "seed", "alive on", "alive off", "ate J on", "ate J off", "supply J", "corpseJ", "home on", "near on"
+        );
         println!("{:->6} {:->5} {:->11} {:->11} {:->9} {:->9} {:->9} {:->9}", "", "", "", "", "", "", "", "");
-        for g in [90, 150, 220, 300] {
+        // **A knob, because it was silently ignored as one.** `gaps=90` on the
+        // command line did nothing and the run swept the hardcoded four --
+        // `CLAUDE.md`'s "an unknown argument is silently ignored", which cost a
+        // 3.5-hour study once already.
+        let gaps: Vec<i32> = arg_str("gaps")
+            .map(|v| v.split(',').map(|t| t.trim().parse().expect("gaps= takes a comma-separated list of integers")).collect())
+            .unwrap_or_else(|| vec![90, 150, 220, 300]);
+        for g in gaps {
             for s in seed0..seed0 + seeds {
-                let on = run(s, true, gate, frames, ants, relay, near, food, stop, g, refill);
-                let off = run(s, false, gate, frames, ants, relay, near, food, stop, g, refill);
+                let on = run(s, true, gate, frames, ants, relay, near, food, stop, g, refill, diet);
+                let off = run(s, false, gate, frames, ants, relay, near, food, stop, g, refill, diet);
                 println!(
-                    "{g:>6} {s:>5} {:>5}/{:<5} {:>5}/{:<5} {:>9} {:>9} {:>9} {:>9}",
-                    on.alive_end, on.alive_min, off.alive_end, off.alive_min, on.deliveries, off.deliveries, on.trips, on.near_ticks
+                    "{g:>6} {s:>5} {:>5}/{:<5} {:>5}/{:<5} {:>10.0} {:>10.0} {:>10.0} {:>7.0} {:>7} {:>8}",
+                    on.alive_end,
+                    on.alive_min,
+                    off.alive_end,
+                    off.alive_min,
+                    on.eaten_j,
+                    off.eaten_j,
+                    on.supply_j,
+                    // One column for both arms: it must be 0 in every row, so
+                    // it is printed as a check rather than as a comparison.
+                    on.corpse_j + off.corpse_j,
+                    on.larder_home_peak,
+                    on.near_ticks
                 );
             }
         }
-        println!("\n  Testable band = colony alive, `deliv off` ~0, `deliv on` > 0.");
-        println!("  A gap where `deliv off` is already healthy cannot show a trail doing anything.");
+        println!("\n  Testable band = colony alive, `ate J off` ~0, `ate J on` > 0.");
+        println!("  `corpseJ` must read 0 in every row: it is the check that `onlyfood` held.");
+        println!("  `ate J` against `supply J` says whether the colony was provisioned or just deaf.");
+        println!("  A gap where `ate J off` is already healthy cannot show a trail doing anything.");
         println!("  A gap where `alive on` reaches 0 is measuring a dead colony, not a deaf one.");
         return;
     }
@@ -618,7 +848,7 @@ fn main() {
         println!("{:->5} {:->5} {:->7} {:->7} {:->9} {:->9} {:->10} {:->9} {:->20} {:->6}", "", "", "", "", "", "", "", "", "", "");
         for a in [10, 20, 40, 80] {
             for s in seed0..seed0 + seeds {
-                let r = run(s, true, gate, frames, a, relay, near, food, stop, gap, refill);
+                let r = run(s, true, gate, frames, a, relay, near, food, stop, gap, refill, diet);
                 let lt: u64 = r.laden_by_third.iter().sum();
                 let pc = |n: u64| if lt == 0 { 0.0 } else { 100.0 * n as f64 / lt as f64 };
                 println!(
@@ -651,8 +881,8 @@ fn main() {
     let (mut on_tot, mut off_tot) = (0u64, 0u64);
     let mut moved_up = 0;
     for s in seed0..seed0 + seeds {
-        let on = run(s, true, gate, frames, ants, relay, near, food, stop, gap, refill);
-        let off = run(s, false, gate, frames, ants, relay, near, food, stop, gap, refill);
+        let on = run(s, true, gate, frames, ants, relay, near, food, stop, gap, refill, diet);
+        let off = run(s, false, gate, frames, ants, relay, near, food, stop, gap, refill, diet);
         // Ant-ticks differ between arms if one arm's ants die sooner, so the
         // share is what compares: a raw count that fell because the colony
         // shrank is not a colony that stopped following.
