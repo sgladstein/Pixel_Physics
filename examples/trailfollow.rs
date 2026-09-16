@@ -418,6 +418,11 @@ struct Arm {
     /// at frame `stop` and a cell laid at `DEPOSIT` dies in ~144 frames.
     live_cells: usize,
     /// Peak route cells alive at any sample after laying stopped.
+    ///
+    /// **Read against the `hmute` arm, never alone.** The sampling window does
+    /// not clear the hand-laid trail -- see the arm table in `main` -- so this
+    /// column includes our own decaying deposit. `hmute` is that deposit with
+    /// the ants silenced, and the difference is what the colony maintained.
     peak_cells: usize,
     /// The ants' own trail, as the gradient a reader would compute along it,
     /// **positive = climbing toward the nest**. This is §1c's single-ant
@@ -1080,8 +1085,29 @@ fn main() {
         // conclusions.
         //
         //   hand   the ramp is laid for them until `stop`, then released
+        //   hmute  the ramp is laid, but `EmitB` is zeroed: the DECAY BASELINE
         //   self   no ramp; the ants lay and read their own channel B
         //   mute   no ramp, and `EmitB` is zeroed -- no channel B can exist
+        //
+        // **`hmute` exists because `route pk` could not tell a maintained trail
+        // from a dying one.** That column read the full route length -- 88 at
+        // gap 90, 146 at 150, 213 at 220 -- in **12 of 12 seeds at every gap**,
+        // including gap 220 where eleven colonies of twelve die and only two
+        // seeds ever land an ant on the food. A full-route trail in a seed
+        // where nobody walked the route is not the ants' trail, and a value
+        // that exact in every seed is `CLAUDE.md`'s tidiness signature.
+        //
+        // The cause was the sampling margin, and it was mis-derived rather than
+        // merely tight. `stop + 1500` was set against the measured ~1,476-frame
+        // lifetime of a cell laid once at `DEPOSIT` -- but `lay` re-deposits
+        // every `relay` frames for the whole of `stop`, about a hundred times,
+        // so those cells saturate far above a single deposit and take far
+        // longer to fall. The window was sized against the wrong constant.
+        //
+        // `hmute` fixes it by subtraction rather than by guessing a longer
+        // window: it lays the identical ramp and forbids the ants to lay, so
+        // every route cell it still shows is pure decay of OUR trail. Whatever
+        // `hand` holds above that baseline is the colony's own.
         //
         // `self` vs `mute` is the question this whole investigation is named
         // for: **do the ants' own trails do anything?** `hand` vs `self` only
@@ -1108,7 +1134,7 @@ fn main() {
             .unwrap_or_else(|| vec![90, 150, 220, 300]);
         for g in gaps {
             for s in seed0..seed0 + seeds {
-                for (name, trail, mute) in [("hand", true, false), ("self", false, false), ("mute", false, true)] {
+                for (name, trail, mute) in [("hand", true, false), ("hmute", true, true), ("self", false, false), ("mute", false, true)] {
                     let a = run(s, trail, gate, frames, ants, relay, near, food, stop, g, refill, diet, mute);
                     if diet.only {
                         assert_eq!(a.ate_other_j, 0.0, "gap {g} seed {s} arm {name}: {} J eaten off something that is not the larder, so onlyfood did not hold and no column in this row is attributable", a.ate_other_j);
