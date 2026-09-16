@@ -12456,12 +12456,38 @@ fn try_swap_with_kin(world: &mut World, organism: OrganismId, def: &CreatureDef,
             }
         }
         let mine: Vec<(i32, i32)> = chain.to_vec();
+        let other_head = mine[0];
         if let Some(st) = world.organism_mut(organism) {
             st.chain = theirs;
         }
         if let Some(st) = world.organism_mut(other) {
             st.chain = mine;
         }
+        // **The displaced animal needs a new site, and this is the whole of
+        // the bug the first version shipped with.** `creature_tick`'s opening
+        // guard says it out loud: *"the active site sits on the head"*, and a
+        // tick that arrives to find somebody else's cell there reconciles and
+        // returns **no site at all** -- "not dead, not scheduled, just an
+        // orphan standing in the world forever". The mover is fine, because
+        // `creature_tick` builds its next site from the live head after the
+        // step; the animal that was swapped *out* is not, because nothing in
+        // its own tick ran.
+        //
+        // Measured before the fix, `ticks` per 1,000 ant-frames against the
+        // 167 a 6-frame `tick_interval` implies: **172 and 173 with the switch
+        // off, 42 and 24 with it on.** The frozen ants never ticked, so they
+        // were never charged, never starved, and read as a colony surviving on
+        // no food at all -- `CLAUDE.md`'s "a cost that vanishes may be work
+        // that vanished", with the vanished work being the animal's whole
+        // existence.
+        //
+        // Its stale site is left to evaporate rather than hunted down: when it
+        // fires, the guard above finds a stranger's cell, `reconcile_chain`
+        // reads the *chain* -- which is correct, having just been rewritten --
+        // finds the body intact, and the site is dropped with nothing else
+        // changed.
+        let due = world.creature_due(organism_tick_interval(world, other, def));
+        world.schedule_active_site(ActiveSite { x: other_head.0, y: other_head.1, kind: ActiveKind::Creature { organism: other }, next_frame: due });
         world.creature_stats.kin_swaps += 1;
         return Some(d);
     }
