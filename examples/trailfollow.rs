@@ -285,9 +285,18 @@ struct Arm {
     /// as 168,000 J when it was about 42,000 J, against a need near 46,800 J
     /// for 52 ants over 24,000 frames. Print the denominator beside the intake
     /// and a starving colony stops looking like a deaf one.
+    ///
+    /// **It is a nominal figure, not a ceiling, and `ate J` may legitimately
+    /// exceed it.** The gut is heritable -- `ant.ron`'s `trait_variance` slot 0
+    /// is 0.15 -- so an individual whose gut has drifted toward the plant end
+    /// draws more from a class -1.0 larder than the species' authored 0.0 does,
+    /// up to 4x at a perfectly matched gut. This column prices the larder at
+    /// the **authored** gut because that is the number a scene is designed
+    /// against; read it as "roughly how much was put out", never as a
+    /// conservation bound.
     supply_j: f64,
-    /// **Joules the colony actually ate**, from `EnergyLedger::harvested_plant`
-    /// -- the provisioning measure `deliveries` cannot be.
+    /// **Joules the colony ate off the larder specifically**, from
+    /// `ColonyBooks::diet()` -- the provisioning measure `deliveries` cannot be.
     ///
     /// `CreatureStats::deliveries` increments on *any* drop while `at_nest`
     /// (`creature.rs:8012`), whatever was dropped and wherever it came from, so
@@ -296,9 +305,12 @@ struct Arm {
     /// `near on` is **0 in all six seeds** -- not one ant ever came within ten
     /// cells of the food -- while `deliv on` reads 0, 0, 6, 4, 13, 10.
     ///
-    /// With `onlyfood` set this is attributable by construction: the larder is
-    /// the only thing in the world with a non-zero food value, so every joule
-    /// here came off it.
+    /// It is attributable twice over: the diet band names the material, and
+    /// with `onlyfood` set the larder is the only thing in the world with a
+    /// non-zero food value anyway. **The known-zero control passes**: at
+    /// `food=1`, a 240 J larder, both arms read exactly 0 over 12,000 frames
+    /// with 52 ants -- so when this column is non-zero it is the larder and
+    /// nothing else.
     ///
     /// **It replaced a cell census that was counting rot.** The first version
     /// of this column was `placed - still standing`, which looked principled
@@ -309,15 +321,17 @@ struct Arm {
     /// one that was not. The ledger cannot be fooled that way: rot books
     /// nowhere.
     eaten_j: f64,
-    /// **Joules eaten off `aux`-stamped corpses, which under `onlyfood` must be
-    /// exactly 0** -- the isolation check, printed rather than asserted so a
-    /// leak is visible in the table instead of killing a sweep.
+    /// **Joules eaten off anything that is not the larder, which under
+    /// `onlyfood` must be exactly 0** -- the isolation check, printed rather
+    /// than asserted so a leak is visible in the table instead of killing a
+    /// sweep.
     ///
-    /// `EnergyLedger::harvested_corpse` books the `worth_in_aux` branch of
-    /// `creature::food_value`. `Diet::isolate` clears that flag everywhere, so
-    /// a non-zero here means the isolation did not hold and no other column in
-    /// the row can be attributed.
-    corpse_j: f64,
+    /// Read off `ColonyBooks::diet()`, which books intake **by the material it
+    /// came out of**. That is a strictly stronger check than the
+    /// `EnergyLedger::harvested_corpse` column it replaced: that one could only
+    /// see the `worth_in_aux` branch, so it read a clean 0 while any other
+    /// material would have gone unnoticed.
+    ate_other_j: f64,
     /// **Larder cells standing inside the nest band at any sample** -- food
     /// physically hauled home, as opposed to eaten where it was found. Peak
     /// rather than final, because it is a "did this ever happen" counter and
@@ -437,6 +451,29 @@ impl Diet {
         }
         w.materials.get_mut(larder).food_energy = keep;
     }
+}
+
+/// **What the colony ate, split into the larder and everything else.**
+///
+/// Summed over every colony's books rather than read off `EnergyLedger`,
+/// because the ledger's `harvested_plant` cannot say *what* was eaten -- and
+/// because it sums two paths booked on different bases. The birth path
+/// consumes cells outright without their passing through a crop
+/// (`creature.rs:20982`), so a ledger figure can exceed a `diet_yield`-based
+/// supply estimate and look like a leak when nothing has leaked. Measured:
+/// `harvested_plant` 59,003 J against 200 placed cells worth 48,000 J.
+fn diet_by_material(w: &pixel_physics::sim::world::World, larder: MaterialId) -> (f64, f64) {
+    let (mut mine, mut other) = (0.0, 0.0);
+    for books in w.all_colony_books() {
+        for (m, j) in books.diet() {
+            if m == larder {
+                mine += j;
+            } else {
+                other += j;
+            }
+        }
+    }
+    (mine, other)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -653,6 +690,16 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         }
     }
 
+    // `dietdump` names every material the colony actually booked intake
+    // against, which is the only thing that can say *what* an unexpected
+    // `other J` is. A total is a number; this is an answer.
+    if flag("dietdump") {
+        for books in w.all_colony_books() {
+            for (m, j) in books.diet() {
+                println!("    diet: {:<14} {:>12.0} J", w.materials.get(m).name, j);
+            }
+        }
+    }
     let st = w.creature_stats;
     Arm {
         near_ticks,
@@ -663,8 +710,8 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         trips: st.forage_trips,
         deliveries: st.deliveries,
         supply_j: larder_placed as f64 * per_cell_j,
-        eaten_j: w.energy_ledger.harvested_plant,
-        corpse_j: w.energy_ledger.harvested_corpse,
+        eaten_j: diet_by_material(&w, larder).0,
+        ate_other_j: diet_by_material(&w, larder).1,
         larder_home_peak,
         live_cells,
         peak_cells,
@@ -784,7 +831,7 @@ fn main() {
         assert!(food > 0, "mode=gap needs food= at the target, or there is nothing to reach");
         println!(
             "{:>6} {:>5} {:>11} {:>11} {:>10} {:>10} {:>10} {:>7} {:>7} {:>8}",
-            "gap", "seed", "alive on", "alive off", "ate J on", "ate J off", "supply J", "corpseJ", "home on", "near on"
+            "gap", "seed", "alive on", "alive off", "ate J on", "ate J off", "supply J", "other J", "home on", "near on"
         );
         println!("{:->6} {:->5} {:->11} {:->11} {:->9} {:->9} {:->9} {:->9}", "", "", "", "", "", "", "", "");
         // **A knob, because it was silently ignored as one.** `gaps=90` on the
@@ -809,7 +856,7 @@ fn main() {
                     on.supply_j,
                     // One column for both arms: it must be 0 in every row, so
                     // it is printed as a check rather than as a comparison.
-                    on.corpse_j + off.corpse_j,
+                    on.ate_other_j + off.ate_other_j,
                     on.larder_home_peak,
                     on.near_ticks
                 );

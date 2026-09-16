@@ -878,29 +878,93 @@ tree with no `decays_into`. The default larder is now `fruit` — 960 face, the
 same 240 J/cell at the neutral gut that windfall had, so a `food=` setting means
 what it meant before.
 
-The isolation carries its own check rather than an assertion:
-`EnergyLedger::harvested_corpse` is printed as `corpseJ` and must read 0.
-**Put the fault back and it goes red** — 3 seeds, gap 90, 8,000 frames:
+The isolation carries its own check rather than an assertion: intake off
+anything that is not the larder is printed as `other J` and must read 0. That
+column is read from `ColonyBooks::diet()`, which books intake **by the material
+it came out of**, so it names a leak rather than merely totalling one — a
+strictly stronger check than the `EnergyLedger::harvested_corpse` reading it
+replaced, which could only ever see the `worth_in_aux` branch.
 
-| arm | corpseJ | ate J on | ate J off |
+**Put the fault back and it goes red** — 3 seeds, gap 90, 8,000 frames, 20 ants:
+
+| arm | corpse J | ate J on | ate J off |
 |---|---|---|---|
 | `onlyfood=on` | **0, 0, 0** | 1,200 / 1,404 / 228 | **0, 0, 0** |
 | `onlyfood=off` | **138, 342, 228** | 960 / 5,971 / 1,416 | 0, 0, 0 |
 
 Two readings, both first-of-their-kind here and both small:
 
-- **`ate J off` is zero in every seed while `ate J on` is not.** This is the
-  first attributable provisioning signal in the whole investigation: with a
-  trail, the colony eats from the larder; without one, it eats nothing at all.
+- **`ate J off` is zero in every seed while `ate J on` is not.** With a trail
+  the colony eats from the larder; without one it eats nothing at all. **This
+  is the finding to be most suspicious of in this section**, because an exactly
+  repeated zero is `CLAUDE.md`'s tidiness signature and the reading is 3 seeds
+  deep. It is consistent with the rest of the table — at gap 90 a colony
+  without a trail does not reach the food, and A.2's `near on` shows reach
+  collapsing with distance — but "consistent" is not "controlled". What would
+  settle it is the no-trail arm's *own* near-target count beside it: if those
+  ants never came within reach, zero intake is arithmetic rather than a result.
+  That column is not in the table yet.
 - **`home on` is 0 throughout.** Not one larder cell ever stood inside the nest
   band. The ants eat where they find it and bring nothing back, which is what
-  §7.8's earlier "go eat over there, rather than provisioning" reading
-  predicted, now measured on a counter that cannot be faked.
+  §7.9's "go eat over there, rather than provisioning" reading predicted, now
+  measured on a counter that nest-local handling cannot fake.
 
 Intake also runs at roughly 1–8% of `supply J`, so these colonies are not
 short of food — they are short of ants that reach it. That points at range and
 discovery, not at scarcity, and agrees with A.2's `near on` collapsing to
-exactly 0 by gap 300.
+exactly 0 by gap 300. **`supply J` is a nominal figure and not a ceiling**: the
+gut is heritable (`ant.ron` `trait_variance` slot 0 = 0.15), so an individual
+drifted toward the plant end draws more from a class −1.0 larder than the
+authored 0.0 does. Read it as "roughly how much was put out".
+
+#### The isolation found an engine bug in the diet band
+
+Worth its own heading because the isolation is what surfaced it, and because
+nothing else would have: `EnergyLedger` had the joules right the whole time.
+
+With `onlyfood=on` the placed larder is the only food in the world, so the
+per-material diet band must attribute **all** intake to it. It did not. At 52
+ants over 12,000 frames it read:
+
+```
+diet: empty     45,007 J
+diet: fruit     13,996 J
+```
+
+**76% of intake attributed to a material that cannot be eaten.** `empty` is
+`MaterialId(0)` — it has no `food_energy`, so no animal can ever have bitten it.
+
+The cause is three lines in `creature.rs`'s birth-provisioning path — the
+shortfall loop where a parent that cannot afford a child eats the ground to pay
+for one:
+
+```rust
+if !bite_outcome.survived() {
+    world.set(px, py, Cell::EMPTY);        // erase the cell
+}
+let material = world.get(px, py).material; // ...then ask what it was
+```
+
+The material was read *after* the cell was cleared, so every meal this path
+took was booked against `empty`. **The tell was already in the function**:
+`banked`, which chooses the account, reads the same cell *before* the bite — so
+the two reads disagreed with each other, and the sibling bite site in `act`
+names this exact hazard in a comment ("`worth` is read before the roll because
+the roll rewrites the cell"). This site did it for the worth and not for the
+material.
+
+Fixed by reading it once, before the bite, and handing the same value to both.
+Attribution-only: the joules are identical across the fix — 228 + 29,474 →
+29,702, and 13,996 + 45,007 → 59,003 — and `empty` is gone.
+
+**What it changes here: nothing, and that is checked rather than assumed.** The
+three-seed control above re-runs byte-identical after the fix, because at 20
+ants over 8,000 frames these colonies barely reproduce and the birth path
+scarcely fires. It matters for any bed where the colony is growing, and it
+means **every "what are they eating" reading taken on a breeding colony before
+2026-09-16 understated the real food and attributed the difference to nothing.**
+`harvested_plant` was never wrong, so a total was always right; only the split
+by material was.
 
 ### 7.9 What this leaves standing
 
@@ -910,9 +974,10 @@ exactly 0 by gap 300.
   corrections.
 - A trail works as **"go eat over there" for individuals** rather than as
   provisioning for the nest — survival rises, the larder is eaten, and nothing
-  comes home. No longer an inference: §7.8 measures intake on the energy ledger
-  and hauling on a material census, and reads `ate J on > 0 = ate J off` with
-  `home` flat at zero.
+  comes home. No longer an inference for the hauling half: §7.8 measures it on
+  a material census and reads `home` flat at zero. The intake half is measured
+  but thin — 3 seeds, and an exactly-zero control arm that still wants its own
+  near-target count beside it.
 - Every bed available either removes distance (`played_bed`) or starves the
   colony (`far_larder` as shipped). A usable bed needs food **far, fixed,
   non-spreading and sufficient**, which is `far_larder` with its larder resized.

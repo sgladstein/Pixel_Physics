@@ -1622,7 +1622,29 @@ fn place_creature(
                         if taken >= shortfall {
                             break;
                         }
-                        let banked = world.materials.get(world.get(px, py).material).worth_in_aux;
+                        // **Read the material here, before the bite, and hand
+                        // the same value to both the account test and the diet
+                        // band.** It used to be read again after
+                        // `seed_survives_bite` and the `Cell::EMPTY` write
+                        // below, which meant every meal this path took was
+                        // booked against **`empty`** -- so `ColonyBooks::diet()`
+                        // attributed the entire birth-provisioning channel to a
+                        // material that cannot be eaten, while
+                        // `harvested_plant` counted the joules correctly.
+                        // `banked` was already reading it pre-bite, so the two
+                        // disagreed with each other, which is the tell.
+                        //
+                        // Found 2026-09-16 with `trailfollow onlyfood=on`, whose
+                        // whole point is that the placed larder is the only food
+                        // in the world: the diet band still reported 45,007 J of
+                        // `empty` against 13,996 J of the larder, i.e. **76% of
+                        // intake attributed to nothing**. The sibling bite site
+                        // in `act` names this exact hazard -- "`worth` is read
+                        // before the roll because the roll rewrites the cell" --
+                        // and this site did it for `worth` and not for the
+                        // material.
+                        let material = world.get(px, py).material;
+                        let banked = world.materials.get(material).worth_in_aux;
                         // A bitten windfall's own seed asks the plant side
                         // whether it survives the mouth before this clears
                         // the cell -- see the identical hook and comment at
@@ -1653,7 +1675,6 @@ fn place_creature(
                         if !bite_outcome.survived() {
                             world.set(px, py, Cell::EMPTY);
                         }
-                        let material = world.get(px, py).material;
                         if banked {
                             world.book_meal(colony, Account::HarvestedCorpse, material, yielded as f64);
                         } else {
