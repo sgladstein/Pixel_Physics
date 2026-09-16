@@ -332,6 +332,63 @@ struct Arm {
     /// see the `worth_in_aux` branch, so it read a clean 0 while any other
     /// material would have gone unnoticed.
     ate_other_j: f64,
+    /// **Where the colony actually started, as (min x, max x) at frame 1.**
+    ///
+    /// Not a curiosity: `World::colony_stations` walks *outward* from the
+    /// cursor taking the first column that is a site, so when the world runs
+    /// out on the left every remaining founder is placed to the right. At
+    /// `nest_x = 40` in a 256-wide box, 52 ants at the colony spacing cannot
+    /// fit on the left, and the band runs far enough right to **reach the food
+    /// it is supposed to be walking to**. `CLAUDE.md`: check the scene still
+    /// contains the situation you think it does, before touching the mechanism.
+    founded: (i32, i32),
+    /// **Frame the first ant reached the food, or 0 for never** -- and the
+    /// column that separates "cannot follow the trail" from "died on the way".
+    ///
+    /// Owner's question, 2026-09-16: how long does an ant live without food,
+    /// how long should it take to walk 220 or 300 cells, and could they be
+    /// following the trail and dying before they arrive? Nothing measured so
+    /// far could answer it: a zero at gap 300 reads identically for an ant that
+    /// ignored the trail and an ant that walked it until it starved. This and
+    /// `all_dead_frame` below are the pair that tell them apart -- **read them
+    /// together**, because either alone is ambiguous.
+    first_arrival: u64,
+    /// **Frame the colony hit zero, or 0 if it was still alive at the end.**
+    /// The budget side of the same question: if this lands before an arrival
+    /// could plausibly have happened, distance is not being tested at all --
+    /// lifespan is.
+    all_dead_frame: u64,
+    /// Distinct ants that ever came within `near` of the food -- recruitment.
+    visitors: usize,
+    /// Distinct ants that ever lived in this run, as the denominator.
+    ants_seen: usize,
+    /// Honest round trips summed over the colony. See `Track::trips`.
+    round_trips: u64,
+    /// Excursion histogram: how many ants got 0-25 / 25-50 / 50-75 / 75-100 /
+    /// over 100 percent of the way to the food, by their furthest point.
+    reach: [usize; 5],
+    /// **Net cells moved while carrying larder, signed toward the nest.**
+    ///
+    /// The direct answer to "why does food not come home": if carrying is
+    /// homeward-directed this is strongly positive, and if an ant picks food up
+    /// and wanders it sits near zero. A `carry@nest` of 0 says food does not
+    /// arrive; this says whether it was ever *aimed* here.
+    carry_toward_nest: i64,
+    /// **Where the colony actually spends its time**, as ant-ticks in eight
+    /// equal bands from the nest to the food. Band 0 holds the nest, band 7 the
+    /// food, and anything past the food lands in band 7 as well.
+    ///
+    /// The one readout that shows dispersal and commuting apart at a glance:
+    /// a commuting colony is bimodal with mass at both ends, a dispersing one
+    /// slides its mass outward, and a colony that never leaves is a spike at 0.
+    occupancy: [u64; 8],
+    /// Births and deaths over the run. `alive` alone cannot tell a stable
+    /// colony from one churning hard, and those are different worlds.
+    births: u64,
+    deaths: u64,
+    /// Deaths attributed to starvation, the cause that matters for the
+    /// "did they die on the way" question.
+    starved: u64,
     /// **Ant-ticks spent carrying larder in the crop** -- the transport
     /// counter, and the one that says whether food moves at all.
     ///
@@ -485,6 +542,38 @@ fn diet_by_material(w: &pixel_physics::sim::world::World, larder: MaterialId) ->
     (mine, other)
 }
 
+/// **What one ant did over its whole life**, kept per `OrganismId` so the
+/// colony-level counters can be read as behaviour rather than as exposure.
+///
+/// The counter this exists to replace is `near_ticks`, which sums ant-ticks
+/// within `near=` of the food and therefore **cannot tell fifty ants visiting
+/// once from one ant standing there for the whole run** -- `CLAUDE.md`'s "a
+/// mean over events is not a mean over the thing you care about", in the shape
+/// that matters most here. Recruitment is the entire stigmergic claim: one
+/// scout finds food, lays a trail, and *many* follow. Only a distinct-ant count
+/// can see it.
+#[derive(Default, Clone, Copy)]
+struct Track {
+    /// Furthest this ant ever got from the nest, in cells. The excursion
+    /// histogram is built from these, and it answers a question no total can:
+    /// whether a colony has a commuting *population* or two wanderers and a
+    /// crowd at home.
+    far: i32,
+    /// Did it ever come within `near` of the food.
+    visited: bool,
+    /// Currently outbound, i.e. has reached the food and not yet been home.
+    outbound: bool,
+    /// Last x seen, so the step between samples can be signed.
+    last_x: i32,
+    /// Whether `last_x` has been set (an ant's first sample has no step).
+    seen: bool,
+    /// **Honest round trips: nest band -> within `near` of the food -> nest
+    /// band.** Counted here rather than read off `CreatureStats::forage_trips`
+    /// because this harness can state its own definition, and the loop is the
+    /// thing the whole investigation is about.
+    trips: u32,
+}
+
 /// **Zero every weight into `EmitB`, direct and through the hidden layer** --
 /// the arm that makes a real no-trail control possible.
 ///
@@ -529,7 +618,24 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // 30,000 frames. The shipped 90-cell run here survives. So the distance at
     // which a food trail is *both* necessary and survivable is somewhere
     // between, and nobody has swept it. A fixed-width box cannot ask.
-    let width = (40 + gap + 60).max(256);
+    // **The nest needs room on its LEFT for the colony to stand in, and this
+    // line is a bug fix rather than tidying.** `World::colony_stations` walks
+    // outward from the cursor taking the first column that is a site, so
+    // whatever will not fit on the left is placed on the right. With the nest
+    // pinned at x = 40, only ten of 52 founders fit to the left at the
+    // `COLONY_ANT_SPACING` of 4, and the other 42 march out to **x = 208** --
+    // past the food at every gap below 220.
+    //
+    // Measured, gap 150: `founded x 8..208, food at 190`. The colony was
+    // founded ON TOP of the larder, so there was no journey, `arrive@` read
+    // frame **1**, and all three arms scored alike because arrival was
+    // placement and not navigation. Every gap-90 and gap-150 row taken before
+    // this is void; 220 and 300 were clear and stand.
+    //
+    // The band is `ants * spacing` wide, so half of it plus a margin is what
+    // the left needs.
+    let half_band = ants.max(1) * 4 / 2 + 8;
+    let width = (half_band + gap + 60).max(256);
     let spec = LabBox { width, height: 192, ground_y: 96, soil_depth: 48, founders: 0, colonies: 0, seed, ..LabBox::default() };
     let mut w = spec.build();
     let species_id = w.species.id_of("ant").expect("the ant species is compiled in");
@@ -542,11 +648,28 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     }
 
     let surface = spec.ground_y - 2;
-    let (nest_x, target_x) = (40, 40 + gap);
+    let (nest_x, target_x) = (half_band, half_band + gap);
     // The species' own sensor reach, not a literal -- see the along readout.
     let sensor_offset = w.species.get(species_id).creature.as_ref().expect("ant is a creature").sensor_offset;
     let placed = w.found_colony_of(nest_x, surface, "ant", ants);
     assert!(placed > 0, "no ants placed at the nest end; there is nothing to measure");
+    // **The guard that would have caught the scene bug above**, checked
+    // against the founders' real positions rather than against the arithmetic
+    // that was supposed to produce them. A colony wider than the gap is not a
+    // foraging experiment, and it fails in the direction that looks like a
+    // result: every arm reaches the food, so the trail appears not to matter.
+    let (fl, fh) = w
+        .live_organism_ids()
+        .into_iter()
+        .filter_map(|id| w.organism(id).filter(|s| s.species == species_id).and_then(|s| s.chain.first().copied()))
+        .fold((i32::MAX, i32::MIN), |(lo, hi), (x, _)| (lo.min(x), hi.max(x)));
+    assert!(
+        fh < target_x - near,
+        "the colony is founded across x {fl}..{fh} and the food is at {target_x} (+-{near}): the ants start ON the larder, \
+         so this scene has no journey in it. A colony of {ants} at spacing 4 is about {} cells wide, so the gap must exceed \
+         roughly half of that. Use a larger gap= or fewer ants=.",
+        ants * 4
+    );
 
     // **`food=` is the positive control for the READOUT, not for the trail.**
     // Every recorded result from this harness is an exact tie -- 595 = 595 here,
@@ -614,6 +737,11 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let mut alive_min = usize::MAX;
     let (mut laden_ticks, mut laden_nest_ticks) = (0u64, 0u64);
     let (mut carry_ticks, mut carry_home_ticks) = (0u64, 0u64);
+    let mut tracks: std::collections::HashMap<u32, Track> = std::collections::HashMap::new();
+    let (mut first_arrival, mut all_dead_frame) = (0u64, 0u64);
+    let mut carry_toward_nest = 0i64;
+    let mut occupancy = [0u64; 8];
+    let mut founded = (i32::MAX, i32::MIN);
     let (mut laden_by_third, mut spoil_ticks) = ([0u64; 3], 0u64);
     let mut peak_cells = 0usize;
     let midpoint = (nest_x + target_x) / 2;
@@ -634,7 +762,11 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         if food > 0 && refill > 0 && f.is_multiple_of(refill) {
             place_food(&mut w, food, &mut larder_placed);
         }
-        alive_min = alive_min.min(w.live_creature_count());
+        let live_now = w.live_creature_count();
+        alive_min = alive_min.min(live_now);
+        if live_now == 0 && all_dead_frame == 0 {
+            all_dead_frame = f;
+        }
         // Only sampled once hand-laying has stopped, so this counts the ants'
         // own trail rather than the one we kept refreshing.
         // **Not `f > stop` -- that catches the hand-laid trail before it has
@@ -666,7 +798,41 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             }
             let Some(&(hx, hy)) = s.chain.first() else { continue };
             ant_ticks += 1;
-            if s.crop.is_some_and(|c| c.material == larder) {
+            let carrying_larder = s.crop.is_some_and(|c| c.material == larder);
+            {
+                let at_food = (hx - target_x).abs() <= near;
+                let at_nest = (hx - nest_x).abs() <= 26;
+                let t = tracks.entry(id).or_default();
+                t.far = t.far.max(hx - nest_x);
+                if carrying_larder && t.seen {
+                    // Toward the nest is -x, so negate: positive means the
+                    // step carried food homeward.
+                    carry_toward_nest += (t.last_x - hx) as i64;
+                }
+                t.last_x = hx;
+                t.seen = true;
+                if f == 1 {
+                    founded = (founded.0.min(hx), founded.1.max(hx));
+                }
+                let band = (((hx - nest_x) * 8) / (target_x - nest_x).max(1)).clamp(0, 7) as usize;
+                occupancy[band] += 1;
+                if at_food {
+                    if !t.visited && first_arrival == 0 {
+                        first_arrival = f;
+                    }
+                    t.visited = true;
+                    t.outbound = true;
+                }
+                // A trip closes on the return, not the arrival: an ant that
+                // reaches the food and dies there has not made a round trip,
+                // and counting it as one is how a foraging number turns into
+                // an exposure number.
+                if at_nest && t.outbound {
+                    t.trips += 1;
+                    t.outbound = false;
+                }
+            }
+            if carrying_larder {
                 carry_ticks += 1;
                 // The same +-26 band `creature.rs` judges `AtNest` against.
                 if (hx - nest_x).abs() <= 26 {
@@ -734,6 +900,13 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             }
         }
     }
+    let span = (target_x - nest_x).max(1) as f32;
+    let mut reach = [0usize; 5];
+    for t in tracks.values() {
+        let frac = t.far as f32 / span;
+        let b = ((frac * 4.0).floor().max(0.0) as usize).min(4);
+        reach[b] += 1;
+    }
     let st = w.creature_stats;
     Arm {
         near_ticks,
@@ -746,6 +919,18 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         supply_j: larder_placed as f64 * per_cell_j,
         eaten_j: diet_by_material(&w, larder).0,
         ate_other_j: diet_by_material(&w, larder).1,
+        founded: if founded.0 == i32::MAX { (0, 0) } else { founded },
+        first_arrival,
+        all_dead_frame,
+        carry_toward_nest,
+        occupancy,
+        births: st.births,
+        deaths: st.deaths,
+        starved: w.deaths_by_cause[pixel_physics::sim::organism::DeathCause::Starved.index()],
+        visitors: tracks.values().filter(|t| t.visited).count(),
+        ants_seen: tracks.len(),
+        round_trips: tracks.values().map(|t| t.trips as u64).sum(),
+        reach,
         carry_ticks,
         carry_home_ticks,
         live_cells,
@@ -880,10 +1065,18 @@ fn main() {
         // for: **do the ants' own trails do anything?** `hand` vs `self` only
         // says whether a hand-laid ramp beats what they bootstrap.
         println!(
-            "{:>6} {:>5} {:>6} {:>11} {:>10} {:>10} {:>9} {:>9} {:>8} {:>7}",
-            "gap", "seed", "arm", "alive", "ate J", "supply J", "carry", "carry@nest", "near", "other J"
+            "{:>5} {:>4} {:>5} {:>9} {:>9} {:>8} {:>8} {:>8} {:>8} {:>9} {:>6} {:>18}",
+            "gap", "seed", "arm", "alive", "ate J", "arrive@", "dead@", "carry", "@nest", "visitors", "trips", "reach 0-25-50-75-100"
         );
-        println!("{:->6} {:->5} {:->6} {:->11} {:->10} {:->10} {:->9} {:->9} {:->8} {:->7}", "", "", "", "", "", "", "", "", "", "");
+        println!("{:->5} {:->4} {:->5} {:->9} {:->9} {:->8} {:->8} {:->8} {:->8} {:->9} {:->6} {:->18}", "", "", "", "", "", "", "", "", "", "", "", "");
+        // **The isolation check survives losing its column as an assertion,
+        // not as an assumption.** It read 0 in all 24 rows of the first sweep,
+        // and a column that is always 0 is worth more as something that stops
+        // the run than as something to scan past. `supply J` is likewise
+        // summarised below rather than dropped -- losing the provisioning
+        // denominator is exactly how §7.5 and §7.6 read a starving colony as a
+        // deaf one.
+        let (mut supply_lo, mut supply_hi) = (f64::INFINITY, 0.0f64);
         // **A knob, because it was silently ignored as one.** `gaps=90` on the
         // command line did nothing and the run swept the hardcoded four --
         // `CLAUDE.md`'s "an unknown argument is silently ignored", which cost a
@@ -895,14 +1088,59 @@ fn main() {
             for s in seed0..seed0 + seeds {
                 for (name, trail, mute) in [("hand", true, false), ("self", false, false), ("mute", false, true)] {
                     let a = run(s, trail, gate, frames, ants, relay, near, food, stop, g, refill, diet, mute);
+                    if diet.only {
+                        assert_eq!(a.ate_other_j, 0.0, "gap {g} seed {s} arm {name}: {} J eaten off something that is not the larder, so onlyfood did not hold and no column in this row is attributable", a.ate_other_j);
+                    }
+                    supply_lo = supply_lo.min(a.supply_j);
+                    supply_hi = supply_hi.max(a.supply_j);
                     println!(
-                        "{g:>6} {s:>5} {name:>6} {:>5}/{:<5} {:>10.0} {:>10.0} {:>9} {:>9} {:>8} {:>7.0}",
-                        a.alive_end, a.alive_min, a.eaten_j, a.supply_j, a.carry_ticks, a.carry_home_ticks, a.near_ticks, a.ate_other_j
+                        "{g:>5} {s:>4} {name:>5} {:>4}/{:<4} {:>9.0} {:>8} {:>8} {:>8} {:>8} {:>4}/{:<4} {:>6} {:>18}",
+                        a.alive_end,
+                        a.alive_min,
+                        a.eaten_j,
+                        a.first_arrival,
+                        a.all_dead_frame,
+                        a.carry_ticks,
+                        a.carry_home_ticks,
+                        // Distinct ants that reached the food, over distinct
+                        // ants that ever lived. `near_ticks` cannot separate
+                        // fifty visitors from one resident; this can.
+                        a.visitors,
+                        a.ants_seen,
+                        a.round_trips,
+                        format!("{} {} {} {} {}", a.reach[0], a.reach[1], a.reach[2], a.reach[3], a.reach[4])
+                    );
+                    // Second line, because these are the shape readouts and a
+                    // shape does not fit in a column. `occupancy` is nest-end
+                    // first; `carry->nest` is signed cells, positive homeward.
+                    let occ: Vec<String> = a.occupancy.iter().map(|v| format!("{}", v / 1000)).collect();
+                    println!(
+                        "{:>16}founded x {:>4}..{:<4} (food at {})  occupancy/1k [{}]  carry->nest {:>8}  born {:>4} died {:>4} (starved {:>4})",
+                        "",
+                        a.founded.0,
+                        a.founded.1,
+                        40 + g,
+                        occ.join(" "),
+                        a.carry_toward_nest,
+                        a.births,
+                        a.deaths,
+                        a.starved
                     );
                 }
             }
         }
+        println!("\n  larder put out, over the whole sweep: {supply_lo:.0}-{supply_hi:.0} J, against a need near 46,800 J");
+        println!("    for 52 ants over 24,000 frames -- so these colonies are provisioned, not starved.");
+        println!("  intake off anything that is not the larder is ASSERTED to be 0 in every row, not printed.");
         println!("\n  `self` vs `mute` is the real question: do the ants' OWN trails do anything?");
+        println!("  `visitors` is DISTINCT ants that reached the food over distinct ants that ever lived --");
+        println!("    recruitment, which `near` ant-ticks cannot see: 50 visitors and 1 resident read alike.");
+        println!("  `trips` is nest -> food -> nest, closed on the RETURN. `reach` buckets every ant by how");
+        println!("  `occupancy` is ant-ticks in 8 equal bands, NEST END FIRST, food end last -- a commuting");
+        println!("    colony is bimodal, a dispersing one slides its mass right, a homebody is a spike at 0.");
+        println!("  `carry->nest` is signed cells moved while holding larder, POSITIVE = homeward. Near zero");
+        println!("    means food is picked up and wandered with, which is a different fault from not finding it.");
+        println!("    far it ever got, as a share of the gap, so a commuting population is visible as a shape.");
         println!("  `hand` vs `self` only says whether a laid ramp beats what they bootstrap.");
         println!("  `carry` is ant-ticks holding larder in the crop; `carry@nest` is those inside the +-26 nest band --");
         println!("    that pair is the answer to \"is food being carried back\", which a cell census cannot give.");
