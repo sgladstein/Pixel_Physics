@@ -4710,7 +4710,42 @@ fn sense(
         //
         // `max` rather than a sum: this is "how full are your mandibles",
         // and a pellet fills them however much food is also in the crop.
-        inputs[I::Carrying as usize] = crop_fill.max(state.spoil.map_or(0.0, |_| 1.0));
+        //
+        // **`SPOIL_IS_CARGO=0` takes the pellet back out, and it is a
+        // measurement switch rather than a proposed default.** The paragraph
+        // above is a *measured* fix and must not be quietly undone: without
+        // spoil in here the `Drop` gene is asked a question about food, and
+        // `labnest` read 30-35 of 52 ants standing laden with `digs` at 121
+        // against 881.
+        //
+        // What the switch exists for is that **three consumers read this one
+        // sensor and only one of them wants the honest answer**:
+        //
+        // * `(Carrying, Drop, 0.2)` -- wants "are my mandibles full", i.e. the
+        //   shipped behaviour, for the reason above.
+        // * units 0/1, the **channel A homing gate** -- wants "am I carrying
+        //   food", and gets pulled home by a pellet instead.
+        // * `(Carrying, EmitB, 2.5)`, the **channel B emitter** -- likewise,
+        //   and writes tailings onto the plane a forager reads as a route.
+        //
+        // Measured 2026-09-16 with `trailfollow`: in every arm that never
+        // finds food, `Carrying` is **100% spoil** (19,998 of 19,998; 20,448 of
+        // 20,448; 8,448 of 8,448), against 3.2% and 8.8% in the arms that do
+        // reach a larder. A laden ant on a standing channel A ramp runs at
+        // `P(move)` **0.641 against a 0.200 baseline** (`onetrail mode=arith`),
+        // so a digging colony given a homing gradient is railroaded home by its
+        // own tailings -- the candidate explanation for the `homeA` arm
+        // *clipping* exploration rather than extending it.
+        //
+        // **If the switch wins, the shipped repair is not this switch**, which
+        // regresses the `Drop` fix. It is either a separate "carrying food"
+        // reading for the two pheromone consumers, or a per-consumer gate --
+        // and a new `BrainInput` costs 24 live slots plus a `mutation_rate`
+        // re-derivation in every species file, so it wants evidence first.
+        // Defaults to the shipped behaviour, so an unset environment is
+        // bit-identical.
+        inputs[I::Carrying as usize] =
+            if spoil_is_cargo() { crop_fill.max(state.spoil.map_or(0.0, |_| 1.0)) } else { crop_fill };
     }
 
     // **A creature is not crowded by itself**, and it was: this scan
@@ -12857,6 +12892,20 @@ fn parting_enabled() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
     *ON.get_or_init(|| std::env::var("TISSUE_PARTING").map(|v| v != "0").unwrap_or(true))
+}
+
+/// **Does a mandible full of dig spoil count as `Carrying`?** Shipped `true`,
+/// so an unset environment is bit-identical; `SPOIL_IS_CARGO=0` takes the
+/// pellet out.
+///
+/// The reasoning, the measurements, and the reason this is a measurement switch
+/// rather than a proposed default are at the `Carrying` fill site in `sense` --
+/// three consumers read that one sensor and only `Drop` wants the honest
+/// answer. Read that before changing anything here.
+fn spoil_is_cargo() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("SPOIL_IS_CARGO").map(|v| v != "0").unwrap_or(true))
 }
 
 /// Charge energy, reschedule or die. The chain-creature counterpart of

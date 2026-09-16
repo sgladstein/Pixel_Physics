@@ -484,6 +484,16 @@ struct Arm {
     /// it either way.
     laden_by_third: [u64; 3],
     spoil_ticks: u64,
+    /// **Ant-ticks holding anything at all** -- the denominator `spoil_ticks`
+    /// is meaningless without.
+    ///
+    /// `Carrying` is what gates the channel A reader (units 0/1) *and* drives
+    /// the channel B emitter, and it is true for dig spoil as well as food. So
+    /// `spoil_ticks / laden_ticks` is the share of both mechanisms that is
+    /// being driven by tailings rather than by forage -- the number behind the
+    /// `homeA` arm clipping exploration, since a scene with no food to find
+    /// makes spoil nearly the whole of `Carrying`.
+    laden_ticks: u64,
 }
 
 /// One arm: one seed, trail on or off, one gate.
@@ -997,6 +1007,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         peak_cells,
         natural_along: if nat_n == 0 { 0.0 } else { (nat_sum / nat_n as f64) as f32 },
         laden_nest_share: if laden_ticks == 0 { 0.0 } else { 100.0 * laden_nest_ticks as f32 / laden_ticks as f32 },
+        laden_ticks,
         laden_by_third,
         spoil_ticks,
     }
@@ -1230,6 +1241,22 @@ fn main() {
                     println!(
                         "{:>16}own trail: route pk {:>4} end {:>4} along {:>+7.4}   blocked {:>8}  kin swaps {:>7}  ticks {:>9}",
                         "", a.peak_cells, a.live_cells, a.natural_along, a.blocked, a.kin_swaps, a.ticks
+                    );
+                    // **How much of `Carrying` is dig tailings rather than
+                    // food.** `Carrying` gates the channel A reader (units 0/1)
+                    // and drives the channel B emitter, and it is true for
+                    // spoil, so this one share prices both. A high figure in an
+                    // arm with no food to find is the proposed explanation for
+                    // `homeA` clipping exploration: a spoil-hauling ant opens
+                    // the homing gate legitimately, and a laden ant on a
+                    // standing A ramp runs at P(move) 0.641 against a baseline
+                    // of 0.200 (`onetrail mode=arith`).
+                    println!(
+                        "{:>16}Carrying: laden {:>9}  of which SPOIL {:>9} ({:>5.1}%)",
+                        "",
+                        a.laden_ticks,
+                        a.spoil_ticks,
+                        if a.laden_ticks == 0 { 0.0 } else { 100.0 * a.spoil_ticks as f64 / a.laden_ticks as f64 }
                     );
                 }
             }
