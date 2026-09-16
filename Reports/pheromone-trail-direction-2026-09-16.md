@@ -977,7 +977,7 @@ means **every "what are they eating" reading taken on a breeding colony before
 `harvested_plant` was never wrong, so a total was always right; only the split
 by material was.
 
-### 7.10 Re-measured with the larder isolated: the effect is real, and it is at 150–220 cells
+### 7.10 Re-measured with the larder isolated — SUPERSEDED by §7.11, the colony was founded on the food
 
 The §7.6 sweep re-run on the fixed instrument — `onlyfood=on`, larder `fruit`,
 6 seeds, 24,000 frames, 52 ants, trail hand-laid to frame 6,000 then released.
@@ -1028,12 +1028,77 @@ can only have happened before they died.
 thrives) and is the single biggest contributor to the gap-90 column. With 6
 seeds that is one bad draw, not a subgroup; it is recorded rather than dropped.
 
+### 7.11 On a scene that contains a journey: the trail is decisive, and the ants cannot build one
+
+§7.10 is void at gaps 90 and 150, and the fault was the scene rather than the
+mechanism. `World::colony_stations` walks **outward** from the cursor taking the
+first column that is a site, so founders who do not fit on the left are placed
+on the right. With the nest pinned at x = 40, ten of 52 founders fit to the
+left at the `COLONY_ANT_SPACING` of 4 and **the other 42 marched out to x =
+208** — past the larder at every gap below 220. Measured: `founded x 8..208,
+food at 190`. The ants were born on the food, `arrive@` read frame **1**, and
+all three arms scored alike because none of them had anywhere to go.
+
+The nest now sits clear of its own colony, and the founders' real positions are
+**asserted** clear of the food, so an invalid scene refuses to run. Re-run with
+20 ants (colony x 12..88), 6 seeds, 24,000 frames, trail hand-laid to 6,000 then
+released:
+
+| gap | arm | alive (med) | colonies alive | ate J (med) | ants reaching food | seeds arriving |
+|---|---|---|---|---|---|---|
+| **90** | **hand** | **102** | **4 of 6** | **317,486** | **1,299 / 1,415 (92%)** | **6 of 6** |
+| 90 | self | 0 | 0 of 6 | 0 | 4 / 120 (3%) | 3 of 6 |
+| 90 | mute | 0 | 0 of 6 | 0 | 3 / 120 (3%) | 2 of 6 |
+| 150 | hand | 0 | 1 of 6 | 0 | 446 / 562 (79%) | 5 of 6 |
+| 150 | self / mute | 0 | 0 of 6 | 0 | **0 / 120** | 0 of 6 |
+| 220 | hand | 0 | 0 of 6 | 0 | 2 / 121 | 1 of 6 |
+| 220 | self / mute | 0 | 0 of 6 | 0 | 0 / 120 | 0 of 6 |
+
+**Three findings, and the second is the one this investigation was named for.**
+
+**1. A laid trail is decisive at 90 cells.** 92% of every ant that ever lived
+reaches the larder, against 3% without one; four colonies of six survive and
+grow to a median of 102 from 20 founders, against **zero of six** in both
+control arms, which die in every seed with food 90 cells away untouched. This
+is not a marginal effect and it does not need an order statistic to see.
+
+**2. The ants cannot bootstrap a trail of their own.** `self` — which lays and
+reads channel B with the shipped `(Carrying, EmitB, 2.5)` wire and the re-gated
+units 2/3 — is **indistinguishable from `mute`**, which cannot lay at all:
+4 visitors against 3, zero survivors either way, zero joules either way, and at
+gap 150 both read a flat **0 of 120 ants**. The colony's own stigmergy
+contributes nothing. Whatever the re-gated reader can do, it can only do with a
+trail somebody else laid.
+
+**3. Even the arm that works does not provision the nest.** Across the whole
+gap-90 `hand` block, **0.14%** of carrying happens inside the nest band — 1,796
+ant-ticks of 1,275,776 — and the colony completes **7 round trips in six runs**.
+With `reach` putting most ants past the food, the honest reading is that the
+trail causes **relocation, not commuting**: it moves the colony to the larder,
+and the colony then lives there. The owner's loop — out, pick up, carry home,
+reinforce — does not occur in any arm at any gap.
+
+**Range.** Decisive at 90; at 150 the trail still *delivers* ants (79% reach the
+food, 5 of 6 seeds) but only one colony in six survives, so arrival stops being
+enough; by 220 nothing arrives in any arm. Between 90 and 150 the limit is not
+finding the food, it is what the journey costs.
+
+**What this does not settle.** `hand` lays until frame 6,000 and colonies then
+live to 24,000, and those ants can lay channel B themselves — so whether the
+seeded trail is *maintained* or merely started a migration is not separated
+here. `trips` of 7 and `carry@nest` of 0.14% point at migration. Six seeds.
+
 ### 7.9 What this leaves standing
 
-- Re-gating channel B moves a colony (7.1), and on an isolated larder it keeps
-  one alive **at 150 cells and feeds one at 220** (7.10). §7.6's "benefit at 90,
-  gone by 150" is superseded and was an artifact of a starving, cannibalising
-  colony.
+- **A laid trail is decisive and the colony cannot lay one itself** (7.11).
+  With a journey actually present in the scene, 92% of ants reach food at 90
+  cells against 3%, and four colonies of six live where none do; `self` and
+  `mute` are indistinguishable. §7.6 and §7.10 are both superseded — the first
+  by a starving, cannibalising colony, the second by a colony founded on top of
+  its own larder.
+- **Nothing provisions the nest in any arm**: 0.14% of carrying happens at
+  home, and 7 round trips across six runs. The trail relocates the colony
+  rather than supplying it.
 - A trail works as **"go eat over there" for individuals** rather than as
   provisioning for the nest — survival rises, the larder is eaten, and nothing
   comes home. No longer an inference for the hauling half: §7.8 measures it on
@@ -1234,3 +1299,23 @@ Read `near off` against `ate J off` at gap 220: the control arm is at zero on
 both in four of six seeds, so its zero intake is arithmetic rather than a
 refusal — it never arrives. At gap 150 the control does arrive (`near off`
 50,899–2,155,667) and still loses on survival in 5 of 6.
+
+
+### A.6 The gap sweep on a scene that contains a journey — the data behind §7.11
+
+`trailfollow mode=gap gate=b2 seeds=6 gaps=90,150,220 frames=24000 food=200
+refill=4000 stop=6000 ants=20 onlyfood=on`, larder `fruit`, colony founded
+x 12..88. Intake off anything but the larder is asserted 0 in every row.
+
+| gap | arm | carry | carry@nest | share | trips |
+|---|---|---|---|---|---|
+| 90 | hand | 1,275,776 | 1,796 | **0.14%** | 7 |
+| 90 | self | 1,752 | 0 | 0% | 0 |
+| 90 | mute | 3,234 | 0 | 0% | 0 |
+| 150 | hand | 350,748 | 0 | 0% | 0 |
+| 220 | hand | 789 | 0 | 0% | 0 |
+
+The `hand` arm at gap 90 carries larder for 1.28 million ant-ticks and brings it
+inside the nest band for 1,796 of them. That is the provisioning claim, measured
+on a counter nest-local handling cannot fake, and it is essentially zero in the
+one arm where foraging plainly works.
