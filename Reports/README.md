@@ -2900,6 +2900,32 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   behaviours as default* — with the knob kept, an `off` control kept for
   measurement, and the constants rivalry reallocates named and re-derived,
   since a correct mechanism at inherited constants is a regression.
+- [pheromone-trail-direction-2026-09-16.md](pheromone-trail-direction-2026-09-16.md)
+  — **investigation, 2026-09-16. `engine`.** Started from *"do pheromone
+  trails work at all?"* and ended somewhere else. They do: a laden ant walks a
+  standing channel-A trail **+104 cells of the 112 available**, an empty ant on
+  an identical channel-B trail goes **+1** against a no-trail control's +2, and
+  re-gating units 2/3 takes the same animal to **+104**. **The food half is not
+  shapeless, it is shaped backwards.** Channel B is laid only while laden, and
+  laden means homeward, so the food end is always the older end — sequential
+  laying plus real decay gives a clean monotone ramp whose gradient points at
+  the **nest** (+0.04 to +0.23 facing home along the whole route, against a
+  working gate's 0.641 at 0.10). `ant.ron` then authors `(PheroBAlong, 2,
+  +6.0)` with channel A's sign, so **an empty ant with the gate opened is
+  steered home** — a mechanism for §Z7's finding that re-gating makes the
+  colony worse, which §Z7 did not have. Suggests a **four-weight** first test
+  (flip the sign, open the gate, together) ahead of building anything, names
+  its known weakness (a descent ends where the trail died, and a cell laid at
+  `DEPOSIT` dies in 144 frames against a 2,200-frame round trip), and keeps
+  `Reports/dead-ends.md`'s standing rule that semantics belong in the genome,
+  never in engine code. **Carries a method finding worth more than the bug**:
+  the re-gate was step one of two, and one-at-a-time A/B rejects both arms of
+  an epistatic pair forever — *name the minimal set that could possibly work
+  before measuring a component of it*. Biology section on why real ants get
+  direction from trail **geometry** (Jackson et al., *Nature* 2004) rather than
+  from concentration, and why *Cataglyphis* path integration is the closer
+  analogue of the odometer that already works here. Extends
+  `open-bugs-handoff.md` §Z7; supersedes nothing
 - [pheromone-lifetime-and-wiring-2026-09-14.md](pheromone-lifetime-and-wiring-2026-09-14.md)
   — **measurement, 2026-09-14, round 36 lane C. `engine`.** The owner's two
   questions about the trail planes, answered: *do they fade too fast* and *is

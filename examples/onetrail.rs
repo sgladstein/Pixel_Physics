@@ -354,6 +354,68 @@ fn arithmetic(base: &[f32]) {
     }
 }
 
+/// **Does sequential laying plus decay give a trail a gradient, and which way
+/// does it point?** -- the owner's question of 2026-09-16, which the rest of
+/// this file cannot answer because everywhere else the trail is stamped in one
+/// instant and then frozen.
+///
+/// A laden ant lays channel B on every step of its walk **home**, so the cell
+/// at the food end is laid first and has been decaying longest by the time the
+/// ant arrives. Decay is monotone, so the trail it leaves is a ramp -- and the
+/// ramp climbs toward the **nest**, not toward the food. That is the opposite
+/// of what an empty ant looking for food needs, and it is not a tuning
+/// accident: it follows from *when* the cells were written, so no deposit
+/// value or decay rate can turn it around.
+///
+/// No ant and no brain here: one cell written per `per_cell` frames along the
+/// route, the real `Pheromones::step` running throughout, then the profile and
+/// the along-gradient a reader would compute at each point. The point of
+/// leaving the animal out is that this is a property of the *plane*.
+fn timing_mode(per_cell: u64, span: i32, peak: f32, w_cells: i32) {
+    let (w_world, h) = (w_cells, 64i32);
+    let mut world = World::new(Rect::new(0, 0, w_world - 1, h - 1));
+    let floor = h - 8;
+    let head_y = floor - 1;
+    for x in 0..w_world {
+        for y in floor..h {
+            world.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+        }
+    }
+    let x0 = (w_world - span) / 2;
+    let x1 = x0 + span - 1;
+    let amount = (peak * pheromone::SCALE as f32) as pheromone::Scent;
+
+    // Walk food -> nest, laying as we go: x0 is the food end and is written
+    // first, x1 is the nest end and is written last.
+    for x in x0..=x1 {
+        world.deposit_pheromone(Channel::B, x, head_y, amount);
+        for _ in 0..per_cell {
+            parallel::step(&mut world);
+            world.step_fields();
+            world.step_pheromones();
+        }
+    }
+
+    let read = |x: i32| world.pheromone_at(Channel::B, x, head_y) as f64;
+    let alive = (x0..=x1).filter(|&x| read(x) > 0.0).count();
+    println!("  per_cell={per_cell:<3} span={span} walk={} frames | trail cells still alive at arrival: {alive} of {span}", per_cell * span as u64);
+
+    // Eight probes evenly along the route, food end first.
+    let probes: Vec<i32> = (0..8).map(|i| x0 + i * (span - 1) / 7).collect();
+    let vals: Vec<String> = probes.iter().map(|&x| format!("{:>8.0}", read(x))).collect();
+    println!("    value    food->nest: {}", vals.join(""));
+    // The reader's own arithmetic, looking toward the NEST (the direction the
+    // layer was walking). Positive means the trail climbs toward the nest.
+    let grads: Vec<String> = probes
+        .iter()
+        .map(|&x| {
+            let (here, ahead) = (read(x), read(x + 6));
+            format!("{:>8.3}", (ahead - here) / (ahead + here + pheromone::SCALE as f64))
+        })
+        .collect();
+    println!("    PheroBAlong facing nest: {}", grads.join(""));
+}
+
 fn main() {
     let mode = arg_str("mode", "both");
     let frames: u64 = arg("frames", 4000);
@@ -372,6 +434,14 @@ fn main() {
     let probe = World::new(Rect::new(0, 0, 15, 15));
     let base = probe.species.get(probe.species.id_of("ant").expect("ant species")).genome.clone();
 
+    if mode == "timing" {
+        println!("sequential laying + real decay: one cell per `per_cell` frames, walking food -> nest.");
+        println!("A laden ant lays B only on the way home, so the food end is always the OLDER end.\n");
+        for per_cell in [1u64, 2, 4, 8] {
+            timing_mode(per_cell, arg("span", 112), peak, width);
+        }
+        return;
+    }
     if mode == "arith" || mode == "both" {
         arithmetic(&base);
         println!();
