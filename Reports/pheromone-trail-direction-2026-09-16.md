@@ -787,7 +787,7 @@ not evidence about distance at all — that colony dies at a gap of zero. The
 arithmetic should have been done before the sweep, not after reading twelve
 rows of `alive 0/0`.
 
-### 7.6 With food replenished, a trail buys survival at 90 cells and nothing beyond
+### 7.6 With food replenished, a trail buys survival at 90 cells and nothing beyond — SUPERSEDED by §7.10
 
 `trailfollow mode=gap`, 6 seeds, `food=200 refill=4000`, trail hand-laid to
 frame 6,000 then released:
@@ -977,12 +977,63 @@ means **every "what are they eating" reading taken on a breeding colony before
 `harvested_plant` was never wrong, so a total was always right; only the split
 by material was.
 
+### 7.10 Re-measured with the larder isolated: the effect is real, and it is at 150–220 cells
+
+The §7.6 sweep re-run on the fixed instrument — `onlyfood=on`, larder `fruit`,
+6 seeds, 24,000 frames, 52 ants, trail hand-laid to frame 6,000 then released.
+`other J` reads **0 in all 24 rows**, so the isolation held throughout.
+
+| gap | alive on | alive off | seeds up | ate J on | ate J off | seeds up | rows eating anything, on / off |
+|---|---|---|---|---|---|---|---|
+| 90 | 139 | **158** | 2 of 6 | 501,349 | **576,214** | 2 of 6 | 6/6 / 6/6 |
+| **150** | **137.5** | 54.5 | **5 of 6** | **521,564** | 221,429 | **4 of 6** | 6/6 / 6/6 |
+| **220** | 0 | 0 | 1 of 6 | **1,302** | **0** | **5 of 6** | **5/6 / 0/6** |
+| 300 | 0 | 0 | — | 0 | 0 | — | 0/6 / 0/6 |
+
+Medians over 6 seeds; `alive` is the end count.
+
+**This is very nearly the inverse of §7.6**, which reported a benefit at 90 that
+was gone by 150. Corrected:
+
+- **At 90 the trail does nothing.** Both arms thrive, and the control is
+  slightly ahead on both survival and intake. The food is close and abundant —
+  `supply J` around 300,000 against a need near 46,800 — so there is nothing for
+  a trail to rescue. **§7.6's effect was a property of a starving colony**, not
+  of the trail: those colonies ran at ~90% of need on 30 J corpse cells and
+  topped up by eating their own dead.
+- **At 150 the trail is doing real work.** 5 of 6 seeds survive with it,
+  against a control whose median colony is down to 54; intake median 521,564
+  against 221,429. Three of the six control colonies end at 0 or 4 ants while
+  their paired trail arm ends at 120–159.
+- **At 220 the trail is the only thing that finds the food at all.** `ate J off`
+  is **exactly 0 in all six seeds** and `near off` is 0 in four of them — the
+  control never reaches the larder. `ate J on` is non-zero in **5 of 6**, and in
+  seed 5 the trail arm alone survives outright: 141 ants and 302,348 J against
+  a dead control. The absolute intake is tiny in the other four (1,188–4,585 J),
+  so this is "a few ants got there and ate" rather than a working supply line —
+  but against a control that is flatly zero, it is the cleanest trail effect
+  measured anywhere in this work.
+- **At 300 nothing happens either way.** `near on` is 0 in every seed, so the
+  ants never walk the trail that was laid for them. That is a range limit
+  upstream of anything in Phase 2.
+
+**What is not established, and the reason is structural.** `alive` and `near`
+are entangled: a colony that dies has no ants left to be near anything, so a
+`near` difference partly *follows* survival rather than causing it. The gap-220
+block is the one place that confound is absent — colonies die in both arms in 5
+of 6 seeds, and the trail arm still ate while the control ate nothing, which
+can only have happened before they died.
+
+**Seed 1 runs against the grain at every gap** (trail arm collapses, control
+thrives) and is the single biggest contributor to the gap-90 column. With 6
+seeds that is one bad draw, not a subgroup; it is recorded rather than dropped.
+
 ### 7.9 What this leaves standing
 
-- Re-gating channel B moves a colony (7.1), and at 90 cells it keeps one alive
-  (7.6). Both measured against honest controls. The 7.6 survival result stands;
-  its energy figure and any provisioning reading of it do not — see 7.6's
-  corrections.
+- Re-gating channel B moves a colony (7.1), and on an isolated larder it keeps
+  one alive **at 150 cells and feeds one at 220** (7.10). §7.6's "benefit at 90,
+  gone by 150" is superseded and was an artifact of a starving, cannibalising
+  colony.
 - A trail works as **"go eat over there" for individuals** rather than as
   provisioning for the nest — survival rises, the larder is eaten, and nothing
   comes home. No longer an inference for the hauling half: §7.8 measures it on
@@ -1160,3 +1211,26 @@ Three things to take from it, each load-bearing for Phase 2.1:
 - **6,943 pickups against 35 forage trips.** Almost all laden movement is
   local handling, not commuting — which is the dilution §2.0 describes, and the
   reason the fix is to charge the emitter from food rather than from `Carrying`.
+
+
+### A.5 The gap sweep on an isolated larder — the data behind §7.10
+
+`trailfollow mode=gap gate=b2 seeds=6 frames=24000 food=200 refill=4000
+stop=6000 ants=52 onlyfood=on`, larder `fruit`. `alive` is *end/min*.
+`other J` is the isolation check and reads 0 in every row.
+
+```
+   gap  seed    alive on   alive off   ate J on  ate J off   supply J other J   home   near on  near off
+------ ----- ----------- ----------- --------- --------- --------- ---------
+    90     1     0/0       183/51         41536     802746      95520       0      0    113072   2176916
+    90     2   170/11      174/22        546058     610139     312960       0      0   1525123   1801244
+    90     3   122/40       13/12        506286     371066     314160       0      1   1867710    759723
+    90     4   113/7       156/51        393067     913395     302640       0      1   1043411   2891584
+    90     5   156/12      160/50        496412     542288     294960       0      2   1541142   1884488
+    90     6   167/51      154/26        602677     513930     324720       0      1   2134041   1208837
+```
+
+Read `near off` against `ate J off` at gap 220: the control arm is at zero on
+both in four of six seeds, so its zero intake is arithmetic rather than a
+refusal — it never arrives. At gap 150 the control does arrive (`near off`
+50,899–2,155,667) and still loses on survival in 5 of 6.
