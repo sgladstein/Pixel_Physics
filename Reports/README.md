@@ -2912,20 +2912,25 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   the **nest** (+0.04 to +0.23 facing home along the whole route, against a
   working gate's 0.641 at 0.10). `ant.ron` then authors `(PheroBAlong, 2,
   +6.0)` with channel A's sign, so **an empty ant with the gate opened is
-  steered home** — a mechanism for §Z7's finding that re-gating makes the
-  colony worse, which §Z7 did not have. Suggests a **four-weight** first test
-  (flip the sign, open the gate, together) ahead of building anything, names
-  its known weakness (a descent ends where the trail died, and a cell laid at
-  `DEPOSIT` dies in 144 frames against a 2,200-frame round trip), and keeps
-  `Reports/dead-ends.md`'s standing rule that semantics belong in the genome,
-  never in engine code. **Carries a method finding worth more than the bug**:
-  the re-gate was step one of two, and one-at-a-time A/B rejects both arms of
-  an epistatic pair forever — *name the minimal set that could possibly work
-  before measuring a component of it*. Biology section on why real ants get
-  direction from trail **geometry** (Jackson et al., *Nature* 2004) rather than
-  from concentration, and why *Cataglyphis* path integration is the closer
-  analogue of the odometer that already works here. Extends
-  `open-bugs-handoff.md` §Z7; supersedes nothing
+  steered home** — a candidate mechanism for §Z7's finding that re-gating makes
+  the colony worse, alongside §Z7's own (recruitment converging on patches
+  already eaten); **neither is established, and nobody has run the arm that
+  separates them.** **Reviewed independently the same day, and the review
+  killed the report's first proposal**: reversing the reader so it *descends*
+  toward the older end reverses the reading exactly and still does not make a
+  trail follower, because a descending ant is **repelled** from a trail it is
+  not already on — 0.0% of ticks on-band from 24 cells off the end over 16
+  runs, against an ascending arm's 13.4% and an undirected control's 4.3%. So
+  the standing proposal is the **unit-7 food odometer, ascended, paired with a
+  depletion signal**, behind one measurement: the local gradient a real ant
+  reads on the played bed. Carries its own corrections (a dropped `-0.976`
+  edge column, "monotone" true of eight probes and false of 47 of 106 interior
+  readings, a wrong `MUT_ABS_FLOOR` claim, `dead-ends.md`'s *"do not retry the
+  weight change alone"* uncited) and a withdrawn `CLAUDE.md` rule proposal —
+  the *pixels a lever moves* rule already covers it. Biology section on trail
+  polarity (Jackson et al., *Nature* 2004), *Lasius niger* cessation at an
+  exhausted source, and why the *Cataglyphis* path-integration analogy is
+  weaker than it looks. Extends `open-bugs-handoff.md` §Z7; supersedes nothing
 - [pheromone-lifetime-and-wiring-2026-09-14.md](pheromone-lifetime-and-wiring-2026-09-14.md)
   — **measurement, 2026-09-14, round 36 lane C. `engine`.** The owner's two
   questions about the trail planes, answered: *do they fade too fast* and *is

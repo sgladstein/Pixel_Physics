@@ -88,84 +88,215 @@ running throughout, then the profile and the gradient a reader would compute.
 
 ```
 per_cell=1  value food->nest:  1966 2989 3325 3712 4897 5731 6631 10240
-            PheroBAlong facing nest: 0.151 -0.002 0.059 0.065 -0.000 0.088 0.108
+            PheroBAlong facing nest: 0.151 -0.002 0.059 0.065 -0.000 0.088 0.108 **-0.976**
 per_cell=4  value food->nest:   306  656  850 1126 1551 2266 3718 10515
-            PheroBAlong facing nest: 0.231 0.040 0.045 0.051 0.063 0.084 0.125
+            PheroBAlong facing nest: 0.231 0.040 0.045 0.051 0.063 0.084 0.125 **-0.976**
 per_cell=8  value food->nest:    58  164  256  403  655 1126 2266 10537
-            PheroBAlong facing nest: 0.153 0.047 0.058 0.069 0.082 0.104 0.180
+            PheroBAlong facing nest: 0.153 0.047 0.058 0.069 0.082 0.104 0.180 **-0.976**
 ```
 
-Monotone, in every arm, and the gradient facing the nest is **positive along
-the whole route**. The magnitude is *usable*: the working gate delivers
-`P(move) = 0.641` at `along = 0.10`, and this route offers 0.04–0.23.
+**The last column is the trail's own end and it is printed here because an
+earlier draft of this report dropped it.** The 6-cell sensor samples past the
+stamped span into zero, so it reads about -0.976. That is an edge artifact and
+it is *not* negligible: it is 6 cells of however long the trail is — 5% at
+span=112, **21% at span=28**, which is this bed's actual excursion depth — and
+it sits at the **nest end**, which is exactly where empty ants are.
+
+**"Monotone" is true of the eight probe values and false of the gradient the
+ant computes.** Censusing every interior reading at the real 6-cell offset:
+
+| `per_cell` | mean | min | max | readings <= 0 |
+|---|---|---|---|---|
+| 1 | +0.0365 | -0.0166 | +0.1505 | **47 of 106** |
+| 2 | +0.0553 | +0.0286 | +0.2251 | 0 of 106 |
+| 4 | +0.0746 | +0.0388 | +0.2312 | 0 of 106 |
+| 8 | +0.0975 | +0.0433 | +0.3557 | 0 of 106 |
+
+At `per_cell=1` nearly half the readings are non-positive, because
+`PHEROMONE_INTERVAL = 12` makes the trail a staircase with 12-cell treads and a
+6-cell sensor sits inside one tread half the time — `CLAUDE.md`'s
+decaying-gradient quantization arriving in a new costume. It clears from
+`per_cell >= 2`. The realistic figure is `per_cell ~ 8` (`tick_interval: 6`,
+`P(move)` around 0.7, 8-way steps), so the bottom row is the fair one; the
+`per_cell=1` row is shown because it is the one that disagrees.
+
+**The control this needed, run: lay the identical trail nest -> food and every
+reading mirrors exactly** — mean +0.0365 / +0.0553 / +0.0746 / +0.0975 becomes
+-0.0365 / -0.0553 / -0.0746 / -0.0975, min and max mirroring with them
+(`onetrail mode=timing reverse=on`). So the ramp is a property of laying
+**order**, not of the scene, the chunked sweep, or the harness. Without this
+the whole section was a claim about +x.
+
+**And the magnitude is larger on a realistic trail, not smaller**: at
+`span=28`, `per_cell=8`, the interior mean is **+0.2093** with 0 of 22 readings
+non-positive.
+
+**Not decomposed here**: how much of the ramp is `DECAY_RHO` and how much is
+`DIFFUSE`. `pheromone.rs`'s own `DECAY_RHO` doc records the blend dominating on
+a one-cell line (16.7% per pass against decay's 2.9%), so "decay" above should
+be read as "the plane's step", not as the decay term alone.
 
 **So channel B is not shapeless after all — it is shaped backwards.** §1b's
 multi-modal bed profile is many ants' backwards ramps laid over each other
 from many pickup points, not an absence of structure.
 
-### The consequence nobody had
+### The consequence: a proposed mechanism, not a demonstrated one
 
-**Channel B, as laid and as wired, is a second and noisier copy of channel A.**
-Both climb toward the nest; `ant.ron` authors `(PheroBAlong, 2, +6.0)` with the
-same sign as channel A's `(PheroAAlong, 0, +6.0)`, so an empty ant with the
-gate opened is steered **home**. That is a mechanistic explanation for the
-§Z7 measurement that re-gating makes the colony worse: it does not merely fail
-to help, it actively converts searching ants into homing ants.
+**Channel B, as laid and as wired, may be a second and noisier copy of channel
+A.** Both ramps climb toward the nest, and `ant.ron` authors
+`(PheroBAlong, 2, +6.0)` with the same sign as channel A's
+`(PheroAAlong, 0, +6.0)`, so an empty ant with the gate opened is steered
+**home**.
 
-*(Confidence: the timing derivation and its measurement are solid. That this
-is the dominant term in a real bed's channel B is inferred, not measured —
-§1b's 32-column bands are a mass distribution, not the local gradient an ant
-reads at a 6-cell offset. See §5.)*
+**This is a candidate explanation for §Z7's result, and it is not the only
+one, and it is not established.** §Z7 and `dead-ends.md` already carry a
+different mechanism from the same measurement: a colony whose laden ants home
+on A and whose empty ants search at random is a central-place forager, and
+giving empty ants B makes the search converge on patches *already eaten* —
+with evidence (`unvisited` 57% -> 74%, the 16-48 band eaten out 284 -> 49, the
+>128 band untouched 1,285 -> 1,514). Both mechanisms predict the same coarse
+numbers. **Nobody has run the arm that separates them.**
+
+**And the number to quote is not the one an earlier draft quoted.** §Z7's split
+table reads: both pairs re-gated **25.0%** (0 of 6 seeds up), **food pair only
+47.6% (2 of 6)**, homing pair only 63.6% (5 of 6). The shipped ant now carries
+the homing half, so the arm that bears on channel B is the **47.6%** row —
+roughly neutral against a zeroed-brain control's 15.4% — not the 25.0% both-
+pairs figure. "Re-gating makes the colony worse" is doing work that row
+qualifies.
+
+*(The single-ant derivation above is also not measured under real colony
+traffic, and §5 item 1 is the measurement that would settle it. See §1b's own
+`forage_trips` 35 / 6 / 10: on the played bed ants are laden for about 3% of
+samples and only 35 of 290 delivery episodes are forage trips, so the long
+food-to-nest walk this derivation models is a minority of B-laying. Short-range
+shuffling near the nest and larder lays B with no consistent direction, and
+that is a cheaper explanation of §1b's multi-modal profile than many backwards
+ramps overlaid.)*
+
+*(One further leak in the premise: `Carrying` is `crop_fill.max(spoil ? 1.0 :
+0.0)`, so an ant hauling a **dig pellet** lays channel B at full strength.
+Measured at ~9.7% of laden ant-samples on one seed — not repeated, so treat it
+as an order of magnitude. "B is laid only by an ant that found food" is
+therefore about 90% true rather than true.)*
 
 ---
 
 ## 2. What I suggest
 
-**Revised by §1c.** Before that measurement I proposed building a food-charged
-odometer on hidden unit 7. That is no longer the first thing to try.
+**Revised twice. The first draft proposed a food-charged odometer; the second
+demoted it in favour of a sign flip; an independent review then measured the
+sign flip and it does not work. The odometer is back at the front.**
 
-**Step 1 — flip the sign, and open the gate, together. Two numbers.**
-`(PheroBAlong, 2, -6.0)` and `(PheroBAlong, 3, +6.0)`, plus units 2/3's bias
-moved off saturation to the `b2` value units 0/1 already carry. An empty ant
-then **descends** channel B, walking down the age gradient toward the older
-end — which is the food. Nothing is built; these are four authored weights in
-`ant.ron`, all of them mutable.
+### 2.0 The sign flip is dead, and this is why
 
-**The known weakness, stated up front:** descending a gradient walks you to
-where the signal *vanishes*, not to a peak, and `pheromone-lifetime-and-wiring-
-2026-09-14.md` already measured a cell laid at `DEPOSIT` dying in **12 passes
-= 144 frames against a 2,200-frame round trip**. So the far end of a real
-trail may be gone before anyone can follow it down, and the descent leads to
-where the trail died rather than to the food. Step 1 is the cheapest decisive
-test of the **diagnosis**; it may not be a sufficient fix.
+The proposal was: negate `(PheroBAlong, 2, +6.0)` and `(PheroBAlong, 3, -6.0)`
+so an empty ant **descends** channel B toward the older, food end. The
+arithmetic is exact — the pair's contribution is
+`2.5 * (squash(b + 6a) - squash(b - 6a))`, odd in `a`, so negating both weights
+negates the response precisely. It reverses the reading. It does not produce a
+trail follower.
 
-**Step 2, if step 1 is right but capped — give B a ramp that peaks at the
-food.** Mirror the odometer onto **hidden unit 7, which is free** (0–3 are the
-gate pairs, 4 the odometer, 5/6 the `Dig` pair, nothing touches 7): charge it
-from `FoodAdjacent` instead of `AtNest`, decay it, wire it to `EmitB`. B is
-then laid strongest just after leaving food and falls toward the nest — a ramp
-peaking at the food, which an ant *ascends*, which is stable because it ends at
-a maximum. Same three-weight shape as unit 4, which demonstrably works.
+`onetrail mode=walk span=112`, 8 seeds x both mirrors, 4,000 frames:
 
-**Step 3 — the depletion signal, which is genuinely missing.** `Carrying` is
-**graded, not binary** (`crop_fill = worth / capacity`, and `worth = unit x
-cells`, so richer food fills the crop faster) — an earlier draft of this
-analysis said binary and was wrong. What saturates is the *trip*: an ant that
+| arm | on-band | mean cells |
+|---|---|---|
+| re-gated **ascend**, starting on the trail | 100.0% | +50.4 |
+| re-gated **descend**, starting on the trail | **29.5%** | -71.0 |
+| re-gated **ascend**, starting 24 cells off the trail's end | **13.4%** | +14.1 |
+| re-gated **descend**, starting 24 cells off the trail's end | **0.0%** | +0.2 |
+| shipped (undirected) control, 24 cells off the end | 4.3% | +0.1 |
+
+**A descending reader cannot acquire a trail — it is actively repelled from
+one.** Off the trail, `here = 0` and `ahead > 0`, so the along-reading is
+*positive* exactly when the ant is pointed at the trail; a descending reader
+answers positive along with a low `P(move)`. It freezes facing the trail and
+walks when facing away. At 0.0% on-band it is **worse than the undirected
+control's 4.3%**, while the ascending arm from the identical start reaches the
+band 13.4% of ticks and climbs — so the scene is not the limit.
+
+And on the trail it overshoots: 29.5% on-band, because it walks down to the
+end and keeps going into the zero beyond, where `along` is exactly 0 and it
+reverts to an undirected walk wherever it landed.
+
+**This also means a null from the sign flip could never have falsified the
+diagnosis**, because the acquisition failure predicts a null whether the
+direction story is right or wrong. It was not, as an earlier draft claimed,
+"the cheapest decisive test". It was a guard that could not go red.
+
+**It is also a recorded dead end.** `Reports/dead-ends.md` carries
+*"`assets/species/ant.ron` hidden units 2/3 ... re-weighted off saturation the
+same way units 0/1 were; measured 2026-09-09"*, whose `Re-test when:` clause
+reads *"The rejection depends on **what a food trail is worth in this bed**,
+not on the gate"*, and which says in terms **"Do not retry the weight change
+alone; it is not the variable."** An earlier draft of this report proposed
+exactly that retry, cited §Z7 but never `dead-ends.md`, and never argued that
+adding a sign changed the condition the rejection depended on. `CLAUDE.md`:
+*proposing, building or retrying any mechanism -> `dead-ends.md` first*. That
+step was skipped.
+
+### 2.1 Measure the gradient a real ant reads, before building anything
+
+The local along-reading on the played bed, at the real 6-cell offset, as a
+**distribution** and split laden/empty. §1b's 32-column band totals are a mass
+distribution and cannot answer it; §1c's derivation is a single ant in a world
+with no traffic. This is the one measurement everything else is downstream of,
+and it costs one instrumented run.
+
+### 2.2 Then the food-odometer, ascended — and paired with depletion, not before it
+
+Mirror the odometer onto **hidden unit 7, which is free** (0-3 are the gate
+pairs, 4 the odometer, 5/6 the `Dig` pair, nothing touches 7): charge it from
+`FoodAdjacent` rather than `AtNest`, decay it, wire it to `EmitB`. B is then
+laid strongest just after leaving food, so it ramps **up toward the food** and
+an ant *ascends* it. Ascending is the shape that works: it acquires from off
+the trail and it terminates at a maximum rather than running off an end.
+
+**Two things this needs that an earlier draft missed.**
+
+- **The existing wire has to go or be budgeted with it.** `(Carrying, EmitB,
+  2.5)` stays unless removed, so `EmitB = squash(2.5*Carrying + w7*h7)` and an
+  *empty* ant near food would lay B — breaking the "only laden ants lay B"
+  property the rest of this report rests on.
+- **Pair it with depletion in the same arm.** `dead-ends.md` says the rejection
+  depends on what a food trail is *worth*, and §Z7's competing mechanism
+  predicts a *better* food trail is **worse** without a cessation signal —
+  recruitment delivered more efficiently to patches already being eaten. If
+  this is an epistasis problem then depletion is in the minimal set, and
+  measuring recruitment without it measures a component rather than the
+  mechanism.
+
+### 2.3 The depletion signal, which is the thing genuinely missing
+
+`Carrying` is **graded, not binary** (`crop_fill = worth / capacity`, and
+`worth = unit x cells`, so richer food fills the crop faster) — an earlier
+draft said binary and was wrong. What saturates is the **trip**: an ant that
 fills its crop reads ~1.0 whether the patch has three cells left or three
 thousand. So the trail cannot fade as its source empties, which is §Z7's "a
-trail that outlives its patch keeps recruiting to nothing". The missing
-quantity is *how much is left where I found this*, and nothing senses it.
+trail that outlives its patch keeps recruiting to nothing", and it is the
+biological mechanism (§4.4) that makes real recruitment pay. Nothing in the
+engine senses *how much is left where I found this*.
 
-**Do not re-derive nothing.** Every term in the `Move` row — `(Bias, 2.0)`,
-`(Energy, -1.75)`, `(FoodAdjacent, -1.16)`, `(Crowding, -0.3)` — was fitted in
-a world where units 2/3 contribute ~0.001. Switching on a term worth up to
-+-2.5 in the same sum reallocates the whole budget; `CLAUDE.md` calls this out
-and `ant.ron`'s own comments record it biting once already on the
-`Bias`/`FoodAdjacent` pair. `Crowding` is the one to watch: it is the
-documented anti-ossification term, and -0.3 was sized for a colony that never
+### 2.4 Whatever is run, re-derive the `Move` row
+
+Every term in it was fitted where units 2/3 contribute ~0.001: `(Bias, 2.0)`,
+`(Energy, -1.75)`, `(FoodAdjacent, -1.16)`, `(Crowding, -0.3)`,
+**`(Stillness, 1.5)`**, `(KinNeed, 1.25)` and `(Alarm, -1.0)`. An earlier draft
+listed only the first four, in a paragraph whose whole point is that the list
+must be complete; `Stillness` at 1.5 is comparable to the +-2.5 a woken gate
+pair would start delivering. `Crowding` is the one to watch — it is the
+documented anti-ossification term and -0.3 was sized for a colony that never
 follows trails.
 
----
+### 2.5 Forks and crossings, unaddressed
+
+Not simulated, and the arithmetic is forced: a **descending** reader takes the
+*weaker* branch at a fork, inverting the differential reinforcement that
+`pheromone.rs`'s `DIFFUSE` doc calls "the entire path-selection algorithm" and
+that `pherolife mode=junction` measures at 0.845-0.969. At a crossing — a local
+maximum — both headings read negative and the ant leaves undirected. One
+`pherolife mode=junction` run would settle both. This is a further count
+against any descending scheme and does not bear on 2.2.
 
 ## 3. The owner's concerns, as stated
 
@@ -183,32 +314,38 @@ follows trails.
 
 ## 4. My thoughts on them
 
-### 4.1 On step one being rejected for not fixing everything — agreed, and this is now demonstrated rather than suspected
+### 4.1 On step one being rejected for not fixing everything — the concern is right; my proposed rule is withdrawn
 
-This is the most important of the four, and §1c turns it from a worry into a
-worked case. The re-gate is **step one of at least two**. Opening the gate
-without flipping the sign does not merely fail to help — it gives an empty ant
-a working reason to walk home. A measurement of step one alone was therefore
-*correct* about step one and *wrong* about the idea, and §Z7's conclusion
-("fix what the trail is worth, not what the ant can read") was drawn from
-exactly that.
+The concern is sound and it is the most important of the four. A component of a
+mechanism, measured alone, tells you about the component and not about the
+mechanism, and §Z7's conclusion was drawn from exactly such an arm.
 
-This is epistasis: two changes, each neutral or harmful alone, plausibly
-beneficial together. **One-at-a-time A/B testing rejects both, forever, and
-will keep doing so however carefully each arm is run.** Nothing in the method
-rules guards against it. `CLAUDE.md` has the neighbouring rule — *a correct
-mechanism at inherited constants is a regression* — but that one is about
-re-deriving constants after a change, not about a change that needs a *second
-change* to show any benefit at all.
+**But I over-claimed twice and both need retracting.**
 
-**Proposed remedy, and I think it earns a line in `CLAUDE.md`:** before
-measuring a component of a mechanism, name the **minimal set that could
-possibly work**, and measure that set. If a component's benefit is conditional
-on another component, its solo arm is not evidence about the mechanism — it is
-evidence about the component, and those are different claims. The tell is
-available in advance: ask *"if this works, what else has to be true?"* Here the
-answer was "the gradient has to point at the food", and nobody had checked
-which way it pointed.
+First, an earlier draft said this was "now demonstrated rather than suspected".
+It is not. Nobody has run gate+sign, and §2.0 now shows that particular pairing
+does not work at all — so the epistasis I proposed is not merely unverified, it
+is the one pairing measured and rejected. The only *measured* non-additivity in
+the record is A-gate x B-gate (63.6% / 47.6% / 25.0%), which is §Z7's, not mine.
+
+Second, I proposed this as a new `CLAUDE.md` rule. **Withdrawn.** That file
+already carries the same failure in another costume — *"Ask which **pixels** a
+lever moves, before ranking it by silhouette"*, where three levers demonstrably
+fired, were ranked high, and moved nothing because a prerequisite they did not
+touch was absent. Its remedy question is the one I was proposing. The
+neighbouring *"When every setting of a sweep fails the same way, suspect the
+sweep"* is the same shape with a harmful rider instead of a missing partner.
+`CLAUDE.md`'s removal criterion is explicit that a file which only grows
+dilutes every rule in it, and it ran +2,583/-365 over its history; promoting an
+unverified hypothesis into a rule is what that criterion exists to stop. If
+anything survives it is a clause on the existing pixels rule, and it should
+wait until something has actually been measured.
+
+What remains true and useful, as a working note rather than a rule: **before
+measuring one part of a mechanism, ask what else has to be true for it to
+work.** Here the answer was "the gradient has to point at the food *and* an ant
+has to be able to find the trail in the first place", and nobody had checked
+either.
 
 ### 4.2 On turning a complex tool into a simple one — the concern is right, and the current design is the one that prevents evolution
 
@@ -237,11 +374,22 @@ what a channel means.
 saturated gate is not a rich tool awaiting an evolutionary use — it is a
 channel that **selection cannot see**. At a gate sum of +45 the difference
 between reading the trail and not reading it is ~0.001 on `P(move)`; there is
-no fitness gradient, so no lineage can climb toward using channel B, ever. The
-current state is the one that forbids evolution. Opening the gate is what
-*creates* the axis for it, and the sign flip is then something a lineage could
-have discovered on its own — `MUT_ABS_FLOOR` puts a sign change one mutation
-away — if only the gate had let the sign matter.
+no fitness gradient, so no lineage can climb toward using channel B. The
+current state is the one that forbids evolution, and opening the gate is what
+creates the axis for it.
+
+**One claim in an earlier draft of this paragraph was simply wrong and is
+withdrawn**: that `MUT_ABS_FLOOR` puts a sign change one mutation away.
+`brain.rs` mutates by `width = MUT_ABS_FLOOR + MUT_REL * |w|` with
+`MUT_ABS_FLOOR = 0.04` and `MUT_REL = 0.10`, stepping uniformly in +-width — so
+at `w = 6.0` the largest single step is **0.64** against the **12.0** a sign
+change needs, and the step shrinks as `|w|` does. That is on the order of 25
+consecutive all-downward mutations, not one. `MUT_ABS_FLOOR` is the term that
+lets a *zero* slot become a live connection, which is a different claim and is
+the one that holds: 0.04 is comfortably above `W_EPS` (0.01), so the unit-7
+odometer of §2.2 genuinely is one mutation from existing. The evolvability
+argument survives for *adding* a connection and does not survive for *flipping*
+one.
 
 So: authoring generation zero's wiring is not the same as fixing the meaning.
 `ant.ron` already authors channel A's odometer, and that is why homing works at
@@ -256,85 +404,117 @@ carefully for exactly the owner's reason.
 
 ### 4.3 On the timing gradient — you were right, and it is worse than "there isn't one"
 
-Measured in §1c: sequential laying plus real decay produces a clean monotone
-ramp, in every arm, at a magnitude the reader can act on. The gradient exists.
-It climbs toward the nest, because B is laid **only while laden** and laden
-means homeward, so the food end is always the older end. No deposit value and
-no decay rate can turn that around — it follows from *when* the cells were
-written, not from how much was written.
+Measured in §1c: sequential laying plus the plane's own step produces a ramp,
+at a magnitude the reader can act on, and the reversal control confirms it is a
+property of laying **order** rather than of the scene. The gradient exists. It
+climbs toward the nest, because B is laid **only while laden** and laden means
+homeward, so the food end is always the older end. No deposit value and no
+decay rate turns that around — it follows from *when* cells are written.
 
-This is why the question was worth asking and why I had not answered it: I had
-argued B was shapeless, and it is not. It is shaped, and pointed the wrong way,
-which is a different diagnosis with a different and much cheaper fix.
+This is why the question was worth asking and why I had not answered it. I had
+argued B was shapeless from a band profile; it is shaped, and a band total is
+not the quantity an ant reads.
+
+**What it did not license was the fix I then proposed.** "The gradient points
+the wrong way" suggests "reverse the reader", and §2.0 shows a reversed reader
+cannot find a trail at all. The direction finding is real; the obvious
+inference from it was wrong.
 
 ### 4.4 On the biology
 
 Four things from the real literature bear directly on this, and three of them
 are uncomfortable for the current design.
 
-**Trail polarity is a genuine unsolved-by-concentration problem in real ants.**
-A scalar concentration trail is direction-ambiguous — an ant standing on one
-cannot tell outbound from inbound by smelling harder. This is well known
-precisely *because* it does not work. Pharaoh's ants (*Monomorium pharaonis*)
-solve it with **trail geometry**: bifurcations are asymmetric Y-forks and the
-fork angle encodes direction (Jackson, Holcombe & Ratnieks, *Nature* 2004).
-Others solve it with visual landmarks or individual route memory. **Real ants
-do not get direction from the concentration gradient**, which means asking an
-empty ant here to read direction off B's scalar gradient is asking for
-something evolution did not do either — *unless* the trail is given a built-in
-spatial ramp, which is what the odometer does.
+**Trail polarity is a genuine problem that concentration alone does not
+solve.** An ant standing on a scalar trail cannot tell outbound from inbound by
+smelling harder. Pharaoh's ants (*Monomorium pharaonis*) solve it with **trail
+geometry**: bifurcations are asymmetric and the fork angle encodes direction
+(Jackson, Holcombe & Ratnieks, *Nature* 432:907-909, 2004). Others use visual
+landmarks or route memory. An earlier draft put this as the flat assertion
+*"real ants do not get direction from the concentration gradient"*; that is too
+absolute for a large and varied literature. The defensible form is that
+**concentration is not the primary polarity cue in the species where this has
+been studied**, and that the known solutions are geometric or memory-based.
 
-**The odometer is the biologically real mechanism, and it is already in the
-engine.** Desert ants (*Cataglyphis*) barely use trail pheromones — too
-volatile in the heat — and navigate by **path integration**: a stride
-integrator plus a polarised-light compass. Hidden unit 4 is much closer to
-that than to trail-following, and it is the half that works. That is not a
-coincidence worth ignoring.
+**And this argues against §2.0, not for it** — which an earlier draft did not
+notice, having put the biology and the proposal in the same document without
+checking them against each other. Asking an empty ant to read direction off B's
+incidental age ramp is asking for the thing the biology says does not work.
+It is not an argument against §2.2, which gives the trail a *designed* spatial
+ramp rather than an incidental one.
 
-**Quality modulation and, crucially, *cessation*.** Ants lay more pheromone for
-richer sources (*Lasius niger* scale deposition with sucrose concentration) and
-**stop laying when the source is exhausted**. That negative feedback is what
-prevents recruitment to a dead patch — it is the biological form of §2's step
-3, and it is the piece genuinely missing here rather than merely mis-signed.
+**Ants modulate laying by quality and, crucially, stop.** *Lasius niger* scale
+deposition with sucrose concentration and cease when the source is exhausted
+(Beckers, Deneubourg & Goss, 1993). That negative feedback is what stops
+recruitment to a dead patch. It is the biological form of §2.3 and it is the
+piece genuinely missing here rather than merely mis-signed.
 
-**Real channels differ by physics, not by built-in meaning** — which is the
-biology's answer to concern 4.2. Alarm pheromones are small volatile molecules
-(fast diffusion, seconds, "here, now"); trail pheromones are heavier and less
-volatile ("this route, for a while"); cuticular hydrocarbons are non-volatile
-(identity, by contact). The meaning is in which behaviour reads them. The
-engine already has the matching knob — per-channel `rho` and `diffuse` — and
-that, not semantics in code, is the axis along which species should
-differentiate. Honeybees make the point from the other side: distance and
-direction are carried by the **waggle dance**, a different modality entirely,
-because a scent field is bad at direction.
+**Path integration is the real navigational analogue — but the analogy to
+hidden unit 4 is weaker than an earlier draft claimed.** Desert ants
+(*Cataglyphis*) navigate by a stride integrator plus a polarised-light compass
+(Wittlinger, Wehner & Wolf, *Science* 2006), barely using trail pheromones at
+all. Unit 4 is an internal decaying counter, which is superficially similar —
+but path integration is an **internal vector the animal steers by directly**,
+whereas unit 4 *modulates an external field that other ants read*. That is
+stigmergy: the information leaves the animal and returns through the world.
+Different in kind, so the earlier draft's "that is not a coincidence worth
+ignoring" claimed a coincidence that is not there. What survives is narrower
+and still useful: **a distance-since-home term is what gives a trail a designed
+spatial ramp**, and that is the half of this engine's stigmergy that works.
+
+**Real channels differ by physics, not by built-in meaning** — the biology's
+answer to concern 4.2. Alarm pheromones are small volatile molecules (fast
+diffusion, seconds); trail pheromones are heavier and less volatile;
+cuticular hydrocarbons are non-volatile identity cues read by contact. Meaning
+lives in which behaviour reads them. The engine has the matching knob already —
+per-channel `rho` and `diffuse` — and that, not semantics in code, is the axis
+along which species should differentiate. Honeybees make the point from the
+other side: distance and direction travel by **waggle dance**, a different
+modality entirely, because a scent field is bad at direction.
 
 ---
 
 ## 5. What would settle it
 
-In order, cheapest first. None of this has been run.
+Reordered after review. None of this has been run.
 
-1. **The sign flip, in a bed, as a pair with the gate.** Four weights, no code.
-   `nesthome`'s `arm=` and `trailfollow`'s `gate=`/`hidden=` already patch
-   genomes at run time, so this needs no rebuild-per-arm. Arms: shipped /
-   gate-only / **gate+sign** / sign-only. The third is the one nobody has run,
-   and the first two are the ones that produced §Z7's conclusion.
-2. **The local gradient a real ant actually reads**, laden and empty
-   separately, on the played bed — the measurement §1b could not make, since a
-   32-column band total is a mass distribution and the ant reads a 6-cell
-   difference where it stands. This is what says whether §1c's single-ant
-   derivation survives real traffic.
-3. **Re-derive the `Move` row** if step 1 shows anything, per §2's last
-   paragraph. A correct mechanism at inherited constants is a regression.
-4. **Only then** the unit-7 food odometer, and only if the descent proves
-   lifetime-capped.
+1. **The local gradient a real ant reads on the played bed**, at the 6-cell
+   offset, as a distribution, laden and empty separately. §1c is a single ant
+   in an empty world and §1b is a mass distribution; this is the measurement
+   that says whether the derivation survives 290 delivery episodes of which 35
+   commute. Everything below is downstream of it.
+2. **The unit-7 food odometer, ascended, paired with a depletion signal**, as
+   one arm — per §2.2 and §2.3, and per `dead-ends.md`'s standing condition
+   that the rejection depends on what a food trail is worth.
+3. **Re-derive the `Move` row** with the full term list of §2.4 if anything
+   above moves.
+4. **`pherolife mode=junction`** for the fork behaviour of §2.5, if any
+   descending scheme is ever revisited.
+
+**Not** the bare sign flip of §2.0: it is a recorded dead end, it cannot
+acquire a trail, and a null from it is uninformative by construction.
 
 And one thing not to do: **do not judge any of these on the colony's size
-alone.** Foraging range, deliveries and `deepest` are what a trail is supposed
-to move; a population count is several steps downstream and is exactly the
-readout that produced the reject in the first place.
+alone.** Foraging range, deliveries, `unvisited` and `deepest` are what a trail
+is supposed to move; a population count is several steps downstream and is
+exactly the readout that produced the original reject.
 
 ---
+
+## Review
+
+Reviewed 2026-09-16 by an independent agent, which reproduced §1a byte-for-byte
+and the arithmetic exactly, confirmed the hidden-unit map, the `Carrying`
+grading and the `EmitB` wiring, and then found the sign-flip proposal
+non-viable, the `-0.976` column dropped, "monotone" overstated, the
+`MUT_ABS_FLOOR` claim wrong, the `dead-ends.md` entry uncited, the competing
+§Z7 mechanism unmentioned, and two biology overstatements. Every one of those
+was checked against the source before being accepted here; the off-trail
+acquisition measurement in §2.0 was re-run in-tree rather than taken on
+report, and the first attempt at it was mis-built (a start 20 cells off centre
+on a 224-cell span is still on the trail). The reversal control and the
+interior-gradient census are now permanent modes of `onetrail` rather than
+throwaway harnesses.
 
 ## Instruments
 
