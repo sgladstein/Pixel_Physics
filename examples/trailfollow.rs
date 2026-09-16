@@ -1176,6 +1176,11 @@ fn main() {
         let gaps: Vec<i32> = arg_str("gaps")
             .map(|v| v.split(',').map(|t| t.trim().parse().expect("gaps= takes a comma-separated list of integers")).collect())
             .unwrap_or_else(|| vec![90, 150, 220, 300]);
+        // **`arms=homeA` runs one arm instead of five**, which is what makes a
+        // 36-seed replication affordable: an effect that shows up in 1 seed of
+        // 12 needs more seeds, not more arms, and paying for four irrelevant
+        // arms is what stops anyone running them.
+        let want_arms: Option<Vec<String>> = arg_str("arms").map(|v| v.split(',').map(|t| t.trim().to_string()).collect());
         for g in gaps {
             for s in seed0..seed0 + seeds {
                 for (name, trail, mute, home) in [
@@ -1190,6 +1195,9 @@ fn main() {
                     // trail for itself.
                     ("homeA", false, false, true),
                 ] {
+                    if want_arms.as_ref().is_some_and(|w| !w.iter().any(|x| x == name)) {
+                        continue;
+                    }
                     let a = run(s, trail, gate, frames, ants, relay, near, food, stop, g, refill, diet, mute, home);
                     if diet.only {
                         assert_eq!(a.ate_other_j, 0.0, "gap {g} seed {s} arm {name}: {} J eaten off something that is not the larder, so onlyfood did not hold and no column in this row is attributable", a.ate_other_j);
