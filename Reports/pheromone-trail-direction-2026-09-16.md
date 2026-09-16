@@ -529,6 +529,154 @@ on a 224-cell span is still on the trail). The reversal control and the
 interior-gradient census are now permanent modes of `onetrail` rather than
 throwaway harnesses.
 
+---
+
+## 6. Two questions the review did not reach, and the architectural answer under both
+
+Raised by the owner on reading §2.0. Both have the same root, and it is a bigger
+finding than the sign.
+
+### 6.1 Why a descending reader is repelled, and what would fix it
+
+`PheroBAlong = (ahead - here) / (ahead + here + SCALE)`. **Off the trail,
+`here = 0`, so merely facing the trail makes the reading positive** -- there is
+more ahead than underfoot. A descending reader answers a positive reading with a
+low `Move`; it fails the roll, tumbles (`Tumble` is unwired in every species, and
+`unit_scale(0.0, 1.0) = 0.5`, so a failed move re-orients at a flat 50%), and the
+only headings that let it walk are the ones pointing away. It is gradient descent
+on a ridge: descent leaves the ridge, and the flat it lands in has no gradient at
+all, so nothing brings it back.
+
+**The real gap is that nothing answers "am I on the trail".** The along-reader
+answers *which way along it*, and it is the only channel-B reader any species
+has. The Jones/Physarum triad this input list was modelled on had both: a
+**front** sensor for acquisition and two laterals for steering. The laterals were
+correctly abandoned here -- measured 0.000 on a surface, since at full offset
+they point into air and rock -- but the **front sensors were never wired
+either**, and `brain.rs` records that `PheroAFront`/`PheroBFront` have never
+carried a weight in any species file in any commit.
+
+Candidates, cheapest first, and the first two are complementary:
+
+1. **Wire the front sensor.** `(PheroBFront, Persist, +w)` -- commit to a heading
+   while standing on a trail -- or `(PheroBFront, Move, -w)` to slow down on one.
+   `Persist` is attractive because it is unwired in every species, sits at its
+   `unit_scale` default of 1.0 against a `PERSIST_MAX` of 2.0, and `creature.rs`
+   calls it *"the number that decides whether a creature commutes or mills"* --
+   and because it spends none of the `Move` budget.
+2. **Make the ramp point at the food.** Then ascent does both jobs at once,
+   because "more" is toward the trail *and* toward the food -- which is why the
+   ascending arm in §2.0 acquires from off-trail at 13.4% while the descending
+   one manages 0.0%.
+
+**This was rejected on 2026-09-14, and a new proposal has to say how it
+differs.** The rejection (`pheromone-lifetime-and-wiring-2026-09-14.md` §"The
+front sensors stay unwired") rests on an *argument*, not on a measurement of the
+fronts: *"A creature confined to a line does not need 'am I on it' -- it needs
+which way along it"*, plus *"there is no fork on open ground"*. Its one
+measurement, `pherolife mode=junction`, measures the **rival** input's
+discriminating power, in a scene that harness's own doc admits no ant can walk.
+**The acquisition data attacks the first premise directly**: an ant that only
+needs "which way along" must still *get on the line*, and nothing serves that.
+The rejection names its own reopening -- *"a lineage for which absolute
+concentration is worth something can evolve the connection"* -- and the framing
+that differs is **acquisition**, not the **selection** ("which branch is busy")
+that §2a proposed and that rejection killed.
+
+### 6.2 Reading a nest-peaked channel would push empty ants off the nest -- and that breaks more than it looks
+
+The owner's objection, and the wiring makes it concrete rather than aesthetic.
+**Every nest behaviour in `ant.ron` is gated on `AtNest`, a *contact* sense:**
+
+| wire | what it does |
+|---|---|
+| `(AtNest, Drop, 1.0889)` | deliver food to the nest |
+| `(AtNest, DropSpoil, 0.9)` | dump excavated soil |
+| hidden units 5/6, `AtNest` +30 with `Crowding` +-6 -> `Dig` | excavate the nest |
+
+An ant not standing on nest material can do none of them. So a scheme giving
+empty ants a reading that *repels them from the nest* does not merely look wrong
+-- it **disables digging, delivery and spoil disposal**, which is most of what a
+colony does that is not foraging. The nest becomes what the owner describes: a
+pile of food that ants are pushed away from.
+
+The shipped ant escapes this, for a reason worth stating: empty ants do not read
+channel A at all (units 0/1 are gated *shut* on an empty crop), so they are not
+repelled from home, they simply diffuse. **Any change that opens a nest-peaked
+channel to empty ants creates the defect.**
+
+**Underneath it is the real architectural finding: `Move` is overloaded.** It
+carries two different questions in one scalar:
+
+- *Am I active or at rest?* -- `(Bias, 2.0)`, `(Energy, -1.75)`,
+  `(Stillness, 1.5)`, `(Crowding, -0.3)`, `(FoodAdjacent, -1.16)`. This is the
+  colony's whole division of labour: a fed ant rests, a hungry one forages.
+- *Is this the right direction?* -- the two gated trail pairs.
+
+Real colonies separate these: task allocation decides **whether** to forage, the
+trail decides **where**. Collapsing both into `Move` is why every trail change
+reallocates the rest/work budget, and why a stronger trail term mechanically buys
+itself range by spending the colony's rest.
+
+**The consequence for future trail work: prefer `Turn` and `Persist` over
+`Move`.** Steering does not consume the activity budget, and a `Turn` wire cannot
+push an ant off the nest, which answers the objection structurally instead of by
+tuning. `PheroBAlong -> Turn` is expressible today and untried -- the direct
+channel-to-`Turn` gains were removed on 2026-09-09 in favour of the gated `Move`
+pairs, and the `Turn` route was never revisited after the along-reader replaced
+the laterals.
+
+### 6.3 The owner's foraging loop is the textbook model, and names the missing piece
+
+Stated as: empty ants follow a trail to food, carry it back strengthening the
+trail, repeat until the food is gone, then laden ants stop laying, the trail
+dissipates, and search goes undirected again. **That is the Deneubourg/Beckers
+recruitment model of *Lasius niger*, almost exactly.** The engine has the
+autocatalysis, the decay and the carrying. It is missing two things, and this
+report found both: the trail does not point at the food (§1c), and **nothing ever
+stops laying** (§2.3) -- `Carrying` saturates on any successful trip, so the
+trail cannot fade as its source empties. In the biological model that cessation
+is what makes the loop terminate; without it a trail outlives its patch, which is
+§Z7's own diagnosis reached from the other direction.
+
+### 6.4 Where this engine does and does not follow the biology
+
+**It does**, and more deliberately than is obvious: the along-reader is a
+Weber's-law relative difference, which is what Perna et al. measured individual
+Argentine ants to actually use, against the sigmoidal absolute response the
+classical model assumes. Stigmergy proper, autocatalytic reinforcement,
+trophallaxis (`KinNeed -> Share`) and `Crowding` as the anti-ossification term
+are all real mechanisms, cited in `stigmergy-research.md`.
+
+**It does not**, in four places, three of which this report has now hit:
+
+- **No quality or quantity scaling of deposit, and no cessation.** The
+  best-established recruitment biology there is, and absent.
+- **No polarity mechanism.** Real ants get direction from trail *geometry*
+  (asymmetric bifurcations -- Jackson, Holcombe & Ratnieks, *Nature* 432:907-909,
+  2004) or from route memory. Stated carefully: concentration is not the primary
+  polarity cue *in the species where this has been studied*, and the known
+  solutions are geometric or memory-based. The engine asks concentration to
+  supply it.
+- **Path integration steers a real ant; here it only modulates emission.** Unit 4
+  is a distance-since-home counter wired to `EmitA`, so it shapes a field other
+  ants read. *Cataglyphis* steers by its home vector directly and barely uses
+  trails (Wittlinger, Wehner & Wolf, *Science* 2006). **The analogy is weaker
+  than it looks** -- path integration is an *internal* vector the animal steers
+  by, while unit 4's information leaves the animal and returns through the world,
+  which is stigmergy and different in kind. What survives is narrower and still
+  useful: a distance-since-home term is what gives a trail a designed spatial
+  ramp, and that is the half of this engine's stigmergy that works.
+- **The front sensors are unwired** (§6.1), though real ants plainly do sense
+  trail concentration and not only its gradient.
+
+**The synthesis, and the thing to take from this report if only one thing is
+taken: in reality the trail answers *am I on the road*, and something else --
+geometry, memory, a compass -- answers *which way down the road*. This engine
+asks the trail to answer both.** That single mismatch produces the acquisition
+failure of §6.1, the polarity problem of §1c, and the overloading of `Move` in
+§6.2. It is the same defect seen three times.
+
 ## Instruments
 
 - `examples/onetrail.rs` — `mode=arith` (shipped genome, nothing overridden),
