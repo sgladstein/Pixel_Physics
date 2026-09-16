@@ -315,7 +315,7 @@ struct Arm {
 // Eight against clippy's ceiling of seven: these are the arm's axes, and a
 // struct would hide that each one is independently swept.
 #[allow(clippy::too_many_arguments)]
-fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, near: i32, food: i32, stop: u64, gap: i32) -> Arm {
+fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, near: i32, food: i32, stop: u64, gap: i32, refill: u64) -> Arm {
     // **The box grows with the gap.** `far_larder` pins food 363 cells from
     // its colony and every one of its 52 ants starves by frame 20,000 --
     // measured, `latecensus scenario=far_larder`: ants 52 -> 0, eats 87 in
@@ -349,12 +349,31 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // departure from this file's "no food at the target" rule: that rule exists
     // so the count is attributable to the trail alone, which is right for the
     // pull question and wrong for the loop question.
-    if food > 0 {
-        let corpse = w.materials.id_of("corpse").expect("corpse is compiled in");
-        for i in 0..food {
-            let (fx, fy) = (target_x + (i % 8) - 4, surface - (i / 8));
+    let corpse = w.materials.id_of("corpse").expect("corpse is compiled in");
+    // **Placed as a closure because it has to be REPLENISHED, and the arithmetic
+    // says why.** 52 ants at two cells, `idle_cost_per_cell` 0.05 and
+    // `move_cost_per_cell` 0.125 on a 6-frame tick, need roughly **46,800 J**
+    // over 24,000 frames. A one-shot `food=60` of corpse at 120 J is **7,200 J
+    // -- 15% of that**, so the colony starves whatever the gap is, and the
+    // first run of `mode=gap` duly read `alive 0/0` in all twelve rows.
+    //
+    // `far_larder.ron` is under-provisioned the same way: 60 cells plus 30
+    // every 6,000 frames is 21,600 J over the same window, **46% of need**. So
+    // its colony dying is not evidence that 363 cells is too far -- it would
+    // die at any distance. That bracket has to be re-derived.
+    //
+    // Over-provisioning *at the target* is deliberate and not a thumb on the
+    // scale: all food sits at one far coordinate, so abundance there does not
+    // shorten the journey. It isolates distance from scarcity, which is the
+    // whole point of the sweep.
+    let place_food = |w: &mut pixel_physics::sim::world::World, n: i32| {
+        for i in 0..n {
+            let (fx, fy) = (target_x + (i % 12) - 6, surface - (i / 12));
             w.set(fx, fy, Cell::new(corpse, 0));
         }
+    };
+    if food > 0 {
+        place_food(&mut w, food);
     }
     for id in w.live_organism_ids() {
         if w.organism(id).is_some_and(|s| s.species == species_id) {
@@ -383,6 +402,9 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             lay(&mut w, nest_x, target_x, surface);
         }
         frame::step(&mut w, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
+        if food > 0 && refill > 0 && f.is_multiple_of(refill) {
+            place_food(&mut w, food);
+        }
         alive_min = alive_min.min(w.live_creature_count());
         // Only sampled once hand-laying has stopped, so this counts the ants'
         // own trail rather than the one we kept refreshing.
@@ -503,6 +525,9 @@ fn main() {
     let stop: u64 = arg("stop").unwrap_or(0);
     // Cells between the nest and the food. The box widens to fit it.
     let gap: i32 = arg("gap").unwrap_or(90);
+    // Frames between food replenishments at the target. 0 places it once,
+    // which the arithmetic above shows is a guaranteed starvation.
+    let refill: u64 = arg("refill").unwrap_or(0);
 
     if flag("spec") {
         println!("{}", gate.spec());
@@ -554,8 +579,8 @@ fn main() {
         println!("{:->6} {:->5} {:->11} {:->11} {:->9} {:->9} {:->9} {:->9}", "", "", "", "", "", "", "", "");
         for g in [90, 150, 220, 300] {
             for s in seed0..seed0 + seeds {
-                let on = run(s, true, gate, frames, ants, relay, near, food, stop, g);
-                let off = run(s, false, gate, frames, ants, relay, near, food, stop, g);
+                let on = run(s, true, gate, frames, ants, relay, near, food, stop, g, refill);
+                let off = run(s, false, gate, frames, ants, relay, near, food, stop, g, refill);
                 println!(
                     "{g:>6} {s:>5} {:>5}/{:<5} {:>5}/{:<5} {:>9} {:>9} {:>9} {:>9}",
                     on.alive_end, on.alive_min, off.alive_end, off.alive_min, on.deliveries, off.deliveries, on.trips, on.near_ticks
@@ -593,7 +618,7 @@ fn main() {
         println!("{:->5} {:->5} {:->7} {:->7} {:->9} {:->9} {:->10} {:->9} {:->20} {:->6}", "", "", "", "", "", "", "", "", "", "");
         for a in [10, 20, 40, 80] {
             for s in seed0..seed0 + seeds {
-                let r = run(s, true, gate, frames, a, relay, near, food, stop, gap);
+                let r = run(s, true, gate, frames, a, relay, near, food, stop, gap, refill);
                 let lt: u64 = r.laden_by_third.iter().sum();
                 let pc = |n: u64| if lt == 0 { 0.0 } else { 100.0 * n as f64 / lt as f64 };
                 println!(
@@ -626,8 +651,8 @@ fn main() {
     let (mut on_tot, mut off_tot) = (0u64, 0u64);
     let mut moved_up = 0;
     for s in seed0..seed0 + seeds {
-        let on = run(s, true, gate, frames, ants, relay, near, food, stop, gap);
-        let off = run(s, false, gate, frames, ants, relay, near, food, stop, gap);
+        let on = run(s, true, gate, frames, ants, relay, near, food, stop, gap, refill);
+        let off = run(s, false, gate, frames, ants, relay, near, food, stop, gap, refill);
         // Ant-ticks differ between arms if one arm's ants die sooner, so the
         // share is what compares: a raw count that fell because the colony
         // shrank is not a colony that stopped following.
