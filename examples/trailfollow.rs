@@ -332,11 +332,20 @@ struct Arm {
     /// see the `worth_in_aux` branch, so it read a clean 0 while any other
     /// material would have gone unnoticed.
     ate_other_j: f64,
-    /// **Larder cells standing inside the nest band at any sample** -- food
-    /// physically hauled home, as opposed to eaten where it was found. Peak
-    /// rather than final, because it is a "did this ever happen" counter and
-    /// the cells are consumed after they arrive.
-    larder_home_peak: u64,
+    /// **Ant-ticks spent carrying larder in the crop** -- the transport
+    /// counter, and the one that says whether food moves at all.
+    ///
+    /// `larder_home_peak` below counts larder *cells standing* in the nest
+    /// band, and it reads 0 or 1 almost everywhere, which has two readings: no
+    /// food comes home, or food comes home and is eaten before any sample sees
+    /// it standing. A cell census cannot separate those. Crop contents can: an
+    /// ant inside the nest band with larder in its crop has carried it there,
+    /// whatever happens to it next.
+    carry_ticks: u64,
+    /// ...of which, inside the nest band. **This is "is food being carried back
+    /// to the nest", measured.** Against `carry_ticks` it is the share of
+    /// transport that ends up at home rather than circling the patch.
+    carry_home_ticks: u64,
     /// Route cells still holding any channel B at the end. With `stop=` set,
     /// this is the *ants'* trail -- the hand-laid one stopped being refreshed
     /// at frame `stop` and a cell laid at `DEPOSIT` dies in ~144 frames.
@@ -476,8 +485,44 @@ fn diet_by_material(w: &pixel_physics::sim::world::World, larder: MaterialId) ->
     (mine, other)
 }
 
+/// **Zero every weight into `EmitB`, direct and through the hidden layer** --
+/// the arm that makes a real no-trail control possible.
+///
+/// Owner's objection, 2026-09-16, and it was right: this harness's "off" arm
+/// was never a no-trail control. It withholds the *hand-laid* ramp and changes
+/// nothing about the ants, who still carry the shipped
+/// `(Carrying, EmitB, 2.5)` wire and lay channel B on every laden move -- and
+/// who, with `gate=b2`, can now read it. So "off" is a **self-organised trail**
+/// arm, and "on vs off" compares a hand-laid trail against whatever the colony
+/// bootstraps for itself. That is a real question but it is not the one the
+/// column headings implied, and it cannot say whether trails work at all: a
+/// null at gap 90 reads equally well as "the trail does nothing" and as "the
+/// ants' own trail already did it".
+///
+/// **`EmitA` is deliberately left alone.** It is the nest odometer -- the
+/// homing channel -- and zeroing it would fold a homing ablation into a
+/// foraging measurement. The question here is channel B.
+fn mute_channel_b(g: &mut [f32]) -> usize {
+    let mut moved = 0;
+    for i in 0..brain::BRAIN_INPUTS {
+        let slot = brain::io_slot(brain::INPUTS[i], O::EmitB);
+        if g[slot] != 0.0 {
+            g[slot] = 0.0;
+            moved += 1;
+        }
+    }
+    for h in 0..brain::BRAIN_HIDDEN {
+        let slot = brain::ho_slot(h, O::EmitB);
+        if g[slot] != 0.0 {
+            g[slot] = 0.0;
+            moved += 1;
+        }
+    }
+    moved
+}
+
 #[allow(clippy::too_many_arguments)]
-fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, near: i32, food: i32, stop: u64, gap: i32, refill: u64, diet: Diet) -> Arm {
+fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, near: i32, food: i32, stop: u64, gap: i32, refill: u64, diet: Diet, mute: bool) -> Arm {
     // **The box grows with the gap.** `far_larder` pins food 363 cells from
     // its colony and every one of its 52 ants starves by frame 20,000 --
     // measured, `latecensus scenario=far_larder`: ants 52 -> 0, eats 87 in
@@ -491,6 +536,10 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let mut genome = w.species.get(species_id).genome.clone();
     let moved = gate.apply(&mut genome);
     assert!(gate.name == "shipped" || moved > 0, "gate {} changed no slot, so both arms carry one genome", gate.name);
+    if mute {
+        let silenced = mute_channel_b(&mut genome);
+        assert!(silenced > 0, "no EmitB weight was zeroed, so the muted arm still lays the plane it is meant to be without");
+    }
 
     let surface = spec.ground_y - 2;
     let (nest_x, target_x) = (40, 40 + gap);
@@ -550,26 +599,6 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     if food > 0 {
         place_food(&mut w, food, &mut larder_placed);
     }
-    // **Whole world, not the target box.** A cell that has been carried
-    // anywhere has left the larder, and a box census would book a hauled cell
-    // as an eaten one. `home` mirrors `creature.rs`'s private
-    // `COLONY_HALF_WIDTH` (26) -- the nest band an ant is judged `AtNest`
-    // against -- so a rise in it is food that arrived where it was wanted.
-    let census_larder = |w: &pixel_physics::sim::world::World| -> (u64, u64) {
-        let (mut total, mut home) = (0u64, 0u64);
-        for x in 0..width {
-            for y in 0..spec.height {
-                if w.get(x, y).material == larder {
-                    total += 1;
-                    if (x - nest_x).abs() <= 26 {
-                        home += 1;
-                    }
-                }
-            }
-        }
-        (total, home)
-    };
-    let mut larder_home_peak = 0u64;
     // The larder priced the way the animal prices it, not the way the material
     // table reads. See `Arm::supply_j`.
     let gut_bias = w.species.get(species_id).creature.as_ref().expect("ant is a creature").traits[0];
@@ -584,6 +613,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let (mut near_ticks, mut ant_ticks) = (0u64, 0u64);
     let mut alive_min = usize::MAX;
     let (mut laden_ticks, mut laden_nest_ticks) = (0u64, 0u64);
+    let (mut carry_ticks, mut carry_home_ticks) = (0u64, 0u64);
     let (mut laden_by_third, mut spoil_ticks) = ([0u64; 3], 0u64);
     let mut peak_cells = 0usize;
     let midpoint = (nest_x + target_x) / 2;
@@ -625,9 +655,6 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         // Sampling at `stop + 288` therefore still caught the hand-laid trail
         // fully intact, and every arm reported a peak of exactly the route
         // length twice over before this was caught.
-        if food > 0 && f.is_multiple_of(100) {
-            larder_home_peak = larder_home_peak.max(census_larder(&w).1);
-        }
         if stop > 0 && f > stop + 1500 && f.is_multiple_of(100) {
             let live = (nest_x..=target_x).filter(|&x| w.pheromone_at(Channel::B, x, surface) > 0).count();
             peak_cells = peak_cells.max(live);
@@ -639,6 +666,13 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             }
             let Some(&(hx, hy)) = s.chain.first() else { continue };
             ant_ticks += 1;
+            if s.crop.is_some_and(|c| c.material == larder) {
+                carry_ticks += 1;
+                // The same +-26 band `creature.rs` judges `AtNest` against.
+                if (hx - nest_x).abs() <= 26 {
+                    carry_home_ticks += 1;
+                }
+            }
             if s.crop.is_some() || s.spoil.is_some() {
                 laden_ticks += 1;
                 if hx < midpoint {
@@ -712,7 +746,8 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         supply_j: larder_placed as f64 * per_cell_j,
         eaten_j: diet_by_material(&w, larder).0,
         ate_other_j: diet_by_material(&w, larder).1,
-        larder_home_peak,
+        carry_ticks,
+        carry_home_ticks,
         live_cells,
         peak_cells,
         natural_along: if nat_n == 0 { 0.0 } else { (nat_sum / nat_n as f64) as f32 },
@@ -829,11 +864,26 @@ fn main() {
         // buys reach. The testable band is where the colony lives, the
         // unaided arm is near zero, and the trail arm is not.
         assert!(food > 0, "mode=gap needs food= at the target, or there is nothing to reach");
+        // **Three arms, not two, and the third is the one that was missing.**
+        // Owner's objection, 2026-09-16: withholding the hand-laid ramp does
+        // not give a no-trail control, because the ants still carry
+        // `(Carrying, EmitB, 2.5)` and lay their own. So a null between the
+        // first two arms reads equally well as "the trail does nothing" and as
+        // "the colony's own trail already did it", and those want opposite
+        // conclusions.
+        //
+        //   hand   the ramp is laid for them until `stop`, then released
+        //   self   no ramp; the ants lay and read their own channel B
+        //   mute   no ramp, and `EmitB` is zeroed -- no channel B can exist
+        //
+        // `self` vs `mute` is the question this whole investigation is named
+        // for: **do the ants' own trails do anything?** `hand` vs `self` only
+        // says whether a hand-laid ramp beats what they bootstrap.
         println!(
-            "{:>6} {:>5} {:>11} {:>11} {:>10} {:>10} {:>10} {:>7} {:>6} {:>9} {:>9}",
-            "gap", "seed", "alive on", "alive off", "ate J on", "ate J off", "supply J", "other J", "home", "near on", "near off"
+            "{:>6} {:>5} {:>6} {:>11} {:>10} {:>10} {:>9} {:>9} {:>8} {:>7}",
+            "gap", "seed", "arm", "alive", "ate J", "supply J", "carry", "carry@nest", "near", "other J"
         );
-        println!("{:->6} {:->5} {:->11} {:->11} {:->9} {:->9} {:->9} {:->9}", "", "", "", "", "", "", "", "");
+        println!("{:->6} {:->5} {:->6} {:->11} {:->10} {:->10} {:->9} {:->9} {:->8} {:->7}", "", "", "", "", "", "", "", "", "", "");
         // **A knob, because it was silently ignored as one.** `gaps=90` on the
         // command line did nothing and the run swept the hardcoded four --
         // `CLAUDE.md`'s "an unknown argument is silently ignored", which cost a
@@ -843,38 +893,21 @@ fn main() {
             .unwrap_or_else(|| vec![90, 150, 220, 300]);
         for g in gaps {
             for s in seed0..seed0 + seeds {
-                let on = run(s, true, gate, frames, ants, relay, near, food, stop, g, refill, diet);
-                let off = run(s, false, gate, frames, ants, relay, near, food, stop, g, refill, diet);
-                println!(
-                    "{g:>6} {s:>5} {:>5}/{:<5} {:>5}/{:<5} {:>10.0} {:>10.0} {:>10.0} {:>7.0} {:>6} {:>9} {:>9}",
-                    on.alive_end,
-                    on.alive_min,
-                    off.alive_end,
-                    off.alive_min,
-                    on.eaten_j,
-                    off.eaten_j,
-                    on.supply_j,
-                    // One column for both arms: it must be 0 in every row, so
-                    // it is printed as a check rather than as a comparison.
-                    on.ate_other_j + off.ate_other_j,
-                    on.larder_home_peak,
-                    on.near_ticks,
-                    // **The control the `ate J off` column cannot do without.**
-                    // An exactly-repeated zero in `ate J off` is `CLAUDE.md`'s
-                    // tidiness signature, and it has two readings that want
-                    // opposite conclusions: the no-trail colony reached the
-                    // food and declined to eat (a finding), or it never got
-                    // there at all (arithmetic). Only this column separates
-                    // them, and the table did not have it.
-                    off.near_ticks
-                );
+                for (name, trail, mute) in [("hand", true, false), ("self", false, false), ("mute", false, true)] {
+                    let a = run(s, trail, gate, frames, ants, relay, near, food, stop, g, refill, diet, mute);
+                    println!(
+                        "{g:>6} {s:>5} {name:>6} {:>5}/{:<5} {:>10.0} {:>10.0} {:>9} {:>9} {:>8} {:>7.0}",
+                        a.alive_end, a.alive_min, a.eaten_j, a.supply_j, a.carry_ticks, a.carry_home_ticks, a.near_ticks, a.ate_other_j
+                    );
+                }
             }
         }
-        println!("\n  Testable band = colony alive, `ate J off` ~0, `ate J on` > 0.");
-        println!("  `corpseJ` must read 0 in every row: it is the check that `onlyfood` held.");
-        println!("  `ate J` against `supply J` says whether the colony was provisioned or just deaf.");
-        println!("  A gap where `ate J off` is already healthy cannot show a trail doing anything.");
-        println!("  A gap where `alive on` reaches 0 is measuring a dead colony, not a deaf one.");
+        println!("\n  `self` vs `mute` is the real question: do the ants' OWN trails do anything?");
+        println!("  `hand` vs `self` only says whether a laid ramp beats what they bootstrap.");
+        println!("  `carry` is ant-ticks holding larder in the crop; `carry@nest` is those inside the +-26 nest band --");
+        println!("    that pair is the answer to \"is food being carried back\", which a cell census cannot give.");
+        println!("  `other J` must read 0 in every row: it is the check that `onlyfood` held.");
+        println!("  A gap where `alive` reaches 0 in every arm is measuring a dead colony, not a deaf one.");
         return;
     }
 
@@ -903,7 +936,7 @@ fn main() {
         println!("{:->5} {:->5} {:->7} {:->7} {:->9} {:->9} {:->10} {:->9} {:->20} {:->6}", "", "", "", "", "", "", "", "", "", "");
         for a in [10, 20, 40, 80] {
             for s in seed0..seed0 + seeds {
-                let r = run(s, true, gate, frames, a, relay, near, food, stop, gap, refill, diet);
+                let r = run(s, true, gate, frames, a, relay, near, food, stop, gap, refill, diet, false);
                 let lt: u64 = r.laden_by_third.iter().sum();
                 let pc = |n: u64| if lt == 0 { 0.0 } else { 100.0 * n as f64 / lt as f64 };
                 println!(
@@ -936,8 +969,8 @@ fn main() {
     let (mut on_tot, mut off_tot) = (0u64, 0u64);
     let mut moved_up = 0;
     for s in seed0..seed0 + seeds {
-        let on = run(s, true, gate, frames, ants, relay, near, food, stop, gap, refill, diet);
-        let off = run(s, false, gate, frames, ants, relay, near, food, stop, gap, refill, diet);
+        let on = run(s, true, gate, frames, ants, relay, near, food, stop, gap, refill, diet, false);
+        let off = run(s, false, gate, frames, ants, relay, near, food, stop, gap, refill, diet, false);
         // Ant-ticks differ between arms if one arm's ants die sooner, so the
         // share is what compares: a raw count that fell because the colony
         // shrank is not a colony that stopped following.
