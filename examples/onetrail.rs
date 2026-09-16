@@ -133,6 +133,10 @@ struct Run {
 }
 
 /// Stamp the plane once. Returns the (x0, x1) the trail spans.
+// Eight arguments against clippy's ceiling of seven: the trail's two ends and
+// the row the head walks are three of them, and bundling them into a struct
+// would hide that this is the only place the geometry is decided.
+#[allow(clippy::too_many_arguments)]
 fn stamp(w: &mut World, ch: Channel, shape: Shape, mirror: bool, x0: i32, x1: i32, head_y: i32, peak: f32) {
     if shape == Shape::None {
         return;
