@@ -677,6 +677,165 @@ asks the trail to answer both.** That single mismatch produces the acquisition
 failure of §6.1, the polarity problem of §1c, and the overloading of `Move` in
 §6.2. It is the same defect seen three times.
 
+---
+
+## 7. The colony-scale run, and five things it corrected on the way
+
+Everything in §1–§6 is single-ant or plane-side. This section is what happened
+when the question was put to colonies, and **most of it is corrections** —
+three of them to claims made earlier in this same document or in its commits.
+
+### 7.1 Re-gating channel B works at colony scale
+
+`trailfollow mode=colony`, 6 seeds, near-target ant-ticks with a standing
+food-ward trail against the same seed without one:
+
+| arm | pooled | seeds up |
+|---|---|---|
+| shipped, genome untouched | 1,933 vs 0 | 2 of 6 |
+| re-gated units 2/3 (`b2`) | **18,489** vs 0 | **6 of 6** |
+
+**9.6x**, colony alive at 18–19 of 20 throughout.
+
+**The control was wrong on the first attempt and read 8.6x.** `gate=saturated`
+had not been the shipped ant since 2026-09-09: it writes `Carrying:0:75` where
+`ant.ron` ships **45.5**, and `Bias:2:30` where the file ships **45**, so it
+saturates the *homing* pair too and any channel-B delta measured against it
+silently includes homing. `gate=shipped` (applies nothing) is the honest
+control. The file's own `LANDED_NOTE` warns these preset names go stale; it had
+gone stale again since that warning was written.
+
+### 7.2 §Z7's headline null no longer reproduces
+
+§Z7 records `trailfollow` returning **595 = 595 exactly, twice**, and
+1,903 = 1,903 on an independent harness. On current `main` the *untouched*
+shipped ant moves 2 of 6 seeds. Almost certainly the `u16` widening (#450) —
+the same change that retracted `nest-design-2026-09-14.md` §5.1. **§Z7 wants
+updating to say so.**
+
+### 7.3 The 144-frame trail lifetime is a `u8`-era figure, and a prediction died on it
+
+This branch predicted a trail-persistence threshold of **~19 commuters**, from
+`round_trip / 144` where 144 frames is
+`pheromone-lifetime-and-wiring-2026-09-14.md`'s *"a cell laid at `DEPOSIT` dies
+in ~144 frames, 0.065x of a round trip"*.
+
+**That measurement was invalidated by the `u16` widening the day after it was
+written.** `DEPOSIT` went from 40 to `40 * SCALE` = 10,240. `pherolife` on
+current `main`:
+
+```
+trail gone 1,476 frames (0.67x round trip)   stops steering 1,080 (0.49x)
+```
+
+Ten times longer. Corrected threshold ≈ **2 commuters, not 19.** Persistence
+was never close to binding.
+
+**The tell was `CLAUDE.md`'s tidiness signature**: `cells pk` read exactly 91 —
+the full route length — in *every* arm across four populations and three seeds,
+and again after a "fix" that moved the sampling window to `stop + 288`. A column
+identical across every arm is an artifact. Chasing it is what surfaced the
+stale constant.
+
+### 7.4 The played bed cannot test any of this, and not for the reason first given
+
+`played_bed` puts the colony at x=256 inside a **deliberate bare band
+(210–310)**, nearest food ~75 cells out — the file records that moat being
+worth 33 seated founders against 23 without it. Measured `deepest` across 18
+runs: **7–49 cells, median 17**, against a nest band of **±26**. Most ants never
+leave the nest's own footprint.
+
+**But the moat does not stay a moat**, and an earlier draft's "they live on
+litter drifting in" was wrong. `latecensus`:
+
+```
+frame    plnts   bare/band     seedJ    crpsJ   leafJ
+    0       18    129/129      2,160        0       0
+10000      176     80/129    109,560   37,080       0
+30000      259      0/129    137,760   45,000       0
+```
+
+The band **fills in completely** — 18 plants to 259, 701 germinations. The ants
+eat seeds from plants that colonised the gap, plus their own dead. So the bed
+removes distance as a variable within half a session, and a trail has nothing
+to serve.
+
+**Consequence for Phase 1.0**: the homing sweep (shipped vs `noemit` vs
+`nosteer`, six seeds) is **inconclusive, not negative**. Shipped beat both cut
+arms on 2 of 6 with the lowest median — but cutting a homing circuit costs
+nothing when nobody makes the trip. §12's "2 of 3 seeds" was very likely the
+same noise.
+
+### 7.5 `far_larder`'s colony dies of hunger, not distance
+
+`far_larder.ron` is the right *shape* of bed — `founders: 0` so no plants
+exist, colony at x=107, food pinned at x=470 (363 cells) and replenished
+forever. Verified: `plnts` 0 and `bare/band` 129/129 across 30,000 frames. It
+genuinely does not spread.
+
+**But its colony starves regardless of distance.** 52 ants at two cells,
+`idle_cost_per_cell` 0.05 and `move_cost_per_cell` 0.125 on a 6-frame tick, need
+roughly **46,800 J** over 24,000 frames:
+
+| supply | J | share of need |
+|---|---|---|
+| `far_larder`: 60 cells + 30 every 6,000 | 21,600 | **46%** |
+| an earlier sweep here: 60 cells once | 7,200 | **15%** |
+
+So *"363 cells starves the colony"* was published as a distance bracket and is
+not evidence about distance at all — that colony dies at a gap of zero. The
+arithmetic should have been done before the sweep, not after reading twelve
+rows of `alive 0/0`.
+
+### 7.6 With food replenished, a trail buys survival at 90 cells and nothing beyond
+
+`trailfollow mode=gap`, 6 seeds, `food=200 refill=4000` (168,000 J, 3.6x need),
+trail hand-laid to frame 6,000 then released:
+
+| gap | alive on (median) | alive off (median) | pooled | seeds up |
+|---|---|---|---|---|
+| **90** | **9.5** | **2** | **57 vs 13** | **4 of 6** |
+| 150 | 3 | 4.5 | 24 vs 32 | 2 of 6 |
+| 220 | 0.5 | 0 | 7 vs 0 | 3 of 6, rest dead both ways |
+| 300 | 0 | 0 | 0 vs 0 | all dead |
+
+**This is the first colony-level benefit a trail has bought anywhere in this
+work** — 4.4x pooled survival at 90 cells — and it is gone by 150.
+
+### 7.7 `deliveries` does not measure provisioning, and a claim was withdrawn on it
+
+`CreatureStats::deliveries` increments on **any drop while `at_nest`**,
+whatever was dropped and wherever it came from. With 52 ants dying, the nest
+fills with corpses, and an ant picking one up and setting it down scores a
+delivery.
+
+**The disproof is in the sweep's own data: at gap 300, `near on` is 0 in all
+six seeds** — not one ant ever came within 10 cells of the food — **yet
+`deliv on` reads 0, 0, 6, 4, 13, 10.** Deliveries occur with zero visits to the
+food source.
+
+So the column cannot attribute provisioning, and *"ants reach the food and
+bring almost nothing home"* — stated in a commit here — **is withdrawn**; it was
+inferred from a contaminated counter. The observed "trail lowers deliveries in
+21 of 24 rows" is most economically read as *the trail arm has fewer ants at
+home to shuffle corpses*.
+
+**What is needed instead is food removed from the target heap**, which
+nest-local handling cannot fake. Not yet built.
+
+### 7.8 What this leaves standing
+
+- Re-gating channel B moves a colony (7.1), and at 90 cells it keeps one alive
+  (7.6). Both measured against honest controls.
+- A trail appears to work as **"go eat over there" for individuals** rather
+  than as provisioning for the nest — survival rises while nothing demonstrably
+  comes home. That is consistent with the dilution finding of §2.0 and with the
+  bed's own eats-to-deliveries ratio, and it is **not yet established**, because
+  the provisioning half has no trustworthy instrument.
+- Every bed available either removes distance (`played_bed`) or starves the
+  colony (`far_larder` as shipped). A usable bed needs food **far, fixed,
+  non-spreading and sufficient**, which is `far_larder` with its larder resized.
+
 ## Instruments
 
 - `examples/onetrail.rs` — `mode=arith` (shipped genome, nothing overridden),
