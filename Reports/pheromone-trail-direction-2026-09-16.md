@@ -224,16 +224,29 @@ diagnosis**, because the acquisition failure predicts a null whether the
 direction story is right or wrong. It was not, as an earlier draft claimed,
 "the cheapest decisive test". It was a guard that could not go red.
 
-**It is also a recorded dead end.** `Reports/dead-ends.md` carries
+**A recorded dead end sits near it, and the ordering matters.** The reason to
+drop this is the measurement above, not the register — and the register is a
+record of *conditions*, not a blacklist. Every entry states the condition its
+rejection depended on precisely so it can be retried when that changes, and
+`CLAUDE.md` says in terms to *re-test any do-not-retry entry of that shape
+after something changes its condition*. The entry here is
+`Reports/dead-ends.md`'s
 *"`assets/species/ant.ron` hidden units 2/3 ... re-weighted off saturation the
 same way units 0/1 were; measured 2026-09-09"*, whose `Re-test when:` clause
 reads *"The rejection depends on **what a food trail is worth in this bed**,
 not on the gate"*, and which says in terms **"Do not retry the weight change
-alone; it is not the variable."** An earlier draft of this report proposed
-exactly that retry, cited §Z7 but never `dead-ends.md`, and never argued that
-adding a sign changed the condition the rejection depended on. `CLAUDE.md`:
-*proposing, building or retrying any mechanism -> `dead-ends.md` first*. That
-step was skipped.
+alone; it is not the variable."** An earlier draft proposed that retry and never
+consulted the register at all, which is the process failure — `CLAUDE.md`:
+*proposing, building or retrying any mechanism -> `dead-ends.md` first*.
+
+**But the register did not turn out to be why the variant fails, and saying
+otherwise would be the wrong lesson.** Its stated condition is about what a
+food trail is *worth*; the sign flip died of something else entirely and new —
+it cannot acquire a trail. Adding a sign genuinely was a different proposal
+from the one recorded, and it deserved the test it got. What the register is
+for is telling you what was already tried and on what the rejection hung, so
+you can say how your variant differs. It is not a list of forbidden ideas, and
+a measured failure is the only thing that closes one.
 
 ### 2.1 Measure the gradient a real ant reads, before building anything
 
