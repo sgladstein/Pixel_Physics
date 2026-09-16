@@ -266,13 +266,34 @@ struct Arm {
     along: f32,
     alive_end: usize,
     alive_min: usize,
+    /// Round trips the colony actually completed. **The denominator for
+    /// everything below**: a natural trail laid by nobody is not a finding
+    /// about trail shape, it is a loop that never seeded.
+    trips: u64,
+    deliveries: u64,
+    /// Route cells still holding any channel B at the end. With `stop=` set,
+    /// this is the *ants'* trail -- the hand-laid one stopped being refreshed
+    /// at frame `stop` and a cell laid at `DEPOSIT` dies in ~144 frames.
+    live_cells: usize,
+    /// Peak route cells alive at any sample after laying stopped.
+    peak_cells: usize,
+    /// The ants' own trail, as the gradient a reader would compute along it,
+    /// **positive = climbing toward the nest**. This is §1c's single-ant
+    /// derivation put to real traffic: positive means an ascending empty ant
+    /// is steered home and the food-ward ramp is necessary.
+    natural_along: f32,
+    /// Share of laden ant-ticks spent in the nest half. The homing
+    /// precondition, re-checked inside the scene that matters: if laden ants
+    /// wander rather than walk home, their channel B is a wander-field and its
+    /// shape says nothing about polarity.
+    laden_nest_share: f32,
 }
 
 /// One arm: one seed, trail on or off, one gate.
 // Eight against clippy's ceiling of seven: these are the arm's axes, and a
 // struct would hide that each one is independently swept.
 #[allow(clippy::too_many_arguments)]
-fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, near: i32, food: i32) -> Arm {
+fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, near: i32, food: i32, stop: u64) -> Arm {
     let spec = LabBox { width: 256, height: 192, ground_y: 96, soil_depth: 48, founders: 0, colonies: 0, seed, ..LabBox::default() };
     let mut w = spec.build();
     let species_id = w.species.id_of("ant").expect("the ant species is compiled in");
@@ -315,16 +336,30 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let (mut particles, mut blasts, tuning) = (ParticleSystem::default(), Blasts::default(), player::Tuning::default());
     let (mut near_ticks, mut ant_ticks) = (0u64, 0u64);
     let mut alive_min = usize::MAX;
+    let (mut laden_ticks, mut laden_nest_ticks) = (0u64, 0u64);
+    let mut peak_cells = 0usize;
+    let midpoint = (nest_x + target_x) / 2;
     // The along reading a real ant would get, averaged over every sample —
     // the instrument's own positive control, because a count that does not
     // move against a gradient that was never there says nothing.
     let (mut along_sum, mut along_n) = (0.0f64, 0u64);
     for f in 1..=frames {
-        if trail && (f == 1 || f.is_multiple_of(relay)) {
+        // **`stop` is what turns this from a pull arm into a loop arm.** Up to
+        // `stop` the trail is guaranteed, which breaks the circularity -- a
+        // naturally laid trail needs commuters, and commuters need a trail
+        // worth following. After it, the only channel B in the world is what
+        // the ants themselves put down.
+        if trail && (stop == 0 || f <= stop) && (f == 1 || f.is_multiple_of(relay)) {
             lay(&mut w, nest_x, target_x, surface);
         }
         frame::step(&mut w, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
         alive_min = alive_min.min(w.live_creature_count());
+        // Only sampled once hand-laying has stopped, so this counts the ants'
+        // own trail rather than the one we kept refreshing.
+        if stop > 0 && f > stop && f.is_multiple_of(100) {
+            let live = (nest_x..=target_x).filter(|&x| w.pheromone_at(Channel::B, x, surface) > 0).count();
+            peak_cells = peak_cells.max(live);
+        }
         for id in w.live_organism_ids() {
             let Some(s) = w.organism(id) else { continue };
             if s.species != species_id {
@@ -332,6 +367,12 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             }
             let Some(&(hx, hy)) = s.chain.first() else { continue };
             ant_ticks += 1;
+            if s.crop.is_some() || s.spoil.is_some() {
+                laden_ticks += 1;
+                if hx < midpoint {
+                    laden_nest_ticks += 1;
+                }
+            }
             if (hx - target_x).abs() <= near {
                 near_ticks += 1;
             }
@@ -351,12 +392,37 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             }
         }
     }
+    // The ants' own trail at the end: how much of the route still holds
+    // anything, and which way it climbs. Read on the surface row, where it was
+    // laid. **Positive `natural_along` = the trail climbs toward the NEST**,
+    // which is what §1c's single-ant derivation predicts and what makes a
+    // food-ward ramp necessary.
+    let live_cells = (nest_x..=target_x).filter(|&x| w.pheromone_at(Channel::B, x, surface) > 0).count();
+    let (mut nat_sum, mut nat_n) = (0.0f64, 0u64);
+    for x in nest_x..=(target_x - sensor_offset) {
+        let here = w.pheromone_at(Channel::B, x, surface) as f64;
+        let ahead = w.pheromone_at(Channel::B, x + sensor_offset, surface) as f64;
+        if here > 0.0 || ahead > 0.0 {
+            // Toward the nest is -x here, so negate: the column reads positive
+            // when the trail is taller at the nest end.
+            nat_sum += -((ahead - here) / (ahead + here + pheromone::SCALE as f64));
+            nat_n += 1;
+        }
+    }
+
+    let st = w.creature_stats;
     Arm {
         near_ticks,
         ant_ticks,
         along: if along_n == 0 { 0.0 } else { (along_sum / along_n as f64) as f32 },
         alive_end: w.live_creature_count(),
         alive_min: if alive_min == usize::MAX { 0 } else { alive_min },
+        trips: st.forage_trips,
+        deliveries: st.deliveries,
+        live_cells,
+        peak_cells,
+        natural_along: if nat_n == 0 { 0.0 } else { (nat_sum / nat_n as f64) as f32 },
+        laden_nest_share: if laden_ticks == 0 { 0.0 } else { 100.0 * laden_nest_ticks as f32 / laden_ticks as f32 },
     }
 }
 
@@ -373,6 +439,10 @@ fn main() {
     // the trail pulls an ant there" design; >0 is the readout's positive
     // control and the round-trip arm. See `run`.
     let food: i32 = arg("food").unwrap_or(0);
+    // Frame at which hand-laying stops. 0 (the default) keeps the trail
+    // standing for the whole run, which is the pull question. Any positive
+    // value turns this into the loop question: seed it, then let go.
+    let stop: u64 = arg("stop").unwrap_or(0);
 
     if flag("spec") {
         println!("{}", gate.spec());
@@ -396,12 +466,39 @@ fn main() {
         return;
     }
 
+    if mode == "loop" {
+        // **Phase 1b: seed the loop, then let go of it.** Hand-lay to frame
+        // `stop` with food at the target, then read what the ants' own trail
+        // looks like. `ants=` is the swept axis because a cell laid at
+        // `DEPOSIT` survives ~144 frames unreinforced and a 90-cell round trip
+        // is ~2,700 frames at `P(move)` 0.4 -- so holding the route up needs
+        // roughly `round_trip / 144` ~= 19 commuters, and the shipped default
+        // of 20 sits exactly on that knife-edge. Stated before running so the
+        // result is falsifiable rather than rationalised.
+        assert!(stop > 0, "mode=loop needs stop= (the frame hand-laying stops); without it nothing is ever the ants' own trail");
+        assert!(food > 0, "mode=loop needs food= at the target, or there is no round trip to close");
+        println!("{:>5} {:>5} {:>7} {:>7} {:>9} {:>9} {:>10} {:>9} {:>9}", "ants", "seed", "trips", "deliv", "cells end", "cells pk", "nat along", "laden@nest", "alive");
+        println!("{:->5} {:->5} {:->7} {:->7} {:->9} {:->9} {:->10} {:->9} {:->9}", "", "", "", "", "", "", "", "", "");
+        for a in [10, 20, 40, 80] {
+            for s in seed0..seed0 + seeds {
+                let r = run(s, true, gate, frames, a, relay, near, food, stop);
+                println!(
+                    "{a:>5} {s:>5} {:>7} {:>7} {:>9} {:>9} {:>10.4} {:>8.1}% {:>4}/{:<4}",
+                    r.trips, r.deliveries, r.live_cells, r.peak_cells, r.natural_along, r.laden_nest_share, r.alive_end, r.alive_min
+                );
+            }
+        }
+        println!("\n  `nat along` is the ants' OWN trail, positive = climbing toward the NEST.");
+        println!("  Read `trips` first: a natural trail laid by nobody is not a finding about shape.");
+        return;
+    }
+
     println!("{:>5} {:>10} {:>10} {:>9} {:>10} {:>8} {:>14}", "seed", "trail on", "trail off", "delta", "ratio", "along", "alive end/min");
     let (mut on_tot, mut off_tot) = (0u64, 0u64);
     let mut moved_up = 0;
     for s in seed0..seed0 + seeds {
-        let on = run(s, true, gate, frames, ants, relay, near, food);
-        let off = run(s, false, gate, frames, ants, relay, near, food);
+        let on = run(s, true, gate, frames, ants, relay, near, food, stop);
+        let off = run(s, false, gate, frames, ants, relay, near, food, stop);
         // Ant-ticks differ between arms if one arm's ants die sooner, so the
         // share is what compares: a raw count that fell because the colony
         // shrank is not a colony that stopped following.
