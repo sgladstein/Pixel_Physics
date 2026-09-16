@@ -287,6 +287,28 @@ struct Arm {
     /// wander rather than walk home, their channel B is a wander-field and its
     /// shape says nothing about polarity.
     laden_nest_share: f32,
+    /// **Laden ant-ticks by third of the route, and the spoil share -- the
+    /// dilution census.** Owner's observation, 2026-09-16: channel B is laid
+    /// by *any* laden ant, and only one of the four things that make an ant
+    /// laden is route-laying.
+    ///
+    /// `Carrying` is `crop_fill.max(spoil ? 1.0 : 0.0)`, and a deposit happens
+    /// on every successful move (P-11), so `(Carrying, EmitB, 2.5)` fires
+    /// identically for an ant walking food home, an ant shuffling at the patch
+    /// while it digests, an ant wandering before the unconditional
+    /// `(Carrying, Drop, 0.2)` puts it down somewhere arbitrary, and an ant
+    /// hauling dig spoil. Three of those four lay noise on the same plane the
+    /// fourth is trying to write a route on.
+    ///
+    /// **The ratio that matters is per MOVE, not per pickup**, and that is why
+    /// this is counted here rather than inferred from the bed's
+    /// pickups-to-deliveries figure. On the played bed 6,943 pickups produce
+    /// 290 deliveries -- 4% -- but a homeward trip from 28 cells is ~28 laden
+    /// moves while an eat-in-place is nearly none, so the deposit-weighted
+    /// route share could be far above 4% or far below it. Nobody has measured
+    /// it either way.
+    laden_by_third: [u64; 3],
+    spoil_ticks: u64,
 }
 
 /// One arm: one seed, trail on or off, one gate.
@@ -337,6 +359,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let (mut near_ticks, mut ant_ticks) = (0u64, 0u64);
     let mut alive_min = usize::MAX;
     let (mut laden_ticks, mut laden_nest_ticks) = (0u64, 0u64);
+    let (mut laden_by_third, mut spoil_ticks) = ([0u64; 3], 0u64);
     let mut peak_cells = 0usize;
     let midpoint = (nest_x + target_x) / 2;
     // The along reading a real ant would get, averaged over every sample —
@@ -371,6 +394,14 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 laden_ticks += 1;
                 if hx < midpoint {
                     laden_nest_ticks += 1;
+                }
+                // Thirds of the route: 0 = the nest end, 2 = the food end.
+                // Route-laying is the middle; both ends are mostly local
+                // shuffle, which is the noise the middle has to be read out of.
+                let t = (((hx - nest_x) * 3) / (target_x - nest_x).max(1)).clamp(0, 2) as usize;
+                laden_by_third[t] += 1;
+                if s.spoil.is_some() {
+                    spoil_ticks += 1;
                 }
             }
             if (hx - target_x).abs() <= near {
@@ -423,6 +454,8 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         peak_cells,
         natural_along: if nat_n == 0 { 0.0 } else { (nat_sum / nat_n as f64) as f32 },
         laden_nest_share: if laden_ticks == 0 { 0.0 } else { 100.0 * laden_nest_ticks as f32 / laden_ticks as f32 },
+        laden_by_third,
+        spoil_ticks,
     }
 }
 
@@ -477,19 +510,39 @@ fn main() {
         // result is falsifiable rather than rationalised.
         assert!(stop > 0, "mode=loop needs stop= (the frame hand-laying stops); without it nothing is ever the ants' own trail");
         assert!(food > 0, "mode=loop needs food= at the target, or there is no round trip to close");
-        println!("{:>5} {:>5} {:>7} {:>7} {:>9} {:>9} {:>10} {:>9} {:>9}", "ants", "seed", "trips", "deliv", "cells end", "cells pk", "nat along", "laden@nest", "alive");
-        println!("{:->5} {:->5} {:->7} {:->7} {:->9} {:->9} {:->10} {:->9} {:->9}", "", "", "", "", "", "", "", "", "");
+        println!(
+            "{:>5} {:>5} {:>7} {:>7} {:>9} {:>9} {:>10} {:>9} {:>20} {:>6}",
+            "ants", "seed", "trips", "deliv", "cells end", "cells pk", "nat along", "laden@nest", "laden ticks n/m/f", "spoil"
+        );
+        println!("{:->5} {:->5} {:->7} {:->7} {:->9} {:->9} {:->10} {:->9} {:->20} {:->6}", "", "", "", "", "", "", "", "", "", "");
         for a in [10, 20, 40, 80] {
             for s in seed0..seed0 + seeds {
                 let r = run(s, true, gate, frames, a, relay, near, food, stop);
+                let lt: u64 = r.laden_by_third.iter().sum();
+                let pc = |n: u64| if lt == 0 { 0.0 } else { 100.0 * n as f64 / lt as f64 };
                 println!(
-                    "{a:>5} {s:>5} {:>7} {:>7} {:>9} {:>9} {:>10.4} {:>8.1}% {:>4}/{:<4}",
-                    r.trips, r.deliveries, r.live_cells, r.peak_cells, r.natural_along, r.laden_nest_share, r.alive_end, r.alive_min
+                    "{a:>5} {s:>5} {:>7} {:>7} {:>9} {:>9} {:>10.4} {:>8.1}% {:>5.1}/{:>4.1}/{:<4.1}% {:>5.1}% (alive {}/{})",
+                    r.trips,
+                    r.deliveries,
+                    r.live_cells,
+                    r.peak_cells,
+                    r.natural_along,
+                    r.laden_nest_share,
+                    pc(r.laden_by_third[0]),
+                    pc(r.laden_by_third[1]),
+                    pc(r.laden_by_third[2]),
+                    pc(r.spoil_ticks),
+                    r.alive_end,
+                    r.alive_min
                 );
             }
         }
         println!("\n  `nat along` is the ants' OWN trail, positive = climbing toward the NEST.");
         println!("  Read `trips` first: a natural trail laid by nobody is not a finding about shape.");
+        println!("  `laden ticks n/m/f` splits laden ant-ticks across nest/middle/food thirds, and");
+        println!("  `spoil` is the share of them hauling dig spoil rather than food. Channel B is laid");
+        println!("  by ALL of these at one strength, so the middle third is the route signal and the");
+        println!("  rest is noise on the same plane -- the dilution the deposit-weighted split measures.");
         return;
     }
 
