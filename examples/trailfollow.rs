@@ -358,6 +358,11 @@ struct Arm {
     /// could plausibly have happened, distance is not being tested at all --
     /// lifespan is.
     all_dead_frame: u64,
+    /// Times a body traded places with a nestmate -- the "did it fire" counter
+    /// for `kinpass`, which must read 0 when the switch is off.
+    kin_swaps: u64,
+    /// Blocked move attempts, as the thing `kin_swaps` is meant to reduce.
+    blocked: u64,
     /// Distinct ants that ever came within `near` of the food -- recruitment.
     visitors: usize,
     /// Distinct ants that ever lived in this run, as the denominator.
@@ -688,6 +693,15 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         .id_of(diet.larder)
         .unwrap_or_else(|| panic!("larder material {:?} is not compiled in", diet.larder));
     diet.isolate(&mut w, larder);
+    // **`kinpass=on` lets a blocked ant trade places with a nestmate.** A
+    // whole-run switch rather than a fourth arm: it is a question about the
+    // engine's traffic rule, so it wants the same three arms run twice, not a
+    // fourth arm that confounds it with the trail.
+    if flag("kinpass") {
+        let mut cdef = w.species.get(species_id).creature.clone().expect("ant is a creature");
+        cdef.passes_through_kin = true;
+        w.species.set_creature(species_id, cdef);
+    }
     // **Placed as a closure because it has to be REPLENISHED, and the arithmetic
     // says why.** 52 ants at two cells, `idle_cost_per_cell` 0.05 and
     // `move_cost_per_cell` 0.125 on a 6-frame tick, need roughly **46,800 J**
@@ -920,6 +934,8 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         eaten_j: diet_by_material(&w, larder).0,
         ate_other_j: diet_by_material(&w, larder).1,
         founded: if founded.0 == i32::MAX { (0, 0) } else { founded },
+        kin_swaps: st.kin_swaps,
+        blocked: st.moves_blocked,
         first_arrival,
         all_dead_frame,
         carry_toward_nest,
@@ -1115,16 +1131,29 @@ fn main() {
                     // first; `carry->nest` is signed cells, positive homeward.
                     let occ: Vec<String> = a.occupancy.iter().map(|v| format!("{}", v / 1000)).collect();
                     println!(
-                        "{:>16}founded x {:>4}..{:<4} (food at {})  occupancy/1k [{}]  carry->nest {:>8}  born {:>4} died {:>4} (starved {:>4})",
+                        "{:>16}founded x {:>4}..{:<4}  occupancy/1k [{}]  carry->nest {:>7}  born {:>4} died {:>4} (starved {:>4})",
                         "",
                         a.founded.0,
                         a.founded.1,
-                        40 + g,
                         occ.join(" "),
                         a.carry_toward_nest,
                         a.births,
                         a.deaths,
                         a.starved
+                    );
+                    // **Do the survivors keep the trail up once we stop laying
+                    // it?** Owner's ask. `stop` releases the hand-laid ramp at
+                    // frame 6,000 and these are sampled only well after that
+                    // (`stop + 1500`, past the ~1,476-frame lifetime of a cell
+                    // laid at `DEPOSIT`), so they describe the ANTS' trail and
+                    // not ours. `route pk` is the most of the route that ever
+                    // held channel B at one sample, `end` is what is left at
+                    // the finish, and `along` is which way it climbs --
+                    // positive means it rises toward the NEST, which is §1c's
+                    // prediction and the wrong way round for finding food.
+                    println!(
+                        "{:>16}own trail: route pk {:>4} end {:>4} along {:>+7.4}   blocked {:>9}  kin swaps {:>8}",
+                        "", a.peak_cells, a.live_cells, a.natural_along, a.blocked, a.kin_swaps
                     );
                 }
             }

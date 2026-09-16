@@ -9335,6 +9335,21 @@ fn step_chain(
                 world.creature_stats.reversals_refused += 1;
             }
         }
+        // **Before giving up, try trading places with whoever is in the way.**
+        // Hooked here rather than in the candidate scoring on purpose: an ant
+        // only passes through a nestmate when it is otherwise stuck, so the
+        // rule costs nothing wherever traffic is not the problem and every
+        // scene that is not jammed stays bit-identical. Off unless the species
+        // sets `passes_through_kin`.
+        if let Some(d) = try_swap_with_kin(world, organism, def, &chain, &dirs, hx, hy) {
+            if let Some(state) = world.organism_mut(organism) {
+                state.heading = d;
+                state.life.moves += 1;
+                state.traffic_deferred = 0;
+            }
+            world.creature_stats.moves += 1;
+            return true;
+        }
         tumble(world, organism, def, draw);
         world.creature_stats.moves_blocked += 1;
         // **What was in the way — tissue, or the world?** `moves_blocked`
@@ -12354,6 +12369,103 @@ fn body_has_foothold(world: &World, def: &CreatureDef, landing: &[(i32, i32)], h
     } else {
         head_has_foothold(world, head, kin)
     }
+}
+
+/// **Trade places with a nestmate that is in the way** -- the pass-through
+/// half of dead ends 775/829, gated on `CreatureDef::passes_through_kin`.
+///
+/// **It is a swap because co-occupancy is not representable.** A cell holds one
+/// material and one `organism_id`. The foliage machinery cannot be borrowed
+/// either: `relocate_chain` stashes parted plant tissue in
+/// `OrganismState::parted` and restores it on the way out, which is sound only
+/// because a plant cell has no body claiming it -- a displaced *ant* would
+/// still have its own `chain` pointing at a cell somebody else now owns, and
+/// nothing downstream would notice until that ant's next step read the wrong
+/// cell as its own.
+///
+/// **Deliberately narrow, and the narrowness is the safety.** The swap is
+/// refused unless both bodies have the same number of cells and neither is
+/// holding parted foliage, so each animal lands in a set of cells that already
+/// held a body of its own size and no held tissue is owed to a cell that
+/// changed hands. Anything outside that falls through to the ordinary blocked
+/// path, which is the shipped behaviour. The two bodies exchange cell values
+/// and per-cell scalars together -- `relocate_chain`'s own restore does the
+/// same pairing -- so neither loses the state its cells carry.
+///
+/// **Footing is not re-checked on either side**, and that is intended: each
+/// body lands where a body of its size was already standing, and an animal that
+/// ends up unsupported falls, which the fall path already handles. Re-checking
+/// would refuse exactly the dense case this exists for.
+///
+/// Returns the heading the mover should adopt, or `None` if no swap was made.
+fn try_swap_with_kin(world: &mut World, organism: OrganismId, def: &CreatureDef, chain: &[(i32, i32)], dirs: &[u8], hx: i32, hy: i32) -> Option<u8> {
+    if !def.passes_through_kin {
+        return None;
+    }
+    let (me_species, me_parted) = {
+        let st = world.organism(organism)?;
+        (st.species, !st.parted.is_empty())
+    };
+    if me_parted {
+        return None;
+    }
+    for &d in dirs {
+        let (dx, dy) = DIRS[d as usize];
+        let cell = world.get(hx + dx, hy + dy);
+        if world.materials.kind(cell.material) != MaterialKind::Creature {
+            continue;
+        }
+        let other = cell.organism_id();
+        if other == organism {
+            continue;
+        }
+        let Some(other_state) = world.organism(other) else { continue };
+        // Nestmate, not prey and not a stranger: this is a traffic rule, and
+        // letting it reach across species would be a passability change to
+        // every predator in the world rather than a colony one.
+        if other_state.species != me_species || !other_state.parted.is_empty() {
+            continue;
+        }
+        let theirs: Vec<(i32, i32)> = other_state.chain.clone();
+        if theirs.len() != chain.len() || theirs.is_empty() {
+            continue;
+        }
+        // Overlapping bodies would make the exchange below ambiguous about
+        // which value belongs where; it cannot happen for two live animals,
+        // and declining is cheaper than proving it.
+        if theirs.iter().any(|p| chain.contains(p)) {
+            continue;
+        }
+        let mine_vals: Vec<(Cell, organism::OrganismCell)> =
+            chain.iter().map(|&(x, y)| (world.get(x, y), world.organism_cell(x, y).cloned().unwrap_or_default())).collect();
+        let theirs_vals: Vec<(Cell, organism::OrganismCell)> =
+            theirs.iter().map(|&(x, y)| (world.get(x, y), world.organism_cell(x, y).cloned().unwrap_or_default())).collect();
+        for &(x, y) in chain.iter().chain(theirs.iter()) {
+            world.set(x, y, Cell::EMPTY);
+        }
+        for (&(x, y), (c, sc)) in theirs.iter().zip(mine_vals) {
+            world.set(x, y, c);
+            if let Some(slot) = world.organism_cell_mut(x, y) {
+                *slot = sc;
+            }
+        }
+        for (&(x, y), (c, sc)) in chain.iter().zip(theirs_vals) {
+            world.set(x, y, c);
+            if let Some(slot) = world.organism_cell_mut(x, y) {
+                *slot = sc;
+            }
+        }
+        let mine: Vec<(i32, i32)> = chain.to_vec();
+        if let Some(st) = world.organism_mut(organism) {
+            st.chain = theirs;
+        }
+        if let Some(st) = world.organism_mut(other) {
+            st.chain = mine;
+        }
+        world.creature_stats.kin_swaps += 1;
+        return Some(d);
+    }
+    None
 }
 
 /// The kin-footing licence for `organism`, or `None` if its species does

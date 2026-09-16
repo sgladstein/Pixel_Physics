@@ -3872,6 +3872,28 @@ pub struct CreatureDef {
     /// gain pass-through or climb-over"*.
     #[serde(default)]
     pub climbs_over_kin: bool,
+    /// **May a body swap places with a nestmate that is in its way** -- the
+    /// *pass-through* half of dead ends 775/829, which `climbs_over_kin`'s own
+    /// doc above names and which that entry records as still untested:
+    /// *"footing only, never passability, so two chains still cannot pass
+    /// through each other and the 'pass-through' half of the condition stays
+    /// untested."*
+    ///
+    /// **It is a swap, not co-occupancy, and the grid is why.** A cell holds
+    /// one material and one `organism_id`, so two animals in one cell is not
+    /// representable without a second organism layer. Nor can the foliage
+    /// machinery be reused: `creature::relocate_chain` *stashes* parted plant
+    /// tissue in `OrganismState::parted` and gives it back on the way out,
+    /// which works because a plant cell has no body claiming it -- a displaced
+    /// ant's own `chain` would still point at a cell somebody else now owns.
+    /// So the two bodies exchange positions outright.
+    ///
+    /// Off by default: it is a test of whether the blocking rule costs more
+    /// than it buys, and the owner's reason for the rule in the first place was
+    /// that it looks right. A swap preserves that -- two ants are never drawn
+    /// in one pixel -- while removing the queue.
+    #[serde(default)]
+    pub passes_through_kin: bool,
     /// **How many consecutive ticks a laden body waits out a jam before it
     /// turns round anyway** -- the expiry on `creature::boxed_by_traffic`'s
     /// deferral. `None`, the default, is the rule as it stood: the deferral
@@ -4266,6 +4288,7 @@ impl CreatureDef {
             mutation_rate,
             trait_variance,
             climbs_over_kin,
+            passes_through_kin,
             traffic_defer_max,
             eats_kin,
             nectar_only,
@@ -4381,6 +4404,9 @@ impl CreatureDef {
             founder_reserve_spread: *founder_reserve_spread,
             trait_variance: *trait_variance,
             climbs_over_kin: *climbs_over_kin,
+            // A switch, not a length: scaling a body does not change whether
+            // it may trade places with a nestmate.
+            passes_through_kin: *passes_through_kin,
             // A count of ticks, not a length: scaling a body does not change
             // how long its patience should last.
             traffic_defer_max: *traffic_defer_max,
