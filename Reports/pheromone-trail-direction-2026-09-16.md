@@ -1192,6 +1192,63 @@ What survives the correction is the one column with a working control: `self`
 holds about **3.4 route cells of 90, in 2 seeds of 12**, against `mute`'s clean
 **0 of 12**. The few ants that find food do lay — and it is not a trail.
 
+### 7.13 Homing is necessary and not sufficient: the binding constraint is discovery
+
+Five arms, 12 seeds, 24,000 frames, larder isolated. `hmute` lays our ramp with
+the ants' `EmitB` zeroed — the decay baseline. `homeA` lays no food trail and
+instead supplies a **channel A homing ramp**, testing whether a colony that can
+find its way home can then build a trail of its own.
+
+| gap | arm | survived | intake, summed | seeds with intake | reached food | route pk |
+|---|---|---|---|---|---|---|
+| 90 | hand | **7/12** | **2,681,502** | 11/12 | **91.4%** | 88.0 |
+| 90 | hmute | 3/12 | 1,455,113 | 12/12 | **85.4%** | 88.0 |
+| 90 | self | 0/12 | 1,200 | 1/12 | 3.7% | 3.4 |
+| 90 | mute | 0/12 | 9,603 | 3/12 | 7.7% | 0.0 |
+| 90 | **homeA** | **0/12** | 3,608 | 1/12 | **4.1%** | 8.9 |
+| 150 | hand | 2/12 | 661,342 | 4/12 | 67.4% | 146.0 |
+| 150 | hmute | 3/12 | 820,982 | 4/12 | 73.9% | 146.0 |
+| 150 | self / mute | 0/12 | 0 | 0/12 | 0.0% | 1.5 / 0.0 |
+| 150 | **homeA** | **0/12** | **0** | 0/12 | **0.0%** | 4.5 |
+| 220 | hand | 1/12 | 547,934 | 2/12 | 62.6% | 213.0 |
+| 220 | hmute | 1/12 | 489,211 | 2/12 | 61.8% | 213.0 |
+| 220 | **homeA** | **0/12** | **0** | 0/12 | **0.0%** | 1.6 |
+
+**1. `homeA` fails, so homing is necessary and not sufficient.** Handing the
+colony the homing gradient it cannot build — the exact thing §7.12 showed
+missing — changes nothing that matters: 0 of 12 colonies survive at every gap,
+**0.0% of ants reach food at 150 and 220**, and 4.1% at 90 against `self`'s 3.7%
+and `mute`'s 7.7%. The causal chain in §7.12 is real, and repairing its first
+link on its own buys nothing.
+
+**2. The binding constraint is discovery, and the circularity is now measured
+rather than argued.** Every arm without a laid trail reaches food at **0–8%**;
+every arm with one reaches at **62–91%**. The colony cannot lay a trail to food
+it has never found, and it cannot find food without a trail. That is the loop
+this plan opened by naming — *"to get a naturally-laid trail you need ants to
+commute; to get them to commute you need a trail worth following"* — and it is
+now a measurement rather than a premise.
+
+**3. `route pk` is identical in `hand` and `hmute` at every gap** — 88.0/88.0,
+146.0/146.0, 213.0/213.0. The baseline arm cannot lay at all, so that column is
+**entirely our own decaying deposit**. Maintenance is zero everywhere, and the
+reading that suggested otherwise was the instrument.
+
+**4. The one place the colony's own laying adds anything is gap 90.** `hand`
+beats `hmute` there on survival, **7/12 against 3/12**, and on intake, 1.8x.
+That is the only evidence of autocatalysis anywhere in this work — the ants
+reinforcing a trail they were given — and it **vanishes at 150 and 220**, where
+the two arms are indistinguishable on every column. Twelve seeds, so a 7-vs-3
+split is suggestive rather than settled; the intake ratio rests on which
+colonies happened to live.
+
+**What this means for the plan.** §2.1 and §2.2 reshape what *lays* channel B.
+Nothing in this table is limited by what lays it: `hmute`, which lays nothing at
+all, matches `hand` at two gaps of three. **The work that would move these
+numbers is whatever lets a scout find food 90+ cells out** — range, exploration,
+or a scene where food is discoverable — and that is not a pheromone mechanism.
+Phase 2 should not be built against this evidence.
+
 ### 7.9 What this leaves standing
 
 - **A laid trail is decisive and the colony cannot lay one itself** (7.11).
@@ -1209,6 +1266,11 @@ holds about **3.4 route cells of 90, in 2 seeds of 12**, against `mute`'s clean
   route-shaped whatever lays it. This blocks §2.1 rather than running beside it.
 - **Blocking nestmates is expensive and is not the fault** (7.12). Pass-through
   cuts blocked moves 90% and *reduces* intake 35% in the arm that works.
+- **Homing is necessary and not sufficient, and the real constraint is
+  discovery** (7.13). A hand-laid homing gradient leaves 0 of 12 colonies alive
+  and 0.0% of ants reaching food at 150 and 220. Arms without a laid trail reach
+  food at 0-8%; arms with one reach at 62-91%. **Phase 2 reshapes what lays
+  channel B, and nothing measured here is limited by what lays it.**
 - A trail works as **"go eat over there" for individuals** rather than as
   provisioning for the nest — survival rises, the larder is eaten, and nothing
   comes home. No longer an inference for the hauling half: §7.8 measures it on
