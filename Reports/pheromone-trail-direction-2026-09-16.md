@@ -1249,6 +1249,128 @@ numbers is whatever lets a scout find food 90+ cells out** — range, exploratio
 or a scene where food is discoverable — and that is not a pheromone mechanism.
 Phase 2 should not be built against this evidence.
 
+### 7.14 Why `homeA` clipped exploration: `Carrying` is true for dig spoil
+
+§7.13 left one thing unexplained. Supplying the homing gradient made
+exploration **worse** — `homeA` lost to `mute` on 10 of 12 seeds, put **zero
+ants of 240** past the food, and more than doubled occupancy in the band beside
+the nest (392 vs 174). A homing signal that reduces range is not obviously
+wrong — homing *means* "go back" — but the size of it wanted explaining.
+
+**The first hypothesis was a leaking gate, and the control that already existed
+killed it.** Units 0/1 read `PheroAAlong` gated on `Carrying`; the pair is a
+mirror (+6 and −6 on `along`) and cancels exactly only if `squash` is linear,
+which it is not. `onetrail mode=arith` has carried the row for this since it was
+written, labelled *the specificity control: the pair that is shut in this state
+must not respond, or the gate is not a gate*:
+
+```
+empty, channel A [gate shut] |  0.200  0.200  0.200  0.200  0.201  0.202  0.205  0.209
+laden, channel A (units 0/1) |  0.200  0.277  0.396  0.486  0.641  0.740  0.799  0.819
+                       along |   0.00   0.01   0.03   0.05   0.10   0.20   0.50   1.00
+```
+
+An empty ant moves 0.200 → 0.209 across the **whole** range, and real trails
+read `along` ≈ 0.026 where the residual is ~0.0005. The gate is a gate.
+
+**The row above it is the answer.** A *laden* ant on a channel A gradient runs
+at **0.641 against a 0.200 baseline** at a modest `along` of 0.10. So the
+question is not whether the gate leaks but what is opening it — and
+`creature.rs`'s `sense` says:
+
+```rust
+inputs[I::Carrying as usize] = crop_fill.max(state.spoil.map_or(0.0, |_| 1.0));
+```
+
+**`Carrying` is 1.0 whenever the ant holds dig spoil.** Measured with a new
+`Carrying: laden / of which SPOIL` column, gap 90:
+
+| arm | laden ticks | of which spoil |
+|---|---|---|
+| self | 19,998 | **100.0%** |
+| mute | 20,448 | **100.0%** |
+| homeA | 8,448 | **100.0%** |
+| hand | 116,232 | 3.2% |
+| hmute | 661,875 | 8.8% |
+
+In every arm that never finds food, `Carrying` is **entirely spoil**. So in
+`homeA` every tick that opens the homing gate is a tailings haul, and a digging
+colony handed a standing homing ramp is railroaded home by its own spoil. That
+is the clipping.
+
+**It is the same flaw §2.0 already recorded from the other side**:
+`(Carrying, EmitB, 2.5)` fires for spoil too, so tailings are written onto the
+plane a forager reads as a route. One sensor, three consumers, and only one of
+them wants the honest answer:
+
+| consumer | wants |
+|---|---|
+| `(Carrying, Drop, 0.2)` | "are my mandibles full" — the shipped meaning, and correct |
+| units 0/1, the channel A homing gate | "am I carrying **food**" |
+| `(Carrying, EmitB, 2.5)`, the channel B emitter | "am I carrying **food**" |
+
+#### What removing spoil from `Carrying` buys: one seed in twelve
+
+`SPOIL_IS_CARGO=0` takes the pellet out. Paired, 12 seeds, gaps 90 and 150, all
+five arms — and **the switch is neutral everywhere except the arm the hypothesis
+named**: `hand` 7/12 → 5/12 and `hmute` 3/12 → 5/12 survive (noise in opposite
+directions), `self` and `mute` unchanged, and all of gap 150 unchanged.
+
+At gap 90, `homeA`:
+
+| | shipped | `SPOIL_IS_CARGO=0` |
+|---|---|---|
+| seeds with any ant reaching food | 7/12 | 9/12 |
+| seeds with a surviving colony | 0/12 | **1/12** |
+| seed 8 alone | 0 alive, 3,608 J, 4/23 reached | **159 alive, 565,010 J, 421/443 reached** |
+
+**The pooled "reach 4.1% → 65.5%" is not a 16x effect and must not be quoted as
+one.** It is seed 8, and the percentage is inflated by its own success: the
+denominator is *ants that ever lived*, so a colony that finds food explodes to
+443 ants who then mostly stand at the food. The eleven other seeds did not move.
+
+What is genuinely notable is qualitative. **Seed 8 is the first colony anywhere
+in this investigation to build a working forage loop with no hand-laid food
+trail** — every earlier breakthrough (§7.12's pass-through, `mute`'s 1-in-12)
+was wandering luck with no trail involved at all. But one occurrence is the same
+1-in-12 shape as that pass-through breakthrough, and it buys a replication
+rather than a design change.
+
+#### The design fork, and why the switch is not the answer
+
+**`SPOIL_IS_CARGO=0` is a measurement switch and must not ship.** The shipped
+behaviour is itself a *measured* fix: with `Carrying` reading the crop alone the
+`Drop` gene is asked a question about food, and `labnest` read **30–35 of 52
+ants standing laden with `digs` 121 against 881** — a colony that looked from
+outside like it had stopped digging.
+
+So the repair, if the replication justifies one, is to let the ant **tell food
+from spoil**, leaving `Carrying` honest for `Drop`. Two cheaper routes were
+considered and rejected:
+
+- **Grading `Carrying`** (spoil 0.5, food `crop_fill`) needs no slot and is
+  wrong: it overloads one channel with two meanings, and a weight tuned against
+  it reads a *code* rather than a quantity. `CLAUDE.md` is explicit — when a
+  rule must tell apart two things that can look identical, state the difference
+  as **data**.
+- **Gating `EmitB` on food inside `creature.rs`** authors "channel B is the food
+  channel" in Rust, which is the objection
+  `creature-genome-flexibility-2026-09-02.md` §2b raised against the old
+  hardcoded odometer. No channel has a meaning the engine knows, and that is the
+  point of the design.
+
+The codebase's own idiom supports the appended sense: `ant.ron` already carries
+**`(Carrying, DropSpoil, 0.2)` beside `(Carrying, Drop, 0.2)`**, so food-cargo
+and spoil-cargo are already different things — the engine just resolves it at
+the *output* side, where separate verbs exist. The pheromone mechanisms have one
+`EmitB` and one channel A gate, so nothing resolves it for them.
+
+**The price, named:** an appended `BrainInput` is **24 live slots** (16 outputs +
+8 hidden), `live_slots` 870 → 894, `mutation_rate` re-derived in **all thirteen**
+species files that wire `Carrying`, and every breeding baseline void, since
+`brain::mutate` draws one value per live slot. That is the same bill §2.2 priced
+for `FoodAmount`, and it is why the replication comes first.
+
 ### 7.9 What this leaves standing
 
 - **A laid trail is decisive and the colony cannot lay one itself** (7.11).
@@ -1271,6 +1393,13 @@ Phase 2 should not be built against this evidence.
   and 0.0% of ants reaching food at 150 and 220. Arms without a laid trail reach
   food at 0-8%; arms with one reach at 62-91%. **Phase 2 reshapes what lays
   channel B, and nothing measured here is limited by what lays it.**
+- **`Carrying` is true for dig spoil, and it gates both pheromone mechanisms**
+  (7.14). In every arm that never finds food it is **100% spoil**, so the
+  channel A homing gate is opened exclusively by tailings and a laden ant on a
+  ramp runs at 0.641 against a 0.200 baseline — which is why 7.13's `homeA` arm
+  *clipped* exploration. Removing spoil rescued **1 seed of 12** and was neutral
+  everywhere else; that seed is the first colony here to forage with no
+  hand-laid trail, and it buys a replication, not 24 brain slots.
 - A trail works as **"go eat over there" for individuals** rather than as
   provisioning for the nest — survival rises, the larder is eaten, and nothing
   comes home. No longer an inference for the hauling half: §7.8 measures it on
