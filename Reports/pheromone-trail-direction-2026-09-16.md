@@ -1088,6 +1088,110 @@ live to 24,000, and those ants can lay channel B themselves — so whether the
 seeded trail is *maintained* or merely started a migration is not separated
 here. `trips` of 7 and `carry@nest` of 0.14% point at migration. Six seeds.
 
+### 7.12 Homing is upstream of the whole trail question, and congestion is not the fault
+
+Two questions were put at 12 seeds: does the blocking rule cost more than it
+buys, and — the owner's observation — is channel B failing *because* laden ants
+never get home?
+
+#### The homing dependency, confirmed
+
+Channel B is laid only by laden ants. So if a laden ant does not walk home, it
+draws a **wander-field rather than a route**, and no follower can climb it. That
+predicts `self` ≈ `mute` for a reason that has nothing to do with the reader.
+
+`carry->nest` is signed cells moved while holding larder, positive = homeward:
+
+| gap | arm | net homeward cells | carrying ant-ticks | per 1,000 carried |
+|---|---|---|---|---|
+| 90 | hand | **−418** | 2,146,526 | **−0.19** |
+| 150 | hand | −254 | 406,418 | −0.62 |
+| 220 | hand | −550 | 409,998 | −1.34 |
+
+**In the one arm where foraging plainly works, across 2.1 million ant-ticks of
+carrying, net homeward displacement is negative.** Not weak — absent, with a
+slight drift *away*. That sample is far too large for noise, and it agrees with
+A.1's homing sweep, where shipped, `noemit` and `nosteer` do not separate at all.
+
+**The consequence reaches past this report and into the plan.** §2.1 proposed
+giving channel B a food-ward ramp off a unit-7 odometer. But *any* route-drawn
+signal needs the drawer to walk a route: an ant that wanders while laying draws
+the ramp on the wander. **Reshaping what charges the emitter cannot produce a
+trail while homing is dead.** Homing is not a sibling task to the trail work, it
+is upstream of it.
+
+#### Pass-through: the blocking rule is expensive and is not the fault
+
+`CreatureDef::passes_through_kin` (new, off by default, with a lab toggle) lets
+a blocked body trade places with a nestmate — the pass-through half of dead ends
+775/829, which `climbs_over_kin`'s own doc records as untested. It is a **swap**,
+because a cell holds one material and one `organism_id`, so co-occupancy is not
+representable; a swap also keeps the owner's reason for the rule, since two ants
+are never drawn in one pixel.
+
+It does what it was built to do. Blocked moves, 12 seeds: gap 90 `hand`
+**44,496 → 4,338 (−90%)**, gap 150 −72%, gap 220 −96%.
+
+It does not buy foraging, and it costs the arm that works:
+
+| gap 90 `hand` | off | on |
+|---|---|---|
+| intake, summed over 12 seeds | **2,681,502 J** | **1,743,676 J** (−35%) |
+| ant-ticks in the food band | 8,339 | 5,055 (−39%) |
+| alive, median | 92 | 4 |
+| colonies surviving | 7/12 | 6/12 |
+
+Ants that can pass each other **disperse instead of following**.
+
+The one thing it buys is an occasional breakthrough, and the distribution is
+brutal. The no-trail arms reach food far more often (`self` 3.7% → 47.9%, `mute`
+7.7% → 58.4%) and their intake sums jump from 1,200 to 267,116 J and from 9,603
+to 455,311 J — but **"seeds with any intake" stays at 1 of 12 in both.** One
+colony in twelve produces all of it. And **`mute`, which has no pheromones at
+all, out-earns `self`**, so this is wandering luck rather than a trail being
+unlocked.
+
+**Verdict: congestion is a real tax and not the broken thing.** Removing it costs
+the arm that works and does not rescue the arms that do not.
+
+#### Two instrument faults found on the way, both mine
+
+**The swap froze every ant it displaced, and the first 12-seed run was that bug.**
+`creature_tick`'s guard says it outright — *"the active site sits on the head"* —
+and a tick arriving to find a stranger's cell reconciles and returns no site:
+*"not dead, not scheduled, just an orphan standing in the world forever."* The
+mover was fine; the animal swapped *out* was not. Frozen ants were never
+charged, never starved, and read as colonies surviving 24,000 frames on **zero
+food** — with a uniform 12/12 survival across nine arm/gap combinations, the
+tidiness signature. `ticks` per 1,000 ant-frames against the 167 a 6-frame
+interval implies:
+
+| arm | off | on, before fix | on, after fix |
+|---|---|---|---|
+| hand | 172 | — | 172 |
+| self | 172 | **42** | 170 |
+| mute | 173 | **24** | 171 |
+
+Fixed by scheduling a fresh site for the displaced animal. The arithmetic tell
+was available without any of this: 20 founders hold 4,000 J and idling alone
+costs ~400 J each over the run, so survival on no intake is impossible.
+
+**`route pk` was reading our own dying trail as maintenance.** It returned the
+full route length — 88 at gap 90, 146 at 150, 213 at 220 — in **12 of 12 seeds at
+every gap**, including gap 220 where eleven colonies of twelve die and only two
+seeds ever land an ant on the food. A full-route trail in a seed where nobody
+walked the route is not the ants'. The sampling margin was mis-derived: `stop +
+1500` was set against the ~1,476-frame lifetime of a cell laid **once** at
+`DEPOSIT`, but `lay` re-deposits every `relay` frames for the whole of `stop` —
+about a hundred times — so those cells saturate far above a single deposit. The
+repair is a **`hmute` decay baseline** (our ramp laid, the ants silenced) rather
+than a longer window guessed at: whatever `hand` holds above `hmute` is the
+colony's own.
+
+What survives the correction is the one column with a working control: `self`
+holds about **3.4 route cells of 90, in 2 seeds of 12**, against `mute`'s clean
+**0 of 12**. The few ants that find food do lay — and it is not a trail.
+
 ### 7.9 What this leaves standing
 
 - **A laid trail is decisive and the colony cannot lay one itself** (7.11).
@@ -1099,6 +1203,12 @@ here. `trips` of 7 and `carry@nest` of 0.14% point at migration. Six seeds.
 - **Nothing provisions the nest in any arm**: 0.14% of carrying happens at
   home, and 7 round trips across six runs. The trail relocates the colony
   rather than supplying it.
+- **Homing, not the reader and not congestion, is the fault** (7.12). Laden
+  movement has no homeward component at all — −418 net cells over 2.1 million
+  carrying ant-ticks — so channel B is drawn on a wander and cannot be
+  route-shaped whatever lays it. This blocks §2.1 rather than running beside it.
+- **Blocking nestmates is expensive and is not the fault** (7.12). Pass-through
+  cuts blocked moves 90% and *reduces* intake 35% in the arm that works.
 - A trail works as **"go eat over there" for individuals** rather than as
   provisioning for the nest — survival rises, the larder is eaten, and nothing
   comes home. No longer an inference for the hauling half: §7.8 measures it on
