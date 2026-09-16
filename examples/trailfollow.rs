@@ -1018,7 +1018,16 @@ fn main() {
     let gate = gate_by_name(&arg_str("gate").unwrap_or_else(|| "saturated".into()));
     let frames: u64 = arg("frames").unwrap_or(3000);
     let seeds: u64 = arg("seeds").unwrap_or(3);
-    let seed0: u64 = arg("seed").unwrap_or(1);
+    // **Accepts the name it prints.** The header below echoes `seed0=`, the
+    // parser read `seed=`, and nothing in between complained -- so
+    // `seed0=13 seeds=36`, meant as an independent replication on seeds 13-48,
+    // silently re-ran seeds 1-36 and returned the very seed it was built to
+    // avoid. Third instance of `CLAUDE.md`'s "an unknown argument is silently
+    // ignored" in one session (`gaps=`, `seed0=`), and the first two were
+    // caught only because the output looked wrong. A knob whose echoed name is
+    // not its accepted name is worse than an unknown one, because the header
+    // reads as confirmation.
+    let seed0: u64 = arg("seed0").or_else(|| arg("seed")).unwrap_or(1);
     let ants: i32 = arg("ants").unwrap_or(20);
     let relay: u64 = arg("relay").unwrap_or(60);
     let near: i32 = arg("near").unwrap_or(10);

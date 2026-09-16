@@ -1329,12 +1329,49 @@ one.** It is seed 8, and the percentage is inflated by its own success: the
 denominator is *ants that ever lived*, so a colony that finds food explodes to
 443 ants who then mostly stand at the food. The eleven other seeds did not move.
 
-What is genuinely notable is qualitative. **Seed 8 is the first colony anywhere
-in this investigation to build a working forage loop with no hand-laid food
-trail** — every earlier breakthrough (§7.12's pass-through, `mute`'s 1-in-12)
-was wandering luck with no trail involved at all. But one occurrence is the same
-1-in-12 shape as that pass-through breakthrough, and it buys a replication
-rather than a design change.
+What looked genuinely notable was qualitative: **seed 8 is the first colony
+anywhere in this investigation to build a working forage loop with no hand-laid
+food trail.** But one occurrence is the same 1-in-12 shape as §7.12's
+pass-through breakthrough, so it bought a replication rather than a design
+change.
+
+#### The replication: it does not reproduce
+
+24 fresh seeds (13–36), `homeA` only, gap 90, paired:
+
+| | surviving colonies | seeds with any intake | total J |
+|---|---|---|---|
+| shipped | **0/24** | 3/24 | 11,261 |
+| `SPOIL_IS_CARGO=0` | **0/24** | 6/24 | 9,475 |
+
+**Zero breakthroughs in either arm.** Seed 8 was a lottery win. The only signal
+left is that more seeds *touch* food with the switch on — 3 → 6 fresh, 4 → 7
+over all 36 — and it comes with **less total energy**, so it is more colonies
+nibbling rather than more colonies succeeding.
+
+**The prediction recorded before the run is falsified.** It said `homeA`'s
+past-halfway share would rise toward `mute`'s 23% and the far reach bucket would
+stop reading zero. On survival it did neither.
+
+**Verdict: the confound is real and fixing it is not worth 24 brain slots.**
+Everything in the diagnosis above stands — `Carrying` *is* 100% spoil in arms
+that never find food, and a laden ant on a channel A ramp *does* run at 0.641
+against 0.200 — but removing it does not measurably improve foraging. The
+diagnosis was right and the repair buys nothing, which is a different thing from
+the diagnosis being wrong, and worth keeping distinct: a future change that
+makes discovery work may well hit this confound again, and then the 24 slots
+may be worth paying. `SPOIL_IS_CARGO` stays as a measurement switch, defaulted
+to the shipped behaviour.
+
+**Method note, because it cost a wrong headline and nearly a second one.** The
+replication was launched as `seed0=13 seeds=36` to be independent of seed 8. The
+parser read `arg("seed")` while the header *printed* `seed0=`, so the flag was
+silently ignored and the run re-executed seeds 1–36 — returning the very seed it
+was built to exclude. Salvageable only because seeds 13–36 were fresh anyway.
+Third instance of `CLAUDE.md`'s *"an unknown argument is silently ignored"* in
+one session, after `gaps=`; **a knob whose echoed name is not its accepted name
+is worse than an unknown one, because the header reads as confirmation.** Fixed
+to accept both.
 
 #### The design fork, and why the switch is not the answer
 
