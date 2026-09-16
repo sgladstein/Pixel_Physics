@@ -894,16 +894,27 @@ replaced, which could only ever see the `worth_in_aux` branch.
 
 Two readings, both first-of-their-kind here and both small:
 
-- **`ate J off` is zero in every seed while `ate J on` is not.** With a trail
-  the colony eats from the larder; without one it eats nothing at all. **This
-  is the finding to be most suspicious of in this section**, because an exactly
-  repeated zero is `CLAUDE.md`'s tidiness signature and the reading is 3 seeds
-  deep. It is consistent with the rest of the table — at gap 90 a colony
-  without a trail does not reach the food, and A.2's `near on` shows reach
-  collapsing with distance — but "consistent" is not "controlled". What would
-  settle it is the no-trail arm's *own* near-target count beside it: if those
-  ants never came within reach, zero intake is arithmetic rather than a result.
-  That column is not in the table yet.
+- **`ate J off` is zero in every seed while `ate J on` is not**, and the
+  control that says what that means is now in the table. An exactly repeated
+  zero is `CLAUDE.md`'s tidiness signature, and it had two readings wanting
+  opposite conclusions: the no-trail colony reached the food and declined to
+  eat, or it never got there. Adding the no-trail arm's own near-target count
+  separates them:
+
+  | seed | near on | near off | ratio | ate J on | ate J off |
+  |---|---|---|---|---|---|
+  | 1 | 7,674 | **162** | 47x | 1,200 | 0 |
+  | 2 | 15,128 | **726** | 21x | 1,404 | 0 |
+  | 3 | 20,712 | **858** | 24x | 228 | 0 |
+
+  **`near off` is non-zero in all three**, so the zero is not arithmetic — those
+  ants did come within ten cells of the larder and ate none of it. But it is
+  not a refusal either: they are there **21–47x less often**, and at that
+  exposure eating nothing is unremarkable. So the honest statement is narrower
+  than "with a trail the colony eats and without one it does not": **the trail
+  moves exposure, and intake follows exposure.** The exposure ratio is the
+  cleaner measurement of the two, because it does not depend on an ant
+  happening to bite during a short visit.
 - **`home on` is 0 throughout.** Not one larder cell ever stood inside the nest
   band. The ants eat where they find it and bring nothing back, which is what
   §7.9's "go eat over there, rather than provisioning" reading predicted, now

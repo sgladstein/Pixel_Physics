@@ -830,8 +830,8 @@ fn main() {
         // unaided arm is near zero, and the trail arm is not.
         assert!(food > 0, "mode=gap needs food= at the target, or there is nothing to reach");
         println!(
-            "{:>6} {:>5} {:>11} {:>11} {:>10} {:>10} {:>10} {:>7} {:>7} {:>8}",
-            "gap", "seed", "alive on", "alive off", "ate J on", "ate J off", "supply J", "other J", "home on", "near on"
+            "{:>6} {:>5} {:>11} {:>11} {:>10} {:>10} {:>10} {:>7} {:>6} {:>9} {:>9}",
+            "gap", "seed", "alive on", "alive off", "ate J on", "ate J off", "supply J", "other J", "home", "near on", "near off"
         );
         println!("{:->6} {:->5} {:->11} {:->11} {:->9} {:->9} {:->9} {:->9}", "", "", "", "", "", "", "", "");
         // **A knob, because it was silently ignored as one.** `gaps=90` on the
@@ -846,7 +846,7 @@ fn main() {
                 let on = run(s, true, gate, frames, ants, relay, near, food, stop, g, refill, diet);
                 let off = run(s, false, gate, frames, ants, relay, near, food, stop, g, refill, diet);
                 println!(
-                    "{g:>6} {s:>5} {:>5}/{:<5} {:>5}/{:<5} {:>10.0} {:>10.0} {:>10.0} {:>7.0} {:>7} {:>8}",
+                    "{g:>6} {s:>5} {:>5}/{:<5} {:>5}/{:<5} {:>10.0} {:>10.0} {:>10.0} {:>7.0} {:>6} {:>9} {:>9}",
                     on.alive_end,
                     on.alive_min,
                     off.alive_end,
@@ -858,7 +858,15 @@ fn main() {
                     // it is printed as a check rather than as a comparison.
                     on.ate_other_j + off.ate_other_j,
                     on.larder_home_peak,
-                    on.near_ticks
+                    on.near_ticks,
+                    // **The control the `ate J off` column cannot do without.**
+                    // An exactly-repeated zero in `ate J off` is `CLAUDE.md`'s
+                    // tidiness signature, and it has two readings that want
+                    // opposite conclusions: the no-trail colony reached the
+                    // food and declined to eat (a finding), or it never got
+                    // there at all (arithmetic). Only this column separates
+                    // them, and the table did not have it.
+                    off.near_ticks
                 );
             }
         }
