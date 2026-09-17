@@ -503,6 +503,10 @@ struct Arm {
     /// and as the gradient a real reader computes.** See the fill site for the
     /// arithmetic that predicts it is two orders of magnitude too flat to read.
     a_profile: [u32; 5],
+    /// See the fill site: channel B at the same five points. The column that
+    /// says whether the colony's own food trail peaks at the FOOD or at the
+    /// NEST, which `route pk` and `along` both average away.
+    b_profile: [u32; 5],
     /// Times a body traded places with a nestmate -- the "did it fire" counter
     /// for `kinpass`, which must read 0 when the switch is off.
     kin_swaps: u64,
@@ -1136,6 +1140,20 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // **The one of the three that survives its own controls.** See
     // `a_polarity_span` on `Arm` for what the other two do to a blob.
     let (mut a_pol_span_sum, mut a_pol_span_n) = (0.0f64, 0u64);
+    // **Where the colony's own channel B mass STANDS, as a time average, and it
+    // has to be a time average.** The first cut of this sampled the plane at the
+    // end of the run and printed `[0,0,0,0,0]` in every arm of every seed --
+    // the trail had decayed by then, which is precisely the failure
+    // `a_peak_cells` carries a running maximum to avoid: an end-of-run sample
+    // cannot tell "never laid" from "laid and gone".
+    //
+    // A mean rather than a max, because the question is where the mass SITS
+    // rather than how high it ever got; one transient spike sets a max.
+    // Read it against `occupancy/1k`: if B peaks wherever the ants ARE rather
+    // than wherever the food is, the plane is integrating traffic, and the
+    // arithmetic that decides it is 21:1 traffic against 4.6:1 grading.
+    let mut b_prof_sum = [0.0f64; 5];
+    let mut b_prof_n = 0u64;
     let nest_cells = {
         let nest = w.materials.id_of("nest");
         match nest {
@@ -1179,6 +1197,11 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             place_food(&mut w, food, &mut larder_placed);
         }
         if f.is_multiple_of(100) {
+            for (i, acc) in b_prof_sum.iter_mut().enumerate() {
+                let x = nest_x + (target_x - nest_x) * i as i32 / 4;
+                *acc += w.pheromone_at(Channel::B, x, surface) as f64;
+            }
+            b_prof_n += 1;
             let mut amt = 0u32;
             let mut cells = 0usize;
             for x in nest_x..=target_x {
@@ -1449,6 +1472,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         w.pheromone_at(Channel::A, x, surface) as u32
     });
 
+
     // `dietdump` names every material the colony actually booked intake
     // against, which is the only thing that can say *what* an unexpected
     // `other J` is. A total is a number; this is an answer.
@@ -1490,6 +1514,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         a_edge_cells: if a_edge_n == 0 { 0.0 } else { a_edge_sum as f32 / a_edge_n as f32 },
         a_polarity_span: if a_pol_span_n == 0 { 0.0 } else { (a_pol_span_sum / a_pol_span_n as f64) as f32 },
         a_profile,
+        b_profile: std::array::from_fn(|i| if b_prof_n == 0 { 0 } else { (b_prof_sum[i] / b_prof_n as f64) as u32 }),
         kin_swaps: st.kin_swaps,
         blocked: st.moves_blocked,
         first_arrival,
@@ -1789,8 +1814,15 @@ fn main() {
                     // positive means it rises toward the NEST, which is §1c's
                     // prediction and the wrong way round for finding food.
                     println!(
-                        "{:>16}own trail: route pk {:>4} end {:>4} along {:>+7.4}   blocked {:>8}  kin swaps {:>7}  ticks {:>9}",
-                        "", a.peak_cells, a.live_cells, a.natural_along, a.blocked, a.kin_swaps, a.ticks
+                        "{:>16}own trail: route pk {:>4} end {:>4} along {:>+7.4}  B nest->food [{}]  blocked {:>8}  kin swaps {:>7}  ticks {:>9}",
+                        "",
+                        a.peak_cells,
+                        a.live_cells,
+                        a.natural_along,
+                        a.b_profile.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(","),
+                        a.blocked,
+                        a.kin_swaps,
+                        a.ticks
                     );
                     // **How much of `Carrying` is dig tailings rather than
                     // food.** `Carrying` gates the channel A reader (units 0/1)
