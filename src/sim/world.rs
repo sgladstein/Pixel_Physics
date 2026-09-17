@@ -1257,6 +1257,24 @@ pub struct CreatureStats {
     /// creature does not inflate it — every tick counted here is a live
     /// creature that was handed a decision.
     pub ticks: u64,
+    /// **Corpses that had nowhere to go** — an animal died in a cell another
+    /// took over, and all eight neighbours were full
+    /// (`creature::place_corpse_beside`).
+    ///
+    /// **A named leak, and that is the whole point of counting it.** The meat
+    /// is destroyed, so the energy leaves the colony ledger — and it only
+    /// happens where cells are crowded, which is the condition stacking is
+    /// under study for. An uncounted loss correlated with the experimental arm
+    /// is exactly the measurement trap `CLAUDE.md` names; counted, it can be
+    /// read against `EnergyLedger` instead of quietly biasing it.
+    ///
+    /// **Zero below a stack cap of 1**, where no cell is ever taken over, so a
+    /// non-zero reading is also the "did it fire" half for the corpse rule.
+    pub corpses_suppressed: u64,
+    /// Summed `worth` of the corpses in `corpses_suppressed`, in energy units
+    /// (`Cell::aux`, 1:1). The count says how often; this says how much, and
+    /// it is the one that can be subtracted from the ledger.
+    pub corpse_worth_suppressed: u64,
     /// Summed **scheduling lateness**, in frames: how far past its own
     /// `next_frame` each dispatched creature site actually ran.
     ///

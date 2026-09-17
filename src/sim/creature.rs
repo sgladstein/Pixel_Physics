@@ -909,8 +909,55 @@ fn stamp_as_corpse(world: &mut World, cells: &[(i32, i32)], worth: f32, full: f3
     let shade = ((worth / full).clamp(0.0, 1.0) * (shades - 1) as f32).round() as u8;
     for &(cx, cy) in cells.iter() {
         let temp = world.get(cx, cy).temperature();
-        world.set(cx, cy, Cell::new(corpse_id, shade).with_temperature(temp).with_aux(aux));
+        let corpse = Cell::new(corpse_id, shade).with_temperature(temp).with_aux(aux);
+        // **Somebody else is standing here, so the cell is not free to become
+        // meat** (`Reports/creature-stacking-design-2026-09-17.md` §5 step 4).
+        // Hand it to the oldest rider and put the body down beside it.
+        //
+        // **This is not the fire case and must not be confused with it.** An
+        // individual death -- starvation, old age, being eaten -- says nothing
+        // about the cell, so the animals sharing it are unharmed and one of
+        // them takes over. A cell *destroyed* (fire, a strike, a blast) is the
+        // opposite: the owner's ruling is that fire hits everyone in the cell,
+        // and nothing here claims to implement that. See the gap note below.
+        //
+        // Below a stack cap of 1 `riders_at` is always empty, so this is one
+        // sparse lookup and the pre-stacking write.
+        match world.riders_at(cx, cy).first().copied() {
+            Some(next) => {
+                world.remove_rider(cx, cy, next.organism);
+                world.set(cx, cy, next.cell);
+                place_corpse_beside(world, (cx, cy), corpse);
+            }
+            None => world.set(cx, cy, corpse),
+        }
     }
+}
+
+/// **Where a corpse goes when its own cell has been taken** -- the owner's
+/// ruling of 2026-09-17: *"it goes to the first free neighbour and if there
+/// are no free neighbours then the corpse is suppressed."*
+///
+/// **Suppression destroys the meat, and the count is not optional.** A corpse
+/// carries what the animal was made of, so dropping one removes that energy
+/// from the colony ledger -- and it only happens where a cell is crowded,
+/// which is the condition under study. An unnamed leak correlated with the
+/// experimental arm is the measurement trap `CLAUDE.md` warns about, so both
+/// the event and its worth are booked and can be read against the ledger.
+///
+/// `NEIGHBOURS_8` order rather than nearest-first or a roll: it is a fixed
+/// array, so the choice is deterministic without a tie-break, which is what
+/// `PLAN.md`'s same-build replay requires.
+fn place_corpse_beside(world: &mut World, (cx, cy): (i32, i32), corpse: Cell) {
+    for &(dx, dy) in NEIGHBOURS_8.iter() {
+        let (nx, ny) = (cx + dx, cy + dy);
+        if world.in_bounds(nx, ny) && world.is_empty(nx, ny) {
+            world.set(nx, ny, corpse);
+            return;
+        }
+    }
+    world.creature_stats.corpses_suppressed += 1;
+    world.creature_stats.corpse_worth_suppressed += corpse.aux() as u64;
 }
 
 /// Energy cost to move into `target_material` at `(x, y)`, or `None` if
@@ -13417,10 +13464,22 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
     // here, and none of those should leave meat behind either.
     let owned = world.organism(organism).map(|s| s.cells.clone()).unwrap_or_default();
     let chain_before = world.organism(organism).map_or(0, |s| s.chain.len());
+    // **`cells` is necessary and no longer sufficient: a rider's ridden
+    // positions are in it too.** `relocate_chain` inserts them there
+    // deliberately -- that is what keeps a rider alive through
+    // `reconcile_chain`, which resolves a body against its own list rather
+    // than against the grid -- so filtering on `cells` alone would stamp
+    // corpse over cells this animal never owned and **delete the nestmate it
+    // was standing on**. The grid test is the ownership half, and the two
+    // together are "a cell that is mine, and mine in the world".
+    //
+    // A no-op below a stack cap of 1, where a body owns every cell it
+    // stands in and the two tests cannot disagree.
     let chain: Vec<(i32, i32)> = world
         .organism(organism)
         .map(|s| s.chain.iter().copied().filter(|p| owned.contains_key(p)).collect())
         .unwrap_or_default();
+    let chain: Vec<(i32, i32)> = chain.into_iter().filter(|&(x, y)| world.get(x, y).organism_id() == organism).collect();
     // **What the meat is worth, written into the meat.** The structural
     // stamp the body was granted at spawn, plus whatever the animal had left
     // to spend, divided over the cells that are actually still standing --
@@ -17491,6 +17550,90 @@ mod tests {
             w.set(x, y + 1, Cell::new(floor, 0).with_attached(true));
         }
         (spawn(w, species, ax, y), spawn(w, species, bx, y))
+    }
+
+    /// **A dying rider does not stamp corpse over the animal it was standing
+    /// on** -- the delete-the-owner hazard in its third disguise.
+    ///
+    /// `creature_dies` filters the corpse cells by `state.cells`, and a
+    /// rider's ridden positions are **in** that map: `relocate_chain` puts
+    /// them there so `reconcile_chain` keeps reading the rider as alive. So
+    /// `cells` alone is necessary and not sufficient, and without the grid
+    /// ownership test beside it a starving rider buries its host. Drop that
+    /// test and this goes red with `corpse` where the owner was.
+    #[test]
+    fn a_dying_rider_does_not_bury_its_host() {
+        let mut w = test_world();
+        w.set_stack_cap(20);
+        let (owner, rider) = share_pair(&mut w, "ant", 100, 104, 119);
+        for id in [owner, rider] {
+            if let Some(st) = w.organism_mut(id) {
+                st.colony = 7;
+            }
+        }
+        let cell = w.organism(owner).unwrap().chain[0];
+        let owner_material = w.get(cell.0, cell.1).material;
+
+        // Stand the rider in the owner's cell exactly as the walk would: the
+        // index entry AND the body record, which is the pair that makes it a
+        // rider rather than a ghost.
+        let rider_cell = w.get(104, 119);
+        w.add_rider(cell.0, cell.1, rider, rider_cell);
+        if let Some(st) = w.organism_mut(rider) {
+            st.cells.insert(cell, organism::OrganismCell::default());
+            st.chain = vec![cell];
+        }
+        assert_eq!(w.get(cell.0, cell.1).organism_id(), owner, "test setup: the owner holds the grid cell");
+
+        creature_dies(&mut w, rider, organism::DeathCause::Starved);
+
+        assert_eq!(
+            w.get(cell.0, cell.1).material, owner_material,
+            "the rider's corpse was written over its host -- `cells` was trusted without the grid ownership test"
+        );
+        assert_eq!(w.get(cell.0, cell.1).organism_id(), owner, "the host must still own its own cell");
+    }
+
+    /// **An owner dying under a rider hands the cell over, and the body goes
+    /// beside it** -- the owner's corpse ruling of 2026-09-17.
+    ///
+    /// Two things at once, because either alone would pass for the wrong
+    /// reason: the rider must be promoted into the grid (otherwise it is alive
+    /// and invisible), and the corpse must still exist somewhere (otherwise
+    /// the meat has been silently destroyed, which is only allowed when there
+    /// is nowhere at all to put it -- and then it is counted).
+    #[test]
+    fn an_owner_dying_under_a_rider_promotes_it_and_puts_the_body_beside() {
+        let mut w = test_world();
+        w.set_stack_cap(20);
+        let (owner, rider) = share_pair(&mut w, "ant", 100, 104, 119);
+        for id in [owner, rider] {
+            if let Some(st) = w.organism_mut(id) {
+                st.colony = 7;
+            }
+        }
+        let cell = w.organism(owner).unwrap().chain[0];
+        let rider_cell = w.get(104, 119);
+        w.add_rider(cell.0, cell.1, rider, rider_cell);
+        if let Some(st) = w.organism_mut(rider) {
+            st.cells.insert(cell, organism::OrganismCell::default());
+            st.chain = vec![cell];
+        }
+        let corpse_id = w.materials.id_of("corpse").expect("corpse ships");
+        let before = w.creature_stats.corpses_suppressed;
+
+        creature_dies(&mut w, owner, organism::DeathCause::Starved);
+
+        assert_eq!(
+            w.get(cell.0, cell.1).organism_id(),
+            rider,
+            "the rider was not promoted -- it is now alive and invisible, claiming a cell the grid gave to a corpse"
+        );
+        let beside = NEIGHBOURS_8.iter().any(|&(dx, dy)| w.get(cell.0 + dx, cell.1 + dy).material == corpse_id);
+        assert!(
+            beside || w.creature_stats.corpses_suppressed > before,
+            "the body neither landed beside the cell nor was counted as suppressed -- the meat vanished unbooked"
+        );
     }
 
     /// **A rider stepping off does not delete the animal it was standing
