@@ -1537,6 +1537,89 @@ species files that wire `Carrying`, and every breeding baseline void, since
 `brain::mutate` draws one value per live slot. That is the same bill §2.2 priced
 for `FoodAmount`, and it is why the replication comes first.
 
+### 7.15 Why the return leg fails: the homing ramp inverts the moment a colony forages
+
+§7.12 measured laden ants having **no homeward component at all** — −418 net
+cells over 2,146,526 carrying ticks — and left the cause open. This is the cause,
+and it is not that the ants ignore channel A. **They follow it, and it points at
+the food.**
+
+#### The arithmetic that started it, and why it was not the answer
+
+Channel A is laid by hidden unit 4, an odometer charged by `AtNest` and decaying
+at `recurrence 0.99995`, explicitly fitted for a **3,000-tick** decay
+(`ant.ron`: "0.992 → 0.072 across 3,000 ticks"). The journeys here are nowhere
+near that long:
+
+| condition | 90-cell trip | share of odometer range | charge decays to |
+|---|---|---|---|
+| fed, P(move) 0.20 | 450 ticks | 15% | 0.978 |
+| on a trail, P(move) 0.64 | 141 ticks | **4.7%** | **0.993** |
+
+Over the reader's own 6-cell sensor offset the charge differs by **0.0005–0.0015**,
+against the `along` ≈ 0.05 a laden ant needs to lift `P(move)` off its 0.200
+baseline. So the *intended* ramp — strong near home, faint far away — is
+essentially flat at play distances. **That is true and it is not the failure.**
+
+#### What is actually on the plane
+
+Measured on the route, gap 90, 12 seeds, as a **running peak** — an end-of-run
+sample reads 0 for any colony whose plane has decayed, which is the same error
+`route pk` made for channel B and which this measurement made first time round:
+
+| | |
+|---|---|
+| peak channel A on the route | **10,269 – 54,311** |
+| route cells ever holding any | **55 – 91 of 91** |
+
+`DEPOSIT` is 10,240, so cells reach *past a full deposit*, accumulated across
+ants. **Channel A is laid abundantly.** The first reading of this section said it
+was "barely laid at all" and that was the end-of-run artifact, caught before
+publication.
+
+#### And it points the wrong way, in exactly the colonies that forage
+
+Polarity averaged over every sample that had a trail to measure. **Positive =
+taller at the nest**, the shape homing needs; negative = taller at the food.
+
+| colony behaviour | `AtNest` share | n | channel A polarity |
+|---|---|---|---|
+| **stays home** | 14.0 – 18.5% | 5 | **positive in 5 of 5**, mean **+0.0375** |
+| **forages** | 0.4 – 1.9% | 7 | **negative in 6 of 7**, mean **−0.0704** |
+
+Correlation between `AtNest` share and polarity: **r = +0.77 (n = 12)**. The
+inverted magnitudes (−0.061 to −0.158) are comfortably above the ~0.05 the
+reader acts on, so this is not a faint wrong-way bias — it is a readable signal
+pointing away from home.
+
+#### The mechanism, end to end
+
+1. The odometer's decay is **~20–60× too slow** to grade a 90-cell journey, so an
+   ant lays channel A at nearly constant strength wherever it goes.
+2. A plane laid at constant strength records **where ants spent time**, not how
+   far they are from home.
+3. A foraging colony spends its time **at the food** — `AtNest` falls from ~15%
+   to ~1.5% precisely when foraging starts.
+4. So channel A accumulates at the food end and the ramp **inverts**.
+5. A laden ant ascending channel A is therefore driven **toward the food**.
+
+**The homing signal is self-defeating: the better a colony forages, the more
+firmly its own homing ramp points away from home.** That is the −418 explained —
+laden ants are not failing to follow the homing channel, they are following it
+faithfully in the wrong direction.
+
+**It is the same structural failure as §1c's channel B age ramp**, in a different
+costume: in both cases the plane's shape is set by *laying behaviour* rather than
+by the quantity the design intended to encode, and no deposit value or decay rate
+fixes it, because the shape follows from *when and where* cells were written.
+
+**What this does not settle.** The 12 seeds are one gap and one colony size, and
+the homebound/foraging split is observational rather than assigned — foraging
+colonies differ from homebound ones in more than their `AtNest` share. The
+prediction it makes is sharp and cheap to test, though: an odometer whose decay
+is scaled to the actual journey (tens of ticks, not thousands) should keep the
+ramp nest-ward *while* the colony forages, and that is one weight.
+
 ### 7.9 What this leaves standing
 
 - **A laid trail is decisive and the colony cannot lay one itself** (7.11).
@@ -1559,6 +1642,15 @@ for `FoodAmount`, and it is why the replication comes first.
   and 0.0% of ants reaching food at 150 and 220. Arms without a laid trail reach
   food at 0-8%; arms with one reach at 62-91%. **Phase 2 reshapes what lays
   channel B, and nothing measured here is limited by what lays it.**
+- **The return leg fails because the homing ramp INVERTS when a colony forages**
+  (7.15). Channel A is laid abundantly (peaks of 10,269-54,311 against a
+  `DEPOSIT` of 10,240, on 55-91 of 91 route cells) but the odometer that shapes
+  it decays ~20-60x too slowly to grade a 90-cell trip, so the plane records
+  **where ants spent time** rather than distance from home. Homebound colonies
+  get a correct nest-ward ramp (positive in 5 of 5); foraging colonies get a
+  **food-ward** one (negative in 6 of 7), r = +0.77 against `AtNest` share. A
+  laden ant ascending it is driven away from home -- which is §7.12's -418 net
+  homeward cells, explained.
 - **`Carrying` is true for dig spoil, and it gates both pheromone mechanisms**
   (7.14). In every arm that never finds food it is **100% spoil**, so the
   channel A homing gate is opened exclusively by tailings and a laden ant on a

@@ -391,6 +391,35 @@ struct Arm {
     /// nothing is either being fed or is not being ticked, and only this
     /// separates them.
     ticks: u64,
+    /// **Nest-material cells in the world, and the share of sampled ant-ticks
+    /// that read `AtNest`** -- the "did it fire at all" counter the homing
+    /// mechanism never had.
+    ///
+    /// `AtNest` is `adjacent_nest`, an 8-neighbour test for `nest` material
+    /// (`creature.rs:7048`). It is the ONLY thing that charges hidden unit 4,
+    /// the odometer that lays channel A. If it is rarely true the odometer
+    /// never charges, no channel A is laid, and the homing reader -- which
+    /// works, and lifts `P(move)` 0.200 -> 0.641 on a real gradient -- has
+    /// nothing to read. Measured before assuming the odometer's range was the
+    /// problem, because a flat ramp and an absent one want different fixes.
+    nest_cells: usize,
+    atnest_ticks: u64,
+    probe_ticks: u64,
+    /// **Highest channel A ever seen on the route, and the most route cells
+    /// ever holding any** -- running maxima, because an end-of-run sample
+    /// cannot tell "never laid" from "laid and decayed".
+    a_peak_amt: u32,
+    a_peak_cells: usize,
+    /// **Which way the ants' channel A ramp points, averaged over the run.**
+    /// Positive = taller at the NEST, the shape homing needs. Negative = taller
+    /// at the FOOD, i.e. a homing reader ascending it is driven away from home.
+    a_polarity: f32,
+    /// **The ants' own channel A ramp, sampled at five points along the route
+    /// and as the gradient a real reader computes.** See the fill site for the
+    /// arithmetic that predicts it is two orders of magnitude too flat to read.
+    a_profile: [u32; 5],
+    a_along: f32,
+    a_cells: usize,
     /// Times a body traded places with a nestmate -- the "did it fire" counter
     /// for `kinpass`, which must read 0 when the switch is off.
     kin_swaps: u64,
@@ -800,6 +829,24 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let (mut laden_ticks, mut laden_nest_ticks) = (0u64, 0u64);
     let (mut carry_ticks, mut carry_home_ticks) = (0u64, 0u64);
     let mut tracks: std::collections::HashMap<u32, Track> = std::collections::HashMap::new();
+    let (mut atnest_ticks, mut probe_ticks) = (0u64, 0u64);
+    // **Peak, not end-of-run.** Sampling the plane at the finish cannot tell a
+    // channel that is never laid from one that is laid and decays -- the exact
+    // error `route pk` made for channel B, in reverse. Tracked as a running
+    // maximum over the whole run instead.
+    let (mut a_peak_amt, mut a_peak_cells) = (0u32, 0usize);
+    // **The polarity, averaged over the run rather than read at the end.**
+    // A dead colony's plane has decayed to nothing by the finish, so an
+    // end-of-run `along` reports 0.0 for most seeds and the sign is invisible.
+    // Averaged over every sample that had a trail to measure, it is not.
+    let (mut a_pol_sum, mut a_pol_n) = (0.0f64, 0u64);
+    let nest_cells = {
+        let nest = w.materials.id_of("nest");
+        match nest {
+            None => 0,
+            Some(id) => (0..width).flat_map(|x| (0..spec.height).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == id).count(),
+        }
+    };
     let (mut first_arrival, mut all_dead_frame) = (0u64, 0u64);
     let mut carry_toward_nest = 0i64;
     let mut occupancy = [0u64; 8];
@@ -828,6 +875,37 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         frame::step(&mut w, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
         if food > 0 && refill > 0 && f.is_multiple_of(refill) {
             place_food(&mut w, food, &mut larder_placed);
+        }
+        if f.is_multiple_of(100) {
+            let mut amt = 0u32;
+            let mut cells = 0usize;
+            for x in nest_x..=target_x {
+                let v = w.pheromone_at(Channel::A, x, surface) as u32;
+                amt = amt.max(v);
+                if v > 0 {
+                    cells += 1;
+                }
+            }
+            a_peak_amt = a_peak_amt.max(amt);
+            a_peak_cells = a_peak_cells.max(cells);
+            if cells > 0 {
+                let (mut sm, mut n) = (0.0f64, 0u64);
+                for x in nest_x..=(target_x - sensor_offset) {
+                    let here = w.pheromone_at(Channel::A, x, surface) as f64;
+                    let ahead = w.pheromone_at(Channel::A, x + sensor_offset, surface) as f64;
+                    if here > 0.0 || ahead > 0.0 {
+                        // Negated so POSITIVE = taller at the nest, which is
+                        // the shape a homing reader needs. Negative means the
+                        // ramp points at the food.
+                        sm += -((ahead - here) / (ahead + here + pheromone::SCALE as f64));
+                        n += 1;
+                    }
+                }
+                if n > 0 {
+                    a_pol_sum += sm / n as f64;
+                    a_pol_n += 1;
+                }
+            }
         }
         let live_now = w.live_creature_count();
         alive_min = alive_min.min(live_now);
@@ -924,6 +1002,17 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 near_ticks += 1;
             }
             if f.is_multiple_of(100) {
+                // `probe` is non-mutating by construction (`creature.rs`: "so
+                // probing cannot perturb the run it is measuring"), and it is
+                // the only way to read what the animal's own `sense` produced.
+                // Sampled on the same 100-frame cadence as the `along` column
+                // because it costs a full `sense` per ant.
+                let cdef = w.species.get(species_id).creature.clone().expect("ant is a creature");
+                let (probe_in, _, _) = pixel_physics::sim::creature::probe(&w, hx, hy, id, &cdef);
+                probe_ticks += 1;
+                if probe_in[I::AtNest as usize] > 0.0 {
+                    atnest_ticks += 1;
+                }
                 // **Guard `SCALE`, offset `sensor_offset` -- both were wrong.**
                 // This read `+ 1.0` and `hx + 4` from before the planes widened
                 // to `u16`. `creature::sense` uses `pheromone::SCALE` (256) and
@@ -957,6 +1046,41 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         }
     }
 
+    // **The channel A homing ramp the ants built for themselves.**
+    //
+    // The arithmetic says it cannot be readable: unit 4 is an odometer fitted
+    // for a **3,000-tick** decay (`ant.ron`, "0.992 -> 0.072 across 3,000
+    // ticks"), and a 90-cell trip is 141 ticks at a trail-following `P(move)`
+    // of 0.64 -- **4.7% of its range**. The charge falls 0.7% over the whole
+    // journey and **0.0005 over the reader's 6-cell sensor offset**, against
+    // the `along` of ~0.05 a laden ant needs to lift `P(move)` off its 0.200
+    // baseline (`onetrail mode=arith`). Two orders of magnitude short.
+    //
+    // But that is arithmetic on the *internal state*, and the plane is not the
+    // state: deposits pass through `squash` and `EmitA`'s weight of 32, then
+    // accumulate from many ants and decay on the plane's own schedule -- which
+    // could manufacture a ramp out of laying *order*, exactly as channel B's
+    // age ramp does. `CLAUDE.md`: measure the number the consumer computes,
+    // never the stored value. So this samples the plane at five points along
+    // the route and reports the gradient a real reader would get.
+    let a_profile: [u32; 5] = std::array::from_fn(|i| {
+        let x = nest_x + (target_x - nest_x) * i as i32 / 4;
+        w.pheromone_at(Channel::A, x, surface) as u32
+    });
+    let (mut a_sum, mut a_n) = (0.0f64, 0u64);
+    for x in nest_x..=(target_x - sensor_offset) {
+        let here = w.pheromone_at(Channel::A, x, surface) as f64;
+        let ahead = w.pheromone_at(Channel::A, x + sensor_offset, surface) as f64;
+        if here > 0.0 || ahead > 0.0 {
+            // Negated like channel B's: positive means the ramp is taller at
+            // the NEST end, which is the shape a homing reader needs.
+            a_sum += -((ahead - here) / (ahead + here + pheromone::SCALE as f64));
+            a_n += 1;
+        }
+    }
+    let a_along = if a_n == 0 { 0.0 } else { (a_sum / a_n as f64) as f32 };
+    let a_cells = (nest_x..=target_x).filter(|&x| w.pheromone_at(Channel::A, x, surface) > 0).count();
+
     // `dietdump` names every material the colony actually booked intake
     // against, which is the only thing that can say *what* an unexpected
     // `other J` is. A total is a number; this is an answer.
@@ -988,6 +1112,15 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         ate_other_j: diet_by_material(&w, larder).1,
         founded: if founded.0 == i32::MAX { (0, 0) } else { founded },
         ticks: st.ticks,
+        nest_cells,
+        atnest_ticks,
+        probe_ticks,
+        a_peak_amt,
+        a_peak_cells,
+        a_polarity: if a_pol_n == 0 { 0.0 } else { (a_pol_sum / a_pol_n as f64) as f32 },
+        a_profile,
+        a_along,
+        a_cells,
         kin_swaps: st.kin_swaps,
         blocked: st.moves_blocked,
         first_arrival,
@@ -1268,6 +1401,17 @@ fn main() {
                     // the homing gate legitimately, and a laden ant on a
                     // standing A ramp runs at P(move) 0.641 against a baseline
                     // of 0.200 (`onetrail mode=arith`).
+                    println!(
+                        "{:>16}channel A: PEAK amt {:>6} cells {:>4} (of {} route)  POLARITY {:>+8.5}  end-along {:>+8.5}  nest {:>4}  AtNest {:>5.2}%",
+                        "",
+                        a.a_peak_amt,
+                        a.a_peak_cells,
+                        g + 1,
+                        a.a_polarity,
+                        a.a_along,
+                        a.nest_cells,
+                        if a.probe_ticks == 0 { 0.0 } else { 100.0 * a.atnest_ticks as f64 / a.probe_ticks as f64 }
+                    );
                     println!(
                         "{:>16}Carrying: laden {:>9}  of which SPOIL {:>9} ({:>5.1}%)",
                         "",
