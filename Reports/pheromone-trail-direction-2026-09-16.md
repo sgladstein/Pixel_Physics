@@ -1636,7 +1636,7 @@ prediction it makes is sharp and cheap to test, though: an odometer whose decay
 is scaled to the actual journey (tens of ticks, not thousands) should keep the
 ramp nest-ward *while* the colony forages, and that is one weight.
 
-### 7.16 The odometer's decay is not the lever, and finding that out corrected §7.15 — sweep PROVISIONAL, see §7.17
+### 7.16 The odometer's decay is not the lever, and finding that out corrected §7.15 — re-run at a known scene in §7.18
 
 §7.15 closed on a sharp, cheap prediction: *"an odometer whose decay is scaled to
 the actual journey should keep the ramp nest-ward while the colony forages, and
@@ -1876,6 +1876,76 @@ one `CLAUDE.md` already states for the other direction — *a knob nobody can se
 the value of is a knob nobody can tell is disconnected* — and the missing half is
 that nobody can tell it is **connected** either, which is the more expensive way
 round: the sweep looked reproducible and was not.
+
+### 7.18 Both levers fail on the proper scene: the inversion is not a weight
+
+§7.16 and the emission-floor hypothesis were both re-run at `refill=2000` — the
+setting with 7 of 12 seeds alive and 7 of 7 colonies foraging, so the question is
+posable. Gap 90, 12 seeds, `arms=hand`, `RAYON_NUM_THREADS=4`, every arm's knob
+echoed in its own header. **Neither lever flips the sign.**
+
+| arm | seeds alive | foraging | ramp points at food | mean polarity | route cells (med) | peak floor | r(`AtNest`, pol) |
+|---|---|---|---|---|---|---|---|
+| **shipped** | 7/12 | 7 | **7 of 7** | −0.0759 | 78 | 8,234 | +0.85 |
+| `biasa` −0.05 | 6/12 | 5 | 4 of 5 | −0.0653 | 76 | 8,409 | +0.74 |
+| `biasa` −0.10 | 7/12 | 6 | **6 of 6** | **−0.1015** | 68 | 9,111 | +0.91 |
+| `biasa` −0.18 | 5/12 | 4 | **4 of 4** | −0.0845 | 57 | 8,231 | +0.84 |
+| `biasa` −0.35 | 3/12 | 3 | **3 of 3** | −0.0628 | 52 | 8,184 | +0.81 |
+| `recur` 0.999 | 5/12 | 5 | **5 of 5** | −0.0820 | 76 | 8,211 | +0.86 |
+| `recur` 0.995 | 3/12 | 3 | 2 of 3 | −0.0439 | 76 | 8,265 | +0.65 |
+| `recur` 0.99 | 3/12 | 2 | **2 of 2** | −0.1291 | 65 | 8,254 | +0.64 |
+| `recur` 0.98 | 6/12 | 6 | 5 of 6 | −0.0517 | 70 | 8,054 | +0.76 |
+
+**Across all eight intervention arms, 31 of 34 foraging colonies still have a ramp
+pointing at the food**, and the mean polarity is negative in every single arm. The
+paired per-seed shifts are +0.048, −0.014, +0.037, −0.002 for the floors and
++0.004, +0.054, −0.021, +0.035 for the decays — both signs, no trend, noise.
+
+#### Against the predictions recorded before the run
+
+- **§7.16's `recur` result holds on the proper scene.** It was marked provisional
+  because its refill was unrecorded; re-run at a known one it says the same thing.
+  A **400x** change in the decay weight does not flip the ramp.
+- **The emission-floor prediction is wrong, and it was mine.** §7.16 argued a
+  floor beats an occupancy ratio because it makes the grading ratio *unbounded* —
+  a dwelling ant lays **nothing** rather than a little. It does not happen. The
+  tell is in the table: **the peak floor does not move** (8,184–9,111 against
+  shipped's 8,234) at any setting including −0.35. If the floor were silencing
+  dwelling ants, the food end's amplitude would collapse; it does not, so **the
+  ants laying at the food end are not the low-charge ones** and the cut-off never
+  reaches them. The charge model of who-lays-what is wrong somewhere upstream of
+  both levers.
+- **The counter-risk was real and is the only thing either lever reliably did.**
+  Route coverage falls monotonically with the floor — **78 → 76 → 68 → 57 → 52**
+  of 91 cells — and colonies die with it, 7 → 6 → 7 → 5 → 3 seeds alive. A floor
+  shortens the trail toward the nest without re-grading it.
+
+#### What this leaves
+
+**The one quantity that survives every intervention is the correlation itself**:
+`r(AtNest, polarity)` is **+0.64 to +0.91 in all nine arms**, shipped and
+intervened alike. Two independent weights — the decay that sets how fast a
+charge falls and the floor that sets when it stops being laid at all — move
+colony survival, trail length and amplitude, and leave that correlation exactly
+where it was.
+
+**So the inversion is not a tuning problem, and this is the second time this
+report has had to learn that.** §7.15 named it correctly in its closing line and
+then proposed a weight anyway: *the plane's shape is set by laying behaviour
+rather than by the quantity the design intended to encode*. A plane that every
+ant adds to, everywhere it walks, is an integral over occupancy; no per-ant
+weight changes what an integral over occupancy is. `CLAUDE.md` states the
+remedy for exactly this shape — *when a rule must tell apart two things that
+can look identical, state the difference as data* — and here the two things are
+"far from home" and "where ants happen to be".
+
+**What that points at** (none of it measured, all of it structural rather than a
+weight): lay channel A only on the **return** leg, so the plane integrates
+journeys home rather than time spent anywhere; or make it a **distance field**
+the world maintains from the nest outward rather than a deposit ants make; or
+give the ant a homing input that is not a pheromone plane at all. Which of those
+is worth building is the owner's call, and it is a larger question than this
+report was opened to answer.
 
 ### 7.9 What this leaves standing
 
