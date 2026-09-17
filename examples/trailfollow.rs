@@ -726,6 +726,45 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         let silenced = mute_channel_b(&mut genome);
         assert!(silenced > 0, "no EmitB weight was zeroed, so the muted arm still lays the plane it is meant to be without");
     }
+    // **The two weights that shape the homing ramp, as runtime riders.**
+    //
+    // §7.15: channel A inverts in exactly the colonies that forage. Hidden unit
+    // 4 is an odometer fitted for a **3,000-tick** decay, but a 90-cell trip is
+    // 141 ticks at a trail-following `P(move)` of 0.64 -- 4.7% of its range --
+    // so the charge falls 0.7% over the whole journey and the ant lays channel A
+    // at near-constant strength wherever it goes. A plane laid at constant
+    // strength records WHERE ANTS SPENT TIME, and a foraging colony spends it at
+    // the food, so the ramp ends up taller at the food end. Polarity is positive
+    // in 5 of 5 homebound colonies and negative in 6 of 7 foraging ones,
+    // r = +0.77 over 12 seeds.
+    //
+    // **The tension that makes this a sweep and not a patch**: the charge only
+    // replenishes at the nest, and a foraging ant is `AtNest` ~1.5% of the time.
+    // Decay too slowly and the signal is laid everywhere and inverts, which is
+    // today. Decay too fast and the charge is near zero almost always, so
+    // channel A collapses to nothing -- an inverted signal traded for no signal.
+    // Read `a_polarity` and `a_peak_amt` together or this measures half of it.
+    //
+    // `emita` is here because `ant.ron` authors **32.0** into `EmitA` where the
+    // odometer's own fitting test (`brain.rs`'s ignored `what_an_odometer_emits`)
+    // names **900** in its chosen fit -- a real mismatch, and the obvious lever
+    // if faster decay costs signal strength.
+    if let Some(r) = arg::<f32>("recur") {
+        let slot = brain::hh_slot(4);
+        assert!(
+            (genome[slot] - r).abs() > f32::EPSILON,
+            "recur={r} is already what unit 4's decay slot holds, so this arm is the shipped one wearing a different name"
+        );
+        genome[slot] = r;
+    }
+    if let Some(e) = arg::<f32>("emita") {
+        let slot = brain::ho_slot(4, O::EmitA);
+        assert!(
+            (genome[slot] - e).abs() > f32::EPSILON,
+            "emita={e} is already what unit 4's EmitA slot holds, so this arm is the shipped one wearing a different name"
+        );
+        genome[slot] = e;
+    }
 
     let surface = spec.ground_y - 2;
     let (nest_x, target_x) = (half_band, half_band + gap);
@@ -1198,6 +1237,14 @@ fn main() {
     // tell is disconnected -- `CLAUDE.md`, after a 3.5-hour study came back as
     // three populations wearing 24 logs.
     println!("  diet: larder={larder} onlyfood={}", if onlyfood { "on" } else { "off" });
+    // Echoed because a knob whose value is not printed is a knob nobody can tell
+    // is disconnected -- `CLAUDE.md`, after a 3.5-hour study came back as three
+    // populations wearing 24 logs.
+    println!(
+        "  odometer: recur={} emita={}",
+        arg::<f32>("recur").map_or("shipped".to_string(), |v| format!("{v}")),
+        arg::<f32>("emita").map_or("shipped".to_string(), |v| format!("{v}"))
+    );
 
     if flag("spec") {
         println!("{}", gate.spec());
