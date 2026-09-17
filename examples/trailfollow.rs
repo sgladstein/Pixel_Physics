@@ -1295,7 +1295,25 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         // Sampling at `stop + 288` therefore still caught the hand-laid trail
         // fully intact, and every arm reported a peak of exactly the route
         // length twice over before this was caught.
-        if stop > 0 && f > stop + 1500 && f.is_multiple_of(100) {
+        //
+        // **Gated on whether THIS ARM hand-lays, not on `stop`, since
+        // 2026-09-17 -- and the old gate made the column dead.** `stop`
+        // defaults to 0, which means "hand-lay for the whole run"; the
+        // condition `stop > 0` therefore reported **`route pk 0` in 60 of 60
+        // rows** of a default 12-seed five-arm sweep, including in `self`,
+        // `mute` and `homeA`, which hand-lay nothing at all and had a real
+        // number to give. A column that is structurally 0 reads exactly like a
+        // colony that laid nothing, which is the finding it sits next to.
+        //
+        // The original intent is kept and is right for the arm it was written
+        // for: on a hand-laid arm the count must wait out our own trail or it
+        // measures us. `1500` rather than the original `288` because that came
+        // from a `u8`-era lifetime the `u16` widening invalidated the day after
+        // it was written -- see the note above. On an arm that lays nothing of
+        // ours, every frame is fair game.
+        let ours_is_down = trail || paint != PaintA::None;
+        let past_our_trail = if ours_is_down { stop > 0 && f > stop + 1500 } else { true };
+        if past_our_trail && f.is_multiple_of(100) {
             let live = (nest_x..=target_x).filter(|&x| w.pheromone_at(Channel::B, x, surface) > 0).count();
             peak_cells = peak_cells.max(live);
         }
