@@ -2117,6 +2117,62 @@ cell it measures, so it has no boundary — and boundary handling was the entire
 defect. A control has to be the case the instrument finds *hard*, not the case
 that makes it look best.
 
+
+## §7.20 The return leg, measured directly — the symptom survives the retraction
+
+**2026-09-17.** §7.19 retracted the *explanation* for why food does not come
+home. It did not touch the symptom, and the symptom wants a number that does not
+pass through any polarity statistic. This is that number.
+
+`trailfollow mode=gap gate=b2 gaps=90 seeds=12 arms=hand onlyfood=on
+larder=fruit food=200 frames=24000 refill=2000 stop=6000`, **shipped genome, no
+riders**. The `hand` arm is deliberate: it is the only arm where ants reach food
+in quantity, so it is the only one that can ask what a *laden* ant does.
+
+| | |
+|---|---|
+| ant-ticks carrying larder | 4,260,372 |
+| of those, inside the ±26 nest band | **2,177 — 0.051%** |
+| completed round trips (nest → within `near` of food → nest) | **11**, over 12 seeds of ~200 ants |
+| net cells moved while laden, signed toward the nest | **+883** |
+| **…per carrying tick** | **+0.0002** |
+
+Seven of the twelve seeds deliver **exactly zero** while carrying for 500,000 to
+800,000 ticks each. **A laden ant's net motion toward home is not slow, it is
+nil** — `carry_toward_nest` is the column built to separate "aimed home and slow"
+from "not aimed home", and it answers the second.
+
+This reproduces the corpus's own `−418 net homeward cells over 2,146,526 carrying
+ticks` (§5 item 4's rescued figure) in sign-agnostic magnitude: both are zero to
+three decimal places per tick. Two independent runs, one on `u8` and one on
+`u16`, agree that the return leg does not exist.
+
+**What this changes about how to read everything else here.**
+
+- **Any mechanism whose subject is "the trail a homing ant lays" is untestable on
+  this bed until this number moves.** That is not a statement about those
+  mechanisms; it is a statement about the substrate. The food-charged `EmitB`
+  odometer was rejected on this bed and the rejection has been corrected in
+  `dead-ends.md` to say so — it was never tested, and its re-test condition is
+  now this number rather than anything about trail shape.
+- **It explains the shape of the four-arm result without any claim about the
+  plane.** `emit_cost_in_moves` charges per unit laid; the odometer holds a unit
+  charged for hundreds of ticks after one food contact where the shipped wire
+  fires only while laden; the bed runs at 1.03x subsistence. More emission is
+  more cost for a return that never arrives, monotone in exactly the order the
+  arms came out (7/12, 8/12, 5/12, 3/12 colonies as emission rises).
+- **It is the reason §3.2's "discovery is the binding constraint" needs a second
+  clause.** Discovery binds for *one* ant. The *loop* needs the return leg, and
+  the return leg reads 0.05%. Both are broken; fixing discovery alone cannot
+  close the loop, because a scout that finds food and never gets home recruits
+  nobody.
+
+**The order of work this implies:** the return leg first, and everything about
+trail shape after it, because trail shape is downstream of a journey that is not
+happening. That is also the one place where §7.19's retraction does *not* let the
+line off — it removed the reason to believe channel A's ramp inverts; it did not
+supply a reason to believe homing works, and this says it does not.
+
 ## Instruments
 
 - `examples/onetrail.rs` — `mode=arith` (shipped genome, nothing overridden),

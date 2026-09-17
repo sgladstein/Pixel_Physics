@@ -26,6 +26,17 @@ must not be quoted. §8 is what has already cost days.
 > (a laid trail is decisive, the colony cannot build one, `self ≡ mute`), §3.7
 > (`homeA` clips exploration), §3.8, the `u16` widening, and — stated by §3.7
 > already — **that deliveries, never polarity, is the success criterion**.
+>
+> **AND THE SYMPTOM IS UNTOUCHED — this retracts the explanation, not the
+> problem.** Measured the same day with no polarity statistic anywhere in it
+> (§7.20): on the shipped genome, `hand` arm, 12 seeds, **4,260,372 ant-ticks
+> carrying larder, 2,177 of them inside the nest band (0.051%), 11 round trips,
+> and +883 net homeward cells over those 4.26M ticks — +0.0002 per tick.** Seven
+> of twelve seeds deliver exactly zero. A laden ant's motion toward home is not
+> slow, it is nil. **The return leg is the thing to fix, and trail shape is
+> downstream of a journey that is not happening** — so any mechanism whose
+> subject is "the trail a homing ant lays" is untestable on this bed until that
+> number moves.
 
 ---
 
