@@ -271,6 +271,62 @@ fn lay_home(w: &mut pixel_physics::sim::world::World, nest_x: i32, target_x: i32
     }
 }
 
+/// Constant amplitude over part of the route -- **the polarity metric's
+/// NEGATIVE control, and the thing it has never had.**
+///
+/// `homeA` is the metric's positive control and reads +0.115 against an
+/// independent prediction of +0.12, which is why it was trusted. But it fills
+/// **91 of 91 route cells**, so `here > 0` and `ahead > 0` coincide everywhere
+/// and it is *blind by construction* to the defect §5 item 5 accuses the metric
+/// of: the admission gate is `||`, so a cell on the edge of a blob is scored
+/// against an empty neighbour and reads about -0.97, against an interior cell's
+/// +-0.03..0.07. One edge cell is worth roughly twenty interior ones.
+/// `CLAUDE.md`: a guard must be able to fail for the *replacement* artifact,
+/// and a positive control checks specificity where this needs sensitivity.
+///
+/// **A flat blob has no gradient anywhere in it, so a correct metric reads 0.**
+/// What the `||` metric reads instead is arithmetic rather than opinion, and it
+/// is worth writing down before running it, because a prediction that lands is
+/// evidence and one written afterwards is a story:
+///
+/// - `FlatFood` -- constant over the food half. The scan runs `nest_x ..=
+///   target_x - sensor_offset`, so the blob's **leading** edge is inside it
+///   (`here = 0`, `ahead = A`, about -1) for `sensor_offset` cells and its
+///   trailing edge is not, because `ahead` never leaves the painted region.
+///   Six cells at -1 over ~51 admitted gives about **-0.12**.
+/// - `FlatNest` -- constant over the nest half. Mirror image: only the
+///   **trailing** edge is inside the scan (`here = A`, `ahead = 0`, about +1),
+///   so about **+0.12**.
+///
+/// Those two numbers bracket every polarity figure in the report -- a colony
+/// that stays home reads +0.018..+0.052, one that forages reads -0.076 -- and
+/// they are produced here by a field with **no ramp in it at all**. If they
+/// come out, the `||` metric cannot tell a ramp from a blob's position and §7.15
+/// falls.
+fn lay_flat(w: &mut pixel_physics::sim::world::World, from_x: i32, to_x: i32, surface: i32) {
+    for x in from_x..=to_x {
+        for y in (surface - 3)..=(surface + 1) {
+            w.deposit_pheromone(Channel::A, x, y, pheromone::DEPOSIT as pheromone::Scent);
+        }
+    }
+}
+
+/// Which channel-A pattern this harness paints, if any.
+///
+/// Was a `home: bool`. It became an enum when the metric acquired a negative
+/// control, because "not the homing ramp" stopped meaning "nothing".
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum PaintA {
+    /// The ants' own channel A and nothing else -- every treatment arm.
+    None,
+    /// `lay_home`'s nest-ward ramp: the metric's POSITIVE control, ~ +0.115.
+    Ramp,
+    /// Flat over the nest half; the ants' `EmitA` is muted. Predicts ~ +0.12.
+    FlatNest,
+    /// Flat over the food half; the ants' `EmitA` is muted. Predicts ~ -0.12.
+    FlatFood,
+}
+
 fn lay(w: &mut pixel_physics::sim::world::World, nest_x: i32, target_x: i32, surface: i32) {
     for x in nest_x..=target_x {
         let t = (x - nest_x) as f32 / (target_x - nest_x) as f32;
@@ -414,6 +470,35 @@ struct Arm {
     /// Positive = taller at the NEST, the shape homing needs. Negative = taller
     /// at the FOOD, i.e. a homing reader ascending it is driven away from home.
     a_polarity: f32,
+    /// **The same figure with the admission gate tightened from `||` to `&&`,
+    /// and the mean number of cells the difference rests on.**
+    ///
+    /// Read them together and against the `flatN`/`flatF` controls. If
+    /// `a_polarity` and `a_polarity_both` agree, the `||` gate is harmless here
+    /// and §3's magnitudes are real. If they disagree by about the amount the
+    /// flat controls predict (~ -+0.12 from no ramp at all), the inversion is
+    /// the blob's *position* being read as a *shape*.
+    a_polarity_both: f32,
+    a_edge_cells: f32,
+    /// **The polarity figure that passes both of its controls, and the only one
+    /// to quote.**
+    ///
+    /// Measured 2026-09-17 on `arms=homeA,flatN,flatF`, 6 seeds, gap 90,
+    /// `refill=2000`. A FLAT channel-A blob -- no ramp in it anywhere -- read
+    /// **+0.19498 over the nest half and -0.19498 over the food half** under
+    /// the `||` gate, and `&&` moved that only to **+-0.18061**. Both magnitudes
+    /// are LARGER than a perfect nest-ward ramp's +0.115 and far larger than the
+    /// -0.076 that `pheromone-master-2026-09-17.md` §3.5 reports as "the ramp
+    /// inverts". So the defect is not the admission gate §5 item 5 names: it is
+    /// that the scan window is fixed to the route while the trail is not, and a
+    /// blob's two shoulders (put there by `DIFFUSE`, genuine interior
+    /// gradients) are counted asymmetrically according to where the blob sits.
+    ///
+    /// Anchoring the window to the trail's own `[lo, hi]` removes it. Keep all
+    /// three columns: the first two are what the report's numbers were taken
+    /// with, and deleting them would make this file disagree with its own
+    /// archived logs for no stated reason.
+    a_polarity_span: f32,
     /// **The ants' own channel A ramp, sampled at five points along the route
     /// and as the gradient a real reader computes.** See the fill site for the
     /// arithmetic that predicts it is two orders of magnitude too flat to read.
@@ -672,16 +757,28 @@ struct Track {
 /// homing channel -- and zeroing it would fold a homing ablation into a
 /// foraging measurement. The question here is channel B.
 fn mute_channel_b(g: &mut [f32]) -> usize {
+    mute_channel(g, O::EmitB)
+}
+
+/// `mute_channel_b`'s body, with the channel as an argument.
+///
+/// **Channel A gets muted for exactly one purpose and it is not an ablation**:
+/// the `flatN`/`flatF` metric controls below need the plane to hold *only* what
+/// this harness painted. An ant laying its own channel A on top of a synthetic
+/// blob would make the control a measurement of the ants again, which is the
+/// one thing a control may not be. Everywhere else `EmitA` is left alone for
+/// the reason `mute_channel_b` gives.
+fn mute_channel(g: &mut [f32], out: O) -> usize {
     let mut moved = 0;
     for i in 0..brain::BRAIN_INPUTS {
-        let slot = brain::io_slot(brain::INPUTS[i], O::EmitB);
+        let slot = brain::io_slot(brain::INPUTS[i], out);
         if g[slot] != 0.0 {
             g[slot] = 0.0;
             moved += 1;
         }
     }
     for h in 0..brain::BRAIN_HIDDEN {
-        let slot = brain::ho_slot(h, O::EmitB);
+        let slot = brain::ho_slot(h, out);
         if g[slot] != 0.0 {
             g[slot] = 0.0;
             moved += 1;
@@ -691,7 +788,7 @@ fn mute_channel_b(g: &mut [f32]) -> usize {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, near: i32, food: i32, stop: u64, gap: i32, refill: u64, diet: Diet, mute: bool, home: bool) -> Arm {
+fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, near: i32, food: i32, stop: u64, gap: i32, refill: u64, diet: Diet, mute: bool, paint: PaintA) -> Arm {
     // **The box grows with the gap.** `far_larder` pins food 363 cells from
     // its colony and every one of its 52 ants starves by frame 20,000 --
     // measured, `latecensus scenario=far_larder`: ants 52 -> 0, eats 87 in
@@ -722,6 +819,12 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let mut genome = w.species.get(species_id).genome.clone();
     let moved = gate.apply(&mut genome);
     assert!(gate.name == "shipped" || moved > 0, "gate {} changed no slot, so both arms carry one genome", gate.name);
+    if matches!(paint, PaintA::FlatNest | PaintA::FlatFood) {
+        // The control is only a control if the plane holds what we painted and
+        // nothing else -- see `lay_flat`.
+        let silenced = mute_channel(&mut genome, O::EmitA);
+        assert!(silenced > 0, "no EmitA weight was zeroed, so the flat control's plane is part ours and part the ants'");
+    }
     if mute {
         let silenced = mute_channel_b(&mut genome);
         assert!(silenced > 0, "no EmitB weight was zeroed, so the muted arm still lays the plane it is meant to be without");
@@ -807,6 +910,109 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             brain::W_EPS
         );
         genome[slot] = b;
+    }
+
+    // --- the food-charged channel B odometer, as riders -------------------
+    //
+    // **The one mechanism in this line that costs nothing structural**, which is
+    // why it is measured here before it is authored anywhere. Channel A ramps
+    // because `ant.ron` hidden unit 4 is a nest-charged odometer -- three
+    // weights, `(AtNest, 4, 0.05)` / recurrence `0.99995` / `(4, EmitA, 32.0)`.
+    // Channel B has **no distance term at all**: one wire,
+    // `(Carrying, EmitB, 2.5)`, emitting a flat `squash(2.5) = 0.714` on every
+    // laden tick. So a food trail's shape comes only from the order its cells
+    // were laid in -- laden means homeward, so the food end is the older end,
+    // so after decay it is tallest at the NEST and the shipped ascending reader
+    // walks an empty ant home. `pheromone-master-2026-09-17.md` §1 states the
+    // defect ("the same laying rule, and they need opposite ones") and proposes
+    // no repair for it.
+    //
+    // These riders author the mirror: `FoodAdjacent` charges hidden unit 7 --
+    // free in `ant.ron`, units 0-6 being the two reader pairs, the odometer and
+    // the dig gate -- which fades into `EmitB`. `FoodAdjacent` is the exact
+    // structural twin of `AtNest`: both are contact booleans
+    // (`creature.rs:4677` against the `adjacent_nest` scan).
+    //
+    // **Fitted through `eval_brain`, not simulated beside it** -- §Z5's dead
+    // odometer was verified by side-simulation and the `W_EPS` gate was never
+    // seen. `brain.rs`'s ignored `what_a_food_odometer_emits` prints the grid
+    // and the candidate; the mirror of unit 4's own weights reproduces the
+    // shipped `EmitA` curve at **rms 0.0000** (it is the same curve), holds
+    // `t141` at 0.164/0.177/0.178/0.178 across touch durations 1/5/30/400, and
+    // averages **0.349** over a 141-tick trip against the shipped wire's flat
+    // 0.714 -- so it lays about **half** as much channel B, not more.
+    //
+    // `carryb=0` is the other half and is not optional: leaving
+    // `(Carrying, EmitB, 2.5)` in place keeps the flat smear the odometer is
+    // meant to replace, and the two would sum.
+    // **The riders run AFTER `mute_channel_b`, so on a muted arm `emitb=` would
+    // hand back the emitter `mute` had just taken away** -- and every assertion
+    // would still pass, because `mute` asserts only that it zeroed something.
+    // That is `CLAUDE.md`'s "a control that validates the knob does not validate
+    // the scene" with the scene being the control arm itself. Refused outright
+    // rather than ordered around, because the silent version of this is a `mute`
+    // row that is not a no-trail control and says so nowhere.
+    assert!(
+        !(mute && (arg::<f32>("charb").is_some() || arg::<f32>("emitb").is_some() || arg::<f32>("recurb").is_some() || arg::<f32>("biasb").is_some())),
+        "the channel B odometer riders would re-arm EmitB on a muted arm, which is no longer a no-trail control -- run the riders with arms=hand,self and take `mute` from the shipped baseline"
+    );
+    if let Some(c) = arg::<f32>("charb") {
+        let slot = brain::ih_slot(brain::BrainInput::FoodAdjacent, 7);
+        assert!(
+            (genome[slot] - c).abs() > f32::EPSILON,
+            "charb={c} is already what the FoodAdjacent->unit 7 slot holds, so this arm is the shipped one wearing a different name"
+        );
+        assert!(
+            c.abs() >= brain::W_EPS,
+            "charb={c} is inside W_EPS ({}), so eval_brain would skip the wire and unit 7 would never charge",
+            brain::W_EPS
+        );
+        genome[slot] = c;
+    }
+    if let Some(r) = arg::<f32>("recurb") {
+        let slot = brain::hh_slot(7);
+        assert!(
+            (genome[slot] - r).abs() > f32::EPSILON,
+            "recurb={r} is already what unit 7's decay slot holds, so this arm is the shipped one wearing a different name"
+        );
+        genome[slot] = r;
+    }
+    if let Some(e) = arg::<f32>("emitb") {
+        let slot = brain::ho_slot(7, O::EmitB);
+        assert!(
+            (genome[slot] - e).abs() > f32::EPSILON,
+            "emitb={e} is already what unit 7's EmitB slot holds, so this arm is the shipped one wearing a different name"
+        );
+        assert!(
+            e.abs() >= brain::W_EPS,
+            "emitb={e} is inside W_EPS ({}), so eval_brain would skip the wire and unit 7 would emit nothing",
+            brain::W_EPS
+        );
+        genome[slot] = e;
+    }
+    if let Some(b) = arg::<f32>("biasb") {
+        let slot = brain::io_slot(brain::BrainInput::Bias, O::EmitB);
+        assert!(
+            (genome[slot] - b).abs() > f32::EPSILON,
+            "biasb={b} is already what the Bias->EmitB slot holds, so this arm is the shipped one wearing a different name"
+        );
+        assert!(
+            b.abs() >= brain::W_EPS,
+            "biasb={b} is inside W_EPS ({}), so eval_brain would skip the wire and this arm would be the shipped one",
+            brain::W_EPS
+        );
+        genome[slot] = b;
+    }
+    // **Takes a value so it cannot be a silent no-op**, and asserts the wire it
+    // is removing was actually there: `carryb=0` on a genome that has already
+    // lost that wire is an arm wearing a name for something it did not do.
+    if let Some(c) = arg::<f32>("carryb") {
+        let slot = brain::io_slot(brain::BrainInput::Carrying, O::EmitB);
+        assert!(
+            (genome[slot] - c).abs() > f32::EPSILON,
+            "carryb={c} is already what the Carrying->EmitB slot holds, so this arm is the shipped one wearing a different name"
+        );
+        genome[slot] = c;
     }
 
     let surface = spec.ground_y - 2;
@@ -920,6 +1126,16 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // end-of-run `along` reports 0.0 for most seeds and the sign is invisible.
     // Averaged over every sample that had a trail to measure, it is not.
     let (mut a_pol_sum, mut a_pol_n) = (0.0f64, 0u64);
+    // The same statistic with the admission gate tightened to `&&`, plus how
+    // many cells the `||` gate admitted that `&&` would not. See `lay_flat`:
+    // an edge cell scores about -0.97 against an interior cell's +-0.03..0.07,
+    // so the two figures diverging IS the artifact, and the count is what says
+    // how much of the `||` figure is edge.
+    let (mut a_pol_both_sum, mut a_pol_both_n) = (0.0f64, 0u64);
+    let (mut a_edge_sum, mut a_edge_n) = (0u64, 0u64);
+    // **The one of the three that survives its own controls.** See
+    // `a_polarity_span` on `Arm` for what the other two do to a blob.
+    let (mut a_pol_span_sum, mut a_pol_span_n) = (0.0f64, 0u64);
     let nest_cells = {
         let nest = w.materials.id_of("nest");
         match nest {
@@ -948,8 +1164,14 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             if trail {
                 lay(&mut w, nest_x, target_x, surface);
             }
-            if home {
-                lay_home(&mut w, nest_x, target_x, surface);
+            match paint {
+                PaintA::None => {}
+                PaintA::Ramp => lay_home(&mut w, nest_x, target_x, surface),
+                // Half the route each, split at the midpoint the occupancy
+                // bands already use, so the blob sits where a real colony's
+                // channel A sits in each of the two cases the metric separates.
+                PaintA::FlatNest => lay_flat(&mut w, nest_x, (nest_x + target_x) / 2, surface),
+                PaintA::FlatFood => lay_flat(&mut w, (nest_x + target_x) / 2, target_x, surface),
             }
         }
         frame::step(&mut w, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
@@ -970,6 +1192,8 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             a_peak_cells = a_peak_cells.max(cells);
             if cells > 0 {
                 let (mut sm, mut n) = (0.0f64, 0u64);
+                let (mut sm_both, mut n_both) = (0.0f64, 0u64);
+                let mut edge = 0u64;
                 for x in nest_x..=(target_x - sensor_offset) {
                     let here = w.pheromone_at(Channel::A, x, surface) as f64;
                     let ahead = w.pheromone_at(Channel::A, x + sensor_offset, surface) as f64;
@@ -977,13 +1201,72 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                         // Negated so POSITIVE = taller at the nest, which is
                         // the shape a homing reader needs. Negative means the
                         // ramp points at the food.
-                        sm += -((ahead - here) / (ahead + here + pheromone::SCALE as f64));
+                        let v = -((ahead - here) / (ahead + here + pheromone::SCALE as f64));
+                        sm += v;
                         n += 1;
+                        // **`&&` is the same statistic over interior cells
+                        // only.** A cell with an empty neighbour is not
+                        // reporting a gradient, it is reporting where the blob
+                        // ends -- and it reports it at about twenty times an
+                        // interior cell's weight. Both figures are carried
+                        // because neither is obviously the right one: `&&`
+                        // cannot see a genuine ramp that runs off the end of
+                        // the trail, and `||` cannot tell that ramp from a
+                        // blob that merely sits nearer the food.
+                        if here > 0.0 && ahead > 0.0 {
+                            sm_both += v;
+                            n_both += 1;
+                        } else {
+                            edge += 1;
+                        }
                     }
                 }
                 if n > 0 {
                     a_pol_sum += sm / n as f64;
                     a_pol_n += 1;
+                    a_edge_sum += edge;
+                    a_edge_n += 1;
+                }
+                if n_both > 0 {
+                    a_pol_both_sum += sm_both / n_both as f64;
+                    a_pol_both_n += 1;
+                }
+                // **The same statistic over the trail's OWN span**, which is
+                // the one the flat controls do not fool. Both figures above
+                // scan `nest_x ..= target_x - sensor_offset`, a window fixed to
+                // the ROUTE; a blob has two shoulders and that window decides
+                // which of them gets counted, so it reads the blob's POSITION
+                // as a shape. Anchored to `[lo, hi]` instead, both shoulders
+                // are always inside and a blob with no ramp in it cancels.
+                // **Searched over the whole row, NOT over the route, and that
+                // distinction is the entire finding.** Anchored inside
+                // `[nest_x, target_x]` this reproduced the `&&` figure exactly
+                // -- +-0.18061 on 6 of 6 seeds of both flat arms -- because a
+                // blob diffuses past the route's ends, so the shoulder that
+                // would cancel the one being counted is off the measured
+                // segment and no window drawn inside it can ever find it.
+                let mut lo = i32::MAX;
+                let mut hi = i32::MIN;
+                for x in 0..width {
+                    if w.pheromone_at(Channel::A, x, surface) > 0 {
+                        lo = lo.min(x);
+                        hi = hi.max(x);
+                    }
+                }
+                if hi - lo > 2 * sensor_offset {
+                    let (mut sm_s, mut n_s) = (0.0f64, 0u64);
+                    for x in lo..=(hi - sensor_offset) {
+                        let here = w.pheromone_at(Channel::A, x, surface) as f64;
+                        let ahead = w.pheromone_at(Channel::A, x + sensor_offset, surface) as f64;
+                        if here > 0.0 && ahead > 0.0 {
+                            sm_s += -((ahead - here) / (ahead + here + pheromone::SCALE as f64));
+                            n_s += 1;
+                        }
+                    }
+                    if n_s > 0 {
+                        a_pol_span_sum += sm_s / n_s as f64;
+                        a_pol_span_n += 1;
+                    }
                 }
             }
         }
@@ -1185,6 +1468,9 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         a_peak_amt,
         a_peak_cells,
         a_polarity: if a_pol_n == 0 { 0.0 } else { (a_pol_sum / a_pol_n as f64) as f32 },
+        a_polarity_both: if a_pol_both_n == 0 { 0.0 } else { (a_pol_both_sum / a_pol_both_n as f64) as f32 },
+        a_edge_cells: if a_edge_n == 0 { 0.0 } else { a_edge_sum as f32 / a_edge_n as f32 },
+        a_polarity_span: if a_pol_span_n == 0 { 0.0 } else { (a_pol_span_sum / a_pol_span_n as f64) as f32 },
         a_profile,
         kin_swaps: st.kin_swaps,
         blocked: st.moves_blocked,
@@ -1284,10 +1570,15 @@ fn main() {
     // is disconnected -- `CLAUDE.md`, after a 3.5-hour study came back as three
     // populations wearing 24 logs.
     println!(
-        "  odometer: recur={} emita={} biasa={}",
+        "  odometer A: recur={} emita={} biasa={}   odometer B: charb={} recurb={} emitb={} biasb={} carryb={}",
         arg::<f32>("recur").map_or("shipped".to_string(), |v| format!("{v}")),
         arg::<f32>("emita").map_or("shipped".to_string(), |v| format!("{v}")),
-        arg::<f32>("biasa").map_or("shipped".to_string(), |v| format!("{v}"))
+        arg::<f32>("biasa").map_or("shipped".to_string(), |v| format!("{v}")),
+        arg::<f32>("charb").map_or("shipped".to_string(), |v| format!("{v}")),
+        arg::<f32>("recurb").map_or("shipped".to_string(), |v| format!("{v}")),
+        arg::<f32>("emitb").map_or("shipped".to_string(), |v| format!("{v}")),
+        arg::<f32>("biasb").map_or("shipped".to_string(), |v| format!("{v}")),
+        arg::<f32>("carryb").map_or("shipped".to_string(), |v| format!("{v}"))
     );
 
     if flag("spec") {
@@ -1408,22 +1699,30 @@ fn main() {
         let want_arms: Option<Vec<String>> = arg_str("arms").map(|v| v.split(',').map(|t| t.trim().to_string()).collect());
         for g in gaps {
             for s in seed0..seed0 + seeds {
-                for (name, trail, mute, home) in [
-                    ("hand", true, false, false),
-                    ("hmute", true, true, false),
-                    ("self", false, false, false),
-                    ("mute", false, true, false),
+                for (name, trail, mute, paint) in [
+                    ("hand", true, false, PaintA::None),
+                    ("hmute", true, true, PaintA::None),
+                    ("self", false, false, PaintA::None),
+                    ("mute", false, true, PaintA::None),
                     // **The homing arm.** No food trail is laid; a channel A
                     // ramp peaking at the nest is, and the ants lay their own
                     // channel B as usual. If the owner's chain is the whole
                     // story, this is the arm where a colony finally builds a
                     // trail for itself.
-                    ("homeA", false, false, true),
+                    ("homeA", false, false, PaintA::Ramp),
+                    // **The metric's two NEGATIVE controls, and they are not
+                    // treatment arms** -- no ramp is painted in either, the
+                    // ants' own `EmitA` is silenced, and the only question is
+                    // what the polarity statistic says about a field that has
+                    // no polarity. Never pool them with anything; see
+                    // `lay_flat` for the two numbers they predict.
+                    ("flatN", false, true, PaintA::FlatNest),
+                    ("flatF", false, true, PaintA::FlatFood),
                 ] {
                     if want_arms.as_ref().is_some_and(|w| !w.iter().any(|x| x == name)) {
                         continue;
                     }
-                    let a = run(s, trail, gate, frames, ants, relay, near, food, stop, g, refill, diet, mute, home);
+                    let a = run(s, trail, gate, frames, ants, relay, near, food, stop, g, refill, diet, mute, paint);
                     if diet.only {
                         assert_eq!(a.ate_other_j, 0.0, "gap {g} seed {s} arm {name}: {} J eaten off something that is not the larder, so onlyfood did not hold and no column in this row is attributable", a.ate_other_j);
                     }
@@ -1485,12 +1784,15 @@ fn main() {
                     // standing A ramp runs at P(move) 0.641 against a baseline
                     // of 0.200 (`onetrail mode=arith`).
                     println!(
-                        "{:>16}channel A: PEAK amt {:>6} cells {:>4} (of {} route)  POLARITY {:>+8.5}  end nest->food [{}]  nest {:>4}  AtNest {:>5.2}%",
+                        "{:>16}channel A: PEAK amt {:>6} cells {:>4} (of {} route)  POLARITY|| {:>+8.5} && {:>+8.5} SPAN {:>+8.5} edge {:>5.1}  end nest->food [{}]  nest {:>4}  AtNest {:>5.2}%",
                         "",
                         a.a_peak_amt,
                         a.a_peak_cells,
                         g + 1,
                         a.a_polarity,
+                        a.a_polarity_both,
+                        a.a_polarity_span,
+                        a.a_edge_cells,
                         a.a_profile.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(","),
                         a.nest_cells,
                         if a.probe_ticks == 0 { 0.0 } else { 100.0 * a.atnest_ticks as f64 / a.probe_ticks as f64 }
@@ -1519,6 +1821,10 @@ fn main() {
         println!("    far it ever got, as a share of the gap, so a commuting population is visible as a shape.");
         println!("  `hand` vs `self` only says whether a laid ramp beats what they bootstrap.");
         println!("  `hmute` is the DECAY BASELINE for `route pk`: our ramp laid, the ants silenced.");
+        println!("  `flatN`/`flatF` are the POLARITY metric's negative controls: a FLAT channel A blob over");
+        println!("    the nest half / the food half, ants' EmitA silenced. A field with no ramp in it at all.");
+        println!("    A correct metric reads 0 on both. POLARITY|| is predicted to read ~+0.12 and ~-0.12,");
+        println!("    which brackets every polarity figure in the report -- see `lay_flat`.");
         println!("  `homeA` lays a channel A HOMING ramp and no food trail -- if laden ants only fail");
         println!("    to route because they cannot find their way home, this is where their own B appears.");
         println!("  `carry` is ant-ticks holding larder in the crop; `carry@nest` is those inside the +-26 nest band --");
@@ -1553,7 +1859,7 @@ fn main() {
         println!("{:->5} {:->5} {:->7} {:->7} {:->9} {:->9} {:->10} {:->9} {:->20} {:->6}", "", "", "", "", "", "", "", "", "", "");
         for a in [10, 20, 40, 80] {
             for s in seed0..seed0 + seeds {
-                let r = run(s, true, gate, frames, a, relay, near, food, stop, gap, refill, diet, false, false);
+                let r = run(s, true, gate, frames, a, relay, near, food, stop, gap, refill, diet, false, PaintA::None);
                 let lt: u64 = r.laden_by_third.iter().sum();
                 let pc = |n: u64| if lt == 0 { 0.0 } else { 100.0 * n as f64 / lt as f64 };
                 println!(
@@ -1586,8 +1892,8 @@ fn main() {
     let (mut on_tot, mut off_tot) = (0u64, 0u64);
     let mut moved_up = 0;
     for s in seed0..seed0 + seeds {
-        let on = run(s, true, gate, frames, ants, relay, near, food, stop, gap, refill, diet, false, false);
-        let off = run(s, false, gate, frames, ants, relay, near, food, stop, gap, refill, diet, false, false);
+        let on = run(s, true, gate, frames, ants, relay, near, food, stop, gap, refill, diet, false, PaintA::None);
+        let off = run(s, false, gate, frames, ants, relay, near, food, stop, gap, refill, diet, false, PaintA::None);
         // Ant-ticks differ between arms if one arm's ants die sooner, so the
         // share is what compares: a raw count that fell because the colony
         // shrank is not a colony that stopped following.

@@ -1998,6 +1998,125 @@ report was opened to answer.
   colony (`far_larder` as shipped). A usable bed needs food **far, fixed,
   non-spreading and sufficient**, which is `far_larder` with its larder resized.
 
+## §7.19 The inversion was the instrument: the polarity metric reads a blob's POSITION, not its shape
+
+**Measured 2026-09-17, on `main` at `c40c1712` (the merge of #464). This
+retracts §7.15's finding, the nine-arm sweep in §7.18 that was aimed at it, and
+the master report's §3.3, §3.4, §3.5 and §1 item 3.** The mechanism it named is
+not there. The measurements were all real; the statistic was not measuring what
+its name says.
+
+### The control that had never been built
+
+`homeA` — a hand-painted nest-ward channel-A ramp, reading **+0.115** against an
+independent prediction of +0.12 — was the metric's only control, and it is a
+*positive* one. `CLAUDE.md` asks for the other half — *put the fault back and
+watch it go red* — and `homeA` structurally cannot supply it: it fills **91 of
+91 route cells**, so the `here > 0 || ahead > 0` admission gate and a `&&` gate
+admit exactly the same cells and it is blind to the edge defect §5 item 5
+accuses the metric of.
+
+So two **negative** controls were added (`trailfollow arms=flatN,flatF`): a
+**constant-amplitude** channel-A blob over the nest half and over the food half,
+with the ants' own `EmitA` silenced so the plane holds only what was painted. No
+ramp anywhere in either. A correct metric reads 0.
+
+| arm (6 seeds, gap 90, `refill=2000`) | `POLARITY\|\|` | `POLARITY&&` | `SPAN` |
+|---|---|---|---|
+| `homeA` — a perfect nest-ward ramp | **+0.115** | +0.115 | **+0.026** |
+| `flatN` — FLAT blob, nest half | **+0.19498** | +0.18061 | **+0.00000** |
+| `flatF` — FLAT blob, food half | **−0.19498** | −0.18061 | **+0.00000** |
+
+**A field with no gradient in it anywhere read ±0.195** — larger in magnitude
+than a perfect ramp, and far larger than the −0.076 that §7.15 called an
+inversion. Byte-identical on all six seeds, because with `EmitA` muted the plane
+is a pure function of the paint schedule; that is the one place a tidy result is
+the expected one.
+
+### It is not the admission gate, and that mattered
+
+Tightening the gate to `&&` moved ±0.19498 only to ±0.18061 — **7%**. The
+shoulders doing the work are not edge cells admitted by `||`; they are genuine
+interior gradients that `DIFFUSE` puts on any finite blob.
+
+The first repair — anchoring the scan to the trail's own occupied span — **was a
+no-op, and its failure is the finding**. It reproduced the `&&` figure to five
+decimals because the span search ran `nest_x..=target_x`, so `hi` was clamped to
+the route. The blob has diffused *past* the route's end, so the shoulder that
+would cancel the one being counted is **off the measured segment**, and no window
+drawn inside the route can ever find it.
+
+**The root cause, stated once:** the scan window is fixed to the route while the
+trail is not. A blob has two shoulders; whichever one happens to fall inside the
+route gets counted and the other does not. A blob nearer the food contributes its
+rising shoulder and reads negative; a blob nearer the nest contributes its falling
+shoulder and reads positive. **That is the whole of the "inversion".**
+
+Searching the span over the **whole row** fixes it: both shoulders are then always
+found and a ramp-free blob cancels to exactly zero, while a real ramp still reads
+positive. That is `SPAN`, and it is the only one of the three columns that passes
+a negative control *and* a positive one.
+
+### What the real arms say under a metric that passes its controls
+
+`trailfollow mode=gap gate=b2 gaps=90 seeds=12 arms=hand,hmute,self,mute,homeA
+onlyfood=on larder=fruit food=200 frames=24000 refill=2000`, archived at
+[`Reports/data/baseline-5arm-12seed-2026-09-17.log`](data/baseline-5arm-12seed-2026-09-17.log).
+
+**This build reproduces §7.15's headline exactly**, which is what says the
+disagreement below is the metric and not the tree: foraging mean
+`POLARITY|| = −0.07594` against the reported −0.0759, and
+`r(AtNest, POLARITY||) = +0.849` against the reported +0.85.
+
+| `hand`, 12 seeds | foraging mean | negative | range | r(AtNest, ·) |
+|---|---|---|---|---|
+| `POLARITY\|\|` | **−0.07594** | 7 of 7 | −0.161 … −0.035 | **+0.849** |
+| `POLARITY&&` | −0.07502 | 7 of 7 | −0.162 … −0.032 | +0.693 |
+| **`SPAN`** | **−0.00539** | **5 of 7** | −0.014 … **+0.007** | **−0.010** |
+
+- The inversion falls **14x** and stops being consistent in sign — two of the
+  seven foraging colonies point the other way.
+- Against the reference scale, a real ramp reads `SPAN` **+0.026**. A foraging
+  colony's −0.005 is **a fifth of a real ramp, in the other direction, on five
+  seeds of seven**.
+- **`r` goes from +0.849 to −0.010.** The correlation between "where ants spend
+  time" and "which way the ramp points" — which §7.18 swept nine arms against and
+  which the master report's §1 quotes as `r = +0.64…+0.91` in all nine — is not a
+  relationship between two quantities. It is one quantity twice: `||` was reading
+  where the channel-A mass sits, which is what `AtNest` reports directly.
+
+The `self` arm makes it starker still. `POLARITY||` reads **+0.133, positive on
+12 of 12 seeds** — a confident "strong nest-ward ramp". `SPAN` reads **+0.00215,
+positive on 6 of 12**. A coin flip.
+
+### What this does and does not retract
+
+**Retracted:** "the homing ramp inverts in a foraging colony"; the traffic-versus-
+grading arithmetic built on it (§7.15, §7.16); the nine-arm `recur`/`biasa` sweep
+aimed at flipping the sign (§7.18) — those arms were sweeping a knob against a
+number that was not measuring a ramp; and the master's §1 item 3 and §3.3–§3.5.
+**"31 of 34 foraging colonies still point at the food" should be read as "31 of
+34 foraging colonies had their channel-A mass nearer the food", which is what
+`occupancy/1k` already said.**
+
+**Not retracted, and untouched by this:** §7.13's finding that a laid trail is
+decisive and the colony cannot build one (`hand` 92% reach against `self`/`mute`
+3%; `self ≡ mute`); §7.11's `hmute` decay baseline; the `u16` widening; §3.7's
+`homeA` exploration clip; and the cargo-sensing defect. None of those is a
+polarity measurement. **Deliveries were always the stated success criterion
+(§3.7) and they still are** — this removes a rival criterion that was never
+measuring what it claimed, which is the one thing it was doing for the line.
+
+### The rule, for the file that collects them
+
+`CLAUDE.md` already says *ask what your number counts when nothing is wrong* and
+*run the positive control*. This is the sixth recurrence of a related shape and it
+adds one clause the file does not have: **a positive control built from a case
+that saturates the instrument cannot test the instrument.** `homeA` fills every
+cell it measures, so it has no boundary — and boundary handling was the entire
+defect. A control has to be the case the instrument finds *hard*, not the case
+that makes it look best.
+
 ## Instruments
 
 - `examples/onetrail.rs` — `mode=arith` (shipped genome, nothing overridden),

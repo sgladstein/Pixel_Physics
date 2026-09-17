@@ -8,6 +8,25 @@ page, then read **one** source from §2 — never the directory.
 an executable plan. §5 is the list of things that are wrong in the record and
 must not be quoted. §8 is what has already cost days.
 
+> ## ⚠️ RETRACTION, 2026-09-17 — read before §1, §3 or §7
+>
+> **The polarity metric does not measure which way the ramp points. It measures
+> where the channel-A blob sits.** Two negative controls — a *flat*, ramp-free
+> channel-A blob painted over the nest half and over the food half — read
+> **+0.195 and −0.195**, larger than a perfect ramp's +0.115 and far larger than
+> the −0.076 this document calls an inversion. Repaired and re-measured, the
+> inversion falls **14x to −0.005**, goes the *other way* on 2 of 7 foraging
+> seeds, and `r(AtNest, polarity)` goes from **+0.849 to −0.010**.
+>
+> **So §1 item 3, §3.3, §3.4, §3.5 and §5 item 5 are retracted**, and with them
+> the two sweeps of §7.15–§7.18. Full account, with the controls and the root
+> cause, in `pheromone-trail-direction-2026-09-16.md` **§7.19**.
+>
+> **What survives untouched**, because none of it is a polarity measurement: §3.2
+> (a laid trail is decisive, the colony cannot build one, `self ≡ mute`), §3.7
+> (`homeA` clips exploration), §3.8, the `u16` widening, and — stated by §3.7
+> already — **that deliveries, never polarity, is the success criterion**.
+
 ---
 
 ## 1. The one-page answer
@@ -23,7 +42,11 @@ Three facts, each measured independently, that between them say why:
    92% / 3%, 4 of 6 — a different measurement, not a rounding of this one.)*
 2. **The colony cannot lay one itself.** The `self` arm is indistinguishable from
    the `mute` arm (channel B zeroed): ~3.4 route cells of 90, in 2 of 12 seeds.
-3. **The homing ramp inverts in a foraging colony.** Channel A — the homing plane — is laid by
+3. ~~**The homing ramp inverts in a foraging colony.**~~ **RETRACTED 2026-09-17
+   — this was the instrument; see the banner above and §7.19.** What is true is
+   the weaker and already-known statement that a foraging colony's channel-A mass
+   sits nearer the food, which `occupancy/1k` reports directly. The text is kept
+   because §7.18's sweeps were aimed at it. Channel A — the homing plane — is laid by
    every ant on every successful move, so it integrates where ants *are*. In a
    colony that forages hard, that is the food, and the ramp inverts.
    **Do not phrase this as "nothing steers a laden ant home"** — that sentence is
@@ -43,10 +66,12 @@ private home vector, run straight — and use the trail as a *contextual modulat
 **isotropic**: they carry no direction. The engine asks a concentration gradient
 to encode direction, which real trails do not do. See §6.
 
-**So the fix is a direction sense, not a weight.** Two sweeps (the odometer's
-decay, and an emission floor) moved colony survival and trail length — **not
-amplitude, which never left a −2.2%…+10.7% band** — and left the correlation between "where ants spend time" and "which way the ramp
-points" exactly where it was: `r = +0.64 to +0.91` in all nine arms.
+~~**So the fix is a direction sense, not a weight.**~~ **The evidence clause is
+retracted.** The `r = +0.64 to +0.91` "correlation between where ants spend time
+and which way the ramp points" is one quantity measured twice — under a metric
+that passes its controls the same correlation is **−0.010** (§7.19). The two
+sweeps did move colony survival and trail length, and that part stands; what they
+did not do is fail to flip a ramp, because there was no ramp reading to flip.
 
 ---
 
@@ -84,6 +109,11 @@ closes with the site ruling. §Z5 (every homing odometer dead, charge below
 ---
 
 ## 3. The current observations, in full
+
+> **§3.3, §3.4 and §3.5 are RETRACTED** — every polarity column in them is the
+> artifact of §7.19. The `alive`, `foraging`, `ate J`, `cov` and `pk` columns in
+> the same tables were not measured by that statistic and stand. §3.1, §3.2, §3.6,
+> §3.7 and §3.8 are unaffected.
 
 **All raw logs are archived in `Reports/data/`** — `homeA-positive-control-
 2026-09-17.log`, `refill-{0,500,1000,2000,4000}.log`, and `sweep-*.log` for the
@@ -331,6 +361,12 @@ standing argument that **deliveries, never polarity, is the success criterion.**
    section that flags a real measurement as missing is the most expensive kind of
    error in this document: it stops a future session using a good number.)*
 5. **The polarity metric's admission gate** at `examples/trailfollow.rs:976`.
+   **SUPERSEDED 2026-09-17 — this item was right that the metric is broken and
+   wrong about why, and acting on the stated cause would have fixed nothing.**
+   Tightening the gate to `&&` moves a ramp-free blob only from ±0.195 to ±0.181,
+   7%. The defect is not edge cells admitted by `||`; it is that the scan window
+   is fixed to the route while the trail diffuses past its ends, so only one of a
+   blob's two shoulders is ever counted. §7.19.
    **(Corrected 2026-09-17: an earlier version of this item claimed a *second*
    gate at `:1121`. That line reads `Channel::B` and feeds `natural_along`, the
    food trail's own column — same predicate, different channel, different
@@ -430,7 +466,16 @@ polarity** (§3.7). Today both are ~0 at gap 90.
 **Do:** the standing run, all five arms, 12 seeds. Archive the log.
 **Accept:** nothing — this is the baseline everything else is diffed against.
 
-### Step 1 — readouts only, no engine change
+### Step 1 — readouts only, no engine change — **DONE 2026-09-17, and it fired**
+
+> Built, and the answer was the stop condition: see §7.19. The `&&` figure this
+> step proposed as the decider **would not have fired** — it still reads −0.075
+> on foraging colonies. What decided it was a pair of *negative* controls this
+> step did not think to ask for. The metric is now `SPAN`, validated against a
+> ramp-free field (exactly 0.000) and a real ramp (+0.026). **Do not re-run this
+> step; read §7.19 and re-plan anything downstream of polarity.**
+
+### Step 1 (as originally written, kept for the record)
 
 **Why:** it fixes the meter everything else is judged on. Running a mechanism
 before fixing the instrument is the §8 failure that cost a day.
