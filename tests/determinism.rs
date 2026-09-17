@@ -373,3 +373,32 @@ fn the_lab_bed_is_deterministic_across_identical_runs() {
          generation 1 arrives at frame 1,800 on this bed)"
     );
 }
+
+/// **Stacking is inert at the shipped cap, over a real run.**
+///
+/// The in-lib tests assert `can_stack_into` refuses at cap 1; this is the
+/// other half, and it is the half that would catch a leak the predicate
+/// cannot see -- a rider registered from somewhere other than the predicate,
+/// or a `from` loop standing an animal down when nothing was stacked.
+///
+/// **This bed found two such leaks** when it was first run by hand against a
+/// captured baseline (`3be5293a`), both invisible to the whole unit suite and
+/// to clippy: arrival treated a **parted plant cell** as an occupied one, so
+/// every ant entering foliage registered as a rider of a tree; and the `from`
+/// loop keyed on ownership, which is also true of a head lost since the last
+/// tick. The hashes are not pinned here -- they move with any legitimate
+/// creature change and a pinned value would be re-blessed rather than read --
+/// but the index is a property that must hold for ever at cap 1.
+#[test]
+fn the_stack_index_stays_empty_at_the_shipped_cap() {
+    let (_, world, _) = run_lab_bed();
+    assert_eq!(world.stack_cap(), 1, "the bed is running an armed cap, so this proves nothing");
+    assert_eq!(
+        world.stacked_cell_count(),
+        0,
+        "something registered a rider on a world that cannot stack -- stacking is reachable from a path \
+         `can_stack_into` does not gate"
+    );
+    // Vacuity: a bed with no animals would satisfy the above trivially.
+    assert!(world.live_creature_count() > 0, "no animals in the bed, so the index was never going to fill");
+}

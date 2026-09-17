@@ -93,6 +93,26 @@ fn decode_organism_id(organism_id: OrganismId) -> (OrganismId, u16) {
     (slot_index, generation)
 }
 
+/// **One creature standing in a cell it does not own** — an entry in
+/// [`World::stacked`] (`Reports/creature-stacking-design-2026-09-17.md` §5).
+///
+/// **The `Cell` is why this is a struct rather than a bare id.** A rider owns
+/// no grid cell, so nothing anywhere holds the value it *would* have
+/// written — and the moment it is promoted to owner, something has to go
+/// into the grid. Storing the cell at registration is the only point at
+/// which the rider still knows what it looks like.
+///
+/// `organism::Parted` has exactly this shape (`{x, y, cell, scalars}`) for
+/// exactly this reason: it is what lets a displaced plant cell be put back.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Rider {
+    /// Who is standing here.
+    pub organism: OrganismId,
+    /// What to write into the grid if this rider is promoted to owner —
+    /// the cell it would have laid down had it arrived first.
+    pub cell: Cell,
+}
+
 #[derive(Clone)]
 struct OrganismSlot {
     /// `u16` because the generation is 12 bits since the `Cell` widening —
@@ -3140,7 +3160,7 @@ pub struct World {
     /// **Empty whenever `creature::max_stack_depth()` is 1**, which is the
     /// default and is today's behaviour exactly. Guarded by
     /// `the_stack_index_is_empty_at_the_default_cap`.
-    stacked: crate::sim::fxhash::PosMap<Vec<OrganismId>>,
+    stacked: crate::sim::fxhash::PosMap<Vec<Rider>>,
     /// **How many creatures of one colony may stand in one cell** —
     /// `PIXEL_PHYSICS_STACK_DEPTH`, default **1**, which is this engine's
     /// behaviour before stacking existed
@@ -8732,7 +8752,7 @@ impl World {
     ///
     /// Returns a slice rather than the `Vec` so no caller can reorder the
     /// thing whose order is the guarantee.
-    pub fn riders_at(&self, x: i32, y: i32) -> &[OrganismId] {
+    pub fn riders_at(&self, x: i32, y: i32) -> &[Rider] {
         self.stacked.get(&(x, y)).map_or(&[][..], |v| &v[..])
     }
 
@@ -8780,11 +8800,17 @@ impl World {
     /// Idempotent: a body that re-enters a cell it already rides does not
     /// get counted twice, which matters because a chain's landing shares
     /// most of its cells with where it already stands.
-    pub fn add_rider(&mut self, x: i32, y: i32, id: OrganismId) {
+    pub fn add_rider(&mut self, x: i32, y: i32, id: OrganismId, cell: Cell) {
         let slot = self.stacked.entry((x, y)).or_default();
-        if !slot.contains(&id) {
-            slot.push(id);
+        if let Some(existing) = slot.iter_mut().find(|r| r.organism == id) {
+            // Re-entering a cell it already rides refreshes what the rider
+            // would leave behind without disturbing the order promotion
+            // reads. A chain's landing shares most of its cells with where
+            // it already stands, so this is the common path, not an edge.
+            existing.cell = cell;
+            return;
         }
+        slot.push(Rider { organism: id, cell });
     }
 
     /// Drop `id` from `(x, y)`'s riders, and drop the cell's entry entirely
@@ -8795,7 +8821,7 @@ impl World {
         let Some(slot) = self.stacked.get_mut(&(x, y)) else {
             return;
         };
-        slot.retain(|&r| r != id);
+        slot.retain(|r| r.organism != id);
         if slot.is_empty() {
             self.stacked.remove(&(x, y));
         }
@@ -8810,7 +8836,7 @@ impl World {
     /// nothing at all.
     pub(crate) fn remove_rider_everywhere(&mut self, id: OrganismId) {
         self.stacked.retain(|_, v| {
-            v.retain(|&r| r != id);
+            v.retain(|r| r.organism != id);
             !v.is_empty()
         });
     }
@@ -10767,20 +10793,21 @@ mod tests {
         assert_eq!(w.stacked_cell_count(), 0, "a fresh world rides nothing");
 
         for id in [7, 9, 4] {
-            w.add_rider(10, 10, id);
+            w.add_rider(10, 10, id, Cell::EMPTY);
         }
-        assert_eq!(w.riders_at(10, 10), &[7, 9, 4], "insertion order, not sorted and not reversed");
+        let ids = |w: &World, x, y| w.riders_at(x, y).iter().map(|r| r.organism).collect::<Vec<_>>();
+        assert_eq!(ids(&w, 10, 10), vec![7, 9, 4], "insertion order, not sorted and not reversed");
         assert_eq!(w.stacked_cell_count(), 1);
         assert_eq!(w.deepest_stack(), 3);
 
         // Idempotent: a chain's landing shares most of its cells with where
         // it already stands, so a body re-entering a cell it already rides
         // must not be counted twice.
-        w.add_rider(10, 10, 9);
-        assert_eq!(w.riders_at(10, 10), &[7, 9, 4], "re-adding an existing rider changed the roster");
+        w.add_rider(10, 10, 9, Cell::EMPTY);
+        assert_eq!(ids(&w, 10, 10), vec![7, 9, 4], "re-adding an existing rider changed the roster");
 
         w.remove_rider(10, 10, 9);
-        assert_eq!(w.riders_at(10, 10), &[7, 4], "removing the middle rider must not disturb the others");
+        assert_eq!(ids(&w, 10, 10), vec![7, 4], "removing the middle rider must not disturb the others");
 
         w.remove_rider(10, 10, 7);
         w.remove_rider(10, 10, 4);
@@ -10796,14 +10823,14 @@ mod tests {
     #[test]
     fn remove_rider_everywhere_clears_every_cell_and_leaves_the_others_intact() {
         let mut w = World::new(Rect::new(0, 0, 63, 63));
-        w.add_rider(1, 1, 5);
-        w.add_rider(2, 2, 5);
-        w.add_rider(2, 2, 6);
+        w.add_rider(1, 1, 5, Cell::EMPTY);
+        w.add_rider(2, 2, 5, Cell::EMPTY);
+        w.add_rider(2, 2, 6, Cell::EMPTY);
         assert_eq!(w.stacked_cell_count(), 2);
 
         w.remove_rider_everywhere(5);
         assert!(w.riders_at(1, 1).is_empty(), "the cell 5 rode alone is gone");
-        assert_eq!(w.riders_at(2, 2), &[6], "6 still rides the cell it shared with 5");
+        assert_eq!(w.riders_at(2, 2).iter().map(|r| r.organism).collect::<Vec<_>>(), vec![6], "6 still rides the cell it shared with 5");
         assert_eq!(w.stacked_cell_count(), 1, "only the emptied cell was forgotten");
     }
 

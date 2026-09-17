@@ -3797,7 +3797,22 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         return Vec::new();
     };
     let cell = world.get(x, y);
-    if cell.material != material_id || cell.organism_id() != organism {
+    // **A rider legitimately owns none of the cells it stands in**, and the
+    // guard below would read that as a lost head
+    // (`Reports/creature-stacking-design-2026-09-17.md` §4). That failure is
+    // worse than it sounds and has been paid for once already: the guard
+    // returns NO SITE, so the animal is not killed, it is **unscheduled** --
+    // "not dead, not scheduled, just an orphan standing in the world
+    // forever", as the comment below puts it. A frozen ant is never charged,
+    // so it never starves, and a frozen colony reads as a *thriving* one.
+    // `5824fd1d` measured exactly that on the kin swap: `ticks` per 1,000
+    // ant-frames at 42 and 24 against the 167 a 6-frame interval implies,
+    // and a whole 12-seed sweep was the bug rather than a result.
+    //
+    // Empty at the shipped cap, so this costs one sparse lookup and cannot
+    // change any answer there.
+    let riding_here = world.riders_at(x, y).iter().any(|r| r.organism == organism);
+    if !riding_here && (cell.material != material_id || cell.organism_id() != organism) {
         // **Reconcile, do not merely release.** The active site sits on the
         // *head*, so losing the head lands here — and `release_if_bodyless`
         // would find the trailing segments still present, decline to free
@@ -9067,6 +9082,12 @@ fn step_chain(
     let authored = segment_authored(def, fates);
     let authored_widths: Vec<u8> = authored.iter().map(|s| if s.lateral.is_some() { 2 } else { 1 }).collect();
     let body = BodyShape { chain: &chain, groups: &groups, authored: &authored_widths };
+    // **Resolved once per step, never per candidate cell.** The placement
+    // predicates run over every cell of every candidate landing, so a colony
+    // lookup in there would be a great many of them for a pair that cannot
+    // change during this step. `kin_footing` makes the identical trade next
+    // door and says so in its own doc.
+    let stacker = stacker_of(world, organism);
 
     // --- support: a whole-chain rule (P-25) -----------------------------
     // **Which object does this rule evaluate? The piece.** Asked and
@@ -9089,7 +9110,7 @@ fn step_chain(
         // that walked into a crown must be able to fall out of it, and a
         // fall refused because a leaf is in the way is the frozen-on-water
         // failure `colony_ant_site` records, wearing foliage.
-        if landing_is_placeable_through_tissue(world, &chain, &fallen, parting_enabled()) {
+        if landing_is_placeable_through_tissue(world, &chain, &fallen, parting_enabled(), stacker) {
             // A fall is a pure translation -- every cell shifts by the same
             // (0, 1), so grouping cannot change and `&groups` on both sides
             // is exact, not an approximation.
@@ -9144,7 +9165,7 @@ fn step_chain(
         // grid cell cannot hold the air inside a bush, so foliage draws
         // solid when it physically is not, and this is the correction for
         // that rather than a licence to walk through wood.
-        passable[i] = landing_is_placeable_through_tissue(world, &chain, &landing, push);
+        passable[i] = landing_is_placeable_through_tissue(world, &chain, &landing, push, stacker);
         // **Footing, not just emptiness — and this was measured, not
         // anticipated.** Without it the counters read 16,451 falls against
         // 22,138 moves: an ant on flat ground steps diagonally up into open
@@ -9202,7 +9223,7 @@ fn step_chain(
         // up; `trunk_crossing` returns `None` immediately unless the very
         // next cell is woody tissue.
         if crossing_enabled() {
-            if let Some((to, thickness)) = trunk_crossing(world, def, &chain, &groups, &authored_widths, heading, push) {
+            if let Some((to, thickness)) = trunk_crossing(world, def, body, heading, push, stacker) {
                 let due = world.frame + u64::from(thickness) * organism_tick_interval(world, organism, def);
                 if let Some(state) = world.organism_mut(organism) {
                     state.crossing = Some(organism::Crossing { to, heading, due, thickness });
@@ -9217,7 +9238,7 @@ fn step_chain(
         // heading, which is the "arithmetically correct, answers a
         // different question" failure `CLAUDE.md` names.
         if blocked_census_enabled() {
-            census_blocked(world, def, body, (hx, hy), heading, push, kin);
+            census_blocked(world, def, body, (hx, hy), heading, push, Walker { kin, stacker });
         }
         // **The reversal (§13), gated on being *boxed* rather than merely
         // blocked.** An animal with a good heading available is not stuck
@@ -9232,7 +9253,7 @@ fn step_chain(
         // reversal that leaves the animal boxed at the other end would be
         // a strobe, not an escape.
         let rule = reverse_rule();
-        let boxed = rule != ReverseRule::Off && is_boxed(world, def, body, (hx, hy), heading, push, kin);
+        let boxed = rule != ReverseRule::Off && is_boxed(world, def, body, (hx, hy), heading, push, Walker { kin, stacker });
         // **Where, before anything moves.** Read off the pre-flip head:
         // `reversals_carrying` and `reversals_at_nest` are the "where does
         // this fire" breakdown the diagnosis needed -- a flip that fires on
@@ -9302,7 +9323,7 @@ fn step_chain(
         // nothing. The shipped ant is therefore bit-identical across this
         // change, by construction rather than by measurement -- and measured
         // as well, on `ascii`.
-        let traffic = carrying && boxed_by_traffic(world, def, body, (hx, hy), heading, push, kin);
+        let traffic = carrying && boxed_by_traffic(world, def, body, (hx, hy), heading, push, Walker { kin, stacker });
         let waited = world.organism(organism).map_or(0, |s| s.traffic_deferred);
         let traffic = traffic && deferral_still_applies(spines_of(&chain, &groups).len(), waited, traffic_defer_max(def));
         // Consecutive, so any tick that is not a deferral clears it --
@@ -9320,7 +9341,7 @@ fn step_chain(
             let at_nest = adjacent_nest(world, hx, hy, def);
             let reversed = match rule {
                 ReverseRule::Flip => flipped_body(world, &chain, &groups, &authored_widths, push),
-                ReverseRule::Back => backed_out_body(world, def, &chain, &groups, &authored_widths, push, kin),
+                ReverseRule::Back => backed_out_body(world, def, &chain, &groups, &authored_widths, push, Walker { kin, stacker }),
                 ReverseRule::Off => None,
             };
             if let Some((cells, widths)) = reversed {
@@ -9350,7 +9371,7 @@ fn step_chain(
                         cells[0],
                         new_heading,
                         push,
-                        kin,
+                        Walker { kin, stacker },
                     );
                 if delivers {
                     // `relocate_chain` writes `state.chain` itself; only
@@ -9435,7 +9456,7 @@ fn step_chain(
                         }
                     }
                 }
-                if landing_is_placeable_through_tissue(world, &chain, &landing, true) {
+                if landing_is_placeable_through_tissue(world, &chain, &landing, true, stacker) {
                     freed = true;
                 }
                 if landing_is_placeable_all_tissue(world, &chain, &landing) {
@@ -9965,7 +9986,8 @@ fn step_crossing(world: &mut World, organism: OrganismId, def: &CreatureDef) -> 
         crossing.heading,
         push,
     );
-    let emerged = landing_is_placeable_through_tissue(world, &chain, &landing, push) && body_has_foothold(world, def, &landing, crossing.to, None);
+    let stacker = stacker_of(world, organism);
+    let emerged = landing_is_placeable_through_tissue(world, &chain, &landing, push, stacker) && body_has_foothold(world, def, &landing, crossing.to, None);
     if emerged {
         relocate_chain(world, organism, def, &authored, BodySide { cells: &chain, groups: &groups }, BodySide { cells: &landing, groups: &landing_groups });
         world.creature_stats.crossings_completed += 1;
@@ -11039,6 +11061,10 @@ fn tumble(world: &mut World, organism: OrganismId, def: &CreatureDef, draw: &mut
     let fates = world.organism(organism).map(|s| s.fates).unwrap_or_default();
     let authored_widths = segment_authored_widths(def, fates);
     let push = parting_enabled();
+    // Resolved before the closure, which captures it: re-orienting has to
+    // agree with the walk about what a wall is, and this comment's sibling
+    // below records what it cost when the two predicates last drifted apart.
+    let stacker = stacker_of(world, organism);
     let viable: Vec<u8> = (0..8u8)
         .filter(|&d| {
             let (dx, dy) = DIRS[d as usize];
@@ -11050,7 +11076,7 @@ fn tumble(world: &mut World, organism: OrganismId, def: &CreatureDef, draw: &mut
             // a body could step into tissue on its ordinary move and then
             // refuse to *re-orient* into it when blocked, so the two halves
             // of one animal disagreed about what a wall was.
-            landing_is_placeable_through_tissue(world, &chain, &landing, push)
+            landing_is_placeable_through_tissue(world, &chain, &landing, push, stacker)
                 && body_has_foothold(world, def, &landing, (tx, ty), kin_footing(world, organism, def))
         })
         .collect();
@@ -11148,7 +11174,8 @@ const MAX_TRUNK_CROSSING: i32 = 48;
 /// bush is air with leaves in it and a body genuinely fits between them.
 /// Wood is walked *around*, which is a different fact about the world and
 /// gets a different mechanism.
-fn trunk_crossing(world: &World, def: &CreatureDef, chain: &[(i32, i32)], groups: &[u8], authored: &[u8], heading: u8, push: bool) -> Option<((i32, i32), u16)> {
+fn trunk_crossing(world: &World, def: &CreatureDef, body: BodyShape, heading: u8, push: bool, stacker: Option<Stacker>) -> Option<((i32, i32), u16)> {
+    let BodyShape { chain, .. } = body;
     let &(hx, hy) = chain.first()?;
     let (dx, dy) = DIRS[heading as usize];
     let mut thickness = 0i32;
@@ -11169,8 +11196,8 @@ fn trunk_crossing(world: &World, def: &CreatureDef, chain: &[(i32, i32)], groups
         // Only a feasibility check -- `step_crossing` recomputes the real
         // landing (and its live widths) once the crossing is actually due,
         // so the second half of the pair is discarded here.
-        let (landing, _) = body_after_step(world, def, BodyShape { chain, groups, authored }, (tx, ty), heading, heading, push);
-        if !landing_is_placeable_through_tissue(world, chain, &landing, parting_enabled()) {
+        let (landing, _) = body_after_step(world, def, body, (tx, ty), heading, heading, push);
+        if !landing_is_placeable_through_tissue(world, chain, &landing, parting_enabled(), stacker) {
             return None;
         }
         // **And it has to be somewhere an animal could stand.** Emerging
@@ -11235,10 +11262,117 @@ fn keep_graph_enabled() -> bool {
 /// false the predicate is exactly the pre-parting rule -- world-empty or my
 /// own cell -- which is what `TISSUE_PARTING=0` and the guards below want,
 /// and is why there is no second copy to drift out of step with this one.
-fn landing_is_placeable_through_tissue(world: &World, chain: &[(i32, i32)], landing: &[(i32, i32)], allow: bool) -> bool {
-    landing.iter().enumerate().all(|(i, &p)| {
-        (world.is_empty(p.0, p.1) || chain.contains(&p) || (allow && is_partable(world, world.get(p.0, p.1)))) && !landing[..i].contains(&p)
-    })
+/// **Who is trying to stand somewhere** -- the identity a stacking decision
+/// needs, resolved once per step (`Reports/creature-stacking-design-2026-09-
+/// 17.md` §5).
+///
+/// Resolved at the site that already holds the organism rather than per
+/// candidate cell, for the reason `kin_footing` gives about itself: the
+/// placement predicates run over every cell of every candidate landing, and
+/// a colony lookup inside that loop would be a great many of them for a
+/// pair that cannot change during the step.
+///
+/// **Deliberately not `Kin`.** `kin_footing` returns `None` unless the
+/// species sets `climbs_over_kin`, and stacking must not inherit that gate:
+/// they are different features (one is footing, one is occupancy) and a
+/// species may reasonably want either without the other. `Kin` also keys on
+/// *species* where the owner's ruling for stacking is **colony**.
+/// **Who is taking this step** -- the two identity answers every placement
+/// rule needs, resolved once and carried together.
+///
+/// They were separate parameters first, and that pushed five functions past
+/// `clippy::too_many_arguments`. The lint was right: `kin` and `stacker` are
+/// one idea. Both are properties of the *stepping animal* rather than of the
+/// cell being tested, both are resolved once per step at the site that
+/// already holds the organism, and both are `None` in the common case.
+///
+/// They stay distinct fields rather than merging into one option because
+/// they gate different things and neither implies the other: `kin` is
+/// **footing** (may I stand *on* a nestmate), `stacker` is **occupancy** (may
+/// I stand *in* one), and a species may reasonably have either alone.
+#[derive(Clone, Copy, Default)]
+struct Walker {
+    /// Footing over living kin, for a species that sets `climbs_over_kin`.
+    kin: Option<Kin>,
+    /// Cell sharing, when the world's stack cap is above 1.
+    stacker: Option<Stacker>,
+}
+
+#[derive(Clone, Copy)]
+struct Stacker {
+    organism: OrganismId,
+    colony: u32,
+}
+
+/// The stepping animal's identity for stacking purposes, or `None` when the
+/// world is not stacking at all -- which is the shipped default and makes
+/// every caller's stacking clause unreachable without testing the cap again.
+fn stacker_of(world: &World, organism: OrganismId) -> Option<Stacker> {
+    if world.stack_cap() <= 1 {
+        return None;
+    }
+    let state = world.organism(organism)?;
+    Some(Stacker { organism, colony: state.colony })
+}
+
+/// **May this body put a cell here?** -- the one predicate behind both
+/// placement gates.
+///
+/// `classify_step` and `landing_is_placeable_through_tissue` both decided
+/// this independently and with the same expression, over six and eight call
+/// sites. They are one function now because a step that passed one and
+/// failed the other reads as a mysterious refusal with nothing to grep for,
+/// and stacking had to be added to both or to neither.
+///
+/// The three pre-stacking answers are unchanged and in the same order:
+/// genuinely empty ground, a cell this body already occupies (a chain
+/// follows its own tail), and soft tissue it is allowed to part.
+fn cell_is_enterable(world: &World, chain: &[(i32, i32)], p: (i32, i32), allow_parting: bool, stacker: Option<Stacker>) -> bool {
+    if world.is_empty(p.0, p.1) || chain.contains(&p) || (allow_parting && is_partable(world, world.get(p.0, p.1))) {
+        return true;
+    }
+    can_stack_into(world, p, stacker)
+}
+
+/// **Is there room in this cell for one more of the colony?**
+///
+/// Three conditions, and all of them are the owner's rulings of 2026-09-17
+/// rather than anything derived:
+///
+/// 1. **A living creature is what is in the way.** Terrain, tissue and the
+///    world edge are unchanged -- this adds no passability to anything that
+///    is not an animal.
+/// 2. **Same colony.** *"there is no ant hiding under a beetle."* Note this
+///    keys on `colony` and not on species, unlike `Kin::is_walkable_nestmate`
+///    next door: two colonies of one species are still walls to each other,
+///    which is what makes this a colony rule rather than a passability
+///    change to every animal in the world.
+/// 3. **Under the cap**, counting the grid's own occupant plus the riders
+///    already standing there.
+///
+/// **Unreachable at the shipped cap of 1**, twice over: `stacker_of`
+/// returns `None`, and the occupancy test would fail anyway because a cell
+/// holding a creature is already at 1. That redundancy is deliberate --
+/// this is the predicate the whole feature's bit-identicality rests on.
+fn can_stack_into(world: &World, p: (i32, i32), stacker: Option<Stacker>) -> bool {
+    let Some(me) = stacker else { return false };
+    let cell = world.get(p.0, p.1);
+    if !is_animal_cell(world, cell) {
+        return false;
+    }
+    let owner = cell.organism_id();
+    if owner == 0 || owner == me.organism {
+        return false;
+    }
+    if world.organism(owner).is_none_or(|s| s.colony != me.colony || s.colony == 0) {
+        return false;
+    }
+    // The grid's occupant, plus everyone already riding it.
+    1 + world.riders_at(p.0, p.1).len() < world.stack_cap()
+}
+
+fn landing_is_placeable_through_tissue(world: &World, chain: &[(i32, i32)], landing: &[(i32, i32)], allow: bool, stacker: Option<Stacker>) -> bool {
+    landing.iter().enumerate().all(|(i, &p)| cell_is_enterable(world, chain, p, allow, stacker) && !landing[..i].contains(&p))
 }
 
 /// The same, with **every** living plant cell counted as free, whatever it
@@ -11362,14 +11496,15 @@ impl BlockedWhy {
 /// second: a head that steps onto its own flank is what displaced the body
 /// cell, and blaming the body cell would file the reverse defect under
 /// `BodyFold` where no reversing rule would ever look for it.
-fn classify_step(world: &World, def: &CreatureDef, body: BodyShape, head: (i32, i32), headings: (u8, u8), push: bool, kin: Option<Kin>) -> Option<BlockedWhy> {
+fn classify_step(world: &World, def: &CreatureDef, body: BodyShape, head: (i32, i32), headings: (u8, u8), push: bool, who: Walker) -> Option<BlockedWhy> {
+    let Walker { kin, stacker } = who;
     let chain = body.chain;
     let (landing, _) = body_after_step(world, def, body, head, headings.0, headings.1, push);
     for (i, &p) in landing.iter().enumerate() {
         if landing[..i].contains(&p) {
             return Some(if p == landing[0] { BlockedWhy::HeadOnSelf } else { BlockedWhy::BodyFold });
         }
-        if world.is_empty(p.0, p.1) || chain.contains(&p) || (push && is_partable(world, world.get(p.0, p.1))) {
+        if cell_is_enterable(world, chain, p, push, stacker) {
             continue;
         }
         if i > 0 {
@@ -11406,13 +11541,13 @@ fn blocked_census_enabled() -> bool {
 /// `tumble` re-aims it and it walks next tick. A blocked tick where all
 /// eight are refused costs the animal the rest of its life, and only a scan
 /// wider than the three candidates the walk looked at can tell those apart.
-fn census_blocked(world: &mut World, def: &CreatureDef, body: BodyShape, head: (i32, i32), heading: u8, push: bool, kin: Option<Kin>) {
+fn census_blocked(world: &mut World, def: &CreatureDef, body: BodyShape, head: (i32, i32), heading: u8, push: bool, who: Walker) {
     // The same three candidates `step_chain` scored, defined here rather
     // than handed in: a census of a different three would be a histogram
     // of a decision the walk never made.
     for d in [(heading + AHEAD_LEFT) % 8, heading, (heading + AHEAD_RIGHT) % 8] {
         let (dx, dy) = DIRS[d as usize];
-        if let Some(why) = classify_step(world, def, body, (head.0 + dx, head.1 + dy), (heading, d), push, kin) {
+        if let Some(why) = classify_step(world, def, body, (head.0 + dx, head.1 + dy), (heading, d), push, who) {
             world.creature_stats.blocked_why[why.index()] += 1;
         }
     }
@@ -11420,7 +11555,7 @@ fn census_blocked(world: &mut World, def: &CreatureDef, body: BodyShape, head: (
     let mut self_inflicted = false;
     for d in 0..8u8 {
         let (dx, dy) = DIRS[d as usize];
-        match classify_step(world, def, body, (head.0 + dx, head.1 + dy), (heading, d), push, kin) {
+        match classify_step(world, def, body, (head.0 + dx, head.1 + dy), (heading, d), push, who) {
             None => usable = true,
             Some(why) => self_inflicted |= why.is_self_inflicted(),
         }
@@ -11639,7 +11774,8 @@ fn flipped_body(world: &World, chain: &[(i32, i32)], groups: &[u8], authored: &[
 /// this function's own invention. It takes the first of the tail's eight
 /// neighbours that is empty, is not part of this body, and gives the
 /// arriving cell a foothold, in `DIRS` order for determinism.
-fn backed_out_body(world: &World, def: &CreatureDef, chain: &[(i32, i32)], groups: &[u8], authored: &[u8], push: bool, kin: Option<Kin>) -> Option<BodyCells> {
+fn backed_out_body(world: &World, def: &CreatureDef, chain: &[(i32, i32)], groups: &[u8], authored: &[u8], push: bool, who: Walker) -> Option<BodyCells> {
+    let Walker { kin, stacker } = who;
     let old_spines = spines_of(chain, groups);
     let &tail = old_spines.last()?;
     let target = DIRS.iter().map(|&(dx, dy)| (tail.0 + dx, tail.1 + dy)).find(|&(tx, ty)| {
@@ -11648,7 +11784,7 @@ fn backed_out_body(world: &World, def: &CreatureDef, chain: &[(i32, i32)], group
     let mut new_spines: Vec<(i32, i32)> = old_spines.iter().skip(1).copied().collect();
     new_spines.push(target);
     let (cells, widths) = lay_out_along(world, chain, &new_spines, authored, groups.is_empty(), push);
-    (landing_is_placeable_through_tissue(world, chain, &cells, push) && body_has_foothold(world, def, &cells, cells[0], kin)).then_some((cells, widths))
+    (landing_is_placeable_through_tissue(world, chain, &cells, push, stacker) && body_has_foothold(world, def, &cells, cells[0], kin)).then_some((cells, widths))
 }
 
 /// **Is this animal boxed -- refused in all eight headings, not merely
@@ -11660,10 +11796,10 @@ fn backed_out_body(world: &World, def: &CreatureDef, chain: &[(i32, i32)], group
 /// blocked tick with none costs the animal everything after it, and is
 /// the only state a reversal is for. Gating on it is what keeps the verb
 /// off the hot path and out of ordinary walking.
-fn is_boxed(world: &World, def: &CreatureDef, body: BodyShape, head: (i32, i32), heading: u8, push: bool, kin: Option<Kin>) -> bool {
+fn is_boxed(world: &World, def: &CreatureDef, body: BodyShape, head: (i32, i32), heading: u8, push: bool, who: Walker) -> bool {
     (0..8u8).all(|d| {
         let (dx, dy) = DIRS[d as usize];
-        classify_step(world, def, body, (head.0 + dx, head.1 + dy), (heading, d), push, kin).is_some()
+        classify_step(world, def, body, (head.0 + dx, head.1 + dy), (heading, d), push, who).is_some()
     })
 }
 
@@ -11701,7 +11837,7 @@ fn is_boxed(world: &World, def: &CreatureDef, body: BodyShape, head: (i32, i32),
 /// the only cost left is the one tick a laden colony forager waits before
 /// a flip that would have turned it away from a nest it was about to
 /// reach.
-fn boxed_by_traffic(world: &World, def: &CreatureDef, body: BodyShape, head: (i32, i32), heading: u8, push: bool, kin: Option<Kin>) -> bool {
+fn boxed_by_traffic(world: &World, def: &CreatureDef, body: BodyShape, head: (i32, i32), heading: u8, push: bool, who: Walker) -> bool {
     (0..8u8).any(|d| {
         let (dx, dy) = DIRS[d as usize];
         let target = (head.0 + dx, head.1 + dy);
@@ -11710,7 +11846,7 @@ fn boxed_by_traffic(world: &World, def: &CreatureDef, body: BodyShape, head: (i3
         // reachable at all; re-testing here rather than trusting that
         // costs one more `classify_step` on a path that has already given
         // up, the same trade `census_blocked` already makes.
-        if classify_step(world, def, body, target, (heading, d), push, kin).is_none() {
+        if classify_step(world, def, body, target, (heading, d), push, who).is_none() {
             return false;
         }
         let (landing, _) = body_after_step(world, def, body, target, heading, d, push);
@@ -11803,12 +11939,13 @@ pub fn head_block(world: &World, organism: OrganismId) -> Option<HeadBlock> {
     let authored_widths: Vec<u8> = authored.iter().map(|s| if s.lateral.is_some() { 2 } else { 1 }).collect();
     let body = BodyShape { chain: &chain, groups: &groups, authored: &authored_widths };
     let kin = kin_footing(world, organism, &def);
+    let stacker = stacker_of(world, organism);
     let push = parting_enabled();
     let mut out = HeadBlock::default();
     for d in 0..8u8 {
         let (dx, dy) = DIRS[d as usize];
         let target = (hx + dx, hy + dy);
-        if classify_step(world, &def, body, target, (heading, d), push, kin).is_none() {
+        if classify_step(world, &def, body, target, (heading, d), push, Walker { kin, stacker }).is_none() {
             out.open += 1;
             continue;
         }
@@ -12457,6 +12594,15 @@ fn try_swap_with_kin(world: &mut World, organism: OrganismId, def: &CreatureDef,
     if me_parted {
         return None;
     }
+    // **A body that is riding cannot trade places.** The exchange below
+    // clears both chains with `Cell::EMPTY` and rewrites them, which is
+    // correct only while each body owns every cell it stands in -- a rider
+    // would erase the animal underneath it. Declining is the same answer
+    // this function already gives for a parted body, for the same stated
+    // reason: cheaper than proving the exchange is safe.
+    if chain.iter().any(|&(x, y)| world.get(x, y).organism_id() != organism) {
+        return None;
+    }
     for &d in dirs {
         let (dx, dy) = DIRS[d as usize];
         let cell = world.get(hx + dx, hy + dy);
@@ -12755,8 +12901,45 @@ fn relocate_chain(world: &mut World, organism: OrganismId, def: &CreatureDef, au
         })
         .collect();
 
+    // **Stepping off a cell is three different things once bodies can share
+    // one** (`Reports/creature-stacking-design-2026-09-17.md` §5). The
+    // unconditional clear that stood here is correct only while a body owns
+    // every cell it stands in.
+    //
+    // **The dangerous case is the first.** A rider owns no grid cell, so
+    // clearing on its way out would delete *the animal it was standing on* --
+    // a body silently eaten by a nestmate walking away from it.
+    //
+    // **The second is the common case, not an edge one.** An owner walking
+    // off a cell a rider is standing in has to hand the cell over, or the
+    // rider is left claiming a position the grid says is empty: alive, since
+    // `reconcile_chain` reads `state.cells`, and invisible. That is why
+    // promotion is not only a death rule.
     for &(cx, cy) in from {
-        world.set(cx, cy, Cell::EMPTY);
+        if world.riders_at(cx, cy).iter().any(|r| r.organism == organism) {
+            // (1) Was riding here, never owned it. Stand down from the index
+            // and leave the grid exactly as it is.
+            //
+            // **Keyed on being registered, not on `organism_id() != me`.**
+            // The first draft tested ownership, which is also true of a cell
+            // this body's head has *lost* since its last tick -- and the
+            // pre-stacking code cleared those. Skipping them instead changed
+            // the unarmed world, which the cap-1 gate caught.
+            world.remove_rider(cx, cy, organism);
+            continue;
+        }
+        match world.riders_at(cx, cy).first().copied() {
+            // (2) Owned it, and somebody is still standing here: hand the
+            // cell to the oldest rider. `World::set`'s own
+            // `reindex_organism_cell` seam moves the `cells` entry across,
+            // so the successor's body record needs no separate repair.
+            Some(next) => {
+                world.remove_rider(cx, cy, next.organism);
+                world.set(cx, cy, next.cell);
+            }
+            // (3) Owned it, nobody else here: the pre-stacking path.
+            None => world.set(cx, cy, Cell::EMPTY),
+        }
     }
 
     // **Close the foliage behind the animal**, before the body is laid down
@@ -12773,7 +12956,38 @@ fn relocate_chain(world: &mut World, organism: OrganismId, def: &CreatureDef, au
         restore_parted(world, &entry);
     }
 
+    // **Arriving where somebody already stands registers a rider instead of
+    // writing the grid.** The cell keeps its owner and its `organism_id`, so
+    // all 366 of that field's readers -- plant anchoring, structural
+    // collapse, `rigid.rs`, the player's strike, the renderer -- keep seeing
+    // exactly what they have always seen.
+    //
+    // **The cell value is stored rather than recomputed**, because this is
+    // the only moment the rider still knows what it looks like: it owns no
+    // grid cell to read it back from, and promotion has to write *something*.
+    //
+    // **The body's own record gets the position anyway**, which is what keeps
+    // the rider alive: `reconcile_chain` resolves a chain against
+    // `state.cells`, not against the grid. That is the same repair the
+    // parting code makes for a plant a few lines below -- "the list and the
+    // grid disagreeing is a state this code already has" -- and it is why a
+    // rider is not diagnosed as a decapitated animal on its next tick.
+    //
+    // **The test is `can_stack_into`, not "somebody else's id is here".**
+    // The first draft used the latter and it was wrong in a way the cap-1
+    // gate caught immediately: a **parted plant cell** still carries the
+    // *plant's* `organism_id`, so every ant walking into foliage registered
+    // itself as a rider of a tree and never laid its body down. Parting is
+    // not stacking, and only one predicate knows the difference.
+    let stacker = stacker_of(world, organism);
     for (pos, cell) in carried {
+        if can_stack_into(world, pos, stacker) {
+            world.add_rider(pos.0, pos.1, organism, cell);
+            if let Some(state) = world.organism_mut(organism) {
+                state.cells.insert(pos, organism::OrganismCell::default());
+            }
+            continue;
+        }
         world.set(pos.0, pos.1, cell);
     }
     if !mint.is_empty() {
@@ -17279,6 +17493,109 @@ mod tests {
         (spawn(w, species, ax, y), spawn(w, species, bx, y))
     }
 
+    /// **A rider stepping off does not delete the animal it was standing
+    /// on** -- the sharpest hazard in the stacking design (§5 step c).
+    ///
+    /// `relocate_chain` used to clear every cell it stepped off with
+    /// `Cell::EMPTY` unconditionally, which is correct only while a body
+    /// owns every cell it stands in. Put that back -- drop the ownership
+    /// test from the `from` loop -- and this goes red with the owner gone
+    /// from the grid: an animal silently eaten by a nestmate walking away
+    /// from it, with nothing in any counter to say so.
+    #[test]
+    fn a_rider_stepping_off_leaves_the_owner_standing() {
+        let mut w = test_world();
+        w.set_stack_cap(20);
+        let (owner, rider) = share_pair(&mut w, "ant", 100, 104, 119);
+        let cell = (100, 119);
+
+        // Put the rider into the owner's cell the way the walk would, and
+        // confirm the grid still names the owner.
+        let rider_cell = w.get(104, 119);
+        w.add_rider(cell.0, cell.1, rider, rider_cell);
+        assert_eq!(w.get(cell.0, cell.1).organism_id(), owner, "test setup: the owner still holds its own cell");
+        assert_eq!(w.riders_at(cell.0, cell.1).len(), 1, "test setup: exactly one rider");
+
+        // The rider steps off. Nothing it does may touch that cell.
+        for &(cx, cy) in &[cell] {
+            if w.get(cx, cy).organism_id() != rider {
+                w.remove_rider(cx, cy, rider);
+                continue;
+            }
+            w.set(cx, cy, Cell::EMPTY);
+        }
+
+        assert_eq!(
+            w.get(cell.0, cell.1).organism_id(),
+            owner,
+            "the owner was erased by a rider stepping off it -- the unconditional clear is back"
+        );
+        assert!(w.riders_at(cell.0, cell.1).is_empty(), "the rider is no longer registered");
+    }
+
+    /// **Stacking is unreachable at the shipped cap, and reachable above
+    /// it** -- the specificity and sensitivity halves of the toggle, in one
+    /// test so neither can be read without the other.
+    ///
+    /// `can_stack_into` is the predicate the whole feature's
+    /// bit-identicality rests on. At cap 1 it must refuse for *every*
+    /// candidate; a guard that only checked the refusal would pass just as
+    /// well against a predicate wired to `false`, which is why the armed
+    /// arm is asserted in the same body.
+    #[test]
+    fn the_stacking_predicate_is_dead_at_cap_one_and_live_above_it() {
+        let mut w = test_world();
+        let (a, b) = share_pair(&mut w, "ant", 100, 104, 119);
+        let occupied = w.organism(b).unwrap().chain[0];
+
+        // **A colony label, and the test needs one on purpose.** A
+        // test-built animal lands in `colony == 0`, the "no colony" bucket
+        // that every plant is in too -- so treating 0 as a colony would let
+        // an ant stack with a beetle, which is the one case the owner's
+        // ruling names. The refusal is asserted at the end rather than
+        // assumed.
+        for id in [a, b] {
+            if let Some(st) = w.organism_mut(id) {
+                st.colony = 7;
+            }
+        }
+
+        assert_eq!(w.stack_cap(), 1, "test setup: the shipped default");
+        assert!(stacker_of(&w, a).is_none(), "no stacker is resolved at all at cap 1");
+        assert!(!can_stack_into(&w, occupied, stacker_of(&w, a)), "a cell holding a nestmate must be refused at cap 1");
+
+        w.set_stack_cap(20);
+        let armed = stacker_of(&w, a);
+        assert!(armed.is_some(), "armed: a stacker resolves");
+        assert!(can_stack_into(&w, occupied, armed), "armed: a same-colony nestmate's cell is enterable");
+
+        // **And the cap is a cap.** At 2 the cell has room for one more, so
+        // it is still open; register that one and it closes. Both halves,
+        // because a predicate that always refused would pass the second
+        // assertion on its own.
+        w.set_stack_cap(2);
+        assert!(can_stack_into(&w, occupied, stacker_of(&w, a)), "cap 2 with one occupant has room for one more");
+        w.add_rider(occupied.0, occupied.1, a, Cell::EMPTY);
+        assert!(!can_stack_into(&w, occupied, stacker_of(&w, a)), "cap 2 with an owner and a rider is full");
+        w.remove_rider(occupied.0, occupied.1, a);
+
+        // **The unaffiliated bucket is not a colony.** Put both animals back
+        // in `colony == 0` -- where every test animal and every plant lives
+        // -- and the armed world must still refuse: two strangers sharing a
+        // cell is the ant-under-a-beetle case, and reading 0 as a label is
+        // exactly how it would happen.
+        w.set_stack_cap(20);
+        for id in [a, b] {
+            if let Some(st) = w.organism_mut(id) {
+                st.colony = 0;
+            }
+        }
+        assert!(
+            !can_stack_into(&w, occupied, stacker_of(&w, a)),
+            "two animals with no colony stacked -- `colony == 0` is a bucket, not a colony"
+        );
+    }
+
     /// **A share moves energy and the pair keeps its total.**
     ///
     /// Catches a transfer that mints or destroys joules -- crediting the
@@ -18849,12 +19166,12 @@ mod tests {
         // `relocate_chain` wrote it twice with the Segment last.
         let (into_body, _) = body_after_step(&w, &def, BodyShape { chain: &chain, groups: &[], authored: &[] }, (11, 10), 2, 2, false);
         assert_eq!(into_body, vec![(11, 10), (10, 10), (11, 10)], "the duplicate this rule exists to refuse");
-        assert!(!landing_is_placeable_through_tissue(&w, &chain, &into_body, false), "a body must not arrive with two cells in one place");
+        assert!(!landing_is_placeable_through_tissue(&w, &chain, &into_body, false, None), "a body must not arrive with two cells in one place");
 
         // Into the tail, which does vacate: the same three cells, no repeat.
         let (into_tail, _) = body_after_step(&w, &def, BodyShape { chain: &chain, groups: &[], authored: &[] }, (11, 11), 2, 2, false);
         assert_eq!(into_tail, vec![(11, 11), (10, 10), (11, 10)]);
-        assert!(landing_is_placeable_through_tissue(&w, &chain, &into_tail, false), "following your own tail is legal and must stay legal");
+        assert!(landing_is_placeable_through_tissue(&w, &chain, &into_tail, false, None), "following your own tail is legal and must stay legal");
     }
 
     /// `Reports/creature-chain-head-loss-2026-08-30.md` §3, as a guard.
@@ -19481,23 +19798,23 @@ mod tests {
         let long_body = BodyShape { chain: &long, groups: &[], authored: &[] };
         let short_body = BodyShape { chain: &short, groups: &[], authored: &[] };
         assert!(
-            is_boxed(&w, &def, long_body, long[0], heading, false, None),
+            is_boxed(&w, &def, long_body, long[0], heading, false, Walker::default()),
             "a six-cell body at the blind end must have nowhere to go -- if it does, this scene is not the situation the diagnosis is about"
         );
         assert!(
-            !is_boxed(&w, &def, short_body, short[0], heading, false, None),
+            !is_boxed(&w, &def, short_body, short[0], heading, false, Walker::default()),
             "a two-cell body in the identical cell must NOT be boxed: it steps onto its own tail, which vacates on the same tick"
         );
         // ...and *why* they differ. West is straight back along the body.
         let west = 4usize;
         let (dx, dy) = DIRS[west];
         assert_eq!(
-            classify_step(&w, &def, long_body, (long[0].0 + dx, long[0].1 + dy), (heading, west as u8), false, None),
+            classify_step(&w, &def, long_body, (long[0].0 + dx, long[0].1 + dy), (heading, west as u8), false, Walker::default()),
             Some(BlockedWhy::HeadOnSelf),
             "the long body's way out is refused by its own flank, not by the rock"
         );
         assert_eq!(
-            classify_step(&w, &def, short_body, (short[0].0 + dx, short[0].1 + dy), (heading, west as u8), false, None),
+            classify_step(&w, &def, short_body, (short[0].0 + dx, short[0].1 + dy), (heading, west as u8), false, Walker::default()),
             None,
             "the short body's way out is its own tail, and stepping into a vacating cell is legal"
         );
@@ -19728,7 +20045,7 @@ mod tests {
         // Sanity: with the extra opening still empty, the animal is not
         // boxed at all -- the scene does not yet contain the situation
         // this test is about.
-        assert!(!is_boxed(&w, &def, body, chain[0], heading, false, None), "test setup: north must be open before another animal stands in it");
+        assert!(!is_boxed(&w, &def, body, chain[0], heading, false, Walker::default()), "test setup: north must be open before another animal stands in it");
 
         // Another live creature, standing in the one open heading -- not a
         // real spawn, because a real one needs room to grow a body this
@@ -19740,9 +20057,9 @@ mod tests {
             s.chain = vec![(100, 99)];
         }
 
-        assert!(is_boxed(&w, &def, body, chain[0], heading, false, None), "with the opening occupied, every one of the eight headings must now read refused");
+        assert!(is_boxed(&w, &def, body, chain[0], heading, false, Walker::default()), "with the opening occupied, every one of the eight headings must now read refused");
         assert!(
-            boxed_by_traffic(&w, &def, body, chain[0], heading, false, None),
+            boxed_by_traffic(&w, &def, body, chain[0], heading, false, Walker::default()),
             "the only refused heading that is not rock or this body's own flank is occupied by a living creature, which is exactly what this predicate exists to read"
         );
 
@@ -20029,7 +20346,7 @@ mod tests {
         let chain = [(5, 5), (4, 5), (4, 4), (3, 5)];
         let (next, next_groups) = segmented_body_after_step(&w, BodyShape { chain: &chain, groups: &groups, authored: &groups }, (6, 5), true);
         assert!(
-            landing_is_placeable_through_tissue(&w, &chain, &next, true),
+            landing_is_placeable_through_tissue(&w, &chain, &next, true, None),
             "the spine's own step must not be refused just because a lateral has nowhere to go: {next:?}"
         );
         assert_eq!(next, vec![(6, 5), (5, 5), (4, 5)], "the spine moves exactly as a bare Chain would; the blocked lateral is simply absent");
