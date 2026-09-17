@@ -8791,6 +8791,15 @@ impl World {
         self.stacked.values().map(|v| v.len()).max().unwrap_or(0)
     }
 
+    /// Every rider standing anywhere, summed. The third of the three
+    /// readings, and the one that makes the other two interpretable: with
+    /// `stacked_cell_count` it gives the **mean** depth, which is what
+    /// separates "a thousand pairs" from "a hundred cells five deep" — and
+    /// `deepest_stack` alone cannot tell those apart either.
+    pub fn rider_total(&self) -> usize {
+        self.stacked.values().map(|v| v.len()).sum()
+    }
+
     /// The stacking cap this world is running (see [`World::stack_cap`]'s
     /// field doc). 1 is the shipped default and means no stacking at all.
     pub fn stack_cap(&self) -> usize {

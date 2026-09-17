@@ -15257,6 +15257,48 @@ mod tests {
         crowd
     }
 
+    /// **A thousand-plus ants, shoulder to shoulder, on a long flat floor** --
+    /// the bed the other stacking scenes are too small to be.
+    ///
+    /// `colony_bed` is 256 wide and holds water and a canopy; a thousand ants
+    /// at two apart need two thousand cells of floor and nothing else in the
+    /// way. `found_colony` supplies the nest and the colony label, exactly as
+    /// in `crowded_colony`, because `plant_ant` claims no label and
+    /// `can_stack_into` refuses `colony == 0`.
+    fn thousand_ant_bed(ants: i32) -> (World, i32, usize) {
+        const LOW: i32 = 120;
+        let width = 200 + ants * 2 + 200;
+        let mut w = World::new(Rect::new(0, 0, width, 199));
+        let soil = w.materials.id_of("soil").expect("soil material");
+        for x in 0..=width {
+            for y in LOW..=160 {
+                w.set(x, y, Cell::new(soil, 0).with_attached(true));
+            }
+        }
+        assert!(w.found_colony(120, LOW - 2) > 0, "the wide bed founded no colony");
+        let colony = (0..width)
+            .flat_map(|x| (LOW - 40..LOW).map(move |y| (x, y)))
+            .filter_map(|(x, y)| Some(w.get(x, y).organism_id()).filter(|&i| i != 0))
+            .filter_map(|id| w.organism(id).map(|s| s.colony))
+            .find(|&c| c != 0)
+            .expect("a founded colony has a non-zero label");
+        let mut placed = 0usize;
+        for i in 0..ants {
+            w.plant_ant(200 + i * 2, LOW - 1);
+        }
+        for i in 0..ants {
+            let id = w.get(200 + i * 2, LOW - 1).organism_id();
+            if id == 0 {
+                continue;
+            }
+            if let Some(st) = w.organism_mut(id) {
+                st.colony = colony;
+            }
+            placed += 1;
+        }
+        (w, LOW, placed)
+    }
+
     /// **Ants of one colony actually stand in each other's cells** -- the one
     /// thing every other stacking test fails to show
     /// (`Reports/creature-stacking-design-2026-09-17.md`).
@@ -15323,6 +15365,57 @@ mod tests {
         crowded_colony(&mut off, low_off);
         run(&mut off, FRAMES);
         assert_eq!(off.stacked_cell_count(), 0, "the index filled at cap 1, so the armed arm was not measuring the cap");
+    }
+
+    /// **How deep does a stack actually get, at a scale that has to crowd?**
+    ///
+    /// The pair-scale bed above proves the mechanism fires and reads
+    /// `deepest_stack` **1** -- pairs, not piles -- which says nothing about
+    /// depth under load. A thousand ants at two apart cannot avoid each other,
+    /// so this is where the cap of 20 either gets used or is revealed as
+    /// theatre.
+    ///
+    /// **`#[ignore]`d on purpose.** It is a scale measurement rather than a
+    /// guard: it builds a ~2,600-cell-wide world and runs a thousand animals,
+    /// which is not a cost CI should pay per push. Run it deliberately:
+    ///
+    /// ```text
+    /// cargo test --release --lib a_thousand_ants -- --ignored --nocapture
+    /// ```
+    ///
+    /// It asserts only what it is *for* -- that the crowd placed, that it
+    /// walked, and that stacking fired -- and **prints** the depth figures
+    /// rather than pinning them, because a bar set from one run of a chaotic
+    /// scene is the thing `CLAUDE.md` says gets rubber-stamped.
+    #[test]
+    #[ignore = "scale measurement: a thousand animals on a 2,600-wide world; run with --ignored"]
+    fn a_thousand_ants_shoulder_to_shoulder_report_their_stack_depth() {
+        const ANTS: i32 = 1_000;
+        const FRAMES: usize = 2_000;
+
+        let (mut w, _low, placed) = thousand_ant_bed(ANTS);
+        w.set_stack_cap(20);
+        assert!(placed >= 900, "only {placed} of {ANTS} ants placed -- the bed is wrong, not the rule");
+        let before = w.live_creature_count();
+        run(&mut w, FRAMES);
+
+        let cells = w.stacked_cell_count();
+        let riders = w.rider_total();
+        let mean = if cells == 0 { 0.0 } else { riders as f64 / cells as f64 };
+        println!(
+            "a_thousand_ants: placed {placed} | alive {} of {before} | moves {} | blocked {}\n\
+             a_thousand_ants: stacked cells {cells} | riders {riders} | mean depth {mean:.2} | deepest {} \
+             | corpses suppressed {} (worth {})",
+            w.live_creature_count(),
+            w.creature_stats.moves,
+            w.creature_stats.moves_blocked,
+            w.deepest_stack(),
+            w.creature_stats.corpses_suppressed,
+            w.creature_stats.corpse_worth_suppressed,
+        );
+
+        assert!(w.creature_stats.moves > 0, "a thousand ants took no step at all");
+        assert!(cells > 0, "a thousand ants shoulder to shoulder never stacked once -- stacking does not survive scale");
     }
 
     // --- old age ---------------------------------------------------------
