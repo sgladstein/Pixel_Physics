@@ -2907,9 +2907,11 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   established (discovery is the binding constraint; the odometer grades steeply;
   the inversion is real and needs a *foraging* colony to show; the polarity
   metric calibrated at **+0.115** for a perfect ramp against a shipped
-  **−0.076**), what is open, and **§5: six errors in the working record that must
-  not be quoted**, including §7.18's floor argument being its own pre-registered
-  null read backwards. Its §7 is an executable six-step plan whose centre is
+  **−0.076**, archived in `Reports/data/`), what is open, **§5: errors in the
+  working record that must not be quoted** — including §7.18's floor argument
+  being its own pre-registered null read backwards — and **§5b: claims the corpus
+  RETIRED that an earlier draft revived**, chief among them the withdrawn
+  `DIFFUSE`-on-A dial. Its §7 is an executable six-step plan whose centre is
   `nest-design` §8 option C — **`HomeBearing`/`HomeDistance` off the
   `forage_anchor` the engine already keeps** — with the `DIFFUSE`-on-A dial
   (§5.3's 3-of-3 result) taken first because it needs no code. Read this before
