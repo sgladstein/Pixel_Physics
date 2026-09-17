@@ -1353,15 +1353,69 @@ nibbling rather than more colonies succeeding.
 past-halfway share would rise toward `mute`'s 23% and the far reach bucket would
 stop reading zero. On survival it did neither.
 
-**Verdict: the confound is real and fixing it is not worth 24 brain slots.**
-Everything in the diagnosis above stands — `Carrying` *is* 100% spoil in arms
-that never find food, and a laden ant on a channel A ramp *does* run at 0.641
-against 0.200 — but removing it does not measurably improve foraging. The
-diagnosis was right and the repair buys nothing, which is a different thing from
-the diagnosis being wrong, and worth keeping distinct: a future change that
-makes discovery work may well hit this confound again, and then the 24 slots
-may be worth paying. `SPOIL_IS_CARGO` stays as a measurement switch, defaulted
-to the shipped behaviour.
+**That verdict was "the confound is real and fixing it is not worth 24 brain
+slots", and it is WITHDRAWN — the survival result above is true and the
+conclusion drawn from it was not.**
+
+#### Withdrawn: the repair does work, on an endpoint that is not a lottery
+
+The owner's objection, 2026-09-17: *"You say these are not the fault but I don't
+think that is correct. cargo sensing seems like a big issue but it is only 1
+part of the multi issue problem."*
+
+**The inference was invalid.** "Removing spoil did not rescue a colony" was read
+as "cargo sensing is not the fault". In a system where several necessary
+conditions are broken, repairing one changes no *outcome* until the others are
+repaired too. And the outcome used — colony survival — is decided by a discovery
+event with a base rate near **1 in 36**, so it cannot detect a change in any one
+condition at affordable sample sizes. §7.13 had already established that
+discovery is the binding constraint and this section failed to apply it.
+
+**Re-analysed on an endpoint that needs no discovery at all**, from the same
+12-seed paired data, gap 90. Exploration — the share of ants that ever get past
+halfway to the food — is continuous, requires nobody to win anything, and moves
+at n=12:
+
+| arm | shipped | `SPOIL_IS_CARGO=0` | paired sign test |
+|---|---|---|---|
+| **homeA** | **15.0%** | **27.5%** | **up in 10 of 12 seeds, down in 0** (p ≈ 0.002) |
+| homeA, seeds reaching past the food | **0/12** | **2/12** | the hard zero is gone |
+| `self` | 15.0% | 22.5% | — |
+| **`mute`** (no channel A ramp) | 21.9% | 20.0% | **unchanged — the specificity control** |
+| `hand` | 95.3% | 79.7% | already at ceiling; see below |
+
+**`mute` is what makes this a mechanism rather than a correlation.** It has no
+homing ramp, so a spoil-opened gate has nothing to railroad it along, and it does
+not move. `homeA` — the one arm with a standing ramp — moves in 10 of 12 seeds
+with **zero reversals**. That is the predicted effect, in the predicted arm,
+absent from the control.
+
+**`hand` moves the other way (95.3% → 79.7%) and that is reported rather than
+buried.** With a hand-laid food trail the ants are already at ceiling on this
+measure, so it is not an arm where a homing confound can show; its survival is
+a clean null too (7/12 against 5/12, and a **6/12** sign split on intake).
+
+**Standing verdict: cargo sensing is a real defect with a measured,
+mechanism-specific effect on exploration, and it is one of several broken
+conditions rather than the single fault.** Whether it is worth 24 brain slots is
+a separate question that survival cannot answer and exploration alone does not
+settle. `SPOIL_IS_CARGO` remains a measurement switch defaulted to the shipped
+behaviour, because the shipped behaviour is itself a measured fix (`Drop`).
+
+#### Pre-registered, before the 50-seed confirmation
+
+Recorded here before the run, because three separate single-seed results in this
+investigation were rationalised after the fact:
+
+- **`homeA`'s past-halfway share rises**, sign test at least 2:1 up over down.
+- **`mute` does not move.** If it moves as much as `homeA`, the mechanism story
+  is wrong and the switch is doing something non-specific to digging.
+- **Survival and intake stay flat.** That is expected and is *not* a failure of
+  the hypothesis — it is the multi-condition point. Movement there would be a
+  bonus, not the test.
+- Read the **paired sign test**, never the pooled share: a pooled percentage is
+  inflated by any colony that succeeds and grows its own denominator, which is
+  the artifact behind the withdrawn "16x reach" figure above.
 
 **Method note, because it cost a wrong headline and nearly a second one.** The
 replication was launched as `seed0=13 seeds=36` to be independent of seed 8. The
@@ -1434,9 +1488,12 @@ for `FoodAmount`, and it is why the replication comes first.
   (7.14). In every arm that never finds food it is **100% spoil**, so the
   channel A homing gate is opened exclusively by tailings and a laden ant on a
   ramp runs at 0.641 against a 0.200 baseline — which is why 7.13's `homeA` arm
-  *clipped* exploration. Removing spoil rescued **1 seed of 12** and was neutral
-  everywhere else; that seed is the first colony here to forage with no
-  hand-laid trail, and it buys a replication, not 24 brain slots.
+  *clipped* exploration. **Removing spoil raises exploration in 10 of 12 seeds
+  with zero reversals (15.0% → 27.5% past halfway), and leaves the `mute`
+  control unmoved** — a real, mechanism-specific defect. It does not move
+  survival, and an earlier verdict that read that as "not the fault" is
+  withdrawn in §7.14: survival is decided by a ~1-in-36 discovery lottery and
+  cannot price any single condition in a multi-condition failure.
 - A trail works as **"go eat over there" for individuals** rather than as
   provisioning for the nest — survival rises, the larder is eaten, and nothing
   comes home. No longer an inference for the hauling half: §7.8 measures it on
