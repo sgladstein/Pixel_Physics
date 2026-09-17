@@ -1147,6 +1147,29 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology  ·  `engine`
 
+- [creature-stacking-design-2026-09-17.md](creature-stacking-design-2026-09-17.md)
+  — **design 2026-09-17, not yet built. `engine`.** How many creatures of one
+  colony come to share a cell, and where the 2nd..Nth ant's identity lives.
+  Exclusivity is the **grid's** invariant and not a creature rule: `Cell` holds
+  one `organism_id`, so `classify_step` reads an ant exactly the way it reads
+  rock. Takes **riders** — grid unchanged, one owner per cell, everyone else in
+  a sparse index no existing reader consults — over a crowd handle in `Cell`,
+  whose cost is **correctness surface rather than speed**: `organism_id()` has
+  **366 call sites across 18 files** and only 74 are in `creature.rs`, so a
+  reserved id range enrols plant anchoring, structural collapse and the renderer
+  in a concept they have never heard of. §2c is why co-occupancy is a property
+  of a **cell** and not of an organism — a `Chain(6)` can own five of its cells
+  and ride at the sixth — which disposes of "is the largest ant on top" without
+  a rule. §2d is the finding that makes it cheap: `reconcile_chain` validates
+  against `state.cells`, the organism's **own** body map, not against the grid,
+  so there is no death cascade to design against. §4 is the failure that remains
+  and it is the opposite one — a rider does not own its head cell and the
+  scheduler site does, so an unhandled rider **freezes**, and a frozen ant is
+  never charged, never starves, and reads as a thriving colony. Carries the
+  owner's rulings (no cost, a cap of 20, same colony only, attack hits the cell
+  owner, fire hits everyone in the cell) and the pass-through branch's measured
+  account of the same freeze, `5824fd1d`.
+
 - [animal-conflict-research-2026-09-14.md](animal-conflict-research-2026-09-14.md)
   — **research plus implementation, 2026-09-14, round 35 lane D. `engine`.**
   When animals fight, why they mostly do not, and what this engine can do
