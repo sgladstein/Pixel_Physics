@@ -2900,6 +2900,20 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   behaviours as default* — with the knob kept, an `off` control kept for
   measurement, and the constants rivalry reallocates named and re-derived,
   since a correct mechanism at inherited constants is a regression.
+- [pheromone-master-2026-09-17.md](pheromone-master-2026-09-17.md)
+  — **master index and plan, 2026-09-17. `engine`.** **The entry point to the
+  whole pheromone line** — thirteen reports and two lane notes, ~10,400 lines,
+  reduced to one page plus a map saying which one to read. Carries what is
+  established (discovery is the binding constraint; the odometer grades steeply;
+  the inversion is real and needs a *foraging* colony to show; the polarity
+  metric calibrated at **+0.115** for a perfect ramp against a shipped
+  **−0.076**), what is open, and **§5: six errors in the working record that must
+  not be quoted**, including §7.18's floor argument being its own pre-registered
+  null read backwards. Its §7 is an executable six-step plan whose centre is
+  `nest-design` §8 option C — **`HomeBearing`/`HomeDistance` off the
+  `forage_anchor` the engine already keeps** — with the `DIFFUSE`-on-A dial
+  (§5.3's 3-of-3 result) taken first because it needs no code. Read this before
+  any other report on this line.
 - [pheromone-trail-direction-2026-09-16.md](pheromone-trail-direction-2026-09-16.md)
   — **investigation, 2026-09-16. `engine`.** Started from *"do pheromone
   trails work at all?"* and ended somewhere else. They do: a laden ant walks a
