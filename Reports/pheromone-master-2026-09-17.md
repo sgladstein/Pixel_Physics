@@ -451,40 +451,36 @@ control and if it moves, the edit broke the metric.
 figure for foraging colonies is **positive**, the inversion is an artifact and
 §7.15 falls — stop and re-plan.
 
-### Step 2 — the gating sweep `nest-design` §12 pre-registered — WITHDRAWN DIAL
+### Step 2 — the gating sweep: does the home bearing need building at all?
 
-**An earlier version of this step told you to dial `DIFFUSE` on channel A to
-0.02. That suggestion was formally withdrawn by its own source and must not be
-run.** `nest-design-2026-09-14.md` §12:
+**Do:** `nesthome scene=bed arm=shipped|noemit|nosteer`, **six seeds**, on `u16`.
 
-> **§5.3 and §9 item 4 are superseded.** The per-channel `DIFFUSE` on A is no
-> longer the lever to reach for; #450 bought the lifetime without the trade §5.3
-> priced. **Withdraw the "0.02 on A" suggestion.**
+**Accept / decides:** if laden-at-door is **not** at floor level on the seeds
+where the round trip fails, **step 4 does not get built.** That is the cheapest
+possible outcome and the one to check for before spending a lane. On the three
+`u16` seeds already measured the shipped homing circuit **beats both cut arms on
+2 of 3** — laden-at-door 8.7 / 1.9 / 1.2 on seed 1, 30.7 / 13.7 / 16.8 on seed 3
+— so this is a live possibility, not a formality. Clear `nesthome`'s own **3.6×**
+noise floor between mechanically equivalent arms before calling anything a move.
 
-Restated in `evolution-lab-round-37-brief-2026-09-15.md` Lane 3. The `u16`
-widening took unreinforced trail life **144 → 1,476 frames** and "stops steering"
-**36 → 1,080**, so the lifetime was bought by resolution rather than blend, at no
-cost to the food trail. §5.3 is dated 2026-09-14 — **pre-widening, and this
-document's own §8 bars pre-2026-09-15 evidence.** Two further reasons not to
-revive it: §5.3's deliveries move on only **2 of 3** seeds (seed 3 *falls*
-9,141 → 7,342), three seeds is not a sweep, and `deliveries` movement of that
-size sits inside `nesthome`'s own **3.6×** noise floor. `trailfollow` also has no
-`diffuse=` argument at all, so the command an earlier draft printed would have
-been silently ignored.
-
-**What §12 prescribes instead, and it is the real step 2:**
+This is not an invention of this document. `nest-design` §12 pre-registered it:
 
 > **§9 item 4's "then build C, the home bearing"** drops from *next* to
 > **conditional**: run the §5.1 sweep on `main` after #450 lands, **six seeds**,
 > and build the bearing **only if laden-at-door still reads as floor-level on the
 > seeds where the round trip fails.**
 
-**Do:** `nesthome scene=bed arm=shipped|noemit|nosteer`, **six seeds**, on `u16`.
-**Accept / decides:** if laden-at-door is *not* at floor on the failing seeds,
-**step 4 does not get built** — which is the cheapest possible outcome. On the
-three `u16` seeds already measured the shipped circuit **beats both cut arms on 2
-of 3** (laden-at-door 8.7/1.9/1.2 on seed 1; 30.7/13.7/16.8 on seed 3), so this
-is a live possibility, not a formality.
+> ⚠️ **Do NOT dial `DIFFUSE` on channel A to 0.02.** An earlier draft of this
+> document made that step 2, calling it *"the only lever with a positive homing
+> result"*. It was **formally withdrawn by its own source** — `nest-design` §12:
+> *"§5.3 and §9 item 4 are superseded … **Withdraw the '0.02 on A' suggestion**"*,
+> restated in round-37 Lane 3. The `u16` widening bought the trail lifetime
+> (**144 → 1,476 frames**; steering **36 → 1,080**) without the trade §5.3 priced.
+> §5.3 is dated 2026-09-14, so §8's pre-widening bar applies to it. Three further
+> reasons: its deliveries move on only **2 of 3** seeds (seed 3 *falls*
+> 9,141 → 7,342), three seeds is not a sweep, and movement that size sits inside
+> the 3.6× noise floor. `trailfollow` has no `diffuse=` argument at all, so the
+> command that draft printed would have been **silently ignored** — §8's trap.
 
 ### Step 3 — deposit on the vacated cell
 
