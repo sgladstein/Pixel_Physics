@@ -1257,6 +1257,33 @@ pub struct CreatureStats {
     /// creature does not inflate it — every tick counted here is a live
     /// creature that was handed a decision.
     pub ticks: u64,
+    /// **How many times a creature stepped into a cell somebody else owned** —
+    /// cumulative, and the counter `stacked_cell_count` cannot replace.
+    ///
+    /// **The distinction cost a wrong reading.** `stacked_cell_count` and
+    /// `deepest_stack` are *standing* censuses: they describe the final frame,
+    /// so a thousand-ant run reported "11 stacked cells" when what it meant was
+    /// eleven pairs happened to exist at the instant the run stopped. How often
+    /// stacking fired over the run was simply not measured. `CLAUDE.md` has the
+    /// rule for one direction — *measure the standing state, not the event
+    /// rate*, for a visible persistent artifact — and this is the inverse
+    /// question, which needs the event.
+    ///
+    /// Incremented only when a **new** rider registers: a chain re-entering a
+    /// cell it already rides refreshes its stored cell and is not an event, or
+    /// this would count tick rate.
+    pub stacks_entered: u64,
+    /// **The deepest any single cell ever got**, as a high-water mark rather
+    /// than a snapshot.
+    ///
+    /// `deepest_stack()` reads the current frame, so a pile that formed and
+    /// dispersed leaves no trace in it. This is what answers the question the
+    /// feature was built for — the owner asked for "not just two", and only a
+    /// high-water mark can say whether three were ever in one cell.
+    ///
+    /// Riders only, so 1 means one cell once held a rider beside its owner
+    /// (two creatures), and 2 means three creatures shared a cell.
+    pub max_stack_seen: u32,
     /// **Corpses that had nowhere to go** — an animal died in a cell another
     /// took over, and all eight neighbours were full
     /// (`creature::place_corpse_beside`).
@@ -8834,10 +8861,20 @@ impl World {
             // would leave behind without disturbing the order promotion
             // reads. A chain's landing shares most of its cells with where
             // it already stands, so this is the common path, not an edge.
+            // **Not counted as an event**: it is the same rider in the same
+            // cell, and counting it would make `stacks_entered` a function of
+            // tick rate rather than of stacking.
             existing.cell = cell;
             return;
         }
         slot.push(Rider { organism: id, cell });
+        let depth = slot.len();
+        // **Counted at the seam, because the seam is the event.** Every rider
+        // in the engine is created here, so there is no caller list to keep
+        // complete — the failure `World::set`'s own doc says this project
+        // keeps rediscovering.
+        self.creature_stats.stacks_entered += 1;
+        self.creature_stats.max_stack_seen = self.creature_stats.max_stack_seen.max(depth as u32);
     }
 
     /// Drop `id` from `(x, y)`'s riders, and drop the cell's entry entirely

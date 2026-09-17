@@ -15390,32 +15390,43 @@ mod tests {
     #[test]
     #[ignore = "scale measurement: a thousand animals on a 2,600-wide world; run with --ignored"]
     fn a_thousand_ants_shoulder_to_shoulder_report_their_stack_depth() {
-        const ANTS: i32 = 1_000;
+        const ANTS: i32 = 2_000;
         const FRAMES: usize = 2_000;
 
         let (mut w, _low, placed) = thousand_ant_bed(ANTS);
         w.set_stack_cap(20);
-        assert!(placed >= 900, "only {placed} of {ANTS} ants placed -- the bed is wrong, not the rule");
+        assert!(placed >= ANTS as usize * 9 / 10, "only {placed} of {ANTS} ants placed -- the bed is wrong, not the rule");
         let before = w.live_creature_count();
         run(&mut w, FRAMES);
 
         let cells = w.stacked_cell_count();
         let riders = w.rider_total();
         let mean = if cells == 0 { 0.0 } else { riders as f64 / cells as f64 };
+        // **The cumulative pair first, then the snapshot.** `stacks_entered`
+        // and `max_stack_seen` are what the run did; `stacked cells` and
+        // `deepest` are only what was standing when it stopped, and reading
+        // the second pair as the first is what made an earlier 1,000-ant run
+        // report "11" for a question it had not measured.
         println!(
-            "a_thousand_ants: placed {placed} | alive {} of {before} | moves {} | blocked {}\n\
-             a_thousand_ants: stacked cells {cells} | riders {riders} | mean depth {mean:.2} | deepest {} \
-             | corpses suppressed {} (worth {})",
+            "a_thousand_ants: ants {placed} | alive {} of {before} | moves {} | blocked {}\n\
+             a_thousand_ants: STACK EVENTS {} | max depth ever {} (riders, so +1 = creatures in a cell)\n\
+             a_thousand_ants: standing at end -- cells {cells} | riders {riders} | mean depth {mean:.2} | deepest {}\n\
+             a_thousand_ants: corpses suppressed {} (worth {})",
             w.live_creature_count(),
             w.creature_stats.moves,
             w.creature_stats.moves_blocked,
+            w.creature_stats.stacks_entered,
+            w.creature_stats.max_stack_seen,
             w.deepest_stack(),
             w.creature_stats.corpses_suppressed,
             w.creature_stats.corpse_worth_suppressed,
         );
 
-        assert!(w.creature_stats.moves > 0, "a thousand ants took no step at all");
-        assert!(cells > 0, "a thousand ants shoulder to shoulder never stacked once -- stacking does not survive scale");
+        assert!(w.creature_stats.moves > 0, "{ANTS} ants took no step at all");
+        assert!(
+            w.creature_stats.stacks_entered > 0,
+            "{ANTS} ants shoulder to shoulder never stacked once in {FRAMES} frames -- stacking does not survive scale"
+        );
     }
 
     // --- old age ---------------------------------------------------------
