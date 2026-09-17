@@ -1761,6 +1761,27 @@
             // earlier fit: a one-tick brush starts at 0.976 and a 400-tick
             // stay at 0.993, with identical tails and no runaway.
             //
+            // **CORRECTION, 2026-09-17: the curve quoted just above is the
+            // fit's, and it is not this ant's.** `0.992 -> 0.072, rms 0.084,
+            // saturated 85 ticks` is verbatim `what_an_odometer_emits`'s
+            // *chosen fit*, which is `w_in 0.05, w_rec 0.99995, w_out 900,
+            // bias -0.2`. Two of those four shipped: `w_out` is **32.0** below
+            // and the `-0.2` offset was deleted outright. Re-simulated against
+            // the same readout (three decimals on three points, so it is
+            // `eval_brain` and not a model of it), the weights **this file
+            // actually holds** emit `0.819 -> 0.010`, **saturated 0 ticks**,
+            // and fall **78% inside the first 141** -- which is a 90-cell trip
+            // at a trail-following `P(move)`.
+            //
+            // The numbers are left standing rather than swapped because the
+            // 900/-0.2 fit is a live candidate, not an error: the **absent
+            // offset** is what lets a *dwelling* ant keep laying a faint
+            // deposit, and a plane that sums 627 ant-ticks at the food against
+            // 30 at the nest inverts on that faint tail whatever the per-visit
+            // gradient does. Do not quote either curve without naming the
+            // weights it belongs to.
+            // `Reports/pheromone-trail-direction-2026-09-16.md` §7.16.
+            //
             // `w_in` is 5x `W_EPS` and it is chosen for headroom, not for
             // fit -- 0.02 through 0.08 all score within 0.002, because the
             // level drops into `squash`'s harmonic regime within a few dozen

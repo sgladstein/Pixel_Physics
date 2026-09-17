@@ -1622,7 +1622,29 @@ fn place_creature(
                         if taken >= shortfall {
                             break;
                         }
-                        let banked = world.materials.get(world.get(px, py).material).worth_in_aux;
+                        // **Read the material here, before the bite, and hand
+                        // the same value to both the account test and the diet
+                        // band.** It used to be read again after
+                        // `seed_survives_bite` and the `Cell::EMPTY` write
+                        // below, which meant every meal this path took was
+                        // booked against **`empty`** -- so `ColonyBooks::diet()`
+                        // attributed the entire birth-provisioning channel to a
+                        // material that cannot be eaten, while
+                        // `harvested_plant` counted the joules correctly.
+                        // `banked` was already reading it pre-bite, so the two
+                        // disagreed with each other, which is the tell.
+                        //
+                        // Found 2026-09-16 with `trailfollow onlyfood=on`, whose
+                        // whole point is that the placed larder is the only food
+                        // in the world: the diet band still reported 45,007 J of
+                        // `empty` against 13,996 J of the larder, i.e. **76% of
+                        // intake attributed to nothing**. The sibling bite site
+                        // in `act` names this exact hazard -- "`worth` is read
+                        // before the roll because the roll rewrites the cell" --
+                        // and this site did it for `worth` and not for the
+                        // material.
+                        let material = world.get(px, py).material;
+                        let banked = world.materials.get(material).worth_in_aux;
                         // A bitten windfall's own seed asks the plant side
                         // whether it survives the mouth before this clears
                         // the cell -- see the identical hook and comment at
@@ -1653,7 +1675,6 @@ fn place_creature(
                         if !bite_outcome.survived() {
                             world.set(px, py, Cell::EMPTY);
                         }
-                        let material = world.get(px, py).material;
                         if banked {
                             world.book_meal(colony, Account::HarvestedCorpse, material, yielded as f64);
                         } else {
@@ -4225,9 +4246,9 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         // **Verified before it was built, because §4's safety claim rests on
         // it**: `squash` is `x/(1+|x|)` and saturates, so three weights
         // expressing a 3,000-tick decay is not obvious. Simulated over the
-        // real recurrence at the weights `ant.ron` actually authors --
-        // `w_in = 0.0005` (`AtNest` -> hidden 4), `w_rec = 0.9999`,
-        // `w_out = 1609.1` (hidden 4 -> `EmitA`) and a `-0.35` bias -- and
+        // real recurrence at `w_in = 0.0005` (`AtNest` -> hidden 4),
+        // `w_rec = 0.9999`, `w_out = 1609.1` (hidden 4 -> `EmitA`) and a
+        // `-0.35` bias -- and
         // **after a 5-tick nest touch**, which is a brush past rather than a
         // stay: the emitted value runs 0.785 -> 0.046 monotonically across
         // 3,000 ticks against the old 0.667 -> 0.0, rms 0.040. A 400-tick
@@ -4241,6 +4262,19 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         // that only brushes the nest. Those weights are *not* in the tree and
         // this comment quoted them for a while, which is the failure mode
         // `CLAUDE.md` names -- a comment that reads correctly against nothing.
+        //
+        // **And it happened again to the set just above, which is why the
+        // words "the weights `ant.ron` actually authors" are gone from it.**
+        // Measured 2026-09-17: the tree ships `w_in = 0.05`, `w_rec = 0.99995`,
+        // `w_out = 32.0` and **no bias at all** -- `(Bias, EmitA, -0.35)` was
+        // deleted on purpose. The `0.0005 / 0.9999 / 1609.1 / -0.35` set quoted
+        // here is the **dead pre-fix** version: `w_in` is below `W_EPS`, and
+        // `brain.rs`'s own fitting readout labels that row
+        // `authored (dead: w_in < W_EPS)` and prints `0.000 -> 0.000`. The
+        // shipped weights emit **0.819 -> 0.010 across 3,000 ticks**, falling
+        // **78% inside the first 141** -- a real ramp, and not the one either
+        // this comment or `ant.ron`'s describes.
+        // `Reports/pheromone-trail-direction-2026-09-16.md` §7.16.
         // **The shape is hyperbolic where the old one was
         // linear** -- it falls faster early and never quite reaches zero,
         // which for a gradient-laying rule is arguably the better end: an
@@ -4689,7 +4723,42 @@ fn sense(
         //
         // `max` rather than a sum: this is "how full are your mandibles",
         // and a pellet fills them however much food is also in the crop.
-        inputs[I::Carrying as usize] = crop_fill.max(state.spoil.map_or(0.0, |_| 1.0));
+        //
+        // **`SPOIL_IS_CARGO=0` takes the pellet back out, and it is a
+        // measurement switch rather than a proposed default.** The paragraph
+        // above is a *measured* fix and must not be quietly undone: without
+        // spoil in here the `Drop` gene is asked a question about food, and
+        // `labnest` read 30-35 of 52 ants standing laden with `digs` at 121
+        // against 881.
+        //
+        // What the switch exists for is that **three consumers read this one
+        // sensor and only one of them wants the honest answer**:
+        //
+        // * `(Carrying, Drop, 0.2)` -- wants "are my mandibles full", i.e. the
+        //   shipped behaviour, for the reason above.
+        // * units 0/1, the **channel A homing gate** -- wants "am I carrying
+        //   food", and gets pulled home by a pellet instead.
+        // * `(Carrying, EmitB, 2.5)`, the **channel B emitter** -- likewise,
+        //   and writes tailings onto the plane a forager reads as a route.
+        //
+        // Measured 2026-09-16 with `trailfollow`: in every arm that never
+        // finds food, `Carrying` is **100% spoil** (19,998 of 19,998; 20,448 of
+        // 20,448; 8,448 of 8,448), against 3.2% and 8.8% in the arms that do
+        // reach a larder. A laden ant on a standing channel A ramp runs at
+        // `P(move)` **0.641 against a 0.200 baseline** (`onetrail mode=arith`),
+        // so a digging colony given a homing gradient is railroaded home by its
+        // own tailings -- the candidate explanation for the `homeA` arm
+        // *clipping* exploration rather than extending it.
+        //
+        // **If the switch wins, the shipped repair is not this switch**, which
+        // regresses the `Drop` fix. It is either a separate "carrying food"
+        // reading for the two pheromone consumers, or a per-consumer gate --
+        // and a new `BrainInput` costs 24 live slots plus a `mutation_rate`
+        // re-derivation in every species file, so it wants evidence first.
+        // Defaults to the shipped behaviour, so an unset environment is
+        // bit-identical.
+        inputs[I::Carrying as usize] =
+            if spoil_is_cargo() { crop_fill.max(state.spoil.map_or(0.0, |_| 1.0)) } else { crop_fill };
     }
 
     // **A creature is not crowded by itself**, and it was: this scan
@@ -9314,6 +9383,21 @@ fn step_chain(
                 world.creature_stats.reversals_refused += 1;
             }
         }
+        // **Before giving up, try trading places with whoever is in the way.**
+        // Hooked here rather than in the candidate scoring on purpose: an ant
+        // only passes through a nestmate when it is otherwise stuck, so the
+        // rule costs nothing wherever traffic is not the problem and every
+        // scene that is not jammed stays bit-identical. Off unless the species
+        // sets `passes_through_kin`.
+        if let Some(d) = try_swap_with_kin(world, organism, def, &chain, &dirs, hx, hy) {
+            if let Some(state) = world.organism_mut(organism) {
+                state.heading = d;
+                state.life.moves += 1;
+                state.traffic_deferred = 0;
+            }
+            world.creature_stats.moves += 1;
+            return true;
+        }
         tumble(world, organism, def, draw);
         world.creature_stats.moves_blocked += 1;
         // **What was in the way — tissue, or the world?** `moves_blocked`
@@ -12335,6 +12419,129 @@ fn body_has_foothold(world: &World, def: &CreatureDef, landing: &[(i32, i32)], h
     }
 }
 
+/// **Trade places with a nestmate that is in the way** -- the pass-through
+/// half of dead ends 775/829, gated on `CreatureDef::passes_through_kin`.
+///
+/// **It is a swap because co-occupancy is not representable.** A cell holds one
+/// material and one `organism_id`. The foliage machinery cannot be borrowed
+/// either: `relocate_chain` stashes parted plant tissue in
+/// `OrganismState::parted` and restores it on the way out, which is sound only
+/// because a plant cell has no body claiming it -- a displaced *ant* would
+/// still have its own `chain` pointing at a cell somebody else now owns, and
+/// nothing downstream would notice until that ant's next step read the wrong
+/// cell as its own.
+///
+/// **Deliberately narrow, and the narrowness is the safety.** The swap is
+/// refused unless both bodies have the same number of cells and neither is
+/// holding parted foliage, so each animal lands in a set of cells that already
+/// held a body of its own size and no held tissue is owed to a cell that
+/// changed hands. Anything outside that falls through to the ordinary blocked
+/// path, which is the shipped behaviour. The two bodies exchange cell values
+/// and per-cell scalars together -- `relocate_chain`'s own restore does the
+/// same pairing -- so neither loses the state its cells carry.
+///
+/// **Footing is not re-checked on either side**, and that is intended: each
+/// body lands where a body of its size was already standing, and an animal that
+/// ends up unsupported falls, which the fall path already handles. Re-checking
+/// would refuse exactly the dense case this exists for.
+///
+/// Returns the heading the mover should adopt, or `None` if no swap was made.
+fn try_swap_with_kin(world: &mut World, organism: OrganismId, def: &CreatureDef, chain: &[(i32, i32)], dirs: &[u8], hx: i32, hy: i32) -> Option<u8> {
+    if !def.passes_through_kin {
+        return None;
+    }
+    let (me_species, me_parted) = {
+        let st = world.organism(organism)?;
+        (st.species, !st.parted.is_empty())
+    };
+    if me_parted {
+        return None;
+    }
+    for &d in dirs {
+        let (dx, dy) = DIRS[d as usize];
+        let cell = world.get(hx + dx, hy + dy);
+        if world.materials.kind(cell.material) != MaterialKind::Creature {
+            continue;
+        }
+        let other = cell.organism_id();
+        if other == organism {
+            continue;
+        }
+        let Some(other_state) = world.organism(other) else { continue };
+        // Nestmate, not prey and not a stranger: this is a traffic rule, and
+        // letting it reach across species would be a passability change to
+        // every predator in the world rather than a colony one.
+        if other_state.species != me_species || !other_state.parted.is_empty() {
+            continue;
+        }
+        let theirs: Vec<(i32, i32)> = other_state.chain.clone();
+        if theirs.len() != chain.len() || theirs.is_empty() {
+            continue;
+        }
+        // Overlapping bodies would make the exchange below ambiguous about
+        // which value belongs where; it cannot happen for two live animals,
+        // and declining is cheaper than proving it.
+        if theirs.iter().any(|p| chain.contains(p)) {
+            continue;
+        }
+        let mine_vals: Vec<(Cell, organism::OrganismCell)> =
+            chain.iter().map(|&(x, y)| (world.get(x, y), world.organism_cell(x, y).cloned().unwrap_or_default())).collect();
+        let theirs_vals: Vec<(Cell, organism::OrganismCell)> =
+            theirs.iter().map(|&(x, y)| (world.get(x, y), world.organism_cell(x, y).cloned().unwrap_or_default())).collect();
+        for &(x, y) in chain.iter().chain(theirs.iter()) {
+            world.set(x, y, Cell::EMPTY);
+        }
+        for (&(x, y), (c, sc)) in theirs.iter().zip(mine_vals) {
+            world.set(x, y, c);
+            if let Some(slot) = world.organism_cell_mut(x, y) {
+                *slot = sc;
+            }
+        }
+        for (&(x, y), (c, sc)) in chain.iter().zip(theirs_vals) {
+            world.set(x, y, c);
+            if let Some(slot) = world.organism_cell_mut(x, y) {
+                *slot = sc;
+            }
+        }
+        let mine: Vec<(i32, i32)> = chain.to_vec();
+        let other_head = mine[0];
+        if let Some(st) = world.organism_mut(organism) {
+            st.chain = theirs;
+        }
+        if let Some(st) = world.organism_mut(other) {
+            st.chain = mine;
+        }
+        // **The displaced animal needs a new site, and this is the whole of
+        // the bug the first version shipped with.** `creature_tick`'s opening
+        // guard says it out loud: *"the active site sits on the head"*, and a
+        // tick that arrives to find somebody else's cell there reconciles and
+        // returns **no site at all** -- "not dead, not scheduled, just an
+        // orphan standing in the world forever". The mover is fine, because
+        // `creature_tick` builds its next site from the live head after the
+        // step; the animal that was swapped *out* is not, because nothing in
+        // its own tick ran.
+        //
+        // Measured before the fix, `ticks` per 1,000 ant-frames against the
+        // 167 a 6-frame `tick_interval` implies: **172 and 173 with the switch
+        // off, 42 and 24 with it on.** The frozen ants never ticked, so they
+        // were never charged, never starved, and read as a colony surviving on
+        // no food at all -- `CLAUDE.md`'s "a cost that vanishes may be work
+        // that vanished", with the vanished work being the animal's whole
+        // existence.
+        //
+        // Its stale site is left to evaporate rather than hunted down: when it
+        // fires, the guard above finds a stranger's cell, `reconcile_chain`
+        // reads the *chain* -- which is correct, having just been rewritten --
+        // finds the body intact, and the site is dropped with nothing else
+        // changed.
+        let due = world.creature_due(organism_tick_interval(world, other, def));
+        world.schedule_active_site(ActiveSite { x: other_head.0, y: other_head.1, kind: ActiveKind::Creature { organism: other }, next_frame: due });
+        world.creature_stats.kin_swaps += 1;
+        return Some(d);
+    }
+    None
+}
+
 /// The kin-footing licence for `organism`, or `None` if its species does
 /// not climb over its own kind.
 ///
@@ -12698,6 +12905,20 @@ fn parting_enabled() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
     *ON.get_or_init(|| std::env::var("TISSUE_PARTING").map(|v| v != "0").unwrap_or(true))
+}
+
+/// **Does a mandible full of dig spoil count as `Carrying`?** Shipped `true`,
+/// so an unset environment is bit-identical; `SPOIL_IS_CARGO=0` takes the
+/// pellet out.
+///
+/// The reasoning, the measurements, and the reason this is a measurement switch
+/// rather than a proposed default are at the `Carrying` fill site in `sense` --
+/// three consumers read that one sensor and only `Drop` wants the honest
+/// answer. Read that before changing anything here.
+fn spoil_is_cargo() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("SPOIL_IS_CARGO").map(|v| v != "0").unwrap_or(true))
 }
 
 /// Charge energy, reschedule or die. The chain-creature counterpart of

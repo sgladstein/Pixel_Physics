@@ -429,6 +429,17 @@ fn main() {
     let lost = patch.iter().filter(|&&(x, y)| world.get(x, y).material != nest).count();
     let bw = 32;
     let profile: Vec<String> = (0..10).map(|i| format!("{}", channel_total(world, Channel::A, i * bw, (i + 1) * bw))).collect();
+    // **Channel B beside channel A, because the two are laid by different
+    // rules and only one of them is a ramp.** `EmitA` comes off hidden unit
+    // 4, the odometer, which is charged at the nest and decays -- so A is laid
+    // *weaker the further out an ant is*, and climbs toward home by
+    // construction. `EmitB` is the single direct wire `(Carrying, EmitB, 2.5)`:
+    // a constant `squash(2.5) = 0.714` on every laden step, with no distance
+    // term anywhere. What shape B actually ends up in is therefore not
+    // authored at all -- it is whatever traffic and decay leave behind -- and
+    // `PheroBAlong` is a *difference*, so the shape is the whole question.
+    // A reader that ascends B goes wherever this profile happens to climb.
+    let profile_b: Vec<String> = (0..10).map(|i| format!("{}", channel_total(world, Channel::B, i * bw, (i + 1) * bw))).collect();
     let total: u64 = c.ticks.iter().sum::<u64>().max(1);
     let ltotal: u64 = c.laden.iter().sum::<u64>().max(1);
     println!(
@@ -457,6 +468,7 @@ fn main() {
         total
     );
     println!("  channel A by 32-col band from x=0: {}", profile.join(" "));
+    println!("  channel B by 32-col band from x=0: {}", profile_b.join(" "));
     println!("  frame cost: worst {:.3} ms, mean {:.3} ms over {stepped} frames", worst.as_secs_f64() * 1000.0, sum.as_secs_f64() * 1000.0 / stepped.max(1) as f64);
     println!(
         "SUMMARY scene={scene} arm={arm} width={} seed={seed} diffuse={diffuse_label} pickups={} deliveries={} visits={} trips={} deepest={} larder={larder} lost={lost} alive={} nest%={:.1} food%={:.1} laden_nest%={:.1} laden_food%={:.1} A={}",

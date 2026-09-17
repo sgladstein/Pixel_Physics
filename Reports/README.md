@@ -2900,6 +2900,53 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   behaviours as default* — with the knob kept, an `off` control kept for
   measurement, and the constants rivalry reallocates named and re-derived,
   since a correct mechanism at inherited constants is a regression.
+- [pheromone-master-2026-09-17.md](pheromone-master-2026-09-17.md)
+  — **master index and plan, 2026-09-17. `engine`.** **The entry point to the
+  whole pheromone line** — thirteen reports and two lane notes, ~10,400 lines,
+  reduced to one page plus a map saying which one to read. Carries what is
+  established (discovery is the binding constraint; the odometer grades steeply;
+  the inversion is real and needs a *foraging* colony to show; the polarity
+  metric calibrated at **+0.115** for a perfect ramp against a shipped
+  **−0.076**, archived in `Reports/data/`), what is open, **§5: errors in the
+  working record that must not be quoted** — including §7.18's floor argument
+  being its own pre-registered null read backwards — and **§5b: claims the corpus
+  RETIRED that an earlier draft revived**, chief among them the withdrawn
+  `DIFFUSE`-on-A dial. Its §7 is an executable six-step plan whose centre is
+  `nest-design` §8 option C — **`HomeBearing`/`HomeDistance` off the
+  `forage_anchor` the engine already keeps** — with the `DIFFUSE`-on-A dial
+  (§5.3's 3-of-3 result) taken first because it needs no code. Read this before
+  any other report on this line.
+- [pheromone-trail-direction-2026-09-16.md](pheromone-trail-direction-2026-09-16.md)
+  — **investigation, 2026-09-16. `engine`.** Started from *"do pheromone
+  trails work at all?"* and ended somewhere else. They do: a laden ant walks a
+  standing channel-A trail **+104 cells of the 112 available**, an empty ant on
+  an identical channel-B trail goes **+1** against a no-trail control's +2, and
+  re-gating units 2/3 takes the same animal to **+104**. **The food half is not
+  shapeless, it is shaped backwards.** Channel B is laid only while laden, and
+  laden means homeward, so the food end is always the older end — sequential
+  laying plus real decay gives a clean monotone ramp whose gradient points at
+  the **nest** (+0.04 to +0.23 facing home along the whole route, against a
+  working gate's 0.641 at 0.10). `ant.ron` then authors `(PheroBAlong, 2,
+  +6.0)` with channel A's sign, so **an empty ant with the gate opened is
+  steered home** — a candidate mechanism for §Z7's finding that re-gating makes
+  the colony worse, alongside §Z7's own (recruitment converging on patches
+  already eaten); **neither is established, and nobody has run the arm that
+  separates them.** **Reviewed independently the same day, and the review
+  killed the report's first proposal**: reversing the reader so it *descends*
+  toward the older end reverses the reading exactly and still does not make a
+  trail follower, because a descending ant is **repelled** from a trail it is
+  not already on — 0.0% of ticks on-band from 24 cells off the end over 16
+  runs, against an ascending arm's 13.4% and an undirected control's 4.3%. So
+  the standing proposal is the **unit-7 food odometer, ascended, paired with a
+  depletion signal**, behind one measurement: the local gradient a real ant
+  reads on the played bed. Carries its own corrections (a dropped `-0.976`
+  edge column, "monotone" true of eight probes and false of 47 of 106 interior
+  readings, a wrong `MUT_ABS_FLOOR` claim, `dead-ends.md`'s *"do not retry the
+  weight change alone"* uncited) and a withdrawn `CLAUDE.md` rule proposal —
+  the *pixels a lever moves* rule already covers it. Biology section on trail
+  polarity (Jackson et al., *Nature* 2004), *Lasius niger* cessation at an
+  exhausted source, and why the *Cataglyphis* path-integration analogy is
+  weaker than it looks. Extends `open-bugs-handoff.md` §Z7; supersedes nothing
 - [pheromone-lifetime-and-wiring-2026-09-14.md](pheromone-lifetime-and-wiring-2026-09-14.md)
   — **measurement, 2026-09-14, round 36 lane C. `engine`.** The owner's two
   questions about the trail planes, answered: *do they fade too fast* and *is

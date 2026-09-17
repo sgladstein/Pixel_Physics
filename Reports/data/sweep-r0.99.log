@@ -1,0 +1,90 @@
+  diet: larder=fruit onlyfood=on
+  odometer: recur=0.99 emita=shipped biasa=shipped
+trailfollow: mode=gap gate=b2 frames=24000 seeds=12 seed0=1 ants=20 relay=60 near=10 food=200 refill=2000
+  gate b2: off -45.0  on +0.5  along ±6.0
+  landed 2026-09-09: units 0/1 = b2 (off -45, on +0.5, along 6); units 2/3 = saturated (off -45, on +30, along 6). See open-bugs-handoff.md Z7.
+
+  gap seed   arm     alive     ate J  arrive@    dead@    carry    @nest  visitors  trips reach 0-25-50-75-100
+----- ---- ----- --------- --------- -------- -------- -------- -------- --------- ------ ------------------
+   90    1  hand  130/2       858590      804        0   431042        0  734/770       0      5 1 6 277 481
+                founded x   12..88    occupancy/1k [28 2 16 20 31 58 224 1235]  carry->nest    -994  born  750 died  630 (starved   80)
+                own trail: route pk    0 end   91 along -0.1220   blocked    10473  kin swaps       0  ticks    255113
+                channel A: PEAK amt  59580 cells   66 (of 91 route)  POLARITY -0.11147  end nest->food [0,0,2,558,3843]  nest   25  AtNest  0.61%
+                Carrying: laden    441519  of which SPOIL     11822 (  2.7%)
+   90    2  hand    0/0        15574      600    18607    35800        0   18/34        0         5 3 3 15 8
+                founded x   12..88    occupancy/1k [36 31 9 17 4 13 9 38]  carry->nest     -23  born   14 died   34 (starved   26)
+                own trail: route pk    0 end   91 along -0.1152   blocked      124  kin swaps       0  ticks     27084
+                channel A: PEAK amt  13428 cells   63 (of 91 route)  POLARITY +0.07544  end nest->food [0,0,0,0,0]  nest   25  AtNest 10.79%
+                Carrying: laden     40792  of which SPOIL      4992 ( 12.2%)
+   90    3  hand  153/18      752086      564        0   763972      279  562/576       4      7 0 0 198 371
+                founded x   12..88    occupancy/1k [48 10 2 8 22 92 364 1486]  carry->nest     134  born  556 died  409 (starved   50)
+                own trail: route pk    0 end   91 along -0.1220   blocked    10032  kin swaps       0  ticks    444460
+                channel A: PEAK amt  59815 cells   91 (of 91 route)  POLARITY -0.14674  end nest->food [0,103,5716,39018,8019]  nest   25  AtNest  0.92%
+                Carrying: laden    775494  of which SPOIL     11792 (  1.5%)
+   90    4  hand    1/1         7356     1050        0    43465      252   11/25        0          5 6 3 7 4
+                founded x   12..88    occupancy/1k [58 8 14 16 4 8 6 43]  carry->nest      70  born    5 died   24 (starved   17)
+                own trail: route pk    0 end   91 along -0.1152   blocked      124  kin swaps       0  ticks     26813
+                channel A: PEAK amt  11036 cells   40 (of 91 route)  POLARITY +0.05600  end nest->food [0,0,0,0,0]  nest   25  AtNest 11.72%
+                Carrying: laden     53611  of which SPOIL     12414 ( 23.2%)
+   90    5  hand    0/0         5918      534     7782    30119        0   16/25        0         6 1 1 12 5
+                founded x   12..88    occupancy/1k [39 6 18 8 6 6 12 35]  carry->nest       1  born    5 died   25 (starved   21)
+                own trail: route pk    0 end   91 along -0.1152   blocked      138  kin swaps       0  ticks     22211
+                channel A: PEAK amt  10254 cells   86 (of 91 route)  POLARITY +0.06728  end nest->food [0,0,0,0,0]  nest   25  AtNest  7.79%
+                Carrying: laden     34355  of which SPOIL      4272 ( 12.4%)
+   90    6  hand    0/0         1428      528    11808    10392        0    5/21        0          9 5 1 4 2
+                founded x   12..88    occupancy/1k [73 23 5 20 2 3 9 12]  carry->nest     -13  born    1 died   21 (starved   20)
+                own trail: route pk    0 end   91 along -0.1152   blocked       88  kin swaps       0  ticks     25067
+                channel A: PEAK amt   8254 cells   54 (of 91 route)  POLARITY +0.04094  end nest->food [0,0,0,0,0]  nest   25  AtNest 14.06%
+                Carrying: laden     14430  of which SPOIL      4572 ( 31.7%)
+   90    7  hand    0/0            0      540     8880    10554        0    5/20        0          8 2 2 7 1
+                founded x   12..88    occupancy/1k [52 32 9 6 3 4 7 11]  carry->nest       8  born    0 died   20 (starved   20)
+                own trail: route pk    0 end   91 along -0.1152   blocked       85  kin swaps       0  ticks     21168
+                channel A: PEAK amt   9251 cells   80 (of 91 route)  POLARITY +0.03426  end nest->food [0,0,0,0,0]  nest   25  AtNest 24.70%
+                Carrying: laden     14634  of which SPOIL      4080 ( 27.9%)
+   90    8  hand    0/0         9389      576    11026    31689        0   16/28        0         2 7 2 15 2
+                founded x   12..88    occupancy/1k [25 38 11 19 4 4 12 39]  carry->nest     120  born    8 died   28 (starved   23)
+                own trail: route pk    0 end   91 along -0.1152   blocked      116  kin swaps       0  ticks     25875
+                channel A: PEAK amt  11118 cells   83 (of 91 route)  POLARITY +0.09637  end nest->food [0,0,0,0,0]  nest   25  AtNest 10.55%
+                Carrying: laden     34406  of which SPOIL      2717 (  7.9%)
+   90    9  hand    0/0         6424      660    18848    41770      108   11/25        0         7 3 2 10 3
+                founded x   12..88    occupancy/1k [64 8 15 8 4 4 12 41]  carry->nest     134  born    5 died   24 (starved   23)
+                own trail: route pk    0 end   91 along -0.1152   blocked      122  kin swaps       0  ticks     26777
+                channel A: PEAK amt   9911 cells   65 (of 91 route)  POLARITY +0.01613  end nest->food [0,0,0,0,0]  nest   25  AtNest  6.96%
+                Carrying: laden     43900  of which SPOIL      2130 (  4.9%)
+   90   10  hand    0/0         5261      696     8484    10434        0   12/25        0         7 2 2 13 1
+                founded x   12..88    occupancy/1k [68 5 9 10 12 3 12 12]  carry->nest      36  born    5 died   25 (starved   24)
+                own trail: route pk    0 end   91 along -0.1152   blocked       85  kin swaps       0  ticks     22487
+                channel A: PEAK amt  11638 cells   62 (of 91 route)  POLARITY +0.06240  end nest->food [0,0,0,0,0]  nest   25  AtNest 15.21%
+                Carrying: laden     16470  of which SPOIL      6126 ( 37.2%)
+   90   11  hand    0/0         3417      756     8124    16787        0   11/23        0         6 1 1 12 3
+                founded x   12..88    occupancy/1k [35 17 12 14 6 9 10 21]  carry->nest      72  born    3 died   23 (starved   22)
+                own trail: route pk    0 end   91 along -0.1152   blocked       70  kin swaps       0  ticks     21495
+                channel A: PEAK amt   9893 cells   57 (of 91 route)  POLARITY +0.04368  end nest->food [0,0,0,0,0]  nest   25  AtNest 16.69%
+                Carrying: laden     21575  of which SPOIL      5070 ( 23.5%)
+   90   12  hand    0/0            0      630     8550     4128        0    4/20        0          7 4 3 6 0
+                founded x   12..88    occupancy/1k [85 12 3 7 2 13 7 4]  carry->nest      24  born    0 died   20 (starved   18)
+                own trail: route pk    0 end   91 along -0.1152   blocked       61  kin swaps       0  ticks     22849
+                channel A: PEAK amt   9325 cells   65 (of 91 route)  POLARITY +0.02395  end nest->food [0,0,0,0,0]  nest   25  AtNest  9.40%
+                Carrying: laden      9918  of which SPOIL      5904 ( 59.5%)
+
+  larder put out, over the whole sweep: 48720-439440 J, against a need near 46,800 J
+    for 52 ants over 24,000 frames -- so these colonies are provisioned, not starved.
+  intake off anything that is not the larder is ASSERTED to be 0 in every row, not printed.
+
+  `self` vs `mute` is the real question: do the ants' OWN trails do anything?
+  `visitors` is DISTINCT ants that reached the food over distinct ants that ever lived --
+    recruitment, which `near` ant-ticks cannot see: 50 visitors and 1 resident read alike.
+  `trips` is nest -> food -> nest, closed on the RETURN. `reach` buckets every ant by how
+  `occupancy` is ant-ticks in 8 equal bands, NEST END FIRST, food end last -- a commuting
+    colony is bimodal, a dispersing one slides its mass right, a homebody is a spike at 0.
+  `carry->nest` is signed cells moved while holding larder, POSITIVE = homeward. Near zero
+    means food is picked up and wandered with, which is a different fault from not finding it.
+    far it ever got, as a share of the gap, so a commuting population is visible as a shape.
+  `hand` vs `self` only says whether a laid ramp beats what they bootstrap.
+  `hmute` is the DECAY BASELINE for `route pk`: our ramp laid, the ants silenced.
+  `homeA` lays a channel A HOMING ramp and no food trail -- if laden ants only fail
+    to route because they cannot find their way home, this is where their own B appears.
+  `carry` is ant-ticks holding larder in the crop; `carry@nest` is those inside the +-26 nest band --
+    that pair is the answer to "is food being carried back", which a cell census cannot give.
+  `other J` must read 0 in every row: it is the check that `onlyfood` held.
+  A gap where `alive` reaches 0 in every arm is measuring a dead colony, not a deaf one.

@@ -333,6 +333,7 @@ mod tests {
         assert_eq!(out.digest_rate, src.digest_rate);
         assert_eq!(out.trait_variance, src.trait_variance);
         assert_eq!(out.climbs_over_kin, src.climbs_over_kin);
+        assert_eq!(out.passes_through_kin, src.passes_through_kin);
         assert_eq!(out.eats_kin, src.eats_kin);
         assert_eq!(out.nest, src.nest);
         assert_eq!(out.dig_force, src.dig_force);

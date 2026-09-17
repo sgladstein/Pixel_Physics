@@ -719,6 +719,7 @@ fn creature_value(world: &World, species: &str, field: &str) -> Option<f32> {
         // opposite of what None means.
         "bite_force" => def.bite_force(),
         "climbs_over_kin" => f32::from(u8::from(def.climbs_over_kin)),
+        "passes_through_kin" => f32::from(u8::from(def.passes_through_kin)),
         "eats_kin" => f32::from(u8::from(def.eats_kin)),
         "curvature_fraction" => def.curvature_fraction,
         "exposure_cost_per_cell" => def.exposure_cost_per_cell,
@@ -935,6 +936,9 @@ fn genome_rows(world: &World, species: &str, out: &mut Vec<Param>) {
             out.push(toggle(g, Knob::Creature { species: sp.clone(), field: "climbs_over_kin" }, species, "climbs_over_kin",
                 def.climbs_over_kin,
                 "WHETHER AN ANT WILL WALK OVER ONE OF ITS OWN. ON, A CROWD FLOWS AND PILES; OFF, ANTS BLOCK EACH OTHER AND A BUSY NEST GRIDLOCKS. IT IS THE SINGLE ROW THAT MOST CHANGES WHAT A CROWD LOOKS LIKE."));
+            out.push(toggle(g, Knob::Creature { species: sp.clone(), field: "passes_through_kin" }, species, "passes_through_kin",
+                def.passes_through_kin,
+                "WHETHER TWO ANTS THAT MEET HEAD ON WILL TRADE PLACES INSTEAD OF STOPPING. OFF IS THE SHIPPED RULE: A NESTMATE IS AS SOLID AS ROCK, SO A BUSY TRAIL BECOMES A SINGLE-FILE QUEUE AND THE BETTER THE TRAIL WORKS THE WORSE THE JAM. ON, THEY SWAP -- NEVER TWO IN ONE PIXEL, SO IT STILL LOOKS RIGHT -- AND A COLUMN FLOWS. THIS IS A TEST OF WHETHER THE BLOCKING RULE COSTS MORE THAN IT BUYS."));
             out.push(toggle(g, Knob::Creature { species: sp.clone(), field: "eats_kin" }, species, "eats_kin",
                 def.eats_kin,
                 "WHETHER AN ANT WILL EAT ITS OWN KIND. OFF IS A COLONY; ON IS A COLONY THAT SOLVES A HUNGRY HOUR BY EATING ITSELF, WHICH IS A REAL STRATEGY AND A FAST WAY TO WATCH ONE COLLAPSE. CORPSES ARE FAIR GAME EITHER WAY -- THIS IS ABOUT THE LIVING."));
@@ -1418,6 +1422,7 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 // defaulting to whatever the jaw happens to be.
                 "bite_force" => def.bite_force = Some(value.max(0.0)),
                 "climbs_over_kin" => def.climbs_over_kin = value >= 0.5,
+                "passes_through_kin" => def.passes_through_kin = value >= 0.5,
                 "eats_kin" => def.eats_kin = value >= 0.5,
                 "curvature_fraction" => def.curvature_fraction = value,
                 "exposure_cost_per_cell" => def.exposure_cost_per_cell = value,
@@ -2755,7 +2760,7 @@ mod tests {
             "start_energy", "body_energy", "crop_capacity", "digest_rate",
             "reproduce_threshold", "mutation_rate", "tick_interval",
             "dig_force", "bite_force", "sight_range", "curvature_radius", "sensor_offset",
-            "climbs_over_kin", "eats_kin", "scent_spread", "scent_drift", "kin_crosses_kinds",
+            "climbs_over_kin", "passes_through_kin", "eats_kin", "scent_spread", "scent_drift", "kin_crosses_kinds",
             "life_half_life",
             "idle_cost_per_cell", "move_cost_per_cell", "dig_cost_in_moves",
             "emit_cost_in_moves", "spoil_weight_cells", "exposure_cost_per_cell",
