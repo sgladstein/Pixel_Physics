@@ -111,6 +111,18 @@ struct OrganismSlot {
 /// while `self.colony_breeders` is already borrowed mutably — the two are
 /// disjoint fields, but `organism`'s own `&self` signature would force the
 /// whole struct to be borrowed and rule that out.
+/// **The shipped stacking cap**, read once per `World` from
+/// `PIXEL_PHYSICS_STACK_DEPTH` — see [`World::stack_cap`] for why the cap
+/// *is* the feature toggle rather than a separate branch.
+///
+/// Default 1, which is the engine as it stood before stacking. A value that
+/// does not parse is the default rather than a panic, on the house pattern:
+/// a mistyped switch should leave the shipped behaviour standing, not stop
+/// the app. `0` clamps to 1 for the reason `set_stack_cap` gives.
+fn default_stack_cap() -> usize {
+    std::env::var("PIXEL_PHYSICS_STACK_DEPTH").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(1).max(1)
+}
+
 fn organism_in(organisms: &[OrganismSlot], organism_id: OrganismId) -> Option<&OrganismState> {
     let (slot_index, generation) = decode_organism_id(organism_id);
     if slot_index == 0 {
@@ -3091,6 +3103,63 @@ pub struct World {
     /// Write through [`World::book`] only. See [`ColonyBooks`].
     colony_books: Vec<ColonyBooks>,
     organisms: Vec<OrganismSlot>,
+    /// **Cells holding more than one creature — the riders, never the
+    /// owner** (`Reports/creature-stacking-design-2026-09-17.md` §5).
+    ///
+    /// A cell keeps exactly one `organism_id`, meaning exactly what it has
+    /// always meant, and that organism is the one the grid — and therefore
+    /// every one of `organism_id()`'s 366 call sites — can see. Anything
+    /// else standing in the same cell is a **rider** and lives only here.
+    /// That asymmetry is the whole design: a crowd handle in `Cell` would
+    /// enrol plant anchoring, structural collapse, `rigid.rs`, the player's
+    /// strike and the renderer in a concept none of them has heard of, and
+    /// only 74 of those 366 reads are in `creature.rs`.
+    ///
+    /// **Sparse, and deliberately not a plane.** The shipped world is
+    /// 8192x2560, so a `u8` depth plane is ~21 MB of new allocation for a
+    /// feature live in a handful of cells at a time — and one more
+    /// world-sized thing for M10 streaming to carry.
+    ///
+    /// The `Vec` is in **insertion order**, which is a real guarantee
+    /// rather than an accident: creature ticks are serial
+    /// (`scheduler::step` takes `&mut World`), so the order riders arrive
+    /// in is the order they are stored, and promotion can name "the
+    /// oldest" without a tie-break. `PosMap` is `fxhash`-backed and
+    /// unrandomised, so its own iteration is deterministic too — but
+    /// nothing here should depend on that, because a rule that reads
+    /// *which* cell comes first is a rule about the map rather than about
+    /// the world.
+    ///
+    /// **Empty whenever `creature::max_stack_depth()` is 1**, which is the
+    /// default and is today's behaviour exactly. Guarded by
+    /// `the_stack_index_is_empty_at_the_default_cap`.
+    stacked: crate::sim::fxhash::PosMap<Vec<OrganismId>>,
+    /// **How many creatures of one colony may stand in one cell** —
+    /// `PIXEL_PHYSICS_STACK_DEPTH`, default **1**, which is this engine's
+    /// behaviour before stacking existed
+    /// (`Reports/creature-stacking-design-2026-09-17.md` §5 step 2).
+    ///
+    /// **The cap is the toggle, and that is the design.** At 1, *may I enter
+    /// a cell that already holds one creature* **is** *is this cell
+    /// occupied* — the rule this engine has always had. So the old
+    /// behaviour is a *value of this parameter* rather than a second code
+    /// path, and there is no forked logic to keep in sync, which is the
+    /// usual way a feature flag rots. The ablation stays live in the same
+    /// binary for the reason every A/B here does: a recompile sitting
+    /// between two arms becomes the thing that actually changed.
+    ///
+    /// **A field rather than a `OnceLock`**, unlike the switches in
+    /// `creature.rs`. Those never need to vary; this one does, and a
+    /// process-wide latch would let the first test that read it decide the
+    /// cap for every other test in the binary. `room_target` is the
+    /// precedent.
+    ///
+    /// Owner's ruling, 2026-09-17: a hard cap and **no cost** — *"Only 20
+    /// creatures can share a cell (not sure if 20 is the right number, we
+    /// can play around with it)."* Note what that implies: with a cap and
+    /// no cost, a stack sits **at** the cap wherever there is pressure, so
+    /// this is "how deep should a pile look", not "how deep it will get".
+    stack_cap: usize,
     free_organism_slots: Vec<OrganismId>,
     /// **Cumulative organism births and deaths — the lineage turnover
     /// readout the plant plan of record's Phase 0d asks for and nothing
@@ -5337,6 +5406,8 @@ impl World {
             energy_ledger: EnergyLedger::default(),
             colony_books: Vec::new(),
             organisms: Vec::new(),
+            stacked: crate::sim::fxhash::PosMap::default(),
+            stack_cap: default_stack_cap(),
             free_organism_slots: Vec::new(),
             organisms_born: 0,
             organisms_died: 0,
@@ -6702,6 +6773,20 @@ impl World {
         // fire twice for one death, and the guards above are what stop the
         // second one).
         self.organisms_died += 1;
+
+        // **A freed slot must not linger in the rider index**, or promotion
+        // would later hand a cell to an organism that no longer exists
+        // (`Reports/creature-stacking-design-2026-09-17.md` §5 step 4).
+        //
+        // **After the `self.organisms` borrow ends**, for the same reason
+        // the grave push above is: this takes `&mut self` whole, where
+        // `slot` borrows one field, so it cannot sit beside it. And it is
+        // down here rather than at the top so it runs only when a release
+        // really happened -- the guards above are what decide that.
+        //
+        // Free on an unarmed world: the index is sparse and empty, so the
+        // `retain` visits no cells at all.
+        self.remove_rider_everywhere(organism_id);
     }
 
     /// Mark this organism as having been refused a birth for want of room,
@@ -8628,6 +8713,99 @@ impl World {
                 state.cells.insert((x, y), organism::OrganismCell::default());
             }
         }
+    }
+
+    /// **The creatures standing in `(x, y)` that the grid cannot see** —
+    /// everyone in that cell except the one holding its `organism_id`.
+    ///
+    /// Empty for almost every cell in the world, and empty for *every* cell
+    /// while `creature::max_stack_depth()` is 1. In **insertion order**, so
+    /// the front is the oldest arrival: that is what lets promotion name a
+    /// successor without inventing a tie-break (§5 step 4).
+    ///
+    /// Returns a slice rather than the `Vec` so no caller can reorder the
+    /// thing whose order is the guarantee.
+    pub fn riders_at(&self, x: i32, y: i32) -> &[OrganismId] {
+        self.stacked.get(&(x, y)).map_or(&[][..], |v| &v[..])
+    }
+
+    /// Every cell currently holding at least one rider — the "did it fire
+    /// at all" census, and the specificity control for the whole feature:
+    /// **zero at the default cap**, non-zero once it is armed and a crowd
+    /// forms. A depth counter that cannot move is blind, not strong.
+    pub fn stacked_cell_count(&self) -> usize {
+        self.stacked.len()
+    }
+
+    /// The deepest stack anywhere, riders only (so 0 means nothing is
+    /// stacked at all, and 1 means one cell holds a rider beside its
+    /// owner). Paired with `stacked_cell_count` because a single very deep
+    /// cell and a wide shallow crowd are different worlds that the count
+    /// alone reads identically.
+    pub fn deepest_stack(&self) -> usize {
+        self.stacked.values().map(|v| v.len()).max().unwrap_or(0)
+    }
+
+    /// The stacking cap this world is running (see [`World::stack_cap`]'s
+    /// field doc). 1 is the shipped default and means no stacking at all.
+    pub fn stack_cap(&self) -> usize {
+        self.stack_cap
+    }
+
+    /// Arm or disarm stacking for **this** world. Clamped to at least 1: a
+    /// cap of zero would mean no creature may stand anywhere, and silently
+    /// emptying the world is a worse answer than ignoring a nonsense value.
+    pub fn set_stack_cap(&mut self, cap: usize) {
+        self.stack_cap = cap.max(1);
+    }
+
+    /// Add `id` as a rider of `(x, y)`. **The caller owns the cap** — this
+    /// is the bookkeeping, not the rule, for the same reason
+    /// `reindex_organism_cell` does not decide who may own a cell.
+    ///
+    /// **`pub` rather than `pub(crate)`** so a harness can build a stacked
+    /// scene to measure one: the engine's own caller arrives with
+    /// `relocate_chain`'s rider registration (§5 step 3), and until then an
+    /// `examples/` binary is the only way to put a crowd in a cell on
+    /// purpose. The invariant these keep — a cell's entry disappears with
+    /// its last rider — lives inside the pair, so no caller can corrupt it.
+    ///
+    /// Idempotent: a body that re-enters a cell it already rides does not
+    /// get counted twice, which matters because a chain's landing shares
+    /// most of its cells with where it already stands.
+    pub fn add_rider(&mut self, x: i32, y: i32, id: OrganismId) {
+        let slot = self.stacked.entry((x, y)).or_default();
+        if !slot.contains(&id) {
+            slot.push(id);
+        }
+    }
+
+    /// Drop `id` from `(x, y)`'s riders, and drop the cell's entry entirely
+    /// when the last one leaves — so `stacked_cell_count` stays a census of
+    /// cells that are *actually* stacked rather than of cells that once
+    /// were, and the map does not grow without bound along a trail.
+    pub fn remove_rider(&mut self, x: i32, y: i32, id: OrganismId) {
+        let Some(slot) = self.stacked.get_mut(&(x, y)) else {
+            return;
+        };
+        slot.retain(|&r| r != id);
+        if slot.is_empty() {
+            self.stacked.remove(&(x, y));
+        }
+    }
+
+    /// Drop `id` from every cell it rides. The slow path, for a creature
+    /// leaving the world — death, severing, a freed slot — where the caller
+    /// knows the organism but not which cells it was riding.
+    ///
+    /// Linear in the number of *stacked* cells rather than in the world,
+    /// which is why the index is sparse: on an unarmed world this visits
+    /// nothing at all.
+    pub(crate) fn remove_rider_everywhere(&mut self, id: OrganismId) {
+        self.stacked.retain(|_, v| {
+            v.retain(|&r| r != id);
+            !v.is_empty()
+        });
     }
 
     /// The sidecar scalars for the organism-owned cell at `(x, y)`, or
@@ -10566,6 +10744,62 @@ fn aux_trap_frame() -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
+    /// **The rider index keeps insertion order, and forgets a cell
+    /// completely once the last rider leaves.**
+    ///
+    /// Both halves are load-bearing. Order is what lets promotion name "the
+    /// oldest" without a tie-break (§5 step 4 of the stacking design), and
+    /// it is a real guarantee only because creature ticks are serial.
+    /// Forgetting the cell is what keeps `stacked_cell_count` a census of
+    /// cells that are stacked *now* rather than of cells that ever were —
+    /// without it the map grows along every trail an ant has walked and the
+    /// "did it fire" counter becomes a high-water mark.
+    #[test]
+    fn riders_keep_insertion_order_and_the_cell_is_dropped_when_the_last_one_leaves() {
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        assert_eq!(w.stacked_cell_count(), 0, "a fresh world rides nothing");
+
+        for id in [7, 9, 4] {
+            w.add_rider(10, 10, id);
+        }
+        assert_eq!(w.riders_at(10, 10), &[7, 9, 4], "insertion order, not sorted and not reversed");
+        assert_eq!(w.stacked_cell_count(), 1);
+        assert_eq!(w.deepest_stack(), 3);
+
+        // Idempotent: a chain's landing shares most of its cells with where
+        // it already stands, so a body re-entering a cell it already rides
+        // must not be counted twice.
+        w.add_rider(10, 10, 9);
+        assert_eq!(w.riders_at(10, 10), &[7, 9, 4], "re-adding an existing rider changed the roster");
+
+        w.remove_rider(10, 10, 9);
+        assert_eq!(w.riders_at(10, 10), &[7, 4], "removing the middle rider must not disturb the others");
+
+        w.remove_rider(10, 10, 7);
+        w.remove_rider(10, 10, 4);
+        assert_eq!(w.stacked_cell_count(), 0, "the cell outlived its last rider — the census is now a high-water mark");
+        assert_eq!(w.deepest_stack(), 0);
+        assert!(w.riders_at(10, 10).is_empty());
+    }
+
+    /// **A creature leaving the world is dropped from every cell it rode.**
+    /// The slow path, for death and severing, where the caller knows the
+    /// organism but not which cells it was standing in. A rider left behind
+    /// is a stale id that promotion would later hand a cell to.
+    #[test]
+    fn remove_rider_everywhere_clears_every_cell_and_leaves_the_others_intact() {
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        w.add_rider(1, 1, 5);
+        w.add_rider(2, 2, 5);
+        w.add_rider(2, 2, 6);
+        assert_eq!(w.stacked_cell_count(), 2);
+
+        w.remove_rider_everywhere(5);
+        assert!(w.riders_at(1, 1).is_empty(), "the cell 5 rode alone is gone");
+        assert_eq!(w.riders_at(2, 2), &[6], "6 still rides the cell it shared with 5");
+        assert_eq!(w.stacked_cell_count(), 1, "only the emptied cell was forgotten");
+    }
+
 
     /// An organism of `cells` cells on founding line `line`, laid along row
     /// 0 from `next` so no two bodies share a cell. Built through the real

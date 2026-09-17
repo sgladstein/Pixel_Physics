@@ -13172,6 +13172,33 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
 mod tests {
     use super::*;
     use crate::sim::chunk::Rect;
+
+    /// **The stacking cap defaults to 1, and 1 is today's engine.**
+    ///
+    /// The whole toggle rests on this: at a cap of 1, *may I enter a cell
+    /// that already holds one creature* is exactly *is this cell occupied*,
+    /// so the pre-stacking behaviour is a **value of the parameter** rather
+    /// than a second code path. If this default ever moves, stacking ships
+    /// armed to every scene in the repo without anything else changing --
+    /// including `tests/worldgen.rs`'s guard that not one cell moves in the
+    /// 120 frames after generation, which sweeps every preset.
+    ///
+    /// **A field on `World` rather than a process-wide `OnceLock`**, and the
+    /// first draft was the `OnceLock`. The idiom `blocked_census_enabled`
+    /// uses is right for a switch nothing needs to vary, and wrong here: the
+    /// first caller in the process would fix the cap for every test in the
+    /// binary, so no test could ever exercise an armed world beside one
+    /// asserting the default. `World::room_target` is the precedent -- read
+    /// from the environment once at construction, then a value you can set.
+    #[test]
+    fn the_stacking_cap_defaults_to_one() {
+        let w = World::new(Rect::new(0, 0, 63, 63));
+        assert_eq!(
+            w.stack_cap(),
+            1,
+            "the default cap is not 1, so every scene in the repo is running with stacking armed"
+        );
+    }
     use crate::sim::field;
     use crate::sim::organism;
     use crate::sim::scheduler;
