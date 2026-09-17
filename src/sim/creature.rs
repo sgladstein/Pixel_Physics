@@ -15226,6 +15226,105 @@ mod tests {
         }
     }
 
+    /// The founded nest, plus a dense row of the same colony beside it —
+    /// the only bed in this file where stacking is actually reachable.
+    /// Returns the crowd's ids, which is what the vacuity check needs.
+    fn crowded_colony(w: &mut World, low: i32) -> Vec<OrganismId> {
+        assert!(w.found_colony(120, low - 2) > 0, "the bed founded no colony -- the scene is wrong, not the rule");
+        // The label the founders were given, read off the world rather than
+        // assumed: `claim_colony` hands them out in order, so a literal would
+        // break the day anything else founds first.
+        let colony = (0..256i32)
+            .flat_map(|x| (low - 40..low).map(move |y| (x, y)))
+            .filter_map(|(x, y)| Some(w.get(x, y).organism_id()).filter(|&i| i != 0))
+            .filter_map(|id| w.organism(id).map(|s| s.colony))
+            .find(|&c| c != 0)
+            .expect("a founded colony has a non-zero label");
+        let mut crowd = Vec::new();
+        for i in 0..24i32 {
+            w.plant_ant(110 + i * 2, low - 1);
+        }
+        for i in 0..24i32 {
+            let id = w.get(110 + i * 2, low - 1).organism_id();
+            if id == 0 {
+                continue;
+            }
+            if let Some(st) = w.organism_mut(id) {
+                st.colony = colony;
+            }
+            crowd.push(id);
+        }
+        crowd
+    }
+
+    /// **Ants of one colony actually stand in each other's cells** -- the one
+    /// thing every other stacking test fails to show
+    /// (`Reports/creature-stacking-design-2026-09-17.md`).
+    ///
+    /// The others either call `World::add_rider` by hand or ask
+    /// `can_stack_into` directly, so between them they prove the bookkeeping
+    /// and the predicate and **not** that a walking animal ever reaches
+    /// either. `CLAUDE.md`'s standing rule is that a mechanism adding a
+    /// discrete event needs the count beside it; `stacked_cell_count` is that
+    /// count, and until this test it had never read non-zero in a running
+    /// world.
+    ///
+    /// **Three conditions have to hold at once, and each was found by a bed
+    /// that lacked exactly one of them.** Every number below is measured, at
+    /// cap 20 over 3,000 frames:
+    ///
+    /// 1. **A real colony label.** `can_stack_into` refuses `colony == 0` on
+    ///    purpose -- it is the bucket every plant and hand-placed animal
+    ///    shares, so reading it as a colony is how an ant would come to hide
+    ///    under a beetle. `World::plant_ant` claims none, which is why three
+    ///    arms of `forage_probe spacing=2` came back identical to the last
+    ///    digit across cap 1 and cap 20: the predicate correctly refused every
+    ///    candidate, and it read as the stale-binary tell instead.
+    /// 2. **Crowding.** A colony founded by `found_colony` alone spaces its
+    ///    ants at `COLONY_ANT_SPACING` (4) and stacked **zero** times while
+    ///    walking 1,329 moves -- `HeadBlock`'s own doc says why: at that
+    ///    spacing an ant "almost never has a nestmate in any of its own eight
+    ///    neighbour cells". No opportunity, so no event.
+    /// 3. **Somewhere to go.** A crowded row with no nest stacked zero times
+    ///    too, at **99 moves and 7 of 24 left alive**: ants with nothing to
+    ///    walk toward do not walk, and then starve.
+    ///
+    /// With all three it reads **4 stacked cells over 1,273 moves, 24 alive**.
+    /// Note `deepest_stack` was **1** -- pairs, not piles -- so this proves
+    /// the mechanism fires and says nothing yet about depth under real load.
+    ///
+    /// The cap-1 arm is the other half: same bed, same frames, and the index
+    /// must stay **empty**, or the armed arm was not measuring the cap.
+    #[test]
+    fn a_crowded_colony_actually_stacks_when_the_cap_is_armed() {
+        const FRAMES: usize = 3_000;
+
+        let (mut armed, low) = colony_bed();
+        armed.set_stack_cap(20);
+        let crowd = crowded_colony(&mut armed, low);
+        assert!(crowd.len() >= 8, "only {} ants stood shoulder to shoulder -- the scene is wrong", crowd.len());
+        run(&mut armed, FRAMES);
+
+        assert!(
+            armed.creature_stats.moves > 0,
+            "nothing walked in {FRAMES} frames, so this bed cannot say anything about stacking either way"
+        );
+        assert!(
+            armed.stacked_cell_count() > 0,
+            "no ant ever stood in another's cell in {FRAMES} frames of a crowded colony at cap 20 -- \
+             stacking is unreachable from the walk, whatever the unit tests say about the predicate \
+             (moves {}, alive {})",
+            armed.creature_stats.moves,
+            armed.live_creature_count()
+        );
+
+        let (mut off, low_off) = colony_bed();
+        assert_eq!(off.stack_cap(), 1, "the unarmed arm must run the shipped cap");
+        crowded_colony(&mut off, low_off);
+        run(&mut off, FRAMES);
+        assert_eq!(off.stacked_cell_count(), 0, "the index filled at cap 1, so the armed arm was not measuring the cap");
+    }
+
     // --- old age ---------------------------------------------------------
 
     /// A flat bed and a cohort of ants that **cannot starve and cannot
