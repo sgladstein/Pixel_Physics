@@ -279,8 +279,41 @@ the animal was made of, suppression deletes that from the colony ledger, and it
 only happens in the crowded case, which is the case under study. An uncounted
 leak correlated with the experimental condition is a measurement trap.
 
-**5. Multi-pip render.** `render.rs` draws from cells, so riders do not exist on
-screen until it asks the index. Offset, dimmed pips within the one cell.
+**5. Multi-pip render — CANCELLED, 2026-09-17, on a measured finding rather
+than a change of mind.**
+
+`MagnifyStyle`'s own doc says the in-cell art mechanism *"costs nothing at
+`zoom == 1`, which is every ordinary frame"* — because at play zoom one cell
+**is** one screen pixel. There is no sub-cell space to put a pip in, in the
+frames the complaint was about.
+
+And colour cannot substitute for it.
+[`creature-appearance-design.md`](creature-appearance-design.md) measured that
+directly: **"Extent is the only lever, and it has to roughly quadruple."** The
+shipped dark ant already achieves the best contrast of the three values tested;
+a pale 9-cell body puts *less* luminance on screen than the dark 2-cell one
+(251 against 285); and shape at constant extent moves nothing measurable (two
+9-cell bodies score within 0.8% of each other on every appearance number). A
+stack has **no extra extent by definition** — that is the whole feature — so it
+is precisely the case that report says cannot be made findable.
+
+This is `CLAUDE.md`'s *ask which pixels a lever moves before ranking it by
+silhouette*, applied before the work instead of after: three plant levers were
+built, demonstrably fired, and moved nothing, because they only relabelled
+cells. A pip inside a one-pixel cell has no pixels to move.
+
+**So the payoff is judged as flow rather than as visible piles** (owner's
+ruling): the point of stacking is ants *moving* where they were stuck, which is
+what the complaint was about. The verdict card is a **motion A/B** —
+`filmstrip gif=1`, cap 1 against cap 20 on a deliberately jammed scene — and
+the measured claim is the flow numbers from `forage_probe spacing=2`, whose
+`blocked/moves` ratio is the instrument that settled `climbs_over_kin`.
+
+One precedent makes the jam mandatory rather than optional: on the
+`climbs_over_kin` cards, **only the jammed-crowd card divided the arms for the
+owner's eye.** Three others came back *"pretty similar"* and *"no major
+difference"*, because at `COLONY_ANT_SPACING` there is no jam to dissolve. A
+founded-colony card would answer nothing here either.
 
 **6. Teach `neediest_kin` about riders.** `Share` reaches through
 `neediest_kin` (`creature.rs:5890`), which scans `NEIGHBOURS_8` around the
@@ -313,12 +346,12 @@ bit-identical at cap 1 means something leaked, and that is the first bug.
 - `cargo run --release --example ascii` for worst-frame timing — whole-frame
   figure, paired and alternating, baseline re-measured in the same session.
 
-**No review card until step 5 lands, and that is deliberate.** The eventual
-verdict is a blind A/B of a jammed trail at cap 1 against cap 20 with the
-counts in the card's `meta`. But while `render.rs` draws only the cell owner,
-an armed stack renders as **fewer** visible ants than cap 1, not more — a card
-posted before the render would show a jam looking emptier and invite exactly
-the wrong conclusion.
+**The card is a motion A/B, not a still**, and there is no render work at all —
+§5 step 5 has the measured reason. A blind pair of gifs, cap 1 against cap 20 on
+a jammed scene, with the discrete counts in the card's `meta`. A contact sheet
+cannot answer it: the renderer draws only the cell owner, so an armed stack shows
+**fewer** visible ants than cap 1 and a still would read as a jam thinning out.
+What changes is whether the ants are *moving*, and only motion shows that.
 
 ## 7. Known consequences, carried rather than solved
 
