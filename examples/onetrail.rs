@@ -213,7 +213,7 @@ fn silence_emission(g: &mut [f32]) -> usize {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run(seed: u64, ch: Channel, shape: Shape, mirror: bool, laden: bool, regate: bool, frames: u64, peak: f32, w_cells: i32, span: i32, decay: bool) -> Run {
+fn run(seed: u64, ch: Channel, shape: Shape, mirror: bool, laden: bool, regate: bool, frames: u64, peak: f32, w_cells: i32, span: i32, decay: bool, flip: bool, start_off: i32) -> Run {
     // `laden` selects the channel by holding the gate, not by filling a crop.
     let (w_world, h) = (w_cells, 64i32);
     let mut world = World::new(Rect::new(0, 0, w_world - 1, h - 1));
@@ -248,17 +248,38 @@ fn run(seed: u64, ch: Channel, shape: Shape, mirror: bool, laden: bool, regate: 
     if regate {
         regate_channel_b(&mut genome);
     }
+    // **Descend the trail instead of ascending it.** The symmetric pair's
+    // contribution is `2.5 * (squash(b + 6a) - squash(b - 6a))`, which is odd
+    // in `a` for any bias, so negating both along weights negates the response
+    // exactly. This is the "walk down the age gradient toward the older end,
+    // which is the food" proposal, made runnable.
+    if flip {
+        for u in [2usize, 3] {
+            let slot = brain::ih_slot(I::PheroBAlong, u);
+            genome[slot] = -genome[slot];
+        }
+    }
     world.species.set_genome(species, genome.clone());
 
-    let start_x = (w_world - 1) / 2;
+    // `start_off` moves the ant off the trail's midpoint. **A negative value
+    // is measured from the trail's low END, not from the midpoint**, so the
+    // ant starts genuinely OFF the stamped band -- which is the arm that
+    // matters and which every arm in this file until now skipped, because they
+    // all began standing on the trail. Measured from the midpoint it is not an
+    // off-trail arm at all: at `span=224` in a 256-wide world, twenty cells
+    // off centre is still comfortably inside the band, and the first version
+    // of this argument made exactly that mistake.
     // **`span` is what sets the gradient, and `peak` is not.** The reader is
     // `(ahead - here) / (ahead + here + SCALE)`, which is scale-free: multiply
     // the whole trail by ten and, once it is well clear of `SCALE`, the
     // reading is unchanged. What moves it is how much of the ramp fits inside
     // one sensor offset, i.e. the span. A `peak=` sweep is the wrong knob and
     // would read as "steepness does not help" when it had never been varied.
+    let mid = (w_world - 1) / 2;
     let half = (span / 2).min(w_world / 2 - 9);
-    let (x0, x1) = (start_x - half, start_x + half);
+    let (x0, x1) = (mid - half, mid + half);
+    let start_x = if start_off < 0 { x0 + start_off } else { mid };
+    assert!(start_x > 0, "start is off the world; give span= room for the off-trail arm");
     stamp(&mut world, ch, shape, mirror, x0, x1, head_y, peak);
     let stamped_mid = world.pheromone_at(ch, start_x, head_y);
 
@@ -287,6 +308,7 @@ fn run(seed: u64, ch: Channel, shape: Shape, mirror: bool, laden: bool, regate: 
             ticks += 1;
             last_x = hx;
             let signed = if mirror { start_x - hx } else { hx - start_x };
+            let _ = &signed;
             best = best.max(signed);
             if hy >= head_y - 3 && hy <= head_y + 1 && hx >= x0 && hx <= x1 {
                 on_band += 1;
@@ -354,6 +376,102 @@ fn arithmetic(base: &[f32]) {
     }
 }
 
+/// **Does sequential laying plus decay give a trail a gradient, and which way
+/// does it point?** -- the owner's question of 2026-09-16, which the rest of
+/// this file cannot answer because everywhere else the trail is stamped in one
+/// instant and then frozen.
+///
+/// A laden ant lays channel B on every step of its walk **home**, so the cell
+/// at the food end is laid first and has been decaying longest by the time the
+/// ant arrives. Decay is monotone, so the trail it leaves is a ramp -- and the
+/// ramp climbs toward the **nest**, not toward the food. That is the opposite
+/// of what an empty ant looking for food needs, and it is not a tuning
+/// accident: it follows from *when* the cells were written, so no deposit
+/// value or decay rate can turn it around.
+///
+/// No ant and no brain here: one cell written per `per_cell` frames along the
+/// route, the real `Pheromones::step` running throughout, then the profile and
+/// the along-gradient a reader would compute at each point. The point of
+/// leaving the animal out is that this is a property of the *plane*.
+fn timing_mode(per_cell: u64, span: i32, peak: f32, w_cells: i32, reverse: bool) {
+    let (w_world, h) = (w_cells, 64i32);
+    let mut world = World::new(Rect::new(0, 0, w_world - 1, h - 1));
+    let floor = h - 8;
+    let head_y = floor - 1;
+    for x in 0..w_world {
+        for y in floor..h {
+            world.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+        }
+    }
+    let x0 = (w_world - span) / 2;
+    let x1 = x0 + span - 1;
+    let amount = (peak * pheromone::SCALE as f32) as pheromone::Scent;
+
+    // Walk food -> nest, laying as we go: x0 is the food end and is written
+    // first, x1 is the nest end and is written last.
+    //
+    // **`reverse` is the control, and it is the one that says the ramp is a
+    // property of laying ORDER rather than of the scene.** The sweep runs
+    // chunk by chunk left to right and the movement rules are not symmetric,
+    // so "values climb toward +x" is not on its own evidence about decay. Lay
+    // the identical trail nest -> food and every reading must mirror: same
+    // magnitudes, opposite sign. If it does not, the profile is the harness.
+    let order: Vec<i32> = if reverse { (x0..=x1).rev().collect() } else { (x0..=x1).collect() };
+    for x in order {
+        world.deposit_pheromone(Channel::B, x, head_y, amount);
+        for _ in 0..per_cell {
+            parallel::step(&mut world);
+            world.step_fields();
+            world.step_pheromones();
+        }
+    }
+
+    let read = |x: i32| world.pheromone_at(Channel::B, x, head_y) as f64;
+    let alive = (x0..=x1).filter(|&x| read(x) > 0.0).count();
+    println!("  per_cell={per_cell:<3} span={span} walk={} frames | trail cells still alive at arrival: {alive} of {span}", per_cell * span as u64);
+
+    // Eight probes evenly along the route, food end first.
+    // **Every interior reading, not eight probes.** Eight probes are a
+    // picture; the question "is the gradient the ant computes monotone" is
+    // about all of them, and the two disagree -- see the `<=0` count.
+    let interior: Vec<f64> = (x0..=(x1 - 6))
+        .map(|x| {
+            let (here, ahead) = (read(x), read(x + 6));
+            (ahead - here) / (ahead + here + pheromone::SCALE as f64)
+        })
+        .collect();
+    let n = interior.len().max(1) as f64;
+    let mean = interior.iter().sum::<f64>() / n;
+    let nonpos = interior.iter().filter(|&&g| g <= 0.0).count();
+    println!(
+        "    interior gradient (every x, 6-cell offset): mean {mean:+.4}  min {:+.4}  max {:+.4}  |  <=0 in {nonpos} of {} readings",
+        interior.iter().cloned().fold(f64::MAX, f64::min),
+        interior.iter().cloned().fold(f64::MIN, f64::max),
+        interior.len()
+    );
+
+    let probes: Vec<i32> = (0..8).map(|i| x0 + i * (span - 1) / 7).collect();
+    let vals: Vec<String> = probes.iter().map(|&x| format!("{:>8.0}", read(x))).collect();
+    println!("    value    food->nest: {}", vals.join(""));
+    // The reader's own arithmetic, looking toward the NEST. Positive means the
+    // trail climbs toward the nest.
+    //
+    // **The last probe is the trail's own end and reads about -0.976**: the
+    // 6-cell sensor samples past the stamped span into zero. It is an edge
+    // artifact and it is printed rather than trimmed, because it is not
+    // negligible -- it is 6 cells of however long the trail is, so 5% at
+    // span=112 and **21% at span=28**, which is this bed's actual excursion
+    // depth. And it sits at the nest end, which is where empty ants are.
+    let grads: Vec<String> = probes
+        .iter()
+        .map(|&x| {
+            let (here, ahead) = (read(x), read(x + 6));
+            format!("{:>8.3}", (ahead - here) / (ahead + here + pheromone::SCALE as f64))
+        })
+        .collect();
+    println!("    PheroBAlong facing nest: {}", grads.join(""));
+}
+
 fn main() {
     let mode = arg_str("mode", "both");
     let frames: u64 = arg("frames", 4000);
@@ -372,6 +490,18 @@ fn main() {
     let probe = World::new(Rect::new(0, 0, 15, 15));
     let base = probe.species.get(probe.species.id_of("ant").expect("ant species")).genome.clone();
 
+    if mode == "timing" {
+        println!("sequential laying + real decay: one cell per `per_cell` frames.");
+        println!("A laden ant lays B only on the way home, so the food end is always the OLDER end.\n");
+        let reverse = arg_str("reverse", "off") == "on";
+        if reverse {
+            println!("  REVERSED: laying nest -> food. Every reading must mirror the forward run.\n");
+        }
+        for per_cell in [1u64, 2, 4, 8] {
+            timing_mode(per_cell, arg("span", 112), peak, width, reverse);
+        }
+        return;
+    }
     if mode == "arith" || mode == "both" {
         arithmetic(&base);
         println!();
@@ -386,21 +516,24 @@ fn main() {
     println!("{:>30} {:>8} {:>8} {:>8} {:>9} {:>8} {:>7}", "arm", "median", "mean", "reach", "along", "P(move)", "on-band");
     println!("{:->30} {:->8} {:->8} {:->8} {:->9} {:->8} {:->7}", "", "", "", "", "", "", "");
 
-    for (label, ch, shape, laden, regate) in [
-        ("laden ant, channel A ramp", Channel::A, Shape::Ramp, true, false),
-        ("empty ant, channel B ramp", Channel::B, Shape::Ramp, false, false),
-        ("empty ant, chan B ramp RE-GATED", Channel::B, Shape::Ramp, false, true),
-        ("laden ant, channel A FLAT", Channel::A, Shape::Flat, true, false),
-        ("empty ant, channel B FLAT", Channel::B, Shape::Flat, false, false),
-        ("laden ant, NO trail", Channel::A, Shape::None, true, false),
-        ("empty ant, NO trail", Channel::B, Shape::None, false, false),
+    for (label, ch, shape, laden, regate, flip, start_off) in [
+        ("laden, channel A ramp (shipped)", Channel::A, Shape::Ramp, true, false, false, 0),
+        ("empty, channel B ramp (shipped)", Channel::B, Shape::Ramp, false, false, false, 0),
+        ("empty, channel B FLAT", Channel::B, Shape::Flat, false, false, false, 0),
+        ("laden, channel A FLAT", Channel::A, Shape::Flat, true, false, false, 0),
+        ("re-gated, ASCEND, on trail", Channel::B, Shape::Ramp, false, true, false, 0),
+        ("re-gated, DESCEND, on trail", Channel::B, Shape::Ramp, false, true, true, 0),
+        ("re-gated, ASCEND, 24 OFF the end", Channel::B, Shape::Ramp, false, true, false, -24),
+        ("re-gated, DESCEND, 24 OFF the end", Channel::B, Shape::Ramp, false, true, true, -24),
+        ("shipped, 24 OFF the end (control)", Channel::B, Shape::Ramp, false, false, false, -24),
+        ("empty ant, NO trail (control)", Channel::B, Shape::None, false, false, false, 0),
     ] {
         let mut nets: Vec<i32> = Vec::new();
         let (mut reach, mut along, mut pm, mut band, mut tick) = (0i64, 0.0f64, 0.0f64, 0u64, 0u64);
         let mut all_intact = true;
         for s in seed0..seed0 + seeds {
             for mirror in [false, true] {
-                let r = run(s, ch, shape, mirror, laden, regate, frames, peak, width, span, decay);
+                let r = run(s, ch, shape, mirror, laden, regate, frames, peak, width, span, decay, flip, start_off);
                 nets.push(r.toward_peak);
                 reach += r.reach as i64;
                 along += r.along;

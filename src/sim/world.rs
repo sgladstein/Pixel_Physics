@@ -1258,6 +1258,13 @@ pub struct CreatureStats {
     pub tick_lag_max: u64,
     pub moves: u64,
     pub moves_blocked: u64,
+    /// **Times a body traded places with a nestmate that was in its way** --
+    /// the "did it fire at all" counter for `CreatureDef::passes_through_kin`,
+    /// which is off in every shipped species, so this reads 0 unless somebody
+    /// turned it on. Paired with `moves_blocked`, which is what it is meant to
+    /// reduce: a swap count that rises while blocked moves do not has found a
+    /// different problem than the one it was built for.
+    pub kin_swaps: u64,
     /// Heading re-rolls — the tumble half of run-and-tumble. High is not a
     /// fault: it is what a creature does while it is looking for a
     /// gradient, and the ratio against `moves` is the readout on whether
