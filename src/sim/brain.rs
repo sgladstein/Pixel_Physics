@@ -1839,6 +1839,166 @@ mod tests {
     /// rather than a constant because the fit depends on it: the design note
     /// discarded an earlier set of weights for assuming a thirty-tick stay
     /// when a real ant brushes past in about five.
+    /// **The food-charged twin of `what_an_odometer_emits`, for channel B.**
+    ///
+    /// `cargo test --release --lib -- --ignored --nocapture what_a_food_odometer_emits`
+    ///
+    /// Channel A ramps for exactly one reason: `ant.ron` hidden unit 4 is a
+    /// nest-charged odometer, three weights, and `EmitA` is its output. Channel
+    /// B has **no distance term at all** -- one wire, `(Carrying, EmitB, 2.5)` --
+    /// so a food trail's shape comes only from the order its cells were laid
+    /// in. Laden means homeward, so the food end is always the older end, so
+    /// after decay the trail is tallest **at the nest** and the shipped
+    /// ascending reader walks an empty ant home. This fits the mirror device:
+    /// `FoodAdjacent` charges hidden unit 7, which fades into `EmitB`.
+    ///
+    /// **The target is the shipped channel-A curve, and that choice is the
+    /// argument.** It is not an aesthetic preference for a matching shape: the
+    /// A ramp is the one gradient in this engine that is known to steer -- the
+    /// homing pair lifts `P(move)` 0.200 -> 0.641 on it (`onetrail mode=arith`)
+    /// -- so a B ramp of the same amplitude and the same fall over a trip is
+    /// asking for a signal already demonstrated to be readable, rather than for
+    /// a number nobody has tried. A 90-cell gap is a ~141-tick trip, which is
+    /// where to read both curves.
+    ///
+    /// **Amplitude is constrained, not fitted**, for `what_an_odometer_emits`'
+    /// reason: `emit_cost_in_moves` charges per unit laid, and a fit that
+    /// matches the shape while peaking higher lays more and is charged for it.
+    /// A 0.99-peak channel-A fit once took a colony from 12 survivors to 2.
+    #[test]
+    #[ignore = "a readout, not an assertion -- cargo test -- --ignored --nocapture what_a_food_odometer_emits"]
+    fn what_a_food_odometer_emits() {
+        // The shipped channel-A odometer, sampled through `eval_brain`, is the
+        // target. Read it out rather than quoting it: `ant.ron` has already had
+        // two comments in this repo quote a curve its own weights do not
+        // produce (`pheromone-master-2026-09-17.md` §5 items 7-8).
+        let shipped_a = |touch: usize, window: usize| -> Vec<f32> {
+            let g = genome_from_wiring(
+                &[],
+                &[HiddenWire(BrainInput::AtNest, 4, 0.05)],
+                &[OutputWire(4, BrainOutput::EmitA, 32.0)],
+                &[Recurrence(4, 0.99995)],
+            );
+            let mut state = [0.0f32; BRAIN_HIDDEN];
+            let mut inputs = [0.0f32; BRAIN_INPUTS];
+            inputs[BrainInput::Bias as usize] = 1.0;
+            inputs[BrainInput::AtNest as usize] = 1.0;
+            for _ in 0..touch {
+                eval_brain(&g, &inputs, &mut state);
+            }
+            inputs[BrainInput::AtNest as usize] = 0.0;
+            (0..window)
+                .map(|_| eval_brain(&g, &inputs, &mut state).0[BrainOutput::EmitA as usize].clamp(0.0, 1.0))
+                .collect()
+        };
+
+        // What the B pair emits, for one weight set, at one food-touch length.
+        let food_curve = |w_in: f32, w_rec: f32, w_out: f32, bias: f32, touch: usize, window: usize| -> Vec<f32> {
+            let g = genome_from_wiring(
+                &[Instinct(BrainInput::Bias, BrainOutput::EmitB, bias)],
+                &[HiddenWire(BrainInput::FoodAdjacent, 7, w_in)],
+                &[OutputWire(7, BrainOutput::EmitB, w_out)],
+                &[Recurrence(7, w_rec)],
+            );
+            let mut state = [0.0f32; BRAIN_HIDDEN];
+            let mut inputs = [0.0f32; BRAIN_INPUTS];
+            inputs[BrainInput::Bias as usize] = 1.0;
+            inputs[BrainInput::FoodAdjacent as usize] = 1.0;
+            for _ in 0..touch {
+                eval_brain(&g, &inputs, &mut state);
+            }
+            inputs[BrainInput::FoodAdjacent as usize] = 0.0;
+            (0..window)
+                .map(|_| eval_brain(&g, &inputs, &mut state).0[BrainOutput::EmitB as usize].clamp(0.0, 1.0))
+                .collect()
+        };
+
+        // A 90-cell gap is about a 141-tick trip, so the window is sized on the
+        // journey rather than on channel A's inherited 3,000.
+        const TRIP: usize = 141;
+        const WINDOW: usize = 600;
+        let want = shipped_a(5, WINDOW);
+        println!(
+            "target = shipped EmitA, 5-tick touch: t0 {:.3}  t{TRIP} {:.3}  t{} {:.3}",
+            want[0],
+            want[TRIP],
+            WINDOW - 1,
+            want[WINDOW - 1]
+        );
+        println!("  DEPOSIT {} = {} x SCALE, so t{TRIP} lays {:.0} raw", crate::sim::pheromone::DEPOSIT, crate::sim::pheromone::SCALE, want[TRIP] * crate::sim::pheromone::DEPOSIT as f32);
+
+        let mut best: Vec<(f32, f32, f32, f32, f32, f32, f32)> = Vec::new();
+        for &w_in in &[0.02f32, 0.03, 0.05, 0.08, 0.12] {
+            for &w_rec in &[0.9994f32, 0.9997, 0.9999, 0.99995, 1.0] {
+                for &bias in &[0.0f32, -0.1, -0.2, -0.35] {
+                    for &w_out in &[4.0f32, 8.0, 14.0, 22.0, 32.0, 48.0, 70.0, 110.0, 180.0, 300.0, 900.0] {
+                        let e = food_curve(w_in, w_rec, w_out, bias, 5, WINDOW);
+                        let monotone = e.windows(2).all(|w| w[1] <= w[0] + 1e-6);
+                        // Same two constraints `what_an_odometer_emits` applies,
+                        // and for the same reasons: a charge one mutation from
+                        // deletion is not a shipped value, and amplitude is a
+                        // term in a shared budget rather than a free parameter.
+                        if !monotone || e[0] > 0.75 || w_in < W_EPS * 2.0 {
+                            continue;
+                        }
+                        let rms = (e.iter().zip(&want).map(|(a, b)| (a - b).powi(2)).sum::<f32>() / WINDOW as f32).sqrt();
+                        best.push((rms, w_in, w_rec, w_out, bias, e[0], e[TRIP]));
+                    }
+                }
+            }
+        }
+        best.sort_by(|a, b| a.0.total_cmp(&b.0));
+        println!("-- best monotone fits of FoodAdjacent -> 7 -> EmitB against the shipped A curve --");
+        for (rms, w_in, w_rec, w_out, bias, t0, t141) in best.iter().take(8) {
+            println!("  rms {rms:.4}  w_in {w_in}  w_rec {w_rec}  w_out {w_out}  bias {bias}  t0 {t0:.3}  t{TRIP} {t141:.3}");
+        }
+
+        // **The candidate actually proposed, which is NOT the grid's winner.**
+        //
+        // The winner takes `w_in 0.02`, and that is exactly `W_EPS * 2`. It is
+        // the lowest charge the sweep is allowed to report and it is inside one
+        // mutation of deletion -- `MUT_ABS_FLOOR` is 0.04 -- which is the
+        // reasoning that made unit 4 take 0.05 rather than its own best row.
+        // The grid pushes `w_in` down here for a reason that is an artifact of
+        // the constraint rather than of the mechanism: the `peak <= 0.75` cap is
+        // stricter than the target itself, since shipped `EmitA` peaks at 0.819.
+        //
+        // So the candidate is **unit 4's own three weights, on unit 7, off
+        // `FoodAdjacent`** -- the mirror, exactly. Three things recommend it
+        // over the fitted row, and all three are printed below rather than
+        // argued: it reproduces the curve that is known to steer; `w_in 0.05` is
+        // 5x `W_EPS` and outside one mutation width; and it does not raise the
+        // emission bill, which is the constraint the cap was standing in for.
+        // The shipped `(Carrying, EmitB, 2.5)` wire emits `squash(2.5) = 0.714`
+        // **for every laden tick, flat**, where an odometer averages far less
+        // over a trip -- so this lays *less* channel B, not more.
+        println!("-- the candidate: unit 4's weights mirrored onto FoodAdjacent -> 7 -> EmitB --");
+        for touch in [1usize, 5, 30, 400] {
+            let e = food_curve(0.05, 0.99995, 32.0, 0.0, touch, WINDOW);
+            println!("  touch {touch:4}  t0 {:.3}  t{TRIP} {:.3}  t{} {:.3}  monotone {}", e[0], e[TRIP], WINDOW - 1, e[WINDOW - 1], e.windows(2).all(|w| w[1] <= w[0] + 1e-6));
+        }
+        {
+            let e = food_curve(0.05, 0.99995, 32.0, 0.0, 5, WINDOW);
+            let rms = (e.iter().zip(&want).map(|(a, b)| (a - b).powi(2)).sum::<f32>() / WINDOW as f32).sqrt();
+            println!("  rms against shipped EmitA at a 5-tick touch: {rms:.4}");
+            println!("  shipped (Carrying, EmitB, 2.5) emits squash(2.5) = {:.3}, flat, on every laden tick", squash(2.5));
+            println!("  this candidate averages {:.3} over a {TRIP}-tick trip", e[..TRIP].iter().sum::<f32>() / TRIP as f32);
+        }
+
+        // **A fit that only works at one touch duration is not a fit** -- the
+        // precedent is the thirty-tick channel-A fit that was discarded for
+        // being fragile against an ant that only brushes its charge source. An
+        // ant at a larder brushes it or dwells on it depending on congestion,
+        // so both ends are read here before anything is authored.
+        if let Some((_, w_in, w_rec, w_out, bias, _, _)) = best.first() {
+            println!("-- the best fit at other food-touch durations --");
+            for touch in [1usize, 5, 30, 400] {
+                let e = food_curve(*w_in, *w_rec, *w_out, *bias, touch, WINDOW);
+                println!("  touch {touch:4}  t0 {:.3}  t{TRIP} {:.3}  t{} {:.3}", e[0], e[TRIP], WINDOW - 1, e[WINDOW - 1]);
+            }
+        }
+    }
+
     fn odometer_curve(
         w_in: f32,
         w_rec: f32,
