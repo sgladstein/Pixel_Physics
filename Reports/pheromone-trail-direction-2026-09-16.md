@@ -1537,7 +1537,18 @@ species files that wire `Carrying`, and every breeding baseline void, since
 `brain::mutate` draws one value per live slot. That is the same bill §2.2 priced
 for `FoodAmount`, and it is why the replication comes first.
 
-### 7.15 Why the return leg fails: the homing ramp inverts the moment a colony forages
+### 7.15 Why the return leg fails: the homing ramp inverts the moment a colony forages — UNREPRODUCIBLE, see §7.17
+
+> **DO NOT BUILD ON THIS SECTION. §7.17 could not reproduce its data from the
+> committed tree**, and on a tree that does reproduce, the inversion is not
+> there: foraging colonies come out **1 of 5 negative, mean +0.0082, r = +0.19**,
+> against the **6 of 7 negative, mean −0.0704, r = +0.77** below. Two separate
+> things are wrong with it — the *mechanism* (§7.16: the per-ant charge is not
+> flat, it falls 78% across a 141-tick trip) and the *data* (§7.17). The
+> reproducible tree also grows a far sicker colony, 4 of 12 seeds with any ant
+> alive against 7 of 12 here, so what produced the numbers below is not merely a
+> re-seeding. Read §7.17 first.
+
 
 §7.12 measured laden ants having **no homeward component at all** — −418 net
 cells over 2,146,526 carrying ticks — and left the cause open. This is the cause,
@@ -1594,8 +1605,13 @@ pointing away from home.
 
 #### The mechanism, end to end
 
-1. The odometer's decay is **~20–60× too slow** to grade a 90-cell journey, so an
-   ant lays channel A at nearly constant strength wherever it goes.
+1. ~~The odometer's decay is **~20–60× too slow** to grade a 90-cell journey, so an
+   ant lays channel A at nearly constant strength wherever it goes.~~
+   **WRONG — see §7.16.** Measured against the engine's own odometer readout, the
+   shipped emission runs **0.819 → 0.177 across a 141-tick trip, a 78% fall**.
+   The per-ant charge grades steeply. The correct step 1 is that the *plane* sums
+   every visit, and a foraging colony's visits are ~21:1 in the food end's favour
+   against a per-visit strength ratio of 4.6:1.
 2. A plane laid at constant strength records **where ants spent time**, not how
    far they are from home.
 3. A foraging colony spends its time **at the food** — `AtNest` falls from ~15%
@@ -1619,6 +1635,243 @@ colonies differ from homebound ones in more than their `AtNest` share. The
 prediction it makes is sharp and cheap to test, though: an odometer whose decay
 is scaled to the actual journey (tens of ticks, not thousands) should keep the
 ramp nest-ward *while* the colony forages, and that is one weight.
+
+### 7.16 The odometer's decay is not the lever, and finding that out corrected §7.15 — data VOID, see §7.17
+
+§7.15 closed on a sharp, cheap prediction: *"an odometer whose decay is scaled to
+the actual journey should keep the ramp nest-ward while the colony forages, and
+that is one weight."* That weight was swept. **The prediction is false**, and why
+it is false replaces §7.15's mechanism with a better one.
+
+#### What was swept
+
+`examples/trailfollow` gained a `recur=` rider patching `brain::hh_slot(4)` on the
+cloned genome, beside the existing `Gate::apply` seam. Gap 90, 12 seeds,
+`arms=hand` (the arm where discovery is already solved, so the return leg is what
+is being measured), 24,000 frames, `RAYON_NUM_THREADS` pinned.
+
+Half-lives were chosen to bracket the 141–450-tick journey: shipped `0.99995`
+(~13,900 ticks), then `0.999` (~693), `0.995` (~138), `0.99` (~69), `0.98` (~34).
+
+**The rider's own controls ran first**, because a knob that changes nothing is
+indistinguishable from one that is not connected: `recur=0.99995` is *refused* by
+an assert as a no-op, which is what proves the slot is the one claimed.
+
+#### The result: no window, and no collapse either
+
+Polarity over the foraging colonies (`AtNest` < 5%), which are the ones the
+section is about. Positive = taller at the nest.
+
+| `recur` | half-life | n foraging | negative | mean polarity | peak range | r(`AtNest`, polarity) |
+|---|---|---|---|---|---|---|
+| **0.99995** (shipped) | ~13,900 | 7 | 6/7 | **−0.0704** | 10,269–54,311 | +0.77 |
+| 0.999 | ~693 | 5 | 3/5 | −0.0478 | 10,263–35,325 | +0.69 |
+| 0.995 | ~138 | 6 | 5/6 | −0.0692 | 9,925–34,380 | +0.83 |
+| 0.99 | ~69 | 4 | 2/4 | −0.0219 | 8,254–17,122 | +0.56 |
+| 0.98 | ~34 | 7 | 4/7 | −0.0372 | 8,233–22,760 | +0.67 |
+
+Against the three predictions recorded before the run:
+
+- **"Polarity rises toward positive, monotone, positive by 0.995 or sooner"** —
+  false on both counts. It is not monotone (0.995 is *worse* than 0.999) and no
+  arm's foraging mean is positive. Paired on the seeds that forage in **both**
+  arms, the shift is real but small and noisy: +0.016, +0.037, +0.030, +0.067,
+  up in 3/5, 4/5, 3/4, 4/5.
+- **"`a_peak_amt` falls — the counter-risk"** — false, and this is the useful
+  negative. The peak *floor* moves 10,269 → 8,233, a 20% fall against a `DEPOSIT`
+  of 10,240. **The signal-collapse trade this sweep was built around does not
+  exist at these settings**, so "there may be no window" is not what happened
+  either: there is plenty of headroom and the polarity simply does not follow.
+- **"Transport is not expected to follow"** — held. `trips` and `carry→nest` stay
+  where §7.13 puts them.
+
+**The tell was tidiness in the wrong place.** `r(AtNest, polarity)` stays between
+**+0.56 and +0.83 in all five arms**. A 400× change in the decay weight left the
+correlation §7.15 is built on entirely intact — which is not a weak effect, it is
+a knob that is not attached to the quantity.
+
+#### Why: `w_rec` is not what sets this odometer's decay
+
+It is not attached because `brain.rs` says so, in the fitting test's own comment,
+and §7.15 did not read it:
+
+> **The decay is dominated by `squash`, not by `w_rec`** […] `eval_brain` computes
+> `h = squash(w_rec * h)`, and `squash` compresses: at `h = 0.08` it takes about
+> 8% off every tick, swamping a `w_rec` of 0.9999.
+
+§7.15 computed the per-trip decay as `0.99995^141` = **0.7%** and concluded the
+charge is flat over a journey. Simulating the real recurrence
+(`h ← squash(w_rec·h + w_in·AtNest)`, `emit ← squash(w_out·h + bias).clamp(0,1)`):
+
+| config | t=0 | t=70 | **t=141** | t=300 | t=2999 | fall over a 141-tick trip |
+|---|---|---|---|---|---|---|
+| **shipped** (`w_out 32`, no bias) | 0.819 | 0.293 | **0.177** | 0.094 | 0.010 | **78.4%** |
+| `recur` 0.99 | 0.816 | 0.217 | 0.086 | 0.015 | 0.000 | 89.4% |
+| `recur` 0.98 | 0.813 | 0.149 | 0.033 | 0.001 | 0.000 | 95.9% |
+
+**Positive control**: the same simulator at the fitting test's chosen weights
+(`w_in 0.05, w_rec 0.99995, w_out 900, bias −0.2`, 5-tick touch) returns
+`0.992 → 0.072`, `t1000 = 0.402` — and the engine's own readout
+(`cargo test --release --lib -- --ignored --nocapture what_an_odometer_emits`)
+prints `emit 0.992 -> 0.072 (t=1000 0.402, t=2000 0.185)`. Three decimals on
+three points, so the simulator is reproducing `eval_brain` and not a model of it.
+
+**So the odometer already grades steeply**, and the sweep was turning the one
+weight in the unit that barely moves the thing it names.
+
+#### The corrected mechanism: the plane integrates traffic
+
+The per-ant deposit is graded. The **plane** is a sum over every visit, and that
+is where the shape is decided:
+
+| | nest end | food end | ratio |
+|---|---|---|---|
+| ant-ticks (`occupancy/1k`, a foraging colony) | 30 | **627** | **~21 : 1** |
+| per-visit emission (shipped, t=0 vs t=141) | 0.819 | 0.177 | 4.6 : 1 |
+
+**Traffic beats grading by about 4.5×, and the ramp inverts.** Every step of
+§7.15's chain survives except the first, and the closing prediction fails for a
+reason the table makes obvious: at `recur` 0.98 grading reaches 25:1 against
+traffic's 21:1, which is *exactly why 0.98 came closest to flipping* — mean
+−0.037 against the shipped −0.070 — and still did not, because a ratio that
+barely exceeds the traffic ratio only cancels it.
+
+#### A documentation defect found underneath it, and it is load-bearing
+
+Hidden unit 4 ships **three weights and no bias**: `(AtNest, 4, 0.05)`,
+`(4, 0.99995)`, `(4, EmitA, 32.0)`.
+
+- **`creature.rs` names a different set as the shipped one.** Its odometer comment
+  says *"the weights `ant.ron` actually authors — `w_in = 0.0005`, `w_rec = 0.9999`,
+  `w_out = 1609.1` and a `-0.35` bias"*. That is the **dead pre-fix** version;
+  `w_in = 0.0005` is below `W_EPS` and the fitting test's own first row labels it
+  `authored (dead: w_in < W_EPS)`, emitting `0.000 -> 0.000`. The comment names
+  this exact failure mode two paragraphs later, about a *previous* set of numbers.
+- **`ant.ron` quotes a curve its own weights do not produce.** Beside
+  `(AtNest, 4, 0.05)` it records *"Emits 0.992 → 0.072 across 3,000 ticks after a
+  five-tick nest touch … rms 0.084 … Saturated for 85 of those 3,000 ticks."* That
+  is verbatim the fitting test's chosen fit at **`w_out 900, bias −0.2`**. The
+  weights it sits next to give **0.819 → 0.010, saturated 0 ticks**. §7.15 quoted
+  that comment as evidence about the shipped ant, and it is evidence about a fit
+  that was not shipped.
+
+#### What this points at instead: the emission floor
+
+`ant.ron` deleted `(Bias, EmitA, −0.35)` deliberately, and records why:
+
+> **No offset any more.** The −0.35 it carried existed to hold down a unit whose
+> output weight was 1609.1; at 32.0 the level never approaches saturation and
+> **the offset would only clip the bottom of the gradient**.
+
+**Clipping the bottom of the gradient is the thing that is needed.** The bottom of
+the gradient is what a *dwelling* ant lays — 627 ticks in every 1,000 — and a
+floor is the only term that can beat an occupancy ratio, because it makes the
+grading ratio **unbounded** (a dwelling ant lays nothing) rather than 4.6:1. No
+setting of a decay weight can do that; a cut-off can.
+
+A `biasa=` rider now patches `brain::io_slot(Bias, EmitA)`, with two asserts: the
+shipped value is refused as a no-op, and a value inside `W_EPS` is refused because
+`eval_brain` would skip the wire and the arm would silently be the shipped one.
+Both were watched firing. **Pre-registered** for the sweep at −0.05, −0.10, −0.18,
+−0.35 against shipped, same 12 seeds and gap:
+
+- polarity in foraging colonies **flips positive** at some floor, unlike `recur`;
+- `a_peak_amt` holds near one `DEPOSIT` — a floor does not change what an ant
+  fresh from the nest lays;
+- **the counter-risk is reach, not amplitude.** A single control run at −0.18 took
+  the route's channel-A cells from **86 to 45 of 91**. A floor that makes polarity
+  positive over a 10-cell stub near the nest has bought nothing, so this reads
+  `a_polarity` and route coverage together;
+- transport still does not follow — discovery is the binding constraint (§7.13),
+  and a correct ramp remains necessary rather than sufficient.
+
+### 7.17 The measurement that invalidates §7.15 and §7.16: the binary was not the tree
+
+Checking §7.16's sweep against §7.15's baseline — the same command, the same
+twelve seeds — the two disagreed. They should have been the same run. Chasing
+that produced the only finding of this pass that is safe to keep.
+
+#### What was ruled out, in order
+
+| hypothesis | test | result |
+|---|---|---|
+| the harness is non-deterministic | same binary, same pin, back to back | **byte-identical** |
+| parallelism differed | `RAYON_NUM_THREADS` unset, 1, 2, 4, 8, 16 | none reproduce it (box is 4 cores; unset ≡ 4) |
+| CPU contention breaks determinism | five copies at once on a 4-core box | **all five byte-identical to the idle run** |
+| my comment edits moved it | rebuild, re-run | identical to the pre-edit run |
+| `SPOIL_IS_CARGO` was set and I dropped it | re-run with `=0` | differs from both |
+| **the binary was not built from the tree** | **clean `git worktree` at `f8bd2179`, full build, re-run** | **reproduces TODAY's numbers, not the sweep's** |
+
+The last row is the answer. A clean build of the exact commit the sweep was
+launched from returns today's run to the byte (modulo one header line), and does
+**not** return the sweep's. The harness is deterministic and the source is
+innocent, so what §7.15 and §7.16 measured was a `target/release/examples/`
+binary that no longer corresponds to any commit — `CLAUDE.md`'s
+*"you are probably measuring a binary that is not the code you wrote"*, whose
+stated tell is **identical output across a change that must have moved
+something**. This is the inverse tell, and it is the one that hid: **different
+output across a change that could not have moved anything.** A non-taken
+`if let` and one extra `format!` argument were the entire diff.
+
+#### What the reproducible tree actually says
+
+Shipped ant, gap 90, 12 seeds, `arms=hand`, `RAYON_NUM_THREADS=4`, built from the
+committed tree and verified byte-identical across three independent runs:
+
+| | §7.15's binary | **reproducible tree** |
+|---|---|---|
+| foraging colonies (`AtNest` < 5%) | 7 of 12 | 5 of 12 |
+| of those, ramp pointing at the food | **6** | **1** |
+| mean polarity, foraging | **−0.0704** | **+0.0082** |
+| mean polarity, stays home | +0.0375 | +0.0176 |
+| r(`AtNest`, polarity) | **+0.77** | **+0.19** |
+| seeds with any ant alive at the end | 7 of 12 | **4 of 12** |
+| best surviving colony | 211 ants | **6 ants** |
+
+**The inversion is not there, and neither is the correlation it rested on.** The
+homing ramp on the reproducible tree is weakly nest-ward on average in both kinds
+of colony.
+
+**The larger problem is the last two rows.** The tree that reproduces grows a
+colony that barely survives — four seeds with any ant alive and a best of six,
+against seven seeds and a best of 211. §7.15's phenomenon needs a colony that
+forages hard enough to sit at the food; this tree does not produce one, so the
+question §7.15 asked cannot even be posed on it. **Which tree is right is now
+the open question**, and it is upstream of everything in §7.11–§7.16 that is
+conditioned on colony survival.
+
+#### What survives
+
+- **§7.16's arithmetic**, which is independent of any run: the odometer's decay
+  is dominated by `squash` rather than `w_rec`, the shipped emission falls
+  **78% across a 141-tick trip**, and the simulator that says so reproduces the
+  engine's own `what_an_odometer_emits` readout to three decimals on three
+  points. `recur` is not the decay knob whatever the world does.
+- **§7.16's documentation defects**, which are file reads: `creature.rs` named
+  the dead pre-fix weights as the shipped ones, and `ant.ron` quoted the
+  `w_out 900, bias −0.2` fit's curve beside `w_out 32.0` and no bias. Both are
+  corrected in this change.
+- **The emission-floor sweep**, which ran on the reproducible binary and was
+  verified byte-identical to it. On that tree the shipped ramp is already mildly
+  nest-ward (+0.0082 foraging) and a floor pushes it further positive — +0.0187,
+  −0.0168, +0.0346, +0.0701 at −0.05/−0.10/−0.18/−0.35 — while route coverage
+  falls from a median **84 of 91 cells to 50**. But at −0.18 and −0.35 only
+  **two** colonies forage at all, so the positive means are two-sample and the
+  sweep cannot carry a conclusion until colony survival is understood.
+
+#### The process failure, stated so it is not repeated
+
+`CLAUDE.md` prescribes `cargo build --release --examples` with `set -o pipefail`
+before any measurement, precisely because a stale example binary *"runs happily,
+prints plausible numbers, and has a newer mtime than the source you just
+edited"*. The rider controls that ran before the sweep — the shipped value
+refused as a no-op, `recur=0.99` firing and moving the readout — all passed
+**on the stale binary**, and passing is exactly what they do there: they prove
+the rider is wired to the slot it names, which was true, and say nothing about
+which tree the rest of the binary came from. **A control that validates the knob
+does not validate the build.** The standing check that would have caught it is
+the one this file already demands: build the examples explicitly, in the same
+command as the run.
 
 ### 7.9 What this leaves standing
 

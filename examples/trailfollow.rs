@@ -765,6 +765,49 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         );
         genome[slot] = e;
     }
+    // `biasa` restores the deleted emission floor, and it is the lever the
+    // `recur` sweep pointed at rather than the one it swept.
+    //
+    // **`recur` is not what sets this odometer's decay**, which is why that
+    // sweep found nothing: `brain.rs`'s own fitting comment says the decay is
+    // dominated by `squash`, not by `w_rec` -- `eval_brain` computes
+    // `h = squash(w_rec * h)` and `squash` takes ~8%/tick off a level near
+    // 0.08, swamping a `w_rec` of 0.99995. Simulated against the engine's own
+    // readout (`what_an_odometer_emits`, which this reproduces to three
+    // decimals), the shipped emission runs **0.819 -> 0.177 across a 141-tick
+    // trip -- a 78% fall**, not the 0.7% that `w_rec^141` alone suggests. The
+    // per-ant charge was never the flat thing the first reading of it claimed.
+    //
+    // **What inverts the plane is that the plane integrates traffic.** A
+    // foraging colony's `occupancy/1k` reads `[30 33 14 16 7 22 77 627]`: the
+    // food end takes ~21x the ant-ticks of the nest end, against a per-visit
+    // strength ratio of only 4.6x. Traffic wins by 4.5x and the ramp points at
+    // the food. Sweeping `recur` to 0.98 lifts grading to 25:1 against
+    // traffic's 21:1, which is exactly why 0.98 came closest to flipping and
+    // still did not.
+    //
+    // A *floor* is the term that can beat an occupancy ratio, because it makes
+    // the ratio unbounded rather than 4.6:1 -- a dwelling ant lays **nothing**
+    // instead of a little, 627 ticks in 1,000. `ant.ron` deleted exactly this
+    // wire, `(Bias, EmitA, -0.35)`, on the argument that the offset "would only
+    // clip the bottom of the gradient". The bottom of the gradient is the part
+    // a dwelling ant lays; clipping it is the point.
+    if let Some(b) = arg::<f32>("biasa") {
+        let slot = brain::io_slot(brain::BrainInput::Bias, O::EmitA);
+        assert!(
+            (genome[slot] - b).abs() > f32::EPSILON,
+            "biasa={b} is already what the Bias->EmitA slot holds, so this arm is the shipped one wearing a different name"
+        );
+        // A weight under `W_EPS` is no connection at all (`eval_brain` skips
+        // it), so a rider set below the gate is silently dead -- the failure
+        // this harness has already paid for twice with an ignored argument.
+        assert!(
+            b.abs() >= brain::W_EPS,
+            "biasa={b} is inside W_EPS ({}), so eval_brain would skip the wire and this arm would be the shipped one",
+            brain::W_EPS
+        );
+        genome[slot] = b;
+    }
 
     let surface = spec.ground_y - 2;
     let (nest_x, target_x) = (half_band, half_band + gap);
@@ -1241,9 +1284,10 @@ fn main() {
     // is disconnected -- `CLAUDE.md`, after a 3.5-hour study came back as three
     // populations wearing 24 logs.
     println!(
-        "  odometer: recur={} emita={}",
+        "  odometer: recur={} emita={} biasa={}",
         arg::<f32>("recur").map_or("shipped".to_string(), |v| format!("{v}")),
-        arg::<f32>("emita").map_or("shipped".to_string(), |v| format!("{v}"))
+        arg::<f32>("emita").map_or("shipped".to_string(), |v| format!("{v}")),
+        arg::<f32>("biasa").map_or("shipped".to_string(), |v| format!("{v}"))
     );
 
     if flag("spec") {

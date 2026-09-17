@@ -4246,9 +4246,9 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         // **Verified before it was built, because §4's safety claim rests on
         // it**: `squash` is `x/(1+|x|)` and saturates, so three weights
         // expressing a 3,000-tick decay is not obvious. Simulated over the
-        // real recurrence at the weights `ant.ron` actually authors --
-        // `w_in = 0.0005` (`AtNest` -> hidden 4), `w_rec = 0.9999`,
-        // `w_out = 1609.1` (hidden 4 -> `EmitA`) and a `-0.35` bias -- and
+        // real recurrence at `w_in = 0.0005` (`AtNest` -> hidden 4),
+        // `w_rec = 0.9999`, `w_out = 1609.1` (hidden 4 -> `EmitA`) and a
+        // `-0.35` bias -- and
         // **after a 5-tick nest touch**, which is a brush past rather than a
         // stay: the emitted value runs 0.785 -> 0.046 monotonically across
         // 3,000 ticks against the old 0.667 -> 0.0, rms 0.040. A 400-tick
@@ -4262,6 +4262,19 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         // that only brushes the nest. Those weights are *not* in the tree and
         // this comment quoted them for a while, which is the failure mode
         // `CLAUDE.md` names -- a comment that reads correctly against nothing.
+        //
+        // **And it happened again to the set just above, which is why the
+        // words "the weights `ant.ron` actually authors" are gone from it.**
+        // Measured 2026-09-17: the tree ships `w_in = 0.05`, `w_rec = 0.99995`,
+        // `w_out = 32.0` and **no bias at all** -- `(Bias, EmitA, -0.35)` was
+        // deleted on purpose. The `0.0005 / 0.9999 / 1609.1 / -0.35` set quoted
+        // here is the **dead pre-fix** version: `w_in` is below `W_EPS`, and
+        // `brain.rs`'s own fitting readout labels that row
+        // `authored (dead: w_in < W_EPS)` and prints `0.000 -> 0.000`. The
+        // shipped weights emit **0.819 -> 0.010 across 3,000 ticks**, falling
+        // **78% inside the first 141** -- a real ramp, and not the one either
+        // this comment or `ant.ron`'s describes.
+        // `Reports/pheromone-trail-direction-2026-09-16.md` §7.16.
         // **The shape is hyperbolic where the old one was
         // linear** -- it falls faster early and never quite reaches zero,
         // which for a gradient-laying rule is arguably the better end: an
