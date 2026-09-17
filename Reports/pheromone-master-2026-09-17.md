@@ -507,7 +507,26 @@ control and if it moves, the edit broke the metric.
 figure for foraging colonies is **positive**, the inversion is an artifact and
 §7.15 falls — stop and re-plan.
 
-### Step 2 — the gating sweep: does the home bearing need building at all?
+### Step 2 — the gating sweep — **DONE 2026-09-17: it does. Build it.**
+
+> Run at six seeds on `u16` (§7.21). **Cutting the homing circuit out of the
+> genome entirely is not detectable**: laden-at-door medians `shipped` 15.2%,
+> `noemit` 16.5%, `nosteer` 16.9% — both ablations *above* shipped, `nosteer`
+> with the most trips, every deliveries figure inside the instrument's own 3.6x
+> noise floor, and the shipped circuit beating both cut arms on **2 of 6** seeds,
+> which is chance. **This reverses the 2-of-3 reading below**, exactly as the
+> lane that produced it warned it might: laden-at-door spans 0.1%–47.7% within
+> one arm, so three seeds cannot separate medians 1.7 points apart. The
+> pre-registered condition is met, so **step 4 is not cancelled.**
+>
+> Read it with §7.20's direct measurement on the other bed — 0.051% of carrying
+> ticks reaching the nest band, **+0.0002 net homeward cells per carrying tick** —
+> and with **§R4**, because the two beds disagree by two to three orders of
+> magnitude and the difference is *slope*. The return leg is broken worst on flat
+> ground, which is the geometry the loop needs and the one `Turn` cannot steer
+> in. Design the bearing around that rather than discovering it afterwards.
+
+### Step 2 (as originally written, kept for the record)
 
 **Do:** `nesthome scene=bed arm=shipped|noemit|nosteer`, **six seeds**, on `u16`.
 

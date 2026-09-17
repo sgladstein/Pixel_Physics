@@ -1,0 +1,30 @@
+SUMMARY scene=bed arm=shipped width=25 seed=1 diffuse=shipped pickups=6943 deliveries=290 visits=1085 trips=35 deepest=28 larder=301 lost=0 alive=75 nest%=11.8 food%=28.7 laden_nest%=9.2 laden_food%=29.8 A=0,0,0,0,0,147,0,0,1640,19733
+SUMMARY scene=bed arm=shipped width=25 seed=2 diffuse=shipped pickups=6975 deliveries=646 visits=471 trips=6 deepest=17 larder=74 lost=0 alive=80 nest%=37.5 food%=37.6 laden_nest%=31.1 laden_food%=39.5 A=0,0,996,6254,0,0,645,55295,10021,0
+SUMMARY scene=bed arm=shipped width=23 seed=3 diffuse=shipped pickups=17669 deliveries=7505 visits=707 trips=10 deepest=13 larder=-53 lost=7 alive=122 nest%=25.4 food%=18.5 laden_nest%=18.8 laden_food%=19.3 A=0,0,0,0,0,0,9266,27265,35435,45021
+SUMMARY scene=bed arm=shipped width=24 seed=4 diffuse=shipped pickups=3126 deliveries=139 visits=41 trips=0 deepest=7 larder=849 lost=0 alive=30 nest%=4.8 food%=85.2 laden_nest%=2.8 laden_food%=84.1 A=0,0,157197,0,0,0,38,480,0,0
+SUMMARY scene=bed arm=shipped width=25 seed=5 diffuse=shipped pickups=10164 deliveries=2853 visits=575 trips=8 deepest=10 larder=-41 lost=0 alive=85 nest%=18.9 food%=40.6 laden_nest%=11.6 laden_food%=39.9 A=0,0,0,410,289,0,0,51700,5754,3
+SUMMARY scene=bed arm=shipped width=23 seed=6 diffuse=shipped pickups=6011 deliveries=218 visits=502 trips=21 deepest=35 larder=251 lost=0 alive=61 nest%=34.7 food%=22.1 laden_nest%=30.3 laden_food%=24.8 A=0,0,0,0,482,0,0,18424,30313,0
+  ABLATED: odometer output leg (4, EmitA, 32.0) -> 0: no ant lays channel A
+SUMMARY scene=bed arm=noemit width=25 seed=1 diffuse=shipped pickups=7144 deliveries=34 visits=1427 trips=42 deepest=25 larder=48 lost=0 alive=90 nest%=3.7 food%=38.5 laden_nest%=0.1 laden_food%=37.3 A=0,0,0,0,176,88,45,0,0,0
+  ABLATED: odometer output leg (4, EmitA, 32.0) -> 0: no ant lays channel A
+SUMMARY scene=bed arm=noemit width=25 seed=2 diffuse=shipped pickups=7356 deliveries=529 visits=583 trips=12 deepest=17 larder=5 lost=0 alive=82 nest%=32.3 food%=41.4 laden_nest%=26.0 laden_food%=42.5 A=0,0,352,2089,0,0,0,0,0,0
+  ABLATED: odometer output leg (4, EmitA, 32.0) -> 0: no ant lays channel A
+SUMMARY scene=bed arm=noemit width=23 seed=3 diffuse=shipped pickups=17396 deliveries=7667 visits=628 trips=4 deepest=11 larder=-196 lost=7 alive=120 nest%=18.5 food%=13.0 laden_nest%=17.6 laden_food%=13.9 A=0,0,0,0,0,1,0,0,0,0
+  ABLATED: odometer output leg (4, EmitA, 32.0) -> 0: no ant lays channel A
+SUMMARY scene=bed arm=noemit width=24 seed=4 diffuse=shipped pickups=3745 deliveries=48 visits=72 trips=0 deepest=7 larder=925 lost=0 alive=51 nest%=5.4 food%=83.7 laden_nest%=4.0 laden_food%=81.9 A=0,0,0,0,0,0,0,0,0,0
+  ABLATED: odometer output leg (4, EmitA, 32.0) -> 0: no ant lays channel A
+SUMMARY scene=bed arm=noemit width=25 seed=5 diffuse=shipped pickups=11170 deliveries=3105 visits=393 trips=3 deepest=8 larder=-22 lost=0 alive=97 nest%=15.9 food%=49.8 laden_nest%=15.4 laden_food%=47.0 A=0,0,0,0,197,1,153,0,0,0
+  ABLATED: odometer output leg (4, EmitA, 32.0) -> 0: no ant lays channel A
+SUMMARY scene=bed arm=noemit width=23 seed=6 diffuse=shipped pickups=7057 deliveries=357 visits=521 trips=22 deepest=45 larder=302 lost=5 alive=77 nest%=44.0 food%=21.6 laden_nest%=47.7 laden_food%=21.1 A=0,0,0,0,186,0,0,0,0,0
+  ABLATED: homing steer legs (0, Move, 2.5) and (1, Move, -2.5) -> 0: channel A laid, never followed
+SUMMARY scene=bed arm=nosteer width=25 seed=1 diffuse=shipped pickups=7429 deliveries=45 visits=1442 trips=46 deepest=38 larder=322 lost=0 alive=85 nest%=6.5 food%=22.6 laden_nest%=2.8 laden_food%=24.3 A=0,0,0,0,0,1045,0,0,9023,43
+  ABLATED: homing steer legs (0, Move, 2.5) and (1, Move, -2.5) -> 0: channel A laid, never followed
+SUMMARY scene=bed arm=nosteer width=25 seed=2 diffuse=shipped pickups=6640 deliveries=839 visits=473 trips=15 deepest=18 larder=126 lost=0 alive=71 nest%=41.9 food%=32.6 laden_nest%=35.1 laden_food%=34.9 A=0,0,27,349,0,0,0,123383,7803,0
+  ABLATED: homing steer legs (0, Move, 2.5) and (1, Move, -2.5) -> 0: channel A laid, never followed
+SUMMARY scene=bed arm=nosteer width=23 seed=3 diffuse=shipped pickups=17419 deliveries=4878 visits=617 trips=15 deepest=17 larder=-27 lost=1 alive=159 nest%=16.7 food%=15.7 laden_nest%=16.7 laden_food%=16.1 A=0,0,0,0,0,0,459,121506,63078,63560
+  ABLATED: homing steer legs (0, Move, 2.5) and (1, Move, -2.5) -> 0: channel A laid, never followed
+SUMMARY scene=bed arm=nosteer width=24 seed=4 diffuse=shipped pickups=3085 deliveries=63 visits=44 trips=1 deepest=18 larder=656 lost=0 alive=45 nest%=2.4 food%=87.0 laden_nest%=1.7 laden_food%=83.0 A=0,0,0,0,0,0,0,11456,0,0
+  ABLATED: homing steer legs (0, Move, 2.5) and (1, Move, -2.5) -> 0: channel A laid, never followed
+SUMMARY scene=bed arm=nosteer width=25 seed=5 diffuse=shipped pickups=12251 deliveries=3707 visits=519 trips=5 deepest=45 larder=-127 lost=0 alive=113 nest%=19.7 food%=50.5 laden_nest%=17.2 laden_food%=47.8 A=0,0,0,0,86,1168,17620,102216,15748,0
+  ABLATED: homing steer legs (0, Move, 2.5) and (1, Move, -2.5) -> 0: channel A laid, never followed
+SUMMARY scene=bed arm=nosteer width=23 seed=6 diffuse=shipped pickups=5480 deliveries=181 visits=697 trips=15 deepest=49 larder=351 lost=0 alive=68 nest%=16.9 food%=30.6 laden_nest%=17.5 laden_food%=36.9 A=0,0,0,0,0,0,0,214,9650,0

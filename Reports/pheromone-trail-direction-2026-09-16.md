@@ -2173,6 +2173,75 @@ happening. That is also the one place where §7.19's retraction does *not* let t
 line off — it removed the reason to believe channel A's ramp inverts; it did not
 supply a reason to believe homing works, and this says it does not.
 
+
+## §7.21 The homing circuit is not detectable at six seeds — build the bearing
+
+**2026-09-17.** `nesthome scene=bed arm=shipped|noemit|nosteer`, **six seeds**,
+on `u16`, archived at
+[`Reports/data/nesthome-gating-6seed-2026-09-17.log`](data/nesthome-gating-6seed-2026-09-17.log).
+
+This is the sweep `nest-design-2026-09-14.md` §12 **pre-registered**, and round
+37's Lane 3 restated: *"build the bearing only if laden-at-door still reads as
+floor-level on the seeds where the round trip fails"*, at six seeds, because the
+`u8` version of the question had needed six to say "nothing".
+
+| arm | laden-at-door, median (range) | trips, med | deliveries, med | alive, med |
+|---|---|---|---|---|
+| `shipped` | **15.2%** (2.8 – 31.1) | 9 | 468 | 77 |
+| `noemit` — lays no channel A at all | **16.5%** (0.1 – 47.7) | 8 | 443 | 86 |
+| `nosteer` — lays A, never reads it | **16.9%** (1.7 – 35.1) | **15** | 510 | 78 |
+
+**Cutting the homing circuit out of the genome entirely is not detectable.** Both
+ablations are *above* the shipped circuit on the median, `nosteer` has the most
+trips, and every deliveries figure sits inside that instrument's own **3.6x**
+noise floor between mechanically equivalent arms.
+
+Per seed, the shipped circuit beats **both** cut arms on **2 of 6** — which is
+what chance gives when one of three arms must be highest.
+
+**This reverses the three-seed reading it was written to check.** Round 37's Lane
+3 reported the shipped circuit beating both cut arms on 2 of 3 seeds after the
+`u16` widening, and drew the cautious conclusion that *"the circuit is
+detectable"* and that the home bearing might therefore not be needed — while
+saying in the same breath that three seeds is not a sweep. It was right to say
+so. At six the signal is gone, and the spread is why: laden-at-door runs from
+**0.1% to 47.7%** across seeds of one arm, so three samples cannot separate arms
+whose medians differ by 1.7 points. `CLAUDE.md`'s *six seeds is not a sweep* case
+(§S2's 1.64x over six becoming 1.08x over the next twelve) is the same shape one
+rung further down, and the honest reading of **this** table is likewise that it
+licenses the weak claim only: **the circuit is not detectable, not that it is
+provably absent.**
+
+**So the pre-registered condition is met and step 4 is NOT cancelled — the home
+bearing gets built.** That was the cheapest possible outcome to check for and it
+did not come off.
+
+### Three independent lines now say the return leg is the fault
+
+| evidence | bed | what it says |
+|---|---|---|
+| §7.20 | `trailfollow mode=gap`, flat, 90-cell gap | 0.051% of carrying ticks reach the nest band; **+0.0002 net homeward cells per carrying tick** |
+| §7.21 (this) | `nesthome scene=bed`, sloped | deleting the whole homing circuit is undetectable at 6 seeds |
+| §T2 | played bed | 1,651 pickups, 4 deliveries |
+
+Three beds, three instruments, one answer. **And note they do not agree on
+magnitude** — laden-at-door is 2.8–31.1% on the lab bed against 0.051% on the gap
+bed, two to three orders apart. That difference is not noise and it is worth
+naming: the lab bed has slopes and short distances, the gap bed is flat with a
+90-cell run, and **§R4 says `Turn` is near-inert precisely on flat ground**. So
+the return leg is not uniformly broken; it is broken worst in exactly the
+geometry the foraging loop needs, which is also the geometry in which the engine
+cannot currently steer a walking animal at all.
+
+**That is the constraint the home bearing has to be designed around**, not a
+detail to be discovered afterwards: wiring a bearing to `Turn` and measuring it
+on `mode=gap` would reproduce §R4's null and read as "the mechanism failed".
+Either land §R4's own recommended counter first — how often a `Turn` request is
+discarded because the side it asked for scored zero — or drive the bearing
+through `Move` in the run-and-tumble idiom the trail readers already use, which
+is the one steering path measured to work on flat ground (92% of ants reach food
+on a hand-laid trail, and that is `Move`, through hidden units 2/3).
+
 ## Instruments
 
 - `examples/onetrail.rs` — `mode=arith` (shipped genome, nothing overridden),
