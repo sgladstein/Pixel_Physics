@@ -1417,6 +1417,81 @@ investigation were rationalised after the fact:
   inflated by any colony that succeeds and grows its own denominator, which is
   the artifact behind the withdrawn "16x reach" figure above.
 
+#### The 50-seed confirmation: every prediction held, including the falsifier
+
+Gap 90, 50 seeds, paired, `RAYON_NUM_THREADS` pinned.
+
+**Primary endpoint — past-halfway share, paired sign test:**
+
+| arm | shipped | `SPOIL_IS_CARGO=0` | up / down | ratio | predicted |
+|---|---|---|---|---|---|
+| **homeA** | 15.0% | **25.0%** | **34 / 8** | **4.2:1** | rises ≥2:1 ✓ |
+| `self` | 20.0% | 25.0% | 35 / 15 | 2.3:1 | between ✓ |
+| **`mute`** | 24.4% | 20.0% | 20 / 23 | **0.9:1** | **does not move ✓** |
+
+34-up against 8-down is a sign test far below p = 0.001, and **`mute` — the
+falsifier — stayed flat.** An arm with no channel A ramp has nothing for a
+spoil-opened gate to be railroaded along, and it did not move. `self` lands in
+between because its ants lay their own weak channel A. The effect is
+mechanism-specific, not a general consequence of changing what digging ants do.
+
+**Downstream, pre-registered as expected-flat, and flat:**
+
+| arm | surviving | intake | seeds reaching past the food |
+|---|---|---|---|
+| homeA | 2/50 → **2/50** | 307,774 → 986,908 | 7/50 → **11/50** |
+| self | 2/50 → **2/50** | 688,132 → 876,226 | 10/50 → **13/50** |
+| mute | 2/50 → **1/50** | 730,437 → 275,756 | 17/50 → **14/50** |
+
+Survival does not move in any arm, exactly as recorded beforehand. The
+"seeds reaching past the food" column is the robust ordinal version of the
+primary endpoint and agrees with it: **homeA and self up, mute down.**
+
+#### And in the arm where discovery is already solved, it changes nothing
+
+The owner's second ask: run `hand` with cargo sensing on. **`hand` is the one
+arm where the discovery lottery is removed** — ~88% of ants reach the food
+because a trail is laid for them — so it is the only place the repair can be
+measured on the *loop* rather than on whether a colony got lucky. 50 seeds:
+
+| endpoint | shipped | `SPOIL_IS_CARGO=0` | up / down |
+|---|---|---|---|
+| colonies alive | 17/50 | 18/50 | 18 / 11 |
+| intake J | 7,073,527 | 7,821,647 | 27 / 20 |
+| carrying ticks | 6,194,128 | 6,644,680 | 27 / 23 |
+| **carried home** | **7,129** | **4,541** | 12 / 16 |
+| **round trips** | **24** | **16** | 6 / 11 |
+| past-halfway | 76% | 80% | 29 / 20 |
+| ants reaching food | 87.9% | 89.0% | — |
+
+**Flat on everything, and transport if anything falls** — carried-home share
+0.115% → 0.068%, round trips 24 → 16. A well-powered null at n = 50.
+
+#### What the two results say together
+
+The confound has exactly one consequence, and it is now pinned:
+
+> **A spoil-laden ant is pulled along whatever channel A gradient exists.**
+
+- Where a gradient exists and **discovery is not solved** (`homeA`, `self`),
+  that clips exploration, and removing spoil releases it — 4.2:1 and 2.3:1.
+- Where there is **no gradient** (`mute`), there is nothing to be pulled along
+  and nothing changes — 0.9:1.
+- Where **discovery is already solved** (`hand`), channel A is not what is
+  steering behaviour, so the confound is irrelevant — flat on every endpoint.
+- **It never touches transport.** Carried-home and round trips do not improve in
+  any arm, at any n. The return leg fails for an independent reason: laden
+  movement has **no homeward component at all** (§7.12, −418 net cells over
+  2,146,526 carrying ticks).
+
+**So cargo sensing is a real defect with a measured, mechanism-specific effect,
+and it is one broken condition among at least three** — cargo gating, homing,
+and discovery. Repairing it moves the endpoint it touches and nothing
+downstream, which is precisely why reading it through colony survival produced
+the withdrawn "not the fault" verdict. That is the general lesson: **in a
+multi-condition failure, a downstream endpoint cannot price an upstream
+repair**, and choosing one that can is the whole of the experiment.
+
 **Method note, because it cost a wrong headline and nearly a second one.** The
 replication was launched as `seed0=13 seeds=36` to be independent of seed 8. The
 parser read `arg("seed")` while the header *printed* `seed0=`, so the flag was
