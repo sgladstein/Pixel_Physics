@@ -675,6 +675,55 @@ fn release_if_bodyless(world: &mut World, organism: OrganismId) {
 /// scheduled at. Losing a trailing segment is just an injury.
 ///
 /// Returns whether the creature is still alive.
+/// **Is this cell still somewhere this animal can be?** -- the rider half of
+/// `reconcile_chain`'s survivor test
+/// (`Reports/creature-stacking-design-2026-09-17.md` §5).
+///
+/// A cell in an organism's own `cells` map is either **owned** -- the grid
+/// names it -- or **ridden**, standing in a nestmate's cell. Ownership is the
+/// pre-stacking test and is unchanged. A ridden cell is only a place to be
+/// while a living same-colony creature is still there to stand in.
+///
+/// **This is how the owner's 2026-09-17 ruling on destruction is
+/// implemented, and it is deliberately pull-based.** *"An explosion is
+/// similar to a fire and it will hurt everybody"* -- so when a blast or a
+/// burnout consumes a cell, everyone standing in it must go. The push-based
+/// reading was to have `fire.rs` and `explosion.rs` reach in and kill riders,
+/// and that is wrong twice over: both paths are generic over materials and
+/// say in their own comments that they know nothing about creatures, and a
+/// list of destroying callers is exactly the "enumeration that has to stay
+/// complete" failure `World::set`'s doc says this project keeps
+/// rediscovering. Asking here instead covers a blast, a burnout, a bite, a
+/// dig, decay and anything added later, with no site to keep in step.
+///
+/// **And it distinguishes the strike, which is the other half of the same
+/// ruling.** *"Strikes are similar to a creature bite and it just hurts the
+/// creature on top."* A strike resolves its target through the cell's
+/// `organism_id` (`player.rs`'s `is_creature` snap, then `creature::slay`),
+/// so it kills the owner and nothing else; `creature_dies` then promotes a
+/// rider into the cell, the cell still holds a living nestmate, and the
+/// remaining riders read true here. Destruction empties the cell and they do
+/// not. The difference is whether the cell survives, which is the thing this
+/// function asks.
+///
+/// Below a stack cap of 1 an animal owns every cell it stands in, so the
+/// second branch is unreachable and this is the pre-stacking test exactly.
+fn cell_still_stands_for(world: &World, p: (i32, i32), organism: OrganismId) -> bool {
+    let cell = world.get(p.0, p.1);
+    if cell.organism_id() == organism {
+        return true;
+    }
+    let host = cell.organism_id();
+    if host == 0 || !is_animal_cell(world, cell) {
+        return false;
+    }
+    let mine = world.organism(organism).map(|s| s.colony);
+    match (mine, world.organism(host).map(|s| s.colony)) {
+        (Some(a), Some(b)) => a == b && a != 0,
+        _ => false,
+    }
+}
+
 fn reconcile_chain(world: &mut World, organism: OrganismId) -> bool {
     let Some(state) = world.organism(organism) else {
         return false;
@@ -705,7 +754,7 @@ fn reconcile_chain(world: &mut World, organism: OrganismId) -> bool {
         return true;
     }
     let (chain, owned, old_groups) = (state.chain.clone(), state.cells.clone(), state.segment_groups.clone());
-    let surviving: Vec<(i32, i32)> = chain.iter().copied().filter(|p| owned.contains_key(p)).collect();
+    let surviving: Vec<(i32, i32)> = chain.iter().copied().filter(|p| owned.contains_key(p) && cell_still_stands_for(world, *p, organism)).collect();
     if surviving.is_empty() || surviving.first() != chain.first() {
         // Vital cell gone (or nothing left at all): the rest is meat. The
         // site knows the cell went away and not what took it -- a bite, a
@@ -17550,6 +17599,70 @@ mod tests {
             w.set(x, y + 1, Cell::new(floor, 0).with_attached(true));
         }
         (spawn(w, species, ax, y), spawn(w, species, bx, y))
+    }
+
+    /// **A cell consumed takes everyone standing in it; a cell that merely
+    /// changes hands does not** -- both halves of the owner's destruction
+    /// ruling of 2026-09-17, in one test because they are one distinction.
+    ///
+    /// *"An explosion is similar to a fire and it will hurt everybody"* --
+    /// so when the cell stops being a creature at all, a rider standing in it
+    /// has nowhere to be and dies. *"Strikes are similar to a creature bite
+    /// and it just hurts the creature on top"* -- so when the owner is killed
+    /// and a rider is promoted, the cell still holds a living nestmate and the
+    /// other riders are untouched.
+    ///
+    /// Asserting only the first would pass against a rule that killed riders
+    /// on any change to the cell, which would make a strike lethal to the
+    /// whole stack.
+    #[test]
+    fn a_consumed_cell_takes_its_riders_and_a_handover_does_not() {
+        let stack = |w: &mut World, host: OrganismId, rider: OrganismId, at: (i32, i32)| {
+            let rider_cell = w.get(104, 119);
+            w.add_rider(at.0, at.1, rider, rider_cell);
+            if let Some(st) = w.organism_mut(rider) {
+                st.cells.insert(at, organism::OrganismCell::default());
+                st.chain = vec![at];
+            }
+            assert_eq!(w.get(at.0, at.1).organism_id(), host, "test setup: the host holds the cell");
+        };
+
+        // --- consumed: the cell becomes stone, as a burnout or blast leaves it
+        let mut w = test_world();
+        w.set_stack_cap(20);
+        let (host, rider) = share_pair(&mut w, "ant", 100, 104, 119);
+        for id in [host, rider] {
+            if let Some(st) = w.organism_mut(id) {
+                st.colony = 7;
+            }
+        }
+        let at = w.organism(host).unwrap().chain[0];
+        stack(&mut w, host, rider, at);
+
+        let stone = w.materials.id_of("stone").unwrap_or(material::STONE);
+        w.set(at.0, at.1, Cell::new(stone, 0));
+        assert!(!cell_still_stands_for(&w, at, rider), "a rider has nowhere to be once the cell stops being a creature");
+        reconcile_chain(&mut w, rider);
+        assert!(w.organism(rider).is_none(), "the rider survived a cell that was consumed -- an explosion must hurt everybody in it");
+
+        // --- handover: the owner is slain and the cell passes to the rider
+        let mut w = test_world();
+        w.set_stack_cap(20);
+        let (host2, rider2) = share_pair(&mut w, "ant", 100, 104, 119);
+        for id in [host2, rider2] {
+            if let Some(st) = w.organism_mut(id) {
+                st.colony = 7;
+            }
+        }
+        let at2 = w.organism(host2).unwrap().chain[0];
+        stack(&mut w, host2, rider2, at2);
+
+        creature_dies(&mut w, host2, organism::DeathCause::Killed);
+        assert!(
+            w.organism(rider2).is_some(),
+            "a strike that killed the creature on top also killed the one under it -- the cell changed hands, it was not consumed"
+        );
+        assert_eq!(w.get(at2.0, at2.1).organism_id(), rider2, "and the survivor now owns the cell");
     }
 
     /// **A dying rider does not stamp corpse over the animal it was standing
