@@ -418,8 +418,6 @@ struct Arm {
     /// and as the gradient a real reader computes.** See the fill site for the
     /// arithmetic that predicts it is two orders of magnitude too flat to read.
     a_profile: [u32; 5],
-    a_along: f32,
-    a_cells: usize,
     /// Times a body traded places with a nestmate -- the "did it fire" counter
     /// for `kinpass`, which must read 0 when the switch is off.
     kin_swaps: u64,
@@ -1067,19 +1065,6 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         let x = nest_x + (target_x - nest_x) * i as i32 / 4;
         w.pheromone_at(Channel::A, x, surface) as u32
     });
-    let (mut a_sum, mut a_n) = (0.0f64, 0u64);
-    for x in nest_x..=(target_x - sensor_offset) {
-        let here = w.pheromone_at(Channel::A, x, surface) as f64;
-        let ahead = w.pheromone_at(Channel::A, x + sensor_offset, surface) as f64;
-        if here > 0.0 || ahead > 0.0 {
-            // Negated like channel B's: positive means the ramp is taller at
-            // the NEST end, which is the shape a homing reader needs.
-            a_sum += -((ahead - here) / (ahead + here + pheromone::SCALE as f64));
-            a_n += 1;
-        }
-    }
-    let a_along = if a_n == 0 { 0.0 } else { (a_sum / a_n as f64) as f32 };
-    let a_cells = (nest_x..=target_x).filter(|&x| w.pheromone_at(Channel::A, x, surface) > 0).count();
 
     // `dietdump` names every material the colony actually booked intake
     // against, which is the only thing that can say *what* an unexpected
@@ -1119,8 +1104,6 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         a_peak_cells,
         a_polarity: if a_pol_n == 0 { 0.0 } else { (a_pol_sum / a_pol_n as f64) as f32 },
         a_profile,
-        a_along,
-        a_cells,
         kin_swaps: st.kin_swaps,
         blocked: st.moves_blocked,
         first_arrival,
@@ -1402,13 +1385,13 @@ fn main() {
                     // standing A ramp runs at P(move) 0.641 against a baseline
                     // of 0.200 (`onetrail mode=arith`).
                     println!(
-                        "{:>16}channel A: PEAK amt {:>6} cells {:>4} (of {} route)  POLARITY {:>+8.5}  end-along {:>+8.5}  nest {:>4}  AtNest {:>5.2}%",
+                        "{:>16}channel A: PEAK amt {:>6} cells {:>4} (of {} route)  POLARITY {:>+8.5}  end nest->food [{}]  nest {:>4}  AtNest {:>5.2}%",
                         "",
                         a.a_peak_amt,
                         a.a_peak_cells,
                         g + 1,
                         a.a_polarity,
-                        a.a_along,
+                        a.a_profile.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(","),
                         a.nest_cells,
                         if a.probe_ticks == 0 { 0.0 } else { 100.0 * a.atnest_ticks as f64 / a.probe_ticks as f64 }
                     );
