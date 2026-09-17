@@ -1537,17 +1537,17 @@ species files that wire `Carrying`, and every breeding baseline void, since
 `brain::mutate` draws one value per live slot. That is the same bill §2.2 priced
 for `FoodAmount`, and it is why the replication comes first.
 
-### 7.15 Why the return leg fails: the homing ramp inverts the moment a colony forages — UNREPRODUCIBLE, see §7.17
+### 7.15 Why the return leg fails: the homing ramp inverts the moment a colony forages
 
-> **DO NOT BUILD ON THIS SECTION. §7.17 could not reproduce its data from the
-> committed tree**, and on a tree that does reproduce, the inversion is not
-> there: foraging colonies come out **1 of 5 negative, mean +0.0082, r = +0.19**,
-> against the **6 of 7 negative, mean −0.0704, r = +0.77** below. Two separate
-> things are wrong with it — the *mechanism* (§7.16: the per-ant charge is not
-> flat, it falls 78% across a 141-tick trip) and the *data* (§7.17). The
-> reproducible tree also grows a far sicker colony, 4 of 12 seeds with any ant
-> alive against 7 of 12 here, so what produced the numbers below is not merely a
-> re-seeding. Read §7.17 first.
+> **This section replicates, and §7.17 adds the condition it was missing.** The
+> inversion needs a colony foraging against a **replenishing** larder
+> (`trailfollow refill=`); on the one-shot default the colony starves at six ants
+> and the question cannot be posed. Re-measured on the committed tree at three
+> refill settings, every foraging colony's ramp points at the food — 4/4, 7/7,
+> 3/3, r = +0.69 to +0.85. **What is wrong below is the mechanism, not the
+> result**: step 1 derives the odometer's decay from `w_rec` alone and concludes
+> the per-ant charge is flat. It is not — it falls 78% across a 141-tick trip
+> (§7.16). The plane inverts because it **integrates traffic**.
 
 
 §7.12 measured laden ants having **no homeward component at all** — −418 net
@@ -1636,7 +1636,7 @@ prediction it makes is sharp and cheap to test, though: an odometer whose decay
 is scaled to the actual journey (tens of ticks, not thousands) should keep the
 ramp nest-ward *while* the colony forages, and that is one weight.
 
-### 7.16 The odometer's decay is not the lever, and finding that out corrected §7.15 — data VOID, see §7.17
+### 7.16 The odometer's decay is not the lever, and finding that out corrected §7.15 — sweep PROVISIONAL, see §7.17
 
 §7.15 closed on a sharp, cheap prediction: *"an odometer whose decay is scaled to
 the actual journey should keep the ramp nest-ward while the colony forages, and
@@ -1785,13 +1785,13 @@ Both were watched firing. **Pre-registered** for the sweep at −0.05, −0.10, 
 - transport still does not follow — discovery is the binding constraint (§7.13),
   and a correct ramp remains necessary rather than sufficient.
 
-### 7.17 The measurement that invalidates §7.15 and §7.16: the binary was not the tree
+### 7.17 §7.15 stands. Its log could not say which scene it ran, and that cost a day
 
-Checking §7.16's sweep against §7.15's baseline — the same command, the same
-twelve seeds — the two disagreed. They should have been the same run. Chasing
-that produced the only finding of this pass that is safe to keep.
+§7.16's sweep disagreed with §7.15's baseline on the same command and the same
+twelve seeds. Two numbers that had to be identical were not. The chase, and the
+answer, are worth more than the sweep was.
 
-#### What was ruled out, in order
+#### What was ruled out, in order, and all of it was wrong
 
 | hypothesis | test | result |
 |---|---|---|
@@ -1799,79 +1799,83 @@ that produced the only finding of this pass that is safe to keep.
 | parallelism differed | `RAYON_NUM_THREADS` unset, 1, 2, 4, 8, 16 | none reproduce it (box is 4 cores; unset ≡ 4) |
 | CPU contention breaks determinism | five copies at once on a 4-core box | **all five byte-identical to the idle run** |
 | my comment edits moved it | rebuild, re-run | identical to the pre-edit run |
-| `SPOIL_IS_CARGO` was set and I dropped it | re-run with `=0` | differs from both |
-| **the binary was not built from the tree** | **clean `git worktree` at `f8bd2179`, full build, re-run** | **reproduces TODAY's numbers, not the sweep's** |
+| `SPOIL_IS_CARGO` was dropped | re-run with `=0` | differs from both, and *kills* every colony |
+| corpses were feeding them | re-run with `onlyfood=off` | no change; not the diet |
+| the binary was not the tree | clean `git worktree` at `f8bd2179`, full build | reproduces today's run, not the sweep's |
 
-The last row is the answer. A clean build of the exact commit the sweep was
-launched from returns today's run to the byte (modulo one header line), and does
-**not** return the sweep's. The harness is deterministic and the source is
-innocent, so what §7.15 and §7.16 measured was a `target/release/examples/`
-binary that no longer corresponds to any commit — `CLAUDE.md`'s
-*"you are probably measuring a binary that is not the code you wrote"*, whose
-stated tell is **identical output across a change that must have moved
-something**. This is the inverse tell, and it is the one that hid: **different
-output across a change that could not have moved anything.** A non-taken
-`if let` and one extra `format!` argument were the entire diff.
+Every one of those is a code or environment hypothesis, and the answer was in the
+**scene**. `CLAUDE.md` says it in one line — *a scene that contradicts the code
+will look like a bug in the code* — and six tests were spent before it was read
+that way.
 
-#### What the reproducible tree actually says
+#### The answer: `refill`, which the header does not print
 
-Shipped ant, gap 90, 12 seeds, `arms=hand`, `RAYON_NUM_THREADS=4`, built from the
-committed tree and verified byte-identical across three independent runs:
+The tell was one line neither run's *header* carries, printed at the end:
 
-| | §7.15's binary | **reproducible tree** |
-|---|---|---|
-| foraging colonies (`AtNest` < 5%) | 7 of 12 | 5 of 12 |
-| of those, ramp pointing at the food | **6** | **1** |
-| mean polarity, foraging | **−0.0704** | **+0.0082** |
-| mean polarity, stays home | +0.0375 | +0.0176 |
-| r(`AtNest`, polarity) | **+0.77** | **+0.19** |
-| seeds with any ant alive at the end | 7 of 12 | **4 of 12** |
-| best surviving colony | 211 ants | **6 ants** |
+| | larder put out over the sweep |
+|---|---|
+| §7.15's run | **48,960 – 314,160 J** |
+| my re-run | **48,000 – 48,000 J** |
 
-**The inversion is not there, and neither is the correlation it rested on.** The
-homing ramp on the reproducible tree is weakly nest-ward on average in both kinds
-of colony.
+`refill` re-places the larder every N frames. It defaults to **0** — a one-shot
+larder — and until this change it was **not echoed in the header**, so two runs
+on completely different scenes printed *identical* parameter lines. Reproduced:
+`refill=4000` puts out **48,960–324,720 J**, the same low end and nearly the same
+high end as §7.15's run.
 
-**The larger problem is the last two rows.** The tree that reproduces grows a
-colony that barely survives — four seeds with any ant alive and a best of six,
-against seven seeds and a best of 211. §7.15's phenomenon needs a colony that
-forages hard enough to sit at the food; this tree does not produce one, so the
-question §7.15 asked cannot even be posed on it. **Which tree is right is now
-the open question**, and it is upstream of everything in §7.11–§7.16 that is
-conditioned on colony survival.
+**At `refill=0` the scene cannot pose §7.15's question.** The one-shot larder is
+48,000 J against a stated need near 46,800 — 1.03x subsistence. Four seeds of
+twelve keep any ant alive and the best colony is **six ants**. There is no colony
+foraging hard enough to sit at the food, so there is nothing for the ramp to
+invert *toward*.
 
-#### What survives
+#### Restored, the inversion reproduces — on the committed tree, at three settings
 
-- **§7.16's arithmetic**, which is independent of any run: the odometer's decay
-  is dominated by `squash` rather than `w_rec`, the shipped emission falls
-  **78% across a 141-tick trip**, and the simulator that says so reproduces the
-  engine's own `what_an_odometer_emits` readout to three decimals on three
-  points. `recur` is not the decay knob whatever the world does.
-- **§7.16's documentation defects**, which are file reads: `creature.rs` named
-  the dead pre-fix weights as the shipped ones, and `ant.ron` quoted the
-  `w_out 900, bias −0.2` fit's curve beside `w_out 32.0` and no bias. Both are
-  corrected in this change.
-- **The emission-floor sweep**, which ran on the reproducible binary and was
-  verified byte-identical to it. On that tree the shipped ramp is already mildly
-  nest-ward (+0.0082 foraging) and a floor pushes it further positive — +0.0187,
-  −0.0168, +0.0346, +0.0701 at −0.05/−0.10/−0.18/−0.35 — while route coverage
-  falls from a median **84 of 91 cells to 50**. But at −0.18 and −0.35 only
-  **two** colonies forage at all, so the positive means are two-sample and the
-  sweep cannot carry a conclusion until colony survival is understood.
+Shipped ant, gap 90, 12 seeds, `arms=hand`, `RAYON_NUM_THREADS=4`, current tree:
+
+| `refill` | seeds with ants alive | foraging colonies | of those, ramp points at the food | mean polarity, foraging | mean, stays home | r(`AtNest`, polarity) |
+|---|---|---|---|---|---|---|
+| **0** (one-shot) | 4/12 | 5 | 1 | +0.0082 | +0.0176 | +0.19 |
+| **500** | 5/12 | 4 | **4 of 4** | −0.0561 | +0.0266 | **+0.69** |
+| **2000** | 7/12 | 7 | **7 of 7** | −0.0759 | +0.0518 | **+0.85** |
+| **4000** | 3/12 | 3 | **3 of 3** | −0.0631 | +0.0441 | **+0.84** |
+| §7.15's original | 7/12 | 7 | 6 of 7 | −0.0704 | +0.0375 | +0.77 |
+
+**Every foraging colony at every refill setting has a ramp pointing at the food**
+— 4/4, 7/7, 3/3 — and §7.15's original numbers sit in the middle of that spread.
+The finding replicates. What failed was never the result; it was that the log
+could not say which scene produced it.
+
+#### What is void, and what is not
+
+- **§7.15 stands**, with the qualifier it always needed made explicit: the
+  inversion is a property of a colony foraging against a *replenishing* food
+  source. On a one-shot larder the colony starves before it can express it.
+- **§7.16's arithmetic stands and is independent of any run**: the odometer's
+  decay is dominated by `squash` rather than `w_rec`, the shipped emission falls
+  **78% across a 141-tick trip** (0.819 → 0.177), and the simulator saying so
+  reproduces `what_an_odometer_emits` to three decimals on three points.
+  `recur` is not the decay knob whatever the scene is.
+- **§7.16's documentation defects stand**, being file reads rather than runs.
+- **§7.16's `recur` sweep is provisional.** Its five arms shared one driver and
+  therefore one refill, so the comparison *between* them is sound; but the refill
+  is unrecorded, so it is re-run rather than quoted.
+- **The emission-floor sweep is void.** It ran at `refill=0`, where two to five
+  colonies forage weakly and the shipped ramp is already mildly nest-ward. It
+  measured a scene with nothing in it. Re-run at `refill=2000`, the setting with
+  7 of 12 alive and 7 of 7 foraging.
 
 #### The process failure, stated so it is not repeated
 
-`CLAUDE.md` prescribes `cargo build --release --examples` with `set -o pipefail`
-before any measurement, precisely because a stale example binary *"runs happily,
-prints plausible numbers, and has a newer mtime than the source you just
-edited"*. The rider controls that ran before the sweep — the shipped value
-refused as a no-op, `recur=0.99` firing and moving the readout — all passed
-**on the stale binary**, and passing is exactly what they do there: they prove
-the rider is wired to the slot it names, which was true, and say nothing about
-which tree the rest of the binary came from. **A control that validates the knob
-does not validate the build.** The standing check that would have caught it is
-the one this file already demands: build the examples explicitly, in the same
-command as the run.
+The rider controls run before the sweep all passed — the shipped value refused as
+a no-op, `recur=0.99` firing and moving the readout. They were run on the same
+scene as the sweep and were correct. **A control that validates the knob does not
+validate the scene**, and this harness printed a header that made two different
+scenes look like one run repeated. `refill` is now echoed. The general rule is the
+one `CLAUDE.md` already states for the other direction — *a knob nobody can see
+the value of is a knob nobody can tell is disconnected* — and the missing half is
+that nobody can tell it is **connected** either, which is the more expensive way
+round: the sweep looked reproducible and was not.
 
 ### 7.9 What this leaves standing
 

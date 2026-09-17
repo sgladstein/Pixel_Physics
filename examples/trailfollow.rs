@@ -1298,7 +1298,16 @@ fn main() {
     // The harness names its own parameters, so a log that does not name a
     // knob was written by a binary that never had one — `CLAUDE.md`'s
     // stale-harness gotcha, which cost a 3.5-hour study.
-    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food}", gate.name);
+    // **`refill` is echoed because leaving it out cost a whole pass.** It
+    // defaults to 0 -- a one-shot larder -- and at 0 no colony in this scene
+    // forages, so the question §7.15 asks cannot be posed. A run with it set
+    // and a run without it printed **identical headers**, and the two were
+    // chased through a determinism check, a six-value thread scan, a
+    // contention test and a clean worktree rebuild before the scene was
+    // suspected. `CLAUDE.md`: a knob nobody can see the value of is a knob
+    // nobody can tell is disconnected -- and the same is true of one nobody
+    // can tell is *connected*.
+    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill}", gate.name);
     println!("  gate {}: off {:+.1}  on {:+.1}  along ±{:.1}", gate.name, gate.off, gate.on, gate.along);
     println!("  {LANDED_NOTE}\n");
 
