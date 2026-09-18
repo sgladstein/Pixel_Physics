@@ -1653,7 +1653,15 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         // it was written -- see the note above. On an arm that lays nothing of
         // ours, every frame is fair game.
         let ours_is_down = trail || paint != PaintA::None;
-        let past_our_trail = if ours_is_down { stop > 0 && f > stop + 1500 } else { true };
+        // **3,000, not 1,500, and the old margin was inside the noise.**
+        // `pherolife` on current `main` reports a laid trail **gone at 1,476
+        // frames**, so a window opening at `stop + 1500` opened 24 frames after
+        // our own trail died -- a 1.6% margin on a decay curve, which is no
+        // margin at all. It is why `route pk` once read **88 of 91 in all four
+        // arms alike, including an arm where the ants emit no channel B**:
+        // that was our residue being counted as theirs. At `stop + 3000` the
+        // margin is 2x the measured lifetime.
+        let past_our_trail = if ours_is_down { stop > 0 && f > stop + 3000 } else { true };
         if past_our_trail && f.is_multiple_of(100) {
             let live = (nest_x..=target_x).filter(|&x| w.pheromone_at(Channel::B, x, surface) > 0).count();
             peak_cells = peak_cells.max(live);
