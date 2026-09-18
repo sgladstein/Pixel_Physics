@@ -3280,6 +3280,95 @@ energy → share.** The granary is an addition, not a replacement.
   §7.27's table is conditional on an economy that punishes commuting; re-running
   it finer measures the economy, not the dial.
 
+## §7.29 291 ticks to digest, 4 ticks held at the nest — the arithmetic that kills step 1
+
+**2026-09-18.** §7.28 planned `(Energy, Feed, -w)` as the cheap first move and
+said to derive `w` through `eval_brain` before running anything. Derived, and
+**the step is falsified without a single sweep** — along with a better answer than
+the one it was looking for. `trailfollow mode=feedgate`.
+
+### The two numbers
+
+**A `fruit` cell needs 291 ticks in a crop.** `digest_rate: 3.3` per tick against
+a cell `unit` of 960 J, absorbed only when `digesting` reaches `unit`. At the
+ant's 6-frame tick that is **1,745 frames**.
+
+**At the nest a cell is held for 4.** P(drop) per tick is **0.2507** with
+`AtNest = 1`, and **0.0000** without it.
+
+So an ant that walks home **puts its food down about seventy times sooner than it
+could ever absorb it**, and the drop discards `digesting` entirely. Going home is
+fatal to the meal, quantitatively, and this is the whole of §7.27's
+"100% of carries end in a drop and none in a meal."
+
+It also explains the shipped animal's survival: with `home_bias: 0.0` an ant
+wanders, rarely touches nest, and P(drop) away from nest is nil — so it holds the
+cell the ~291 ticks it needs and eats. **The colony lives by NOT delivering.**
+
+### Dropping is two gates, and reading one of them overstates it 4x
+
+`creature::act` sets `prefer_drop` from
+`choose_weighted(&[feed_urge, drop_urge], 0.1, ..)` and **then rolls again**
+against `drop_urge` itself (`let p = drop_urge; if draw.unit_f32() < p`). The
+per-tick probability is the **product**.
+
+The first draft of this readout printed only the contest and reported 0.4809 at
+the nest where the truth is 0.2507. Recorded because the error is the standing
+one: **a number that is arithmetically right and one step short of the decision**
+— and it was caught by reading `act` again rather than by anything going wrong.
+
+### Why `(Energy, Feed, -w)` cannot do the job
+
+`Energy` is *fullness*, `state.energy / start_energy`, so the wire contributes
+`-w × Energy` — **zero at E = 0**. It cannot raise a hungry ant's feed urge,
+because at the point of maximum hunger the term vanishes. What it does instead is
+*suppress* feeding when full, which pushes P(drop) at the nest **up**:
+
+```
+       w   AtNest    E=0.00    E=0.25    E=0.50    E=0.75    E=1.00
+    0.00      yes    0.2507    0.2507    0.2507    0.2507    0.2507
+    1.00      yes    0.2507    0.2753    0.3106    0.3629    0.4402
+    3.00      yes    0.2507    0.3629    0.5081    0.5081    0.5081
+```
+
+**Every row is identical at E = 0.00.** No setting of `w` moves a starving ant by
+one digit, and the whole point of the step was to move exactly that ant. A
+positive `Bias` term would move the baseline, but it would move it for *every*
+ant at every fullness, which is not a hunger response at all.
+
+`CLAUDE.md`'s *check that a planned step can demonstrate itself before promising
+it will* — **which cell does this rule actually evaluate?** The answer was "a full
+ant", and the step was written for a hungry one. One readout instead of a lane.
+
+### What the numbers say to build instead
+
+The gap is **291 against 4**, and only three things close it:
+
+1. **`digesting` survives a drop and resumes on re-ingest.** Then delivery stops
+   destroying the meal, cumulative nibbling works, and *a pile at the nest is
+   digestible by the colony over many visits rather than by one ant in one
+   sitting*. **This is the granary, and the arithmetic says it is the right
+   shape** — it is a change to `Crop`, not a new verb, a flag or a trait (which
+   `TRAIT_STORE_IN_BODY`'s rejection forbids).
+2. **A nest-side consumption path** — `larder-reachability` §6 item 1, a birth
+   payable from a nest-adjacent store. Larger, and it is the one that makes the
+   pile *mean* something rather than merely survive.
+3. **Re-derive `digest_rate` or `crop_capacity`.** Cheapest to type and the
+   worst-grounded: it moves a constant calibrated against a world where nobody
+   delivers, and 70x is not a tuning distance.
+
+**Nothing here needs `home_bias` turned down.** The steering was never the
+problem; the 4-tick hold at the nest is.
+
+### One caveat on this readout, stated rather than left for the next reader
+
+The synthetic inputs set `MoistureGrad` and `SurfaceCurvature` to **0**, and
+`ant.ron` authors both into `Drop` at 0.169. A real world does not. So
+**"0.0000 away from the nest" is a floor, not a field value** — colony-scale data
+records 137,945 drops, most of them away from nest, which those two terms and a
+real gradient account for. The nest figure is the one to trust, because `AtNest`
+dominates it at 1.0889.
+
 ## Instruments
 
 - `examples/onetrail.rs` — `mode=arith` (shipped genome, nothing overridden),

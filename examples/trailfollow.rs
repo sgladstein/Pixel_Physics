@@ -192,6 +192,88 @@ impl Gate {
 /// -1.75)`, so a full ant's residual drive is 0.25 and a starving one's is
 /// 2.0. The gate has to be comparable to *that*, and quoting it against the
 /// bias alone would flatter it.
+/// **The `Feed`-against-`Drop` contest, through the real `eval_brain`** — what
+/// `(Energy, Feed, -w)` would buy, written out before anything is authored.
+///
+/// `creature::act` does not choose between eating and putting down by comparing
+/// the two urges directly: it runs `choose_weighted(&[feed_urge, drop_urge],
+/// CHOICE_EXPLORATION_K, ..)`, which scores each option as `(k + s.max(0))^2`
+/// at `k = 0.1`. So the number that decides behaviour is
+/// `P(drop) = (0.1+d)^2 / ((0.1+f)^2 + (0.1+d)^2)`, and that is what this
+/// prints. **Quoting the raw urges instead would be quoting an input to the
+/// decision rather than the decision** — `CLAUDE.md`'s "ask what your number
+/// counts", in the shape where the arithmetic is one step further on than it
+/// looks.
+///
+/// **Through `eval_brain` with the shipped genome, never hand-summed from the
+/// `.ron`.** `ant.ron` wires through hidden units, a weight under `brain::W_EPS`
+/// is no connection at all, and §Z5's dead odometer was "verified" by exactly
+/// the side-simulation this avoids.
+///
+/// `FoodAdjacent` is pinned at 1.0 throughout: with nothing to eat the contest
+/// does not arise, so the interesting rows are the ones where it does.
+fn feed_gate(base: &[f32], candidates: &[f32]) {
+    use brain::BrainInput as BI;
+    use brain::BrainOutput as BO;
+    let energies = [0.0f32, 0.25, 0.5, 0.75, 1.0];
+    println!("P(drop) PER TICK -- the contest AND the drop_urge roll, which are two gates.");
+    println!("FoodAdjacent = 1.0, Carrying = 1.0 throughout. Lower means the ant holds on.\n");
+    println!("Against it: one `fruit` cell is 960 J and `digest_rate` is 3.3/tick, so a cell");
+    println!("needs 291 ticks in the crop to be absorbed. Expected ticks held = 1/P(drop).\n");
+    println!("{:>8} {:>8} {:>9} {:>9} {:>9} {:>9} {:>9}", "w", "AtNest", "E=0.00", "E=0.25", "E=0.50", "E=0.75", "E=1.00");
+    println!("{:->8} {:->8} {:->9} {:->9} {:->9} {:->9} {:->9}", "", "", "", "", "", "", "");
+    for &cand in candidates {
+        let mut g = base.to_vec();
+        // The candidate wire. `-cand` because `Energy` is a FULLNESS reading
+        // (`state.energy / start_energy`), so a hungry ant reads 0 and the
+        // negative weight is what turns "empty" into "eat".
+        g[brain::io_slot(BI::Energy, BO::Feed)] = -cand;
+        for at_nest in [0.0f32, 1.0] {
+            let mut row = Vec::new();
+            for &e in &energies {
+                let mut inputs = [0.0f32; brain::BRAIN_INPUTS];
+                inputs[BI::Bias as usize] = 1.0;
+                inputs[BI::FoodAdjacent as usize] = 1.0;
+                inputs[BI::AtNest as usize] = at_nest;
+                inputs[BI::Energy as usize] = e;
+                // A laden ant, since putting down is only a question for one.
+                inputs[BI::Carrying as usize] = 1.0;
+                let mut state = [0.0f32; brain::BRAIN_HIDDEN];
+                let (out, _) = brain::eval_brain(&g, &inputs, &mut state);
+                let f = out[BO::Feed as usize].clamp(0.0, 1.0);
+                let d = out[BO::Drop as usize].clamp(0.0, 1.0);
+                let k = 0.1f32;
+                let (bf, bd) = (k + f, k + d);
+                // **Dropping needs BOTH gates and an earlier draft of this
+                // readout printed only the first.** `creature::act` sets
+                // `prefer_drop` from `choose_weighted`, and then the drop
+                // branch rolls again against `drop_urge` itself
+                // (`let p = drop_urge; if draw.unit_f32() < p`). So the
+                // per-tick probability is the product, and the contest alone
+                // overstates it by a factor of `1 / drop_urge`.
+                let contest = bd * bd / (bf * bf + bd * bd);
+                row.push(format!("{:>9.4}", contest * d));
+            }
+            println!("{:>8.2} {:>8} {}", cand, if at_nest > 0.5 { "yes" } else { "no" }, row.join(" "));
+            if cand == 0.0 {
+                // The shipped row is the only one worth converting, and the
+                // conversion is the whole question: how long does a cell stay
+                // in a crop against the 291 ticks it needs.
+                let held: Vec<String> = row
+                    .iter()
+                    .map(|c| {
+                        let pv: f32 = c.trim().parse().unwrap_or(0.0);
+                        if pv <= 0.0 { "    inf".to_string() } else { format!("{:>7.0}", 1.0 / pv) }
+                    })
+                    .collect();
+                println!("{:>8} {:>8} {}", "ticks", "held", held.join("   "));
+            }
+        }
+    }
+    println!("\nw = 0.00 is the shipped ant: `ant.ron` authors no `Energy -> Feed` wire at all,");
+    println!("so hunger does not move this number by a single digit today.");
+}
+
 fn arithmetic(base: &[f32]) {
     let along: Vec<f32> = vec![0.0, 0.05, 0.1, 0.2, 0.35, 0.5, 1.0];
     println!("{:>9} {:>9} | {}", "gate", "carry", along.iter().map(|a| format!("{a:>8.2}")).collect::<Vec<_>>().join(""));
@@ -2137,6 +2219,11 @@ fn main() {
     let spec = LabBox { width: 256, height: 192, ground_y: 96, soil_depth: 48, founders: 0, colonies: 0, seed: seed0, ..LabBox::default() };
     let w = spec.build();
     let base = w.species.get(w.species.id_of("ant").expect("the ant species is compiled in")).genome.clone();
+
+    if mode == "feedgate" {
+        feed_gate(&base, &[0.0, 0.5, 1.0, 1.5, 2.0, 3.0]);
+        return;
+    }
 
     if mode == "arith" {
         println!("P(move) for a fed ant (Energy 1.0), by gate and by along-gradient reading:\n");
