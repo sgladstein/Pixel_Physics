@@ -3656,6 +3656,109 @@ compass is `forage_anchor`; channel A's job is the contextual one. Every §7.23
 repair aimed at the ramp's polarity — and §7.19's whole retracted metric — was
 work on a signal that was never going to carry direction.
 
+## §7.33 Ants do not follow the hand-laid trail, and the reader pair is why
+
+**2026-09-18.** Owner: *"I would also recommend reading a few ants' exact brain
+decisions at each tick, unless the results are very clean."* They were not clean
+— one seed of eighteen runs — so this reads one ant, per tick, and the answer is
+neither homing nor the gate.
+
+### The sweep that prompted it
+
+`arms=hand`, `gate=shipped`, endless larder, trail off at 6,000, gaps 90/140/200,
+6 seeds, `home_bias` ∈ {0, 0.25, 0.5, 1.0}:
+
+| gap | hb 0 | 0.25 | 0.5 | 1.0 |
+|---|---|---|---|---|
+| 90 | 0/6, 0 trips | 0/6, 1 | 0/6, 0 | **1/6, 23 trips, 13.7M J** |
+| 140 | 0/6 | 0/6 | 0/6 | 0/6 |
+| 200 | 0/6 | 0/6 | 0/6 | 0/6 |
+
+`home_bias: 1.0` turned seed 6 from dead into **480 alive, 12,131 of 12,499 ants
+reaching food, 22 trips**. The same seed at 0 is dead with 2 visitors. One seed is
+not a result; it is a reason to look at a tick.
+
+### Two instrument gaps had to close first, and the first is the serious one
+
+**The focal ant was chosen from larder-carriers only.** So in a seed where nobody
+reaches the food there was no focal ant and the CSV was empty: **the per-tick
+instrument could see every run except the ones that fail.** `focalany` now takes
+the first ant seen, carrying or not, and `focalx=N` takes the one nearest a
+column — because the first ant is the westernmost, and the west of this colony is
+somewhere the question does not live.
+
+The row also carried only the homing half (`PheroAAlong`, h0/h1), so it could not
+answer *"why did this ant not follow the food trail"*. It now carries
+`CarryingFood`, `crop_cells`, `heading`, `PheroBAlong`, `PheroBFront`, h2, h3 and
+`p_tumble` beside `p_move`.
+
+### The trail does not cover half the colony
+
+The hand-laid trail runs `nest_x..=target_x` = **48 to 138**. Founders span
+**12 to 88**. **Every ant founded west of 48 starts off the trail entirely.**
+Traced, the westernmost ant lived its whole life at **x 4–15** and sensed channel
+B on **0 of 3,875 ticks**. It is not failing to follow a trail; there is no trail
+where it stands.
+
+That is worth fixing, and it is not the main fault.
+
+### An ant standing ON the trail does not follow it either
+
+`focalx=85` — a founder inside the trail's span, seed 2, the same run:
+
+- sensed channel B on **4,061 of 4,061 ticks**, mean `|PheroBAlong|` **0.585**;
+- lived its whole life at **x 56–85**, never passing 85 toward food at 138;
+- faced **down**-gradient on 2,652 ticks against **up** on 1,379, nearly 2:1 away
+  from the food.
+
+And the response to that full-strength signal:
+
+```
+facing UP-gradient (toward food)   n 1379   mean p_move 0.7622
+facing DOWN-gradient               n 2652   mean p_move 0.7244
+                                            difference  +0.0378
+```
+
+**A 0.585 signal buys a 0.038 change in the chance of stepping.**
+
+### Why: units 2/3 are still saturated, and only units 0/1 were ever repaired
+
+`ant.ron` gates the food-trail reader `Bias +45, CarryingFood -75`. For an **empty**
+ant the sum is `45 + 6·along`, and `squash(x) = x/(1+|x|)` is flat there:
+
+```
+along +1 -> squash(51) = 0.98077
+along -1 -> squash(39) = 0.97500
+spread                    0.00577
+across the antisymmetric pair into Move at +-2.5:  0.0288
+```
+
+**Predicted 0.0288 against a measured 0.0378** — the same mechanism, with the
+other `Move` terms making up the remainder.
+
+This is **§Z7's saturation, alive in the shipped animal.** The homing pair (units
+0/1) was moved to a `+0.5` on-state on 2026-09-09; **units 2/3 never were.** The
+food-trail reader has been parked in the state the repair was written for, for
+nine days, and every "the colony will not follow a trail" result on this bed sits
+downstream of it.
+
+### It is a `dead-ends.md` re-test, and the condition it was rejected under is gone
+
+Re-gating units 2/3 was built and rejected 2026-09-09: *"the repair is correct,
+it does exactly what its arithmetic promises, and it makes the animal decisively
+worse."* Its recorded re-test condition is **"what a food trail is worth in this
+bed, not the gate"** — and three things in that bed have since changed:
+
+1. the homing gate opened at all (§7.22 → today: 1.84% → 100%);
+2. the sensor stopped calling dirt cargo (§7.31), so channel B is no longer
+   laid at the nest by diggers;
+3. `home_bias` gave laden ants a way home that does not depend on channel A.
+
+**Do not re-run it as it was.** The 2026-09-09 arm re-gated 2/3 against a colony
+that could not return, on a sensor that laid food-scent while digging. Re-test it
+on today's animal, and read the per-tick `p_move` split above as the acceptance
+number rather than survivor counts — it is the quantity the repair is about.
+
 ## Instruments
 
 - `examples/onetrail.rs` — `mode=arith` (shipped genome, nothing overridden),

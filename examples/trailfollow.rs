@@ -1383,6 +1383,18 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // `sense` per ant per frame, against the 100-frame cadence the columns
     // above are sampled on.
     let tracing = flag("trace");
+    // **Trace an ant that never finds food.** Without this the focal ant is
+    // drawn from larder-carriers, so the seeds where foraging fails outright
+    // produce an empty CSV -- see the selection site.
+    let focal_any = flag("focalany");
+    // **Which ant to follow, by where it starts.** `focalany` takes the first
+    // one seen, which is the westernmost founder -- and the west of this colony
+    // is off the hand-laid trail entirely (it runs `nest_x..=target_x`, while
+    // founders span the band around the nest). Tracing only that ant answers
+    // "what does an ant with no trail under it do" and cannot answer "does an
+    // ant standing ON the trail follow it", which is the question the arm is
+    // for. `focalx=N` picks the ant nearest x = N at selection time.
+    let focal_x: Option<i32> = arg("focalx");
     let mut tr_n = 0u64;
     let mut tr_along_sum = 0.0f64;
     // **The magnitude, separately, because the signed mean cannot answer "is
@@ -1687,13 +1699,29 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             let Some(&(hx, hy)) = s.chain.first() else { continue };
             ant_ticks += 1;
             let carrying_larder = s.crop.is_some_and(|c| c.material == larder);
-            if tracing && carrying_larder {
+            // **`focalany` traces an ant that never finds food, and without it
+            // the failing case is invisible.** The focal ant was chosen from
+            // larder-carriers only, so in a seed where nobody reaches the food
+            // there is no focal ant and the CSV is empty -- the instrument
+            // could see every run except the ones that fail. Measured
+            // 2026-09-18: at gap 90 with a hand-laid trail, four of six seeds
+            // put **0 or 1** ants of 20 on the larder, and those four produced
+            // no per-tick record at all.
+            let take_as_focal = match (focal_x, focal_any) {
+                // Nearest to the requested column, re-evaluated while no ant has
+                // been chosen yet: the first tick's sweep settles it.
+                (Some(fx), _) => focal.is_none() && (hx - fx).abs() <= 2,
+                (None, true) => focal.is_none(),
+                (None, false) => carrying_larder && focal.is_none(),
+            };
+            if tracing && (carrying_larder || focal == Some(id) || take_as_focal) {
                 // **The focal ant is the first to pick larder up**, traced for
-                // the rest of its life. One ant is n=1 in a chaotic system, so
-                // it is the illustration and the aggregate below is the result;
-                // both are printed because a mean over a bimodal population
-                // describes no ant that exists.
-                if focal.is_none() {
+                // the rest of its life -- or, under `focalany`, simply the first
+                // ant seen, carrying or not. One ant is n=1 in a chaotic system,
+                // so it is the illustration and the aggregate below is the
+                // result; both are printed because a mean over a bimodal
+                // population describes no ant that exists.
+                if take_as_focal {
                     focal = Some(id);
                 }
                 let cdef = w.species.get(species_id).creature.clone().expect("ant is a creature");
@@ -1719,13 +1747,22 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 // The trail's whole contribution: hidden 0/1 are the channel A
                 // pair and nothing else drives `Move` from them.
                 let trail = terms.iter().filter(|(n, _)| n == "h0" || n == "h1").map(|(_, v)| *v).sum::<f32>();
+                // Signed step toward the nest, needed by both the aggregate
+                // below and the focal row, so it lives outside the laden guard.
+                let dx = tracks.get(&id).filter(|t| t.seen).map_or(0, |t| t.last_x - hx);
+                // **Every aggregate below counts LADEN decisions only.** The
+                // focal ant may now be an empty one (`focalany`), and letting it
+                // into these sums would quietly redefine `n` from "laden
+                // decisions" to "laden decisions plus one ant's whole life" --
+                // a denominator change that moves every rate in the block and
+                // looks like a result.
+                if carrying_larder {
                 tr_n += 1;
                 tr_along_sum += along as f64;
                 tr_abs_along_sum += along.abs() as f64;
                 tr_along_hist[(((along + 1.0) * 4.5) as usize).min(8)] += 1;
                 tr_pmove_sum += p_move;
                 tr_trail_sum += trail as f64;
-                let dx = tracks.get(&id).filter(|t| t.seen).map_or(0, |t| t.last_x - hx);
                 tr_dx_home += dx as i64;
                 // The threshold is `creature::sense`'s own guard scale expressed
                 // back as an `along`: below this the reader is looking at two
@@ -1763,12 +1800,24 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                         tr_down_open.2 += dx as i64;
                     }
                 }
+                }
                 if focal == Some(id) {
                     focal_rows.push(format!(
-                        "{f},{hx},{dx},{along:.5},{:.5},{:.4},{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.5},{:.5},{p_move:.5},{trail:.5},{presquash:.5}",
+                        "{f},{hx},{dx},{along:.5},{:.5},{:.4},{:.4},{},{},{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.5},{:.5},{:.5},{:.5},{:.5},{:.5},{p_move:.5},{:.5},{trail:.5},{presquash:.5}",
                         tin[I::PheroAFront as usize],
                         tin[I::Carrying as usize],
+                        // **`CarryingFood` is the column that decides the gate**
+                        // since 2026-09-18, and a per-tick record without it
+                        // cannot say why the homing pair was open or shut. The
+                        // old `Carrying` stays beside it: the two disagreeing is
+                        // exactly the spoil case, and seeing them differ on one
+                        // row is worth more than either alone.
+                        tin[I::CarryingFood as usize],
+                        s.crop.map_or(0, |c| c.cells),
                         u8::from(s.spoil.is_some()),
+                        // Which way the body is pointing, so a heading change
+                        // is visible as an event rather than inferred from `dx`.
+                        s.heading,
                         tin[I::Energy as usize],
                         tin[I::Crowding as usize],
                         tin[I::AtNest as usize],
@@ -1776,6 +1825,20 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                         tin[I::Stillness as usize],
                         thid[0],
                         thid[1],
+                        // **Channel B and its reader pair.** The homing half
+                        // (h0/h1, `PheroAAlong`) was all this row carried, so it
+                        // could not answer "why did this ant not follow the food
+                        // trail" -- which is the question four of six seeds are
+                        // asking.
+                        tin[I::PheroBAlong as usize],
+                        tin[I::PheroBFront as usize],
+                        thid[2],
+                        thid[3],
+                        // The run-or-tumble roll's other side: `p_move` is the
+                        // chance of stepping along the current heading, and this
+                        // is the chance of re-rolling it. Reading one without
+                        // the other cannot tell "stood still" from "turned".
+                        tout[O::Tumble as usize].clamp(0.0, 1.0),
                     ));
                 }
             }
@@ -2050,7 +2113,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         if !focal_rows.is_empty() {
             let path = format!("/tmp/trailfollow-focal-seed{seed}-gap{gap}.csv");
             let mut out = String::from(
-                "frame,x,dx_home,PheroAAlong,PheroAFront,Carrying,spoil,Energy,Crowding,AtNest,FoodAdjacent,Stillness,h0,h1,p_move,trail_term,move_presquash\n",
+                "frame,x,dx_home,PheroAAlong,PheroAFront,Carrying,CarryingFood,crop_cells,spoil,heading,Energy,Crowding,AtNest,FoodAdjacent,Stillness,h0,h1,PheroBAlong,PheroBFront,h2,h3,p_move,p_tumble,trail_term,move_presquash\n",
             );
             out.push_str(&focal_rows.join("\n"));
             out.push('\n');
