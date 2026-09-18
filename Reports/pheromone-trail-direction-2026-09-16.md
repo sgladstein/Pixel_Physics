@@ -3481,6 +3481,94 @@ flatter most.
 two differ by 40 cells and the difference is largest exactly where the numbers are
 most flattering.
 
+## §7.31 The self arm's trail is mostly dirt — and a returning ant does lay a real one
+
+**2026-09-18.** Owner: *"2 is dependent on 3. Ants lay the trail when they are
+returning. If they don't return they cannot lay their own trail."* Correct, and
+the framing in the previous message had it as "we are solving 2" with 3 as the
+path, which invites exactly the drift this line keeps having. **The goal is 2;
+the active work is 3; and 2 is the test of whether 3 worked.**
+
+This is the first direct measurement of that dependency, and it was available
+without fixing anything.
+
+### The self arm can be read from frame 0, which nothing had noticed
+
+`route pk` waits for `stop + 1500` **only when this harness lays a trail of its
+own** — `ours_is_down = trail || paint != PaintA::None`, and the `self` arm is
+`("self", false, false, PaintA::None)`. So on `self` the window is open from
+frame 0 and samples every 100 frames. **No fix to the digestion problem was
+needed to ask this**; the colonies die around frame 7,600 and still give ~76
+samples, and `route pk` is a peak.
+
+### Most of what the colony lays is dig tailings
+
+`arms=self,mute`, 6 seeds, gap 90, against the same run with `SPOIL_IS_CARGO=0`:
+
+| seed | route pk, spoil ON | spoil OFF | B profile ON | B profile OFF |
+|---|---|---|---|---|
+| 1 | 33 | **11** | [0,12,0,0,0] | [0,0,0,0,0] |
+| 2 | 22 | **0** | [3,3,0,0,0] | [0,0,0,0,0] |
+| 3 | 26 | **0** | [0,8,0,0,0] | [0,0,0,0,0] |
+| 4 | 84 | 55 | [0,10,17,16,1] | **[0,0,119,16,1]** |
+| 5 | 52 | 30 | [4,34,0,0,18] | **[0,0,0,76,0]** |
+| 6 | 31 | **0** | [0,4,0,0,0] | [0,0,0,0,0] |
+
+**In every seed where no ant ever reached the food, silencing spoil takes the
+trail to exactly zero.** `Carrying` is `crop_fill.max(spoil ? 1.0 : 0.0)` and
+`(Carrying, EmitB, 2.5)` is channel B's only emitter, so **an ant holding dig
+tailings lays food-trail pheromone**, and it does it where it digs — the nest.
+Seeds 2, 3 and 6 were laying a puddle of dirt-scent at their own door and
+scoring it as a trail.
+
+### And where an ant did return, the trail is real — and sharper without the dirt
+
+The three seeds with a finder (1, 4, 5 — `arrive@` 4914, 1416, 3018) keep their
+trail with spoil silenced, and **the mass moves out of the nest bands into the
+route**: seed 4's band 2 goes **17 → 119**, seed 5's band 3 goes **0 → 76**.
+The food trail was being *masked* by the nest-side puddle, not produced by it.
+(Consistent with §7.24: silencing spoil makes ants hold cargo rather than drop
+it, so there are more laden ticks along the route to lay from. The two arms are
+different worlds, not one world measured twice.)
+
+**So a returning ant does lay a route trail.** Part 3 feeds part 2, measured
+rather than argued, and the owner's ordering is the right one.
+
+### The real bottleneck on this arm is discovery, and it is severe
+
+Every self-arm colony died, at every gap, in both `home_bias` arms. `ate J` is
+**0** in all six seeds and `trips` is **0**. The reason is upstream of everything
+this line has been working on:
+
+| | seed 1 | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|---|
+| distinct ants ever reaching food, of 20 | 0 | 1 | 0 | **1** | **2** | 0 |
+| `arrive@` | 0 | 3480 | 0 | 1416 | 4494 | 0 |
+
+**Three of six colonies never find the food at all**, and the best manages 2 ants
+of 20. One ant reaching a larder once cannot lay a 90-cell trail, so the return
+leg has almost nothing to act on here. `home_bias` did visibly work on the one
+seed that had a finder — seed 4's `carry@nest` goes **24 → 924**, 38x — and it
+changed no other seed, because there was nothing to change.
+
+This is §3.2's *"discovery is the binding constraint"* with the second clause the
+master already added (*"discovery binds for one ant; the loop needs the return
+leg"*) — **and on the `self` arm the first clause binds so hard the second cannot
+be tested.**
+
+### Two corrections to §7.28's criterion, which this invalidates as written
+
+1. **The baseline is wrong.** §0 sets the bar at *"`route pk` rises off 3.4 of
+   90"*. The shipped self arm reads **22–84** here, not 3.4. Whatever
+   configuration produced 3.4 is not this one, and a criterion whose baseline
+   does not reproduce cannot be passed or failed.
+2. **`route pk` is the wrong instrument.** It counts cells between nest and food
+   holding any channel B, so **a 30-cell puddle at the nest scores 30** — which
+   is exactly what seeds 2, 3 and 6 did while never seeing food. **The criterion
+   must read the outer bands of the `B nest->food` profile**, which separates a
+   route from a door-step, and it should be taken at `SPOIL_IS_CARGO=0` or the
+   number is part dirt.
+
 ## Instruments
 
 - `examples/onetrail.rs` — `mode=arith` (shipped genome, nothing overridden),
