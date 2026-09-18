@@ -552,6 +552,19 @@ struct Arm {
     /// it is supposed to be walking to**. `CLAUDE.md`: check the scene still
     /// contains the situation you think it does, before touching the mechanism.
     founded: (i32, i32),
+    /// Where the nest and the food actually sit, so `founded` can be read as a
+    /// **distance** rather than as two bare coordinates.
+    ///
+    /// **`gap=` is the NEST-to-food distance, and the ants are not at the
+    /// nest.** `found_colony_of` lays them in a band about `ants * 4` wide
+    /// centred on the nest, so at 20 ants and `gap=90` the colony spans
+    /// x 12..88 against food at 138 — the nearest founder is **50 cells out,
+    /// not 90**, and nothing in this harness's output said so. The existing
+    /// assertion only catches the extreme case where a founder lands *on* the
+    /// larder; between "on it" and "a gap away" there is a whole range this
+    /// prints rather than implies.
+    nest_x: i32,
+    target_x: i32,
     /// **Frame the first ant reached the food, or 0 for never** -- and the
     /// column that separates "cannot follow the trail" from "died on the way".
     ///
@@ -2056,6 +2069,8 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         eaten_j: diet_by_material(&w, larder).0,
         ate_other_j: diet_by_material(&w, larder).1,
         founded: if founded.0 == i32::MAX { (0, 0) } else { founded },
+        nest_x,
+        target_x,
         ticks: st.ticks,
         nest_cells,
         atnest_ticks,
@@ -2369,10 +2384,15 @@ fn main() {
                     // first; `carry->nest` is signed cells, positive homeward.
                     let occ: Vec<String> = a.occupancy.iter().map(|v| format!("{}", v / 1000)).collect();
                     println!(
-                        "{:>16}founded x {:>4}..{:<4}  occupancy/1k [{}]  carry->nest {:>7}  born {:>4} died {:>4} (starved {:>4})",
+                        "{:>16}founded x {:>4}..{:<4} (nest {} food {}; nearest founder {} cells out, farthest {}, nominal gap {})  occupancy/1k [{}]  carry->nest {:>7}  born {:>4} died {:>4} (starved {:>4})",
                         "",
                         a.founded.0,
                         a.founded.1,
+                        a.nest_x,
+                        a.target_x,
+                        a.target_x - a.founded.1,
+                        a.target_x - a.founded.0,
+                        a.target_x - a.nest_x,
                         occ.join(" "),
                         a.carry_toward_nest,
                         a.births,

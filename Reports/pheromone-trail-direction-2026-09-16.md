@@ -3388,6 +3388,77 @@ records 137,945 drops, most of them away from nest, which those two terms and a
 real gradient account for. The nest figure is the one to trust, because `AtNest`
 dominates it at 1.0889.
 
+## §7.30 `gap=` is not the journey — the ants start 40 cells nearer than it says
+
+**2026-09-18.** Owner: *"Make sure the ants are being placed far enough away from
+the food. They place in a spread and we have results earlier where they were
+being placed closer to the food than expected."* Checked, and it is real,
+constant, and was invisible in every row this harness has ever printed.
+
+### The founders are a band, and `gap` measures from its centre
+
+`found_colony_of` lays the colony in a band about `ants * 4` wide **centred on
+the nest**, and `gap` is the **nest**-to-food distance. At `ants=20` the band's
+food-side edge sits a constant 40 cells in front of the nest, so:
+
+| nominal `gap` | nest | food | nearest founder | farthest | nearest as % of nominal |
+|---|---|---|---|---|---|
+| 60 | 48 | 108 | **20** | 96 | 33% |
+| 90 | 48 | 138 | **50** | 126 | 56% |
+| 140 | 48 | 188 | **100** | 176 | 71% |
+| 200 | 48 | 248 | **160** | 236 | 80% |
+
+**The shortfall is a constant 40 cells, not a constant fraction**, so it distorts
+short gaps worst. At `gap=60` with `near=10` the nearest ant starts **ten cells
+from the food's edge** — that is not a foraging journey, it is a standing start.
+
+**The existing assertion does not catch this and is not meant to.** It fires only
+when a founder lands *on* the larder (`fh < target_x - near`), which is the
+extreme case fixed in the 2026-09-16 box-widening. Between "on it" and "a gap
+away" lies the whole range above, and nothing printed it. **It prints now**, on
+the `founded` line, as nest, food, nearest and farthest against the nominal.
+
+**The corpse half of the owner's warning is already guarded and did hold**:
+`ate_other_j` is asserted to **0** on every row when `onlyfood=on`
+(`trailfollow.rs:2346`), so no run in §7.25–§7.29 was feeding on its own dead. A
+hard assertion rather than a column nobody reads, which is the right shape.
+
+### And the bed has a narrow working range, which nobody had measured
+
+Same run, `arms=hand`, 3 seeds, `stop=6000`:
+
+| nominal gap | nearest founder | colonies alive | `ate J`, best seed | `arrive@` |
+|---|---|---|---|---|
+| 60 | 20 | **1 of 3** | 1,004,726 | 330 / 150 / 90 |
+| 90 | 50 | **2 of 3** | 904,047 | 804 / 600 / 564 |
+| 140 | 100 | **0 of 3** | 5,117 | 2,532 / 1,680 / 2,016 |
+| 200 | 160 | **0 of 3** | **0** | 5,124 / 3,984 / **0** |
+
+**Past about 50 cells of real founder distance the colony dies in every seed and
+eats essentially nothing**, and at `gap=200` one seed never reaches the food at
+all (`arrive@ 0`). `trailfollow.rs:980` says *"the distance at which a food trail
+is both necessary and survivable is somewhere between, and nobody has swept it"*
+— this is that sweep, and the answer is that the survivable window closes between
+a real 50 and a real 100.
+
+**Three seeds is not a sweep** (`CLAUDE.md`), and the per-seed scatter here is
+enormous — gap 60 reads 1,004,726 J on seed 1 against 5,520 and 3,120 on the
+other two. Treat the 60/90 rows as indicative. The **6 of 6 deaths across 140 and
+200** are firmer, being the same shape as §7.27's twelve-of-twelve.
+
+### What this constrains
+
+**The `arms=self` criterion in §7.28 §0 can only be asked where a colony survives
+at all**, which on this bed is a real founder distance of roughly 50 — i.e.
+`gap=90`, and that is why every prior run used it. `gap=60` is not a shorter
+journey to compare against; it is a standing start. So a gap sweep cannot be used
+to ask "how far can a trail carry a colony" until the colony stops dying, which
+is §7.29's 291-against-4 problem again.
+
+**Quote real founder distance, never nominal `gap`,** in anything downstream. The
+two differ by 40 cells and the difference is largest exactly where the numbers are
+most flattering.
+
 ## Instruments
 
 - `examples/onetrail.rs` — `mode=arith` (shipped genome, nothing overridden),
