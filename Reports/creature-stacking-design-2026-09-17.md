@@ -466,6 +466,22 @@ move something; that is still true and this is not the change to spend it on.
 BOX has seven free rows and already carries `colonies`, `colony_ants` and
 `predators` — who is in the box and how many — which is the same kind of fact.
 
+**Another lane reached the same wall hours earlier and stopped at it**, which is
+worth recording because its conclusion reads more absolute than it is.
+`f4594c45` (*"the home_bias row overflowed its page, and there is no page with
+room"*) hit `no_page_is_longer_than_two_screens` twice — GENOME 21, then ANTS 21
+— and concluded that the remedy was a new page and that this was "a lab-UI
+decision rather than a measurement one". It considered those two pages. BOX was
+not full, and it is a defensible home for a colony-crowding rule, so no page
+split is needed for this one.
+
+Its sequel, `3beb6e59`, records the owner declining a dial — **for `home_bias`
+specifically**, which also had a substantive reason nobody should want one (above
+0.25 every colony measured died). That is not a standing ruling against lab
+dials, and it points the opposite way here: the owner asked for this number to
+be playable (*"not sure if 20 is the right number, we can play around with it"*)
+and then reported not being able to find it.
+
 Two consequences worth knowing:
 
 - **A REBUILD resets it** to whatever `PIXEL_PHYSICS_STACK_DEPTH` says, because

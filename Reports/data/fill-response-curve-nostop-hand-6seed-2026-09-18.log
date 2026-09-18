@@ -1,0 +1,346 @@
+  diet: larder=fruit onlyfood=on
+  odometer A: recur=shipped emita=shipped biasa=shipped   odometer B: charb=shipped recurb=shipped emitb=shipped biasb=shipped carryb=shipped
+trailfollow: mode=gap gate=b2 frames=24000 seeds=6 seed0=1 ants=20 relay=60 near=10 food=200 refill=2000
+  gate b2: off -45.0  on +0.5  along ±6.0
+  landed 2026-09-09: units 0/1 = b2 (off -45, on +0.5, along 6); units 2/3 = saturated (off -45, on +30, along 6). See open-bugs-handoff.md Z7.
+
+  gap seed   arm     alive     ate J  arrive@    dead@    carry    @nest  visitors  trips reach 0-25-50-75-100
+----- ---- ----- --------- --------- -------- -------- -------- -------- --------- ------ ------------------
+    TRACE laden ants: n 639100  mean PheroAAlong -0.21329  MEAN |PheroAAlong| 0.31396  mean P(move) 0.6768  mean trail term (h0+h1 -> Move) -0.08874  net cells homeward 72 (+0.000113/tick)
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n   117924   P(move) 0.7299   cells homeward     -219 (-0.001857/tick)
+      facing DOWN-gradient   n   455068   P(move) 0.6543   cells homeward       97 (+0.000213/tick)
+      no readable gradient   n    66108   P(move) 0.7372   cells homeward      194 (+0.002935/tick)
+      => P(move) up-gradient minus down-gradient: +0.0756  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]28699 [-0.67]79353 [-0.44]127654 [-0.22]141730 [+0.00]181471 [+0.22]41466 [+0.44]22251 [+0.67]11197 [+0.89]5279
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 8012 of 639100 laden decisions (1.25%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n      978   P(move) 0.9076   cells homeward      -48 (-0.049080/tick)
+        facing DOWN-gradient n     6732   P(move) 0.3682   cells homeward       47 (+0.006982/tick)
+      => with the gate open, P(move) up minus down: +0.5394; cells homeward up minus down: -0.056061/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 8012 gate-open decisions, 576 (7.2%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n     8012   P(move) 0.4537   cells homeward        7 (+0.000874/tick)
+      gate SHUT              n   631088   P(move) 0.6797   cells homeward       65 (+0.000103/tick)
+      => open minus shut: P(move) -0.2260   cells homeward +0.000771/tick  (~0 on the right-hand figure means the open gate is NOT converting into motion)
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.3-0.4       1666    0.7932    0.0312    0.0312     +0.000000
+        0.4-0.5      36814    0.7457    0.0243    0.0297     -0.005813
+        0.5-0.6      53351    0.7201    0.0204    0.0204     -0.000319
+        0.6-0.7     111921    0.7105    0.0198    0.0181     +0.001653
+        0.7-0.8     230084    0.7037    0.0181    0.0184     -0.000191
+        0.8-0.9     147945    0.6552    0.0152    0.0141     +0.001115
+        0.9-1.0      57319    0.4715    0.0104    0.0104     -0.000052   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      h2               -2.42938   (live in 639100 of 639100)
+      h3               +2.41673   (live in 639100 of 639100)
+      h0               -2.10768   (live in 639100 of 639100)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      h1               +2.01894   (live in 639100 of 639100)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Bias             +1.99914   (live in 639100 of 639100)
+      Energy           -1.10768   (live in 639100 of 639100)
+      KinNeed          +0.50896   (live in 639100 of 639100)
+      Crowding         -0.26261   (live in 639100 of 639100)
+      FoodAdjacent     -0.16372   (live in 639100 of 639100)
+      Carrying         -0.03174   (live in 373633 of 639100)
+      Stillness        +0.02622   (live in 639100 of 639100)
+      h6               +0.01893   (live in 4789 of 639100)
+      PheroBAlong      -0.01857   (live in 138 of 639100)
+      SurfaceCurvature +0.01616   (live in 4070 of 639100)
+      LightHere        +0.01347   (live in 3975 of 639100)
+      MoistureFront    -0.01252   (live in 824 of 639100)
+      KinNear          -0.01173   (live in 132 of 639100)
+      MoistureGrad     -0.00749   (live in 91 of 639100)
+      PheroAAlong      +0.00356   (live in 845 of 639100)
+      h4               -0.00285   (live in 599024 of 639100)
+      KinBearing       -0.00230   (live in 257860 of 639100)
+      PheroBLateral    +0.00049   (live in 4096 of 639100)
+      MoistureLateral  -0.00026   (live in 1692 of 639100)
+      h7               -0.00000   (live in 849 of 639100)
+      PheroALateral    +0.00000   (live in 3080 of 639100)
+      Alarm            +0.00000   (live in 639100 of 639100)
+      AtNest           +0.00000   (live in 13785 of 639100)
+      BloomBearing     +0.00000   (live in 4293 of 639100)
+      BloomNear        +0.00000   (live in 1784 of 639100)
+      PreyBearing      +0.00000   (live in 13394 of 639100)
+      PreyNear         +0.00000   (live in 257440 of 639100)
+      ThreatBearing    +0.00000   (live in 22242 of 639100)
+      ThreatNear       +0.00000   (live in 5097 of 639100)
+    TRACE focal ant: 990 decisions written to /tmp/trailfollow-focal-seed1-gap90.csv
+   90    1  hand  213/12      957628      804        0   639100       12  781/806       1      7 0 6 322 471
+                founded x   12..88    occupancy/1k [34 1 13 29 20 90 373 1869]  carry->nest      72  born  786 died  561 (starved   70)
+                own trail: route pk    0 end   91 along -0.1240  B nest->food [350,12158,25190,38797,42865]  blocked    18596  kin swaps       0  ticks    403539
+                channel A: PEAK amt  11069 cells   86 (of 91 route)  POLARITY|| -0.05510 && -0.04618 SPAN -0.01121 edge   9.1  end nest->food [0,0,0,0,220]  nest   25  AtNest  0.65%
+                Carrying: laden    647232  of which SPOIL      8708 (  1.3%)
+    TRACE laden ants: n 7872  mean PheroAAlong +0.00208  MEAN |PheroAAlong| 0.00312  mean P(move) 0.5617  mean trail term (h0+h1 -> Move) +0.00026  net cells homeward 41 (+0.005208/tick)
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n      216   P(move) 0.7964   cells homeward       17 (+0.078704/tick)
+      facing DOWN-gradient   n      156   P(move) 0.7966   cells homeward       -1 (-0.006410/tick)
+      no readable gradient   n     7500   P(move) 0.5501   cells homeward       25 (+0.003333/tick)
+      => P(move) up-gradient minus down-gradient: -0.0002  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]0 [-0.67]0 [-0.44]0 [-0.22]0 [+0.00]7800 [+0.22]60 [+0.44]12 [+0.67]0 [+0.89]0
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 0 of 7872 laden decisions (0.00%)
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n 0
+      gate SHUT              n     7872   P(move) 0.5617   cells homeward       41 (+0.005208/tick)
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.6-0.7       7872    0.5617    0.0154    0.0102     +0.005208
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      h2               -2.42749   (live in 7872 of 7872)
+      h3               +2.40692   (live in 7872 of 7872)
+      h1               +2.34054   (live in 7872 of 7872)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      h0               -2.34028   (live in 7872 of 7872)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Bias             +2.00000   (live in 7872 of 7872)
+      Energy           -0.90217   (live in 7872 of 7872)
+      FoodAdjacent     -0.87442   (live in 7872 of 7872)
+      KinNeed          +0.10693   (live in 7872 of 7872)
+      Stillness        +0.07810   (live in 7872 of 7872)
+      Crowding         -0.01871   (live in 7872 of 7872)
+      Alarm            +0.00000   (live in 7872 of 7872)
+    TRACE focal ant: 5586 decisions written to /tmp/trailfollow-focal-seed2-gap90.csv
+   90    2  hand    0/0            0      600     7812     7872        0    4/20        0          6 4 4 5 1
+                founded x   12..88    occupancy/1k [30 32 9 18 8 10 8 7]  carry->nest      41  born    0 died   20 (starved   19)
+                own trail: route pk    0 end   91 along -0.1152  B nest->food [350,12154,24878,37195,32723]  blocked       73  kin swaps       0  ticks     21453
+                channel A: PEAK amt  13503 cells   63 (of 91 route)  POLARITY|| +0.06769 && +0.02915 SPAN -0.01329 edge  12.7  end nest->food [0,0,0,0,0]  nest   25  AtNest 12.44%
+                Carrying: laden     10380  of which SPOIL      2508 ( 24.2%)
+    TRACE laden ants: n 873223  mean PheroAAlong -0.36838  MEAN |PheroAAlong| 0.53982  mean P(move) 0.5447  mean trail term (h0+h1 -> Move) -0.55784  net cells homeward -8 (-0.000009/tick)
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n   186965   P(move) 0.6259   cells homeward      769 (+0.004113/tick)
+      facing DOWN-gradient   n   670798   P(move) 0.5213   cells homeward     -642 (-0.000957/tick)
+      no readable gradient   n    15460   P(move) 0.5801   cells homeward     -135 (-0.008732/tick)
+      => P(move) up-gradient minus down-gradient: +0.1046  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]225927 [-0.67]168056 [-0.44]125818 [-0.22]106274 [+0.00]95110 [+0.22]50712 [+0.44]43414 [+0.67]36168 [+0.89]21744
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 78301 of 873223 laden decisions (8.97%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     5248   P(move) 0.8219   cells homeward       24 (+0.004573/tick)
+        facing DOWN-gradient n    73013   P(move) 0.1498   cells homeward        4 (+0.000055/tick)
+      => with the gate open, P(move) up minus down: +0.6722; cells homeward up minus down: +0.004518/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 78301 gate-open decisions, 7807 (10.0%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n    78301   P(move) 0.1950   cells homeward       28 (+0.000358/tick)
+      gate SHUT              n   794922   P(move) 0.5792   cells homeward      -36 (-0.000045/tick)
+      => open minus shut: P(move) -0.3842   cells homeward +0.000403/tick  (~0 on the right-hand figure means the open gate is NOT converting into motion)
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.4-0.5       4756    0.6548    0.0235    0.0158     +0.007780
+        0.5-0.6     113732    0.6087    0.0129    0.0120     +0.000853
+        0.6-0.7     212856    0.5932    0.0139    0.0135     +0.000465
+        0.7-0.8     273063    0.6162    0.0131    0.0137     -0.000692
+        0.8-0.9     138464    0.5651    0.0114    0.0121     -0.000686
+        0.9-1.0     130352    0.2344    0.0031    0.0028     +0.000330   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      h2               -2.42995   (live in 873223 of 873223)
+      h3               +2.41751   (live in 873223 of 873223)
+      h0               -2.21247   (live in 873223 of 873223)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Bias             +1.99626   (live in 873223 of 873223)
+      h1               +1.65463   (live in 873223 of 873223)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Energy           -1.27502   (live in 873223 of 873223)
+      KinNeed          +0.40454   (live in 873223 of 873223)
+      FoodAdjacent     -0.29956   (live in 873223 of 873223)
+      Crowding         -0.26877   (live in 873223 of 873223)
+      Stillness        +0.08560   (live in 873223 of 873223)
+      KinNear          +0.03510   (live in 6880 of 873223)
+      h5               +0.02962   (live in 131466 of 873223)
+      h6               -0.02424   (live in 10190 of 873223)
+      MoistureFront    +0.02383   (live in 132012 of 873223)
+      LightHere        -0.02373   (live in 175 of 873223)
+      Carrying         -0.01917   (live in 23061 of 873223)
+      PheroBFront      +0.00929   (live in 897 of 873223)
+      PheroBAlong      +0.00814   (live in 680 of 873223)
+      KinBearing       +0.00287   (live in 11829 of 873223)
+      PheroAAlong      +0.00275   (live in 170251 of 873223)
+      Alarm            -0.00267   (live in 873223 of 873223)
+      MoistureGrad     +0.00130   (live in 22 of 873223)
+      PheroAFront      +0.00114   (live in 9196 of 873223)
+      MoistureLateral  +0.00101   (live in 5546 of 873223)
+      h4               +0.00079   (live in 2298 of 873223)
+      h7               -0.00031   (live in 1952 of 873223)
+      PheroBLateral    +0.00020   (live in 568 of 873223)
+      PheroALateral    +0.00001   (live in 4893 of 873223)
+      TempAboveAmb     +0.00000   (live in 36 of 873223)
+      AtNest           +0.00000   (live in 2387 of 873223)
+      BloomBearing     +0.00000   (live in 14847 of 873223)
+      BloomNear        +0.00000   (live in 62068 of 873223)
+      PreyBearing      +0.00000   (live in 20024 of 873223)
+      SurfaceCurvature +0.00000   (live in 8926 of 873223)
+      ThreatBearing    +0.00000   (live in 106200 of 873223)
+      ThreatNear       +0.00000   (live in 6468 of 873223)
+    TRACE focal ant: 5154 decisions written to /tmp/trailfollow-focal-seed3-gap90.csv
+   90    3  hand  177/19     1046101      564        0   873223        0  837/856       0      7 0 2 327 520
+                founded x   12..88    occupancy/1k [50 10 2 6 23 96 468 2214]  carry->nest      -8  born  836 died  650 (starved   61)
+                own trail: route pk    0 end   91 along -0.1186  B nest->food [350,12154,24915,38989,38365]  blocked    16912  kin swaps       0  ticks    511264
+                channel A: PEAK amt  65535 cells   91 (of 91 route)  POLARITY|| -0.16130 && -0.16185 SPAN -0.00039 edge   6.3  end nest->food [0,0,0,13221,3583]  nest   25  AtNest  0.71%
+                Carrying: laden    888099  of which SPOIL     22683 (  2.6%)
+    TRACE laden ants: n 24300  mean PheroAAlong -0.06894  MEAN |PheroAAlong| 0.08639  mean P(move) 0.5577  mean trail term (h0+h1 -> Move) +0.00770  net cells homeward 94 (+0.003868/tick)
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     1332   P(move) 0.5901   cells homeward       48 (+0.036036/tick)
+      facing DOWN-gradient   n     3522   P(move) 0.7766   cells homeward       -2 (-0.000568/tick)
+      no readable gradient   n    19446   P(move) 0.5158   cells homeward       48 (+0.002468/tick)
+      => P(move) up-gradient minus down-gradient: -0.1866  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]504 [-0.67]1506 [-0.44]750 [-0.22]330 [+0.00]20544 [+0.22]564 [+0.44]60 [+0.67]24 [+0.89]18
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 2346 of 24300 laden decisions (9.65%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n      126   P(move) 0.8818   cells homeward       15 (+0.119048/tick)
+        facing DOWN-gradient n       18   P(move) 0.8265   cells homeward       -2 (-0.111111/tick)
+      => with the gate open, P(move) up minus down: +0.0554; cells homeward up minus down: +0.230159/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 2346 gate-open decisions, 2346 (100.0%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n     2346   P(move) 0.6340   cells homeward       45 (+0.019182/tick)
+      gate SHUT              n    21954   P(move) 0.5495   cells homeward       49 (+0.002232/tick)
+      => open minus shut: P(move) +0.0844   cells homeward +0.016950/tick  (~0 on the right-hand figure means the open gate is NOT converting into motion)
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.6-0.7      21144    0.5397    0.0143    0.0120     +0.002270
+        0.7-0.8        810    0.8059    0.0309    0.0296     +0.001235
+        0.9-1.0       2346    0.6340    0.0341    0.0149     +0.019182   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      h2               -2.42858   (live in 24300 of 24300)
+      h3               +2.41062   (live in 24300 of 24300)
+      h1               +2.04363   (live in 24300 of 24300)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      h0               -2.03593   (live in 24300 of 24300)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Bias             +2.00000   (live in 24300 of 24300)
+      Energy           -1.00252   (live in 24300 of 24300)
+      FoodAdjacent     -0.77233   (live in 24300 of 24300)
+      KinNeed          +0.16107   (live in 24300 of 24300)
+      Stillness        +0.08916   (live in 24300 of 24300)
+      Crowding         -0.04344   (live in 24300 of 24300)
+      Alarm            +0.00000   (live in 24300 of 24300)
+    TRACE focal ant: 6696 decisions written to /tmp/trailfollow-focal-seed4-gap90.csv
+   90    4  hand    0/0         3618     1050    10826    24300        0   10/23        0         6 2 4 10 1
+                founded x   12..88    occupancy/1k [59 9 11 15 2 6 6 19]  carry->nest      94  born    3 died   23 (starved   19)
+                own trail: route pk    0 end   91 along -0.1152  B nest->food [353,12157,25091,37404,32745]  blocked       83  kin swaps       0  ticks     21914
+                channel A: PEAK amt  11068 cells   86 (of 91 route)  POLARITY|| +0.05880 && +0.05180 SPAN +0.00336 edge  12.0  end nest->food [0,0,0,0,0]  nest   25  AtNest 12.40%
+                Carrying: laden     36714  of which SPOIL     14760 ( 40.2%)
+    TRACE laden ants: n 597551  mean PheroAAlong -0.25804  MEAN |PheroAAlong| 0.41741  mean P(move) 0.5613  mean trail term (h0+h1 -> Move) -0.77032  net cells homeward -650 (-0.001088/tick)
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n   133454   P(move) 0.7740   cells homeward     -757 (-0.005672/tick)
+      facing DOWN-gradient   n   435152   P(move) 0.4880   cells homeward      595 (+0.001367/tick)
+      no readable gradient   n    28945   P(move) 0.6821   cells homeward     -488 (-0.016860/tick)
+      => P(move) up-gradient minus down-gradient: +0.2860  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]89595 [-0.67]77039 [-0.44]95575 [-0.22]116613 [+0.00]116964 [+0.22]42272 [+0.44]25396 [+0.67]19378 [+0.89]14719
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 224919 of 597551 laden decisions (37.64%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n    40486   P(move) 0.8622   cells homeward     -274 (-0.006768/tick)
+        facing DOWN-gradient n   183567   P(move) 0.2848   cells homeward       91 (+0.000496/tick)
+      => with the gate open, P(move) up minus down: +0.5774; cells homeward up minus down: -0.007264/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 224919 gate-open decisions, 2235 (1.0%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n   224919   P(move) 0.3903   cells homeward     -179 (-0.000796/tick)
+      gate SHUT              n   372632   P(move) 0.6645   cells homeward     -471 (-0.001264/tick)
+      => open minus shut: P(move) -0.2742   cells homeward +0.000468/tick  (~0 on the right-hand figure means the open gate is NOT converting into motion)
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.4-0.5       1754    0.7391    0.0188    0.0758     -0.057013
+        0.5-0.6      44327    0.7194    0.0299    0.0326     -0.003158
+        0.6-0.7     137643    0.7120    0.0290    0.0283     +0.000719
+        0.7-0.8     113278    0.6900    0.0243    0.0265     -0.002295
+        0.8-0.9      34795    0.6555    0.0245    0.0261     -0.001609
+        0.9-1.0     265754    0.3884    0.0118    0.0126     -0.000726   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      h2               -2.42984   (live in 597551 of 597551)
+      h3               +2.41907   (live in 597551 of 597551)
+      Bias             +1.91955   (live in 597551 of 597551)
+      h0               -1.58515   (live in 597551 of 597551)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Energy           -1.05118   (live in 597551 of 597551)
+      h1               +0.81482   (live in 597551 of 597551)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      KinNeed          +0.56367   (live in 597551 of 597551)
+      Crowding         -0.27613   (live in 597551 of 597551)
+      FoodAdjacent     -0.20908   (live in 597551 of 597551)
+      Stillness        +0.13467   (live in 597551 of 597551)
+      h6               +0.02945   (live in 12723 of 597551)
+      h5               -0.01732   (live in 4929 of 597551)
+      MoistureFront    -0.01653   (live in 33906 of 597551)
+      PheroBAlong      +0.01557   (live in 23990 of 597551)
+      KinNear          -0.01285   (live in 12243 of 597551)
+      KinBearing       -0.00933   (live in 91773 of 597551)
+      Carrying         -0.00919   (live in 1752 of 597551)
+      LightHere        -0.00556   (live in 5880 of 597551)
+      PheroBFront      +0.00428   (live in 40 of 597551)
+      PheroBLateral    -0.00211   (live in 11666 of 597551)
+      h4               +0.00183   (live in 273488 of 597551)
+      MoistureLateral  +0.00069   (live in 640 of 597551)
+      Made             +0.00024   (live in 277392 of 597551)
+      PheroAFront      +0.00020   (live in 2216 of 597551)
+      h7               +0.00001   (live in 6511 of 597551)
+      PheroALateral    +0.00000   (live in 292 of 597551)
+      TempAboveAmb     +0.00000   (live in 9506 of 597551)
+      Alarm            +0.00000   (live in 597551 of 597551)
+      AtNest           +0.00000   (live in 30671 of 597551)
+      BloomBearing     +0.00000   (live in 6782 of 597551)
+      BloomNear        +0.00000   (live in 1699 of 597551)
+      PreyBearing      +0.00000   (live in 1507 of 597551)
+      PreyNear         +0.00000   (live in 118036 of 597551)
+      ThreatBearing    +0.00000   (live in 265 of 597551)
+      ThreatNear       +0.00000   (live in 328 of 597551)
+    TRACE focal ant: 1404 decisions written to /tmp/trailfollow-focal-seed5-gap90.csv
+   90    5  hand  175/18     1247808      534        0   597551      264  948/970       1      4 1 5 382 578
+                founded x   12..88    occupancy/1k [35 9 18 11 19 39 277 2445]  carry->nest    -650  born  950 died  770 (starved  134)
+                own trail: route pk    0 end   91 along -0.1221  B nest->food [354,12186,25080,38480,44048]  blocked    24686  kin swaps       0  ticks    742276
+                channel A: PEAK amt  24216 cells   91 (of 91 route)  POLARITY|| -0.10922 && -0.12635 SPAN -0.01449 edge   9.3  end nest->food [0,0,0,0,865]  nest   25  AtNest  0.25%
+                Carrying: laden    606558  of which SPOIL     11242 (  1.9%)
+    TRACE laden ants: n 10392  mean PheroAAlong +0.00000  MEAN |PheroAAlong| 0.00000  mean P(move) 0.6507  mean trail term (h0+h1 -> Move) +0.00000  net cells homeward -13 (-0.001251/tick)
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n 0
+      facing DOWN-gradient   n 0
+      no readable gradient   n    10392   P(move) 0.6507   cells homeward      -13 (-0.001251/tick)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]0 [-0.67]0 [-0.44]0 [-0.22]0 [+0.00]10392 [+0.22]0 [+0.44]0 [+0.67]0 [+0.89]0
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 534 of 10392 laden decisions (5.14%)
+    TRACE of the 534 gate-open decisions, 534 (100.0%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n      534   P(move) 0.7963   cells homeward        3 (+0.005618/tick)
+      gate SHUT              n     9858   P(move) 0.6429   cells homeward      -16 (-0.001623/tick)
+      => open minus shut: P(move) +0.1534   cells homeward +0.007241/tick  (~0 on the right-hand figure means the open gate is NOT converting into motion)
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.6-0.7       8934    0.6322    0.0178    0.0196     -0.001791
+        0.7-0.8        924    0.7458    0.0335    0.0335     +0.000000
+        0.9-1.0        534    0.7963    0.0337    0.0281     +0.005618   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      h2               -2.42779   (live in 10392 of 10392)
+      h3               +2.41097   (live in 10392 of 10392)
+      h0               -2.17559   (live in 10392 of 10392)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      h1               +2.17559   (live in 10392 of 10392)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Bias             +2.00000   (live in 10392 of 10392)
+      Energy           -0.69886   (live in 10392 of 10392)
+      FoodAdjacent     -0.69185   (live in 10392 of 10392)
+      KinNeed          +0.17431   (live in 10392 of 10392)
+      Crowding         -0.02780   (live in 10392 of 10392)
+      Stillness        +0.02194   (live in 10392 of 10392)
+      Alarm            +0.00000   (live in 10392 of 10392)
+    TRACE focal ant: 4386 decisions written to /tmp/trailfollow-focal-seed6-gap90.csv
+   90    6  hand    0/0         1428      528    11808    10392        0    5/21        0          9 4 2 4 2
+                founded x   12..88    occupancy/1k [74 23 6 17 2 3 9 12]  carry->nest     -13  born    1 died   21 (starved   20)
+                own trail: route pk    0 end   91 along -0.1152  B nest->food [350,12155,24879,37223,32701]  blocked       76  kin swaps       0  ticks     25149
+                channel A: PEAK amt   8275 cells   65 (of 91 route)  POLARITY|| +0.03351 && -0.03518 SPAN -0.01015 edge   9.2  end nest->food [0,0,0,0,0]  nest   25  AtNest 17.38%
+                Carrying: laden     15996  of which SPOIL      6138 ( 38.4%)
+
+  larder put out, over the whole sweep: 49440-492720 J, against a need near 46,800 J
+    for 52 ants over 24,000 frames -- so these colonies are provisioned, not starved.
+  intake off anything that is not the larder is ASSERTED to be 0 in every row, not printed.
+
+  `self` vs `mute` is the real question: do the ants' OWN trails do anything?
+  `visitors` is DISTINCT ants that reached the food over distinct ants that ever lived --
+    recruitment, which `near` ant-ticks cannot see: 50 visitors and 1 resident read alike.
+  `trips` is nest -> food -> nest, closed on the RETURN. `reach` buckets every ant by how
+  `occupancy` is ant-ticks in 8 equal bands, NEST END FIRST, food end last -- a commuting
+    colony is bimodal, a dispersing one slides its mass right, a homebody is a spike at 0.
+  `carry->nest` is signed cells moved while holding larder, POSITIVE = homeward. Near zero
+    means food is picked up and wandered with, which is a different fault from not finding it.
+    far it ever got, as a share of the gap, so a commuting population is visible as a shape.
+  `hand` vs `self` only says whether a laid ramp beats what they bootstrap.
+  `hmute` is the DECAY BASELINE for `route pk`: our ramp laid, the ants silenced.
+  `flatN`/`flatF` are the POLARITY metric's negative controls: a FLAT channel A blob over
+    the nest half / the food half, ants' EmitA silenced. A field with no ramp in it at all.
+    A correct metric reads 0 on both. POLARITY|| is predicted to read ~+0.12 and ~-0.12,
+    which brackets every polarity figure in the report -- see `lay_flat`.
+  `homeA` lays a channel A HOMING ramp and no food trail -- if laden ants only fail
+    to route because they cannot find their way home, this is where their own B appears.
+  `carry` is ant-ticks holding larder in the crop; `carry@nest` is those inside the +-26 nest band --
+    that pair is the answer to "is food being carried back", which a cell census cannot give.
+  `other J` must read 0 in every row: it is the check that `onlyfood` held.
+  A gap where `alive` reaches 0 in every arm is measuring a dead colony, not a deaf one.

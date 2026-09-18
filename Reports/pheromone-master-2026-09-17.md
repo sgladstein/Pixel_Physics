@@ -8,6 +8,120 @@ page, then read **one** source from §2 — never the directory.
 an executable plan. §5 is the list of things that are wrong in the record and
 must not be quoted. §8 is what has already cost days.
 
+> ## ⚠️ RETRACTION, 2026-09-17 — read before §1, §3 or §7
+>
+> **The polarity metric does not measure which way the ramp points. It measures
+> where the channel-A blob sits.** Two negative controls — a *flat*, ramp-free
+> channel-A blob painted over the nest half and over the food half — read
+> **+0.195 and −0.195**, larger than a perfect ramp's +0.115 and far larger than
+> the −0.076 this document calls an inversion. Repaired and re-measured, the
+> inversion falls **14x to −0.005**, goes the *other way* on 2 of 7 foraging
+> seeds, and `r(AtNest, polarity)` goes from **+0.849 to −0.010**.
+>
+> **So §1 item 3, §3.3, §3.4, §3.5 and §5 item 5 are retracted**, and with them
+> the two sweeps of §7.15–§7.18. Full account, with the controls and the root
+> cause, in `pheromone-trail-direction-2026-09-16.md` **§7.19**.
+>
+> **What survives untouched**, because none of it is a polarity measurement: §3.2
+> (a laid trail is decisive, the colony cannot build one, `self ≡ mute`), §3.7
+> (`homeA` clips exploration), §3.8, the `u16` widening, and — stated by §3.7
+> already — **that deliveries, never polarity, is the success criterion**.
+>
+> ## 🔑 AND THE CAUSE IS NOW LOCALISED — §7.22, 2026-09-17
+>
+> **The homing circuit is correct and switched off 98.16% of the time.**
+> `Carrying` is not a boolean: it is `crop.worth() / crop_capacity`, and
+> `ant.ron` gates the homing pair `Bias -45, Carrying +45.5`, so the pair only
+> leaves saturation at **`Carrying >= 0.989`**. One cell of `fruit` is 960 J
+> against `crop_capacity: 1440.0` = **0.667**. Over **570,660 traced laden
+> decisions** the gate is OPEN on **10,509 (1.84%)**, and the modal laden ant
+> sits at 0.7 — one food item.
+>
+> **When it is open the mechanism is excellent**: `P(move)` **0.8155**
+> up-gradient against **0.1572** down, a swing of **+0.658** where the bare-slab
+> harness reads 0.641 against 0.200 — and the displacement is **homeward**, so
+> the colony's own channel-A ramp points at the nest after all.
+>
+> **The design that follows is §7.23**, and three things in it are load-bearing
+> for whoever picks this up. **One food item is worth 5–17 round trips** (960 J
+> against a 56 J round trip), so the correct threshold is *just above zero*, not
+> 0.989 — this is not a tuning judgement, the margin is an order of magnitude.
+> **The fix is a latch, not a slope**: a graded weight gives one uniformly
+> half-hearted colony, where what is wanted is some ants committing to go home
+> while others forage, which is per-ant persistent state. And **there is no
+> hidden-to-hidden path** (`hh_slot` is one weight per unit, pure
+> self-recurrence), so a latch unit *cannot gate* the homing pair — which
+> dissolves the apparent contest for `ant.ron`'s last free hidden unit. The
+> buildable latch is **recurrence on units 0/1 themselves: two weights, no new
+> unit, no `mutation_rate` re-derivation.** ~~Order: rescale the gate first, then
+> the latch; `crop_capacity` last if at all.~~ **That order is withdrawn — see
+> the block below.**
+>
+> ## 🔑 AND THE ORDER IS WITHDRAWN — §7.25/§7.26, 2026-09-18
+>
+> **Crop fill is wired to stillness, not to direction, so neither the rescale nor
+> the latch could have worked.** Measured per decision over 570,660 laden
+> decisions: `P(home)` and `P(away)` are a **dead heat in every fill bin**
+> (0.0177/0.0176 at a third of a crop, 0.0064/0.0064 at a full one), and
+> `P(home)` **falls** with fill by 2.8x because the only thing fill does is lower
+> `P(move)` — it brakes the ant equally in both directions. **Pooled, the entire
+> gate-open population yields eleven net homeward cells** over six seeds and
+> 24,000 frames, and opening the gate *lowers* `P(move)` by 0.38.
+>
+> **§7.24's null was this curve's direct prediction, not evidence for the latch.**
+> The rescale widens a fill→direction channel that does not exist; the latch has
+> 10.2% of open decisions to hold; `crop_capacity` moves a step along a flat
+> curve.
+>
+> **`creature.rs:4156` has said so all along**, untouched: *"That is the whole of
+> the homing mechanism — there is no steering toward the nest anywhere."* `Move`
+> gates stepping along the heading the ant already has; only `tumble` changes
+> direction, and it re-rolls **uniformly**.
+>
+> **The replacement is §7.26 — the owner's rule, fill-weighted, in `tumble`**: at
+> probability `crop_fill`, re-roll toward the home bearing instead of uniformly.
+> It is the only site that sets direction and the only one that works on flat
+> ground, where **§R4 kills `Turn`** and with it `HomeBearing` as step 4 authored
+> it. It costs **no `BRAIN_INPUTS` bump, no `live_slots` change, no
+> `mutation_rate` re-derivation in six files** — `forage_anchor` already ships
+> the home vector, re-anchored at every nest contact. Because `heading` is
+> persistent, the graded draw gives the **two-group population** the latch was
+> for, rather than one half-hearted cloud.
+>
+> **Keyed on `crop_fill`, never `Carrying`** — `Carrying` is
+> `crop_fill.max(spoil ? 1.0 : 0.0)`, so keying on it sends ants home for dirt.
+>
+> **And `stop=` was never echoed in the harness header** (fixed 2026-09-18). It
+> defaults to 0 and decides whether the hand-laid trail stands for the whole run
+> or is seeded and released: the same command reports n 570,660 / 1.84% open
+> against 639,100 / 1.25% under **byte-identical parameter lines**. The two
+> scenes disagree on a published sign, so §7.22's *"positive means the ramp
+> points at the NEST"* is a statement about one scene. **Check `stop=` on any
+> archived log before comparing against it.**
+>
+> **And a second defect found on the way:** `SPOIL_IS_CARGO` is a measurement
+> switch (default ON), not a split — an ant holding **spoil reads 1.0 and the
+> gate opens**, while an ant holding food reads 0.667 and it stays shut. That is
+> a live confound in the 1.84% above and is the first thing to check.
+>
+> This explains the 750x gap: `onetrail::hold_gate_laden` evaluates the circuit
+> at `Carrying = 1.0`, a value the colony almost never reaches, so its
+> +104-of-112 was never evidence about a colony. It also makes §7.21's
+> "cutting the circuit is undetectable" the expected result rather than a
+> puzzle. **§Z7's re-gate fixed the authored *open* value; the fault is the
+> *input*.**
+>
+> **AND THE SYMPTOM IS UNTOUCHED — this retracts the explanation, not the
+> problem.** Measured the same day with no polarity statistic anywhere in it
+> (§7.20): on the shipped genome, `hand` arm, 12 seeds, **4,260,372 ant-ticks
+> carrying larder, 2,177 of them inside the nest band (0.051%), 11 round trips,
+> and +883 net homeward cells over those 4.26M ticks — +0.0002 per tick.** Seven
+> of twelve seeds deliver exactly zero. A laden ant's motion toward home is not
+> slow, it is nil. **The return leg is the thing to fix, and trail shape is
+> downstream of a journey that is not happening** — so any mechanism whose
+> subject is "the trail a homing ant lays" is untestable on this bed until that
+> number moves.
+
 ---
 
 ## 1. The one-page answer
@@ -23,7 +137,11 @@ Three facts, each measured independently, that between them say why:
    92% / 3%, 4 of 6 — a different measurement, not a rounding of this one.)*
 2. **The colony cannot lay one itself.** The `self` arm is indistinguishable from
    the `mute` arm (channel B zeroed): ~3.4 route cells of 90, in 2 of 12 seeds.
-3. **The homing ramp inverts in a foraging colony.** Channel A — the homing plane — is laid by
+3. ~~**The homing ramp inverts in a foraging colony.**~~ **RETRACTED 2026-09-17
+   — this was the instrument; see the banner above and §7.19.** What is true is
+   the weaker and already-known statement that a foraging colony's channel-A mass
+   sits nearer the food, which `occupancy/1k` reports directly. The text is kept
+   because §7.18's sweeps were aimed at it. Channel A — the homing plane — is laid by
    every ant on every successful move, so it integrates where ants *are*. In a
    colony that forages hard, that is the food, and the ramp inverts.
    **Do not phrase this as "nothing steers a laden ant home"** — that sentence is
@@ -43,10 +161,12 @@ private home vector, run straight — and use the trail as a *contextual modulat
 **isotropic**: they carry no direction. The engine asks a concentration gradient
 to encode direction, which real trails do not do. See §6.
 
-**So the fix is a direction sense, not a weight.** Two sweeps (the odometer's
-decay, and an emission floor) moved colony survival and trail length — **not
-amplitude, which never left a −2.2%…+10.7% band** — and left the correlation between "where ants spend time" and "which way the ramp
-points" exactly where it was: `r = +0.64 to +0.91` in all nine arms.
+~~**So the fix is a direction sense, not a weight.**~~ **The evidence clause is
+retracted.** The `r = +0.64 to +0.91` "correlation between where ants spend time
+and which way the ramp points" is one quantity measured twice — under a metric
+that passes its controls the same correlation is **−0.010** (§7.19). The two
+sweeps did move colony survival and trail length, and that part stands; what they
+did not do is fail to flip a ramp, because there was no ramp reading to flip.
 
 ---
 
@@ -84,6 +204,11 @@ closes with the site ruling. §Z5 (every homing odometer dead, charge below
 ---
 
 ## 3. The current observations, in full
+
+> **§3.3, §3.4 and §3.5 are RETRACTED** — every polarity column in them is the
+> artifact of §7.19. The `alive`, `foraging`, `ate J`, `cov` and `pk` columns in
+> the same tables were not measured by that statistic and stand. §3.1, §3.2, §3.6,
+> §3.7 and §3.8 are unaffected.
 
 **All raw logs are archived in `Reports/data/`** — `homeA-positive-control-
 2026-09-17.log`, `refill-{0,500,1000,2000,4000}.log`, and `sweep-*.log` for the
@@ -331,6 +456,12 @@ standing argument that **deliveries, never polarity, is the success criterion.**
    section that flags a real measurement as missing is the most expensive kind of
    error in this document: it stops a future session using a good number.)*
 5. **The polarity metric's admission gate** at `examples/trailfollow.rs:976`.
+   **SUPERSEDED 2026-09-17 — this item was right that the metric is broken and
+   wrong about why, and acting on the stated cause would have fixed nothing.**
+   Tightening the gate to `&&` moves a ramp-free blob only from ±0.195 to ±0.181,
+   7%. The defect is not edge cells admitted by `||`; it is that the scan window
+   is fixed to the route while the trail diffuses past its ends, so only one of a
+   blob's two shoulders is ever counted. §7.19.
    **(Corrected 2026-09-17: an earlier version of this item claimed a *second*
    gate at `:1121`. That line reads `Channel::B` and feeds `natural_along`, the
    food trail's own column — same predicate, different channel, different
@@ -401,6 +532,15 @@ to perfectly match how real ants, but we should take inspiration when we can."*
 
 ## 7. The plan
 
+> ⚠️ **STEPS 3, 4 AND 5 ARE RE-ORDERED BY §7.25/§7.26 (2026-09-18) — read the
+> second banner at the top of this document before building any of them.** In
+> short: the gate rescale and the latch are withdrawn as written (crop fill does
+> not reach direction, so there is nothing for either to widen or hold), step 4's
+> `HomeBearing` is blocked on flat ground by §R4, and the replacement is a
+> **fill-weighted re-roll in `tumble`** at a fraction of step 4's price. The
+> steps below are kept because their *evidence* stands and step 5 is untouched;
+> only the order and the two gate repairs change.
+
 Ordered so each step is attributable. **Steps 4 and 5 must not land together** —
 both add a term to a shared weighted sum, and `CLAUDE.md`'s *"a correct mechanism
 at inherited constants is a regression"* makes the joint result unreadable.
@@ -430,7 +570,16 @@ polarity** (§3.7). Today both are ~0 at gap 90.
 **Do:** the standing run, all five arms, 12 seeds. Archive the log.
 **Accept:** nothing — this is the baseline everything else is diffed against.
 
-### Step 1 — readouts only, no engine change
+### Step 1 — readouts only, no engine change — **DONE 2026-09-17, and it fired**
+
+> Built, and the answer was the stop condition: see §7.19. The `&&` figure this
+> step proposed as the decider **would not have fired** — it still reads −0.075
+> on foraging colonies. What decided it was a pair of *negative* controls this
+> step did not think to ask for. The metric is now `SPAN`, validated against a
+> ramp-free field (exactly 0.000) and a real ramp (+0.026). **Do not re-run this
+> step; read §7.19 and re-plan anything downstream of polarity.**
+
+### Step 1 (as originally written, kept for the record)
 
 **Why:** it fixes the meter everything else is judged on. Running a mechanism
 before fixing the instrument is the §8 failure that cost a day.
@@ -451,7 +600,26 @@ control and if it moves, the edit broke the metric.
 figure for foraging colonies is **positive**, the inversion is an artifact and
 §7.15 falls — stop and re-plan.
 
-### Step 2 — the gating sweep: does the home bearing need building at all?
+### Step 2 — the gating sweep — **DONE 2026-09-17: it does. Build it.**
+
+> Run at six seeds on `u16` (§7.21). **Cutting the homing circuit out of the
+> genome entirely is not detectable**: laden-at-door medians `shipped` 15.2%,
+> `noemit` 16.5%, `nosteer` 16.9% — both ablations *above* shipped, `nosteer`
+> with the most trips, every deliveries figure inside the instrument's own 3.6x
+> noise floor, and the shipped circuit beating both cut arms on **2 of 6** seeds,
+> which is chance. **This reverses the 2-of-3 reading below**, exactly as the
+> lane that produced it warned it might: laden-at-door spans 0.1%–47.7% within
+> one arm, so three seeds cannot separate medians 1.7 points apart. The
+> pre-registered condition is met, so **step 4 is not cancelled.**
+>
+> Read it with §7.20's direct measurement on the other bed — 0.051% of carrying
+> ticks reaching the nest band, **+0.0002 net homeward cells per carrying tick** —
+> and with **§R4**, because the two beds disagree by two to three orders of
+> magnitude and the difference is *slope*. The return leg is broken worst on flat
+> ground, which is the geometry the loop needs and the one `Turn` cannot steer
+> in. Design the bearing around that rather than discovering it afterwards.
+
+### Step 2 (as originally written, kept for the record)
 
 **Do:** `nesthome scene=bed arm=shipped|noemit|nosteer`, **six seeds**, on `u16`.
 
@@ -650,10 +818,20 @@ build".
   pass to `DIFFUSE` against decay's 2.9%.
 - **Halving `DEPOSIT`**: P-14's trigger has never fired.
 
-## 7b. Where the code stands, 2026-09-17
+## 7b. Where the code stands, 2026-09-18
+
+**PR #464 MERGED** (`c40c1712`), so everything the 2026-09-17 version of this
+section listed as "on the branch, not on `main`" **is now on `main`** —
+`SPOIL_IS_CARGO`, `try_swap_with_kin` and its scheduler fix, the birth-path
+attribution, the odometer doc corrections. Work since then is on
+**`claude/laughing-davinci-f6lu1r`** (§7.19–§7.26), which is instrument and
+report only: `probe_full` in `creature.rs`, an `#[ignore]`d readout in
+`brain.rs`, and the `trailfollow` columns. **No ant behaves differently yet.**
+
+The 2026-09-17 text follows, for the branch history it records.
 
 Branch **`claude/vibrant-mayer-9o2dbx`**, PR **#464**, 41 ahead of `main`, 0
-behind, CI green on `b1b3309e`. Nothing here has landed on `main`.
+behind, CI green on `b1b3309e`. ~~Nothing here has landed on `main`.~~
 
 **Engine changes already on the branch** — a new session inherits these:
 

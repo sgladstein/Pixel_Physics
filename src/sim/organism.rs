@@ -4041,6 +4041,43 @@ pub struct CreatureDef {
     /// exposed as a dial rather than decided here.
     #[serde(default)]
     pub kin_crosses_kinds: bool,
+    /// **How strongly a full crop steers the tumble toward home.** `0.0`, the
+    /// default, is the shipped animal exactly: the re-roll stays uniform and
+    /// not one RNG draw changes.
+    ///
+    /// At `w`, a tumbling body picks the viable direction nearest its
+    /// `forage_anchor` with probability `w * crop_fill`, and re-rolls
+    /// uniformly otherwise. So `1.0` is the owner's rule as stated
+    /// (2026-09-18): *a full crop is a 100% chance to move toward home, a half
+    /// crop about 50%.*
+    ///
+    /// **Why this is the site.** `BrainOutput::Move` gates whether a body
+    /// steps along the heading it *already has* — it cannot turn one — and
+    /// `Turn` is inert on level ground (`open-bugs-handoff.md` §R4: both outer
+    /// candidates lose at every value). `tumble` is the only place a new
+    /// direction is chosen, and it selects among directions already filtered
+    /// for footing, so it cannot ask for a step the body cannot take.
+    ///
+    /// **Why it had to exist at all.** Measured over 570,660 laden ant
+    /// decisions, `P(home)` and `P(away)` are a dead heat in every crop-fill
+    /// bin — 0.0177/0.0176 at a third of a crop, 0.0064/0.0064 at a full one —
+    /// and `P(home)` *falls* with fill, because the only thing fill did was
+    /// lower `P(move)`, which brakes a body equally in both directions. Crop
+    /// fill was wired to stillness, not to direction; the whole homing circuit
+    /// was worth **eleven net homeward cells** over six seeds and 24,000
+    /// frames. `Reports/pheromone-trail-direction-2026-09-16.md` §7.25–§7.26.
+    ///
+    /// **A float rather than a switch, deliberately**, on two counts: the bias
+    /// strength is the thing to sweep, and keeping it a species field leaves
+    /// homing something a lineage carries rather than something the engine
+    /// hardcodes — the objection that holds the nest-sourced distance field in
+    /// reserve in the master's *"things deliberately not in this plan"*.
+    ///
+    /// Keyed on **crop fill, never `Carrying`**: `Carrying` is
+    /// `crop_fill.max(spoil ? 1.0 : 0.0)`, so keying on it would march an ant
+    /// home for a pellet of dig tailings — 47.4% of the old open gate.
+    #[serde(default)]
+    pub home_bias: f32,
     /// The material a nest is built from — what `AtNest` senses.
     ///
     /// **Optional since 2026-09-02, and that is the point.** A species that
@@ -4296,6 +4333,7 @@ impl CreatureDef {
             scent_spread,
             scent_drift,
             kin_crosses_kinds,
+            home_bias,
             nest,
             dig_force,
             bite_force,
@@ -4426,6 +4464,9 @@ impl CreatureDef {
             scent_spread: *scent_spread,
             scent_drift: *scent_drift,
             kin_crosses_kinds: *kin_crosses_kinds,
+            // A probability, not a length: scaling a body does not change how
+            // strongly a full crop should pull it home.
+            home_bias: *home_bias,
             nest: nest.clone(),
             dig_force: *dig_force,
             // Dimensionless like `dig_force`, and against the same
