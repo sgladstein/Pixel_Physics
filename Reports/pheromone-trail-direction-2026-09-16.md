@@ -3021,12 +3021,31 @@ empty set"* — not for want of a pile, but because nothing can spend one.
    frames on all 18 seeds. Add a colony and the paired difference is **−14 cells,
    down on 15 of 18.** So persistence is not the missing piece; the colony is the
    sink.
-5. **`larder_probe` already exists**, and it is requirement 7's metric built in
-   advance: *"is there a standing pile of food beside the nest, and is it a store
-   or a flow?"*, banded by Chebyshev distance to the nearest nest cell, priced in
-   what the gut can digest rather than face value, **with both controls in the
-   binary** (`mode=control` plants the same pile with no colony; `mode=turnover`
-   separates a store from a flow). **Do not build a census — run this.**
+5. **`larder_probe` already exists** and asks the right question — *"is there a
+   standing pile of food beside the nest, and is it a store or a flow?"*, banded
+   by Chebyshev distance to the nearest nest cell, priced in what the gut can
+   digest rather than face value, **with both controls in the binary**
+   (`mode=control` plants the same pile with no colony; `mode=turnover` separates
+   a store from a flow).
+   > ⚠️ **CORRECTED 2026-09-18, and the first version of this line was wrong in
+   > the way that matters.** It said this was "requirement 7's metric built in
+   > advance". **It is not, because it cannot be aimed at this line's bed.**
+   > `larder_probe.rs:89` is `const PRESET: &str = "wetland"` and the argument
+   > list is `mode, frames, every, seeds, plant` — **there is no `scene=`**. It
+   > builds a 512x160 wetland with a 74-cell nest strip, and nothing points it
+   > at `trailfollow`'s `LabBox` gap bed, which is where the pheromone criterion
+   > in §0 lives.
+   >
+   > And `trailfollow` has **no standing-food census at all** — `carry@nest`
+   > counts *ant-ticks carrying larder inside the nest band*, which is ants, not
+   > a pile. So **requirement 7 is outstanding**: on the bed this line is
+   > measured on, there is no number for "is there a store, and is it growing".
+   > Per the requirement's own terms that has to exist **before** the mechanism,
+   > or `ate J` will under-report a working loop exactly as §7.25's numbers did.
+   >
+   > Use `larder_probe` for what it can do — auditing the prior report, which
+   > used this same tool on this same bed — and build the gap-bed census
+   > separately.
 
 **`TRAIT_STORE_IN_BODY` was specced and deliberately not built
 (`dead-ends.md`, 2026-08-31), and its reasoning is the strongest argument for
