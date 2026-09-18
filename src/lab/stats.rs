@@ -983,11 +983,53 @@ impl Stats {
                 GEN_BUCKETS - 1
             ),
         });
-        rows.push(Row::text(
-            format!("LINES {}   BIGGEST {:.0}%", census.lineages, census.top_lineage * 100.0),
-            DIM,
-            "HOW MANY SEPARATE FOUNDING FAMILIES ARE STILL GOING, AND WHAT SHARE OF EVERYTHING ALIVE THE BIGGEST OF THEM HOLDS. A POPULATION DOWN TO ONE LINE HAS CONVERGED, WHATEVER ITS INDIVIDUALS LOOK LIKE.",
-        ));
+        // **Shared cells ride this row rather than getting one of their own,
+        // and the reason is measured.** The page is sized to its content and
+        // then clamped to `bar_top() - 6`, which is **258**, and at a bed with
+        // a colony in it the content comes to **exactly 258** -- zero slack.
+        // A row added here is not a row nobody notices, it is a row that is
+        // *never drawn*: the clamp cuts the bottom of the page silently, and
+        // `the_page_stays_inside_its_own_border` passes through it because it
+        // asserts the clamp rather than that the content fits. (Which means
+        // the page already overflows by one row today whenever the REFUSED
+        // row above fires -- 267 against 258. That is not this lane's to fix,
+        // but the next lane wanting a row here should know it has none.)
+        //
+        // So: four numbers on one line, and at the shipped cap of 1 the line
+        // reads exactly as it always has.
+        //
+        // **Stacking has no render of its own, by ruling** -- a cell holding
+        // three ants draws as one ant -- so this is the *only* place a player
+        // can see whether ants are sharing cells at all. `CLAUDE.md`'s rule
+        // is that "did it fire" needs a counter rather than a picture; here
+        // there is no picture to supplement, so the counter is the whole of
+        // the readout.
+        //
+        // **EVER, not NOW.** Dismounting is an ordinary move, so a stack is
+        // momentary and the standing count is one frame's accident. Measured
+        // over 2,000 ants: 15 cells standing against 498 events, so a
+        // snapshot understates how often it happens by about 33x. NOW 0 with
+        // EVER in the hundreds is the healthy reading, and reporting the
+        // snapshot alone once had this feature written up as near-inert.
+        let lineages = format!("LINES {}   BIGGEST {:.0}%", census.lineages, census.top_lineage * 100.0);
+        let convergence = "HOW MANY SEPARATE FOUNDING FAMILIES ARE STILL GOING, AND WHAT SHARE OF EVERYTHING ALIVE THE BIGGEST OF THEM HOLDS. A POPULATION DOWN TO ONE LINE HAS CONVERGED, WHATEVER ITS INDIVIDUALS LOOK LIKE.";
+        rows.push(if world.stack_cap() > 1 {
+            let ever = world.creature_stats.stacks_entered;
+            Row::text(
+                format!(
+                    "{lineages}   SHARED {} OF {ever}",
+                    world.stacked_cell_count()
+                ),
+                if ever > 0 { GREEN } else { DIM },
+                format!(
+                    "{convergence} SHARED IS THE OTHER HALF OF THIS ROW: ANIMALS OF ONE COLONY MAY STAND IN THE SAME CELL, UP TO {} OF THEM, AND A SHARED CELL DRAWS AS ONE ANIMAL SO THIS IS THE ONLY PLACE IT SHOWS. THE FIRST FIGURE IS HOW MANY CELLS HOLD MORE THAN ONE ANIMAL THIS FRAME; THE SECOND COUNTS EVERY SHARING SINCE THE BOX WAS BUILT, AND THE DEEPEST ANY CELL HAS EVER HELD IS {}. READ THE SECOND, NOT THE FIRST -- SHARING IS MOMENTARY, ANTS STEP OFF AGAIN, AND OVER TWO THOUSAND ANTS ONLY 15 CELLS WERE SHARED ON THE LAST FRAME AGAINST 498 SHARINGS OVER THE RUN, SO 0 OF A LARGE NUMBER IS THE ORDINARY STATE. A SECOND FIGURE OF 0 MEANS IT HAS NOT HAPPENED YET, AND IT NEEDS A CROWD WALKING SOMEWHERE: RAISE THE ANTS PER COLONY ON THE BOX PAGE OR NARROW THE BED. ONLY ANIMALS OF ONE FOUNDING CAN SHARE: EVERY ANIMAL YOU PLACE ON ITS OWN FOUNDS A COLONY OF ITS OWN, SO TEN OF THEM ARE TEN COLONIES OF ONE AND STRANGERS TO EACH OTHER. USE THE COLONY TOOL, NOT TEN CLICKS. NOTHING EVER SHELTERS UNDER A BEETLE. WHAT IT BUYS IS FLOW RATHER THAN A PICTURE: A TRAIL THAT WORKS PUTS EVERY ANT ON ONE LINE, AND A LINE THAT CANNOT OVERLAP IS A QUEUE.",
+                    world.stack_cap(),
+                    world.creature_stats.max_stack_seen + 1
+                ),
+            )
+        } else {
+            Row::text(lineages, DIM, convergence)
+        });
         rows.push(Row::gap());
 
         // --- the ceiling -------------------------------------------------------
@@ -1878,6 +1920,57 @@ mod tests {
         );
     }
 
+    /// **The shared-cells figures, both arms, and the page still fitting.**
+    ///
+    /// Two arms because the readout is conditional, and a conditional readout
+    /// has two ways to be wrong: absent when it should show, and showing when
+    /// the feature is off. The second matters more than it looks -- the cap
+    /// ships at 1, so a figure that appeared unconditionally would tell every
+    /// player about a rule their box does not have.
+    ///
+    /// **And it asserts the page still fits, which is why these numbers share
+    /// a row instead of getting one.** The page is clamped to `bar_top() - 6`
+    /// and a bed with a colony in it already fills it exactly, so a row added
+    /// here would be built, measured, and then never drawn.
+    /// `the_page_stays_inside_its_own_border` cannot catch that -- it asserts
+    /// the clamp rather than that the content fits, and it builds a default
+    /// world where the cap is 1 so it never sees this readout at all. Blind by
+    /// construction, twice over; this is the half it cannot do.
+    #[test]
+    fn the_shared_cells_figures_show_only_when_the_cap_is_armed() {
+        let mut world = bed(4, 1);
+        let stats = censused(&world);
+        let line = |w: &World| {
+            stats
+                .rows(w)
+                .iter()
+                .filter_map(|r| match &r.body {
+                    Body::Text(line, _) if line.starts_with("LINES ") => Some(line.clone()),
+                    _ => None,
+                })
+                .next()
+                .expect("the lineage row is always on the page")
+        };
+        let height = |w: &World| stats.rows(w).iter().map(Row::height).sum::<i32>();
+
+        assert!(!line(&world).contains("SHARED"), "the figures showed at the shipped cap of 1");
+        let shipped = height(&world);
+
+        world.set_stack_cap(20);
+        assert!(line(&world).contains("SHARED"), "the figures did not show with the cap armed");
+
+        // The whole point of merging them onto an existing row: arming the cap
+        // must not make the page one row taller, because there is nowhere for
+        // that row to go.
+        assert_eq!(shipped, height(&world), "arming the cap changed the page height");
+        assert!(
+            RECT.1 + HEADER + shipped + 6 <= super::super::ui::bar_top() - 6,
+            "the page wants {} and the border stops at {}",
+            RECT.1 + HEADER + shipped + 6,
+            super::super::ui::bar_top() - 6
+        );
+    }
+
     /// **The page stays inside its own border, and it draws something.**
     /// The containment half alone passes for a page that paints nothing,
     /// which is the blind-guard shape `CLAUDE.md` says to put the fault back
@@ -1971,13 +2064,20 @@ mod tests {
     /// `debug_assert` in `text`.
     #[test]
     fn every_string_the_page_builds_has_a_glyph_for_each_character() {
-        for (founders, colonies) in [(0, 0), (4, 0), (0, 1), (4, 1)] {
-            let world = bed(founders, colonies);
+        // **The armed cap is one of the cases, because otherwise it is not
+        // checked at all.** The shared-cells half of the lineage row only
+        // exists above a cap of 1, so a sweep over default worlds cannot see
+        // its text -- the same blindness this guard is written to catch in the
+        // font, reappearing in the guard itself.
+        for (founders, colonies, cap) in [(0, 0, 1), (4, 0, 1), (0, 1, 1), (4, 1, 1), (4, 1, 20)] {
+            let mut world = bed(founders, colonies);
+            world.set_stack_cap(cap);
+            let world = world;
             let stats = censused(&world);
             for s in dump(&stats, &world).iter().chain(notes(&stats, &world).iter()) {
                 assert!(
                     s.chars().all(crate::hud::has_glyph),
-                    "({founders}, {colonies}) builds {s:?}, which the font would draw as a blank gap"
+                    "({founders}, {colonies}, cap {cap}) builds {s:?}, which the font would draw as a blank gap"
                 );
             }
             let mut frame = blank_frame();

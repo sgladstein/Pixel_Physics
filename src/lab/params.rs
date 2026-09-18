@@ -1100,6 +1100,40 @@ fn box_rows(world: &World, spec: &LabBox, out: &mut Vec<Param>) {
     // can opt out of, which is why the note below says the true story.
     bed("rain", spec.rain.as_index() as f32, span(0.0, 3.0, 1.0),
         "THE MISTER ON THE LID: 0 OFF, 1 LIGHT, 2 STEADY, 3 HEAVY. SEE THE BOX PAGE'S OWN `RAIN` ROW FOR THE RATES AND THE MEASUREMENT THE SHIPPED DEFAULT RESTS ON. UNLIKE EVERY OTHER ROW ON THIS PAGE THIS TAKES EFFECT IMMEDIATELY, NOT ON REBUILD, WHATEVER THE NOTICE BELOW SAYS.");
+    // **How many animals may stand in one cell -- and why it is on the BOX
+    // page rather than on ANTS, where it belongs.**
+    //
+    // It is a colony rule, so `room_each_ant_wants` and `alarm_fades` are the
+    // rows it should sit beside. It cannot: `no_page_is_longer_than_two_
+    // screens` caps a page at 20 and **both ANTS and GENOME stand at exactly
+    // 20**, so a row on either costs relocating somebody else's, and this file
+    // is held by eleven unlanded branches. This page has seven free rows and
+    // already carries `colonies`, `colony_ants` and `predators` -- who is in
+    // the box, and how many of them -- which is the same kind of fact as how
+    // many of them fit in one cell.
+    //
+    // **`Knob::Scalar`, not `Knob::Bed`**, because the cap is a live property
+    // of the `World` and not part of the spec a rebuild is made from. So this
+    // is the one row here that a REBUILD *resets* rather than survives, which
+    // is how `room_target` and `alarm_fades` already behave and is said out
+    // loud in the note. The launch-time `PIXEL_PHYSICS_STACK_DEPTH` is what a
+    // rebuild goes back to.
+    //
+    // **The span reaches 20 because the owner named 20, not because 20 buys
+    // anything.** Measured at 2,000 ants in one crowded bed, the deepest any
+    // cell ever held was **three** animals, so every setting from about four
+    // upward is the same box. The control that matters is 1 against
+    // more-than-1, and the note says so rather than implying a gradient the
+    // measurement does not support.
+    out.push(integer(
+        g,
+        Knob::Scalar { field: "stack_cap" },
+        "the bed",
+        "animals_per_cell",
+        world.stack_cap() as f32,
+        span(1.0, 20.0, 1.0),
+        "HOW MANY ANIMALS OF ONE COLONY MAY STAND IN THE SAME CELL. AT 1, THE SHIPPED SETTING, A NESTMATE IS AS SOLID AS ROCK AND A BUSY TRAIL IS A SINGLE-FILE QUEUE -- WHICH IS THE PROBLEM: THE BETTER A TRAIL WORKS THE MORE ANTS IT PUTS ON ONE LINE, AND A LINE THAT CANNOT OVERLAP JAMS. ABOVE 1 THEY STAND IN EACH OTHER'S CELLS AND WALK ON. WHAT IT BUYS IS FLOW, NOT A PICTURE: A SHARED CELL DRAWS AS ONE ANIMAL, SO THE ONLY PLACE IT SHOWS IS THE SHARED FIGURE ON THE STATS PAGE'S LINES ROW -- WATCH THE SECOND NUMBER, WHICH COUNTS EVERY SHARING, NOT THE FIRST, WHICH IS ONE FRAME'S ACCIDENT. ONLY ANIMALS OF A FOUNDED COLONY CAN SHARE, SO ONE PLACED BY HAND NEVER WILL, AND NOTHING EVER SHELTERS UNDER A BEETLE. DO NOT EXPECT A NUMBER THIS HIGH TO MATTER: MEASURED AT TWO THOUSAND ANTS THE DEEPEST ANY CELL HELD WAS THREE, SO EVERYTHING ABOVE ABOUT FOUR IS THE SAME BOX AND THE REAL CHOICE IS 1 AGAINST MORE THAN 1. FELT ON THE NEXT TICK, AND UNLIKE THE ROWS ABOVE A REBUILD PUTS IT BACK TO WHAT PIXEL_PHYSICS_STACK_DEPTH SAYS.",
+    ));
 }
 
 /// **The world-level dials the parameters page exposes that are not a
@@ -1159,6 +1193,15 @@ fn shipped_room_target() -> f32 {
 /// As `shipped_trait_reach`, for the alarm scent's decay.
 fn shipped_alarm_decay() -> f32 {
     crate::sim::pheromone::ALARM_RHO
+}
+
+/// As `shipped_trait_reach`, for how many animals may share a cell. **1 is
+/// the shipped cap and it means no sharing at all**, so a dials file written
+/// before this key existed must load as 1 rather than as `f32::default()`'s
+/// 0 -- which `set_stack_cap` would clamp back to 1 anyway, but silently,
+/// through a value no live edit can produce.
+fn shipped_stack_cap() -> f32 {
+    1.0
 }
 
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
@@ -1233,6 +1276,10 @@ pub struct Dials {
     /// it pins occupancy at 1.0, which is neither arm.
     #[serde(default = "shipped_room_target")]
     pub room_target: f32,
+    /// `World::stack_cap`, as an `f32` like every other scalar here. Named
+    /// default for `room_gate`'s reason.
+    #[serde(default = "shipped_stack_cap")]
+    pub stack_cap: f32,
 }
 
 impl Dials {
@@ -1270,6 +1317,7 @@ impl Dials {
             nest_scent_drift: world.nest_scent_drift,
             room_gate: world.room_gate,
             room_target: world.room_target,
+            stack_cap: world.stack_cap() as f32,
         }
     }
 
@@ -1299,6 +1347,7 @@ impl Dials {
         world.nest_scent_drift = self.nest_scent_drift;
         world.room_gate = self.room_gate;
         world.room_target = self.room_target;
+        world.set_stack_cap(self.stack_cap.round().max(1.0) as usize);
         world.mutation_sigma = self.mutation_sigma;
         world.fate_mutation_chance = self.fate_mutation_chance;
         world.param_mutation_chance = self.param_mutation_chance;
@@ -1607,6 +1656,11 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                     }
                     world.room_target = value;
                 }
+                // `set_stack_cap` clamps to at least 1 itself, so a restored
+                // dials file cannot reach a cap of 0 -- which would mean no
+                // creature may stand anywhere -- any more than a live edit
+                // can. `Knob::Rule`'s doc is the rule this follows.
+                "stack_cap" => world.set_stack_cap(value.round().max(1.0) as usize),
                 _ => return false,
             }
             true
@@ -2286,6 +2340,12 @@ mod tests {
         world.mutation_sigma = 0.25;
         world.developmental_key = organism::DevelopmentalKey::Plant { coarseness: 3 };
         world.plasticity = 0.6;
+        // **The newest key is in the round trip, because this guard is
+        // hand-enumerated and therefore blind to whatever was added last.**
+        // A `Knob::Scalar` needs four sites -- the row, `write`'s arm, the
+        // field here, and the `from`/`apply` pair -- and missing the last two
+        // loses the value silently on save with every gate still green.
+        world.set_stack_cap(7);
         Dials::from_world(&world).save().expect("save");
 
         let loaded = Dials::load_saved().expect("a just-saved file parses back");
@@ -2295,6 +2355,7 @@ mod tests {
         // coarseness 3 -> n - 1 == 3 -> n == 4, `Self::from_world`'s own encoding.
         assert_eq!(loaded.developmental_key, 4);
         assert_eq!(loaded.plasticity, 0.6);
+        assert_eq!(loaded.stack_cap, 7.0, "the stacking cap did not reach the saved file");
 
         let mut fresh = bed().0;
         loaded.apply_to(&mut fresh);
@@ -2303,6 +2364,7 @@ mod tests {
         assert_eq!(fresh.mutation_sigma, 0.25);
         assert_eq!(fresh.developmental_key, organism::DevelopmentalKey::Plant { coarseness: 3 });
         assert_eq!(fresh.plasticity, 0.6);
+        assert_eq!(fresh.stack_cap(), 7, "the stacking cap did not come back out of the saved file");
 
         let _ = std::fs::remove_file(&path);
         std::env::remove_var(Dials::ASSET_PATH_ENV);

@@ -1,6 +1,11 @@
 # Ants
 
-*Current as of: 2026-09-15, when **a trail started reaching all the way out.**
+*Current as of: 2026-09-18, when **several ants of one colony could stand in
+the same cell**, if you turn it on. A nestmate has always been as solid as
+rock, which is a problem the better a trail works: a trail that works puts
+every ant on one line, and a line that cannot overlap is a queue. Off by
+default. See "Standing in each other's way" below. Before that, 2026-09-15,
+when **a trail started reaching all the way out.**
 An ant lays a lot of scent near home and less the further it gets, so a trail
 has always been a slope running downhill away from the nest — and the far half
 of that slope was too shallow for the world to hold. It was still *there*; it
@@ -1600,6 +1605,54 @@ empty and fills as you watch** — nothing counts the colony until you ask it
 to, which is what makes the page free when it is shut. And every rate on it
 is measured over a window a little longer than one day in the world, so a
 reading is the colony rather than the time of night.
+
+## Standing in each other's way
+
+An ant treats a nestmate as solid ground it cannot walk into. That is the
+obvious rule and for a long time it was the only one, and it has a problem
+built into it that gets *worse* as everything else gets better: a scent trail
+works by getting every ant onto the same line, and a line of ants that cannot
+overlap is a queue. The better the trail, the longer the queue.
+
+There is now a switch for it. On the **BOX** page, **animals per cell** says
+how many animals of one colony may stand in the same cell. At 1 — what ships —
+nothing changes and a nestmate is as solid as it ever was. Above 1 they stand
+in each other's cells and walk on through.
+
+**It does not look like anything, and that is on purpose.** A cell with three
+ants in it draws as one ant. There are no piles to see, no little stacks; what
+you are meant to notice is ants *moving* where they used to stall. The only
+place the sharing itself shows is the stats page, on the **LINES** row: a
+`SHARED` pair of numbers appears there as soon as the switch is above 1.
+
+Read the **second** of those two numbers. Sharing is momentary — an ant steps
+off again a moment later, the same way it steps anywhere — so the first number
+is only how many cells happen to be shared on this one frame, and it is
+normally 0 or close to it even when sharing is going on constantly. The second
+counts every sharing since the box was built. Two thousand ants on a crowded
+bed showed 15 shared cells on the last frame against 498 sharings over the run.
+
+Three things to know before deciding it does not work:
+
+- **Only one founding can share.** Every animal you place on its own founds a
+  colony of its own, so ten clicks gives you ten colonies of one, all strangers
+  to each other, and strangers never share a cell. Place a colony.
+- **Nothing shelters under a beetle.** Only animals of the *same* colony, which
+  means a stranger cannot hide inside you and a predator cannot ride its prey.
+- **A colony needs a reason to crowd.** Founded and left alone, a colony stands
+  its ants four cells apart and they barely meet at all. What crowds them is
+  numbers and somewhere to walk to — raise the ants per colony, or narrow the
+  bed, and watch the second number move.
+
+Do not expect a big number to do anything. The deepest any one cell has been
+seen to hold is **three** animals, at two thousand ants, so everything above
+about four is the same box. The real choice is 1 against more than 1.
+
+One thing this does not do yet: ants sharing a cell **cannot feed each other**.
+Passing food mouth to mouth needs the two animals to be *next to* each other,
+and the world does not count "in the same cell" as next to — so the one place
+you would most expect a hungry ant to be fed is the one place it will not
+happen. That is known and not finished.
 
 ## What is not finished
 
