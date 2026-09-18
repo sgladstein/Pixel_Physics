@@ -42,6 +42,25 @@ must not be quoted. §8 is what has already cost days.
 > harness reads 0.641 against 0.200 — and the displacement is **homeward**, so
 > the colony's own channel-A ramp points at the nest after all.
 >
+> **The design that follows is §7.23**, and three things in it are load-bearing
+> for whoever picks this up. **One food item is worth 5–17 round trips** (960 J
+> against a 56 J round trip), so the correct threshold is *just above zero*, not
+> 0.989 — this is not a tuning judgement, the margin is an order of magnitude.
+> **The fix is a latch, not a slope**: a graded weight gives one uniformly
+> half-hearted colony, where what is wanted is some ants committing to go home
+> while others forage, which is per-ant persistent state. And **there is no
+> hidden-to-hidden path** (`hh_slot` is one weight per unit, pure
+> self-recurrence), so a latch unit *cannot gate* the homing pair — which
+> dissolves the apparent contest for `ant.ron`'s last free hidden unit. The
+> buildable latch is **recurrence on units 0/1 themselves: two weights, no new
+> unit, no `mutation_rate` re-derivation.** Order: rescale the gate first, then
+> the latch; `crop_capacity` last if at all.
+>
+> **And a second defect found on the way:** `SPOIL_IS_CARGO` is a measurement
+> switch (default ON), not a split — an ant holding **spoil reads 1.0 and the
+> gate opens**, while an ant holding food reads 0.667 and it stays shut. That is
+> a live confound in the 1.84% above and is the first thing to check.
+>
 > This explains the 750x gap: `onetrail::hold_gate_laden` evaluates the circuit
 > at `Carrying = 1.0`, a value the colony almost never reaches, so its
 > +104-of-112 was never evidence about a colony. It also makes §7.21's

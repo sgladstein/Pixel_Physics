@@ -2360,6 +2360,149 @@ inside a decision.
 (`probe_full` copies the hidden state rather than writing it back), so the
 instrument does not perturb what it measures.
 
+## §7.23 What the homing gate SHOULD do — the design, before the fix
+
+**2026-09-18.** §7.22 found the gate open on 1.84% of laden decisions. Three
+repairs are available and they trade differently, so this settles the design
+question first: **at what load should an ant head home?**
+
+### The threshold: essentially any load, and it is not close
+
+`gain` and movement cost are charged to the **same** `state.energy`
+(`digested - spent`, `creature.rs`), so they compare directly. Every constant is
+read from the tree:
+
+```
+round trip over a 90-cell gap:  out 22.5 + laden return 33.8  =  56.2 energy
+   (90 cells x move_cost_per_cell 0.125 x body 2; x3 laden, "a pellet weighs
+    one body cell")
+one fruit cell, gain = unit * quality * (1 - overhead), unit = 960:
+   at quality 1.0 :  17.1x the round trip
+   at quality 0.3 :   5.1x the round trip
+against the ant's WHOLE budget (start_energy 200):  4.8x
+```
+
+**One item is worth five to seventeen round trips.** There is no load at which
+an ant should decline to carry it home, and waiting to fill the crop buys
+nothing while risking death out there. The correct threshold is **just above
+zero**; the shipped gate sits at **0.989**, needing two cells since one reads
+`960 / 1440 = 0.667`.
+
+**This is the rare case where the desired behaviour is not a tuning judgement.**
+The margin is an order of magnitude, so no plausible re-derivation of `quality`,
+`overhead` or distance moves it.
+
+### The shape: a LATCH, not a slope — and this is the owner's correction
+
+The first draft of this section argued for a graded *weight*, on `CLAUDE.md`'s
+"an outcome is a distribution, not a binary". **The owner's objection killed
+it**, 2026-09-18: a weight that scales with load gives *every* laden ant the
+*same weak homeward bias, all the time* — one uniformly half-hearted cloud. What
+is wanted is that **some ants commit to going home while others keep foraging**,
+and that is **per-ant persistent state**. A per-tick coefficient cannot produce
+a population split.
+
+**Half of the objection does not apply, and it is recorded so nobody re-raises
+it.** There is no per-tick "go home / go away" decision to flip-flop between.
+`heading` is persistent organism state; `Move` only gates *whether the ant steps
+along the heading it already has* — `if draw.unit_f32() < p_move {
+step_chain(..) } else if .. { tumble(..) }`. Direction changes only on `tumble`,
+in the branch where the ant did **not** step. That is run-and-tumble, the bias
+comes from persistence, and §7.22 measures it working: `P(move)` **0.8155**
+up-gradient against **0.1572** down, gate open.
+
+So load should set the **rate of committing**, and commitment should persist and
+decay out slowly. Whether an individual has latched depends on its own history,
+so at any instant a fraction have — the population split, by hysteresis rather
+than by a threshold. It is also the more biological answer: real ants have
+discrete outbound and homebound states, not a blended drive.
+
+### There is no hidden-to-hidden path, and that dissolves the obvious design
+
+The natural implementation — a `Carrying`-charged recurrent unit **gating** the
+homing pair — **is not buildable.** `HH_END = IH_END + HIDDEN_SLOTS` and
+`hh_slot(h) = IH_END + h`: **one weight per hidden unit, pure self-recurrence.**
+There is no hidden-to-hidden matrix. A hidden unit reaches *outputs* only.
+
+This also dissolves the slot contest it appeared to create (spend `ant.ron`'s
+last free unit 7 on the latch, or on §7 step 5's trail-concentration sense, or
+grow `BRAIN_HIDDEN`): **a slot does not buy the wiring**, so neither side was
+purchasing what it thought.
+
+**What is buildable, cheapest first:**
+
+- **(a) Recurrence on units 0/1 themselves.** `hh_slot(0)` and `hh_slot(1)`
+  exist in every genome and are zero. Setting them makes the homing pair
+  hysteretic in its own activation — that *is* the latch, in **two numbers in
+  `ant.ron`**: no new unit, no `live_slots` change, no `mutation_rate`
+  re-derivation, no `genome_manifest` move. The idiom unit 4 already uses.
+  **Caveat to measure rather than assume:** the recurrence holds the unit's
+  whole sum — gate *and* gradient — so it is persistence in "am I running up the
+  homing gradient while laden", not purely in "am I laden". That may be the
+  better object: it gives a commuter that rides through local gradient wobble.
+- **(b) A latch unit driving `Persist` and `Tumble`.** Both are outputs, so a
+  hidden unit can reach them, and they are the run-and-tumble knobs directly
+  (`PERSIST_MAX` 2.0 is the straight-ahead score; `Tumble` re-rolls the
+  heading). A laden-latched ant that raises `Persist` and drops `Tumble` is a
+  committed straight-line walker. A real job for a slot, if one is ever spent.
+
+**If a slot is ever needed: expand, do not drop.** One extra hidden unit costs
+`live_slots` **870 → 917** (+47, **5.4%**) and `mutation_rate`
+0.0036552 → 0.0034678 in six species files; `GENOME_LEN` is unchanged and no
+existing weight moves, because `HIDDEN_SLOTS` is **64** against 8 live — a
+reserve built for exactly this. The repo has absorbed it twice (809→846 `Fly`,
+846→870 `Stillness`) and once at 318→524, **65%**, for the 4→8 expansion.
+Dropping the trail-concentration sense instead spends an **owner-level scope
+decision** on a roadmapped mechanism to save 5.4% of mutable surface: the
+re-derivation is the cheap half, the decision is the expensive one. **And take
+one unit, not a power of two** — 8→16 would be 870 → **1,246 (+43%)**.
+
+### The order, and the tension in it
+
+1. **Rescale the gate** — one line in `trailfollow`'s `GATES` table, which
+   already parameterises exactly these three numbers and asserts each arm is not
+   a no-op. It is the arm that says whether saturation alone was the problem.
+2. **Then recurrence on units 0/1.** Measuring a latch on top of an unrescaled
+   gate would measure nothing, because the saturated pair cannot respond either
+   way.
+3. Only then `crop_capacity`, and only if one item still lands somewhere silly
+   on the 0..1 axis. It moves the step's *position* and keeps the step, and it
+   side-effects digestion, delivery value and the colony economy.
+
+**The tension to measure, not assume:** the ±45 magnitudes are deliberate — they
+make units 0/1 a **conditional**, reading channel A only when laden. A shallower
+gate means an empty ant partially reads the homing plane and is steered home
+while it should be searching. That is what §Z7's 2026-09-09 `b2` tuning was
+navigating, and `plainspeak.rs`'s `GATE_DOMINANCE = 3.0` decides whether the lab
+still calls the unit a conditional at all. **The falsifier is the `self`/`mute`
+arms**: a shallower gate that helps laden ants and wrecks empty ones shows up as
+intake falling while `carry@nest` rises.
+
+**And what distinguishes the latch from the rescale is not mean drift but the
+SHAPE of the population** — report the distribution of per-ant homeward
+displacement, not its mean. The rescale alone predicts one cloud; the latch
+predicts two groups. A mean cannot tell them apart, and quoting one would leave
+the objection above unresolved.
+
+### A second defect, found on the way: the gate opens for dirt, not for food
+
+`SPOIL_IS_CARGO` is a **measurement switch, default ON** (`creature.rs`), not
+the food/spoil split the roadmap remembers:
+
+```rust
+inputs[Carrying] = if spoil_is_cargo() { crop_fill.max(spoil ? 1.0 : 0.0) } else { crop_fill };
+```
+
+So an ant holding **spoil reads 1.0 and the homing gate opens**, while an ant
+holding one food item reads 0.667 and it stays **shut**. One sensor, three
+consumers, and only `Drop` wants the honest answer.
+
+**This is a live confound in §7.22's own 1.84%**: a laden ant that also holds
+spoil reads 1.0, so some of those 10,509 gate-open decisions may be spoil-driven.
+The trace needs a `spoil` column and a re-run at `SPOIL_IS_CARGO=0` **before**
+the rescale — if the gate-open count collapses, the shipped homing circuit is
+open only for ants carrying dirt.
+
 ## Instruments
 
 - `examples/onetrail.rs` — `mode=arith` (shipped genome, nothing overridden),
