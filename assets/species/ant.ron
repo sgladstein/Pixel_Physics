@@ -1839,11 +1839,39 @@
             // `Carrying` an ant holding only DIRT read 1.0 and was locked out
             // of the food trail entirely. On `CarryingFood` it reads 0 and can
             // follow it again.
-            (Bias,            2,  45.0),
-            (CarryingFood,    2, -75.0),
+            // **De-saturated 2026-09-18, mirroring what units 0/1 got on
+            // 2026-09-09 -- and this pair was simply never done.**
+            //
+            // At `Bias +45` an EMPTY ant's sum is `45 + 6*along`, and
+            // `squash(x) = x/(1+|x|)` is flat there: squash(51) - squash(39) =
+            // **0.00577**, which across the antisymmetric pair into `Move` is
+            // **0.029**. Measured on one ant, per tick, standing on a hand-laid
+            // trail it could smell on 4,061 of 4,061 ticks at a mean
+            // |PheroBAlong| of 0.585: `p_move` facing toward the food 0.7622
+            // against 0.7244 facing away -- **a 0.038 difference**, and the ant
+            // never left x 56-85 with the food at 138 (§7.33).
+            //
+            // At `Bias +0.5` the same spread is **1.71282**, into `Move`
+            // **+8.56**: a **297x** change in how hard a trail can steer an
+            // empty ant. The laden ant stays shut -- `0.5 - 45.5 = -45`, leak
+            // 0.00577, identical to the homing pair's shut state -- so an ant
+            // carrying food still ignores the food trail and goes home.
+            //
+            // **This is a `dead-ends.md` RE-TEST, not a retry.** The 2026-09-09
+            // arm was rejected as "correct, and makes the animal decisively
+            // worse", because a working reader sends empty ants to patches the
+            // colony has already eaten. The owner's objection to that, and it
+            // holds: **only laden ants lay channel B** -- one emitter,
+            // `(CarryingFood, EmitB, 2.5)` -- so a depleted patch stops being
+            // marked, and the standing trail dies at the measured 1,476-frame
+            // lifetime. The self-limiting behaviour is in the emitter already.
+            // If a dead patch still recruits, that is a decay or emission
+            // defect with its own fix, not a reason to leave the reader deaf.
+            (Bias,            2,   0.5),
+            (CarryingFood,    2, -45.5),
             (PheroBAlong,     2,   6.0),
-            (Bias,            3,  45.0),
-            (CarryingFood,    3, -75.0),
+            (Bias,            3,   0.5),
+            (CarryingFood,    3, -45.5),
             (PheroBAlong,     3,  -6.0),
 
             // units 5,6 -- room at the nest, gated ON standing at the nest,

@@ -3759,6 +3759,105 @@ that could not return, on a sensor that laid food-scent while digging. Re-test i
 on today's animal, and read the per-tick `p_move` split above as the acceptance
 number rather than survivor counts — it is the quantity the repair is about.
 
+## §7.34 The reader repair works, and the ant starves holding its meal
+
+**2026-09-18.** §7.33 found the food-trail reader saturated. This is the repair,
+and one ant's whole biography under it.
+
+### The owner's argument that unblocked it
+
+`dead-ends.md` rejected re-gating units 2/3 on 2026-09-09 — *"correct, and makes
+the animal decisively worse"* — because a working reader sends empty ants to
+patches the colony has already eaten. The owner's objection, 2026-09-18:
+
+> *"only laden ants lay channel B, so once the patch depletes, they should stop
+> laying the path. If they don't that is a separate fix. This again sounds like a
+> multi-step fix that we are not trying because it failed at step 1."*
+
+**Both halves check out.** `ant.ron` has exactly one channel-B emitter,
+`(CarryingFood, EmitB, 2.5)`, and `pherolife` measures a laid trail **gone at
+1,476 frames**. So a depleted patch stops being marked and its trail dies: the
+self-limiting behaviour is already in the emitter. The rejected step was rejected
+for a downstream consequence that has its own remedy.
+
+### The repair, and it is four numbers
+
+`(Bias, 2|3, 45.0) → 0.5` and `(CarryingFood, 2|3, -75.0) → -45.5`, mirroring
+what units 0/1 got on 2026-09-09.
+
+| empty ant, sum = `Bias + 6·along` | squash spread | into `Move` |
+|---|---|---|
+| `Bias +45` (shipped) | 0.00577 | +0.029 |
+| `Bias +0.5` (repaired) | **1.71282** | **+8.564** |
+
+A laden ant stays shut — `0.5 − 45.5 = −45`, leak 0.00577, identical to the
+homing pair's shut state — so an ant carrying food still ignores the food trail.
+
+### It does what the arithmetic promised, on the same ant, same seed, same bed
+
+| | saturated | de-saturated |
+|---|---|---|
+| `p_move` facing toward food | 0.7622 | 0.7580 |
+| `p_move` facing away | 0.7244 | **0.3023** |
+| **difference** | **+0.0378** | **+0.4556** |
+| x range (nest 48, food 138) | 56–85 | **84–133** |
+| ticks lived | 4,061 | 8,891 |
+
+**Twelve times the trail response, and the ant walks to the food** instead of
+milling fifty cells short. The return leg moves too: **+0.0289 cells/tick toward
+the nest while laden, against §7.20's shipped +0.0002 — 145x.**
+
+### And then it starves, holding the food
+
+The owner asked what happened at x=102. The last row of the trace answers it:
+
+```
+frame 8891  x 102  CarryingFood 1.0  crop_cells 1  Energy 0.0028
+```
+
+**It died carrying a fruit cell.** Not a drop, not a turn — it ran out of energy
+on the way home with its meal in its crop. Its whole life:
+
+| | |
+|---|---|
+| picked food up | **17 times** |
+| lost it again | **16** |
+| digestions that credited energy | **2** |
+| laden ticks within the nest band | **0** |
+| `Energy`, first pickup → death | 0.5076 → 0.0028 over 6,023 ticks |
+| longest unbroken laden run | 570 ticks (291 needed for one 960 J cell) |
+
+**Seventeen pickups, two meals.** It held long enough to digest most of them —
+570 against 291 — and fifteen of seventeen ended with the cell back on the ground
+before the timer finished, each forfeiting the progress *and* the meal. It never
+once reached the nest while carrying.
+
+This is §7.29's 291-against-4 in one animal's biography rather than as an
+aggregate, and §7.27's wall reached from the other side: **carrying and eating
+are the same act, so a forager that commits to the journey starves holding its
+cargo.**
+
+### Colony level, and it is not resolvable at six seeds
+
+| gap | saturated hb0 | repaired hb0 | saturated hb1.0 | repaired hb1.0 |
+|---|---|---|---|---|
+| 90 | 0/6, 0 trips | **2/6**, 0 | 1/6, **23 trips** | 0/6, 2 |
+| 140 | 0/6 | **1/6** | 0/6 | 0/6 |
+| 200 | 0/6 | 0/6 | 0/6 | 0/6 |
+
+Survival improves without `home_bias` (0→2 at gap 90, 0→1 at 140) and the
+`home_bias` arm's 23 trips came from **one seed**. Six seeds cannot separate
+these on a bed whose per-seed spread is this wide; the per-tick numbers can, and
+they are unambiguous. **Do not read this table as an effect in either
+direction.**
+
+### What is left
+
+Exactly one thing, and it is the same one from both directions: **a forager
+cannot afford the journey while carrying and eating are one act.** The candidates
+are unchanged — `digesting` surviving a drop so cumulative nibbling works, or a
+nest that can be delivered into.
+
 ## Instruments
 
 - `examples/onetrail.rs` — `mode=arith` (shipped genome, nothing overridden),
