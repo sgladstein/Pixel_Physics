@@ -3446,14 +3446,36 @@ enormous — gap 60 reads 1,004,726 J on seed 1 against 5,520 and 3,120 on the
 other two. Treat the 60/90 rows as indicative. The **6 of 6 deaths across 140 and
 200** are firmer, being the same shape as §7.27's twelve-of-twelve.
 
-### What this constrains
+### What this constrains — and the conclusion this section first drew was BACKWARDS
 
-**The `arms=self` criterion in §7.28 §0 can only be asked where a colony survives
-at all**, which on this bed is a real founder distance of roughly 50 — i.e.
-`gap=90`, and that is why every prior run used it. `gap=60` is not a shorter
-journey to compare against; it is a standing start. So a gap sweep cannot be used
-to ask "how far can a trail carry a colony" until the colony stops dying, which
-is §7.29's 291-against-4 problem again.
+**`gap=60` is not a shorter journey to compare against; it is a standing start**,
+and that part stands: 20 real cells against a food radius of 10.
+
+> ⚠️ **CORRECTED 2026-09-18, by the owner, the same day it was written.** This
+> section first concluded that *"the `arms=self` criterion can only be asked
+> where a colony survives at all, which is `gap=90`"*, and that **a gap sweep
+> cannot be used until the colony stops dying.** Both are the wrong way round.
+>
+> Owner: *"They are not surviving at larger distances because we haven't solved
+> the pheromone loop."* **The deaths at 140 and 200 are the symptom under
+> investigation, not a bed limitation that blocks investigating it.** A lone
+> scout cannot keep a colony alive a hundred cells out — 3.7% of ants reach food
+> unaided (§3.2) — and a *recruited column* can. That is the entire claim of the
+> stigmergy mechanism.
+>
+> So **survival at 140 and 200 is the success signal**, and a run that tests only
+> 90 has removed the outcome it is looking for. `gaps=90,140,200` is now
+> `trailfollow`'s default rather than something to remember.
+>
+> The error is worth naming because it is a general one: *a measurement taken
+> where the mechanism is absent was read as a property of the apparatus.* The
+> same shape as §7.28b's suspended larder findings, one section apart, which is
+> how easily it recurs.
+
+What the founder-distance finding does still constrain is **arithmetic, not
+scope**: quote real founder distance, never nominal `gap`, because the two differ
+by a constant 40 cells and the difference is largest exactly where the numbers
+flatter most.
 
 **Quote real founder distance, never nominal `gap`,** in anything downstream. The
 two differ by 40 cells and the difference is largest exactly where the numbers are

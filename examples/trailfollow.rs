@@ -2325,7 +2325,25 @@ fn main() {
         // 3.5-hour study once already.
         let gaps: Vec<i32> = arg_str("gaps")
             .map(|v| v.split(',').map(|t| t.trim().parse().expect("gaps= takes a comma-separated list of integers")).collect())
-            .unwrap_or_else(|| vec![90, 150, 220, 300]);
+            // **90, 140, 200 on every run — owner's standing instruction,
+            // 2026-09-18, and it is a statement about what the experiment IS.**
+            //
+            // 90 is the only distance a colony currently survives (§7.30: at a
+            // real founder distance of 50, 2 of 3 seeds live; at 100 and 160,
+            // **0 of 3** and the food is sometimes never reached at all). The
+            // temptation is to read that as "the bed only works at 90, so test
+            // there" — which is what an earlier draft of §7.30 concluded, and
+            // it is backwards. **The colony dies at 140 and 200 BECAUSE
+            // recruitment does not work.** A lone scout cannot keep a colony
+            // alive a hundred cells out; a recruited column can. So survival at
+            // 140 and 200 is the SUCCESS SIGNAL of the thing being built, not a
+            // precondition for measuring it, and a run that omits them cannot
+            // see the result it is looking for.
+            //
+            // Structural rather than a discipline (`CLAUDE.md`: make it a
+            // command, not a habit) — the old default started at 90 and ran
+            // out to 300, so the three that matter were never one list.
+            .unwrap_or_else(|| vec![90, 140, 200]);
         // **`arms=homeA` runs one arm instead of five**, which is what makes a
         // 36-seed replication affordable: an effect that shows up in 1 seed of
         // 12 needs more seeds, not more arms, and paying for four irrelevant
