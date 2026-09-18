@@ -4509,13 +4509,46 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
 /// guarantee that looking is free. (`CLAUDE.md`: a debug readout must not
 /// be a function of the thing it debugs — here, of itself.)
 pub fn probe(world: &World, x: i32, y: i32, organism: OrganismId, def: &CreatureDef) -> ([f32; brain::BRAIN_INPUTS], [f32; brain::BRAIN_OUTPUTS], u32) {
+    let (inputs, _, outputs, active) = probe_full(world, x, y, organism, def);
+    (inputs, outputs, active)
+}
+
+/// `probe`, plus **the hidden activations** — because for several species the
+/// interesting term of a decision does not appear in `inputs` at all.
+///
+/// An output is `squash(sum of io[out][i]*inputs[i] + sum of ho[out][h]*hidden[h])`
+/// (`brain::eval_brain`), so an input that reaches an output only through the
+/// hidden layer is **invisible in `probe`'s pair**: you see the inputs, you see
+/// the final output, and you cannot tell which term moved it.
+///
+/// **That is the shipped ant's trail reader, not a hypothetical.**
+/// `assets/species/ant.ron` authors `(PheroAAlong, 0, +6.0)` / `(PheroAAlong, 1,
+/// -6.0)` into hidden units 0/1 and `(0, Move, +2.5)` / `(1, Move, -2.5)` out of
+/// them, and `PheroAAlong` appears in **no direct input-to-`Move` wire at all**.
+/// So a low `Move` on a laden ant is, through `probe` alone, indistinguishable
+/// between *the trail term is absent*, *the trail term is weak* and *the trail
+/// term is outvoted by `(Energy, Move, -1.75)` and `(FoodAdjacent, Move, -1.5)*`
+/// — three states that want three different repairs.
+/// `Reports/pheromone-trail-direction-2026-09-16.md` §7.20 is the measurement
+/// that needed them told apart.
+///
+/// **Still non-mutating, and for the same reason `probe` is**: `eval_brain`
+/// writes the new hidden layer back through `&mut state`, so this hands it a
+/// *copy* and returns that copy rather than storing it. Looking stays free.
+pub fn probe_full(
+    world: &World,
+    x: i32,
+    y: i32,
+    organism: OrganismId,
+    def: &CreatureDef,
+) -> ([f32; brain::BRAIN_INPUTS], [f32; brain::BRAIN_HIDDEN], [f32; brain::BRAIN_OUTPUTS], u32) {
     let Some(state) = world.organism(organism) else {
-        return ([0.0; brain::BRAIN_INPUTS], [0.0; brain::BRAIN_OUTPUTS], 0);
+        return ([0.0; brain::BRAIN_INPUTS], [0.0; brain::BRAIN_HIDDEN], [0.0; brain::BRAIN_OUTPUTS], 0);
     };
     let (inputs, _, _, _) = sense(world, x, y, organism, state.heading, def);
     let mut brain_state = state.brain_state;
     let (outputs, active) = brain::eval_brain(&state.genome, &inputs, &mut brain_state);
-    (inputs, outputs, active)
+    (inputs, brain_state, outputs, active)
 }
 
 /// **What an eye of `def.sight_range` standing at `(x, y)` would find** —

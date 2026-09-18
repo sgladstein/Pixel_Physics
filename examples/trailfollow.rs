@@ -327,6 +327,50 @@ enum PaintA {
     FlatFood,
 }
 
+/// **Every term of `Move`'s pre-squash sum, by name** — the "why" behind one
+/// decision, rather than the verdict.
+///
+/// An output is `squash(sum io[out][i]*inputs[i] + sum ho[out][h]*hidden[h])`
+/// (`brain::eval_brain`), and the shipped ant's trail reader lives **entirely in
+/// the second half**: `ant.ron` authors `(PheroAAlong, 0, +6.0)` /
+/// `(PheroAAlong, 1, -6.0)` into hidden units 0/1 and `(0, Move, +2.5)` /
+/// `(1, Move, -2.5)` out of them, and `PheroAAlong` reaches `Move` through **no
+/// direct wire at all**. So a decomposition that lists only the input terms —
+/// which is all `creature::probe` can give — shows every reason the ant moved
+/// *except the trail*, and a low `Move` cannot be told apart from a trail term
+/// that is absent, weak, or outvoted.
+///
+/// **`W_EPS` is applied here because `eval_brain` applies it.** A weight under
+/// it is no connection at all, and a decomposition that included those terms
+/// would not sum to the number the brain computed — which is the point, since
+/// that sum is this function's own check (`squash(sum)` must reproduce
+/// `outputs[Move]`, and the caller asserts it).
+fn move_terms(
+    genome: &[f32],
+    inputs: &[f32; brain::BRAIN_INPUTS],
+    hidden: &[f32; brain::BRAIN_HIDDEN],
+) -> (Vec<(String, f32)>, f32) {
+    let mut terms = Vec::new();
+    let mut sum = 0.0f32;
+    for i in 0..brain::BRAIN_INPUTS {
+        let w = genome[brain::io_slot(brain::INPUTS[i], O::Move)];
+        if w.abs() >= brain::W_EPS {
+            let t = w * inputs[i];
+            sum += t;
+            terms.push((brain::INPUT_NAMES[i].to_string(), t));
+        }
+    }
+    for h in 0..brain::BRAIN_HIDDEN {
+        let w = genome[brain::ho_slot(h, O::Move)];
+        if w.abs() >= brain::W_EPS {
+            let t = w * hidden[h];
+            sum += t;
+            terms.push((format!("h{h}"), t));
+        }
+    }
+    (terms, sum)
+}
+
 fn lay(w: &mut pixel_physics::sim::world::World, nest_x: i32, target_x: i32, surface: i32) {
     for x in nest_x..=target_x {
         let t = (x - nest_x) as f32 / (target_x - nest_x) as f32;
@@ -1154,6 +1198,89 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // arithmetic that decides it is 21:1 traffic against 4.6:1 grading.
     let mut b_prof_sum = [0.0f64; 5];
     let mut b_prof_n = 0u64;
+
+    // --- the decision trace ------------------------------------------------
+    //
+    // **What a LADEN ant in a real colony reads on the homing plane, and what
+    // it does about it.** Nobody has printed this: the `along` column above is
+    // `Channel::B`, and `onetrail`'s +104-of-112 figure is for a hand-stamped
+    // ramp on a bare slab with no colony around it. The gap between that and
+    // this bed's `carry->nest` is about 750x and nothing localises it.
+    //
+    // Off by default and it must stay that way: `probe_full` costs a whole
+    // `sense` per ant per frame, against the 100-frame cadence the columns
+    // above are sampled on.
+    let tracing = flag("trace");
+    let mut tr_n = 0u64;
+    let mut tr_along_sum = 0.0f64;
+    // **The magnitude, separately, because the signed mean cannot answer "is
+    // there a gradient".** `PheroAAlong` is `(ahead - here)` along the ANT'S
+    // HEADING, not along the world's x -- so on a perfectly good nest-ward ramp
+    // a population with uniformly distributed headings averages to zero by
+    // symmetry. A signed mean of 0.000 is therefore produced both by "no ramp
+    // exists" and by "a fine ramp, read by ants facing every way", and those
+    // want opposite work. `|along|` separates them.
+    let mut tr_abs_along_sum = 0.0f64;
+    let mut tr_along_hist = [0u64; 9]; // -1..1 in ninths, 4 = the zero bucket
+    let mut tr_pmove_sum = 0.0f64;
+    let mut tr_trail_sum = 0.0f64; // the h0/h1 -> Move contribution alone
+    // **Keyed by NAME, not by position, and that is not a nicety.** The term
+    // set is a property of the individual's genome: `eval_brain` skips any
+    // weight under `W_EPS`, so a mutated offspring with one more live wire
+    // decomposes into one more term than its parent. Indexing a fixed `Vec` by
+    // position panicked on the first bred colony -- the first ant gave 11
+    // terms and a later one gave 12.
+    let mut tr_terms: std::collections::BTreeMap<String, (f64, u64)> = std::collections::BTreeMap::new();
+    let mut tr_dx_home = 0i64;
+    // **Split by the sign of `along`, which is what makes this a test of the
+    // MECHANISM rather than of the plane.** The shipped homing circuit is
+    // run-and-tumble: reading up-gradient raises `P(move)` so the ant runs,
+    // reading down-gradient drops it so the ant stalls and tumbles onto a new
+    // heading. Two things have to be true for that to carry food home, and
+    // they fail differently:
+    //   1. `P(move | along > 0)` must exceed `P(move | along < 0)` -- the
+    //      reader is connected and the gate is open. If not, the circuit is
+    //      inert whatever the plane looks like.
+    //   2. steps taken while `along > 0` must actually go HOME -- the ramp
+    //      points the right way. If (1) holds and (2) does not, the ant is
+    //      faithfully following a gradient to the wrong place.
+    let mut tr_up = (0u64, 0.0f64, 0i64); // n, sum P(move), sum cells homeward
+    let mut tr_down = (0u64, 0.0f64, 0i64);
+    let mut tr_flat = (0u64, 0.0f64, 0i64);
+    // **The same split again, restricted to decisions where the homing gate is
+    // actually OPEN** -- and that is the one that can answer whether the ramp
+    // points the right way. With the gate shut the pair is saturated and cannot
+    // respond to `PheroAAlong` at all, so any correlation between the gradient
+    // and where the ant went is something else moving it, and reading a
+    // direction off the pooled rows would be reading a confound.
+    let mut tr_up_open = (0u64, 0.0f64, 0i64);
+    let mut tr_down_open = (0u64, 0.0f64, 0i64);
+    // **Is the homing gate even OPEN while the ant carries food?**
+    //
+    // Units 0/1 are a gated pair: `Bias + Carrying*w`, and the pair only leaves
+    // saturation when that sum approaches zero, i.e. at
+    // `Carrying >= -Bias / w`. **`Carrying` is not a boolean** -- it is
+    // `crop.worth() / crop_capacity` (`creature.rs`), so an ant holding one
+    // cell of a 960 J food against `ant.ron`'s `crop_capacity: 1440.0` reads
+    // **0.667**, not 1.0.
+    //
+    // The threshold is computed from the genome rather than restated, the same
+    // discipline `onetrail::hold_gate_laden` uses, so it stays right if
+    // `ant.ron` retunes the gate.
+    let mut tr_carry_hist = [0u64; 10];
+    let mut tr_gate_open = 0u64;
+    let gate_threshold = {
+        let g = &genome;
+        let bias = g[brain::ih_slot(I::Bias, 0)];
+        let wcarry = g[brain::ih_slot(I::Carrying, 0)];
+        if wcarry.abs() < brain::W_EPS {
+            0.0
+        } else {
+            -bias / wcarry
+        }
+    };
+    let mut focal = None;
+    let mut focal_rows: Vec<String> = Vec::new();
     let nest_cells = {
         let nest = w.materials.id_of("nest");
         match nest {
@@ -1348,6 +1475,88 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             let Some(&(hx, hy)) = s.chain.first() else { continue };
             ant_ticks += 1;
             let carrying_larder = s.crop.is_some_and(|c| c.material == larder);
+            if tracing && carrying_larder {
+                // **The focal ant is the first to pick larder up**, traced for
+                // the rest of its life. One ant is n=1 in a chaotic system, so
+                // it is the illustration and the aggregate below is the result;
+                // both are printed because a mean over a bimodal population
+                // describes no ant that exists.
+                if focal.is_none() {
+                    focal = Some(id);
+                }
+                let cdef = w.species.get(species_id).creature.clone().expect("ant is a creature");
+                let (tin, thid, tout, _) = pixel_physics::sim::creature::probe_full(&w, hx, hy, id, &cdef);
+                let (terms, presquash) = move_terms(&s.genome, &tin, &thid);
+                // **The decomposition's own check, and it is free.** If the
+                // named terms do not reproduce the number the brain computed,
+                // the decomposition is wrong and every conclusion drawn from
+                // it is about arithmetic this file invented.
+                let rebuilt = brain::squash(presquash);
+                assert!(
+                    (rebuilt - tout[O::Move as usize]).abs() < 1e-4,
+                    "move_terms does not reproduce eval_brain: rebuilt {rebuilt} against {}; the decomposition is wrong, not the colony",
+                    tout[O::Move as usize]
+                );
+                for (n, v) in &terms {
+                    let e = tr_terms.entry(n.clone()).or_insert((0.0, 0));
+                    e.0 += *v as f64;
+                    e.1 += 1;
+                }
+                let along = tin[I::PheroAAlong as usize];
+                let p_move = brain::unit_scale(tout[O::Move as usize], 1.0) as f64;
+                // The trail's whole contribution: hidden 0/1 are the channel A
+                // pair and nothing else drives `Move` from them.
+                let trail = terms.iter().filter(|(n, _)| n == "h0" || n == "h1").map(|(_, v)| *v).sum::<f32>();
+                tr_n += 1;
+                tr_along_sum += along as f64;
+                tr_abs_along_sum += along.abs() as f64;
+                tr_along_hist[(((along + 1.0) * 4.5) as usize).min(8)] += 1;
+                tr_pmove_sum += p_move;
+                tr_trail_sum += trail as f64;
+                let dx = tracks.get(&id).filter(|t| t.seen).map_or(0, |t| t.last_x - hx);
+                tr_dx_home += dx as i64;
+                // The threshold is `creature::sense`'s own guard scale expressed
+                // back as an `along`: below this the reader is looking at two
+                // cells it cannot tell apart, so it is neither up nor down.
+                let bucket = if along > 1e-3 {
+                    &mut tr_up
+                } else if along < -1e-3 {
+                    &mut tr_down
+                } else {
+                    &mut tr_flat
+                };
+                bucket.0 += 1;
+                bucket.1 += p_move;
+                bucket.2 += dx as i64;
+                let carry = tin[I::Carrying as usize];
+                tr_carry_hist[((carry * 10.0) as usize).min(9)] += 1;
+                if carry >= gate_threshold {
+                    tr_gate_open += 1;
+                    if along > 1e-3 {
+                        tr_up_open.0 += 1;
+                        tr_up_open.1 += p_move;
+                        tr_up_open.2 += dx as i64;
+                    } else if along < -1e-3 {
+                        tr_down_open.0 += 1;
+                        tr_down_open.1 += p_move;
+                        tr_down_open.2 += dx as i64;
+                    }
+                }
+                if focal == Some(id) {
+                    focal_rows.push(format!(
+                        "{f},{hx},{dx},{along:.5},{:.5},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.5},{:.5},{p_move:.5},{trail:.5},{presquash:.5}",
+                        tin[I::PheroAFront as usize],
+                        tin[I::Carrying as usize],
+                        tin[I::Energy as usize],
+                        tin[I::Crowding as usize],
+                        tin[I::AtNest as usize],
+                        tin[I::FoodAdjacent as usize],
+                        tin[I::Stillness as usize],
+                        thid[0],
+                        thid[1],
+                    ));
+                }
+            }
             {
                 let at_food = (hx - target_x).abs() <= near;
                 let at_nest = (hx - nest_x).abs() <= 26;
@@ -1472,6 +1681,118 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         w.pheromone_at(Channel::A, x, surface) as u32
     });
 
+
+    // --- the decision trace's readout -------------------------------------
+    if tracing {
+        if tr_n == 0 {
+            println!("    TRACE: no ant ever carried larder in this arm, so there is nothing to trace.");
+            println!("           That is a statement about the SCENE, not about homing -- pick an arm");
+            println!("           where ants reach food (`arms=hand`) before reading a null here.");
+        } else {
+            let mean_along = tr_along_sum / tr_n as f64;
+            println!(
+                "    TRACE laden ants: n {tr_n}  mean PheroAAlong {:+.5}  MEAN |PheroAAlong| {:.5}  mean P(move) {:.4}  mean trail term (h0+h1 -> Move) {:+.5}  net cells homeward {tr_dx_home} ({:+.6}/tick)",
+                mean_along,
+                tr_abs_along_sum / tr_n as f64,
+                tr_pmove_sum / tr_n as f64,
+                tr_trail_sum / tr_n as f64,
+                tr_dx_home as f64 / tr_n as f64
+            );
+            // **Read `|along|` for "is there a gradient" and the split below for
+            // "does it steer".** The signed mean is heading-relative and
+            // averages toward zero on a perfectly good ramp -- see the
+            // accumulator's note. It is printed only so a future reader can see
+            // it is near zero for the harmless reason.
+            let row = |label: &str, b: (u64, f64, i64)| {
+                if b.0 == 0 {
+                    println!("      {label:<22} n 0");
+                } else {
+                    println!(
+                        "      {label:<22} n {:>8}   P(move) {:.4}   cells homeward {:>8} ({:+.6}/tick)",
+                        b.0,
+                        b.1 / b.0 as f64,
+                        b.2,
+                        b.2 as f64 / b.0 as f64
+                    );
+                }
+            };
+            println!("    TRACE split by the sign of `along` -- the run-and-tumble test:");
+            row("facing UP-gradient", tr_up);
+            row("facing DOWN-gradient", tr_down);
+            row("no readable gradient", tr_flat);
+            if tr_up.0 > 0 && tr_down.0 > 0 {
+                println!(
+                    "      => P(move) up-gradient minus down-gradient: {:+.4}  (the homing drive; ~0 means the circuit is inert)",
+                    tr_up.1 / tr_up.0 as f64 - tr_down.1 / tr_down.0 as f64
+                );
+            }
+            // **The histogram is the column that separates "weak" from
+            // "absent".** A mean of 0.000 is produced both by a gradient that
+            // is never there and by one that is symmetric about zero, and
+            // those want opposite work. `CLAUDE.md`: exactly zero is the
+            // signature of an exhausted representation; a spread around zero
+            // is a real signal the ant cannot act on.
+            print!("    TRACE PheroAAlong histogram (-1..+1 in ninths):");
+            for (i, c) in tr_along_hist.iter().enumerate() {
+                print!(" [{:+.2}]{c}", -1.0 + (i as f32 + 0.5) * 2.0 / 9.0);
+            }
+            println!();
+            // **The gate, and it is upstream of everything above.** If the
+            // homing pair never leaves saturation, the trail's magnitude and
+            // direction are both beside the point -- units 0/1 cannot respond
+            // to `PheroAAlong` at all, however good the ramp is.
+            println!(
+                "    TRACE homing gate: opens at Carrying >= {gate_threshold:.4}; OPEN on {tr_gate_open} of {tr_n} laden decisions ({:.2}%)",
+                100.0 * tr_gate_open as f64 / tr_n as f64
+            );
+            if tr_up_open.0 > 0 || tr_down_open.0 > 0 {
+                println!("    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:");
+                row("  facing UP-gradient", tr_up_open);
+                row("  facing DOWN-gradient", tr_down_open);
+                if tr_up_open.0 > 0 && tr_down_open.0 > 0 {
+                    println!(
+                        "      => with the gate open, P(move) up minus down: {:+.4}; cells homeward up minus down: {:+.6}/tick",
+                        tr_up_open.1 / tr_up_open.0 as f64 - tr_down_open.1 / tr_down_open.0 as f64,
+                        tr_up_open.2 as f64 / tr_up_open.0 as f64 - tr_down_open.2 as f64 / tr_down_open.0 as f64
+                    );
+                    println!("         (positive cells-homeward means the ramp the colony built points at the NEST)");
+                }
+            }
+            print!("    TRACE Carrying histogram (0..1 in tenths):");
+            for (i, c) in tr_carry_hist.iter().enumerate() {
+                if *c > 0 {
+                    print!(" [{:.1}]{c}", i as f32 / 10.0);
+                }
+            }
+            println!();
+            println!("    TRACE Move pre-squash terms, mean over the decisions each one was live for:");
+            let mut ranked: Vec<(f64, &String, u64)> = tr_terms.iter().map(|(n, (s, c))| (s / *c as f64, n, *c)).collect();
+            ranked.sort_by(|a, b| b.0.abs().total_cmp(&a.0.abs()));
+            for (v, n, c) in &ranked {
+                let note = match n.as_str() {
+                    "h0" | "h1" => "   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.",
+                    _ => "",
+                };
+                // `n/` is printed because the term set is per-genome: a wire
+                // under `W_EPS` in one individual and over it in another is
+                // live for a subset of the decisions, and a mean over the
+                // wrong denominator would understate it.
+                println!("      {n:<16} {v:+.5}   (live in {c} of {tr_n}){note}");
+            }
+        }
+        if !focal_rows.is_empty() {
+            let path = format!("/tmp/trailfollow-focal-seed{seed}-gap{gap}.csv");
+            let mut out = String::from(
+                "frame,x,dx_home,PheroAAlong,PheroAFront,Carrying,Energy,Crowding,AtNest,FoodAdjacent,Stillness,h0,h1,p_move,trail_term,move_presquash\n",
+            );
+            out.push_str(&focal_rows.join("\n"));
+            out.push('\n');
+            match std::fs::write(&path, out) {
+                Ok(()) => println!("    TRACE focal ant: {} decisions written to {path}", focal_rows.len()),
+                Err(e) => println!("    TRACE focal ant: could not write {path}: {e}"),
+            }
+        }
+    }
 
     // `dietdump` names every material the colony actually booked intake
     // against, which is the only thing that can say *what* an unexpected

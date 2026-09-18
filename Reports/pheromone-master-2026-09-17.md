@@ -27,6 +27,28 @@ must not be quoted. §8 is what has already cost days.
 > (`homeA` clips exploration), §3.8, the `u16` widening, and — stated by §3.7
 > already — **that deliveries, never polarity, is the success criterion**.
 >
+> ## 🔑 AND THE CAUSE IS NOW LOCALISED — §7.22, 2026-09-17
+>
+> **The homing circuit is correct and switched off 98.16% of the time.**
+> `Carrying` is not a boolean: it is `crop.worth() / crop_capacity`, and
+> `ant.ron` gates the homing pair `Bias -45, Carrying +45.5`, so the pair only
+> leaves saturation at **`Carrying >= 0.989`**. One cell of `fruit` is 960 J
+> against `crop_capacity: 1440.0` = **0.667**. Over **570,660 traced laden
+> decisions** the gate is OPEN on **10,509 (1.84%)**, and the modal laden ant
+> sits at 0.7 — one food item.
+>
+> **When it is open the mechanism is excellent**: `P(move)` **0.8155**
+> up-gradient against **0.1572** down, a swing of **+0.658** where the bare-slab
+> harness reads 0.641 against 0.200 — and the displacement is **homeward**, so
+> the colony's own channel-A ramp points at the nest after all.
+>
+> This explains the 750x gap: `onetrail::hold_gate_laden` evaluates the circuit
+> at `Carrying = 1.0`, a value the colony almost never reaches, so its
+> +104-of-112 was never evidence about a colony. It also makes §7.21's
+> "cutting the circuit is undetectable" the expected result rather than a
+> puzzle. **§Z7's re-gate fixed the authored *open* value; the fault is the
+> *input*.**
+>
 > **AND THE SYMPTOM IS UNTOUCHED — this retracts the explanation, not the
 > problem.** Measured the same day with no polarity statistic anywhere in it
 > (§7.20): on the shipped genome, `hand` arm, 12 seeds, **4,260,372 ant-ticks

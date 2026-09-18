@@ -2242,6 +2242,124 @@ through `Move` in the run-and-tumble idiom the trail readers already use, which
 is the one steering path measured to work on flat ground (92% of ants reach food
 on a hand-laid trail, and that is `Move`, through hidden units 2/3).
 
+## §7.22 The homing circuit is correct, and switched off 98% of the time
+
+**2026-09-17.** The decision trace asked for in plain terms — *put an ant on a
+trail, laden, and record every decision and why* — pointed at the **colony**
+rather than at a bare slab, because the bare slab already passes (§1a, +104 of
+112 cells). It localises the 750x gap between the two in one number.
+
+`trailfollow mode=gap gate=b2 gaps=90 seeds=6 arms=hand onlyfood=on
+larder=fruit food=200 frames=24000 refill=2000 stop=6000 trace`, archived at
+[`Reports/data/decision-trace-hand-6seed-2026-09-17.log`](data/decision-trace-hand-6seed-2026-09-17.log).
+**570,660 traced decisions of ants actually carrying larder.**
+
+### The finding
+
+```
+homing gate: opens at Carrying >= 0.9890
+             OPEN on 10,509 of 570,660 laden decisions  (1.84%)
+
+Carrying histogram: [0.3]25k [0.4]66k [0.5]96k [0.6]125k [0.7]157k [0.8]68k [0.9]33k
+```
+
+**`Carrying` is not a boolean.** It is `crop.worth() / crop_capacity`
+(`creature.rs`), and `worth()` is `unit * cells`. `ant.ron` authors
+`crop_capacity: 1440.0`; one cell of the harness's `fruit` is **960 J**. So an
+ant that has picked up one food item reads **0.667**, and the modal laden ant
+sits in exactly that bucket.
+
+The homing pair is gated `Bias -45, Carrying +45.5`, so it only leaves
+saturation at `Carrying >= 45/45.5 = 0.989` — which needs **two** cells, since
+`worth()` accumulates (`cells.saturating_add(1)`) and 2 x 960 clamps to 1.0.
+**One pickup is not enough, and digesting only moves it further down.**
+
+### It is not weak. It is off, and when it is on it is excellent
+
+Split by the sign of `PheroAAlong` — the run-and-tumble test, since the shipped
+circuit raises `P(move)` up-gradient so the ant runs, and drops it down-gradient
+so the ant stalls and tumbles:
+
+| | n | `P(move)` | cells homeward |
+|---|---|---|---|
+| **gate OPEN**, facing up-gradient | 1,073 | **0.8155** | **+0.0130/tick** |
+| **gate OPEN**, facing down-gradient | 9,060 | **0.1572** | +0.0000/tick |
+| *pooled (98% gate-shut)*, up-gradient | 147,513 | 0.6468 | −0.0033/tick |
+| *pooled*, down-gradient | 372,147 | 0.5897 | +0.0017/tick |
+
+**With the gate open the mechanism works better than the isolated harness
+does** — `P(move)` 0.8155 against 0.1572, a swing of **+0.658**, where
+`onetrail`'s bare-slab figure is 0.641 against 0.200. And the displacement is
+**homeward**, so the channel-A ramp the colony builds for itself points at the
+nest.
+
+**Read only the gate-open rows for direction.** The pooled rows appear to say
+the opposite — ants facing up-gradient drifting *away* from home — and that is a
+confound, not a finding: with the pair saturated it cannot respond to
+`PheroAAlong` at all, so whatever moved those ants was some other term and the
+correlation with `along` is not causal. Splitting on the gate is what tells them
+apart, and it reverses the apparent sign.
+
+### What the decomposition shows, and why it needed the hidden layer
+
+`PheroAAlong` reaches `Move` through **no direct wire**. It enters hidden units
+0/1 at ±6.0 and leaves them into `Move` at ±2.5, so a decomposition built from
+`creature::probe`'s inputs alone shows every reason the ant moved except the
+trail. `probe_full` (added with this) returns the hidden activations, and the
+harness asserts `squash(sum of named terms) == outputs[Move]` so the
+decomposition cannot quietly be arithmetic this file invented.
+
+Mean `Move` pre-squash terms over all 570,660 laden decisions:
+
+| term | mean | |
+|---|---|---|
+| `h2` | −2.42236 | the channel-B pair, also saturated |
+| `h3` | +2.40296 | |
+| **`h0`** | **−2.26960** | **the trail — saturated shut** |
+| **`h1`** | **+2.10225** | **and its mirror, cancelling it** |
+| `Bias` | +1.99984 | |
+| `Energy` | −1.30254 | |
+| `KinNeed` | +0.34329 | |
+| `Crowding` | −0.25500 | |
+| `FoodAdjacent` | −0.18577 | |
+
+The trail pair nets **−0.167** against a `Bias` of +2.0. Both halves are pinned
+near ±1 by `squash` and cancel, which is what saturation looks like from
+inside a decision.
+
+### What this explains, and what it retires
+
+- **The 750x gap.** `onetrail::hold_gate_laden` folds the authored `Carrying`
+  weight into the unit's `Bias`, i.e. it evaluates the circuit **at
+  `Carrying = 1.0`** — a value the colony reaches on 1.84% of laden decisions.
+  The isolated instrument has been testing a configuration the engine almost
+  never produces. Its +104-of-112 is real and is not evidence about the colony.
+- **§Z7 is half a diagnosis.** The 2026-09-09 `b2` re-gate moved the *open*
+  value from +30 to +0.5 and that was correct. It does not help, because the
+  gate does not reach its open value: the fault is the **input**, not the
+  authored open state.
+- **It is upstream of every channel-A result in this report**, including
+  §7.21's "cutting the homing circuit is undetectable at six seeds" — a circuit
+  that is switched off 98% of the time is one whose deletion should be hard to
+  detect, and that is now the expected result rather than a puzzle.
+
+### What it does not say
+
+- **The threshold is read from the founder genome.** Bred ants mutate, so each
+  individual's own threshold moves a little; the histogram is what carries the
+  claim, and it shows the population sitting at 0.3–0.9 whatever the exact bar.
+- **`fruit` is the harness's larder.** A food worth >= 1,425 J per cell would
+  open the gate on one pickup, so the *number* is diet-dependent even though the
+  mechanism is not. The lab bed's foods have not been checked against this.
+- **It does not say the fix.** Lowering `crop_capacity`, rescaling the gate, or
+  giving the pair a food/spoil-split input are all candidates and they trade
+  differently; none is measured. What is measured is that the circuit is sound
+  and its enabling condition is almost never met.
+
+**Determinism:** traced and untraced runs are identical over 3 seeds
+(`probe_full` copies the hidden state rather than writing it back), so the
+instrument does not perturb what it measures.
+
 ## Instruments
 
 - `examples/onetrail.rs` — `mode=arith` (shipped genome, nothing overridden),
