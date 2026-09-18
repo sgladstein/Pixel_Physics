@@ -3569,6 +3569,93 @@ be tested.**
    route from a door-step, and it should be taken at `SPOIL_IS_CARGO=0` or the
    number is part dirt.
 
+## §7.32 The compass was built weeks ago and wired to nothing
+
+**2026-09-18.** Four questions from the owner, and two of them overturn a thing
+this line has been reasoning from.
+
+### The odometer is alive, and `brain::what_an_odometer_emits` reads as if it is not
+
+The readout's first row prints
+
+```
+authored (dead: w_in < W_EPS)   emit 0.000 -> 0.000   rms 0.385
+```
+
+and it is a **historical control, not the current animal.** That row hardcodes
+`w_in = 0.0005`, the §Z5 value that sat under `W_EPS`. `ant.ron` authors
+`(AtNest, 4, 0.05)` — fifty times `W_EPS` — with recurrence `0.99995` and
+`(4, EmitA, 32.0)`. The odometer charges at the nest and decays with time away,
+exactly as designed.
+
+**Read the first row as the present state and you conclude channel A has no
+ramp at all**, which is wrong and was one sentence away from being written down
+here. The row deserves a name that says *was*, not *is*.
+
+### But the plane it builds is not nest-tall, and the reason is the population
+
+Surviving colony, `arms=hand`, gap 90, endless larder — channel A nest→food:
+
+```
+end nest->food [0, 194, 1034, 7323, 1520]
+```
+
+**It peaks in the third band, not at the nest.** The odometer makes each ant lay
+more when freshly home; with `AtNest` at **1.37%** almost no ant is freshly home,
+and the plane integrates where the bodies are. *The mechanism works and the
+population defeats it.*
+
+### The gate fix moved that, measurably, and did not finish it
+
+Two surviving colonies, one per gate:
+
+| | food:nest occupancy | `AtNest` |
+|---|---|---|
+| old gate (`Carrying`, threshold 0.989) | **111 : 1** | 0.22% |
+| new gate (`CarryingFood`, boolean) | **27 : 1** | **1.37%** |
+
+The owner's prediction — *"ants were milling about the food because their gate
+never opened; we might not have the blob now"* — is **right in direction and
+incomplete in degree**. The blob shrank fourfold and time at home rose sixfold.
+It is still 27 to 1.
+
+### The compass exists, has shipped for weeks, and nothing steered with it
+
+`OrganismState::forage_anchor` is a home vector: set at spawn, **re-anchored at
+every nest contact**, so it cannot drift and needs no integrator. `creature.rs`
+says what it was for, at the site that maintains it:
+
+> *"**Measurement only** — nothing downstream reads it, and an ant still has no
+> idea where home is."*
+
+Every consumer was telemetry — the reach histogram in `app.rs`, the lab roster's
+RANGE row and `forage_max` percentiles, one `params.rs` row. **No simulation code
+read it until `home_bias`** (`creature.rs:11351`), which is the first thing in
+this engine to steer a body with it.
+
+**So path integration was half-built.** The hard half — a drift-free home vector
+with no accumulation to desynchronise — has been sitting in the tree as a debug
+readout, and the walk home was never wired to it. `home_bias` is not a
+workaround for missing path integration; **it is the missing half of it.**
+
+### What real ants do, and why it retires the plan to fix channel A
+
+Real foragers home by **path integration**: a private home vector, accumulated
+from their own movement, run straight from anywhere with no trail at all. The
+pheromone trail is a *contextual* cue — "you are on a known route" — and it is
+**isotropic**: a real trail carries no direction.
+
+This engine asks a concentration gradient to be a compass, which no real trail
+is. That is `pheromone-master` §1's structural statement reached from the
+biology: *"Channel A and channel B have the same laying rule and need opposite
+ones."* Channel A cannot be tuned into a compass, because the thing it is
+modelled on is not one.
+
+**The consequence for the plan: stop trying to make channel A point home.** The
+compass is `forage_anchor`; channel A's job is the contextual one. Every §7.23
+repair aimed at the ramp's polarity — and §7.19's whole retracted metric — was
+work on a signal that was never going to carry direction.
+
 ## Instruments
 
 - `examples/onetrail.rs` — `mode=arith` (shipped genome, nothing overridden),
