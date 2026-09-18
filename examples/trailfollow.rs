@@ -705,6 +705,13 @@ struct Arm {
     /// one tick's chewing) and nothing else; hundreds mean the drop site, which
     /// is where the 290 ticks live.
     digest_resumed_face: f64,
+    /// **What the appetite gate withheld, against what the gut actually
+    /// absorbed** -- the pair that says whether scaling the rate by hunger did
+    /// anything. Held near zero with `digested_face` healthy means the colony
+    /// was hungry throughout and the gate never had a surplus to protect,
+    /// which is a true reading of a starving bed rather than a dead mechanism.
+    digest_appetite_held: f64,
+    digested_face: f64,
 
     /// Distinct ants that ever came within `near` of the food -- recruitment.
     visitors: usize,
@@ -1373,6 +1380,19 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             "cropcap={cc} is already what ant.ron holds, so this arm is the shipped one wearing a different name"
         );
         cdef.crop_capacity = cc;
+        w.species.set_creature(species_id, cdef);
+    }
+    // **`hungergate=` -- how far digestion follows appetite**, the control arm
+    // for `CreatureDef::digest_hunger_weight`. `hungergate=0` restores the
+    // clock-driven gut exactly, which is the baseline every number for this
+    // mechanism has to be read against.
+    if let Some(hg) = arg::<f32>("hungergate") {
+        let mut cdef = w.species.get(species_id).creature.clone().expect("ant is a creature");
+        assert!(
+            (cdef.digest_hunger_weight - hg).abs() > f32::EPSILON,
+            "hungergate={hg} is already what ant.ron holds, so this arm is the shipped one wearing a different name"
+        );
+        cdef.digest_hunger_weight = hg;
         w.species.set_creature(species_id, cdef);
     }
     // **Placed as a closure because it has to be REPLENISHED, and the arithmetic
@@ -2343,6 +2363,8 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         digest_parked: st.digest_parked,
         digest_resumed: st.digest_resumed,
         digest_resumed_face: st.digest_resumed_face,
+        digest_appetite_held: st.digest_appetite_held,
+        digested_face: st.digested_face,
         first_arrival,
         all_dead_frame,
         carry_toward_nest,
@@ -2485,7 +2507,7 @@ fn main() {
     // a 1.84% open gate where the same command at the default reports 639,100
     // and 1.25%, and nothing in the header said why. Found 2026-09-18 by an
     // archived log failing to reproduce against a binary that was correct.
-    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill} stop={stop} homebias={} cropcap={}", gate.name, arg::<f32>("homebias").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("cropcap").map_or("shipped".to_string(), |v| format!("{v}")));
+    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill} stop={stop} homebias={} cropcap={} hungergate={}", gate.name, arg::<f32>("homebias").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("cropcap").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("hungergate").map_or("shipped".to_string(), |v| format!("{v}")));
     println!("  gate {}: off {:+.1}  on {:+.1}  along ±{:.1}", gate.name, gate.off, gate.on, gate.along);
     println!("  {LANDED_NOTE}\n");
 
@@ -2690,7 +2712,7 @@ fn main() {
                     // positive means it rises toward the NEST, which is §1c's
                     // prediction and the wrong way round for finding food.
                     println!(
-                        "{:>16}own trail: route pk {:>4} end {:>4} along {:>+7.4}  B nest->food [{}]  blocked {:>8}  kin swaps {:>7}  ticks {:>9}  tumbles {:>9} (homeward {:>8}, {:.2}%)  drops {:>7}  chew parked {:>6} resumed {:>6} ({:>9.0} J)  DELIVERED {:>5}  trips born-on-comb {:>4} ({} ants) / born-off {:>4} ({} ants)",
+                        "{:>16}own trail: route pk {:>4} end {:>4} along {:>+7.4}  B nest->food [{}]  blocked {:>8}  kin swaps {:>7}  ticks {:>9}  tumbles {:>9} (homeward {:>8}, {:.2}%)  drops {:>7}  chew parked {:>6} resumed {:>6} ({:>9.0} J)  DELIVERED {:>5}  appetite held {:>9.0} J of {:>9.0}  trips born-on-comb {:>4} ({} ants) / born-off {:>4} ({} ants)",
                         "",
                         a.peak_cells,
                         a.live_cells,
@@ -2707,6 +2729,8 @@ fn main() {
                         a.digest_resumed,
                         a.digest_resumed_face,
                         a.deliveries,
+                        a.digest_appetite_held,
+                        a.digested_face,
                         a.trips_on_nest,
                         a.ants_on_nest,
                         a.trips_off_nest,

@@ -4288,6 +4288,108 @@ waiting for the loop to close.
   reads **0.0152 against 0.0122 trips per ant**. Knowing exactly where home is
   buys nothing while there is nothing to carry there.
 
+## §7.39 The stomach grows, the appetite gate does not pay, and both are kept
+
+**2026-09-18.** Owner's instruction: *"We will build the granary later. build the
+hunger-graded gate against `reproduce_threshold` and increase `crop_capacity`."*
+Both built, measured separately. One is a large win and ships on; the other is
+correct, measures twice as bad, and ships **off** with the rider to turn it on.
+
+### Why a gate was on the table at all
+
+`digest_rate` is one scalar doing two jobs — how fast an animal feeds itself,
+and how long cargo survives in its crop — because `matured += digest_rate` ran
+every tick with no gate on need. `ant.ron` derives 3.3 from two brackets, and
+measured against the real journey they contradict:
+
+| bracket | wants |
+|---|---|
+| *the trip must visibly cost the load*, re-derived at the measured 436–873 tick leg instead of the assumed ~130 | **≤ 0.50** |
+| *a child must be reachable inside a lifetime* | **≥ 2.6** |
+
+Five to ten times apart, no overlap. **No setting of one scalar satisfies both**
+— `CLAUDE.md`'s *when a rule must tell apart two things that can look identical,
+state the difference as data*, which four support models failed before a bit on
+the cell settled it. Appetite is that data.
+
+### Step 1 — `crop_capacity` 1440 → 2880
+
+The old value was three cells of a **480 J** food. Fruit is **960 J**, so the
+crop held exactly one, which is the state `ant.ron`'s own comment forbids. Gap
+90, `hand`, **eighteen** seeds:
+
+| | before | after |
+|---|---|---|
+| deliveries | **0** | **511** |
+| seeds delivering | 0/18 | **9/18** |
+| median | 0 | 6 |
+
+Zero to 511 is not a tuning result. It is the loop existing.
+
+### Step 2 — the appetite gate, and it does not pay here
+
+`CreatureDef::digest_hunger_weight`, `0.0` for every species that has not
+authored it and bit-identical there. At 1.0 the gut scales by hunger, ramped
+across `start_energy .. reproduce_threshold`.
+
+**The first curve was wrong and measuring caught it.** `1 - energy /
+reproduce_threshold` reads **0.82** for an animal at exactly `start_energy`, so a
+subsistence ant paid an 18% cut to its intake while holding no surplus to
+protect: deliveries 144 → 36 and survivors 8 → 0 over six seeds. Ramping from
+`start_energy` instead — full rate at or below subsistence, falling to zero at
+the bar — took it to 46 and 2. The mechanism was right; the curve was not.
+
+Then the honest sweep, because six seeds is not a sweep and the first six were
+unrepresentative — they showed 144 deliveries where eighteen show 511:
+
+| gap 90, 18 seeds | gate off | gate on |
+|---|---|---|
+| deliveries | **511** | 255 |
+| median | 6 | **0** |
+| seeds delivering | 9/18 | 7/18 |
+| survivors | 59 | 29 |
+
+Robust: drop each arm's best seed and it is 392 against 199. The survivor column
+is **not** a result — seed 10 alone carries 37 of the 59, a colony that ate
+78,644 J and delivered nothing; without it, 22 against 21.
+
+### Why it cannot pay in this bed, and the counterweight nobody priced
+
+The gate withheld about **1%** of the gut's throughput, because almost no ant in
+this bed ever gets above `start_energy`. It has no surplus to protect and still
+costs the few ants that do.
+
+And the engine already charges for carrying, **twice**: `carried_cells` bills
+`move_cost_per_cell` for whatever is in the crop, and crop fill lowers `P(move)`
+— measured as the *only* thing fill did, over 570,660 laden decisions (§7.25).
+So protecting cargo keeps the ant heavy and slow for longer, and a slower ant
+has a longer journey, which is the quantity the gate exists to survive. **Not
+confirmed** — it is the mechanism that fits, and it is exactly the shape of
+`CLAUDE.md`'s *a constant nobody can tune in either direction may be a
+counterweight*.
+
+### Disposition, and what would change it
+
+Shipped at `digest_hunger_weight: 0.0`. Built, wired, countered
+(`digest_appetite_ticks` / `digest_appetite_held`), rider-controlled
+(`hungergate=`), and one number from on.
+
+Kept rather than reverted because the contradiction it resolves is real and does
+not go away by ignoring it. **Its usefulness is conditional on a colony that gets
+rich**, which is the granary — so the condition for re-testing is explicit:
+build the granary, then re-measure at eighteen seeds before assuming either way.
+
+### A counter of mine that lied, fixed before it was quoted
+
+`digest_appetite_held` first bumped on **every** tick, including the ~90% where
+the crop is empty, so it summed a rate nobody was going to spend: it read
+13,986 J withheld against 13,440 J absorbed, i.e. the gate looked like it was
+halving the gut. Gated on the crop actually existing it reads **2,020 of
+13,440** — about 15%, and about 1% on the final curve. A **seven-fold**
+overstatement, arithmetically correct throughout, answering a different question
+than the one asked. Caught by this file's own rule before a single number from
+it reached a conclusion.
+
 ## Instruments
 
 - `examples/onetrail.rs` — `mode=arith` (shipped genome, nothing overridden),

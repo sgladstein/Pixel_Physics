@@ -357,13 +357,27 @@
         // digests it as it walks, so what reaches the nest is what has not
         // been metabolised on the way. See `CreatureDef::crop_capacity`.
         //
-        // **1440 is three leaves at the shipped table (480 each), and three
-        // is a floor rather than a taste.** Food only leaves the crop a whole
-        // cell at a time, so an ant that can hold exactly one leaf is under
-        // one leaf within a tick of ingesting and can never deliver again --
-        // which would take `ascii`'s `deliveries > 0` red and read as the
-        // crop breaking foraging.
-        crop_capacity: 1440.0,
+        // **Three cells of the RICHEST food an ant forages, not of the
+        // cheapest.** Food only leaves the crop a whole cell at a time, so an
+        // ant that can hold exactly one cell is under one cell within a tick
+        // of ingesting and can never deliver again.
+        //
+        // **1440 was three leaves at 480 and that was the wrong denominator**,
+        // which went unnoticed for as long as nobody measured a delivery. A
+        // fruit cell is **960 J**, so 1440 held exactly one of them -- 0.667
+        // of the crop, with two unable to fit -- and put the ant in precisely
+        // the state the paragraph above forbids. Measured on one forager: its
+        // `crop_cells` was 1 on 1,740 ticks, 0 on 16,079, and **never 2** in
+        // 17,819 ticks of life, and the gap bed recorded **zero deliveries on
+        // every run it had ever produced**, at every distance, for that reason
+        // alone. `pheromone-trail-direction-2026-09-16.md` §7.38.
+        //
+        // 2880 is three fruit cells, and restores the floor the old comment
+        // was asking for against the food that actually sets it. It is priced:
+        // `carried_cells` charges `move_cost_per_cell` for whatever is still
+        // in the crop, so a fuller ant is a slower and more expensive one, and
+        // nothing here is free.
+        crop_capacity: 2880.0,
         // **Derived from two brackets, not chosen**, and to be swept before
         // it is trusted (`CreatureDef::digest_rate`):
         //
@@ -422,6 +436,47 @@
         // existence.
         armour_fraction: 0.0001,
         digest_fraction: 0.01515,
+        // **Digestion follows appetite, fully** -- see
+        // `CreatureDef::digest_hunger_weight` for the derivation, which is the
+        // whole argument and does not fit here.
+        //
+        // The short version: `digest_rate` above was setting two things at
+        // once -- how fast an ant feeds itself, and how long food survives in
+        // its crop -- and measured against a real journey the two brackets it
+        // is derived from want values five to ten times apart with no overlap.
+        // A forager metabolised its entire load before reaching home, so the
+        // gap bed recorded **zero deliveries on every run it ever produced**.
+        //
+        // **Authored at 0.0 -- built, wired, countered, and OFF -- because at
+        // 18 seeds it measured twice as bad as no gate at all.** Gap 90,
+        // `hand`, everything else identical:
+        //
+        //   deliveries  511 -> 255      median  6 -> 0
+        //   seeds delivering  9/18 -> 7/18
+        //
+        // No one seed carries that; drop the best seed from each arm and it is
+        // still 392 against 199. Survivors are a wash once seed 10's outlier
+        // colony is set aside (22 against 21).
+        //
+        // **The likely counterweight, and it is one this engine already
+        // charges twice.** `carried_cells` bills `move_cost_per_cell` for
+        // whatever is in the crop, and crop fill lowers `P(move)` -- measured
+        // as the *only* thing fill did, over 570,660 laden decisions
+        // (`home_bias`'s own doc). So protecting cargo keeps the ant heavy and
+        // slow for longer, and a slower ant has a longer journey, which is the
+        // quantity the gate exists to survive. Not confirmed; it is the
+        // mechanism that fits.
+        //
+        // **Kept rather than reverted, and at 1.0-or-nothing rather than
+        // tuned**, because it is the only lever that resolves a real
+        // contradiction: the two brackets `digest_rate` is derived from want
+        // values five to ten times apart once the trip is measured. It cannot
+        // pay for itself in a colony where nobody is ever rich -- the gate
+        // withheld about **1%** of throughput here, because almost no ant gets
+        // above `start_energy` in this bed. Turn it on when a granary makes
+        // colonies rich, which is the condition its usefulness depends on, and
+        // re-measure rather than assuming. `hungergate=` is the rider.
+        digest_hunger_weight: 0.0,
         digest_rate: 3.3,
 
         // **Detritus only, for now.** Owner open question #2: herbivory on

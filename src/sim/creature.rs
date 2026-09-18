@@ -4512,6 +4512,60 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // intake would open it by every stomach in the world; crediting at the
     // drop would credit food the animal never absorbed.
     let digest_rate = digest_rate_of(def, &traits_of(world, organism, def));
+    // **Appetite, not a clock** -- `CreatureDef::digest_hunger_weight`, which
+    // is 0.0 for every species that has not authored it and then takes the
+    // `1.0 - w + w * hunger` factor to exactly 1.0. Multiplying by a literal
+    // one is bit-identical, so the unauthored arm is a true control rather
+    // than a re-seeding, the same contract `home_bias` keeps.
+    //
+    // **Referenced to `reproduce_threshold`.** Against `start_energy` the
+    // animal asymptotes at subsistence and never banks a surplus, so nothing
+    // ever breeds -- see the field's own doc, where that trap is the reason
+    // the reference is what it is.
+    //
+    // **Gated on there being a crop, which is not decoration.** Scaling the
+    // rate on a tick where the animal is carrying nothing changes no
+    // behaviour, and counting it makes `digest_appetite_held` a sum over a
+    // rate nobody was going to spend -- arithmetically correct and an answer
+    // to a different question, which is this repo's worst-recurring failure.
+    // The focal ant's crop was empty on 16,079 of 17,819 ticks, so counting
+    // ungated overstates by about ten to one.
+    let digest_rate = {
+        let carrying = world.organism(organism).is_some_and(|s| s.crop.is_some());
+        if carrying && def.digest_hunger_weight > 0.0 && def.reproduce_threshold > 0.0 {
+            let w = def.digest_hunger_weight.clamp(0.0, 1.0);
+            let energy = world.organism(organism).map_or(0.0, |s| s.energy);
+            // **Flat at full rate up to `start_energy`, then falling to the
+            // breeding bar** -- not a straight line from zero, which is what
+            // this was first and it measured worse than no gate at all.
+            //
+            // `1 - energy / reproduce_threshold` reads **0.82** for an animal
+            // sitting at exactly `start_energy`, so an ant at subsistence paid
+            // an 18% cut to its intake while holding no surplus for the gate
+            // to protect. Measured at gap 90 over six seeds: deliveries
+            // 144 -> 36 and survivors 8 -> 0 against the same bed with the
+            // gate off. The mechanism was right and the curve was wrong.
+            //
+            // The span is `start_energy .. reproduce_threshold` -- the band in
+            // which an animal is actually accumulating toward a child, and the
+            // only band where withholding cargo costs it nothing it needs.
+            // Below subsistence it is starving and must eat at full rate; that
+            // is not a special case bolted on, it is where the ramp starts.
+            let floor = def.start_energy.min(def.reproduce_threshold);
+            let span = (def.reproduce_threshold - floor).max(f32::EPSILON);
+            let hunger = ((def.reproduce_threshold - energy) / span).clamp(0.0, 1.0);
+            let scaled = digest_rate * (1.0 - w + w * hunger);
+            // The pair `CLAUDE.md` asks for: `digest_appetite_ticks` is the
+            // "it fired" half and `digest_appetite_held` the effect from the
+            // far side of the call -- face value that stayed in a crop
+            // because the animal was not hungry enough to spend it.
+            world.creature_stats.digest_appetite_ticks += 1;
+            world.creature_stats.digest_appetite_held += f64::from(digest_rate - scaled);
+            scaled
+        } else {
+            digest_rate
+        }
+    };
     let digested = if digest_rate > 0.0 {
         let gut = gut_of(world, organism, def);
         world.organism(organism).and_then(|s| s.crop).map_or(0.0, |c| {

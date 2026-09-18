@@ -1,7 +1,12 @@
 # Ants
 
-*Current as of: 2026-09-18, when **several ants of one colony could stand in
-the same cell**, if you turn it on. A nestmate has always been as solid as
+*Current as of: 2026-09-18, later the same day, when **an ant could finally
+carry food home instead of eating it on the way.** Its stomach held exactly
+one piece of the food it was sent to fetch, and it digested that piece as it
+walked, so it arrived empty every time and nothing was ever set down at the
+nest — at any distance. It now holds three. See "An ant eats what it
+carries" below. Before that, the same day, **several ants of one colony could
+stand in the same cell**, if you turn it on. A nestmate has always been as solid as
 rock, which is a problem the better a trail works: a trail that works puts
 every ant on one line, and a line that cannot overlap is a queue. Off by
 default. See "Standing in each other's way" below. Before that, 2026-09-15,
@@ -184,6 +189,27 @@ mostly stops it. See "An ant can carry a seed home" below for the honest
 read of what it does and does not do yet — the plants it produces so far
 stand out in the bed, not ringed around the nest, because an ant sets its
 cargo down wherever it happens to be, not only at the door.
+**Updated again the same day, later still, and this one is the reason a
+colony can feed itself at all: an ant eats what it carries, and until now it
+could only carry one mouthful.** A foraging ant does not have a separate
+shopping bag — the food it is bringing home is the food it is living on, and
+it chews through it steadily as it walks. That is the right tension for an
+animal that forages away from home: the further it goes, the more of the load
+it spends getting back, so distance costs something real.
+
+What was wrong was the size of the stomach. It held three mouthfuls of the
+cheap food an ant nibbles near home, and **one** of the rich food worth
+walking to — so a forager that went out for the good stuff picked up a single
+piece, digested it somewhere on the road, and arrived home with nothing. Not
+sometimes: every time, at every distance. The hoard at the nest that the whole
+colony is supposed to live off never got its first crumb.
+
+Now it holds three of the rich food as well. A forager eats one or two getting
+home and sets the rest down, which is the first time anything has arrived. It
+is not free — a full ant is a heavy ant, and it walks slower and tires faster
+than an empty one, so there is still a real cost to going a long way for a big
+load.
+
 **Updated again the same day, later still: a seed now comes free only when
 the meal it rode in on is actually eaten, not the moment anything is set
 down.** Before this, digesting a carried meal down to nothing quietly

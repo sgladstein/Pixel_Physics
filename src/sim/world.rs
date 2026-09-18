@@ -1507,6 +1507,25 @@ pub struct CreatureStats {
     /// 600 J in `digest_resumed` alone. Face value on the same scale as
     /// `digested_face`, so the two divide.
     pub digest_resumed_face: f64,
+    /// **Ticks on which the appetite gate scaled the gut** -- the "it fired"
+    /// counter for `CreatureDef::digest_hunger_weight`, exactly 0 for every
+    /// species that has not authored the field.
+    ///
+    /// It exists because the gate is invisible everywhere else: a slow gut and
+    /// a well-fed animal produce the identical crop, and this engine's worked
+    /// case for that is a collapse that rendered as working chunks while the
+    /// feature had never once executed.
+    pub digest_appetite_ticks: u64,
+    /// **Face value the gate kept in the crop**, in joules -- the effect
+    /// counter from the far side of the same call, paired as the timing rules
+    /// ask.
+    ///
+    /// The aim counter alone cannot separate "fired on every tick and held
+    /// back a real meal" from "fired on every tick against an appetite that
+    /// was already full", and those are opposite verdicts on the mechanism.
+    /// Read it against `digested_face`: the ratio is how much of the gut's
+    /// throughput appetite withheld.
+    pub digest_appetite_held: f64,
     pub pickups: u64,
     /// **How many times an animal rolled the dig gate and won** -- the "it
     /// fired" counter, and `digs` below is the effect counter from the far
