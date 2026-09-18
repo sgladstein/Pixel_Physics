@@ -3070,6 +3070,60 @@ maintenance of a laid trail is zero.** Those `end` cells are most likely
 hand-laid residue decaying at different rates in a live colony against a dead
 one. Do not quote them as colony trail.
 
+### 0b. What the prior granary evidence can and cannot bear — owner's correction, checked
+
+**Owner, 2026-09-18:** *"The granary fail happened when we had a fully not
+functioning pheromone/forage loop, so I wouldn't place too much weight on the
+failure."* Correct, and §0a as first written leaned on it too hard. The point is
+not that the numbers are wrong — they reproduce — it is **which world they are
+numbers about.**
+
+`dead-ends.md` entries carry *the condition their rejection depends on* for
+exactly this reason. Here that condition is **a colony with no return leg**, and
+it is the condition §7.28's whole plan exists to change. So the larder findings
+are **suspended, not binding**, and the re-test is the same event.
+
+**Ran `larder_probe` rather than citing it**, which is the other half of the
+owner's note (*"when using pre-built tools, make sure they are doing what you
+think they are doing"*) — and §0a had quoted it without ever executing it. Two
+hygiene checks it passes that `trailfollow` did not: it **echoes its own
+parameters** in the header, and it **panics on an unknown argument** instead of
+ignoring it (`larder_probe.rs:122`). Three things the run shows that change how
+its findings read:
+
+- **The colony is dying for the whole census.** `seeds=2 frames=4000`: the `ants`
+  column runs **52 → 47 → 45 → 37 → 36 → 29 → 28 → 24 → 21 → 18 → 16.** Every
+  standing-pile figure in `larder-reachability` is therefore measured on a colony
+  in decline, and *"the pile does not accumulate"* cannot be separated from *"a
+  shrinking colony accumulates nothing."* That is the owner's point, in the
+  instrument's own output.
+- **The bands do not discriminate on this bed.** `<=2`, `<=4`, `<=8` and `<=16`
+  read identically in most rows (5,5,5,5 — 10,10,10,10 — 16,16,16,16), because
+  the scene's nest is a **74-cell strip** (`nest_x=16..90`), so "within two of the
+  nearest nest cell" is most of the colony's world. The banding is not wrong; it
+  is uninformative here, and a conclusion resting on band contrast is not
+  available.
+- **It is a different bed from the pheromone work.** `scene=wetland 512x160
+  ants=52 trees=2`, against `trailfollow`'s `LabBox` gap bed. Nothing about the
+  larder findings transfers to the gap bed without being re-taken there.
+
+**What survives regardless of the condition, because it is a code fact and not a
+measurement:** `try_bud` gates on and charges `state.energy`, and nothing reads
+what is in the nest neighbourhood. A pile still funds zero births *directly*, on
+any bed, working loop or not. The indirect path — eat, bank, bud — is unaffected
+by the correction and remains what §2's wire targets.
+
+**What is now explicitly suspended**, and must be re-taken on a bed where ants
+complete a round trip before it is quoted again: *"the pile is a flow, not a
+store"*, *"87% of drops are away from the nest"*, *"the colony is the sink"*, and
+the 140,202/137,945 pickup–drop identity. Each is consistent with *"ants wander
+at random while holding food"*, which is precisely what §7.25 measured the
+shipped animal doing.
+
+**And one number does survive and is worth keeping in view:** 463 deliveries by
+frame 4,000 against a standing pile of 16. Delivery without accumulation is real
+and reproduces here; what it *means* is what the suspension is about.
+
 ### 1. What the engine already has, verified
 
 | | state |
