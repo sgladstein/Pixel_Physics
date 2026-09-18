@@ -1305,7 +1305,27 @@
             (Bias, Drop, -0.2),
             (AtNest, Drop, 1.0889),
             (Carrying, Drop, 0.2),
-            (MoistureGrad, Drop, 0.169),
+            // **`(MoistureGrad, Drop, 0.169)` REMOVED 2026-09-18, with the
+            // curvature term below, and for the same measured reason.** Both
+            // stay on `DropSpoil`, where the construction argument they were
+            // written for actually holds.
+            //
+            // Traced per tick, one forager, seed 2, gap 90: it picked food up
+            // **17 times and put it down 16**, every one of them at x 116-130
+            // with `AtNest` exactly **0.0000** -- that band *is* the larder
+            // (food at 138, near=10). Not one drop was on the way home, and not
+            // one was a completed digestion. At the heap `SurfaceCurvature`
+            // read **0.417-0.833** (mean 0.441 there against 0.361 elsewhere)
+            // and `MoistureGrad` **0.098-0.317**, putting `drop_urge` at
+            // **0.019-0.113 per tick** -- a **mean hold of 104 ticks against
+            // the 291** one 960 J cell needs to digest.
+            //
+            // **A food heap is curved ground by construction**, so the larder
+            // was triggering the put-it-down reflex of any ant standing on it:
+            // pick a cell off the pile, carry it a few cells, put it back on
+            // the pile. The wires are right for a builder and wrong for a
+            // forager, and `DropSpoil` is where the builder lives.
+            // `Reports/pheromone-trail-direction-2026-09-16.md` §7.35.
             // **The termite bias, for the first time as the thing it was
             // always described as.** §5f: the moisture channel it was
             // supposed to be riding turned out to read *depth*, so
@@ -1374,7 +1394,7 @@
             // the same digging. The mean offset alone moves size the *other*
             // way (89.0), so the spatial term is consolidating a ramified
             // void rather than the colony simply dropping more.
-            (SurfaceCurvature, Drop, 0.169),
+            // Removed with the moisture term above -- see the note there.
 
             // **The spoil dump, unchanged, on a verb of its own.** These two
             // are exactly what `drop_urge` was before the split, so a digger
