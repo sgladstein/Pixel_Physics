@@ -3858,6 +3858,80 @@ cannot afford the journey while carrying and eating are one act.** The candidate
 are unchanged — `digesting` surviving a drop so cumulative nibbling works, or a
 nest that can be delivered into.
 
+## §7.35 The ant drops food *on the pile*, because a pile is curved ground
+
+**2026-09-18.** Owner: *"Why does the ant drop the food 16 times on its way back
+to the nest?"* It does not. It never drops on the way back, and finding that out
+corrects §7.34's own reading.
+
+### The correction first
+
+§7.34 counted 17 pickups against 16 losses and called them drops **on the return
+leg**. The count was right and the location was assumed. Logged properly — the
+tick before each loss:
+
+```
+frame 3077  x 122  drop_urge 0.08540  Moist 0.11368  Curv 0.83333  AtNest 0.0000
+frame 3767  x 116  drop_urge 0.01990  Moist 0.09797  Curv 0.41667  AtNest 0.0000
+frame 5789  x 130  drop_urge 0.03890  Moist 0.21733  Curv 0.41667  AtNest 0.0000
+frame 6113  x 128  drop_urge 0.11321  Moist 0.31655  Curv 0.83333  AtNest 0.0000
+        ... 16 of 16, all x 116-130, AtNest 0.0000 every time ...
+```
+
+**Every loss is at x 116–130 with `AtNest` exactly 0.** The food sits at 138 with
+`near=10`, so that band *is* the larder. None of them is a completed digestion
+either — no energy credited at any of the sixteen.
+
+**This also means §7.29's `(AtNest, Drop, 1.0889)` story, true as arithmetic, is
+not what killed this ant.** It never reached the nest carrying anything — 0 laden
+ticks in the nest band across its whole life — so the nest-drop wire never fired
+for it. The 4-ticks-at-the-nest figure still describes an ant that *gets* home;
+this one never did.
+
+### What actually fires
+
+`ant.ron` authors five wires into `Drop`, and away from the nest only three can
+move it:
+
+```
+(Bias, Drop, -0.2)  (Carrying, Drop, 0.2)
+(MoistureGrad, Drop, 0.169)   (SurfaceCurvature, Drop, 0.169)
+```
+
+At the heap, `SurfaceCurvature` reads **0.417–0.833** against a mean of **0.441
+at x ≥ 115 versus 0.361 elsewhere**, and `drop_urge` lands at **0.019–0.113 per
+tick**. Compounded, that gives a **mean hold of 104 ticks against the 291 one
+960 J cell needs to digest** — so most pickups are put down before they can ever
+pay. The ant's longest hold was 570 and did digest; sixteen shorter ones did not.
+
+**`mode=feedgate` could not have found this.** It sets `MoistureGrad` and
+`SurfaceCurvature` to zero and reports `P(drop) = 0.0000` away from the nest —
+the caveat §7.29 recorded as *"a floor, not a field value"*. The two terms it
+zeroes are precisely the two that fire at a food pile. A synthetic readout cannot
+see a term whose whole value comes from the terrain.
+
+### The mechanism is a wiring mismatch, not a tuning value
+
+Curvature-drives-drop exists so a **builder** puts material down on uneven
+ground, and it is correctly wired to `DropSpoil` (`SurfaceCurvature, DropSpoil,
+0.169`). It is **also** on `Drop`, which carries food. **A food heap is curved
+ground by construction**, so the larder triggers the put-it-down reflex of an ant
+standing on it. The forager picks a cell off the pile, carries it a few cells,
+and puts it back on the pile.
+
+### The candidate, and it is one number
+
+**Remove `(SurfaceCurvature, Drop, 0.169)`**, keeping it on `DropSpoil` where the
+construction argument holds. `MoistureGrad` is the same shape and worth testing
+separately — at the heap it reads 0.10–0.32, a smaller contribution than
+curvature's 0.42–0.83, so curvature is the one to move first.
+
+**Do not read this as the whole return-leg fix.** It buys longer holds at the
+pile, which is necessary for a forager to leave with something and sufficient for
+nothing. §7.34's wall stands: carrying and eating are one act, so even a
+successful carry starves the carrier unless it can digest on the move or deliver
+into something.
+
 ## Instruments
 
 - `examples/onetrail.rs` — `mode=arith` (shipped genome, nothing overridden),

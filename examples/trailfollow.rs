@@ -1803,7 +1803,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 }
                 if focal == Some(id) {
                     focal_rows.push(format!(
-                        "{f},{hx},{dx},{along:.5},{:.5},{:.4},{:.4},{},{},{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.5},{:.5},{:.5},{:.5},{:.5},{:.5},{p_move:.5},{:.5},{trail:.5},{presquash:.5}",
+                        "{f},{hx},{dx},{along:.5},{:.5},{:.4},{:.4},{},{},{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.5},{:.5},{:.5},{:.5},{:.5},{:.5},{p_move:.5},{:.5},{trail:.5},{presquash:.5},{:.5},{:.5},{:.5}",
                         tin[I::PheroAFront as usize],
                         tin[I::Carrying as usize],
                         // **`CarryingFood` is the column that decides the gate**
@@ -1839,6 +1839,17 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                         // is the chance of re-rolling it. Reading one without
                         // the other cannot tell "stood still" from "turned".
                         tout[O::Tumble as usize].clamp(0.0, 1.0),
+                        // **The drop verb and the two terms that drive it away
+                        // from the nest.** `mode=feedgate` computes `drop_urge`
+                        // with `MoistureGrad` and `SurfaceCurvature` set to
+                        // zero, which is a floor rather than a field value --
+                        // and `ant.ron` authors both into `Drop` at 0.169. At a
+                        // food *heap* the curvature term is exactly what is not
+                        // zero, so the synthetic reading cannot explain a drop
+                        // that happens there. Log the real ones.
+                        tout[O::Drop as usize].clamp(0.0, 1.0),
+                        tin[I::MoistureGrad as usize],
+                        tin[I::SurfaceCurvature as usize],
                     ));
                 }
             }
@@ -2113,7 +2124,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         if !focal_rows.is_empty() {
             let path = format!("/tmp/trailfollow-focal-seed{seed}-gap{gap}.csv");
             let mut out = String::from(
-                "frame,x,dx_home,PheroAAlong,PheroAFront,Carrying,CarryingFood,crop_cells,spoil,heading,Energy,Crowding,AtNest,FoodAdjacent,Stillness,h0,h1,PheroBAlong,PheroBFront,h2,h3,p_move,p_tumble,trail_term,move_presquash\n",
+                "frame,x,dx_home,PheroAAlong,PheroAFront,Carrying,CarryingFood,crop_cells,spoil,heading,Energy,Crowding,AtNest,FoodAdjacent,Stillness,h0,h1,PheroBAlong,PheroBFront,h2,h3,p_move,p_tumble,trail_term,move_presquash,drop_urge,MoistureGrad,SurfaceCurvature\n",
             );
             out.push_str(&focal_rows.join("\n"));
             out.push('\n');
