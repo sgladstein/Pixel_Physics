@@ -556,6 +556,14 @@ struct Arm {
     kin_swaps: u64,
     /// Blocked move attempts, as the thing `kin_swaps` is meant to reduce.
     blocked: u64,
+    /// Heading re-rolls, and the share of them `home_bias` aimed at the nest --
+    /// the "did it fire" counter for the fill-weighted tumble, which must read
+    /// **0** at the shipped `home_bias: 0.0`. Printed as a pair because the
+    /// aim alone cannot say whether the colony is commuting: a homeward tumble
+    /// into a wall and one down an open corridor count the same here, and what
+    /// came of them is `P(home)` per crop-fill bin in the trace.
+    tumbles: u64,
+    tumbles_homeward: u64,
     /// Distinct ants that ever came within `near` of the food -- recruitment.
     visitors: usize,
     /// Distinct ants that ever lived in this run, as the denominator.
@@ -1153,6 +1161,20 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     if flag("kinpass") {
         let mut cdef = w.species.get(species_id).creature.clone().expect("ant is a creature");
         cdef.passes_through_kin = true;
+        w.species.set_creature(species_id, cdef);
+    }
+    // **`homebias=` -- the fill-weighted homeward tumble, the arm §7.26
+    // designed.** Refused when it matches the file, for the reason every
+    // genome rider here is: a rider that silently re-authors the shipped value
+    // is indistinguishable from one that is not wired to the field it names,
+    // and this harness has already shipped two knobs that were being ignored.
+    if let Some(hb) = arg::<f32>("homebias") {
+        let mut cdef = w.species.get(species_id).creature.clone().expect("ant is a creature");
+        assert!(
+            (cdef.home_bias - hb).abs() > f32::EPSILON,
+            "homebias={hb} is already what ant.ron holds, so this arm is the shipped one wearing a different name"
+        );
+        cdef.home_bias = hb;
         w.species.set_creature(species_id, cdef);
     }
     // **Placed as a closure because it has to be REPLENISHED, and the arithmetic
@@ -1961,6 +1983,8 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         b_profile: std::array::from_fn(|i| if b_prof_n == 0 { 0 } else { (b_prof_sum[i] / b_prof_n as f64) as u32 }),
         kin_swaps: st.kin_swaps,
         blocked: st.moves_blocked,
+        tumbles: st.tumbles,
+        tumbles_homeward: st.tumbles_homeward,
         first_arrival,
         all_dead_frame,
         carry_toward_nest,
@@ -2006,6 +2030,12 @@ fn main() {
     // the trail pulls an ant there" design; >0 is the readout's positive
     // control and the round-trip arm. See `run`.
     let food: i32 = arg("food").unwrap_or(0);
+    // **`CreatureDef::home_bias` for the measurement arm** -- how hard a laden
+    // ant's tumble is aimed at the nest. `-1` (the default) leaves the species
+    // file alone, so an unpassed run is the shipped animal and no RNG draw
+    // moves; `0.0` asserts the shipped value explicitly and is refused as a
+    // no-op the way the genome riders are, because a rider that silently
+    // matches the file is a knob nobody can tell is disconnected.
     // Frame at which hand-laying stops. 0 (the default) keeps the trail
     // standing for the whole run, which is the pull question. Any positive
     // value turns this into the loop question: seed it, then let go.
@@ -2094,7 +2124,7 @@ fn main() {
     // a 1.84% open gate where the same command at the default reports 639,100
     // and 1.25%, and nothing in the header said why. Found 2026-09-18 by an
     // archived log failing to reproduce against a binary that was correct.
-    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill} stop={stop}", gate.name);
+    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill} stop={stop} homebias={}", gate.name, arg::<f32>("homebias").map_or("shipped".to_string(), |v| format!("{v}")));
     println!("  gate {}: off {:+.1}  on {:+.1}  along ±{:.1}", gate.name, gate.off, gate.on, gate.along);
     println!("  {LANDED_NOTE}\n");
 
@@ -2267,7 +2297,7 @@ fn main() {
                     // positive means it rises toward the NEST, which is §1c's
                     // prediction and the wrong way round for finding food.
                     println!(
-                        "{:>16}own trail: route pk {:>4} end {:>4} along {:>+7.4}  B nest->food [{}]  blocked {:>8}  kin swaps {:>7}  ticks {:>9}",
+                        "{:>16}own trail: route pk {:>4} end {:>4} along {:>+7.4}  B nest->food [{}]  blocked {:>8}  kin swaps {:>7}  ticks {:>9}  tumbles {:>9} (homeward {:>8}, {:.2}%)",
                         "",
                         a.peak_cells,
                         a.live_cells,
@@ -2275,7 +2305,10 @@ fn main() {
                         a.b_profile.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(","),
                         a.blocked,
                         a.kin_swaps,
-                        a.ticks
+                        a.ticks,
+                        a.tumbles,
+                        a.tumbles_homeward,
+                        if a.tumbles == 0 { 0.0 } else { 100.0 * a.tumbles_homeward as f64 / a.tumbles as f64 }
                     );
                     // **How much of `Carrying` is dig tailings rather than
                     // food.** `Carrying` gates the channel A reader (units 0/1)

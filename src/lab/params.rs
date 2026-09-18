@@ -727,6 +727,7 @@ fn creature_value(world: &World, species: &str, field: &str) -> Option<f32> {
         "life_half_life" => def.life_half_life as f32,
         "scent_spread" => def.scent_spread,
         "kin_crosses_kinds" => f32::from(u8::from(def.kin_crosses_kinds)),
+        "home_bias" => def.home_bias,
         _ => return None,
     })
 }
@@ -949,6 +950,9 @@ fn genome_rows(world: &World, species: &str, out: &mut Vec<Param>) {
             out.push(float(g, Knob::Creature { species: sp.clone(), field: "scent_drift" }, species, "scent_drift",
                 def.scent_drift, span(0.0, 1.0, 0.01),
                 "HOW FAR A NEWBORN'S SCENT AND TOLERANCE MOVE FROM ITS PARENT'S, PER BIRTH. THIS IS THE SPEED OF SPECIATION, AND IT SHIPS ON: EVERY ANT BORN IS A LITTLE DIFFERENT FROM ITS MOTHER, SO LINEAGES WANDER, AND ONE THAT WANDERS FAR ENOUGH IS NAMED AS A NEW GROUP ON THIS PAGE AND A HUNGRY ANT WILL EAT ONE OF ITS OWN OLD FAMILY. IT COULD NOT BE TURNED ON BEFORE A NEST HELD A SMELL: WITHOUT THAT, ANY SETTING EVENTUALLY HAD A COLONY EATING ITSELF. NOW THE MOUND PULLS EVERY ANT THAT COMES HOME BACK TO ONE SMELL, AND NO SETTING OF THIS DIAL CAN SPLIT A COLONY THAT LIVES AT ONE. AT 0 NOTHING EVER DRIFTS AND THE BOX IS ONE FAMILY FOR EVER, WHICH IS WHAT IT DID BEFORE."));
+            out.push(float(g, Knob::Creature { species: sp.clone(), field: "home_bias" }, species, "home_bias",
+                def.home_bias, span(0.0, 1.0, 0.05),
+                "HOW HARD A LOADED ANT HEADS FOR HOME. AT 0, THE SHIPPED ANIMAL: WHEN AN ANT STOPS AND PICKS A NEW DIRECTION IT PICKS AT RANDOM, AND A FULL CROP CHANGES NOTHING ABOUT WHICH WAY IT GOES -- IT ONLY MAKES THE ANT MOVE LESS, SO A LADEN ANT IS A DAWDLER WANDERING IN CIRCLES, NOT A CARRIER. TURN IT UP AND A FULL ANT TURNS TOWARD THE NEST NEARLY EVERY TIME, A HALF-FULL ONE ABOUT HALF THE TIME, AN EMPTY ONE NEVER -- SO THE SAME COLONY HOLDS BOTH COMMUTERS AND SEARCHERS AT ONCE INSTEAD OF ONE HALF-HEARTED CROWD. AT 1 A LOADED ANT IS A COMMUTER. THIS IS THE RETURN HALF OF FORAGING, AND IT IS THE HALF THAT HAS NEVER WORKED: FOOD GETS FOUND AND ALMOST NONE OF IT COMES BACK."));
             for (slot, name, note) in TRAIT_ROWS {
                 // **The two arms-race rows widen with the dial below.** A
                 // reach of 4 that the ancestral row could still only be set
@@ -1430,6 +1434,7 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 "life_half_life" => def.life_half_life = value.max(0.0).round() as u32,
                 "scent_spread" => def.scent_spread = value,
                 "kin_crosses_kinds" => def.kin_crosses_kinds = value >= 0.5,
+                "home_bias" => def.home_bias = value.clamp(0.0, 1.0),
                         _ => return false,
             }
             world.species.set_creature(id, def);

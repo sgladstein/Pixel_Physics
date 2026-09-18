@@ -11087,10 +11087,102 @@ fn tumble(world: &mut World, organism: OrganismId, def: &CreatureDef, draw: &mut
                 && body_has_foothold(world, def, &landing, (tx, ty), kin_footing(world, organism, def))
         })
         .collect();
+    // **The fill-weighted homeward re-roll** -- `CreatureDef::home_bias`, 0.0
+    // by default and therefore byte-identical to the uniform tumble above.
+    // See `home_weighted_pick`: at 0 it takes **no RNG draw at all**, which is
+    // what makes the default arm a true control rather than a re-seeding.
+    let homeward = home_weighted_pick(world, organism, def, (hx, hy), &viable, draw);
     if let Some(state) = world.organism_mut(organism) {
-        state.heading = if viable.is_empty() { draw.below(8) as u8 } else { viable[draw.below(viable.len() as u32) as usize] };
+        state.heading = match homeward {
+            Some(d) => d,
+            None => {
+                if viable.is_empty() {
+                    draw.below(8) as u8
+                } else {
+                    viable[draw.below(viable.len() as u32) as usize]
+                }
+            }
+        };
+    }
+    if homeward.is_some() {
+        world.creature_stats.tumbles_homeward += 1;
     }
     world.creature_stats.tumbles += 1;
+}
+
+/// **Which way is home, weighted by how full the crop is** — the direction
+/// half of the forage loop, and the only one there is.
+///
+/// Returns `None` to mean "re-roll uniformly, exactly as before", which is
+/// every case at the shipped `home_bias: 0.0`.
+///
+/// **It takes no RNG draw unless it can act.** The gate on `home_bias` and on
+/// a non-empty crop is checked *before* `draw` is touched, so a species that
+/// has not authored the field runs a bit-identical stream to the one it ran
+/// before this existed. That is deliberate: the default arm is the control
+/// every measurement of this mechanism is read against, and a control that
+/// silently re-seeds the world is not one. `CLAUDE.md`'s *"compare two runs,
+/// not one run against a remembered number"* is unaffordable here otherwise —
+/// the whole corpus of archived logs would have to be re-taken to say whether
+/// the mechanism did anything.
+///
+/// **Crop fill, not `Carrying`.** `Carrying` is
+/// `crop_fill.max(spoil ? 1.0 : 0.0)` (see the `SPOIL_IS_CARGO` note), so an
+/// ant holding one pellet of dig tailings reads 1.0 on it. Keying a homeward
+/// march on that would send the colony home with dirt — measured at **47.4%**
+/// of the old homing gate's open decisions.
+///
+/// **`forage_anchor`, not an accumulated displacement.** The anchor is set at
+/// spawn and re-anchored at every nest contact (`organism.rs`), so it costs no
+/// new state and cannot drift. An integrator here would: `step_crossing` and
+/// `step_flight` return early before the deposit site, so a flying or
+/// trunk-crossing body would displace without incrementing.
+///
+/// **Ties are broken by `max_by`'s last-wins rule over a deterministic
+/// `viable`**, which is `(0..8).filter(..)` and therefore fixed. An exact tie
+/// needs the home vector to bisect two of the eight directions exactly; it is
+/// rare, and it resolves the same way every run. `CLAUDE.md`'s tie-order rule
+/// is why this is written down rather than left to the reader.
+fn home_weighted_pick(
+    world: &World,
+    organism: OrganismId,
+    def: &CreatureDef,
+    head: (i32, i32),
+    viable: &[u8],
+    draw: &mut rng::Rng,
+) -> Option<u8> {
+    if def.home_bias <= 0.0 || viable.is_empty() {
+        return None;
+    }
+    let state = world.organism(organism)?;
+    let crop = state.crop?;
+    let cap = organism_crop_capacity(world, organism, def);
+    let fill = if cap > 0.0 { (crop.worth() / cap).clamp(0.0, 1.0) } else { 1.0 };
+    if fill <= 0.0 {
+        return None;
+    }
+    let (ax, ay) = state.forage_anchor;
+    let (vx, vy) = ((ax - head.0) as f32, (ay - head.1) as f32);
+    let len = (vx * vx + vy * vy).sqrt();
+    // **Standing on the anchor is not a direction.** Within one cell the
+    // vector is degenerate and every candidate scores the same, so the
+    // homeward pick would be an arbitrary constant heading rather than a
+    // bearing -- and an ant at its own nest is exactly the one that should
+    // be wandering off again.
+    if len < 1.0 {
+        return None;
+    }
+    // The draw is last, so every early return above is free.
+    if draw.unit_f32() >= (def.home_bias * fill).clamp(0.0, 1.0) {
+        return None;
+    }
+    viable.iter().copied().max_by(|&a, &b| {
+        let score = |d: u8| {
+            let (dx, dy) = DIRS[d as usize];
+            (dx as f32 * vx + dy as f32 * vy) / len
+        };
+        score(a).total_cmp(&score(b))
+    })
 }
 
 /// **Is this cell living plant tissue at all** — alive, and a plant.

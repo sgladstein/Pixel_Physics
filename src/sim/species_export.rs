@@ -335,6 +335,7 @@ mod tests {
         assert_eq!(out.climbs_over_kin, src.climbs_over_kin);
         assert_eq!(out.passes_through_kin, src.passes_through_kin);
         assert_eq!(out.eats_kin, src.eats_kin);
+        assert_eq!(out.home_bias, src.home_bias, "the homeward-tumble weight must survive a round trip -- it is a float that ships at 0, exactly the shape that gets silently dropped by a `#[serde(default)]` write path");
         assert_eq!(out.nest, src.nest);
         assert_eq!(out.dig_force, src.dig_force);
         assert_eq!(out.bite_force, src.bite_force, "an unauthored bite_force must survive as None, not be written out as a number -- the Option is what keeps 'bites as hard as it digs' readable in a species file");
