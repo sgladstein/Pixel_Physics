@@ -727,16 +727,6 @@ fn creature_value(world: &World, species: &str, field: &str) -> Option<f32> {
         "life_half_life" => def.life_half_life as f32,
         "scent_spread" => def.scent_spread,
         "kin_crosses_kinds" => f32::from(u8::from(def.kin_crosses_kinds)),
-        // **Readable and writable, with no page row yet.** Both pages it could
-        // sit on -- ANTS and GENOME -- are at the 20-row ceiling
-        // `no_page_is_longer_than_two_screens` enforces, and the repo's remedy
-        // for that is a new page (`genome_rows` was split off `ant_rows` for
-        // exactly this). That is a lab-UI decision rather than a measurement
-        // one, and the dial is not ready to be turned on in any case: above
-        // 0.25 every colony measured died (§7.27). Until a nest stores food,
-        // `trailfollow homebias=` is how this is driven. Wiring it here means
-        // adding the row later is one line.
-        "home_bias" => def.home_bias,
         _ => return None,
     })
 }
@@ -1440,7 +1430,6 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 "life_half_life" => def.life_half_life = value.max(0.0).round() as u32,
                 "scent_spread" => def.scent_spread = value,
                 "kin_crosses_kinds" => def.kin_crosses_kinds = value >= 0.5,
-                "home_bias" => def.home_bias = value.clamp(0.0, 1.0),
                         _ => return false,
             }
             world.species.set_creature(id, def);
