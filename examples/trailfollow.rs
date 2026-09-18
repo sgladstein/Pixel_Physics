@@ -765,6 +765,48 @@ fn diet_by_material(w: &pixel_physics::sim::world::World, larder: MaterialId) ->
 /// that matters most here. Recruitment is the entire stigmergic claim: one
 /// scout finds food, lays a trail, and *many* follow. Only a distinct-ant count
 /// can see it.
+/// **One bin of the response-vs-fill curve: what a laden ant actually DID, at
+/// this much crop in it.**
+///
+/// The `Carrying` histogram this replaces counted how often an ant was at each
+/// fill and threw the outcome away, so it could say the modal laden ant sits at
+/// 0.7 and nothing at all about whether 0.7 behaves differently from 0.3. The
+/// question the curve exists for is the owner's: **a full ant should be
+/// near-certain to head home and a half-full one about half as likely**, which
+/// is a claim about a *shape over fill* and is unreadable from any aggregate.
+///
+/// `home`/`away` are steps, not ticks -- `P(move)` is the brain's output and
+/// these are what came of it, which is `CLAUDE.md`'s "pair every 'it fired'
+/// counter with an effect counter from the far side of the call". A bin can
+/// have a high `P(move)` and no net displacement if the ant is stepping
+/// somewhere that is not home, and that is exactly the failure being hunted.
+#[derive(Default, Clone, Copy)]
+struct FillBin {
+    /// Decisions landing in this bin.
+    n: u64,
+    /// Sum of `P(move)`, the brain's own step probability.
+    p_move: f64,
+    /// Sum of signed cells homeward (`+1` toward the nest, `-1` away).
+    dx: i64,
+    /// Steps that went homeward.
+    home: u64,
+    /// Steps that went away from the nest.
+    away: u64,
+}
+
+impl FillBin {
+    fn add(&mut self, p_move: f64, dx: i32) {
+        self.n += 1;
+        self.p_move += p_move;
+        self.dx += dx as i64;
+        if dx > 0 {
+            self.home += 1;
+        } else if dx < 0 {
+            self.away += 1;
+        }
+    }
+}
+
 #[derive(Default, Clone, Copy)]
 struct Track {
     /// Furthest this ant ever got from the nest, in cells. The excursion
@@ -1267,8 +1309,26 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // The threshold is computed from the genome rather than restated, the same
     // discipline `onetrail::hold_gate_laden` uses, so it stays right if
     // `ant.ron` retunes the gate.
-    let mut tr_carry_hist = [0u64; 10];
+    let mut tr_carry_hist = [FillBin::default(); 10];
     let mut tr_gate_open = 0u64;
+    // **The gate-open and gate-shut populations, pooled across gradient
+    // direction** -- the paired arm for "does an open gate turn into homeward
+    // motion at all". `tr_up_open`/`tr_down_open` split the open half by which
+    // way the ramp points and so cannot be compared against anything: there is
+    // no shut counterpart to subtract. These two can, they are two halves of
+    // one run rather than two runs, and they are the same `(n, P(move), cells
+    // homeward)` triple the `row` helper already prints.
+    //
+    // **What they are for.** The corpus holds two numbers that do not
+    // obviously fit: the gate is open on ~1.84% of laden decisions and the
+    // up-minus-down `P(move)` swing when it is open is ~+0.658, yet net
+    // homeward motion over every carrying tick is ~+0.0002 cells. If the open
+    // decisions converted at anything like that bias the pooled figure would be
+    // an order of magnitude larger, so either they do not convert or the shut
+    // 98% is cancelling them. Those want different repairs and no aggregate
+    // printed so far can tell them apart.
+    let mut tr_open = (0u64, 0.0f64, 0i64);
+    let mut tr_shut = (0u64, 0.0f64, 0i64);
     // **Of the gate-open decisions, how many are an ant holding DIRT.**
     // `SPOIL_IS_CARGO` is a measurement switch (default ON) rather than the
     // food/spoil split the roadmap remembers, so `Carrying` is
@@ -1538,8 +1598,13 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 bucket.1 += p_move;
                 bucket.2 += dx as i64;
                 let carry = tin[I::Carrying as usize];
-                tr_carry_hist[((carry * 10.0) as usize).min(9)] += 1;
-                if carry >= gate_threshold {
+                tr_carry_hist[((carry * 10.0) as usize).min(9)].add(p_move, dx);
+                let open = carry >= gate_threshold;
+                let pooled = if open { &mut tr_open } else { &mut tr_shut };
+                pooled.0 += 1;
+                pooled.1 += p_move;
+                pooled.2 += dx as i64;
+                if open {
                     tr_gate_open += 1;
                     if s.spoil.is_some() {
                         tr_gate_open_spoil += 1;
@@ -1777,13 +1842,52 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     100.0 * tr_gate_open_spoil as f64 / tr_gate_open as f64
                 );
             }
-            print!("    TRACE Carrying histogram (0..1 in tenths):");
-            for (i, c) in tr_carry_hist.iter().enumerate() {
-                if *c > 0 {
-                    print!(" [{:.1}]{c}", i as f32 / 10.0);
-                }
+            // **The paired arm: does an open gate become homeward motion.**
+            // Both halves come out of one run, so everything the arms are not
+            // about -- seed, colony, geometry, the weather of the bed -- is
+            // cancelled. Read the `/tick` figures against each other, not the
+            // totals: the shut population is ~50x larger by construction.
+            println!("    TRACE split by whether the homing gate is OPEN -- the conversion test:");
+            row("gate OPEN", tr_open);
+            row("gate SHUT", tr_shut);
+            if tr_open.0 > 0 && tr_shut.0 > 0 {
+                println!(
+                    "      => open minus shut: P(move) {:+.4}   cells homeward {:+.6}/tick  (~0 on the right-hand figure means the open gate is NOT converting into motion)",
+                    tr_open.1 / tr_open.0 as f64 - tr_shut.1 / tr_shut.0 as f64,
+                    tr_open.2 as f64 / tr_open.0 as f64 - tr_shut.2 as f64 / tr_shut.0 as f64
+                );
             }
-            println!();
+            // **The response-vs-fill curve.** The design target stated by the
+            // owner, 2026-09-18: a full ant should be near-certain to head
+            // home and a half-full one about half as likely, so `P(home)` read
+            // down this column should climb with fill. **A step is not the
+            // target and neither is a flat line** -- today the gate is a
+            // threshold at `Carrying >= gate_threshold`, so the prediction is
+            // flat everywhere below it, and whatever an unsteered ant does is
+            // the floor this has to be read against.
+            //
+            // `P(home)` and `P(away)` do not sum to 1: a decision where the ant
+            // did not step, or stepped vertically, is neither, and that share
+            // is the third thing the curve has to show. A bin where both rise
+            // together is an ant moving MORE, not an ant moving home.
+            println!("    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:");
+            println!("      {:>9} {:>10} {:>9} {:>9} {:>9} {:>13}", "fill", "n", "P(move)", "P(home)", "P(away)", "cells/tick");
+            for (i, b) in tr_carry_hist.iter().enumerate() {
+                if b.n == 0 {
+                    continue;
+                }
+                let n = b.n as f64;
+                println!(
+                    "      {:>9} {:>10} {:>9.4} {:>9.4} {:>9.4} {:>+13.6}{}",
+                    format!("{:.1}-{:.1}", i as f32 / 10.0, (i + 1) as f32 / 10.0),
+                    b.n,
+                    b.p_move / n,
+                    b.home as f64 / n,
+                    b.away as f64 / n,
+                    b.dx as f64 / n,
+                    if (i as f32 / 10.0) < gate_threshold && ((i + 1) as f32 / 10.0) > gate_threshold { "   <- the gate threshold falls inside this bin" } else { "" }
+                );
+            }
             println!("    TRACE Move pre-squash terms, mean over the decisions each one was live for:");
             let mut ranked: Vec<(f64, &String, u64)> = tr_terms.iter().map(|(n, (s, c))| (s / *c as f64, n, *c)).collect();
             ranked.sort_by(|a, b| b.0.abs().total_cmp(&a.0.abs()));
@@ -1981,7 +2085,16 @@ fn main() {
     // suspected. `CLAUDE.md`: a knob nobody can see the value of is a knob
     // nobody can tell is disconnected -- and the same is true of one nobody
     // can tell is *connected*.
-    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill}", gate.name);
+    // **`stop` is echoed for the reason `refill` is, and it is the same fault
+    // caught twice.** `stop` decides whether the hand-laid trail stands for the
+    // whole run (`0`, the default -- the *pull* question) or is seeded and let
+    // go (`>0` -- the *loop* question), which are two different experiments on
+    // the same arm. Unechoed, they printed **identical parameter lines**: a
+    // 6-seed `hand` trace at `stop=6000` reports n 570,660 laden decisions and
+    // a 1.84% open gate where the same command at the default reports 639,100
+    // and 1.25%, and nothing in the header said why. Found 2026-09-18 by an
+    // archived log failing to reproduce against a binary that was correct.
+    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill} stop={stop}", gate.name);
     println!("  gate {}: off {:+.1}  on {:+.1}  along ±{:.1}", gate.name, gate.off, gate.on, gate.along);
     println!("  {LANDED_NOTE}\n");
 

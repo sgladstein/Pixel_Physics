@@ -2575,6 +2575,263 @@ sensor that lies, and its cost here is inside the noise — but the `Drop`
 behaviour it changes is the reason it was left on, and that trade has not been
 measured on the lab bed where digging matters.
 
+## §7.25 Crop fill buys stillness, not homing — the response curve, and a harness fault
+
+**2026-09-18.** §7.23 asked for the gate to be rescaled and then latched, and
+§7.24 found that opening it 5.9x bought nothing and read that as evidence *for*
+the latch. This measures the thing both were arguing about — **what a laden ant
+does as a function of how full it is** — and the answer is that the curve the
+design wants does not exist at any setting, so neither repair could have moved
+it.
+
+The owner's statement of the target, 2026-09-18: *a full crop should be a 100%
+chance to move toward home, a half crop about 50%, and so on.* That is a claim
+about a **shape over fill**, and no aggregate in this corpus could see it.
+
+### The instrument
+
+`examples/trailfollow.rs` already binned `Carrying` into tenths and printed the
+**counts** — the histogram §7.22 quotes. It threw the outcome away, so it could
+say the modal laden ant sits at 0.7 and nothing about whether 0.7 behaves
+differently from 0.3. Two columns were added to the same per-decision loop:
+
+- **the response curve** — per fill bin, `P(move)`, `P(home)`, `P(away)` and net
+  cells/tick. `P(home)` and `P(away)` are steps, from the far side of the call,
+  against `P(move)`, which is what the brain asked for;
+- **the conversion test** — gate OPEN against gate SHUT, pooled over gradient
+  direction, as two halves of **one run**. `tr_up_open`/`tr_down_open` split the
+  open half by which way the ramp points and have no shut counterpart, so
+  nothing could be subtracted from them.
+
+**Positive control: the archived run reproduces exactly.** `n 570,660`, mean
+`PheroAAlong -0.16732`, `net cells homeward 308`, gate open `10,509 (1.84%)`,
+up-open `1,073 / P(move) 0.8155 / +14`, down-open `9,060 / 0.1572 / 0`, spoil
+`4,978 (47.4%)` — every figure §7.22 and §7.24 report, unchanged. The columns are
+additive.
+
+### The curve, and it goes the wrong way
+
+`arms=hand`, 6 seeds, gap 90, `stop=6000` — the scene §7.22 measured:
+
+```
+     fill          n   P(move)   P(home)   P(away)    cells/tick
+  0.3-0.4      25091    0.6314    0.0177    0.0176     +0.000120
+  0.4-0.5      66377    0.6220    0.0168    0.0165     +0.000316
+  0.5-0.6      95976    0.6457    0.0184    0.0157     +0.002980
+  0.6-0.7     124777    0.6376    0.0161    0.0153     +0.000850
+  0.7-0.8     156731    0.6339    0.0153    0.0156     -0.000249
+  0.8-0.9      68392    0.5797    0.0134    0.0142     -0.001009
+  0.9-1.0      33316    0.3283    0.0064    0.0064     +0.000000
+```
+
+**`P(home)` and `P(away)` are a dead heat in every bin.** 0.0177/0.0176,
+0.0168/0.0165, 0.0161/0.0153, 0.0153/0.0156, 0.0134/0.0142, 0.0064/0.0064.
+There is no homeward bias at any fill — a laden ant is a symmetric random walker
+whether it holds a third of a crop or a full one.
+
+**And `P(home)` *falls* with fill, 0.0177 → 0.0064, a factor of 2.8.** The
+fullest ants are the least likely to take a homeward step, because the only
+thing fill does is lower `P(move)` (0.63 → 0.33), which brakes them equally in
+both directions. **Crop fill is wired to stillness, not to direction.**
+
+The bottom row is the design target's own case: an ant with a full crop, the one
+that should be sprinting home, moves on a third of its decisions and splits those
+**213 home / 213 away**, for a net of exactly zero.
+
+### The conversion test: the homing circuit is worth eleven cells
+
+```
+  gate OPEN     n    10509   P(move) 0.2409   cells homeward   11 (+0.001047/tick)
+  gate SHUT     n   560151   P(move) 0.6178   cells homeward  297 (+0.000530/tick)
+  => open minus shut: P(move) -0.3769   cells homeward +0.000517/tick
+```
+
+**Over six seeds and 24,000 frames the entire gate-open population produces
+eleven net homeward cells**, and opening the gate *lowers* `P(move)` by 0.38.
+The homing gate is a brake whose net yield is eleven cells.
+
+**This does not contradict §7.22 — it prices it.** §7.22's `+0.658` swing is a
+*differential over 1,073 decisions* and is real; what it never stated is the
+magnitude on the other side of it. `+0.013048/tick` on a population of 1,073 is
+**fourteen cells**. `CLAUDE.md`'s *"ask what your number counts"*, in the shape
+where the number is a ratio and the question was a quantity.
+
+### Why: the engine says so in a comment, and it has always said so
+
+`creature.rs:4156`, untouched:
+
+> *"`Move` is the run probability, and the brain drives it from the
+> along-heading gradient: a laden ant walking away from the nest scent computes
+> a low `Move`, fails the roll, and re-orients. **That is the whole of the
+> homing mechanism — there is no steering toward the nest anywhere**, because on
+> a surface there is nothing to steer on."*
+
+`Move` gates whether the ant steps **along the heading it already has**. It
+cannot turn it. Direction changes only in `tumble` (`creature.rs:11066`), which
+re-rolls **uniformly among the viable directions** — its own doc names this as
+the only mechanism available "to something whose lateral sensors read zero".
+
+So a laden ant pointed away from home with the gate open does not turn around.
+It brakes (`P(move)` 0.1572), stands still, and waits for a uniform re-roll to
+happen to point homeward. That is a random search with a brake, and the curve
+above is what it yields. **86% of gate-open decisions are ants facing
+down-gradient** (9,060 of 10,509) — when the gate is open the ant is *less*
+likely to be facing homeward (10.2%) than the laden population at large (25.9%).
+
+### What this retires, and what it promotes
+
+- **The rescale (§7.23 step 1) cannot work, and §7.24 already measured that.**
+  Opening the gate wider produces more braking, not more homing, because the
+  fill→direction channel does not exist to be widened. §7.24's null was not weak
+  evidence for the latch; it was the direct prediction of this curve.
+- **The latch (§7.23 step 2) has almost nothing to hold.** Recurrence on units
+  0/1 makes "running up the homing gradient while laden" persistent, and only
+  10.2% of open-gate decisions are running up it at all.
+- **`crop_capacity` (§7.23 step 3) moves the step's position along a curve that
+  is flat.** Nothing to buy.
+- **What is promoted is the owner's rule**, because it is the only proposal on
+  the table that writes to *direction*. It is also what `nest-design` §8C and
+  §6's path-integration reading were reaching for, at a fraction of the price —
+  see §7.26.
+
+### The harness fault, found by the control failing
+
+`stop=` **was never echoed in the header**, and it defaults to `0`. It decides
+whether the hand-laid trail stands for the whole run (the *pull* question) or is
+seeded and released (the *loop* question) — two different experiments on one arm.
+The same command at `stop=6000` and at the default reports **n 570,660 / 1.84%
+open** against **639,100 / 1.25%**, under **byte-identical parameter lines**.
+
+This is the second time this exact fault has been found in this file: §7b records
+`refill` being fixed for it days ago. `stop` now prints too. The
+`nostop` log is archived beside the other so the pair is on the record, and the
+two scenes disagree on a published sign — gate-open up-gradient reads **+14
+cells** at `stop=6000` and **−48** at the default, so §7.22's *"positive means
+the ramp points at the NEST"* is a statement about one scene, not about the
+colony.
+
+**Data:** [`Reports/data/fill-response-curve-hand-6seed-2026-09-18.log`](data/fill-response-curve-hand-6seed-2026-09-18.log)
+(`stop=6000`, the §7.22 scene) and
+[`fill-response-curve-nostop-hand-6seed-2026-09-18.log`](data/fill-response-curve-nostop-hand-6seed-2026-09-18.log)
+(the default).
+
+## §7.26 The fill-weighted tumble — the design, before the fix
+
+**2026-09-18. Designed, not built.** §7.25 says crop fill is wired to `P(move)`
+and not to direction. This is where a fill-to-direction channel goes, and what it
+costs. **The rule is the owner's**, stated 2026-09-18: *a full crop should be a
+100% chance to move toward home, a half crop about 50%.*
+
+### There is exactly one site that sets direction, and it is not `Turn`
+
+`Move` gates whether the ant steps **along the heading it already has**
+(`creature.rs:4156`). `Turn` is the obvious alternative and **§R4 is open against
+it**: on level ground both outer candidates lose at every `Turn` value, measured
+byte-identical with `(PreyBearing, Turn) = -2.5` wired. `trailfollow mode=gap`
+builds a flat floor, and so does most of the bed the loop needs.
+
+That leaves `tumble` (`creature.rs:11066`), which re-rolls the heading
+**uniformly among the viable directions** and is the only place in the walk where
+a new direction is chosen. Its own doc already names it as the only mechanism
+available "to something whose lateral sensors read zero". **It works on flat
+ground by construction** — it selects among directions already filtered for
+footing, so it cannot ask for a step the body cannot take, which is precisely how
+§R4 kills `Turn`.
+
+### The rule
+
+In `tumble`, with probability **`crop_fill`**, pick the viable direction whose
+`DIRS` vector best matches the home vector; otherwise re-roll uniformly, exactly
+as today.
+
+- **`crop_fill`, never `Carrying`.** `Carrying` is
+  `crop_fill.max(spoil ? 1.0 : 0.0)` (§7.24), so keying on it would send ants
+  home for a pellet of dirt — 47.4% of today's open gate. The food/spoil split
+  the roadmap keeps deferring is not needed here; the honest number is already in
+  scope at the call.
+- **The home vector is free.** `forage_anchor` (`organism.rs:5888`) is anchored
+  at spawn and **re-anchored at every nest contact**, so `(anchor - head)` is the
+  bearing with **zero new state and no integrator to drift** — the reason
+  `nest-design` §8C chose it. Do not accumulate displacement: `step_crossing` and
+  `step_flight` return early before the deposit site, so a flying ant would
+  silently desynchronise the integrator.
+- **An empty ant is byte-identical to today.** At `crop_fill = 0` the draw never
+  fires. That answers §7.23's falsifier by construction rather than by
+  measurement: a shallower *gate* risks steering empty ants home while they
+  should be searching, and this cannot, because the term does not exist for them.
+
+### Why this produces the population split the latch was for
+
+§7.23's objection to a graded weight is right and does not apply here. A graded
+weight gives every laden ant the same weak bias every tick — one uniformly
+half-hearted cloud. **This draws once per tumble, and `heading` is persistent
+state**, so an ant whose re-roll landed homeward *runs* homeward until something
+stops it. At `crop_fill = 0.5` half the re-rolls commit and half keep wandering:
+**two groups, not one cloud**, which is what the latch was being built to buy —
+reached through the direction channel instead of through hysteresis, and without
+spending a hidden unit or a `BRAIN_INPUTS` bump.
+
+It is also the ethos's first law applied to the return leg: the outcome is a
+distribution over ants and moments rather than a threshold that is off 98% of the
+time.
+
+### What it costs, against step 4
+
+| | fill-weighted tumble | §7 step 4 (`HomeBearing`) |
+|---|---|---|
+| `BRAIN_INPUTS` | unchanged | 30 → 34 |
+| `live_slots` | unchanged | 870 → 966 |
+| `mutation_rate` | unchanged | re-derived in **six** species files |
+| genome / `genome_manifest` | untouched | pinned, moved |
+| works on flat ground | **yes** | blocked by §R4 |
+| guards expected red | none | `brain.rs:2007`, `:2058`, `:1652` |
+
+### The tension to measure, not assume
+
+- **The existing gate may fight it.** A full ant's `P(move)` is **0.3283**
+  (§7.25) — pointed home and refusing to step is a live outcome, and whether the
+  two channels cooperate depends on the local sign of the channel-A ramp, which
+  §7.25 shows is **scene-dependent** (+14 cells at `stop=6000`, −48 at the
+  default). **So the gate rescale is not cancelled — it is demoted to
+  conditional and reordered**: run it *after* the direction rule exists, where
+  its job is to stop braking an ant that now knows which way home is. Measuring
+  it first, as §7.23 ordered, measures a brake on a walker with no destination.
+- **It moves homing out of the genome**, which is the axis the master's *"things
+  deliberately not in this plan"* flags against the `ActiveSpace` field. The
+  mitigation is to author the strength as a species parameter so it stays
+  evolvable rather than hardcoding 1.0; ship it behind a switch for the
+  measurement arm either way.
+- **Biologically it is closer, not further.** §6's reading is that real ants home
+  by path integration — a private home vector, run straight — and use the trail
+  only as a contextual modulator. This is a coarse path integration; the
+  gradient-reading it supplements is the part with no biological counterpart.
+- **Determinism holds but every baseline moves.** The draw comes from the same
+  `rng::Rng` already threaded into `tumble`, so the stream stays reproducible —
+  and it shifts for every ant from the first tumble on, so §3 and §7.11–§7.25
+  are re-taken, not compared against.
+
+### Acceptance
+
+**The instrument is already built: §7.25's response curve is the test.**
+`P(home)` must climb with fill and separate from `P(away)`; today it *falls*
+(0.0177 → 0.0064) and the two are a dead heat in every bin. That is a direct read
+of the owner's rule rather than a proxy, and it is visible in one 6-seed run
+before any survival or delivery number is quoted.
+
+Then, and only then, `carry@nest` and `trips` on an order statistic over 12
+seeds, with a seed sweep for regression in reach — the plan's standing criterion,
+which nothing here replaces.
+
+### The alternative site, recorded so it is not re-derived
+
+`step_chain`'s candidate scan already scores directions and picks with
+`choose_weighted` (`creature.rs:9505`). A home term there would bias **every
+step** rather than every tumble, which is stronger and less legible: it competes
+with footing and crowding scores that were calibrated without it, which is
+`CLAUDE.md`'s *"a correct mechanism at inherited constants is a regression"*.
+`tumble` is the cheaper first arm because its re-roll is currently **uniform** —
+there are no weights to re-derive.
+
 ## Instruments
 
 - `examples/onetrail.rs` — `mode=arith` (shipped genome, nothing overridden),
