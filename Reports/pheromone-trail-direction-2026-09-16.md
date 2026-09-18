@@ -2985,6 +2985,91 @@ and a B profile pinned at **8291–8292 in all six seeds**, which is
 the measurement window opens at 7,500. It is hand-laid residue. The question is
 **unanswered**, not answered in the negative.
 
+### 0a. This was investigated three weeks ago, and the prior work changes the plan
+
+**Found by grepping `dead-ends.md` for the mechanism before building it, which
+is `CLAUDE.md`'s rule and which nearly did not happen — §0–§7 below were drafted
+first.** Recorded in full because every item either redirects a step or forbids
+one.
+
+**[`larder-reachability-2026-08-30.md`](larder-reachability-2026-08-30.md) asked
+this exact question and answered it.** Its verdict: *"the granary end is an
+empty set"* — not for want of a pile, but because nothing can spend one.
+
+1. **A birth cannot be paid from the world, and it is a code fact.**
+   `creature::try_bud` gates on `state.energy` and charges `state.energy`;
+   `adjacent_nest` is read by a brain input, the drop branch and a visit
+   counter, and **never by anything that looks at what is in the nest
+   neighbourhood.** *"A granary of ten thousand cells would fund exactly zero
+   births."* The only route from a pile to a child is **indirect** — an ant eats
+   from it, its own bank rises, it buds — and that is precisely what §2's wire
+   targets. A *direct* nest-funded birth is the larger change and is that
+   report's §6 item 1.
+2. **The thrash is not new and is not mine.** Measured at colony scale over 18
+   seeds: **140,202 pickups against 137,945 drops**, and **87% of what an ant
+   puts down it puts down away from the nest.** The report names the cause in
+   its §6 item 2 — *"with the pickup branch ahead of the drop branch and no
+   stored bit, a colony cannot hold a pile larger than its own carrying rate:
+   what is put down is picked back up."* §7.27's 285 drops against zero meals is
+   the same phenomenon with `home_bias` concentrating it at the door.
+3. **The pile is a flow, not a store, and that is measured rather than argued.**
+   145 entries against 143 exits over 15,000 frames, `resident` ending at **0** —
+   nothing that was in the first pile is still there. A standing count of ten
+   cannot tell a store of ten from ten in transit; it is ten in transit.
+4. **A granary can physically stand — just not near ants.** A hand-planted
+   40-cell pile in a colony-free world settles to 22–23 and holds for 18,000
+   frames on all 18 seeds. Add a colony and the paired difference is **−14 cells,
+   down on 15 of 18.** So persistence is not the missing piece; the colony is the
+   sink.
+5. **`larder_probe` already exists**, and it is requirement 7's metric built in
+   advance: *"is there a standing pile of food beside the nest, and is it a store
+   or a flow?"*, banded by Chebyshev distance to the nearest nest cell, priced in
+   what the gut can digest rather than face value, **with both controls in the
+   binary** (`mode=control` plants the same pile with no colony; `mode=turnover`
+   separates a store from a flow). **Do not build a census — run this.**
+
+**`TRAIT_STORE_IN_BODY` was specced and deliberately not built
+(`dead-ends.md`, 2026-08-31), and its reasoning is the strongest argument for
+§2's wire.** The gene was redundant *because the `Feed`/`Drop` output contest is
+already the granary-versus-replete mechanism*: those weights are heritable,
+mutate at every birth, and are conditioned on everything the brain senses. A
+scalar trait beside them is *"a second knob on one quantity and a strictly weaker
+one, because it is unconditioned."* **So the mechanism is to be reached by
+changing what that contest reads — which is exactly a missing `Energy → Feed`
+wire — and NOT by adding a trait, a flag or a new verb.**
+
+**The order that report settled on, which supersedes any I would invent:**
+(1) make a birth payable from a nest-adjacent store, (2) stop stored cells being
+re-taken, (3) **re-derive whatever was calibrated against the current
+behaviour**, only then (4) write the gene. It flags step 3 as *"not optional and
+the expensive one"* — `hunger_fraction`, `reproduce_threshold` and `drop_urge`
+are all balanced against a world where the pile is inert. That is requirement 6
+below, arrived at twice independently.
+
+> ⚠️ **AND A WARNING AIMED SQUARELY AT THIS PLAN.** `dead-ends.md`, 2026-09-08:
+> *"'The colony starves, so selection cannot have teeth in this bed'; reasoned
+> from a real observation and refuted — **assuming it does sent a session at the
+> larder instead of at the horizon.**"*
+>
+> A previous session saw starvation dominating mortality and went at the larder.
+> That was the wrong call. **This plan must not be the same move wearing a new
+> number.** What makes it different, stated so it can be checked rather than
+> asserted: the claim here is not *"colonies die, therefore fix food"* — it is a
+> mechanism measured end to end, that **100% of carries end in a drop and none in
+> a meal** against a control's ~66/34, with the digestion forfeit named in the
+> engine's own comment and `(AtNest, Drop, 1.0889)` as the trigger. **The
+> falsifier is §2's own: if the wire moves `drops` and `ate J` not at all, this
+> is the larder detour again and the plan stops.**
+
+**One correction to §7.27's reading, before anyone builds on it.** I read the
+control's non-zero `end` (51, 19, 19) as a colony maintaining some trail of its
+own. **The corpus says otherwise and should be believed**: `route pk` reads 88 of
+91 in every `hand` arm alike, *including an arm where the ants lay no channel B
+at all*, which `dead-ends.md` records as independently reproducing §3.2 — **ant
+maintenance of a laid trail is zero.** Those `end` cells are most likely
+hand-laid residue decaying at different rates in a live colony against a dead
+one. Do not quote them as colony trail.
+
 ### 1. What the engine already has, verified
 
 | | state |
