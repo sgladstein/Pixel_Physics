@@ -53,8 +53,51 @@ must not be quoted. §8 is what has already cost days.
 > self-recurrence), so a latch unit *cannot gate* the homing pair — which
 > dissolves the apparent contest for `ant.ron`'s last free hidden unit. The
 > buildable latch is **recurrence on units 0/1 themselves: two weights, no new
-> unit, no `mutation_rate` re-derivation.** Order: rescale the gate first, then
-> the latch; `crop_capacity` last if at all.
+> unit, no `mutation_rate` re-derivation.** ~~Order: rescale the gate first, then
+> the latch; `crop_capacity` last if at all.~~ **That order is withdrawn — see
+> the block below.**
+>
+> ## 🔑 AND THE ORDER IS WITHDRAWN — §7.25/§7.26, 2026-09-18
+>
+> **Crop fill is wired to stillness, not to direction, so neither the rescale nor
+> the latch could have worked.** Measured per decision over 570,660 laden
+> decisions: `P(home)` and `P(away)` are a **dead heat in every fill bin**
+> (0.0177/0.0176 at a third of a crop, 0.0064/0.0064 at a full one), and
+> `P(home)` **falls** with fill by 2.8x because the only thing fill does is lower
+> `P(move)` — it brakes the ant equally in both directions. **Pooled, the entire
+> gate-open population yields eleven net homeward cells** over six seeds and
+> 24,000 frames, and opening the gate *lowers* `P(move)` by 0.38.
+>
+> **§7.24's null was this curve's direct prediction, not evidence for the latch.**
+> The rescale widens a fill→direction channel that does not exist; the latch has
+> 10.2% of open decisions to hold; `crop_capacity` moves a step along a flat
+> curve.
+>
+> **`creature.rs:4156` has said so all along**, untouched: *"That is the whole of
+> the homing mechanism — there is no steering toward the nest anywhere."* `Move`
+> gates stepping along the heading the ant already has; only `tumble` changes
+> direction, and it re-rolls **uniformly**.
+>
+> **The replacement is §7.26 — the owner's rule, fill-weighted, in `tumble`**: at
+> probability `crop_fill`, re-roll toward the home bearing instead of uniformly.
+> It is the only site that sets direction and the only one that works on flat
+> ground, where **§R4 kills `Turn`** and with it `HomeBearing` as step 4 authored
+> it. It costs **no `BRAIN_INPUTS` bump, no `live_slots` change, no
+> `mutation_rate` re-derivation in six files** — `forage_anchor` already ships
+> the home vector, re-anchored at every nest contact. Because `heading` is
+> persistent, the graded draw gives the **two-group population** the latch was
+> for, rather than one half-hearted cloud.
+>
+> **Keyed on `crop_fill`, never `Carrying`** — `Carrying` is
+> `crop_fill.max(spoil ? 1.0 : 0.0)`, so keying on it sends ants home for dirt.
+>
+> **And `stop=` was never echoed in the harness header** (fixed 2026-09-18). It
+> defaults to 0 and decides whether the hand-laid trail stands for the whole run
+> or is seeded and released: the same command reports n 570,660 / 1.84% open
+> against 639,100 / 1.25% under **byte-identical parameter lines**. The two
+> scenes disagree on a published sign, so §7.22's *"positive means the ramp
+> points at the NEST"* is a statement about one scene. **Check `stop=` on any
+> archived log before comparing against it.**
 >
 > **And a second defect found on the way:** `SPOIL_IS_CARGO` is a measurement
 > switch (default ON), not a split — an ant holding **spoil reads 1.0 and the
@@ -489,6 +532,15 @@ to perfectly match how real ants, but we should take inspiration when we can."*
 
 ## 7. The plan
 
+> ⚠️ **STEPS 3, 4 AND 5 ARE RE-ORDERED BY §7.25/§7.26 (2026-09-18) — read the
+> second banner at the top of this document before building any of them.** In
+> short: the gate rescale and the latch are withdrawn as written (crop fill does
+> not reach direction, so there is nothing for either to widen or hold), step 4's
+> `HomeBearing` is blocked on flat ground by §R4, and the replacement is a
+> **fill-weighted re-roll in `tumble`** at a fraction of step 4's price. The
+> steps below are kept because their *evidence* stands and step 5 is untouched;
+> only the order and the two gate repairs change.
+
 Ordered so each step is attributable. **Steps 4 and 5 must not land together** —
 both add a term to a shared weighted sum, and `CLAUDE.md`'s *"a correct mechanism
 at inherited constants is a regression"* makes the joint result unreadable.
@@ -766,10 +818,20 @@ build".
   pass to `DIFFUSE` against decay's 2.9%.
 - **Halving `DEPOSIT`**: P-14's trigger has never fired.
 
-## 7b. Where the code stands, 2026-09-17
+## 7b. Where the code stands, 2026-09-18
+
+**PR #464 MERGED** (`c40c1712`), so everything the 2026-09-17 version of this
+section listed as "on the branch, not on `main`" **is now on `main`** —
+`SPOIL_IS_CARGO`, `try_swap_with_kin` and its scheduler fix, the birth-path
+attribution, the odometer doc corrections. Work since then is on
+**`claude/laughing-davinci-f6lu1r`** (§7.19–§7.26), which is instrument and
+report only: `probe_full` in `creature.rs`, an `#[ignore]`d readout in
+`brain.rs`, and the `trailfollow` columns. **No ant behaves differently yet.**
+
+The 2026-09-17 text follows, for the branch history it records.
 
 Branch **`claude/vibrant-mayer-9o2dbx`**, PR **#464**, 41 ahead of `main`, 0
-behind, CI green on `b1b3309e`. Nothing here has landed on `main`.
+behind, CI green on `b1b3309e`. ~~Nothing here has landed on `main`.~~
 
 **Engine changes already on the branch** — a new session inherits these:
 
