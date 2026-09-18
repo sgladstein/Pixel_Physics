@@ -924,9 +924,46 @@ fn reconcile_chain(world: &mut World, organism: OrganismId) -> bool {
             new_groups.push(kept);
         }
     }
+    // **A dropped cell has to leave `state.cells` too, and for a *ridden*
+    // position nothing else will do it.** The two other ways a cell leaves a
+    // body both go through the grid, so `World::set`'s `reindex_organism_cell`
+    // seam prunes `cells` for free: a severed cell is stamped as corpse just
+    // above, and an eaten or burned one was overwritten by whatever took it.
+    // A ridden position is neither. The animal never owned that cell, so no
+    // `set` is ever called for it, and the seam only fires when a cell's
+    // `organism_id` *changes* -- which it does not when a rider simply stops
+    // being able to stand there. It is in neither `attached` nor `severed`
+    // (it failed `cell_still_stands_for`, so it never reached `surviving`),
+    // so it falls out of the chain with nothing at all pruning the body
+    // record, and the animal goes on claiming a cell somebody else owns.
+    //
+    // **The narrow rule rather than "anything not in the chain", on purpose.**
+    // Only a position the grid does not attribute to us is dropped, so the
+    // severing and predation accounting above -- which reads `cells` -- sees
+    // exactly what it saw before. At a stack cap of 1 that condition cannot
+    // fire at all: every `cells` entry comes from the grid seam, so one that
+    // the grid disowns does not exist, and this is a no-op rather than a
+    // behaviour change.
+    //
+    // Reached when a rider's host is eaten or burned out from under it, which
+    // is where `a_crowded_colony_actually_stacks_when_the_cap_is_armed`'s
+    // `cells`-equals-`chain` invariant caught it.
     if let Some(state) = world.organism_mut(organism) {
         state.chain = attached;
         state.segment_groups = new_groups;
+    }
+    let abandoned: Vec<(i32, i32)> = world.organism(organism).map_or_else(Vec::new, |state| {
+        let held: std::collections::HashSet<(i32, i32)> = state.chain.iter().copied().collect();
+        state.cells.keys().copied().filter(|p| !held.contains(p)).collect()
+    });
+    for (ax, ay) in abandoned {
+        if world.get(ax, ay).organism_id() == organism {
+            continue; // still ours in the world -- severing and predation own this one
+        }
+        world.remove_rider(ax, ay, organism);
+        if let Some(state) = world.organism_mut(organism) {
+            state.cells.remove(&(ax, ay));
+        }
     }
     world.creature_stats.injuries += 1;
     // A severing that took every cell but the vital one still leaves a live
@@ -12726,6 +12763,36 @@ fn try_swap_with_kin(world: &mut World, organism: OrganismId, def: &CreatureDef,
         if theirs.iter().any(|p| chain.contains(p)) {
             continue;
         }
+        // **The same refusal as the mover's, on the other side -- and it was
+        // missed because the guard above it reads as if it covered both.**
+        // The exchange clears `chain` *and* `theirs` to `Cell::EMPTY` before
+        // rewriting them, which is correct only while **each** body owns every
+        // cell it stands in. The mover is checked for that a few lines up; the
+        // animal being swapped *with* was not.
+        //
+        // Two ways it goes wrong, and the second is the one a test caught:
+        // if `other` is riding, one of `theirs` belongs to a third animal, and
+        // the clear **deletes that host's cell** -- the exact erasure the
+        // mover's guard exists to prevent, reached from the other direction.
+        // And `other` keeps the ridden position in its own `cells` while
+        // taking the mover's cells as well, so it ends the swap claiming more
+        // cells than its chain has: measured, `organism 1 claims 3 cells for a
+        // 2-cell chain`, found by the `cells`-equals-`chain` invariant on the
+        // crowded-colony bed.
+        //
+        // The second clause is the converse -- somebody riding on *either*
+        // body. The clear would strand them on a cell that is about to hold a
+        // different animal, with their registration still pointing at it.
+        //
+        // **Both are no-ops at a stack cap of 1**, where every body owns every
+        // cell it stands in and `riders_at` is empty everywhere, so this costs
+        // the unarmed world nothing and the cap-1 gate still holds.
+        if theirs.iter().any(|&(x, y)| world.get(x, y).organism_id() != other) {
+            continue;
+        }
+        if chain.iter().chain(theirs.iter()).any(|&(x, y)| !world.riders_at(x, y).is_empty()) {
+            continue;
+        }
         let mine_vals: Vec<(Cell, organism::OrganismCell)> =
             chain.iter().map(|&(x, y)| (world.get(x, y), world.organism_cell(x, y).cloned().unwrap_or_default())).collect();
         let theirs_vals: Vec<(Cell, organism::OrganismCell)> =
@@ -12975,7 +13042,39 @@ fn relocate_chain(world: &mut World, organism: OrganismId, def: &CreatureDef, au
     debug_assert_eq!(ti, to.len(), "to_groups must account for every cell of `to`: {to_groups:?} vs {to:?}");
 
     // Read every carried `Cell` value before anything is cleared below.
-    let carried: Vec<((i32, i32), Cell)> = carry.iter().map(|&(f, t)| (t, world.get(f.0, f.1))).collect();
+    //
+    // **A body that is *already* riding must not read its appearance off the
+    // grid, and this one line was the whole of a real bug.** A rider owns no
+    // grid cell, so `world.get(f)` at a position it is riding returns **the
+    // host's** cell, not its own. Carrying that forward means a rider stepping
+    // from one shared cell to another stores somebody else's body as its own,
+    // and the damage lands at *promotion*, which writes the stored cell: the
+    // grid's `organism_id` never changes, so `reindex_organism_cell` early-
+    // returns, the promoted rider does not become the owner, and it is left
+    // holding a `cells` entry for a cell the world still attributes to the
+    // animal that walked away.
+    //
+    // Traced rather than reasoned, after three wrong guesses at the same
+    // symptom: ant 18 mounts `(70,119)` on host 19 at frame 756, is promoted at
+    // 774, and **no reindex fires at all** -- because the cell it had stored
+    // was 19's. `a_crowded_colony_actually_stacks_when_the_cap_is_armed`'s
+    // grid-disowned invariant is what caught the state; the trace is what named
+    // the cause.
+    //
+    // The rider index is the only place a rider's own appearance exists, so it
+    // is the authority here. Below a cap of 1 a body owns every cell it stands
+    // in, the first branch always wins, and this is the line that was here.
+    let carried: Vec<((i32, i32), Cell)> = carry
+        .iter()
+        .map(|&(f, t)| {
+            let on_grid = world.get(f.0, f.1);
+            if on_grid.organism_id() == organism {
+                return (t, on_grid);
+            }
+            let mine = world.riders_at(f.0, f.1).iter().find(|r| r.organism == organism).map(|r| r.cell);
+            (t, mine.unwrap_or(on_grid))
+        })
+        .collect();
 
     // **Lift the foliage this step is about to stand in.** Read before
     // anything is written, because the body's own cells are about to be
@@ -13021,7 +13120,31 @@ fn relocate_chain(world: &mut World, organism: OrganismId, def: &CreatureDef, au
             // this body's head has *lost* since its last tick -- and the
             // pre-stacking code cleared those. Skipping them instead changed
             // the unarmed world, which the cap-1 gate caught.
+            //
+            // **And the body's own record has to give the cell up too.** The
+            // arrival loop below puts a ridden position into `state.cells`
+            // deliberately -- that is what keeps a rider alive, since
+            // `reconcile_chain` resolves against `cells` and not against the
+            // grid -- and nothing else takes it back out again. `World::set`'s
+            // `reindex_organism_cell` seam is what prunes `cells` for an
+            // *owned* cell, and it fires only when a cell's `organism_id`
+            // changes; a rider standing down changes no id, so the seam never
+            // runs and the entry is left behind for ever.
+            //
+            // Measured by the invariant rather than guessed: `cells` and
+            // `chain` must hold the same positions for a chain body, and
+            // without this line an ant that rides once and steps off carries
+            // one phantom cell for the rest of its life, two after twice. It
+            // does not change upkeep (`live_body_cells` reads `chain`), which
+            // is why nothing starved and no gate moved -- but
+            // `creature_biomass` sums `cells.len()`, so a stacking colony
+            // would have reported biomass *rising* in a sealed box, which is
+            // the one thing `a_sealed_colony_never_grows_its_own_biomass`
+            // exists to forbid.
             world.remove_rider(cx, cy, organism);
+            if let Some(state) = world.organism_mut(organism) {
+                state.cells.remove(&(cx, cy));
+            }
             continue;
         }
         match world.riders_at(cx, cy).first().copied() {
@@ -15262,9 +15385,12 @@ mod tests {
     ///
     /// `colony_bed` is 256 wide and holds water and a canopy; a thousand ants
     /// at two apart need two thousand cells of floor and nothing else in the
-    /// way. `found_colony` supplies the nest and the colony label, exactly as
-    /// in `crowded_colony`, because `plant_ant` claims no label and
-    /// `can_stack_into` refuses `colony == 0`.
+    /// way. `found_colony` supplies the nest and **one shared** colony label,
+    /// exactly as in `crowded_colony`. `plant_ant` will not do: it routes
+    /// through `plant_creature_seed` with `colony: None`, so every ant it
+    /// places calls `claim_colony` and founds a colony **of its own** -- a
+    /// hundred ants, a hundred colonies, all strangers, and `can_stack_into`
+    /// refuses across colonies as firmly as it refuses `colony == 0`.
     fn thousand_ant_bed(ants: i32) -> (World, i32, usize) {
         const LOW: i32 = 120;
         let width = 200 + ants * 2 + 200;
@@ -15315,13 +15441,27 @@ mod tests {
     /// that lacked exactly one of them.** Every number below is measured, at
     /// cap 20 over 3,000 frames:
     ///
-    /// 1. **A real colony label.** `can_stack_into` refuses `colony == 0` on
-    ///    purpose -- it is the bucket every plant and hand-placed animal
-    ///    shares, so reading it as a colony is how an ant would come to hide
-    ///    under a beetle. `World::plant_ant` claims none, which is why three
-    ///    arms of `forage_probe spacing=2` came back identical to the last
-    ///    digit across cap 1 and cap 20: the predicate correctly refused every
-    ///    candidate, and it read as the stale-binary tell instead.
+    /// 1. **One *shared* colony label**, which is a stronger requirement than
+    ///    a non-zero one -- and the difference cost a wrong diagnosis.
+    ///    `can_stack_into` refuses `colony == 0`, the bucket every plant and
+    ///    every directly-constructed test animal shares, because reading it as
+    ///    a colony is how an ant would come to hide under a beetle. **It
+    ///    refuses two *different* colonies just as firmly**, and that is what
+    ///    `forage_probe spacing=2` actually hit: three arms came back identical
+    ///    to the last digit across cap 1 and cap 20, which read as the
+    ///    stale-binary tell and was the predicate correctly refusing every
+    ///    candidate.
+    ///
+    ///    The cause was first written down here as *"`plant_ant` claims no
+    ///    label"* and that is **wrong**. `plant_ant` goes through
+    ///    `plant_creature_seed` with `colony: None`, so `place_creature` calls
+    ///    `claim_colony` and it gets a fresh one -- 1, then 2, then 3, since
+    ///    `next_colony` starts at 1 and 0 is never issued. The probe's ants
+    ///    were not label-less; they were **each their own colony**. Same
+    ///    refusal, different cause, and only the second version tells a
+    ///    playtester the useful thing: placing animals one at a time can never
+    ///    stack them, however many you place. Only `found_colony` /
+    ///    `found_colony_of`, which hand one label to a whole founding, will do.
     /// 2. **Crowding.** A colony founded by `found_colony` alone spaces its
     ///    ants at `COLONY_ANT_SPACING` (4) and stacked **zero** times while
     ///    walking 1,329 moves -- `HeadBlock`'s own doc says why: at that
@@ -15351,20 +15491,81 @@ mod tests {
             armed.creature_stats.moves > 0,
             "nothing walked in {FRAMES} frames, so this bed cannot say anything about stacking either way"
         );
+        // **The cumulative counter, not the standing census, and this test
+        // learned it the hard way.** `stacked_cell_count` reads the *final
+        // frame*, and a stack is momentary by design -- riders dismount as an
+        // ordinary move -- so a run where sharing happened constantly can end
+        // with zero cells shared. Measured on the thousand-ant bed: 15 standing
+        // against 498 events, an understatement of 33x. This assertion was
+        // written against the snapshot, passed while the snapshot happened to
+        // be non-zero, and went red on a run that stacked *more* rather than
+        // less. `stacks_entered` is the "did it fire at all" number.
         assert!(
-            armed.stacked_cell_count() > 0,
+            armed.creature_stats.stacks_entered > 0,
             "no ant ever stood in another's cell in {FRAMES} frames of a crowded colony at cap 20 -- \
              stacking is unreachable from the walk, whatever the unit tests say about the predicate \
-             (moves {}, alive {})",
+             (moves {}, alive {}, standing at end {})",
             armed.creature_stats.moves,
-            armed.live_creature_count()
+            armed.live_creature_count(),
+            armed.stacked_cell_count()
         );
+
+        // **No body may be left claiming a cell the *world* says is not
+        // its own.** A ridden position goes into `state.cells` on purpose --
+        // that is what keeps a rider alive, since `reconcile_chain` resolves
+        // against `cells` and not against the grid -- and `World::set`'s
+        // `reindex_organism_cell` seam, which prunes `cells` for an owned
+        // cell, cannot fire for a rider standing down because no cell's
+        // `organism_id` changes. So those entries have to be removed by hand,
+        // and this is the invariant that says they were.
+        //
+        // **Deliberately not `cells.len() == chain.len()`, and the stronger
+        // form is what taught me why.** It fails on this bed for a reason that
+        // has nothing to do with stacking: an animal can be left owning a cell
+        // on the grid that is no longer in its chain (measured: organism 1,
+        // chain `[(9,119),(9,118)]`, a third cell at `(5,117)` whose grid owner
+        // is **1 itself**, no riders). That is a real defect and it is filed
+        // separately; it is not this branch's, it reproduces with the cap at 1,
+        // and an invariant that trips over it cannot say anything about riders.
+        // The grid-disowned form asks exactly the stacking question and nothing
+        // else.
+        //
+        // **Checked on both arms, which is what makes it a control rather than
+        // an assertion.** At cap 1 no `cells` entry can be grid-disowned at
+        // all -- every one of them arrives through the grid seam -- so the
+        // unarmed arm passing says the check is specific, and the armed arm
+        // passing says the hand-written removals cover every path riders take.
+        fn no_body_claims_a_cell_the_world_disowns(w: &World, arm: &str) {
+            for id in w.live_organism_ids() {
+                let Some(state) = w.organism(id) else { continue };
+                if state.chain.is_empty() {
+                    continue; // a plant: `cells` is the whole body and there is no chain
+                }
+                for p in state.cells.keys() {
+                    let owner = w.get(p.0, p.1).organism_id();
+                    assert!(
+                        owner == id || w.riders_at(p.0, p.1).iter().any(|r| r.organism == id),
+                        "[{arm}] organism {id} claims {p:?}, which the world says belongs to {owner} \
+                         and which it is not riding -- a rider left an entry behind"
+                    );
+                }
+            }
+        }
+        no_body_claims_a_cell_the_world_disowns(&armed, "armed");
 
         let (mut off, low_off) = colony_bed();
         assert_eq!(off.stack_cap(), 1, "the unarmed arm must run the shipped cap");
         crowded_colony(&mut off, low_off);
         run(&mut off, FRAMES);
         assert_eq!(off.stacked_cell_count(), 0, "the index filled at cap 1, so the armed arm was not measuring the cap");
+        assert_eq!(
+            off.creature_stats.stacks_entered, 0,
+            "a stack was entered at cap 1 -- the armed arm was not measuring the cap"
+        );
+        // The specificity half: the same invariant on the arm where riders do
+        // not exist. It cannot fail there, and a version of it that did would
+        // be measuring something other than stacking.
+        no_body_claims_a_cell_the_world_disowns(&off, "unarmed");
     }
 
     /// **How deep does a stack actually get, at a scale that has to crowd?**

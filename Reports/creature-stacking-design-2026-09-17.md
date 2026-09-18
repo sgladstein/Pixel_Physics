@@ -315,8 +315,9 @@ owner's eye.** Three others came back *"pretty similar"* and *"no major
 difference"*, because at `COLONY_ANT_SPACING` there is no jam to dissolve. A
 founded-colony card would answer nothing here either.
 
-**6. Teach `neediest_kin` about riders.** `Share` reaches through
-`neediest_kin` (`creature.rs:5890`), which scans `NEIGHBOURS_8` around the
+**6. Teach `neediest_kin` about riders.** **Open, and on the list at the
+owner's request, 2026-09-18.** `Share` reaches through
+`neediest_kin` (`creature.rs:6070`), which scans `NEIGHBOURS_8` around the
 body's own cells and reads `cell.organism_id()`. **Two independent reasons it
 cannot see a rider**: `NEIGHBOURS_8` never includes `(0,0)`, and the cell
 returns the *owner's* id. So trophallaxis inside a stack would silently never
@@ -386,3 +387,255 @@ What changes is whether the ants are *moving*, and only motion shows that.
   swapping through each other)"*. Stacking is not that change — it never swaps
   two chains through each other, it lets both stand.
 - `python3 scripts/deadendindex.py --touching` before the PR.
+
+## 9. How to play it, and why the menu looked empty
+
+**Asked by the owner, 2026-09-18: "I don't understand how to playtest this. I
+did not see an option for this in the evolution lab menu."** They were right,
+and the absence had three separate causes rather than one. All three are worth
+recording because each was a design decision made for a good reason that
+compounded into a feature nobody could reach.
+
+1. **The cap is a launch-time environment variable**, `PIXEL_PHYSICS_STACK_
+   DEPTH`, read once when a `World` is made. That was deliberate — §3 records
+   the owner's ruling that the whole thing sit behind a toggle, and an env var
+   is the shape this repo's other ablation switches ship in (`PIXEL_PHYSICS_
+   LAB_ROOM`, `spoil_kept`, `trophallaxis_enabled`). But an ablation switch is
+   for measuring an arm, and the owner asked to *play with* the number — "not
+   sure if 20 is the right number, we can play around with it" — which by the
+   lab panel's own rule makes it a dial.
+2. **There is nothing to see.** The render step was cancelled on measured
+   grounds (`c10ea398`): a cell holding three ants draws as one ant. So even
+   with the cap armed, a correctly working stack is invisible, and "I can just
+   play test" has no artifact to land on.
+3. **A founded colony at its shipped spacing does not crowd.** `COLONY_ANT_
+   SPACING` is 4, and `HeadBlock`'s own doc says it out loud: *"a colony at
+   `COLONY_ANT_SPACING` almost never has a nestmate in any of its own eight
+   neighbour cells."* Measured here: a founded colony left alone produced
+   **1,329 moves and zero stacks**. So the first thing a playtester would have
+   done — arm it, press the colony key, watch — was guaranteed to show nothing
+   even with (1) and (2) solved.
+
+**(2) is the one that mattered most**, and it is why this section exists rather
+than a one-line answer. `CLAUDE.md`'s rule is that *"did it fire at all" needs
+a counter, not a picture*; with no picture available at all, the counter is not
+a supplement to the playtest, it **is** the playtest.
+
+### The recipe
+
+```
+PIXEL_PHYSICS_STACK_DEPTH=20 cargo run --release --bin lab
+```
+
+Then, because of (3), build a bed that actually crowds: on the **BOX** page set
+`colony_ants` high (it reaches 120) and keep the bed narrow, then **REBUILD**.
+Read the **SHARED CELLS** row in the stats panel.
+
+- **`EVER`, not `NOW`.** A stack is transient by design — dismounting is an
+  ordinary move — so the standing count is a snapshot of one frame. Measured
+  over 2,000 ants: 15 cells standing against **498 events**, an understatement
+  of about 33x. `NOW 0` with `EVER` in the hundreds is the healthy state.
+- **Only a *founding* stacks, not a handful of animals placed one at a time.**
+  `can_stack_into` refuses `colony == 0` (§3) — the bucket every plant and every
+  directly-constructed test animal shares, because treating it as a colony is
+  how an ant would come to shelter under a beetle — **and it refuses two
+  different colonies just as firmly**, which is the half that matters to a
+  player. The single-animal tool routes through `plant_creature_seed` with
+  `colony: None`, so each animal calls `claim_colony` and founds a colony of its
+  own: ten clicks is ten colonies of one, all strangers, and none of them will
+  ever share a cell. Use the colony tool, which hands one label to the whole
+  founding.
+
+  (Recorded because the first write-up of this said *"`plant_ant` claims no
+  label"*. It does claim one — `next_colony` starts at 1 and 0 is never issued —
+  so the refusal was for strangeness, not for namelessness. Same outcome, and
+  only the corrected reason tells a playtester what to do differently.)
+- **Expect three, not twenty.** The cap has never been approached. The deepest
+  ever observed is three creatures in a cell, at 2,000 ants.
+
+### The dial, and why it is on the BOX page
+
+`animals_per_cell`, on **BOX**, live on the next tick. It belongs on **ANTS**
+beside `room_each_ant_wants` and `alarm_fades` — the two other world scalars
+parked there because they are colony rules rather than properties of an animal —
+and it cannot go there: **ANTS and GENOME both stand at exactly 20 rows**
+against `no_page_is_longer_than_two_screens`' ceiling of 20, so either costs
+relocating somebody else's row, in a file eleven unlanded branches are holding.
+`71a81384` left a comment on the ANTS page saying the next lane would have to
+move something; that is still true and this is not the change to spend it on.
+BOX has seven free rows and already carries `colonies`, `colony_ants` and
+`predators` — who is in the box and how many — which is the same kind of fact.
+
+Two consequences worth knowing:
+
+- **A REBUILD resets it** to whatever `PIXEL_PHYSICS_STACK_DEPTH` says, because
+  it is a `Knob::Scalar` on the live `World` rather than part of the `LabBox`
+  spec a rebuild is made from. `room_each_ant_wants` and `alarm_fades` behave
+  the same way; the row's note says so.
+- **A `Knob::Scalar` needs four sites, not one** — the row, `write`'s match
+  arm, and `Dials`' field plus its `from_world`/`apply_to` pair — and the
+  round-trip guard is hand-enumerated, so it is blind to whichever key was
+  added last. It now names this one.
+
+### The readout, which is the part that was actually missing
+
+The **SHARED** figures ride the stats page's `LINES` row rather than getting a
+row of their own, and that is forced rather than chosen: the page is sized to
+its content and clamped to `bar_top() - 6`, which is **258**, and a bed with a
+colony in it already comes to **exactly 258**. A row added there is not a row
+nobody notices, it is a row that is **never drawn**, and
+`the_page_stays_inside_its_own_border` passes straight through that because it
+asserts the clamp rather than that the content fits.
+
+**Which means the page already overflows by one row today, whenever the REFUSED
+row fires** — 267 against 258, arithmetic from the measured 258 plus a text
+row's 9 px. Not this lane's to fix, and the next lane wanting a row on that page
+should know it has none.
+
+## 10. Bug and efficiency review, 2026-09-18
+
+Asked for by the owner after the scale run. Read as a diff of every non-comment
+line the branch adds to `src/sim/world.rs` and `src/sim/creature.rs`, then
+checked against the engine rather than against the diff — which is where all
+three real findings came from, since none of them is visible in the added lines
+alone.
+
+### Fixed: a rider carried the wrong body forward
+
+**The defect.** `relocate_chain` reads each cell's value off the grid before
+moving it — `world.get(from)` — and **a rider owns no grid cell**, so for a body
+that is already riding, that read returns *the host's* cell. A rider stepping
+from one shared cell to another therefore stored somebody else's body as its
+own. The damage lands later, at promotion, which writes the stored cell: the
+grid's `organism_id` never changes, so `reindex_organism_cell` early-returns,
+the promoted rider never becomes the owner, and it is left holding a
+`state.cells` entry for a cell the world still attributes to the animal that
+walked away. The rider index is the only place a rider's own appearance exists,
+so it is now the authority.
+
+**How it was found, and the part worth keeping: three wrong guesses first.** The
+symptom was one assertion failure. I reasoned a cause, fixed it, re-ran, got
+*the same message*, reasoned a second, same again, reasoned a third (`try_swap_
+with_kin`'s missing symmetric guard), same again. Each hypothesis was plausible
+and each was wrong about *this* failure. What ended it was tracing every rider,
+`remove_rider` and `reindex` event at the one offending cell: **ant 18 mounts
+`(70,119)` on host 19 at frame 756, is promoted at 774, and no reindex fires at
+all** — which named the cause in one run and could not have been argued to.
+
+**Two traps inside that, both already in `CLAUDE.md` and both walked into.**
+
+- **A guard that goes red is not a guard that went red for your reason.** The
+  first fix was "verified" by reverting it and watching the test fail with the
+  expected message. It failed for something else entirely: the invariant was
+  `cells.len() == chain.len()`, and that form also trips on a *pre-existing*
+  defect unrelated to stacking — an animal left owning a grid cell no longer in
+  its chain (measured: organism 1, chain `[(9,119),(9,118)]`, a third cell at
+  `(5,117)` whose grid owner is **1 itself**, no riders; filed separately, and
+  it reproduces at cap 1). A fault-injection that reads only the *message* and
+  not *why* is the pass/fail-of-a-graded-quantity trap wearing different
+  clothes.
+- **So the invariant was rescoped to the question stacking actually answers**:
+  no body may claim a cell the world disowns and it is not riding. That form is
+  checked on **both** arms — it cannot fail at cap 1, where every `cells` entry
+  arrives through the grid seam, so the unarmed arm passing is what makes it a
+  control rather than an assertion.
+
+**Two further fixes, kept although neither was the cause here.** Both are real
+gaps found while reading, each an unpaired `remove_rider`:
+
+- `relocate_chain`'s branch (1), a rider stepping off voluntarily, removed the
+  registration and left the `state.cells` entry: no cell's `organism_id`
+  changes, so the pruning seam never fires.
+- `reconcile_chain`'s shortening path drops a position from the chain with
+  nothing pruning `cells` when the position was *ridden* — it is in neither
+  `attached` nor `severed`, so neither the corpse stamp nor the grid seam
+  reaches it. Narrowed to grid-disowned positions only, so the severing and
+  predation accounting above it sees exactly what it saw before.
+- `try_swap_with_kin` guarded **the mover** against riding and had no
+  counterpart for the animal being swapped *with*. The exchange clears both
+  bodies to `Cell::EMPTY` before rewriting, so swapping with a rider deletes the
+  third animal it was standing on — the exact erasure the mover's guard exists
+  to prevent, reached from the other side. Also refuses when anything is riding
+  on either body, which the clear would strand.
+
+All four are no-ops at the shipped cap of 1, structurally rather than by luck: a
+body owns every cell it stands in there, so the riding branch is unreachable and
+`riders_at` is empty everywhere.
+
+**What the fix did to the bed, and why it is the right sign.** The crowded
+colony went from **1,273 moves and 24 alive** to **9,036 moves and 49 alive**
+over the same 3,000 frames. That is a large change for a bookkeeping repair, and
+it is the expected one: before it, a rider moving between shared cells wrote its
+*host's* body into the destination, so bodies were being duplicated and
+overwritten while the simulation went on believing everything was fine. Nothing
+in the suite could see it, because every cell involved still held a plausible
+live animal.
+
+**And it broke this test's own "did it fire" assertion, which is the third
+instrument lesson in one afternoon.** The assertion read
+`stacked_cell_count() > 0` — the **standing** census, at the final frame — and
+after the fix that reads 0 on a run that stacks *more*, because stacks are
+momentary and disperse. This document already said to read `EVER` and not `NOW`,
+and the lab readout already says it to the player; the test was written before
+that was understood and nobody went back. It now asserts on
+`CreatureStats::stacks_entered`, with the standing figure printed in the failure
+message rather than gating it, and the unarmed arm asserts **both** are zero.
+
+### Found, filed, not yet fixed
+
+- **A dying rider leaves no corpse and is not counted as suppressed.**
+  `creature_dies` filters the chain to grid-owned cells, so a rider stamps
+  nothing. The owner's ruling — *first free neighbour, else suppressed* — is
+  implemented for the dying **owner** (via `stamp_as_corpse`'s promotion
+  branch) and not for the dying **rider**. The ledger does close: the body
+  stamp goes to `meat_lost` and the bank to `Account::Dissipated`, checked
+  line by line rather than assumed. But meat that should be on the ground is
+  not, and `corpses_suppressed` — the named-hole counter the owner asked for —
+  reads 0 the whole time it happens, which is precisely the *unnamed leak
+  correlated with the experimental arm* that counter exists to prevent.
+- **Severing a ridden cell may overwrite the host.** Unverified by a
+  reproduction, so filed rather than claimed. `reconcile_chain`'s `surviving`
+  now keeps a ridden cell, so one can reach `severed` and then
+  `stamp_as_corpse`, where `riders_at(cell).first()` can be the severing
+  animal *itself* — and the promotion branch then writes that animal's cell
+  over its host's. It is the one failure this design was built to prevent,
+  arriving down a path nobody walked. Needs a multi-cell ant losing a segment
+  while riding.
+
+### Checked and found to be fine — recorded so nobody re-derives it
+
+Two of these were on the review's own candidate list as suspected
+inefficiencies, and both are wrong. `CLAUDE.md`'s *ask what your number counts
+when nothing is wrong* applies to a code review as much as to a measurement.
+
+- **`remove_rider_everywhere` on every organism death, including every
+  plant.** Free at the shipped cap: nothing is ever inserted, so the map's
+  capacity stays 0 and `retain` visits nothing. Already stated at the call
+  site; the review nearly filed it anyway.
+- **`cell_still_stands_for` per chain cell per creature tick.** One extra grid
+  read, and at cap 1 it is a **structural** no-op rather than an incidental
+  one: `reindex_organism_cell` keeps `cells` and the grid in agreement about
+  ownership, so any cell reaching the test is still owned and the first branch
+  returns. Gating it on `stack_cap() > 1` was the proposed optimisation and is
+  the wrong trade — it saves a few thousand grid reads against a 163,840-cell
+  sweep and buys a branch that makes the armed and unarmed paths structurally
+  different, which is the thing the cap-1 identity argument rests on.
+- **The cap arithmetic.** `1 + riders_at(p).len() < stack_cap()` is right at
+  the boundaries: entering makes `2 + riders` creatures, so the test is
+  `2 + riders <= cap`, and at cap 2 it admits exactly one rider.
+- **`corpse.aux()` really is the worth** that `corpse_worth_suppressed` claims
+  to sum — `stamp_as_corpse` writes `worth.round()` there — so the counter
+  counts what its name says.
+- **`place_corpse_beside` uses `World::is_empty`**, which is the managed-aware
+  test, and that is the correct one here: the question is *is this position
+  available*, not *is there material here* (`.claude/rules/src-sim-cells.md`).
+- **One production caller of `add_rider`**, and it is behind `can_stack_into`,
+  so "the caller owns the cap" has exactly one caller to be true of.
+
+### A wart, deliberately left
+
+Promotion writes the rider's cell value **as captured when it mounted**, so a
+promoted cell carries a stale `temperature`. Harmless — heat re-diffuses on the
+next tick — and the alternative is rebuilding the cell from the species def at
+promotion time, which is a change to how a body's appearance is derived and
+does not belong in a bookkeeping path.
