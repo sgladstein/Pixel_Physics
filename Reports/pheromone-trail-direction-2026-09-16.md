@@ -2936,6 +2936,211 @@ for**.
 **Data:** `Reports/data/homebias-{0.1,0.25,0.5,1.0}-hand-6seed-2026-09-18.log`
 and the drop-counter pair `homebias-drops-{control,1.0}-hand-6seed-2026-09-18.log`.
 
+## §7.28 The granary — design of record, and the criterion that stops this drifting
+
+**2026-09-18. Nothing here is built.** §7.27 ended with the return leg working
+and starving the colony. This is the plan out of that, written before any code,
+and the first section exists because the owner stopped the work to ask for it.
+
+### 0. The criterion, and why it is first
+
+**The goal of this line is not that colonies survive. It is that a colony lays
+its own food trail.** Stated by the owner, 2026-09-18, on being shown the
+foraging-economy plan: *"I want to make sure we don't lose pheromone context if
+that part isn't finished."*
+
+The risk is specific and was already live. **Every `home_bias` measurement in
+§7.27 was taken on `arms=hand`** — a bed with a trail already laid down for the
+ants. The pheromone question lives in the **`self`** arm, and no run in that
+section touched it. A foraging-economy fix that makes colonies survive on
+`hand` would look like success and answer nothing.
+
+> **ACCEPTANCE, for everything below:** `arms=self`, and **`route pk` rises off
+> **3.4 of 90**. That is §3.2's number for a colony left to build its own trail,
+> and it is indistinguishable from `mute` (channel B zeroed). Survival, `ate J`
+> and `carry@nest` are *diagnostics on the way*; none of them is the finish.
+
+**Why the return leg is upstream of that rather than a detour from it.**
+`ant.ron` drives channel B from exactly one wire:
+
+```
+(Carrying, EmitB, 2.5)
+```
+
+**A food trail is, by construction, the track of a laden ant walking home.** No
+laden return journey, no channel B along a route, no recruitment — structurally,
+not weakly. §7.20 stated the same thing from the other side: *"any mechanism
+whose subject is 'the trail a homing ant lays' is untestable on this bed until
+this number moves."*
+
+So the chain is: `self ≡ mute` ← no channel B laid ← no laden return ← homing
+did not steer (§7.25, now fixable) ← turning it on starves the colony (§7.27)
+← delivering destroys the meal. **The granary is three links down and every link
+is load-bearing.**
+
+**And §7.27's trail columns do NOT answer this** — recorded so nobody quotes
+them. At `home_bias: 1.0` the colony's own trail reads `end 0`, `along +0.0000`
+and a B profile pinned at **8291–8292 in all six seeds**, which is
+`CLAUDE.md`'s tidiness tell: those colonies were dead by frame 7,200–8,832 and
+the measurement window opens at 7,500. It is hand-laid residue. The question is
+**unanswered**, not answered in the negative.
+
+### 1. What the engine already has, verified
+
+| | state |
+|---|---|
+| food dropped at a nest | persists as an ordinary world cell — `world.set(dx, dy, unit.into_cell(world))`. **The worth is not destroyed.** |
+| `Share` (trophallaxis) | **works**, evolvable, transfers **`energy`** downhill to `neediest_kin`, gated on `KinNeed` |
+| `Feed` vs `Drop` | already compete for one tick: `choose_weighted(&[feed_urge, drop_urge], ..)` |
+| `(AtNest, Drop, 1.0889)` | a heavy thumb on **Drop** at the nest |
+| `Energy → Feed` | **does not exist.** Hunger does not make an ant eat. |
+| digestion | happens **in the crop**; a drop before `c.unit` forfeits the progress *and* the meal |
+| starvation immunity | **does not exist.** `life_half_life: 0.0` is immortal for *old age* only; the energy death is `creature.rs:11028`, `state.energy <= 0.0` |
+
+**The floor larder already half-exists and defeats itself.** Food is dropped at
+the nest and persists; any ant that picks it up there meets
+`(AtNest, Drop, 1.0889)` and puts it straight back down, and nothing makes a
+hungry ant eat instead. That is a thrash loop, and it is the likeliest reason
+§7.27 measured 285 drops and **zero** meals.
+
+### 2. Step one — one wire, before any mechanism
+
+**`(Energy, Feed, -w)` in `ant.ron`.** A hungry ant eats what is beside it.
+
+- **Why this first:** it is the missing half of a contest that already exists. If
+  it breaks the thrash, the granary **already exists** and the whole defect was
+  one absent wire. That is the cheapest possible outcome and it must be checked
+  for before anything is built.
+- **It is a gene, not a hardcode** — it mutates, so a lineage can evolve how
+  hungry it has to be before it eats its cargo. Point 2 of the owner's
+  considerations (below) is satisfied by construction.
+- **Division of labour for free, with no castes and no age.** A *full* ant
+  carries and drops; a *hungry* ant eats. Energy varies naturally across a
+  colony, so **one genome produces both behaviours** — a distribution rather
+  than a binary, which is the ethos's first law rather than a special case.
+- **Derive `w` before running it, do not fit it.** Follow §7 step 5's own
+  discipline: **write out what the unit computes** at
+  `Energy ∈ {0.0, 0.25, 0.5, 1.0}` × `AtNest ∈ {0, 1}`, through `squash`, and
+  check that a starving ant at the nest beats `drop_urge` while a fed one does
+  not. `Feed` currently sums `(Bias, 0.4)` and `(FoodAdjacent, 0.8)`; `Drop`
+  sums `(Bias, -0.2)`, `(AtNest, 1.0889)`, `(Carrying, 0.2)`,
+  `(MoistureGrad, 0.169)`, `(SurfaceCurvature, 0.169)`.
+- **Falsifier:** if `drops` stays high and `ate J` stays at 0 across the sweep of
+  `w`, the thrash is not the drop contest and the granary is a real build.
+- **Watch for the sweep trap:** `CLAUDE.md`'s *"when every setting of a sweep
+  fails the same way, suspect the sweep"* — run the control that strips the
+  rider, which here is §4 below.
+
+### 3. Step two — the pheromone test, immediately
+
+**The moment colonies survive with `home_bias` on, run `arms=self,mute`.** Not
+later, not after tuning: this is the criterion in §0 and the reason the rest
+exists. `hand` has answered every question it can answer.
+
+### 4. The fallback — starvation immunity as a confound stripper
+
+**The owner's suggestion, 2026-09-18**, and it is methodologically the right
+shape rather than a shortcut: *"you could artificially make it so ants cannot
+die from hunger to just check if they are following pheromones and foraging
+correctly, without the confound of ants dying because they are not eating."*
+
+This is exactly `CLAUDE.md`'s remedy for a sweep whose every setting fails the
+same way — **the mechanism with every rider stripped out.** Starvation is a
+rider that arrived *with* `home_bias` and is constant across every data point in
+§7.27's table, which is precisely the shape that reads as "the approach is
+wrong" and is not.
+
+- **Cost:** one env-gated early return at the energy death (`creature.rs:11028`),
+  measurement-only, same idiom as `SPOIL_IS_CARGO` and
+  `PIXEL_PHYSICS_TROPHALLAXIS`. Small.
+- **What it buys:** it separates *"the loop does not work"* from *"the loop works
+  and the colony cannot afford it."* Those want completely different repairs and
+  nothing measured so far can tell them apart.
+- **What it costs in trust, and the guard against it:** an immortal colony is not
+  a colony, so **no number taken under it may be quoted as a result** — it is a
+  diagnostic arm only, and its own header must say so. The engine has been
+  burned by exactly this: §7.26's `onetrail::hold_gate_laden` evaluated the
+  homing circuit at `Carrying = 1.0`, a value the colony almost never reaches,
+  and its +104-of-112 was read as evidence about a colony for weeks.
+- **When to reach for it:** if step 1 and step 2 both fail. Not before — it is a
+  scalpel for a confound, and reaching for it early would hide the economy
+  problem rather than isolate it.
+
+### 5. The granary proper — only if steps 1–2 fail
+
+**What it is:** food delivered to a nest accumulates as a *visible, persistent,
+spatial* store that the colony eats from.
+
+**Why a store and not ant-to-ant sharing, which was the first recommendation and
+was wrong.** The owner's objection, and it is decisive: *"I don't know if that
+would be visible cuz they're very tiny and there's many of them. Can I tell the
+difference between them sharing and just standing or walking next to each
+other?"* **No.** An ant is two cells; trophallaxis is two ants adjacent for a few
+ticks, which is pixel-for-pixel identical to two ants passing. It would need an
+invented render marker. This repo has already paid for that mistake once —
+`Reports/plant-appearance-design.md`, where three levers all fired, all counted,
+and moved nothing on screen because they only changed *which cell got a label*.
+**A granary changes the silhouette of the nest**, which is a *what and where*, the
+one thing an image can answer.
+
+**The biology supports the store, and the earlier claim that it did not was
+wrong.** Trophallaxis is the **liquid** pathway. Solid food is stored or fed to
+brood, and a physical store is the *more* general pattern across superorganisms,
+not the less: harvester-ant seed granaries, leafcutter fungus gardens, honeybee
+comb, termite fungus combs, honeypot repletes. **"A superorganism accumulates a
+visible store at its home site" generalises across ants, bees, wasps and
+termites; trophallaxis is narrower.** That satisfies the owner's requirement
+that this not be hardcoded for ants.
+
+**Keep `Share`.** Energy-sharing already works and is already evolvable. The two
+are complementary and match the real division: **solid food → store; digested
+energy → share.** The granary is an addition, not a replacement.
+
+### 6. Requirements on the granary, from the owner's considerations
+
+1. **It must work, which means it must not be complicated.** Ranked first by the
+   owner. This is why steps 1 and 2 come before any of §5 — the cheapest thing
+   that could possibly work is a wire, and it has not been tried.
+2. **Biology as inspiration, not as hardcoding.** The mechanism must be "a
+   creature with a crop, a `Drop` and a home marker accumulates a store", with
+   the strengths as *genes*. No ant-shaped special case; the lab's other species
+   and the held world's creatures must get it for free or it is wrong.
+3. **The foraging loop must be visible.** Judged by eye, not by counter. A pile
+   that grows and shrinks is the deliverable.
+4. **A store is a target.** A visible pile at a nest is something beetles and
+   rival colonies can raid — free emergent drama, biologically real, and it turns
+   storage from bookkeeping into a **stake**. Design toward it even if the first
+   build does not include it.
+5. **A store with no sink is a hoard.** If food only accumulates the colony
+   solves hunger for ever and the tension dies. Bound it with brood consumption,
+   spoilage and season — `spoil`, `rot_remains` and weather all already exist. A
+   pile that *shrinks when neglected* is also more visible, not less, and is the
+   ethos's first law again: graded, not binary.
+6. **It recalibrates the whole economy, and that is where the time will go.**
+   Banking food makes starvation rare, which moves birth rates, which moves every
+   constant tuned against the current economy. `CLAUDE.md`: *a correct mechanism
+   at inherited constants is a regression.* **Name the constants before starting
+   or the change is not scoped, it is merely started.**
+7. **The success metric has to exist before the mechanism.** With a store, food
+   can be delivered and not yet eaten, so `ate J` will **under-report a working
+   loop** — the §7.25 trap exactly, a number that is arithmetically right and
+   about the wrong question. Build *stored cells at the nest*, and its turnover
+   rate, **first**.
+8. **This is `engine`, not `lab`.** It lands in the outdoor game, the lab and the
+   held world at once. `Reports/two-games-one-repo-2026-08-30.md` before
+   proposing any scoping of it.
+
+### 7. What not to build
+
+- **Crop-sharing as the primary loop.** Invisible at play scale (§5). It may
+  still be worth having *behind* a granary, for the liquid pathway.
+- **Caste or age-based division of labour.** Real, and real complexity. §2's
+  hunger split gives the same population effect from one genome and no new state.
+  Revisit only if the hunger split provably cannot produce two groups.
+- **A larger `home_bias` sweep before the economy is fixed.** Every row in
+  §7.27's table is conditional on an economy that punishes commuting; re-running
+  it finer measures the economy, not the dial.
+
 ## Instruments
 
 - `examples/onetrail.rs` — `mode=arith` (shipped genome, nothing overridden),
