@@ -2832,6 +2832,110 @@ with footing and crowding scores that were calibrated without it, which is
 `tumble` is the cheaper first arm because its re-roll is currently **uniform** —
 there are no weights to re-derive.
 
+## §7.27 The steering works, and it starves the colony — every carry ends in a drop
+
+**2026-09-18. Built (§7.26's design), measured, and the result is a stop.**
+`CreatureDef::home_bias` ships at `0.0` and this is the sweep over it.
+`arms=hand`, 6 seeds, gap 90, `stop=6000`.
+
+### The control is bit-identical, which is the claim the rest rests on
+
+At `home_bias: 0.0` the run is **identical to the archived log, line for line**
+— `n 570,660`, net `308`, gate open `10,509`, every seed row. The gate on
+`home_bias` and on a non-empty crop is checked before `draw` is touched, so the
+default arm takes no RNG draw and the whole corpus in `Reports/data` stays
+comparable. `tumbles_homeward` reads **exactly 0** in every row, which is the
+counter's negative control.
+
+### The steering works
+
+| | `home_bias` 0.0 | 1.0 |
+|---|---|---|
+| net cells homeward / laden tick | +0.000540 | **+0.027191** (50x) |
+| `P(home)` / `P(away)`, fill 0.6–0.7 | 0.0161 / 0.0153 | **0.0415 / 0.0142** |
+| `carry@nest`, summed over seeds | 1,536 | **5,646** |
+| laden ant-ticks | 570,660 | 7,098 |
+
+The dead heat §7.25 found is gone: a laden ant is now **2.9x** more likely to
+step homeward than away. `arrive@` is **identical across every arm**
+(804, 600, 564, 1050, 534, 528), so discovery is untouched — the empty-ant path
+really is unchanged by construction.
+
+### And it kills the colony
+
+Colonies alive at the end, of 6 seeds:
+
+| `home_bias` | 0.0 | 0.1 | 0.25 | 0.5 | 1.0 |
+|---|---|---|---|---|---|
+| colonies alive | **4** | 2 | 3 | **0** | **0** |
+| `ate J`, summed | 2,924,202 | 1,538,574 | 2,910,833 | 5,333 | **0** |
+| `trips`, summed | 5 | 1 | 1 | 0 | 3 |
+
+**At `w >= 0.5` every colony in every seed dies**, by frame 7,200–8,832, having
+eaten **nothing**, with no ant ever born — the founding 20 and no more. Six
+seeds is not a sweep (`CLAUDE.md`), and the per-seed scatter at 0.1 and 0.25 is
+this bed's usual chaos; the twelve-of-twelve at 0.5 and 1.0 is not.
+
+**`trips` does not rise at any setting.** The plan's stated success criterion is
+`carry@nest` *and* `trips`, and only the first moved.
+
+### Why: the delivery destroys the meal
+
+Food is eaten by **holding it**. `digesting` accumulates in the crop and a cell
+is absorbed only when it reaches `c.unit` — 960 J for the harness's `fruit`.
+The drop path's own comment states the consequence: dropping before maturity
+*"forfeits the progress **and** the meal, which is starvation rather than an
+exploit."*
+
+`ant.ron` authors **`(AtNest, Drop, 1.0889)`**. So arriving home *is* the drop
+trigger. Give an ant a homeward run and the sequence becomes: pick up, walk 90
+cells, arrive, drop — with `digesting` discarded every time.
+
+The counter says so:
+
+| | drops | cells digested (`ate J` / 960) | share of carries that ended in a drop |
+|---|---|---|---|
+| `home_bias` 0.0 | 5,990 | 3,046 | ~66% |
+| `home_bias` 1.0 | 285 | **0** | **100%** |
+
+**The prediction that produced this counter was wrong, and the correction is
+the finding.** It predicted drops would *rise* — ants thrashing at the nest.
+They **fell 21x**, because far fewer ants ever carry anything once the colony
+stops growing. The count was never the question: **the rate is.** In the
+control a third of carries end in a meal; at `home_bias: 1.0` **none of them
+do**. `CLAUDE.md`'s *"ask what your number counts"*, caught by running the
+control rather than by reasoning.
+
+### What this means, and it is bigger than the dial
+
+**The return leg was not the last missing piece.** It is now the *second* to
+last. Food put down at the nest is an ordinary loose cell on the ground — there
+is **no larder**, nothing that stores it, and nothing that eats from it — so
+the act of delivering subtracts the meal that paid for the journey. A colony
+that commutes is strictly worse off than one that grazes, and the engine has
+been telling us so through the only channel it had: ants that would not go home.
+
+That is the ethos's second law in its sharpest form. **The verb now works and
+what it produces is nothing.** The right reading of §7.25's "eleven net homeward
+cells" is not only that homing was broken; it is that homing had **nothing to be
+for**.
+
+### What to build next, in order
+
+1. **A delivery that stores rather than forfeits.** Either the drop at a nest
+   banks the cell's worth to the colony, or `digesting` survives a drop and
+   resumes on re-ingest. The first is a larder and is the bigger change; the
+   second is a one-field fix to `Crop` and is the cheaper arm to measure first.
+2. **Only then re-sweep `home_bias`.** Measuring a commuting rule against an
+   economy that punishes commuting measures the economy. Everything in the table
+   above is conditional on step 1 and must be re-taken after it.
+3. **Do not read the 0.1 / 0.25 rows as "a safe setting exists."** They are
+   near-neutral because at low `w` most ants never commit, which is the shipped
+   animal wearing a dial.
+
+**Data:** `Reports/data/homebias-{0.1,0.25,0.5,1.0}-hand-6seed-2026-09-18.log`
+and the drop-counter pair `homebias-drops-{control,1.0}-hand-6seed-2026-09-18.log`.
+
 ## Instruments
 
 - `examples/onetrail.rs` — `mode=arith` (shipped genome, nothing overridden),

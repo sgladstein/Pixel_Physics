@@ -564,6 +564,11 @@ struct Arm {
     /// came of them is `P(home)` per crop-fill bin in the trace.
     tumbles: u64,
     tumbles_homeward: u64,
+    /// Cells put back down out of the crop. Read against `ate J`: a colony
+    /// that drops as fast as it picks up is forfeiting every meal, because
+    /// `digesting` is a timer the drop discards -- and `ant.ron` authors
+    /// `(AtNest, Drop, 1.0889)`, so *arriving home* is itself the trigger.
+    drops: u64,
     /// Distinct ants that ever came within `near` of the food -- recruitment.
     visitors: usize,
     /// Distinct ants that ever lived in this run, as the denominator.
@@ -1985,6 +1990,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         blocked: st.moves_blocked,
         tumbles: st.tumbles,
         tumbles_homeward: st.tumbles_homeward,
+        drops: st.drops,
         first_arrival,
         all_dead_frame,
         carry_toward_nest,
@@ -2297,7 +2303,7 @@ fn main() {
                     // positive means it rises toward the NEST, which is §1c's
                     // prediction and the wrong way round for finding food.
                     println!(
-                        "{:>16}own trail: route pk {:>4} end {:>4} along {:>+7.4}  B nest->food [{}]  blocked {:>8}  kin swaps {:>7}  ticks {:>9}  tumbles {:>9} (homeward {:>8}, {:.2}%)",
+                        "{:>16}own trail: route pk {:>4} end {:>4} along {:>+7.4}  B nest->food [{}]  blocked {:>8}  kin swaps {:>7}  ticks {:>9}  tumbles {:>9} (homeward {:>8}, {:.2}%)  drops {:>7}",
                         "",
                         a.peak_cells,
                         a.live_cells,
@@ -2308,7 +2314,8 @@ fn main() {
                         a.ticks,
                         a.tumbles,
                         a.tumbles_homeward,
-                        if a.tumbles == 0 { 0.0 } else { 100.0 * a.tumbles_homeward as f64 / a.tumbles as f64 }
+                        if a.tumbles == 0 { 0.0 } else { 100.0 * a.tumbles_homeward as f64 / a.tumbles as f64 },
+                        a.drops
                     );
                     // **How much of `Carrying` is dig tailings rather than
                     // food.** `Carrying` gates the channel A reader (units 0/1)
