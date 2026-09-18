@@ -4940,6 +4940,34 @@ fn sense(
         // bit-identical.
         inputs[I::Carrying as usize] =
             if spoil_is_cargo() { crop_fill.max(state.spoil.map_or(0.0, |_| 1.0)) } else { crop_fill };
+        // **Food only, and never the pellet** -- see `BrainInput::CarryingFood`.
+        // This is the sensor the homing pair, the food-trail reader and `EmitB`
+        // should always have been reading; `Carrying` stays as it is because
+        // the two `Drop` verbs genuinely want "are my mandibles full of
+        // anything". Deliberately outside the `spoil_is_cargo()` branch: that
+        // switch exists to price the confound on the OLD sensor, and this one
+        // has no confound to price.
+        // **Boolean, not graded, and the arithmetic forces it.** The gated
+        // pair needs three things at once: a deep OFF when empty (`|Bias|` far
+        // above the +-6 `along` term, or an empty ant reads the homing plane),
+        // a near-zero ON when laden (or `along` cannot move it -- §Z7's
+        // saturation bug), and to open on a LITTLE food. With
+        // `on = Bias + gain`, an on-state of +0.5 at `Bias -45` forces
+        // `gain = 45.5` and therefore a threshold of **45/45.5 = 0.989**. The
+        // three are incompatible for a graded sensor, and `MUT_CLAMP` (40)
+        // destroys any large gain on the first birth regardless.
+        //
+        // A graded threshold also cannot be picked to suit: one cell of the
+        // shipped foods is 40, 120, 137, 200, 480, 960 or 1440 J against
+        // `crop_capacity` 1440, so **any** fixed fraction leaves some foods
+        // shut and others open, and a value tuned to the harness's 960 J fruit
+        // is tuned to one larder rather than to the animal.
+        //
+        // So the gate asks the question it actually wants -- *am I carrying
+        // food* -- and the GRADED half ("the fuller I am, the likelier I head
+        // home") lives in `CreatureDef::home_bias`, which reads `crop_fill`
+        // directly. One question per sensor.
+        inputs[I::CarryingFood as usize] = if crop_fill > 0.0 { 1.0 } else { 0.0 };
     }
 
     // **A creature is not crowded by itself**, and it was: this scan

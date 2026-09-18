@@ -136,14 +136,22 @@ impl Gate {
     fn wires(&self) -> Vec<(I, usize, f32)> {
         let carry = self.on - self.off;
         let mut v = Vec::new();
+        // **`CarryingFood`, since 2026-09-18, and this is a correctness fix
+        // rather than a rename.** `ant.ron` re-authored both gated pairs onto
+        // the food-only sensor; a preset still writing `I::Carrying` would put
+        // its twelve numbers into a slot **the gate no longer reads**, leaving
+        // `CarryingFood` at whatever the species file holds. The arm would run,
+        // print its name, and be a no-op on the thing it claims to set -- which
+        // is exactly how `gate=b2` silently re-imposed the old 0.989 threshold
+        // on the first run after the fix and reported `OPEN on 0 of 26,886`.
         for (u, sign) in [(0usize, 1.0f32), (1, -1.0)] {
             v.push((I::Bias, u, self.off));
-            v.push((I::Carrying, u, carry));
+            v.push((I::CarryingFood, u, carry));
             v.push((I::PheroAAlong, u, sign * self.along));
         }
         for (u, sign) in [(2usize, 1.0f32), (3, -1.0)] {
             v.push((I::Bias, u, self.on));
-            v.push((I::Carrying, u, -carry));
+            v.push((I::CarryingFood, u, -carry));
             v.push((I::PheroBAlong, u, sign * self.along));
         }
         v
@@ -1463,7 +1471,12 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let gate_threshold = {
         let g = &genome;
         let bias = g[brain::ih_slot(I::Bias, 0)];
-        let wcarry = g[brain::ih_slot(I::Carrying, 0)];
+        // **`CarryingFood`, since 2026-09-18.** The gate was re-authored onto
+        // the food-only sensor; reading `Carrying` here would find a zero
+        // weight, fall through the `W_EPS` guard and report a threshold of
+        // 0.0 -- a instrument silently answering about a wire that no longer
+        // exists, which is the failure this file has already had twice.
+        let wcarry = g[brain::ih_slot(I::CarryingFood, 0)];
         if wcarry.abs() < brain::W_EPS {
             0.0
         } else {
@@ -1727,7 +1740,8 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 bucket.0 += 1;
                 bucket.1 += p_move;
                 bucket.2 += dx as i64;
-                let carry = tin[I::Carrying as usize];
+                // The gate's own input, not the mandibles-full one.
+                let carry = tin[I::CarryingFood as usize];
                 tr_carry_hist[((carry * 10.0) as usize).min(9)].add(p_move, dx);
                 let open = carry >= gate_threshold;
                 let pooled = if open { &mut tr_open } else { &mut tr_shut };

@@ -715,7 +715,7 @@
         // surface moved for every species on the shared scaffold regardless,
         // exactly as this file's copy of the comment above already says for
         // the append before this one.
-        mutation_rate: 0.0036552,
+        mutation_rate: 0.0035570,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --
@@ -1175,7 +1175,14 @@
             // the old values: total channel A over the *whole world* was
             // 164 after 22,138 ant-moves -- a trail that was, for every
             // practical purpose, not there.
-            (Carrying, EmitB, 2.5),
+            // **`CarryingFood`, not `Carrying` -- 2026-09-18.** Channel B's
+            // only emitter. On the old sensor an ant holding a pellet of dig
+            // tailings laid FOOD-TRAIL pheromone, and it did it where it digs:
+            // the nest. §7.31 measured the consequence -- silencing spoil took
+            // the `self` arm's trail to EXACTLY ZERO in every seed where no ant
+            // reached food, i.e. the whole "trail" was dirt-scent at the
+            // colony's own door.
+            (CarryingFood, EmitB, 2.5),
             // **Everyone leaks nest scent, and what makes it a gradient is
             // now three weights instead of a line of Rust.** `creature_tick`
             // used to multiply this output by `1 - since_nest /
@@ -1790,19 +1797,54 @@
             // deletion is lawful; shipping it already deleted was not.
             (AtNest,      4,   0.05),
 
-            (Bias,        0, -45.0),
-            (Carrying,    0,  45.5),
-            (PheroAAlong, 0,   6.0),
-            (Bias,        1, -45.0),
-            (Carrying,    1,  45.5),
-            (PheroAAlong, 1,  -6.0),
-            // units 2,3 -- channel B along the heading, gated ON an empty one
-            (Bias,        2,  45.0),
-            (Carrying,    2, -75.0),
-            (PheroBAlong, 2,   6.0),
-            (Bias,        3,  45.0),
-            (Carrying,    3, -75.0),
-            (PheroBAlong, 3,  -6.0),
+            // **Both pairs read `CarryingFood`, not `Carrying`, and the
+            // threshold moved off 0.989 -- 2026-09-18.** Two faults in one
+            // authoring, and together they left the modal laden ant BLIND TO
+            // BOTH CHANNELS:
+            //
+            //   one fruit cell = 960 J / crop_capacity 1440 = 0.667
+            //   units 0/1 opened at 45/45.5   = 0.989  -> shut at 0.667
+            //   units 2/3 closed at 45/75     = 0.600  -> shut at 0.667
+            //
+            // so an ant carrying one item could neither read the homing plane
+            // nor follow the food trail. Measured: the homing gate was OPEN on
+            // **1.84% of 570,660 laden decisions**, and 47.4% of those opens
+            // were ants holding SPOIL rather than food, because `Carrying` is
+            // `crop_fill.max(spoil ? 1.0 : 0.0)`.
+            // (`Reports/pheromone-trail-direction-2026-09-16.md` §7.22/§7.24.)
+            //
+            // **The threshold is not a tuning judgement.** §7.23 prices one
+            // fruit cell at 5-17 round trips over a 90-cell gap (960 J against
+            // a 56 J round trip), so the correct gate is just above zero and
+            // the margin is an order of magnitude. -15.0 puts it at
+            // 15/45.5 = **0.33**, and `crop_fill` is quantised to {0, 0.667,
+            // 1.0} by whole cells, so 0.33 has margin on both sides.
+            //
+            // **The 45.5 magnitude is kept on purpose**: at fill 0 the sum is
+            // still -15, so the unit stays a hard conditional rather than
+            // becoming a soft slope that steers an empty ant homeward while it
+            // should be searching. That was §7.23's stated objection to a
+            // shallower gate and it is answered by moving the bias, not the
+            // gain.
+            (Bias,            0, -45.0),
+            (CarryingFood,    0,  45.5),
+            (PheroAAlong,     0,   6.0),
+            (Bias,            1, -45.0),
+            (CarryingFood,    1,  45.5),
+            (PheroAAlong,     1,  -6.0),
+            // units 2,3 -- channel B along the heading, gated ON an empty one.
+            // **Bias stays at +45**: shutting the food-trail reader once an ant
+            // is laden is intended -- it should be going home, not recruiting.
+            // The sensor change fixes a separate silent fault here, though: on
+            // `Carrying` an ant holding only DIRT read 1.0 and was locked out
+            // of the food trail entirely. On `CarryingFood` it reads 0 and can
+            // follow it again.
+            (Bias,            2,  45.0),
+            (CarryingFood,    2, -75.0),
+            (PheroBAlong,     2,   6.0),
+            (Bias,            3,  45.0),
+            (CarryingFood,    3, -75.0),
+            (PheroBAlong,     3,  -6.0),
 
             // units 5,6 -- room at the nest, gated ON standing at the nest,
             // driving Dig.
