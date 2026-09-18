@@ -671,7 +671,25 @@ struct Arm {
     /// that drops as fast as it picks up is forfeiting every meal, because
     /// `digesting` is a timer the drop discards -- and `ant.ron` authors
     /// `(AtNest, Drop, 1.0889)`, so *arriving home* is itself the trigger.
+    ///
+    /// **That "the drop discards it" is what `digest_parked` below repairs**,
+    /// and the pair is here rather than only in the engine because this
+    /// harness is where the claim gets quoted. §7.36's numbers for the
+    /// mechanism -- a forager 21 cells further home, dying with an empty crop
+    /// -- are downstream evidence, and a mechanism with no counter is one
+    /// nobody can prove ran.
     drops: u64,
+    /// **Remainders parked when the last cell left the crop**, and the ones a
+    /// later bite of the same material resumed, with what they were worth.
+    ///
+    /// Read as a chain: `drops` is the opportunity, `digest_parked` is the
+    /// mechanism firing, `digest_resumed` is it paying off, and
+    /// `digest_resumed_face` is how much. Parked-without-resumed is a
+    /// remainder that expired unused -- the mechanism ran and bought nothing,
+    /// which reads identically to working code in every other number here.
+    digest_parked: u64,
+    digest_resumed: u64,
+    digest_resumed_face: f64,
     /// Distinct ants that ever came within `near` of the food -- recruitment.
     visitors: usize,
     /// Distinct ants that ever lived in this run, as the denominator.
@@ -1803,7 +1821,21 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 }
                 if focal == Some(id) {
                     focal_rows.push(format!(
-                        "{f},{hx},{dx},{along:.5},{:.5},{:.4},{:.4},{},{},{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.5},{:.5},{:.5},{:.5},{:.5},{:.5},{p_move:.5},{:.5},{trail:.5},{presquash:.5},{:.5},{:.5},{:.5}",
+                        "{f},{hx},{dx},{},{},{along:.5},{:.5},{:.4},{:.4},{},{},{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.5},{:.5},{:.5},{:.5},{:.5},{:.5},{p_move:.5},{:.5},{trail:.5},{presquash:.5},{:.5},{:.5},{:.5}",
+                        // **Where this ant thinks home is, and how stale that
+                        // is** -- `OrganismState::forage_anchor` / `since_nest`.
+                        //
+                        // Here because `home_bias` aims the tumble at the
+                        // ANCHOR, not at the nest, and the two are only the
+                        // same cell for an ant that has touched nest material.
+                        // A founder is placed where the harness spreads it and
+                        // anchors *there* at birth, so without this column a
+                        // laden ant walking confidently to the wrong place is
+                        // indistinguishable from one that will not steer at
+                        // all -- and `tumbles_homeward` reads the same either
+                        // way, because the aim fired correctly both times.
+                        s.forage_anchor.0,
+                        s.since_nest,
                         tin[I::PheroAFront as usize],
                         tin[I::Carrying as usize],
                         // **`CarryingFood` is the column that decides the gate**
@@ -2124,7 +2156,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         if !focal_rows.is_empty() {
             let path = format!("/tmp/trailfollow-focal-seed{seed}-gap{gap}.csv");
             let mut out = String::from(
-                "frame,x,dx_home,PheroAAlong,PheroAFront,Carrying,CarryingFood,crop_cells,spoil,heading,Energy,Crowding,AtNest,FoodAdjacent,Stillness,h0,h1,PheroBAlong,PheroBFront,h2,h3,p_move,p_tumble,trail_term,move_presquash,drop_urge,MoistureGrad,SurfaceCurvature\n",
+                "frame,x,dx_home,anchor_x,since_nest,PheroAAlong,PheroAFront,Carrying,CarryingFood,crop_cells,spoil,heading,Energy,Crowding,AtNest,FoodAdjacent,Stillness,h0,h1,PheroBAlong,PheroBFront,h2,h3,p_move,p_tumble,trail_term,move_presquash,drop_urge,MoistureGrad,SurfaceCurvature\n",
             );
             out.push_str(&focal_rows.join("\n"));
             out.push('\n');
@@ -2184,6 +2216,9 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         tumbles: st.tumbles,
         tumbles_homeward: st.tumbles_homeward,
         drops: st.drops,
+        digest_parked: st.digest_parked,
+        digest_resumed: st.digest_resumed,
+        digest_resumed_face: st.digest_resumed_face,
         first_arrival,
         all_dead_frame,
         carry_toward_nest,
@@ -2524,7 +2559,7 @@ fn main() {
                     // positive means it rises toward the NEST, which is §1c's
                     // prediction and the wrong way round for finding food.
                     println!(
-                        "{:>16}own trail: route pk {:>4} end {:>4} along {:>+7.4}  B nest->food [{}]  blocked {:>8}  kin swaps {:>7}  ticks {:>9}  tumbles {:>9} (homeward {:>8}, {:.2}%)  drops {:>7}",
+                        "{:>16}own trail: route pk {:>4} end {:>4} along {:>+7.4}  B nest->food [{}]  blocked {:>8}  kin swaps {:>7}  ticks {:>9}  tumbles {:>9} (homeward {:>8}, {:.2}%)  drops {:>7}  chew parked {:>6} resumed {:>6} ({:>9.0} J)",
                         "",
                         a.peak_cells,
                         a.live_cells,
@@ -2536,7 +2571,10 @@ fn main() {
                         a.tumbles,
                         a.tumbles_homeward,
                         if a.tumbles == 0 { 0.0 } else { 100.0 * a.tumbles_homeward as f64 / a.tumbles as f64 },
-                        a.drops
+                        a.drops,
+                        a.digest_parked,
+                        a.digest_resumed,
+                        a.digest_resumed_face
                     );
                     // **How much of `Carrying` is dig tailings rather than
                     // food.** `Carrying` gates the channel A reader (units 0/1)

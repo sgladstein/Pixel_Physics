@@ -3932,6 +3932,219 @@ nothing. §7.34's wall stands: carrying and eating are one act, so even a
 successful carry starves the carrier unless it can digest on the move or deliver
 into something.
 
+## §7.36 Digestion survives a drop, and the journey gets 21 cells longer
+
+**2026-09-18.** Two steps, measured separately, both on the owner's instruction
+(*"do curvature and moisture and then crop change"*).
+
+### Step 1 — `Drop` stops reading the terrain
+
+`(SurfaceCurvature, Drop, 0.169)` and `(MoistureGrad, Drop, 0.169)` removed;
+**both kept on `DropSpoil`**, where the construction argument holds. Same ant,
+same seed, same bed:
+
+| | terrain drops on | removed |
+|---|---|---|
+| pickups / losses | 17 / 16 | **2 / 1** |
+| mean hold | 104 ticks | **1,464** |
+| longest hold | 570 | 1,740 |
+| digestions | 2 | **32** |
+| ticks lived | 8,891 | 16,985 |
+| died at x (nest 48) | 102 | 91 |
+
+Mean hold goes to **five times** the 291 ticks one 960 J cell needs, and the ant
+eats sixteen times more often.
+
+### Step 2 — the digestion timer survives an empty crop
+
+`Crop::digesting` was already carried across a drop by the `..c` update *while
+cells remained*. **The loss was only ever at `left == 0`**, where the whole struct
+goes `None` — "remainder and all" — and the progress dies with it.
+
+That choice is right and stays: `crop.is_some()` must mean *is carrying*, and a
+timer on an empty stomach once had `ascii` reporting 18 ants carrying when none
+held a cell. So the timer gets a home outside the crop:
+**`OrganismState::digest_carry: Option<(MaterialId, f32)>`**, parked when the last
+cell leaves (by drop *or* by absorption) and resumed on the next ingest **of the
+same material** — different material starts fresh, because the two have different
+`unit` and crediting one against the other would mint joules.
+
+| | before | after |
+|---|---|---|
+| x range (nest 48, food 138) | 84–133 | **63–131** |
+| ticks lived | 16,985 | 17,819 |
+| energy rises | 32 | 29 |
+| died | x 91, **holding a cell** | x 81, **crop empty** |
+
+**The westward reach improves by 21 cells** — 84 → 63, against a nest at 48. The
+forager now gets three quarters of the way home, and dies empty rather than
+starving on top of its own dinner.
+
+### Colony level, and it is still six seeds
+
+| gap | step 1 | step 2 |
+|---|---|---|
+| 90 | 2/6 alive, 4 trips | 1/6 alive, **5 trips** |
+| 140 | 0/6 | 0/6 |
+| 200 | 0/6 | 0/6 |
+
+Survivors move the wrong way and trips the right way, by one each, on six seeds
+of a bed whose per-seed spread runs three orders of magnitude. **That is not a
+result in either direction and is not offered as one.** The per-tick numbers are.
+
+### The counter this section asked for, and what it retracts
+
+The paragraph that stood here said there was no "did it fire" counter for
+`digest_carry`, that the 21-cell improvement was indirect evidence, and that the
+counter should be built **before** these numbers were quoted as the mechanism's.
+It has been built — `CreatureStats::digest_parked` / `digest_resumed` /
+`digest_resumed_face`, printed by `trailfollow` as `chew parked / resumed (J)` —
+and it does not support the attribution.
+
+Same command, six seeds, `hand` arm:
+
+| gap 90, seed | parked | resumed | resumed J | **J per resume** |
+|---|---|---|---|---|
+| 1 | 19 | 14 | 12 | **0.86** |
+| 2 | 13 | 6 | 8 | **1.3** |
+
+**A fruit cell is 960 J and takes 291 ticks.** The mechanism is moving **under
+one joule** per resume — about a quarter of one tick of chewing, against a cell
+that needs 291. Colony-wide over 24,000 frames it transfers **12 J**. That cannot
+move a forager 21 cells, and the headline above is therefore a sample from the
+distribution, not the mechanism: `digest_carry` changes the tick on which a cell
+finishes absorbing, one changed decision tick makes a different world, and
+`CLAUDE.md` is explicit that a single run against a remembered number is not a
+comparison. **The 84→63 row is withdrawn as evidence for step 2.** The code is
+still correct and still lands; what is withdrawn is the claim that it is what
+moved the ant.
+
+**Why it is worth so little here is the interesting half, and it is step 1's
+doing.** There are two parking sites and only one of them carries real money:
+
+- the **drop** site forfeits up to 290 ticks of chewing, and it is the site the
+  17-pickups-2-meals disaster of §7.34 was made of;
+- the **absorb** site parks `matured - c.unit`, the overshoot in the tick that
+  crosses the threshold. That is bounded by *one tick's increment* by
+  construction — it can never be more, whatever the cell is worth. At 3.3 J per
+  tick a mean of 0.86 J is exactly what it should read.
+
+Every joule in the table above is the absorb site. The drop site fired **zero
+times**: `drops 0` on every seed, because step 1 took `Drop` off the terrain and
+`(AtNest, Drop, 1.0889)` — the other trigger — needs an ant to *reach the nest
+carrying*, which none does. **Step 1 had already closed the hole step 2 was built
+for.** `digest_carry` is insurance against a loss that stopped happening one
+commit earlier, and its value reappears the moment ants start arriving home
+laden, which is the whole point of the exercise.
+
+This is the shape `CLAUDE.md` names twice over: an "it fired" counter paired with
+an effect counter from the far side of the call, and the effect counter saying
+the mechanism fires constantly and feeds nobody. `digest_resumed` alone reads 14
+and looks like a working mechanism; only the joules say otherwise.
+
+### What is honestly not established
+
+The loop still does not close: no seed at gap 140 or 200 has ever produced a
+colony, and the forager still dies short of the nest. **Step 1 is the step that
+is carrying the per-tick numbers** — mean hold 104 → 1,464 ticks, 2 → 32
+digestions — and step 2 is a correctness fix whose measurable value in this bed
+is 12 J.
+
+## §7.37 The ants home correctly, to the wrong place
+
+**2026-09-18.** The return leg does not fail because the ant will not steer. It
+fails because **`home_bias` aims at `forage_anchor`, and for almost every ant in
+this bed the anchor is its own birth cell rather than the nest.**
+
+### The measurement
+
+Focal ant, seed 2, gap 90, `hand` arm, `homebias=1` — the same ant §7.36 traced,
+with two columns added to the per-tick CSV (`anchor_x`, `since_nest`):
+
+| `forage_anchor.x` | ticks |
+|---|---|
+| **84** | **17,447** |
+| 70..63 (walking the nest band) | 372 |
+
+**98% of its life anchored at x 84.** It was born there. The nest is at x 48 by
+the harness's own header, and the ant reached nest material for the first time at
+frame **17,448 of 17,819** — 371 frames before it starved.
+
+And the nest is not at 48 either. `BrainInput::AtNest` is `adjacent_nest`, a
+plain 8-neighbour read of nest material, so the rows where it fires say exactly
+where the nest is:
+
+| x | 63 | 64 | 65 | 66 | 67 | 68 | 69 | 70 |
+|---|---|---|---|---|---|---|---|---|
+| ticks with `AtNest > 0` | 24 | 36 | 12 | 12 | 18 | 18 | 18 | 6 |
+
+**The nest is an eight-cell band at x 63–70.** `nest_x = 48` is the founding
+cursor, not the material. The ant spent 1,290 ticks at x 87 and never once read
+`AtNest > 0` there, so there is no nest within a cell of where it was born.
+
+### Why
+
+`creature.rs`'s birth block sets the anchor unconditionally:
+
+```rust
+// Starts *at* the nest as far as scent goes: an ant that has just
+// hatched has, by construction, just been at home.
+state.since_nest = 0;
+state.forage_anchor = (x, y);
+```
+
+That is right for a *hatched* ant — an egg is laid in the nest, so its birth cell
+is a nest cell. It is **false for a founder**, which `World::colony_stations`
+lays in a band about `ants * 4` wide so that twenty bodies do not stack into
+eight cells. `trailfollow` already prints the band (`founded x 12..88`) and its
+own doc comment already warns that *"`gap=` is the NEST-to-food distance, and the
+ants are not at the nest."* What nobody had followed through is the consequence
+for the anchor: **a colony of twenty has up to twenty different "homes", and only
+the handful standing on x 63–70 have the real one.**
+
+So the forager picks up food at x 138, `home_bias` fires, `home_weighted_pick`
+scores the eight viable headings against the vector to (84, y) — and walks
+*east*, away from the nest, with the mechanism working perfectly. §7.36's x range
+of 84–133 is not an ant that fell short of home. **It is an ant that arrived.**
+
+### What this says about the counter
+
+`CreatureStats::tumbles_homeward` read 1,150 of 15,291 tumbles on this seed and
+every one of them was a correct aim at a wrong target. That is the sharpest case
+yet for `CLAUDE.md`'s pairing rule, and it defeats the pairing as it stands: the
+"it fired" counter and the `P(home)` effect counter beside it **both** report a
+working mechanism, because the aim fired and the body moved the way it was aimed.
+Nothing in the aggregate could see it. Only the per-tick trace could, and only
+once it carried the anchor — which is the owner's own method, *make the test as
+simple as possible and measure each ant's decision at each tick and why*.
+
+### Two instrument repairs made here
+
+- **`anchor_x` and `since_nest` are now columns in the focal CSV.** Without them
+  a laden ant walking confidently to the wrong place and one that will not steer
+  at all produce identical rows.
+- **Every arm of a `trace` run wrote the same file.** `mode=gap` writes
+  `/tmp/trailfollow-focal-seed{seed}-gap{gap}.csv` once per arm, so a four-arm
+  run leaves only the *last* arm's ant on disk while announcing four traces. The
+  17,819-row `hand` trace was silently replaced by a 10,085-row `mute` one, and
+  the two look equally plausible. Run one arm at a time until the path carries
+  the arm name.
+
+### What has not been decided
+
+The fix is a fork and both halves are defensible:
+
+- **Put the founders on the nest**, so the birth rule's assumption is true. That
+  is what the experiment is meant to model — ants that hatched at home — and it
+  needs either a wider nest band under the founder spread or a narrower spread.
+- **Do not anchor an ant that was not born on nest material.** Honest, and it
+  costs the experiment: an ant with no anchor never homes, so no founder would
+  ever return and the loop could not be demonstrated at all until brood hatch.
+
+These are not equivalent, and the second is the more correct engine rule while
+the first is the one that lets the bed answer the question it was built for.
+Measure before choosing.
+
 ## Instruments
 
 - `examples/onetrail.rs` — `mode=arith` (shipped genome, nothing overridden),

@@ -5860,6 +5860,29 @@ pub struct OrganismState {
     /// before the mechanism that renders it" order `CLAUDE.md`'s debug-
     /// readout rule asks for.
     pub last_share_frame: u64,
+    /// **Digestion progress that survives an empty crop**, with the material
+    /// it belongs to. `None` when there is nothing part-chewed.
+    ///
+    /// **Why this is not simply left in `Crop`.** `Crop::digesting` is carried
+    /// across a drop by the `..c` update *while cells remain* — but when the
+    /// last cell goes the whole struct becomes `None`, "remainder and all",
+    /// and the progress dies with it. That choice is deliberate and right:
+    /// `crop.is_some()` has to mean *is carrying*, and a maturing timer on an
+    /// empty stomach once made it mean *has eaten recently*, which had `ascii`
+    /// reporting 18 ants carrying when none held a cell. So the timer needs a
+    /// home outside the crop rather than a zero-cell crop.
+    ///
+    /// **What it costs to leave it broken**, measured per tick on one forager
+    /// (`pheromone-trail-direction-2026-09-16.md` §7.34): 17 pickups, 2
+    /// digestions, and a death by starvation holding a full cell. One 960 J
+    /// cell needs **291 ticks** to absorb, and every put-down before then
+    /// forfeited *the progress and the meal*. A forager that commits to a
+    /// journey is exactly the animal that keeps being interrupted.
+    ///
+    /// **The material is stored with it** so progress on a leaf cannot be
+    /// spent on a corpse — the two have different `unit`, and crediting one
+    /// against the other would mint joules.
+    pub digest_carry: Option<(super::material::MaterialId, f32)>,
     /// Ticks since this creature last touched nest material.
     ///
     /// **This is how an ant finds its way home without ever asking where

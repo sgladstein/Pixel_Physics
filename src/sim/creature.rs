@@ -4563,7 +4563,18 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
                 // measure. It cannot be gamed by dropping just before
                 // maturity either: that forfeits the progress *and* the meal,
                 // which is starvation rather than an exploit.
-                state.crop = (left > 0).then_some(Crop { cells: left, digesting: matured - c.unit, ..c });
+                // **The remainder is parked, not discarded** -- see
+                // `OrganismState::digest_carry`. The comment above is still
+                // right that an EMPTY CROP must be `None`; what changed is
+                // where the timer lives when there is no crop to hold it.
+                let remainder = matured - c.unit;
+                state.crop = (left > 0).then_some(Crop { cells: left, digesting: remainder, ..c });
+                if left == 0 && remainder > 0.0 {
+                    state.digest_carry = Some((c.material, remainder));
+                    world.creature_stats.digest_parked += 1;
+                } else if left == 0 {
+                    state.digest_carry = None;
+                }
             }
             // **The owner's rule, 2026-09-11: "where should the seed drop
             // when a creature picks up food -- it should drop where it is
@@ -8138,7 +8149,24 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // gut-filtered value would look like matter vanishing.
                 // The gut is applied when the food is absorbed, not when
                 // it is swallowed.
+                // **What a resume was worth**, hoisted out because
+                // `organism_mut` holds `world` and the counter lives on it.
+                // 0.0 for every pickup that did not resume anything, which is
+                // what `digest_resumed` must not count -- see its doc comment.
+                let mut resumed_face = 0.0f64;
                 if let Some(state) = world.organism_mut(organism) {
+                    // **Resume whatever was parked for this material**, and
+                    // only onto an empty crop: a crop with cells already
+                    // carries its own `digesting` through `..c` below, and
+                    // adding a parked remainder on top would credit it twice.
+                    // Different material means start fresh -- the two have
+                    // different `unit`, and crediting one against the other
+                    // would mint joules.
+                    let resumed = match (state.crop, state.digest_carry) {
+                        (None, Some((m, d))) if m == food => d.min(worth),
+                        _ => 0.0,
+                    };
+                    resumed_face = resumed as f64;
                     state.crop = Some(match state.crop {
                         // **`unit` takes the min, not the last.** Corpses
                         // carry per-cell worth in `aux`, so a crop filled
@@ -8152,8 +8180,20 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                         // `Some` given the guard above (`passenger` is only
                         // ever computed when `c.passenger` was `None`).
                         Some(c) => Crop { cells: c.cells.saturating_add(1), unit: c.unit.min(worth), passenger: c.passenger.or(passenger), ..c },
-                        None => Crop { material: food, shade, unit: worth, cells: 1, digesting: 0.0, passenger },
+                        None => Crop {
+                            material: food,
+                            shade,
+                            unit: worth,
+                            cells: 1,
+                            digesting: resumed,
+                            passenger,
+                        },
                     });
+                    state.digest_carry = None;
+                }
+                if resumed_face > 0.0 {
+                    world.creature_stats.digest_resumed += 1;
+                    world.creature_stats.digest_resumed_face += resumed_face;
                 }
                 world.creature_stats.pickups += 1;
                 // `bites` mirrors `pickups` and never `eats` -- see
@@ -8275,6 +8315,9 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     } else {
                         world.set(dx, dy, unit.into_cell(world));
                     }
+                    // Same hoist as the pickup site: `organism_mut` holds
+                    // `world`, and `digest_parked` lives on it.
+                    let mut parked = false;
                     if let Some(state) = world.organism_mut(organism) {
                         // The cell leaves whole; the maturing remainder stays,
                         // because it is progress toward eating the *next* one
@@ -8282,10 +8325,27 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                         // `passenger: None` unconditionally: either it was
                         // already empty, or it was just delivered above and
                         // must not be popped a second time by a later drop.
+                        let mut carry_over = None;
                         state.crop = state.crop.and_then(|c| {
                             let left = c.cells.saturating_sub(1);
+                            // **Putting the last cell down no longer forfeits
+                            // the chewing.** `..c` already carried `digesting`
+                            // across a drop while cells remained; the loss was
+                            // only ever at `left == 0`, where the whole struct
+                            // went `None`. Measured cost of that edge:
+                            // 17 pickups and 2 meals on one forager (§7.34).
+                            if left == 0 && c.digesting > 0.0 {
+                                carry_over = Some((c.material, c.digesting));
+                            }
                             (left > 0).then_some(Crop { cells: left, passenger: None, ..c })
                         });
+                        if let Some(cc) = carry_over {
+                            state.digest_carry = Some(cc);
+                            parked = true;
+                        }
+                    }
+                    if parked {
+                        world.creature_stats.digest_parked += 1;
                     }
                     world.creature_stats.drops += 1;
                     if at_nest {
