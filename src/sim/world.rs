@@ -1258,6 +1258,22 @@ pub struct CreatureStats {
     /// gradient, and the ratio against `moves` is the readout on whether
     /// the colony is searching or commuting.
     pub tumbles: u64,
+    /// **Of those, the ones `CreatureDef::home_bias` aimed at the nest** — the
+    /// "did it fire at all" counter for the fill-weighted re-roll.
+    ///
+    /// It exists because the mechanism is invisible in every aggregate this
+    /// engine already prints: a homeward tumble and a lucky uniform one put
+    /// the body in the same cell, and `CLAUDE.md`'s worked case for that is a
+    /// collapse that rendered as working chunks while the feature had never
+    /// once executed. Read it against `tumbles`: at `home_bias: 0.0` it is
+    /// exactly 0, and a run where it stays 0 with the field authored is a
+    /// wiring fault, not a weak effect.
+    ///
+    /// Paired with the far side of the call the way the timing rules ask —
+    /// this counts the *aim*, and `trailfollow`'s `P(home)` per crop-fill bin
+    /// counts what came of it. An aim counter alone cannot tell "steered home"
+    /// from "steered home and blocked".
+    pub tumbles_homeward: u64,
     pub falls: u64,
     /// **Launches — the `BrainOutput::Impulse` verb firing.** The "did it
     /// happen at all" counter `CLAUDE.md` demands beside any picture of a
