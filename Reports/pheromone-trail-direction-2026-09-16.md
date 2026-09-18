@@ -2503,6 +2503,78 @@ The trace needs a `spoil` column and a re-run at `SPOIL_IS_CARGO=0` **before**
 the rescale — if the gate-open count collapses, the shipped homing circuit is
 open only for ants carrying dirt.
 
+## §7.24 Half the open gate is dirt — and opening it six times wider buys nothing
+
+**2026-09-18.** §7.23 named the spoil confound as the first thing to check
+before rescaling the gate. It is real, **my prediction about it was wrong in an
+instructive direction**, and the correction is the more useful half.
+
+`trailfollow ... arms=hand seeds=6 ... trace`, run at the shipped default and at
+`SPOIL_IS_CARGO=0`. Archived at
+[`spoil-confound-on-6seed-2026-09-18.log`](data/spoil-confound-on-6seed-2026-09-18.log)
+and [`-off-`](data/spoil-confound-off-6seed-2026-09-18.log).
+
+### The confound is real: 47.4%
+
+On the shipped build, of the gate-open decisions on seed 1, **4,978 of 10,509 —
+47.4% — are ants that are also holding spoil.** Every ant counted is carrying
+larder (the trace's own condition), so nearly half of the homing circuit's
+already-tiny availability is owed to **dig tailings the ant happens to be
+carrying as well**, not to its food. `Carrying` is
+`crop_fill.max(spoil ? 1.0 : 0.0)`, and one pellet of dirt reads 1.0 where one
+fruit reads 0.667.
+
+### The prediction was that turning it off would collapse the open gate. It did the opposite
+
+| | colonies | ate J (med) | carry@nest | trips | **gate open** |
+|---|---|---|---|---|---|
+| `SPOIL_IS_CARGO` ON (shipped) | 4/6 | 434,069 | **1,536** | **5** | 26,157 / 2,164,119 — **1.21%** |
+| `SPOIL_IS_CARGO=0` | 3/6 | 501,585 | **1,029** | **3** | 132,926 / 1,869,727 — **7.11%** |
+
+**The gate opens 5.9x more often with the confound removed, not less.** The two
+runs are different worlds — the switch is a behaviour change, so trajectories
+diverge — and the mechanism is visible in the shipped comment at the `Carrying`
+fill site: `ant.ron` authors `(Carrying, Drop, 0.2)` as its whole away-from-nest
+putting-down rule, so when dirt reads as cargo the `Drop` gene fires on dirt and
+ants put things down more. With spoil silenced they hold on, accumulate a second
+food cell, and `crop_fill` clamps to 1.0 honestly.
+
+### And that is the finding: more open gate is not more delivery
+
+**`carry@nest` 1,536 → 1,029 and `trips` 5 → 3**, against a **5.9x** rise in how
+often the homing circuit is available. Per seed it scrambles rather than trends
+(1212→78, 0→0, 0→587, 60→276, 264→88, 0→0), which is what six seeds of a chaotic
+bed look like; the honest statement is **no detectable improvement, and
+emphatically not the 6x that the availability change might have suggested.**
+
+**This independently replicates §7.14 from a different instrument.** That section
+found cargo sensing to be a real defect on *exploration* with **no effect on
+transport**; this reaches the same verdict through the decision trace rather than
+through a 50-seed replication.
+
+### What it means for §7.23's plan, and it is a caution
+
+**Gate-open frequency is not the binding constraint on its own.** Going from
+1.2% to 7.1% availability moved nothing that matters. So **the rescale (step 3)
+should be expected to buy little by itself**, because it does the same thing by
+a different route — it makes the gate reachable, it does not make an ant commit.
+
+That is evidence *for* the owner's latch argument rather than against it: the
+prediction "availability up, outcome flat" is exactly what "a uniformly
+half-hearted colony is not the same as committed commuters" says should happen.
+It is weak evidence — 6 seeds, tiny counts — but it points the same way.
+
+**Revised expectation for the next session:** run the rescale sweep as planned,
+but do **not** read a null there as "the gate was not the problem". Read it as
+"availability alone is not sufficient", and go on to the latch
+(`hh_slot(0)`/`hh_slot(1)`) which is the part that changes the *shape* of the
+population rather than the *fraction* of time the circuit is live.
+
+**Not yet answered:** whether `SPOIL_IS_CARGO=0` should ship anyway. It removes a
+sensor that lies, and its cost here is inside the noise — but the `Drop`
+behaviour it changes is the reason it was left on, and that trade has not been
+measured on the lab bed where digging matters.
+
 ## Instruments
 
 - `examples/onetrail.rs` — `mode=arith` (shipped genome, nothing overridden),

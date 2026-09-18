@@ -1269,6 +1269,15 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // `ant.ron` retunes the gate.
     let mut tr_carry_hist = [0u64; 10];
     let mut tr_gate_open = 0u64;
+    // **Of the gate-open decisions, how many are an ant holding DIRT.**
+    // `SPOIL_IS_CARGO` is a measurement switch (default ON) rather than the
+    // food/spoil split the roadmap remembers, so `Carrying` is
+    // `crop_fill.max(spoil ? 1.0 : 0.0)`: an ant with a pellet of dig tailings
+    // reads **1.0 and opens the homing gate**, while an ant with one food item
+    // reads 0.667 and does not. Every ant counted here is carrying larder --
+    // the trace's own condition -- so this is the share of the open gate that
+    // is owed to spoil the ant happens to be holding as well.
+    let mut tr_gate_open_spoil = 0u64;
     let gate_threshold = {
         let g = &genome;
         let bias = g[brain::ih_slot(I::Bias, 0)];
@@ -1532,6 +1541,9 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 tr_carry_hist[((carry * 10.0) as usize).min(9)] += 1;
                 if carry >= gate_threshold {
                     tr_gate_open += 1;
+                    if s.spoil.is_some() {
+                        tr_gate_open_spoil += 1;
+                    }
                     if along > 1e-3 {
                         tr_up_open.0 += 1;
                         tr_up_open.1 += p_move;
@@ -1544,9 +1556,10 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 }
                 if focal == Some(id) {
                     focal_rows.push(format!(
-                        "{f},{hx},{dx},{along:.5},{:.5},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.5},{:.5},{p_move:.5},{trail:.5},{presquash:.5}",
+                        "{f},{hx},{dx},{along:.5},{:.5},{:.4},{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.5},{:.5},{p_move:.5},{trail:.5},{presquash:.5}",
                         tin[I::PheroAFront as usize],
                         tin[I::Carrying as usize],
+                        u8::from(s.spoil.is_some()),
                         tin[I::Energy as usize],
                         tin[I::Crowding as usize],
                         tin[I::AtNest as usize],
@@ -1758,6 +1771,12 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     println!("         (positive cells-homeward means the ramp the colony built points at the NEST)");
                 }
             }
+            if tr_gate_open > 0 {
+                println!(
+                    "    TRACE of the {tr_gate_open} gate-open decisions, {tr_gate_open_spoil} ({:.1}%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`",
+                    100.0 * tr_gate_open_spoil as f64 / tr_gate_open as f64
+                );
+            }
             print!("    TRACE Carrying histogram (0..1 in tenths):");
             for (i, c) in tr_carry_hist.iter().enumerate() {
                 if *c > 0 {
@@ -1783,7 +1802,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         if !focal_rows.is_empty() {
             let path = format!("/tmp/trailfollow-focal-seed{seed}-gap{gap}.csv");
             let mut out = String::from(
-                "frame,x,dx_home,PheroAAlong,PheroAFront,Carrying,Energy,Crowding,AtNest,FoodAdjacent,Stillness,h0,h1,p_move,trail_term,move_presquash\n",
+                "frame,x,dx_home,PheroAAlong,PheroAFront,Carrying,spoil,Energy,Crowding,AtNest,FoodAdjacent,Stillness,h0,h1,p_move,trail_term,move_presquash\n",
             );
             out.push_str(&focal_rows.join("\n"));
             out.push('\n');
