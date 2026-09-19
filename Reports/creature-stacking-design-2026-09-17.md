@@ -822,7 +822,54 @@ grid-disowned question and the new tests ask the other one.
   red; `corpse_worth_suppressed` is the named figure to subtract by hand, which
   is what §10 says it is for.
 
-### 11f. Bit-identicality at cap 1, measured
+### 11f. Frame cost, paired and read honestly
+
+`CLAUDE.md` makes frame cost a hard constraint rather than a tiebreaker and
+names `examples/ascii` as the number to quote. The change adds work to the
+creature tick, so the figure to read is that example's **creature** scene: the
+whole frame with 366 live organisms over 12,000 frames. Four alternating pairs
+on an otherwise idle box:
+
+| | mean | spread |
+|---|---|---|
+| `main` | **0.976 ms** | 0.966-0.997 |
+| this branch | **0.983 ms** | 0.975-0.993 |
+
+Paired deltas `-0.004 / +0.007 / +0.011 / +0.015` ms, mean **+0.007 ms
+(+0.74%)**, branch higher in 3 of 4.
+
+**That reads as no measurable cost, not as a measured +0.7%, and both reasons
+cut the same way.** The effect is a quarter of `main`'s own within-arm spread
+(0.031 ms), and the pairs are **not order-randomised** -- `main` runs first in
+every pair, so a box that warms across the sequence biases the difference in
+exactly this direction, which is what the monotone `+0.007 / +0.011 / +0.015`
+tail looks like. Recorded with the confound named rather than cleaned up,
+because the honest reading of a 0.7% difference against a 3% spread is that the
+instrument cannot see it.
+
+The mechanism agrees: ~9 sparse-index lookups per body cell per creature tick,
+on a path that already does eight `World::get` and eight `diet_yield` per body
+cell, and at the shipped cap the index is empty so each lookup is a length
+check.
+
+**The worst-frame column is not quotable here, and says so itself.**
+`mean x frames` does not pin it -- 0.97 against 7-32 -- which by this repo's own
+arithmetic test makes it an order statistic over many similar frames rather than
+a cost. `main`'s four runs bear it out, spanning **7.022 to 31.561 ms** on a
+byte-identical binary.
+
+**And the case that nearly went out as a regression**, kept because the
+misreading is the lesson: `acceptance.sh`'s `lavadrop` failed at **87.33 ms**
+against its 60 ms budget on the first run -- taken with the full test suite
+running on the same box. Quiet, the same case reads **2.86 ms** (spread
+2.86-3.11). A **30x** swing from machine state alone, on an unchanged binary, in
+a gate that fails loudly. `Reports/open-bugs-handoff.md` §T1d already records
+this exact shape and has `main` over the bar at 74.96 ms on an idle box, so the
+case is flaky either way; `lavadrop` builds no creature and every change here is
+on the creature tick, so it could not have been this branch. The reasoning was
+right and the reading was still the contention.
+
+### 11g. Bit-identicality at cap 1, measured
 
 The whole feature's claim, re-checked because four of these changes touch shared
 paths. Crowded bed, cap 1, 3,000 frames, digest over every cell's material, id
