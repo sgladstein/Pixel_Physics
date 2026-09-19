@@ -1,7 +1,20 @@
 # Ants
 
-*Current as of: 2026-09-19, when **the putting-down of a load stopped
-reading the ground it is put down on.** An ant used to be a little likelier
+*Current as of: 2026-09-19, when **the way home stopped fading before an ant
+could walk it.** The two scents a colony lays now keep for different lengths
+of time, which they never did. The food scent still fades on the old schedule
+and has to: it is news about a patch, and a trail to a patch that has been
+eaten goes on calling ants to it until it fades. The way home is not news —
+a nest does not move — and it was fading on the same schedule, which on the
+measured pace of a laden ant meant it was gone from the far end of a route
+before the next ant got there. What a homebound ant could read off the ground
+went from about one route cell in seven to more than half of them, and the
+share of foragers that reach the food and then get home again went up by
+better than ten times. It still forgets: the scent spreads out as it sits,
+and a thin trail nobody re-lays still blurs away to nothing on its own. See
+"They lay two scents, and the two do not keep" below. Before that the same
+day, **the putting-down of a load stopped reading the ground it is put down
+on.** An ant used to be a little likelier
 to let go where the ground was uneven or drying out; that reflex fired on a
 food heap too — a heap being curved ground — so a forager standing on the
 larder put its dinner back on the larder and never got home with it. Taking
@@ -601,6 +614,42 @@ that a hand-drawn trail moved a colony by nothing at all.
 The home scent's volume is turned up now, and it shows: draw a trail from a
 patch back to the nest and ants carrying food run it. That is why the scent
 tool starts on the home scent.
+
+### They lay two scents, and the two do not keep
+
+**The way home and the way to dinner are not the same kind of fact, and since
+2026-09-19 the ground does not treat them as one.** Before that both scents
+faded at the same speed, and that speed was set by what a food trail needs.
+
+A laden ant walking home covers ground very slowly — it stops, turns, wanders
+and is pulled back on course rather than steered along it — so a trip of a
+hundred cells takes most of a play session. The way-home scent was fading
+faster than that. An ant that walked out to the far end of a route and turned
+round found that the marks it had left on the way out were already gone, and
+so were everyone else's: past about a third of the way out there was usually
+nothing on the ground at all. It was not a faint signal it could not read. It
+was an empty floor.
+
+The way home keeps now, and a homebound ant can read direction off more than
+half the ground it walks over, where before it was about one cell in seven.
+More than ten times as many foragers make it from the food back to the nest.
+Watch for it in the shape of the traffic rather than in any one animal: ants
+that used to spread out from the larder and dissolve now trend back the way
+they came.
+
+**It still forgets, and that is not a compromise — it is how it forgets.**
+A scent spreads out as it sits there, and a thin line spread thin enough is
+nothing. Lay a mark and walk away and it will be gone before long; what has
+changed is that it goes by blurring rather than by evaporating, and blurring
+is slow enough for a walk. A busy route stays sharp because it is re-laid;
+a route nobody uses fades on its own, which is what you want.
+
+**The food scent still fades on the old schedule, and it has to.** It is news
+— *there is food here now* — and the whole failure it guards against is a
+trail that outlives its patch and goes on calling ants to bare ground. Given
+the same keeping as the way home it is actively bad: tried, a third as many
+ants ever found food at all, because the colony spent the session walking to
+somewhere it had already eaten.
 
 The food route was left deaf **on purpose**, and this is the part that is a
 finding rather than a job not yet done. Turning it up works exactly as

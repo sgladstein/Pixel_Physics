@@ -5073,6 +5073,195 @@ the food gives one high and one low, a mound gives both low.
 
 **Data:** `Reports/data/runlength-12seed-gap90-2026-09-19.log`.
 
+## §7.46 The homing plane was being erased faster than an ant can walk home
+
+**2026-09-19, following §7.45.** With the sensor cleared (§7.45: the ratchet is
+strong, correctly shaped, and reads a positive gradient on 6% of laden ticks),
+the remaining suspect was the plane. `dead-ends.md:1202` had left the decay
+sweep open — *"a wider-precision plane would need re-sweeping"*, a condition
+met when `u8` → `u16` landed on 2026-09-15 and never acted on. This is that
+sweep, and it is the strongest result on this line.
+
+### The dose-response
+
+36 seeds, gap 90, `arms=hand`, paired within seed on **`came back / reached
+food`** — a rate, for §7.45's reason. `arho` is channel A's decay per pass;
+`DECAY_RHO` ships at 0.03 on both trail planes.
+
+| channel A rho | homeward readable | foodward | plane lit | homing rate | sign b/w/t | median Δ |
+|---|---|---|---|---|---|---|
+| **0.03 (shipped)** | 13.6% | 12.9% | 26.1% | **0.88%** | — | — |
+| 0.01 | 20.5% | 15.0% | 35.4% | 1.02% | 12/8/16 | +0.00 |
+| 0.005 | 27.9% | 17.6% | 44.8% | 1.51% | 16/8/12 | +0.00 |
+| **0** | **53.2%** | 15.6% | 69.2% | **14.84%** | **23/6/7** | **+8.37** |
+
+Four settings, monotone in both the mechanism number and the outcome, which is
+better evidence than any single arm. The sign test on `rho 0` is 23 better, 6
+worse, 7 tied over 36 seeds — **p ≈ 0.002** two-sided over the 29 non-ties.
+
+Note the **foodward** column barely moves while homeward quadruples. The plane
+does not merely get louder; it becomes a **ramp that points home**, 3.4:1
+against the shipped arm's 1.05:1 coin flip.
+
+Adding §7.45's tumble constant on top gives 24/5/7 and median **+11.81**; tumble
+**alone** is 9/11/16, median 0.00. So run length is not a second lever, it is a
+multiplier on a plane that is readable in the first place.
+
+### Why only zero works, and it is about how slowly this ant walks
+
+`rho 0.005` is null. The required lifetime is not a tuning matter: §7.45 measured
+the laden ant netting **+0.0142 cells/tick** homeward at best, so a 90-cell walk
+is tens of thousands of frames, and at `PHEROMONE_INTERVAL = 12` a run of 24,000
+frames is 2,000 decay passes. `0.995^2000` is 4.5e-5. **Nothing but zero survives
+the trip.** Channel A was being erased between one ant's visit and the next.
+
+### "Rho 0" does not mean the plane never forgets, and the control says so
+
+The obvious objection is that a plane which does not decay is a plane that never
+clears and never sleeps. `examples/ascii scene=pheromone` is the control, and it
+is titled for exactly this claim — *"a blob spreads, drains to zero, and the
+plane goes back to sleep"*:
+
+| | at deposit | after 400 frames | after 4,000 |
+|---|---|---|---|
+| shipped | max 200 | max 60 | **max 0** |
+| `A_RHO=0` | max 200 | max 166 | **max 0** |
+
+**Diffusion, not decay, is what erases this plane** — which is what
+`set_channel_diffuse`'s own doc already said in a different context (the blend
+takes 16.7% per pass against decay's 2.9%, so decay "is close to inert because
+it is the smaller term"). A 3x3 mean of a thin trail rounds to zero at low
+values, so a weak plane still dies; what `DECAY_RHO` was adding was a second,
+faster eraser on top of one that already worked.
+
+### How it works, and it is not the number §7.45 pointed at
+
+§7.45 named the **15:1 down:up ratio** as the bottleneck — the ant reads the
+plane as pointing its way on 6% of laden ticks. A persistent plane does not fix
+that. It makes it *worse*:
+
+| arm | up-gradient share of laden ticks | cells/tick homeward **when facing up** | pooled cells/tick |
+|---|---|---|---|
+| shipped | **17.0%** | +0.0026 | +0.00068 |
+| channel A rho 0 | **6.6%** | **+0.0602** | **+0.00541** |
+| + tumble 0.35 | 7.1% | +0.0589 | +0.00543 |
+| rho 0.005 | 8.3% | +0.0301 | +0.00287 |
+| rho 0.01 | 11.0% | +0.0208 | +0.00245 |
+
+**What changed is not how often an up-gradient reading arrives, it is whether
+the reading is true.** On the shipped scatter an "uphill" reading mostly points
+at the nearest random burst, and the ant walks toward noise: an up-gradient tick
+is worth +0.0026 cells homeward. On a persistent plane uphill means *the nest*,
+and the same tick is worth **+0.0602 — twenty-three times as much**. The share
+falls because a plane lit on 69% of cells instead of 26% converts "no readable
+gradient" ticks into readable ones, most of which are downhill.
+
+Pooled, the laden ant's homeward drift goes **+0.00068 → +0.00541 cells/tick**,
+eightfold. Over a 24,000-frame run that is 21.6 cells of net progress against
+2.7 — still well short of the 90 the trip needs, which is exactly why the rate
+lands at 14.8% rather than at 90%. **The arithmetic pins the outcome**, which is
+the check a rate this much improved otherwise invites.
+
+`d:u` was a count, and a count cannot see whether the things it counts are
+right. That is `CLAUDE.md`'s "ask what your number counts" arriving on a number
+this report had just finished promoting.
+
+### Run length did not move, and that is the point
+
+Acceptance criterion 2 asked for mean run length and net displacement to rise
+off ~2 cells / ~2%. Re-measured on the winning arm, three seeds, one row per
+tick:
+
+| | shipped | channel A rho 0 |
+|---|---|---|
+| run length, ticks (mean) | 3.04–3.50 | 2.98–3.18 |
+| run length, cells (mean) | 0.37–0.42 | 0.26–0.40 |
+| stepped on | 14.3–17.6% of ticks | 11.4–16.8% |
+
+**Unmoved, and net/path is noise at three seeds** (two of three better). So the
+criterion **fails as written and the change works anyway**: the ant still mills,
+it simply mills *biased*. The fix is entirely in what the ant can read, and
+nothing about how it moves had to change — which is the cheapest possible shape
+for it and the reason the tumble arm is a multiplier rather than a lever.
+
+### Frame cost: measured, and it is not the gate
+
+`CLAUDE.md` requires the cost of anything that keeps tiles awake, read as
+`PheromoneStats::tiles_processed` and `ascii`'s worst frame. `scene=ants`,
+12,000 frames:
+
+| channel A rho | tiles/pass | mean ms | worst ms |
+|---|---|---|---|
+| 0.03 (shipped) | 16.7 | 0.779 | 9.95 |
+| 0.01 | 16.6 | 0.780 | 6.66 |
+| 0.005 | 16.0 | 0.756 | 6.03 |
+| **0** | **17.4** | **0.773** | 6.86 |
+
+**A 4% rise in awake tiles and no measurable frame cost.** Read the *mean*: the
+worst column swings 6.0–9.9 ms across arms whose tile counts differ by 4%, which
+fails `CLAUDE.md`'s pinning test (mean × frames nowhere near worst), so the worst
+here is an order statistic over many similar frames and is noise wearing a
+number. And the counter moving **up** is what rules out the other failure —
+a cost that vanishes because the work vanished.
+
+### The food trail wants the opposite, which settles how this ships
+
+The awkward part of shipping this is that A is the homing plane **only because a
+species wires it that way** — the 2026-09-02 genome refactor exists to make that
+a species' choice rather than the engine's. So the alternative worth measuring is
+that neither trail plane decays and diffusion sets both lifetimes, needing no
+per-channel rule at all. Measured, 36 seeds, gap 90:
+
+| arm | ants reaching food / seed | homing rate |
+|---|---|---|
+| shipped | **11.0** | 0.88% |
+| channel A rho 0 | 9.5 | 14.84% |
+| channel **B** rho 0 | **3.0** | 2.46% |
+| both planes rho 0 | **3.0** | 10.45% |
+
+**Killing the food trail's decay destroys the outbound leg** — a third as many
+ants ever reach the larder. That is `set_channel_rho`'s own §Z7 argument
+arriving as a measurement: a trail that outlives its patch keeps recruiting to
+an exhausted one. So the two planes want opposite settings, the engine already
+has that idea (`ALARM_RHO` is a third lifetime for a third plane), and a
+per-plane constant is the honest shape. **The evolvable version — lifetime as a
+species field rather than an engine constant — is the next step and is not this
+change.**
+
+### What the longer gaps say, which is that they cannot say anything
+
+T5 asked for gaps 90 **and** 140. At 140 and 200 the outbound leg fails first:
+`reached food` is **2.5 and 1.0 ants per seed** against gap 90's 11.0, and the
+homing rate is 0.00% in *both* arms. There is nothing to be paired. That is
+§7.42's finding — the hand-laid trail does not get ants to food past ~140 —
+and it makes gap 90 the only bed on which this question is currently askable.
+
+### A correction to §7.44: the starvation was a pooled-total artifact
+
+§7.44 reported that the persistent plane starved the colony — *"intake falls
+23-fold while deliveries double"*, 6,151,294 J → 270,810, births 5,173 → 137.
+**Those are pooled sums over 36 seeds**, and §7.45 showed what that does here:
+one or two seeds found a runaway colony and own the total. Paired per seed, same
+runs:
+
+| arm | intake/seed (median) | born | starved | alive | sign test on intake |
+|---|---|---|---|---|---|
+| shipped | 7,116 | 2 | 17 | 1 | — |
+| channel A rho 0 | 5,164 | 2 | 17 | 0 | **15/21/0** |
+| + tumble 0.35 | 4,848 | 2 | 18 | 0 | 16/20/0 |
+
+A median dip of about a third that **does not clear a sign test at 36 seeds**,
+with births, starvations and survivors flat. So the honest reading is
+**unresolved, not absent** — and it is nothing like a 23-fold collapse.
+
+**This reverses §7.44's ordering.** That section concluded *"turning the
+persistence up to exploit it is gated on a larder"*. On the paired statistic it
+is not gated on anything: the plane's lifetime is a sensor question, it pays for
+itself four-fold on the outcome it was changed for, and its cost to the economy
+is inside the noise of a bed where every colony starves in every arm.
+
+**Data:** `Reports/data/planerho-36seed-2026-09-19.log`.
+
 ## Appendix A. Raw per-seed data
 
 Kept in full because outcomes here have enormous spread, and every headline in

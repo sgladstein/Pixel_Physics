@@ -1206,6 +1206,19 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     if let Some(d) = arg::<f32>("adiffuse") {
         w.pheromones.set_channel_diffuse(Channel::A, d);
     }
+    // **`brho` exists to keep the shipping question honest.** If the homing
+    // plane wants a longer life than the food trail, the engine has to say
+    // which plane is which -- and the whole point of the 2026-09-02 genome
+    // refactor was that A is the homing plane only because a species wires it
+    // that way. So the alternative worth measuring is that *neither* trail
+    // plane decays and diffusion alone sets both lifetimes, which needs no
+    // per-channel rule at all. `set_channel_rho`'s own doc wants decay as §Z7's
+    // lever against a trail that outlives its patch, which is the argument on
+    // the other side; this rider is what lets the two be compared rather than
+    // argued.
+    if let Some(r) = arg::<f32>("brho") {
+        w.pheromones.set_channel_rho(Channel::B, r);
+    }
     let species_id = w.species.id_of("ant").expect("the ant species is compiled in");
     // The ant's own sensor reach, so the readability metric asks what THIS
     // animal reads rather than what a chosen constant would.
@@ -2898,7 +2911,7 @@ fn main() {
     // a 1.84% open gate where the same command at the default reports 639,100
     // and 1.25%, and nothing in the header said why. Found 2026-09-18 by an
     // archived log failing to reproduce against a binary that was correct.
-    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill} stop={stop} homebias={} cropcap={} hungergate={} arho={} adiffuse={} tumble={} persist={} tumblegrad={}", gate.name, arg::<f32>("homebias").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("cropcap").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("hungergate").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("arho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("adiffuse").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tumble").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("persist").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tumblegrad").map_or("shipped".to_string(), |v| format!("{v}")));
+    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill} stop={stop} homebias={} cropcap={} hungergate={} arho={} brho={} adiffuse={} tumble={} persist={} tumblegrad={}", gate.name, arg::<f32>("homebias").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("cropcap").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("hungergate").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("arho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("brho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("adiffuse").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tumble").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("persist").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tumblegrad").map_or("shipped".to_string(), |v| format!("{v}")));
     println!("  gate {}: off {:+.1}  on {:+.1}  along ±{:.1}", gate.name, gate.off, gate.on, gate.along);
     println!("  {LANDED_NOTE}\n");
 
