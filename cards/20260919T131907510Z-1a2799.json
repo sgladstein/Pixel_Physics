@@ -1,0 +1,41 @@
+{
+  "id": "20260919T131907510Z-1a2799",
+  "created": "2026-09-19T13:19:07Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/upbeat-shannon-cez0w4",
+    "commit": "a3190843",
+    "agent": null,
+    "session_id": "78593697-4004-5579-bdf8-690d34ca43f4",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Correction to the card above: the way home costs the colony on a hungry bed",
+  "question": "Does a colony that walks its dinner home, on a bed where food is scarce, read better or worse to you than one that eats where it stands? That is the trade, and I do not think the numbers settle it.",
+  "context_md": "**I posted the trail-lifetime card an hour ago as a straight gain. A second bed says it is a trade.** Same change, same 36 seeds, but a third as much food arriving:\n\n| | before | after | better on |\n|---|---|---|---|\n| ants that got home from the food | 0.88% | **2.92%** | 20 of 36 seeds |\n| what a homebound ant can read | 13.5% | 55.3% | -- |\n| food eaten | 10,842 | **6,654** | 11 of 36 |\n| ants born | 6.5 | **3.5** | 9 of 36 |\n\nSo the colony navigates better and comes out smaller. On the first bed, where food was plentiful, the shrinkage was inside the noise and I wrote it up as unresolved; with food scarce it is three quarters of seeds and it is not.\n\n**Why, and it is not the navigation.** Fewer foragers reach the food only because fewer are born -- per ant born, *more* of them get there. And an ant with empty mandibles cannot be steered by the home scent at all; that circuit is switched off unless it is carrying. What drops first is what the colony eats.\n\n**Which is the granary again.** An ant that walks its meal home has spent the walk, and nothing at the nest banks what it brings -- a delivered crumb lies on the floor like any other crumb. An ant that eats where it stands has spent nothing. Until a delivered load is worth having delivered, better homing is a better way to lose.\n\nI am not asking you to arbitrate the numbers. **The question is whether a colony that commutes reads better to you than one that grazes**, because if it does then the granary is the next thing to build and this lands as a step toward it; if it does not, the honest move is to leave the way home fading and stop here.\n\n(The picture is the same plane as the card above -- the way home along one route, nest at the left, food at the right, each row down a later moment -- kept so the two cards can be read together.)",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "the way home, after the change",
+      "files": [
+        "20260919T131907510Z-1a2799/000-panel-rho0.png"
+      ],
+      "caption": "for reference; the card above has the before.",
+      "meta": {
+        "round trips, bed 2": "0.88% -> 2.92% (20/10/6)",
+        "food eaten": "-39% (11/25/0)",
+        "ants born": "-46% (9/23/4)"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
