@@ -1133,6 +1133,15 @@ pub struct NestSite {
     /// The cursor row the patch was painted from — the patch itself follows
     /// the ground, so this is the founding gesture's row and not a surface.
     pub y: i32,
+    /// **The ground row the site was founded on**, from `colony_surface` at
+    /// `x`, falling back to `y` in a column with no ground under the cursor.
+    ///
+    /// `y` above cannot serve: it is where the *gesture* was made, which on a
+    /// tall sky is hundreds of rows over the bed. A reach measured from it
+    /// would call open air home. This is the row a site-based `AtNest`
+    /// measures its rows from -- see `creature::adjacent_nest`, which needs a
+    /// surface precisely because under the site design no cell marks one.
+    pub surface: i32,
     /// The odour, on `organism::SCENT_SLOTS`' three axes.
     pub scent: [f32; 3],
     /// **False until the first ant stands on it**, at which point the site
@@ -7229,7 +7238,13 @@ impl World {
             return;
         }
         let epoch = self.frame / NEST_SCENT_INTERVAL;
-        self.nest_sites.push(NestSite { x, y, scent: [0.0; 3], seeded: false, drift_epoch: epoch });
+        // **The surface is taken here, once, and never re-read.** The ground
+        // under a nest moves -- the colony mounds its own spoil over it -- so
+        // a reach re-measured each frame would climb with the heap and call
+        // the top of a tailings pile home. The founding row is the fixed
+        // datum `step_nest_room` already freezes for the same reason.
+        let surface = crate::sim::creature::colony_surface(self, x, y).unwrap_or(y);
+        self.nest_sites.push(NestSite { x, y, surface, scent: [0.0; 3], seeded: false, drift_epoch: epoch });
     }
 
     /// Index of the nest site nearest `(x, y)`, or `None` when the box holds
@@ -7367,6 +7382,38 @@ impl World {
                 continue;
             }
             since_ground = since_ground.saturating_add(1);
+            // **This counts EMPTY cells only, so it does not count a gallery
+            // an ant is standing in -- and unlike `lab::census`, that is a
+            // deliberate open question here rather than a fixed defect.**
+            //
+            // `lab::census` gained `roofed_bodies`/`pit_bodies` on
+            // 2026-09-19 because it is a *measurement* and was undercounting
+            // a dense colony's nest about threefold (roofed 157 + open 165 +
+            // bodies 692 = 1,014 against 941 cells hauled above the surface;
+            // the conservation identity fails by 619 cells on the empty
+            // count alone). This function is not a measurement: it feeds
+            // `NestRoom::room_per_ant`, which is `roofed / ants`, which
+            // feeds `occupancy`, which is `BrainInput::Crowding` at the
+            // nest, which gates `Dig` through `ant.ron`'s hidden units 5/6.
+            //
+            // **So the ant's own sense of how packed its nest is divides a
+            // room count that excludes its nestmates by the number of its
+            // nestmates** -- a double squeeze, and it biases toward the
+            // saturated end this hyperbola was built to escape. On the
+            // digbox figures a colony reading 0.86 occupancy would read
+            // about 0.54 with the bodies counted.
+            //
+            // Changing it is therefore a **behaviour** change, not a fix:
+            // it moves every dig decision at every nest in both games, and
+            // `CLAUDE.md` requires that arrive as a switched arm measured
+            // against its own ablation, with the constants calibrated
+            // against today's reading re-derived. Left alone deliberately;
+            // do not "tidy" it into agreement with the census.
+            //
+            // It also keeps `examples/latecensus.rs`'s standing no-drift
+            // assertion (`world.nest_room[0].roofed == census.roofed`)
+            // true, which is why the census added fields rather than
+            // changing what `roofed` means.
             if y >= datum && since_ground <= reach && cell.material == material::EMPTY {
                 roofed += 1;
             }

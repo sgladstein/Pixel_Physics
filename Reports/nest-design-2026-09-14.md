@@ -629,6 +629,22 @@ what it leaves:
   and records the founding surface row (`colony_surface` at `site.x`), which
   the reach is measured from now that no cell marks it. `AtNest` is
   `|hx − site.x| ≤ COLONY_HALF_WIDTH` and `|hy − site.surface| ≤ 2`.
+
+  **Do not hardcode those two numbers when you build this.** They are the
+  shipped door's dimensions — 53 columns wide by 2 rows deep — and
+  `nest-entrance-dimensions-2026-09-19.md` makes the case that they are a
+  real shaft's dimensions *transposed*: the biology's door is about one ant
+  wide (1–2 cells at `body: Chain(2)`) and deep. Writing them into the new
+  `AtNest` would re-enshrine the old geometry in a new place, which is the
+  one thing this ruling's rewrite makes easy to do by accident. Both halves
+  are already dials — `PIXEL_PHYSICS_NEST_SITE_ROWS` and
+  `PIXEL_PHYSICS_NEST_SITE_COLS` — so take the reach from those and default
+  them, rather than embedding a constant.
+
+  **What the dials do *not* buy**, so nobody expects it: narrowing them does
+  not narrow the excavation. Measured 2026-09-19 — the narrowest door gives
+  the *widest* room. They set where an ant is at home, not where it digs
+  (`nest-shape-three-negatives-2026-09-19.md`).
 - **`CreatureDef::nest` stops naming a material.** A species has a home iff
   it was founded with a site; `ancestor` (no nest, by design) keeps reading
   `false` because nothing founds one for it. The field becomes a flag or

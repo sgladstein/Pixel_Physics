@@ -394,6 +394,34 @@ struct Shape {
     /// tunnel.
     inradius: f64,
     buds: usize,
+    /// **Bounding-box height and width of the cavity, and the only columns
+    /// here that can tell a shaft from a lens.**
+    ///
+    /// `cells`, `perimeter`, `circularity`, `inradius` and `buds` are every
+    /// one **rotation-invariant**: a 46-wide by 2-deep lens and a 2-wide by
+    /// 46-deep shaft read *identical* on all five. This arm's own selftest
+    /// has proved it by accident since it was written -- it draws
+    /// `bar 64x3 (no chamber)` and nothing in the table moves if you stand
+    /// that bar on its end. So the instrument was blind to the one axis the
+    /// nest question is about, which is `CLAUDE.md`'s *ask what your number
+    /// counts* landing on a whole column family at once.
+    ///
+    /// The literature says which way is right. Mikheyev et al. 2004 on
+    /// *Formica pallidefulva*: real nests are **vertical shafts bearing
+    /// chambers**, shafts are the modular unit of growth, and nests are
+    /// **top-heavy, with volume declining exponentially with depth**. So
+    /// `verticality` above 1 is nest-shaped and well under 1 is a scrape.
+    bbox_w: i32,
+    bbox_h: i32,
+}
+
+impl Shape {
+    /// Bounding-box height over width -- **>1 is a shaft, <1 is a lens**, and
+    /// 46x2 reads 0.04 against a 2x46's 23.0. The one reading in this struct
+    /// that changes when the cavity is rotated.
+    fn verticality(&self) -> f64 {
+        if self.bbox_w > 0 { self.bbox_h as f64 / self.bbox_w as f64 } else { 0.0 }
+    }
 }
 
 /// How far past the inscribed disc a cell has to stand before it counts as a
@@ -548,12 +576,23 @@ fn shape_of(mask: &[bool], w: i32, h: i32, bud_k: f64) -> Shape {
     }
 
     let (a, p) = (cells.len() as f64, perimeter as f64);
+    // The extent of the cavity on each axis. Cheap -- `cells` is already
+    // materialised -- and it is the only thing here that knows up from along.
+    let (mut x0, mut x1, mut y0, mut y1) = (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
+    for &(x, y) in &cells {
+        x0 = x0.min(x);
+        x1 = x1.max(x);
+        y0 = y0.min(y);
+        y1 = y1.max(y);
+    }
     Shape {
         cells: cells.len(),
         perimeter,
         circularity: if p > 0.0 { 4.0 * std::f64::consts::PI * a / (p * p) } else { 0.0 },
         inradius,
         buds,
+        bbox_w: x1 - x0 + 1,
+        bbox_h: y1 - y0 + 1,
     }
 }
 
@@ -715,15 +754,31 @@ fn selftest_arm(bud_k: f64) {
     }
     shapes.push(("bar 64x3 (no chamber)", bar));
 
+    // **The same bar stood on its end, and it is this arm's whole reason for
+    // existing.** A 3-wide by 64-deep shaft is the shape a nest is supposed
+    // to be; a 64-wide by 3-deep bar is the lens this engine actually digs.
+    // They are the same cells rotated, so `cells`, `perimeter`, `circ`,
+    // `inradius` and `buds` must read **identical** for both -- and that is
+    // exactly why none of them could ever have seen the problem. Only
+    // `vert` separates them. `CLAUDE.md`'s positive control, aimed at the
+    // column rather than at the world.
+    let mut shaft = vec![false; (w * h) as usize];
+    for y in 8..72 {
+        for x in 39..=41 {
+            shaft[idx(x, y)] = true;
+        }
+    }
+    shapes.push(("shaft 3x64 (the bar rotated)", shaft));
+
     shapes.push(("empty", vec![false; (w * h) as usize]));
 
     println!("=== arm selftest ===  the shape columns, on shapes whose answer is known");
     println!("  `circ` ceiling on a grid is not the textbook 1.0 -- these are the reference values.");
-    println!("{:>26}  {:>7}  {:>9}  {:>6}  {:>10}  {:>5}", "shape", "cells", "perimeter", "circ", "inradius", "buds");
+    println!("{:>28}  {:>7}  {:>9}  {:>6}  {:>10}  {:>5}  {:>5}  {:>5}  {:>6}", "shape", "cells", "perimeter", "circ", "inradius", "buds", "bboxw", "bboxh", "vert");
     let mut read: Vec<(&str, Shape)> = Vec::new();
     for (name, mask) in &shapes {
         let s = shape_of(mask, w, h, bud_k);
-        println!("{name:>26}  {:>7}  {:>9}  {:>6.3}  {:>10.2}  {:>5}", s.cells, s.perimeter, s.circularity, s.inradius, s.buds);
+        println!("{name:>28}  {:>7}  {:>9}  {:>6.3}  {:>10.2}  {:>5}  {:>5}  {:>5}  {:>6.2}", s.cells, s.perimeter, s.circularity, s.inradius, s.buds, s.bbox_w, s.bbox_h, s.verticality());
         read.push((name, s));
     }
     let get = |name: &str| read.iter().find(|(n, _)| *n == name).map(|(_, s)| *s).expect("shape");
@@ -740,6 +795,25 @@ fn selftest_arm(bud_k: f64) {
     // mechanism is quiet or the probe never reached it).
     assert_eq!(spurs.buds, 3, "three tunnels were drawn off one cavity and three must be counted -- this is the regime the column is for");
     assert_eq!(bar.buds, 2, "a uniform gallery has two ends and both stand off its own inscribed disc");
+
+    // **The rotation control, both halves.** The five old columns must be
+    // blind to the rotation -- that is the defect being pinned, not a
+    // property being praised -- and `vert` must not be.
+    let shaft = get("shaft 3x64 (the bar rotated)");
+    assert_eq!(shaft.cells, bar.cells, "the rotated bar is the same cells");
+    assert_eq!(shaft.perimeter, bar.perimeter, "and the same wall");
+    assert!((shaft.circularity - bar.circularity).abs() < 1e-9, "circ cannot tell a shaft from a lens -- this is the blind spot, asserted so nobody argues from that column again");
+    assert!((shaft.inradius - bar.inradius).abs() < 1e-9, "neither can inradius");
+    assert_eq!(shaft.buds, bar.buds, "nor buds");
+    // ...and the column that exists because of all that.
+    assert!(bar.verticality() < 0.1, "a 64x3 lens must read flat, and read {:.3}", bar.verticality());
+    assert!(shaft.verticality() > 10.0, "a 3x64 shaft must read tall, and read {:.3}", shaft.verticality());
+    assert!(
+        shaft.verticality() > bar.verticality() * 100.0,
+        "vert must separate the two by orders of magnitude, or it is no better than the columns it was added to fix: {:.3} against {:.3}",
+        shaft.verticality(),
+        bar.verticality()
+    );
 
     // **The stated blind spot, pinned rather than hidden.** "Protrusions off
     // the main cavity" is undefined when there is no main cavity: a comb is
@@ -1018,6 +1092,45 @@ fn main() {
                 }
             }
 
+            // **`wet=N` -- the same wetting, on ANY arm, so the colony arm
+            // can be run on ground that is not bone dry.**
+            //
+            // The colony arm's bank is dry by construction, and that turns
+            // out to decide a question this harness is now being asked.
+            // Measured 2026-09-19 with `senses=`: over 55 ants,
+            // `MoistureFront`, `MoistureLateral` and `MoistureGrad` all read
+            // **exactly 0.0000 with one distinct value**, while
+            // `SurfaceCurvature` read 15-16 distinct over -0.67..0.83 and
+            // `Crowding` 6-9. So the instrument has range and the moisture
+            // channels are flat -- not because they are broken, but because
+            // `FieldCell::moisture` sources from damp ground in proportion
+            // to how damp it is, and this bank has none.
+            //
+            // That matters because a weight swept over a flat channel is a
+            // sweep of nothing: two opposite-sign weights on
+            // `(MoistureLateral, Turn)` came back **bit-identical** here,
+            // which is `CLAUDE.md`'s own tell for a knob that was never
+            // connected. Anyone testing a moisture-driven behaviour needs
+            // this argument, and needs `senses=` beside it to prove the
+            // channel woke up.
+            //
+            // Unset changes nothing, so every published colony number
+            // stands. `SOIL_WILTING_POINT` 180, `SOIL_FIELD_CAPACITY` 620,
+            // `SOIL_SATURATED` 1000.
+            if let Some(wet) = arg::<u16>("wet") {
+                for x in 0..width {
+                    for y in ground..(ground + soil) {
+                        let cell = world.get(x, y);
+                        if world.materials.get(cell.material).water_capacity > 0 {
+                            world.set(x, y, cell.with_aux(wet));
+                        }
+                    }
+                }
+                if seed == 1 {
+                    println!("  bank wetted to aux {wet}  [wilting 180, field capacity 620, saturated 1000]");
+                }
+            }
+
             // **Wet the wall from the outside**: the whole bank at
             // `SOIL_SATURATED`, which is a gallery driven below the water
             // table. Every packed cell is then over `SOIL_FIELD_CAPACITY` and
@@ -1213,18 +1326,20 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>,
     );
     println!("  55 ants on a soil bank over stone; `void` is standing empty cells inside the bank");
     println!(
-        "  `void` is every empty cell in the bank footprint -- **erosion moves it**; \n           `roofed` is empty with ground standing above it, which erosion cannot produce. Read `roofed`."
+        "  `void` is every empty cell in the bank footprint -- **erosion moves it**; \n           `roofed` is empty with ground standing above it, which erosion cannot produce.\n           `bodies` is bank cells an ANIMAL is standing in -- room that is occupied rather than\n           empty, which `void` and `roofed` both miss. **Read `rfroom` (roofed + roofed bodies),\n           not `roofed`**: on a dense colony the empty count alone undercounts the nest about\n           threefold (digbox 2026-09-19: 157 empty against 692 cells of ant)."
     );
     println!(
         "  `comps`/`largest`/`ge8` are the connected-component split of that void (8-connected,\n           the neighbourhood the digger uses). `lgroof` is how much of the largest run has\n           ground overhead: a quarried face is one huge run with no roof, a gallery is a\n           smaller run that is nearly all roof."
     );
     println!(
-        "{:>6}  {:>7}  {:>8}  {:>8}  {:>8}  {:>6}  {:>8}  {:>5}  {:>7}  {:>7}  {:>7}  {:>9}  {:>10}  {:>7}  {:>7}",
+        "{:>6}  {:>7}  {:>8}  {:>8}  {:>8}  {:>7}  {:>7}  {:>6}  {:>8}  {:>5}  {:>7}  {:>7}  {:>7}  {:>9}  {:>10}  {:>7}  {:>7}",
         "seed",
         "frame",
         "void",
         "roofed",
         "roofed3",
+        "bodies",
+        "rfroom",
         "comps",
         "largest",
         "ge8",
@@ -1290,9 +1405,57 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>,
                 world.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
             }
         }
+        // **`wet=N` -- the colony bank's soil water, dry by default.**
+        //
+        // This arm's bank is built at aux 0, and that turns out to decide
+        // whether three of the ant's senses exist at all: `MoistureFront`,
+        // `MoistureLateral` and `MoistureGrad` are all read off
+        // `FieldCell::moisture`, which is sourced from damp ground in
+        // proportion to how damp it is. Dry ground sources nothing, so all
+        // three read exactly 0.0000 here and any weight swept over them is
+        // a sweep of nothing.
+        //
+        // Unset leaves the bank at 0, so every published colony number
+        // stands. `SOIL_WILTING_POINT` 180, `SOIL_FIELD_CAPACITY` 620,
+        // `SOIL_SATURATED` 1000.
+        let bank_wet: u16 = arg("wet").unwrap_or(0);
+        // **`wetgrad=top:bottom` -- a bank that is drier at the top than at
+        // the bottom, which is the only way this harness can pose a DEPTH
+        // question to a moisture sense.**
+        //
+        // `wet=` alone fills the bank uniformly, and a uniform fill has no
+        // vertical gradient at any value: `MoistureLateral` then reads the
+        // air/soil boundary, which is what `creature::moisture_gradient`'s
+        // own doc says that channel measures, and not depth. A real soil
+        // column is dry at the surface and wet below -- the lab bed develops
+        // exactly that profile on its own -- so a taxis that is supposed to
+        // take an ant downward has to be given somewhere to climb.
+        //
+        // Linear between the two ends, which is coarser than a real drying
+        // curve and is the right first shape: if a taxis cannot follow a
+        // straight ramp it will not follow an exponential one.
+        let grad: Option<(u16, u16)> = arg::<String>("wetgrad").map(|v| {
+            let (a, b) = v.split_once(':').unwrap_or_else(|| panic!("wetgrad= wants top:bottom, got `{v}`"));
+            (a.trim().parse().expect("wetgrad top"), b.trim().parse().expect("wetgrad bottom"))
+        });
         for x in bank_x0..bank_x1 {
             for y in bank_y0..bank_y1 {
-                world.set(x, y, Cell::new(soil_id, 0).with_attached(true));
+                let aux = match grad {
+                    Some((top, bottom)) => {
+                        let span = (bank_y1 - bank_y0).max(1) as f32;
+                        let t = (y - bank_y0) as f32 / span;
+                        (top as f32 + (bottom as f32 - top as f32) * t).round() as u16
+                    }
+                    None => bank_wet,
+                };
+                world.set(x, y, Cell::new(soil_id, 0).with_attached(true).with_aux(aux));
+            }
+        }
+        if seed == 1 {
+            match grad {
+                Some((top, bottom)) => println!("  bank soil graded aux {top} (top) -> {bottom} (bottom) over {} rows", bank_y1 - bank_y0),
+                None if bank_wet > 0 => println!("  bank soil built at aux {bank_wet}  [wilting 180, field capacity 620, saturated 1000]"),
+                None => {}
             }
         }
         for x in 16..bank_x0 {
@@ -1355,6 +1518,50 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>,
                         cw, db, cd
                     );
                 }
+            }
+        }
+
+        // **`wire=Input:Output:w,...` -- any weight in the genome, by name,
+        // at runtime.** The three knobs above each needed their own argument
+        // and their own `io_slot` line, so sweeping a *new* pair meant
+        // editing this file; and editing `ant.ron` instead cannot work at
+        // all, because species assets are `include_str!`ed
+        // (`src/sim/organism.rs:7345`) and a prebuilt binary re-run against
+        // an edited `.ron` produces bit-identical "runs" -- the gotcha
+        // `CLAUDE.md` records three of.
+        //
+        // `io_slot` is `output * INPUT_SLOTS + input`, and `INPUT_NAMES` /
+        // `OUTPUT_NAMES` are the same positional tables the `.ron` parser
+        // addresses weights by, so resolving a name to an index here cannot
+        // drift from what the genome means.
+        //
+        // **It prints every pair it set, and refuses a name it does not
+        // know.** A silently ignored argument is how a 3.5-hour study came
+        // back as three populations wearing 24 logs; a knob nobody can see
+        // the value of is a knob nobody can tell is disconnected.
+        if let Some(spec) = arg::<String>("wire") {
+            use pixel_physics::sim::brain::{INPUT_NAMES, INPUT_SLOTS, OUTPUT_NAMES};
+            let id = world.species.id_of("ant").expect("ant");
+            let mut g = world.species.get(id).genome.clone();
+            let mut set: Vec<String> = Vec::new();
+            for triple in spec.split(',').filter(|t| !t.trim().is_empty()) {
+                let parts: Vec<&str> = triple.split(':').collect();
+                assert_eq!(parts.len(), 3, "wire= wants Input:Output:weight triples, got `{triple}`");
+                let find = |names: &[&str], want: &str, what: &str| -> usize {
+                    names.iter().position(|n| n.eq_ignore_ascii_case(want.trim())).unwrap_or_else(|| {
+                        panic!("wire=: no such brain {what} `{}`. Known {what}s: {}", want.trim(), names.join(", "))
+                    })
+                };
+                let i = find(&INPUT_NAMES, parts[0], "input");
+                let o = find(&OUTPUT_NAMES, parts[1], "output");
+                let w: f32 = parts[2].trim().parse().unwrap_or_else(|_| panic!("wire=: `{}` is not a weight", parts[2]));
+                let before = g[o * INPUT_SLOTS + i];
+                g[o * INPUT_SLOTS + i] = w;
+                set.push(format!("({}, {}) {before} -> {w}", INPUT_NAMES[i], OUTPUT_NAMES[o]));
+            }
+            world.species.set_genome(id, g);
+            if seed == 1 {
+                println!("  PATCHED genome by name: {}", set.join("; "));
             }
         }
 
@@ -1486,6 +1693,11 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>,
             let mut roofed3 = 0usize;
             let mut soil = 0usize;
             let mut packed = 0usize;
+            // Cells of the bank an animal is standing in -- room that is
+            // occupied rather than empty. See the `MaterialKind::Creature`
+            // arm below for why this exists.
+            let mut bodies = 0usize;
+            let mut bodies_roofed = 0usize;
             for x in bank_x0..bank_x1 {
                 // Walk the column downward carrying how much ground is
                 // standing above the current row -- one pass, and it counts
@@ -1505,6 +1717,31 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>,
                             }
                             if above >= 3 {
                                 roofed3 += 1;
+                            }
+                        // **A gallery with an ant in it is still a gallery**,
+                        // and this census could not see that until
+                        // 2026-09-19. `void`/`roofed` count materially EMPTY
+                        // cells, so every occupied cell of a burrow fell
+                        // through to neither arm and was counted as nothing
+                        // -- and this instrument's whole job is sizing dug
+                        // space in a bank a colony is living in.
+                        //
+                        // Measured in `examples/digbox`: roofed 157 + open
+                        // 165 + **bodies 692** = 1,014 against 941 cells
+                        // hauled above the original surface, so the
+                        // conservation identity fails by **619 cells** on
+                        // the empty count alone and the nest reads about a
+                        // third of its size. `src/lab/census.rs` carries the
+                        // same repair and the same reasoning.
+                        //
+                        // Kept as its own column rather than folded into
+                        // `void`, so every published `burrow_probe` number
+                        // stays comparable with the ones already in the
+                        // reports; `room` below is the total to read now.
+                        } else if world.materials.kind(m) == MaterialKind::Creature {
+                            bodies += 1;
+                            if above > 0 {
+                                bodies_roofed += 1;
                             }
                         } else if m == soil_id {
                             soil += 1;
@@ -1530,7 +1767,7 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>,
             // `PIXEL_PHYSICS_DIG_SPOIL=destroy`, which is the only baseline a
             // standing quantity has.
             let (float_pieces, float_cells) = floating_ground(world, w, h);
-            (void, roofed, roofed3, soil, packed, float_pieces, float_cells)
+            (void, roofed, roofed3, soil, packed, float_pieces, float_cells, bodies, bodies_roofed)
         };
 
         // **Does the lever have anything to act on?** -- `CLAUDE.md`'s *check
@@ -1621,13 +1858,14 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>,
                 world.step_pheromones();
             }
             if marks.contains(&f) {
-                let (void, roofed, roofed3, soil, packed, floats, float_cells) = census(&world);
+                let (void, roofed, roofed3, soil, packed, floats, float_cells, bodies, bodies_roofed) = census(&world);
                 let comps = void_components(&world, (bank_x0, bank_x1), (bank_y0, bank_y1));
                 let largest = comps.first().copied().unwrap_or_default();
                 let ge8 = comps.iter().filter(|c| c.cells >= 8).count();
                 let st = world.creature_stats;
                 println!(
-                    "{seed:>6}  {f:>7}  {void:>8}  {roofed:>8}  {roofed3:>8}  {:>6}  {:>8}  {ge8:>5}  {:>7}  {:>7}  {:>7}  {soil:>9}  {packed:>10}  {floats:>7}  {float_cells:>7}",
+                    "{seed:>6}  {f:>7}  {void:>8}  {roofed:>8}  {roofed3:>8}  {bodies:>7}  {:>7}  {:>6}  {:>8}  {ge8:>5}  {:>7}  {:>7}  {:>7}  {soil:>9}  {packed:>10}  {floats:>7}  {float_cells:>7}",
+                    roofed + bodies_roofed,
                     comps.len(),
                     largest.cells,
                     largest.roofed,
@@ -1643,9 +1881,18 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>,
                 let (crowd, live) = crowding(&world);
                 let at = |q: f64| crowd.get(((crowd.len() as f64 - 1.0) * q).round() as usize).copied().unwrap_or(0.0);
                 let mean = if live > 0 { crowd.iter().sum::<f64>() / live as f64 } else { 0.0 };
+                // **`vert` is the one to read for "is this a nest or a
+                // scrape", and the other four cannot answer it.** All four
+                // are rotation-invariant, so a 46-wide by 2-deep lens and a
+                // 2-wide by 46-deep shaft read identical on every one of
+                // them -- `arms=selftest` asserts exactly that against the
+                // same bar drawn both ways. Real nests are vertical shafts
+                // bearing chambers (Mikheyev et al. 2004, *Formica
+                // pallidefulva*), so above 1 is nest-shaped and well under 1
+                // is the lens this engine digs today.
                 println!(
-                    "         chamber: {:>5} cells  circ {:>5.3}  inradius {:>5.2}  buds {:>3}",
-                    shape.cells, shape.circularity, shape.inradius, shape.buds
+                    "         chamber: {:>5} cells  circ {:>5.3}  inradius {:>5.2}  buds {:>3}  bbox {:>3}w x{:>3}h  vert {:>6.2}",
+                    shape.cells, shape.circularity, shape.inradius, shape.buds, shape.bbox_w, shape.bbox_h, shape.verticality()
                 );
                 // **Whether a body this size could walk it**, which `inradius`
                 // above cannot answer: that is an inscribed disc and a gnome is
@@ -1665,6 +1912,126 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>,
                     at(0.90),
                     at(1.0)
                 );
+                // **`senses=Name,Name` -- the realised range of any brain
+                // input, at every ant's head, read through the shipped
+                // `probe`.** The generalisation of the `crowd` line above,
+                // and it exists because a weight swept over a channel with
+                // no range in it is a sweep of nothing: `CLAUDE.md`'s *an
+                // input that never leaves saturation cannot demonstrate a
+                // mechanism about its low end*, and its sibling failure
+                // where the channel is not saturated but simply flat.
+                //
+                // **`distinct` is the column to read first.** A channel
+                // reading one distinct value over a whole colony cannot
+                // steer anything, whatever its mean is, and that is not
+                // visible in a min/max pair when both ends are the same
+                // number. Exactly zero across every sample point is the
+                // signature `CLAUDE.md` names -- a weak-but-working
+                // mechanism reads 0.003.
+                if let Some(names) = arg::<String>("senses") {
+                    use pixel_physics::sim::brain::INPUT_NAMES;
+                    // **The stored field value beside the sensed one**, so a
+                    // flat sense can be told apart from an empty field.
+                    // `CLAUDE.md` says measure the number the CONSUMER
+                    // computes -- and when that reads exactly zero, the next
+                    // question is whether the channel under it is zero too,
+                    // which is a different bug with a different fix.
+                    {
+                        let mut raw: Vec<f64> = Vec::new();
+                        for id in world.live_organism_ids() {
+                            let Some(st) = world.organism(id) else { continue };
+                            let Some(&(hx, hy)) = st.chain.first() else { continue };
+                            raw.push(world.field_at_bilinear(hx as f32, hy as f32).moisture as f64);
+                        }
+                        // **And the whole field, not only where ants are.**
+                        // Separates "the source never fired" from "it fired
+                        // and cannot reach the air an ant walks in", which
+                        // are different bugs with different fixes.
+                        let (mut fmax, mut wet_blocks) = (0.0f64, 0usize);
+                        let mut deep = Vec::new();
+                        for x in (bank_x0..bank_x1).step_by(16) {
+                            for y in (bank_y0..bank_y1).step_by(4) {
+                                let m = world.field_at_bilinear(x as f32, y as f32).moisture as f64;
+                                if m > fmax {
+                                    fmax = m;
+                                }
+                                if m > 0.0 {
+                                    wet_blocks += 1;
+                                }
+                                if y > bank_y0 + (bank_y1 - bank_y0) / 2 {
+                                    deep.push(m);
+                                }
+                            }
+                        }
+                        let deep_max = deep.iter().cloned().fold(0.0f64, f64::max);
+                        // **And the soil water the field is supposed to be
+                        // sourced FROM.** If the ground is damp and the field
+                        // is dry the fault is the field's; if the ground is
+                        // dry too then whatever set it did not stick, which
+                        // is a scene bug and would look identical from the
+                        // sense alone. `CLAUDE.md`: a scene that contradicts
+                        // the code looks like a bug in the code.
+                        let (mut aux_max, mut aux_sum, mut aux_n) = (0u16, 0u64, 0usize);
+                        for x in (bank_x0..bank_x1).step_by(8) {
+                            for y in (bank_y0..bank_y1).step_by(4) {
+                                let c = world.get(x, y);
+                                if world.materials.get(c.material).water_capacity > 0 {
+                                    let held = pixel_physics::sim::update::soil_moisture(c);
+                                    aux_max = aux_max.max(held);
+                                    aux_sum += held as u64;
+                                    aux_n += 1;
+                                }
+                            }
+                        }
+                        let aux_mean = if aux_n > 0 { aux_sum as f64 / aux_n as f64 } else { 0.0 };
+                        println!("         field moisture over the whole box: max {fmax:.4}  nonzero samples {wet_blocks}  deep-soil max {deep_max:.4}   |   soil water: n {aux_n}  max {aux_max}  mean {aux_mean:.1}");
+                        if !raw.is_empty() {
+                            raw.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                            let mut d = raw.clone();
+                            d.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+                            println!(
+                                "         field moisture at {} ant heads: distinct {:>4}  min {:>10.4}  p50 {:>10.4}  max {:>10.4}",
+                                raw.len(),
+                                d.len(),
+                                raw[0],
+                                raw[raw.len() / 2],
+                                raw[raw.len() - 1]
+                            );
+                        }
+                    }
+                    for want in names.split(',').filter(|n| !n.trim().is_empty()) {
+                        let i = INPUT_NAMES
+                            .iter()
+                            .position(|n| n.eq_ignore_ascii_case(want.trim()))
+                            .unwrap_or_else(|| panic!("senses=: no such brain input `{}`", want.trim()));
+                        let mut vals: Vec<f64> = Vec::new();
+                        for id in world.live_organism_ids() {
+                            let Some(st) = world.organism(id) else { continue };
+                            let Some(def) = world.species.get(st.species).creature.as_ref() else { continue };
+                            let Some(&(hx, hy)) = st.chain.first() else { continue };
+                            let (inputs, _, _) = pixel_physics::sim::creature::probe(&world, hx, hy, id, def);
+                            vals.push(inputs[i] as f64);
+                        }
+                        if vals.is_empty() {
+                            println!("         sense {:>16}: no live ants to read it at", INPUT_NAMES[i]);
+                            continue;
+                        }
+                        vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                        let mut distinct: Vec<f64> = vals.clone();
+                        distinct.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+                        let q = |f: f64| vals[(((vals.len() - 1) as f64) * f).round() as usize];
+                        println!(
+                            "         sense {:>16}: n {:>4}  distinct {:>4}  min {:>8.4}  p50 {:>8.4}  max {:>8.4}  mean {:>8.4}",
+                            INPUT_NAMES[i],
+                            vals.len(),
+                            distinct.len(),
+                            q(0.0),
+                            q(0.5),
+                            q(1.0),
+                            vals.iter().sum::<f64>() / vals.len() as f64
+                        );
+                    }
+                }
                 // The distribution, at the last stop only. `comps`/`largest`
                 // are order statistics over it and cannot say whether the
                 // remainder is forty pockets or four hundred crumbs -- which

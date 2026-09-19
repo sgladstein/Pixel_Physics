@@ -3068,6 +3068,19 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   than the ant band), the three held-world requirements, and the finding that
   **`nest`'s `penetration_resistance` 6.0 against every shipped `dig_force`
   of 1.0 means a colony cannot dig its own doorstep**.
+- [nest-digging-plan-2026-09-19.md](nest-digging-plan-2026-09-19.md) — **plan,
+  2026-09-19. `lab`/`engine`.** Why the nest is a shallow lens and what to
+  build. Turns on one validated finding: chambers in the biology are
+  *density-dependent digging around a thing*, and this engine has the digging
+  and no thing — so the three `Crowding` interventions that measured as nulls
+  were a correct mechanism with nowhere to act. Carries the night's measured
+  premises (the census undercounts the nest **3x** because a gallery holding an
+  ant is not empty; four of five dig senses are colony-constant;
+  `MoistureGrad` reads 0.000 at every wetness; the gate compresses **26x**;
+  curvature→`Dig` gives **2.3x** roofed with the sign reversing), five stages
+  each with a check that can fail, and what not to build. Papers validated
+  through the PubMed connector, including two corrections to PR #472.
+  Handoff: [lanes/nest-digging-handoff-2026-09-19.md](lanes/nest-digging-handoff-2026-09-19.md)
 - [nest-design-2026-09-14.md](nest-design-2026-09-14.md) — **research and
   a recommendation, 2026-09-14. `lab`/`held`/`engine`.** What a nest should
   *be*, against the owner's two proposals (a world location, not a material;
@@ -3182,6 +3195,70 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   zero. D11.5: eggs are **not** gated on §10.3 and subsume it; if only
   one thing is done from this report, this is it. Docs only; nothing
   built.
+- [nest-entrance-dimensions-2026-09-19.md](nest-entrance-dimensions-2026-09-19.md)
+  — **research and method, 2026-09-19. `lab`/`engine`.** The dimensional
+  audit of the owner's entrance research report, which closed the gap both
+  prior nest reports named. **The one rule: sort every quantity by the plane
+  it was measured in** — this world is a vertical section, so vertical
+  results transfer and horizontal ones need a factor or cannot be posed.
+  `stigmergy-research.md` §7 states the principle; this makes it
+  quantitative over a set of formulas, and **three of them change**.
+  **Keep `A^0.5`, do not take the offered `V^(2/3)`** — Toffin's arena is
+  our geometry, so the substitution would correct a formula that was
+  already right. **The crater needs a factor of `1/r`**: a radial 3D walk
+  spreads mass over `2πr`, so porting `p(r)` straight gives a ridge with a
+  dip inside it — two humps, not a mound; judge-by-eye, not a metric.
+  **The amplification kernel is wider than the shaft it exists to
+  create** — Toffin's ant is 4 cells and his 8-neighbour kernel 3, ours is
+  `Chain(2)` and a shaft 1–2 cells, so the kernel cannot resolve the
+  feature; this is the *spatial* form of the quantisation rule, and it
+  predicts exactly when endogenous (marker-driven) concentration fails.
+  Four conversion tiers, of which **only dimensionless and body-length
+  rows are safe**: `K`, `ν`, `θ` and the marker units are bound to a
+  0.265 mm lattice and a one-minute step, and a decay rate should be
+  carried **in dig cycles**. Cell scale is cited from
+  `nest-biology-2026-09-19.md` §2.5 (2–5 mm), not re-derived. **§6 flags
+  the author's own anisotropic-kernel proposal as invention**, ranks it
+  behind the measured downward bias it is confounded with, and asks that
+  somebody else score it. Also: `found_colony_of` **excavates zero
+  cells** — founding paints a 46-cell door where biology digs a 1–2 cell
+  shaft — and `digbox`'s 1,200 ants sit 4x beyond the largest fitted
+  group, so the lens may be a jam. Docs only; nothing built.
+- [nest-shape-three-negatives-2026-09-19.md](nest-shape-three-negatives-2026-09-19.md)
+  — **measurement, 2026-09-19. `lab`/`engine`.** Four levers tested against
+  the nest's shape and **all four negative**, plus the one column that made
+  them readable. **A colony here does not dig a nest — it scratches the whole
+  floor, and "the nest" is the densest part of the scratching**: the room's
+  bounding box is **62–208 cells wide in a 400-wide box against a 53-column
+  door**, and `vert` (height/width) never leaves 0.19 on any arm. Narrowing
+  the door with the new `PIXEL_PHYSICS_NEST_SITE_COLS` gives the **widest**
+  room; a downward dig-target bias was refuted from the code before building
+  (the dig target and the step target are the same cell, so an override
+  severs the coupling that makes tunnels); and steering the heading by
+  `MoistureFront`/`MoistureLateral` leaves the control the best of five arms.
+  With `(Bias, Dig)` swept 0.15 → −1.0 everything scales together and nothing
+  concentrates — **the lens is what scratching-everywhere looks like turned
+  down**, and a fourth lever ran the other way from its hypothesis: removing
+  the spoil teleport (`SPOIL_LIFT=none`) collapses digging to a third and the
+  workings to three rows, while the *maximum* teleport gives the best shape of
+  the four — the abstraction holds the mechanic up rather than hiding one. So
+  the remaining candidate is the one the entrance research names:
+  self-amplification on recent digging, as a `spoil` **material adjacency**
+  test rather than a pheromone (a dig-face pheromone is measured and
+  negative). **Three instrument faults found on the way, two of which had
+  already produced findings**: `digbox`'s `trace` "spread over N columns × M
+  rows" is at-nest ANT spread and follows its own dial by construction — it
+  read "6 columns × 21 rows" and was nearly reported as a shaft, caught only
+  by rendering the pair and looking; every shape column in `burrow_probe`
+  (`circ`, `inradius`, `buds`) is **rotation-invariant**, now pinned by a
+  rotated-bar selftest; and a `wet=` argument of the author's own went into
+  the wrong branch and produced a retracted finding inside an hour. Also
+  corrects the record on `MoistureGrad`: the channel is **not inert** — 1
+  distinct value dry, 26 at field capacity, 3 at saturation (it clips), **44
+  on a graded bed**, so the null was a property of uniform hand-built beds.
+  And measures the at-nest crowding input **saturated in its top tenth for
+  100.0% of ticks**, which is what `roofed / ants` gives when `roofed`
+  excludes the ants.
 - [evolution-lab-round-37-brief-2026-09-15.md](evolution-lab-round-37-brief-2026-09-15.md)
   — **brief, 2026-09-15. `lab`/`engine`/`held`.** Opens with **two retracted
   numbers** a reader may have inherited (29.4 is per-bed, not per-ant; the
@@ -4223,6 +4300,14 @@ untracked; the branch `perf-audit` is **zero commits ahead of `main`** and
 never held the report at all; and a worktree's name is not its branch's name
 (plant-branch-angle lives in a worktree called `plant-crown`).
 
+- The digging-signals biology and the build plan —
+  **`origin/claude/nest-biology-research`** (PR #472). Two research reports
+  on what regulates an ant's dig, and the staged plan built from them. The
+  branch that carried the harness beside them
+  (`origin/claude/sweet-tesla-ommknn`) **landed 2026-09-19 as PR #474**, so
+  `examples/digbox.rs` and its two default-off switches are on `main` and
+  indexed above; it sat finished with no PR for a day, which is what
+  `branchcheck.sh --prs` exists to catch.
 - ~~`origin/perf-lock`~~ — **RETIRED 2026-08-25, not landed.** Its report is
   now in this directory (indexed above) and its two generalising findings are
   `CLAUDE.md` rules. What stays unlanded is the machine-wide timing lock

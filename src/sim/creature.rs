@@ -2396,6 +2396,122 @@ pub const ROOM_TARGET_DEFAULT: f32 = 2.0;
 /// rather than two builds, matching `spoil_kept` and `trophallaxis_enabled`
 /// and for the reason `CLAUDE.md` gives them -- two arms compared inside one
 /// run cannot be the stale-binary failure.
+/// **The site reach, in rows, or `None` for the shipped material test.**
+///
+/// `PIXEL_PHYSICS_NEST_SITE_ROWS=n` makes [`adjacent_nest`] ask *"am I within
+/// `COLONY_HALF_WIDTH` columns and `n` rows of the nearest site's founding
+/// surface"* instead of *"is a nest cell 8-adjacent to me"* -- the site design
+/// of `Reports/nest-design-2026-09-14.md` §9 item 1, behind a switch so the
+/// row reach can be **measured** before a value is chosen. The report ships it
+/// at 2 and says so in as many words: *"The depth is the untested lever ...
+/// Until it is run, 2 is the value."* This is that run.
+///
+/// **Unset is today's behaviour, bit-exact**, which is what makes an arm and
+/// its control one binary -- `CLAUDE.md`'s rule that two arms compared inside
+/// one run cannot be the stale-binary failure. An env switch rather than two
+/// builds, matching `room_gate_default` and `spoil_footing` beside it.
+///
+/// Why this is the dial that matters beyond homing: `BrainInput::Crowding`
+/// reads room-per-ant **only where `AtNest` is true** and falls back to a
+/// saturated local density everywhere else, and `ant.ron`'s hidden units 5/6
+/// gate digging on `AtNest` too. So this reach is not only "where is home" --
+/// it is the region in which a colony is willing to dig a chamber at all.
+pub fn nest_site_rows() -> Option<i32> {
+    static ROWS: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *ROWS.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SITE_ROWS").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v >= 0))
+}
+
+/// **The site reach in COLUMNS, half-width, or `None` for
+/// [`COLONY_HALF_WIDTH`].**
+///
+/// `PIXEL_PHYSICS_NEST_SITE_COLS=n` narrows the half-width
+/// [`adjacent_nest`]'s site branch tests, which [`nest_site_rows`] leaves at
+/// 26 -- a door 53 columns wide. It is the other half of the same dial and
+/// it exists because the width, not the depth, is the number the biology
+/// disagrees with most.
+///
+/// **What a real door is.** A nest shaft is about **one ant wide**
+/// (Gravish et al., *PNAS* 2013: tunnel diameter close to one body length,
+/// which is what lets an ant brace against both walls and arrest a fall).
+/// `ant.ron` authors `body: Chain(2)`, so that is **1-2 cells** -- and the
+/// conclusion survives the open question in
+/// `Reports/nest-biology-2026-09-19.md` §2.5 about whether `Chain(2)` is two
+/// ant-lengths or a head-plus-body abstraction, because it is single-digit
+/// either way. Against that, this engine's door is 46 columns of painted
+/// ground and 2 rows deep: **the shaft's dimensions transposed.**
+///
+/// **Why it should move the nest at all**, which is the part worth stating
+/// before anyone sweeps it: digging is gated on `AtNest` --
+/// `assets/species/ant.ron` says so at the `(Bias, Dig, 0.15)` comment,
+/// *"the crowding term below is gated on `AtNest` through hidden units
+/// 5/6"* -- and `BrainInput::Crowding` falls back to a saturated local
+/// density anywhere else. So the region where a colony will cut a chamber
+/// **is** this rectangle, and `examples/digbox`'s trace reports the
+/// workings as exactly `46 columns x 2 rows`. A lens that matches the door
+/// to the cell is not obviously the physics; it may be the door.
+///
+/// **This is a reach constant, not a mechanism**, which is what keeps it
+/// clear of `Reports/dead-ends.md`'s verdict that a *dig-target preference*
+/// fails at any tuning. Nothing here changes which cell a dig lands on.
+///
+/// **A parse failure falls back to the default, never to 0** -- the rule
+/// [`nest_core`] states and the reason it gives: a typo that silently
+/// reverted the mechanism would put the control in a sweep wearing another
+/// point's label. Unset is bit-exact.
+///
+/// **Do not ship a narrow door on this alone.** `AtNest` also gates `Drop`,
+/// the homing gradient, `nest_visits` and `deliveries`; a door too narrow to
+/// find is `open-bugs-handoff.md` §T2's shape, *"the colony simply lost its
+/// front door"*. `digbox` has no food, so the shape question is answered
+/// there and the foraging question is not asked at all.
+pub fn nest_site_cols() -> Option<i32> {
+    static COLS: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *COLS.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SITE_COLS").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v >= 0))
+}
+
+/// **What `BrainInput::Crowding` reports at the nest**, or `None` for the
+/// shipped colony-wide reading.
+///
+/// `PIXEL_PHYSICS_CROWDING_LOCAL=near|wide` replaces `NestRoom::occupancy`
+/// with a **local** worker density at the animal's own position, ranged over
+/// the neighbourhood it was counted in rather than over [`CROWDING_SCALE`].
+///
+/// **Why the existing local count cannot serve.** `density` above divides a
+/// 5x5 count of 24 neighbours by `CROWDING_SCALE` (8), so four nearby cells
+/// -- two animals at a two-cell body -- pin it at 1.000 and it never moves
+/// again; `dead-ends.md`'s `(Crowding, Dig, 0.6)` entry measured median
+/// 1.000 with p90 and max pinned. Dividing the identical count by the
+/// neighbourhood gives it range: measured 2026-09-19 over 51 ants standing
+/// at one nest at one tick, **9 distinct values over 0.50-0.83** at `near`,
+/// and **31 distinct values over 0.52-0.74** at `wide`.
+///
+/// **Why anyone would want it, which is the whole of this switch.** At the
+/// nest the shipped reading is one colony-wide scalar, so every ant reads the
+/// *same* number to four decimals and the four senses feeding `Dig` are
+/// constant across the colony. `Reports/nest-biology-2026-09-19.md` §4.1: the
+/// transition from a round cavity to a **branched** structure is driven by
+/// worker density along the excavation perimeter -- a local reading. A rule
+/// with no spatial variation has nowhere for a bud to form, which is why the
+/// nest is a lens and why that entry's null is evidence about the *reading*
+/// rather than about the mechanism.
+///
+/// **This is not free and must not be shipped on a whim.** Every ant-family
+/// species authors `(Crowding, Move, -0.3)` beside the two dig-gate weights,
+/// and that term is load-bearing negative feedback (P-12) read everywhere,
+/// not only at the nest. Changing what the slot *means* at the nest re-points
+/// it there too -- `CLAUDE.md`'s *a term in a weighted sum is not an
+/// independent knob*. Hence a switch, default unset and bit-exact, so an arm
+/// and its control run from one binary.
+pub fn crowding_local() -> Option<i32> {
+    static MODE: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *MODE.get_or_init(|| match std::env::var("PIXEL_PHYSICS_CROWDING_LOCAL").as_deref() {
+        Ok("near") => Some(2),
+        Ok("wide") => Some(6),
+        Ok(v) => v.parse::<i32>().ok().filter(|r| *r > 0),
+        Err(_) => None,
+    })
+}
+
 pub fn room_gate_default() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_LAB_ROOM").as_deref() != Ok("off"))
@@ -5194,11 +5310,37 @@ fn sense(
     // zero here would read as "infinitely packed" and dig hardest exactly
     // where the instrument is blindest.
     inputs[I::Crowding as usize] = if world.room_gate && inputs[I::AtNest as usize] > 0.0 {
-        world
-            .nearest_nest_site(x, y)
-            .and_then(|i| world.nest_room.get(i))
-            .and_then(|room| room.occupancy(world.room_target))
-            .unwrap_or(density)
+        // **The local arm, off unless asked for** -- see `crowding_local`.
+        // Counted the same way `density` is above (creature cells, self
+        // excluded) but divided by the neighbourhood rather than by
+        // `CROWDING_SCALE`, which is the entire difference between a reading
+        // that varies between neighbours and one pinned at 1.000.
+        if let Some(r) = crowding_local() {
+            let mut near = 0;
+            let mut total = 0;
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    if dx == 0 && dy == 0 {
+                        continue;
+                    }
+                    total += 1;
+                    let cell = world.get(x + dx, y + dy);
+                    if cell.organism_id() == organism {
+                        continue;
+                    }
+                    if world.materials.kind(cell.material) == MaterialKind::Creature {
+                        near += 1;
+                    }
+                }
+            }
+            (near as f32 / total.max(1) as f32).clamp(0.0, 1.0)
+        } else {
+            world
+                .nearest_nest_site(x, y)
+                .and_then(|i| world.nest_room.get(i))
+                .and_then(|room| room.occupancy(world.room_target))
+                .unwrap_or(density)
+        }
     } else {
         density
     };
@@ -7511,9 +7653,27 @@ fn is_visible_threat(world: &World, cell: Cell, self_organism: OrganismId, self_
 /// ancestor, and the arena, not this counter, is what says whether it
 /// forages.
 fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
+    // **The `nest` field is read as a flag in both branches, never only as a
+    // material.** A species that authors no nest has no home under either
+    // rule, which is what keeps `ancestor` and `flitter` reading a constant
+    // 0.0 -- their own comments depend on it, and `deliveries` reads 0 by
+    // construction for them. Under the site design the field becomes a flag
+    // outright (`Reports/nest-design-2026-09-14.md` §13); this preserves that
+    // meaning without yet making the change.
     let Some(nest) = world.materials.id_of(&def.nest) else {
         return false;
     };
+    // **The site branch: home is a place, not a cell.** No `World::get` at
+    // all -- one linear scan over a list that holds one to a handful of
+    // sites, against eight neighbour reads today, so this is cheaper rather
+    // than dearer (the report's §8 option B).
+    if let Some(rows) = nest_site_rows() {
+        let Some(i) = world.nearest_nest_site(x, y) else {
+            return false;
+        };
+        let site = world.nest_sites[i];
+        return (site.x - x).abs() <= nest_site_cols().unwrap_or(COLONY_HALF_WIDTH) && (site.surface - y).abs() <= rows;
+    }
     NEIGHBOURS_8.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == nest)
 }
 
@@ -8946,6 +9106,11 @@ fn lift_reach(world: &World, x: i32, y: i32, dig_force: f32, mode: SpoilLift) ->
     if mode == SpoilLift::Unbounded {
         return SPOIL_LIFT;
     }
+    // **Nothing is lifted**, so the drop scan never leaves the animal's own
+    // row and every row of haulage is walked. See `SpoilLift::None`.
+    if mode == SpoilLift::None {
+        return 0;
+    }
     for dy in 1..=SPOIL_LIFT {
         let cell = world.get(x, y - dy);
         if cell.material == material::EMPTY {
@@ -9015,6 +9180,23 @@ enum SpoilLift {
     /// `Dig`, and a row of open air passes only where there is a wall beside it
     /// to climb. The default.
     Climb,
+    /// **No lift at all** -- the pellet goes down where the animal is
+    /// standing, and every row of haulage has to be walked.
+    ///
+    /// The ablation arm, off by default, and it exists because all three
+    /// modes above abstract the *return trip* away. Inside a shaft there is
+    /// always a wall beside you, so even `Climb` lifts the full
+    /// [`SPOIL_LIFT`] (160 rows) exactly where a real nest would have a
+    /// haulage corridor -- and a shaft in a real nest is largely a haulage
+    /// corridor. Measured in `examples/digbox` on 2026-09-19: **638 cells
+    /// standing above the original ground line against 137 cells of void
+    /// below it**, so the material is leaving the ground rather than lining
+    /// a gallery.
+    ///
+    /// **Whether that is a cause or a consequence is the open question this
+    /// arm is for.** Do not ship it without measuring what it costs: an ant
+    /// that cannot put a pellet anywhere may simply carry it for ever.
+    None,
 }
 
 fn spoil_lift_mode() -> SpoilLift {
@@ -9022,6 +9204,7 @@ fn spoil_lift_mode() -> SpoilLift {
     *MODE.get_or_init(|| match std::env::var("PIXEL_PHYSICS_SPOIL_LIFT").as_deref() {
         Ok("unbounded") => SpoilLift::Unbounded,
         Ok("dig") => SpoilLift::Dig,
+        Ok("none") => SpoilLift::None,
         _ => SpoilLift::Climb,
     })
 }
