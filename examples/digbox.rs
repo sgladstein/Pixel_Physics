@@ -552,6 +552,35 @@ fn main() {
         world.species.set_genome(id, genome);
         println!("  chamber gate re-centred: (AtNest, 5/6) = {g} instead of the authored 30.0");
     }
+    // **`curvdig=` wires the one local sense the ant already has to `Dig`.**
+    //
+    // `ant.ron` authors `(SurfaceCurvature, Drop, 0.169)` and
+    // `(SurfaceCurvature, DropSpoil, 0.169)` -- a positive weight on
+    // *exposure* for deposition, which is the ant/termite construction rule
+    // exactly: material accumulates on bumps, bumps become pillars. The
+    // engine therefore already ships the **deposition** half of stigmergy.
+    // It ships no excavation counterpart: `(SurfaceCurvature, Dig, w)` is
+    // absent, and `Dig` reads nothing that varies from one cell to the next.
+    //
+    // Measured 2026-09-19: of the five senses reaching `Dig`, four hold a
+    // single value across the whole colony and curvature holds **16 distinct
+    // values among 51 ants standing in one nest at one tick**. It is the only
+    // spatial signal available to the decision.
+    //
+    // SIGN. `surface_curvature` returns `+1` for a spike of ground with
+    // nothing around it and `-1` for buried. So a **negative** weight digs
+    // harder where the animal is already enclosed -- the tunnel-deepening
+    // feedback, a dent becoming a gallery -- and a positive weight digs
+    // harder at an exposed face, widening the open pit. The sign is exactly
+    // the kind of thing this repo measures rather than argues, so sweep it.
+    if let Some(w) = arg::<f32>("curvdig") {
+        use pixel_physics::sim::brain::{io_slot, BrainInput, BrainOutput};
+        let id = world.species.id_of("ant").expect("ant ships");
+        let mut genome = world.species.get(id).genome.clone();
+        genome[io_slot(BrainInput::SurfaceCurvature, BrainOutput::Dig)] = w;
+        world.species.set_genome(id, genome);
+        println!("  (SurfaceCurvature, Dig) = {w}  [negative digs where buried; positive digs at an exposed face]");
+    }
     world.paint_nest_patch(b.w / 2, b.surface - 1);
     let mut trickle = Trickle::new(ants as usize, arg("rate").unwrap_or(4));
 
