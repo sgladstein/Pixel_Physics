@@ -31,9 +31,13 @@ tables in the report):
   colonies alive against 22 and close 107 trips against 65. `self` ≡ `mute`
   in every configuration. A `(Crowding, EmitB, −4.5)` survival gain (31
   colonies) is the same cost effect, shown by that control.
-- **Channel B's decay band (0.10, 0.25) is inert** on the gap bed; the
-  played-bed half (`labforage bdecay=`) is in the report §5.
-- **Trophallaxis** on the played bed, 12 seeds, 150,000 frames: report §6.
+- **Channel B's decay band: inert on the gap bed, positive on the played
+  bed.** `labforage bdecay=0.25`, 12 seeds, 150,000 frames: intake better
+  in 10 of 12 (median 54,722 → 127,339 J), unvisited larder lower in 11 of
+  12. The one rejection in this round that falls; report §5.
+- **Trophallaxis stands at 12 seeds**: the founding cliff is delayed ~3,000
+  frames and steepened (12/0 better at 3,600, 3/9 at 9,000 and 30,600), a
+  coin toss by session length. Report §6; wiki paragraph updated.
 - **Laden right-of-way**: not built (this lane tests). The diff exists at
   `8071d002`, withdrawn at `a1d1730a`; the scoring run is in report §7 and
   was offered to the trail lane.

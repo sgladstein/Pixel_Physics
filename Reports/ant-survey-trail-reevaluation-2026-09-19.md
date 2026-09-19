@@ -12,8 +12,9 @@ seed.*
 
 ## 0. The answer, stated once
 
-**Four of the five rejections stand, one was overturned a day before the
-brief was written and nobody told the record, and the thing every candidate
+**Three of the five rejections stand, one was overturned a day before the
+brief was written and nobody told the record, one falls on the played bed
+(channel B fading faster helps a colony with a working reader), and the thing every candidate
 presupposes — a colony that can lay a trail worth following — is still
 absent on every bed measured here.**
 
@@ -23,7 +24,7 @@ absent on every bed measured here.**
 | 2. food-trail reader at full gain | **`u8` planes**: the far half of every trail read 0.000, so a reader at full gain could only see the near end | **overturned** — shipped since `ac02ac03` (09-18), record not updated. On `u16` it is the whole hand-trail effect (22 colonies of 36 against 4; 52% of ants at the food against 5%) and wins the entry's own patchy-larder race 10 seeds of 12 |
 | 2b. `(Crowding, EmitB, −w)` | never run | null at w = 2.35; the w = 4.5 survival gain is the emission cost falling (no-channel-B control: 29 colonies) |
 | 2c. no-entry mark | never run | not built: `self` ≡ `mute`, so there is no recruitment to a stale patch for it to correct |
-| 3. `DECAY_RHO` in the literature band | `u8`, interval 4, both planes at once | **inert for channel B alone** on the gap bed (25 and 24 colonies against 22 at rho 0.10 / 0.25); played-bed half in §5. Stands, narrowed |
+| 3. `DECAY_RHO` in the literature band | `u8`, interval 4, both planes at once | **inert on the gap bed** (25 and 24 colonies against 22 at rho 0.10 / 0.25) and **positive on the played bed** at 0.25: intake 10 seeds of 12 better (median 54,722 → 127,339 J), unvisited larder lower in 11 of 12. **Falls**, for channel B on `u16` with a reader that can hear it |
 | 4. trophallaxis | three runs, survivor count, harness bed | **stands at 12 seeds** on the played bed: the cliff is delayed ~3,000 frames and steepened, nine seeds of twelve behind by 9,000, a coin toss by session length |
 | 5. laden right-of-way | the symmetric swap was measured where no laden ant moved homeward | **not built** (this lane tests); the scoring run is §7 and the diff is on this branch's history |
 
@@ -268,7 +269,27 @@ re-lays, which is `pherolife`'s scene and not the colony's. The other half
 of the question — does a faster fade stop a trail recruiting to an *eaten*
 patch — is the units-2/3 entry's named re-test on the played bed:
 
-*(labforage bdecay table)*
+`labforage frames=150000 seed=1..12 bdecay=…` — the shipped lab box (patchy
+herbs), trophallaxis on, the food reader at full gain, channel A at 0.
+`intake` is the colony's whole-run joules eaten; `unvisited` is edible cells
+standing in columns no ant ever entered, at 149,400. Sign tests paired
+within seed against the shipped 0.03.
+
+| channel B rho | alive at 30,600 (median) | alive at 149,400 (median) | sign, alive at 149,400 | intake, median | sign, intake | unvisited, median | sign, unvisited lower |
+|---|---|---|---|---|---|---|---|
+| 0.03 (shipped) | 6 | 2.5 | — | 54,722 J | — | 156 | — |
+| 0.10 | 9 | 8.5 | 7/4/1 | 94,501 J | 8/4/0 | 146 | — |
+| 0.25 | 8 | **10.5** | **8/4/0** | **127,339 J** | **10/2/0** | **106** | **11/1** |
+
+So the band is inert where the trail is hand-laid to one pile and helps
+where the larder is patchy and the reader is on: a food trail that fades in
+a fifth of a round trip sends the colony to more of the bed and it eats more.
+That is the survey's claim for an ephemeral resource, and it is the
+mechanism the units-2/3 entry's author named as the remedy for an
+over-followed trail and never ran. Not tidy — 8/4 on survival, one seed of
+twelve the other way on reach — which is what a real effect looks like here.
+Under expose-not-tune this is a dial's range, 0.03–0.25, not a new constant.
+
 
 ## 6. Candidate 4 — trophallaxis on the played bed
 
