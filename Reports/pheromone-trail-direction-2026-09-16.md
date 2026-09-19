@@ -4889,6 +4889,190 @@ not the sensor's.
 
 **Data:** `Reports/data/z29-*-36seed-gap90-2026-09-19.log`.
 
+## §7.45 The P(move) column was in the wrong units, and correcting it moves the diagnosis
+
+**2026-09-19, overnight after §7.44.** Everything below follows from one line
+of the harness being wrong, and the correction makes the homing circuit look
+**better** than reported while moving the blame somewhere else entirely.
+
+### The bug
+
+`examples/trailfollow.rs` wrote the `p_move` column as
+`brain::unit_scale(out, 1.0)` = `(out + 1) / 2`. `src/sim/creature.rs:4368`,
+which is what actually rolls the step, uses `out.clamp(0.0, 1.0)`. Those are
+different functions. `unit_scale` is the right convention for `Tumble`,
+`Persist` and `Caution` — and `Move` is the one output that does not use it.
+
+They differ most exactly where this ant lives: **every negative `Move` output
+prints as something between 0 and 0.5 under `unit_scale` and is rolled as a
+hard zero.**
+
+**The control cost nothing and was already on disk**, which is the part worth
+carrying: the cohort traces carry positions, so the observed step rate per
+printed bucket says which function the engine is using.
+
+| printed `p_move` | ticks | ants stepped | if the column were P | if P = `clamp(2p−1)` |
+|---|---|---|---|---|
+| 0.15 | 4,328 | **0.0%** | 15% | 0% |
+| 0.25 | 1,373 | 0.0% | 25% | 0% |
+| 0.45 | 1,458 | 0.1% | 45% | 0% |
+| 0.55 | 1,907 | 12.3% | 55% | 10% |
+| 0.75 | 1,096 | 48.3% | 75% | 50% |
+| 0.95 | 51 | 76.5% | 95% | 90% |
+
+Weighted absolute error over 13,248 ticks: **1.4 points for `clamp`, 27.7 for
+`unit_scale`.** In the four lowest buckets the column claimed 5–35% and the
+ants stepped **0 times in 6,819 ticks**.
+
+### What it changes
+
+Every `P(move)` figure in §7.41–§7.44 is in the wrong unit. The corrected ones,
+`gate=shipped gaps=90 arms=hand`:
+
+| | as reported | corrected |
+|---|---|---|
+| ratchet, P(move) up-gradient − down | +0.0630 / +0.1526 | **+0.2620 / +0.6255** |
+| engine P(move) exactly **zero** | not measured | **48–72% of all ticks** |
+
+The old number was not merely small; it was a mean over ticks where the homing
+term is **disconnected**. Zero plus a small number is still zero, so on 62% of
+this ant's ticks the gradient cannot move the behaviour at all whatever it
+reads. A mean across that boundary is `CLAUDE.md`'s "ask what your number
+counts" with the clamp doing the hiding.
+
+### And split out, the circuit is doing exactly what run-and-tumble should
+
+`not resting %` is the share of ticks the clamp has *not* already pinned at
+zero; `P(move)|>0` is the mean over only those. Twelve seeds, gap 90:
+
+| arm | facing up-gradient | | facing down-gradient | |
+|---|---|---|---|---|
+| | not resting | P(move)\|>0 | not resting | P(move)\|>0 |
+| shipped | **90.8%** | 0.636 | **16.4%** | 0.046 |
+| vacated | 88.3% | 0.559 | 22.0% | 0.055 |
+
+**The homing drive is almost entirely the rest gate and barely at all the
+speed** — an ant facing up the ramp is five and a half times more likely to be
+in a state where it can step at all, and when both are moving they move at
+similar rates. That is the mechanism the design asked for, working.
+
+### So the bottleneck is not the ratchet. It is that the reading is almost
+### never positive
+
+Same runs, the count the split is taken over:
+
+| arm | laden ticks facing **up** | facing **down** | ratio |
+|---|---|---|---|
+| shipped | 11,255 | 169,037 | **15.0 : 1** |
+| vacated | 12,521 | 173,300 | 13.8 : 1 |
+
+An ant reads the homing plane as pointing the way it is facing on about **6% of
+its laden ticks**. `§Z29`'s vacated deposit moves that 15.0 → 13.8 and no
+further. **Everything downstream is fine; there is nothing coming in.**
+
+And the arithmetic closes: facing up-gradient the ant nets **+0.0142 cells/tick**
+homeward, facing down **+0.0011**. Pooled that is +0.0017/tick, so 90 cells
+takes about **53,000 frames** — more than twice the whole run.
+
+### T0: the guard is not the suppressor, and this is now settled
+
+§7.42's D5 said `sense`'s `guard = SCALE` (256 raw) swamps a faint plane —
+95% of the denominator at the food end against 2.5% at the nest. Post-hoc over
+36 recorded profiles (3 seeds × frames ≤ 6,000), recomputing what an ant facing
+home would read at every x:
+
+| x | g256/b6 | g16/b6 | g256/b30 | g16/b30 |
+|---|---|---|---|---|
+| 78 | 17% | 19% | 47% | 53% |
+| 108 | 28% | 28% | 36% | 39% |
+| 138 | 3% | 3% | 22% | 22% |
+
+**A sixteenfold cut in the guard moves readability 0–5 points at every x and
+every baseline.** The baseline does about twice as much — and 30 cells is the
+radar reach already rejected on plausibility. **Part 1 of the plan is dead**,
+and cheaply: no code was written.
+
+### T1: the plane is not spiky. It is absent
+
+D2 ("spikes that locally invert") rested on one sample. Time-averaged over 3
+seeds × 18 frames:
+
+| x | mean | median | nonzero% |
+|---|---|---|---|
+| 48 (nest) | 228.4 | **6.5** | 55.6% |
+| 78 | 196.9 | **0.0** | 48.1% |
+| 108 | 30.9 | 0.0 | 25.9% |
+| 122 | 56.7 | 0.0 | 25.9% |
+
+**Median zero from x=78 outward, and a quarter of samples lit past x=106.** The
+mean-to-median ratio of 35:1 at the nest is the signature: this is a scatter of
+short-lived bursts, not a ramp with noise on it. So D2 is the wrong reading of
+D1 — there are no spikes to smooth, there is nothing there most of the time.
+
+### T2: the run is over before the ant has moved once
+
+Run-length census over five cohort traces, one row per tick:
+
+| | shipped | vacated | vacated + decay 0 |
+|---|---|---|---|
+| run length, ticks (mean / median) | 3.35 / 2 | 3.15 / 2 | 3.13 / 2 |
+| run length, **cells** (mean) | **0.35** | 0.30 | 0.37 |
+| net displacement / path length (median) | 12.0% | 15.7% | 4.7% |
+| **actually stepped on** | **13.0%** of ticks | 12.4% | 16.4% |
+
+The plan predicted "a mean run of ~2 cells". It is **0.35**. The heading turns
+over about six times faster than the body moves, because the tumble roll fires
+in the `else` of a *failed* move — so an ant the ratchet has correctly stalled
+re-rolls the heading it was stalled for, about every other tick.
+
+### The constant that was lost in a refactor, and did not turn out to matter
+
+`dead-ends.md:1083` records the measurement: re-orienting on **every** failed
+move roll took food discovery from 33 pickups to **1**, and
+`TUMBLE_ON_FAILED_MOVE = 0.35` was the fix. That const became
+`BrainOutput::Tumble`, whose silent output is `unit_scale(0.0)` = **0.5**, and
+`ant.ron` authors no `Tumble` wire — so the shipped ant has been re-rolling on
+half its failed rolls against an authored answer of 0.35, and nothing said so.
+`Persist` is the same shape: an anonymous `0.15` became a silent **1.0**.
+
+Restoring them, and the gradient-into-`Tumble` wiring that output's own doc
+asks for. Twelve seeds, gap 90, `arms=hand`, paired within seed against
+shipped on **`came back / reached food`** — a rate, because two arms scored
+`reached food` in the thousands on colonies that founded rather than navigated:
+
+| arm | reach/seed | back/seed | homing rate | sign b/w/t | median Δ |
+|---|---|---|---|---|---|
+| shipped | 9.0 | 1.0 | 6.61% | — | — |
+| vacated | 10.0 | 0.0 | 3.68% | 2/7/3 | −2.09 |
+| + tumble 0.35 | 13.0 | 0.0 | 3.14% | 3/6/3 | −0.97 |
+| + tumble 0.20 | 11.5 | 1.0 | 7.19% | 5/4/3 | +0.00 |
+| + tumble 0.10 | 7.5 | 0.0 | 9.62% | 4/5/3 | +0.00 |
+| + persist 1.5 | 11.5 | 0.5 | 6.47% | 4/5/3 | +0.00 |
+| + persist 0.5 | 10.5 | 0.0 | 0.21% | 3/6/3 | −2.50 |
+| + `PheroAAlong→Tumble` −3.0 | 12.0 | 0.0 | 2.96% | 3/6/3 | −2.50 |
+| + tumble 0.35, persist 1.5 | 10.0 | 1.0 | 0.99% | 5/4/3 | +0.00 |
+
+**Null, every arm.** Best sign test 5/4/3, median difference zero. L3 does not
+fix homing.
+
+**Read the totals in that sweep as the trap they are.** `persist 0.5` scored
+`reached food` **6,615** against shipped's 121 and `born` 6,638 against 37 —
+and its per-seed median reach is **10.5 against 9.0**. One or two seeds founded
+a colony and the rest did not; the thousands are population, not navigation.
+The pooled homing *rate* on that arm is **0.21%**, the worst in the table.
+
+### What this leaves
+
+The sensor is fine. The ratchet is strong and correctly shaped. The plane is
+the whole of it, and the number to move is the **15:1 down:up ratio** — which
+needs to know whether the ramp points at the food (§7.15's polarity inversion)
+or whether a milling ant builds a mound of its own deposits and reads downhill
+in every direction. `A READ` now prints the **foodward** reading beside the
+homeward one, which separates those two for the first time: a ramp pointing at
+the food gives one high and one low, a mound gives both low.
+
+**Data:** `Reports/data/runlength-12seed-gap90-2026-09-19.log`.
+
 ## Appendix A. Raw per-seed data
 
 Kept in full because outcomes here have enormous spread, and every headline in

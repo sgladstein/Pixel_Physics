@@ -739,6 +739,7 @@ struct Arm {
     /// food at all; `returned` is those that then reached the nest band; the
     /// last two split those returns by whether anything was being carried.
     read_ok: u64,
+    read_away: u64,
     read_n: u64,
     lit: u64,
     lit_n: u64,
@@ -1897,6 +1898,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // an animal has been observed to act on (the cohort member that homed did
     // it on `along` ~0.01).
     let mut read_ok = 0u64;
+    let mut read_away = 0u64;
     let mut read_n = 0u64;
     let mut live_cells_n = 0u64;
     let mut live_cells_lit = 0u64;
@@ -1952,6 +1954,21 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 read_n += 1;
                 if along >= 0.02 {
                     read_ok += 1;
+                }
+                // **The same reading taken facing the other way, and it is a
+                // discriminator rather than a second statistic.** The homeward
+                // figure alone cannot tell two very different planes apart: a
+                // ramp that points at the FOOD (§7.15's polarity inversion --
+                // then foodward is high and homeward low) and a plane that is
+                // a scatter of local maxima (then BOTH are low, because an ant
+                // standing on a mound reads downhill in every direction). The
+                // laden traces put the down:up ratio at 14-20:1, which needs
+                // one of those two explanations and the columns as they stood
+                // could not say which.
+                let behind = w.pheromone_at(Channel::A, x + sensor_span, surface) as f32;
+                let away = (behind - here) / (behind + here + pixel_physics::sim::pheromone::SCALE as f32);
+                if away >= 0.02 {
+                    read_away += 1;
                 }
                 live_cells_n += 1;
                 if here > 0.0 {
@@ -2733,6 +2750,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         ants_seen: tracks.len(),
         round_trips: tracks.values().map(|t| t.trips as u64).sum(),
         read_ok,
+        read_away,
         read_n,
         lit: live_cells_lit,
         lit_n: live_cells_n,
@@ -3051,8 +3069,9 @@ fn main() {
                         format!("{} {} {} {} {}", a.reach[0], a.reach[1], a.reach[2], a.reach[3], a.reach[4])
                     );
                     println!(
-                        "{:>16}A READ  ant-readable homeward along >= 0.02 on {:>5.1}% of route-cell samples | plane lit on {:>5.1}% | peak amt {:>6} cells {:>3}",
+                        "{:>16}A READ  ant-readable homeward along >= 0.02 on {:>5.1}% of route-cell samples | FOODWARD {:>5.1}% | plane lit on {:>5.1}% | peak amt {:>6} cells {:>3}",
                         "", 100.0 * a.read_ok as f64 / a.read_n.max(1) as f64,
+                        100.0 * a.read_away as f64 / a.read_n.max(1) as f64,
                         100.0 * a.lit as f64 / a.lit_n.max(1) as f64, a.a_peak_amt, a.a_peak_cells
                     );
                     println!(
