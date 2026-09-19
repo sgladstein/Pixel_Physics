@@ -2338,6 +2338,31 @@ pub const ROOM_TARGET_DEFAULT: f32 = 2.0;
 /// rather than two builds, matching `spoil_kept` and `trophallaxis_enabled`
 /// and for the reason `CLAUDE.md` gives them -- two arms compared inside one
 /// run cannot be the stale-binary failure.
+/// **The site reach, in rows, or `None` for the shipped material test.**
+///
+/// `PIXEL_PHYSICS_NEST_SITE_ROWS=n` makes [`adjacent_nest`] ask *"am I within
+/// `COLONY_HALF_WIDTH` columns and `n` rows of the nearest site's founding
+/// surface"* instead of *"is a nest cell 8-adjacent to me"* -- the site design
+/// of `Reports/nest-design-2026-09-14.md` §9 item 1, behind a switch so the
+/// row reach can be **measured** before a value is chosen. The report ships it
+/// at 2 and says so in as many words: *"The depth is the untested lever ...
+/// Until it is run, 2 is the value."* This is that run.
+///
+/// **Unset is today's behaviour, bit-exact**, which is what makes an arm and
+/// its control one binary -- `CLAUDE.md`'s rule that two arms compared inside
+/// one run cannot be the stale-binary failure. An env switch rather than two
+/// builds, matching `room_gate_default` and `spoil_footing` beside it.
+///
+/// Why this is the dial that matters beyond homing: `BrainInput::Crowding`
+/// reads room-per-ant **only where `AtNest` is true** and falls back to a
+/// saturated local density everywhere else, and `ant.ron`'s hidden units 5/6
+/// gate digging on `AtNest` too. So this reach is not only "where is home" --
+/// it is the region in which a colony is willing to dig a chamber at all.
+pub fn nest_site_rows() -> Option<i32> {
+    static ROWS: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *ROWS.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SITE_ROWS").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v >= 0))
+}
+
 pub fn room_gate_default() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_LAB_ROOM").as_deref() != Ok("off"))
@@ -7240,9 +7265,27 @@ fn is_visible_threat(world: &World, cell: Cell, self_organism: OrganismId, self_
 /// ancestor, and the arena, not this counter, is what says whether it
 /// forages.
 fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
+    // **The `nest` field is read as a flag in both branches, never only as a
+    // material.** A species that authors no nest has no home under either
+    // rule, which is what keeps `ancestor` and `flitter` reading a constant
+    // 0.0 -- their own comments depend on it, and `deliveries` reads 0 by
+    // construction for them. Under the site design the field becomes a flag
+    // outright (`Reports/nest-design-2026-09-14.md` §13); this preserves that
+    // meaning without yet making the change.
     let Some(nest) = world.materials.id_of(&def.nest) else {
         return false;
     };
+    // **The site branch: home is a place, not a cell.** No `World::get` at
+    // all -- one linear scan over a list that holds one to a handful of
+    // sites, against eight neighbour reads today, so this is cheaper rather
+    // than dearer (the report's §8 option B).
+    if let Some(rows) = nest_site_rows() {
+        let Some(i) = world.nearest_nest_site(x, y) else {
+            return false;
+        };
+        let site = world.nest_sites[i];
+        return (site.x - x).abs() <= COLONY_HALF_WIDTH && (site.surface - y).abs() <= rows;
+    }
     NEIGHBOURS_8.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == nest)
 }
 
