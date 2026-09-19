@@ -3093,6 +3093,95 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   home bearing becomes conditional. The site, blob and crust findings
   stand.** **§13: owner ruling 2026-09-15 — no paint; the nest is a site and
   nothing else, `nest` retires as a material and §T2 closes with it.**
+- [nest-biology-2026-09-19.md](nest-biology-2026-09-19.md) — **research,
+  2026-09-19. `lab`/`engine`.** The biology of ant nests aimed at the nest
+  build: chamber architecture and depth, granaries and refuse, what starts
+  and stops a dig, and nest microclimate. Sibling to
+  `nest-design-2026-09-14.md` §2 (homing) and `stigmergy-research.md` §5
+  (excavation shaping); neither is repeated. **Seven findings contradict
+  what the engine assumes**, of which three change a build. **A
+  colony-wide scalar cannot produce architecture**: the literature's
+  regulating quantity is worker density *at the face* (Toffin, *PNAS*
+  2009), while `NestRoom::occupancy` is one number every ant at the door
+  reads alike — which is why `(Crowding, Dig, 0.6)` moved digging and
+  never moved **buds (0 vs 0)**, so that null is evidence about the
+  *reading*, not the mechanism. **The world is one to two orders of
+  magnitude too shallow**: at `body: Chain(2)` a cell is 2–5 mm, so the
+  lab bed's 80 rows is 16–40 cm and the outdoor blanket is ~22 cells —
+  against 2 m for a *Pogonomyrmex* nest — and **the repo has never stated
+  a metres-per-cell convention**, which gates the rest. And **the
+  microclimate substrate already exists**: `FieldCell` carries
+  depth-graded `sky_temperature` with the diurnal oscillator separable
+  *exactly*, plus `moisture`, and nothing reads either for a nest
+  decision — every species wires `(TempAboveAmb, Turn, -0.8)` and stops.
+  Also: **`(MoistureGrad, Dig, -0.55)` is an unlabelled depth weight with
+  the wrong sign for nest-building** (its own doc measures curvature at
+  1.01x and twenty rows of depth at 1.91x); **`ROOM_TARGET_DEFAULT`'s
+  hyperbola is endorsed** by the literature (colonies slow, never stop)
+  while its *quantity* is global where biology's is local; the best-
+  measured per-capita set point is a **template**, *Temnothorax* walling
+  at a radius set by the brood cluster (Franks & Deneubourg 1997); and
+  **a chamber is a microclimate, not storage** — seeds dry and shallow,
+  brood humid and deep, which is Law 1 as a vertical distribution.
+  Says **no** to a CO₂ field, to ventilation, to fungus gardens, to
+  worker age, and to a third dig-*target* rule (two are already dead).
+  Every claim is marked **[measured]** / **[repeated]** / **[general]**,
+  no URLs are given by design, and §6 names six places the literature
+  disagrees or the number is one species in one study. §7 routes the four
+  open questions to `latecensus`, `larder_probe` and `burrow_probe` —
+  three are a column on an existing instrument, none is a new harness.
+  **§10 is an owner ruling on this report's own premise, 2026-09-19, and
+  is the part to read first: *"nests have no real purpose"*.** All four of
+  its grounds check out and the tree states each more strongly — no
+  granary (`resident` 0 from frame 200); reproduction is **budding**, so
+  there is no egg, larva or brood object at all; **`DEATH_CAUSE_LIST` has
+  eight entries and not one is environmental**, in either game, with the
+  lab additionally pinned `Pin::Clear`; and `beetles=0` against
+  `beetles=9` measured **bit-identical over 6,000 frames**. So §5.4's
+  *a chamber is a microclimate* is right about ants and describes four
+  purposes the box has none of, and §§2–5's decisions build machinery for
+  a function that does not exist. **The purpose that is already half-built
+  and nobody has read**: budding needs a clear adjacent cell, soil is a
+  `Powder` so the only reliably clear underground space is *roofed* space,
+  and `births_denied_no_space` / `births_denied_animals` already count the
+  failures — so a chamber may already be the space a colony needs to grow
+  into. §10.3 is **one number off `latecensus`** deciding whether room
+  binds or merely queues, and it now sits ahead of §7's Q1–Q4. §10.4
+  prices the five purposes if one has to be built (room-to-grow nearly
+  free; a predator that is a force, and a granary *with a lean season*,
+  moderate; environmental death faithful and dearest, with the
+  `DEATH_CAUSE_LIST` registry-sweep trap named; brood would void the
+  creature line's baselines). §10.5's D10.1: **nothing in §9 starts until
+  §10.3 is read.** **§11 answers the owner's follow-up — *"we should also
+  consider implementing eggs?"* — yes, and it CORRECTS §10.4, which had
+  ranked brood second-dearest.** The design already exists and neither
+  `dead-ends.md` nor `creature-evolution-plan.md` reaches it:
+  `creature-direction.md` §3b/§7b settles *what an egg is* the cheapest
+  way — **an egg reuses `Seed`**, a `Powder` cell that falls and rolls,
+  `Germinate` extended with an optional `hatch_into`, so *"the
+  relocated-seed machinery … is needed verbatim for eggs and comes
+  free"*. **Stage 4 bundles two changes and only one is expensive**: the
+  *egg* (a delay and a vulnerability inserted into budding — cheap, the
+  substrate is the seed's) is separable from the *queen and
+  colony-as-selection-unit* (which redefines what evolves and would void
+  every creature-line baseline). **An egg is the keystone**: it is
+  simultaneously a thing that must be put somewhere (the chamber gets
+  contents), immobile and defenceless (so refuge becomes real **without
+  the beetle ever having to beat an adult ant**, which is the recorded
+  null), vulnerable to its surroundings (the missing consumer for the
+  depth-graded temperature and moisture fields of D5.1), and a delay
+  between investment and return (the lean time a granary needs) — so
+  three of §10.4's other four purposes stop being *build a system* and
+  become *add a consumer*. And because an egg falls, it needs **roofed**
+  space to stay put, which is §10.2's room-to-grow finding a second time.
+  **The cost that bites is not complexity but the reproduction economy**:
+  the bed runs at ~1.03x subsistence and `reproduce_at_of`,
+  `TRAIT_BIRTH_GRANT` and the lifespan constants are all calibrated
+  against *instantaneous* budding, so re-deriving them is part of the
+  work — the `phototropism_dir` shape, which took plant reproduction to
+  zero. D11.5: eggs are **not** gated on §10.3 and subsume it; if only
+  one thing is done from this report, this is it. Docs only; nothing
+  built.
 - [evolution-lab-round-37-brief-2026-09-15.md](evolution-lab-round-37-brief-2026-09-15.md)
   — **brief, 2026-09-15. `lab`/`engine`/`held`.** Opens with **two retracted
   numbers** a reader may have inherited (29.4 is per-bed, not per-ant; the
