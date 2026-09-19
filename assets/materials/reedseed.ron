@@ -1,0 +1,59 @@
+// **A seed that sinks** -- `reed.ron`'s `seed_material`, and the reason
+// `SpeciesDef::seed_material` exists at all. Phase 1 of
+// `Reports/aquatic-implementation-plan-2026-09-14.md`.
+//
+// **Measured 2026-09-18, and it overturns the plan's §1.6.** `seed.ron` is
+// density 0.6 against water's 1.0, so the shared seed **floats**. Every
+// founding site minted it unconditionally, so no plant in this engine could
+// ever be founded on the bottom of a pond -- dropped on one it sinks a
+// single row, rests on the surface and dies there. That is exactly what
+// `the_pond_sediment.ron`'s two "founders in the sediment" were doing:
+// stepped 3,000 frames, both sat at y=164 with the sediment they were
+// supposed to be in 23 rows below them, and one of them was gone by the end.
+//
+// So the plan's reading of that bed -- dead herbs proving a shoot cannot
+// leave the waterline -- was measuring a seed that never landed. Opening
+// `plant::growable` for a submerged shoot is necessary and is not
+// sufficient; this file is the other half, and without it a reed founded on
+// a pond dies on the surface exactly as the herb did, whatever its shoot
+// predicate says.
+//
+// **Everything here is `seed.ron` unchanged except density and colour**,
+// deliberately: a reed seed is a seed, and the one thing that has to differ
+// is the one thing the pond reads.
+(
+    name: "reedseed",
+    display: "Reed seed",
+    kind: Powder,
+    // **Above water's 1.0, which is the whole file.** Not far above:
+    // `sand` is 1.4 and a seed should settle rather than plummet, and
+    // keeping it modest leaves it recognisably a seed against the powder
+    // table rather than a pebble. Real emergent-aquatic seeds do sink --
+    // they are dispersed by water and settle into the sediment -- so this
+    // is the physically honest value as well as the one the bed needs.
+    density: 1.15,
+    friction_angle: 55.0,
+    // Darker and greyer than `seed`'s warm brown: a waterlogged seed, and
+    // it is read against pale sediment rather than against dry soil.
+    colors: [
+        (96, 88, 62),
+        (112, 104, 74),
+        (82, 74, 52),
+        (126, 118, 88),
+    ],
+    falls_through_organisms: true,
+    // Wet, so well under `seed`'s 0.5.
+    flammability: 0.1,
+    burn_temperature: 500.0,
+    burn_duration: 30,
+    burns_into: "ash",
+    heat_conductivity: 0.15,
+    // **`seed.ron`'s 480 exactly.** The late-game census found the colony's
+    // staple is the seed bank, and a reed seed must be worth what any other
+    // seed is worth or the pond quietly becomes a place ants have no reason
+    // to visit -- which is the Phase 2 question, and it must not be
+    // prejudged by a number in this file.
+    food_energy: 480.0,
+    penetration_resistance: 0.2,
+    food_class: -1.0,
+)

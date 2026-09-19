@@ -2772,6 +2772,67 @@ pub struct SpeciesDef {
     /// back to the parent cell's own material, exactly as the three above do.
     #[serde(default = "default_flower_material")]
     pub flower_material: String,
+    /// **What this species' seed is made of** — the sixth material slot, and
+    /// the one that decides whether a seed sinks or floats.
+    ///
+    /// **Why it exists, measured 2026-09-18.** `seed.ron` is density 0.6 and
+    /// water is 1.0, so a seed **floats**. Every founding site minted
+    /// `id_of("seed")` unconditionally, so *no plant seed in this engine
+    /// could ever reach the bottom of a pond*: dropped on water it sinks one
+    /// row, rests on the surface and dies there. That is what
+    /// `the_pond_sediment.ron`'s two "founders in the sediment" were
+    /// actually doing — resting at y=164 with the sediment 23 rows below
+    /// them — and it is why
+    /// `Reports/aquatic-implementation-plan-2026-09-14.md` §1.6 read the
+    /// pond's dead herbs as a shoot that could not leave the waterline. The
+    /// shoot never got the chance; the seed never landed.
+    ///
+    /// So `submerged_shoot` is necessary and was not sufficient, and this is
+    /// the other half. A reed seed at density 1.15 settles through the water
+    /// onto the sediment and germinates where a reed belongs.
+    ///
+    /// **The same shape as the five slots above it, deliberately.**
+    /// `germinate` once hardcoded `id_of("wood")`, and moving that constant
+    /// from code to data is recorded as "the entire engine change behind 'a
+    /// plant that is not a tree'" (`plant-appearance-design.md` §3c). This
+    /// is that change again, for the one material the original package
+    /// missed — and it missed it because on dry land the seed's density
+    /// never mattered.
+    ///
+    /// Defaults to `"seed"`, and an unknown name falls back to it, so every
+    /// shipped species is untouched and a stripped asset set still plants.
+    #[serde(default = "default_seed_material")]
+    pub seed_material: String,
+    /// **May this species' shoots grow into standing water?** `false` — the
+    /// default, and every one of the twenty species that shipped before the
+    /// reed — is the engine exactly as it was: `plant::growable` refuses a
+    /// shoot every occupied cell, water included, so a plant at a waterline
+    /// stops dead at it. Measured before this field existed
+    /// (`Reports/aquatic-implementation-plan-2026-09-14.md` §1.6): two herbs
+    /// in submerged sediment, in a pond that holds, **never reached a second
+    /// cell** — while the same two positions in the same bed with the water
+    /// drained away grew to 227 and 320 cells. Water was the whole
+    /// difference, and this flag is the whole of the difference in the code.
+    ///
+    /// **Per-species rather than a global relaxation, and that is the point
+    /// of the field rather than a caution about it.** Letting every plant
+    /// take water would re-derive twenty species' constants at once: a shoot
+    /// that may enter water is a shoot with more candidate cells, and `Grow`
+    /// picks by weighted sample over that set, so widening it reallocates
+    /// every weight in the sum whether or not any number changed
+    /// (`CLAUDE.md`, *a term in a weighted sum is not an independent knob* —
+    /// the case that took plant reproduction to zero). Gated here it is a
+    /// no-op for all twenty **by construction** rather than by measurement,
+    /// so nothing else needs re-sweeping and the PR body can say so.
+    ///
+    /// **Shoots only; a root is a separate question whose answer is no.**
+    /// `growable`'s root path asks whether a `Powder` yields to
+    /// `penetration_force`, and water is not something a root threads —
+    /// `Absorb` is how a plant takes water up, which is the `Liquid` line in
+    /// `growable`'s own comment. A reed roots in sediment and stands in the
+    /// water above it, which is what an emergent aquatic plant is.
+    #[serde(default)]
+    pub submerged_shoot: bool,
     /// **The odds a windfall's own seed survives an ant's bite**, in
     /// `0..=1`, rolled once per bite by `plant::seed_survives_bite`. `0.0`
     /// (the default) is today's behaviour exactly: every bite destroys the
@@ -4548,6 +4609,10 @@ fn default_leaf_material() -> String {
 fn default_flower_material() -> String {
     "flower".to_string()
 }
+fn default_seed_material() -> String {
+    "seed".to_string()
+}
+
 fn default_fruit_material() -> String {
     "fruit".to_string()
 }
@@ -4593,6 +4658,11 @@ pub struct Species {
     pub foliage_bands: PaletteBands,
     pub bark_bands: PaletteBands,
     pub stomatal_reserve: f32,
+    /// See `SpeciesDef::submerged_shoot`. Read once per tick in
+    /// `plant::organism_tick` and handed to `plant::growable`.
+    pub submerged_shoot: bool,
+    /// See `SpeciesDef::seed_material`.
+    pub seed_material: String,
     /// See `SpeciesDef::shoot_material`.
     pub shoot_material: String,
     pub root_material: String,
@@ -4806,6 +4876,8 @@ impl From<SpeciesDef> for Species {
             foliage_bands: def.foliage_bands,
             bark_bands: def.bark_bands,
             stomatal_reserve: def.stomatal_reserve,
+            submerged_shoot: def.submerged_shoot,
+            seed_material: def.seed_material,
             shoot_material: def.shoot_material,
             root_material: def.root_material,
             leaf_material: def.leaf_material,
@@ -7295,6 +7367,21 @@ const EMBEDDED: &[&str] = &[
     // of that produces: the species loads, appears on the COLONY chip, and
     // places nothing.
     include_str!("../../assets/species/flitter.ron"),
+    // **The reed -- Phase 1 of the aquatic plan, the first plant that can
+    // stand in water.** Appended at the end, same convention as everything
+    // above it; a first draft filed it beside `grass.ron`, which is where it
+    // belongs by subject -- it is cut from grass and inherits its whole
+    // economy -- and is not how this list is ordered.
+    //
+    // Its three companion materials land in the same change, for the reason
+    // `hopper.ron`'s comment records: a species shipped one file short of
+    // its materials loads, appears on the chip, and places nothing. Two
+    // fields make it aquatic and **both are needed** --
+    // `submerged_shoot` lets the shoot cross the waterline, and
+    // `seed_material` lets the seed reach the bottom at all, the shared
+    // `seed.ron` being lighter than water. See
+    // `Reports/aquatic-implementation-plan-2026-09-14.md` §2a.
+    include_str!("../../assets/species/reed.ron"),
 ];
 
 /// Where the loader looks for species files, relative to the working

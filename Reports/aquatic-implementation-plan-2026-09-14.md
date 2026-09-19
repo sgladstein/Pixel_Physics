@@ -2,15 +2,44 @@
 
 *Implementation plan, 2026-09-14. Turns
 [`aquatic-life-research-2026-09-14.md`](aquatic-life-research-2026-09-14.md)
-into a build order with prices, guards and briefs. **Phase 0 is built and
-measured in this branch**; Phases 1–4 are specified and not built. Numbers
+into a build order with prices, guards and briefs. **Phases 0 and 1 are built
+and measured**; Phases 2–4 are specified and not built. Numbers
 marked **(measured)** were taken here on 2026-09-14 at `RAYON_NUM_THREADS=1`,
 release; **OWED** names the run that would take them.*
 
-**Status: plan of record for aquatic work. Phase 0 landed; nothing else
-built.** Two review cards carry decisions that are not a lane's to make:
+**Status: plan of record for aquatic work. Phase 0 landed; Phase 1 landed
+2026-09-18 and corrected this document's §1.6 on the way through.**
+
+> **PHASE 1 IS BUILT, AND "one predicate" was one predicate short.** §1.6's
+> controlled result — two herbs dying in a pond that holds — was read here as
+> a shoot that could not leave the waterline. Measured 2026-09-18 by stepping
+> that bed instead of reading it at frame 0: **the herbs are not in the
+> sediment at all.** `seed.ron` is density **0.6** against water's **1.0**, so
+> a plant seed *floats*; both founders rest on the water surface at y=164 for
+> the whole run with the sediment 23 rows below them. They died having never
+> touched ground, so the measurement this phase was scoped from could not have
+> been about `growable` — **no plant in this engine could be founded on the
+> bottom of a pond, whatever its shoot rules said.**
+>
+> Phase 1 therefore shipped **two** changes, not one:
+> `SpeciesDef::submerged_shoot` (the predicate, as specified) and
+> `SpeciesDef::seed_material` (the sixth material slot, so a reed's seed can
+> sink). Both are per-species and both are a no-op for the twenty shipped
+> plants by construction. A third change came out of measuring it:
+> `plant::displace_liquid`, because a shoot growing into water *deleted* that
+> cell's fill and a reed bed drank **56% of its own pond** inside 20,000
+> frames. See §2a.
+>
+> `CLAUDE.md`'s *a scene that contradicts the code will look like a bug in the
+> code*, and its *ask what your number counts* — the frame-0 census that first
+> found this was itself measuring placement rather than resting position, and
+> said the seed was at y=163 when it settles at y=164.
+
+Two review cards carry decisions that are not a lane's to make:
 `20260914T030227009Z-0c5076` (does a deep pool go dark — Phase 4) and
 `20260914T040932865Z-14b62b` (is this the pond bed you want — Phase 0).
+Phase 1's own card, posted 2026-09-18, is `20260919T004632619Z-307c1e` — does
+a reed read as a reed, or as pondweed.
 
 ---
 
@@ -121,7 +150,7 @@ every real scene** because nothing rewarded it. Survival tracks eating at
 | phase | what the player gets | engine cost | status |
 |---|---|---|---|
 | **0 — the bed** | a pond that holds, that an animal can walk into, and rootable ground under it | **none** | **built and shipped** (`the_pond_bowl`) |
-| **1 — the margin** | plants that live at and under the waterline | one predicate, one species | specified; its bed now exists |
+| **1 — the margin** | plants that live at and under the waterline | **two** predicates, one species, three materials, one conservation fix | **built and shipped** (`reed`, `the_pond_reeds`) — see §2a |
 | **2 — the body** | drown, float and swim as a heritable trait (E9) | one trait slot, one verb, one clock | specified; its bed and its teeth test now exist |
 | **3a — depth the plants feel** | a submerged plant experiences depth | fractional extinction in `field.rs` | **built, gated, guarded** (`PIXEL_PHYSICS_WATER_OPACITY`) |
 | **3b — depth the player sees** | a pool that *looks* dark with depth | a second change, in `render.rs`'s own light | **not built** — §4.0 |
@@ -653,6 +682,83 @@ resource state, and it *removes a bound without supplying a replacement* (the
 first kelp is 300 cells tall). An emergent reed rooted in shallow sediment
 does not need it: it is short by construction. **Do not take the elegant change
 until there is a plant that needs it.**
+
+---
+
+## 2a. Phase 1 as built, 2026-09-18
+
+All numbers `RAYON_NUM_THREADS=1`, release, `the_pond_reeds.ron` (this bed is
+`the_pond_sediment.ron` cell for cell, with `reed` founders instead of `herb`),
+20,000 frames. Both arms are **one binary** — the control is
+`PIXEL_PHYSICS_SUBMERGED_SHOOT=off`, not a second checkout.
+
+### What shipped
+
+| | |
+|---|---|
+| `SpeciesDef::submerged_shoot` | the predicate §2 specified. `growable`'s shoot path returns `submerged_shoot && kind == Liquid` instead of `false`. The flag is hoisted once per tick in `organism_tick`, so a species that has not opted in pays one already-loaded branch |
+| `SpeciesDef::seed_material` | **not in the plan**, and Phase 1 does not work without it. The sixth material slot, defaulting to `"seed"`. See the status block above |
+| `plant::displace_liquid` | **not in the plan either.** The `Liquid` twin of `displace_soil_water`: a shoot taking a water cell must move that cell's fill to its neighbours, not delete it |
+| `reed`, `reedstem`, `reedroot`, `reedseed` | one species, three materials, a glaucous palette disjoint from `leaf` and `grassblade` |
+| `the_pond_reeds.ron` | the measurement bed |
+
+### It fires
+
+| at frame 20,000 | control (flag off) | reed |
+|---|---|---|
+| cells standing in the water | 4 | **281** |
+| cells above the waterline | 0 | **55** |
+| topmost row reached (waterline is y=164) | y=187 — the germination cell, which never rises | **y=150, fourteen rows of air** |
+| standing plants | 4 | 416 |
+
+The control is the cleanest part: four plants, frozen at one cell each, for
+20,000 frames — which is **§1.6's own result reproduced exactly**, in the same
+binary, with one environment variable. That is what makes the reed arm
+attributable to the predicate rather than to anything else in the bed.
+
+### It does not drink the pond — but the first version did
+
+A shoot that takes a water cell overwrites it, and nothing credited the fill
+anywhere. Measured before `displace_liquid` existed: pond **3,648,000 →
+1,459,605**, against **3,487,316** in the control. **The reeds cost 2,027,711
+units, 56% of the pond** — which voids Brief A0's own ship condition and
+destroys the bed the phase is built on.
+
+With displacement, the pond settles at **2,908,030** and is flat from frame
+6,000 (2,908,281 → 2,937,362 → 2,908,030 — oscillating, not draining). The
+recovered 1.05M is almost exactly the standing reed cells in water at
+`LIQUID_FULL` of 1,000 each, which is the arithmetic predicting itself.
+
+**And the remaining drop is not a leak.** The full ledger — pond + soil +
+atmospheric bank — reads **32,951,840 → 32,922,040, conserved to 0.09%**, and
+the control's ledger is conserved *exactly* at every stop. So the pond falling
+to ~80% is water moving into the soil and the sky, which is what a reed bed
+does, not water being destroyed. `CLAUDE.md`'s *ask what your number counts*:
+"the pond is smaller" and "water is disappearing" are different claims and only
+the ledger separates them.
+
+### One bug the guard found and reading the code would not have
+
+`displace_liquid`'s first draft folded any fill `>= LIQUID_FULL` into the
+canonical `aux == 0` spelling. A liquid cell may hold up to `LIQUID_FULL +
+LIQUID_MAX_COMPRESS` (1,010) and `aux == 0` reads back as 1,000 flat, so every
+*compressed* neighbour silently lost its ten units.
+`displacing_a_water_cell_moves_its_fill_rather_than_destroying_it` reported **80
+units lost — exactly `8 * LIQUID_MAX_COMPRESS`** — on its first run, and the
+arithmetic named the fault immediately. The guard is therefore proven sensitive
+rather than assumed to be, which is what `CLAUDE.md` asks for and is normally
+the expensive half.
+
+### What is not settled, and is on a card
+
+The mechanism is not in doubt; the **silhouette** is. The stand reads more like
+pondweed than like a reed bed — stems wander rather than standing straight, and
+a dense clump forms where reproduction concentrates. One habit iteration
+already went from a solid mat to the current sparser stand (branching 0.18 →
+0.05, reproduction 0.30 → 0.12, nominal height 30 → 37 rows), which is what put
+stems above the waterline at all. A third setting is a guess, so it went to the
+owner instead: card `20260919T004632619Z-307c1e`. `plant-appearance-design.md`
+§5 is the precedent for treating this as the finding rather than as polish.
 
 ---
 

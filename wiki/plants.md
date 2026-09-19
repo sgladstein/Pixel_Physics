@@ -3,7 +3,17 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-09-13 (**root-bound ground is ground to walk on.** A
+*Current as of: 2026-09-18 (**a plant can stand in water now, and one kind
+does.** Until 2026-09-18 nothing grew in a pond: a shoot stopped dead at the
+waterline, and — the part nobody had noticed — a seed dropped on water
+*floats*, so a plant sown over a pond never reached the bottom to begin with
+and died on the surface. Both are fixed, and both only for a plant that is
+meant to live wet. **Reeds** root in the mud at the bottom of a pond, grow up
+through the water and stand out of it into the air, in their own blue-grey
+green that is nothing else's colour. A reed bed also **lowers the pond it
+grows in** and then holds it there, which is what a real one does. See
+**Reeds** below. Before that, 2026-09-13:* ***root-bound ground is ground to
+walk on.*** *A
 root plate is threaded through the bank, and it now holds a walker up the
 way the soil around it does instead of being a hole he drops through — see
 **Roots** below, and [The Gnome](the-gnome.md). Before that, 2026-09-12:
@@ -617,6 +627,42 @@ numbers are cheap to improve and nothing yet charges for improving them — so
 turned up far, a bed may drift toward one plant that has found all the free
 wins rather than toward a variety of them. It is a knob to experiment with, and
 it is off until you move it.
+
+### Reeds
+
+**A reed is the first plant that can live in water**, and it is built like a
+grass that grew up in a pond: no separate leaves, the stem is the green part,
+and a clump is a bundle of tall stems rather than one trunk with branches.
+
+What makes it different from everything else is where it can put itself.
+
+- Its **seed sinks**. Every other seed in the world floats, which is why
+  nothing had ever grown in a pond — a seed sown over water sat on the
+  surface until it died, never reaching ground at all. A reed's seed settles
+  through the water onto the mud instead.
+- Its **shoot may grow up through water**. Every other plant treats the
+  waterline as a ceiling and stops at it. A reed keeps going, crosses the
+  surface, and stands a good way out into the air — which is the whole point
+  of it: a pond with reeds in it reads as a place rather than as a blue
+  rectangle.
+- Its **roots spread sideways through the mud** and bind it, the way a
+  meadow's do on dry ground.
+- It is **hard to burn** while it is standing in water — the opposite end of
+  the scale from grass, which is the most flammable thing that grows. A
+  grassfire stops at a reed bed.
+
+**A reed bed lowers its own pond.** Water leaves faster with reeds in it than
+without: the level drops by roughly a fifth over the first few minutes of
+running and then holds steady rather than continuing to fall. That is the
+reeds drinking and breathing it out, not the pond leaking — the water turns up
+in the ground and the air instead — and it is what real reed beds do.
+
+**What they do not yet look like.** A young stand reads well: separate stems
+rising out of the mud and breaking the surface. A mature one crowds into a
+dense mass that reads more like pondweed than like a reed bed, because they
+breed freely and the clump thickens where they land. That is known, it is
+being judged by eye rather than guessed at, and it is a question about habit
+rather than about whether the plant works.
 
 ## Plants that stop, and what they stop in
 
