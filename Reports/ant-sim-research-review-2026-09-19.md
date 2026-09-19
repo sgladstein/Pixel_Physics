@@ -3,11 +3,14 @@
 *2026-09-19. Review of
 [`ant-sim-literature-review-external-2026-09-19.md`](ant-sim-literature-review-external-2026-09-19.md),
 a survey written by someone who knew only that this project is an ant-based
-simulation game. **Docs only; nothing built, nothing run.** Every claim about
+simulation game. **Docs only; nothing built, and nothing run except the
+bounded cost measurements in §8.** Every claim about
 the engine below was checked against the tree or the repo's own measured
 record and says where. The survey arrived in two parts the same day; §2
 covers all nineteen of its sections, §5 its four parameter tables, §6 its
-twelve staged recommendations.*
+twelve staged recommendations. **§8 was added later the same day and is the
+one part that ran anything**: a bounded set of cost measurements after the
+owner challenged §2.13's reading of the field, which it corrects.*
 
 ## 0. The answer, stated once
 
@@ -104,8 +107,10 @@ trail-lifetime work on `claude/upbeat-shannon-cez0w4` (unlanded, 20 ahead);
 `Reports/dead-ends.md` grepped by mechanism, per `CLAUDE.md`, for every
 mechanism the survey proposes; the open-bug index.
 
-Not done: no binary was built, no scene was run, no card was posted. Every
-number here is the repo's own, cited to the document that measured it.
+Not done for §§0–7: no binary was built, no scene was run, no card was
+posted; every number in those sections is the repo's own, cited to the
+document that measured it. §8, added later, built the release examples and
+ran four cost instruments; it says which and prints the commands.
 
 ---
 
@@ -439,10 +444,12 @@ survey's §13 supercolony biology than to its §10.
   life record and the watch page.
 - **GPU fields, ML, swarm robotics.** The planes are CPU, double-buffered
   Jacobi (`dead-ends.md:1119` says why not in-place), and cost 0.0014 ms
-  settled at the shipped world; `pherocost` prices any size. Determinism is
-  required (`PLAN.md`), which rules out the survey's RL and most GPU
-  reductions as decision inputs. Not a gap at this scale; M10 streaming is
-  the known migration.
+  *settled* at the shipped world; `pherocost` prices any size. **That
+  figure is the wrong state to quote against a played colony — see §8**,
+  where the planes and the field both scale with ants and at 129 ants the
+  planes cost twice the field. Determinism is required (`PLAN.md`), which
+  rules out the survey's RL and most GPU reductions as decision inputs. M10
+  streaming is the known migration; the GPU field is conditional on §8.5.
 - **ACO.** The survey's verdict — take the evaporation-plus-choice formalism
   and nothing else — is what `stigmergy-research.md` §3 did: it took the
   ρ band from the ACO literature as a first guess and the engine then
@@ -663,10 +670,13 @@ number.
    (`nest-design` §13) retired even the door as a material. Tschinkel's
    profile is the *bar* a dug nest is judged against (`nest-biology`
    finding 3), never a template stamped into the ground.
-9. **"Run the field on a GPU with ping-pong textures"** is sound and
-   unnecessary: the planes are already double-buffered and cost 0.0014 ms
-   settled, and a GPU reduction feeding a decision would cost the determinism
-   `PLAN.md` requires.
+9. **"Run the field on a GPU with ping-pong textures"** is sound and, at
+   the populations any harness here can stand, unnecessary: the planes are
+   already double-buffered, and a GPU reduction feeding a decision would
+   cost the determinism `PLAN.md` requires. **Withdrawn as a flat "no" by
+   §8**: the field and the planes scale with ants by a path the record had
+   not measured, and the GPU field is now conditional on the owner's own
+   per-phase number (§8.5 item 4).
 
 ---
 
@@ -750,7 +760,126 @@ every quantity by the plane it was measured in before converting it.
 
 ---
 
-## 8. What this review rests on
+## 8. Performance — measured after the owner's challenge, later the same day
+
+*Added 2026-09-19, later. The owner read §2.13 and §4 item 9 and pushed
+back: "I think the field is still a huge part of our cost. Creatures and
+the field are all interlinked. It's more complicated than you think. I worry
+you're over trusting our documentation." He was right on the substance,
+and this section is what a bounded set of easy tests found. All runs on one
+four-core container, `RAYON_NUM_THREADS=4`, release build of the same
+commit; read the counters and the ratios, never the milliseconds against
+another machine.*
+
+### 8.1 What §2.13 got wrong, and why
+
+It quoted the pheromone planes at "under 0.1% settled" and the field at "six
+percent of a lab tick". Both are true of the state they were measured in —
+a settled world, and a bed with one colony of fifty — and neither is the
+state the owner plays in. `CLAUDE.md`: *measure a cost against the state
+the optimisation exists for.* The creature-cost report's "86% of the frame
+is the creatures at 2,709 ants" is weaker than §2.13 presented it too: the
+owner's log has no per-phase split, so that share is *whatever grows with
+ant count*, and the ground an ant wakes grows with ant count.
+
+### 8.2 The mechanism of the interlink
+
+An ant's step is a cell write. A cell write marks its chunk dirty
+(`World::set` → `Chunk::mark_dirty`), and `field::step` skips its solve only
+when no chunk is active — so every field tile under a walking colony is
+re-solved on all five channels and re-scanned for blocking
+(`rebuild_blocked`) every tick, for as long as the ants keep walking, though
+a creature cell itself neither blocks a field block nor sources moisture. A
+per-ant instruction profile (`creature-cost` §3, 57,314 Ir per decision)
+cannot see any of that: the sweep and the field bill it as background. The
+owner's own session log shows the consequence — awake chunks 12 → 52 on a
+64-chunk bed as ants went 39 → 2,473 (`evolution-lab-playtest-2026-09-13.md`
+§1) — and the report that refuted "it is the sweep" did so on *sites*, not
+on awake chunks.
+
+### 8.3 What was measured
+
+**Held population, `antcost`, whole tick against standing ants.** The
+stocking loop tops out at what four founding columns can seat — 125 long
+ants on a 512 bed, 224 short ants on a 1024 bed — so no harness here reaches
+the owner's population.
+
+| bed | ants | awake chunks / tick | whole tick | slope |
+|---|---|---|---|---|
+| 512 wide, `longant` | 0 → 125 | 19.4 → 19.2 | 1.92 → 2.35 ms | +3.3 µs per ant |
+| 1024 wide, `ant` | 0 → 200–214 | 21.4 → 27.9–31.1 | 2.38 → 3.25 ms | +4.3 µs per ant |
+
+Two hundred short ants add seven to ten awake chunks; the per-ant slope
+includes whatever they wake, and it is 1.6–2x the owner's own above-knee
+figure of ~2.6 µs on a faster machine.
+
+**Phase split, `lab_cost phases=1`, frames 1,000–1,500 of a bed founded at
+each colony count** (ms per tick; `plants` is standing plant cells, which
+the ants eat — that is the confound above one colony):
+
+| colonies | live ants | plants | `ca_sweep` | **`field`** | `active_sites` | `pheromones` | awake / tick | field solves / tick |
+|---|---|---|---|---|---|---|---|---|
+| 0 | 0 | 522 | 0.379 | **0.090** | 0.018 | 0.000 | 5.1 | 32.1 |
+| 1 | 52 | 509 | 0.345 | **0.188** | 0.062 | 0.067 | 4.2 | 36.2 |
+| 4 | 124 | 270 | 0.202 | 0.074 | 0.111 | 0.116 | 3.1 | 23.6 |
+| 8 | 129 | 179 | 0.119 | 0.059 | 0.100 | 0.127 | 1.6 | 22.3 |
+| 16 | 89 | 170 | 0.112 | 0.055 | 0.073 | 0.144 | 1.4 | 19.5 |
+
+**The one clean comparison is the first two rows**, where the plants are
+equal. Fifty-two ants **double the field** (0.090 → 0.188 ms, solves 32 →
+36) while their own decisions cost 0.062 ms: **the field's response to the
+ants costs more than the ants.** That is the owner's claim, measured. The
+pheromone planes track ants rather than plants too, 0 → 0.144 ms — at 129
+ants they cost **twice the field**, which is the part of §2.13 that was
+most wrong. Above one colony the scene cannot pose the question: the
+colonies eat the bed, the sweep and the field fall with the plants, and the
+population caps near 125 whatever is founded.
+
+### 8.4 What this does and does not establish
+
+- **Established:** the field and the planes scale with ants, by the path in
+  §8.2, and at low count the field's increase exceeds the creature pass.
+- **Not established:** the field's *share* at the owner's population. The
+  estimate from the per-awake-chunk costs above, scaled to his 52 awake
+  chunks and his faster floor, puts field plus sweep somewhere around a fifth
+  to a quarter of his tick. It is an estimate across two machines and not a
+  number to build on.
+- **Not run, deliberately:** anything deeper. The owner's instruction was
+  easy tests and no performance rabbit hole.
+
+### 8.5 What to do, in order
+
+1. **A per-phase stopwatch in the live app behind a switch**, off by
+   default and free when off. The playtest report says outright that the
+   owner's log could not answer the share question and names this as the
+   fix; #374 refused stopwatches in the live loop, and a gated one answers
+   the objection. One session on his bed then settles it on his clock.
+2. **Stop a walking colony waking the field.** A chunk dirtied only by
+   creature steps has nothing for the field to re-solve. Falsifier: the
+   1024-bed row above — awake chunks at two hundred ants should fall back
+   toward the no-ant figure, and the field hash under a walking colony must
+   not change. Cheapest lever, largest ceiling, and it is the engine's own
+   ethos of stopping work early.
+3. **The creature parallel switch on the owner's machine.** It ships off
+   because four cores cannot pay for it (`evolution-lab-creature-parallelism`);
+   more cores lower the bar.
+4. **The GPU field, conditionally.** If step 1 shows the field above about
+   a third of the tick at play population *after* step 2, the tile solve is
+   the one pass with a compute shader's shape and the survey's
+   recommendation is worth taking seriously — priced against same-build
+   determinism across drivers and a readback every tick, since the ants read
+   the field on the CPU. Below that share, waking less beats solving faster.
+
+Commands, so the rows are re-derivable:
+
+```
+RAYON_NUM_THREADS=4 ./target/release/examples/antcost ants=0,150,400,800,1400 par=off rounds=10 frames=200
+RAYON_NUM_THREADS=4 ./target/release/examples/antcost ants=0,300,600,1000 width=1024 colony_species=ant par=off rounds=60 frames=200
+for c in 0 1 4 8 16; do RAYON_NUM_THREADS=4 ./target/release/examples/lab_cost colonies=$c frames=1500 every=500 phases=1; done
+RAYON_NUM_THREADS=4 ./target/release/examples/labperf     # the attribution by phase, shipped bed
+```
+
+## 9. What this review rests on
 
 Repo documents cited: `stigmergy-research.md`; `pheromone-master-2026-09-17.md`
 and the three reports under it; `nest-design-2026-09-14.md`;
