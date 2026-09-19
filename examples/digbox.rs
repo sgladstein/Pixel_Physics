@@ -202,6 +202,78 @@ fn charge(world: &World) -> (usize, f32) {
     (n, if n > 0 { total / n as f32 } else { 0.0 })
 }
 
+
+/// Put a colony of `ants` in the box, a few at a time.
+///
+/// **Two ceilings, and neither is a bug in the engine.** `found_colony_of`
+/// places on `colony_stations`, spaced `COLONY_ANT_SPACING` (4) apart inside
+/// the patch's `COLONY_HALF_WIDTH` (26), so the founding verb tops out near
+/// **49** however many are asked for -- measured, `ants=200` founded 49. And
+/// placing the shortfall all at once in one frame stacks them forty rows into
+/// the air, which is not a colony, it is a tower.
+///
+/// The lab reaches thousands because ants are **born over time** into space
+/// that the previous ones have left. This does the same thing without
+/// reproduction: a few per frame, at the nest, until the target is met.
+/// Ants placed earlier have walked off by the time the next batch lands, so
+/// the same few rows take an unbounded number of animals.
+///
+/// **Every one carries the first ant's colony label.** `plant_ant` in a loop
+/// mints a fresh colony per call, and `instruments.md` records a harness that
+/// did exactly that and spent months reporting on **55 mutual strangers**
+/// rather than a colony.
+struct Trickle {
+    colony: Option<u32>,
+    placed: usize,
+    target: usize,
+    /// How many to try per frame. The cap is space, not this.
+    rate: usize,
+    cursor: i32,
+}
+
+impl Trickle {
+    fn new(target: usize, rate: usize) -> Self {
+        Trickle { colony: None, placed: 0, target, rate, cursor: 0 }
+    }
+
+    fn done(&self) -> bool {
+        self.placed >= self.target
+    }
+
+    /// Try to place up to `rate` more ants along the nest patch. Returns how
+    /// many landed this call; a full row simply places nobody and is retried
+    /// next frame, which is what makes the trickle self-pacing.
+    fn step(&mut self, world: &mut World, b: &Box2) -> usize {
+        if self.done() {
+            return 0;
+        }
+        let cx = b.w / 2;
+        let half = 26.min(b.w / 2 - 2);
+        let span = half * 2 + 1;
+        let mut landed = 0;
+        for _ in 0..self.rate {
+            if self.done() {
+                break;
+            }
+            // Walk the patch rather than drawing at random: a deterministic
+            // sweep keeps the box seed-free, and `CLAUDE.md` wants
+            // determinism for same-build runs.
+            self.cursor = (self.cursor + 1) % span;
+            let x = cx - half + self.cursor;
+            let y = b.surface - 1;
+            if let Some(site) = pixel_physics::sim::creature::plant_creature_seed_in(world, x, y, "ant", self.colony) {
+                if self.colony.is_none() {
+                    self.colony = pixel_physics::sim::creature::colony_of_site(world, &site);
+                }
+                world.schedule_active_site(site);
+                self.placed += 1;
+                landed += 1;
+            }
+        }
+        landed
+    }
+}
+
 fn main() {
     let ants: i32 = arg("ants").unwrap_or(40);
     let soil: i32 = arg("soil").unwrap_or(60);
@@ -221,7 +293,21 @@ fn main() {
 
     let wet: u16 = arg("wet").unwrap_or(material::SOIL_FIELD_CAPACITY);
     let mut world = build_wet(&b, wet);
-    let def_ants = world.found_colony_of(b.w / 2, b.surface - 1, "ant", ants);
+
+    // **The endowment is a knob here, and it has to be.** A digger spends
+    // `dig_cost_in_moves` 6.0 per cell, so 200 ants on the shipped
+    // `start_energy: 200` are dead by frame 6,000 and the census is measuring
+    // a die-off rather than a nest. This is a test box: the question is what a
+    // colony digs, not whether it can feed itself, and starvation is the lab's
+    // question. `energy=200` restores the shipped value.
+    {
+        let id = world.species.id_of("ant").expect("ant ships");
+        if let Some(c) = world.species.get_mut(id).creature.as_mut() {
+            c.start_energy = arg("energy").unwrap_or(20_000.0);
+        }
+    }
+    world.paint_nest_patch(b.w / 2, b.surface - 1);
+    let mut trickle = Trickle::new(ants as usize, arg("rate").unwrap_or(4));
 
     // The endowment horizon, printed rather than assumed -- a run past it is
     // measuring starvation, not digging.
@@ -231,8 +317,8 @@ fn main() {
     let horizon = (def.start_energy / per_tick) as u64 * def.tick_interval.max(1);
 
     println!(
-        "digbox: {}x{} box, soil {} rows ({}..{}), {} ants founded of {} asked, seed-free scene",
-        b.w, b.h, soil, b.surface, b.floor, def_ants, ants
+        "digbox: {}x{} box, soil {} rows ({}..{}), colony of {} trickled in at {}/frame, seed-free scene",
+        b.w, b.h, soil, b.surface, b.floor, ants, trickle.rate
     );
     println!(
         "  no food, no plants, no lamps, no weather -- FoodAdjacent is 0 by construction, so the dig you see is the nest mechanism alone"
@@ -274,6 +360,7 @@ fn main() {
             world.step_fields();
             world.step_pheromones();
         }
+        trickle.step(&mut world, &b);
         if stops.contains(&f) {
             let (roofed, open) = census(&world, &b);
             let (n, e) = charge(&world);
