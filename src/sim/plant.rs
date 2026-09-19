@@ -19139,20 +19139,6 @@ is enough to point a tip at it"
         assert!(growable(&w, 100, 64, ROOT, false), "a root must still cross a gap inside the bed");
     }
 
-    /// **A cell that changes role changes tissue** — §W6's actual fix.
-    ///
-    /// The trace (`PIXEL_PHYSICS_ROOT_TRACE=1`) put the whole population on
-    /// one transition: **`RootTip -> GrowingTip`, 22 times**, first at
-    /// (102, 200) on the soil line, with an ordinary shoot growing 80 cells
-    /// into the air out of it in rootwood. Only `FateOp::Retarget` can
-    /// produce that transition — no shipped species declares it and
-    /// `builtin_fate` gives `MatureBody` — so this is the genome doing
-    /// something it is allowed to do, and the material has to keep up.
-    ///
-    /// Four arms, because a swap rule that only swaps is half-tested: the
-    /// conversion, the reverse conversion, the shared destination it must
-    /// leave alone, and the non-change it must not touch.
-
     /// **The Phase 1 predicate, asserted directly.**
     /// `Reports/aquatic-implementation-plan-2026-09-14.md` §2: a shoot may
     /// enter standing water **for a species that has opted in, and for no
@@ -19276,6 +19262,19 @@ the twenty species that shipped before the reed, and it is a no-op BY CONSTRUCTI
         );
     }
 
+    /// **A cell that changes role changes tissue** — §W6's actual fix.
+    ///
+    /// The trace (`PIXEL_PHYSICS_ROOT_TRACE=1`) put the whole population on
+    /// one transition: **`RootTip -> GrowingTip`, 22 times**, first at
+    /// (102, 200) on the soil line, with an ordinary shoot growing 80 cells
+    /// into the air out of it in rootwood. Only `FateOp::Retarget` can
+    /// produce that transition — no shipped species declares it and
+    /// `builtin_fate` gives `MatureBody` — so this is the genome doing
+    /// something it is allowed to do, and the material has to keep up.
+    ///
+    /// Four arms, because a swap rule that only swaps is half-tested: the
+    /// conversion, the reverse conversion, the shared destination it must
+    /// leave alone, and the non-change it must not touch.
     #[test]
     fn a_cell_that_changes_role_changes_tissue() {
         let mut w = test_world();
