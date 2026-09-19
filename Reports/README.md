@@ -1180,6 +1180,16 @@ drift that two of these documents still reflect.**
   dials in round trips and cells; §6 its twelve staged recommendations
   against the repo's own plans. Source:
   [ant-sim-literature-review-external-2026-09-19.md](ant-sim-literature-review-external-2026-09-19.md).
+- [ant-survey-impact-2026-09-19.md](ant-survey-impact-2026-09-19.md) —
+  **what to change, ranked, 2026-09-19. `engine`/`lab`.** The review and its
+  three lanes read together at the owner's request: five changes worth
+  making (channel B fading faster as a dial, the nest site reach shipped as
+  a value, the de-saturated food reader trusted and its stale numbers
+  discarded, the home bearing switched on, the harness default fixed), the
+  one problem none of them solves (a colony cannot lay a trail worth
+  following and pays to lay one), the performance verdict (the field is the
+  third phase; no wake rule shrinks it; the GPU field's condition is not
+  met), and a not-to-chase table with the number behind each row.
 - [ant-survey-round-2026-09-19.md](ant-survey-round-2026-09-19.md) —
   **round record, 2026-09-19. `engine`/`lab`.** The three lanes' close-out:
   what each overturned (the food-trail reader had been de-saturated a day
