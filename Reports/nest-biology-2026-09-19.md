@@ -38,6 +38,16 @@ heavily published end — as what an ant nest is.
 
 ## 0. The seven findings that contradict what this engine assumes
 
+**Read [§10](#10-owner-ruling-2026-09-19--the-nest-has-no-purpose-and-that-is-prior-to-everything-above) first.**
+The owner ruled on this report's *premise* the day it was written: **the
+nest has no purpose in this game** — no granary, no eggs, nothing
+environmental that can kill an ant, and a predator measured as a null. All
+four check out in the tree. The findings below stand as statements about the
+code, and §§2-5's biology stands; what §10 changes is the **order**, because
+every decision in §9 is a mechanism in service of a function the box does
+not yet have. §10.3 is one number off an existing harness that decides
+whether any of it is worth starting.
+
 Stated first and bluntly, per the brief. Each is expanded in its section.
 
 **1. A colony-wide scalar cannot produce nest architecture, and this is
@@ -1002,3 +1012,159 @@ For a session picking up the nest build. Each is stated in §2.6, §3.6,
 | **D4.3/D5.3** | **No CO₂ field, no ventilation.** The function is covered by D4.1 | says no |
 | **D3.4** | **No fungus garden.** | says no |
 | **D4.4** | **Leave who-digs alone**; vertical sorting comes free with D2.1 | says no |
+
+---
+
+## 10. Owner ruling, 2026-09-19 — the nest has no purpose, and that is prior to everything above
+
+> *"Nests have no real purpose. As of now, we don't have a granary, ants
+> don't lay eggs, we have no temperature or weather or fire in the evolution
+> lab that can kill ants, and our predators are easily killed off by the ants
+> without a nest."*
+
+**He is right on all four, and the tree states each of them more strongly
+than he did.** Checked rather than taken:
+
+| the claim | what the tree says |
+|---|---|
+| no granary | **confirmed.** `lab/ui.rs`: *"food in transit and not food put by: THERE IS NO GRANARY IN THIS BOX."* `larder_probe mode=turnover` measured `resident` **0 from frame 200** |
+| ants don't lay eggs | **confirmed, and stronger.** Reproduction is **budding**: `Origin::Bud` places a fully-formed adult in a clear adjacent cell funded by `TRAIT_BIRTH_GRANT` (`creature.rs:2995`). No egg, no larva, no queen, **no brood object of any kind** |
+| nothing environmental kills | **confirmed, and this is the decisive one.** `DEATH_CAUSE_LIST` (`organism.rs:6545`) is `Unknown`, `Starved`, `StarvedInFlight`, `Killed`, `Culled`, `LostVitalTissue`, `FelledOrLost`, `OldAge` — **not one is environmental**, in *either* game rather than only the lab. No burned, frozen, drowned or desiccated cause exists. The lab additionally pins `Pin::Clear` (`lab/scene.rs:925`), so there is no weather even in principle |
+| predators are no threat | **worse than "easily killed".** `beetles=0` against `beetles=9` measured **bit-identical over 6,000 frames** (`creature-evolution-plan.md` E7, §13o) — the predator never caught anything. E13 and `predation_probe` have worked the line since, so re-read that before quoting it as current, but the recorded null is a null |
+
+### 10.1 What this does to §§2–5
+
+**It removes their premise.** §5.4's synthesis — *a chamber is a
+microclimate, and the nest is a stack of them* — is the correct answer to
+*what is a nest for* in biology, and it names four purposes: **store food,
+raise brood, buffer climate, hide from enemies.** The box has **none of the
+four.** So D2.1 (a depth term) and D5.2 (put each thing where it belongs on
+the vertical gradient) build the *machinery* of a nest for a function that
+does not exist, and a graded profile in a world where nothing wants a
+gradient is decoration.
+
+This is `CLAUDE.md`'s *check that a planned step can demonstrate itself,
+before promising it will*, arriving one level up from where that rule
+usually fires: not *which cell does this rule evaluate*, but **what in this
+world would be worse off if the nest were not there.** Today the answer is
+nothing, and the question was not asked before the research was
+commissioned — including by this report, which asked what a nest is *for*
+in ants and never asked what it is for *here*.
+
+**§§2–5 are not withdrawn.** They are the right material and the findings
+in them stand as biology; §0's seven contradictions are all still true of
+the code. What changes is the **order**: none of the decisions in §9 should
+start until this section's question is answered, because every one of them
+is a mechanism in service of a purpose.
+
+### 10.2 The purpose that is already half-built
+
+**Budding needs a clear adjacent cell, and the engine already counts the
+failures.** Three facts that are in the tree today and, as far as this lane
+can find, have never been read together:
+
+1. `try_bud` places a child in one of the eight neighbours and **fails when
+   none is clear**. Measured when that path was built: *"a colony of 12
+   richly-funded ants, 60 frames, `births_denied_no_space` **104** and zero
+   actual births"* — the parent's own body stood in the one direction every
+   candidate was willing to grow toward.
+2. `CreatureStats::births_denied_no_space` and `births_denied_animals` are
+   live counters with a doc that says exactly how to read them: attempts
+   alone cannot separate *"one ant walled in for a thousand ticks"* from
+   *"a thousand ants each waiting a tick"*, and **those are opposite
+   findings — the first is a bed that forecloses reproduction, the second
+   is a queue.** Both are surfaced: `app.rs:2977` and `lab/stats.rs:906`
+   print `BIRTHS REFUSED NO ROOM`.
+3. **Soil is a `Powder`, so open ground fills in.** The only reliably clear
+   space underground is *roofed* space — which is precisely what a chamber
+   is, and precisely what `NestRoom::roofed` already censuses.
+
+Put together: **a chamber is the space a colony needs in order to grow.**
+That is a purpose which requires almost nothing built, and it is the most
+legible one available — *dig, and more ants fit* is a verb with a graded,
+visible consequence, which is both of the owner's laws in one mechanism. It
+is also the only one of the four biological purposes that has a substrate
+here already, and it arrived from the tree rather than from the literature.
+
+**It is not free of doubt.** Real ants do not dig for floor space to stand
+a worker on; they dig for brood, stores and climate. So this is an
+*engine-native* purpose wearing a nest's shape rather than the biological
+one, and it should be argued on whether it plays well, not on whether it is
+faithful.
+
+### 10.3 The measurement that decides it, which is one number
+
+**Read `births_denied_no_space` and `births_denied_animals` on the played
+bed, over a session.** Both already print; nothing needs building. Their
+ratio is the mean wait in ticks, which read against a generation says
+whether room is binding at all.
+
+- **If room is binding** — births foreclosed rather than merely queued —
+  then the nest already has a purpose nobody noticed, §9's decisions become
+  worth taking in service of it, and D4.1's *local* room reading is the one
+  that matters (an ant should dig where *it* cannot bud, which is a local
+  question, exactly as §4.2 argued on different evidence).
+- **If room is not binding** — the counter is small, or it is a queue that
+  clears — then the nest has no purpose in this box and **the honest
+  recommendation is to build a purpose before building a nest.** §10.4
+  prices those.
+
+`latecensus` is the harness that already runs the played bed to 500,000
+frames and reports the colony and the footprint per 20,000; this is a column
+on it, not a new instrument. **This measurement now sits ahead of Q1–Q4 in
+§7**, and it is cheaper than all of them.
+
+### 10.4 If a purpose has to be built, what each costs
+
+Priced against what exists, worst first.
+
+- **Environmental death — expensive, and it has a named trap.** Adding a
+  cause means adding a row to `DEATH_CAUSE_LIST`, and `CLAUDE.md`'s own
+  gotcha is that *adding a member to a set something sweeps enrols it in
+  every rule over that set, silently* — the `spoil` material broke five
+  censuses and registering one worldgen preset turned `main` red for two
+  hours. It also needs a field consumer that does not exist (§5.5 D5.1) and,
+  in the lab, something to unpin `Pin::Clear`. **This is the biologically
+  right answer and the most expensive one.**
+- **Brood — expensive, and it changes reproduction.** A brood object means
+  budding stops being instantaneous: an egg, a place to put it, a clock, and
+  a carrier. That is a rework of the one mechanism every evolution result in
+  this repo is measured through, so it would void baselines across the whole
+  creature line.
+- **A granary — moderate, and it needs a lean season to matter.** §3.6 D3.1
+  is cheap to build (a `Drop` preference plus a cull), but a store is only
+  worth having if there is a time when foraging does not pay. The lab has no
+  seasons, and the bed runs at ~1.03x subsistence continuously
+  (`dead-ends.md`, the unit-7 odometer entry). **Build the store and the
+  lean time together or neither.**
+- **A real predator — moderate, and it is another lane's.** Refuge is worth
+  nothing while the predator is a measured null. `predation_probe
+  mode=range` was built for exactly the question that decides this — *does
+  predation kill non-randomly with respect to how far an ant ranges from
+  home*, i.e. is a predator a selective force or a flat tax. **If that
+  reads as a force, refuge becomes the nest's purpose and it needs no new
+  mechanism at all**, because ants already go home.
+- **Room to grow — nearly free, and it may already be true.** §10.2. The
+  measurement in §10.3 is the whole of the work required to find out.
+
+### 10.5 → The decision this section makes
+
+**D10.1 — Nothing in §9 starts until §10.3 is read.** One number, off an
+existing harness, decides whether the nest work has a purpose to serve.
+
+**D10.2 — If room is not binding, do not build the nest; build a purpose.**
+Of the five in §10.4, the two worth putting to the owner are **a predator
+that is actually a force** (`predation_probe mode=range` already asks it,
+and refuge needs no new mechanism) and **a granary with a lean season**
+(the store is cheap, the season is the real work). Environmental death is
+the faithful answer and the dearest; brood would void the creature line's
+baselines.
+
+**D10.3 — Record that this question was not asked.** The brief commissioned
+four areas of nest biology and this report answered them; neither asked what
+a nest is for *in this game* until the owner did, after the work. The
+transferable form, which is why it is written here rather than left in a
+chat log: **before researching how to build a thing, ask what in this world
+would be worse off without it.** A mechanism with no consumer is the
+`phototropism_dir` failure with the weights removed — everything correct,
+nothing downstream.
