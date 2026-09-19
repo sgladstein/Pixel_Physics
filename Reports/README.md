@@ -3225,8 +3225,8 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   shaft — and `digbox`'s 1,200 ants sit 4x beyond the largest fitted
   group, so the lens may be a jam. Docs only; nothing built.
 - [nest-shape-three-negatives-2026-09-19.md](nest-shape-three-negatives-2026-09-19.md)
-  — **measurement, 2026-09-19. `lab`/`engine`.** Three levers tested against
-  the nest's shape and **all three negative**, plus the one column that made
+  — **measurement, 2026-09-19. `lab`/`engine`.** Four levers tested against
+  the nest's shape and **all four negative**, plus the one column that made
   them readable. **A colony here does not dig a nest — it scratches the whole
   floor, and "the nest" is the densest part of the scratching**: the room's
   bounding box is **62–208 cells wide in a 400-wide box against a 53-column
@@ -3238,7 +3238,11 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   `MoistureFront`/`MoistureLateral` leaves the control the best of five arms.
   With `(Bias, Dig)` swept 0.15 → −1.0 everything scales together and nothing
   concentrates — **the lens is what scratching-everywhere looks like turned
-  down.** So the remaining candidate is the one the entrance research names:
+  down**, and a fourth lever ran the other way from its hypothesis: removing
+  the spoil teleport (`SPOIL_LIFT=none`) collapses digging to a third and the
+  workings to three rows, while the *maximum* teleport gives the best shape of
+  the four — the abstraction holds the mechanic up rather than hiding one. So
+  the remaining candidate is the one the entrance research names:
   self-amplification on recent digging, as a `spoil` **material adjacency**
   test rather than a pheromone (a dig-face pheromone is measured and
   negative). **Three instrument faults found on the way, two of which had

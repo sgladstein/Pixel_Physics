@@ -1,4 +1,4 @@
-# Three levers that do not make a shaft, and the one thing that would
+# Four levers that do not make a shaft, and the one thing that would
 
 *2026-09-19. Written from measurements taken in `examples/digbox` and
 `examples/burrow_probe` on the night of the entrance research landing. **Every
@@ -13,7 +13,7 @@ dimensional audit that reordered it is
 ## 0. The finding
 
 **A colony in this engine does not dig a nest. It scratches the whole floor,
-and "the nest" is the densest part of the scratching.** Three separate levers
+and "the nest" is the densest part of the scratching.** Four separate levers
 were built or refuted against that, and none of them changes it, because none
 of them is the missing thing. The missing thing is *concentration*: nothing in
 the engine makes a dug cell attract the next dig.
@@ -34,7 +34,7 @@ nest" is not at the nest at all.
 
 ---
 
-## 1. The three negatives
+## 1. The four negatives
 
 ### 1a. The door's reach is not the nest's shape
 
@@ -89,6 +89,30 @@ Run on a bed that can pose the question (§2), over five arms:
 
 The control is the best of the five, and both signs of the turn weight widen
 the room.
+
+### 1d. …and the spoil teleport is holding the mechanic up, not hiding one
+
+A fourth lever, added after the first three: all three existing
+`PIXEL_PHYSICS_SPOIL_LIFT` modes abstract the **return trip** away. Inside a
+shaft there is always a wall beside you, so even the default `climb` lifts the
+full `SPOIL_LIFT` (160 rows) precisely where a real nest would have a haulage
+corridor. The rendered box makes the question urgent — **638 cells standing
+above the original ground line against 137 of void below it**, so the material
+is leaving the ground rather than lining a gallery.
+
+`=none` was added as the missing ablation, and the answer runs the other way:
+
+| lift mode | room bbox | `vert` | roofed | hauled up | digs |
+|---|---|---|---|---|---|
+| `climb` (default) | 175w × 14h | 0.08 | 62 | 638 | 2,749 |
+| `dig` | 138w × 16h | 0.12 | 82 | 618 | 3,209 |
+| `unbounded` | 109w × 23h | **0.21** | 103 | 741 | 2,697 |
+| `none` | 158w × 3h | **0.02** | 6 | 57 | 903 |
+
+**More lifting is better.** The maximum teleport gives the best shape of the
+four and the most roofed room; removing it collapses the colony's ability to
+work at all — an ant that cannot put a pellet down does not dig a tunnel to
+carry it along, it stops digging. The arm stays as a control, not a candidate.
 
 ---
 
