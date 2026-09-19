@@ -791,6 +791,63 @@ fn main() {
         st.spoil_dumped,
         if rw > 0 { rh as f64 / rw as f64 } else { 0.0 }
     );
+    // **Can the one remaining candidate demonstrate itself?**
+    //
+    // `CLAUDE.md`: *check that a planned step can demonstrate itself, before
+    // promising it will.* Four levers have come back negative and the only
+    // one left is Toffin's self-amplification -- in this engine, "dig where
+    // fresh spoil is next to you", a material adjacency test rather than a
+    // pheromone. That rule can only concentrate digging if **having spoil
+    // beside you actually discriminates between candidate cells**. If nearly
+    // every diggable cell already has spoil in reach, the term is satisfied
+    // everywhere and no weight on it can move anything -- the same shape of
+    // failure as a sensor with no range, arriving through a material.
+    //
+    // So: over every cell that a dig could target (ground, below the old
+    // surface), how many have at least one `spoil` cell in the 8
+    // neighbourhood the digger itself uses?
+    {
+        let spoil_id = world.materials.id_of("spoil");
+        let (mut diggable, mut with_spoil) = (0usize, 0usize);
+        for x in 1..b.w - 1 {
+            for y in b.surface..b.floor {
+                let cell = world.get(x, y);
+                let kind = world.materials.kind(cell.material);
+                if cell.material == material::EMPTY || !matches!(kind, MaterialKind::Powder | MaterialKind::Solid) || cell.organism_id() != 0 {
+                    continue;
+                }
+                diggable += 1;
+                if let Some(sp) = spoil_id {
+                    let near = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)]
+                        .iter()
+                        .any(|(dx, dy)| world.get(x + dx, y + dy).material == sp);
+                    if near {
+                        with_spoil += 1;
+                    }
+                }
+            }
+        }
+        // And how much `spoil` exists anywhere at all -- above the old
+        // surface as well as below it. If the adjacency above is near zero
+        // because there are barely any spoil cells in the world, that is a
+        // fact about the material's lifetime, not about where haulage puts
+        // it, and it decides the amplification term's feasibility outright.
+        let mut spoil_cells = 0usize;
+        if let Some(sp) = spoil_id {
+            for x in 0..b.w {
+                for y in 0..b.floor {
+                    if world.get(x, y).material == sp {
+                        spoil_cells += 1;
+                    }
+                }
+            }
+        }
+        let pct = if diggable > 0 { 100.0 * with_spoil as f64 / diggable as f64 } else { 0.0 };
+        println!("SUMMARY spoil standing in the world: {spoil_cells} cells, against {} pellets ever put down", st.spoil_dumped);
+        println!(
+            "SUMMARY spoil adjacency: {with_spoil} of {diggable} diggable cells have spoil in reach ({pct:.1}%)               -- a 'dig near fresh spoil' rule discriminates only in the gap between that and 100%"
+        );
+    }
     let bands = st.at_nest_crowding;
     let total: u64 = bands.iter().sum();
     if total > 0 {
