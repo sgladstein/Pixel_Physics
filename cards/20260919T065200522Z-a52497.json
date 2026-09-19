@@ -1,0 +1,58 @@
+{
+  "id": "20260919T065200522Z-a52497",
+  "created": "2026-09-19T06:52:00Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/magical-planck-ljgl0b",
+    "commit": "e804cb65",
+    "agent": null,
+    "session_id": "14da28e3-d028-552e-9f1b-082591ba4b20",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The stiffness switch, swept properly -- and my size numbers were wrong",
+  "question": "With six seeds and three times the plants: is B still better? The size cost I reported last time does not exist, so this is now a pure look question.",
+  "context_md": "**You were right and I was wrong, so that first.** Last card I reported that the switch shrinks shrub by 45% and makes a grass plant twelve times bigger. That was **five founders on one seed**, and you called it: *\"so much plant to plant variation\"*.\n\nGrass, biggest single plant, same five founders, six seeds:\n\n| seed | 1 | 2 | 3 | 4 | 5 | 6 |\n|---|---|---|---|---|---|---|\n| off | 57 | 112 | 54 | 48 | 46 | 43 |\n| on | **701** | 49 | 54 | 76 | 58 | 44 |\n\nSeed 1 is a freak run. Every other seed is 43-112, median **51 -> 56**. My headline was one seed out of six.\n\n**Swept over six seeds at three times the founders** (10 trees, 10 conifers, 12 shrubs, 16 grass), the size effect is not there:\n\n| | cells, median off -> on | authored higher on |\n|---|---|---|\n| tree | 25,502 -> 25,915 | 4 of 6 |\n| conifer | 35,052 -> 32,591 | 0 of 6 |\n| shrub | 6,192 -> 5,738 | 2 of 6 |\n| grass | 4,078 -> 3,912 | 2 of 6 |\n\nNothing wins on more than 4 of 6 and the ratios run 0.93-1.02. **So the switch is close to free**, which is the opposite of what I told you last time, and it makes this a pure question about how the plants look.\n\n**The pictures:** three seeds across, four species down -- tree, conifer, shrub, grass. Same seeds, same founders, same binary; only the selector differs. The shrub row is worth a look for its own sake: seed 2 is nearly barren in both arms, which is the variation you were pointing at.\n\n**What it is for.** The reed can only stand straight with this on, and a species cannot opt in by itself -- the selector forces 0 and never reads the file. So this decides whether the second water plant is a species file or an engine change.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- what ships today (switch off)",
+      "files": [
+        "20260919T065200522Z-a52497/000-grid_off.png"
+      ],
+      "caption": "Each species' authored stiffness ignored. Three seeds across; tree, conifer, shrub, grass.",
+      "meta": {
+        "tree cells (median of 6 seeds)": 25502,
+        "conifer cells": 35052,
+        "shrub cells": 6192,
+        "grass cells": 4078,
+        "biggest grass plant (median)": 54
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- each species using the value in its own file",
+      "files": [
+        "20260919T065200522Z-a52497/001-grid_authored.png"
+      ],
+      "caption": "Same seeds, same founders; only the selector differs.",
+      "meta": {
+        "tree cells (median of 6 seeds)": 25915,
+        "conifer cells": 32591,
+        "shrub cells": 5738,
+        "grass cells": 3912,
+        "biggest grass plant (median)": 60
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
