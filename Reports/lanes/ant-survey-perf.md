@@ -7,7 +7,10 @@ and [`../gpu-field-design-2026-09-19.md`](../gpu-field-design-2026-09-19.md).
 This note is what another lane or the coordinator needs and not a summary of
 those.*
 
-**Head SHA / PR: see the foot of this note.**
+**PR [#479](https://github.com/sgladstein/Pixel_Physics/pull/479), branch
+`claude/ant-survey-perf`, head `c63fadfd` at the time it was opened** (cut from
+`5f92c761`; `origin/main` moved 14 commits during the lane and was merged in
+before landing, which brought PR #475's review and brief onto this branch).
 
 ## The four answers, in one line each
 
