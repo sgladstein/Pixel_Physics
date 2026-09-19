@@ -12,7 +12,33 @@ seed.*
 
 ## 0. The answer, stated once
 
-*(filled after the runs)*
+**Four of the five rejections stand, one was overturned a day before the
+brief was written and nobody told the record, and the thing every candidate
+presupposes — a colony that can lay a trail worth following — is still
+absent on every bed measured here.**
+
+| candidate | the original test could not see | verdict, 36 seeds unless stated |
+|---|---|---|
+| 1. food-charged `EmitB` odometer | the **reader**: raced only at full gain (09-17, no return leg) or only at the shipped gate (09-19, homing share not recruitment) | **inert at both gains**, scored on recruitment; fires (route pk 13.5–17.5 against 0 muted). Stands |
+| 2. food-trail reader at full gain | **`u8` planes**: the far half of every trail read 0.000, so a reader at full gain could only see the near end | **overturned** — shipped since `ac02ac03` (09-18), record not updated. On `u16` it is the whole hand-trail effect (22 colonies of 36 against 4; 52% of ants at the food against 5%) and wins the entry's own patchy-larder race 10 seeds of 12 |
+| 2b. `(Crowding, EmitB, −w)` | never run | null at w = 2.35; the w = 4.5 survival gain is the emission cost falling (no-channel-B control: 29 colonies) |
+| 2c. no-entry mark | never run | not built: `self` ≡ `mute`, so there is no recruitment to a stale patch for it to correct |
+| 3. `DECAY_RHO` in the literature band | `u8`, interval 4, both planes at once | **inert for channel B alone** on the gap bed (25 and 24 colonies against 22 at rho 0.10 / 0.25); played-bed half in §5. Stands, narrowed |
+| 4. trophallaxis | three runs, survivor count, harness bed | **stands at 12 seeds** on the played bed: the cliff is delayed ~3,000 frames and steepened, nine seeds of twelve behind by 9,000, a coin toss by session length |
+| 5. laden right-of-way | the symmetric swap was measured where no laden ant moved homeward | **not built** (this lane tests); the scoring run is §7 and the diff is on this branch's history |
+
+**Two findings that were not candidates.** The colony's own channel B is a
+net cost on the return-leg bed: ants that lay none keep 29 colonies alive
+against 22 and close 107 round trips against 65, and `self` ≡ `mute` on
+recruitment in every configuration. And `trailfollow`'s default gate is the
+stale `saturated` preset, so any archived run without an explicit `gate=`
+is a three-change comparison.
+
+**On both beds.** Every headline was also taken on `main`'s homing plane
+(`arho=0.03`): more colonies alive, fewer round trips, a quarter of the laden
+ticks at the nest — the lifetime split's own trade, reproduced.
+
+
 
 ## 1. The bed, and why it is this one
 
@@ -246,7 +272,46 @@ patch — is the units-2/3 entry's named re-test on the played bed:
 
 ## 6. Candidate 4 — trophallaxis on the played bed
 
-*(table)*
+`labforage frames=150000 seed=1..12`, the shipped lab box, both arms in one
+binary (`PIXEL_PHYSICS_TROPHALLAXIS=off` pins the share urge to 0 with the
+weights still in the genome). `alive` is the colony's live count at the
+sample; `E10/50/90` is the reserve spread in joules over live ants, median
+across seeds; `shares` is the cumulative "did it fire" counter. Sign test is
+sharing-on better / worse / tied on `alive`, paired within seed.
+
+| frame | on: alive median (p10–p90) | off: alive median (p10–p90) | sign | on E10/50/90 | off E10/50/90 | shares |
+|---|---|---|---|---|---|---|
+| 3,600 | **51** (47–52) | 40 (37–43) | **12/0/0** | 20/66/112 | 26/118/196 | 218 |
+| 4,500 | 39.5 (36–44) | 34.5 (32–37) | 11/1/0 | 13/64/96 | 32/124/238 | 248 |
+| 9,000 | 12 (6–25) | **21.5** (20–24) | **3/9/0** | 47/110/228 | 60/216/392 | 292 |
+| 30,600 | 6 (3–14) | **13.5** (8–17) | **3/9/0** | 218/376/598 | 189/563/844 | 364 |
+| 60,300 | 6 (4–11) | 10 (5–11) | — | 209/384/720 | 118/384/840 | 503 |
+| 90,000 | 4 (3–9) | 6 (0–8) | 6/6/0 | 236/434/668 | 142/543/818 | 554 |
+| 149,400 | 2.5 (0–11) | 2.0 (0–7) | 6/4/2 | 241/406/576 | 87/467/467 | 637 |
+| colonies alive at 149,400 | 10/12 | 9/12 | | | | |
+
+**What it says.** The wiki's three-run reading survives at twelve seeds,
+with its mechanism now visible in the spread column. Sharing carries more
+ants through the founding cliff — every seed better at 3,600, eleven of
+twelve at 4,500 — by flattening the founders' reserves (p90/p10 5.6 against
+7.5 at 3,600, the median a joule lower). Then everybody runs out together:
+by 9,000 the sharing colony holds 12 against 21.5, nine seeds of twelve
+worse, and it stays behind through 30,600. The cliff is **delayed by about
+three thousand frames and steepened**, not removed — the drop from 3,500 to
+4,500 that `trophallaxis-design` §9 said should shrink is larger with
+sharing on (51 → 39.5 against 40 → 34.5). By session length the two arms
+are a coin toss (6/4/2), because both are down to a handful.
+
+Against the survey's *famine relief* (Sendova-Franks): the relief is real
+and it is a loan. On a bed at subsistence the colony's joules are the
+founders' reserves, and passing them from rich to poor converts a graded
+die-off into a later, synchronised one — the exact shape `CLAUDE.md`'s first
+law warns against, a binary where a distribution was. What would change it
+is intake that a rich ant can *earn* faster than it shares, which is the
+foraging loop, not this verb. Not a dead end — it ships on, by the standing
+ruling — and the wiki paragraph now carries the twelve-seed number.
+
+
 
 ## 7. Candidate 5 — laden right-of-way, the test not run
 

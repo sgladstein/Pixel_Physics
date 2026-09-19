@@ -2015,14 +2015,22 @@ different reserves now, some fat and some lean, so the moment when the
 founding stock runs out is spread across many frames instead of landing on
 every ant in the same few hundred.
 
-What the first measurement says, plainly: in a bare box with the colony
+What the first measurement said, plainly: in a bare box with the colony
 dropped on seedlings, a colony that shares ended with fewer survivors than
 one that did not on two runs of three, and sharing flattened the founders'
 spread of reserves back into sameness -- because sharing flows from rich to
-poor, and a spread of reserves is exactly a rich-and-poor. The bed and the
-horizon it was measured on are the harness's, not a played bed's, and the
-runs are too few to sign the result. It is on the page so nobody reads
-"ants share food" as "the colony is saved."
+poor, and a spread of reserves is exactly a rich-and-poor. Re-measured on
+2026-09-19 on the played bed, twelve boxes, a full session long: the same
+shape, and now signed. Sharing carries more ants through the first hungry
+stretch -- more alive in every one of the twelve boxes at the moment the
+founding stock runs out -- and then loses them harder, nine boxes of twelve
+behind a little later, because the reserves were levelled and everybody ran
+out together. The famine is put off by a while and made steeper, not
+smaller; by the end of a session the two colonies are down to a handful
+either way. It is on the page so nobody reads "ants share food" as "the
+colony is saved." What would change it is food a well-fed ant can bring in
+faster than it gives away, which is the foraging loop's problem and not this
+one's.
 
 An ant that is full mostly stands still now. It still wanders sometimes, it
 still answers an alarm, it still follows a smell, and as it empties it walks
