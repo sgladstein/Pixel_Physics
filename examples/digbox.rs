@@ -109,6 +109,22 @@ fn build(b: &Box2) -> World {
 /// Useful values: `SOIL_WILTING_POINT` 180, `SOIL_FIELD_CAPACITY` 620,
 /// `SOIL_SATURATED` 1000.
 fn build_wet(b: &Box2, wet: u16) -> World {
+    build_graded(b, wet, None)
+}
+
+/// `build_wet`, with an optional linear top-to-bottom moisture ramp.
+///
+/// **A uniform fill has no vertical gradient at any value**, so on the
+/// default bed `MoistureLateral` and `MoistureGrad` report the air/soil step
+/// and nothing about depth -- which is what `creature::moisture_gradient`'s
+/// own doc says that channel measures. A taxis that is supposed to take an
+/// ant downward has to be given somewhere to climb, and `wetgrad=top:bottom`
+/// is that bed. Measured in `examples/burrow_probe`, which gained the same
+/// argument first: over 55 ants, `MoistureLateral` reads **1 distinct value
+/// on dry ground, 26 at a uniform field capacity, 3 at saturation (it
+/// clips), and 44 on a 120->980 ramp** -- so the ramp is the only one of the
+/// four beds that gives the channel its full range.
+fn build_graded(b: &Box2, wet: u16, grad: Option<(u16, u16)>) -> World {
     let mut world = World::new(pixel_physics::sim::Rect::new(0, 0, b.w - 1, b.h - 1));
     // No weather and a held sky: a designed oscillator must not alias into
     // anything measured here (`CLAUDE.md`).
@@ -123,7 +139,15 @@ fn build_wet(b: &Box2, wet: u16) -> World {
             if y >= b.floor || x == 0 || x == b.w - 1 {
                 world.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
             } else if y >= b.surface {
-                world.set(x, y, Cell::new(soil_id, 0).with_attached(true).with_aux(wet));
+                let aux = match grad {
+                    Some((top, bottom)) => {
+                        let span = (b.floor - b.surface).max(1) as f32;
+                        let t = (y - b.surface) as f32 / span;
+                        (top as f32 + (bottom as f32 - top as f32) * t).round() as u16
+                    }
+                    None => wet,
+                };
+                world.set(x, y, Cell::new(soil_id, 0).with_attached(true).with_aux(aux));
             }
         }
     }
@@ -135,7 +159,23 @@ fn build_wet(b: &Box2, wet: u16) -> World {
 /// **Split into roofed and open**, because `CLAUDE.md`'s metric trap says a
 /// hole open to the sky is not a room. `roofed` is void with ground standing
 /// somewhere above it in the column; `open` is void the sky can see.
-fn census(world: &World, b: &Box2) -> (usize, usize, usize, usize) {
+/// **Plus the extent of the room itself, which is the only reading here
+/// that can tell a shaft from a lens.**
+///
+/// `roofed`, `open` and `bodies` are counts: a 46-wide by 2-deep scrape and
+/// a 2-wide by 46-deep shaft of the same volume read **identical** on all
+/// three. `examples/burrow_probe`'s `arms=selftest` asserts exactly that
+/// against one bar drawn both ways, and the same blindness was live here.
+///
+/// **And the `trace` line's "spread over N columns x M rows" does not fill
+/// the gap, which is the trap worth naming.** That is the spread of
+/// *at-nest ants*, so it follows `PIXEL_PHYSICS_NEST_SITE_COLS`/`_ROWS` **by
+/// construction** -- set the reach to 3 columns and it reports 6, which is
+/// the definition of the dial and not a result about digging. Measured
+/// 2026-09-19: across the whole `cols` sweep the ant spread tracked the dial
+/// exactly while `room_total` sat at 453-668 with no trend, and a rendered
+/// pair showed no visible difference underground. Read `room w x h` below.
+fn census(world: &World, b: &Box2) -> (usize, usize, usize, usize, i32, i32) {
     let (mut roofed, mut open) = (0, 0);
     // **Cells below the old surface that hold an animal.**
     //
@@ -190,7 +230,32 @@ fn census(world: &World, b: &Box2) -> (usize, usize, usize, usize) {
             }
         }
     }
-    (roofed, open, above, bodies)
+    // The bounding box of the room -- void and the bodies standing in it,
+    // which is the same "room, occupied or not" this census already counts.
+    let (mut x0, mut x1, mut y0, mut y1) = (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
+    for x in 1..b.w - 1 {
+        let mut covered = false;
+        for y in b.surface..b.floor {
+            let cell = world.get(x, y);
+            let kind = world.materials.kind(cell.material);
+            let is_ground = cell.material != material::EMPTY
+                && matches!(kind, MaterialKind::Powder | MaterialKind::Solid)
+                && cell.organism_id() == 0;
+            if is_ground {
+                covered = true;
+                continue;
+            }
+            let is_room = cell.material == material::EMPTY || kind == MaterialKind::Creature;
+            if is_room && covered {
+                x0 = x0.min(x);
+                x1 = x1.max(x);
+                y0 = y0.min(y);
+                y1 = y1.max(y);
+            }
+        }
+    }
+    let (rw, rh) = if x1 >= x0 { (x1 - x0 + 1, y1 - y0 + 1) } else { (0, 0) };
+    (roofed, open, above, bodies, rw, rh)
 }
 
 /// **The moisture gradient as the ant's own brain reads it**, sampled at
@@ -510,7 +575,15 @@ fn main() {
     let scale: u32 = arg("scale").unwrap_or(3);
 
     let wet: u16 = arg("wet").unwrap_or(material::SOIL_FIELD_CAPACITY);
-    let mut world = build_wet(&b, wet);
+    let grad: Option<(u16, u16)> = arg::<String>("wetgrad").map(|v| {
+        let (a, c) = v.split_once(':').unwrap_or_else(|| panic!("wetgrad= wants top:bottom, got `{v}`"));
+        (a.trim().parse().expect("wetgrad top"), c.trim().parse().expect("wetgrad bottom"))
+    });
+    let mut world = build_graded(&b, wet, grad);
+    match grad {
+        Some((top, bottom)) => println!("  bed graded aux {top} (top) -> {bottom} (bottom) over {} rows", b.floor - b.surface),
+        None => println!("  bed at uniform aux {wet}  [wilting 180, field capacity 620, saturated 1000]"),
+    }
 
     // **The endowment is a knob here, and it has to be.** A digger spends
     // `dig_cost_in_moves` 6.0 per cell, so 200 ants on the shipped
@@ -581,6 +654,42 @@ fn main() {
         world.species.set_genome(id, genome);
         println!("  (SurfaceCurvature, Dig) = {w}  [negative digs where buried; positive digs at an exposed face]");
     }
+    // **`wire=Input:Output:w,...` -- any genome weight by name, at runtime.**
+    // `gate=` and `curvdig=` above each needed their own argument and their
+    // own slot line, so sweeping a new pair meant editing this file; and
+    // editing `ant.ron` instead cannot work at all, because species assets
+    // are `include_str!`ed (`src/sim/organism.rs:7345`) and a prebuilt binary
+    // re-run against an edited `.ron` gives bit-identical "runs". Same
+    // argument, same spelling and same refusal as `examples/burrow_probe`'s.
+    //
+    // It prints every pair with its before value. A knob nobody can see the
+    // value of is a knob nobody can tell is disconnected -- which is not
+    // hypothetical: a `wet=` added to this line of work on 2026-09-19 was
+    // inserted into the wrong arm's branch, never ran, and produced a whole
+    // "dead at every wetness" finding that had to be retracted.
+    if let Some(spec) = arg::<String>("wire") {
+        use pixel_physics::sim::brain::{INPUT_NAMES, INPUT_SLOTS, OUTPUT_NAMES};
+        let id = world.species.id_of("ant").expect("ant ships");
+        let mut genome = world.species.get(id).genome.clone();
+        let mut set: Vec<String> = Vec::new();
+        for triple in spec.split(',').filter(|t| !t.trim().is_empty()) {
+            let parts: Vec<&str> = triple.split(':').collect();
+            assert_eq!(parts.len(), 3, "wire= wants Input:Output:weight triples, got `{triple}`");
+            let find = |names: &[&str], want: &str, what: &str| -> usize {
+                names.iter().position(|n| n.eq_ignore_ascii_case(want.trim())).unwrap_or_else(|| {
+                    panic!("wire=: no such brain {what} `{}`. Known {what}s: {}", want.trim(), names.join(", "))
+                })
+            };
+            let i = find(&INPUT_NAMES, parts[0], "input");
+            let o = find(&OUTPUT_NAMES, parts[1], "output");
+            let w: f32 = parts[2].trim().parse().unwrap_or_else(|_| panic!("wire=: `{}` is not a weight", parts[2]));
+            let before = genome[o * INPUT_SLOTS + i];
+            genome[o * INPUT_SLOTS + i] = w;
+            set.push(format!("({}, {}) {before} -> {w}", INPUT_NAMES[i], OUTPUT_NAMES[o]));
+        }
+        world.species.set_genome(id, genome);
+        println!("  PATCHED genome by name: {}", set.join("; "));
+    }
     world.paint_nest_patch(b.w / 2, b.surface - 1);
     let mut trickle = Trickle::new(ants as usize, arg("rate").unwrap_or(4));
 
@@ -644,7 +753,7 @@ fn main() {
         }
         trickle.step(&mut world, &b);
         if stops.contains(&f) {
-            let (roofed, open, above, bodies) = census(&world, &b);
+            let (roofed, open, above, bodies, _rw, _rh) = census(&world, &b);
             let (n, e) = charge(&world);
             let st = world.creature_stats;
             // `per roll` and the wetness gradient moved to the SUMMARY: the
@@ -671,16 +780,74 @@ fn main() {
     }
 
     let st = world.creature_stats;
-    let (roofed, open, above, bodies) = census(&world, &b);
+    let (roofed, open, above, bodies, rw, rh) = census(&world, &b);
     println!();
     println!(
-        "SUMMARY digs={} rolls={} per_roll={:.3} roofed={roofed} open={open} ants_in_it={bodies} room_total={} hauled_up={above} spoil_dumped={}",
+        "SUMMARY digs={} rolls={} per_roll={:.3} roofed={roofed} open={open} ants_in_it={bodies} room_total={} hauled_up={above} spoil_dumped={} room={rw}w x{rh}h vert={:.2}",
         st.digs,
         st.dig_rolls,
         if st.dig_rolls > 0 { st.digs as f64 / st.dig_rolls as f64 } else { 0.0 },
         roofed + open + bodies,
-        st.spoil_dumped
+        st.spoil_dumped,
+        if rw > 0 { rh as f64 / rw as f64 } else { 0.0 }
     );
+    // **Can the one remaining candidate demonstrate itself?**
+    //
+    // `CLAUDE.md`: *check that a planned step can demonstrate itself, before
+    // promising it will.* Four levers have come back negative and the only
+    // one left is Toffin's self-amplification -- in this engine, "dig where
+    // fresh spoil is next to you", a material adjacency test rather than a
+    // pheromone. That rule can only concentrate digging if **having spoil
+    // beside you actually discriminates between candidate cells**. If nearly
+    // every diggable cell already has spoil in reach, the term is satisfied
+    // everywhere and no weight on it can move anything -- the same shape of
+    // failure as a sensor with no range, arriving through a material.
+    //
+    // So: over every cell that a dig could target (ground, below the old
+    // surface), how many have at least one `spoil` cell in the 8
+    // neighbourhood the digger itself uses?
+    {
+        let spoil_id = world.materials.id_of("spoil");
+        let (mut diggable, mut with_spoil) = (0usize, 0usize);
+        for x in 1..b.w - 1 {
+            for y in b.surface..b.floor {
+                let cell = world.get(x, y);
+                let kind = world.materials.kind(cell.material);
+                if cell.material == material::EMPTY || !matches!(kind, MaterialKind::Powder | MaterialKind::Solid) || cell.organism_id() != 0 {
+                    continue;
+                }
+                diggable += 1;
+                if let Some(sp) = spoil_id {
+                    let near = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)]
+                        .iter()
+                        .any(|(dx, dy)| world.get(x + dx, y + dy).material == sp);
+                    if near {
+                        with_spoil += 1;
+                    }
+                }
+            }
+        }
+        // And how much `spoil` exists anywhere at all -- above the old
+        // surface as well as below it. If the adjacency above is near zero
+        // because there are barely any spoil cells in the world, that is a
+        // fact about the material's lifetime, not about where haulage puts
+        // it, and it decides the amplification term's feasibility outright.
+        let mut spoil_cells = 0usize;
+        if let Some(sp) = spoil_id {
+            for x in 0..b.w {
+                for y in 0..b.floor {
+                    if world.get(x, y).material == sp {
+                        spoil_cells += 1;
+                    }
+                }
+            }
+        }
+        let pct = if diggable > 0 { 100.0 * with_spoil as f64 / diggable as f64 } else { 0.0 };
+        println!("SUMMARY spoil standing in the world: {spoil_cells} cells, against {} pellets ever put down", st.spoil_dumped);
+        println!(
+            "SUMMARY spoil adjacency: {with_spoil} of {diggable} diggable cells have spoil in reach ({pct:.1}%)               -- a 'dig near fresh spoil' rule discriminates only in the gap between that and 100%"
+        );
+    }
     let bands = st.at_nest_crowding;
     let total: u64 = bands.iter().sum();
     if total > 0 {
@@ -725,7 +892,7 @@ fn selftest_run(b: &Box2) {
         bare.step_active_sites();
         bare.step_fields();
     }
-    let (roofed, open, _, _) = census(&bare, b);
+    let (roofed, open, _, _, _, _) = census(&bare, b);
     println!("digbox selftest: empty box after 600 frames reads roofed {roofed} open {open} (both must be 0)");
     assert_eq!((roofed, open), (0, 0), "a box with no ants must hold no dug void -- the soil fill is slumping, or the census is measuring the scene");
 
@@ -738,7 +905,7 @@ fn selftest_run(b: &Box2) {
             carved.set(x, y, Cell::EMPTY);
         }
     }
-    let (roofed2, open2, _, _) = census(&carved, b);
+    let (roofed2, open2, _, _, _, _) = census(&carved, b);
     println!("  a hand-carved 10x3 chamber 10 rows down reads roofed {roofed2} open {open2} (must be 30 and 0)");
     assert_eq!((roofed2, open2), (30, 0), "the census must find a known chamber, and must call it roofed rather than open");
 
@@ -748,7 +915,7 @@ fn selftest_run(b: &Box2) {
     for y in b.surface..b.surface + 6 {
         shaft.set(cx, y, Cell::EMPTY);
     }
-    let (roofed3, open3, _, _) = census(&shaft, b);
+    let (roofed3, open3, _, _, _, _) = census(&shaft, b);
     println!("  a 6-deep shaft open to the sky reads roofed {roofed3} open {open3} (must be 0 and 6)");
     assert_eq!((roofed3, open3), (0, 6), "a hole open to the sky is not a room");
 
@@ -764,7 +931,7 @@ fn selftest_run(b: &Box2) {
         live.step_pheromones();
     }
     let st = live.creature_stats;
-    let (roofed4, _, _, _) = census(&live, b);
+    let (roofed4, _, _, _, _, _) = census(&live, b);
     println!("  {founded} ants for 4,000 frames: {} digs, {} rolls, roofed {roofed4}", st.digs, st.dig_rolls);
     assert!(st.dig_rolls > 0, "not one dig was even attempted -- the colony is not thinking, so any null from this box is the harness");
     assert!(st.digs > 0, "digs attempted but none landed -- every roll hit air, rock or another ant, and this box cannot answer a digging question");
