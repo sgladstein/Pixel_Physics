@@ -116,6 +116,10 @@ the end.
 
 ## 4. The images
 
+**The result in one picture — 30,000 frames, both arms side by side:**
+
+![the nest at 30,000 frames, then and now](data/digbox-30k-comparison-2026-09-19.png)
+
 Cropped to the nest (world x 125..305 of 400, centre x = 200), same crop and
 same scale on both arms. Top to bottom: 10,000 / 20,000 / 30,000 frames.
 
