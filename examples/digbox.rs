@@ -109,6 +109,22 @@ fn build(b: &Box2) -> World {
 /// Useful values: `SOIL_WILTING_POINT` 180, `SOIL_FIELD_CAPACITY` 620,
 /// `SOIL_SATURATED` 1000.
 fn build_wet(b: &Box2, wet: u16) -> World {
+    build_graded(b, wet, None)
+}
+
+/// `build_wet`, with an optional linear top-to-bottom moisture ramp.
+///
+/// **A uniform fill has no vertical gradient at any value**, so on the
+/// default bed `MoistureLateral` and `MoistureGrad` report the air/soil step
+/// and nothing about depth -- which is what `creature::moisture_gradient`'s
+/// own doc says that channel measures. A taxis that is supposed to take an
+/// ant downward has to be given somewhere to climb, and `wetgrad=top:bottom`
+/// is that bed. Measured in `examples/burrow_probe`, which gained the same
+/// argument first: over 55 ants, `MoistureLateral` reads **1 distinct value
+/// on dry ground, 26 at a uniform field capacity, 3 at saturation (it
+/// clips), and 44 on a 120->980 ramp** -- so the ramp is the only one of the
+/// four beds that gives the channel its full range.
+fn build_graded(b: &Box2, wet: u16, grad: Option<(u16, u16)>) -> World {
     let mut world = World::new(pixel_physics::sim::Rect::new(0, 0, b.w - 1, b.h - 1));
     // No weather and a held sky: a designed oscillator must not alias into
     // anything measured here (`CLAUDE.md`).
@@ -123,7 +139,15 @@ fn build_wet(b: &Box2, wet: u16) -> World {
             if y >= b.floor || x == 0 || x == b.w - 1 {
                 world.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
             } else if y >= b.surface {
-                world.set(x, y, Cell::new(soil_id, 0).with_attached(true).with_aux(wet));
+                let aux = match grad {
+                    Some((top, bottom)) => {
+                        let span = (b.floor - b.surface).max(1) as f32;
+                        let t = (y - b.surface) as f32 / span;
+                        (top as f32 + (bottom as f32 - top as f32) * t).round() as u16
+                    }
+                    None => wet,
+                };
+                world.set(x, y, Cell::new(soil_id, 0).with_attached(true).with_aux(aux));
             }
         }
     }
@@ -551,7 +575,15 @@ fn main() {
     let scale: u32 = arg("scale").unwrap_or(3);
 
     let wet: u16 = arg("wet").unwrap_or(material::SOIL_FIELD_CAPACITY);
-    let mut world = build_wet(&b, wet);
+    let grad: Option<(u16, u16)> = arg::<String>("wetgrad").map(|v| {
+        let (a, c) = v.split_once(':').unwrap_or_else(|| panic!("wetgrad= wants top:bottom, got `{v}`"));
+        (a.trim().parse().expect("wetgrad top"), c.trim().parse().expect("wetgrad bottom"))
+    });
+    let mut world = build_graded(&b, wet, grad);
+    match grad {
+        Some((top, bottom)) => println!("  bed graded aux {top} (top) -> {bottom} (bottom) over {} rows", b.floor - b.surface),
+        None => println!("  bed at uniform aux {wet}  [wilting 180, field capacity 620, saturated 1000]"),
+    }
 
     // **The endowment is a knob here, and it has to be.** A digger spends
     // `dig_cost_in_moves` 6.0 per cell, so 200 ants on the shipped
@@ -621,6 +653,42 @@ fn main() {
         genome[io_slot(BrainInput::SurfaceCurvature, BrainOutput::Dig)] = w;
         world.species.set_genome(id, genome);
         println!("  (SurfaceCurvature, Dig) = {w}  [negative digs where buried; positive digs at an exposed face]");
+    }
+    // **`wire=Input:Output:w,...` -- any genome weight by name, at runtime.**
+    // `gate=` and `curvdig=` above each needed their own argument and their
+    // own slot line, so sweeping a new pair meant editing this file; and
+    // editing `ant.ron` instead cannot work at all, because species assets
+    // are `include_str!`ed (`src/sim/organism.rs:7345`) and a prebuilt binary
+    // re-run against an edited `.ron` gives bit-identical "runs". Same
+    // argument, same spelling and same refusal as `examples/burrow_probe`'s.
+    //
+    // It prints every pair with its before value. A knob nobody can see the
+    // value of is a knob nobody can tell is disconnected -- which is not
+    // hypothetical: a `wet=` added to this line of work on 2026-09-19 was
+    // inserted into the wrong arm's branch, never ran, and produced a whole
+    // "dead at every wetness" finding that had to be retracted.
+    if let Some(spec) = arg::<String>("wire") {
+        use pixel_physics::sim::brain::{INPUT_NAMES, INPUT_SLOTS, OUTPUT_NAMES};
+        let id = world.species.id_of("ant").expect("ant ships");
+        let mut genome = world.species.get(id).genome.clone();
+        let mut set: Vec<String> = Vec::new();
+        for triple in spec.split(',').filter(|t| !t.trim().is_empty()) {
+            let parts: Vec<&str> = triple.split(':').collect();
+            assert_eq!(parts.len(), 3, "wire= wants Input:Output:weight triples, got `{triple}`");
+            let find = |names: &[&str], want: &str, what: &str| -> usize {
+                names.iter().position(|n| n.eq_ignore_ascii_case(want.trim())).unwrap_or_else(|| {
+                    panic!("wire=: no such brain {what} `{}`. Known {what}s: {}", want.trim(), names.join(", "))
+                })
+            };
+            let i = find(&INPUT_NAMES, parts[0], "input");
+            let o = find(&OUTPUT_NAMES, parts[1], "output");
+            let w: f32 = parts[2].trim().parse().unwrap_or_else(|_| panic!("wire=: `{}` is not a weight", parts[2]));
+            let before = genome[o * INPUT_SLOTS + i];
+            genome[o * INPUT_SLOTS + i] = w;
+            set.push(format!("({}, {}) {before} -> {w}", INPUT_NAMES[i], OUTPUT_NAMES[o]));
+        }
+        world.species.set_genome(id, genome);
+        println!("  PATCHED genome by name: {}", set.join("; "));
     }
     world.paint_nest_patch(b.w / 2, b.surface - 1);
     let mut trickle = Trickle::new(ants as usize, arg("rate").unwrap_or(4));
