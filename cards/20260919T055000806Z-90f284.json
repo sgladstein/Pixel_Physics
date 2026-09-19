@@ -1,0 +1,62 @@
+{
+  "id": "20260919T055000806Z-90f284",
+  "created": "2026-09-19T05:50:00Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/digbox-eight-days-ago",
+    "commit": "137e6c07",
+    "agent": null,
+    "session_id": "e4b2c229-5c58-579c-98e9-26f56a2e0170",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The nest, eight days apart — same box, same parameters",
+  "question": "Stepping the two sides together: is the newer colony building a DIFFERENT nest, or the same nest further along?",
+  "context_md": "A bare box, no food, no plants, no weather — the only thing an ant can do is walk and dig. Identical parameters on both sides (1,200 ants trickled in, 400 wide, 80 rows of soil, 30,000 frames). **The two panes share one scrubber, so both step to the same instant:** 10,000 / 20,000 / 30,000 frames.\n\nWhat I already measured, so you don't have to judge it:\n\n- The newer colony **cuts 1.4-1.8x more soil** at every stop, and 2.1x with the colony size pinned to 30 ants.\n- But the **empty room ends up the same size** — 319 cells then, 325 now. The newer one gets there by frame 10,000 and then stops; the older one climbs the whole way and arrives at 30,000.\n- What stays apart is how many cells have an ant standing in them (312 then, 531 now) and how much soil got carried up out of the hole (680 then, 818 now).\n\nSo the numbers say *faster, not bigger* — and I can't tell from them whether the **shape** changed too. By eye the newer one looks like it has long diagonal galleries running down and out from the middle that the older one hasn't got, but that is exactly the kind of reading I should not be trusting myself on.\n\nNot asking about: overall prettiness, the mound's colour, or the fact that neither gets deep (both stay in the top quarter of the soil — that hasn't changed and is a separate question).",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "then — 2026-09-11",
+      "files": [
+        "20260919T055000806Z-90f284/000-digbox-2026-09-11-10000.png",
+        "20260919T055000806Z-90f284/001-digbox-2026-09-11-20000.png",
+        "20260919T055000806Z-90f284/002-digbox-2026-09-11-30000.png"
+      ],
+      "caption": "eight days ago (ccaef282)",
+      "meta": {
+        "soil cells cut, by 30k": 6668,
+        "empty room at 30k, cells": 319,
+        "cells with an ant in them": 312,
+        "soil carried above ground": 680,
+        "ants alive at 30k": 417
+      },
+      "focus": null
+    },
+    {
+      "label": "now — 2026-09-19",
+      "files": [
+        "20260919T055000806Z-90f284/003-digbox-2026-09-19-10000.png",
+        "20260919T055000806Z-90f284/004-digbox-2026-09-19-20000.png",
+        "20260919T055000806Z-90f284/005-digbox-2026-09-19-30000.png"
+      ],
+      "caption": "today (50bacc64)",
+      "meta": {
+        "soil cells cut, by 30k": 9300,
+        "empty room at 30k, cells": 325,
+        "cells with an ant in them": 531,
+        "soil carried above ground": 818,
+        "ants alive at 30k": 462
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
