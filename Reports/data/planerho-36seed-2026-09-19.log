@@ -30,3 +30,13 @@ g90_brho0           36         3.0        0.0      2.46%     7/ 1/25   +0.00    
 
 HOMING RATE is pooled `came back / reached food`; `sign` and `med d` are
 per-seed against g140_shipped, on the same rate.
+
+## second bed: refill=2000, old (arho 0.03) against new (rho 0)
+baseline: old
+
+arm              seeds  reach/seed  back/seed  HOMING RATE  sign b/w/t    med d  alive med  born med
+new                 36        11.5        1.0      2.92%    20/10/ 6   +6.12        1.0       3.5
+old                 36        15.0        1.0      0.88%     0/ 0/36   +0.00        4.0       6.5
+
+HOMING RATE is pooled `came back / reached food`; `sign` and `med d` are
+per-seed against old, on the same rate.

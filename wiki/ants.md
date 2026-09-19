@@ -644,6 +644,16 @@ changed is that it goes by blurring rather than by evaporating, and blurring
 is slow enough for a walk. A busy route stays sharp because it is re-laid;
 a route nobody uses fades on its own, which is what you want.
 
+**There is a bill, and on a hungry bed you can see it.** Ants that walk their
+dinner home are ants that are not eating it where they found it, and nothing at
+the nest banks what they bring — a delivered crumb lies on the floor like any
+other. Where food is plentiful this costs nothing you can measure. Where it is
+scarce the colony comes out smaller: fewer born, less eaten, though the trips
+home still go up. So this is a trade rather than a straight gain, and what
+settles it is a **granary** — somewhere a delivered load is worth having
+delivered. Until that exists, a colony that navigates better is a colony
+spending more on the journey.
+
 **The food scent still fades on the old schedule, and it has to.** It is news
 — *there is food here now* — and the whole failure it guards against is a
 trail that outlives its patch and goes on calling ants to bare ground. Given

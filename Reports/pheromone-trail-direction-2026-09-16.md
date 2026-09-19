@@ -5289,6 +5289,53 @@ is not gated on anything: the plane's lifetime is a sensor question, it pays for
 itself four-fold on the outcome it was changed for, and its cost to the economy
 is inside the noise of a bed where every colony starves in every arm.
 
+### A second bed, and the cost is real after all — correcting the correction above
+
+The section above corrected §7.44's *"persistence starves the colony"* to
+*"unresolved"* on a paired sign test of 15/21. **That was right about that bed
+and wrong to generalise it.** Re-run on a second one — `refill=2000` instead of
+400, a third as much food arriving, both arms sharing it — 36 seeds, gap 90,
+paired within seed:
+
+| column | old (rho 0.03) | new (rho 0) | sign b/w/t | median Δ |
+|---|---|---|---|---|
+| **round trips closed** | 0.88% | **2.92%** | **20/10/6** | **+6.12 pts** |
+| what a homing ant can read | 13.5% | **55.3%** | — | — |
+| ants that reached the food | 15.0 | 11.5 | **9/24/3** | −2.5 |
+| intake, J | 10,842 | 6,654 | **11/25/0** | −2,650 |
+| born | 6.5 | 3.5 | **9/23/4** | −2.0 |
+| alive | 4.0 | 1.0 | 10/18/8 | −0.5 |
+| starved | 17 | 18 | 18/13/5 | +0.5 |
+
+**The mechanism replicates and so does a cost that bed one could not resolve.**
+Round trips are up on 20 of 30 non-ties; intake, births and food contacts are
+each down on about three quarters of seeds, which at 36 seeds is real.
+
+**The fall in `reached food` is downstream of the fall in births, not a
+navigation effect** — per ant born it goes *up*, 2.3 → 3.3 — and the homing
+pair cannot steer an empty ant anyway: `ant.ron` gates units 0/1 at
+`(Bias, 0, -45.0)` / `(CarryingFood, 0, 45.5)`, so a forager with nothing in its
+mandibles has them saturated off. What falls first is **intake**.
+
+**And that is §7.44's argument, arriving with a paired statistic instead of a
+pooled one.** An ant that successfully walks its meal home has spent the journey
+and handed the colony a cell nothing banks; an ant that eats where it stands has
+not. On a bed with food to spare the trade is invisible; on a food-limited one
+it is the dominant term. So the ordering §7.44 gave was right in substance and
+its *evidence* was still a pooled-total artifact — both things are true, and the
+part this report got wrong was reading "the totals are an artifact" as "the
+effect is not there".
+
+**What this does not change:** the sensor fix stands on its own terms. Channel A
+was being erased faster than an ant can walk and now is not, which is a defect
+either way — §7.28's larder is what decides whether a colony can *afford* to use
+it, exactly as §7.27 said. **What it does change** is that this is a trade rather
+than a free win, and on the bed where food is scarce the colony currently pays
+more than it earns.
+
+***Re-test the whole of §7.46 when:*** a nest drop banks the cell's worth. That
+is the same condition §7.44 set, and it is now set on better evidence.
+
 **Data:** `Reports/data/planerho-36seed-2026-09-19.log`.
 
 ## Appendix A. Raw per-seed data
