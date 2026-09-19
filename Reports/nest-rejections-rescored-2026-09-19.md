@@ -182,6 +182,34 @@ The cleaner control is already in the table — `rows16` and `rows40` dig the
 **same amount** (4,814 against 4,811 digs) and produce 20 rows against 30. The
 depth is not bought with digging; it is bought with where the gate reaches.
 
+### 2c. …and while the box was open, Stage 3 — the 2.3x is a `roofed` number and it is 1.31x
+
+Not in the brief, and it cost one command once the harness had a seed. The
+plan's Stage 3 rests on *"curvature → `Dig` works: −0.6 gives **2.3x** roofed
+chamber; +0.6 collapses it to 36"* — `roofed`, one run per arm, which is the
+pair of faults §1 is about. Twelve paired seeds on `room total`:
+
+| arm | room total | iqr | room h | vert | room vs control | iqr vs control |
+|---|---|---|---|---|---|---|
+| control | 699 | 31 | 15 | 0.11 | — | — |
+| `curvdig=-0.6` (dig where buried) | 824 | **40** | 21 | 0.12 | 1.31x, up 10/12 | **1.26x, wider on 10/12** |
+| `curvdig=+0.6` (dig at an exposed face) | 329 | 28 | 9 | 0.15 | **0.50x, up 0/12** | 0.87x |
+
+**The sign result survives and the size does not.** The negative wire is real
+(10 of 12, p ≈ 0.04) and it is **1.31x rather than 2.3x**; the positive wire is
+the strongest single negative in this report, halving the room on 12 of 12.
+But the negative wire makes the nest **wider** — `iqr` 1.26x on 10 of 12, the
+only arm here that moves it upward at all — so curvature deepens hollows
+everywhere rather than picking one, which is the plan's own diagnosis of the
+lens arriving through a lever meant to cure it.
+
+**One instrument caution, because this arm is where it bites.** `vert` is a
+ratio, so a room that *collapses in width* reads as a taller nest:
+`curvdig=+0.6` has the second-highest `vert` in this report (1.40x, up 10 of
+12) on half the room and 9 rows of depth. **Read `vert` with `room total`
+beside it, always** — it ranks shapes of comparable size and cannot rank a
+shape against a ruin.
+
 ---
 
 ## 3. The downward dig bias, put at the turn instead of at the target
@@ -374,7 +402,7 @@ difference.
 | Stage 0 — honest instruments | **done, and the seed was the missing half.** `room total` fixed the census; the box still had one sample per arm |
 | Stage 1 — gravity in the dig | **built and measured at the turn, not the target.** Real (room 1.51x, 12/12) and mostly volume; `vert` 1.18x on 9/12 is not significant |
 | Stage 2 — an aggregation point | **the site depth works and the density reading subtracts from it.** §2b. The stage's premise — that `Crowding` was a correct mechanism needing somewhere to act — is not supported |
-| Stage 3 — curvature on the dig | untouched here |
+| Stage 3 — curvature on the dig | **re-scored, and the headline number shrinks.** The sign survives; the size is **1.31x on `room total`, not 2.3x on `roofed`**, and the negative wire makes the nest *wider* on 10 of 12. §2c |
 | Stage 4 — fresh spoil attracts digging | **the marker is priced and it is worse than the record thought on the dig side and better on the drop side, and neither is enough.** §4 |
 | Stage 5 — contents | untouched, and still gated behind §10's *what is a nest for here* |
 | §1 *"interventions on whether cannot produce a shape"* | **refuted in its literal form** and repaired: a *scalar* intervention on whether cannot; one applied over a region inherits the region's shape. §0 |
@@ -409,6 +437,10 @@ building the nest's machinery ahead of its function.
   isolation; the played bed may weight it differently, and `dead-ends.md`'s
   own `(Crowding, Dig)` entry records a sweep giving three different answers
   on three trunks of one round.
+- **`vert` cannot rank a shape against a ruin**, and §2c is the worked case —
+  the arm with the second-highest `vert` in this report has half the room and
+  nine rows of depth. Every `vert` claim above is quoted with `room total`
+  beside it for that reason.
 - **`iqr` is new.** It is proven red both ways in the selftest against a
   hand-drawn control, and the `p50x` specificity check says nothing drifted
   sideways, but no result here rests on `iqr` alone — the site reach's case is
@@ -439,6 +471,7 @@ PIXEL_PHYSICS_LAB_ROOM_TARGET=0.5|8.0           # the room-per-ant set point
 PIXEL_PHYSICS_NEST_SITE_ROWS=16|40              # how deep "at the nest" reaches
 PIXEL_PHYSICS_DIG_DOWN=0.15|0.5|1.0             # turn toward down at the dig roll
 PIXEL_PHYSICS_SPOIL_DROP_COVER=0.0|0.25|0.75    # hold the pellet while under cover
+digbox curvdig=-0.6|0.6                         # curvature on the dig (Stage 3)
 PIXEL_PHYSICS_BURROW_LINING=off                 # the lining ablation, for the mound census
 digbox gate=25.5                                # re-centre the chamber gate
 
