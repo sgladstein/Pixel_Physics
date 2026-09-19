@@ -3075,6 +3075,44 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   home bearing becomes conditional. The site, blob and crust findings
   stand.** **§13: owner ruling 2026-09-15 — no paint; the nest is a site and
   nothing else, `nest` retires as a material and §T2 closes with it.**
+- [nest-biology-2026-09-19.md](nest-biology-2026-09-19.md) — **research,
+  2026-09-19. `lab`/`engine`.** The biology of ant nests aimed at the nest
+  build: chamber architecture and depth, granaries and refuse, what starts
+  and stops a dig, and nest microclimate. Sibling to
+  `nest-design-2026-09-14.md` §2 (homing) and `stigmergy-research.md` §5
+  (excavation shaping); neither is repeated. **Seven findings contradict
+  what the engine assumes**, of which three change a build. **A
+  colony-wide scalar cannot produce architecture**: the literature's
+  regulating quantity is worker density *at the face* (Toffin, *PNAS*
+  2009), while `NestRoom::occupancy` is one number every ant at the door
+  reads alike — which is why `(Crowding, Dig, 0.6)` moved digging and
+  never moved **buds (0 vs 0)**, so that null is evidence about the
+  *reading*, not the mechanism. **The world is one to two orders of
+  magnitude too shallow**: at `body: Chain(2)` a cell is 2–5 mm, so the
+  lab bed's 80 rows is 16–40 cm and the outdoor blanket is ~22 cells —
+  against 2 m for a *Pogonomyrmex* nest — and **the repo has never stated
+  a metres-per-cell convention**, which gates the rest. And **the
+  microclimate substrate already exists**: `FieldCell` carries
+  depth-graded `sky_temperature` with the diurnal oscillator separable
+  *exactly*, plus `moisture`, and nothing reads either for a nest
+  decision — every species wires `(TempAboveAmb, Turn, -0.8)` and stops.
+  Also: **`(MoistureGrad, Dig, -0.55)` is an unlabelled depth weight with
+  the wrong sign for nest-building** (its own doc measures curvature at
+  1.01x and twenty rows of depth at 1.91x); **`ROOM_TARGET_DEFAULT`'s
+  hyperbola is endorsed** by the literature (colonies slow, never stop)
+  while its *quantity* is global where biology's is local; the best-
+  measured per-capita set point is a **template**, *Temnothorax* walling
+  at a radius set by the brood cluster (Franks & Deneubourg 1997); and
+  **a chamber is a microclimate, not storage** — seeds dry and shallow,
+  brood humid and deep, which is Law 1 as a vertical distribution.
+  Says **no** to a CO₂ field, to ventilation, to fungus gardens, to
+  worker age, and to a third dig-*target* rule (two are already dead).
+  Every claim is marked **[measured]** / **[repeated]** / **[general]**,
+  no URLs are given by design, and §6 names six places the literature
+  disagrees or the number is one species in one study. §7 routes the four
+  open questions to `latecensus`, `larder_probe` and `burrow_probe` —
+  three are a column on an existing instrument, none is a new harness.
+  Docs only; nothing built.
 - [evolution-lab-round-37-brief-2026-09-15.md](evolution-lab-round-37-brief-2026-09-15.md)
   — **brief, 2026-09-15. `lab`/`engine`/`held`.** Opens with **two retracted
   numbers** a reader may have inherited (29.4 is per-bed, not per-ant; the
