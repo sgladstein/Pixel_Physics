@@ -9079,6 +9079,11 @@ fn lift_reach(world: &World, x: i32, y: i32, dig_force: f32, mode: SpoilLift) ->
     if mode == SpoilLift::Unbounded {
         return SPOIL_LIFT;
     }
+    // **Nothing is lifted**, so the drop scan never leaves the animal's own
+    // row and every row of haulage is walked. See `SpoilLift::None`.
+    if mode == SpoilLift::None {
+        return 0;
+    }
     for dy in 1..=SPOIL_LIFT {
         let cell = world.get(x, y - dy);
         if cell.material == material::EMPTY {
@@ -9148,6 +9153,23 @@ enum SpoilLift {
     /// `Dig`, and a row of open air passes only where there is a wall beside it
     /// to climb. The default.
     Climb,
+    /// **No lift at all** -- the pellet goes down where the animal is
+    /// standing, and every row of haulage has to be walked.
+    ///
+    /// The ablation arm, off by default, and it exists because all three
+    /// modes above abstract the *return trip* away. Inside a shaft there is
+    /// always a wall beside you, so even `Climb` lifts the full
+    /// [`SPOIL_LIFT`] (160 rows) exactly where a real nest would have a
+    /// haulage corridor -- and a shaft in a real nest is largely a haulage
+    /// corridor. Measured in `examples/digbox` on 2026-09-19: **638 cells
+    /// standing above the original ground line against 137 cells of void
+    /// below it**, so the material is leaving the ground rather than lining
+    /// a gallery.
+    ///
+    /// **Whether that is a cause or a consequence is the open question this
+    /// arm is for.** Do not ship it without measuring what it costs: an ant
+    /// that cannot put a pellet anywhere may simply carry it for ever.
+    None,
 }
 
 fn spoil_lift_mode() -> SpoilLift {
@@ -9155,6 +9177,7 @@ fn spoil_lift_mode() -> SpoilLift {
     *MODE.get_or_init(|| match std::env::var("PIXEL_PHYSICS_SPOIL_LIFT").as_deref() {
         Ok("unbounded") => SpoilLift::Unbounded,
         Ok("dig") => SpoilLift::Dig,
+        Ok("none") => SpoilLift::None,
         _ => SpoilLift::Climb,
     })
 }
