@@ -1551,6 +1551,37 @@ pub struct CreatureStats {
     /// because the colony stops wanting to*, and the way that claim goes
     /// wrong is the colony still wanting to and merely failing.
     pub dig_rolls: u64,
+    /// **How many dig rolls actually turned the animal downward**, which is
+    /// the "it fired" half of `creature::dig_down_bias` and reads 0 at the
+    /// default.
+    ///
+    /// It is not `dig_rolls * w`: `turn_toward` returns the heading unchanged
+    /// when the animal is already pointed straight down, so the counter
+    /// misses those and that is the point -- a colony already digging
+    /// downward has nothing for this lever to add, and the gap between this
+    /// and `dig_rolls * w` is how much of the time that was true.
+    pub digs_aimed_down: u64,
+    /// **Drop rolls damped because the animal was under cover** -- the "it
+    /// fired" counter for `creature::spoil_drop_cover`, 0 at the default.
+    pub spoil_holds_under_cover: u64,
+    /// **Khuong's denominator, at the drop.** Summed over every spoil drop
+    /// roll that got as far as scanning for somewhere to put the pellet:
+    /// how many of the eight neighbours were places a pellet would stay
+    /// (`candidates`), and how many of those had a pellet already in reach
+    /// (`_by_spoil`).
+    ///
+    /// **The ratio is the whole feasibility question for a
+    /// deposition-follows-pellets rule** and neither number alone is it: all
+    /// candidates marked, or none, and the rule discriminates nothing. It is
+    /// a different denominator from `digbox`'s *spoil in reach of a diggable
+    /// cell*, deliberately -- that one averages over the buried world and
+    /// answers the **dig** side of the same stigmergy; this one is taken
+    /// where the laden animal is standing, which is on the mound.
+    pub spoil_drop_candidates: u64,
+    pub spoil_drop_candidates_by_spoil: u64,
+    /// Drops where the rule would actually have had a choice to make: some
+    /// candidates marked and some not.
+    pub spoil_drops_discriminable: u64,
     /// **Creature ticks taken standing at a nest.** Not a rate and not a
     /// population: a tick count, so it rides the colony's size and its tick
     /// interval together and is only ever read as a ratio or against a

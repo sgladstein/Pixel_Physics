@@ -3328,6 +3328,39 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   And measures the at-nest crowding input **saturated in its top tenth for
   100.0% of ticks**, which is what `roofed / ants` gives when `roofed`
   excludes the ants.
+- [nest-rejections-rescored-2026-09-19.md](nest-rejections-rescored-2026-09-19.md)
+  — **measurement, 2026-09-19. `lab`/`engine`.** The nest line's rejections
+  re-scored under the owner's instruction to distrust past results, and
+  **two of the three suspected faults were real while none of the verdicts
+  changed.** The rejections were scored on `roofed` (which undercounts the
+  nest threefold) at **one run per arm in a box that had no seed**; both are
+  fixed here (`digbox seed=N`, and an `iqr` column because a bounding box is
+  a max statistic). Over twelve seeds of the **unchanged control** the
+  bounding box runs **96–191 cells wide**, so three of the four arms the
+  shape report compares sit inside its own spread. Re-scored on `room total`
+  over twelve paired seeds, all three `Crowding` interventions are coin
+  flips (5, 6 and 5 of 12) — and the null is now **harder**, because the
+  local reading desaturates the input completely (top tenth **97.8% → 1.3%**
+  of at-nest ticks) and the nest still does not move, so "the input was
+  saturated" is no longer available. **The lever that works was in the tree
+  the whole time, swept in the wrong axis**: `PIXEL_PHYSICS_NEST_SITE_ROWS`
+  (how far *down* an ant counts as home) gives **room 1.44x bigger on 12 of
+  12** and height-over-width **0.11 → 0.20, taller on 11 of 12**, with
+  shafts visible under the chamber where the control has a flat scrape —
+  only `_NEST_SITE_COLS` had ever been scored. **That refutes the plan's
+  §1 claim that interventions on *whether* cannot produce a shape**: one
+  applied over a region inherits the region's. Two rejections re-tested and
+  upheld — the `LightHere` spoil-drop gate fails **harder** with the per-cell
+  sensor its entry asked for (0.49x room, better on **0 of 12**), and its
+  recorded *diagnosis* was wrong while its *explanation* was right; and
+  Khuong's deposition-follows-pellets rule is **declined before building**,
+  because 77% of pellets go up the column with no neighbour to prefer and
+  only **1 drop in 90** has both a marked and an unmarked candidate — with
+  `line_burrow` named as the eraser (the mound is `packedsoil` 433 / `soil`
+  121 / `spoil` 96, and `packedsoil` falls to **0** with the lining off).
+  Also builds the downward dig bias at the **turn** rather than the target
+  (`PIXEL_PHYSICS_DIG_DOWN`), which buys volume (1.51x, 12 of 12) and not
+  shape.
 - [nest-biology-digging-signals-2026-09-19.md](nest-biology-digging-signals-2026-09-19.md)
   — **research, 2026-09-19. `lab`/`engine`.** Answers a coordinator's seven
   questions on **what signals ants actually dig by**, after a night of
