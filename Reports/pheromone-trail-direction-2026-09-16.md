@@ -4761,9 +4761,42 @@ is re-rolled uniformly every two cells. `BrainOutput::Persist`'s own doc names
 this: *"the single number that decides milling versus commuting — median net
 displacement was 2% of path length."*
 
-***Re-test this decay sweep when:*** the ant can convert a gradient into
-displacement at all. Until then it measures a reader that is not connected to a
-walker, and every row above will reproduce.
+### Why it cannot convert — the ant reads its own deposit (§Z29)
+
+Chasing the flat outcome into the per-tick traces found the cause, and it is
+upstream of everything above. **Laden ants only**, since the homing pair is
+gated shut for an empty one:
+
+| run | facing HOME gives along > 0 | facing AWAY gives along < 0 |
+|---|---|---|
+| seed 1, shipped | **8.2%** | 60.3% |
+| seed 6, shipped | **1.2%** | 78.7% |
+| seed 1, decay 0 | **7.5%** | 91.9% |
+| seed 6, decay 0 | **2.5%** | 20.9% |
+
+Facing the nest gives a homeward reading on **1–8% of laden ticks**. The
+reading is negative *whichever way the animal faces*.
+
+`step` deposits channel A at the ant's own head cell after a successful move,
+and `sense` reads that same cell as `here`. So the cell underfoot is the
+freshest thing in the neighbourhood and `ahead − here` is negative by
+construction. Reconstructed from `along` and `PheroAFront`, median `ahead` is
+**0.0** against a median `here` of **105 and 457**, with `here > ahead` on
+**75–87%** of laden ticks.
+
+**This is why a four-times-more-readable plane bought nothing**: the signal got
+bigger and stayed negative in every direction. It also explains the measured
+ratchet of +0.04 to +0.11 where `ant.ron`'s own note describes 0.84 against 0 —
+`|along|` is healthy (median 0.23–0.53 against the 0.486 that note needs), and
+what is broken is the **correlation between heading and sign**, which no census
+of the plane or the reading can see.
+
+Filed as §Z29 with fix candidates; it is not §Z7, whose homing half was fixed
+2026-09-09 and which concerns the gate rather than its input.
+
+***Re-test this decay sweep when:*** §Z29 is fixed. Until then it measures a
+reader that is looking at its own footprints, and every row above will
+reproduce.
 
 **Data:** `Reports/data/achannel-decay-*-36seed-gap90-2026-09-19.log`,
 `aplane-profile-seed1-2026-09-19.txt`.
