@@ -7635,6 +7635,143 @@ fn is_visible_threat(world: &World, cell: Cell, self_organism: OrganismId, self_
 /// for ever** -- so `deliveries` reads 0 by construction for the lab
 /// ancestor, and the arena, not this counter, is what says whether it
 /// forages.
+/// **Is this animal under cover -- ground standing anywhere above it in its
+/// own column?**
+///
+/// The per-cell in-the-open reading `dead-ends.md`'s `LightHere` spoil-drop
+/// entry asks for. It is the same test every nest census in this repo makes
+/// (`NestRoom::roofed`, `lab::census`, `examples/digbox`), asked of one
+/// animal instead of a column of the world -- so "in the open" means here
+/// exactly what it means in the number the result is scored on, which is the
+/// half the light field could not deliver.
+///
+/// **Bounded, and the bound is the point.** A column scan to the top of the
+/// world would be 300-odd `World::get` calls in a decision path. Ground
+/// within [`COVER_REACH`] rows overhead is what a gallery roof or a heap of
+/// tailings looks like from underneath; anything further is sky with weather
+/// in it. `CLAUDE.md`'s *a size cap must bound work, never gate whether
+/// something happens* -- exhausting this cap returns "in the open", which is
+/// the same answer an unbounded scan gives for everything but a cell buried
+/// deeper than the reach with nothing in between, and that is not a cell an
+/// ant is standing in.
+fn under_cover(world: &World, x: i32, y: i32) -> bool {
+    (1..=COVER_REACH).any(|dy| {
+        let cell = world.get(x, y - dy);
+        cell.material != material::EMPTY
+            && cell.organism_id() == 0
+            && matches!(world.materials.kind(cell.material), MaterialKind::Powder | MaterialKind::Solid)
+    })
+}
+
+/// How far overhead [`under_cover`] looks. Twenty rows is deeper than any
+/// gallery this engine has dug (the deepest room measured to 2026-09-19 is 45
+/// rows top to bottom and sits under a mound, not under 20 rows of clear
+/// air), and short enough to be a handful of reads.
+const COVER_REACH: i32 = 20;
+
+/// **Hold on to the pellet while under cover -- the `LightHere` gate, with
+/// the sensor replaced.**
+///
+/// `PIXEL_PHYSICS_SPOIL_DROP_COVER=<0.0..1.0>` scales `DropSpoil`'s roll by
+/// that factor when [`under_cover`] is true and leaves it alone in the open.
+/// `0` is the hard rule -- never let go inside the workings -- and `1` is the
+/// shipped behaviour. Unset is `None`, which takes no read at all.
+///
+/// **What it is re-testing.** `dead-ends.md`, 2026-08-31: gating the drop on
+/// `LightHere` made both numbers worse, `labnest` roofed void **43/53 against
+/// 54/58** and digs **560/626 against 767/887**, and on `burrow_probe`'s open
+/// bank it was **byte-identical** -- light read at ceiling across the whole
+/// worked face. The entry's own verdict is that it *"failed on the sensor,
+/// not on the idea"*, and names the condition for a retry: a dedicated
+/// in-the-open reading. There is one now.
+///
+/// **A switch and not a coefficient the genome owns**, because the entry
+/// beside it (`act`'s two hand-written placement rules) carries the owner's
+/// ruling that a policy about where an agent's output may land belongs in the
+/// genome rather than in `act`. This is a *measurement* of whether the idea
+/// survives a working sensor; if it does, the slot is the follow-on bill and
+/// not this. Same shape as `PIXEL_PHYSICS_CROWDING_LOCAL` and
+/// `PIXEL_PHYSICS_NEST_SITE_ROWS`, both of which stand in for genome changes
+/// nobody has paid for yet.
+fn spoil_drop_cover() -> Option<f32> {
+    static W: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *W.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_SPOIL_DROP_COVER")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+            .filter(|v| (0.0..1.0).contains(v))
+    })
+}
+
+/// Straight down, as an index into [`DIRS`] -- `(0, 1)`, since `y` grows
+/// downward.
+const DOWN_DIR: u8 = 6;
+
+/// One octant of [`DIRS`] from `from` toward `to`, by the shorter way round.
+///
+/// Returns `from` unchanged when it is already there. The half-turn case
+/// (`diff == 4`) resolves clockwise rather than by a draw, because
+/// `CLAUDE.md`'s tie-order rule makes an arbitrary tiebreak in a hot path
+/// something to write down rather than leave to the reader -- and a draw
+/// here would consume RNG on a case that arises once in eight.
+fn turn_toward(from: u8, to: u8) -> u8 {
+    let diff = (to + 8 - from) % 8;
+    match diff {
+        0 => from,
+        1..=4 => (from + 1) % 8,
+        _ => (from + 7) % 8,
+    }
+}
+
+/// **Gravity in the dig, as a turn rather than as a target.**
+///
+/// `PIXEL_PHYSICS_DIG_DOWN=<0.0..1.0>` makes a digger rotate one octant
+/// toward straight down before it cuts, with that probability, per dig roll.
+/// Unset is `None` and takes **no draw at all**, so every archived number
+/// from this engine still reproduces to the cell.
+///
+/// **Why this place and not the two obvious ones.** Buarque de Macedo et al.
+/// (*PNAS* 118, 2021, validated through PubMed 2026-09-19) confirm that ants
+/// *"tend to dig piecewise linearly downward"*, and this engine has no depth
+/// term anywhere in the dig. Two earlier attempts at it are on the record:
+///
+/// * **On the dig target** -- refuted from the code, not by a sweep
+///   (`Reports/nest-shape-three-negatives-2026-09-19.md` §1b). The dig reads
+///   `DIRS[heading]` and `step_chain` then chooses among
+///   `[heading+AHEAD_LEFT, heading, heading+AHEAD_RIGHT]` with the middle
+///   candidate being the cell just dug, so **the dig is what licenses the
+///   next step**. Override the target and the animal cuts a cell it will
+///   never enter: the hole self-limits at one cell per standing position and
+///   the roll is spent on nothing.
+/// * **On the walk, by steering the heading with `MoistureLateral` /
+///   `MoistureFront`** -- measured negative over five arms on a bed built to
+///   give the channel its full range; the control was the best of the five
+///   (same report, §1c).
+///
+/// Turning the *animal* at the dig roll is neither. The coupling above stays
+/// intact -- the ant still digs `DIRS[heading]` and still steps into what it
+/// dug -- and the direction enters where the digging decision already is,
+/// so a walking ant that never rolls a dig is untouched. `home_weighted_pick`
+/// is the pattern: a bias applied to a re-roll rather than to a target, and
+/// inert at its default.
+///
+/// **It is a switch and not a gene deliberately**, per
+/// `Reports/nest-digging-plan-2026-09-19.md` Stage 1: *"no new slot, no
+/// genome widening, no baselines voided"*. A `BRAIN_INPUTS` bump moves
+/// `live_slots`, re-derives `mutation_rate` in six species files and voids
+/// every `creature_space` baseline, which is not affordable inside one
+/// question. If the direction turns out to be worth shipping, that bill is
+/// the follow-on and not this.
+fn dig_down_bias() -> Option<f32> {
+    static W: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *W.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_DIG_DOWN")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+            .filter(|v| *v > 0.0)
+    })
+}
+
 fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
     // **The `nest` field is read as a flag in both branches, never only as a
     // material.** A species that authors no nest has no home under either
@@ -8763,7 +8900,26 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
     // clearance from the dug cell, and gating the roll on the light channel.
     //
     if let Some(spoil) = world.organism(organism).and_then(|s| s.spoil) {
-        if draw.unit_f32() < dump_urge {
+        // **The fifth placement rule, and the one the record asks for by
+        // name.** `dead-ends.md`'s `LightHere` entry closes with *"an honest
+        // attempt at 'let the ants find the outside' that failed on the
+        // **sensor**, not on the idea... If light ever reads per cell rather
+        // than per field block, or if a dedicated in-the-open input exists,
+        // this is the first thing to try again"*. `under_cover` is that
+        // reading and it is per cell: is there ground standing anywhere above
+        // me in my own column? It is the same test `NestRoom::roofed` and
+        // every nest census in this repo make, asked of one animal.
+        //
+        // Default `None`, which takes no extra read and no draw. See
+        // [`spoil_drop_cover`].
+        let cover_scale = match spoil_drop_cover() {
+            Some(w) if under_cover(world, x, y) => {
+                world.creature_stats.spoil_holds_under_cover += 1;
+                w
+            }
+            _ => 1.0,
+        };
+        if draw.unit_f32() < dump_urge * cover_scale {
             // **Ground under it and air over it** -- a pellet goes down where
             // it can lie, which is the open surface, and the two halves of
             // that are the two ways it otherwise goes wrong.
@@ -8813,6 +8969,31 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // way it came in with the walk abstracted. An ant is two cells at
             // play zoom and nothing about the journey is visible; a mound
             // growing over the nest is.
+            // **Khuong's denominator, counted at the one place it means
+            // anything.** The survey's headline construction rule is
+            // deposition attracted to existing pellets, and the feasibility
+            // census `digbox` already prints -- *spoil in reach of a
+            // diggable cell* -- answers the **dig** side and is the wrong
+            // denominator for the **drop** side: it averages over the whole
+            // buried world, while a laden ant stands on the mound, where
+            // pellets are. `CLAUDE.md`'s *ask what your number counts*. So
+            // count the candidates this animal actually had, and how many of
+            // them a pellet-seeking rule could have told apart.
+            let mut candidates = 0u64;
+            let mut candidates_by_spoil = 0u64;
+            let spoil_id = world.materials.id_of("spoil");
+            for &(dx, dy) in NEIGHBOURS_8.iter() {
+                let (px, py) = (x + dx, y + dy);
+                if !open(px, py) {
+                    continue;
+                }
+                candidates += 1;
+                if let Some(sp) = spoil_id {
+                    if NEIGHBOURS_8.iter().any(|&(ax, ay)| world.get(px + ax, py + ay).material == sp) {
+                        candidates_by_spoil += 1;
+                    }
+                }
+            }
             let beside = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| open(px, py));
             // **The lift is counted apart from the drop beside the animal, and
             // that split is the whole reason §Z18 went unmeasured for a
@@ -8835,6 +9016,12 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // #221's and is ported with it; `lift_reach` carries the argument.
             let reach = lift_reach(world, x, y, dig_force_of(def, &traits_of(world, organism, def), world.trait_reach), spoil_lift_mode());
             let site = beside.or_else(|| (1..=reach).map(|dy| (x, y - dy)).find(|&(px, py)| open(px, py)));
+            world.creature_stats.spoil_drop_candidates += candidates;
+            world.creature_stats.spoil_drop_candidates_by_spoil += candidates_by_spoil;
+            if candidates > 0 && candidates_by_spoil > 0 && candidates_by_spoil < candidates {
+                world.creature_stats.spoil_drops_discriminable += 1;
+            }
+
             if let Some((px, py)) = site {
                 world.set(px, py, spoil.cell);
                 if let Some(state) = world.organism_mut(organism) {
@@ -8873,6 +9060,22 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // came out would be `digs` again under another name. See
         // `CreatureStats::dig_rolls`.
         world.creature_stats.dig_rolls += 1;
+        // **The digger turns downward before it cuts, rather than cutting a
+        // cell it will never enter.** Default off and bit-exact; see
+        // [`dig_down_bias`] for the whole argument and for why the two
+        // obvious places to put this are both wrong.
+        if let Some(w) = dig_down_bias() {
+            if draw.unit_f32() < w {
+                let h = world.organism(organism).map_or(0, |s| s.heading);
+                let turned = turn_toward(h, DOWN_DIR);
+                if turned != h {
+                    if let Some(state) = world.organism_mut(organism) {
+                        state.heading = turned;
+                    }
+                    world.creature_stats.digs_aimed_down += 1;
+                }
+            }
+        }
         let heading = world.organism(organism).map_or(0, |s| s.heading);
         let (dx, dy) = DIRS[heading as usize];
         let (tx, ty) = (x + dx, y + dy);
