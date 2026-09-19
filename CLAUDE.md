@@ -176,6 +176,15 @@ line* and kills the script instead, which reads as the same failure a second
 time. `for p in $(pgrep -x druid); do kill $p; done` is the one that works.
 Both cost twenty minutes on 2026-09-14, one after the other.
 
+**That `-f` trap is not about screenshots and bites hardest in a *wait* loop.**
+Any `pgrep -f`/`pkill -f` whose pattern appears in the wrapping shell's own
+command line matches itself, and `while pgrep -f 'cargo test --release'; do
+sleep 20; done` therefore **never exits** — which reads as the job never
+finishing rather than as a bug in the waiting. Worse than the kill case,
+because nothing dies and there is no error to notice: it simply waits until
+the watch times out. `pgrep -x <exe>` matches the process name and cannot
+match the shell. Hit again 2026-09-19, waiting on a test run.
+
 `filmstrip` writes a contact-sheet PNG — several frames of one run in a grid —
 so an artifact can be judged by eye without a window. Add `gif=1 out=x.gif` and
 it encodes an animation instead, still with no window and no GPU: reach for that
@@ -823,7 +832,20 @@ regions `rigid::fracture_failing_region` declined and the cells they took --
 and `filmstrip` prints it as `crumbled to grit` beside the mean. Read that,
 not the mean, whenever the question is whether something turned to dust.
 
-### A timing number is only as trustworthy as the box was quiet
+**And when an A/B's arms have different denominators, an aggregate over the
+pooled events is a weighted average whose weights are the thing under test.**
+This rule was in front of a session that then made exactly this mistake, so it
+needs the mechanical form: **before quoting any per-run aggregate across arms,
+read its `n` across arms first.** Measured 2026-09-19 on the ant sensor, and
+the shape is any arm that changes how much of the run there is — a population
+that grows, a cascade that lasts longer, a colony that founds. Three arms over
+the same 36 seeds pooled **55,322 / 69,875 / 87,369** decisions, because their
+colonies were **1.0 / 2.5 / 11.0** animals at the median; pooled, the shipped
+change looked like it doubled the share of animals reading the signal
+correctly, and paired within seed it is **19/17** and moves nothing. The
+instrument was printing both reductions the whole time — the per-run block and
+a pooled footer — and the footer is the one that catches the eye. **The tell
+was on the same line as the mean**: the arms' `n` differed by 58%.
 
 Two runs of a **byte-identical** `examples/ascii` on bit-identical
 deterministic work disagreed **2.42x**, and on another scene reversed the

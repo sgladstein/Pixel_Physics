@@ -62,6 +62,16 @@ rock and reported a confident **−0.909** where the honest answer is "no
 information". Freeze runs halved; ants reaching food and colony survival both up
 on a paired sign test; **round trips unmoved**.
 
+**Correction to that last one, §7.49, same day — read it before quoting §7.47.**
+Every *sensor-level* figure in §7.47 came from `trailfollow`'s **pooled** TRACE
+footer, and the three arms pool 55k / 70k / 87k laden ticks because their
+colonies differ **11x** at the median — so those shares are weighted by colony
+size. Paired within seed the readability test changes **no** sensor-level share
+measurably (19/17, 20/16, 15/21), and the arm that does move them, the row
+projection, is measured *worse* for the homing drive itself (up-gradient
+homeward yield 13/23 and 8/28). §7.47's **outcome** table was paired and stands.
+`scripts/tracepair.py` does the pairing, with the inversion as its `--selftest`.
+
 **Rejected, both filed with numbers.** Projecting the trail sample onto the
 walker's own row — best arm on this line for colony survival (34/2/0) and worst
 for round trips on both beds, because six cells along your own row is air over
@@ -75,6 +85,16 @@ tick that is ~1,500 ticks for a 90-cell trip. The ratchet modulates *whether*
 the ant steps and never *which way* — `creature_tick`'s own comment says there
 is no steering toward the nest anywhere, by design. Two more sensing fixes did
 not move the outcome; I do not think a third will.
+
+§7.49 sharpens that into something checkable rather than argued: **the one arm
+that demonstrably changes what the ant reads is the arm that makes its homing
+worse.** If the reading were what set homeward drift, that could not happen. The
+open counter-hypothesis is that the outcome measure is too sparse to see
+anything — `came back` has a per-seed median of **one** — and the positive
+control for it is in flight: the same table, same bed, `arho` 0 against 0.03,
+which §7.46 measured at 0.88% against 14.84%. If that comes back large, the
+nulls are real; if it comes back null too, the bed is the instrument's limit and
+every "unmoved" on this line needs restating.
 
 ## Open bugs filed from this lane
 

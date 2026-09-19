@@ -5340,6 +5340,14 @@ is the same condition §7.44 set, and it is now set on better evidence.
 
 ## §7.47 The ant's nose points at the sky six times out of eight
 
+> **Corrected by §7.49 (same day).** Every *sensor-level* figure below was read
+> from `trailfollow`'s **pooled** TRACE footer, and the three arms run 55k, 70k
+> and 87k laden ticks because their colonies differ 11x at the median — so the
+> pooled shares are weighted by colony size. Paired within seed, the readability
+> test changes **no** sensor-level share measurably, and *"roughly doubles how
+> usable the reading is"* is unsupported on either denominator. The **outcome**
+> table in this section was paired and stands.
+
 **2026-09-19.** §7.46 got the share of foragers that reach the larder and then
 reach home again from 0.88% to 14.84%. **That was never the target** — one in
 seven is a failure — and the arithmetic of the shortfall was already on the
@@ -5800,3 +5808,91 @@ The `hand` arm at gap 90 carries larder for 1.28 million ant-ticks and brings it
 inside the nest band for 1,796 of them. That is the provisioning claim, measured
 on a counter nest-local handling cannot fake, and it is essentially zero in the
 one arm where foraging plainly works.
+
+## §7.49 The nose's sensor-level win was a colony-size artefact, and pairing removes it
+
+**2026-09-19, and it corrects §7.47.** `trailfollow` prints its `TRACE` block
+**once per seed**, and every figure quoted for the nose arms was read from the
+*pooled* footer instead. Pooling is the wrong reduction here for a reason this
+file has already written down twice: the arms run **55,322, 69,875 and 87,369**
+laden ticks over the same 36 seeds, because their colonies are **1.0, 2.5 and
+11.0 ants** at the median. A share taken over pooled ticks is therefore
+dominated by whichever arm founded, and it is a measurement of the colony
+rather than of the sensor.
+
+The pairing was available all along and simply was not taken.
+
+### What the two reductions say, on the same six logs
+
+Bed A, 36 seeds, gap 90, `arms=hand`, against the engine with **neither** half:
+
+| | pooled | paired within seed |
+|---|---|---|
+| laden ticks facing **up**-gradient | 3.2% → 6.2% (*"doubled"*) | 4.12% → 4.27%, sign **19/17** |
+| laden ticks facing **down**-gradient | 88.8% → 68.9% | 72.12% → 69.64%, sign **20/16** |
+| laden ticks reading **nothing** | 7.9% → 24.9% | 21.69% → 25.04%, sign **15/21** |
+
+Three sign tests, three coin flips. **Paired, the readability test does not
+measurably change a single sensor-level share.** Bed B agrees: 18/18, 15/21,
+21/15 — the largest of them (`silent`, +8.7 points) still short of the 24/12 a
+36-seed sign test needs.
+
+The projection, by contrast, moves all three and is significant on both beds —
+down-gradient **+18.3 points (32/4)**, silence **−18.5 (2/34)** on bed A; **+15.5
+(29/7)** and **−12.3 (6/30)** on bed B. It is the arm that does the sensor-level
+work, and §7.47's outcome table already has it as the worst arm for round trips
+and — now measured paired — worse for the homing drive itself: up-gradient
+homeward yield **13/23 and 8/28**, `P(move)` **8/28 and 13/23**, both directions
+against it.
+
+**So the one arm that demonstrably changes what the ant reads is the arm that
+makes its homing worse, and the arm that shipped changes nothing measurable.**
+That is a stronger statement of §7.47's own conclusion than §7.47 made: it is
+not that aiming is the missing mechanism *in addition* to unfreezing — it is
+that on this bed the reading is not what sets the homeward drift at all.
+
+### Two numbers in §7.47 to strike
+
+**"Where the sample lands somewhere readable it roughly doubles how usable the
+reading is"** is unsupported on either denominator. Route-wide, paired: the
+projection moves `along >= 0.02` from **55.15% to 62.65%** (30/6, +7.35 points)
+on bed A and 55.50% → 61.75% (30/6) on bed B — a seventh of a doubling, though
+a real effect. Scoped the way the sentence reads, to samples that landed on a
+cell where a trail could be, it moves **nothing in the right direction**:
+8.30% → 6.50% (16/18) on bed A, 8.35% → 5.55% (13/22) on bed B. The readability
+test is null on both (20/15, 20/16 route-wide; 17/18, 14/22 scoped).
+
+**"Freeze runs roughly halve and the colony is materially better off"** stands
+— those came from the outcome table, which was paired.
+
+### And the deferred saturation risk is closed, by the same logs
+
+`TRAIL_A_RHO = 0` raised a real hazard: at rho 0 removal is exactly `v − 1` per
+pass, `Scent::MAX` → 0 is **786,420 frames**, and a route measured at 82.9% of
+the ceiling under the *old* decay would plateau permanently — on which `along`
+is 0 for every heading under any geometry, and the whole nose question is moot.
+
+Measured, median of 36 seeds: the route peaks at **15,428 of 65,535 — 23.5% of
+the ceiling** on the shipped arm, 17,709 and 15,799 on the other two. The plane
+is lit on 76–84% of route cells and is **not** plateaued. The 82.9% figure was
+`DEPOSIT`-relative on a `u8` plane and does not carry to `u16`. **Trigger
+discharged**; the hazard returns only if `DEPOSIT` rises or the route shortens.
+
+### The rule this is an instance of
+
+`CLAUDE.md` already says *a mean over events is not a mean over the thing you
+care about*, and *compare two runs, not one run against a remembered number*.
+Neither caught this, because the pooled footer **is** a paired run's output —
+the failure was reading the wrong line of a correct instrument. The tell was
+available and was not read: the three arms' `n` differ by 58%, printed on the
+same line as the mean.
+
+**So: before quoting any per-run aggregate across arms, read its `n` across
+arms first.** If the denominators differ, the aggregate is a weighted average
+whose weights are the thing you are trying to measure.
+
+`scripts/tracepair.py` does the pairing and refuses to run when the seed counts
+disagree; `--selftest` is its positive control.
+
+**Data:** the same `Reports/data/nose-geometry-36seed-2026-09-19.log` and the
+six per-arm logs behind it.
