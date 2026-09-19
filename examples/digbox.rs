@@ -135,7 +135,23 @@ fn build_wet(b: &Box2, wet: u16) -> World {
 /// **Split into roofed and open**, because `CLAUDE.md`'s metric trap says a
 /// hole open to the sky is not a room. `roofed` is void with ground standing
 /// somewhere above it in the column; `open` is void the sky can see.
-fn census(world: &World, b: &Box2) -> (usize, usize, usize, usize) {
+/// **Plus the extent of the room itself, which is the only reading here
+/// that can tell a shaft from a lens.**
+///
+/// `roofed`, `open` and `bodies` are counts: a 46-wide by 2-deep scrape and
+/// a 2-wide by 46-deep shaft of the same volume read **identical** on all
+/// three. `examples/burrow_probe`'s `arms=selftest` asserts exactly that
+/// against one bar drawn both ways, and the same blindness was live here.
+///
+/// **And the `trace` line's "spread over N columns x M rows" does not fill
+/// the gap, which is the trap worth naming.** That is the spread of
+/// *at-nest ants*, so it follows `PIXEL_PHYSICS_NEST_SITE_COLS`/`_ROWS` **by
+/// construction** -- set the reach to 3 columns and it reports 6, which is
+/// the definition of the dial and not a result about digging. Measured
+/// 2026-09-19: across the whole `cols` sweep the ant spread tracked the dial
+/// exactly while `room_total` sat at 453-668 with no trend, and a rendered
+/// pair showed no visible difference underground. Read `room w x h` below.
+fn census(world: &World, b: &Box2) -> (usize, usize, usize, usize, i32, i32) {
     let (mut roofed, mut open) = (0, 0);
     // **Cells below the old surface that hold an animal.**
     //
@@ -190,7 +206,32 @@ fn census(world: &World, b: &Box2) -> (usize, usize, usize, usize) {
             }
         }
     }
-    (roofed, open, above, bodies)
+    // The bounding box of the room -- void and the bodies standing in it,
+    // which is the same "room, occupied or not" this census already counts.
+    let (mut x0, mut x1, mut y0, mut y1) = (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
+    for x in 1..b.w - 1 {
+        let mut covered = false;
+        for y in b.surface..b.floor {
+            let cell = world.get(x, y);
+            let kind = world.materials.kind(cell.material);
+            let is_ground = cell.material != material::EMPTY
+                && matches!(kind, MaterialKind::Powder | MaterialKind::Solid)
+                && cell.organism_id() == 0;
+            if is_ground {
+                covered = true;
+                continue;
+            }
+            let is_room = cell.material == material::EMPTY || kind == MaterialKind::Creature;
+            if is_room && covered {
+                x0 = x0.min(x);
+                x1 = x1.max(x);
+                y0 = y0.min(y);
+                y1 = y1.max(y);
+            }
+        }
+    }
+    let (rw, rh) = if x1 >= x0 { (x1 - x0 + 1, y1 - y0 + 1) } else { (0, 0) };
+    (roofed, open, above, bodies, rw, rh)
 }
 
 /// **The moisture gradient as the ant's own brain reads it**, sampled at
@@ -644,7 +685,7 @@ fn main() {
         }
         trickle.step(&mut world, &b);
         if stops.contains(&f) {
-            let (roofed, open, above, bodies) = census(&world, &b);
+            let (roofed, open, above, bodies, _rw, _rh) = census(&world, &b);
             let (n, e) = charge(&world);
             let st = world.creature_stats;
             // `per roll` and the wetness gradient moved to the SUMMARY: the
@@ -671,15 +712,16 @@ fn main() {
     }
 
     let st = world.creature_stats;
-    let (roofed, open, above, bodies) = census(&world, &b);
+    let (roofed, open, above, bodies, rw, rh) = census(&world, &b);
     println!();
     println!(
-        "SUMMARY digs={} rolls={} per_roll={:.3} roofed={roofed} open={open} ants_in_it={bodies} room_total={} hauled_up={above} spoil_dumped={}",
+        "SUMMARY digs={} rolls={} per_roll={:.3} roofed={roofed} open={open} ants_in_it={bodies} room_total={} hauled_up={above} spoil_dumped={} room={rw}w x{rh}h vert={:.2}",
         st.digs,
         st.dig_rolls,
         if st.dig_rolls > 0 { st.digs as f64 / st.dig_rolls as f64 } else { 0.0 },
         roofed + open + bodies,
-        st.spoil_dumped
+        st.spoil_dumped,
+        if rw > 0 { rh as f64 / rw as f64 } else { 0.0 }
     );
     let bands = st.at_nest_crowding;
     let total: u64 = bands.iter().sum();
@@ -725,7 +767,7 @@ fn selftest_run(b: &Box2) {
         bare.step_active_sites();
         bare.step_fields();
     }
-    let (roofed, open, _, _) = census(&bare, b);
+    let (roofed, open, _, _, _, _) = census(&bare, b);
     println!("digbox selftest: empty box after 600 frames reads roofed {roofed} open {open} (both must be 0)");
     assert_eq!((roofed, open), (0, 0), "a box with no ants must hold no dug void -- the soil fill is slumping, or the census is measuring the scene");
 
@@ -738,7 +780,7 @@ fn selftest_run(b: &Box2) {
             carved.set(x, y, Cell::EMPTY);
         }
     }
-    let (roofed2, open2, _, _) = census(&carved, b);
+    let (roofed2, open2, _, _, _, _) = census(&carved, b);
     println!("  a hand-carved 10x3 chamber 10 rows down reads roofed {roofed2} open {open2} (must be 30 and 0)");
     assert_eq!((roofed2, open2), (30, 0), "the census must find a known chamber, and must call it roofed rather than open");
 
@@ -748,7 +790,7 @@ fn selftest_run(b: &Box2) {
     for y in b.surface..b.surface + 6 {
         shaft.set(cx, y, Cell::EMPTY);
     }
-    let (roofed3, open3, _, _) = census(&shaft, b);
+    let (roofed3, open3, _, _, _, _) = census(&shaft, b);
     println!("  a 6-deep shaft open to the sky reads roofed {roofed3} open {open3} (must be 0 and 6)");
     assert_eq!((roofed3, open3), (0, 6), "a hole open to the sky is not a room");
 
@@ -764,7 +806,7 @@ fn selftest_run(b: &Box2) {
         live.step_pheromones();
     }
     let st = live.creature_stats;
-    let (roofed4, _, _, _) = census(&live, b);
+    let (roofed4, _, _, _, _, _) = census(&live, b);
     println!("  {founded} ants for 4,000 frames: {} digs, {} rolls, roofed {roofed4}", st.digs, st.dig_rolls);
     assert!(st.dig_rolls > 0, "not one dig was even attempted -- the colony is not thinking, so any null from this box is the harness");
     assert!(st.digs > 0, "digs attempted but none landed -- every roll hit air, rock or another ant, and this box cannot answer a digging question");
