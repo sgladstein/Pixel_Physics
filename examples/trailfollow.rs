@@ -738,6 +738,10 @@ struct Arm {
     /// **The return ledger.** `reached` is ants that got within `near` of the
     /// food at all; `returned` is those that then reached the nest band; the
     /// last two split those returns by whether anything was being carried.
+    read_ok: u64,
+    read_n: u64,
+    lit: u64,
+    lit_n: u64,
     reached: usize,
     returned: usize,
     trips_laden: u64,
@@ -1152,7 +1156,18 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let width = (half_band + gap + 60).max(256);
     let spec = LabBox { width, height: 192, ground_y: 96, soil_depth: 48, founders: 0, colonies: 0, seed, ..LabBox::default() };
     let mut w = spec.build();
+    // **Channel A's persistence, before any ant walks.** See the rider docs.
+    if let Some(r) = arg::<f32>("arho") {
+        w.pheromones.set_channel_rho(Channel::A, r);
+    }
+    if let Some(d) = arg::<f32>("adiffuse") {
+        w.pheromones.set_channel_diffuse(Channel::A, d);
+    }
     let species_id = w.species.id_of("ant").expect("the ant species is compiled in");
+    // The ant's own sensor reach, so the readability metric asks what THIS
+    // animal reads rather than what a chosen constant would.
+    let sensor_span: i32 =
+        w.species.get(species_id).creature.as_ref().map_or(6, |c| c.sensor_offset);
     let mut genome = w.species.get(species_id).genome.clone();
     let moved = gate.apply(&mut genome);
     assert!(gate.name == "shipped" || moved > 0, "gate {} changed no slot, so both arms carry one genome", gate.name);
@@ -1584,6 +1599,16 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let a_profile = flag("aprofile");
     let a_prof_every: u64 = arg("aprofevery").unwrap_or(2000);
     let a_prof_step: usize = arg("aprofstep").unwrap_or(10);
+    // **`arho=` / `adiffuse=` -- channel A's persistence, per plane.**
+    // `Pheromones::set_channel_rho` / `set_channel_diffuse` reach either trail
+    // plane individually and had no caller outside the pheromone harnesses.
+    // They are here because the register's re-test conditions on both
+    // constants are met: `dead-ends.md:1202` holds them "for a u8 plane with a
+    // 3x3 mean kernel; a wider-precision plane would need re-sweeping", and
+    // the `u8` -> `u16` widening landed 2026-09-15 without either being
+    // re-swept. **B is deliberately untouched** -- a food trail and a homing
+    // ramp want different lifetimes, and moving both at once measures neither.
+
     let mut tr_n = 0u64;
     let mut tr_along_sum = 0.0f64;
     // **The magnitude, separately, because the signed mean cannot answer "is
@@ -1756,6 +1781,18 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // as the raw samples rather than a running mean: outcomes here have
     // enormous spread, so the median and p90 are what can be quoted and a mean
     // over a long tail is not.
+    // **What an ant walking home could actually READ, accumulated over the
+    // run.** The time-averaged amplitude profile is not what an animal sees:
+    // measured 2026-09-19, the plane is a scatter of decaying bursts whose
+    // MEDIAN is 0 from x=78 outward, so a mean profile describes a ramp no ant
+    // ever stands on. This counts, per sampled frame and per route cell, the
+    // reading an ant facing the nest would get -- and whether it clears a bar
+    // an animal has been observed to act on (the cohort member that homed did
+    // it on `along` ~0.01).
+    let mut read_ok = 0u64;
+    let mut read_n = 0u64;
+    let mut live_cells_n = 0u64;
+    let mut live_cells_lit = 0u64;
     let mut legs: Vec<u64> = Vec::new();
     let mut laden_legs: Vec<u64> = Vec::new();
     for f in 1..=frames {
@@ -1799,6 +1836,21 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             }
             a_peak_amt = a_peak_amt.max(amt);
             a_peak_cells = a_peak_cells.max(cells);
+            // Facing home is -x here, so `ahead` is the cell one sensor length
+            // toward the nest. The guard matches `sense`'s.
+            for x in nest_x..=target_x {
+                let here = w.pheromone_at(Channel::A, x, surface) as f32;
+                let ahead = w.pheromone_at(Channel::A, x - sensor_span, surface) as f32;
+                let along = (ahead - here) / (ahead + here + pixel_physics::sim::pheromone::SCALE as f32);
+                read_n += 1;
+                if along >= 0.02 {
+                    read_ok += 1;
+                }
+                live_cells_n += 1;
+                if here > 0.0 {
+                    live_cells_lit += 1;
+                }
+            }
             // **`aprofile` dumps the plane itself, not what an ant read off
             // it.** `PheroAAlong` is a GRADIENT -- ahead minus here -- so a
             // 0.0000 reading means *flat*, which a plane that is absent and a
@@ -2536,6 +2588,10 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         visitors: tracks.values().filter(|t| t.visited).count(),
         ants_seen: tracks.len(),
         round_trips: tracks.values().map(|t| t.trips as u64).sum(),
+        read_ok,
+        read_n,
+        lit: live_cells_lit,
+        lit_n: live_cells_n,
         reached: tracks.values().filter(|t| t.visited).count(),
         returned: tracks.values().filter(|t| t.trips > 0).count(),
         trips_laden: tracks.values().map(|t| u64::from(t.trips_laden)).sum(),
@@ -2680,7 +2736,7 @@ fn main() {
     // a 1.84% open gate where the same command at the default reports 639,100
     // and 1.25%, and nothing in the header said why. Found 2026-09-18 by an
     // archived log failing to reproduce against a binary that was correct.
-    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill} stop={stop} homebias={} cropcap={} hungergate={}", gate.name, arg::<f32>("homebias").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("cropcap").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("hungergate").map_or("shipped".to_string(), |v| format!("{v}")));
+    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill} stop={stop} homebias={} cropcap={} hungergate={} arho={} adiffuse={}", gate.name, arg::<f32>("homebias").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("cropcap").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("hungergate").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("arho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("adiffuse").map_or("shipped".to_string(), |v| format!("{v}")));
     println!("  gate {}: off {:+.1}  on {:+.1}  along ±{:.1}", gate.name, gate.off, gate.on, gate.along);
     println!("  {LANDED_NOTE}\n");
 
@@ -2849,6 +2905,11 @@ fn main() {
                         a.ants_seen,
                         a.round_trips,
                         format!("{} {} {} {} {}", a.reach[0], a.reach[1], a.reach[2], a.reach[3], a.reach[4])
+                    );
+                    println!(
+                        "{:>16}A READ  ant-readable homeward along >= 0.02 on {:>5.1}% of route-cell samples | plane lit on {:>5.1}% | peak amt {:>6} cells {:>3}",
+                        "", 100.0 * a.read_ok as f64 / a.read_n.max(1) as f64,
+                        100.0 * a.lit as f64 / a.lit_n.max(1) as f64, a.a_peak_amt, a.a_peak_cells
                     );
                     println!(
                         "{:>16}RETURN LEDGER reached food {:>4} of {:>4} ants | came back {:>4} | trips laden {:>4} empty {:>4}",
