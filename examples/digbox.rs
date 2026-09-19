@@ -618,12 +618,11 @@ fn main() {
             let (roofed, open, above, bodies) = census(&world, &b);
             let (n, e) = charge(&world);
             let st = world.creature_stats;
-            let per_roll = if st.dig_rolls > 0 { st.digs as f64 / st.dig_rolls as f64 } else { 0.0 };
-            let (mg_mean, mg_med) = moisture_seen(&world);
-            // What that gradient is worth to the decision, in the dig
-            // probability's own units -- a number nobody can read off the
-            // gradient itself, because it lands inside a squash.
-            let cost = 0.55 * mg_mean;
+            // `per roll` and the wetness gradient moved to the SUMMARY: the
+            // per-stop row is now the conservation ledger (what was dug, what
+            // stands open, who is standing in it, what was hauled clear), and
+            // a wide row nobody can read across is worse than two narrow ones.
+            let _ = moisture_seen(&world);
             println!(
                 "{f:>8}  {n:>5}  {:>7}  {roofed:>7}  {open:>6}  {bodies:>10}  {:>10}  {above:>9}  {e:>8.1}",
                 st.digs,
