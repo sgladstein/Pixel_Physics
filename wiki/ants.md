@@ -692,7 +692,11 @@ food scent recruits nobody, and on the same bed the colonies whose ants laid
 no food scent at all did best, because laying costs energy and bought
 nothing. And the older cure that was proposed for the eaten-patch worry, a
 food scent that fades faster, turns out to change nothing either way: it
-neither kills a trail the colony is using nor helps one.
+neither kills a trail the colony is using nor helps one. The race that
+produced the quarter-against-three-quarters was run again the other way
+round, on a bed of conifers with the far end of every trail now readable:
+the colony that reads the food route took the larger share in ten boxes of
+twelve.
 
 What is true, and is the thing to fix, is the outcome: **a colony still
 starves inside one play session with far more food standing in its own bed

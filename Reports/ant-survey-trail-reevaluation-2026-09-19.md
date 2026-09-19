@@ -156,7 +156,61 @@ Positive controls, both required before any row above is read:
 
 ## 4. Candidate 2 — negative feedback on the emitter, and the patchy larder
 
-*(table)*
+**First, the record.** Units 2/3 have shipped de-saturated since `ac02ac03`
+(2026-09-18) — the owner's argument that an eaten patch stops being marked
+because only laden ants mark — and neither `dead-ends.md`, `wiki/ants.md`
+nor `trailfollow`'s landed-state note was told. §3 already shows what the
+repair is worth on the gap bed (22 colonies against 4). The entry's own
+race, on its own re-test condition (a patchy larder), on `u16`:
+
+`creature_arena arm=… mirror=on seeds=12 frames=24000 plant=…`, arm A the
+shipped ant, arm B as named. The headline is the seed count, not the
+median; both arms' survivor counts are small (0–12 of 52 per arm at
+24,000 frames), as they were in the 2026-09-09 race.
+
+| bed | arm B | seeds B < 50% / > 50% / tied | B share, median | pooled A : B |
+|---|---|---|---|---|
+| conifer | position-only control (`mirror=off`, same genome) | 4 / 5 / 3 | 50.0% | 28 : 23 |
+| **conifer** | **deaf food pair** (`hidden=` foodsat spec) | **10 / 1 / 1** | **28.1%** | **71 : 37** |
+| tree | deaf food pair | 6 / 3 / 3 | 41.6% | 21 : 23 |
+| conifer | `(Crowding, EmitB, −2.35)` | 4 / 5 / 3 | 50.0% | 46 : 50 |
+
+The 2026-09-09 race read the re-gated reader at 25% against a
+searching-at-random 75%. On `u16`, with the far half of the trail readable,
+the same race reversed: the reader takes the larger share in ten seeds of
+twelve on the conifer bed. The rejection was the plane's quantisation, not
+the animal.
+
+**The deposit-side negative feedback** (survey §3, Czaczkes 2013), derived
+against the `Crowding` band: away from the nest `Crowding` is the 5x5
+creature count over 8, capped at 1, and `EmitB` is `squash(2.5 − w·c)`
+against the shipped flat `squash(2.5) = 0.714`. w = 2.35 gives the
+literature's 5.6x cut at saturation; w = 4.5 gives it at half saturation.
+
+| wire | arm | colonies /36 | visitors | trips | vis sign | trips sign |
+|---|---|---|---|---|---|---|
+| none (base) | hand | 22 | 51.7% | 65 | — | — |
+| w = 2.35 | hand | 22 | 49.1% | 70 | 17/17/2 | 15/14/7 |
+| w = 4.5 | hand | **31** | 56.8% | 49 | 20/15/1 | 11/13/12 |
+| **no channel B at all** (`carryb=0`) | hand | **29** | 58.3% | **107** | 20/16/0 | 20/13/3 |
+| w = 2.35 | self | 0 | 5.0% | 3 | 8/9/19 | 2/2/32 |
+| w = 4.5 | self | 0 | 5.0% | 3 | 8/9/19 | 2/2/32 |
+
+w = 2.35 is a null on every column, on the gap bed and in the arena. w = 4.5
+looks like negative feedback working — nine more colonies alive — until the
+no-emission control is read: ants that lay nothing keep 29 alive and close
+107 trips. Emission is billed per unit laid (`emit_cost_in_moves`), the bed
+is at subsistence, and a wire that lays less is a wire that spends less. The
+`self` rows are the tell that the wire is not *feeding back* on anything:
+identical in aggregate at both weights, because the colony's own trail
+recruits nobody either way.
+
+**The no-entry mark** (Robinson 2005) was not built. It is a repellent for
+recruitment to an exhausted patch, and on every bed here the colony's own
+trail recruits nobody (`self` ≡ `mute`); it has no substrate until that
+changes, and the change is the discovery problem the record already names.
+
+
 
 ## 5. Candidate 3 — channel B's decay band on `u16`
 
