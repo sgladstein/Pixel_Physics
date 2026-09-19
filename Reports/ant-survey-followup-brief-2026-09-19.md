@@ -21,6 +21,19 @@ three lanes:
 And for the performance lane: *"I will test the parallelism on my own
 machine"* — so the creature parallel switch is **not** yours.
 
+## Spawned, 2026-09-19 14:43Z
+
+| lane | session | model | branch | note |
+|---|---|---|---|---|
+| P | `session_01NNfMrfBtARTHKwoZxidxRo` | `claude-opus-5` | `claude/ant-survey-perf` | `Reports/lanes/ant-survey-perf.md` |
+| T | `session_018P1mVfE1HKA1uDesCHWw3Y` | `claude-fable-5-1` | `claude/ant-survey-trail` | `Reports/lanes/ant-survey-trail.md` |
+| N | `session_01UXdunmxDzJjPeuzNmBUK1R` | `claude-opus-5` | `claude/ant-survey-nest` | `Reports/lanes/ant-survey-nest.md` |
+
+All three spawned from `main` at `5f92c761` with `sources` confirmed
+non-empty in the returned record, tagged `ant-survey-followup` and
+`lane-<X>`. A lane is reached by a poke-only trigger on its session id,
+never by `SendMessage` (the `lab-coordinator` skill).
+
 ## What binds on every lane
 
 - **Get the review off the branch**, since PR #475 may not have merged when
