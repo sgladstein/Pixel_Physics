@@ -292,6 +292,91 @@ impl Trickle {
 /// and gives branching. **A rule whose inputs are identical for every ant
 /// has no spatial variation for a bud to form at**, so it can only ever
 /// produce the circle. The `distinct` column is that claim, measured.
+/// **Candidate *local* senses, computed here and wired to nothing.**
+///
+/// The biology names worker density *along the excavation perimeter* as the
+/// quantity that decides round-cavity against branched network
+/// (`Reports/nest-biology-2026-09-19.md` §4.1). The engine has a local
+/// worker count already -- `sense`'s `density` -- and it is useless for that
+/// purpose by construction: `CROWDING_RADIUS` 2 gives a 5x5 of 24 neighbours
+/// and `CROWDING_SCALE` 8 divides by eight, so **four nearby ants pin it at
+/// 1.000** and it never moves again. `dead-ends.md`'s `(Crowding, Dig, 0.6)`
+/// entry measured exactly that: median 1.000 with p90 and max pinned.
+///
+/// So the question before wiring anything is not *"should a local sense drive
+/// digging"* -- it is **"is there a local reading in this world that varies
+/// at all, and over what range"**. A sense with no range cannot break a
+/// symmetry however it is weighted, and this repo has shipped that mistake in
+/// three unrelated subsystems (`CLAUDE.md`, the decaying-gradient rule).
+///
+/// Five candidates, each returning 0..1, none of them connected to a brain
+/// slot. `workers_r2_s8` reproduces the shipped `density` exactly so the
+/// table carries its own control: if that column shows range, this function
+/// disagrees with `sense` and nothing else here should be believed.
+fn local_senses(world: &World, x: i32, y: i32, me: u32) -> [f32; 5] {
+    let count = |r: i32, want_creature: bool| {
+        let mut n = 0;
+        let mut total = 0;
+        for dy in -r..=r {
+            for dx in -r..=r {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                total += 1;
+                let cell = world.get(x + dx, y + dy);
+                if cell.organism_id() == me {
+                    continue;
+                }
+                let is_creature = world.materials.kind(cell.material) == MaterialKind::Creature;
+                if want_creature == is_creature {
+                    n += 1;
+                }
+            }
+        }
+        (n as f32, total as f32)
+    };
+    let (c2, n2) = count(2, true);
+    let (c6, n6) = count(6, true);
+    // Open space right here: empty cells in a radius-4 disc.
+    let mut open = 0.0;
+    let mut open_total = 0.0;
+    for dy in -4..=4 {
+        for dx in -4..=4 {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            open_total += 1.0;
+            if world.get(x + dx, y + dy).material == material::EMPTY {
+                open += 1.0;
+            }
+        }
+    }
+    // Am I at a face? Diggable ground in the 8-neighbourhood.
+    let mut face = 0.0;
+    for dy in -1..=1 {
+        for dx in -1..=1 {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            let cell = world.get(x + dx, y + dy);
+            let kind = world.materials.kind(cell.material);
+            if cell.material != material::EMPTY
+                && matches!(kind, MaterialKind::Powder | MaterialKind::Solid)
+                && cell.organism_id() == 0
+            {
+                face += 1.0;
+            }
+        }
+    }
+    [
+        (c2 / 8.0).min(1.0), // the shipped `density`, reproduced -- the control
+        c2 / n2,             // same count, full normaliser
+        c6 / n6,             // a wider perimeter reading
+        open / open_total,   // how open it is right here
+        face / 8.0,          // how much wall is within reach
+    ]
+}
+
 fn trace(world: &World) {
     use pixel_physics::sim::brain::{BrainInput as I, BrainOutput as O};
     let Some(sid) = world.species.id_of("ant") else { return };
@@ -307,6 +392,14 @@ fn trace(world: &World) {
     ];
     let mut cols: Vec<Vec<f32>> = vec![Vec::new(); watch.len()];
     let mut digs: Vec<f32> = Vec::new();
+    let mut local: Vec<Vec<f32>> = vec![Vec::new(); 5];
+    let local_names = [
+        "nestmates near (shipped)",
+        "nestmates near, ranged",
+        "nestmates, wide reach",
+        "open space right here",
+        "wall within reach",
+    ];
     let mut at_nest = 0usize;
     let (mut xs, mut ys): (Vec<i32>, Vec<i32>) = (Vec::new(), Vec::new());
 
@@ -327,6 +420,10 @@ fn trace(world: &World) {
             cols[k].push(inp[*slot]);
         }
         digs.push(out[O::Dig as usize].clamp(0.0, 1.0));
+        let l = local_senses(world, hx, hy, world.get(hx, hy).organism_id());
+        for (k, v) in l.iter().enumerate() {
+            local[k].push(*v);
+        }
     }
 
     if at_nest == 0 {
@@ -354,6 +451,11 @@ fn trace(world: &World) {
     }
     let (lo, hi) = lohi(&digs);
     println!("         {:<22} {lo:>9.4} {hi:>9.4} {:>9}   <-- what it DECIDES", "dig probability", distinct(&digs));
+    println!("         -- candidate LOCAL senses, computed here and wired to nothing --");
+    for (k, name) in local_names.iter().enumerate() {
+        let (lo, hi) = lohi(&local[k]);
+        println!("         {:<22} {lo:>9.4} {hi:>9.4} {:>9}", name, distinct(&local[k]));
+    }
 }
 
 fn main() {
