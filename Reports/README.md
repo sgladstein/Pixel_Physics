@@ -527,8 +527,14 @@ by somebody about to try it on creatures.
   finding that E9's *float* already ships, and that the plant height ceiling
   is hydrostatic, so the waterline could set how tall a plant grows.
 - [aquatic-implementation-plan-2026-09-14.md](aquatic-implementation-plan-2026-09-14.md) —
-  **plan of record for aquatic work, 2026-09-14. Phase 0 built and measured;
-  Phases 1-4 specified, not built.** Turns the research above into a build
+  **plan of record for aquatic work, 2026-09-14. Phases 0 and 1 built and
+  measured (Phase 1 landed 2026-09-18, §2a); Phases 2-4 specified, not
+  built.** Phase 1 **corrected this document's own §1.6**: a plant seed is
+  density 0.6 against water's 1.0, so it *floats*, and the two herbs the plan
+  describes as dying "in the sediment" were resting on the water surface 23
+  rows above it, having never touched ground. So "one predicate" was one
+  short -- `submerged_shoot` opens the shoot, and `seed_material` is what
+  lets a seed reach the bottom of a pond at all. Turns the research above into a build
   order with guards and briefs. Three measurements set the order and two
   overturn the research: a pond in the lab is a **scenario file**, not a
   `LabBox` field (`the_pond.ron`, 4,256 cells flat to frame 40,000); it holds
@@ -1148,7 +1154,8 @@ drift that two of these documents still reflect.**
 ## Creatures and ecology  ·  `engine`
 
 - [creature-stacking-design-2026-09-17.md](creature-stacking-design-2026-09-17.md)
-  — **design 2026-09-17, not yet built. `engine`.** How many creatures of one
+  — **design 2026-09-17, built and landed as PR #465; four review follow-ups
+  closed 2026-09-19 in §11. `engine`.** How many creatures of one
   colony come to share a cell, and where the 2nd..Nth ant's identity lives.
   Exclusivity is the **grid's** invariant and not a creature rule: `Cell` holds
   one `organism_id`, so `classify_step` reads an ant exactly the way it reads
@@ -1168,7 +1175,18 @@ drift that two of these documents still reflect.**
   never charged, never starves, and reads as a thriving colony. Carries the
   owner's rulings (no cost, a cap of 20, same colony only, attack hits the cell
   owner, fire hits everyone in the cell) and the pass-through branch's measured
-  account of the same freeze, `5824fd1d`.
+  account of the same freeze, `5824fd1d`. **§10 is the post-landing review and
+  §11 closes its four follow-ups**: trophallaxis now reaches inside a stack —
+  and the measured finding there is that teaching the *mouth* (`neediest_kin`)
+  alone is a lever that fires and moves nothing, because `BrainInput::KinNeed`
+  is the only input that can open the `Share` gate and it came from a different,
+  equally blind scan; one rule at one chokepoint for both corpse bugs (**a body
+  never writes a cell it does not own**), with the reproduction §10 filed
+  without; and the stranded-grid-cell defect **traced to the promotion write
+  that PR #465 had already fixed** — reinstating the pre-fix read puts it back
+  at frame 35, while 1,860 lib tests, the worldgen and determinism suites,
+  `ascii` and 40,000 frames at the shipped cap are clean without it. Cap-1
+  bit-identicality re-measured as a digest, `0x6fde91732aaa5a65` on both sides.
 
 - [animal-conflict-research-2026-09-14.md](animal-conflict-research-2026-09-14.md)
   — **research plus implementation, 2026-09-14, round 35 lane D. `engine`.**
