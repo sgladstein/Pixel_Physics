@@ -728,6 +728,26 @@ struct Arm {
     ants_on_nest: usize,
     /// Honest round trips summed over the colony. See `Track::trips`.
     round_trips: u64,
+    /// **The homeward leg in frames: n / median / p90, over closed round
+    /// trips**, and the same for the subset that closed with larder in the
+    /// crop. Medians rather than means because the tail here is long.
+    ///
+    /// `leg_n` is the pairing `CLAUDE.md` asks for: it must equal
+    /// `round_trips`, and a gap between them means legs are being dropped
+    /// rather than journeys being short.
+    leg_n: usize,
+    leg_med: u64,
+    leg_p90: u64,
+    laden_leg_n: usize,
+    laden_leg_med: u64,
+    laden_leg_p90: u64,
+    /// **The raw legs, because a median of per-run medians is not a median.**
+    /// Closed round trips are rare here -- tens across a whole 18-seed sweep --
+    /// so each run contributes one or two samples and re-medianing the per-run
+    /// figures reports the typical *run* rather than the typical journey. These
+    /// are emitted so the pool can be taken across seeds where it belongs.
+    legs_raw: Vec<u64>,
+    laden_raw: Vec<u64>,
     /// Excursion histogram: how many ants got 0-25 / 25-50 / 50-75 / 75-100 /
     /// over 100 percent of the way to the food, by their furthest point.
     reach: [usize; 5],
@@ -1011,6 +1031,35 @@ struct Track {
     /// which a colony-size ladder would confound with all four.
     born_on_nest: bool,
     born_x: i32,
+    /// **The frame of the most recent sample within `near` of the food** — the
+    /// start of the walk home, and half of the only direct measurement of the
+    /// return leg this line has.
+    ///
+    /// Updated on *every* frame the ant is at the food rather than the first,
+    /// so at trip close it holds the moment the animal actually left the
+    /// larder. Taking the first arrival instead measures the visit plus the
+    /// walk, which on a bed where ants linger at food is mostly the visit.
+    left_food: u64,
+    /// The frame this ant last picked larder up, `0` for never. Paired with
+    /// `left_food` so the leg can be split by whether there was anything in
+    /// the crop to carry — a walk home with an empty crop is not the laden
+    /// leg, and averaging the two together is how a journey turns into a
+    /// number about wandering.
+    laden_since: u64,
+}
+
+/// **An order statistic over a sample, 0 when there is nothing to order.**
+///
+/// A median rather than a mean because this line's distributions have long
+/// tails: §7.38's own bracket came from three points, and a mean over a
+/// handful of very long trips reports a journey nobody made.
+fn order_stat(v: &mut [u64], q: f64) -> u64 {
+    if v.is_empty() {
+        return 0;
+    }
+    v.sort_unstable();
+    let i = ((v.len() - 1) as f64 * q).round() as usize;
+    v[i]
 }
 
 /// **Zero every weight into `EmitB`, direct and through the hidden layer** --
@@ -1668,6 +1717,12 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // the instrument's own positive control, because a count that does not
     // move against a gradient that was never there says nothing.
     let (mut along_sum, mut along_n) = (0.0f64, 0u64);
+    // **Every closed round trip's homeward leg, and the laden subset.** Kept
+    // as the raw samples rather than a running mean: outcomes here have
+    // enormous spread, so the median and p90 are what can be quoted and a mean
+    // over a long tail is not.
+    let mut legs: Vec<u64> = Vec::new();
+    let mut laden_legs: Vec<u64> = Vec::new();
     for f in 1..=frames {
         // **`stop` is what turns this from a pull arm into a loop arm.** Up to
         // `stop` the trail is guaranteed, which breaks the circularity -- a
@@ -2050,6 +2105,12 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     }
                     t.visited = true;
                     t.outbound = true;
+                    t.left_food = f;
+                }
+                if carrying_larder && t.laden_since == 0 {
+                    t.laden_since = f;
+                } else if !carrying_larder {
+                    t.laden_since = 0;
                 }
                 // A trip closes on the return, not the arrival: an ant that
                 // reaches the food and dies there has not made a round trip,
@@ -2058,6 +2119,16 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 if at_nest && t.outbound {
                     t.trips += 1;
                     t.outbound = false;
+                    // **The homeward leg, measured rather than bracketed.**
+                    // §7.38 left it at "436-873 ticks by three data points";
+                    // these are the two frames it needs, and they were already
+                    // being computed for the trip counter.
+                    if t.left_food > 0 && f >= t.left_food {
+                        legs.push(f - t.left_food);
+                        if t.laden_since > 0 {
+                            laden_legs.push(f - t.left_food);
+                        }
+                    }
                 }
             }
             if carrying_larder {
@@ -2375,6 +2446,14 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         visitors: tracks.values().filter(|t| t.visited).count(),
         ants_seen: tracks.len(),
         round_trips: tracks.values().map(|t| t.trips as u64).sum(),
+        leg_n: legs.len(),
+        leg_med: order_stat(&mut legs.clone(), 0.5),
+        leg_p90: order_stat(&mut legs.clone(), 0.9),
+        laden_leg_n: laden_legs.len(),
+        laden_leg_med: order_stat(&mut laden_legs.clone(), 0.5),
+        laden_leg_p90: order_stat(&mut laden_legs.clone(), 0.9),
+        legs_raw: legs.clone(),
+        laden_raw: laden_legs.clone(),
         trips_on_nest: tracks.values().filter(|t| t.born_on_nest).map(|t| t.trips as u64).sum(),
         trips_off_nest: tracks.values().filter(|t| !t.born_on_nest).map(|t| t.trips as u64).sum(),
         ants_on_nest: tracks.values().filter(|t| t.born_on_nest).count(),
@@ -2677,6 +2756,10 @@ fn main() {
                         a.round_trips,
                         format!("{} {} {} {} {}", a.reach[0], a.reach[1], a.reach[2], a.reach[3], a.reach[4])
                     );
+                    if !a.legs_raw.is_empty() {
+                        let f = |v: &Vec<u64>| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
+                        println!("{:>16}LEGS legs[{}] laden[{}]", "", f(&a.legs_raw), f(&a.laden_raw));
+                    }
                     // Second line, because these are the shape readouts and a
                     // shape does not fit in a column. `occupancy` is nest-end
                     // first; `carry->nest` is signed cells, positive homeward.
@@ -2712,7 +2795,7 @@ fn main() {
                     // positive means it rises toward the NEST, which is §1c's
                     // prediction and the wrong way round for finding food.
                     println!(
-                        "{:>16}own trail: route pk {:>4} end {:>4} along {:>+7.4}  B nest->food [{}]  blocked {:>8}  kin swaps {:>7}  ticks {:>9}  tumbles {:>9} (homeward {:>8}, {:.2}%)  drops {:>7}  chew parked {:>6} resumed {:>6} ({:>9.0} J)  DELIVERED {:>5}  appetite held {:>9.0} J of {:>9.0}  trips born-on-comb {:>4} ({} ants) / born-off {:>4} ({} ants)",
+                        "{:>16}own trail: route pk {:>4} end {:>4} along {:>+7.4}  B nest->food [{}]  blocked {:>8}  kin swaps {:>7}  ticks {:>9}  tumbles {:>9} (homeward {:>8}, {:.2}%)  drops {:>7}  chew parked {:>6} resumed {:>6} ({:>9.0} J)  DELIVERED {:>5}  leg home n {:>4} med {:>5} p90 {:>5} (laden n {:>4} med {:>5} p90 {:>5})  appetite held {:>9.0} J of {:>9.0}  trips born-on-comb {:>4} ({} ants) / born-off {:>4} ({} ants)",
                         "",
                         a.peak_cells,
                         a.live_cells,
@@ -2729,6 +2812,12 @@ fn main() {
                         a.digest_resumed,
                         a.digest_resumed_face,
                         a.deliveries,
+                        a.leg_n,
+                        a.leg_med,
+                        a.leg_p90,
+                        a.laden_leg_n,
+                        a.laden_leg_med,
+                        a.laden_leg_p90,
                         a.digest_appetite_held,
                         a.digested_face,
                         a.trips_on_nest,

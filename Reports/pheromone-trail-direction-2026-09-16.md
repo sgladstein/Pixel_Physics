@@ -4193,6 +4193,26 @@ and `MoistureGrad` off `Drop`, so `(AtNest, Drop, 1.0889)` is the only trigger t
 verb has left and an ant now puts food down **only at the nest**. The earlier
 commit was load-bearing for this one.
 
+### Which arm these numbers are from — added 2026-09-19
+
+**Every delivery figure in this section was measured at `homebias=1`, and
+`CreatureDef::home_bias` ships at `0.0`.** The rider is not named beside the
+numbers above, and a reader would take them for the shipped animal. Measured on
+the same 18 seeds, gap 90, `hand` arm, one binary:
+
+| `home_bias` | deliveries | seeds delivering |
+|---|---|---|
+| **shipped, 0.0** | **124** | 5/18 |
+| 1.0 (the rider) | **511** | 9/18 |
+
+**The loop does close without the rider** — the three fixes in this section are
+sufficient on their own, and an ant that is never told which way home is still
+gets food there by foraging until it happens to arrive. What the return leg buys
+is a multiple, not the mechanism. §7.41 is the sweep that prices it, and it is
+the re-take §7.27 asked for: *"Measuring a commuting rule against an economy that
+punishes commuting measures the economy. Everything in the table above is
+conditional on step 1 and must be re-taken after it."* Step 1 is this section.
+
 ### What was holding it
 
 The ant could not carry more than one meal. `ant.ron` authors
@@ -4457,6 +4477,85 @@ is accounted for by the attribution, and most are credited to a cell. Both
 were checked by putting the fault back — recounting settled pellets every
 frame reads `83 credited + 27 unmatched + 3 discarded != 77 dumped` and goes
 red.
+
+## §7.41 The return leg re-swept against the new economy, and the laden leg measured at last
+
+**2026-09-19.** Two things §7.38 left owed. `trailfollow mode=gap gate=shipped
+gaps=90 seeds=18 seed0=1 ants=20 relay=60 near=10 food=400 refill=400
+stop=6000`, one binary for the whole sweep, `hand` arm.
+
+### The sweep, and why its totals must not be read as a ranking
+
+| `home_bias` | deliveries | seeds delivering | ants alive | ate J |
+|---|---|---|---|---|
+| **shipped 0.0** | 124 | 5/18 | 51 | 270,755 |
+| 0.1 | 510 | **2**/18 | 1,301 | 13,220,496 |
+| 0.25 | 331 | **1**/18 | 634 | 7,735,816 |
+| 0.5 | 215 | 6/18 | 788 | 13,134,614 |
+| 1.0 | 511 | 9/18 | 59 | 140,377 |
+
+**The two delivery columns disagree, and the per-seed data says which to
+believe.** At 0.1 the entire 510 is seeds 1 and 18 — 188 and 322 — and those
+same two seeds carry **536 and 722 ants alive**. At 0.25 it is one seed, 331
+deliveries against 600 ants. Those are not foraging results; they are colony
+explosions, and a colony of six hundred delivers incidentally. `CLAUDE.md`'s
+*ask what your number counts*: total deliveries counts colony size times per-ant
+rate, and here the first term moves by two orders of magnitude between seeds.
+
+At 1.0 the 511 is spread over **nine** seeds with **no colony above 37 ants**.
+Same total, entirely different object: small colonies each bringing food home,
+which is the thing being asked about.
+
+**So read breadth, not totals** — 1.0 delivers on 9/18, 0.5 on 6/18, shipped on
+5/18, and the two arms whose totals look best deliver on 2 and 1.
+
+### The answer to §7.27's re-take: still no, and for the same reason
+
+§7.27 shut the dial because `home_bias: 1.0` starved the colony, and said the
+table *"must be re-taken"* once delivering stopped forfeiting the meal. This is
+that re-take, and **the starvation reproduces**: at 1.0, 59 ants alive and
+140,377 J eaten against 1,301 and 13.2 M at 0.1. `digest_carry` fixed the
+*carrier's* loss — chewing survives a drop — and did nothing about the
+*colony's*, because a delivered cell is still an ordinary loose cell that
+nothing stores and nothing eats from.
+
+**So the return leg buys reliability and is still paid for in bodies, and
+`home_bias` should stay at 0.0 until there is a granary.** That is §7.28's
+design, and it is now the prerequisite rather than the next nice thing: the
+dial cannot be priced against an economy that has no way to bank what the dial
+delivers.
+
+### The laden leg, measured rather than bracketed
+
+§7.38 left it at *"436–873 ticks by three data points"*. `Track` now records the
+frame of the last sample within `near` of the food and the frame the trip closes
+at the nest, and emits the raw samples so they pool across seeds — a median of
+per-run medians is not a median when a run contributes one trip.
+
+| arm | n | p25 | **median** | p75 | p90 | max |
+|---|---|---|---|---|---|---|
+| shipped, laden at close | 10 | 835 | **1,909** | 3,025 | 4,249 | 4,447 |
+| `home_bias` 1.0, laden at close | 42 | 913 | **1,837** | 3,565 | 4,573 | 14,551 |
+| shipped, all closed trips | 29 | 3,025 | 4,699 | 7,867 | 11,713 | 17,233 |
+| 1.0, all closed trips | 84 | 1,633 | 4,195 | 7,489 | 10,849 | 15,835 |
+
+**The bracket was low by two to four times.** Two independent samples — a
+different dial, four times the n — agree at **~1,850 frames**, which is the
+number to size anything against from here. The laden subset is roughly *half*
+the all-trips figure, which is worth keeping: an ant that is carrying gets home
+substantially faster than one that is not, so the cargo is not what slows the
+journey.
+
+**Data:** `Reports/data/homebias-resweep-{shipped,0.1,0.25,0.5,1.0}-18seed-gap90-2026-09-19.log`
+and `legs-{shipped,hb1}-18seed-gap90-2026-09-19.log`, whose `LEGS` lines carry
+every raw sample the table pools.
+
+**And it sits above the hold.** §7.35 measured a post-fix mean hold of 1,464
+ticks on the focal ant. A median laden leg of ~1,850 against that is the shape
+of the remaining failure — the journey outlasts the meal that pays for it — and
+it is offered as the comparison to make next rather than as a demonstrated
+mechanism, because the two numbers come from different beds and one of them is a
+single ant.
 
 ## Appendix A. Raw per-seed data
 
