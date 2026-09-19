@@ -618,6 +618,23 @@ pub struct ChronicleRow {
     /// How the box was keeping up at the moment of the sample. `None` for a
     /// harness with no dial at all -- see [`PerfSample`]'s own doc.
     pub perf: Option<PerfSample>,
+    /// **Where the tick actually went, since the previous row** -- the eight
+    /// phases `sim::frame::step` orders, drained from its stopwatch. `None`
+    /// unless `PIXEL_PHYSICS_PHASE_CLOCK=1`, which is the default.
+    ///
+    /// This column group is the answer to the one question the owner's own
+    /// session log could not ask. `Reports/evolution-lab-playtest-2026-09-13.md`
+    /// §1 records `awake chunks` going 12 -> 52 as ants went 39 -> 2,473 and
+    /// has no split at all, so "is the field a large part of this" stayed an
+    /// estimate across two machines
+    /// (`Reports/ant-sim-research-review-2026-09-19.md` §8.4). It lands *in
+    /// this row* rather than in a log line of its own precisely so the split
+    /// and `awake_chunks` are read off the same sample: the mechanism that
+    /// makes the field track ant count is the chunks the ants wake, and the
+    /// two numbers only mean anything together.
+    ///
+    /// A **window**, not a session mean -- see `frame::take_phase_times`.
+    pub phases: Option<crate::sim::frame::PhaseTimes>,
 }
 
 /// Take one `ChronicleRow` off `world` right now, at `world.frame`.
@@ -666,6 +683,15 @@ pub fn take_chronicle_row(
         awake_chunks: world.active_chunk_count(),
         active_sites: world.active_site_count(),
         perf,
+        // **Drained here, unconditionally, and that is safe because the
+        // accumulator is empty when the clock is off.** Draining rather than
+        // reading is what makes each row the window since the previous one;
+        // a session mean over a hundred thousand ticks could not show the
+        // field's share moving as a colony grows, which is the whole point.
+        // `ticks == 0` means the clock never ran, and the printer says `--`
+        // rather than `0.000` for it -- the same distinction the perf columns
+        // above already make, and for the same reason.
+        phases: crate::sim::frame::phase_clock_on().then(crate::sim::frame::take_phase_times),
     }
 }
 
@@ -689,7 +715,27 @@ pub fn header_line() -> String {
         "roofed", "pit", "pack<", "pack^", "mnd", "bare", "band", "bare", "out", "pcIn", "pcOut",
         "wall", "awake", "sites",
         "ach/f", "req/f", "x", "dispHz", "debt", "skip"
-    )
+    ) + &phase_header_group()
+}
+
+/// The stopwatch's own column group, appended to [`header_line`].
+///
+/// **A separate function, not eight more arguments to that `format!`.** That
+/// call is already thirty-nine positional arguments wide and its own doc says
+/// the widths are load-bearing against `examples/latecensus.rs`; appending a
+/// group cannot disturb a column that harness shares, and eight more
+/// positions in the same call could. The group is also the part a reader is
+/// most likely to want to lop off, and this is where the `PHASE_NAMES` table
+/// is read rather than re-typed -- `ca_sweep` renamed there renames it here.
+fn phase_header_group() -> String {
+    let mut out = String::from(" | ticks");
+    for name in crate::sim::frame::PHASE_NAMES {
+        // Truncated to the width the numbers below need. `{:>8}` and three
+        // decimals of a millisecond: a phase under a microsecond reads 0.000
+        // and one at 20 ms still fits.
+        out.push_str(&format!(" {:>8}", &name[..name.len().min(8)]));
+    }
+    out
 }
 
 /// One data row, in the same columns `header_line` names.
@@ -723,7 +769,37 @@ pub fn row_line(row: &ChronicleRow) -> String {
         s.bare_in_band, s.band_cols, s.bare_outside, s.outside_cols, s.plant_cells_in_band, s.plant_cells_outside,
         row.wall_clock_secs, row.awake_chunks, row.active_sites,
         achf, reqf, mult, disp, debt, skip
-    )
+    ) + &phase_row_group(row.phases.as_ref())
+}
+
+/// The stopwatch's data columns, matching [`phase_header_group`].
+///
+/// **Per tick, not per row**, because a row covers `CHRONICLE_CENSUS_EVERY`
+/// ticks by default (10,000) and a total over that is not a number anyone can
+/// compare to anything. `ticks` is printed beside them so the division is
+/// visible and a short window is not mistaken for a cheap one.
+///
+/// `--` for every column when the clock was off, **and also when it was on
+/// but no tick has run since the last row** -- both mean "this row has no
+/// measurement", and printing 0.000 for either would read as a phase that
+/// costs nothing, which is a finding rather than an absence.
+fn phase_row_group(phases: Option<&crate::sim::frame::PhaseTimes>) -> String {
+    match phases.filter(|p| p.ticks > 0) {
+        None => {
+            let mut out = String::from(" |    --");
+            for _ in crate::sim::frame::PHASE_NAMES {
+                out.push_str(&format!(" {:>8}", "--"));
+            }
+            out
+        }
+        Some(p) => {
+            let mut out = format!(" | {:>5}", p.ticks);
+            for i in 0..crate::sim::frame::PHASE_NAMES.len() {
+                out.push_str(&format!(" {:>8.3}", p.mean_ms(i)));
+            }
+            out
+        }
+    }
 }
 
 /// **What the owner watches, spelled out**: the nest band's bare-ground ratio
@@ -740,6 +816,54 @@ pub fn row_addendum(row: &ChronicleRow) -> String {
         pct(s.bare_in_band, s.band_cols), s.bare_in_band, s.band_cols,
         pct(s.bare_outside, s.outside_cols), s.bare_outside, s.outside_cols,
         s.packed_above, s.mound_high
+    ) + &phase_addendum(row)
+}
+
+/// **The phase split as shares, in words, ranked** -- a second line under the
+/// addendum, only when the stopwatch ran.
+///
+/// The column group in `row_line` is the machine-readable form, comparable
+/// column for column with `examples/lab_cost.rs phases=1`. This is the form
+/// the question is actually asked in. "Is the field a large part of the cost"
+/// is a question about a *share*, and `CLAUDE.md`'s own rule for the
+/// neighbouring case applies -- a worst-frame figure is worthless unless an
+/// aggregate pins it -- so the tick total is printed beside the shares and the
+/// two biggest phases are named rather than left to be found among eight
+/// columns of milliseconds.
+///
+/// `awake` is repeated here on purpose. The field's cost tracks ant count
+/// through the chunks the ants wake (`field::creature_wake_skip`), so a share
+/// that moved and an awake count that did not means the cause is somewhere
+/// else, and reading the two off different lines is how that gets missed.
+fn phase_addendum(row: &ChronicleRow) -> String {
+    let Some(p) = row.phases.filter(|p| p.ticks > 0) else { return String::new() };
+    let total = p.total_ms();
+    if total <= 0.0 {
+        return String::new();
+    }
+    let mut ranked: Vec<(usize, f64)> =
+        (0..crate::sim::frame::PHASE_NAMES.len()).map(|i| (i, p.ms[i])).collect();
+    // `sort_by` on the share, descending, with the phase index as the
+    // tie-break -- never a bare `sort_unstable_by`, so two phases at exactly
+    // 0.000 ms always print in `PHASE_NAMES` order rather than in whatever
+    // order the sort happened to leave them. `CLAUDE.md` keeps an entry on
+    // tie-order for exactly this shape.
+    ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).expect("no NaN in a duration").then(a.0.cmp(&b.0)));
+    let share = |i: usize| 100.0 * p.ms[i] / total;
+    let names = crate::sim::frame::PHASE_NAMES;
+    format!(
+        "\n        tick {:.3} ms over {} tick(s), {} awake chunk(s) | field {:.0}% ({:.3} ms) | active_sites {:.0}% ({:.3} ms) -- every creature decision and every plant tick is in there, nowhere else | dearest: {} {:.0}%, {} {:.0}%",
+        total / p.ticks as f64,
+        p.ticks,
+        row.awake_chunks,
+        share(6),
+        p.mean_ms(6),
+        share(4),
+        p.mean_ms(4),
+        names[ranked[0].0],
+        share(ranked[0].0),
+        names[ranked[1].0],
+        share(ranked[1].0),
     )
 }
 
