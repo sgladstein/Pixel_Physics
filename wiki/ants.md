@@ -7,19 +7,19 @@ food heap too — a heap being curved ground — so a forager standing on the
 larder put its dinner back on the larder and never got home with it. Taking
 it off the carrying verb is what let food reach the nest at all, and it left
 the preference reaching nothing: see "They build without being told to"
-below, which now says so. The same day, **ants sharing a cell started feeding
-each other in it**, which they had not been able to do — see the end of
-"Standing in each other's way". Before that, on 2026-09-18, **an ant could
+below, which now says so. The same day, **ants sharing a cell started
+feeding each other in it**, which they had not been able to do — see the end
+of "Standing in each other's way". Before that, on 2026-09-18, **an ant could
 finally carry food home instead of eating it on the way.** Its stomach held
-exactly one piece of the food it was sent to fetch, and it digested that piece
-as it walked, so it arrived empty every time and nothing was ever set down at
-the nest — at any distance. It now holds three. See "An ant eats what it
-carries" below. Before that, the same day, **several ants of one colony could
-stand in the same cell**, if you turn it on. A nestmate has always been as solid as
-rock, which is a problem the better a trail works: a trail that works puts
-every ant on one line, and a line that cannot overlap is a queue. Off by
-default. See "Standing in each other's way" below. Before that, 2026-09-15,
-when **a trail started reaching all the way out.**
+exactly one piece of the food it was sent to fetch, and it digested that
+piece as it walked, so it arrived empty every time and nothing was ever set
+down at the nest — at any distance. It now holds three. See "An ant eats what
+it carries" below. Before that, the same day, **several ants of one colony
+could stand in the same cell**, if you turn it on. A nestmate has always been
+as solid as rock, which is a problem the better a trail works: a trail that
+works puts every ant on one line, and a line that cannot overlap is a queue.
+Off by default. See "Standing in each other's way" below. Before that,
+2026-09-15, when **a trail started reaching all the way out.**
 An ant lays a lot of scent near home and less the further it gets, so a trail
 has always been a slope running downhill away from the nest — and the far half
 of that slope was too shallow for the world to hold. It was still *there*; it
