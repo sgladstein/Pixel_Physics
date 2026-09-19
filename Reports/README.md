@@ -1153,6 +1153,61 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology  ·  `engine`
 
+- [ant-sim-research-review-2026-09-19.md](ant-sim-research-review-2026-09-19.md)
+  — **review, 2026-09-19, docs only. `engine`/`lab`.** An outside literature
+  survey on ant simulation, checked section by section against the tree and
+  the measured record. **Its architecture is this engine's architecture**:
+  stigmergy-first, a Deneubourg choice, a Weber-law reader, no pathfinding —
+  all shipped before it was written. Of ~85 named mechanisms (scorecard in
+  §2.15), 31 ship, 4 are built and switched off, 7 designed and priced, 10
+  built and measured as rejected or inert, 9 absent and cheap, 24 unstageable
+  in a side-view world or ruled out. **The survey's five "gaps in existing
+  games" are not this engine's gaps** — discovery of the first meal, a return
+  leg that worked for the first time on 2026-09-18, a nest with no purpose by
+  owner ruling, and ground too shallow for a nest are — and three of its §19
+  "open problems" are this engine's strengths. **Three things worth a run**:
+  re-test the food-charged `EmitB` odometer now the return leg exists
+  (rejected one day before it did); `(Crowding, EmitB, −w)`, one wire, the
+  deposit-side negative feedback §Z7 is short of; and the *no-entry* mark as a
+  negative deposit on the food plane rather than a fourth plane. Plus one
+  measurement: whether `(Crowding, Move, −0.3)` already makes colony burn
+  hypometric. Corrections the survey needs here: on a one-cell trail
+  **diffusion is the eraser and decay is inert**; a new brain input is not
+  cheap (six species files re-derive `mutation_rate`); and Tschinkel's casts
+  are the bar, never a template. Finds the fill-weighted homeward re-roll
+  **built and shipped off** (`home_bias: 0.0`, `da4a461a`) with no dial and no
+  wiki line. §5 puts the survey's four parameter tables against the engine's
+  dials in round trips and cells; §6 its twelve staged recommendations
+  against the repo's own plans. Source:
+  [ant-sim-literature-review-external-2026-09-19.md](ant-sim-literature-review-external-2026-09-19.md).
+- [ant-survey-followup-brief-2026-09-19.md](ant-survey-followup-brief-2026-09-19.md)
+  — **round brief, 2026-09-19. `engine`/`lab`.** Three lanes spawned on the
+  owner's instruction after reading the survey review: **P** builds the
+  review's two performance proposals behind switches (a gated per-phase
+  stopwatch for his own bed; creature-only chunk activity not waking the
+  field, with the field hash and the awake-chunk count as falsifiers) and
+  writes the GPU-field design note; **T** re-evaluates the trail line's four
+  rejections under *"don't trust past results"* — the food-charged `EmitB`
+  odometer (rejected before the return leg worked), the full-gain food-trail
+  reader with the entry's own patchy-larder and faster-decay re-tests plus
+  the survey's two negative-feedback terms, `DECAY_RHO`'s band on `u16`,
+  trophallaxis on a played bed; **N** re-scores the `Crowding`-to-dig nulls
+  on the corrected census and re-evaluates pellet-attracted deposition, the
+  spoil-placement rejections, the downward dig bias and the dig-face
+  pheromone. Names the unlanded lifetime branch (20 ahead, no PR) every
+  trail measurement has to reckon with. Models chosen per the
+  `lab-coordinator` skill and stated with the reason.
+- [ant-sim-literature-review-external-2026-09-19.md](ant-sim-literature-review-external-2026-09-19.md)
+  — **external document, 2026-09-19, reproduced as received. `engine`.** A
+  literature survey of ant and superorganism simulation in nineteen sections
+  — Deneubourg's double bridge, pheromone half-lives by species, negative
+  pheromones, path integration, Khuong's construction model, response
+  thresholds, quorum emigration, collective transport, the existing games —
+  with four parameter tables and twelve staged recommendations, written by
+  someone who knew nothing of this project beyond "an ant-based simulation
+  game". **Not checked against the engine; the review above is.** Received in
+  two parts; the second arrived as plain text and had its headings, bullets
+  and tables restored with no word changed.
 - [creature-stacking-design-2026-09-17.md](creature-stacking-design-2026-09-17.md)
   — **design 2026-09-17, built and landed as PR #465; four review follow-ups
   closed 2026-09-19 in §11. `engine`.** How many creatures of one
