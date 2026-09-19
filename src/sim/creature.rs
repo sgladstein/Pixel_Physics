@@ -5028,7 +5028,7 @@ fn sense(
     // E both become `(x + so, y)` — so `r - l` would be identically zero in
     // every world for ever. That is a worse failure than the one being fixed,
     // and it would take away the one pair that could serve a flier.
-    let (px, py) = trail_sample_point(x, y, heading, so, airborne);
+    let (px, py) = trail_sample_point(x, y, heading, so, airborne, sensor_projected());
 
     // Front concentration plus a *lateral difference*, per channel. The
     // pairing is what makes trail-following reachable by one connection
@@ -6025,7 +6025,7 @@ fn sense_read_rects(
     // covered by `field_rect` above, whose reach is `sensor_offset` on each
     // axis — so it needs no rect of its own and `SENSE_RECTS` stays 5.
     let airborne = state.flight.is_some();
-    let forward = trail_sample_point(x, y, heading, so, airborne);
+    let forward = trail_sample_point(x, y, heading, so, airborne, sensor_projected());
     for (sx, sy) in [
         forward,
         {
@@ -7761,11 +7761,41 @@ fn deposit_at_vacated() -> bool {
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DEPOSIT_AT").as_deref() == Ok("vacated"))
 }
 
-/// **Where the trail-plane forward sample is taken** — on the walker's own row,
-/// or at the pre-repair full-`DIRS` offset.
+/// **Whether the trail-plane sample is projected onto the walker's own row** —
+/// `PIXEL_PHYSICS_SENSOR_PROJECT=on`. **Off by default, and that is a
+/// measurement rather than caution.**
 ///
-/// `PIXEL_PHYSICS_SENSOR_PROJECT=off` puts the old geometry back for one run;
-/// anything else, including unset, is the repair.
+/// The projection is argued for in [`trail_sample_point`] and it is *not wrong*
+/// — it recovers a correct, correctly-signed reading on the four diagonal
+/// headings, and when the sample lands somewhere readable the reading is about
+/// twice as usable. It costs the thing it was built to buy.
+///
+/// **36 seeds, gap 90, `arms=hand`, paired within seed against the engine with
+/// neither half of this repair** (`pheromone-trail-direction-2026-09-16.md`
+/// §7.47), on two beds:
+///
+/// | | round trips | ants reaching food | colony alive |
+/// |---|---|---|---|
+/// | readability test alone | 11/10/15, 16/9/11 | 23/12/1, 24/9/3 | 22/8/6, 23/8/5 |
+/// | ...plus this projection | **7/17/12, 9/17/10** | 31/4/1, 26/10/0 | 34/2/0, 27/8/1 |
+///
+/// The projection is the best arm for **colony survival** — 34 seeds better and
+/// 2 worse is the strongest single result on this line — and the worst for
+/// **round trips**, on both beds, which is the quantity the work exists for.
+///
+/// **The mechanism, and it is the terrain argument arriving as data.** Six
+/// cells along the walker's own row is air whenever the ground dips, and the
+/// lab bed is not flat — an ant there roams eight rows and changes level on
+/// ~17% of its ticks. So the projection trades *"looking six rows up at the
+/// sky"* for *"looking six cells along at the sky over a hollow"*. The
+/// readability test below catches both, so neither lies; the projection simply
+/// does not put the nose on the ground more often on real ground.
+///
+/// ***Do not turn this on as an obvious improvement.*** What would change the
+/// verdict is a sample that **follows the surface** rather than the row —
+/// walking out from the head along the substrate — which is right on flat
+/// ground, slopes, trunks and tunnels alike. That is priced as a bounded search
+/// per sample per creature per tick and has not been measured.
 ///
 /// **Read by `sense` AND by `sense_read_rects`, and that is not a detail.**
 /// They are one contract in two functions: the second declares the footprint
@@ -7778,9 +7808,9 @@ fn deposit_at_vacated() -> bool {
 /// `OnceLock` rather than a `var` per call, for the reason all its siblings
 /// are: `sense` runs per creature per decision tick, and `std::env::var` is a
 /// lock and an allocation.
-fn sensor_projected() -> bool {
+pub fn sensor_projected() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_SENSOR_PROJECT").as_deref(), Ok("off") | Ok("none")))
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_SENSOR_PROJECT").as_deref() == Ok("on"))
 }
 
 /// **The honesty half, ablatable separately** — `PIXEL_PHYSICS_SENSOR_PROJECT=none`
@@ -7836,9 +7866,9 @@ fn sensor_honest() -> bool {
 /// by a cell the engine no longer read, and reported the repair as doing almost
 /// nothing. Caught 2026-09-19 by the numbers barely moving. A measurement that
 /// keeps its own copy of the thing it measures will eventually measure the copy.
-pub fn trail_sample_point(x: i32, y: i32, heading: u8, so: i32, airborne: bool) -> (i32, i32) {
+pub fn trail_sample_point(x: i32, y: i32, heading: u8, so: i32, airborne: bool, project: bool) -> (i32, i32) {
     let (dx, dy) = DIRS[heading as usize % 8];
-    if airborne || !sensor_projected() || dx == 0 {
+    if airborne || !project || dx == 0 {
         return (x + dx * so, y + dy * so);
     }
     (x + dx * so, y)
@@ -23521,34 +23551,46 @@ mod tests {
         assert!(e >= 0.02, "east is up the ramp and must read so: {e}");
         assert!(west <= -0.02, "west is down the ramp and must read so: {west}");
 
-        // 3. **The assertion that carries the fix.** A diagonal shares the
-        //    horizontal half of its heading, and the forward cone it can
-        //    actually step into has the same expected displacement, so it must
-        //    read what the horizontal reads. The old geometry has NE at -0.48
-        //    against E's -0.15.
-        assert!((ne - e).abs() < 1e-6, "NE {ne} does not read as E {e}");
-        assert!((se - e).abs() < 1e-6, "SE {se} does not read as E {e}");
-        assert!((nw - west).abs() < 1e-6, "NW {nw} does not read as W {west}");
-        assert!((sw - west).abs() < 1e-6, "SW {sw} does not read as W {west}");
+        // 3. **The assertion that carries what ships.** Every heading whose
+        //    sample lands off this row lands in open sky on this bed, and must
+        //    say so -- exactly 0, "no information", not the confident large
+        //    negative the old reading produced (NE -0.48 against E's -0.15).
+        //    `assert_eq` against 0.0 rather than a tolerance, because the whole
+        //    defect was a number that was small-looking and wasn't.
+        for (h, v) in [("NE", ne), ("N", n), ("NW", nw), ("SW", sw), ("S", s), ("SE", se)] {
+            assert_eq!(v, 0.0, "{h} samples open sky and must report no information, not {v}");
+        }
 
-        // 4. Straight up and straight down: the forward cone's expected
-        //    horizontal displacement is zero, so "no information" is the
-        //    derived correct answer -- exactly 0, not a small negative.
-        assert_eq!(n, 0.0, "facing straight up must read no information, not a gradient");
-        assert_eq!(s, 0.0, "facing straight down must read no information, not a gradient");
-
-        // 5. The front slot moved WITH the along slot rather than being left
-        //    behind on a second definition of "forward". Checked on a DIAGONAL,
-        //    which is where the two points differ: NE's sample is the projected
-        //    `(x + so, y)`, not `(x + so, y - so)`.
-        let (i_ne, ..) = sense(&w, 100, 100, id, 1, &def, false);
-        let expect = w.pheromone_at(Channel::A, 100 + so, 100) as f32 / pheromone::Scent::MAX as f32;
-        assert!(
-            (i_ne[brain::BrainInput::PheroAFront as usize] - expect).abs() < 1e-9,
-            "PheroAFront is still reading the old point: got {} want {expect}",
-            i_ne[brain::BrainInput::PheroAFront as usize]
+        // 4. ...and the row projection, when a run turns it on, reads the
+        //    horizontal instead. **Tested through the helper, not the env
+        //    switch**: `sensor_projected()` caches in a `OnceLock` and the test
+        //    binary shares one process, so a `set_var` arm would pass or fail by
+        //    test order. Off by default -- see `sensor_projected` for the two
+        //    beds that measured it costing round trips.
+        for (h, dir) in [(1u8, 0u8), (7, 0), (3, 4), (5, 4)] {
+            let proj = trail_sample_point(100, 100, h, so, false, true);
+            let flat = trail_sample_point(100, 100, dir, so, false, false);
+            assert_eq!(proj, flat, "projected heading {h} should sample where heading {dir} does");
+        }
+        assert_eq!(
+            trail_sample_point(100, 100, 2, so, false, true),
+            trail_sample_point(100, 100, 2, so, false, false),
+            "straight up has no horizontal component, so the projection must leave it alone -- \
+             that is what keeps a trail up a trunk readable"
         );
-        assert!(expect > 0.0, "...and the projected cell must hold trail, or the line above is trivially true");
+
+        // 5. The front slot reads the same cell the along slot does, whatever
+        //    that cell is -- one definition of "forward" in this function, not
+        //    two. Checked on E, where the trail is, so the value is non-zero
+        //    and the equality is not trivially true.
+        let (i_e2, ..) = sense(&w, 100, 100, id, 0, &def, false);
+        let expect = w.pheromone_at(Channel::A, 100 + so, 100) as f32 / pheromone::Scent::MAX as f32;
+        assert!(expect > 0.0, "the cell ahead must hold trail, or the line below is trivially true");
+        assert!(
+            (i_e2[brain::BrainInput::PheroAFront as usize] - expect).abs() < 1e-9,
+            "PheroAFront and PheroAAlong are reading different cells: got {} want {expect}",
+            i_e2[brain::BrainInput::PheroAFront as usize]
+        );
 
         // 6. **The anti-trade assertion.** The laterals must keep their true
         //    45-degree geometry: project them and `r - l` is identically zero
@@ -23614,7 +23656,7 @@ mod tests {
             w.organism_mut(id).expect("live").heading = heading;
             let state = w.organism(id).expect("live").clone();
             let fp = sense_read_rects(&w, 100, 100, id, &def, &state);
-            let (px, py) = trail_sample_point(100, 100, heading, so, false);
+            let (px, py) = trail_sample_point(100, 100, heading, so, false, sensor_projected());
             // **The SENSOR rects, not any rect, and the difference is the
             // whole value of this guard.** Injected both ways: asserted over
             // all of `rects` it stays green even with the declaration left on

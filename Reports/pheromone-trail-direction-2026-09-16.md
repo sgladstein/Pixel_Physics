@@ -5338,6 +5338,167 @@ is the same condition §7.44 set, and it is now set on better evidence.
 
 **Data:** `Reports/data/planerho-36seed-2026-09-19.log`.
 
+## §7.47 The ant's nose points at the sky six times out of eight
+
+**2026-09-19.** §7.46 got the share of foragers that reach the larder and then
+reach home again from 0.88% to 14.84%. **That was never the target** — one in
+seven is a failure — and the arithmetic of the shortfall was already on the
+record and not chased: a laden ant's pooled homeward drift is **+0.0054
+cells/tick**, so over a 24,000-frame run it covers **~22 cells of a 90-cell
+trip**. The average ant gets a quarter of the way home and dies.
+
+### Tracking ants tick by tick, and it is not the trail
+
+Time-averaged, the plane is a clean monotone ramp whose homeward reading is
+**positive at every position on the route**, +0.04 to +0.37 against a 0.02 bar.
+The fault is the **nose**.
+
+`creature.rs`'s `sense` samples the trail planes at `(x + dx*so, y + dy*so)`
+from `DIRS`, and with +y down, **six of the eight headings put that six rows off
+the walker's own row** — three into open air, three inside the ground. A walking
+creature lays a trail only at its body cell, so those six read exactly **0**,
+and `(0 − here)/(0 + here + SCALE)` turns that into a **confident large
+negative** — *"the trail is much weaker that way"* — where the honest answer is
+*"I am looking at the sky and know nothing."* Injected, the reading is
+**−0.909**.
+
+| heading | mean `PheroAAlong` | usable (≥ +0.02) |
+|---|---|---|
+| E, W (along the ground) | −0.15, −0.17 | **28.3%, 26.7%** |
+| NE / N / NW (air) | −0.48 / −0.28 / −0.42 | 0.8% / 5.5% / 6.4% |
+| SW / S / SE (rock) | −0.47 / −0.63 / −0.46 | 0.0% / 0.0% / 1.5% |
+
+Behaviourally, on the shipped engine: `P(move)` is **exactly zero on 41-83% of
+laden ticks**, **89% of those frozen ticks have the nose in sky or rock** (air
+42.6%, solid 42.7%, ground-level 14.6%), and freeze runs last a median of **9
+ticks**, p90 **73**, longest **515**.
+
+**The ratchet is not broken, it is starved.** Facing up-gradient the ant is
+non-resting on 100% of ticks at `P(move)` 0.75 and nets **+0.062 cells/tick** —
+enough to close 90 cells in ~1,500 ticks. One ant, one row per tick:
+
+```
+ tick   x   y  heading  sensor sees     along  P(move)  moved
+ 1074  95  95       SW        SOLID   -0.8345   0.0000
+ 1076  94  94       NW          AIR   -0.8362   0.0000   STEP
+ 1077  94  94       W   ground-level  +0.0418   0.6571     .   <- rolls W, finds the ground
+ ...  eight cells homeward in fourteen ticks ...
+ 1098  91  94       NE          AIR   -0.8945   0.0000   STEP
+ 1100  91  94       SW        SOLID   -0.6452   0.0000     .
+ ...  sixteen consecutive ticks at P(move) 0.0000, never moves again ...
+```
+
+`dead-ends.md:1009` is the closest prior art and is **the reason this input
+exists**: the Jones/Physarum lateral pair was killed because *"both lateral
+sensors sit in open air while the trail is in the walker's own row"*, and the
+along-heading scalar replaced it. **It inherited the same geometry on the
+vertical headings and nobody looked for a year of commits.**
+
+### Why no fixed geometry works, which is the owner's constraint
+
+The lab bed is flat; this has to work on slopes and where food is up a tree.
+**The current geometry is right exactly when the heading follows the surface.**
+An ant on a trunk with heading "up" samples six cells up the bark — correct, and
+how a colony would follow a trail up a tree. The same heading on flat ground
+samples sky. No fixed rule is right in both, because one heading means "along my
+ground" here and "off into space" there.
+
+### What shipped: the sample says *nothing* rather than *no*
+
+When the sampled cell is not somewhere a creature could stand — the walkability
+test `step_chain` already uses — `along` reports **0**, the neutral case the
+brain already handles. Guarded to run only when both planes read zero there, so
+its nine cell reads are skipped on any lit sample.
+
+**The predicate is walkability, not emptiness, and that distinction is the
+whole of it**: on a flat bed the three air headings sample `Empty`, which no
+material test catches, and they are the worst three.
+
+It is also the half that keeps the **tree** working — on bark, the sample is on
+the bark, the test passes, and the correct vertical reading survives.
+
+### What did not ship: projecting the sample onto the walker's own row
+
+Argued from the movement rule and *not wrong*: `step_chain` only offers a
+forward cone of three, and that cone's mean horizontal displacement is exactly
+`DIRS[h].0` for every heading, including zero at N and S. It recovers a correct,
+correctly-signed reading on the four diagonals, and where the sample lands
+somewhere readable it roughly **doubles** how usable the reading is.
+
+**It costs the thing it was built to buy.** 36 seeds, gap 90, `arms=hand`,
+paired within seed against the engine with **neither** half — a third ablation
+value added for exactly this, because `off` disables only the projection and a
+two-value switch would have compared "both" against "one of them" and called the
+difference the repair:
+
+| | round trips | ants reaching food | colony alive |
+|---|---|---|---|
+| **readability test alone** | 11/10/15, 16/9/11 | 23/12/1, 24/9/3 | 22/8/6, 23/8/5 |
+| **...plus the projection** | **7/17/12, 9/17/10** | 31/4/1, 26/10/0 | **34/2/0**, 27/8/1 |
+
+*(two figures per cell: bed A `refill=400`, bed B `refill=2000`)*
+
+The projection is the **best arm on this line for colony survival** — 34 seeds
+better and 2 worse is the strongest single sign test in this report — and the
+**worst for round trips, on both beds**.
+
+**The mechanism is the terrain argument arriving as data.** Six cells along the
+walker's own row is air whenever the ground dips, and the lab bed is not flat:
+an ant roams eight rows and changes level on ~17% of its ticks. The projection
+trades *"looking six rows up at the sky"* for *"looking six cells along at the
+sky over a hollow"*. The readability test catches both, so neither lies — the
+projection simply does not put the nose on the ground more often on real ground.
+
+***Re-test when:*** the sample **follows the surface** rather than the row —
+walking out from the head along the substrate, which is right on flat ground,
+slopes, trunks and tunnels alike. Priced as a bounded search per sample per
+creature per tick and not yet measured.
+
+### What the repair bought, and what it did not
+
+| | bed A | bed B |
+|---|---|---|
+| freeze run, median / p90 | 9 → 6 / 117 → 70 | 12 → 6 / 61 → 44 |
+| ants reaching food, paired | **23/12/1** | **24/9/3** |
+| colony alive, paired | **22/8/6** | **23/8/5** |
+| **round trips, paired** | **11/10/15** | **16/9/11** |
+
+**Freeze runs roughly halve and the colony is materially better off — and round
+trips do not move.** That is the predicted result, not a surprise: unfreezing an
+ant makes it *move*, it does not *aim* it. An ant told nothing walks at the
+"no readable gradient" rate and explores; it finds food and survives, which is
+what `reached` and `alive` say. Aiming is the next mechanism, and the one this
+section does not contain.
+
+### Two instrument findings worth more than the arms
+
+**A measurement that keeps its own copy of the thing it measures will eventually
+measure the copy.** `trailfollow`'s heading census restated
+`(x + dx*so, y + dy*so)` from `DIRS`. The moment `sense` stopped sampling there,
+the census went on labelling every tick by a cell nothing reads — and reported
+the repair as inert. Caught only because the numbers barely moved. The helper is
+now `pub` and the harness calls it.
+
+**And `a_speculated_read_phase_reproduces_the_serial_world_exactly` is blind to
+a `sense` / `sense_read_rects` divergence.** Measured by injecting exactly that
+omission and watching it stay green. It compares two world hashes over a 40-ant
+bed, so it fires only if a neighbour happens to dirty the divergent cell inside
+the speculation window. Replaced for this fault by
+`the_declared_footprint_contains_the_trail_sensor_cell`, which asserts the
+contract structurally over every heading — and which had to be **tightened to
+the sensor rects**, because over all rects it passes on a coincidence: the head
+rect happens to be wide enough for this species today, which is no promise about
+where the nose is.
+
+**A third thing I was wrong about, stated because I flagged it as the highest
+risk.** Leaving `sense_read_rects` on the old geometry is structurally harmless:
+a diagonal's projected point **is** its horizontal cone-neighbour's sample
+point, so the projection can never leave the three cells already declared. The
+same structural fact that makes the projection principled, arriving as a safety
+property.
+
+**Data:** `Reports/data/nose-geometry-36seed-2026-09-19.log`.
+
 ## Appendix A. Raw per-seed data
 
 Kept in full because outcomes here have enormous spread, and every headline in

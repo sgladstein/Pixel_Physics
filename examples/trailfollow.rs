@@ -2264,7 +2264,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 // census went on labelling ticks by a cell nothing reads --
                 // reporting the repair as inert. `false` because a laden forager
                 // is walking, never airborne.
-                let (ax, ay) = creature::trail_sample_point(hx, hy, s.heading, sensor_offset, false);
+                let (ax, ay) = creature::trail_sample_point(hx, hy, s.heading, sensor_offset, false, creature::sensor_projected());
                 let here_a = w.pheromone_at(Channel::A, hx, hy);
                 let ahead_a = w.pheromone_at(Channel::A, ax, ay);
                 let solid_at = |cx: i32, cy: i32| {

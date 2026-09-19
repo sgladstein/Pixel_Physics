@@ -1,7 +1,19 @@
 # Ants
 
-*Current as of: 2026-09-19, when **the way home stopped fading before an ant
-could walk it.** The two scents a colony lays now keep for different lengths
+*Current as of: 2026-09-19, when **an ant stopped being told the trail was
+weak in directions it could not actually smell.** Its nose points wherever its
+body points, and six of the eight ways it can face point six cells into open
+sky or solid rock -- places no ant has ever walked, so no scent can be there.
+It read nothing and was told "the trail is much weaker that way", firmly, and
+stood still waiting for a better direction: nine ticks at a time on average,
+and once for five hundred. The nose now says *nothing there* rather than *not
+that way*. Ants stand around about half as long, more of them find food, and a
+colony is several times likelier to be alive at the end of a run. What it does
+**not** do is get them home more often -- an ant that is no longer frozen
+wanders rather than heads anywhere, and the pointing-the-right-way half is the
+next thing. See "They lay two scents, and the two do not keep" below. Before
+that the same day, **the way home stopped fading before an ant could walk
+it.** The two scents a colony lays now keep for different lengths
 of time, which they never did. The food scent still fades on the old schedule
 and has to: it is news about a patch, and a trail to a patch that has been
 eaten goes on calling ants to it until it fades. The way home is not news —
