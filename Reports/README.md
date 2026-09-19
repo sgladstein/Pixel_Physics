@@ -4265,16 +4265,14 @@ untracked; the branch `perf-audit` is **zero commits ahead of `main`** and
 never held the report at all; and a worktree's name is not its branch's name
 (plant-branch-angle lives in a worktree called `plant-crown`).
 
-- The nest-digging plan, the digging-signals biology and the build plan —
-  **`origin/claude/sweet-tesla-ommknn`** (no PR, 14 ahead / 37 behind) and
-  **`origin/claude/nest-biology-research`** (PR #472). The first branch is
-  the one to watch: besides `nest-digging-plan-2026-09-19.md` it carries
-  `examples/digbox.rs` — the bare box every measurement in the nest line is
-  taken in — plus two default-off, bit-exact switches in `src/sim/creature.rs`
-  (`PIXEL_PHYSICS_NEST_SITE_ROWS`, `PIXEL_PHYSICS_CROWDING_LOCAL`) and the
-  lane handoff. **Finished work with no PR is invisible work**, which is what
-  `branchcheck.sh --prs` exists to say; the dimensional audit indexed above
-  names tests that can only run against that harness.
+- The digging-signals biology and the build plan —
+  **`origin/claude/nest-biology-research`** (PR #472). Two research reports
+  on what regulates an ant's dig, and the staged plan built from them. The
+  branch that carried the harness beside them
+  (`origin/claude/sweet-tesla-ommknn`) **landed 2026-09-19 as PR #474**, so
+  `examples/digbox.rs` and its two default-off switches are on `main` and
+  indexed above; it sat finished with no PR for a day, which is what
+  `branchcheck.sh --prs` exists to catch.
 - ~~`origin/perf-lock`~~ — **RETIRED 2026-08-25, not landed.** Its report is
   now in this directory (indexed above) and its two generalising findings are
   `CLAUDE.md` rules. What stays unlanded is the machine-wide timing lock
