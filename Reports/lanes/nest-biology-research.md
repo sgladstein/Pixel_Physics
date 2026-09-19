@@ -18,8 +18,8 @@ what is addressed to another lane** — per `docscheck`'s own cap rule.
 
 ## For whoever picks the nest build up
 
-**`Reports/nest-digging-plan-2026-09-19.md` on `claude/sweet-tesla-ommknn` is
-the plan.** Mine defers to it in four places and its Stage 0 is blocking —
+**[`Reports/nest-digging-plan-2026-09-19.md`](../nest-digging-plan-2026-09-19.md)
+is the plan** — it landed on `main` 2026-09-19, after mine was written. Mine defers to it in four places and its Stage 0 is blocking —
 `roofed` undercounts the nest ~3x because a gallery with an ant in it is not
 materially `EMPTY`, and `burrow_probe`, `latecensus` and `lab::census` all
 share the blind spot. Read `nest-build-plan` §0a for the full comparison.

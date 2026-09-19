@@ -29,9 +29,9 @@ and a when-to-widen (§4.3).
 ## 0a. Amended the same day — this plan is partly superseded, and defers
 
 **A parallel lane, `claude/sweet-tesla-ommknn`, spent the night measuring and
-has already written `Reports/nest-digging-plan-2026-09-19.md` — **on that
-branch, not yet on `main`, which is why it is named here rather than linked**
-— plus landed instruments (`examples/digbox.rs`) and default-off switches.
+has already written [`nest-digging-plan-2026-09-19.md`](nest-digging-plan-2026-09-19.md)
+— **landed on `main` 2026-09-19, after this plan was written** — plus
+instruments (`examples/digbox.rs`) and default-off switches.
 Its plan is better than this one in four places. Read both; where they
 conflict, theirs wins.**
 
