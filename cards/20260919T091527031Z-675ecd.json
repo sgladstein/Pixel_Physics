@@ -1,0 +1,45 @@
+{
+  "id": "20260919T091527031Z-675ecd",
+  "created": "2026-09-19T09:15:27Z",
+  "board": "nest",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/exciting-meitner-epyvsg",
+    "commit": "6f68baba",
+    "agent": null,
+    "session_id": "c8cc8dbf-dbea-58e7-a3bc-e15c27c48c68",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "What a colony actually digs, with nothing to do but dig",
+  "question": "Does this read as an ant nest to you, or as a heap with a scrape under it?",
+  "context_md": "`examples/digbox` — a bare box of stone, soil and air. **No food, no plants, no weather, no predators**, so the only thing an ant can do with its life is walk and dig. 300 ants, 6,000 frames.\n\nI have spent the night testing three ways to make this dig downward and **all three failed**: narrowing the nest door (the narrowest door gives the *widest* workings), biasing the dig target downward (refuted from the code — the cell an ant digs is the cell it then steps into, so steering the dig breaks the thing that makes tunnels), and steering the walk by soil moisture (the unchanged control beat all four arms).\n\nWhat the numbers say is that **nothing concentrates**: turn the general urge to dig down and the colony just digs less, in the same shape. It never becomes a shaft.\n\n**What I want from you is the thing I cannot get from a number** — whether this is even the right complaint. I have been calling it \"a shallow lens\", but looking at it, most of the work is *above* the old ground line. If what bothers you is the heap rather than the shallowness, that is a different problem and I should be attacking a different thing.\n\nThe pale dotted strip at the surface is the nest door.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "300 ants, 6,000 frames, nothing to do but dig",
+      "files": [
+        "20260919T091527031Z-675ecd/000-colony.png"
+      ],
+      "caption": "The original ground line is where the blue meets the brown at the left and right edges.",
+      "meta": {
+        "cells dug out": 2749,
+        "cells of open room left below the old ground line": 137,
+        "ants standing in that room": 586,
+        "cells piled up above the old ground line": 638,
+        "how deep the workings reach": "14 rows",
+        "how wide they spread": "175 columns",
+        "tall-vs-wide (a shaft would be above 1)": 0.08
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
