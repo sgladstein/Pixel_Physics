@@ -1,0 +1,55 @@
+{
+  "id": "20260919T121444347Z-795aec",
+  "created": "2026-09-19T12:14:44Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/upbeat-shannon-cez0w4",
+    "commit": "58653ddd",
+    "agent": null,
+    "session_id": "78593697-4004-5579-bdf8-690d34ca43f4",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The way home now keeps; the way to dinner still fades",
+  "question": "When you play a colony, does the traffic read like ants that know the way back -- or like a line painted on the ground that nobody is walking?",
+  "context_md": "**What changed.** The two scents a colony lays used to fade at the same speed, and that speed was set by what a *food* trail needs. A laden ant walks home very slowly -- it wanders and is nudged back on course rather than steered -- so the way-home scent was gone from the far end of a route before the next ant got there. It now keeps. The food scent is untouched and has to be: given the same keeping, a third as many ants ever find food at all, because the colony walks to a patch it has already eaten.\n\n**The pictures are the homing scent itself along one route** -- x is distance from the nest (left) out to the food (right), each row down is a later moment, brightness is how much scent is on the ground. Same bed, same seed, same ants, same brightness scale on both.\n\n**What I could not show you, and why.** I wanted to send you the colony itself rather than a plot of the scent. `filmstrip` turns out never to step the pheromone planes at all -- so every scene it has ever drawn with ants in it showed a trail that cannot fade, spread or move. Filed as bug Z30 and not fixed here, because eight branches are sitting in that file. It means any earlier card judging trails off a `scene=colony` sheet was judging something else.\n\n**Already measured, so you do not need to check it:** it is not a frame cost (pheromone tiles per pass 16.7 -> 17.4, mean frame unmoved), and the scent still forgets -- a mark left alone still blurs to nothing, it just takes a walk's worth of time to do it.\n\n**The honest gap.** The colony's food intake drops about a third on this bed. That does not clear a sign test over 36 seeds and births and starvations are flat, so it is unresolved rather than a cost -- but it is the thing I would most want your eye on.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before -- both scents fade together",
+      "files": [
+        "20260919T121444347Z-795aec/000-panel-shipped.png"
+      ],
+      "caption": "the way home, at the old fading. Mostly bare ground.",
+      "meta": {
+        "route a homebound ant can read": "13.6%",
+        "ants that reached food and got home": "0.88%",
+        "trail still worth reading after": "0.49 of a round trip"
+      },
+      "focus": null
+    },
+    {
+      "label": "after -- the way home keeps",
+      "files": [
+        "20260919T121444347Z-795aec/001-panel-rho0.png"
+      ],
+      "caption": "same bed, same seed, same brightness scale.",
+      "meta": {
+        "route a homebound ant can read": "53.2%",
+        "ants that reached food and got home": "14.84%",
+        "trail still worth reading after": "1.06 of a round trip",
+        "better on": "23 of 36 seeds, 6 worse, 7 tied"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
