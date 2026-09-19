@@ -250,6 +250,26 @@ fn main() {
     if interior == 0 {
         world.set_enclosure(None);
     }
+    // **`stem=off|authored|full` -- the stem-stiffness selector, headlessly.**
+    // `World::stem_mode` was reachable only from a keypress in `app.rs`, so
+    // the one question this selector exists to answer -- *does it change what
+    // a species looks like* -- could not be put in front of anyone from a
+    // cloud session at all.
+    //
+    // **`authored` is the arm that matters and it is not the same as
+    // `full`.** The existing `STEM_STIFFNESS` env forces one number onto
+    // every order of every species; the authored values are per species and
+    // per order (`tree` [1.0, 0.9, 0.8, 0.7], `shrub` [0.7, 0.55]), so a
+    // forced 1.0 answers a different question -- "can the mechanism be seen
+    // at all", which is what `StemMode::Full` is already for.
+    if let Some(mode) = arg::<String>("stem") {
+        world.stem_mode = match mode.as_str() {
+            "authored" | "on" => pixel_physics::sim::plant::StemMode::Authored,
+            "full" => pixel_physics::sim::plant::StemMode::Full,
+            "off" => pixel_physics::sim::plant::StemMode::Off,
+            other => panic!("stem= wants off|authored|full, got {other:?}"),
+        };
+    }
     // **The light schedule, as a knob, because it is the game's largest
     // lever** — 2.4x reproduction at full amplitude against a day/night
     // cycle (design guide §2). `LabBox` holds it at the measured-brightest

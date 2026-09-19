@@ -812,6 +812,58 @@ stem alone in open water has nothing to hide it. Put back to him as card
 `20260919T040421647Z-ff514c` rather than flipped: a world-wide selector is not
 a species' decision.
 
+### The two follow-ups the owner asked for, 2026-09-19
+
+**1. A seed no longer hangs on a stem with water under it.**
+`update::fall_through_organism` was widened to accept a landing the falling
+cell would *sink through*, using the same `is_displaceable() && src_density >
+dst_density` condition `try_move` already applies on the way down — reused
+rather than restated so the two cannot drift.
+
+**The blast radius is small by construction**, which is the reason it is a
+widening and not a new rule: nothing changes for a cell no denser than the
+liquid beneath it, so `litter` (0.3) still rafts on a puddle under a tree, and
+packed ground is `Powder`/`Solid` and not displaceable at any density, so the
+drift piled against a trunk that this scan exists to protect is untouched.
+Guarded by `a_sinking_seed_passes_a_stem_but_a_floating_one_rafts_on_it`,
+whose three arms are exactly those cases; written against the fault and
+watched go red.
+
+**Standing seeds on tissue went 13 → 8** at 20,000 frames, which is a smaller
+move than it looks and the reason is worth stating: `seed_half_life` is 2,400,
+so **no seed survives to 20,000 frames**. The remainder is turnover — seeds in
+flight at the moment of the census — not a population of permanently wedged
+ones. Before the seed cut the same count was 121, and those *were* permanent.
+
+**2. The stem-stiffness switch, measured on all four land species that
+author one** — `labshot` gained `stem=off|authored|full` to make this askable
+headlessly at all; `World::stem_mode` was previously reachable only from a
+keypress in `app.rs`.
+
+**It is not "looks identical", and more importantly it is not cosmetic.** Five
+founders each, 30,000 frames (grass 20,000), same seed, same binary:
+
+| | cells, off → authored | biggest single plant |
+|---|---|---|
+| tree | 22,201 → 20,729 | 6,029 → 5,016 |
+| conifer | 24,886 → 24,705 | 6,075 → 6,492 |
+| shrub | 6,260 → **3,458** | 1,821 → 1,636 |
+| grass | 3,735 → **6,754** | 57 → **701** |
+
+Shrub loses 45% of its mass; a single grass plant becomes **twelve times
+bigger** and its roots reach 87 rows down against 11. That follows from the
+mechanism rather than contradicting it — a straighter stem covers more ground
+per unit of growth budget, which is the same reason the reed reaches 68 cells
+above the waterline against 13 — but it means **every constant tuned against
+these four was tuned against the wandering version**. `CLAUDE.md`'s *a correct
+mechanism at inherited constants is a regression*, and this is the shape of it.
+
+So flipping the default globally is **not** the cheap change it looked like
+when the only evidence was the reed. Put to the owner as card
+`20260919T053836494Z-d06e8e` with both options: flip it and re-check four
+species, or give the reed a private route to its authored value and leave them
+alone.
+
 ### What is not settled, and is on a card
 
 The mechanism is not in doubt; the **silhouette** is. The stand reads more like

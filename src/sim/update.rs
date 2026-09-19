@@ -1367,6 +1367,33 @@ fn fall_through_organism<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: 
             return try_move(surface, x, y, x, probe);
         }
         if here.organism_id() == 0 {
+            // **Not air and not tissue — but a liquid this cell would sink
+            // through is still a landing.** Same condition `try_move` itself
+            // applies on the way down (`is_displaceable` and strictly
+            // greater density), reused rather than restated so the two
+            // cannot drift apart; `try_move` then does the swap.
+            //
+            // **Why this was missing, and what it cost.** The scan was
+            // written for litter dropping through a tree crown, where the
+            // far side of the tissue is air. Nothing grew *inside water*
+            // until the reed (Phase 1 of the aquatic plan), and under a reed
+            // in a pond there is no air — there is water — so a seed that
+            // landed on a stem was wedged for the rest of the run with a
+            // clear path to the sediment below it. Measured on
+            // `the_pond_reeds.ron` at 20,000 frames: **121 of 550 seeds**
+            // resting on reed tissue.
+            //
+            // **The blast radius is small by construction**, which is why
+            // this is a widening rather than a new rule: it changes nothing
+            // for a cell no denser than the liquid under it, so `litter`
+            // (0.3) still rafts on a puddle under a tree exactly as before,
+            // and the packed ground this scan must refuse is `Powder` or
+            // `Solid` and not displaceable at all — the drift piled against
+            // a trunk that the paragraph above protects is untouched.
+            let hk = surface.materials().kind(here.material);
+            if hk.is_displaceable() && surface.materials().density(cell.material) > surface.materials().density(here.material) {
+                return try_move(surface, x, y, x, probe);
+            }
             return false;
         }
     }
@@ -3447,6 +3474,72 @@ mod tests {
         for _ in 0..frames {
             step(w);
         }
+    }
+
+    /// **A seed heavy enough to sink does not hang on a stem with water
+    /// under it.**
+    ///
+    /// `fall_through_organism` scans down through tissue for *air*, and
+    /// "stops dead at the first cell that is neither air nor organism-owned".
+    /// That is right for litter dropping through a tree crown. Under a reed
+    /// standing in a pond there is no air — there is water — so a seed that
+    /// landed on a stem was wedged with a clear path to the sediment below
+    /// it. Measured on `the_pond_reeds.ron` before the widening: **121 of
+    /// 550 seeds** resting on reed tissue.
+    ///
+    /// **Three arms, and the last two are the ones that make it a test
+    /// rather than a demonstration.** The easy wrong fix is to make the scan
+    /// accept anything that is not solid:
+    ///
+    /// - `reedseed` (1.15) over water (1.0) **must** sink — it is denser, so
+    ///   the normal fall would carry it through that cell anyway.
+    /// - `litter` (0.3) over water **must not** — lighter than water, so it
+    ///   rafts, exactly as it did before and still must under a tree beside
+    ///   a puddle.
+    /// - `reedseed` over **soil** must not — packed ground is not a landing
+    ///   at any density, which is the drift-piled-against-a-trunk case the
+    ///   original scan exists to protect.
+    #[test]
+    fn a_sinking_seed_passes_a_stem_but_a_floating_one_rafts_on_it() {
+        // Returns whether the falling cell left the tissue it started on.
+        let arm = |falling: &str, under: &str| -> bool {
+            let mut w = world_with_floor();
+            let fall_id = w.materials.id_of(falling).unwrap_or_else(|| panic!("{falling} is compiled in"));
+            let under_id = w.materials.id_of(under).unwrap_or_else(|| panic!("{under} is compiled in"));
+            let stem = w.materials.id_of("reedstem").expect("reedstem is compiled in");
+            // A one-cell stem at y=60 owned by an organism, the medium under
+            // it from y=61 down to the floor, and the falling cell resting on
+            // the stem at y=59.
+            w.set(60, 60, Cell::new(stem, 0).with_organism_id(1));
+            for y in 61..127 {
+                w.set(60, y, Cell::new(under_id, 0));
+            }
+            // Walled in, so the only way off the stem is straight through it:
+            // without this the cell slides off diagonally and the arm answers
+            // a question about tumbling rather than about the scan.
+            for y in 55..127 {
+                w.set(59, y, Cell::new(material::STONE, 0));
+                w.set(61, y, Cell::new(material::STONE, 0));
+            }
+            w.set(60, 59, Cell::new(fall_id, 0));
+            run(&mut w, 400);
+            w.get(60, 59).material != fall_id
+        };
+
+        assert!(
+            arm("reedseed", "water"),
+            "a reed seed (density 1.15) stayed wedged on a stem with water (1.0) under it -- the pond case this widening is for"
+        );
+        assert!(
+            !arm("litter", "water"),
+            "litter (density 0.3) sank through water it should raft on -- the widening has been written as \
+'anything that is not solid', which is the easy wrong fix"
+        );
+        assert!(
+            !arm("reedseed", "soil"),
+            "a seed pushed into packed soil -- ground is not a landing at any density, and this is the \
+drift-piled-against-a-trunk case the original scan exists to protect"
+        );
     }
 
     /// **A leaf does not sit on the branch it just let go of.**
