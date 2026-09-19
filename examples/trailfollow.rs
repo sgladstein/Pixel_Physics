@@ -81,6 +81,10 @@ struct Gate {
     on: f32,
     /// `PheroAAlong`/`PheroBAlong` coefficient, `±along` across the pair.
     along: f32,
+    /// Gate sum when the **homing** pair 0/1 is open, where it differs from
+    /// `on`. Every preset but `foodsat` keeps the two pairs mirrored and sets
+    /// this equal to `on`; see `foodsat`.
+    on_home: f32,
 }
 
 /// The candidates §Z7 names, plus the two states of the real file.
@@ -97,20 +101,28 @@ const GATES: &[Gate] = &[
     // (Bias -45, Carrying 45.5) and units 2/3 saturated at Bias 45,
     // Carrying -75. `off`/`on`/`along` are descriptive here and unused --
     // `apply` returns early.
-    Gate { name: "shipped", off: -45.0, on: 0.5, along: 6.0 },
+    Gate { name: "shipped", off: -45.0, on: 0.5, along: 6.0, on_home: 0.5 },
     // `Bias -45, Carrying +75` is `off = -45, on = +30`.
-    Gate { name: "saturated", off: -45.0, on: 30.0, along: 6.0 },
+    Gate { name: "saturated", off: -45.0, on: 30.0, along: 6.0, on_home: 30.0 },
     // §Z7 candidate (a): gate on the slope, symmetric and shallow.
-    Gate { name: "a", off: -4.0, on: 4.0, along: 4.0 },
+    Gate { name: "a", off: -4.0, on: 4.0, along: 4.0, on_home: 4.0 },
     // §Z7 candidate (b): asymmetric, off deep, on on the slope.
-    Gate { name: "b", off: -20.0, on: 4.0, along: 4.0 },
+    Gate { name: "b", off: -20.0, on: 4.0, along: 4.0, on_home: 4.0 },
     // (b) with the two numbers `ant.ron`'s own tuning note measured left
     // where they are: the off depth (45, where the shut pair's leak is
     // 0.004) and the along weight (6, which is where the design's `±3.75`
     // Move swing comes from). Only the on-state moves.
-    Gate { name: "b2", off: -45.0, on: 0.5, along: 6.0 },
+    Gate { name: "b2", off: -45.0, on: 0.5, along: 6.0, on_home: 0.5 },
     // The same at a deeper on-state, to bracket what `on` costs.
-    Gate { name: "b3", off: -45.0, on: 2.0, along: 6.0 },
+    Gate { name: "b3", off: -45.0, on: 2.0, along: 6.0, on_home: 2.0 },
+    // **The deaf food reader with the shipped homing pair** -- what `ant.ron`
+    // carried between 2026-09-09 and `ac02ac03` (2026-09-18), when the food
+    // pair was de-saturated and `b2` became the file. `b2` is a no-op against
+    // today's file (its own `apply` assertion says so), and `saturated` is a
+    // three-change control because it re-saturates the homing pair too. This
+    // is the one-change control for the §Z7 question -- *what does reading
+    // the food trail at full gain buy* -- on a bed with a return leg.
+    Gate { name: "foodsat", off: -45.0, on: 30.0, along: 6.0, on_home: 0.5 },
 ];
 
 /// What `ant.ron` actually carries since 2026-09-09: units 0/1 at `b2`, units
@@ -135,6 +147,7 @@ impl Gate {
     /// 2/3 is the same function of `1 - fill`.
     fn wires(&self) -> Vec<(I, usize, f32)> {
         let carry = self.on - self.off;
+        let carry_home = self.on_home - self.off;
         let mut v = Vec::new();
         // **`CarryingFood`, since 2026-09-18, and this is a correctness fix
         // rather than a rename.** `ant.ron` re-authored both gated pairs onto
@@ -146,7 +159,7 @@ impl Gate {
         // on the first run after the fix and reported `OPEN on 0 of 26,886`.
         for (u, sign) in [(0usize, 1.0f32), (1, -1.0)] {
             v.push((I::Bias, u, self.off));
-            v.push((I::CarryingFood, u, carry));
+            v.push((I::CarryingFood, u, carry_home));
             v.push((I::PheroAAlong, u, sign * self.along));
         }
         for (u, sign) in [(2usize, 1.0f32), (3, -1.0)] {
@@ -1520,7 +1533,11 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             let slot = brain::io_slot(input, output);
             assert!((genome[slot] - w).abs() > f32::EPSILON, "wire {entry} is already what ant.ron holds, so this arm is the shipped one wearing a different name");
             assert!(w == 0.0 || w.abs() >= brain::W_EPS, "wire {entry} is inside W_EPS ({}), so eval_brain would never read it", brain::W_EPS);
+            let was = genome[slot];
             genome[slot] = w;
+            // Echoed, because a rider nobody can see the value of is a rider
+            // nobody can tell is disconnected (`CLAUDE.md`, the megastudy).
+            println!("  wire: {} -> {} = {w} (was {was})", brain::INPUT_NAMES[input as usize], brain::OUTPUT_NAMES[output as usize]);
         }
     }
 
