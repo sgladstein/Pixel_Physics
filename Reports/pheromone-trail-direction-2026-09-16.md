@@ -3946,14 +3946,35 @@ same seed, same bed:
 | | terrain drops on | removed |
 |---|---|---|
 | pickups / losses | 17 / 16 | **2 / 1** |
-| mean hold | 104 ticks | **1,464** |
+| mean hold | 104 **frames** | **1,464 frames** |
 | longest hold | 570 | 1,740 |
 | digestions | 2 | **32** |
-| ticks lived | 8,891 | 16,985 |
+| frames lived | 8,891 | 16,985 |
 | died at x (nest 48) | 102 | 91 |
 
-Mean hold goes to **five times** the 291 ticks one 960 J cell needs, and the ant
-eats sixteen times more often.
+> **CORRECTED 2026-09-19 — these columns are FRAMES, and this section called
+> them ticks.** The row beneath the table read *"Mean hold goes to five times
+> the 291 ticks one 960 J cell needs"*, and it is wrong by
+> `CreatureDef::tick_interval`, which is **6** for the ant. The focal-ant CSV
+> writes one row per **frame** — `examples/trailfollow.rs` pushes inside the
+> per-frame organism sweep — while §7.29's 291 is in **ticks**, because
+> `digest_rate: 3.3` is charged once per tick.
+>
+> One 960 J `fruit` cell therefore needs **291 ticks = 1,746 frames**. The
+> post-fix mean hold of 1,464 frames is **244 ticks — less than one cell**, so
+> the shipped ant holds its food for about **0.84 of a digestion**, not 5x.
+>
+> **Verified against two long-lived ants rather than re-derived on paper**
+> (seed 1, gap 90, `hand`): one laden for 7,693 frames = 4.41 cells' worth of
+> clock recorded **4** completed digestions, and one laden for 8,718 frames =
+> 4.99 cells' worth recorded **5**. The model is exact.
+>
+> **Every duration in this section and §7.38 is in frames.** Divide by 6 before
+> comparing any of them against §7.29, and see §7.42 for what the corrected
+> arithmetic implies about the return leg.
+
+Mean hold goes to **0.84 of** the 291 ticks (1,746 frames) one 960 J cell needs,
+and the ant eats sixteen times more often.
 
 ### Step 2 — the digestion timer survives an empty crop
 
@@ -4550,12 +4571,106 @@ journey.
 and `legs-{shipped,hb1}-18seed-gap90-2026-09-19.log`, whose `LEGS` lines carry
 every raw sample the table pools.
 
-**And it sits above the hold.** §7.35 measured a post-fix mean hold of 1,464
-ticks on the focal ant. A median laden leg of ~1,850 against that is the shape
+**And it sits above the hold — corrected 2026-09-19.** §7.35 measured a post-fix
+mean hold of 1,464 **frames** (it said ticks; see the correction block there). A median laden leg of ~1,850 against that is the shape
 of the remaining failure — the journey outlasts the meal that pays for it — and
 it is offered as the comparison to make next rather than as a demonstrated
 mechanism, because the two numbers come from different beds and one of them is a
 single ant.
+
+## §7.42 The ant at the larder: the gate opens onto nothing, and the plane stops 25 cells short
+
+**2026-09-19.** Traced tick by tick, on the owner's question: an ant with
+`Carrying` at 1.0000 and the homing gate open — what is it deciding instead of
+going home, and why?
+
+### What it does
+
+Ant 16, seed 1, gap 90, `hand`. Longest gate-open run 1,728 frames (288 decision
+ticks) at x≈131, food at 138, nest band ending at 74.
+
+```
+frame    x   heading   moved  p_move  PheroAAlong    h0      h1   trail_term
+21552  131   S              0.3134     0.0000     0.3333  0.3333    0.0000
+21558  131   SE       NO    0.3114     0.0000     0.3333  0.3333    0.0000
+21588  131   NE       NO    0.2941     0.0000     0.3333  0.3333    0.0000
+21648  131   SW       NO    0.3608     0.0000     0.3333  0.3333    0.0000
+21684  131   N        NO    0.3899     0.0000     0.3333  0.3333    0.0000
+```
+
+`moved` is **NO on every tick**. The heading spins through all eight directions
+and no step is taken; net displacement over the window is **2 cells**.
+
+**Why each choice comes out that way.** `PheroAAlong` is **0.0000**, so `h0` and
+`h1` pin at a constant **0.3333** and their contribution to `Move` is
+**0.0000** — the homing pair is wired in and carrying nothing. What is left is
+`(Bias, +2.0)`, `(Energy, −1.75)` and `(FoodAdjacent, −1.16)`, giving
+`move_presquash` −0.60..−0.26 and P(move) 0.31–0.40. `p_tumble` is a flat
+**0.5000**, an uninformed re-roll. A stationary random walker.
+
+### The control, and it is decisive
+
+The one cohort member that went home, at the **same x**:
+
+| | `PheroAAlong` | P(move) facing home | facing away | net x |
+|---|---|---|---|---|
+| ant 16 (stayed) | 0.0000 flat | 0.5480 | 0.5352 | 131 → 129 |
+| ant 19 (went home) | −0.012 … +0.015 | **0.4099** | **0.2557** | 131 → **119** |
+
+`ant.ron` calls that ratio *"the homing mechanism"*. It is intact. Its input is
+zero.
+
+### Why the input is zero — and the first answer was wrong
+
+**Outbound ants lay the plane.** An earlier reading on this branch said it never
+extends because no ant returns to lay it; that is false and `aprofile` (added
+with this section) shows it directly. Seed 1, gap 90, amplitude along the route:
+
+```
+f=6000  63:155  68:1351  73:2011  78:1135  83:837  88:715  93:916
+        98:1768 103:595 108:590 113:1784 | 118:27  123:4  128:12  133:0  138:0
+```
+
+Strong and continuous from the nest to **x≈113**, about 85% of the way, then a
+cliff. **133 and 138 read 0 in every sample of every window.** The food is at
+138 and the ants that reach it stand at 128–138 — past the edge.
+
+**It is transient as well as short.** Down to 21–120 across the whole route by
+f=7500 and zero nearly everywhere by f=9000. The traced window above is
+f=21,552, long after anything existed anywhere.
+
+### The loop that holds the edge short
+
+Two rules colliding, both already in the engine:
+
+1. **Deposits happen only on a successful move** — `creature.rs`,
+   `if moved { ..deposit.. }`. A stationary ant lays nothing.
+2. **Arriving at food is what stops an ant moving** — `(Energy, Move, −1.75)`
+   and `(FoodAdjacent, Move, −1.16)` both bite at once on a fed ant standing on
+   the larder.
+
+So: reach food → fed and on food suppress `Move` → stop walking → **deposit
+nothing** → no channel A at the larder → no homing gradient → no reason to move
+→ stay stationary. **The plane's outer edge sits where ants are still walking,
+and arrival is what ends walking**, so it cannot reach the thing ants walk
+toward.
+
+**It is not density.** The far band is the *most* crowded of the eight, at 127
+per 1k. The ants are there; they are not moving.
+
+### What this predicts, and the cheap test
+
+An ant that kept moving at the larder would lay the missing stretch itself. That
+is testable as an **ablation switch** rather than a genome edit — zero
+`(FoodAdjacent, Move)` for one arm and read `aprofile` at 128–138 — and it is
+the control to run before proposing any change to the wires.
+
+**Instruments added for this**: `focaln=N` (cohort tracing with an `id` column,
+because one ant is n=1), the return ledger, and `aprofile`/`aprofevery`/
+`aprofstep`. A `p_tumble` column bug was found and fixed on the way: it printed
+the raw brain output clamped instead of `unit_scale`d, reading **0.0000 on every
+row of every ant**, whose obvious reading — *the ants never change direction* —
+is the opposite of the truth.
 
 ## Appendix A. Raw per-seed data
 
