@@ -203,6 +203,61 @@ pub const DIFFUSE: f32 = 0.25;
 /// this number.
 pub const DECAY_RHO: f32 = 0.03;
 
+/// **How fast channel A forgets — zero, so diffusion alone erases it.**
+/// Against `DECAY_RHO`'s 0.03, which channel B keeps.
+///
+/// `ALARM_RHO` below already establishes that a plane's lifetime belongs to
+/// what the plane is *for*: **a trail is a map and an alarm is an event.**
+/// This splits the trail planes on the same axis, because the two jobs a
+/// colony gives them are not the same job either. Channel B is *news* — this
+/// patch has food now — and its decay is the lever `set_channel_rho`'s own doc
+/// wants against §Z7's failure, a trail that outlives its patch and keeps
+/// recruiting to an exhausted one. Channel A is the way **home**, and a nest
+/// does not move.
+///
+/// **Measured, 36 seeds at gap 90** (`pheromone-trail-direction-2026-09-16.md`
+/// §7.46). Sweeping this alone, 0.03 → 0.01 → 0.005 → 0: what a laden ant
+/// facing home can read off the plane runs **13.6% → 20.5% → 27.9% → 53.2%**
+/// of route cells, and the share of ants that reach the larder and then get
+/// home again runs **0.88% → 14.84%**, paired sign test **23 better / 6 worse /
+/// 7 tied**. Monotone in both, which is why this is a measurement and not a
+/// setting somebody liked.
+///
+/// **Only zero works, and the reason is how slowly this ant walks.** A laden
+/// ant nets about **0.014 cells per tick** homeward at best, so a 90-cell walk
+/// is tens of thousands of frames — 2,000 decay passes at
+/// [`PHEROMONE_INTERVAL`]. `0.995^2000` is 4.5e-5: at any non-zero rate the
+/// homing plane is gone between one ant's visit and the next, which is exactly
+/// what §7.42 found on the ground (median amplitude **0** from 30 cells out).
+///
+/// **It does not mean the plane never forgets**, and that is the part to read
+/// before raising it back. `examples/ascii scene=pheromone` is the control and
+/// is titled for this claim: at rho 0 a blob still reaches max **0 by frame
+/// 4,000** and the plane still sleeps, because a 3x3 mean of a thin trail
+/// rounds to nothing. Diffusion is the eraser — [`Pheromones::set_channel_diffuse`]'s
+/// doc measures it at **16.7% per pass against decay's 2.9%** — and what this
+/// constant was adding was a second, faster eraser on top of one that already
+/// worked.
+///
+/// **Cost, because it is the obvious objection**: a tile sleeps only at max 0,
+/// so a slower plane keeps tiles awake. Measured on `ascii scene=ants`, 12,000
+/// frames: **16.7 → 17.4 tiles per pass**, a 4% rise, with the mean frame
+/// unmoved at 0.78 ms.
+///
+/// **What is not settled**, in the order it matters. Channel A is the homing
+/// plane only because a species *wires* it that way — the 2026-09-02 genome
+/// refactor exists to make that the species' choice — so the honest end state
+/// is a lifetime per species rather than per channel, and this constant is the
+/// measurement standing in for it. And the colony's intake falls a median
+/// third on this bed with a sign test of 15/21, which is unresolved rather than
+/// flat; §7.46 has the table.
+///
+/// ***Do not simply set this back to `DECAY_RHO`.*** The pair is asymmetric on
+/// purpose: rho 0 on channel **B** is measured at a third as many ants ever
+/// reaching the food, because that is the trail that has to be able to go
+/// stale.
+pub const TRAIL_A_RHO: f32 = 0.0;
+
 /// Deposit per successful move, of 255. A trail a dozen ants share should
 /// sit well below saturation — differential reinforcement *is* the
 /// path-selection algorithm, and it clips flat at the ceiling. P-14: if
@@ -819,10 +874,24 @@ pub struct Pheromones {
     pub stats: PheromoneStats,
 }
 
+/// **The ablation for [`TRAIL_A_RHO`]** — `PIXEL_PHYSICS_A_RHO`, unset meaning
+/// the shipped value.
+///
+/// It is here rather than behind [`Pheromones::set_channel_rho`] because the
+/// question it exists for is a **frame cost**, and the instrument that answers
+/// that is `examples/ascii`, which builds its world through `new` and has no
+/// way to reach a setter afterwards. It is also what puts the old behaviour
+/// back in one run, which is how §7.46's whole table was taken and how anyone
+/// arguing the constant back can do it with a number.
+fn a_rho() -> f32 {
+    static V: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_A_RHO").ok().and_then(|s| s.parse().ok()).unwrap_or(TRAIL_A_RHO))
+}
+
 impl Pheromones {
     pub fn new(bounds: Rect) -> Self {
         Self {
-            planes: [PheromonePlane::new(bounds), PheromonePlane::new(bounds)],
+            planes: [PheromonePlane::with_params(bounds, DIFFUSE, a_rho()), PheromonePlane::new(bounds)],
             alarm: None,
             bounds,
             alarm_rho: ALARM_RHO,
@@ -1542,18 +1611,36 @@ mod tests {
         // the only one with a spread that could be biased in the first
         // place. This is `CLAUDE.md`'s "ask what a metric counts when
         // nothing is wrong", twice over.
-        let mut p = plane_world();
-        for i in 0..24 {
-            for y in 80..120 {
-                p.deposit(Channel::A, 63, y, DEPOSIT);
-                p.deposit(Channel::B, 64, y, DEPOSIT);
+        // **One channel, two worlds -- and the two-channel version of this
+        // test broke the day the planes stopped sharing a decay rate.** It
+        // used channel A's line on the left and channel B's on the right,
+        // which is a true mirror only while both planes forget at the same
+        // speed; `TRAIL_A_RHO` made them differ and the assertion started
+        // reporting that difference as a seam bias (60,830 against 57,894).
+        // Widening the bar would have been the wrong repair, because the arms
+        // were no longer mirrored at all. `CLAUDE.md`: adding a member to a
+        // set enrols it in every rule over that set, silently -- here the set
+        // is "things that assume the two trail planes are interchangeable".
+        //
+        // Two worlds cost one more allocation and make the test independent
+        // of every plane constant, which is what it was always claiming to be.
+        let line = |x: i32| {
+            let mut p = plane_world();
+            for i in 0..24 {
+                for y in 80..120 {
+                    p.deposit(Channel::A, x, y, DEPOSIT);
+                }
+                p.step(i as u64 * PHEROMONE_INTERVAL, PHEROMONE_INTERVAL);
             }
-            p.step(i as u64 * PHEROMONE_INTERVAL, PHEROMONE_INTERVAL);
-        }
+            p
+        };
+        // Last column of tile 0, and first column of tile 1.
+        let l = line(63);
+        let r = line(64);
 
         for d in 0..8 {
-            let left = p.sample(Channel::A, 63 - d, 100);
-            let right = p.sample(Channel::B, 64 + d, 100);
+            let left = l.sample(Channel::A, 63 - d, 100);
+            let right = r.sample(Channel::A, 64 + d, 100);
             // **A tolerance, and it replaced an `assert_eq!` that was passing
             // for the wrong reason.** At `u8` the two sides were bit-equal at
             // every distance -- and measured after the widening they never
@@ -1577,8 +1664,8 @@ mod tests {
         }
         // And the spread genuinely crossed the seam, or every assertion
         // above was comparing two columns of zeroes.
-        assert!(p.sample(Channel::A, 65, 100) > 0, "channel A's line at x=63 never spread past the seam at x=64 -- the symmetry check above was vacuous");
-        assert!(p.sample(Channel::B, 62, 100) > 0, "channel B's line at x=64 never spread back past the seam");
+        assert!(l.sample(Channel::A, 65, 100) > 0, "the line at x=63 never spread past the seam at x=64 -- the symmetry check above was vacuous");
+        assert!(r.sample(Channel::A, 62, 100) > 0, "the line at x=64 never spread back past the seam");
     }
 
     #[test]
@@ -1670,5 +1757,51 @@ mod tests {
         assert_eq!(p.stats.passes, 0, "off-interval frames must not run a pass");
         p.step(PHEROMONE_INTERVAL, PHEROMONE_INTERVAL);
         assert_eq!(p.stats.passes, 1);
+    }
+
+    /// **The two trail planes have different lifetimes on purpose, and this
+    /// is what goes red if somebody gives them the same one again.**
+    ///
+    /// See [`TRAIL_A_RHO`]: channel A is the way home and a nest does not
+    /// move, channel B is news about a patch and has to be able to go stale.
+    /// Setting A back to `DECAY_RHO` is a one-line edit that nothing else in
+    /// this file would notice — `ascii`'s decay scene passes at either value,
+    /// because diffusion drains the plane either way, which is the whole
+    /// finding.
+    ///
+    /// **Written against the replacement, not the original** (`CLAUDE.md`):
+    /// the assertion is on the two planes *differing*, so it fails both for
+    /// A being sped back up and for B being slowed down to match, rather than
+    /// pinning one number that a future re-derivation would have to fight.
+    /// Injected both ways before it was trusted.
+    ///
+    /// The deposit is a single cell, which is the case that matters: a trail
+    /// an ant lays once and comes back to. It is read at the deposit cell so
+    /// what is measured is retention rather than spread.
+    #[test]
+    fn the_homing_plane_outlives_the_food_trail() {
+        let mut p = plane_world();
+        p.deposit(Channel::A, 100, 100, DEPOSIT);
+        p.deposit(Channel::B, 100, 100, DEPOSIT);
+        // Long enough for decay to separate them and short enough that
+        // diffusion has not taken both to zero -- at 40 passes the shipped
+        // rate has removed 70% on its own.
+        passes(&mut p, 40);
+        let a = p.sample(Channel::A, 100, 100);
+        let b = p.sample(Channel::B, 100, 100);
+        assert!(
+            a > b,
+            "the homing plane is not outlasting the food trail: A {a} against B {b}. \
+             If the two planes have been given the same rho, read TRAIL_A_RHO's doc \
+             before deciding which one was wrong"
+        );
+        // ...and by a margin a walking ant could use, not by one raw unit.
+        // `PHEROMONE_INTERVAL`'s doc prices a trip at hundreds of passes, so a
+        // separation that is merely non-zero at 40 is not the property.
+        assert!(
+            a >= b * 2,
+            "A {a} is not twice B {b} after 40 passes -- the planes differ but not \
+             by enough for the homing plane to survive a trip an ant can walk"
+        );
     }
 }

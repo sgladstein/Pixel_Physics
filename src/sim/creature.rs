@@ -1256,7 +1256,7 @@ const FOOTING_MAX: f32 = 1.2;
 /// replaced: that literal was arbitrary, and it is the number that decides
 /// whether a creature commutes or mills. Handing it to the genome and
 /// letting measurement pick is the entire point of the change.
-const PERSIST_MAX: f32 = 2.0;
+pub const PERSIST_MAX: f32 = 2.0;
 
 // `TUMBLE_ON_FAILED_MOVE` is gone: it is `BrainOutput::Tumble` now. The
 // lesson it recorded still stands and is worth keeping — "how often do I
@@ -4603,8 +4603,25 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         // ant past `nest_memory` used to contribute nothing at all.
         let emit_a = outputs[brain::BrainOutput::EmitA as usize].clamp(0.0, 1.0);
         let emit_b = outputs[brain::BrainOutput::EmitB as usize].clamp(0.0, 1.0);
-        world.deposit_pheromone(Channel::A, hx, hy, (emit_a * pheromone::DEPOSIT as f32) as pheromone::Scent);
-        world.deposit_pheromone(Channel::B, hx, hy, (emit_b * pheromone::DEPOSIT as f32) as pheromone::Scent);
+        // **Where the mark goes: the head it arrived on, or the cell it just
+        // left.** `PIXEL_PHYSICS_DEPOSIT_AT=vacated` is a measurement switch
+        // for `open-bugs-handoff.md` §Z29, and it defaults to the shipped
+        // `head` so an unset environment is bit-identical.
+        //
+        // §Z29: depositing at the head means `sense` reads that same cell as
+        // `here` on the next tick, so the cell underfoot is the freshest thing
+        // in the neighbourhood and `along = (ahead - here) / ...` is **negative
+        // whichever way the animal faces**. Measured on laden ants, facing the
+        // nest yields a homeward reading on **1-8% of ticks**, and `here >
+        // ahead` on 75-87% of them. The animal's own trail blinds its own
+        // homing sensor.
+        //
+        // `vacated` puts the mark on the ground already walked, which is also
+        // the physical reading of laying a trail as you go. It does not touch
+        // P-11 -- the deposit still happens only on a successful move.
+        let (dx_, dy_) = if deposit_at_vacated() { (x, y) } else { (hx, hy) };
+        world.deposit_pheromone(Channel::A, dx_, dy_, (emit_a * pheromone::DEPOSIT as f32) as pheromone::Scent);
+        world.deposit_pheromone(Channel::B, dx_, dy_, (emit_b * pheromone::DEPOSIT as f32) as pheromone::Scent);
         // **Laying a trail costs, and until 2026-09-05 it did not.** Charged
         // on the sum of both planes and in proportion to what was actually
         // put down, so a whisper is cheaper than a shout -- a per-event
@@ -7795,6 +7812,16 @@ fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
         return (site.x - x).abs() <= nest_site_cols().unwrap_or(COLONY_HALF_WIDTH) && (site.surface - y).abs() <= rows;
     }
     NEIGHBOURS_8.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == nest)
+}
+
+/// **Where a trail mark lands — the head, or the cell just vacated.**
+///
+/// `PIXEL_PHYSICS_DEPOSIT_AT=vacated` moves it; anything else, including
+/// unset, keeps the shipped head deposit and is bit-identical. See the deposit
+/// site and `open-bugs-handoff.md` §Z29 for what it is for.
+fn deposit_at_vacated() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DEPOSIT_AT").as_deref() == Ok("vacated"))
 }
 
 /// Local `|grad moisture|`, normalized.

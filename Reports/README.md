@@ -2996,6 +2996,20 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   behaviours as default* — with the knob kept, an `off` control kept for
   measurement, and the constants rivalry reallocates named and re-derived,
   since a correct mechanism at inherited constants is a regression.
+- [ant-survey-trail-reevaluation-2026-09-19.md](ant-survey-trail-reevaluation-2026-09-19.md)
+  — **measurement, 2026-09-19.** Lane T of the ant-survey follow-up round,
+  under the owner's *"don't trust past results"*: the trail line's five
+  rejections re-run on a bed with a return leg (`TRAIL_A_RHO 0`), 36 seeds,
+  paired within seed, each with the clause the original test could not see.
+  What it found: the food-charged `EmitB` odometer is inert at **both** reader
+  gains, scored on recruitment; the food-trail reader's de-saturation
+  (`ac02ac03`, 2026-09-18 — never written back to `dead-ends.md` or the wiki)
+  is the **whole** hand-trail effect, 22 colonies of 36 against 4; the
+  colony's own channel B is a net cost (`carryb=0` is the best arm); channel
+  B's decay band is inert; and a `(Crowding, EmitB, −w)` survival gain is the
+  emission cost falling, shown by the no-emission control. Trophallaxis and
+  the patchy-larder race at twelve seeds, and the laden right-of-way test
+  designed but not built.
 - [pheromone-master-2026-09-17.md](pheromone-master-2026-09-17.md)
   — **master index and plan, 2026-09-17. `engine`.** **The entry point to the
   whole pheromone line** — thirteen reports and two lane notes, ~10,400 lines,

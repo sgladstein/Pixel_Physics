@@ -81,6 +81,10 @@ struct Gate {
     on: f32,
     /// `PheroAAlong`/`PheroBAlong` coefficient, `±along` across the pair.
     along: f32,
+    /// Gate sum when the **homing** pair 0/1 is open, where it differs from
+    /// `on`. Every preset but `foodsat` keeps the two pairs mirrored and sets
+    /// this equal to `on`; see `foodsat`.
+    on_home: f32,
 }
 
 /// The candidates §Z7 names, plus the two states of the real file.
@@ -97,28 +101,41 @@ const GATES: &[Gate] = &[
     // (Bias -45, Carrying 45.5) and units 2/3 saturated at Bias 45,
     // Carrying -75. `off`/`on`/`along` are descriptive here and unused --
     // `apply` returns early.
-    Gate { name: "shipped", off: -45.0, on: 0.5, along: 6.0 },
+    Gate { name: "shipped", off: -45.0, on: 0.5, along: 6.0, on_home: 0.5 },
     // `Bias -45, Carrying +75` is `off = -45, on = +30`.
-    Gate { name: "saturated", off: -45.0, on: 30.0, along: 6.0 },
+    Gate { name: "saturated", off: -45.0, on: 30.0, along: 6.0, on_home: 30.0 },
     // §Z7 candidate (a): gate on the slope, symmetric and shallow.
-    Gate { name: "a", off: -4.0, on: 4.0, along: 4.0 },
+    Gate { name: "a", off: -4.0, on: 4.0, along: 4.0, on_home: 4.0 },
     // §Z7 candidate (b): asymmetric, off deep, on on the slope.
-    Gate { name: "b", off: -20.0, on: 4.0, along: 4.0 },
+    Gate { name: "b", off: -20.0, on: 4.0, along: 4.0, on_home: 4.0 },
     // (b) with the two numbers `ant.ron`'s own tuning note measured left
     // where they are: the off depth (45, where the shut pair's leak is
     // 0.004) and the along weight (6, which is where the design's `±3.75`
     // Move swing comes from). Only the on-state moves.
-    Gate { name: "b2", off: -45.0, on: 0.5, along: 6.0 },
+    Gate { name: "b2", off: -45.0, on: 0.5, along: 6.0, on_home: 0.5 },
     // The same at a deeper on-state, to bracket what `on` costs.
-    Gate { name: "b3", off: -45.0, on: 2.0, along: 6.0 },
+    Gate { name: "b3", off: -45.0, on: 2.0, along: 6.0, on_home: 2.0 },
+    // **The deaf food reader with the shipped homing pair** -- what `ant.ron`
+    // carried between 2026-09-09 and `ac02ac03` (2026-09-18), when the food
+    // pair was de-saturated and `b2` became the file. `b2` is a no-op against
+    // today's file (its own `apply` assertion says so), and `saturated` is a
+    // three-change control because it re-saturates the homing pair too. This
+    // is the one-change control for the §Z7 question -- *what does reading
+    // the food trail at full gain buy* -- on a bed with a return leg.
+    Gate { name: "foodsat", off: -45.0, on: 30.0, along: 6.0, on_home: 0.5 },
 ];
 
-/// What `ant.ron` actually carries since 2026-09-09: units 0/1 at `b2`, units
-/// 2/3 still `saturated`. Named separately rather than added to `GATES`
-/// because a `Gate` is by construction a mirrored pair of pairs, and the
-/// landed state deliberately is not one -- which is the finding.
+/// What `ant.ron` carried between 2026-09-09 and 2026-09-18: units 0/1 at
+/// `b2`, units 2/3 still `saturated`. Named separately rather than added to
+/// `GATES` because a `Gate` was by construction a mirrored pair of pairs, and
+/// that landed state deliberately was not one -- which was the finding.
+/// **Since `ac02ac03` the file is `b2` on both pairs** (the owner's argument:
+/// only laden ants lay channel B, so an eaten patch stops being marked and
+/// its trail dies on its own); the asymmetric state survives as the
+/// `foodsat` preset, which is what the 2026-09-19 re-evaluation raced the
+/// shipped animal against.
 const LANDED_NOTE: &str =
-    "landed 2026-09-09: units 0/1 = b2 (off -45, on +0.5, along 6); units 2/3 = saturated (off -45, on +30, along 6). See open-bugs-handoff.md Z7.";
+    "landed 2026-09-09: units 0/1 = b2 (off -45, on +0.5, along 6); units 2/3 saturated (off -45, on +30) until ac02ac03 (2026-09-18) de-saturated them to b2 as well -- so `gate=b2` is a no-op against the file since, and `gate=foodsat` is the pre-09-18 animal. See open-bugs-handoff.md Z7 and ant-survey-trail-reevaluation-2026-09-19.md.";
 
 fn gate_by_name(n: &str) -> Gate {
     *GATES
@@ -135,6 +152,7 @@ impl Gate {
     /// 2/3 is the same function of `1 - fill`.
     fn wires(&self) -> Vec<(I, usize, f32)> {
         let carry = self.on - self.off;
+        let carry_home = self.on_home - self.off;
         let mut v = Vec::new();
         // **`CarryingFood`, since 2026-09-18, and this is a correctness fix
         // rather than a rename.** `ant.ron` re-authored both gated pairs onto
@@ -146,7 +164,7 @@ impl Gate {
         // on the first run after the fix and reported `OPEN on 0 of 26,886`.
         for (u, sign) in [(0usize, 1.0f32), (1, -1.0)] {
             v.push((I::Bias, u, self.off));
-            v.push((I::CarryingFood, u, carry));
+            v.push((I::CarryingFood, u, carry_home));
             v.push((I::PheroAAlong, u, sign * self.along));
         }
         for (u, sign) in [(2usize, 1.0f32), (3, -1.0)] {
@@ -735,6 +753,18 @@ struct Arm {
     /// `leg_n` is the pairing `CLAUDE.md` asks for: it must equal
     /// `round_trips`, and a gap between them means legs are being dropped
     /// rather than journeys being short.
+    /// **The return ledger.** `reached` is ants that got within `near` of the
+    /// food at all; `returned` is those that then reached the nest band; the
+    /// last two split those returns by whether anything was being carried.
+    read_ok: u64,
+    read_away: u64,
+    read_n: u64,
+    lit: u64,
+    lit_n: u64,
+    reached: usize,
+    returned: usize,
+    trips_laden: u64,
+    trips_empty: u64,
     leg_n: usize,
     leg_med: u64,
     leg_p90: u64,
@@ -1040,6 +1070,13 @@ struct Track {
     /// larder. Taking the first arrival instead measures the visit plus the
     /// walk, which on a bed where ants linger at food is mostly the visit.
     left_food: u64,
+    /// **Round trips that closed with larder in the crop, and without.** The
+    /// pair answers the question `trips` alone cannot: an ant that reaches the
+    /// food, turns round and walks home EMPTY has made a round trip and
+    /// provisioned nothing. Counting those as foraging is how an exposure
+    /// number turns into a foraging one.
+    trips_laden: u32,
+    trips_empty: u32,
     /// The frame this ant last picked larder up, `0` for never. Paired with
     /// `left_food` so the leg can be split by whether there was anything in
     /// the crop to carry — a walk home with an empty crop is not the laden
@@ -1091,6 +1128,48 @@ fn mute_channel_b(g: &mut [f32]) -> usize {
 /// blob would make the control a measurement of the ants again, which is the
 /// one thing a control may not be. Everywhere else `EmitA` is left alone for
 /// the reason `mute_channel_b` gives.
+/// Author a `Bias` weight that makes an output land on a chosen *behavioural*
+/// value, rather than asking the caller to pre-compose `squash` and
+/// `unit_scale` in their head.
+///
+/// `Bias` is 1.0 (`creature.rs:4887`), so with no other wire onto this output
+/// the creature uses `unit_scale(squash(w), scale)` = `((w / (1 + |w|)) + 1) / 2
+/// * scale`. Inverting: `s = 2 * value / scale - 1`, `w = s / (1 - |s|)`.
+///
+/// **The inverse is checked forward before it is trusted**, because a solve
+/// that is quietly wrong produces an arm that ran at a value nobody chose and
+/// says nothing -- the tidiest possible way to lose a night. The assertion is
+/// the positive control `CLAUDE.md` asks for, run on every call rather than
+/// once in a test.
+fn set_via_bias(g: &mut [f32], out: O, value: f32, scale: f32, name: &str) {
+    assert!(
+        value > 0.0 && value < scale,
+        "{name}={value} is outside the open range (0, {scale}) this output can reach: the endpoints need an infinite weight, and a saturated arm is not the value it is named for"
+    );
+    let s = 2.0 * value / scale - 1.0;
+    let w = s / (1.0 - s.abs());
+    let got = brain::unit_scale(brain::squash(w), scale);
+    assert!(
+        (got - value).abs() < 1e-3,
+        "{name}: solved weight {w} gives {got}, not {value} -- the inverse is wrong and this arm would run at a value nobody chose"
+    );
+    let slot = brain::io_slot(brain::BrainInput::Bias, out);
+    assert!(
+        (g[slot] - w).abs() > f32::EPSILON,
+        "{name}={value} is already what the Bias->{out:?} slot produces, so this arm is the shipped one wearing a different name"
+    );
+    // A weight under `W_EPS` is no connection at all -- `eval_brain` skips it
+    // -- so a value that solves to a near-zero weight is silently the default.
+    // That is exactly `value == scale / 2`, which is what both these outputs
+    // already are, so it is the likeliest thing a caller types by accident.
+    assert!(
+        w.abs() >= brain::W_EPS,
+        "{name}={value} solves to weight {w}, inside W_EPS ({}) -- eval_brain would skip the wire and the creature would run at the silent default",
+        brain::W_EPS
+    );
+    g[slot] = w;
+}
+
 fn mute_channel(g: &mut [f32], out: O) -> usize {
     let mut moved = 0;
     for i in 0..brain::BRAIN_INPUTS {
@@ -1138,7 +1217,31 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let width = (half_band + gap + 60).max(256);
     let spec = LabBox { width, height: 192, ground_y: 96, soil_depth: 48, founders: 0, colonies: 0, seed, ..LabBox::default() };
     let mut w = spec.build();
+    // **Channel A's persistence, before any ant walks.** See the rider docs.
+    if let Some(r) = arg::<f32>("arho") {
+        w.pheromones.set_channel_rho(Channel::A, r);
+    }
+    if let Some(d) = arg::<f32>("adiffuse") {
+        w.pheromones.set_channel_diffuse(Channel::A, d);
+    }
+    // **`brho` exists to keep the shipping question honest.** If the homing
+    // plane wants a longer life than the food trail, the engine has to say
+    // which plane is which -- and the whole point of the 2026-09-02 genome
+    // refactor was that A is the homing plane only because a species wires it
+    // that way. So the alternative worth measuring is that *neither* trail
+    // plane decays and diffusion alone sets both lifetimes, which needs no
+    // per-channel rule at all. `set_channel_rho`'s own doc wants decay as §Z7's
+    // lever against a trail that outlives its patch, which is the argument on
+    // the other side; this rider is what lets the two be compared rather than
+    // argued.
+    if let Some(r) = arg::<f32>("brho") {
+        w.pheromones.set_channel_rho(Channel::B, r);
+    }
     let species_id = w.species.id_of("ant").expect("the ant species is compiled in");
+    // The ant's own sensor reach, so the readability metric asks what THIS
+    // animal reads rather than what a chosen constant would.
+    let sensor_span: i32 =
+        w.species.get(species_id).creature.as_ref().map_or(6, |c| c.sensor_offset);
     let mut genome = w.species.get(species_id).genome.clone();
     let moved = gate.apply(&mut genome);
     assert!(gate.name == "shipped" || moved > 0, "gate {} changed no slot, so both arms carry one genome", gate.name);
@@ -1326,16 +1429,121 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         );
         genome[slot] = b;
     }
+
+    // --- run length: the two outputs nothing has ever authored -------------
+    //
+    // **`Tumble` is not a new lever, it is a measured constant that lost its
+    // value in a refactor.** `dead-ends.md:1083` records the number:
+    // re-orienting on *every* failed move roll took food discovery from 33
+    // pickups to **1**, and `TUMBLE_ON_FAILED_MOVE = 0.35` was the fix. That
+    // const became `BrainOutput::Tumble`, whose silent output is
+    // `unit_scale(0.0, 1.0)` = **0.5** -- and `ant.ron` authors no `Tumble`
+    // wire, so the shipped ant re-rolls its heading on half of its failed move
+    // rolls against an authored answer of 0.35. `creature.rs`'s own note says
+    // the point was to let a creature be selected for its answer; nothing ever
+    // selected one, so the ant inherited the default rather than the finding.
+    //
+    // **And the failed move roll is most of this ant's life.** Measured over
+    // five cohort traces, the engine's `P(move)` is exactly zero on **48-72%**
+    // of ticks, so a 0.5 tumble is a heading re-roll about every third tick
+    // *while standing still*. That is what the run-length census reads back:
+    // mean run **3.1-3.4 ticks and 0.35 cells** -- the heading turns over six
+    // times faster than the body moves. A run-and-tumble ratchet that works by
+    // stalling an ant pointed the wrong way cannot accumulate anything if the
+    // stalled ant immediately re-rolls the heading it was stalled for.
+    //
+    // `persist` is the same shape one level down: the straight-ahead score in
+    // `step_chain`'s three-candidate choice, an anonymous `0.15` until it
+    // became `BrainOutput::Persist` with a silent **1.0** (`PERSIST_MAX` 2.0,
+    // half scale). Its own doc calls it "the number that decides whether a
+    // creature commutes or mills" and says handing it to measurement was the
+    // entire point.
+    //
+    // Both riders take the value the creature will *use*, not a weight, and
+    // solve for the `Bias` weight that produces it -- `squash` and `unit_scale`
+    // between the author and the behaviour is exactly the gap this section's
+    // headline bug lived in, and a rider quoting weights would reopen it.
+    if let Some(v) = arg::<f32>("tumble") {
+        set_via_bias(&mut genome, O::Tumble, v, 1.0, "tumble");
+    }
+    if let Some(v) = arg::<f32>("persist") {
+        set_via_bias(&mut genome, O::Persist, v, pixel_physics::sim::creature::PERSIST_MAX, "persist");
+    }
+    // **The gradient into `Tumble`, which is what `BrainOutput::Tumble`'s own
+    // doc asks for**: "tumble more when crowded, *less when on a good
+    // gradient*". Negative weight, so a positive `along` -- the ant facing up
+    // the homing ramp -- suppresses the re-roll and the run survives to be
+    // walked. This is the cheap spatial form; the temporal comparator is the
+    // version that works where the plane is flat, and it needs a hidden unit.
+    if let Some(a) = arg::<f32>("tumblegrad") {
+        let slot = brain::io_slot(brain::BrainInput::PheroAAlong, O::Tumble);
+        assert!(
+            (genome[slot] - a).abs() > f32::EPSILON,
+            "tumblegrad={a} is already what the PheroAAlong->Tumble slot holds, so this arm is the shipped one wearing a different name"
+        );
+        assert!(
+            a.abs() >= brain::W_EPS,
+            "tumblegrad={a} is inside W_EPS ({}), so eval_brain would skip the wire and this arm would be the shipped one",
+            brain::W_EPS
+        );
+        genome[slot] = a;
+    }
+
     // **Takes a value so it cannot be a silent no-op**, and asserts the wire it
     // is removing was actually there: `carryb=0` on a genome that has already
     // lost that wire is an arm wearing a name for something it did not do.
+    //
+    // **`CarryingFood`, not `Carrying` -- corrected 2026-09-19, and the
+    // assertion above is what found it.** `ant.ron`'s emitter was
+    // `(Carrying, EmitB, 2.5)` when this rider was written and became
+    // `(CarryingFood, EmitB, 2.5)` in `1f7b6f95` the next day ("the homing
+    // gate reads food, not dirt"). Those are two different `BrainInput`
+    // variants -- 12 and 30 -- so the rider went on zeroing a slot that was
+    // already zero, which is exactly the "arm wearing a name for something it
+    // did not do" this assertion exists to refuse. `dead-ends.md`'s
+    // food-odometer entry says re-running it costs one command; it did not,
+    // and the only reason that is a five-minute correction rather than a
+    // silently wrong table is that the check was written to take a value and
+    // fail loudly on a no-op.
     if let Some(c) = arg::<f32>("carryb") {
-        let slot = brain::io_slot(brain::BrainInput::Carrying, O::EmitB);
+        let slot = brain::io_slot(brain::BrainInput::CarryingFood, O::EmitB);
         assert!(
             (genome[slot] - c).abs() > f32::EPSILON,
             "carryb={c} is already what the Carrying->EmitB slot holds, so this arm is the shipped one wearing a different name"
         );
         genome[slot] = c;
+    }
+    // **`wire=<Input>:<Output>:<weight>[,...]` -- any direct wire, in
+    // `labstats`' / `creature_arena` / `labforage`'s own spelling**, so the
+    // survey's one-line candidates (`(Crowding, EmitB, -w)`, Czaczkes 2013)
+    // can be raced here without a species-file edit. Same refusal as every
+    // rider above: a value the file already holds is the shipped arm under a
+    // different name, and a weight inside `W_EPS` is a wire `eval_brain`
+    // never reads.
+    if let Some(spec) = arg_str("wire") {
+        for entry in spec.split(',') {
+            let bits: Vec<&str> = entry.split(':').collect();
+            assert_eq!(bits.len(), 3, "wire entry {entry:?} wants Input:Output:weight, e.g. wire=Crowding:EmitB:-1.0");
+            let input = brain::INPUTS
+                .iter()
+                .copied()
+                .find(|i| brain::INPUT_NAMES[*i as usize].eq_ignore_ascii_case(bits[0]))
+                .unwrap_or_else(|| panic!("unknown input {:?}; known: {:?}", bits[0], brain::INPUT_NAMES));
+            let output = brain::OUTPUTS
+                .iter()
+                .copied()
+                .find(|o| brain::OUTPUT_NAMES[*o as usize].eq_ignore_ascii_case(bits[1]))
+                .unwrap_or_else(|| panic!("unknown output {:?}; known: {:?}", bits[1], brain::OUTPUT_NAMES));
+            let w: f32 = bits[2].parse().unwrap_or_else(|_| panic!("wire weight {:?} does not parse", bits[2]));
+            let slot = brain::io_slot(input, output);
+            assert!((genome[slot] - w).abs() > f32::EPSILON, "wire {entry} is already what ant.ron holds, so this arm is the shipped one wearing a different name");
+            assert!(w == 0.0 || w.abs() >= brain::W_EPS, "wire {entry} is inside W_EPS ({}), so eval_brain would never read it", brain::W_EPS);
+            let was = genome[slot];
+            genome[slot] = w;
+            // Echoed, because a rider nobody can see the value of is a rider
+            // nobody can tell is disconnected (`CLAUDE.md`, the megastudy).
+            println!("  wire: {} -> {} = {w} (was {was})", brain::INPUT_NAMES[input as usize], brain::OUTPUT_NAMES[output as usize]);
+        }
     }
 
     let surface = spec.ground_y - 2;
@@ -1554,6 +1762,32 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // ant standing ON the trail follow it", which is the question the arm is
     // for. `focalx=N` picks the ant nearest x = N at selection time.
     let focal_x: Option<i32> = arg("focalx");
+    // **`focaln=N` follows a COHORT instead of one ant, and one ant is the
+    // thing this instrument could never answer with.** A single trace is n=1 in
+    // a chaotic system: it says what *an* ant did, and the question "why does
+    // nobody reach food at gap 200" is about the population, not about a
+    // protagonist. The rows carry an `id` column so they split per animal.
+    //
+    // The cohort is taken at first sighting, spread across the founding band
+    // rather than all from one end -- `focalany` takes the westernmost founder,
+    // which is off the hand-laid trail entirely, so a cohort drawn the same way
+    // would be five ants all answering the same unrepresentative question.
+    let focal_n: usize = arg("focaln").unwrap_or(0);
+    // **The channel A amplitude profile along the route, every `aprofevery`
+    // frames.** See the dump site for why a gradient reading cannot answer it.
+    let a_profile = flag("aprofile");
+    let a_prof_every: u64 = arg("aprofevery").unwrap_or(2000);
+    let a_prof_step: usize = arg("aprofstep").unwrap_or(10);
+    // **`arho=` / `adiffuse=` -- channel A's persistence, per plane.**
+    // `Pheromones::set_channel_rho` / `set_channel_diffuse` reach either trail
+    // plane individually and had no caller outside the pheromone harnesses.
+    // They are here because the register's re-test conditions on both
+    // constants are met: `dead-ends.md:1202` holds them "for a u8 plane with a
+    // 3x3 mean kernel; a wider-precision plane would need re-sweeping", and
+    // the `u8` -> `u16` widening landed 2026-09-15 without either being
+    // re-swept. **B is deliberately untouched** -- a food trail and a homing
+    // ramp want different lifetimes, and moving both at once measures neither.
+
     let mut tr_n = 0u64;
     let mut tr_along_sum = 0.0f64;
     // **The magnitude, separately, because the signed mean cannot answer "is
@@ -1587,17 +1821,22 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     //   2. steps taken while `along > 0` must actually go HOME -- the ramp
     //      points the right way. If (1) holds and (2) does not, the ant is
     //      faithfully following a gradient to the wrong place.
-    let mut tr_up = (0u64, 0.0f64, 0i64); // n, sum P(move), sum cells homeward
-    let mut tr_down = (0u64, 0.0f64, 0i64);
-    let mut tr_flat = (0u64, 0.0f64, 0i64);
+    // n, sum P(move), sum cells homeward, **ticks the engine's P(move) is not
+    // zero**. The fourth field is the half the first three could not see: the
+    // roll `creature.rs` makes is `clamp(out, 0, 1)`, so most of this ant's
+    // ticks sit at a hard zero and a mean over them averages in cells where the
+    // homing term is disconnected. See the `p_move` note at its assignment.
+    let mut tr_up = (0u64, 0.0f64, 0i64, 0u64);
+    let mut tr_down = (0u64, 0.0f64, 0i64, 0u64);
+    let mut tr_flat = (0u64, 0.0f64, 0i64, 0u64);
     // **The same split again, restricted to decisions where the homing gate is
     // actually OPEN** -- and that is the one that can answer whether the ramp
     // points the right way. With the gate shut the pair is saturated and cannot
     // respond to `PheroAAlong` at all, so any correlation between the gradient
     // and where the ant went is something else moving it, and reading a
     // direction off the pooled rows would be reading a confound.
-    let mut tr_up_open = (0u64, 0.0f64, 0i64);
-    let mut tr_down_open = (0u64, 0.0f64, 0i64);
+    let mut tr_up_open = (0u64, 0.0f64, 0i64, 0u64);
+    let mut tr_down_open = (0u64, 0.0f64, 0i64, 0u64);
     // **Is the homing gate even OPEN while the ant carries food?**
     //
     // Units 0/1 are a gated pair: `Bias + Carrying*w`, and the pair only leaves
@@ -1628,8 +1867,8 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // an order of magnitude larger, so either they do not convert or the shut
     // 98% is cancelling them. Those want different repairs and no aggregate
     // printed so far can tell them apart.
-    let mut tr_open = (0u64, 0.0f64, 0i64);
-    let mut tr_shut = (0u64, 0.0f64, 0i64);
+    let mut tr_open = (0u64, 0.0f64, 0i64, 0u64);
+    let mut tr_shut = (0u64, 0.0f64, 0i64, 0u64);
     // **Of the gate-open decisions, how many are an ant holding DIRT.**
     // `SPOIL_IS_CARGO` is a measurement switch (default ON) rather than the
     // food/spoil split the roadmap remembers, so `Carrying` is
@@ -1655,6 +1894,11 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         }
     };
     let mut focal = None;
+    // **The cohort, and the stride that spreads it.** `cohort_stride` is set
+    // once the founding span is known; until then members are admitted by
+    // column so the five are not five neighbours.
+    let mut cohort: Vec<pixel_physics::sim::cell::OrganismId> = Vec::new();
+    let mut cohort_next_x = i32::MIN;
     let mut focal_rows: Vec<String> = Vec::new();
     let nest_cells = {
         let nest = w.materials.id_of("nest");
@@ -1721,6 +1965,19 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // as the raw samples rather than a running mean: outcomes here have
     // enormous spread, so the median and p90 are what can be quoted and a mean
     // over a long tail is not.
+    // **What an ant walking home could actually READ, accumulated over the
+    // run.** The time-averaged amplitude profile is not what an animal sees:
+    // measured 2026-09-19, the plane is a scatter of decaying bursts whose
+    // MEDIAN is 0 from x=78 outward, so a mean profile describes a ramp no ant
+    // ever stands on. This counts, per sampled frame and per route cell, the
+    // reading an ant facing the nest would get -- and whether it clears a bar
+    // an animal has been observed to act on (the cohort member that homed did
+    // it on `along` ~0.01).
+    let mut read_ok = 0u64;
+    let mut read_away = 0u64;
+    let mut read_n = 0u64;
+    let mut live_cells_n = 0u64;
+    let mut live_cells_lit = 0u64;
     let mut legs: Vec<u64> = Vec::new();
     let mut laden_legs: Vec<u64> = Vec::new();
     for f in 1..=frames {
@@ -1764,6 +2021,50 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             }
             a_peak_amt = a_peak_amt.max(amt);
             a_peak_cells = a_peak_cells.max(cells);
+            // Facing home is -x here, so `ahead` is the cell one sensor length
+            // toward the nest. The guard matches `sense`'s.
+            for x in nest_x..=target_x {
+                let here = w.pheromone_at(Channel::A, x, surface) as f32;
+                let ahead = w.pheromone_at(Channel::A, x - sensor_span, surface) as f32;
+                let along = (ahead - here) / (ahead + here + pixel_physics::sim::pheromone::SCALE as f32);
+                read_n += 1;
+                if along >= 0.02 {
+                    read_ok += 1;
+                }
+                // **The same reading taken facing the other way, and it is a
+                // discriminator rather than a second statistic.** The homeward
+                // figure alone cannot tell two very different planes apart: a
+                // ramp that points at the FOOD (§7.15's polarity inversion --
+                // then foodward is high and homeward low) and a plane that is
+                // a scatter of local maxima (then BOTH are low, because an ant
+                // standing on a mound reads downhill in every direction). The
+                // laden traces put the down:up ratio at 14-20:1, which needs
+                // one of those two explanations and the columns as they stood
+                // could not say which.
+                let behind = w.pheromone_at(Channel::A, x + sensor_span, surface) as f32;
+                let away = (behind - here) / (behind + here + pixel_physics::sim::pheromone::SCALE as f32);
+                if away >= 0.02 {
+                    read_away += 1;
+                }
+                live_cells_n += 1;
+                if here > 0.0 {
+                    live_cells_lit += 1;
+                }
+            }
+            // **`aprofile` dumps the plane itself, not what an ant read off
+            // it.** `PheroAAlong` is a GRADIENT -- ahead minus here -- so a
+            // 0.0000 reading means *flat*, which a plane that is absent and a
+            // plane that is saturated both produce. Reading the amplitude
+            // against x is the only thing that tells those two apart, and the
+            // question "does an outbound ant lay this all the way to the food"
+            // is about the amplitude.
+            if a_profile && f.is_multiple_of(a_prof_every) {
+                let cols: Vec<String> = (nest_x..=target_x)
+                    .step_by(a_prof_step)
+                    .map(|x| format!("{}:{}", x, w.pheromone_at(Channel::A, x, surface)))
+                    .collect();
+                println!("    APROF f={f} {}", cols.join(" "));
+            }
             if cells > 0 {
                 let (mut sm, mut n) = (0.0f64, 0u64);
                 let (mut sm_both, mut n_both) = (0.0f64, 0u64);
@@ -1922,7 +2223,26 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 (None, true) => focal.is_none(),
                 (None, false) => carrying_larder && focal.is_none(),
             };
-            if tracing && (carrying_larder || focal == Some(id) || take_as_focal) {
+            // **Cohort admission, by column, at first sighting.** Spread over
+            // the founding band: an ant is admitted only if it stands at least
+            // `relay/focal_n` columns east of the last one taken, so the five
+            // sample the colony rather than its western edge.
+            if focal_n > 0 && cohort.len() < focal_n && !cohort.contains(&id) {
+                // **The stride spans the FOUNDING BAND, not `relay`.** The
+                // first cut divided `relay` here, which is the trail re-laying
+                // interval in *frames* -- a number with no business setting a
+                // distance in columns. It happened to give 10 and spread the
+                // cohort over x 12..72, so it looked right; `relay=600` would
+                // have put all six on the same ant. `ants * 3` is the span
+                // `plant_creature_seed_in` actually lays founders over below.
+                let stride = ((ants * 3) / focal_n as i32).max(1);
+                if cohort_next_x == i32::MIN || hx >= cohort_next_x {
+                    cohort.push(id);
+                    cohort_next_x = hx + stride;
+                }
+            }
+            let in_cohort = cohort.contains(&id);
+            if tracing && (in_cohort || carrying_larder || focal == Some(id) || take_as_focal) {
                 // **The focal ant is the first to pick larder up**, traced for
                 // the rest of its life -- or, under `focalany`, simply the first
                 // ant seen, carrying or not. One ant is n=1 in a chaotic system,
@@ -1951,7 +2271,32 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     e.1 += 1;
                 }
                 let along = tin[I::PheroAAlong as usize];
-                let p_move = brain::unit_scale(tout[O::Move as usize], 1.0) as f64;
+                // **`clamp`, not `unit_scale` -- corrected 2026-09-19, and every
+                // `P(move)` figure in §7.41-§7.44 was in the wrong unit.**
+                // `creature.rs`'s move roll is
+                // `outputs[Move].clamp(0.0, 1.0)`; this line used
+                // `unit_scale(out, 1.0)` = `(out + 1) / 2`, which is the
+                // convention `Tumble`, `Persist` and `Caution` are read with and
+                // `Move` is not. The two differ most exactly where this ant
+                // lives: **every negative `Move` output prints as something
+                // between 0 and 0.5 under `unit_scale` and is rolled as a hard
+                // zero.**
+                //
+                // It was caught by the control that costs nothing -- the traces
+                // already carry positions, so the step rate per bucket says
+                // which function the engine is using. Weighted absolute error
+                // over 13,248 ticks: **1.4 points for `clamp`, 27.7 for
+                // `unit_scale`**. In the four lowest buckets the column claimed
+                // 5-35% and the ants stepped **0 times in 6,819 ticks**.
+                //
+                // The correction is not cosmetic. Under `clamp` the engine's
+                // `P(move)` is **exactly zero on 48-72% of ticks**, and on those
+                // ticks the homing term cannot express itself at all: zero plus
+                // a small number is still zero. So the ratchet that §7.44
+                // reported as a smooth +0.15 is really two mechanisms, and the
+                // harness was reading their sum through a lens that hid the
+                // split -- see §7.45.
+                let p_move = tout[O::Move as usize].clamp(0.0, 1.0) as f64;
                 // The trail's whole contribution: hidden 0/1 are the channel A
                 // pair and nothing else drives `Move` from them.
                 let trail = terms.iter().filter(|(n, _)| n == "h0" || n == "h1").map(|(_, v)| *v).sum::<f32>();
@@ -1985,6 +2330,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 bucket.0 += 1;
                 bucket.1 += p_move;
                 bucket.2 += dx as i64;
+                bucket.3 += u64::from(p_move > 0.0);
                 // The gate's own input, not the mandibles-full one.
                 let carry = tin[I::CarryingFood as usize];
                 tr_carry_hist[((carry * 10.0) as usize).min(9)].add(p_move, dx);
@@ -1993,6 +2339,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 pooled.0 += 1;
                 pooled.1 += p_move;
                 pooled.2 += dx as i64;
+                pooled.3 += u64::from(p_move > 0.0);
                 if open {
                     tr_gate_open += 1;
                     if s.spoil.is_some() {
@@ -2002,16 +2349,18 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                         tr_up_open.0 += 1;
                         tr_up_open.1 += p_move;
                         tr_up_open.2 += dx as i64;
+                        tr_up_open.3 += u64::from(p_move > 0.0);
                     } else if along < -1e-3 {
                         tr_down_open.0 += 1;
                         tr_down_open.1 += p_move;
                         tr_down_open.2 += dx as i64;
+                        tr_down_open.3 += u64::from(p_move > 0.0);
                     }
                 }
                 }
-                if focal == Some(id) {
+                if focal == Some(id) || in_cohort {
                     focal_rows.push(format!(
-                        "{f},{hx},{dx},{},{},{along:.5},{:.5},{:.4},{:.4},{},{},{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.5},{:.5},{:.5},{:.5},{:.5},{:.5},{p_move:.5},{:.5},{trail:.5},{presquash:.5},{:.5},{:.5},{:.5}",
+                        "{id:?},{f},{hx},{hy},{dx},{},{},{along:.5},{:.5},{:.4},{:.4},{},{},{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.5},{:.5},{:.5},{:.5},{:.5},{:.5},{p_move:.5},{:.5},{trail:.5},{presquash:.5},{:.5},{:.5},{:.5}",
                         // **Where this ant thinks home is, and how stale that
                         // is** -- `OrganismState::forage_anchor` / `since_nest`.
                         //
@@ -2060,7 +2409,24 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                         // chance of stepping along the current heading, and this
                         // is the chance of re-rolling it. Reading one without
                         // the other cannot tell "stood still" from "turned".
-                        tout[O::Tumble as usize].clamp(0.0, 1.0),
+                        // **`unit_scale`, not `clamp` -- fixed 2026-09-19, and
+                        // the bug was not cosmetic.** `creature.rs` rolls the
+                        // re-heading against
+                        // `brain::unit_scale(outputs[Tumble], 1.0)`, which is
+                        // `(out + 1) / 2`, so a raw output of **0.0 is a 50%
+                        // tumble chance**. Clamping the raw output instead
+                        // reported **0.0000 on every row of every ant**, and the
+                        // obvious reading of that column -- "the ants never
+                        // change direction, so of course they never find
+                        // anything" -- is the opposite of the truth. `p_move`
+                        // one line up had always scaled correctly, which is what
+                        // made the pair look consistent enough to trust.
+                        //
+                        // **It is a conditional probability and the column
+                        // cannot say so**: `step` only reaches the tumble roll
+                        // in the `else` of a move that did not happen, so this
+                        // is P(re-roll | did not move), not P(re-roll).
+                        brain::unit_scale(tout[O::Tumble as usize], 1.0),
                         // **The drop verb and the two terms that drive it away
                         // from the nest.** `mode=feedgate` computes `drop_urge`
                         // with `MoistureGrad` and `SurfaceCurvature` set to
@@ -2123,6 +2489,11 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     // §7.38 left it at "436-873 ticks by three data points";
                     // these are the two frames it needs, and they were already
                     // being computed for the trip counter.
+                    if t.laden_since > 0 {
+                        t.trips_laden += 1;
+                    } else {
+                        t.trips_empty += 1;
+                    }
                     if t.left_food > 0 && f >= t.left_food {
                         legs.push(f - t.left_food);
                         if t.laden_since > 0 {
@@ -2244,14 +2615,22 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             // averages toward zero on a perfectly good ramp -- see the
             // accumulator's note. It is printed only so a future reader can see
             // it is near zero for the harmless reason.
-            let row = |label: &str, b: (u64, f64, i64)| {
+            let row = |label: &str, b: (u64, f64, i64, u64)| {
                 if b.0 == 0 {
                     println!("      {label:<22} n 0");
                 } else {
+                    // **`not resting` is the column to read first.** The mean
+                    // P(move) mixes two states the engine keeps strictly apart:
+                    // a tick the ant could step on, and a tick where the clamp
+                    // has already decided it will not. `P(move)|>0` is the mean
+                    // over only the first kind, so the pair separates "the
+                    // homing term stopped an ant" from "it sped one up".
                     println!(
-                        "      {label:<22} n {:>8}   P(move) {:.4}   cells homeward {:>8} ({:+.6}/tick)",
+                        "      {label:<22} n {:>8}   P(move) {:.4}   not resting {:>6.1}%   P(move)|>0 {:.4}   cells homeward {:>8} ({:+.6}/tick)",
                         b.0,
                         b.1 / b.0 as f64,
+                        100.0 * b.3 as f64 / b.0 as f64,
+                        if b.3 > 0 { b.1 / b.3 as f64 } else { 0.0 },
                         b.2,
                         b.2 as f64 / b.0 as f64
                     );
@@ -2369,7 +2748,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         if !focal_rows.is_empty() {
             let path = format!("/tmp/trailfollow-focal-seed{seed}-gap{gap}.csv");
             let mut out = String::from(
-                "frame,x,dx_home,anchor_x,since_nest,PheroAAlong,PheroAFront,Carrying,CarryingFood,crop_cells,spoil,heading,Energy,Crowding,AtNest,FoodAdjacent,Stillness,h0,h1,PheroBAlong,PheroBFront,h2,h3,p_move,p_tumble,trail_term,move_presquash,drop_urge,MoistureGrad,SurfaceCurvature\n",
+                "id,frame,x,y,dx_home,anchor_x,since_nest,PheroAAlong,PheroAFront,Carrying,CarryingFood,crop_cells,spoil,heading,Energy,Crowding,AtNest,FoodAdjacent,Stillness,h0,h1,PheroBAlong,PheroBFront,h2,h3,p_move,p_tumble,trail_term,move_presquash,drop_urge,MoistureGrad,SurfaceCurvature\n",
             );
             out.push_str(&focal_rows.join("\n"));
             out.push('\n');
@@ -2446,6 +2825,15 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         visitors: tracks.values().filter(|t| t.visited).count(),
         ants_seen: tracks.len(),
         round_trips: tracks.values().map(|t| t.trips as u64).sum(),
+        read_ok,
+        read_away,
+        read_n,
+        lit: live_cells_lit,
+        lit_n: live_cells_n,
+        reached: tracks.values().filter(|t| t.visited).count(),
+        returned: tracks.values().filter(|t| t.trips > 0).count(),
+        trips_laden: tracks.values().map(|t| u64::from(t.trips_laden)).sum(),
+        trips_empty: tracks.values().map(|t| u64::from(t.trips_empty)).sum(),
         leg_n: legs.len(),
         leg_med: order_stat(&mut legs.clone(), 0.5),
         leg_p90: order_stat(&mut legs.clone(), 0.9),
@@ -2586,7 +2974,7 @@ fn main() {
     // a 1.84% open gate where the same command at the default reports 639,100
     // and 1.25%, and nothing in the header said why. Found 2026-09-18 by an
     // archived log failing to reproduce against a binary that was correct.
-    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill} stop={stop} homebias={} cropcap={} hungergate={}", gate.name, arg::<f32>("homebias").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("cropcap").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("hungergate").map_or("shipped".to_string(), |v| format!("{v}")));
+    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill} stop={stop} homebias={} cropcap={} hungergate={} arho={} brho={} adiffuse={} tumble={} persist={} tumblegrad={}", gate.name, arg::<f32>("homebias").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("cropcap").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("hungergate").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("arho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("brho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("adiffuse").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tumble").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("persist").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tumblegrad").map_or("shipped".to_string(), |v| format!("{v}")));
     println!("  gate {}: off {:+.1}  on {:+.1}  along ±{:.1}", gate.name, gate.off, gate.on, gate.along);
     println!("  {LANDED_NOTE}\n");
 
@@ -2755,6 +3143,16 @@ fn main() {
                         a.ants_seen,
                         a.round_trips,
                         format!("{} {} {} {} {}", a.reach[0], a.reach[1], a.reach[2], a.reach[3], a.reach[4])
+                    );
+                    println!(
+                        "{:>16}A READ  ant-readable homeward along >= 0.02 on {:>5.1}% of route-cell samples | FOODWARD {:>5.1}% | plane lit on {:>5.1}% | peak amt {:>6} cells {:>3}",
+                        "", 100.0 * a.read_ok as f64 / a.read_n.max(1) as f64,
+                        100.0 * a.read_away as f64 / a.read_n.max(1) as f64,
+                        100.0 * a.lit as f64 / a.lit_n.max(1) as f64, a.a_peak_amt, a.a_peak_cells
+                    );
+                    println!(
+                        "{:>16}RETURN LEDGER reached food {:>4} of {:>4} ants | came back {:>4} | trips laden {:>4} empty {:>4}",
+                        "", a.reached, a.ants_seen, a.returned, a.trips_laden, a.trips_empty
                     );
                     if !a.legs_raw.is_empty() {
                         let f = |v: &Vec<u64>| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");

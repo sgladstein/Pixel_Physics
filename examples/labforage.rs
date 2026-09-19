@@ -1832,10 +1832,33 @@ fn main() {
             }
             last = s;
             let st = world.creature_stats;
+            // **The colony's reserve spread, at this stop** -- p10 / p50 / p90
+            // of live animals' energy, in joules. `wiki/ants.md`'s first
+            // trophallaxis measurement said sharing *"flattened the founders'
+            // spread of reserves back into sameness"* and `trophallaxis-design`
+            // §9 says the number to read is the shape of the cliff rather than
+            // the survivor count; neither was a column anywhere, so the claim
+            // could not be re-measured. Three order statistics rather than a
+            // variance, because a colony of two is not a distribution.
+            let mut energies: Vec<f32> = world
+                .live_organism_ids()
+                .into_iter()
+                .filter_map(|id| world.organism(id))
+                .filter(|st| world.species.get(st.species).creature.is_some())
+                .map(|st| st.energy)
+                .collect();
+            energies.sort_by(|a, b| a.total_cmp(b));
+            let q = |p: f64| -> f32 {
+                if energies.is_empty() {
+                    0.0
+                } else {
+                    energies[((energies.len() - 1) as f64 * p).round() as usize]
+                }
+            };
             // One line per sample and every column on it, so the whole run is
             // one greppable block rather than a shape that has to be reread.
             println!(
-                "{f:>7} {:>5} {:>6} {:>7} {:>10.0} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6} | {:>4} {:>4} {:>4} | {:>5} {:>8.0} {:>5} | wfall={} flwr={} frt={} rblm={} rblk={}",
+                "{f:>7} {:>5} {:>6} {:>7} {:>10.0} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6} | {:>4} {:>4} {:>4} | {:>5} {:>8.0} {:>5} | wfall={} flwr={} frt={} rblm={} rblk={} | E10/50/90={:.0}/{:.0}/{:.0} shares={} sharedJ={:.0}",
                 s.ants, s.plants, s.edible, s.worth, s.floor, s.low, s.aloft, s.unvisited,
                 s.by_dist[0], s.by_dist[1], s.by_dist[2], s.by_dist[3],
                 s.ant_high, st.eats, st.births, st.deaths,
@@ -1870,7 +1893,8 @@ fn main() {
                 // (`organ_ripening_blocked`), the same counter the rest of
                 // the organ pipeline uses -- a rebloom that keeps the flower
                 // count up by exploding this instead is not the fix.
-                s.standing_flowers, s.standing_fruit, world.flowers_rebloomed, world.organ_ripening_blocked
+                s.standing_flowers, s.standing_fruit, world.flowers_rebloomed, world.organ_ripening_blocked,
+                q(0.1), q(0.5), q(0.9), st.shares, st.shared_j,
             );
         }
         if handout > 0 && f > 0 && f % handout == 0 {

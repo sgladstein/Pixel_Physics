@@ -1,7 +1,30 @@
 # Ants
 
-*Current as of: 2026-09-19, when **the putting-down of a load stopped
-reading the ground it is put down on.** An ant used to be a little likelier
+*Current as of: 2026-09-19, when **the page caught up with the food route being
+read.** An empty ant has followed the food scent since 2026-09-18, and this
+page said for another day that it was deaf on purpose. The two paragraphs
+under "Coming home" now say what changed, why the old worry answered itself,
+and what the measurement on a bed where laden ants get home says it is
+worth: 22 colonies of 36 alive with a drawn trail against 4 with the deaf
+ant. Also recorded there, because it is the half a reader could wrongly
+infer: the colony's own food scent still recruits nobody and costs the ants
+that lay it.*
+
+*Before that, the same day: 2026-09-19, when **the way home stopped fading before an ant
+could walk it.** The two scents a colony lays now keep for different lengths
+of time, which they never did. The food scent still fades on the old schedule
+and has to: it is news about a patch, and a trail to a patch that has been
+eaten goes on calling ants to it until it fades. The way home is not news —
+a nest does not move — and it was fading on the same schedule, which on the
+measured pace of a laden ant meant it was gone from the far end of a route
+before the next ant got there. What a homebound ant could read off the ground
+went from about one route cell in seven to more than half of them, and the
+share of foragers that reach the food and then get home again went up by
+better than ten times. It still forgets: the scent spreads out as it sits,
+and a thin trail nobody re-lays still blurs away to nothing on its own. See
+"They lay two scents, and the two do not keep" below. Before that the same
+day, **the putting-down of a load stopped reading the ground it is put down
+on.** An ant used to be a little likelier
 to let go where the ground was uneven or drying out; that reflex fired on a
 food heap too — a heap being curved ground — so a forager standing on the
 larder put its dinner back on the larder and never got home with it. Taking
@@ -257,12 +280,15 @@ to plant moved a colony by exactly nothing, twice. **Half of that is fixed and
 the other half turned out not to be worth fixing.** A laden ant now really does
 run home along the home scent, and a trail you draw by hand is followed --
 which is why the scent tool starts on the home scent instead of the food route.
-The food route is still deaf on purpose: making an *empty* ant follow it works
-exactly as designed and makes the colony worse, because the food scent is only
-laid by an ant that has already found something, so a colony that can read it
-crowds onto patches it has already eaten and stops looking anywhere else. Two
-colonies raced side by side in one box, the readers took a quarter of the
-animals against three quarters for the colony that keeps searching at random. **And the
+The food route was deaf on purpose until 2026-09-18, and is not any more: an
+empty ant now follows the food scent as readily as a laden one follows the
+home scent. The reason it was left deaf — a colony that can read it crowds
+onto patches it has already eaten — has its own remedy in the scent itself,
+because only an ant carrying food lays it, so an eaten-out patch stops being
+marked and its trail is gone within about a round trip. Measured 2026-09-19 on
+a bed where laden ants do get home: with a trail drawn by hand, 22 colonies
+of 36 lived against 4 with the old deaf ant, and half the ants found the food
+against one in twenty. **And the
 starving colony is the harness's colony**: dropped on seedlings at frame
 zero it collapses; founded on a grown bed, the way the game is actually
 played, it holds. Earlier the same day the note below was corrected: **an ant
@@ -602,19 +628,75 @@ The home scent's volume is turned up now, and it shows: draw a trail from a
 patch back to the nest and ants carrying food run it. That is why the scent
 tool starts on the home scent.
 
-The food route was left deaf **on purpose**, and this is the part that is a
-finding rather than a job not yet done. Turning it up works exactly as
-intended and the colony does worse for it. The food scent is only laid by an
-ant that has *already found* something, so a colony that can read it converges
-on the patch it is already eating and stops searching anywhere else — it eats
-out its own doorstep and never walks to the far end of the bed. Raced side by
-side in one box, six times, the colony that could read the food route took a
-quarter of the animals and the one that keeps searching at random took three
-quarters. A colony that returns home in a straight line and searches at random
-is what a real ant colony is; the trail that pays is the way *back*, not the
-way *out*. What would change it is food arranged in clumps worth advertising,
-or a food scent that fades fast enough to stop recruiting once its patch is
-gone — neither of which has been tried yet.
+### They lay two scents, and the two do not keep
+
+**The way home and the way to dinner are not the same kind of fact, and since
+2026-09-19 the ground does not treat them as one.** Before that both scents
+faded at the same speed, and that speed was set by what a food trail needs.
+
+A laden ant walking home covers ground very slowly — it stops, turns, wanders
+and is pulled back on course rather than steered along it — so a trip of a
+hundred cells takes most of a play session. The way-home scent was fading
+faster than that. An ant that walked out to the far end of a route and turned
+round found that the marks it had left on the way out were already gone, and
+so were everyone else's: past about a third of the way out there was usually
+nothing on the ground at all. It was not a faint signal it could not read. It
+was an empty floor.
+
+The way home keeps now, and a homebound ant can read direction off more than
+half the ground it walks over, where before it was about one cell in seven.
+More than ten times as many foragers make it from the food back to the nest.
+Watch for it in the shape of the traffic rather than in any one animal: ants
+that used to spread out from the larder and dissolve now trend back the way
+they came.
+
+**It still forgets, and that is not a compromise — it is how it forgets.**
+A scent spreads out as it sits there, and a thin line spread thin enough is
+nothing. Lay a mark and walk away and it will be gone before long; what has
+changed is that it goes by blurring rather than by evaporating, and blurring
+is slow enough for a walk. A busy route stays sharp because it is re-laid;
+a route nobody uses fades on its own, which is what you want.
+
+**There is a bill, and on a hungry bed you can see it.** Ants that walk their
+dinner home are ants that are not eating it where they found it, and nothing at
+the nest banks what they bring — a delivered crumb lies on the floor like any
+other. Where food is plentiful this costs nothing you can measure. Where it is
+scarce the colony comes out smaller: fewer born, less eaten, though the trips
+home still go up. So this is a trade rather than a straight gain, and what
+settles it is a **granary** — somewhere a delivered load is worth having
+delivered. Until that exists, a colony that navigates better is a colony
+spending more on the journey.
+
+**The food scent still fades on the old schedule, and it has to.** It is news
+— *there is food here now* — and the whole failure it guards against is a
+trail that outlives its patch and goes on calling ants to bare ground. Given
+the same keeping as the way home it is actively bad: tried, a third as many
+ants ever found food at all, because the colony spent the session walking to
+somewhere it had already eaten.
+
+The food route was left deaf **on purpose** for nine days, and that ended on
+2026-09-18. The worry was real: the food scent is only laid by an ant that has
+*already found* something, so a colony that can read it converges on the patch
+it is already eating — raced side by side in one box, six times, the readers
+took a quarter of the animals against three quarters for the colony that kept
+searching at random. The answer was that the worry has its own remedy. Only a
+laden ant lays the scent, so an eaten-out patch stops being marked and its
+trail dies on its own within about a round trip; a reader that follows a
+trail nobody is renewing is following it to nothing for a short while, not
+for ever. Re-measured on 2026-09-19 with the return leg working, reading the
+food route is worth the whole difference between a colony that uses a drawn
+trail and one that ignores it: 22 colonies of 36 alive against 4, half the
+ants at the food against one in twenty. And two things did *not* change with
+it. The colony still cannot lay a trail worth following by itself — its own
+food scent recruits nobody, and on the same bed the colonies whose ants laid
+no food scent at all did best, because laying costs energy and bought
+nothing. And the older cure that was proposed for the eaten-patch worry, a
+food scent that fades faster, turns out to change nothing either way: it
+neither kills a trail the colony is using nor helps one. The race that
+produced the quarter-against-three-quarters was run again the other way
+round, on a bed of conifers with the far end of every trail now readable:
+the colony that reads the food route took the larger share in ten boxes of
+twelve.
 
 What is true, and is the thing to fix, is the outcome: **a colony still
 starves inside one play session with far more food standing in its own bed
@@ -1933,14 +2015,22 @@ different reserves now, some fat and some lean, so the moment when the
 founding stock runs out is spread across many frames instead of landing on
 every ant in the same few hundred.
 
-What the first measurement says, plainly: in a bare box with the colony
+What the first measurement said, plainly: in a bare box with the colony
 dropped on seedlings, a colony that shares ended with fewer survivors than
 one that did not on two runs of three, and sharing flattened the founders'
 spread of reserves back into sameness -- because sharing flows from rich to
-poor, and a spread of reserves is exactly a rich-and-poor. The bed and the
-horizon it was measured on are the harness's, not a played bed's, and the
-runs are too few to sign the result. It is on the page so nobody reads
-"ants share food" as "the colony is saved."
+poor, and a spread of reserves is exactly a rich-and-poor. Re-measured on
+2026-09-19 on the played bed, twelve boxes, a full session long: the same
+shape, and now signed. Sharing carries more ants through the first hungry
+stretch -- more alive in every one of the twelve boxes at the moment the
+founding stock runs out -- and then loses them harder, nine boxes of twelve
+behind a little later, because the reserves were levelled and everybody ran
+out together. The famine is put off by a while and made steeper, not
+smaller; by the end of a session the two colonies are down to a handful
+either way. It is on the page so nobody reads "ants share food" as "the
+colony is saved." What would change it is food a well-fed ant can bring in
+faster than it gives away, which is the foraging loop's problem and not this
+one's.
 
 An ant that is full mostly stands still now. It still wanders sometimes, it
 still answers an alarm, it still follows a smell, and as it empties it walks
