@@ -256,6 +256,18 @@ pub const DECAY_RHO: f32 = 0.03;
 /// purpose: rho 0 on channel **B** is measured at a third as many ants ever
 /// reaching the food, because that is the trail that has to be able to go
 /// stale.
+///
+/// **And channel B may want to go stale faster than it does**, which
+/// strengthens the same argument from the other end. Measured by the
+/// ant-survey trail lane on the played lab box, 12 seeds, 150,000 frames:
+/// whole-run intake **54,722 → 94,501 → 127,339 J** at `bdecay`
+/// 0.03 / 0.10 / 0.25, paired 8/4/0 and 10/2/0. On the single-pile gap bed the
+/// same band is inert (25 and 24 colonies of 36 against 22), so it is
+/// patch-dependent — which is what an ephemeral-resource decay should be.
+/// Recorded there as a dial's range under expose-not-tune rather than a new
+/// constant, and **not acted on here**: it is their measurement and moving a
+/// constant on someone else's numbers is how a range becomes a value nobody
+/// chose.
 pub const TRAIL_A_RHO: f32 = 0.0;
 
 /// Deposit per successful move, of 255. A trail a dozen ants share should
