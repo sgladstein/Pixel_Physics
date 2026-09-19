@@ -3068,6 +3068,19 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   than the ant band), the three held-world requirements, and the finding that
   **`nest`'s `penetration_resistance` 6.0 against every shipped `dig_force`
   of 1.0 means a colony cannot dig its own doorstep**.
+- [nest-digging-plan-2026-09-19.md](nest-digging-plan-2026-09-19.md) — **plan,
+  2026-09-19. `lab`/`engine`.** Why the nest is a shallow lens and what to
+  build. Turns on one validated finding: chambers in the biology are
+  *density-dependent digging around a thing*, and this engine has the digging
+  and no thing — so the three `Crowding` interventions that measured as nulls
+  were a correct mechanism with nowhere to act. Carries the night's measured
+  premises (the census undercounts the nest **3x** because a gallery holding an
+  ant is not empty; four of five dig senses are colony-constant;
+  `MoistureGrad` reads 0.000 at every wetness; the gate compresses **26x**;
+  curvature→`Dig` gives **2.3x** roofed with the sign reversing), five stages
+  each with a check that can fail, and what not to build. Papers validated
+  through the PubMed connector, including two corrections to PR #472.
+  Handoff: [lanes/nest-digging-handoff-2026-09-19.md](lanes/nest-digging-handoff-2026-09-19.md)
 - [nest-design-2026-09-14.md](nest-design-2026-09-14.md) — **research and
   a recommendation, 2026-09-14. `lab`/`held`/`engine`.** What a nest should
   *be*, against the owner's two proposals (a world location, not a material;
