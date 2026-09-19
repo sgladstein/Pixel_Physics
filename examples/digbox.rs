@@ -274,6 +274,88 @@ impl Trickle {
     }
 }
 
+/// **What every ant is actually sensing, and what it decides, at one tick.**
+///
+/// Built bottom-up: an arm-versus-arm census says *that* the nest is a lens
+/// and cannot say *why*. This reads the real thing through
+/// `creature::probe_full`, which runs `sense` and `eval_brain` exactly as the
+/// tick does and hands back the true input, hidden and output vectors --
+/// the same instrument `trailfollow` traces its focal ant with. Reproducing
+/// the wiring by hand here was the first version and was deleted: a replica
+/// drifts silently the moment a weight or a sense changes.
+///
+/// The question it exists to answer is Toffin's.
+/// `Reports/nest-biology-2026-09-19.md` §4.1: in homogeneous 2D excavation
+/// the transition from a round cavity to a **branched** structure is driven
+/// by worker density *along the perimeter* -- a local reading. High density
+/// digs uniformly and gives a circle; falling density gives localised buds
+/// and gives branching. **A rule whose inputs are identical for every ant
+/// has no spatial variation for a bud to form at**, so it can only ever
+/// produce the circle. The `distinct` column is that claim, measured.
+fn trace(world: &World) {
+    use pixel_physics::sim::brain::{BrainInput as I, BrainOutput as O};
+    let Some(sid) = world.species.id_of("ant") else { return };
+    let Some(def) = world.species.get(sid).creature.as_ref().cloned() else { return };
+
+    // Every input that reaches `Dig` in `ant.ron`, plus the decision itself.
+    let watch: [(&str, usize); 5] = [
+        ("food beside it", I::FoodAdjacent as usize),
+        ("am I home", I::AtNest as usize),
+        ("how packed it feels", I::Crowding as usize),
+        ("wetness gradient", I::MoistureGrad as usize),
+        ("shape of the wall", I::SurfaceCurvature as usize),
+    ];
+    let mut cols: Vec<Vec<f32>> = vec![Vec::new(); watch.len()];
+    let mut digs: Vec<f32> = Vec::new();
+    let mut at_nest = 0usize;
+    let (mut xs, mut ys): (Vec<i32>, Vec<i32>) = (Vec::new(), Vec::new());
+
+    for id in world.live_organism_ids() {
+        let Some(st) = world.organism(id) else { continue };
+        if world.species.get(st.species).creature.is_none() {
+            continue;
+        }
+        let Some(&(hx, hy)) = st.chain.first() else { continue };
+        let (inp, _hid, out, _) = pixel_physics::sim::creature::probe_full(world, hx, hy, id, &def);
+        if inp[I::AtNest as usize] <= 0.0 {
+            continue;
+        }
+        at_nest += 1;
+        xs.push(hx);
+        ys.push(hy);
+        for (k, (_, slot)) in watch.iter().enumerate() {
+            cols[k].push(inp[*slot]);
+        }
+        digs.push(out[O::Dig as usize].clamp(0.0, 1.0));
+    }
+
+    if at_nest == 0 {
+        println!("  trace: not one ant is at the nest this tick");
+        return;
+    }
+    let distinct = |v: &[f32]| {
+        let mut u: Vec<i64> = v.iter().map(|x| (x * 1e6) as i64).collect();
+        u.sort_unstable();
+        u.dedup();
+        u.len()
+    };
+    let lohi = |v: &[f32]| {
+        let mut w = v.to_vec();
+        w.sort_by(|a, c| a.partial_cmp(c).unwrap());
+        (w[0], w[w.len() - 1])
+    };
+    let dx = xs.iter().max().unwrap() - xs.iter().min().unwrap();
+    let dy = ys.iter().max().unwrap() - ys.iter().min().unwrap();
+    println!("  trace: {at_nest} ants at the nest, spread over {dx} columns x {dy} rows");
+    println!("         {:<22} {:>9} {:>9} {:>9}", "what it senses", "lowest", "highest", "distinct");
+    for (k, (name, _)) in watch.iter().enumerate() {
+        let (lo, hi) = lohi(&cols[k]);
+        println!("         {:<22} {lo:>9.4} {hi:>9.4} {:>9}", name, distinct(&cols[k]));
+    }
+    let (lo, hi) = lohi(&digs);
+    println!("         {:<22} {lo:>9.4} {hi:>9.4} {:>9}   <-- what it DECIDES", "dig probability", distinct(&digs));
+}
+
 fn main() {
     let ants: i32 = arg("ants").unwrap_or(40);
     let soil: i32 = arg("soil").unwrap_or(60);
@@ -382,6 +464,9 @@ fn main() {
                 "{f:>8}  {n:>5}  {:>7}  {:>9}  {per_roll:>8.3}  {roofed:>7}  {open:>7}  {e:>7.1}  {:>9.3}  {:>9.3}",
                 st.digs, st.dig_rolls, mg_med, cost
             );
+            if flag("trace") {
+                trace(&world);
+            }
             if out.is_some() {
                 let (vw, vh) = (b.w as u32, b.h as u32);
                 let mut buf = vec![0u8; (vw * vh * 4) as usize];
