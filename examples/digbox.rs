@@ -135,8 +135,40 @@ fn build_wet(b: &Box2, wet: u16) -> World {
 /// **Split into roofed and open**, because `CLAUDE.md`'s metric trap says a
 /// hole open to the sky is not a room. `roofed` is void with ground standing
 /// somewhere above it in the column; `open` is void the sky can see.
-fn census(world: &World, b: &Box2) -> (usize, usize) {
+fn census(world: &World, b: &Box2) -> (usize, usize, usize, usize) {
     let (mut roofed, mut open) = (0, 0);
+    // **Cells below the old surface that hold an animal.**
+    //
+    // `roofed` and `open` count cells that are materially EMPTY, and **a
+    // gallery with an ant standing in it is not empty**. At 500+ animals of a
+    // two-cell body that is a thousand cells, most of them underground, and
+    // leaving them out makes the nest read far smaller than it is. The tell
+    // was a conservation failure: 941 cells hauled above the original surface
+    // against 322 cells of void below it, when digging only moves material
+    // and the two should account for each other.
+    let mut bodies = 0;
+    // **Material standing ABOVE the original surface.** Digging here moves
+    // material, it does not destroy it: `spoil_dumped` tracks `digs` to
+    // within a couple of percent, so every cell cut is put back down
+    // somewhere. If it is put back inside the excavation, the void it came
+    // from is cancelled. The only cells that can leave a net hole behind are
+    // the ones carried clear of the ground, which is the mound. So this
+    // column and the void columns are two sides of one conservation law, and
+    // reading them together is what says whether a nest is limited by
+    // *digging* or by *haulage*.
+    let mut above = 0;
+    for x in 1..b.w - 1 {
+        for y in 0..b.surface {
+            let cell = world.get(x, y);
+            let kind = world.materials.kind(cell.material);
+            if cell.material != material::EMPTY
+                && matches!(kind, MaterialKind::Powder | MaterialKind::Solid)
+                && cell.organism_id() == 0
+            {
+                above += 1;
+            }
+        }
+    }
     for x in 1..b.w - 1 {
         let mut covered = false;
         for y in b.surface..b.floor {
@@ -153,10 +185,12 @@ fn census(world: &World, b: &Box2) -> (usize, usize) {
                 } else {
                     open += 1;
                 }
+            } else if cell.organism_id() != 0 && kind == MaterialKind::Creature {
+                bodies += 1;
             }
         }
     }
-    (roofed, open)
+    (roofed, open, above, bodies)
 }
 
 /// **The moisture gradient as the ant's own brain reads it**, sampled at
@@ -554,8 +588,8 @@ fn main() {
     );
     println!();
     println!(
-        "{:>8}  {:>5}  {:>7}  {:>9}  {:>8}  {:>7}  {:>7}  {:>8}  {:>9}  {:>9}",
-        "frame", "ants", "digs", "dig rolls", "per roll", "roofed", "open", "charge", "wet grad", "its cost"
+        "{:>8}  {:>5}  {:>7}  {:>7}  {:>6}  {:>10}  {:>10}  {:>9}  {:>8}",
+        "frame", "ants", "digs", "roofed", "open", "ants in it", "room total", "hauled up", "charge"
     );
 
     let particles = ParticleSystem::default();
@@ -581,7 +615,7 @@ fn main() {
         }
         trickle.step(&mut world, &b);
         if stops.contains(&f) {
-            let (roofed, open) = census(&world, &b);
+            let (roofed, open, above, bodies) = census(&world, &b);
             let (n, e) = charge(&world);
             let st = world.creature_stats;
             let per_roll = if st.dig_rolls > 0 { st.digs as f64 / st.dig_rolls as f64 } else { 0.0 };
@@ -591,8 +625,9 @@ fn main() {
             // gradient itself, because it lands inside a squash.
             let cost = 0.55 * mg_mean;
             println!(
-                "{f:>8}  {n:>5}  {:>7}  {:>9}  {per_roll:>8.3}  {roofed:>7}  {open:>7}  {e:>7.1}  {:>9.3}  {:>9.3}",
-                st.digs, st.dig_rolls, mg_med, cost
+                "{f:>8}  {n:>5}  {:>7}  {roofed:>7}  {open:>6}  {bodies:>10}  {:>10}  {above:>9}  {e:>8.1}",
+                st.digs,
+                roofed + open + bodies
             );
             if flag("trace") {
                 trace(&world);
@@ -608,14 +643,14 @@ fn main() {
     }
 
     let st = world.creature_stats;
-    let (roofed, open) = census(&world, &b);
+    let (roofed, open, above, bodies) = census(&world, &b);
     println!();
     println!(
-        "SUMMARY digs={} rolls={} per_roll={:.3} roofed={roofed} open={open} at_nest_ticks={} spoil_dumped={}",
+        "SUMMARY digs={} rolls={} per_roll={:.3} roofed={roofed} open={open} ants_in_it={bodies} room_total={} hauled_up={above} spoil_dumped={}",
         st.digs,
         st.dig_rolls,
         if st.dig_rolls > 0 { st.digs as f64 / st.dig_rolls as f64 } else { 0.0 },
-        st.at_nest_ticks,
+        roofed + open + bodies,
         st.spoil_dumped
     );
     let bands = st.at_nest_crowding;
@@ -662,7 +697,7 @@ fn selftest_run(b: &Box2) {
         bare.step_active_sites();
         bare.step_fields();
     }
-    let (roofed, open) = census(&bare, b);
+    let (roofed, open, _, _) = census(&bare, b);
     println!("digbox selftest: empty box after 600 frames reads roofed {roofed} open {open} (both must be 0)");
     assert_eq!((roofed, open), (0, 0), "a box with no ants must hold no dug void -- the soil fill is slumping, or the census is measuring the scene");
 
@@ -675,7 +710,7 @@ fn selftest_run(b: &Box2) {
             carved.set(x, y, Cell::EMPTY);
         }
     }
-    let (roofed2, open2) = census(&carved, b);
+    let (roofed2, open2, _, _) = census(&carved, b);
     println!("  a hand-carved 10x3 chamber 10 rows down reads roofed {roofed2} open {open2} (must be 30 and 0)");
     assert_eq!((roofed2, open2), (30, 0), "the census must find a known chamber, and must call it roofed rather than open");
 
@@ -685,7 +720,7 @@ fn selftest_run(b: &Box2) {
     for y in b.surface..b.surface + 6 {
         shaft.set(cx, y, Cell::EMPTY);
     }
-    let (roofed3, open3) = census(&shaft, b);
+    let (roofed3, open3, _, _) = census(&shaft, b);
     println!("  a 6-deep shaft open to the sky reads roofed {roofed3} open {open3} (must be 0 and 6)");
     assert_eq!((roofed3, open3), (0, 6), "a hole open to the sky is not a room");
 
@@ -701,7 +736,7 @@ fn selftest_run(b: &Box2) {
         live.step_pheromones();
     }
     let st = live.creature_stats;
-    let (roofed4, _) = census(&live, b);
+    let (roofed4, _, _, _) = census(&live, b);
     println!("  {founded} ants for 4,000 frames: {} digs, {} rolls, roofed {roofed4}", st.digs, st.dig_rolls);
     assert!(st.dig_rolls > 0, "not one dig was even attempted -- the colony is not thinking, so any null from this box is the harness");
     assert!(st.digs > 0, "digs attempted but none landed -- every roll hit air, rock or another ant, and this box cannot answer a digging question");
