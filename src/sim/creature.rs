@@ -4197,11 +4197,11 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         Some(a) => {
             SENSE_CACHED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             if world.creature_par.mode == ParMode::Verify {
-                let (fresh, _, _, _) = sense(world, x, y, organism, heading, def);
+                let (fresh, _, _, _) = sense(world, x, y, organism, heading, def, false);
                 for (i, (c, f)) in a.inputs.iter().zip(fresh.iter()).enumerate() {
                     if c.to_bits() != f.to_bits() {
                         VERIFY_FAILS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let (fresh2, _, _, _) = sense(world, x, y, organism, heading, def);
+                        let (fresh2, _, _, _) = sense(world, x, y, organism, heading, def, false);
                         let so = def.sensor_offset;
                         let (dx, dy) = DIRS[heading as usize % 8];
                         let (fx, fy) = (x + dx * so, y + dy * so);
@@ -4217,7 +4217,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
                         break;
                     }
                 }
-                let (inputs, seen, sight_reads, curvature_reads) = sense(world, x, y, organism, heading, def);
+                let (inputs, seen, sight_reads, curvature_reads) = sense(world, x, y, organism, heading, def, false);
                 (inputs, seen, sight_reads, curvature_reads, None)
             } else {
                 (a.inputs, a.seen, a.sight_reads, a.curvature_reads, Some((a.outputs, a.active_synapses, a.brain_state)))
@@ -4225,7 +4225,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         }
         None => {
             SENSE_FRESH.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let (inputs, seen, sight_reads, curvature_reads) = sense(world, x, y, organism, heading, def);
+            let (inputs, seen, sight_reads, curvature_reads) = sense(world, x, y, organism, heading, def, false);
             (inputs, seen, sight_reads, curvature_reads, None)
         }
     };
@@ -4949,7 +4949,7 @@ pub fn probe_full(
     let Some(state) = world.organism(organism) else {
         return ([0.0; brain::BRAIN_INPUTS], [0.0; brain::BRAIN_HIDDEN], [0.0; brain::BRAIN_OUTPUTS], 0);
     };
-    let (inputs, _, _, _) = sense(world, x, y, organism, state.heading, def);
+    let (inputs, _, _, _) = sense(world, x, y, organism, state.heading, def, state.flight.is_some());
     let mut brain_state = state.brain_state;
     let (outputs, active) = brain::eval_brain(&state.genome, &inputs, &mut brain_state);
     (inputs, brain_state, outputs, active)
@@ -4997,6 +4997,11 @@ fn sense(
     organism: OrganismId,
     heading: u8,
     def: &CreatureDef,
+    // **Passed rather than looked up**, because the one caller that needs it
+    // true is `fly_brain_tick` and the state lookup would otherwise be paid by
+    // every walking creature on every tick to answer a question only a flier
+    // asks. See `trail_sample_point`.
+    airborne: bool,
 ) -> ([f32; brain::BRAIN_INPUTS], Sightings, u64, u64) {
     use brain::BrainInput as I;
     let mut inputs = [0.0f32; brain::BRAIN_INPUTS];
@@ -5010,11 +5015,26 @@ fn sense(
     let (fx, fy) = at(heading);
     let (lx, ly) = at((heading + AHEAD_LEFT) % 8);
     let (rx, ry) = at((heading + AHEAD_RIGHT) % 8);
+    // **The trail planes get their own forward point; the moisture field keeps
+    // this one.** `at()` is shared, and for moisture the vertical component is
+    // not noise but the whole signal — `moisture_gradient`'s own doc measures
+    // depth at 1.91x against curvature's 1.012x, so projecting it onto the
+    // walker's row would delete the only thing that channel carries. The two
+    // are different kinds of quantity: a trail is a surface mark at cell
+    // resolution, moisture is a volume field at `FIELD_SCALE`.
+    //
+    // **The laterals keep `at()` too, and that is load-bearing.** Project them
+    // and ahead-left and ahead-right collapse onto the same cell — for heading
+    // E both become `(x + so, y)` — so `r - l` would be identically zero in
+    // every world for ever. That is a worse failure than the one being fixed,
+    // and it would take away the one pair that could serve a flier.
+    let (px, py) = trail_sample_point(x, y, heading, so, airborne);
 
     // Front concentration plus a *lateral difference*, per channel. The
     // pairing is what makes trail-following reachable by one connection
     // from a lateral input to the turn output: concentration says "there is
     // something", the difference says "that way".
+    let mut raw_ahead = [0 as pheromone::Scent; 2];
     for (channel, front_slot, lateral_slot) in
         [(Channel::A, I::PheroAFront, I::PheroALateral), (Channel::B, I::PheroBFront, I::PheroBLateral)]
     {
@@ -5022,7 +5042,15 @@ fn sense(
         // widened to `pheromone::Scent` (u16) on 2026-09-15; dividing by 255
         // here would hand the brain a number up to 257 and throw away the
         // resolution the widening exists to provide, in the same breath.
-        let f = world.pheromone_at(channel, fx, fy) as f32 / pheromone::Scent::MAX as f32;
+        // **Front moves with `along` and the laterals do not.** They read the
+        // same cell and always have, so leaving them apart would put two
+        // definitions of "forward" in one function. Hoisted into `raw_ahead`
+        // because the along loop below wanted the identical value and was
+        // re-reading the plane for it — two redundant samples per creature per
+        // tick, removed.
+        let raw = world.pheromone_at(channel, px, py);
+        raw_ahead[channel as usize] = raw;
+        let f = raw as f32 / pheromone::Scent::MAX as f32;
         let l = world.pheromone_at(channel, lx, ly) as f32 / pheromone::Scent::MAX as f32;
         let r = world.pheromone_at(channel, rx, ry) as f32 / pheromone::Scent::MAX as f32;
         inputs[front_slot as usize] = f;
@@ -5048,10 +5076,23 @@ fn sense(
     // point of the widening. `CLAUDE.md`: when a fix changes what a number
     // means, re-deriving the constants that read it is part of the fix.
     let guard = pheromone::SCALE as f32;
+    // **A sample that landed nowhere reports NO INFORMATION, not "not that
+    // way".** See `trail_could_be_here`. Evaluated once for the cell rather
+    // than per channel, and only when **both** planes read zero there — a
+    // non-zero reading is its own proof that a creature walks there, so the
+    // nine cell reads are skipped on any lit sample.
+    let readable = !sensor_honest()
+        || raw_ahead[0] > 0
+        || raw_ahead[1] > 0
+        || trail_could_be_here(world, px, py);
     for (channel, slot) in [(Channel::A, I::PheroAAlong), (Channel::B, I::PheroBAlong)] {
-        let here = world.pheromone_at(channel, x, y) as f32;
-        let ahead = world.pheromone_at(channel, fx, fy) as f32;
-        inputs[slot as usize] = (ahead - here) / (ahead + here + guard);
+        inputs[slot as usize] = if readable {
+            let here = world.pheromone_at(channel, x, y) as f32;
+            let ahead = raw_ahead[channel as usize] as f32;
+            (ahead - here) / (ahead + here + guard)
+        } else {
+            0.0
+        };
     }
 
     // **The alarm is read where the animal IS, not on the cell ahead of it**
@@ -5960,9 +6001,42 @@ fn sense_read_rects(
     let heading = state.heading;
     let p = sense_rect_margin();
     let mut used = 2u8;
-    for dir in [heading, (heading + AHEAD_LEFT) % 8, (heading + AHEAD_RIGHT) % 8] {
-        let (dx, dy) = DIRS[dir as usize % 8];
-        let (sx, sy) = (x + dx * so, y + dy * so);
+    // **The forward rect follows `sense`'s trail-plane point, not `DIRS`.**
+    // This function declares the footprint `ParMode::Checked` trusts when it
+    // reuses a cached sense; if the sample moves and the declaration does not,
+    // a neighbour can write the real sample cell without invalidating the
+    // speculation and the creature acts on a reading of a cell it never looked
+    // at -- a wrong world, only under parallelism, and silent.
+    //
+    // **That danger turned out not to be live here, and the reason is worth
+    // keeping** (measured 2026-09-19 by leaving this line on the old geometry
+    // and injecting): a diagonal's projected point *is* its horizontal
+    // cone-neighbour's sample point -- project NE onto the row and you land
+    // exactly where `at(E)` already looks -- so the projection cannot leave the
+    // three cells this function already declares. That is the same structural
+    // fact that makes the projection principled, arriving as a safety property.
+    // `the_declared_footprint_contains_the_trail_sensor_cell` asserts it for
+    // every heading, so a later projection that is *not* a cone member cannot
+    // land quietly.
+    //
+    // **Derived from the same helper `sense` calls, never restated** -- which
+    // is what makes the two agree by construction rather than by review.
+    // `(fx, fy)` is still read, by `field_at_bilinear` for moisture, and is
+    // covered by `field_rect` above, whose reach is `sensor_offset` on each
+    // axis — so it needs no rect of its own and `SENSE_RECTS` stays 5.
+    let airborne = state.flight.is_some();
+    let forward = trail_sample_point(x, y, heading, so, airborne);
+    for (sx, sy) in [
+        forward,
+        {
+            let (dx, dy) = DIRS[((heading + AHEAD_LEFT) % 8) as usize];
+            (x + dx * so, y + dy * so)
+        },
+        {
+            let (dx, dy) = DIRS[((heading + AHEAD_RIGHT) % 8) as usize];
+            (x + dx * so, y + dy * so)
+        },
+    ] {
         rects[used as usize] = (sx - p, sy - p, sx + p, sy + p);
         used += 1;
     }
@@ -6001,7 +6075,7 @@ fn sense_ahead(world: &World, site: &ActiveSite) -> Option<SensedAhead> {
     }
     let heading = state.heading;
     let read = sense_read_rects(world, x, y, organism, def, state);
-    let (inputs, seen, sight_reads, curvature_reads) = sense(world, x, y, organism, heading, def);
+    let (inputs, seen, sight_reads, curvature_reads) = sense(world, x, y, organism, heading, def, false);
     let mut brain_state = state.brain_state;
     let (outputs, active_synapses) = brain::eval_brain(&state.genome, &inputs, &mut brain_state);
     Some(SensedAhead { organism, x, y, heading, read, inputs, seen, sight_reads, curvature_reads, outputs, active_synapses, brain_state })
@@ -7685,6 +7759,115 @@ fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
 fn deposit_at_vacated() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DEPOSIT_AT").as_deref() == Ok("vacated"))
+}
+
+/// **Where the trail-plane forward sample is taken** — on the walker's own row,
+/// or at the pre-repair full-`DIRS` offset.
+///
+/// `PIXEL_PHYSICS_SENSOR_PROJECT=off` puts the old geometry back for one run;
+/// anything else, including unset, is the repair.
+///
+/// **Read by `sense` AND by `sense_read_rects`, and that is not a detail.**
+/// They are one contract in two functions: the second declares the footprint
+/// the first reads, and `ParMode::Checked` trusts the declaration. Calling one
+/// helper from both is what makes them agree by construction; an arm that
+/// restated the geometry in one of them could consume a **stale
+/// cached sense** — a wrong world rather than a slow one, and only under
+/// parallelism, which is to say only in the real game.
+///
+/// `OnceLock` rather than a `var` per call, for the reason all its siblings
+/// are: `sense` runs per creature per decision tick, and `std::env::var` is a
+/// lock and an allocation.
+fn sensor_projected() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_SENSOR_PROJECT").as_deref(), Ok("off") | Ok("none")))
+}
+
+/// **The honesty half, ablatable separately** — `PIXEL_PHYSICS_SENSOR_PROJECT=none`
+/// turns off *both* halves and restores the pre-2026-09-19 reading exactly.
+///
+/// **Without this there is no baseline arm, and the first sweep nearly ran
+/// without one.** `off` disables the projection but leaves the readability test
+/// standing, so an `off` arm measures the honesty half **alone** rather than the
+/// original behaviour. Two changes with one switch between them is one arm
+/// short: the table would have compared "both" against "one of them" and called
+/// the difference the whole repair.
+fn sensor_honest() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_SENSOR_PROJECT").as_deref() != Ok("none"))
+}
+
+/// **Where a walking creature's nose is, for the trail planes only.**
+///
+/// The bug this exists for: `sense` sampled at `(x + dx*so, y + dy*so)` from
+/// [`DIRS`], and with +y down **six of the eight headings put that six rows off
+/// the walker's own row** — three in open air, three inside the ground. A
+/// walking creature lays a trail only at its body cell, so those six read
+/// exactly 0, and `(0 - here)/(0 + here + SCALE)` turns that into a confident
+/// large negative: *"the trail is much weaker that way"*, when the honest
+/// answer is *"I am looking at the sky and know nothing."* Measured on laden
+/// ants, gap 90: the six off-row headings gave a usable reading on **0.2-2.3%**
+/// of ticks against **10.9%** for a sample that landed somewhere a trail could
+/// be, and **89% of all frozen laden ticks** had the nose in sky or ground.
+///
+/// **Why the horizontal component alone is the right projection**, rather than
+/// a convenience: `step_chain` only ever offers a forward cone of three
+/// (`AHEAD_LEFT`, the heading, `AHEAD_RIGHT`), and that cone's *mean horizontal
+/// displacement* is exactly `DIRS[h].0` for every heading — including **zero at
+/// N and S**. So this samples where the next three steps are expected to take
+/// the animal along its surface, and the resulting `along == 0` on the two
+/// vertical headings is a derived result rather than a special case.
+///
+/// **`dx == 0` keeps the full offset on purpose.** An animal climbing a trunk
+/// holds heading N or S, its surface *is* vertical, and the old geometry is
+/// exactly right for it — six cells up the bark is where the trail is. Silence
+/// those two and a colony could never follow a trail up a tree. What stops the
+/// flat-ground case reading sky through that door is the readability test at
+/// the call site, not this function.
+///
+/// **A flier is excluded** because it genuinely does move in open 2D, which is
+/// the stated reason [`brain::BrainInput::PheroAAlong`]'s doc keeps the open-2D
+/// triad at all.
+///
+/// **`pub` for the harnesses, and that is the point rather than a concession.**
+/// `examples/trailfollow.rs` classifies every laden tick by what the nose is
+/// pointing at, and its first version restated `(x + dx*so, y + dy*so)` from
+/// `DIRS` -- so the moment this function existed, the census was labelling ticks
+/// by a cell the engine no longer read, and reported the repair as doing almost
+/// nothing. Caught 2026-09-19 by the numbers barely moving. A measurement that
+/// keeps its own copy of the thing it measures will eventually measure the copy.
+pub fn trail_sample_point(x: i32, y: i32, heading: u8, so: i32, airborne: bool) -> (i32, i32) {
+    let (dx, dy) = DIRS[heading as usize % 8];
+    if airborne || !sensor_projected() || dx == 0 {
+        return (x + dx * so, y + dy * so);
+    }
+    (x + dx * so, y)
+}
+
+/// **Could a trail be here at all** — not solid itself, and something to stand
+/// on within reach.
+///
+/// This is the other half of the repair above and the half that carries the
+/// non-flat cases. A sample that lands inside rock, or six cells up in the
+/// open, is not a measurement of a faint trail; it is a measurement of the fact
+/// that nothing walks there. Reporting 0 for the gradient says *no
+/// information*, which the brain already handles, instead of *definitely not
+/// that way*.
+///
+/// **It reuses `head_has_foothold`** rather than restating the rule, so the
+/// question "where could a creature stand" has one answer in this file — and it
+/// inherits that function's world-edge correction, without which the boundary
+/// reads as an infinitely tall ladder.
+///
+/// **Cost is why the caller gates it.** This is up to nine `World::get`s, and
+/// `sense` is a hot path — so it is only ever reached when the sample read
+/// *zero on both planes*, which on a lit plane is rare. A non-zero reading is
+/// its own proof that a trail can be there.
+fn trail_could_be_here(world: &World, x: i32, y: i32) -> bool {
+    !matches!(
+        world.materials.kind(world.get(x, y).material),
+        MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant
+    ) && head_has_foothold(world, (x, y), None)
 }
 
 /// Local `|grad moisture|`, normalized.
@@ -11093,7 +11276,7 @@ fn octant_of(vx: f32, vy: f32) -> u8 {
 fn fly_brain_tick(world: &mut World, organism: OrganismId, def: &CreatureDef, flight: &mut Flight, cells: &[(i32, i32)]) -> f32 {
     let (hx, hy) = cells.first().copied().unwrap_or((0, 0));
     let heading = world.organism(organism).map_or(0, |s| s.heading);
-    let (inputs, seen, sight_reads, curvature_reads) = sense(world, hx, hy, organism, heading, def);
+    let (inputs, seen, sight_reads, curvature_reads) = sense(world, hx, hy, organism, heading, def, true);
     // **The eye's counters fire aloft too, and they have to.** Until this
     // existed an airborne animal never cast, so `sight_casts` was a count of
     // *walking* casts wearing the name of all of them -- and
@@ -18946,7 +19129,7 @@ mod tests {
         );
 
         // --- the eye, which is the gate ---------------------------------
-        let (inputs, ..) = sense(&w, cell.0, cell.1, donor, w.organism(donor).unwrap().heading, &def);
+        let (inputs, ..) = sense(&w, cell.0, cell.1, donor, w.organism(donor).unwrap().heading, &def, false);
         let need = inputs[brain::BrainInput::KinNeed as usize];
         assert!(
             need > 0.9,
@@ -19633,7 +19816,7 @@ mod tests {
             neediest_kin(&w, ant, (x, y), gut, def.start_energy).is_none(),
             "a lone ant's own body must never read as kin needing feeding, however hungry it is"
         );
-        let (inputs, ..) = sense(&w, x, y, ant, 0, &def);
+        let (inputs, ..) = sense(&w, x, y, ant, 0, &def, false);
         assert_eq!(inputs[brain::BrainInput::KinNeed as usize], 0.0, "a lone ant must read zero kin need, not its own hunger");
         let did = act_share(&mut w, ant, &def);
         assert_eq!(did.shares, 0, "an ant must not be able to share with its own body");
@@ -23267,11 +23450,224 @@ mod tests {
         let id = spawn(&mut w, "ant", 100, 100);
         let ant = w.species.id_of("ant").expect("ant");
         let def = w.species.get(ant).creature.clone().expect("creature");
-        let (inputs, ..) = sense(&w, 100, 100, id, 0, &def);
+        let (inputs, ..) = sense(&w, 100, 100, id, 0, &def, false);
         assert_eq!(inputs[brain::BrainInput::Made as usize], 0.0, "a founder was made of nothing");
         w.organism_mut(id).expect("live").made = 0.7;
-        let (inputs, ..) = sense(&w, 100, 100, id, 0, &def);
+        let (inputs, ..) = sense(&w, 100, 100, id, 0, &def, false);
         assert_eq!(inputs[brain::BrainInput::Made as usize], 0.7);
+    }
+
+    /// **The trail sample is taken somewhere a trail could be**, and the six
+    /// headings that used to point at sky or rock now say *nothing* rather than
+    /// *definitely not that way*.
+    ///
+    /// **Written against the replacement, not the original** (`CLAUDE.md`).
+    /// Assertion 6 is the one aimed at the tempting over-fix: projecting the
+    /// *laterals* too would collapse ahead-left and ahead-right onto one cell
+    /// and zero `PheroALateral` in every world for ever, which no assertion
+    /// about the along input would ever catch.
+    ///
+    /// Injected both ways before it was trusted. Under the old geometry
+    /// assertions 3 and 4 go red — the measured readings there are E -0.15,
+    /// NE -0.48, S -0.63 on a laden ant, i.e. the off-row headings are not
+    /// merely different from E, they are three times as negative.
+    ///
+    /// **Deliberately not gated on `PIXEL_PHYSICS_SENSOR_PROJECT`.**
+    /// `sensor_projected()` caches in a `OnceLock` and the test binary shares
+    /// one process, so an arm that set the variable would pass or fail
+    /// depending on which test ran first.
+    #[test]
+    fn the_trail_sample_is_taken_where_a_trail_could_be() {
+        let mut w = test_world();
+        // Flat stone floor at y=101, the ant standing on it at y=100.
+        for x in 60..140 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        // A monotone ramp ON THE ANT'S OWN ROW ONLY -- nothing above, nothing
+        // below -- so a sample six rows off reads exactly 0 and the fault under
+        // test is the only one in the bed.
+        for x in 60..140 {
+            w.deposit_pheromone(Channel::A, x, 100, ((x - 60) as pheromone::Scent) * 64);
+        }
+        let id = spawn(&mut w, "ant", 100, 100);
+        let ant = w.species.id_of("ant").expect("ant");
+        let def = w.species.get(ant).creature.clone().expect("creature");
+        let so = def.sensor_offset;
+
+        // 1. **The positive control, before `sense` is called at all.** Without
+        //    it the whole test passes over an empty plane, which is the failure
+        //    `a_tile_seam_does_not_block_or_bias_diffusion` records shipping
+        //    twice.
+        assert!(
+            w.pheromone_at(Channel::A, 100 - so, 100) > 0 && w.pheromone_at(Channel::A, 100 + so, 100) > 0,
+            "the ramp is not under the sample points, so nothing below tests anything"
+        );
+        assert!(
+            w.pheromone_at(Channel::A, 100 + so, 100) > w.pheromone_at(Channel::A, 100 - so, 100),
+            "the ramp does not climb eastward, so the signs below are meaningless"
+        );
+        assert_eq!(w.pheromone_at(Channel::A, 100, 100 - so), 0, "the bed must be bare six rows up");
+
+        let along = |w: &World, h: u8| {
+            let (i, ..) = sense(w, 100, 100, id, h, &def, false);
+            i[brain::BrainInput::PheroAAlong as usize]
+        };
+        // `DIRS` order: 0 E, 1 NE, 2 N, 3 NW, 4 W, 5 SW, 6 S, 7 SE (+y is down).
+        let (e, ne, se) = (along(&w, 0), along(&w, 1), along(&w, 7));
+        let (west, nw, sw) = (along(&w, 4), along(&w, 3), along(&w, 5));
+        let (n, s) = (along(&w, 2), along(&w, 6));
+
+        // 2. The two headings that were always right are still right.
+        assert!(e >= 0.02, "east is up the ramp and must read so: {e}");
+        assert!(west <= -0.02, "west is down the ramp and must read so: {west}");
+
+        // 3. **The assertion that carries the fix.** A diagonal shares the
+        //    horizontal half of its heading, and the forward cone it can
+        //    actually step into has the same expected displacement, so it must
+        //    read what the horizontal reads. The old geometry has NE at -0.48
+        //    against E's -0.15.
+        assert!((ne - e).abs() < 1e-6, "NE {ne} does not read as E {e}");
+        assert!((se - e).abs() < 1e-6, "SE {se} does not read as E {e}");
+        assert!((nw - west).abs() < 1e-6, "NW {nw} does not read as W {west}");
+        assert!((sw - west).abs() < 1e-6, "SW {sw} does not read as W {west}");
+
+        // 4. Straight up and straight down: the forward cone's expected
+        //    horizontal displacement is zero, so "no information" is the
+        //    derived correct answer -- exactly 0, not a small negative.
+        assert_eq!(n, 0.0, "facing straight up must read no information, not a gradient");
+        assert_eq!(s, 0.0, "facing straight down must read no information, not a gradient");
+
+        // 5. The front slot moved WITH the along slot rather than being left
+        //    behind on a second definition of "forward". Checked on a DIAGONAL,
+        //    which is where the two points differ: NE's sample is the projected
+        //    `(x + so, y)`, not `(x + so, y - so)`.
+        let (i_ne, ..) = sense(&w, 100, 100, id, 1, &def, false);
+        let expect = w.pheromone_at(Channel::A, 100 + so, 100) as f32 / pheromone::Scent::MAX as f32;
+        assert!(
+            (i_ne[brain::BrainInput::PheroAFront as usize] - expect).abs() < 1e-9,
+            "PheroAFront is still reading the old point: got {} want {expect}",
+            i_ne[brain::BrainInput::PheroAFront as usize]
+        );
+        assert!(expect > 0.0, "...and the projected cell must hold trail, or the line above is trivially true");
+
+        // 6. **The anti-trade assertion.** The laterals must keep their true
+        //    45-degree geometry: project them and `r - l` is identically zero
+        //    in every world, which is a worse bug than the one fixed here and
+        //    is invisible to every assertion above.
+        //
+        //    The bed has to put something where the LATERALS land, which is not
+        //    where the forward sample lands: facing E they are `at(NE)` and
+        //    `at(SE)`, i.e. `(x + so, y - so)` and `(x + so, y + so)` -- six
+        //    rows up and six rows down, not one. A band on only the upper one
+        //    makes left and right differ.
+        for x in 60..140 {
+            w.deposit_pheromone(Channel::A, x, 100 - so, 8000);
+        }
+        assert!(
+            w.pheromone_at(Channel::A, 100 + so, 100 - so) > 0 && w.pheromone_at(Channel::A, 100 + so, 100 + so) == 0,
+            "the lateral bed is not asymmetric, so a zero below would prove nothing"
+        );
+        let (i_e, ..) = sense(&w, 100, 100, id, 0, &def, false);
+        assert!(
+            i_e[brain::BrainInput::PheroALateral as usize].abs() > 1e-6,
+            "PheroALateral is identically zero -- ahead-left and ahead-right have been collapsed onto one cell"
+        );
+    }
+
+    /// **The declared footprint contains the cell the trail sensor actually
+    /// reads** — the one contract that spans two functions, asserted directly.
+    ///
+    /// `sense_read_rects` declares where `sense` reads, and `ParMode::Checked`
+    /// trusts that declaration to decide whether a cached sense is still valid.
+    /// Move the sample without moving the declaration and a neighbour can write
+    /// the real cell without invalidating the speculation: the creature acts on
+    /// a reading of a cell it never looked at. That is a **wrong world**, it
+    /// happens only under parallelism, and nothing prints.
+    ///
+    /// **This replaces relying on `a_speculated_read_phase_reproduces_the_
+    /// serial_world_exactly` for this fault, because that guard is blind to
+    /// it** — measured 2026-09-19 by injecting exactly the omission (the rects
+    /// left on the old geometry while `sense` projected) and watching it stay
+    /// green. It compares two world hashes over a 40-ant bed, so it can only
+    /// fire if a neighbour happens to dirty the divergent cell inside the
+    /// speculation window during those 150 steps. `CLAUDE.md` says a guard that
+    /// does not go red for its fault is not weak but blind, and is to be
+    /// replaced rather than widened. The structural form below cannot be blind:
+    /// it is the contract itself, over every heading, with no bed and no timing
+    /// in it.
+    ///
+    /// `sense_read_rects`' own doc already states the rule this asserts — *"the
+    /// sample points still have to be inside a rectangle"*. It was prose.
+    #[test]
+    fn the_declared_footprint_contains_the_trail_sensor_cell() {
+        let mut w = test_world();
+        for x in 60..140 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let id = spawn(&mut w, "ant", 100, 100);
+        let ant = w.species.id_of("ant").expect("ant");
+        let def = w.species.get(ant).creature.clone().expect("creature");
+        let so = def.sensor_offset;
+        assert!(so > 1, "a sensor offset of {so} would put the sample inside the body rect and prove nothing");
+
+        for heading in 0..8u8 {
+            w.organism_mut(id).expect("live").heading = heading;
+            let state = w.organism(id).expect("live").clone();
+            let fp = sense_read_rects(&w, 100, 100, id, &def, &state);
+            let (px, py) = trail_sample_point(100, 100, heading, so, false);
+            // **The SENSOR rects, not any rect, and the difference is the
+            // whole value of this guard.** Injected both ways: asserted over
+            // all of `rects` it stays green even with the declaration left on
+            // the old geometry, because the head rect happens to be wide enough
+            // for this species today -- `head` is the max of the crowding
+            // radius, the curvature radius and the eye, none of which is a
+            // promise about where the nose is. A species that evolved a smaller
+            // crowding radius would lose the coverage with nothing to say so.
+            // The contract is that the sensor rectangles cover the sensor
+            // points; anything else is a coincidence this file should not rest
+            // on.
+            let sensor_rects = &fp.rects[2..fp.used as usize];
+            let covered = sensor_rects.iter().any(|&(x0, y0, x1, y1)| px >= x0 && px <= x1 && py >= y0 && py <= y1);
+            assert!(
+                covered,
+                "heading {heading}: sense reads ({px},{py}) and the sensor rects declare {sensor_rects:?} -- \
+                 a neighbour could write that cell without invalidating the speculation"
+            );
+        }
+    }
+
+    /// **A sample inside solid rock is no information either**, which is the
+    /// half of the repair that carries the non-flat cases: a creature in a
+    /// tunnel or against a wall gets silence rather than a confident negative.
+    #[test]
+    fn a_sample_buried_in_rock_reads_no_information() {
+        let mut w = test_world();
+        for x in 60..140 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        // A wall to the east, so the projected sample lands inside it.
+        for y in 90..102 {
+            for x in 104..112 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for x in 60..104 {
+            w.deposit_pheromone(Channel::A, x, 100, 20000);
+        }
+        let id = spawn(&mut w, "ant", 100, 100);
+        let ant = w.species.id_of("ant").expect("ant");
+        let def = w.species.get(ant).creature.clone().expect("creature");
+        assert!(
+            matches!(w.materials.kind(w.get(100 + def.sensor_offset, 100).material), MaterialKind::Solid),
+            "the wall is not where the sample lands, so this tests nothing"
+        );
+        assert!(w.pheromone_at(Channel::A, 100, 100) > 0, "the ant must be standing on trail, or 0 is trivial");
+        let (i, ..) = sense(&w, 100, 100, id, 0, &def, false);
+        assert_eq!(
+            i[brain::BrainInput::PheroAAlong as usize],
+            0.0,
+            "a sample buried in rock must read no information, not a strong negative"
+        );
     }
 
     #[test]

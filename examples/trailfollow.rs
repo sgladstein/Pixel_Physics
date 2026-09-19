@@ -2258,8 +2258,13 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 // sample point, `(x + dx*so, y + dy*so)` from `DIRS`; `sense`
                 // is private so this is a copy, and the guard test in
                 // `creature.rs` is what keeps the two honest.
-                let (sdx, sdy) = creature::DIRS[(s.heading % 8) as usize];
-                let (ax, ay) = (hx + sdx * sensor_offset, hy + sdy * sensor_offset);
+                // **The engine's own helper, not a copy of its arithmetic.** The
+                // first version of this census restated `(x + dx*so, y + dy*so)`
+                // from `DIRS`, and the day `sense` stopped sampling there the
+                // census went on labelling ticks by a cell nothing reads --
+                // reporting the repair as inert. `false` because a laden forager
+                // is walking, never airborne.
+                let (ax, ay) = creature::trail_sample_point(hx, hy, s.heading, sensor_offset, false);
                 let here_a = w.pheromone_at(Channel::A, hx, hy);
                 let ahead_a = w.pheromone_at(Channel::A, ax, ay);
                 let solid_at = |cx: i32, cy: i32| {
