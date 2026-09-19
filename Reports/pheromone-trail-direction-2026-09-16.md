@@ -5204,6 +5204,35 @@ here is an order statistic over many similar frames and is noise wearing a
 number. And the counter moving **up** is what rules out the other failure —
 a cost that vanishes because the work vanished.
 
+### The instrument built for this question, which nobody asked
+
+`examples/pherolife` exists to answer *"how long does a trail live once nobody
+is re-laying it, and what holds one up?"* — `Reports/instruments.md` says to
+grep it before building a harness, and the trailfollow sweep above was built
+first. Its `sweep=rho`, on a 120-cell ramp with a **2,200-frame round trip**:
+
+| rho | trail gone | of a round trip | stops steering | of a round trip |
+|---|---|---|---|---|
+| **0.03 (shipped)** | 1,476 frames | **0.67x** | 1,080 | **0.49x** |
+| 0.10 | 612 | 0.28x | 480 | 0.22x |
+| 0.25 | 288 | 0.13x | 180 | 0.08x |
+| **0** | 4,488 | **2.04x** | 2,328 | **1.06x** |
+
+`stops steering` is the frame the ant's own run drive — `ant.ron`'s authored
+path from `PheroAAlong` into `Move`, so it is what the animal does rather than
+what the plane holds — falls under a tenth of its baseline.
+
+**At the shipped decay a homing trail stops being worth reading at half a round
+trip. At zero it clears one, barely.** That is this whole section in the
+instrument's own units, it was answerable without a single new line of harness,
+and it is an independent check: `pherolife` builds its planes with its own
+`rho=` and never reads `TRAIL_A_RHO`.
+
+It also predicts the size of the win rather than just its sign. One trail laid
+and abandoned covers **1.06** round trips at rho 0 — so a colony gets home when
+traffic re-lays the route and not otherwise, which is exactly an outcome of
+14.8% rather than 90%.
+
 ### The food trail wants the opposite, which settles how this ships
 
 The awkward part of shipping this is that A is the homing plane **only because a
