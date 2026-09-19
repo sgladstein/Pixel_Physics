@@ -13,7 +13,7 @@
   },
   "title": "Straighter reeds: the switch you turned down was judged on trees",
   "question": "Should the reed stand dead straight like B, or does A's wander look more alive? B needs a world-wide switch, so this is your call rather than mine.",
-  "context_md": "**Your three asks from the last card, and where each one got to.**\n\n*Fewer seeds* -- done, and it was the big one. Measured on the same bed at 20,000 frames: seeds **550 -> 27**, and the pile on the sediment **367 -> 7**. Seeds were **49% of everything in that pond** and are now **7%**. Both arms below already have this.\n\n*Less crowding* -- followed from the seed cut, as you predicted. Standing plants 594 -> 44: fewer, bigger plants instead of a mat.\n\n*Seeds caught in the reeds* -- you were literally right, and there is a reason. **121 of the 550 were resting on reed tissue.** A seed falls through a plant by scanning down for **air**, and stops at the first cell that is neither air nor plant. Under a reed in a pond there is no air, there is water -- so the rule, written for litter dropping through a tree crown, cannot see a landing. The seed cut takes it to 13, which is why I have not touched the rule; say the word if you want it fixed properly.\n\n**Which leaves straightness, and it is not a tuning question.**\n\nI raised the reed's own stiffness and it did nothing, because `stem_stiffness` is **switched off world-wide by default** -- the selector forces 0.0 and never reads what a species authored. B is that switch turned on. Nothing else differs between these two.\n\n**The one verdict on this mechanism is yours and it was \"looks identical\" -- on trees.** A tree's wobble sits under thickening and a canopy. A reed is one cell wide, standing alone in open water, with nothing to hide it. That is why I am asking again rather than treating it as already answered.\n\n**What turning it on would cost:** it is a global selector, so every plant in the world gets it, not just the reed.",
+  "context_md": "**Your three asks from the last card, and where each one got to.**\n\n*Fewer seeds* -- done, and it was the big one. Measured on the same bed at 20,000 frames: seeds **550 -> 27**, and the pile on the sediment **367 -> 7**. Seeds were **49% of everything in that pond** and are now **7%**. Both arms below already have this.\n\n*Less crowding* -- followed from the seed cut, as you predicted. Standing plants 594 -> 44: fewer, bigger plants instead of a mat.\n\n*Seeds caught in the reeds* -- you were literally right, and there is a reason. **121 of the 550 were resting on reed tissue.** A seed falls through a plant by scanning down for **air**, and stops at the first cell that is neither air nor plant. Under a reed in a pond there is no air, there is water -- so the rule, written for litter dropping through a tree crown, cannot see a landing. The seed cut takes it to 13, which is why I have not touched the rule; say the word if you want it fixed properly.\n\n**Which leaves straightness, and it is not a tuning question.**\n\nI raised the reed's own stiffness and it did nothing, because `stem_stiffness` is **switched off world-wide by default** -- the selector forces 0.0 and never reads what a species authored. B is that switch turned on. Nothing else differs between these two.\n\n**The one verdict on this mechanism is yours and it was \"looks identical\" -- on trees.** A tree's wobble sits under thickening and a canopy. A reed is one cell wide, standing alone in open water, with nothing to hide it. That is why I am asking again rather than treating it as already answered.\n\n**What turning it on would cost:** it is a global selector, so every plant in the world gets it, not just the reed.\n\n**One number worth having before you look, because the picture undersells it.** A straight stem gets far more of itself out of the water: **13 cells above the waterline in A against 68 in B**, on almost the same amount of tissue (211 vs 205 cells in the water). So this is not only a looks question -- a wandering stem spends its height crossing the pond sideways and arrives at the surface with nothing left.",
   "kind": "ab",
   "blind": false,
   "blocking": false,
@@ -27,7 +27,8 @@
       "meta": {
         "seeds standing in the pond": 27,
         "seeds resting on reed tissue": 13,
-        "reed cells in the water": 211,
+        "reed cells standing in the water": 211,
+        "reed cells ABOVE the waterline": 13,
         "standing plants": 44
       },
       "focus": null
@@ -39,10 +40,11 @@
       ],
       "caption": "Identical in every other respect. Stems hold the line they are spelling.",
       "meta": {
-        "seeds standing in the pond": 27,
-        "seeds resting on reed tissue": 13,
-        "reed cells in the water": 211,
-        "standing plants": 44
+        "seeds standing in the pond": 22,
+        "seeds resting on reed tissue": 16,
+        "reed cells standing in the water": 205,
+        "reed cells ABOVE the waterline": 68,
+        "standing plants": 36
       },
       "focus": null
     }
