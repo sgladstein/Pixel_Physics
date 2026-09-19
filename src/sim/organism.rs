@@ -3955,6 +3955,26 @@ pub struct CreatureDef {
     /// in one pixel -- while removing the queue.
     #[serde(default)]
     pub passes_through_kin: bool,
+    /// **Right of way to the laden, and only to the laden** -- the narrow form
+    /// of `passes_through_kin` the literature actually describes (Dussutour
+    /// et al. 2009: on a crowded trail the returning, food-carrying ant keeps
+    /// its line and the outbound empty one gives way). The same swap verb,
+    /// `creature::try_swap_with_kin`, with one predicate on top: the mover
+    /// must be carrying and the nestmate it trades with must not be. An empty
+    /// ant never displaces anybody, and two laden ants still queue.
+    ///
+    /// **Why a second switch rather than a mode on the first.** The symmetric
+    /// swap was measured 2026-09-16 (`pheromone-trail-direction` §7.12): it cut
+    /// blocked moves 90% and *reduced* larder intake 35%, because ants that
+    /// can pass anybody disperse instead of following. That measurement was
+    /// taken on a bed where no laden ant moved homeward at all (the return leg
+    /// first worked on 2026-09-18), so it could not see the one case the
+    /// asymmetric rule is for -- a laden ant on its way home stuck behind an
+    /// empty one. Keeping both switches lets that case be raced against the
+    /// symmetric rule and against the shipped queue in one run. Off by
+    /// default; every species that does not author it is bit-identical.
+    #[serde(default)]
+    pub laden_right_of_way: bool,
     /// **How many consecutive ticks a laden body waits out a jam before it
     /// turns round anyway** -- the expiry on `creature::boxed_by_traffic`'s
     /// deferral. `None`, the default, is the rule as it stood: the deferral
@@ -4440,6 +4460,7 @@ impl CreatureDef {
             trait_variance,
             climbs_over_kin,
             passes_through_kin,
+            laden_right_of_way,
             traffic_defer_max,
             eats_kin,
             nectar_only,
@@ -4560,6 +4581,7 @@ impl CreatureDef {
             // A switch, not a length: scaling a body does not change whether
             // it may trade places with a nestmate.
             passes_through_kin: *passes_through_kin,
+            laden_right_of_way: *laden_right_of_way,
             // A count of ticks, not a length: scaling a body does not change
             // how long its patience should last.
             traffic_defer_max: *traffic_defer_max,

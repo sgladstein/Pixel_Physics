@@ -1495,6 +1495,34 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         );
         genome[slot] = c;
     }
+    // **`wire=<Input>:<Output>:<weight>[,...]` -- any direct wire, in
+    // `labstats`' / `creature_arena` / `labforage`'s own spelling**, so the
+    // survey's one-line candidates (`(Crowding, EmitB, -w)`, Czaczkes 2013)
+    // can be raced here without a species-file edit. Same refusal as every
+    // rider above: a value the file already holds is the shipped arm under a
+    // different name, and a weight inside `W_EPS` is a wire `eval_brain`
+    // never reads.
+    if let Some(spec) = arg_str("wire") {
+        for entry in spec.split(',') {
+            let bits: Vec<&str> = entry.split(':').collect();
+            assert_eq!(bits.len(), 3, "wire entry {entry:?} wants Input:Output:weight, e.g. wire=Crowding:EmitB:-1.0");
+            let input = brain::INPUTS
+                .iter()
+                .copied()
+                .find(|i| brain::INPUT_NAMES[*i as usize].eq_ignore_ascii_case(bits[0]))
+                .unwrap_or_else(|| panic!("unknown input {:?}; known: {:?}", bits[0], brain::INPUT_NAMES));
+            let output = brain::OUTPUTS
+                .iter()
+                .copied()
+                .find(|o| brain::OUTPUT_NAMES[*o as usize].eq_ignore_ascii_case(bits[1]))
+                .unwrap_or_else(|| panic!("unknown output {:?}; known: {:?}", bits[1], brain::OUTPUT_NAMES));
+            let w: f32 = bits[2].parse().unwrap_or_else(|_| panic!("wire weight {:?} does not parse", bits[2]));
+            let slot = brain::io_slot(input, output);
+            assert!((genome[slot] - w).abs() > f32::EPSILON, "wire {entry} is already what ant.ron holds, so this arm is the shipped one wearing a different name");
+            assert!(w == 0.0 || w.abs() >= brain::W_EPS, "wire {entry} is inside W_EPS ({}), so eval_brain would never read it", brain::W_EPS);
+            genome[slot] = w;
+        }
+    }
 
     let surface = spec.ground_y - 2;
     let (nest_x, target_x) = (half_band, half_band + gap);
@@ -1544,6 +1572,16 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     if flag("kinpass") {
         let mut cdef = w.species.get(species_id).creature.clone().expect("ant is a creature");
         cdef.passes_through_kin = true;
+        w.species.set_creature(species_id, cdef);
+    }
+    // **`ladenpass` is the asymmetric form of the same rule** -- right of way
+    // to the laden only (`CreatureDef::laden_right_of_way`, Dussutour 2009).
+    // Refused together with `kinpass`, because the symmetric swap makes the
+    // predicate moot and the row would be `kinpass` wearing a second name.
+    if flag("ladenpass") {
+        assert!(!flag("kinpass"), "ladenpass with kinpass is the symmetric swap under another name -- run them as two rows");
+        let mut cdef = w.species.get(species_id).creature.clone().expect("ant is a creature");
+        cdef.laden_right_of_way = true;
         w.species.set_creature(species_id, cdef);
     }
     // **`homebias=` -- the fill-weighted homeward tumble, the arm §7.26

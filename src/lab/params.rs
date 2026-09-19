@@ -720,6 +720,7 @@ fn creature_value(world: &World, species: &str, field: &str) -> Option<f32> {
         "bite_force" => def.bite_force(),
         "climbs_over_kin" => f32::from(u8::from(def.climbs_over_kin)),
         "passes_through_kin" => f32::from(u8::from(def.passes_through_kin)),
+        "laden_right_of_way" => f32::from(u8::from(def.laden_right_of_way)),
         "eats_kin" => f32::from(u8::from(def.eats_kin)),
         "curvature_fraction" => def.curvature_fraction,
         "exposure_cost_per_cell" => def.exposure_cost_per_cell,
@@ -939,6 +940,9 @@ fn genome_rows(world: &World, species: &str, out: &mut Vec<Param>) {
             out.push(toggle(g, Knob::Creature { species: sp.clone(), field: "passes_through_kin" }, species, "passes_through_kin",
                 def.passes_through_kin,
                 "WHETHER TWO ANTS THAT MEET HEAD ON WILL TRADE PLACES INSTEAD OF STOPPING. OFF IS THE SHIPPED RULE: A NESTMATE IS AS SOLID AS ROCK, SO A BUSY TRAIL BECOMES A SINGLE-FILE QUEUE AND THE BETTER THE TRAIL WORKS THE WORSE THE JAM. ON, THEY SWAP -- NEVER TWO IN ONE PIXEL, SO IT STILL LOOKS RIGHT -- AND A COLUMN FLOWS. THIS IS A TEST OF WHETHER THE BLOCKING RULE COSTS MORE THAN IT BUYS."));
+            out.push(toggle(g, Knob::Creature { species: sp.clone(), field: "laden_right_of_way" }, species, "laden_right_of_way",
+                def.laden_right_of_way,
+                "WHETHER AN ANT CARRYING FOOD HOME MAY TRADE PLACES WITH AN EMPTY NESTMATE IN ITS WAY -- AND ONLY THEN. OFF IS THE SHIPPED QUEUE. ON, THE LADEN KEEP THEIR LINE AND THE EMPTY GIVE WAY, WHICH IS WHAT REAL ANTS DO ON A CROWDED TRAIL; TWO EMPTY ANTS OR TWO LADEN ONES STILL STOP FOR EACH OTHER. THE SYMMETRIC SWAP ABOVE, IF ON, OVERRIDES THIS."));
             out.push(toggle(g, Knob::Creature { species: sp.clone(), field: "eats_kin" }, species, "eats_kin",
                 def.eats_kin,
                 "WHETHER AN ANT WILL EAT ITS OWN KIND. OFF IS A COLONY; ON IS A COLONY THAT SOLVES A HUNGRY HOUR BY EATING ITSELF, WHICH IS A REAL STRATEGY AND A FAST WAY TO WATCH ONE COLLAPSE. CORPSES ARE FAIR GAME EITHER WAY -- THIS IS ABOUT THE LIVING."));
@@ -1472,6 +1476,7 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 "bite_force" => def.bite_force = Some(value.max(0.0)),
                 "climbs_over_kin" => def.climbs_over_kin = value >= 0.5,
                 "passes_through_kin" => def.passes_through_kin = value >= 0.5,
+                "laden_right_of_way" => def.laden_right_of_way = value >= 0.5,
                 "eats_kin" => def.eats_kin = value >= 0.5,
                 "curvature_fraction" => def.curvature_fraction = value,
                 "exposure_cost_per_cell" => def.exposure_cost_per_cell = value,
@@ -2822,7 +2827,7 @@ mod tests {
             "start_energy", "body_energy", "crop_capacity", "digest_rate",
             "reproduce_threshold", "mutation_rate", "tick_interval",
             "dig_force", "bite_force", "sight_range", "curvature_radius", "sensor_offset",
-            "climbs_over_kin", "passes_through_kin", "eats_kin", "scent_spread", "scent_drift", "kin_crosses_kinds",
+            "climbs_over_kin", "passes_through_kin", "laden_right_of_way", "eats_kin", "scent_spread", "scent_drift", "kin_crosses_kinds",
             "life_half_life",
             "idle_cost_per_cell", "move_cost_per_cell", "dig_cost_in_moves",
             "emit_cost_in_moves", "spoil_weight_cells", "exposure_cost_per_cell",
