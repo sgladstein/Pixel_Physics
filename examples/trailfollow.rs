@@ -1579,6 +1579,11 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // which is off the hand-laid trail entirely, so a cohort drawn the same way
     // would be five ants all answering the same unrepresentative question.
     let focal_n: usize = arg("focaln").unwrap_or(0);
+    // **The channel A amplitude profile along the route, every `aprofevery`
+    // frames.** See the dump site for why a gradient reading cannot answer it.
+    let a_profile = flag("aprofile");
+    let a_prof_every: u64 = arg("aprofevery").unwrap_or(2000);
+    let a_prof_step: usize = arg("aprofstep").unwrap_or(10);
     let mut tr_n = 0u64;
     let mut tr_along_sum = 0.0f64;
     // **The magnitude, separately, because the signed mean cannot answer "is
@@ -1794,6 +1799,20 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             }
             a_peak_amt = a_peak_amt.max(amt);
             a_peak_cells = a_peak_cells.max(cells);
+            // **`aprofile` dumps the plane itself, not what an ant read off
+            // it.** `PheroAAlong` is a GRADIENT -- ahead minus here -- so a
+            // 0.0000 reading means *flat*, which a plane that is absent and a
+            // plane that is saturated both produce. Reading the amplitude
+            // against x is the only thing that tells those two apart, and the
+            // question "does an outbound ant lay this all the way to the food"
+            // is about the amplitude.
+            if a_profile && f.is_multiple_of(a_prof_every) {
+                let cols: Vec<String> = (nest_x..=target_x)
+                    .step_by(a_prof_step)
+                    .map(|x| format!("{}:{}", x, w.pheromone_at(Channel::A, x, surface)))
+                    .collect();
+                println!("    APROF f={f} {}", cols.join(" "));
+            }
             if cells > 0 {
                 let (mut sm, mut n) = (0.0f64, 0u64);
                 let (mut sm_both, mut n_both) = (0.0f64, 0u64);
