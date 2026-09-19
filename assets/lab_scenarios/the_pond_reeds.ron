@@ -1,0 +1,73 @@
+// **The pond with reeds in it** -- Phase 1 of
+// `Reports/aquatic-implementation-plan-2026-09-14.md`, and the bed that
+// measures it.
+//
+// Identical to `the_pond_sediment.ron` in every cell: the same basin, the
+// same stone seal, the same four rows of sediment on top of it, the same 24
+// rows of water. The only difference is the species standing in it -- `reed`
+// rather than `herb` -- so the pair is a controlled comparison and the
+// sediment bed's own measured constancy (fill 3,648,000 -> 3,416,949 by
+// frame 5,000, flat to 20,000) carries over unchanged.
+//
+// **Two things the reed needs that the herb did not have**, both recorded
+// on `reed.ron` and in `reedseed.ron`:
+//
+//  1. `submerged_shoot: true`, so `plant::growable` lets a shoot cross the
+//     waterline instead of stopping dead at it.
+//  2. `seed_material: "reedseed"` at density 1.15, so the seed **sinks**.
+//     The shared `seed.ron` is 0.6 against water's 1.0, and measured on this
+//     bed's herb version the two founders sat on the water surface at y=164
+//     for 3,000 frames with the sediment 23 rows below them. A floating seed
+//     cannot found an aquatic plant however good its shoot rules are.
+//
+// **The control is a switch, not a second file**:
+// `PIXEL_PHYSICS_SUBMERGED_SHOOT=off` forces the flag false in the same
+// binary, and the reed must then take exactly zero cells above y=188 while
+// still germinating and rooting in the sediment.
+//
+// Geometry worth having to hand when reading a census of this bed:
+//   y=160        the bed surface / stone lip
+//   y=164        the waterline
+//   y=164..188   water, 24 rows
+//   y=188..192   sediment, 4 rows -- where a reed roots
+//   y=192..196   the stone seal
+(
+    name: "the_pond_reeds",
+    title: "THE POND, WITH REEDS",
+    question: "Does a plant that may cross the waterline actually cross it?",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 96,
+        ground_y: 160,
+        compartments: 1,
+        founders: 0,
+        species: "reed",
+        colonies: 0,
+        colony_ants: 52,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [],
+    placements: [
+        Clear(x: 176, y: 160, w: 160, h: 36),
+        Fill(material: "stone", x: 176, y: 160, w: 4, h: 36),
+        Fill(material: "stone", x: 332, y: 160, w: 4, h: 36),
+        // The seal. Without this the bed's own soil column empties the pond.
+        Fill(material: "stone", x: 176, y: 192, w: 160, h: 4),
+        // The sediment, on top of the seal.
+        Fill(material: "soil", x: 180, y: 188, w: 152, h: 4),
+        Fill(material: "water", x: 180, y: 164, w: 152, h: 24),
+        // Four founders across the pond, at the herb bed's two columns and
+        // two more, so a null is not one seed's bad luck.
+        Plant(species: "reed", x: 208),
+        Plant(species: "reed", x: 240),
+        Plant(species: "reed", x: 272),
+        Plant(species: "reed", x: 304),
+    ],
+    timeline: [],
+    horizon: 40000,
+)

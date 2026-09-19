@@ -2586,6 +2586,23 @@ const EMBEDDED: &[&str] = &[
     // `assets/materials`, so a material left out here exists in the editor and
     // in no measurement at all.
     include_str!("../../assets/materials/spoil.ron"),
+    // **The reed's three materials** -- appended, never inserted, per the
+    // rule stated repeatedly above: the well-known constants are positions
+    // in this array. A first draft of this change put them beside
+    // `grassblade`, which is where they belong by subject and is exactly
+    // what this file says not to do; it also split the grass pair, whose
+    // own comment describes the two together.
+    //
+    // Phase 1 of `Reports/aquatic-implementation-plan-2026-09-14.md`: the
+    // first plant that can stand in water. `reedstem` and `reedroot` are the
+    // tissue above and below the mud, and **`reedseed` is the one that
+    // carries the finding** -- it is denser than water, where the shared
+    // `seed.ron` is not, and before it existed no plant in this engine could
+    // be founded on the bottom of a pond, because its seed floated off the
+    // top. See `SpeciesDef::seed_material`.
+    include_str!("../../assets/materials/reedstem.ron"),
+    include_str!("../../assets/materials/reedroot.ron"),
+    include_str!("../../assets/materials/reedseed.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.

@@ -1,0 +1,68 @@
+// **The rhizome of an emergent aquatic plant**: `reed.ron`'s
+// `root_material`. Phase 1 of
+// `Reports/aquatic-implementation-plan-2026-09-14.md`.
+//
+// **Its own material rather than `grassroot` for the same reason
+// `grassroot` is its own material rather than `rootwood`:
+// `reinforces_powder`, pointed somewhere new.** Sod holding a dry bank
+// together is grass's one emergent consequence; a rhizome mat binding the
+// *sediment under a pond* is this species', and it is the more interesting
+// of the two because that sediment is the thing the whole phase is built on.
+// §1.6 of the plan: a pond holds only over an impermeable floor, and the
+// four-row sediment layer that lets a root in at all drinks 231,040 units --
+// 6.3% of the pond -- and then stops. A mat through those four rows is what
+// keeps them there when something walks on the bank.
+//
+// The flag already exists and already does this for any `Plant` cell. The
+// reed is simply the second species whose architecture puts enough of them
+// through a loose layer for it to show, and the first to do it underwater.
+//
+// One band of four tonal steps, matching `grassroot` and `rootwood` in
+// length: roots are barely seen, and a species' `bark_bands` index wraps
+// modulo the palette length at render time, so a second band buys nothing.
+// Paler and pinker than `grassroot`'s tan, because a rhizome in waterlogged
+// sediment is a pale, fleshy thing rather than a fibrous brown one -- and
+// because the two are the materials most likely to appear in one frame.
+(
+    name: "reedroot",
+    display: "Reed rhizome",
+    kind: Plant,
+    // Walk-through and climbable while alive, as `grassroot` and `rootwood`
+    // are. Root tissue underground is no more a wall here than a tree's is.
+    //
+    // Read only alongside `Cell::organism_id() != 0`, so a painted cell of
+    // this material is as solid as it ever was.
+    climbable: true,
+    // Ground, like `grassroot` and `rootwood`: a rhizome mat is the top of
+    // the sediment, not something standing on it, and the gnome walks over
+    // it rather than through it.
+    underfoot: true,
+    // Just above `reedstem`: a rhizome is the stout storage organ of this
+    // plant and is denser than the stem it feeds, but it is still soft
+    // waterlogged tissue and nowhere near `rootwood`'s heartwood.
+    density: 0.4,
+    colors: [
+        (168, 144, 126),
+        (184, 160, 142),
+        (152, 128, 110),
+        (198, 176, 158),
+    ],
+    // **The point of the file**, as it is the point of `grassroot`. Loose
+    // powder touching a `Plant` cell carrying this is held, so a mat through
+    // submerged sediment is many small holds rather than one big one.
+    reinforces_powder: true,
+    // Underwater and saturated -- the least flammable plant tissue in the
+    // world, and it should be. A reed bed burns above the waterline and
+    // regrows from the rhizome, which is what a real one does and is worth
+    // falling out of two numbers rather than a special case.
+    flammability: 0.02,
+    burn_temperature: 500.0,
+    burn_duration: 40,
+    burns_into: "ash",
+    heat_conductivity: 0.15,
+    breaks_into: "litter",
+    // As `grassroot`: not a load path, and opted out of the cantilever rule
+    // by omission. A rhizome mat reinforces the sediment around it; it does
+    // not hold a structure up.
+    max_unsupported_span: 1,
+)

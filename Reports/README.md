@@ -527,8 +527,14 @@ by somebody about to try it on creatures.
   finding that E9's *float* already ships, and that the plant height ceiling
   is hydrostatic, so the waterline could set how tall a plant grows.
 - [aquatic-implementation-plan-2026-09-14.md](aquatic-implementation-plan-2026-09-14.md) —
-  **plan of record for aquatic work, 2026-09-14. Phase 0 built and measured;
-  Phases 1-4 specified, not built.** Turns the research above into a build
+  **plan of record for aquatic work, 2026-09-14. Phases 0 and 1 built and
+  measured (Phase 1 landed 2026-09-18, §2a); Phases 2-4 specified, not
+  built.** Phase 1 **corrected this document's own §1.6**: a plant seed is
+  density 0.6 against water's 1.0, so it *floats*, and the two herbs the plan
+  describes as dying "in the sediment" were resting on the water surface 23
+  rows above it, having never touched ground. So "one predicate" was one
+  short -- `submerged_shoot` opens the shoot, and `seed_material` is what
+  lets a seed reach the bottom of a pond at all. Turns the research above into a build
   order with guards and briefs. Three measurements set the order and two
   overturn the research: a pond in the lab is a **scenario file**, not a
   `LabBox` field (`the_pond.ron`, 4,256 cells flat to frame 40,000); it holds
