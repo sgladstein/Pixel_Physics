@@ -3,8 +3,10 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-09-18 (**a plant can stand in water now, and one kind
-does.** Until 2026-09-18 nothing grew in a pond: a shoot stopped dead at the
+*Current as of: 2026-09-19 (**a correction, not a change: big plants do not
+set more seed than small ones** — see **What a healthy stand looks like**;
+the page had it backwards since seed stopped being set per cell. Before that,
+2026-09-18: **a plant can stand in water now, and one kind does.** Until 2026-09-18 nothing grew in a pond: a shoot stopped dead at the
 waterline, and — the part nobody had noticed — a seed dropped on water
 *floats*, so a plant sown over a pond never reached the bottom to begin with
 and died on the surface. Both are fixed, and both only for a plant that is
@@ -385,8 +387,19 @@ about twice the leaf and sets several times the seed. Judged by eye and picked
 that way — the sparser stand it replaced read as a row of whips. The thing to
 watch, if a stand ever looks like one green slab again, is that this moved the
 balance rather than removing shade: shade still kills leaves, it is just no
-longer cheap to cast. Big plants set more seed than small ones, without any rule
-saying so: seed is set per mature cell, so size buys offspring.
+longer cheap to cast.
+
+**Big plants do not set more seed than small ones — corrected 2026-09-19.**
+This page used to say size buys offspring, because seed was once set per
+mature cell. It is not any more: a plant's seed comes out of what is left
+after it has paid to keep the tissue it already has, and a plant at its
+full size has nothing left over — that is *why* it has stopped growing. So
+the biggest plant in a bed is usually the one setting the fewest seeds, and
+most of a bed's seed comes from a handful of plants that still have room to
+grow. Measured on twelve beds: the typical established plant sets no seed at
+all while the single best plant sets a fifth of the bed's total. Whether a
+full-grown plant *should* be seedless is an open question rather than a
+rule — real trees are the biggest seed producers there are.
 
 Growth is fastest when young and tails off — a plant stops when its income
 can no longer cover another cell, not because it hit a size limit.

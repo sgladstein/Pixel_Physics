@@ -700,8 +700,26 @@ carries *why* a report stands where it does.
   every field kernel is fat-tailed — one line to fix when the wind verb is
   built. Its §2 maps Díaz's six-trait global spectrum onto the genome slots
   and finds the heritable axes contain it, chosen without reference to it.
-  Sibling of the entry below, which is the same literature read from
-  inside the project a month earlier.
+  **§7, added the same day on the owner's instruction, re-audits seven of
+  those rejections without trusting them**, paired over 12 seeds with
+  identity and positive controls: two were **never measured** (litter
+  returning nutrients cites two *moisture* entries; the attractor removal
+  was a design exchange), one was measured by a test on a **disjoint code
+  path** (reversible dormancy — tip retirement is still permanent, and a
+  cut *suppresses* bud break 12/12), fine-root turnover is **overturned in
+  its generality** (the sweep carried a collapsed 6-row bed in every arm;
+  on the shipped bed +11% income 9/12), flat maintenance **confirms for a
+  reason never recorded**, `seed_launch` stands, and season stands
+  strengthened (a tree lives two app-days) while temperature's condition
+  changed (the field writes one nothing in `plant.rs` reads). The finding
+  that reorders §5: **`income − maintenance` is the only currency, the
+  girth term is 70% of it, and a full-size tree is seedless by
+  construction** — a 10% floor of income to reproduction gives 2.18x seed
+  on 12/12 with no stand cost at 20,000 frames. Five dead-end entries, the
+  nutrient doc comment and the wiki's "size buys offspring" line are
+  written back; the six switches the audit ran on land as instruments,
+  default off. Sibling of the entry below, which is the same literature
+  read from inside the project a month earlier.
 - [plant-simulation-research.md](plant-simulation-research.md) —
   **research.** Growth, evolution and biology directions past M16.
 - [organism-substrate-design.md](organism-substrate-design.md) — **design,

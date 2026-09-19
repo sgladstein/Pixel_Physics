@@ -19,6 +19,15 @@ in it argues for changing direction, and one thing in it — a calendar
 season — has already been considered here and declined for a reason the
 review could not know.
 
+**Updated the same day — §7 re-evaluates the rejections, on the owner's
+instruction not to trust them.** Two of the seven were reasoned by
+analogy and never measured, one was measured by a test that could not
+answer, one is overturned in its stated generality, and the largest
+finding is about the economy rather than any one mechanism: the girth
+term is 70% of every plant's bill and its level was set without the
+quantity it most controls, so a full-size tree is seedless by
+construction. Read §7's table first if you are here for that.
+
 *Sibling of [`plant-simulation-research.md`](plant-simulation-research.md),
 which surveyed the same literature from inside the project on 2026-08 and
 whose recommendations have since mostly shipped. This one is the view from
@@ -37,6 +46,10 @@ player would name.*
 4. Where it does not transfer
 5. What is worth taking, ranked
 6. What to do with the document itself
+7. The rejections re-evaluated — same day, on the owner's instruction
+   (7.1 maintenance · 7.2 reproduction from surplus · 7.3 root turnover ·
+   7.4 nutrient return · 7.5 dormancy · 7.6 attractors · 7.7 temperature
+   and season · 7.8 what changed and what was written back)
 
 ---
 
@@ -452,7 +465,393 @@ phase.
   wanted, and if so as weather rather than as a calendar. Nothing here
   needs that answered now.
 
+---
+
+## 7. The rejections re-evaluated — same day, on the owner's instruction
+
+> *"Re-evaluate anything that seems like a good idea and is supported by
+> research but was rejected as a dead end or just declined. Don't trust
+> past results. Past agents may have made mistakes and these are all very
+> complex systems so it may have rejected it based on a bad test or a
+> failure coming from an interconnected system."* — the owner, 2026-09-19
+
+Seven items from §1 and §3 met that description: research-backed, and
+either recorded as a dead end or declined here. Two auditors, each in its
+own worktree, each briefed with the records and the method rules and told
+to be as willing to write *stands* as *overturned*, took them. Every
+number below is paired across 12 world seeds at fixed parallelism
+(`RAYON_NUM_THREADS` pinned), from a binary rebuilt after every edit with
+an identity control (the switches unset reproduce the shipped run
+byte-for-byte), with a positive control showing the readout can move.
+Timings are not quoted anywhere; the box was shared. I re-checked every
+file:line the auditors leaned on in this checkout and corrected the two
+claims that did not survive it (§7.4, §7.7).
+
+| § | rejected as | verdict | the one line |
+|---|---|---|---|
+| 7.1 | maintenance ∝ biomass "bounds nothing" | **re-tested: confirmed**, recorded reason wrong | never measured before; flat-at-equal-bill loses a fifth of the seed 12/12 — but the girth term is 70% of the bill and holds the median plant in deficit |
+| 7.2 | `seed_launch` on a tree | **stands**; the design under it is the finding | surplus funds growth, seed and buds from one number, so a full-size tree is seedless by construction; a 10% floor on income to seed **2.18x seed on 12/12** |
+| 7.3 | fine-root turnover "worse at every rate" | **overturned in its stated generality** | the sweep carried a collapsed bed in every arm; on the shipped bed, not worse at any rate, +11% income 9/12 |
+| 7.4 | litter returning nutrients "a documented double dead end" | **never measured; rejection unsafe** | both cited entries are moisture; a nutrient return was never built, and the store it would repay into cannot pump |
+| 7.5 | reversible dormancy (tip retirement is "meristem senescence") | **unsafe test**, plus a confirmed measurement | the named acceptance test exercises a disjoint code path; a cut *suppresses* bud break 12/12; stumps cannot resprout, structurally |
+| 7.6 | space-colonisation attractors, replaced by crowding | **never measured**; substitute live but not doing its job | zeroing crown shyness makes the fused run *smaller* (median 0.964, larger on 5/12) |
+| 7.7 | temperature and season | season **stands, strengthened**; temperature **condition changed** | a tree lives two app-days, so no year fits; but the field writes a temperature nothing in `plant.rs` reads |
+
+### 7.1 Maintenance respiration proportional to biomass
+
+**What the record measured: nothing.** The dead end points at a
+"Deferred, with reasons" bullet in a plan whose own framing sentence says
+every single-lever change in the session that produced it was *wrong,
+circular or scene-dependent*. No scene, seeds, frames or number exist to
+be stale. Its premise — *income linear in leaf count* — has been false
+since income became intercepted light (`plant.rs:9867`), and is still
+repeated in three live places (`README` §The economy re-derived,
+`plant.rs` `MAINTENANCE_PER_CELL` doc, the superlinearity guard). The
+property the exponent defended, a tree that stops growing, was **retired
+by owner decision** on 2026-08-22 (`open-bugs-handoff.md` §V). And the
+flat:superlinear split was never swept — the re-derivation swept both
+constants as one multiplier. Measured now: the girth term is **70% of the
+stand's bill**.
+
+**The biology sides with the girth term, not the flat one.** Maintenance
+respiration scales with *living* mass — sapwood, not bole (Ryan 1990;
+Ryan et al. 1995) — and under the pipe model sapwood volume goes as
+foliage × height, which is superlinear in foliage. A flat per-cell charge
+would price dead heartwood at the living rate. Where the engine departs
+from the literature is the **monotone** `q_peak`: real sapwood converts to
+heartwood as a crown recedes, so the respiring fraction falls; the doc's
+"ratchet that eventually kills an adult" is the *respiration hypothesis*
+for age-related decline, which the field has rejected on measurement
+(Ryan, Binkley & Fownes 1992: stem respiration 61 → 79 g C m⁻² yr⁻¹ from a
+40- to a 245-year stand while wood production fell 210 → 46; Tang et al.
+2014).
+
+**Re-test, equal bill.** `PIXEL_PHYSICS_MAINT_PER_NODE=0` with
+`PIXEL_PHYSICS_MAINT_PER_CELL` raised to 5.1e-4 so the pooled stand bill
+matches the control (194.9 against 187.1 over 12 seeds; 5.01e-4 against
+5.08e-4 per cell). `plant_probe trees=8 frames=20000`, 12 paired seeds:
+
+| | shipped | flat, equal bill | direction |
+|---|---|---|---|
+| seeds set, stand | 837 | 685 (0.80) | **12/12 down** |
+| germinations | 138 | 115.5 (0.88) | 11/12 down |
+| median plant's surplus | −0.006 | −0.024 | **12/12 more negative** |
+| stand cells | 32,467 | 30,819 (0.96) | 9/12 down |
+| largest plant | 5,582 | 5,646 (1.02) | 8/12 up |
+
+At equal stand cost a flat rate taxes the median plant and rebates the
+largest, and the stand loses a fifth of its seed. That is "impoverished
+rather than shaped", measured for the first time. **Verdict: confirmed.**
+
+**The positive control is the substantive finding.** `MAINT_PER_NODE=0`
+with the flat term unchanged (bill strictly cheaper, 3 seeds): seeds set
+611 / 896 / 850 → **1,187 / 1,381 / 1,550**; median plant surplus −0.005 /
+−0.004 / −0.009 → **+0.40 / −0.003 / +0.97**. The girth term is what puts
+the median established plant into permanent deficit, and the maintenance
+*level* was calibrated on median bill-to-income (1.27–1.45 targeted,
+1.24–1.65 measured today) with recruitment nowhere in the calibration —
+which is the quantity §P2 later recorded as having moved the wrong way
+(inherited-genome establishments 1 → 0, 2 → 0).
+
+### 7.2 Reproduction from a surplus that is zero at the ceiling
+
+**The `seed_launch` dead end stands.** Its measured fall in seeds borne,
+0.71 / 0.56 / 0.53 / 0.56 over four seeds, matches the launch price
+1 / 1.87 = 0.535: the output fell by exactly the price, which is what a
+budget-limited account does. Four seeds is under the house minimum, but
+the direction was 4/4, the arm was an env switch on one binary, and the
+entry itself names the condition below.
+
+**The condition is real and structural.** `plant.rs:9977` is one
+expression, `surplus = (income − maintenance).max(0).min(stock)`, and it
+funds the growth pool, the seed budget (`reproductive_share`) and bud
+break (`supportable`). *Cannot afford another cell* and *has no seed
+budget* are the same number, so a tree at its ceiling is seedless by
+construction. Measured: the median established plant's surplus is
+**negative on 12/12 seeds**; median seeds set per plant is 0 on several
+seeds while the best plant sets 16–23% of the stand's total. This is the
+opposite of the literature — fecundity rises with size (Greene & Johnson
+1994), reproductive investment rises with net production and is ~1/8 of
+it at peak (Hirayama 2004; Moore et al. 2023), large trees are the largest
+seed producers — and `wiki/plants.md` said size buys offspring, which was
+true when seed was set per mature cell and has not been since the fence
+came out. **The wiki line is corrected in this branch.**
+
+**Re-test: allocate from production rather than from the residual.**
+`PIXEL_PHYSICS_REPRO_FLOOR=0.10` sets `reproductive_share = max(surplus ×
+allocation, min(income × 0.10, stock))`, taken off the growth pool:
+
+| | shipped | floor 0.10 | direction |
+|---|---|---|---|
+| seeds set, stand | 837 | 1,811 (**2.18**) | **12/12 up** |
+| germinations | 138 | 178.5 (1.24) | 11/12 up |
+| reproductive budget | 0.128 | 0.252 (2.5) | 11/12 up |
+| established plants | 18.5 | 20 (1.06) | 8/12 up |
+| inherited-genome establishments | 10.5 | 12 (1.12) | 8/12 up |
+| stand cells | 32,467 | 34,690 (1.04) | 7/12 up |
+
+Seed and germination move decisively; establishment and selection
+throughput move up at 8/12, suggestive and not settled; **no stand-size
+cost at this horizon.** Positive control at floor 1.0: seeds ~8x, budget
+pinned at its cap, and germinations **304 / 304 / 305 across three
+different worlds** — recruitment saturates at ~305 whatever the seed
+supply, the demand-side fence `plant-equilibrium-costs` §13b found for
+`seed_chance`. So the floor buys seed and the bank, not recruits, until
+the fence moves.
+
+**Next.** This is a decision, not a repair: `reproductive_allocation` is
+authored 0.10–0.30 across eight species *against a residual*, so changing
+the base changes what every one of those numbers means
+(`why-changes-cost-so-much-2026-08-27.md`), and the draw is notional in
+both arms (credited without debiting donor cells). 6–10 h, starting with a
+blind A/B card, because "more seedlings, slightly smaller trees" is a
+judge-by-eye trade. **And the cross-cutting fact:** `income − maintenance`
+is the only currency, the girth term on a monotone `q_peak` is 70% of the
+bill, and it sets the growth ceiling, zeroes the seed budget at that
+ceiling, and is why a per-seed price like `seed_launch` halves output. The
+constant most responsible for recruitment was never calibrated against it.
+
+### 7.3 Fine-root turnover
+
+**What the record measured.** `plant-soil-nutrient-plan-2026-09-05.md`
+§2b-v: `soil=6`, `PIXEL_PHYSICS_ROOT_GATE=local`, 12 paired seeds, rates
+0.002 / 0.01 / 0.05 against 0; income 0.189 → 0.104 / 0.070 / 0.123. **The
+sweep trap is present and the entry half-names it**: the rider constant
+across all four arms was the gate on a 6-row bed, which alone cost 88% of
+income (1.588 → 0.189), and the root zone read **0.000 in all four arms**,
+so there was nothing to rotate *to*. The isolating control was never run,
+and the entry's own per-seed counts are 7/12, 3/12, 5/12.
+
+**The condition has changed, measured.** The gate is on by default, the
+tank is capped, roots are 4.7x, the nutrient recovers by time. On the
+shipped 96-row bed the control arm's root-zone water reads 0.36–0.75,
+median 0.50. `PIXEL_PHYSICS_ROOT_TURNOVER` already existed. Means per
+established plant, 20,000 frames, 12 paired seeds:
+
+| | turnover 0 | 0.002 | 0.05 |
+|---|---|---|---|
+| income | 0.864 | 0.931 (**1.107**, 9/12 up) | 0.952 (1.11, 7/12 up) |
+| uptake | 8.05 | 9.54 (1.14, 9/12 up) | 9.41 (1.11, 7/12 up) |
+| root soil contact | 71.7% | 74.9% (1.03, 9/12 up) | 91.3% (1.26, **12/12 up**) |
+| root cells | 335 | 298 (neutral) | 297 (0.89, 7/12 down) |
+| stand cells | 32,139 | 31,677 (0.97, 8/12 down) | 30,815 (0.93, 8/12 down) |
+| established | 15.5 | 16.5 (neutral) | 14.5 (0.82, 8/12 down) |
+
+Positive control at rate 0.5 (3 seeds): contact 69 / 84 / 69% → **89 / 93
+/ 95%**, root cells −16 to −38%, stand −10 to −17% — the switch culls
+exactly the roots that touch nothing, which is what the term was written
+for. **Verdict: overturned in its stated generality.** "Worse at every
+rate" is a property of the 6-row bed; on the bed the entry names, income
+is not worse at any rate and the gentlest rate moves income, uptake and
+contact together on the same 9/12 seeds. Not a win yet — 9/12 is
+suggestive, and the high rate costs 7% of mass and establishment on 8/12 —
+but the recorded rejection does not carry. Next: 24 seeds at 0.002 plus
+0.005 and 0.01 to find the knee, and a card with the root overlay rather
+than the stand, since roots are invisible on a contact sheet. 3–4 h.
+
+### 7.4 Litter returning nutrients to the soil
+
+**Never measured.** The "documented double dead end" the nutrient code
+cites (`plant.rs` recovery-period doc) is two entries about **moisture**:
+copying a neighbour's soil moisture into new soil, reverted on reasoning
+because the donor keeps its own; and deriving it from the field's ambient
+humidity, the one that was measured (1,718 → 2,652 cells and climbing —
+one guard test's cell count, no seeds, no paired arm). `decay.rs` contains
+zero occurrences of *nutrient*; `git log -S` over every plausible
+identifier for a return writer returns nothing; the store's API is
+draw-only (`World::draw_soil_nutrient`, `Chunk::draw_nutrient`), and the
+draw's return value is discarded at `plant.rs:975`. Soil nutrient shipped
+2026-09-06; both moisture reverts predate it. **The rejection was carried
+across by analogy.**
+
+**And the pump is not expressible on this store.** The moisture runaway
+had two mechanisms: duplication from a donor that keeps its stock, and
+reading an unconserved channel. The nutrient store is a *deficit* buffer —
+`available = initial − buf`, draws add to `buf` — so a conservative return
+is `buf −= returned`, floored at zero, and total nutrient is bounded by
+Σ`initial` by construction. The plant holds no nutrient stock at all, and
+both consumers (`nutrient_income_multiplier` ≤ 1, `nutrient_construction_
+multiplier` ≥ 1) read **1.0 at full soil** — the best state is *no
+penalty*, never a bonus. So the whole dynamic range of any nutrient return
+on standing biomass is the shipped ablation's 0.843 → 1.0, an arm that
+already exists. **What a return would buy is soil memory, not biomass**:
+ground that remembers what grew on it, which is the succession loop
+`plant-equilibrium-costs` §10e names as the thing carbon and water
+structurally cannot produce, and which `soil-accumulation` §4A deferred
+only because *a fertility channel that is not water* did not exist. It
+shipped ten days later with a reader and a depleting writer and no return
+writer.
+
+One figure the auditor quoted is stale and is corrected here: the
+where-a-dead-plant-goes ledger's *33% locked in deadwood for ever* predates
+`deadwood.ron`'s `decays_into: "litter"`; deadwood rots now. The 9%-to-soil
+figure is about cells and does not bear on a ledger-style return anyway.
+
+**Next.** `OrganismState` gains a `nutrient_drawn` debit, captured from the
+discarded return at `plant.rs:975`, repaid per cell at `rot_remains` into
+the soil under the rotting cell through a `Chunk::return_nutrient` that
+mirrors `draw_nutrient`; behind `PIXEL_PHYSICS_NUTRIENT_RETURN`, default
+off. ~80–100 lines, 1.5–2 h. Then measure the right quantity: the spatial
+variance of `soil_nutrient_fraction` and a seedling's advantage on
+previously occupied ground against fresh ground, 12 paired seeds, two
+horizons; positive control a freely crediting switch (the deficit must pin
+at zero everywhere), negative control return off. ~1 h of runs. The doc
+comment at the citation is corrected in this branch so the next reader is
+not sent away by it.
+
+### 7.5 Reversible bud dormancy against permanent tip retirement
+
+**The acceptance test as named cannot answer the question.** A stale tip
+is rewritten to `MatureBody` (`plant.rs:6559–6566`); `break_buds`
+(`:9464`) selects only `CellType::DormantBud` (`:9531`), which the `Node`
+fate creates in every species file. The two paths are disjoint, so *cut a
+limb and watch neighbouring buds restart* passes on a plant whose retired
+tips are untouched. **Permanent tip retirement is live**, and the dead
+end's own replacement — reversible dormancy — was built for buds that were
+never tips. A closely related measurement was taken on 2026-09-12
+(`plants:124`, `PIXEL_PHYSICS_RESPROUT`): blind A/B, owner verdict *looks
+identical*, and `max_active_tips` binds first.
+
+**Run as written anyway**, `plant_severance`, 4 trees, 16,000 frames, cut
+at 8,000, both arms in one process, 12 seeds — post-cut bud flushes, cut /
+control: .864 .945 .474 .693 .941 .433 .776 .788 .930 .986 .979 .528,
+**median 0.864, fewer on 12/12**. A cut *suppresses* bud break, because
+`supportable = ⌊(noon_income − maintenance) / step_cost⌋` (`:9589–9591`)
+falls with the foliage. Sensitivity: `RESPROUT=150` moves the cut arm 5,823
+→ 6,085 flushes and the median to 0.907. A **stump never resprouts, and
+that is structural**: no foliage, `intercepted = 0`, `supportable = 0`,
+and the stump arm's tracked plants go 3,195 → 0 shoot cells while
+mid-crown cuts recover (seed 3: 1,157 → 2,386). Two traps for the next
+reader: `buds_flushed` is a **world-wide** counter, and in the stump arm it
+read 32–118 while the tracked plants had zero shoot — it was counting
+seedlings elsewhere; and `RESPROUT_DEFICIT_FLOOR = 1500` was set from a
+six-seed control maximum that the 12-seed control still crosses.
+
+**Next.** Not more frontier — that was measured. The smallest real change
+is a path from `MatureBody` back to `DormantBud` on a live stem, applied
+only to *staleness* retirement and not to starvation. Named risk: species
+files gate `StructuralAnchor` and `SecondaryThicken` on `MatureBody`, so it
+reallocates which cells thicken and `pipe_ratio` needs re-deriving. ~2 h
+to build, 4–6 h with the re-derivation. Cheapest first: re-run the
+owner's blind A/B of `PIXEL_PHYSICS_RESPROUT` **on stumps**, the case it
+was never judged on and the one where a plant has rootstock carbon and no
+way to spend it. ~20 min of compute.
+
+### 7.6 Space-colonisation attractors, replaced by the crowding channel
+
+**Never measured.** The removal is a design-review exchange
+(`tree-rewrite-design.md` §2, `design-philosophy.md` §2) whose strongest
+claim is stated as *very plausibly*; no A/B, seeds or frames. The
+replacement is live: both inert-mechanism bugs are fixed
+(`candidate_crowding` reads the candidate's occupied neighbours, with
+regression tests; canopy density is an `f32` on the sidecar, not four bits
+of `aux`), and `tree.ron` carries a four-point sweep of `crowding_weight`
+(6 → run 76, 12 → 64, 20 → 52, 30 → 61) **with no zero arm and no seed
+replication**.
+
+**The missing zero arm, run.** Shoot `crowding_weight` 30.0 against 0.0
+(the root's deliberate 0.0 untouched — the `sed` trap), two fixed binaries
+confirmed different by `cmp`, `plant_probe trees=8 frames=30000`, 12
+seeds. Thickest fused run, off / on: .941 .714 .622 .556 1.141 1.371 .910
+.964 1.237 .707 1.125 1.029 — **median 0.964, larger without crowding on
+only 5/12**; median cells 0.935. The channel is live (cells move 0.76x–
+1.10x), but **zeroing it does not produce the fusion it exists to
+prevent**: the direction is a coin flip and the median points the wrong
+way. Confound, stated: the stand is ~6.5% smaller with crowding off and a
+smaller stand has a smaller run, so run is not separated from mass at
+n=12. At the shipped weight the fused run is 56–99 cells on a bed whose
+spacing is 57, i.e. crowns span the whole spacing — the standing defect
+`plant-appearance-design.md` §5a measures at 41–95.
+
+**Next: test exclusion, not attractors.** Attractors differ from crowding
+in one property — a consumed attractor cannot be entered twice, while two
+tips read the same density and both may enter. Make the existing channel
+exclusive within one tick (deposit at the *chosen* candidate before the
+next tip scores, inside the loop at `plant.rs:5347–5366`), no new state, ~2
+h, read on the same paired harness with mass held or normalised. If the
+fused run does not move, fusion is set by something neither mechanism
+touches, which is the conclusion `plant-appearance-design.md` §2.1 reached
+for the three architectural levers, and that would settle it.
+
+### 7.7 Temperature and season
+
+**Season stands, and the arithmetic makes it stronger than the recorded
+reason.** `DAY_NIGHT_PERIOD_FRAMES` is 3,600 and the app ships
+`day_minutes: 8` (`assets/clock.ron:18`), so one app day is 28,800 frames;
+`tree.ron` `life_half_life` 60,000 and maturity ~30,000 make **a tree that
+matures in one app day and has a two-day life half-life** (8.3 and 16.7
+days in a harness at baseline). A year in which a tree saw four cycles
+would be 15,000 frames — *shorter than the day*. "Flicker" was the wrong
+word; the real objection is a scale collision: on the world's own calendar
+a tree is an annual, and no year with a recognisable number of days fits
+inside its life. The eight-minute day landed 2026-08-23, a week *after*
+the rejection, and moved the condition against seasons. (I have not
+re-derived §5.5's revisit condition; it survives, and it is further off.)
+
+**Temperature is a different question and its condition changed.** The
+rejection bundled the two. `plant.rs` reads temperature **zero times**
+while `field::noon_equivalent_temperature` (`field.rs:2067–2103`) exists,
+de-oscillates exactly, and already has consumers in `creature.rs` and
+`evaporation.rs`; `weather.rs` writes cell temperature and ships
+`Pin::Frost` and `Pin::Blizzard`; the held world's spell list already
+reads *call frost to kill back what is winning*. **A writer with no plant
+reader** is the inverse of this repo's usual missing-end failure and the
+cheap end to close. Three things it would buy, none needing a calendar:
+frost as an emergent mortality and disturbance source; a Q10 on
+decomposition, which is a lever on the litter sink; and the possibility
+of `tree` and `conifer` differing *functionally* — verified from the
+species files, they do not today: same `life_half_life`, same
+`Photosynthesize` rates and shedding pressures, same `Absorb`, same
+`Reproduce` bar `seed_maturity` 600 against 700; they differ in
+`leaf_cluster` (10 against 6), which §5a calls a pure appearance knob.
+**The two woody species are one organism in two costumes.**
+
+**Cost, separated.** Q10 on *respiration* is not scoped: maintenance
+enters `surplus` and sets `supportable`, so `INCOME_PER_NODE`,
+`max_active_tips`, `seed_maturity` and `RESPROUT_DEFICIT_FLOOR` are all
+calibrated against it — the reallocation trap exactly. Q10 on
+*decomposition* touches only `litter.ron`'s yield and `remains_half_life`.
+Frost damage reallocates nothing (additive mortality), and is tick- and
+event-scheduled, not sweep-scale; the one registry trap is a new
+`DEATH_CAUSE_LIST` row enrolling in every census that enumerates it.
+**Cheapest first experiment: graded frost damage** — a fraction of foliage
+per tick below a `noon_equivalent_temperature` threshold, driven by
+`Pin::Frost` rather than a calendar, behind `PIXEL_PHYSICS_FROST`, ~3 h,
+plus paired seeds to confirm it is graded and a review card because it is
+judged by eye. The deciduous/evergreen trade is step two and should wait
+until the two species differ in something.
+
+### 7.8 What this changes, and what was written back
+
+- **§5's ranking moves.** The largest thing in this document is no longer
+  a pattern readout; it is §7.2 — the economy has one currency, the girth
+  term is 70% of it, and the level of that term was set without the
+  quantity it most controls. The pattern readouts (§5.1) are now the
+  cheap way to *see* that: a self-thinning slope and a seeds-per-plant
+  against size curve would have shown a seedless canopy years ago in the
+  world's own time.
+- **Two rejections were reasoned by analogy and never measured** (§7.4,
+  §7.6); one was measured by a test that could not answer (§7.5); one was
+  never measured and confirms on re-test for a reason other than the one
+  recorded (§7.1); one is overturned in its generality (§7.3); one stands
+  for a stronger reason than recorded (§7.7 season); one stands as
+  written and is one switch away from its own condition (§7.2).
+- **Written back in this branch**, as `CLAUDE.md` asks for a met
+  condition: the five `dead-ends.md` entries (maintenance, `seed_launch`,
+  meristem senescence, attractor removal, root turnover) each carry a
+  dated re-evaluation line; the nutrient doc comment in `plant.rs` says
+  what its "double dead end" actually cites; `wiki/plants.md`'s "size buys
+  offspring" is corrected with a freshness note; and the six switches the
+  economy audit was taken on land as instruments, default off, cached in
+  `OnceLock`s so they cost nothing per cell, with `plant_probe` echoing
+  them and printing surplus, reproductive budget, seeds set and root-zone
+  water beside its size columns (`instruments.md`).
+- **Not done here, deliberately**: none of the priced next steps. Each is
+  a decision with a reallocation cost, and three of them (§7.2, §7.5,
+  §7.7) want a review card before a line of mechanism.
+
 *Freshness: every anchor is at the commit this report was written on;
 `dead-ends.md` line numbers drift as the register grows, so grep the
-mechanism rather than the line. No behaviour changed in this branch; no
-wiki page is affected.*
+mechanism rather than the line. §7's switches change no behaviour when
+unset (identity control byte-identical). `wiki/plants.md` is corrected, not
+changed, by this branch.*
