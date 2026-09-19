@@ -7,11 +7,13 @@ food heap too — a heap being curved ground — so a forager standing on the
 larder put its dinner back on the larder and never got home with it. Taking
 it off the carrying verb is what let food reach the nest at all, and it left
 the preference reaching nothing: see "They build without being told to"
-below, which now says so. Before that, on 2026-09-18, **an ant could finally
-carry food home instead of eating it on the way.** Its stomach held exactly
-one piece of the food it was sent to fetch, and it digested that piece as it
-walked, so it arrived empty every time and nothing was ever set down at the
-nest — at any distance. It now holds three. See "An ant eats what it
+below, which now says so. The same day, **ants sharing a cell started feeding
+each other in it**, which they had not been able to do — see the end of
+"Standing in each other's way". Before that, on 2026-09-18, **an ant could
+finally carry food home instead of eating it on the way.** Its stomach held
+exactly one piece of the food it was sent to fetch, and it digested that piece
+as it walked, so it arrived empty every time and nothing was ever set down at
+the nest — at any distance. It now holds three. See "An ant eats what it
 carries" below. Before that, the same day, **several ants of one colony could
 stand in the same cell**, if you turn it on. A nestmate has always been as solid as
 rock, which is a problem the better a trail works: a trail that works puts
@@ -1684,6 +1686,21 @@ Three things to know before deciding it does not work:
   its ants four cells apart and they barely meet at all. What crowds them is
   numbers and somewhere to walk to — raise the ants per colony, or narrow the
   bed, and watch the second number move.
+
+**They feed each other in there, and for a while they did not.** An ant that
+has eaten gives some of it to a hungrier nestmate it is touching, and until
+2026-09-19 an ant standing *inside* another one did not count as touching it —
+the one place a crowd is tightest was the one place a mouthful could not cross.
+It went unnoticed because nothing on screen says which ant a meal went to. Now
+about a quarter of all feeding in a crowded box happens between animals sharing
+a cell. Nothing about it looks different; what it changes is that a pile at a
+nest door is a place food moves through rather than a place it stops.
+
+**An ant dying in a shared cell also leaves its body properly now.** The cell
+belongs to whoever got there first, so there is nowhere in it to put a corpse:
+the body goes to the first free cell beside it, and if the animal died walled in
+with nothing free at all, the meat is gone and the stats page counts it rather
+than quietly losing it.
 
 Do not expect a big number to do anything. The deepest any one cell has been
 seen to hold is **three** animals, at two thousand ants, so everything above

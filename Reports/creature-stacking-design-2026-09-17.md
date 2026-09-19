@@ -1,9 +1,10 @@
 # Stacking: many creatures of one colony in one cell
 
 *Design of record, 2026-09-17. Owner's brief, and his rulings throughout §3.
-Nothing in this report has been built yet; §5 is the pass being built against
-it. Supersedes nothing — it is the first design on this axis — but it is the
-third attempt on colony traffic and §1 says what the other two were.*
+Built and landed as PR #465 (merge `c061a245`), off by default; §10 is the
+review that followed and §11 closes its four follow-ups. Supersedes nothing —
+it is the first design on this axis — but it is the third attempt on colony
+traffic and §1 says what the other two were.*
 
 ## 1. The complaint, and why the two existing answers do not reach it
 
@@ -597,7 +598,7 @@ that was understood and nobody went back. It now asserts on
 `CreatureStats::stacks_entered`, with the standing figure printed in the failure
 message rather than gating it, and the unarmed arm asserts **both** are zero.
 
-### Found, filed, not yet fixed
+### Found, filed, not yet fixed — all four now closed in §11
 
 - **A dying rider leaves no corpse and is not counted as suppressed.**
   `creature_dies` filters the chain to grid-owned cells, so a rider stamps
@@ -655,3 +656,224 @@ promoted cell carries a stale `temperature`. Harmless — heat re-diffuses on th
 next tick — and the alternative is rebuilding the cell from the species def at
 promotion time, which is a change to how a body's appearance is derived and
 does not belong in a bookkeeping path.
+
+## 11. The four follow-ups, closed 2026-09-19
+
+Owner's list, in his order. **Each fix is paired with the fault put back and
+the *cause* scored rather than the message** — §10's own account of three wrong
+guesses at one assertion is why, and item 4 below is the case where scoring the
+message would have been wrong again.
+
+### 11a. `neediest_kin` can see riders — and the eye had to move with the mouth
+
+The owner asked for the mouth: `neediest_kin` scans `NEIGHBOURS_8`, which never
+contains `(0,0)`, and reads `cell.organism_id()`, which is the *owner's*. Both
+are now answered by one helper, `fold_ridden_kin`, called at the animal's own
+cells and at each neighbour. `nearest_foe` is deliberately left blind, because
+the identical blindness is what implements the owner's attack ruling for free.
+
+**Fixing only the mouth is a lever that fires and moves nothing, and that is
+measured rather than reasoned.** `BrainInput::KinNeed` comes from
+`adjacent_food_counted`'s scan, not from `neediest_kin`, and it was blind to a
+rider in the same two ways. `ant.ron` authors `(Energy, Share, 2.5)` against
+`(Bias, Share, -2.5)` — an exact cancellation at full energy — so the species
+file's own words are that **`KinNeed` is the only input that can open the
+`Share` gate from outside the donor's own belly**. With the mouth fixed and the
+eye blind, `a_starving_rider_is_visible_to_the_verb_that_would_feed_it`
+evaluates the real genome at the inputs the old scan produced and gets `Share`
+= **exactly 0.0**: no draw is taken, and the target the mouth found is never
+requested. So the eye is part of the mouth's repair, not scope creep.
+
+Put the mouth's half back on its own and the same test fails differently and
+usefully: the donor aims at the **host**, which is full, because the host's
+second body cell is an ordinary grid neighbour. A share that moves nothing.
+
+**The event count, and why it is a within-run number.** A paired `shares`
+reading against the trunk cannot answer this: arming the cap moves a draw on
+the first stacked tick, so the two arms are different worlds by the next frame.
+Over six seeds on the crowded bed at cap 20, 3,000 frames, `shares` went
+**193.3 → 206.5** — inside the 169–213 spread of the unfixed arm alone, and
+therefore no evidence of anything. `CreatureStats::shares_in_stack` needs no
+second world, because before the repair there was no path to a rider at all:
+**43, 47, 51, 51, 54, 55** over those six seeds, about a quarter of all shares,
+against **0** at the shipped cap. Both arms are asserted in
+`a_crowded_colony_actually_stacks_when_the_cap_is_armed`.
+
+### 11b/11c. A body never writes a cell it does not own — one rule, two bugs
+
+§10 filed these separately and they are the same rule seen from two sides, so
+they are fixed in one place: `stamp_as_corpse`, which is already the single
+chokepoint for corpse writing.
+
+**The dying rider** (§10's first filed bug) stamped nothing at all, because
+`creature_dies` filtered its corpse cells down to the grid-owned ones — which
+was right, or a rider's death would bury its host, and is exactly what
+`a_dying_rider_does_not_bury_its_host` guards. So the owner's ruling (*first
+free neighbour, else suppressed*) was implemented for a dying owner and not for
+a dying rider: the meat was deleted in silence with `corpses_suppressed`, the
+named-hole counter that exists so a leak correlated with the experimental arm
+cannot go unnamed, reading 0 throughout.
+
+**The severed ridden cell** (§10's second, filed *without* a reproduction)
+reaches the same function from `reconcile_chain`: `surviving` keeps a ridden
+cell, so it can fall out of the 8-connected component, land in `severed`, and
+arrive where `riders_at(cell).first()` is **the severing animal itself** — and
+the promotion branch would hand it the cell it was only borrowing, writing its
+own body over its host's.
+
+The rule that closes both: **a body that does not own this cell in the world
+never writes it.** Its flesh was only ever in the rider index, so the meat goes
+*beside* — the same ruling promotion already follows — and the host is not
+touched. Unreachable at the shipped cap, structurally: a body owns every cell
+it stands in there.
+
+Two things ride along:
+
+- **The worth divisor.** The dropped ridden positions were also being booked to
+  `meat_lost` and left out of the divisor, so an animal's worth was spread over
+  fewer cells than it had and every surviving corpse cell was made *richer* to
+  compensate for meat that had been deleted. Both terms now read one list.
+  Asserted directly: a half-riding, half-standing `Chain` body's two corpse
+  cells must carry the same `aux`, and it must be the two-cell figure.
+- **`stamp_as_corpse` returns how many corpses are actually standing**, and
+  `creature_dies` books `Account::StoredInMeat` against that rather than
+  against the cells it offered a place to. Crediting a suppressed corpse pushes
+  `max_standing_meat` *down*, which is the one direction that can take
+  `the_standing_meat_never_exceeds_what_was_put_into_it` red. The discrepancy
+  existed at cap 1 too, through the promotion branch, and was being absorbed
+  into the bound's slack.
+
+**The reproduction §10 asked for** is
+`severing_a_ridden_cell_leaves_the_host_holding_it`: a `Chain(6)` in a row with
+its tail cell inside a nestmate, bitten two cells behind the head, so the tail
+half *and the ridden cell* sever together — which is the only way to reach the
+branch, since a body that keeps its ridden cell attached never severs it. With
+the fix removed it goes red naming the cause: the tail cell's grid owner
+becomes **1**, the severing animal, instead of **2**, the host. The severing
+count is asserted *first*, so a scene where nothing severs cannot pass the
+host-keeps-its-cell assertion for free.
+
+### 11d. The stranded grid cell: found, and it was already closed
+
+The defect: an animal left owning a grid cell that is not in its chain, with no
+rider standing there. `creature_biomass` sums `cells.len()`, so it over-reports
+for the rest of that animal's life.
+
+**The mechanism.** `reindex_organism_cell` prunes `cells` only when a cell's
+`organism_id` *changes* — §10's own dead-end entry (d) names that early return.
+So a promotion that writes a cell **already carrying the outgoing owner's id**
+is invisible to it: the owner keeps the entry and its chain walks on. The cell
+that made this possible was the pre-fix `carried` read in `relocate_chain`,
+which let a rider store its *host's* cell as its own — the bug §10 opens with,
+fixed in the same PR. **The two are one bug seen at different times**, and the
+owner's note that item 4 "reproduces at cap 1, so it predates this work" is the
+part that does not hold up.
+
+**Traced rather than argued, with the probe's sensitivity established first.**
+A check at every `end_step` — any creature owning a grid cell outside its chain
+— was injected with a hand-made stranding and confirmed to fire at frame 0.
+Then, on pristine `main`:
+
+| arm | result |
+|---|---|
+| crowded bed, cap 1, 40,000 frames | clean |
+| crowded bed, cap 20, 3,000 frames (the run §10 quotes: 9,036 moves, 49 alive) | clean |
+| whole `--lib` suite, 1,860 tests | clean |
+| `tests/worldgen.rs` + `tests/determinism.rs`, 48 tests | clean |
+| `examples/ascii` | clean |
+| **the same bed with the pre-fix `carried` read reinstated** | **frame 35** |
+
+At frame 35 it reads organism 41 holding `(219,119)` outside chain
+`[(221,119),(220,119)]` with **riders 0**, and organism 49 the same shape while
+climbing away from it — the report's own `[(9,119),(9,118)]` plus `(5,117)`,
+to the arrangement. Removing `try_swap_with_kin`'s guard, the other candidate,
+changed **nothing**: `passes_through_kin` is off in every species file, so that
+function returns on its first line in every shipped scene.
+
+**What is added is a guard at the seam, not a second fix.** `World::add_rider`
+now attributes the stored cell to the rider (`cell.with_organism_id(id)`), so a
+promotion always changes the id and the pruning seam always fires, whatever a
+caller hands in. A no-op on every live path. It is at the seam because the
+caller that got this wrong *looked correct*, and the symptom surfaced in a
+different animal's bookkeeping two hundred frames later. A `debug_assert` was
+the first version and is the wrong tool — compiled out of `--release`, which is
+where every long run here is measured, so it would guard exactly the runs short
+enough not to need it.
+
+**And this is the case the owner's warning was about.** The fault-injection that
+"verified" a fix by watching the expected message appear was failing for item 4
+instead. Scoring the cause is what separated these two: item 4's shape is
+`grid owner == me, not in my chain`, and the rider bugs' shape is
+`grid owner == somebody else`. One invariant cannot tell them apart, which is
+why `a_crowded_colony_actually_stacks_when_the_cap_is_armed` asks the
+grid-disowned question and the new tests ask the other one.
+
+### 11e. Still open, and deliberately not touched
+
+- **A minted lateral does not ask `can_stack_into`.** `relocate_chain`'s mint
+  loop writes a re-emerging `Segmented` lateral with a plain `World::set`, so at
+  a cap above 1 a `longant` re-widening into a cell a nestmate stands in would
+  overwrite it rather than ride it. Unreachable for every `Chain` and `Rigid`
+  species, and `longant` is the only `Segmented` one shipped.
+- **Suppressed meat is still not booked to `meat_lost`.** The honest amount is
+  the *stamp* part only — the live share already goes to `Account::Dissipated` —
+  and `place_corpse_beside` does not know `body_energy`. `max_standing_meat` is
+  an upper bound, so the omission only ever loosens it and cannot turn a guard
+  red; `corpse_worth_suppressed` is the named figure to subtract by hand, which
+  is what §10 says it is for.
+
+### 11f. Frame cost, paired and read honestly
+
+`CLAUDE.md` makes frame cost a hard constraint rather than a tiebreaker and
+names `examples/ascii` as the number to quote. The change adds work to the
+creature tick, so the figure to read is that example's **creature** scene: the
+whole frame with 366 live organisms over 12,000 frames. Four alternating pairs
+on an otherwise idle box:
+
+| | mean | spread |
+|---|---|---|
+| `main` | **0.976 ms** | 0.966-0.997 |
+| this branch | **0.983 ms** | 0.975-0.993 |
+
+Paired deltas `-0.004 / +0.007 / +0.011 / +0.015` ms, mean **+0.007 ms
+(+0.74%)**, branch higher in 3 of 4.
+
+**That reads as no measurable cost, not as a measured +0.7%, and both reasons
+cut the same way.** The effect is a quarter of `main`'s own within-arm spread
+(0.031 ms), and the pairs are **not order-randomised** -- `main` runs first in
+every pair, so a box that warms across the sequence biases the difference in
+exactly this direction, which is what the monotone `+0.007 / +0.011 / +0.015`
+tail looks like. Recorded with the confound named rather than cleaned up,
+because the honest reading of a 0.7% difference against a 3% spread is that the
+instrument cannot see it.
+
+The mechanism agrees: ~9 sparse-index lookups per body cell per creature tick,
+on a path that already does eight `World::get` and eight `diet_yield` per body
+cell, and at the shipped cap the index is empty so each lookup is a length
+check.
+
+**The worst-frame column is not quotable here, and says so itself.**
+`mean x frames` does not pin it -- 0.97 against 7-32 -- which by this repo's own
+arithmetic test makes it an order statistic over many similar frames rather than
+a cost. `main`'s four runs bear it out, spanning **7.022 to 31.561 ms** on a
+byte-identical binary.
+
+**And the case that nearly went out as a regression**, kept because the
+misreading is the lesson: `acceptance.sh`'s `lavadrop` failed at **87.33 ms**
+against its 60 ms budget on the first run -- taken with the full test suite
+running on the same box. Quiet, the same case reads **2.86 ms** (spread
+2.86-3.11). A **30x** swing from machine state alone, on an unchanged binary, in
+a gate that fails loudly. `Reports/open-bugs-handoff.md` §T1d already records
+this exact shape and has `main` over the bar at 74.96 ms on an idle box, so the
+case is flaky either way; `lavadrop` builds no creature and every change here is
+on the creature tick, so it could not have been this branch. The reasoning was
+right and the reading was still the contention.
+
+### 11g. Bit-identicality at cap 1, measured
+
+The whole feature's claim, re-checked because four of these changes touch shared
+paths. Crowded bed, cap 1, 3,000 frames, digest over every cell's material, id
+and `aux` plus every organism's energy and chain: **`0x6fde91732aaa5a65` on both
+`main` and this branch**, with 8,578 moves, 51 alive, 21 deaths on each. At cap
+20 the world diverges and must — trophallaxis now reaches inside a stack, which
+moves a draw.

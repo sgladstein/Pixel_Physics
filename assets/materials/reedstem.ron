@@ -1,0 +1,134 @@
+// **The standing tissue of an emergent aquatic plant**: `reed.ron`'s
+// `shoot_material` *and* its `leaf_material`, the same cells, for the same
+// reason `grassblade.ron` gives — a reed has no separate foliage stage, its
+// photosynthetic surface *is* its shoot (`plastochron: 0`). Phase 1 of
+// `Reports/aquatic-implementation-plan-2026-09-14.md`.
+//
+// A real material rather than a shade of `grassblade`, by this engine's own
+// test (`leaf.ron`: "its *physics* genuinely differ on numbers that already
+// exist"), and here the differences are the whole species: it lives wet, so
+// it barely burns where a cured blade is the fastest fuel in the world; and
+// it is the first plant tissue in this engine that stands in **water**
+// rather than in air, which is what `SpeciesDef::submerged_shoot` buys.
+//
+// **The palette is the other half of the reason, and it is not decoration.**
+// `Reports/plant-appearance-design.md` §5 is the case this file is written
+// against: three architectural levers fired, all measured, all counted, and
+// the owner saw no change — because every plant in the world drew from one
+// four-brown palette and one four-green one. A reed built from `leaf` would
+// be a twig standing in a puddle however well the mechanism worked. So these
+// greens are **glaucous** — blue-grey, the real colour of a reed bed — and
+// they are disjoint from both existing green sets in the way that matters at
+// pixel scale: `leaf` and `grassblade` both put blue far under green
+// (`(58,96,40)`, `(96,140,58)`), and these put it within twenty of it. That
+// is a different hue family, not a different shade of the same one.
+(
+    name: "reedstem",
+    display: "Reed",
+    kind: Plant,
+    // Walk-through and climbable while it is alive, as `grassblade` and
+    // `leaf` are -- and it matters more here than for either, because a reed
+    // is the only standing thing inside a pond's footprint and Phase 2's
+    // swimmer has to be able to get onto it rather than be walled out by it.
+    //
+    // Read only alongside `Cell::organism_id() != 0`, so a painted cell of
+    // this material is as solid as it ever was.
+    climbable: true,
+    // **Under water's 1.0, deliberately, and above `litter`'s 0.3.** Live
+    // cells do not move -- an organism's cells are static -- so this number
+    // is about the *broken* piece, and a snapped reed floating rather than
+    // sinking is both what happens in a real reed bed and the only way this
+    // species can put anything on a pond's surface. Above litter for
+    // `grassblade`'s reason: cut tissue must not float on its own litter.
+    density: 0.35,
+    // **No `stiffness`, and that is a decision rather than an omission.**
+    // Grass bends at 2.0, set against a measured moment census of a real
+    // tuft (p50 0.4, p90 5.5 over 43 cells at ~12 rows). A reed is taller,
+    // and bending moment grows with height, so inheriting grass's number
+    // here would be setting a bar from another species' distribution --
+    // `CLAUDE.md`, *set bars from measurement with headroom*. Rigid by
+    // default keeps the first build upright, which is what a reed is; a
+    // reed bed leaning in wind is the obvious next lever and wants its own
+    // census on this species before it gets a number.
+    //
+    // **Four bands of four tonal steps**, per `organism::PALETTE_BAND`,
+    // ordered along one axis so a species' declared range is a contiguous
+    // slice: glaucous -> sage -> olive-tan -> tawny. Band 3 is the winter
+    // reed bed and is deliberately left outside `reed.ron`'s declared
+    // range, exactly as `grassblade`'s straw is: a stand that starts
+    // half-dead reads as broken rather than as varied.
+    colors: [
+        // 0: glaucous blue-green -- standing in water, the summer colour
+        (104, 138, 116),
+        (120, 156, 132),
+        (88, 120, 100),
+        (136, 172, 148),
+        // 1: mid sage green
+        (118, 144, 110),
+        (134, 162, 126),
+        (102, 126, 94),
+        (150, 178, 142),
+        // 2: olive-tan, late summer
+        (146, 152, 104),
+        (164, 170, 120),
+        (128, 134, 88),
+        (182, 188, 136),
+        // 3: tawny bronze -- the winter reed bed, held for a later species
+        (176, 148, 96),
+        (194, 166, 112),
+        (156, 130, 80),
+        (210, 184, 130),
+    ],
+    // **Well under `grassblade`'s 0.85, and this is the physics difference
+    // that earns the material.** Cured grass is the fastest fuel here by
+    // design, because carrying fire across open ground is its job. A reed
+    // stands with its feet in a pond: green, turgid and wet, it is the thing
+    // a grassfire *stops* at. Not zero -- a dry winter reed bed burns hard,
+    // and that is a real behaviour worth leaving reachable -- but it must
+    // not be a wick across water.
+    flammability: 0.2,
+    burn_temperature: 500.0,
+    burn_duration: 40,
+    burns_into: "ash",
+    // No flame throw: `grassblade`'s 0.18 is what makes a grassfire read as
+    // a front. A reed burning in standing water should read as a local
+    // thing, not a front.
+    heat_conductivity: 0.2,
+    // A broken reed is ground litter, like a blade and unlike a branch --
+    // and this is the plant side feeding the material a creature eats,
+    // without either side knowing about the other.
+    breaks_into: "litter",
+    // Both as `grassblade`, for its reasons: a one-cell stem must not be a
+    // load path, and omitting `max_cantilever_reach` opts out of the
+    // organism cantilever rule entirely (default `u16::MAX`), which is what
+    // stops `anchor_support`'s reach measurement amputating a reed bed.
+    // Attachment is still checked, so a reed whose rhizome is dug away goes.
+    max_unsupported_span: 1,
+    // The armour table's soft band -- same value as `leaf`, `moss` and
+    // `grassblade`. Soft tissue on a stem a cell wide; these four are not
+    // meaningfully different to a mandible. Left unauthored it would sit at
+    // the 100.0 default, which prices a reed like heartwood.
+    penetration_resistance: 0.1,
+
+    // **Authored rather than defaulted, and the reason is a measured bug in
+    // this file's own template.** `grassblade.ron` authored neither of these
+    // for most of its life: both are `#[serde(default)]` and therefore
+    // `0.0`, so `food_value` returned zero and **every mouth in the world
+    // was blind to a sward** from the day the field existed. That is exactly
+    // the shape of failure Phase 2 of the aquatic plan stops on -- its
+    // stated stopping condition is "food eaten while submerged comes back
+    // zero", and a zero from an unauthored material is indistinguishable
+    // from a zero that means the swimmer never ate. Set here so that when
+    // Phase 2 reads that counter, a zero is a finding about the animal.
+    //
+    // 40.0 is `leaf`'s and `grassblade`'s value, taken from them rather than
+    // invented: at the shipped neutral gut `40 * diet_quality(0.0) = 10`
+    // against `EAT_YIELD_THRESHOLD`'s 12, so a generation-zero ant still
+    // cannot see a reed, exactly as it cannot see a sward. What it buys is
+    // that a lineage that evolves a grazer's gut can graze the *pond*.
+    food_energy: 40.0,
+    // Plant matter, like every other foliage material. `0.0` is the
+    // flesh/plant midpoint, so leaving it unauthored would make a reed read
+    // as half meat to anything that could see it at all.
+    food_class: -1.0,
+)
