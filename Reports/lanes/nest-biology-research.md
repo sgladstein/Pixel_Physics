@@ -96,4 +96,7 @@ number that is not currently trustworthy.**
 
 ## Head SHA
 
-`HEAD_SHA_PLACEHOLDER`
+The report, its index line and this note are **`96cb18d8`**, cut from
+`main` at `c061a245`. The branch head is the commit immediately after it,
+which is this stamp itself — a note cannot name its own hash, so the
+content commit is the one to read, and the PR names the pushed head.
