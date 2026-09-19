@@ -1,0 +1,270 @@
+// **The reed** -- Phase 1 of
+// `Reports/aquatic-implementation-plan-2026-09-14.md`, "the margin". The
+// first plant in this engine that can stand in water.
+//
+// **Cut from `grass.ron`, and that is a decision rather than convenience.**
+// Grass is the proof that a non-woody plant photosynthesising from
+// `MatureBody` works end to end -- `plastochron: 0` everywhere, no `Leaf`
+// cell type, income from the tip and the retired blade alike -- and a reed
+// is a grass that grew up in a pond. Copying the working economy means the
+// only new thing in this file is the water, which is what the phase is for.
+// Read `grass.ron`'s header for the economy itself; it applies here
+// unchanged and is not repeated.
+//
+// ---------------------------------------------------------------------
+// WHAT MAKES THIS SPECIES AQUATIC: TWO FIELDS, AND THE SECOND WAS NOT IN
+// THE PLAN
+// ---------------------------------------------------------------------
+//
+// **`submerged_shoot: true`** is the one the plan scoped: `plant::growable`
+// refuses a shoot every occupied cell, water included, so before this flag a
+// plant at a waterline stopped dead at it. Per-species, so all twenty
+// shipped plants are a no-op **by construction** -- see
+// `SpeciesDef::submerged_shoot` for why that matters more than it sounds.
+//
+// **`seed_material: "reedseed"`** is the half that was missing, found by
+// measurement on 2026-09-18 and recorded in full in `reedseed.ron`. The
+// shared `seed.ron` is density 0.6 against water's 1.0, so **a plant seed
+// floats**. `the_pond_sediment.ron`'s two herbs, which the plan describes as
+// placed "in the sediment", were resting on the water surface 23 rows above
+// it for the whole run. So the measurement Phase 1 was scoped from -- dead
+// herbs in a pond that holds -- was a seed that never landed, not a shoot
+// that could not leave the waterline. Both halves are needed and neither is
+// sufficient alone.
+//
+// ---------------------------------------------------------------------
+// THE SILHOUETTE, WHICH IS THE PART MOST LIKELY TO FAIL
+// ---------------------------------------------------------------------
+//
+// `Reports/plant-appearance-design.md` §5 is the standing warning this file
+// is written against: three architectural levers fired, all measured, all
+// counted, and the owner saw no change -- because every plant in the world
+// drew from one four-brown palette and one four-green one. A reed that
+// borrowed `grassblade` would be a tall grass in a puddle.
+//
+// So the differences here are the ones that reach *pixels*: its own
+// materials, a **glaucous** palette that is a different hue family from both
+// existing green sets (`reedstem.ron` has the numbers), and a habit that is
+// a bundle of tall near-vertical stems rather than a splayed tuft -- narrow
+// branch angle, high heading inertia, strong upward weight. Height is the
+// other half of the silhouette and it is set by the bed, below.
+//
+// **Numbers here are a first pass and are the implementer's.** They are
+// swept at landing, rebuilt between every sweep point (`.ron` is
+// `include_str!`; identical output across settings means the knob was never
+// connected -- `.claude/rules/assets.md`).
+(
+    name: "reed",
+    shoot_material: "reedstem",
+    root_material: "reedroot",
+    leaf_material: "reedstem",
+    // **The file's other load-bearing line.** See the header and
+    // `reedseed.ron`.
+    seed_material: "reedseed",
+    // **The line the phase was scoped as.** See the header and
+    // `SpeciesDef::submerged_shoot`.
+    submerged_shoot: true,
+    // Bands 0..2 of `reedstem`: glaucous, sage, olive-tan. Band 3 is the
+    // tawny winter reed bed and is deliberately outside the range, exactly
+    // as `grass.ron` holds back its straw -- a stand that starts half-dead
+    // reads as broken rather than as varied.
+    foliage_bands: (first: 0, count: 3),
+    // The same range, for `grass.ron`'s reason: with no separate leaf stage
+    // the "bark" band and the "foliage" band index the *same* palette, so
+    // keeping them equal is what stops a plant drawing its stem cells out of
+    // a different part of the ramp than its tip.
+    bark_bands: (first: 0, count: 3),
+    // A plant standing in a pond is never short of water. Kept at grass's
+    // value rather than zeroed because the field is also the genome's slot-7
+    // multiplier, and a species that opts out of it is a species evolution
+    // cannot move on that axis.
+    stomatal_reserve: 0.2,
+    seed_half_life: 18000.0,
+    // 0.6, the only value in the corpus -- taken from `herb`, `scrambler`
+    // and `grass` rather than invented here, for the reasons `grass.ron`
+    // sets out at this field. Re-derive it from a dispersal sweep before
+    // believing any particular value.
+    seed_gut_survival: 0.6,
+    // Twice grass's 900. A dead sward browns off and is gone; dead reeds
+    // stand through a winter, which is most of what a reed bed looks like
+    // for half the year.
+    remains_half_life: 1800.0,
+    // `grass.ron`'s table unchanged -- this is `plant::builtin_fate` written
+    // out, and a guard checks the two agree rule by rule.
+    fates: [
+        (GrowingTip, [
+            (when: Node,  becomes: DormantBud, child: Some(GrowingTip), lateral: Some(GrowingTip)),
+            (when: Grew,  becomes: MatureBody, child: Some(GrowingTip), lateral: Some(GrowingTip)),
+            (when: Stale, becomes: MatureBody),
+        ]),
+        (RootTip, [
+            (when: Grew,  becomes: MatureBody, child: Some(RootTip), lateral: Some(RootTip)),
+            (when: Stale, becomes: MatureBody),
+        ]),
+        (DormantBud, [
+            (when: Flush, becomes: GrowingTip),
+        ]),
+    ],
+    cell_types: [
+        (Seed, [
+            Germinate(
+                // **Lower than grass's 0.08.** A reed seed germinates on the
+                // bottom of a pond, and even though water does not attenuate
+                // light in this engine today (`PIXEL_PHYSICS_WATER_OPACITY`
+                // defaults to 0.0, and Phase 3a is what would change that),
+                // this must not become the gate that stops the species the
+                // day that switch is turned on. Set below the depth the bed
+                // can produce rather than at it.
+                light_threshold: 0.04,
+                // Saturated sediment is the only ground this plant wants, and
+                // submerged sediment reads near 1.0. Set well under it rather
+                // than near it: the threshold's job here is to be passed.
+                soil_water_threshold: 0.10,
+                instant: false,
+            ),
+        ]),
+        (GrowingTip, [
+            Grow(
+                // A reed stem is a stouter thing than a blade of grass, and
+                // there are fewer of them.
+                cost: 0.15,
+                // **Well under grass's 0.4.** A tussock is a splay of
+                // tillers; a reed bed is a stand of separate near-parallel
+                // stems, and the difference between the two silhouettes is
+                // mostly this number and `branch_angle` below.
+                branch_chance: [0.05, 0.06],
+                continuation_weight: 0.85,
+                // Low, like grass: a reed goes up. It does not chase light
+                // sideways.
+                light_weight: [0.1, 0.1],
+                // Under grass's 0.35. A reed sways in wind, but swaying is a
+                // `stiffness` question (`reedstem.ron` declines to guess at
+                // one yet); this knob moves where the stem is *placed*, and a
+                // reed that wanders as it climbs reads as a weed.
+                wind_weight: 0.12,
+                // **Strongly up, and higher than grass's [0.85, 0.7].** This
+                // is a plant whose whole job is to cross 24 rows of water and
+                // get its head into the air.
+                upward_weight: [0.95, 0.9],
+                crowding_weight: 30.0,
+                // Fewer than grass's 10: a reed clump is a handful of tall
+                // stems, not a dense tuft. Tall and few is the silhouette.
+                max_active_tips: 6,
+                // **0 = no separate leaf stage**, as grass. The structural
+                // line, inherited with the economy.
+                plastochron: [0, 0],
+                penetration_force: 0.0,
+                // **Set from the bed, which is the only honest way to set
+                // it.** `the_pond_sediment.ron` puts sediment at y=188 and
+                // the waterline at y=164, so a reed has **24 rows of water**
+                // to cross before any of it is visible above the surface.
+                // The nominal height bound is `(source - yield) /
+                // per_cell` = (0.325 - 0.1) / 0.0075 = **30 rows**, which
+                // clears the water with six to spare.
+                //
+                // **That is a path-length bound, not a prediction** --
+                // grass's own note -- and a wandering tiller measures well
+                // over its nominal while a straight stem measures near it.
+                // This species is deliberately straight (`heading_inertia`
+                // 0.88 below), so expect measured height near the nominal
+                // rather than over it. The measured figure goes in the
+                // commit message rather than being guessed at here.
+                //
+                // **And the plan's deferral still holds.** The elegant change
+                // -- charging the lift only above the waterline, since the
+                // ceiling is Lockhart's equation paying the gravitational
+                // cost of raising water -- is Phase 4 and removes a bound
+                // without supplying a replacement. A reed does not need it:
+                // it is short by construction, and 30 rows is that
+                // construction written down.
+                turgor_source: 0.38,
+                turgor_yield: 0.1,
+                turgor_per_cell: 0.0075,
+                turgor_taper: 0.4,
+                // **High, and the highest shoot here.** Grass sits at 0.55
+                // and wanders, which its own file calls out as the species
+                // with the least to hide behind. A reed is a straight line
+                // 30 cells long; if it wobbles it is a weed, not a reed.
+                heading_inertia: 0.88,
+                // **Narrower than grass's 22.** Stems rise nearly parallel
+                // out of the crown instead of splaying. A splayed clump
+                // reads as a small shrub, which is the failure this file is
+                // told to stop and report on.
+                branch_angle: [12.0, 10.0],
+                internode: [1, 1],
+                // Stiffer than grass's [0.9, 0.8] for the same reason
+                // `heading_inertia` is higher: a one-cell stem is nothing but
+                // its own path, and this one has 30 cells of it to keep
+                // straight.
+                stem_stiffness: [0.96, 0.92],
+                leaf_cluster: 0,
+                juvenile_size: 6,
+                juvenile_plastochron: 1.0,
+                juvenile_branch: 1.4,
+                // Non-zero on the same slots grass varies: a reed must be
+                // able to respond to selection through the shared genome
+                // rather than a private one.
+                genotype_variance: (0.5, 0.0, 0.4, 0.18, 0.7, 0.0, 0.4, 0.5, 0.0, 0.7),
+                sympodial: [false],
+                tropism: [Orthotropic],
+            ),
+            // On the tip, because the tip *is* photosynthetic tissue here.
+            // Grass's rates and death terms, inherited with its economy --
+            // `shade_death` is the live arm on a species with no leaf stage,
+            // and `drought_death` is inert for a plant with zero
+            // transpirational demand, let alone one standing in a pond.
+            Photosynthesize(rate: 0.55, shade_death: 0.004, drought_death: 0.002),
+        ]),
+        (RootTip, [
+            Absorb(rate: 1.6),
+            Grow(
+                cost: 0.15,
+                // A spreading rhizome mat, as grass's.
+                branch_chance: [0.45],
+                continuation_weight: 0.6,
+                light_weight: [0.0],
+                wind_weight: 0.0,
+                // **Shallower than grass's 0.22, and set from the bed
+                // again**: there are only four rows of sediment over an
+                // impermeable stone seal, so a rhizome that dives hits stone
+                // and stops. At 0.15 it runs sideways through the layer it
+                // has, which is both what a rhizome is and what makes
+                // `reedroot`'s `reinforces_powder` add up to a held bed.
+                upward_weight: [0.15],
+                crowding_weight: 0.0,
+                max_active_tips: 12,
+                plastochron: [0],
+                heading_inertia: 0.4,
+                // **Must exceed the substrate's `penetration_resistance`,
+                // not merely be small** -- `growable` is a strict inequality.
+                // Soil is 0.8. Grass learned this the expensive way: its
+                // first draft said 0.5 for "fine roots" and the whole
+                // species died having never once rooted, with a picture that
+                // said "bare soil" and only a counter that said why. 1.0
+                // clears soil and stays under sand's 1.4.
+                penetration_force: 1.0,
+                genotype_variance: (0.0, 0.5, 0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 0.25, 0.0),
+            ),
+        ]),
+        (MatureBody, [
+            // **`seed_maturity` is SHOOT CELLS, not frames** -- grass's file
+            // records a draft at 150 that made reproduction structurally
+            // impossible. A reed is a bigger plant than a grass, so this sits
+            // above grass's 10; it must still be clearly under the size a
+            // stem that has crossed the water actually reaches, which is 30
+            // rows before any branching.
+            Reproduce(seed_cost: 0.15, reproductive_allocation: 0.12, seed_maturity: 24),
+            StructuralAnchor,
+            Absorb(rate: 1.6),
+            Photosynthesize(rate: 0.4, shade_death: 0.004, drought_death: 0.002),
+        ]),
+        (DormantBud, [
+            BudBreak(
+                cost: 0.15,
+                thickening_survival: 0.5,
+                acrotony: 0.0,
+            ),
+            StructuralAnchor,
+        ]),
+    ],
+)
