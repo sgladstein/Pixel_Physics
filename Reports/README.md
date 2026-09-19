@@ -3225,6 +3225,49 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   before they become code. Also flags a content-farm page whose invented
   "seasonal pheromone blends" are exactly the mechanism that was nearly
   built. Docs only; nothing built.
+- [nest-build-plan-2026-09-19.md](nest-build-plan-2026-09-19.md) — **plan,
+  2026-09-19. `lab`/`engine`. Nothing built.** The staged build the two nest
+  research reports imply, written after the owner asked whether it is
+  possible here. **It is, and cheaper than either report implied, because
+  four things both treated as needing construction already exist.** The
+  load-bearing one: **the dig target is already directional** —
+  `DIRS[heading]`, one cell, **no target selection at all** — so "which way
+  is forward" is `heading` and `Turn` is live; this also explains why both
+  dig-*target* dead ends failed across their whole ranges, since they
+  weighted *whether* to dig and never *where*. Also: **a dug void already
+  stays open** (`line_burrow` packs all 8 neighbours into `self_supporting`
+  `packedsoil`, so `burrow_probe`'s "gallery gone in 5 frames" is a
+  *hand-carved* void, not an ant-dug one — the gate that could have killed
+  the plan is already passed); **`Persist` is unwired in every species**,
+  its doc calling it heading maintenance; and **contents already exist
+  without eggs**, because the dig verb explicitly refuses to take a
+  `live_seed` as spoil. **Missing: one sense** — nothing in the dig decision
+  is oriented to gravity, depth or an existing tunnel's axis. Five stages,
+  cheapest first, each with a check that can fail and a review card:
+  **(0)** verify the four facts in the running box, with the lining ablation
+  as positive control; **(1)** wire `Persist` for straightness — one weight,
+  **zero** slots and zero baselines voided, scored on aspect ratio against
+  46x2; **(2)** one appended sense wired to `Turn`, built as a *local*
+  vertical asymmetry rather than a global depth scalar, **priced honestly at
+  24 live slots, `mutation_rate` re-derived in every species file, a changed
+  `brain::mutate` draw sequence and every `creature_space` baseline voided**
+  (a cheaper repurposing of the inert `MoistureGrad` writer is considered and
+  **rejected** — it is also wired to `Drop` at a measured 2.94x, so it is the
+  `phototropism_dir` shape); **(3)** contents trigger widening, scored on
+  chamber area around seeds against away from them **paired in one run**,
+  with the caveat that a seed germinates so it is a timer not an object —
+  which is where eggs return; **(4)** the pellet relay, last because it is
+  the only new *behaviour*, with "fresh spoil raises the dig urge" as a cheap
+  precursor. **Corrects the digging-signals report's ranking of `Persist`**:
+  with a heading-directed dig it is the *straightness* half and gravity-biased
+  `Turn` the *direction* half — complementary, not competing, and that report
+  presented them as alternatives. §5 closes the digging pheromone and the CO₂
+  field on evidence; §6 names five ways the plan could be wrong, including
+  that all four stages may still not make a shaft because the world is 80
+  rows deep and the metres-per-cell convention is still unstated. §7 is the
+  landing warning: stages 1–3 all sit in `src/sim/creature.rs` and
+  `assets/species/*.ron`, measured at **56 landings in seven days, the most
+  recent six hours before writing**.
 - [evolution-lab-round-37-brief-2026-09-15.md](evolution-lab-round-37-brief-2026-09-15.md)
   — **brief, 2026-09-15. `lab`/`engine`/`held`.** Opens with **two retracted
   numbers** a reader may have inherited (29.4 is per-bed, not per-ant; the

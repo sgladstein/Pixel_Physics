@@ -143,6 +143,53 @@ before they become code. The report also flags a content-farm page whose
 invented "seasonal pheromone blends" are precisely the mechanism that was
 nearly built.
 
+## Round 3 — the build plan (2026-09-19, owner asked directly)
+
+The owner asked whether the nest these reports describe is possible here, and
+for the steps. Answered as
+[`Reports/nest-build-plan-2026-09-19.md`](../nest-build-plan-2026-09-19.md).
+
+**Yes, and cheaper than either research report implied**, because four things
+both treated as needing construction already exist — verified in the source,
+not inferred:
+
+1. **The dig target is already directional.** `DIRS[heading]`, one cell, **no
+   target selection at all.** So "forward" is `heading` and `Turn` is live.
+   **This also explains why both dig-*target* dead ends failed across their
+   whole ranges**: they weighted *whether* to dig, never *where*, because
+   where was never a choice. Neither entry needs reopening.
+2. **A dug void already stays open.** `line_burrow` packs all 8 neighbours
+   into `self_supporting` `packedsoil`. **`burrow_probe`'s "gallery gone in 5
+   frames" is a hand-carved void**, not an ant-dug one — so the gate that
+   could have killed the whole plan is already passed.
+3. **`Persist` is unwired in every species**, and its doc calls it heading
+   maintenance.
+4. **Contents exist without eggs** — the dig verb explicitly refuses to take
+   a `live_seed` as spoil, so a set-down seed is a persistent object.
+
+**Missing: one sense.** Nothing in the dig decision is oriented to gravity,
+depth, or an existing tunnel's axis.
+
+**Correction to my own round-2 ranking.** I ranked `Persist` third and called
+it "the knob you happen to have". With a heading-directed dig that was
+wrong-headed: `Persist` is the **straightness** half and a gravity-biased
+`Turn` is the **direction** half. Complementary, not competing — round 2
+presented them as alternatives. The coordinator's instinct beat my ranking.
+
+**Stage 2 is priced honestly rather than waved at**: an input column is **24
+live slots**, so `mutation_rate` is re-derived in every species file in the
+same change, `brain::mutate`'s draw sequence moves (so births are not
+comparable across it even at a re-derived rate), and every `creature_space`
+baseline is void. Finite and nameable, which is the test for whether it is
+scoped. The cheaper repurposing of the inert `MoistureGrad` writer is
+**rejected** — it is also wired to `Drop` at a measured 2.94x, so it trades a
+finite cost for the `phototropism_dir` shape.
+
+**Still docs only.** Stages 1–3 land in `src/sim/creature.rs` and
+`assets/species/*.ron`, measured at **56 landings in seven days, the most
+recent six hours before writing**. The plan is safe to write down while
+another lane is live in those files; the code is not.
+
 ## PR, head and state — for the coordinator
 
 **PR #468 merged** (the first report, §§0–11). Its content is on `main`:
