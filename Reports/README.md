@@ -3182,6 +3182,49 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   zero. D11.5: eggs are **not** gated on §10.3 and subsume it; if only
   one thing is done from this report, this is it. Docs only; nothing
   built.
+- [nest-biology-digging-signals-2026-09-19.md](nest-biology-digging-signals-2026-09-19.md)
+  — **research, 2026-09-19. `lab`/`engine`.** Answers a coordinator's seven
+  questions on **what signals ants actually dig by**, after a night of
+  measurement on the bare box found four of the five senses `ant.ron` wires
+  to `Dig` hold one colony-wide value and three interventions on the
+  `Crowding` gate moved the nest not at all. Companion to
+  `nest-biology-2026-09-19.md`; **§6 bears directly on that report's §10 and
+  §11**. **Four findings change a build.** **Contents trigger widening**:
+  workers excavate *only tunnels and no chambers* unless brood or fungus is
+  relocated to a spot (Römer & Roces, *PLOS ONE* 2014) — so the owner's
+  *"nests have no purpose"* is the documented mechanism, not just a design
+  gap, eggs would supply the *stimulus* a widening rule reads, and a
+  contents-free colony should build tunnels where the engine builds an
+  all-chamber lens. **The density cue is collision rate and it gates REST,
+  not dig** (*J. R. Soc. Interface* 2023, "agitation"), and most of the
+  regulation is **not sensed at all** — it is the falling chance of
+  *encountering the face* as space grows (Bruce et al., *Insectes Sociaux*
+  2019), which is why no improvement to a sensor could work. **Tunnel
+  direction is gravity plus the angle of repose (~40°)** — down from the
+  surface, *up* when started mid-medium (*PNAS* 2021, real-time X-ray CT) —
+  both already free in this engine, and `Persist` is the knob one happens to
+  have rather than the right home. **The digging pheromone is a dead end on
+  evidence, not cost**: tested directly in *Acromyrmex lundi*, fresh face
+  against one aged an hour, **null** (Pielström & Roces 2015); the termite
+  cement pheromone is contested and weakly supported, while **surface
+  curvature** independently emerges as the cue guiding early construction —
+  corroborating the lane's own 2.3x roofed-chamber result. Also: CO₂ **tested
+  from atmospheric to 10% and not used** for dumpsite choice while humidity
+  and temperature are (Römer et al. 2019), so "no CO₂ field" now rests on
+  evidence; pellets travel **a few centimetres in a relay of up to 12
+  workers** and the fresh heap **attracts further digging** (Pielström &
+  Roces 2013), against one engine ant that digs and hauls alone onto inert
+  spoil. **Concedes and corrects the first report's finding #5**:
+  `moisture_gradient` is an unsigned magnitude, so "a depth weight with the
+  wrong sign" was never coherent and the term is **inert**, not inverted —
+  the lane had cited a doc comment's prose instead of reading the four lines
+  of arithmetic under it. Ends with a ranked own-it / needs-a-new-field /
+  do-not-attempt table. **Method caveat stated up front**: every journal
+  domain is blocked by the container's egress proxy, so search-tagged claims
+  rest on search summaries rather than papers, and §9 names the five to read
+  before they become code. Also flags a content-farm page whose invented
+  "seasonal pheromone blends" are exactly the mechanism that was nearly
+  built. Docs only; nothing built.
 - [evolution-lab-round-37-brief-2026-09-15.md](evolution-lab-round-37-brief-2026-09-15.md)
   — **brief, 2026-09-15. `lab`/`engine`/`held`.** Opens with **two retracted
   numbers** a reader may have inherited (29.4 is per-bed, not per-ant; the

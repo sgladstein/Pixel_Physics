@@ -94,36 +94,64 @@ already reports a hand-carved chamber gone in **30 frames** in `soil`, and
 sections that treats a chamber as a persistent place is downstream of a
 number that is not currently trustworthy.**
 
+## Round 2 — the seven digging-signal questions (2026-09-19, later)
+
+Answered as [`Reports/nest-biology-digging-signals-2026-09-19.md`](../nest-biology-digging-signals-2026-09-19.md),
+with its index line in `Reports/README.md` in the same commit. PR #468 having
+merged, this is a **second PR off the same branch** — the merged PR cannot
+track new work.
+
+**The four answers that change a build:**
+
+1. **Contents trigger widening.** Workers excavate *only tunnels and no
+   chambers* unless brood or fungus is relocated to a spot (Römer & Roces,
+   *PLOS ONE* 2014). So the owner's *"nests have no purpose"* is the
+   documented mechanism, not just a design gap; eggs would supply the
+   **stimulus** a widening rule reads, not merely a reason; and a
+   contents-free colony should build **tunnels**, where the coordinator's box
+   builds an all-chamber lens. **The lens is failing in the opposite
+   direction to the biology** — there is no tunnel mode to end.
+2. **The density cue is collision rate and it gates REST, not dig**
+   (*J. R. Soc. Interface* 2023). And most of the regulation is **not sensed
+   at all**: it is the falling chance of *encountering the face* as space
+   grows (Bruce et al. 2019). **That is why three interventions on the
+   `Crowding` reading moved nothing** — they improved a measurement of a
+   quantity biology does not measure.
+3. **Tunnel direction is gravity plus the angle of repose (~40°)** — down
+   from the surface, *up* when started mid-medium (*PNAS* 2021). Both already
+   free here. `Persist` is the knob they happen to have; it is third at best.
+4. **The digging pheromone is dead on evidence, not cost.** Tested directly,
+   *Acromyrmex lundi*, fresh face against one aged an hour: **null**
+   (Pielström & Roces 2015). The coordinator's withdrawal was right. Meanwhile
+   **surface curvature** independently emerges in the termite construction
+   literature as the cue guiding early building — corroborating their own 2.3x
+   roofed-chamber result better than anything in the first report.
+
+**Conceded: the first report's finding #5 was wrong.** `moisture_gradient`
+returns `sqrt(gx²+gy²)` — an unsigned magnitude — so "a depth weight with the
+wrong sign" was never coherent, and the term is **inert** rather than
+inverted. I had cited the function's doc-comment prose (*"it is a depth
+signal"*) instead of reading the four lines under it. The transferable form,
+now in the report: **a doc comment's summary of what a channel measures is a
+claim to check, not a measurement to cite** — and this repo's doc comments
+being unusually good is what made the check feel unnecessary.
+
+**Method limitation stated up front in the report rather than buried**: every
+journal domain is blocked by this container's egress proxy, so search-tagged
+claims rest on search-result summaries, not papers. §9 names the five to read
+before they become code. The report also flags a content-farm page whose
+invented "seasonal pheromone blends" are precisely the mechanism that was
+nearly built.
+
 ## PR, head and state — for the coordinator
 
-**PR [#468](https://github.com/sgladstein/Pixel_Physics/pull/468), green and
-ready to merge.** A lane does not merge its own PR here (`CLAUDE.md`: an
-independent session merges its own, a coordinator merges its lanes'), and a
-woken lane has no messaging tools — so this paragraph is the hand-off.
+**PR #468 merged** (the first report, §§0–11). Its content is on `main`:
+report 1,324 lines, index line, this note.
 
-**Read the head off the PR rather than off this paragraph.** It has moved
-three times since the report first landed, twice because the owner ruled on
-the work while it was open, and a stamped SHA here goes stale the moment it
-is written. The substantive commits, oldest first:
+**Round 2 is a second PR off this branch**, because a merged PR cannot carry
+new work. Read the head off the PR rather than off this paragraph — it has
+gone stale three times already. A lane does not merge its own PR here
+(`CLAUDE.md`), and a woken lane has no messaging tools, so this note is the
+whole return path.
 
-| commit | what it added |
-|---|---|
-| `96cb18d8` | the report (§§0–9), its `Reports/README.md` index line, this note |
-| `c79690c3` | **§10 — the owner's ruling that the nest has no purpose**, and the §0 pointer to it |
-| `26078129` | **§11 — eggs**, and the withdrawal of §10.4's brood row |
-
-**CI: all nine jobs green on `26078129`** — `cargo test` release and debug,
-`cargo clippy`, `cargo run --example ascii`, structural acceptance cases,
-worldgen pass interference, `docscheck`, `branches`, `cargo fmt`. 0 behind
-`main`, no merge conflict, no review threads, and this repository runs no
-`Claude Approvals` check.
-
-**One reading note for a PR that grew after its own conclusions.** The
-report now argues against the order of its own §9: §10.5's **D10.1** says
-nothing in §9 starts until §10.3's number is read, and §11.5's **D11.5**
-says eggs are not gated on that number and subsume it. The two are
-consistent — §10.3 asks whether the nest has a purpose *today*, and eggs
-give it one either way — but a reader who stops at §9 will take the wrong
-instruction away. §0 opens with a pointer to §10 for that reason.
-
-**Nothing is waiting on this lane.** The only thing left is the merge.
+**Nothing is waiting on this lane.**
