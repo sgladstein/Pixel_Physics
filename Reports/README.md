@@ -679,6 +679,69 @@ an example against the fields the engine still has (5b), but only the index
 carries *why* a report stands where it does.
 
 
+- [plant-literature-review-comparison-2026-09-19.md](plant-literature-review-comparison-2026-09-19.md)
+  — **review, 2026-09-19.** An outside survey of plant and ecosystem
+  simulation (L-systems to global vegetation models, with a five-layer
+  architecture recommendation), commissioned by the owner from someone who
+  knew only that this is a plant/ecology game, read against the tree
+  mechanism by mechanism. **The engine already holds nearly everything it
+  recommends for its first two stages, under other names** — Palubicki's
+  `Q` and `n = ⌊v⌋`, Beer–Lambert per column, Michaelis–Menten soil,
+  source–sink from surplus, a Weibull age hazard, functional-balance
+  allocation — and several of its textbook forms are recorded dead ends
+  here (flat maintenance respiration, diffusion-as-dominance, litter that
+  credits the soil, a flat mortality rate, a calendar season). What is
+  worth taking is small: two log-log **pattern readouts** (self-thinning
+  and height–thickness slopes) from numbers an instrument already has; the
+  literature's name and a graded mechanism for open bug §V2 (**hydraulic
+  failure**, conductance lost under sustained deficit); the **PPA** as a
+  candidate patch-tier model for M10 catch-up, where `Z*` is literally the
+  skyline; and the finding that `seed_launch`'s kernel is **uniform** where
+  every field kernel is fat-tailed — one line to fix when the wind verb is
+  built. Its §2 maps Díaz's six-trait global spectrum onto the genome slots
+  and finds the heritable axes contain it, chosen without reference to it.
+  **§7, added the same day on the owner's instruction, re-audits seven of
+  those rejections without trusting them**, paired over 12 seeds with
+  identity and positive controls: two were **never measured** (litter
+  returning nutrients cites two *moisture* entries; the attractor removal
+  was a design exchange), one was measured by a test on a **disjoint code
+  path** (reversible dormancy — tip retirement is still permanent, and a
+  cut *suppresses* bud break 12/12), fine-root turnover is **overturned in
+  its generality** (the sweep carried a collapsed 6-row bed in every arm;
+  on the shipped bed +11% income 9/12), flat maintenance **confirms for a
+  reason never recorded**, `seed_launch` stands, and season stands
+  strengthened (a tree lives two app-days) while temperature's condition
+  changed (the field writes one nothing in `plant.rs` reads). The finding
+  that reorders §5: **`income − maintenance` is the only currency, the
+  girth term is 70% of it, and a full-size tree is seedless by
+  construction** — a 10% floor of income to reproduction gives 2.18x seed
+  on 12/12 with no stand cost at 20,000 frames. Five dead-end entries, the
+  nutrient doc comment and the wiki's "size buys offspring" line are
+  written back; the six switches the audit ran on land as instruments,
+  default off. Sibling of the entry below, which is the same literature
+  read from inside the project a month earlier.
+- [plant-economy-and-turnover-plan-2026-09-19.md](plant-economy-and-turnover-plan-2026-09-19.md)
+  — **plan, proposed, not started; seven owner calls in its §8.** The
+  most impactful plant changes, ranked from the comparison report and its
+  re-audit, ordered by the dependency each was *measured* to have: **0**
+  readouts before mechanisms (seeds-against-size, self-thinning slope,
+  allometry, a safe-site census — the numbers exist, the curves do not);
+  **1** a grown plant is productive (seed from production, not the
+  residual — measured 2.18x on 12/12 — then heartwood so the bill follows
+  the crown down, with the maintenance level re-derived against
+  recruitment for the first time); **2** seed reaches ground it can grow
+  on (the wind verb with a fat-tailed kernel, and the safe-site census
+  against the ~305 germinations recruitment pins at, since germination is
+  the blocked stage three times over); **3** gaps open and the ground
+  remembers (root turnover at the knee, a conservative nutrient-return
+  ledger measured on soil memory, graded frost from the weather channel
+  and never a calendar); **4** a cut tree answers (the stump A/B first,
+  then a `MatureBody → DormantBud` path for staleness retirement); **5**
+  the exclusion test that closes or reopens the attractor question in
+  half a day. Names the constants each phase re-derives, the card each
+  wants before it is called done, the one serialised lane `plant.rs`
+  forces, and nine things it deliberately does not do. ~10–12
+  session-days.
 - [plant-simulation-research.md](plant-simulation-research.md) —
   **research.** Growth, evolution and biology directions past M16.
 - [organism-substrate-design.md](organism-substrate-design.md) — **design,
