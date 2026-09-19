@@ -882,13 +882,14 @@ fn main() {
     let (roofed, open, above, bodies, rw, rh, iqr, p50x) = census(&world, &b);
     println!();
     println!(
-        "SUMMARY digs={} rolls={} per_roll={:.3} roofed={roofed} open={open} ants_in_it={bodies} room_total={} hauled_up={above} spoil_dumped={} room={rw}w x{rh}h vert={:.2} iqr={iqr} p50x={p50x:+}",
+        "SUMMARY digs={} rolls={} per_roll={:.3} roofed={roofed} open={open} ants_in_it={bodies} room_total={} hauled_up={above} spoil_dumped={} room={rw}w x{rh}h vert={:.2} iqr={iqr} p50x={p50x:+} aimed_down={}",
         st.digs,
         st.dig_rolls,
         if st.dig_rolls > 0 { st.digs as f64 / st.dig_rolls as f64 } else { 0.0 },
         roofed + open + bodies,
         st.spoil_dumped,
-        if rw > 0 { rh as f64 / rw as f64 } else { 0.0 }
+        if rw > 0 { rh as f64 / rw as f64 } else { 0.0 },
+        st.digs_aimed_down
     );
     // **Can the one remaining candidate demonstrate itself?**
     //
@@ -942,7 +943,65 @@ fn main() {
             }
         }
         let pct = if diggable > 0 { 100.0 * with_spoil as f64 / diggable as f64 } else { 0.0 };
+        // **What the mound is made of, by material.**
+        //
+        // The adjacency line below says a 'dig near fresh spoil' rule has
+        // nothing to read, and on its own it cannot say *why* -- whether the
+        // pellets were never put down, were hauled somewhere else, or were
+        // relabelled after they landed. Those want three different repairs
+        // and only this census tells them apart. `CLAUDE.md`'s *ask what
+        // your number counts when nothing is wrong*: 2,807 pellets against
+        // 96 standing cells of `spoil` is either a marker with a short life
+        // or a census looking in the wrong place, and a histogram cannot be
+        // either.
+        {
+            let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+            for x in 1..b.w - 1 {
+                for y in 0..b.surface {
+                    let cell = world.get(x, y);
+                    if cell.material == material::EMPTY || cell.organism_id() != 0 {
+                        continue;
+                    }
+                    *counts.entry(world.materials.get(cell.material).name.clone()).or_default() += 1;
+                }
+            }
+            let mut v: Vec<(String, usize)> = counts.into_iter().collect();
+            v.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+            let line: Vec<String> = v.iter().map(|(n, c)| format!("{n} {c}")).collect();
+            println!("SUMMARY the mound, by material: {}", line.join(", "));
+        }
         println!("SUMMARY spoil standing in the world: {spoil_cells} cells, against {} pellets ever put down", st.spoil_dumped);
+        // **Khuong's rule, priced where the decision is taken.** The
+        // adjacency line below is the *dig* side's denominator, averaged over
+        // the whole buried world; this is the *drop* side's, counted at every
+        // spoil drop over the eight cells that animal could actually have
+        // used. They are different questions and the survey's construction
+        // headline is the second one.
+        let cand = st.spoil_drop_candidates;
+        if cand > 0 {
+            println!(
+                "SUMMARY at the drop: {} of {cand} places a pellet would stay had a pellet already in reach ({:.1}%); {} of {} drops had both kinds to choose between",
+                st.spoil_drop_candidates_by_spoil,
+                100.0 * st.spoil_drop_candidates_by_spoil as f64 / cand as f64,
+                st.spoil_drops_discriminable,
+                st.spoil_dumped
+            );
+            // **And how many drops never chose a neighbour at all.** A
+            // pellet with no place beside the animal that would hold it goes
+            // up the column instead (`creature.rs`'s `lifted` branch), and a
+            // rule about which neighbour to prefer cannot reach one of
+            // those. It is the other half of the same feasibility question
+            // and it is much the larger half.
+            println!(
+                "SUMMARY ...and {} of {} drops went up the column instead, where there is no neighbour to prefer ({:.0}%)",
+                st.spoil_lifted,
+                st.spoil_dumped,
+                100.0 * st.spoil_lifted as f64 / st.spoil_dumped.max(1) as f64
+            );
+        }
+        if st.spoil_holds_under_cover > 0 {
+            println!("SUMMARY drop rolls damped for being under cover: {}", st.spoil_holds_under_cover);
+        }
         println!(
             "SUMMARY spoil adjacency: {with_spoil} of {diggable} diggable cells have spoil in reach ({pct:.1}%)               -- a 'dig near fresh spoil' rule discriminates only in the gap between that and 100%"
         );
