@@ -79,7 +79,18 @@
     // multiplier, and a species that opts out of it is a species evolution
     // cannot move on that axis.
     stomatal_reserve: 0.2,
-    seed_half_life: 18000.0,
+    // **An eighth of grass's 18,000, and this was the dominant term in the
+    // owner's *"way way less seeds"* (card `…307c1e`, 2026-09-19).** A
+    // persistent seed bank is a *pioneer's* strategy -- grass's answer to a
+    // bad patch is to wait -- and at that half-life nothing a reed ever set
+    // decayed inside a 20,000-frame run, so the standing pile was the whole
+    // production history lying on the sediment. Censused before the cut:
+    // **550 seeds against 579 reed cells**, half of everything in the pond.
+    //
+    // Short-lived seed is also what a reed actually has. It spreads by
+    // creeping rhizome (`reedroot`), not by banking seed into the mud, so
+    // the biology and the picture ask for the same number.
+    seed_half_life: 2400.0,
     // 0.6, the only value in the corpus -- taken from `herb`, `scrambler`
     // and `grass` rather than invented here, for the reasons `grass.ron`
     // sets out at this field. Re-derive it from a dispersal sweep before
@@ -141,7 +152,7 @@
                 // `stiffness` question (`reedstem.ron` declines to guess at
                 // one yet); this knob moves where the stem is *placed*, and a
                 // reed that wanders as it climbs reads as a weed.
-                wind_weight: 0.12,
+                wind_weight: 0.05,
                 // **Strongly up, and higher than grass's [0.85, 0.7].** This
                 // is a plant whose whole job is to cross 24 rows of water and
                 // get its head into the air.
@@ -185,7 +196,7 @@
                 // and wanders, which its own file calls out as the species
                 // with the least to hide behind. A reed is a straight line
                 // 30 cells long; if it wobbles it is a weed, not a reed.
-                heading_inertia: 0.88,
+                heading_inertia: 0.94,
                 // **Narrower than grass's 22.** Stems rise nearly parallel
                 // out of the crown instead of splaying. A splayed clump
                 // reads as a small shrub, which is the failure this file is
@@ -194,9 +205,29 @@
                 internode: [1, 1],
                 // Stiffer than grass's [0.9, 0.8] for the same reason
                 // `heading_inertia` is higher: a one-cell stem is nothing but
-                // its own path, and this one has 30 cells of it to keep
+                // its own path, and this one has ~37 cells of it to keep
                 // straight.
-                stem_stiffness: [0.96, 0.92],
+                //
+                // **INERT AT THE SHIPPED DEFAULT, and that is not a bug in
+                // this file.** `World::stem_mode` defaults to `StemMode::Off`,
+                // whose `forced()` returns `Some(0.0)` -- so the value here is
+                // never read unless the selector is moved to `AUTHORED` or
+                // `FULL`, or `STEM_STIFFNESS=` is set. Authored anyway, exactly
+                // as `grass.ron` authors [0.9, 0.8] it can equally not use,
+                // so the species says what it wants the day the switch moves.
+                //
+                // **It is the knob the reed most needs, and the one verdict
+                // against it was taken on a different subject.** Measured
+                // 2026-09-19 on this bed, `STEM_STIFFNESS=1.0` against the
+                // default: the wandering stems become dead-straight verticals,
+                // which is the owner's *"be a little straighter"*. `7d731d54`
+                // records him judging this mechanism **"looks identical"** and
+                // the switch staying off -- judged on trees, where this file's
+                // sibling comment says the wobble is buried under thickening
+                // and foliage. A one-cell stem standing in open water has
+                // nothing to hide it. Card posted rather than flipped: a
+                // global selector is not a species' decision to make.
+                stem_stiffness: [0.99, 0.97],
                 leaf_cluster: 0,
                 juvenile_size: 6,
                 juvenile_plastochron: 1.0,
@@ -253,7 +284,21 @@
             // above grass's 10; it must still be clearly under the size a
             // stem that has crossed the water actually reaches, which is 30
             // rows before any branching.
-            Reproduce(seed_cost: 0.15, reproductive_allocation: 0.12, seed_maturity: 24),
+            // **A quarter of the allocation and a much larger plant before
+            // it may breed at all** (was 0.12 / 24, itself already cut from
+            // 0.30 / 16). With `seed_half_life` above, seeds standing at
+            // 20,000 frames go **550 -> 27** and the pile on the sediment
+            // **367 -> 7**: seed falls from 49% of everything in the pond to
+            // 7%. Standing plants 594 -> 44, which is the owner's *"should
+            // not crowd so much"* falling out of the same change rather than
+            // needing its own.
+            //
+            // `seed_maturity` is SHOOT CELLS, not frames. 40 is comfortably
+            // under the ~37-row stem this species builds *plus* its laterals,
+            // so it gates a seedling without gating the species -- checked by
+            // measurement rather than by argument, since `grass.ron` records a
+            // draft at 150 that made reproduction structurally impossible.
+            Reproduce(seed_cost: 0.15, reproductive_allocation: 0.03, seed_maturity: 40),
             StructuralAnchor,
             Absorb(rate: 1.6),
             Photosynthesize(rate: 0.4, shade_death: 0.004, drought_death: 0.002),

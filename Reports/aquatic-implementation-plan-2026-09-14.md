@@ -749,6 +749,69 @@ arithmetic named the fault immediately. The guard is therefore proven sensitive
 rather than assumed to be, which is what `CLAUDE.md` asks for and is normally
 the expensive half.
 
+### Retuned on the owner's verdict, 2026-09-19
+
+Card `20260919T004632619Z-307c1e` came back **B, "A good start"**, with three
+asks: *"all the seeds are getting caught in the reeds... They should also not
+crowd so much and be a little straighter"*, followed by **"way way less seeds
+will solve 2 and help a lot with 1, although seed still need to fall through
+to the ground."**
+
+**He was right about the cause, and the census says so.** At 20,000 frames the
+bed held **550 seeds against 579 reed cells** — *half of everything in that
+pond was seed*, which is why the stand read as a tangle. Breakdown: **367
+piled on the sediment, 121 resting on reed tissue, 62 falling.**
+
+Cut production and persistence together — `reproductive_allocation` 0.12 →
+0.03, `seed_maturity` 24 → 40, and `seed_half_life` **18,000 → 2,400**, which
+was the dominant term: at grass's pioneer half-life nothing a reed ever set
+decayed inside a 20,000-frame run, so the standing pile was the entire
+production history.
+
+| at frame 20,000 | before | after |
+|---|---|---|
+| seeds standing | 550 | **27** |
+| …piled on the sediment | 367 | **7** |
+| …resting on reed tissue | 121 | **13** |
+| seed as a share of everything in the pond | **49%** | **7%** |
+| standing plants | 594 | 44 |
+
+So *fewer seeds* fixed the crowding and very nearly dissolved the caught-seed
+problem, exactly as predicted, without touching how a seed falls.
+
+**Why seeds catch on reeds at all, since it is a real mechanism and not
+tuning.** `update::fall_through_organism` lets a wedged powder pass down
+through plant tissue by scanning for **real air**, and it "stops dead at the
+first cell that is neither air nor organism-owned". Under a reed in a pond
+there is no air — there is water. The rule was written for litter dropping
+through a tree crown and cannot see a landing in a flooded bed. **Left
+unfixed deliberately**: the seed cut takes it from 121 to 13, the owner's
+constraint was that seeds must still reach the ground (they do — density 1.15
+against water's 1.0), and widening that rule touches every falling cell in the
+world. Recorded here so the next session does not re-derive it.
+
+### `stem_stiffness` is inert at the shipped default, and it is what the reed needs
+
+**The straightness ask cannot be met from the species file.**
+`World::stem_mode` defaults to `StemMode::Off`, whose `forced()` returns
+`Some(0.0)` — so a species' authored `stem_stiffness` is **never read**. The
+reed's value was raised and moved nothing; `CLAUDE.md`'s *a change that moves
+nothing* caught it before it was reported as a fix.
+
+Measured with `STEM_STIFFNESS=1.0` on this bed, everything else identical: the
+wandering stems become dead-straight verticals, and **13 reed cells stand
+above the waterline against 68** on almost the same tissue in the water (211
+vs 205). A wandering stem spends its height crossing the pond sideways and
+arrives at the surface with nothing left, so this is a functional difference
+and not only a visual one.
+
+**The one verdict against this mechanism was taken on trees.** `7d731d54`
+records the owner judging it *"looks identical"* and the switch staying off —
+on species whose wobble sits under thickening and a canopy. A one-cell reed
+stem alone in open water has nothing to hide it. Put back to him as card
+`20260919T040421647Z-ff514c` rather than flipped: a world-wide selector is not
+a species' decision.
+
 ### What is not settled, and is on a card
 
 The mechanism is not in doubt; the **silhouette** is. The stand reads more like

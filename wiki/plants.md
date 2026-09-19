@@ -3,8 +3,12 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-09-18 (**a plant can stand in water now, and one kind
-does.** Until 2026-09-18 nothing grew in a pond: a shoot stopped dead at the
+*Current as of: 2026-09-19 (**a reed bed is a thin thing now.** Reeds set far
+fewer, shorter-lived seeds than grass, which is what a reed really does and
+also what stops a pond silting up with loose seed — half of everything
+standing in the first version was seed rather than plant. See **Reeds** below.
+Before that, 2026-09-18:* ***a plant can stand in water now, and one kind
+does.*** Until 2026-09-18 nothing grew in a pond: a shoot stopped dead at the
 waterline, and — the part nobody had noticed — a seed dropped on water
 *floats*, so a plant sown over a pond never reached the bottom to begin with
 and died on the surface. Both are fixed, and both only for a plant that is
@@ -657,12 +661,18 @@ running and then holds steady rather than continuing to fall. That is the
 reeds drinking and breathing it out, not the pond leaking — the water turns up
 in the ground and the air instead — and it is what real reed beds do.
 
-**What they do not yet look like.** A young stand reads well: separate stems
-rising out of the mud and breaking the surface. A mature one crowds into a
-dense mass that reads more like pondweed than like a reed bed, because they
-breed freely and the clump thickens where they land. That is known, it is
-being judged by eye rather than guessed at, and it is a question about habit
-rather than about whether the plant works.
+**A reed bed is a thin thing, on purpose.** Reeds set far fewer seeds than
+grass does, and the seeds they do set rot away in a fraction of the time. That
+is what a reed actually is — it spreads by creeping rhizome rather than by
+seeding a bank into the mud — and it is also what stops a pond turning into a
+mat. An early version bred so freely that **half of everything standing in the
+pond was loose seed**, and the stand read as pondweed rather than as reeds.
+
+**What they still do not quite look like.** The stems wander as they climb
+rather than standing straight, so a clump reads looser than a reed bed should.
+That is known, it is being judged by eye rather than guessed at, and the fix
+is a switch that affects every plant in the world, so it is the owner's call
+rather than the reed's.
 
 ## Plants that stop, and what they stop in
 
