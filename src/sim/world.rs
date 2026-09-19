@@ -1133,6 +1133,15 @@ pub struct NestSite {
     /// The cursor row the patch was painted from — the patch itself follows
     /// the ground, so this is the founding gesture's row and not a surface.
     pub y: i32,
+    /// **The ground row the site was founded on**, from `colony_surface` at
+    /// `x`, falling back to `y` in a column with no ground under the cursor.
+    ///
+    /// `y` above cannot serve: it is where the *gesture* was made, which on a
+    /// tall sky is hundreds of rows over the bed. A reach measured from it
+    /// would call open air home. This is the row a site-based `AtNest`
+    /// measures its rows from -- see `creature::adjacent_nest`, which needs a
+    /// surface precisely because under the site design no cell marks one.
+    pub surface: i32,
     /// The odour, on `organism::SCENT_SLOTS`' three axes.
     pub scent: [f32; 3],
     /// **False until the first ant stands on it**, at which point the site
@@ -7229,7 +7238,13 @@ impl World {
             return;
         }
         let epoch = self.frame / NEST_SCENT_INTERVAL;
-        self.nest_sites.push(NestSite { x, y, scent: [0.0; 3], seeded: false, drift_epoch: epoch });
+        // **The surface is taken here, once, and never re-read.** The ground
+        // under a nest moves -- the colony mounds its own spoil over it -- so
+        // a reach re-measured each frame would climb with the heap and call
+        // the top of a tailings pile home. The founding row is the fixed
+        // datum `step_nest_room` already freezes for the same reason.
+        let surface = crate::sim::creature::colony_surface(self, x, y).unwrap_or(y);
+        self.nest_sites.push(NestSite { x, y, surface, scent: [0.0; 3], seeded: false, drift_epoch: epoch });
     }
 
     /// Index of the nest site nearest `(x, y)`, or `None` when the box holds
