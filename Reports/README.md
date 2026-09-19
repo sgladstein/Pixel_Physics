@@ -1153,6 +1153,37 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology  ·  `engine`
 
+- [ant-sim-research-review-2026-09-19.md](ant-sim-research-review-2026-09-19.md)
+  — **review, 2026-09-19, docs only. `engine`/`lab`.** An outside literature
+  survey on ant simulation, checked section by section against the tree and
+  the measured record. **Its architecture is this engine's architecture**:
+  stigmergy-first, a Deneubourg choice, a Weber-law reader, no pathfinding —
+  all shipped before it was written. Of ~40 named mechanisms, 14 ship, 5 are
+  designed and priced, 6 were built and measured as rejected or inert, 7
+  cannot be staged in a side-view world. **The survey's five "gaps in
+  existing games" are not this engine's gaps** — discovery of the first meal,
+  a return leg that worked for the first time on 2026-09-18, a nest with no
+  purpose by owner ruling, and ground too shallow for a nest are. **Three
+  things worth a run**: re-test the food-charged `EmitB` odometer now the
+  return leg exists (rejected one day before it did); `(Crowding, EmitB, −w)`,
+  one wire, the deposit-side negative feedback §Z7 is short of; and the
+  *no-entry* mark as a negative deposit on the food plane rather than a fourth
+  plane. Two corrections the survey needs here: on a one-cell trail
+  **diffusion is the eraser and decay is inert**, and a new brain input is not
+  cheap (six species files re-derive `mutation_rate`). Finds the fill-weighted
+  homeward re-roll **built and shipped off** (`home_bias: 0.0`) with no wiki
+  line. The survey arrived truncated at its §9; its species tables are
+  unreviewed. Source:
+  [ant-sim-literature-review-external-2026-09-19.md](ant-sim-literature-review-external-2026-09-19.md).
+- [ant-sim-literature-review-external-2026-09-19.md](ant-sim-literature-review-external-2026-09-19.md)
+  — **external document, 2026-09-19, reproduced verbatim as received.
+  `engine`.** A literature survey of ant and superorganism simulation —
+  Deneubourg's double bridge, pheromone half-lives by species, negative
+  pheromones, path integration, Khuong's construction model, response
+  thresholds — written by someone who knew nothing of this project beyond
+  "an ant-based simulation game". **Not checked against the engine; the
+  review above is.** The copy ends mid-sentence in its §9, before the
+  species-parameter tables its TL;DR promises.
 - [creature-stacking-design-2026-09-17.md](creature-stacking-design-2026-09-17.md)
   — **design 2026-09-17, built and landed as PR #465; four review follow-ups
   closed 2026-09-19 in §11. `engine`.** How many creatures of one
