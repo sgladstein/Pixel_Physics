@@ -70,4 +70,4 @@ per the brief. The window is ~70 commits over
 
 ## Head SHA
 
-`__HEAD_SHA__`
+`a41646e9` — the report, the six images, both logs, the port diff and the index line.
