@@ -154,6 +154,20 @@ fn main() {
     // after a 3.5-hour study turned out to be three populations wearing 24
     // logs because a knob was not connected and nothing printed its value.
     println!("plant_probe: relief={relief:?} hazard={} every={}", hazard.chance, hazard.interval);
+    // **AUDIT, 2026-09-19.** A knob nobody can see the value of is a knob
+    // nobody can tell is disconnected -- `CLAUDE.md`'s harness rule, after
+    // a 3.5-hour study turned out to be three populations wearing 24 logs.
+    // These are the process-level economy switches; a log that does not
+    // name them was written by a binary that never had them.
+    println!(
+        "plant_probe: env MAINT_PER_CELL={} MAINT_PER_NODE={} REPRO_FLOOR={} ROOT_TURNOVER={} ROOT_GATE={} NUTRIENT={}",
+        std::env::var("PIXEL_PHYSICS_MAINT_PER_CELL").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_MAINT_PER_NODE").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_REPRO_FLOOR").unwrap_or_else(|_| "off".into()),
+        std::env::var("PIXEL_PHYSICS_ROOT_TURNOVER").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_ROOT_GATE").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_NUTRIENT").unwrap_or_else(|_| "shipped".into()),
+    );
 
     // **`census=N` -- the standing organism count every N frames.**
     //
@@ -1567,6 +1581,15 @@ water balance, per established plant:");
             let mut anchors: Vec<f32> = Vec::new();
             let mut slender: Vec<f32> = Vec::new();
             let mut contact: Vec<f32> = Vec::new();
+            // **AUDIT INSTRUMENT, 2026-09-19.** The three numbers the
+            // `seed_launch` dead end's own re-test clause names and this
+            // harness never printed: the day-mean surplus a plant actually
+            // has (`income - maintenance`), the reproductive account that
+            // surplus funds, and the seeds it has set. Read-only.
+            let mut surpluses: Vec<f32> = Vec::new();
+            let mut budgets: Vec<f32> = Vec::new();
+            let mut set: Vec<f32> = Vec::new();
+            let mut zone: Vec<f32> = Vec::new();
             for id in per_plant.keys() {
                 if let Some(st) = w.organism_state(*id) {
                     // `OrganismState::income` is stored noon-equivalent, so
@@ -1599,6 +1622,15 @@ water balance, per established plant:");
                     if st.root_cells > 0 {
                         contact.push(100.0 * st.contact_root_cells as f32 / st.root_cells as f32);
                     }
+                    surpluses.push(collected - st.maintenance);
+                    // **AUDIT INSTRUMENT, 2026-09-19.** The gate's own
+                    // input, which no harness printed: the mean
+                    // plant-available fraction over the faces the plant's
+                    // roots actually touch. This is the quantity the root
+                    // turnover dead end says read 0.000 in every arm.
+                    zone.push(st.root_zone_water);
+                    budgets.push(st.reproductive_budget);
+                    set.push(st.seeds_set as f32);
                 }
             }
             if !bills.is_empty() {
@@ -1651,6 +1683,16 @@ water balance, per established plant:");
                     println!("  bill / income  n/a -- see the income line above");
                 }
                 println!("  unpaid         median {umed:>7.3} max {umax:>7.3}");
+                {
+                    let (pmin, pmed, pmax, pmean) = q(&mut surpluses);
+                    let (gmin, gmed, gmax, gmean) = q(&mut budgets);
+                    let (dmin, dmed, dmax, dmean) = q(&mut set);
+                    let (zmin, zmed, zmax, zmean) = q(&mut zone);
+                    println!("  root-zone water min {zmin:>7.3} median {zmed:>7.3} max {zmax:>7.3} mean {zmean:>7.3}   (plant-available over touched faces; break_root_tips reads this)");
+                    println!("  surplus        min {pmin:>7.3} median {pmed:>7.3} max {pmax:>7.3} mean {pmean:>7.3}   (day-mean income - bill; <=0 funds no seed)");
+                    println!("  repro budget   min {gmin:>7.3} median {gmed:>7.3} max {gmax:>7.3} mean {gmean:>7.3}   (standing account, cap = RESOURCE_SCALE)");
+                    println!("  seeds set      min {dmin:>7.0} median {dmed:>7.0} max {dmax:>7.0} mean {dmean:>7.1}   (per plant, cumulative)");
+                }
                 println!("  cells shed to starvation, cumulative: {starved}");
                 println!("  bill at unit price  min {nmin:>8.1} median {nmed:>8.1} max {nmax:>8.1}   (x MAINTENANCE_PER_NODE = the shoot bill)");
                 if !reaches.is_empty() {
