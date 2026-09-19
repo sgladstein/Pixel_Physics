@@ -50,6 +50,35 @@ direction is confirmed).
    branch half named `claude/sweet-tesla-ommknn`, and I wrote a competing plan
    without reading it.
 
+## A broken check this lane ran for hours — worth not repeating
+
+**`git merge-tree <base> <a> <b>` (the legacy three-argument form) prefixes
+its conflict markers with `+`**, because its output is diff-shaped:
+`+<<<<<<< .our`, plus a `changed in both` header per file. So the obvious
+pre-merge check —
+
+```
+git merge-tree $(git merge-base A B) A B | grep -c '^<<<<<<<'
+```
+
+— **returns 0 on a merge that genuinely conflicts.** I quoted "0 conflict
+hunks" from it on six consecutive check-ins across seven hours; the real
+merge of `main` into this branch conflicted in `Reports/README.md` the
+moment it was attempted. Drop the `^` anchor, or use `git merge-tree
+--write-tree` (the modern form, which exits non-zero on conflict).
+
+**It is this repository's own worst-recurring failure wearing a new
+costume** — a number that is arithmetically correct (no line *does* begin
+with `<<<<<<<`) and answers a different question from the one asked. And the
+tell CLAUDE.md names was right there: it was **tidy**, returning a clean 0
+every single time. `scripts/branchcheck.sh` does not use `merge-tree`, so
+its `BxF` numbers are unaffected; the blast radius was only my own check.
+
+**A second instance the same hour, and this one is a rule about scope**: I
+ran `docscheck` on a *conflicted* working tree and it said **clean**. It
+does not parse for conflict markers, so its verdict on a half-merged tree is
+meaningless. Resolve first, then check.
+
 ## State
 
 **Read the head off PR #472**, not from here — it has gone stale four times.
