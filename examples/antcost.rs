@@ -212,6 +212,23 @@ struct Arm {
     /// load-independent, so the honest shape is a second run for the counter
     /// rather than a tax on the headline timing.
     rep_swept: Vec<u64>,
+    /// **Field tiles solved and CA blocks rescanned over the timed window** --
+    /// `FieldStats::tiles_solved` and `blocks_scanned`, deltas.
+    ///
+    /// The "did it fire" counters for `field::creature_wake_skip`, and the
+    /// reason this harness grew a field column group at all. A walking ant
+    /// marks its chunk dirty, `field::step` seeds its solve set from
+    /// `!Chunk::is_settled()`, and so every tile under a colony is re-solved
+    /// on all six channels every tick -- the mechanism
+    /// `Reports/ant-sim-research-review-2026-09-19.md` §8.2 names and §8.3
+    /// measured at *double the field's cost for fifty-two ants*. `awake/f`
+    /// above is the cause and these two are the consequence, and they have to
+    /// be read together: the switch is supposed to move all three, and a
+    /// timing alone cannot tell a field that stopped solving from a field that
+    /// got faster. `CLAUDE.md`: read counters before clocks, and a cost that
+    /// vanishes may be work that vanished.
+    rep_tiles: Vec<u64>,
+    rep_blocks: Vec<u64>,
     /// **Plant *cells*, not plant *count*** — summed `OrganismState::cells`
     /// over every live organism that is not a creature, read once at the end
     /// of each rep.
@@ -338,6 +355,33 @@ fn main() {
     // See `Arm::rep_swept`. Quote a headline timing from a run without it.
     let swept_on: bool = arg::<u32>("swept").unwrap_or(0) == 1;
     let settle: u64 = arg("settle").unwrap_or(40);
+    // **`antglow=<v>` is half of the sensitivity control for the field-hash
+    // gate, and without that control the gate's green means nothing.**
+    //
+    // `CLAUDE.md`: put the fault back and watch it go red; a guard that cannot
+    // fail is blind, not weak. `FIELD_CREATURE_WAKE=0` rests on one claim --
+    // that no field channel reads a creature cell -- and the two channels
+    // where that holds by *content* rather than by kind are `glow` and `beam`:
+    // `rebuild_blocked` maxes both over every cell whatever its kind, and they
+    // read 0 from an ant solely because `assets/materials/ant*.ron` sets
+    // neither.
+    //
+    // This alone would not falsify anything, and that is worth stating because
+    // the obvious reading is that it would. `Material::field_inert` is keyed on
+    // the emission, so a glowing ant is *correctly* not inert, the write stays
+    // field-relevant, and the hash stays identical -- which is the design
+    // working, not the guard firing. The falsifying arm is this **with**
+    // `FIELD_CREATURE_WAKE=kind`, the deliberately unsound variant that keys on
+    // `MaterialKind::Creature` alone: there the glow is real and the field
+    // stops being told about it, so the hash must diverge. The pair is what
+    // makes the clean run mean something --
+    // `FIELD_CREATURE_WAKE=0 antglow=2` identical, `=kind antglow=2` different.
+    //
+    // Set on the live registry rather than in the `.ron`, the same way
+    // `lab_cost`'s `gut=` constructs its known-non-zero case, and before the
+    // first tick so no arm is stocked under a different premise than it is
+    // measured under.
+    let antglow: f32 = arg("antglow").unwrap_or(0.0);
     // `PLANT_LOAD_FAILURE false` — the one dial off in the played session.
     let plant_load: bool = arg::<u32>("plant_load").unwrap_or(0) == 1;
 
@@ -348,11 +392,18 @@ fn main() {
     // `OnceLock`, so it cannot be set per arm and a run that has it set looks
     // exactly like a run that does not unless the header says so.
     let moisture = std::env::var("PIXEL_PHYSICS_MOISTURE").unwrap_or_else(|_| "on".to_string());
+    // Echoed for the reason the line above is: `field::creature_wake_skip`
+    // reads this once through a `OnceLock`, so it cannot be set per arm, and a
+    // run with it set looks exactly like a run without it unless the header
+    // says so. The harness that produced this round's tables was byte-
+    // identical in both arms and the env was the only difference; a log that
+    // does not name it is a log nobody can pair.
+    let wake = std::env::var("FIELD_CREATURE_WAKE").unwrap_or_else(|_| "on".to_string());
     println!(
         "antcost: ants={wants:?} frames={frames} reps={reps} seed={seed} widths={widths:?} heights={heights:?} \
          soil={soil} founders={founder_arms:?} species={species} colony_species={colony_species} grow={grow} \
          rounds={rounds} settle={settle} plant_load={plant_load} RAYON_NUM_THREADS={threads} SCHED_PASS={sched} \
-         PIXEL_PHYSICS_MOISTURE={moisture}"
+         PIXEL_PHYSICS_MOISTURE={moisture} FIELD_CREATURE_WAKE={wake} antglow={antglow}"
     );
 
     let spec_for = |width: i32, height: i32, founders: usize| LabBox {
@@ -380,6 +431,14 @@ fn main() {
             let ground_y = spec.ground_y;
             let width = bw;
             let mut lab = Lab::new(spec);
+            if antglow > 0.0 {
+                let id = lab
+                    .world
+                    .materials
+                    .id_of(&colony_species)
+                    .unwrap_or_else(|| panic!("antglow= needs colony_species {colony_species:?} to name a material"));
+                lab.world.materials.get_mut(id).glow = antglow;
+            }
             lab.world.plant_load_failure = plant_load;
             lab.world.creature_par.mode = par;
             for _ in 0..grow {
@@ -413,6 +472,8 @@ fn main() {
                 rep_moves: Vec::new(),
                 rep_blocked: Vec::new(),
                 rep_awake: Vec::new(),
+                rep_tiles: Vec::new(),
+                rep_blocks: Vec::new(),
                 rep_swvisited: Vec::new(),
                 rep_swsoil: Vec::new(),
                 rep_sites: Vec::new(),
@@ -441,6 +502,8 @@ fn main() {
             let moves_before = arm.lab.world.creature_stats.moves;
             let blocked_before = arm.lab.world.creature_stats.moves_blocked;
             let lag_before = arm.lab.world.creature_stats.tick_lag_sum;
+            let tiles_before = arm.lab.world.field_stats.tiles_solved;
+            let blocks_before = arm.lab.world.field_stats.blocks_scanned;
             // **Accumulated inside the timed loop, and that is a real cost
             // this harness pays.** `soil_water_stats` is overwritten every
             // frame, so it cannot be read afterwards; three `u64` adds and one
@@ -480,6 +543,8 @@ fn main() {
             arm.rep_moves.push(arm.lab.world.creature_stats.moves - moves_before);
             arm.rep_blocked.push(arm.lab.world.creature_stats.moves_blocked - blocked_before);
             arm.rep_awake.push(awake);
+            arm.rep_tiles.push(arm.lab.world.field_stats.tiles_solved - tiles_before);
+            arm.rep_blocks.push(arm.lab.world.field_stats.blocks_scanned - blocks_before);
             arm.rep_swvisited.push(swv);
             arm.rep_swsoil.push(sws);
             arm.rep_sites.push(sites);
@@ -511,6 +576,16 @@ fn main() {
         "\n{:>6} {:>12} {:>9} {:>7} {:>8} {:>7} {:>8} {:>10} {:>8} {:>9} {:>8} {:>6} {:>8} {:>10} {:>10} {:>10} {:>9} {:>8} {:>9} {:>7} {:>8} {:>10} {:>10}",
         "want", "bed", "par", "stocked", "ants", "plants", "pcells", "µs/tick", "min/med", "crtick/f", "moves/f", "blk%", "awake/f", "swept/f", "sites/f", "lag/tick", "lag max", "µs/ant", "spread", "cached%", "spec µs/f", "sw seen", "sw soil"
     );
+    // A second header for the field group, rather than three more columns on
+    // a line already 23 wide and past any terminal. `tiles/f` is what
+    // `field::step` solved, `blocks/f` what `rebuild_blocked` rescanned from
+    // the CA grid, and `awake/f` from the table above is repeated because the
+    // three only mean anything together -- see `Arm::rep_tiles`.
+    let field_header = format!(
+        "\n{:>6} {:>12} {:>9} {:>8} {:>10} {:>10}   the field's response to these ants",
+        "want", "bed", "par", "awake/f", "tiles/f", "blocks/f"
+    );
+    let mut field_rows: Vec<String> = Vec::new();
     let mut beds: Vec<(i32, i32, usize)> = arms.iter().map(|a| (a.bw, a.bh, a.nf)).collect();
     beds.dedup();
     // Points for the fit: (mean ants over the quietest rep, µs/tick).
@@ -570,7 +645,38 @@ fn main() {
             arm.rep_swvisited[best_i] as f64 / frames as f64,
             arm.rep_swsoil[best_i] as f64 / frames as f64
         );
+        field_rows.push(format!(
+            "{:>6} {:>12} {:>9} {:>8.1} {:>10.1} {:>10.1}",
+            arm.want,
+            format!("{}x{}f{}", arm.bw, arm.bh, arm.nf),
+            format!("{:?}", arm.par),
+            arm.rep_awake[best_i] as f64 / frames as f64,
+            arm.rep_tiles[best_i] as f64 / frames as f64,
+            arm.rep_blocks[best_i] as f64 / frames as f64,
+        ));
         pts.push((arm.par, (arm.bw, arm.bh, arm.nf), ants, best));
+    }
+    println!("{field_header}");
+    for row in &field_rows {
+        println!("{row}");
+    }
+    // **The field hash, per arm, beside the world hash below.** A field-only
+    // change cannot move the grid for many frames, so the world hash alone
+    // would call `FIELD_CREATURE_WAKE=0` identical when it is not --
+    // `examples/lab_cost.rs` grew the same pair on 2026-09-06 for the same
+    // reason, and the bit-identity check for anything touching `field.rs` is
+    // both lines matching. Read **down** a column across two processes (one
+    // with the switch, one without), not across the arms of one run: the arms
+    // are different populations and are supposed to differ.
+    println!("\n  field hash after the run, by arm (compare against the same arm of a run with FIELD_CREATURE_WAKE unset):");
+    for arm in &arms {
+        println!(
+            "    want {:>5} bed {:>10} par {:>9} -> {:#018x}",
+            arm.want,
+            format!("{}x{}f{}", arm.bw, arm.bh, arm.nf),
+            format!("{:?}", arm.par),
+            pixel_physics::sim::field::field_hash(&arm.lab.world)
+        );
     }
 
     // **The gate, printed per arm and read across them.** Arms of one ant

@@ -2001,6 +2001,52 @@ pub struct Reaction {
 }
 
 impl Material {
+    /// **Whether a cell of this material contributes nothing that
+    /// `field::rebuild_blocked` derives** -- the per-cell half of
+    /// `MaterialRegistry::field_relevant_write`, and through it of
+    /// `field::creature_wake_skip`.
+    ///
+    /// That scan derives exactly five per-block arrays, and this is the
+    /// conjunction of all five being blind to the cell:
+    ///
+    /// - `blocked` and `transmission` take only `Solid` and `Plant` (plus
+    ///   `Liquid`'s `water_opacity` for optical depth alone) -- **`Creature`
+    ///   is excluded by name**, and that exclusion has its own paragraph in
+    ///   `rebuild_blocked`: "a single mobile worm cell isn't a wall the way a
+    ///   stationary structure is";
+    /// - `moisture_source` takes standing `Liquid` and `water_capacity > 0`
+    ///   soil;
+    /// - `glow` and `beam` are `max`ed over **every** cell regardless of
+    ///   kind, so those two *are* read from a creature cell today, and
+    ///   return 0 only because no creature material sets either.
+    ///
+    /// That last clause is why the test is not `matches!(kind, Empty |
+    /// Creature)`. A glowing creature -- a firefly, a lit fungus gnat -- is an
+    /// ordinary thing to add to this engine, and it would make the wake skip
+    /// silently wrong: its tile would stop being re-derived and the glow would
+    /// never reach the light channel. Keyed on the emission instead, such a
+    /// material simply drops out of the skip and costs what it costs.
+    ///
+    /// **Computed rather than cached, and that was a correction.** The first
+    /// version of this was a `bool` field filled in by `From<MaterialDef>` --
+    /// one constructor, so complete by construction, and one `Vec` index to
+    /// read, which is what `CLAUDE.md`'s *guard hot-path work at the call
+    /// site* asks for. It was wrong: `lab::params::write` and
+    /// `app.rs`'s tunables panel both assign `glow` (and `water_capacity`)
+    /// through `MaterialRegistry::get_mut` on a live world, so a cached answer
+    /// goes stale the moment the owner drags the slider that makes the
+    /// premise false -- and it goes stale *silently*, into a switch whose
+    /// whole correctness rests on it. Four compares on a struct the caller
+    /// has already fetched is the cheaper mistake, and the caller short-
+    /// circuits on the switch before fetching anything at all.
+    #[inline]
+    pub fn field_inert(&self) -> bool {
+        matches!(self.kind, MaterialKind::Empty | MaterialKind::Creature)
+            && self.glow == 0.0
+            && self.beam == 0.0
+            && self.water_capacity == 0
+    }
+
     /// How many cells a grain at this position may roll along the surface.
     ///
     /// On a slope that drops one cell every `w` columns, the nearest place a
@@ -2967,6 +3013,52 @@ impl MaterialRegistry {
         self.get(id).density
     }
 
+    /// **Whether replacing `old` with `new` at a cell gives the field
+    /// anything to re-derive** -- the value every `Chunk::set_world` caller
+    /// passes as `field_relevant`. See [`Material::field_inert`] for the
+    /// five-array case analysis and `field::creature_wake_skip` for the
+    /// switch.
+    ///
+    /// **Both ends, not just the new cell**, and an ant's step is why: it
+    /// writes its body into empty *and* empty into the cell behind it, and
+    /// only the pair being inert makes the write invisible to the field. A
+    /// dig is `Solid` -> empty and a spoil drop is empty -> `Solid`; each
+    /// fails on one end and wakes the tile as it always did.
+    ///
+    /// **Ordered so the switch short-circuits first.** With
+    /// `FIELD_CREATURE_WAKE` unset this is one `OnceLock<bool>` load and one
+    /// perfectly-predicted branch, and no registry fetch and no compare at
+    /// all -- the same budget `World::write_cell`'s own `write_watch.mark`
+    /// sits on, in the hottest function in the engine. That ordering is what
+    /// lets [`Material::field_inert`] be recomputed instead of cached; see its
+    /// doc for the live-tunable staleness that forced the choice.
+    #[inline]
+    pub fn field_relevant_write(&self, old: MaterialId, new: MaterialId) -> bool {
+        use super::field::WakeSkip;
+        match super::field::creature_wake_mode_for_writes() {
+            WakeSkip::Off => true,
+            // Identical predicate for both: `MarkOnly` and `Sound` differ only
+            // in whether `field::step` also gates its solve set.
+            WakeSkip::MarkOnly | WakeSkip::Sound => {
+                !self.get(new).field_inert() || !self.get(old).field_inert()
+            }
+            // The negative control. Emission is deliberately ignored, so a
+            // glowing creature is treated as inert and the field stops
+            // re-deriving its glow -- which is what the field hash has to be
+            // able to see. See `field::WakeSkip::KindOnly`.
+            WakeSkip::KindOnly => {
+                !Self::creature_or_empty(self.get(new)) || !Self::creature_or_empty(self.get(old))
+            }
+        }
+    }
+
+    /// [`Material::field_inert`] with the emission terms dropped -- the
+    /// negative control's predicate, and nothing else's.
+    #[inline]
+    fn creature_or_empty(m: &Material) -> bool {
+        matches!(m.kind, MaterialKind::Empty | MaterialKind::Creature)
+    }
+
     /// Look up by the `name` field in the material's file.
     pub fn id_of(&self, name: &str) -> Option<MaterialId> {
         self.by_name.get(name).copied()
@@ -2999,6 +3091,90 @@ impl Default for MaterialRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **The invariant `field::creature_wake_skip` rests on, asserted where it
+    /// cannot be reached through the switch.** That switch reads its env var
+    /// once per process through a `OnceLock`, so no test can set it -- which
+    /// means the predicate has to be guarded directly or not at all, and this
+    /// is the term whose failure would be silent.
+    ///
+    /// Written after the fact and therefore not free of `CLAUDE.md`'s *put the
+    /// fault back* rule: the fault is put back below, in the second half.
+    /// `glow` alone is enough to flip it and `beam` and `water_capacity`
+    /// likewise, one at a time, so a conjunction that lost a term would go red
+    /// here rather than in a field hash nobody reruns.
+    #[test]
+    fn an_emitting_creature_is_not_field_inert() {
+        let reg = MaterialRegistry::builtin();
+        let ant = reg.id_of("ant").expect("ant is compiled in");
+        let empty = MaterialId(0);
+        assert!(reg.get(ant).field_inert(), "the shipped ant is inert -- see the tripwire below");
+        assert!(reg.get(empty).field_inert(), "empty air derives nothing");
+
+        // One term at a time, because a conjunction is only as strong as its
+        // weakest clause and the whole point of keying on emission rather than
+        // on `MaterialKind::Creature` is that any one of these is enough.
+        for (name, break_it) in [
+            ("glow", (|m: &mut Material| m.glow = 2.0) as fn(&mut Material)),
+            ("beam", |m: &mut Material| m.beam = 1.0),
+            ("water_capacity", |m: &mut Material| m.water_capacity = 1),
+        ] {
+            let mut reg = MaterialRegistry::builtin();
+            break_it(reg.get_mut(ant));
+            assert!(
+                !reg.get(ant).field_inert(),
+                "an ant with a non-zero {name} must not read as field-inert: `rebuild_blocked` \
+                 derives that term from every cell whatever its kind, so skipping its tile would \
+                 stop the field ever seeing it"
+            );
+            // And the write seam has to agree, in both directions of the move:
+            // an ant steps body-into-empty *and* empty-into-the-cell-behind-it,
+            // so a predicate that only looked at the new cell would let the
+            // second write through.
+            for (old, new) in [(empty, ant), (ant, empty)] {
+                assert!(
+                    !reg.get(old).field_inert() || !reg.get(new).field_inert(),
+                    "a write between empty and an emitting ant must stay field-relevant \
+                     in both directions ({name})"
+                );
+            }
+        }
+    }
+
+    /// **A tripwire, not a correctness gate**, for `CLAUDE.md`'s registry
+    /// gotcha: *adding a member to a set something sweeps enrols it in every
+    /// rule over that set, silently.* `field::creature_wake_skip`'s whole value
+    /// is that no creature material emits anything the field derives, and that
+    /// is a fact about `assets/materials/*.ron` rather than about the engine.
+    ///
+    /// If this goes red, **nothing is broken**: the new material is correctly
+    /// excluded from the skip by `field_inert`, which is what the test above
+    /// guarantees. What it means is that the switch no longer covers that
+    /// animal, so anyone re-measuring it should know the population changed
+    /// under them. Delete the name from the message, or narrow this test, and
+    /// say so in the commit.
+    #[test]
+    fn no_shipped_creature_material_emits_anything_the_field_derives() {
+        let reg = MaterialRegistry::builtin();
+        let emitters: Vec<&str> = (0..reg.len())
+            .map(|i| reg.get(MaterialId(i as u16)))
+            .filter(|m| m.kind == MaterialKind::Creature && !m.field_inert())
+            .map(|m| m.name.as_str())
+            .collect();
+        assert!(
+            emitters.is_empty(),
+            "these creature materials now emit or hold water, so `FIELD_CREATURE_WAKE` no longer \
+             skips their tiles: {emitters:?}. This is a tripwire and not a defect -- see \
+             `Material::field_inert` and `Reports/ant-field-wake-2026-09-19.md` §1.2"
+        );
+        // The positive control for the census itself: it must be able to find
+        // a creature material at all, or an empty `emitters` list would mean
+        // the filter never matched rather than that nothing emits.
+        let creatures = (0..reg.len())
+            .filter(|&i| reg.get(MaterialId(i as u16)).kind == MaterialKind::Creature)
+            .count();
+        assert!(creatures >= 5, "expected the shipped creature materials, found {creatures}");
+    }
 
     /// Panics if any shipped material file is malformed, which is what lets
     /// `builtin` be infallible.
