@@ -1,0 +1,56 @@
+{
+  "id": "20260919T004632619Z-307c1e",
+  "created": "2026-09-19T00:46:32Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/magical-planck-ljgl0b",
+    "commit": "c061a245",
+    "agent": null,
+    "session_id": "14da28e3-d028-552e-9f1b-082591ba4b20",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The first plant that can stand in water",
+  "question": "Does B read as reeds standing in a pond -- or as underwater weed? It is the emergent stems above the waterline I am unsure of, not the mechanism.",
+  "context_md": "Phase 1 of the aquatic plan: the pond stops being a dead blue rectangle.\n\nSame bed, same seed, same binary -- the only difference is a switch (`PIXEL_PHYSICS_SUBMERGED_SHOOT`). Three frames each: 2,000 / 6,000 / 20,000. The waterline is the top of the blue; the pale band under it is the sediment a reed roots in.\n\n**What I already measured, so you do not have to judge it:**\n\n- It fires. 281 cells standing in the water at 20,000 frames against 4, and the tallest stem reaches 14 rows *above* the waterline.\n- It does not drink the pond. The full water ledger (pond + soil + sky) is conserved to 0.09%; the pond itself settles at about 80% and holds from frame 6,000 on. A first version lost 56% of the pond and that was a real bug, now fixed.\n- The palette is deliberately a different green from grass and foliage -- glaucous, blue-grey -- so a reed cannot read as a tall blade of grass.\n\n**What I am unsure of, and why I am asking rather than tuning again:** the dense clump on the right reads to me more like pondweed than like a reed bed, and the stems wander rather than standing straight. I have already cut branching and reproduction once to get from a solid mat to this. I would rather have your eye than guess at a third setting.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- the pond as it ships today",
+      "files": [
+        "20260919T004632619Z-307c1e/000-card_off.png"
+      ],
+      "caption": "A plant in this pond germinates and never grows: the seedling sits on the sediment for the whole run.",
+      "meta": {
+        "reed cells standing in the water": 4,
+        "reed cells above the waterline": 0,
+        "rows climbed from the seedling": 0,
+        "standing plants at 20,000 frames": 4
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- a plant that may cross the waterline",
+      "files": [
+        "20260919T004632619Z-307c1e/001-card_on.png"
+      ],
+      "caption": "The same bed with the reed's two new abilities: its shoot may enter water, and its seed sinks instead of floating.",
+      "meta": {
+        "reed cells standing in the water": 281,
+        "reed cells above the waterline": 55,
+        "rows climbed from the seedling": 37,
+        "standing plants at 20,000 frames": 416
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
