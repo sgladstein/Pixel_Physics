@@ -248,14 +248,40 @@ struct Arm {
 /// fill a bed; the loop alternates founding with dispersal frames so the
 /// stations free up. It gives up after `rounds` rounds rather than spinning —
 /// a saturated bed is a real answer and the caller prints it.
-fn stock(lab: &mut Lab, species: &str, want: usize, ground_y: i32, width: i32, rounds: usize, settle: u64) -> usize {
+fn stock(
+    lab: &mut Lab,
+    species: &str,
+    want: usize,
+    ground_y: i32,
+    width: i32,
+    rounds: usize,
+    settle: u64,
+    sites: usize,
+) -> usize {
     if want == 0 {
         return 0;
     }
-    // Four founding columns across the usable width, so the rows overlap
-    // less than one centred founding would and the colony does not end up
-    // as a single wall of bodies.
-    let cols: Vec<i32> = (1..=4).map(|i| width * i / 5).collect();
+    // Founding columns across the usable width, so the rows overlap less than
+    // one centred founding would and the colony does not end up as a single
+    // wall of bodies.
+    //
+    // **`sites` was the number 4, and that hardcoding was the harness's real
+    // population ceiling** -- not starvation, which is what this file and
+    // `Reports/instruments.md` both recorded it as. Four sites is four
+    // `colony_stations` rows however wide the bed, so `width=4096` seats
+    // exactly what `width=512` seats and the extra bed is empty ground. The
+    // owner named the consequence directly, 2026-09-19: *"Contribution to
+    // performance changes significantly between 20 ants and 3000 ants, or 1
+    // plant and 200 plants"* -- and every field measurement in
+    // `Reports/ant-field-wake-2026-09-19.md` was taken at 52 and ~200,
+    // i.e. at the bottom of a curve whose shape was the question.
+    //
+    // **Default 4, so every archived log stays comparable**; `sites=N` is
+    // what the high-population runs pass. Scaling it with `width`
+    // automatically was the obvious version and is wrong for that reason:
+    // it would silently re-base every number taken before today.
+    let sites = sites.max(1);
+    let cols: Vec<i32> = (1..=sites).map(|i| width * i as i32 / (sites as i32 + 1)).collect();
     for _ in 0..rounds {
         if lab.world.live_creature_count() >= want {
             break;
@@ -355,6 +381,9 @@ fn main() {
     // See `Arm::rep_swept`. Quote a headline timing from a run without it.
     let swept_on: bool = arg::<u32>("swept").unwrap_or(0) == 1;
     let settle: u64 = arg("settle").unwrap_or(40);
+    // See `stock`. Four is what it always was; raise it to reach a population
+    // the field question actually needs.
+    let sites: usize = arg("sites").unwrap_or(4);
     // **`antglow=<v>` is half of the sensitivity control for the field-hash
     // gate, and without that control the gate's green means nothing.**
     //
@@ -402,7 +431,7 @@ fn main() {
     println!(
         "antcost: ants={wants:?} frames={frames} reps={reps} seed={seed} widths={widths:?} heights={heights:?} \
          soil={soil} founders={founder_arms:?} species={species} colony_species={colony_species} grow={grow} \
-         rounds={rounds} settle={settle} plant_load={plant_load} RAYON_NUM_THREADS={threads} SCHED_PASS={sched} \
+         rounds={rounds} settle={settle} sites={sites} plant_load={plant_load} RAYON_NUM_THREADS={threads} SCHED_PASS={sched} \
          PIXEL_PHYSICS_MOISTURE={moisture} FIELD_CREATURE_WAKE={wake} antglow={antglow}"
     );
 
@@ -444,7 +473,7 @@ fn main() {
             for _ in 0..grow {
                 lab.tick_for_harness();
             }
-            let stocked = stock(&mut lab, &colony_species, want, ground_y, width, rounds, settle);
+            let stocked = stock(&mut lab, &colony_species, want, ground_y, width, rounds, settle, sites);
             let stocked_at = lab.world.frame;
             while lab.world.frame < age {
                 lab.tick_for_harness();

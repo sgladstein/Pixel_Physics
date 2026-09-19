@@ -143,3 +143,29 @@ quoted again without a re-measurement. And the field is **20–21% of the tick**
 on the shipped lab bed at 52 ants, with `ca_sweep` at 56–60% — so the phase
 worth three times as much attention is the sweep, which is where the parallel
 switch the owner is testing sits.
+
+## Unreviewed follow-up — `claude/ant-survey-perf-followup`, no PR
+
+**The owner, 2026-09-19, after #479 merged:** *"Contribution to performance
+changes significantly between 20 ants and 3000 ants, or 1 plant and 200
+plants."* He is right, and it lands on this lane's headline: every field
+number above was taken at **52 and ~200 ants**, so "the switches buy nothing"
+and "the halo defeats the solve-set gate" are facts about the bottom of the
+curve, not general ones. The halo argument is density-dependent by
+construction — at 52 ants the ants sit inside the halo of tiles the field
+already solves for the plants, and at 3,000 the ants are the dominant waker
+while the plants they have eaten have stopped being one, which can flip the
+sign. Untouched by this: item 1's code verification, the `blocked` arm's
+bit-identity, the stopwatch, and §Z31.
+
+**Chasing it found why the range was narrow, and the repo has the reason
+wrong.** `antcost`'s `stock()` founds at **four columns whatever the bed
+width**, so `width=4096` seats exactly what `width=512` seats. This note, the
+report, and `Reports/instruments.md` all record that ceiling as *founders
+starving as fast as they are added*; it is the hardcoded `4`. The branch
+carries one harness change — **`sites=N`, default 4 so every archived log
+stays comparable** — which is what makes the owner's range reachable. **It is
+unreviewed and unmeasured: nothing was swept with it**, the round closed
+first. Whoever picks this up runs the counter sweep (`awake/f`, `tiles/f`,
+`blocks/f` are deterministic at pinned `RAYON_NUM_THREADS`) across ants and
+`plants=` together, and corrects `instruments.md`'s starvation claim.
