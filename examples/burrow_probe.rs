@@ -1419,13 +1419,44 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>,
         // stands. `SOIL_WILTING_POINT` 180, `SOIL_FIELD_CAPACITY` 620,
         // `SOIL_SATURATED` 1000.
         let bank_wet: u16 = arg("wet").unwrap_or(0);
+        // **`wetgrad=top:bottom` -- a bank that is drier at the top than at
+        // the bottom, which is the only way this harness can pose a DEPTH
+        // question to a moisture sense.**
+        //
+        // `wet=` alone fills the bank uniformly, and a uniform fill has no
+        // vertical gradient at any value: `MoistureLateral` then reads the
+        // air/soil boundary, which is what `creature::moisture_gradient`'s
+        // own doc says that channel measures, and not depth. A real soil
+        // column is dry at the surface and wet below -- the lab bed develops
+        // exactly that profile on its own -- so a taxis that is supposed to
+        // take an ant downward has to be given somewhere to climb.
+        //
+        // Linear between the two ends, which is coarser than a real drying
+        // curve and is the right first shape: if a taxis cannot follow a
+        // straight ramp it will not follow an exponential one.
+        let grad: Option<(u16, u16)> = arg::<String>("wetgrad").map(|v| {
+            let (a, b) = v.split_once(':').unwrap_or_else(|| panic!("wetgrad= wants top:bottom, got `{v}`"));
+            (a.trim().parse().expect("wetgrad top"), b.trim().parse().expect("wetgrad bottom"))
+        });
         for x in bank_x0..bank_x1 {
             for y in bank_y0..bank_y1 {
-                world.set(x, y, Cell::new(soil_id, 0).with_attached(true).with_aux(bank_wet));
+                let aux = match grad {
+                    Some((top, bottom)) => {
+                        let span = (bank_y1 - bank_y0).max(1) as f32;
+                        let t = (y - bank_y0) as f32 / span;
+                        (top as f32 + (bottom as f32 - top as f32) * t).round() as u16
+                    }
+                    None => bank_wet,
+                };
+                world.set(x, y, Cell::new(soil_id, 0).with_attached(true).with_aux(aux));
             }
         }
-        if seed == 1 && bank_wet > 0 {
-            println!("  bank soil built at aux {bank_wet}  [wilting 180, field capacity 620, saturated 1000]");
+        if seed == 1 {
+            match grad {
+                Some((top, bottom)) => println!("  bank soil graded aux {top} (top) -> {bottom} (bottom) over {} rows", bank_y1 - bank_y0),
+                None if bank_wet > 0 => println!("  bank soil built at aux {bank_wet}  [wilting 180, field capacity 620, saturated 1000]"),
+                None => {}
+            }
         }
         for x in 16..bank_x0 {
             world.set(x, floor, Cell::new(nest_id, 0).with_attached(true));
