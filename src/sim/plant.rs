@@ -7728,13 +7728,58 @@ pub const MEAN_NIGHT_INCOME_FACTOR: f32 = 0.49;
 /// it that way: a retired root and a retired branch are both `MatureBody`,
 /// and only the material tells them apart.
 fn maintenance_cost(q_peak: f32, l_node: f32, root_tissue: bool) -> f32 {
-    MAINTENANCE_PER_CELL + if root_tissue { 0.0 } else { MAINTENANCE_PER_NODE * maintenance_basis(q_peak, l_node) }
+    maintenance_per_cell() + if root_tissue { 0.0 } else { maintenance_per_node() * maintenance_basis(q_peak, l_node) }
+}
+
+/// **EXPERIMENTAL, audit-only (2026-09-19).** `MAINTENANCE_PER_CELL` and
+/// `MAINTENANCE_PER_NODE`, overridable per process, exactly the way
+/// `root_turnover_per_tick` and `soil_uptake_per_tick` beside them are —
+/// measurement instruments, not settings. Default is the shipped constant,
+/// so an un-set process is bit-identical.
+///
+/// They exist to re-open the `dead-ends.md` entry *"Flat per-cell
+/// maintenance respiration ... impoverished rather than shaped"*: the arm
+/// that entry never ran is `PER_NODE = 0` with `PER_CELL` raised so the
+/// **total** bill of a reference tree is unchanged, which is the
+/// literature's mass-proportional form at equal cost rather than at lower
+/// cost. Note what is deliberately *not* overridden: the starvation rule at
+/// `income < MAINTENANCE_PER_CELL * cells` keeps the shipped constant, so
+/// the death threshold is identical in both arms and the only thing that
+/// moves is the shape of the bill.
+fn maintenance_per_cell() -> f32 {
+    use std::sync::OnceLock;
+    static N: OnceLock<f32> = OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_MAINT_PER_CELL").ok().and_then(|v| v.parse().ok()).unwrap_or(MAINTENANCE_PER_CELL)
+    })
+}
+
+/// See `maintenance_per_cell`. `PIXEL_PHYSICS_MAINT_PER_NODE=0` is the flat
+/// arm.
+fn maintenance_per_node() -> f32 {
+    use std::sync::OnceLock;
+    static N: OnceLock<f32> = OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_MAINT_PER_NODE").ok().and_then(|v| v.parse().ok()).unwrap_or(MAINTENANCE_PER_NODE)
+    })
 }
 
 /// A shoot cell's bill **at unit price** — see
 /// `OrganismState::maintenance_basis`, which is this summed over the plant.
 fn maintenance_basis(q_peak: f32, l_node: f32) -> f32 {
     (q_peak / l_node).max(0.0).powf(MAINTENANCE_EXPONENT)
+}
+
+/// **EXPERIMENTAL, audit-only (2026-09-19).** See `allocate_to_frontier`:
+/// the fraction of *gross* income a mature plant may put into seed
+/// regardless of what its residual surplus is. `None` (unset, or <= 0) is
+/// the shipped rule.
+fn repro_income_floor() -> Option<f32> {
+    use std::sync::OnceLock;
+    static N: OnceLock<Option<f32>> = OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_REPRO_FLOOR").ok().and_then(|v| v.parse::<f32>().ok()).filter(|v| *v > 0.0)
+    })
 }
 
 /// Flush at most one dormant bud into a `GrowingTip`, if the light the
@@ -9996,14 +10041,32 @@ fn allocate_to_frontier(world: &mut World, organism_id: OrganismId) {
         _ => None,
     })
     .unwrap_or(0.0);
-    let reproductive_share = surplus * reproductive_allocation;
+    // **EXPERIMENTAL, audit-only (2026-09-19), default off.**
+    // `PIXEL_PHYSICS_REPRO_FLOOR=f` makes the seed allocation
+    // `max(surplus * reproductive_allocation, income * f)` -- allocation
+    // from *gross* production rather than from the residual, which is the
+    // form the literature uses (5-30% of NPP to reproduction, and fecundity
+    // rising with size) and the arm the `seed_launch` dead end's own
+    // re-test clause asks for. Bounded by `stock` so it can never credit
+    // carbon the plant is not holding, and it comes off the growth pool
+    // below, so it is a trade and not a gift.
+    let reproductive_share = {
+        let base = surplus * reproductive_allocation;
+        match repro_income_floor() {
+            Some(f) => base.max((income * f).min(stock)),
+            None => base,
+        }
+    };
     if let Some(state) = world.organism_mut(organism_id) {
         state.reproductive_budget = (state.reproductive_budget + reproductive_share).min(REPRODUCTIVE_BUDGET_CAP);
     }
     if frontier.is_empty() {
         return;
     }
-    let pool = surplus - reproductive_share;
+    // `.max(0.0)` is a no-op at the shipped rule (`reproductive_allocation`
+    // is well under 1, so the share never exceeds the surplus); it exists
+    // for the floor arm above, where it can.
+    let pool = (surplus - reproductive_share).max(0.0);
     // **Functional balance: the plant invests in whatever is limiting it.**
     //
     // The pool used to be split evenly across every frontier cell, root tips
@@ -10210,6 +10273,22 @@ pub(crate) fn nutrient_initial() -> u8 {
 ///
 /// Time recovery has neither problem: it is bounded by `initial` and it
 /// happens exactly where the deficit is.
+///
+/// **Re-audited 2026-09-19, and the "double dead end" above is a moisture
+/// result carried across by analogy.** Both entries it cites built and
+/// reverted *moisture* at decay sites (`dead-ends.md`, the two "Left dry,
+/// deliberately" entries; `decay.rs` says the same in its own words); a
+/// *nutrient* return has never been built or measured -- `decay.rs` does
+/// not mention nutrient, and no commit ever added a return writer. The
+/// pump they measured is not expressible on this store: it is a deficit
+/// buffer bounded by `initial`, so a conservative return (repay what a
+/// plant drew, at rot, into the soil it stood on) cannot create nutrient,
+/// and at full soil both multipliers read 1.0, so the whole range of any
+/// return is the ablation's 0.843 -> 1.0 on standing cells. What a return
+/// would buy is soil *memory* -- ground that remembers what grew on it --
+/// which is the succession loop `plant-equilibrium-costs` §10e names, not
+/// biomass. `Reports/plant-literature-review-comparison-2026-09-19.md`
+/// §7.4 carries the audit and the priced re-test (~2 h behind a switch).
 /// How much nutrient one root cell takes from one soil face per tick.
 ///
 /// Defaults to 1, which only matters once `nutrient_initial` is non-zero —
