@@ -1405,10 +1405,27 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>,
                 world.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
             }
         }
+        // **`wet=N` -- the colony bank's soil water, dry by default.**
+        //
+        // This arm's bank is built at aux 0, and that turns out to decide
+        // whether three of the ant's senses exist at all: `MoistureFront`,
+        // `MoistureLateral` and `MoistureGrad` are all read off
+        // `FieldCell::moisture`, which is sourced from damp ground in
+        // proportion to how damp it is. Dry ground sources nothing, so all
+        // three read exactly 0.0000 here and any weight swept over them is
+        // a sweep of nothing.
+        //
+        // Unset leaves the bank at 0, so every published colony number
+        // stands. `SOIL_WILTING_POINT` 180, `SOIL_FIELD_CAPACITY` 620,
+        // `SOIL_SATURATED` 1000.
+        let bank_wet: u16 = arg("wet").unwrap_or(0);
         for x in bank_x0..bank_x1 {
             for y in bank_y0..bank_y1 {
-                world.set(x, y, Cell::new(soil_id, 0).with_attached(true));
+                world.set(x, y, Cell::new(soil_id, 0).with_attached(true).with_aux(bank_wet));
             }
+        }
+        if seed == 1 && bank_wet > 0 {
+            println!("  bank soil built at aux {bank_wet}  [wilting 180, field capacity 620, saturated 1000]");
         }
         for x in 16..bank_x0 {
             world.set(x, floor, Cell::new(nest_id, 0).with_attached(true));
@@ -1916,7 +1933,27 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>,
                             }
                         }
                         let deep_max = deep.iter().cloned().fold(0.0f64, f64::max);
-                        println!("         field moisture over the whole box: max {fmax:.4}  nonzero samples {wet_blocks}  deep-soil max {deep_max:.4}");
+                        // **And the soil water the field is supposed to be
+                        // sourced FROM.** If the ground is damp and the field
+                        // is dry the fault is the field's; if the ground is
+                        // dry too then whatever set it did not stick, which
+                        // is a scene bug and would look identical from the
+                        // sense alone. `CLAUDE.md`: a scene that contradicts
+                        // the code looks like a bug in the code.
+                        let (mut aux_max, mut aux_sum, mut aux_n) = (0u16, 0u64, 0usize);
+                        for x in (bank_x0..bank_x1).step_by(8) {
+                            for y in (bank_y0..bank_y1).step_by(4) {
+                                let c = world.get(x, y);
+                                if world.materials.get(c.material).water_capacity > 0 {
+                                    let held = pixel_physics::sim::update::soil_moisture(c);
+                                    aux_max = aux_max.max(held);
+                                    aux_sum += held as u64;
+                                    aux_n += 1;
+                                }
+                            }
+                        }
+                        let aux_mean = if aux_n > 0 { aux_sum as f64 / aux_n as f64 } else { 0.0 };
+                        println!("         field moisture over the whole box: max {fmax:.4}  nonzero samples {wet_blocks}  deep-soil max {deep_max:.4}   |   soil water: n {aux_n}  max {aux_max}  mean {aux_mean:.1}");
                         if !raw.is_empty() {
                             raw.sort_by(|a, b| a.partial_cmp(b).unwrap());
                             let mut d = raw.clone();
