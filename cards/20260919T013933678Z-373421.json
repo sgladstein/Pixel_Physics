@@ -11,15 +11,15 @@
     "user": null,
     "cwd": "/home/user/Pixel_Physics"
   },
-  "title": "Two nests, both at their largest — can you see either one?",
-  "question": "In either picture, can you see anything that reads as a nest — rooms, galleries, worked ground? Or is this just dirt to you?",
-  "context_md": "**The lab bed, seed 3, frame 120,000 — the frame where each nest is biggest** (roofed void is still climbing at the end in both, so neither has peaked and collapsed). Cropped to the colony: the nest site is at x=256, dead centre, and the view spans 120 columns around it at 8x. Zoom out one step for the margin.\n\nThe two arms differ by **one switch**: whether the crowding-driven chamber-digging urge is on. Same bed, same seed, one binary.\n\n**What I measured, and why I am asking rather than telling.** By the counters, B has **1.8x the roofed room** of A — that is the result I was about to report to you as 'the chamber mechanism is making chambers worse'. But B also dug **3.7x as much** and has **4x the open hole**, so per dig it is worse at making rooms, and you have already told me once that a big hole is not a structure.\n\n**And I could not see a nest in either picture.** Not at this zoom and not at 2x. If that is what you see too, then the honest finding is not 'A vs B' at all — it is that several hundred cells of chamber are invisible in play, which no counter would ever have told me.  measured why once: a tunnel interior is the only thing in the bed with no colour of its own, against soil whose brightness spans 119 of 255.\n\nIgnore the plants and the lamps; the question is the ground.",
+  "title": "Two nests, both at their largest \u2014 can you see either one?",
+  "question": "In either picture, can you see anything that reads as a nest \u2014 rooms, galleries, worked ground? Or is this just dirt to you?",
+  "context_md": "**The lab bed, seed 3, frame 120,000 \u2014 the frame where each nest is biggest** (roofed void is still climbing at the end in both, so neither has peaked and collapsed). Cropped to the colony: the nest site is at x=256, dead centre, and the view spans 120 columns around it at 8x. Zoom out one step for the margin.\n\nThe two arms differ by **one switch**: whether the crowding-driven chamber-digging urge is on. Same bed, same seed, one binary.\n\n**What I measured, and why I am asking rather than telling.** By the counters, B has **1.8x the roofed room** of A \u2014 that is the result I was about to report to you as 'the chamber mechanism is making chambers worse'. But B also dug **3.7x as much** and has **4x the open hole**, so per dig it is worse at making rooms, and you have already told me once that a big hole is not a structure.\n\n**And I could not see a nest in either picture.** Not at this zoom and not at 2x. If that is what you see too, then the honest finding is not 'A vs B' at all \u2014 it is that several hundred cells of chamber are invisible in play, which no counter would ever have told me. The burrow probe measured why once: a tunnel interior is the only thing in the bed with no colour of its own, against soil whose brightness spans 119 of 255.\n\nIgnore the plants and the lamps; the question is the ground.",
   "kind": "ab",
   "blind": false,
   "blocking": false,
   "items": [
     {
-      "label": "A — chamber-digging urge ON (shipped)",
+      "label": "A \u2014 chamber-digging urge ON (shipped)",
       "files": [
         "20260919T013933678Z-373421/000-A8.png"
       ],
@@ -34,7 +34,7 @@
       "focus": null
     },
     {
-      "label": "B — chamber-digging urge OFF",
+      "label": "B \u2014 chamber-digging urge OFF",
       "files": [
         "20260919T013933678Z-373421/001-B8.png"
       ],
