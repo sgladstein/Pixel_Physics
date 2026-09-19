@@ -300,7 +300,27 @@
             // draft at 150 that made reproduction structurally impossible.
             Reproduce(seed_cost: 0.15, reproductive_allocation: 0.03, seed_maturity: 40),
             StructuralAnchor,
-            Absorb(rate: 1.6),
+            // **NO `Absorb` here, and this is the one line where copying
+            // grass's economy was actively wrong.** `grass.ron` puts
+            // `Absorb(1.6)` on `MatureBody` and it costs nothing, because a
+            // retired blade stands in air and `absorb_water` only drinks a
+            // `Liquid` neighbour. A reed's mature cells stand in the **pond**,
+            // so the same line makes every submerged stem cell a straw --
+            // about 205 of them at 20,000 frames, drinking the water they are
+            // standing in.
+            //
+            // **Measured, and it is what the owner saw.** With it, the pond
+            // stopped being level: reed columns held **11,543 fill against
+            // 23,124** in open water and their surface sat ~5 rows lower
+            // (y=169.0 against 163.7), while the same bed with the reeds
+            // frozen at one cell is level **to the row** -- every column at
+            // y=165, min and max identical. The water was being drunk out of
+            // the reed bed faster than it could flow back in.
+            //
+            // A reed drinks through its roots in the sediment like every
+            // other plant here; `RootTip` keeps its `Absorb` and the
+            // sediment is saturated, so there is nothing to make up.
+            
             Photosynthesize(rate: 0.4, shade_death: 0.004, drought_death: 0.002),
         ]),
         (DormantBud, [

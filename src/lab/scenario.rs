@@ -1000,4 +1000,85 @@ mod tests {
         );
     }
 
+
+    /// **A pond with reeds in it must still look level.**
+    ///
+    /// The owner's report, 2026-09-19: *"the water isn't staying level around
+    /// the plant tips"*. The cause was `reed.ron` giving `MatureBody` an
+    /// `Absorb`, copied from `grass.ron` where it costs nothing because a
+    /// retired blade stands in air. A reed's mature cells stand in the pond,
+    /// and `plant::absorb_water` drinks any `Liquid` neighbour -- so ~205
+    /// submerged stem cells were straws in the water they stood in.
+    ///
+    /// **Measured at 20,000 frames, mean topmost-water row, reed columns
+    /// against open water:** with the `Absorb` in place **169.00 against
+    /// 163.72** (reed columns ranging to y=183, and holding 11,543 fill
+    /// against 23,124); without it **163.88 against 164.02**. The bar below
+    /// sits at 2.0 rows -- an order above the 0.14 this passes at and well
+    /// under the 5.3 it failed at, per `CLAUDE.md`'s *set bars from
+    /// measurement with headroom, never sitting on the measured value*.
+    ///
+    /// **Proven sensitive rather than assumed to be**: it was written against
+    /// the fault and watched go red, which is the check `CLAUDE.md` asks for
+    /// before anyone cites a guard's green.
+    ///
+    /// **Why the surface and not the volume.** Reed columns legitimately hold
+    /// *less water* than open ones, because a stem displaces what it stands
+    /// in -- so a fill comparison fails on correct behaviour. What the eye
+    /// judges, and what the owner reported, is the top of the water, which is
+    /// `CLAUDE.md`'s liquid metric trap read the other way round for once:
+    /// here the topmost cell is the quantity, and volume is the distractor.
+    ///
+    /// 20,000 frames because the divergence is not visible earlier: at 6,000
+    /// the broken build reads 164.02 against 164.75, i.e. the wrong way round
+    /// and well inside noise. A shorter guard would be green on the fault.
+    #[test]
+    fn a_pond_with_reeds_in_it_stays_level() {
+        let _guard = DIR_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let sc = Scenario::list().into_iter().find(|s| s.name == "the_pond_reeds").expect("the_pond_reeds");
+        let (mut world, _p, _pl) = sc.build();
+        let tuning = crate::sim::player::Tuning::default();
+        let mut particles = crate::sim::particle::ParticleSystem::new();
+        let mut blasts = crate::sim::explosion::Blasts::new();
+        for _ in 0..20_000 {
+            crate::sim::frame::step(&mut world, &mut particles, &mut blasts, crate::sim::player::PlayerInput::default(), &tuning);
+        }
+        // Topmost water row per column, split by whether the column holds
+        // reed tissue anywhere in the water band.
+        let (mut clear, mut reedy) = (Vec::new(), Vec::new());
+        for x in 180..332 {
+            let (mut top, mut has_reed) = (None, false);
+            for y in 150..188 {
+                let c = world.get(x, y);
+                let m = world.materials.get(c.material);
+                if m.kind == crate::sim::material::MaterialKind::Liquid {
+                    if top.is_none() {
+                        top = Some(y);
+                    }
+                } else if c.organism_id() != 0 && m.kind == crate::sim::material::MaterialKind::Plant {
+                    has_reed = true;
+                }
+            }
+            if let Some(t) = top {
+                if has_reed { reedy.push(t) } else { clear.push(t) }
+            }
+        }
+        // A run that grew no reeds at all would pass vacuously -- the same
+        // shape as a census whose probe never reached the mechanism.
+        assert!(
+            reedy.len() >= 8,
+            "only {} columns hold reed tissue -- this bed is not exercising the rule, so its green says nothing",
+            reedy.len()
+        );
+        assert!(!clear.is_empty(), "no open water left to compare against");
+        let mean = |v: &[i32]| v.iter().sum::<i32>() as f64 / v.len() as f64;
+        let (mr, mc) = (mean(&reedy), mean(&clear));
+        assert!(
+            (mr - mc).abs() < 2.0,
+            "the pond is not level: mean water surface y={mr:.2} in the {} reed columns against y={mc:.2} in the {} open ones. \
+A submerged cell that declares `Absorb` drinks the pond it stands in -- see this test's doc",
+            reedy.len(),
+            clear.len()
+        );
+    }
 }
