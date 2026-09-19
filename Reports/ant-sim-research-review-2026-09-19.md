@@ -220,7 +220,7 @@ chosen: `PHEROMONE_INTERVAL 12`, `DIFFUSE 0.25`, `DECAY_RHO 0.03`,
 | mass recruitment via trail | a hand-laid food trail is decisive — **92% of ants reach food against 3%** unaided, 4 of 6 colonies alive against 0 (`pheromone-master` §3.2); **the colony cannot lay one itself** (`self ≡ mute`); discovery is the binding constraint | mechanism works; bootstrap does not |
 | trail modulated by food quality (Beckers 1992) | **absent.** `EmitB` reads `CarryingFood`, a boolean (`creature.rs:5209`); a load's worth reaches nothing the emitter reads. The graded input exists — `Carrying` is crop fill — but under `SPOIL_IS_CARGO` it reads 1.0 for a pellet of dirt, so a fill-graded emitter needs a food-only graded sense, which is a slot bump | one of the arms of §3 item 1 |
 | decay rate tuned to ephemeral vs persistent resources | `Pheromones::set_channel_rho` and `set_channel_diffuse` are per-plane dials (`pheromone.rs:869`, `:898`); `labforage bdecay=` sweeps it | dials exist; the sweep `dead-ends.md:1869` names as the re-test has not been run |
-| negative feedback preserves flexibility (Grüter) | `(Crowding, Move, −0.3)`; food route left near-deaf **on purpose** — read at full gain the colony *"eats out its own doorstep"*, a quarter of the animals against three quarters in a mirrored race (`wiki/ants.md`; §Z7) | the survey's remedy is the engine's open problem |
+| negative feedback preserves flexibility (Grüter) | `(Crowding, Move, −0.3)`; food route left near-deaf **on purpose** — read at full gain the colony *"eats out its own doorstep"*, a quarter of the animals against three quarters in a mirrored race (`wiki/ants.md`; §Z7) | the survey's remedy is the engine's open problem. **Superseded 2026-09-19 (Lane T):** the reader was de-saturated on the 18th (`ac02ac03`) and that change is the whole hand-trail effect — 22 colonies of 36 alive against 4; `ant-survey-trail-reevaluation-2026-09-19.md` §3 |
 | tandem running, group recruitment | no leader–follower verb. `KinBearing`/`KinNear` exist (`brain.rs`), so *follow the ant ahead* is authorable — and blocked by §R4 (`Turn` inert on flat ground) | not staged; not needed for a mass-recruiting ant |
 | solitary foraging + path integration | see §2.5 | |
 | trail + route memory synergy (Czaczkes 2011) | `BrainOutput::Persist` is the straight-ahead score; no route memory | none proposed |
@@ -531,6 +531,7 @@ a regression* makes a joint result unattributable.
    zeroth step. **Cost:** the `trailfollow` riders are archived; one 12-seed
    run at gap 90 per arm. **Score on:** ants reaching food, never deliveries
    (recruitment, not homing). **Falsifier:** the `mute` arm.
+   **Outcome (Lane T, 2026-09-19):** inert at both reader gains, 36 seeds; the rejection stands, narrowed to the 2x2 that was never run.
 2. **`(Crowding, EmitB, −w)`** (survey §3, Czaczkes 2013). One wire in
    `ant.ron`; in the genome, so a line can lose it; no new state, no slot.
    What it buys is the survey's *"self-organised negative feedback that
@@ -544,6 +545,7 @@ a regression* makes a joint result unattributable.
    condition — `labforage plant=` with a patchy larder, readers against
    non-readers. **Falsifier:** if the race still goes 1:3 against readers,
    the deposit side is not the lever.
+   **Outcome (Lane T, 2026-09-19):** null at w = 2.35; the w = 4.5 survival gain is the emission cost falling, shown by a no-channel-B control. And §Z7's reader half was already resolved on the 18th (`ac02ac03`), which this item did not know.
 3. **The no-entry mark** (survey §3, Robinson 2005/2008). The one mechanism in
    the survey that targets §Z7 by name: mark the way to an exhausted site as
    repellent, and mark it *longer* than the attractant lasts (78 min against
@@ -556,6 +558,7 @@ a regression* makes a joint result unattributable.
    today; a signed emit, or a second output, is the engine change. **Score
    on:** the same patchy-larder race. **Rank it after item 2**, because item 2
    is one line and this is a verb.
+   **Outcome (Lane T, 2026-09-19):** not built — `self ≡ mute`, so there is no recruitment to a stale patch for a no-entry mark to correct.
 4. **Switch the home bearing on, and put a dial on it** (survey §6). Not
    new — it is built (`home_bias`, §2.5) — but the survey is a second
    independent source saying the trail is the wrong primitive for homing, and
