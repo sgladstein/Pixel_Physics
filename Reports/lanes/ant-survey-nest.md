@@ -2,7 +2,8 @@
 
 *Ant-survey follow-up round, 2026-09-19. Coordinator
 `session_01HTNLNphUPgpg5GqCwCQvmW`. Branch `claude/ant-survey-nest`,
-**head `4a1fd533`**, **PR #477**, opened against `main` at `5f92c761`.
+**PR #477**, opened against `main` at `5f92c761`. Last content commit
+**`d1815dcb`**; the branch tip is one commit past it, carrying this note.
 The report is [`nest-rejections-rescored-2026-09-19.md`](../nest-rejections-rescored-2026-09-19.md)
 and it holds every number; this note is the state and what the next lane
 needs.*
@@ -20,7 +21,7 @@ and that one is the negative the shape report published.
 
 | | |
 |---|---|
-| branch | `claude/ant-survey-nest`, head **`4a1fd533`**, 3 commits, pushed |
+| branch | `claude/ant-survey-nest`, 5 commits, pushed. Last content commit **`d1815dcb`** — read the tip, which adds only this note |
 | PR | **#477** — the coordinator merges it |
 | gates | `clippy` green, `cargo test` green (44 integration + lib, 0 failed), `docscheck` clean, `deadendindex --touching` names exactly the two entries that carry write-backs |
 | review queue | blind A/B card **`20260919T151821144Z-da82d9`**, board `nest`, **unanswered at hand-off** — control against a 40-row site reach. Collect it with `review.py inbox` |
