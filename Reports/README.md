@@ -1180,6 +1180,23 @@ drift that two of these documents still reflect.**
   dials in round trips and cells; §6 its twelve staged recommendations
   against the repo's own plans. Source:
   [ant-sim-literature-review-external-2026-09-19.md](ant-sim-literature-review-external-2026-09-19.md).
+- [ant-survey-followup-brief-2026-09-19.md](ant-survey-followup-brief-2026-09-19.md)
+  — **round brief, 2026-09-19. `engine`/`lab`.** Three lanes spawned on the
+  owner's instruction after reading the survey review: **P** builds the
+  review's two performance proposals behind switches (a gated per-phase
+  stopwatch for his own bed; creature-only chunk activity not waking the
+  field, with the field hash and the awake-chunk count as falsifiers) and
+  writes the GPU-field design note; **T** re-evaluates the trail line's four
+  rejections under *"don't trust past results"* — the food-charged `EmitB`
+  odometer (rejected before the return leg worked), the full-gain food-trail
+  reader with the entry's own patchy-larder and faster-decay re-tests plus
+  the survey's two negative-feedback terms, `DECAY_RHO`'s band on `u16`,
+  trophallaxis on a played bed; **N** re-scores the `Crowding`-to-dig nulls
+  on the corrected census and re-evaluates pellet-attracted deposition, the
+  spoil-placement rejections, the downward dig bias and the dig-face
+  pheromone. Names the unlanded lifetime branch (20 ahead, no PR) every
+  trail measurement has to reckon with. Models chosen per the
+  `lab-coordinator` skill and stated with the reason.
 - [ant-sim-literature-review-external-2026-09-19.md](ant-sim-literature-review-external-2026-09-19.md)
   — **external document, 2026-09-19, reproduced as received. `engine`.** A
   literature survey of ant and superorganism simulation in nineteen sections
