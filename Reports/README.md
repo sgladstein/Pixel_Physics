@@ -3182,6 +3182,35 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   zero. D11.5: eggs are **not** gated on §10.3 and subsume it; if only
   one thing is done from this report, this is it. Docs only; nothing
   built.
+- [nest-entrance-dimensions-2026-09-19.md](nest-entrance-dimensions-2026-09-19.md)
+  — **research and method, 2026-09-19. `lab`/`engine`.** The dimensional
+  audit of the owner's entrance research report, which closed the gap both
+  prior nest reports named. **The one rule: sort every quantity by the plane
+  it was measured in** — this world is a vertical section, so vertical
+  results transfer and horizontal ones need a factor or cannot be posed.
+  `stigmergy-research.md` §7 states the principle; this makes it
+  quantitative over a set of formulas, and **three of them change**.
+  **Keep `A^0.5`, do not take the offered `V^(2/3)`** — Toffin's arena is
+  our geometry, so the substitution would correct a formula that was
+  already right. **The crater needs a factor of `1/r`**: a radial 3D walk
+  spreads mass over `2πr`, so porting `p(r)` straight gives a ridge with a
+  dip inside it — two humps, not a mound; judge-by-eye, not a metric.
+  **The amplification kernel is wider than the shaft it exists to
+  create** — Toffin's ant is 4 cells and his 8-neighbour kernel 3, ours is
+  `Chain(2)` and a shaft 1–2 cells, so the kernel cannot resolve the
+  feature; this is the *spatial* form of the quantisation rule, and it
+  predicts exactly when endogenous (marker-driven) concentration fails.
+  Four conversion tiers, of which **only dimensionless and body-length
+  rows are safe**: `K`, `ν`, `θ` and the marker units are bound to a
+  0.265 mm lattice and a one-minute step, and a decay rate should be
+  carried **in dig cycles**. Cell scale is cited from
+  `nest-biology-2026-09-19.md` §2.5 (2–5 mm), not re-derived. **§6 flags
+  the author's own anisotropic-kernel proposal as invention**, ranks it
+  behind the measured downward bias it is confounded with, and asks that
+  somebody else score it. Also: `found_colony_of` **excavates zero
+  cells** — founding paints a 46-cell door where biology digs a 1–2 cell
+  shaft — and `digbox`'s 1,200 ants sit 4x beyond the largest fitted
+  group, so the lens may be a jam. Docs only; nothing built.
 - [evolution-lab-round-37-brief-2026-09-15.md](evolution-lab-round-37-brief-2026-09-15.md)
   — **brief, 2026-09-15. `lab`/`engine`/`held`.** Opens with **two retracted
   numbers** a reader may have inherited (29.4 is per-bed, not per-ant; the
@@ -4223,6 +4252,16 @@ untracked; the branch `perf-audit` is **zero commits ahead of `main`** and
 never held the report at all; and a worktree's name is not its branch's name
 (plant-branch-angle lives in a worktree called `plant-crown`).
 
+- The nest-digging plan, the digging-signals biology and the build plan —
+  **`origin/claude/sweet-tesla-ommknn`** (no PR, 14 ahead / 37 behind) and
+  **`origin/claude/nest-biology-research`** (PR #472). The first branch is
+  the one to watch: besides `nest-digging-plan-2026-09-19.md` it carries
+  `examples/digbox.rs` — the bare box every measurement in the nest line is
+  taken in — plus two default-off, bit-exact switches in `src/sim/creature.rs`
+  (`PIXEL_PHYSICS_NEST_SITE_ROWS`, `PIXEL_PHYSICS_CROWDING_LOCAL`) and the
+  lane handoff. **Finished work with no PR is invisible work**, which is what
+  `branchcheck.sh --prs` exists to say; the dimensional audit indexed above
+  names tests that can only run against that harness.
 - ~~`origin/perf-lock`~~ — **RETIRED 2026-08-25, not landed.** Its report is
   now in this directory (indexed above) and its two generalising findings are
   `CLAUDE.md` rules. What stays unlanded is the machine-wide timing lock
