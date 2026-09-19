@@ -720,6 +720,28 @@ carries *why* a report stands where it does.
   written back; the six switches the audit ran on land as instruments,
   default off. Sibling of the entry below, which is the same literature
   read from inside the project a month earlier.
+- [plant-economy-and-turnover-plan-2026-09-19.md](plant-economy-and-turnover-plan-2026-09-19.md)
+  — **plan, proposed, not started; seven owner calls in its §8.** The
+  most impactful plant changes, ranked from the comparison report and its
+  re-audit, ordered by the dependency each was *measured* to have: **0**
+  readouts before mechanisms (seeds-against-size, self-thinning slope,
+  allometry, a safe-site census — the numbers exist, the curves do not);
+  **1** a grown plant is productive (seed from production, not the
+  residual — measured 2.18x on 12/12 — then heartwood so the bill follows
+  the crown down, with the maintenance level re-derived against
+  recruitment for the first time); **2** seed reaches ground it can grow
+  on (the wind verb with a fat-tailed kernel, and the safe-site census
+  against the ~305 germinations recruitment pins at, since germination is
+  the blocked stage three times over); **3** gaps open and the ground
+  remembers (root turnover at the knee, a conservative nutrient-return
+  ledger measured on soil memory, graded frost from the weather channel
+  and never a calendar); **4** a cut tree answers (the stump A/B first,
+  then a `MatureBody → DormantBud` path for staleness retirement); **5**
+  the exclusion test that closes or reopens the attractor question in
+  half a day. Names the constants each phase re-derives, the card each
+  wants before it is called done, the one serialised lane `plant.rs`
+  forces, and nine things it deliberately does not do. ~10–12
+  session-days.
 - [plant-simulation-research.md](plant-simulation-research.md) —
   **research.** Growth, evolution and biology directions past M16.
 - [organism-substrate-design.md](organism-substrate-design.md) — **design,
