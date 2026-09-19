@@ -3224,6 +3224,37 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   cells** — founding paints a 46-cell door where biology digs a 1–2 cell
   shaft — and `digbox`'s 1,200 ants sit 4x beyond the largest fitted
   group, so the lens may be a jam. Docs only; nothing built.
+- [nest-shape-three-negatives-2026-09-19.md](nest-shape-three-negatives-2026-09-19.md)
+  — **measurement, 2026-09-19. `lab`/`engine`.** Three levers tested against
+  the nest's shape and **all three negative**, plus the one column that made
+  them readable. **A colony here does not dig a nest — it scratches the whole
+  floor, and "the nest" is the densest part of the scratching**: the room's
+  bounding box is **62–208 cells wide in a 400-wide box against a 53-column
+  door**, and `vert` (height/width) never leaves 0.19 on any arm. Narrowing
+  the door with the new `PIXEL_PHYSICS_NEST_SITE_COLS` gives the **widest**
+  room; a downward dig-target bias was refuted from the code before building
+  (the dig target and the step target are the same cell, so an override
+  severs the coupling that makes tunnels); and steering the heading by
+  `MoistureFront`/`MoistureLateral` leaves the control the best of five arms.
+  With `(Bias, Dig)` swept 0.15 → −1.0 everything scales together and nothing
+  concentrates — **the lens is what scratching-everywhere looks like turned
+  down.** So the remaining candidate is the one the entrance research names:
+  self-amplification on recent digging, as a `spoil` **material adjacency**
+  test rather than a pheromone (a dig-face pheromone is measured and
+  negative). **Three instrument faults found on the way, two of which had
+  already produced findings**: `digbox`'s `trace` "spread over N columns × M
+  rows" is at-nest ANT spread and follows its own dial by construction — it
+  read "6 columns × 21 rows" and was nearly reported as a shaft, caught only
+  by rendering the pair and looking; every shape column in `burrow_probe`
+  (`circ`, `inradius`, `buds`) is **rotation-invariant**, now pinned by a
+  rotated-bar selftest; and a `wet=` argument of the author's own went into
+  the wrong branch and produced a retracted finding inside an hour. Also
+  corrects the record on `MoistureGrad`: the channel is **not inert** — 1
+  distinct value dry, 26 at field capacity, 3 at saturation (it clips), **44
+  on a graded bed**, so the null was a property of uniform hand-built beds.
+  And measures the at-nest crowding input **saturated in its top tenth for
+  100.0% of ticks**, which is what `roofed / ants` gives when `roofed`
+  excludes the ants.
 - [evolution-lab-round-37-brief-2026-09-15.md](evolution-lab-round-37-brief-2026-09-15.md)
   — **brief, 2026-09-15. `lab`/`engine`/`held`.** Opens with **two retracted
   numbers** a reader may have inherited (29.4 is per-bed, not per-ant; the
