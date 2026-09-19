@@ -840,29 +840,45 @@ author one** — `labshot` gained `stem=off|authored|full` to make this askable
 headlessly at all; `World::stem_mode` was previously reachable only from a
 keypress in `app.rs`.
 
-**It is not "looks identical", and more importantly it is not cosmetic.** Five
-founders each, 30,000 frames (grass 20,000), same seed, same binary:
+**It is not "looks identical"** — tree, conifer and shrub all differ visibly
+at five founders, and the owner's own reading of the card was that the
+authored arm *"looks better"*.
 
-| | cells, off → authored | biggest single plant |
-|---|---|---|
-| tree | 22,201 → 20,729 | 6,029 → 5,016 |
-| conifer | 24,886 → 24,705 | 6,075 → 6,492 |
-| shrub | 6,260 → **3,458** | 1,821 → 1,636 |
-| grass | 3,735 → **6,754** | 57 → **701** |
+> **WITHDRAWN THE SAME DAY: the size claim this section first made was one
+> seed.** It read *"shrub loses 45% of its mass; a single grass plant becomes
+> twelve times bigger"*, from five founders on **seed 1**. The owner refused
+> it on sight — *"I don't think the number of plants is enough to tell, there
+> is so much plant to plant variation"* — and he was right. Grass's biggest
+> plant, five founders, by seed:
+>
+> | seed | 1 | 2 | 3 | 4 | 5 | 6 |
+> |---|---|---|---|---|---|---|
+> | off | 57 | 112 | 54 | 48 | 46 | 43 |
+> | authored | **701** | 49 | 54 | 76 | 58 | 44 |
+>
+> Seed 1 is a freak run; the median is **51 → 56**. `CLAUDE.md` says outcomes
+> here are chaotic in the seed and that six seeds is not a sweep — this was
+> **one**, and it was published as a finding and written into a commit
+> message, `instruments.md` and a review card before anyone checked it.
 
-Shrub loses 45% of its mass; a single grass plant becomes **twelve times
-bigger** and its roots reach 87 rows down against 11. That follows from the
-mechanism rather than contradicting it — a straighter stem covers more ground
-per unit of growth budget, which is the same reason the reed reaches 68 cells
-above the waterline against 13 — but it means **every constant tuned against
-these four was tuned against the wandering version**. `CLAUDE.md`'s *a correct
-mechanism at inherited constants is a regression*, and this is the shape of it.
+**Swept over six seeds at three times the founders** (10 trees, 10 conifers,
+12 shrubs, 16 grass), 30,000 frames (grass 20,000), one binary:
 
-So flipping the default globally is **not** the cheap change it looked like
-when the only evidence was the reed. Put to the owner as card
-`20260919T053836494Z-d06e8e` with both options: flip it and re-check four
-species, or give the reed a private route to its authored value and leave them
-alone.
+| | cells, median off → authored | ratio | authored higher on |
+|---|---|---|---|
+| tree | 25,502 → 25,915 | 1.02 | 4 of 6 |
+| conifer | 35,052 → 32,591 | 0.93 | 0 of 6 |
+| shrub | 6,192 → 5,738 | 0.93 | 2 of 6 |
+| grass | 4,078 → 3,912 | 0.96 | 2 of 6 |
+
+Nothing wins on more than 4 of 6 and every ratio sits in 0.93–1.02, so **the
+size effect does not exist** and the switch is close to free. That is the
+opposite of what the withdrawn paragraph said, and it makes the decision a
+pure question of appearance rather than a re-derivation risk.
+
+Put to the owner as card `20260919T065200522Z-a52497` (superseding
+`20260919T053836494Z-d06e8e`, which carries the wrong numbers and is already
+answered, so it is left standing as its own record rather than amended).
 
 ### What is not settled, and is on a card
 
