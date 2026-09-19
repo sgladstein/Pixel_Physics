@@ -731,9 +731,15 @@ impl Chunk {
     /// `self.reach`; see the field's own doc for why shrinking is handled
     /// separately, in `recompute_reach`.
     #[inline]
-    pub fn set_world(&mut self, x: i32, y: i32, cell: Cell, reach: i32, is_liquid: bool) {
+    /// `field_relevant` says whether the field has anything to re-derive
+    /// from this write -- see [`Self::stale_blocks`] and
+    /// `field::creature_wake_skip`. **`true` is the only value the engine
+    /// passes with that switch off**, which is what makes the switch
+    /// bit-identical when unset; `World::write_cell` and `ChunkView::set`
+    /// are the two callers that can pass `false`.
+    pub fn set_world(&mut self, x: i32, y: i32, cell: Cell, reach: i32, is_liquid: bool, field_relevant: bool) {
         self.cells[local_index(x, y)] = cell;
-        self.mark_dirty(x, y);
+        self.mark_dirty_inner(x, y, field_relevant);
         self.reach = self.reach.max(reach);
         self.has_liquid |= is_liquid;
     }
@@ -767,11 +773,29 @@ impl Chunk {
     /// neighbours. Cheap enough to call on every write.
     #[inline]
     pub fn mark_dirty(&mut self, x: i32, y: i32) {
+        self.mark_dirty_inner(x, y, true);
+    }
+
+    /// The body of [`Self::mark_dirty`], with the one line the field cares
+    /// about made conditional.
+    ///
+    /// **Splitting this rather than gating inside `mark_dirty` is deliberate,
+    /// and the two public callers are why.** `World::touch_neighbours` and
+    /// `World::mark_dirty_at` both call `mark_dirty` on a chunk that is *not*
+    /// the writer's, with the writer's own coordinates, where `block_bit`
+    /// already returns 0 -- so the stale mark they make is a no-op and they
+    /// have no business answering a question about it. Only `set_world`,
+    /// writing into its own cells, can set a bit here, and only it is given
+    /// the choice.
+    #[inline]
+    fn mark_dirty_inner(&mut self, x: i32, y: i32, field_relevant: bool) {
         match &mut self.pending_dirty {
             Some(r) => r.include(x, y),
             None => self.pending_dirty = Some(Rect::point(x, y)),
         }
-        self.stale_blocks |= self.block_bit(x, y);
+        if field_relevant {
+            self.stale_blocks |= self.block_bit(x, y);
+        }
         // The same mark, kept per row. A mark more than one row outside the
         // chunk cannot reach it — the box expands by exactly one row — so it
         // is dropped here rather than clamped, which is the whole of the
@@ -1136,6 +1160,20 @@ impl Chunk {
     #[inline]
     pub fn take_stale_blocks(&mut self) -> u16 {
         std::mem::take(&mut self.stale_blocks)
+    }
+
+    /// Whether any block holds a write the field has not derived from yet --
+    /// [`Self::take_stale_blocks`] without the taking.
+    ///
+    /// This is the quantity `field::step` asks instead of `is_settled()` when
+    /// `field::creature_wake_skip` is on. The two differ exactly where they
+    /// should: `is_settled` is "has the CA anything left to sweep", which a
+    /// walking ant keeps true for as long as it walks, while this is "has
+    /// anything the field reads changed", which a walking ant never sets at
+    /// all once its own material is `field_inert`.
+    #[inline]
+    pub fn has_stale_blocks(&self) -> bool {
+        self.stale_blocks != 0
     }
 
     pub fn cells(&self) -> &[Cell] {
@@ -1571,7 +1609,7 @@ no longer describing the shipped defaults and the sweep above should be re-read"
         chunk.end_sweep(); // clear the initial full-chunk dirty region
         assert!(chunk.is_settled());
 
-        chunk.set_world(10, 10, Cell::new(material::SAND, 0), 1, false);
+        chunk.set_world(10, 10, Cell::new(material::SAND, 0), 1, false, true);
         // The write must not extend the sweep currently in flight...
         assert!(chunk.is_settled());
         // ...but must be picked up by the next one.
@@ -1589,7 +1627,7 @@ no longer describing the shipped defaults and the sweep above should be re-read"
         let mut chunk = Chunk::new(coord);
         chunk.end_sweep();
         // A write in the corner would expand past the chunk edge.
-        chunk.set_world(0, 0, Cell::new(material::SAND, 0), 1, false);
+        chunk.set_world(0, 0, Cell::new(material::SAND, 0), 1, false, true);
         chunk.end_sweep();
         let region = chunk.sweep_region().unwrap();
         assert_eq!(region.min_x, 0);
@@ -1607,7 +1645,7 @@ no longer describing the shipped defaults and the sweep above should be re-read"
         let coord = ChunkCoord::new(0, 0);
         let mut chunk = Chunk::new(coord);
         chunk.end_sweep();
-        chunk.set_world(30, 30, Cell::new(material::SAND, 0), 1, false);
+        chunk.set_world(30, 30, Cell::new(material::SAND, 0), 1, false, true);
         chunk.end_sweep();
         let region = chunk.sweep_region().unwrap();
         assert_eq!(region.min_x, 30 - 1);
@@ -1619,7 +1657,7 @@ no longer describing the shipped defaults and the sweep above should be re-read"
         // recently completed sweep interval; `end_sweep` replaces it rather
         // than accumulating across calls, so this region is centred on the
         // second write alone, not the union of both).
-        chunk.set_world(40, 40, Cell::new(material::SMOKE, 0), 6, false);
+        chunk.set_world(40, 40, Cell::new(material::SMOKE, 0), 6, false, true);
         chunk.end_sweep();
         let region = chunk.sweep_region().unwrap();
         assert_eq!(region.min_x, 40 - 6);
@@ -1628,7 +1666,7 @@ no longer describing the shipped defaults and the sweep above should be re-read"
         // The widened reach persists for a later write even with a smaller
         // reach of its own -- proving it is `set_world`'s `max`, not a
         // per-write value that would reset.
-        chunk.set_world(30, 30, Cell::new(material::SAND, 0), 1, false);
+        chunk.set_world(30, 30, Cell::new(material::SAND, 0), 1, false, true);
         chunk.end_sweep();
         let region = chunk.sweep_region().unwrap();
         assert_eq!(region.min_x, 30 - 6);
@@ -1644,19 +1682,19 @@ no longer describing the shipped defaults and the sweep above should be re-read"
         let coord = ChunkCoord::new(0, 0);
         let mut chunk = Chunk::new(coord);
         chunk.end_sweep();
-        chunk.set_world(30, 30, Cell::new(material::SMOKE, 0), 6, false);
+        chunk.set_world(30, 30, Cell::new(material::SMOKE, 0), 6, false, true);
         chunk.end_sweep();
         let widened = chunk.sweep_region().unwrap();
         assert_eq!(widened.max_x - widened.min_x, 12);
 
-        chunk.set_world(30, 30, Cell::EMPTY, 0, false);
+        chunk.set_world(30, 30, Cell::EMPTY, 0, false, true);
         chunk.end_sweep();
         // Still wide -- nothing has recomputed it yet.
         let still_wide = chunk.sweep_region().unwrap();
         assert_eq!(still_wide.max_x - still_wide.min_x, 12);
 
         chunk.recompute_reach(|_| 0);
-        chunk.set_world(30, 30, Cell::EMPTY, 0, false); // re-dirty so sweep_region is Some again
+        chunk.set_world(30, 30, Cell::EMPTY, 0, false, true); // re-dirty so sweep_region is Some again
         chunk.end_sweep();
         let region = chunk.sweep_region().unwrap();
         assert_eq!(region.max_x - region.min_x, 2); // back to the floor of 1

@@ -859,6 +859,29 @@ fn main() {
             "field hash at frame {frames}: {:#018x}",
             pixel_physics::sim::field::field_hash(world)
         );
+        // **`fielddump=<path>` writes the raw channels**, because a hash
+        // answers "identical or not" and the moment two arms are *not*
+        // identical the only useful next question is **which channel, and by
+        // how much against its own settle epsilon**. That is what
+        // `field::field_channels` exists for, and until now nothing in
+        // `examples/` called it, so every divergence this harness found had
+        // to be chased with a second instrument.
+        //
+        // Six `f32` per field cell, channel-major, little-endian, in the
+        // tile order `field_channels` fixes -- so two dumps from two runs of
+        // the same scene line up index for index and a per-channel max
+        // |delta| is four lines of Python. Deliberately not a summary: a
+        // maximum computed here could not answer "where", and the file is
+        // ~1 MB on a lab bed.
+        if let Some(path) = arg::<String>("fielddump") {
+            let v = pixel_physics::sim::field::field_channels(world);
+            let mut bytes = Vec::with_capacity(v.len() * 4);
+            for f in &v {
+                bytes.extend_from_slice(&f.to_le_bytes());
+            }
+            std::fs::write(&path, &bytes).expect("the fielddump path is writable");
+            println!("field channels dumped to {path}: {} cells x 6 channels", v.len() / 6);
+        }
     }
 
     // --- the founder question -------------------------------------------

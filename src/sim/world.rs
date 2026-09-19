@@ -1551,6 +1551,37 @@ pub struct CreatureStats {
     /// because the colony stops wanting to*, and the way that claim goes
     /// wrong is the colony still wanting to and merely failing.
     pub dig_rolls: u64,
+    /// **How many dig rolls actually turned the animal downward**, which is
+    /// the "it fired" half of `creature::dig_down_bias` and reads 0 at the
+    /// default.
+    ///
+    /// It is not `dig_rolls * w`: `turn_toward` returns the heading unchanged
+    /// when the animal is already pointed straight down, so the counter
+    /// misses those and that is the point -- a colony already digging
+    /// downward has nothing for this lever to add, and the gap between this
+    /// and `dig_rolls * w` is how much of the time that was true.
+    pub digs_aimed_down: u64,
+    /// **Drop rolls damped because the animal was under cover** -- the "it
+    /// fired" counter for `creature::spoil_drop_cover`, 0 at the default.
+    pub spoil_holds_under_cover: u64,
+    /// **Khuong's denominator, at the drop.** Summed over every spoil drop
+    /// roll that got as far as scanning for somewhere to put the pellet:
+    /// how many of the eight neighbours were places a pellet would stay
+    /// (`candidates`), and how many of those had a pellet already in reach
+    /// (`_by_spoil`).
+    ///
+    /// **The ratio is the whole feasibility question for a
+    /// deposition-follows-pellets rule** and neither number alone is it: all
+    /// candidates marked, or none, and the rule discriminates nothing. It is
+    /// a different denominator from `digbox`'s *spoil in reach of a diggable
+    /// cell*, deliberately -- that one averages over the buried world and
+    /// answers the **dig** side of the same stigmergy; this one is taken
+    /// where the laden animal is standing, which is on the mound.
+    pub spoil_drop_candidates: u64,
+    pub spoil_drop_candidates_by_spoil: u64,
+    /// Drops where the rule would actually have had a choice to make: some
+    /// candidates marked and some not.
+    pub spoil_drops_discriminable: u64,
     /// **Creature ticks taken standing at a nest.** Not a rate and not a
     /// population: a tick count, so it rides the colony's size and its tick
     /// interval together and is only ever read as a ratio or against a
@@ -8722,7 +8753,8 @@ impl World {
                 let cell = make(cy);
                 debug_assert_eq!(cell.material, material, "fill_run cells must share a material");
                 let old = chunk.get_world(x, cy);
-                chunk.set_world(x, cy, cell, reach, is_liquid);
+                let field_relevant = self.materials.field_relevant_write(old.material, cell.material);
+                chunk.set_world(x, cy, cell, reach, is_liquid, field_relevant);
                 written += 1;
                 if old.managed() || old.organism_id() != 0 || cell.organism_id() != 0 {
                     pending.push((cy, old, cell));
@@ -9158,7 +9190,17 @@ impl World {
         let is_liquid = self.materials.kind(cell.material) == MaterialKind::Liquid;
         let chunk = self.chunks.get_or_insert_with(coord, || Self::new_chunk(coord, self.sweep_rows_override));
         let old = chunk.get_world(x, y);
-        chunk.set_world(x, y, cell, reach, is_liquid);
+        // **Whether the field has anything to re-derive from this write.**
+        // `self.materials` and `self.chunks` are disjoint fields, so this
+        // reads the registry while `chunk` is still borrowed mutably. Here
+        // rather than inside `Chunk::set_world` because a `Chunk` has no
+        // registry to ask, and here rather than at the creature pass because
+        // this is the write seam every mover already goes through -- the same
+        // "an enumeration that has to stay complete is the failure mode this
+        // project keeps rediscovering" this function's other three hooks are
+        // placed for.
+        let field_relevant = self.materials.field_relevant_write(old.material, cell.material);
+        chunk.set_world(x, y, cell, reach, is_liquid, field_relevant);
         self.touch_neighbours(x, y, coord);
         old
     }
@@ -10819,7 +10861,8 @@ impl CellSurface for MoistureView<'_> {
             let old = self.chunk.get_world(x, y);
             let reach = self.world.materials.get(cell.material).sweep_reach();
             let is_liquid = self.world.materials.kind(cell.material) == MaterialKind::Liquid;
-            self.chunk.set_world(x, y, cell, reach, is_liquid);
+            let field_relevant = self.world.materials.field_relevant_write(old.material, cell.material);
+            self.chunk.set_world(x, y, cell, reach, is_liquid, field_relevant);
             // `touch_neighbours` skips the owning chunk, so every mark it
             // makes lands somewhere still resident and it can run now.
             self.world.touch_neighbours(x, y, self.coord);
