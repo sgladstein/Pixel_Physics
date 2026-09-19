@@ -350,7 +350,14 @@ fn main() {
     let mut renderer = Renderer::new();
     let mut blasts = Blasts::default();
     let _ = &mut blasts;
-    let stops: Vec<u64> = (0..=frames).step_by((frames / 6).max(1) as usize).collect();
+    // **`stops=` names the frames outright**, because a run whose sheet is
+    // sampled by an even division cannot be compared against another run of a
+    // different length -- the panels are at different instants and the eye
+    // reads the difference as the world changing.
+    let stops: Vec<u64> = match arg::<String>("stops") {
+        Some(v) => v.split(',').map(|f| f.trim().parse().expect("stops=a,b,c")).collect(),
+        None => (0..=frames).step_by((frames / 6).max(1) as usize).collect(),
+    };
     let mut shots: Vec<Vec<u8>> = Vec::new();
 
     for f in 0..=frames {
