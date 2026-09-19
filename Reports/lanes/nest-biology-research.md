@@ -94,9 +94,27 @@ already reports a hand-carved chamber gone in **30 frames** in `soil`, and
 sections that treats a chamber as a persistent place is downstream of a
 number that is not currently trustworthy.**
 
-## Head SHA
+## Head SHA, PR and state — for the coordinator
 
-The report, its index line and this note are **`96cb18d8`**, cut from
-`main` at `c061a245`. The branch head is the commit immediately after it,
-which is this stamp itself — a note cannot name its own hash, so the
-content commit is the one to read, and the PR names the pushed head.
+**PR [#468](https://github.com/sgladstein/Pixel_Physics/pull/468), green and
+ready to merge.** A lane does not merge its own PR here (`CLAUDE.md`: an
+independent session merges its own, a coordinator merges its lanes'), and a
+woken lane has no messaging tools — so this paragraph is the hand-off.
+
+- **`ba125249`** is the CI-verified head: all nine jobs of the
+  `pull_request` run (35409342680) **success**, including `cargo test`
+  release and debug, `cargo clippy`, `cargo run --example ascii`, the
+  structural acceptance cases, worldgen pass interference, `docscheck` and
+  `branches`. The commit carrying the report, its `Reports/README.md` index
+  line and this note is `96cb18d8`.
+- **The `cancelled` jobs on that SHA are not a failure.** CI gates
+  `claude/**` on push *and* on `pull_request`, and the concurrency group
+  cancels the older run when the PR opens. That is why the PR reads
+  `mergeable_state: unstable` rather than `clean` — a non-required check on
+  the SHA is not `success` because it was superseded. **There is no merge
+  conflict** (`unstable`, not `dirty`) and the branch is 0 behind `main`.
+- **No review threads, no `Claude Approvals` check** in this repository.
+- This stamp is one commit on top of `ba125249`; it touches only this file,
+  so the gates above stand.
+
+**Nothing is waiting on this lane.** The only thing left is the merge.
