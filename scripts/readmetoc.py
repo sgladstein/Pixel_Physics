@@ -209,6 +209,9 @@ TOPICS = {
         "Rest status — a rest that ends, so a resting animal is not a stopped one",
         "Hopper status — the jump has a species, and it hops itself to death",
         "Trophallaxis status — the colony's stomach, shipped on, and a first measurement that says wait",
+        # Why a queue on a scent trail is no longer a queue, and why the
+        # mechanism that fixes it deliberately does not look like anything.
+        "Stacking status — many ants of one colony in one cell, off by default",
         "Trail status — the ant reads its way home, and the food trail is the larder's problem",
         "Lifespan status — an ant gets old, and the colony's fall becomes a slope",
         # The books under the two lines above: hunger and trophallaxis are
