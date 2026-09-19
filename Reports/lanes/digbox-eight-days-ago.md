@@ -71,3 +71,7 @@ per the brief. The window is ~70 commits over
 ## Head SHA
 
 `a41646e9` — the report, the six images, both logs, the port diff and the index line.
+`e4ba90e5` — the 30,000-frame comparison as one labelled picture, wired into §4.
+
+The branch head advances by one past whichever of these is last, because the
+stamp commit is this note. The SHAs above are the *content*.
