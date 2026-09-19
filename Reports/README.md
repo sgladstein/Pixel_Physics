@@ -1180,6 +1180,18 @@ drift that two of these documents still reflect.**
   dials in round trips and cells; §6 its twelve staged recommendations
   against the repo's own plans. Source:
   [ant-sim-literature-review-external-2026-09-19.md](ant-sim-literature-review-external-2026-09-19.md).
+- [ant-survey-round-2026-09-19.md](ant-survey-round-2026-09-19.md) —
+  **round record, 2026-09-19. `engine`/`lab`.** The three lanes' close-out:
+  what each overturned (the food-trail reader had been de-saturated a day
+  before the round and the record never told; the nest's lever was a
+  default-off switch swept in the wrong axis; no wake rule reaches the
+  field's response to a colony because the halo already solves it), the one
+  rejection that fell (channel B fading faster helps on the played bed), the
+  six corrections the lanes made to the coordinator's own review, the four
+  decisions that wait on the owner (the lifetime split through #478, the
+  nest site reach, the fade dial, `home_bias`), the round's cost lessons
+  (the five-hour limit stopped every lane with one unpushed; two ran on past
+  delivery), and the model tally.
 - [ant-survey-followup-brief-2026-09-19.md](ant-survey-followup-brief-2026-09-19.md)
   — **round brief, 2026-09-19. `engine`/`lab`.** Three lanes spawned on the
   owner's instruction after reading the survey review: **P** builds the
