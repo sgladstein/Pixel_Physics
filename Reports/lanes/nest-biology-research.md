@@ -94,27 +94,36 @@ already reports a hand-carved chamber gone in **30 frames** in `soil`, and
 sections that treats a chamber as a persistent place is downstream of a
 number that is not currently trustworthy.**
 
-## Head SHA, PR and state — for the coordinator
+## PR, head and state — for the coordinator
 
 **PR [#468](https://github.com/sgladstein/Pixel_Physics/pull/468), green and
 ready to merge.** A lane does not merge its own PR here (`CLAUDE.md`: an
 independent session merges its own, a coordinator merges its lanes'), and a
 woken lane has no messaging tools — so this paragraph is the hand-off.
 
-- **`ba125249`** is the CI-verified head: all nine jobs of the
-  `pull_request` run (35409342680) **success**, including `cargo test`
-  release and debug, `cargo clippy`, `cargo run --example ascii`, the
-  structural acceptance cases, worldgen pass interference, `docscheck` and
-  `branches`. The commit carrying the report, its `Reports/README.md` index
-  line and this note is `96cb18d8`.
-- **The `cancelled` jobs on that SHA are not a failure.** CI gates
-  `claude/**` on push *and* on `pull_request`, and the concurrency group
-  cancels the older run when the PR opens. That is why the PR reads
-  `mergeable_state: unstable` rather than `clean` — a non-required check on
-  the SHA is not `success` because it was superseded. **There is no merge
-  conflict** (`unstable`, not `dirty`) and the branch is 0 behind `main`.
-- **No review threads, no `Claude Approvals` check** in this repository.
-- This stamp is one commit on top of `ba125249`; it touches only this file,
-  so the gates above stand.
+**Read the head off the PR rather than off this paragraph.** It has moved
+three times since the report first landed, twice because the owner ruled on
+the work while it was open, and a stamped SHA here goes stale the moment it
+is written. The substantive commits, oldest first:
+
+| commit | what it added |
+|---|---|
+| `96cb18d8` | the report (§§0–9), its `Reports/README.md` index line, this note |
+| `c79690c3` | **§10 — the owner's ruling that the nest has no purpose**, and the §0 pointer to it |
+| `26078129` | **§11 — eggs**, and the withdrawal of §10.4's brood row |
+
+**CI: all nine jobs green on `26078129`** — `cargo test` release and debug,
+`cargo clippy`, `cargo run --example ascii`, structural acceptance cases,
+worldgen pass interference, `docscheck`, `branches`, `cargo fmt`. 0 behind
+`main`, no merge conflict, no review threads, and this repository runs no
+`Claude Approvals` check.
+
+**One reading note for a PR that grew after its own conclusions.** The
+report now argues against the order of its own §9: §10.5's **D10.1** says
+nothing in §9 starts until §10.3's number is read, and §11.5's **D11.5**
+says eggs are not gated on that number and subsume it. The two are
+consistent — §10.3 asks whether the nest has a purpose *today*, and eggs
+give it one either way — but a reader who stops at §9 will take the wrong
+instruction away. §0 opens with a pointer to §10 for that reason.
 
 **Nothing is waiting on this lane.** The only thing left is the merge.
