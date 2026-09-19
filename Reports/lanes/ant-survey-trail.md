@@ -60,4 +60,4 @@ only live holders.
 pair too; `gate=b2` is a no-op since the 18th and panics rather than lying;
 `pkill -f` on a pattern matching the calling shell.
 
-Head: *(updated on push)*. PR: *(opened when the queues finish)*.
+**PR #478** (`claude/ant-survey-trail` → `main`), opened 2026-09-19 at head `4c1ea7de`; this note's own commit sits one above it, and the PR page carries the current head. Gates at `4c1ea7de`: clippy clean, `cargo test` 1,871 + 60 passed / 0 failed, docscheck clean.
