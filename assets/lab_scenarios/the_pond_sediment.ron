@@ -26,9 +26,27 @@
 // the sediment die without ever reaching a second cell (1, 1 -> dead, 1 ->
 // dead, dead by frame 20,000). In the *drained* version of the same bed, the
 // same two positions reach 227 and 320 cells. Same soil, same light, same
-// placement; the only difference is whether the water stayed. That is
-// `plant::growable`'s refusal of `Liquid` isolated as cleanly as this bed can
-// isolate it, and it is the measurement Phase 1 has to move.
+// placement; the only difference is whether the water stayed.
+//
+// **CORRECTION, 2026-09-18: they are not in the sediment, and the reading
+// above named the wrong cause.** Stepped and censused rather than read off
+// frame 0, both founders rest at **y=164 -- the water surface** -- for the
+// whole 3,000-frame run, with the sediment they are supposed to be in 23 rows
+// below them. `seed.ron` is density **0.6** against water's **1.0**, so a
+// plant seed *floats*; `creature::colony_surface` stops its downward scan at
+// `Liquid` and `apply_plant` then lifts to the first *empty* cell, which over
+// a pond is the row above the water. So these herbs died on the surface
+// having never touched ground, and the difference between this bed and the
+// drained one is that in the drained one the seed reached the sediment at
+// all.
+//
+// That does not change what this bed *shows* -- a plant still cannot live in
+// this pond, which is the point -- but it does change what Phase 1 had to
+// build, and the plan was scoped from the wrong half. Opening
+// `plant::growable` for a submerged shoot is necessary and is not sufficient:
+// a seed has to sink first. Both halves shipped together; see `reed.ron`,
+// `reedseed.ron` and `SpeciesDef::seed_material`. **`the_pond_reeds.ron` is
+// this bed with a species that has them**, and is the controlled pair.
 (
     name: "the_pond_sediment",
     title: "THE POND, WITH A BOTTOM",

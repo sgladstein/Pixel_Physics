@@ -162,6 +162,8 @@ pub fn individual_as_species(parent: &Species, genome: &[f32], traits: [f32; sup
         foliage_bands: parent.foliage_bands,
         bark_bands: parent.bark_bands,
         stomatal_reserve: parent.stomatal_reserve,
+        submerged_shoot: parent.submerged_shoot,
+        seed_material: parent.seed_material.clone(),
         shoot_material: parent.shoot_material.clone(),
         root_material: parent.root_material.clone(),
         leaf_material: parent.leaf_material.clone(),
