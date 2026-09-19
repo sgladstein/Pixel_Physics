@@ -4672,6 +4672,102 @@ the raw brain output clamped instead of `unit_scale`d, reading **0.0000 on every
 row of every ant**, whose obvious reading — *the ants never change direction* —
 is the opposite of the truth.
 
+## §7.43 The homing plane made four times more readable, and not one extra round trip
+
+**2026-09-19.** §7.42 found an ant at the larder reading `PheroAAlong = 0.0000`
+and concluded the plane was unreadable where the ants stand. This is the sweep
+that followed, and it refutes the repair rather than confirming it.
+
+### The plane is a scatter of bursts, not a ramp
+
+First, what `aprofile` shows once it is time-averaged rather than read off one
+frame. Over 3 seeds x 18 samples, channel A's **median is 0 from x=78 outward**
+while its means run 100-470, and route cells are nonzero **55% of the time near
+the nest, 25-40% mid-route, 3.7% at x=134 and 0% at 136-138.**
+
+Per cell over time it is a sawtooth — x=62 reads 2857, 809, 2476, 114, 720, 32,
+0. An ant walks over, deposits, and it decays to nothing before the next one
+arrives. **So the ramp in §7.42 is an artifact of averaging bursts, and no ant
+ever stands on it.** That is `CLAUDE.md`'s *ask what your number counts*, and the
+mean profile walked the previous section into it.
+
+### The guard was not the suppressor
+
+§7.42 proposed re-deriving `sense`'s `guard = SCALE` on the grounds that it is
+95% of the denominator where the plane is faint. Swept post-hoc at guard 256
+against 16, readability moves **0-4 points at every x and every baseline** — the
+failure is both cells reading exactly zero, and `(0-0)/(0+0+g)` is zero for any
+guard. **That proposal is withdrawn.**
+
+### The sweep the register's own conditions had opened
+
+`DIFFUSE` and `DECAY_RHO` both carry re-test conditions tied to the plane being
+`u8` (`dead-ends.md:1200-1202`), and the `u8` -> `u16` widening landed
+2026-09-15 without either being re-swept. `arho=` / `adiffuse=` reach channel A
+alone; B is untouched, because a food trail and a homing ramp want different
+lifetimes.
+
+36 seeds, gap 90, `hand` arm, one binary. `READ%` is the fraction of route-cell
+samples on which an ant facing the nest gets a homeward `along` of at least 0.02
+— the bar a real ant was observed to act on (§7.42's homing cohort member did it
+on ~0.01).
+
+| channel A decay | READ% | plane lit % | ants reached food | **round trips** | ants alive |
+|---|---|---|---|---|---|
+| **0.03, shipped** | 13.7 | 25.9 | 5,359 | **47** | 683 |
+| 0.01 | 21.2 | 37.3 | 1,514 | 29 | 304 |
+| 0.0075 | 23.5 | 40.9 | 460 | 23 | 120 |
+| 0.005 | 27.4 | 45.1 | 390 | 27 | 108 |
+| 0.002 | 40.2 | 59.5 | 375 | 38 | 87 |
+| 0.0 | **54.6** | 68.5 | 814 | **48** | 124 |
+
+Diffusion is nearly inert here — 0.05 against 0.25 at fixed decay moves `READ` by
+1-3 points — so the rows above vary decay alone. That is itself a correction:
+`DIFFUSE`'s doc argues it dominates *an isolated cell's lifetime*, and for
+readability across a route it does not.
+
+**Readability rises fourfold, colony size falls eightfold, and round trips do not
+move.** 47 at shipped, 48 at the most readable setting, 23-38 everywhere between.
+
+### The rate that looked like a win was a denominator collapse
+
+`back/reached` reads 0.88% shipped against 5.90% at decay 0 — 6.7x, and the
+paired sign test on `came back` is **20 seeds better, 6 worse, 10 tied**, which
+is p < 0.01 against no effect. Both are real and both are about the wrong thing:
+
+| | shipped | decay 0 |
+|---|---|---|
+| round trips | 47 | **48** |
+| ants that reached food | 5,359 | **814** |
+| ants ever alive | 5,890 | **1,244** |
+
+The rate improved because the denominator fell 6.6x. Per-seed the difference is
+**median +1.0 but mean +0.03**, min **-30**, max +3 — many small wins and one
+catastrophic loss, which is exactly the distribution that makes a median and a
+total disagree. **The honest statement is that round trips are flat.**
+
+### What this rules out, and what it points at
+
+**Readability is not the binding constraint.** A plane four times more readable,
+lit on 68% of route cells instead of 26%, produces the same ~47 round trips. So
+the ant reads a homeward gradient and does not convert it into homeward
+displacement.
+
+That points at §7.42's D4 rather than its D1: `p_move` ~0.5 against a flat
+`p_tumble` of 0.5 gives a heading change every ~4 ticks — **a mean run of about
+2 cells** — and the homing pair modulates *whether to step*, not *which way*.
+A ratchet that biases stepping cannot accumulate displacement when the heading
+is re-rolled uniformly every two cells. `BrainOutput::Persist`'s own doc names
+this: *"the single number that decides milling versus commuting — median net
+displacement was 2% of path length."*
+
+***Re-test this decay sweep when:*** the ant can convert a gradient into
+displacement at all. Until then it measures a reader that is not connected to a
+walker, and every row above will reproduce.
+
+**Data:** `Reports/data/achannel-decay-*-36seed-gap90-2026-09-19.log`,
+`aplane-profile-seed1-2026-09-19.txt`.
+
 ## Appendix A. Raw per-seed data
 
 Kept in full because outcomes here have enormous spread, and every headline in
