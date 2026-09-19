@@ -1,0 +1,13 @@
+digbox: 400x112 box, soil 80 rows (24..104), colony of 1200 trickled in at 8/frame, seed-free scene
+  no food, no plants, no lamps, no weather -- FoodAdjacent is 0 by construction, so the dig you see is the nest mechanism alone
+  idle endowment 1200000 frames (start_energy 20000 / 0.10 per tick x tick_interval 6); running 30000
+
+  soil wetness 620 of 1000 saturated (at or above field capacity); the column the dig decision actually reads is `wet grad`
+
+   frame   ants     digs   roofed    open  ants in it  room total  hauled up    charge
+   10000    602     4978      133      66         572         771        671    2269.2
+   20000    469     7202      158     105         559         822        725    2322.6
+   30000    463     8742      173      74         541         788        710    2348.3
+
+SUMMARY digs=8742 roofed=173 open=74 ants_in_it=541 room_total=788 hauled_up=710 spoil_dumped=8531
+wrote /tmp/claude-0/-home-user-Pixel-Physics/e4b2c229-5c58-579c-98e9-26f56a2e0170/scratchpad/out/sheet-09-13.png (800x672, 3 stops top to bottom)

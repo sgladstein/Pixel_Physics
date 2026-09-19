@@ -3182,6 +3182,41 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   zero. D11.5: eggs are **not** gated on §10.3 and subsume it; if only
   one thing is done from this report, this is it. Docs only; nothing
   built.
+- [digbox-eight-days-ago-2026-09-19.md](digbox-eight-days-ago-2026-09-19.md) —
+  **measurement, 2026-09-19. `engine`/`lab`.** Did the colony's digging
+  change in the eight days to 2026-09-19? `examples/digbox` was ported back
+  onto `ccaef282` (2026-09-11) and both trees run at identical parameters,
+  `ants=1200 rate=8 w=400 soil=80 frames=30000`, `RAYON_NUM_THREADS=1`.
+  **It changed, and it is not a null.** Digging is **1.39–1.77x** higher at
+  every stop, and **2.11x** in the selftest's own matched-colony control
+  (30 ants founded, 4,000 frames: 166 digs then, 351 now). **But the
+  standing void converges**: `roofed+open` is 144 against 297 at frame
+  10,000 and **319 against 325 at 30,000, a 2% difference** — the two trees
+  end at the same amount of empty room and today's arrives by frame 10,000,
+  where the older one needs the full 30,000. The columns that stay apart are
+  about *bodies*, not void: 531 against 312 cells holding an animal, 818
+  against 680 hauled clear. Quoted on **`room total` = `roofed + open +
+  bodies`**, because `roofed` and `open` count materially empty cells and a
+  gallery with an ant in it is not empty — every earlier figure in this line
+  was `roofed` alone and undercounts by about three times. **The port needed
+  no `src/` change on either tree**, so the engine's public surface did not
+  move, it only gained; `probe_full`, `nest_site_rows`, `room_surface_at`,
+  `CreatureStats::{dig_rolls, at_nest_crowding}` are all absent at
+  `ccaef282` and all but the last two are diagnostics the census never
+  touches. **One difference is not a strip and is a live candidate**:
+  `BrainInput` gained `Stillness = 29` in the window, widening the ant's
+  genome, alongside `ec1dffdd` *"an animal that stands still gets
+  restless"*. **§8 (added 2026-09-19) runs four more arms between the two
+  endpoints and overturns that**: on the matched-colony probe the whole step
+  is **09-11 -> 09-12, 166 digs to 404, one day**, and everything after drifts
+  *down* (404/361/361/351/351). So `Stillness` is ruled out -- it landed
+  09-13, after the step -- and **the entire stacking series is ruled out
+  outright**, because 09-16 and 09-19 are identical on every stop and column
+  from two different binaries. The 37 commits of 09-12 are all tagged `lab:`,
+  and the leading candidate is `1f5bc393` *"an ant at the nest is asked how
+  much room the colony has, not how packed it is"*, which touches `ant.ron`
+  and `brain.rs`. Narrowed to a day, **not to a commit**. Six cropped nest images and both logs under
+  `data/digbox-*`.
 - [evolution-lab-round-37-brief-2026-09-15.md](evolution-lab-round-37-brief-2026-09-15.md)
   — **brief, 2026-09-15. `lab`/`engine`/`held`.** Opens with **two retracted
   numbers** a reader may have inherited (29.4 is per-bed, not per-ant; the
