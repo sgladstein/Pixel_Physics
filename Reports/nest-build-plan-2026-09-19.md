@@ -26,6 +26,64 @@ and a when-to-widen (§4.3).
 
 ---
 
+## 0a. Amended the same day — this plan is partly superseded, and defers
+
+**A parallel lane, `claude/sweet-tesla-ommknn`, spent the night measuring and
+has already written `Reports/nest-digging-plan-2026-09-19.md` — **on that
+branch, not yet on `main`, which is why it is named here rather than linked**
+— plus landed instruments (`examples/digbox.rs`) and default-off switches.
+Its plan is better than this one in four places. Read both; where they
+conflict, theirs wins.**
+
+**What defers to theirs:**
+
+| | theirs | this plan |
+|---|---|---|
+| **how to give the dig a direction** | **a bias on the dig target at the call site** — *"no new slot, no genome widening, no baselines voided"* | §4.2 appends a `BrainInput`, and prices it at 24 live slots, `mutation_rate` re-derived in every species file, and every `creature_space` baseline void. **I priced the expensive route honestly and they found the cheap one.** Take theirs |
+| **what quantity to steer on** | **dig where the load is low.** The PNAS abstract carries a mechanism neither of my reports had — arching makes tunnel-surface grains low-stress, and ants avoid high-force grains *"without needing to be aware of the force network"* — and **`load.rs`/`structural.rs` already maintain a per-cell load model** | §4.2's "local vertical asymmetry of enclosure", which needs a new writer. **Theirs needs nothing new and produces arching as a consequence.** Take theirs |
+| **`DIRS[heading]`** | has it independently, with the same conclusion about the dig-target dead ends | §1's first row. **Duplicated, not novel** |
+| **`Persist`** | *"the straightness half at best, behind Stages 1 and 3"* | §3 corrects the digging-signals report *towards* `Persist` and makes it Stage 1. **I over-corrected.** We agree it is the straightness half; they are right to rank it below direction, because straightness without direction is a horizontal gallery |
+
+**And their Stage 0 breaks this plan's checks, which is the most important
+line here.** They measured that **`roofed` undercounts the nest by about
+three times** — it counts materially `EMPTY` cells, and a gallery with an ant
+standing in it is not empty. Their figure: 157 roofed + 165 open + **692
+bodies** = 1,014 against 941 cells hauled above the surface, closing
+conservation to 8%, where `roofed` alone fails by 619 cells. **`burrow_probe`,
+`latecensus` and `lab::census` all share the blind spot.**
+
+**Every check in §4 below that reads `roofed` or an aspect ratio derived from
+it is therefore scored on the wrong number.** Use their **`room total` =
+roofed + open + bodies**. Their Stage 0 is blocking and it blocks this plan
+too.
+
+**What remains additive here**, and is not in their plan (checked by grep —
+zero hits for each):
+
+1. **A dug void already stays open, and why.** `line_burrow` packs all 8
+   neighbours into `self_supporting` `packedsoil`, so **`burrow_probe`'s
+   "gallery gone in 5 frames" is a hand-carved void, not an ant-dug one.**
+   The gate that could have killed either plan is already passed, and neither
+   their plan nor their handoff says so.
+2. **Contents exist without eggs** (§1, fourth row): the dig verb explicitly
+   refuses to take a `live_seed` as spoil, so a set-down seed is a persistent
+   object. Their Stage 5 is *"contents, properly"*; this is the cheap v1 that
+   can precede it.
+3. **The price of the brain-input route** (§4.2), which is now the *argument
+   for* their call-site approach rather than a plan of its own.
+4. **§7's landing discipline**, with today's `--who-touched` number.
+
+**Two citation corrections from the same lane apply to this plan too** — see
+[`nest-biology-digging-signals-2026-09-19.md`](nest-biology-digging-signals-2026-09-19.md)
+§0a: the no-dig-face-pheromone author is **Bruce (2015)**, not Pielström &
+Roces; and **the ~40° repose angle is unvalidated** (abstract only), so §4.2's
+check must not score against it.
+
+**Net: treat their plan as the plan, and this one as four findings and a
+pricing that theirs should absorb.**
+
+---
+
 ## 1. What was verified in the tree, and how
 
 Four claims that change the plan's shape. Each was checked in the source, not
@@ -54,7 +112,8 @@ needs reopening.
 gravity, depth, or the axis of an existing tunnel. The digging-signals report
 found gravity plus the angle of repose to be the measured driver of tunnel
 direction (*PNAS* 2021: piecewise-linear descent, near-vertical at the top,
-at or below ~40° in the bulk, **downward from the surface and upward when
+at or below ~40° in the bulk (**the angle is unvalidated — §0a**),
+**downward from the surface and upward when
 started mid-medium**), and this engine has gravity, `Powder` soil and a
 two-angle repose model in `update.rs` — and no way for an ant to read any of
 them.
@@ -177,7 +236,8 @@ no way to hold the deposition arm fixed. That is the `phototropism_dir` shape
 exactly, and it trades Stage 2's finite cost for an unbounded one.
 
 - **The check that can fail**: **depth reached**, and the **slope of the
-  resulting tunnel against the ~40° repose figure**. A tunnel that descends
+  resulting tunnel — but **not against the ~40° figure, which is
+  unvalidated (§0a)**. A tunnel that descends
   at 80° is not obeying the material and says the sense is overriding physics
   rather than steering within it.
 - **Build (a) as the control, not as the feature**: it is cheap, it shares the

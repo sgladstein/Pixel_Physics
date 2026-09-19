@@ -3224,7 +3224,15 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   rest on search summaries rather than papers, and §9 names the five to read
   before they become code. Also flags a content-farm page whose invented
   "seasonal pheromone blends" are exactly the mechanism that was nearly
-  built. Docs only; nothing built.
+  built. **§0a, amended the same day: two of its citations do not survive
+  validation by `claude/sweet-tesla-ommknn`** — the no-dig-face-pheromone
+  author is **Bruce (2015)**, not Pielström & Roces (inferred from the
+  neighbouring pellet papers, which is a citation error rather than a wrong
+  conclusion), and **the ~40° repose angle is unvalidated**, abstract only,
+  with only the downward direction confirmed. That lane also found a mechanism
+  neither nest report had: **arching makes tunnel-surface grains low-stress
+  and ants avoid high-force grains**, which `load.rs`/`structural.rs` can
+  already express with no new field. Docs only; nothing built.
 - [nest-build-plan-2026-09-19.md](nest-build-plan-2026-09-19.md) — **plan,
   2026-09-19. `lab`/`engine`. Nothing built.** The staged build the two nest
   research reports imply, written after the owner asked whether it is
@@ -3267,7 +3275,26 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   rows deep and the metres-per-cell convention is still unstated. §7 is the
   landing warning: stages 1–3 all sit in `src/sim/creature.rs` and
   `assets/species/*.ron`, measured at **56 landings in seven days, the most
-  recent six hours before writing**.
+  recent six hours before writing**. **§0a, amended the same day: PARTLY
+  SUPERSEDED, and defers.** `claude/sweet-tesla-ommknn` had already written
+  `Reports/nest-digging-plan-2026-09-19.md` and landed instruments, and is
+  better in four places — the direction bias belongs **at the dig call site**
+  (no slot, no genome widening, no baselines voided) rather than as the
+  appended input this plan prices; the quantity to steer on is **load, not
+  enclosure**, since arching makes tunnel-surface grains low-stress and
+  `load.rs` already carries it; `DIRS[heading]` is theirs independently; and
+  they are right to rank `Persist` below direction, where §3 over-corrected
+  towards it. **Most important: their Stage 0 breaks this plan's checks** —
+  `roofed` undercounts the nest ~3x because a gallery with an ant in it is not
+  materially `EMPTY` (157 + 165 + **692 bodies** = 1,014 against 941 hauled;
+  `roofed` alone fails by 619), and **`burrow_probe`, `latecensus` and
+  `lab::census` all share the blind spot**. What stays additive: **a dug void
+  already stays open** (`line_burrow` packs neighbours into `self_supporting`
+  `packedsoil`, so `burrow_probe`'s "gallery gone in 5 frames" is a
+  *hand-carved* void — the gate that could have killed either plan, and absent
+  from theirs), **contents exist without eggs** via the `live_seed` guard, the
+  brain-input pricing as the argument *for* their call-site route, and the
+  landing discipline. **Treat their plan as the plan.**
 - [evolution-lab-round-37-brief-2026-09-15.md](evolution-lab-round-37-brief-2026-09-15.md)
   — **brief, 2026-09-15. `lab`/`engine`/`held`.** Opens with **two retracted
   numbers** a reader may have inherited (29.4 is per-bed, not per-ant; the

@@ -43,6 +43,38 @@ session running the same search recognises it.
 
 ---
 
+## 0a. Amended 2026-09-19, later — two corrections from `claude/sweet-tesla-ommknn`
+
+**A parallel lane validated several of these citations against PubMed and two
+of mine do not survive. Read this before quoting §3.1 or §5.**
+
+- **The attribution of the no-dig-face-pheromone result is wrong.** I credit
+  it to **Pielström & Roces**; that lane, reading the record, reports **the
+  author is Bruce (2015)**. The *finding* stands — fresh digging face against
+  one aged an hour, null — and the withdrawal it justifies stands. **The name
+  does not.** I inferred the authorship from the surrounding pellet papers,
+  which is exactly the fabrication risk the brief warned about, and it is a
+  citation error rather than a wrong conclusion.
+- **The ~40° angle of repose is NOT confirmed, and I state it as measured in
+  three places.** That lane pulled the PNAS 2021 record: *"ants tend to dig
+  piecewise linearly downward"* is in the abstract and the direction claim
+  holds; **the ~40° figure and the "upward when begun mid-medium" claim are
+  not in the abstract and the full text was unavailable.** Every `~40°` below
+  is now marked. **Build the downward bias; do not build the repose angle on
+  this citation.**
+
+**And they found a mechanism neither of my reports had**, from the same
+abstract: intergranular forces fall around tunnels because **arches** form, so
+grains on a tunnel surface are already under low stress, and ants avoid
+removing grains under high force *"without needing to be aware of the force
+network"*. **`src/sim/load.rs` and `src/sim/structural.rs` already maintain a
+per-cell load model**, so *dig where the load is low* is expressible here with
+no new field and no genome slot — and it would produce arching as a
+consequence rather than as a target. That is a better rule than anything in
+§10's ranking and it belongs above every item in it.
+
+---
+
 ## 0. The short answers
 
 | | question | answer |
@@ -359,7 +391,8 @@ simulation of the particle mechanics. What comes out:
 - Ants dig **piecewise linearly** — straight runs, changing direction at
   discrete points, rather than curving.
 - **Almost vertical descents at the top**; in the bulk they dig **at or below
-  the angle of repose of the material (~40°)**.
+  the angle of repose of the material (~40°)** — **the angle is
+  unvalidated, see §0a; only the downward direction is confirmed**.
 - The tunnel's straightness and slope are set by what the **granular medium**
   will hold, not only by what the ant intends.
 
@@ -462,7 +495,8 @@ Not CO₂.**
   certain depth.** When allowed to start **from the middle** of the medium
   they dug **upward, against gravity** — so the rule is not "always down",
   it is oriented with respect to gravity and to where they are.
-- The slope they hold is the **angle of repose (~40°)**, with near-vertical
+- The slope they hold is the **angle of repose (~40°)** — **unvalidated,
+  §0a** — with near-vertical
   descents at the top.
 - **[search]** One summary states ants have a fine sense of their position in
   the vertical direction. Read that as "gravity is the reference", not as a
@@ -657,8 +691,10 @@ reason in the first report's header.
   **eLife (2025).** Found, not read. **[search]**
 
 **Chemistry, and its absence**
-- Pielström & Roces, *It is not all pheromones: No evidence that pheromones
-  affect digging face choice during ant nest excavation.* **2015**,
+- **Bruce (2015)** — *It is not all pheromones: No evidence that pheromones
+  affect digging face choice during ant nest excavation.* **Corrected 2026-09-19:
+  I had credited this to Pielström & Roces by inference from the neighbouring
+  pellet papers; see §0a.** **2015**,
   behaviour journal. *Acromyrmex lundi*, groups of 5, fresh vs 1-h-aged face,
   null. **[search] [measured]**
 - Grassé; Bruinsma — the termite cement-pheromone origin of stigmergy.
@@ -675,7 +711,8 @@ reason in the first report's header.
 - Buarque de Macedo, Andò, Joy, Viggiani, Pal, Parker & Andrade, *Unearthing
   real-time 3D ant tunneling mechanics.* **PNAS 118 (2021).**
   *Pogonomyrmex*, real-time X-ray CT. Piecewise-linear descent; repose angle
-  ~40°; downward from the surface, upward from the middle.
+  ~40° (**unvalidated, §0a**); downward from the surface (**confirmed**),
+  upward from the middle (**unvalidated**).
   **[search] [measured]**
 - *Ant tunneling — a granular media perspective.* **Granular Matter (2010).**
   **[search]**
