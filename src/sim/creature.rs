@@ -2421,6 +2421,49 @@ pub fn nest_site_rows() -> Option<i32> {
     *ROWS.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SITE_ROWS").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v >= 0))
 }
 
+/// **What `BrainInput::Crowding` reports at the nest**, or `None` for the
+/// shipped colony-wide reading.
+///
+/// `PIXEL_PHYSICS_CROWDING_LOCAL=near|wide` replaces `NestRoom::occupancy`
+/// with a **local** worker density at the animal's own position, ranged over
+/// the neighbourhood it was counted in rather than over [`CROWDING_SCALE`].
+///
+/// **Why the existing local count cannot serve.** `density` above divides a
+/// 5x5 count of 24 neighbours by `CROWDING_SCALE` (8), so four nearby cells
+/// -- two animals at a two-cell body -- pin it at 1.000 and it never moves
+/// again; `dead-ends.md`'s `(Crowding, Dig, 0.6)` entry measured median
+/// 1.000 with p90 and max pinned. Dividing the identical count by the
+/// neighbourhood gives it range: measured 2026-09-19 over 51 ants standing
+/// at one nest at one tick, **9 distinct values over 0.50-0.83** at `near`,
+/// and **31 distinct values over 0.52-0.74** at `wide`.
+///
+/// **Why anyone would want it, which is the whole of this switch.** At the
+/// nest the shipped reading is one colony-wide scalar, so every ant reads the
+/// *same* number to four decimals and the four senses feeding `Dig` are
+/// constant across the colony. `Reports/nest-biology-2026-09-19.md` §4.1: the
+/// transition from a round cavity to a **branched** structure is driven by
+/// worker density along the excavation perimeter -- a local reading. A rule
+/// with no spatial variation has nowhere for a bud to form, which is why the
+/// nest is a lens and why that entry's null is evidence about the *reading*
+/// rather than about the mechanism.
+///
+/// **This is not free and must not be shipped on a whim.** Every ant-family
+/// species authors `(Crowding, Move, -0.3)` beside the two dig-gate weights,
+/// and that term is load-bearing negative feedback (P-12) read everywhere,
+/// not only at the nest. Changing what the slot *means* at the nest re-points
+/// it there too -- `CLAUDE.md`'s *a term in a weighted sum is not an
+/// independent knob*. Hence a switch, default unset and bit-exact, so an arm
+/// and its control run from one binary.
+pub fn crowding_local() -> Option<i32> {
+    static MODE: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *MODE.get_or_init(|| match std::env::var("PIXEL_PHYSICS_CROWDING_LOCAL").as_deref() {
+        Ok("near") => Some(2),
+        Ok("wide") => Some(6),
+        Ok(v) => v.parse::<i32>().ok().filter(|r| *r > 0),
+        Err(_) => None,
+    })
+}
+
 pub fn room_gate_default() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_LAB_ROOM").as_deref() != Ok("off"))
@@ -5109,11 +5152,37 @@ fn sense(
     // zero here would read as "infinitely packed" and dig hardest exactly
     // where the instrument is blindest.
     inputs[I::Crowding as usize] = if world.room_gate && inputs[I::AtNest as usize] > 0.0 {
-        world
-            .nearest_nest_site(x, y)
-            .and_then(|i| world.nest_room.get(i))
-            .and_then(|room| room.occupancy(world.room_target))
-            .unwrap_or(density)
+        // **The local arm, off unless asked for** -- see `crowding_local`.
+        // Counted the same way `density` is above (creature cells, self
+        // excluded) but divided by the neighbourhood rather than by
+        // `CROWDING_SCALE`, which is the entire difference between a reading
+        // that varies between neighbours and one pinned at 1.000.
+        if let Some(r) = crowding_local() {
+            let mut near = 0;
+            let mut total = 0;
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    if dx == 0 && dy == 0 {
+                        continue;
+                    }
+                    total += 1;
+                    let cell = world.get(x + dx, y + dy);
+                    if cell.organism_id() == organism {
+                        continue;
+                    }
+                    if world.materials.kind(cell.material) == MaterialKind::Creature {
+                        near += 1;
+                    }
+                }
+            }
+            (near as f32 / total.max(1) as f32).clamp(0.0, 1.0)
+        } else {
+            world
+                .nearest_nest_site(x, y)
+                .and_then(|i| world.nest_room.get(i))
+                .and_then(|room| room.occupancy(world.room_target))
+                .unwrap_or(density)
+        }
     } else {
         density
     };
