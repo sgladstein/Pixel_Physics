@@ -1156,10 +1156,27 @@ pub fn step(world: &mut World) {
     // a side effect of a performance pass. Gated globally, both regimes stay
     // bit-identical and the calm world keeps the whole saving.
     let mut any_fluid = false;
+    // Read once, not once per chunk. See `creature_wake_skip` for the whole
+    // mechanism; `skip_creature` false is the shipped engine and every
+    // expression below collapses to what it was.
+    let skip_wake = creature_wake_skip();
+    // Independent of the creature switch on purpose -- see `carry_stale_rescan`.
+    let skip_carry = carry_stale_rescan();
     for &coord in &coords {
         let tile = world.fields_ref().get(&coord);
         let tile_unsettled = tile.is_none_or(|t| !t.settled());
-        let chunk_awake = world.chunk(coord).is_some_and(|c| !c.is_settled());
+        // **Two questions, one chunk lookup.** `chunk_active` is "the CA has
+        // something left to sweep here", which is what `any_fluid` and the
+        // momentum skip want; `chunk_awake` is "and the field has something
+        // to re-derive", which is what the solve set wants. Until the switch
+        // existed these were the same expression, and keeping `any_fluid` on
+        // the *unqualified* one is deliberate: `FIELD_MOMENTUM_QUIET_CA=1`
+        // restores a superseded criterion for a paired A/B, and that arm must
+        // keep meaning what it meant rather than quietly acquiring a second
+        // condition.
+        let (chunk_active, chunk_field_stale) =
+            world.chunk(coord).map_or((false, false), |c| (!c.is_settled(), c.has_stale_blocks()));
+        let chunk_awake = chunk_active && (!skip_wake || chunk_field_stale);
         // **Only `chunk_awake`, deliberately not `tile_unsettled`.** A tile is
         // unsettled whenever *any* of six channels moved, and after a sky
         // step ~95 tiles are unsettled purely because their light did. Those
@@ -1170,7 +1187,7 @@ pub fn step(world: &mut World) {
         // 0.00 ms and a pass that ran look identical in a timing. Whether
         // the momentum channels have anything left to say is answered
         // properly by `momentum_zero`; this is only the CA's half.
-        any_fluid |= chunk_awake;
+        any_fluid |= chunk_active;
         // Light is an equilibrium, not a value that settles: `apply_sky` only
         // ever raises it and only `LIGHT_DECAY` inside `step_diffusion` lowers
         // it, so a lit tile that sleeps keeps its last brightness forever --
@@ -1334,10 +1351,20 @@ pub fn step(world: &mut World) {
             }
         }
         match previous {
+            // **`has_stale_blocks` added to the settled test, behind
+            // `FIELD_CARRY_STALE` and nothing else.** The comment above rests
+            // on "an awake chunk always seeds its own tile into `awake`", so
+            // that by the time a chunk settles its mask has been taken and
+            // `is_settled()` implies the derived arrays are current. Measured,
+            // that premise fails -- see `carry_stale_rescan` for the numbers,
+            // the mechanism, and why this is deliberately *not* wired to the
+            // creature switch whose first run found it.
             Some(previous)
                 if previous.derived_valid
                     && carry_derived()
-                    && world.chunk(coord).is_some_and(|c| c.is_settled()) =>
+                    && world
+                        .chunk(coord)
+                        .is_some_and(|c| c.is_settled() && !(skip_carry && c.has_stale_blocks())) =>
             {
                 tile.inherit_derived(previous);
                 carried.push(coord);
@@ -1545,6 +1572,170 @@ fn momentum_skip_needs_quiet_ca() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
     *ON.get_or_init(|| std::env::var("FIELD_MOMENTUM_QUIET_CA").as_deref() == Ok("1"))
+}
+
+/// **Whether a chunk kept awake only by creatures walking through it stops
+/// waking its field tile.** `FIELD_CREATURE_WAKE=0` turns it on; **default
+/// off**, so nothing about the shipped engine changes until the owner asks.
+///
+/// *Why there is anything to skip.* An ant's step is a cell write, a cell
+/// write marks its chunk dirty (`World::set` -> `Chunk::mark_dirty`), and the
+/// solve set below is seeded from `!Chunk::is_settled()`. So every field tile
+/// under a walking colony is re-solved on all six channels and re-scanned by
+/// `rebuild_blocked`, every tick, for as long as the ants keep walking --
+/// plus a one-tile halo around each. Measured
+/// (`Reports/ant-sim-research-review-2026-09-19.md` §8.3, and the tables in
+/// `Reports/ant-field-wake-2026-09-19.md`): fifty-two ants took the field
+/// from 0.090 to 0.188 ms a tick on a lab bed whose plant count was
+/// unchanged, while the ants' own decisions cost 0.062 -- **the field's
+/// response to the ants cost more than the ants**.
+///
+/// *Why the skip is sound.* `rebuild_blocked` is the only place in this file
+/// that reads the CA grid at all (one `Chunk::get_world` call, one
+/// `materials.get`), and it derives five per-block arrays from it. A cell
+/// whose material is `field_inert` contributes to none of them -- see that
+/// field's doc for the five-way case analysis, and for why `glow`/`beam`
+/// rather than `MaterialKind::Creature` are what the test is keyed on. So a
+/// write between two `field_inert` cells -- which is every step an ant takes,
+/// body into empty and empty behind it -- leaves all five arrays at the
+/// values they already hold. `Chunk::set_world` is told as much and skips its
+/// `stale_blocks` mark; this function is what then lets the solve set read
+/// `has_stale_blocks()` instead of `is_settled()`.
+///
+/// *What it is not.* An ant that **digs** or **drops spoil** writes a
+/// `Solid`, which is field-relevant, marks the block, and wakes the tile
+/// exactly as before. The skip is about an animal *moving*, not about an
+/// animal *acting* -- which is also why it cannot quietly hide a nest being
+/// excavated.
+///
+/// *The falsifier, run rather than argued, and it is two-sided* (`CLAUDE.md`:
+/// put the fault back and watch it go red; a guard that cannot fail is blind,
+/// not weak). `field_hash` covers all six channels and all five derived
+/// arrays, and `examples/antcost.rs` prints it per arm. `FIELD_CREATURE_WAKE=0`
+/// must leave it bit-identical under a walking colony -- and
+/// `FIELD_CREATURE_WAKE=kind antglow=<v>`, the deliberately unsound variant
+/// keyed on `MaterialKind::Creature` alone against a colony whose material
+/// glows, must make it **diverge**. Without that second arm a matching hash is
+/// evidence about the hash and not about the skip. The numbers are in
+/// `Reports/ant-field-wake-2026-09-19.md` §2.
+fn creature_wake_mode() -> WakeSkip {
+    use std::sync::OnceLock;
+    static ON: OnceLock<WakeSkip> = OnceLock::new();
+    *ON.get_or_init(|| match std::env::var("FIELD_CREATURE_WAKE").as_deref() {
+        Ok("blocked") => WakeSkip::MarkOnly,
+        Ok("0") => WakeSkip::Sound,
+        Ok("kind") => WakeSkip::KindOnly,
+        _ => WakeSkip::Off,
+    })
+}
+
+/// The three settings of [`creature_wake_mode`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum WakeSkip {
+    /// The shipped engine. Every write is field-relevant and nothing below
+    /// changes.
+    Off,
+    /// **`blocked`: the write-seam gate alone.** An inert write stops marking
+    /// `Chunk::stale_blocks`, so `rebuild_blocked` inherits that block instead
+    /// of re-reading its 256 CA cells -- but the tile is still woken and all
+    /// six channel passes still run over it, exactly as on `main`.
+    ///
+    /// **This is the half that is bit-identical, and the half worth having
+    /// anyway.** `rebuild_blocked` is the CA-reading pass and the dearest one
+    /// on a lab bed (measured 2026-09-06, `Chunk::stale_blocks`'s own doc:
+    /// `blocked` 0.20-0.38 ms of a 0.29-0.47 ms field), and an ant
+    /// contributes nothing to any of the five arrays it derives, so not
+    /// re-deriving them cannot change a value. Measured, it does not.
+    MarkOnly,
+    /// **`0`: the write-seam gate and the solve-set gate.** As `MarkOnly`,
+    /// and additionally a chunk with no stale block does not wake its field
+    /// tile at all.
+    ///
+    /// **Not bit-identical, and the reason is the momentum passes rather than
+    /// any channel reading a creature cell.** Those three run over the solve
+    /// set, so a tile that drops out of it stops relaxing pressure, velocity
+    /// and advection -- and an ant-woken tile was being pressure-stepped for
+    /// no reason other than that an ant walked through it. `field.rs`'s own
+    /// reverted per-tile momentum subset is the same shape and carries the
+    /// ruling: *"the old behaviour is the accident ... but it is wind the
+    /// player can see, and changing how it moves is the owner's call and not
+    /// a side effect of a performance pass."* Hence a separate setting, and
+    /// hence `FIELD_MOMENTUM=0` in both arms makes the two hashes agree
+    /// exactly. Measured divergence at 1,500 frames, 52 ants, against each
+    /// channel's own settle epsilon:
+    /// pressure 0.0099/0.01, vx 0.0045/0.001, vy 0.0042/0.001,
+    /// temperature 0.026/0.02, light 0.0136/0.005, moisture 0.0058/0.005.
+    Sound,
+    /// **`kind`: a negative control and never a setting.** [`Self::MarkOnly`]
+    /// exactly, except that the write predicate is `MaterialKind::Creature`
+    /// alone with the emission terms dropped -- so it stops re-deriving a
+    /// creature that *does* source something the field reads, which is the one
+    /// way the write gate can be wrong.
+    ///
+    /// Deliberately paired with `MarkOnly` rather than `Sound`: a control must
+    /// differ from its treatment in one term, and pairing the unsound
+    /// predicate with the solve-set gate as well would make any divergence
+    /// unattributable. `antcost antglow=<v>` supplies the glowing creature it
+    /// needs, and the pair to run is `blocked antglow=2` (must match the
+    /// baseline) against `kind antglow=2` (must not).
+    KindOnly,
+}
+
+/// **Whether the *solve-set* gate is on** -- `Sound` alone.
+///
+/// `MarkOnly`'s whole point is that it leaves the solve set alone, and
+/// `KindOnly` is `MarkOnly`'s negative control and has to differ from it in
+/// **one** term to be a control at all: the write predicate. Pairing the
+/// unsound predicate with a second change would make a divergence
+/// unattributable, which is the failure the control exists to avoid.
+fn creature_wake_skip() -> bool {
+    creature_wake_mode() == WakeSkip::Sound
+}
+
+/// **Whether a settled chunk holding an un-taken stale mark rescans its
+/// derived arrays instead of inheriting them.** `FIELD_CARRY_STALE=1` turns
+/// it on; **default off**, and it is *not* part of `creature_wake_mode` --
+/// see below for why they were separated after being written as one change.
+///
+/// `field::step`'s carry decision asks `Chunk::is_settled()`, on the premise
+/// its own comment states: an awake chunk always seeds its own tile, so by the
+/// time a chunk settles the field has taken its stale mask and `is_settled()`
+/// implies the derived arrays are current. **Measured 2026-09-19, that premise
+/// does not hold.** Turning this on alone -- no creature switch, no other
+/// change -- moves `lab_cost colonies=1 frames=600`'s field hash on a bed with
+/// **zero creatures in it**: `0x77761fab0c35bfce` against
+/// `0xd67e172d6d16b8a4`. So the case arises, routinely, in an ordinary lab
+/// box, and on `main` those tiles solve one frame against the occupancy they
+/// had before the write.
+///
+/// The mechanism is the *ordering* of `end_sweep` against a cross-chunk write.
+/// A write into chunk C from another chunk's sweep lands in C's
+/// `pending_dirty` and in its `stale_blocks`, but `dirty` is only promoted
+/// from `pending_dirty` at C's own `end_sweep` -- which for a C swept earlier
+/// in the pass has already run. So at `field::step` C reads settled while
+/// holding a live mark, inherits, and catches up a frame later when the
+/// promotion wakes it. Two candidates were ruled out by ablation rather than
+/// by argument: the soil-moisture phase's placement
+/// (`PIXEL_PHYSICS_MOISTURE=sweep` in both arms, still diverges) and
+/// `Chunk::mark_moist_dirty`'s own stale mark (ablated in both arms, still
+/// diverges).
+///
+/// **Filed rather than landed on**, and default off for that reason: a
+/// one-frame lag in a coarse ambient channel may be immaterial, deciding that
+/// is not this round's call, and bundling it into the creature switch would
+/// have made every number measured about that switch a measurement of two
+/// changes. `Reports/open-bugs-handoff.md` §Z31 carries it, with this as the
+/// reproduction.
+fn carry_stale_rescan() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("FIELD_CARRY_STALE").as_deref() == Ok("1"))
+}
+
+/// [`creature_wake_mode`] for the write seam, which is in `world.rs` and
+/// `parallel.rs` rather than here.
+pub(crate) fn creature_wake_mode_for_writes() -> WakeSkip {
+    creature_wake_mode()
 }
 
 /// **The control for "is a lamp's position a continuous knob or a block-sized

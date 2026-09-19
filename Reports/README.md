@@ -1153,6 +1153,73 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology  ·  `engine`
 
+- [ant-sim-research-review-2026-09-19.md](ant-sim-research-review-2026-09-19.md)
+  — **review, 2026-09-19, docs only. `engine`/`lab`.** An outside literature
+  survey on ant simulation, checked section by section against the tree and
+  the measured record. **Its architecture is this engine's architecture**:
+  stigmergy-first, a Deneubourg choice, a Weber-law reader, no pathfinding —
+  all shipped before it was written. Of ~85 named mechanisms (scorecard in
+  §2.15), 31 ship, 4 are built and switched off, 7 designed and priced, 10
+  built and measured as rejected or inert, 9 absent and cheap, 24 unstageable
+  in a side-view world or ruled out. **The survey's five "gaps in existing
+  games" are not this engine's gaps** — discovery of the first meal, a return
+  leg that worked for the first time on 2026-09-18, a nest with no purpose by
+  owner ruling, and ground too shallow for a nest are — and three of its §19
+  "open problems" are this engine's strengths. **Three things worth a run**:
+  re-test the food-charged `EmitB` odometer now the return leg exists
+  (rejected one day before it did); `(Crowding, EmitB, −w)`, one wire, the
+  deposit-side negative feedback §Z7 is short of; and the *no-entry* mark as a
+  negative deposit on the food plane rather than a fourth plane. Plus one
+  measurement: whether `(Crowding, Move, −0.3)` already makes colony burn
+  hypometric. Corrections the survey needs here: on a one-cell trail
+  **diffusion is the eraser and decay is inert**; a new brain input is not
+  cheap (six species files re-derive `mutation_rate`); and Tschinkel's casts
+  are the bar, never a template. Finds the fill-weighted homeward re-roll
+  **built and shipped off** (`home_bias: 0.0`, `da4a461a`) with no dial and no
+  wiki line. §5 puts the survey's four parameter tables against the engine's
+  dials in round trips and cells; §6 its twelve staged recommendations
+  against the repo's own plans. Source:
+  [ant-sim-literature-review-external-2026-09-19.md](ant-sim-literature-review-external-2026-09-19.md).
+- [ant-survey-round-2026-09-19.md](ant-survey-round-2026-09-19.md) —
+  **round record, 2026-09-19. `engine`/`lab`.** The three lanes' close-out:
+  what each overturned (the food-trail reader had been de-saturated a day
+  before the round and the record never told; the nest's lever was a
+  default-off switch swept in the wrong axis; no wake rule reaches the
+  field's response to a colony because the halo already solves it), the one
+  rejection that fell (channel B fading faster helps on the played bed), the
+  six corrections the lanes made to the coordinator's own review, the four
+  decisions that wait on the owner (the lifetime split through #478, the
+  nest site reach, the fade dial, `home_bias`), the round's cost lessons
+  (the five-hour limit stopped every lane with one unpushed; two ran on past
+  delivery), and the model tally.
+- [ant-survey-followup-brief-2026-09-19.md](ant-survey-followup-brief-2026-09-19.md)
+  — **round brief, 2026-09-19. `engine`/`lab`.** Three lanes spawned on the
+  owner's instruction after reading the survey review: **P** builds the
+  review's two performance proposals behind switches (a gated per-phase
+  stopwatch for his own bed; creature-only chunk activity not waking the
+  field, with the field hash and the awake-chunk count as falsifiers) and
+  writes the GPU-field design note; **T** re-evaluates the trail line's four
+  rejections under *"don't trust past results"* — the food-charged `EmitB`
+  odometer (rejected before the return leg worked), the full-gain food-trail
+  reader with the entry's own patchy-larder and faster-decay re-tests plus
+  the survey's two negative-feedback terms, `DECAY_RHO`'s band on `u16`,
+  trophallaxis on a played bed; **N** re-scores the `Crowding`-to-dig nulls
+  on the corrected census and re-evaluates pellet-attracted deposition, the
+  spoil-placement rejections, the downward dig bias and the dig-face
+  pheromone. Names the unlanded lifetime branch (20 ahead, no PR) every
+  trail measurement has to reckon with. Models chosen per the
+  `lab-coordinator` skill and stated with the reason.
+- [ant-sim-literature-review-external-2026-09-19.md](ant-sim-literature-review-external-2026-09-19.md)
+  — **external document, 2026-09-19, reproduced as received. `engine`.** A
+  literature survey of ant and superorganism simulation in nineteen sections
+  — Deneubourg's double bridge, pheromone half-lives by species, negative
+  pheromones, path integration, Khuong's construction model, response
+  thresholds, quorum emigration, collective transport, the existing games —
+  with four parameter tables and twelve staged recommendations, written by
+  someone who knew nothing of this project beyond "an ant-based simulation
+  game". **Not checked against the engine; the review above is.** Received in
+  two parts; the second arrived as plain text and had its headings, bullets
+  and tables restored with no word changed.
 - [creature-stacking-design-2026-09-17.md](creature-stacking-design-2026-09-17.md)
   — **design 2026-09-17, built and landed as PR #465; four review follow-ups
   closed 2026-09-19 in §11. `engine`.** How many creatures of one
@@ -3259,6 +3326,152 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   And measures the at-nest crowding input **saturated in its top tenth for
   100.0% of ticks**, which is what `roofed / ants` gives when `roofed`
   excludes the ants.
+- [nest-rejections-rescored-2026-09-19.md](nest-rejections-rescored-2026-09-19.md)
+  — **measurement, 2026-09-19. `lab`/`engine`.** The nest line's rejections
+  re-scored under the owner's instruction to distrust past results, and
+  **two of the three suspected faults were real while none of the verdicts
+  changed.** The rejections were scored on `roofed` (which undercounts the
+  nest threefold) at **one run per arm in a box that had no seed**; both are
+  fixed here (`digbox seed=N`, and an `iqr` column because a bounding box is
+  a max statistic). Over twelve seeds of the **unchanged control** the
+  bounding box runs **96–191 cells wide**, so three of the four arms the
+  shape report compares sit inside its own spread. Re-scored on `room total`
+  over twelve paired seeds, all three `Crowding` interventions are coin
+  flips (5, 6 and 5 of 12) — and the null is now **harder**, because the
+  local reading desaturates the input completely (top tenth **97.8% → 1.3%**
+  of at-nest ticks) and the nest still does not move, so "the input was
+  saturated" is no longer available. **The lever that works was in the tree
+  the whole time, swept in the wrong axis**: `PIXEL_PHYSICS_NEST_SITE_ROWS`
+  (how far *down* an ant counts as home) gives **room 1.44x bigger on 12 of
+  12** and height-over-width **0.11 → 0.20, taller on 11 of 12**, with
+  shafts visible under the chamber where the control has a flat scrape —
+  only `_NEST_SITE_COLS` had ever been scored. **That refutes the plan's
+  §1 claim that interventions on *whether* cannot produce a shape**: one
+  applied over a region inherits the region's. Two rejections re-tested and
+  upheld — the `LightHere` spoil-drop gate fails **harder** with the per-cell
+  sensor its entry asked for (0.49x room, better on **0 of 12**), and its
+  recorded *diagnosis* was wrong while its *explanation* was right; and
+  Khuong's deposition-follows-pellets rule is **declined before building**,
+  because 77% of pellets go up the column with no neighbour to prefer and
+  only **1 drop in 90** has both a marked and an unmarked candidate — with
+  `line_burrow` named as the eraser (the mound is `packedsoil` 433 / `soil`
+  121 / `spoil` 96, and `packedsoil` falls to **0** with the lining off).
+  Also builds the downward dig bias at the **turn** rather than the target
+  (`PIXEL_PHYSICS_DIG_DOWN`), which buys volume (1.51x, 12 of 12) and not
+  shape.
+- [nest-biology-digging-signals-2026-09-19.md](nest-biology-digging-signals-2026-09-19.md)
+  — **research, 2026-09-19. `lab`/`engine`.** Answers a coordinator's seven
+  questions on **what signals ants actually dig by**, after a night of
+  measurement on the bare box found four of the five senses `ant.ron` wires
+  to `Dig` hold one colony-wide value and three interventions on the
+  `Crowding` gate moved the nest not at all. Companion to
+  `nest-biology-2026-09-19.md`; **§6 bears directly on that report's §10 and
+  §11**. **Four findings change a build.** **Contents trigger widening**:
+  workers excavate *only tunnels and no chambers* unless brood or fungus is
+  relocated to a spot (Römer & Roces, *PLOS ONE* 2014) — so the owner's
+  *"nests have no purpose"* is the documented mechanism, not just a design
+  gap, eggs would supply the *stimulus* a widening rule reads, and a
+  contents-free colony should build tunnels where the engine builds an
+  all-chamber lens. **The density cue is collision rate and it gates REST,
+  not dig** (*J. R. Soc. Interface* 2023, "agitation"), and most of the
+  regulation is **not sensed at all** — it is the falling chance of
+  *encountering the face* as space grows (Bruce et al., *Insectes Sociaux*
+  2019), which is why no improvement to a sensor could work. **Tunnel
+  direction is gravity plus the angle of repose (~40°)** — down from the
+  surface, *up* when started mid-medium (*PNAS* 2021, real-time X-ray CT) —
+  both already free in this engine, and `Persist` is the knob one happens to
+  have rather than the right home. **The digging pheromone is a dead end on
+  evidence, not cost**: tested directly in *Acromyrmex lundi*, fresh face
+  against one aged an hour, **null** (Pielström & Roces 2015); the termite
+  cement pheromone is contested and weakly supported, while **surface
+  curvature** independently emerges as the cue guiding early construction —
+  corroborating the lane's own 2.3x roofed-chamber result. Also: CO₂ **tested
+  from atmospheric to 10% and not used** for dumpsite choice while humidity
+  and temperature are (Römer et al. 2019), so "no CO₂ field" now rests on
+  evidence; pellets travel **a few centimetres in a relay of up to 12
+  workers** and the fresh heap **attracts further digging** (Pielström &
+  Roces 2013), against one engine ant that digs and hauls alone onto inert
+  spoil. **Concedes and corrects the first report's finding #5**:
+  `moisture_gradient` is an unsigned magnitude, so "a depth weight with the
+  wrong sign" was never coherent and the term is **inert**, not inverted —
+  the lane had cited a doc comment's prose instead of reading the four lines
+  of arithmetic under it. Ends with a ranked own-it / needs-a-new-field /
+  do-not-attempt table. **Method caveat stated up front**: every journal
+  domain is blocked by the container's egress proxy, so search-tagged claims
+  rest on search summaries rather than papers, and §9 names the five to read
+  before they become code. Also flags a content-farm page whose invented
+  "seasonal pheromone blends" are exactly the mechanism that was nearly
+  built. **§0a, amended the same day: two of its citations do not survive
+  validation by `claude/sweet-tesla-ommknn`** — the no-dig-face-pheromone
+  author is **Bruce (2015)**, not Pielström & Roces (inferred from the
+  neighbouring pellet papers, which is a citation error rather than a wrong
+  conclusion), and **the ~40° repose angle is unvalidated**, abstract only,
+  with only the downward direction confirmed. That lane also found a mechanism
+  neither nest report had: **arching makes tunnel-surface grains low-stress
+  and ants avoid high-force grains**, which `load.rs`/`structural.rs` can
+  already express with no new field. Docs only; nothing built.
+- [nest-build-plan-2026-09-19.md](nest-build-plan-2026-09-19.md) — **plan,
+  2026-09-19. `lab`/`engine`. Nothing built.** The staged build the two nest
+  research reports imply, written after the owner asked whether it is
+  possible here. **It is, and cheaper than either report implied, because
+  four things both treated as needing construction already exist.** The
+  load-bearing one: **the dig target is already directional** —
+  `DIRS[heading]`, one cell, **no target selection at all** — so "which way
+  is forward" is `heading` and `Turn` is live; this also explains why both
+  dig-*target* dead ends failed across their whole ranges, since they
+  weighted *whether* to dig and never *where*. Also: **a dug void already
+  stays open** (`line_burrow` packs all 8 neighbours into `self_supporting`
+  `packedsoil`, so `burrow_probe`'s "gallery gone in 5 frames" is a
+  *hand-carved* void, not an ant-dug one — the gate that could have killed
+  the plan is already passed); **`Persist` is unwired in every species**,
+  its doc calling it heading maintenance; and **contents already exist
+  without eggs**, because the dig verb explicitly refuses to take a
+  `live_seed` as spoil. **Missing: one sense** — nothing in the dig decision
+  is oriented to gravity, depth or an existing tunnel's axis. Five stages,
+  cheapest first, each with a check that can fail and a review card:
+  **(0)** verify the four facts in the running box, with the lining ablation
+  as positive control; **(1)** wire `Persist` for straightness — one weight,
+  **zero** slots and zero baselines voided, scored on aspect ratio against
+  46x2; **(2)** one appended sense wired to `Turn`, built as a *local*
+  vertical asymmetry rather than a global depth scalar, **priced honestly at
+  24 live slots, `mutation_rate` re-derived in every species file, a changed
+  `brain::mutate` draw sequence and every `creature_space` baseline voided**
+  (a cheaper repurposing of the inert `MoistureGrad` writer is considered and
+  **rejected** — it is also wired to `Drop` at a measured 2.94x, so it is the
+  `phototropism_dir` shape); **(3)** contents trigger widening, scored on
+  chamber area around seeds against away from them **paired in one run**,
+  with the caveat that a seed germinates so it is a timer not an object —
+  which is where eggs return; **(4)** the pellet relay, last because it is
+  the only new *behaviour*, with "fresh spoil raises the dig urge" as a cheap
+  precursor. **Corrects the digging-signals report's ranking of `Persist`**:
+  with a heading-directed dig it is the *straightness* half and gravity-biased
+  `Turn` the *direction* half — complementary, not competing, and that report
+  presented them as alternatives. §5 closes the digging pheromone and the CO₂
+  field on evidence; §6 names five ways the plan could be wrong, including
+  that all four stages may still not make a shaft because the world is 80
+  rows deep and the metres-per-cell convention is still unstated. §7 is the
+  landing warning: stages 1–3 all sit in `src/sim/creature.rs` and
+  `assets/species/*.ron`, measured at **56 landings in seven days, the most
+  recent six hours before writing**. **§0a, amended the same day: PARTLY
+  SUPERSEDED, and defers.** `claude/sweet-tesla-ommknn` had already written
+  `Reports/nest-digging-plan-2026-09-19.md` and landed instruments, and is
+  better in four places — the direction bias belongs **at the dig call site**
+  (no slot, no genome widening, no baselines voided) rather than as the
+  appended input this plan prices; the quantity to steer on is **load, not
+  enclosure**, since arching makes tunnel-surface grains low-stress and
+  `load.rs` already carries it; `DIRS[heading]` is theirs independently; and
+  they are right to rank `Persist` below direction, where §3 over-corrected
+  towards it. **Most important: their Stage 0 breaks this plan's checks** —
+  `roofed` undercounts the nest ~3x because a gallery with an ant in it is not
+  materially `EMPTY` (157 + 165 + **692 bodies** = 1,014 against 941 hauled;
+  `roofed` alone fails by 619), and **`burrow_probe`, `latecensus` and
+  `lab::census` all share the blind spot**. What stays additive: **a dug void
+  already stays open** (`line_burrow` packs neighbours into `self_supporting`
+  `packedsoil`, so `burrow_probe`'s "gallery gone in 5 frames" is a
+  *hand-carved* void — the gate that could have killed either plan, and absent
+  from theirs), **contents exist without eggs** via the `live_seed` guard, the
+  brain-input pricing as the argument *for* their call-site route, and the
+  landing discipline. **Treat their plan as the plan.**
 - [evolution-lab-round-37-brief-2026-09-15.md](evolution-lab-round-37-brief-2026-09-15.md)
   — **brief, 2026-09-15. `lab`/`engine`/`held`.** Opens with **two retracted
   numbers** a reader may have inherited (29.4 is per-bed, not per-ant; the
@@ -4214,6 +4427,71 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   two ways out: raise `S` (more cores, unmeasured here and therefore
   unclaimed), or drop the read-phase split for an exact independent-set
   partition of whole ticks. Harness: `examples/antcost.rs` `par=on,off`.
+
+- [ant-field-wake-2026-09-19.md](ant-field-wake-2026-09-19.md) — **the field's
+  response to a walking colony: the mechanism confirmed, two switches built,
+  and both of them measured to buy almost nothing.** Lane P of the ant-survey
+  follow-up round, against §8 of the research review. An ant's step marks its
+  chunk dirty and the field seeds its solve set from that, so every tile under a
+  colony re-solves every tick — confirmed by line, and **`rebuild_blocked` is
+  the only place in `field.rs` that reads the CA grid at all**, which bounds the
+  whole proposal. The channel audit found the correction the review missed:
+  `blocked`, `transmission` and `moisture_source` are blind to a creature cell
+  by kind, but **`glow` and `beam` are `max`ed over every cell regardless of
+  kind** and answer zero only because no creature material sets either — so the
+  predicate is keyed on the emission, and a glowing creature drops out of the
+  skip instead of silently breaking it. Two settings on
+  `FIELD_CREATURE_WAKE`, both off: **`blocked`** (an inert write stops marking
+  `Chunk::stale_blocks`) is **bit-identical on both hashes**, under a two-sided
+  control — `antglow=2` with the sound predicate stays green and with the
+  kind-only predicate goes red, so the guard has been watched failing;
+  **`0`** also gates the solve set and is **not** bit-identical, and the reason
+  is not a channel reading a creature cell but the three momentum passes, which
+  run over that set (`FIELD_MOMENTUM=0` in both arms makes the hashes agree
+  exactly). Per-channel divergence against each settle epsilon is tabled, and
+  the velocity channels move by 70% of their own largest value — the air in a
+  sealed box was substantially the ants stirring it by walking, which is
+  `field.rs`'s own reverted momentum-subset finding arriving from the other
+  side. **The brief's falsifier fails and the reason is the halo**: the solve
+  set does not move by one tile (65.4 on, 65.4 off) because a 128-chunk lab bed
+  already solves ~65 for plants and sky, so every chunk an ant occupies is
+  inside the one-tile ring of a tile that was solving anyway. What ants do add
+  is block rescans, 45.9 → 63.3 a tick, of which the write gate recovers 2.6 —
+  **most of the field's response to a colony is charged to what the ants *do*,
+  not to where they are**, and no wake rule can reach a real occupancy change.
+  On the clock 52 ants cost the field 0.081 → 0.117 ms and the switches give
+  back 0.002 and 0.004, inside their own arms' spread: the counter says it
+  fired, the clock says it bought nothing. **Re-measures §8.3's own row and
+  does not reproduce it** — 1.44x for 52 ants, not 2.09x. Also builds the live
+  per-phase stopwatch (`PIXEL_PHYSICS_PHASE_CLOCK=1`, woven through
+  `sim::frame::step`, printed in the chronicle CENSUS row beside
+  `awake_chunks`), which answers #374's objection by being gated and is
+  bit-identical with no measurable cost against `origin/main` over six paired
+  reps. Filed §Z31 on the way, from a third gate that moved the field hash on a
+  bed with zero creatures in it.
+
+- [gpu-field-design-2026-09-19.md](gpu-field-design-2026-09-19.md) — **the GPU
+  field, priced and not built.** The review made it conditional on the field
+  exceeding about a third of the tick; the stopwatch says **20–21% at 52 ants**
+  and the switch above moves it by under a percent, so the condition fails by
+  ~1.6x. The note's argument is that **the share was never the deciding
+  number**. Two harder facts are: the readback is per tick and not optional
+  (the brain, `fire::try_ignite`, the plant economy and the renderer all read
+  the field on the CPU *in the tick it is solved*), and **the sleeping-tile
+  economy is the field's real optimisation and is exactly what a per-pixel
+  device cannot express** — a shader over 128 tiles against a CPU over 65 is a
+  2x handicap before the round trip, and the awake fraction is *lower* outdoors,
+  so the handicap worsens as the world grows. Also records that `PLAN.md`'s
+  *Simulation device* row does not actually cover this proposal (both its
+  reasons — no `rand()`, order-dependence — are about the CA grid, and the
+  field is an order-independent double-buffered Jacobi relaxation), names the
+  three determinism hazards that would have to be contracted away (`fma`
+  contraction, reduction order, denormal flushing against 0.001-scale settle
+  epsilons) and concludes a GPU field does not replace `field.rs` but sits
+  beside it as the oracle. Names the one-day experiment that could kill the
+  idea outright — a bare `wgpu` dispatch-and-map of the right size, no field
+  code — and says that on §8.3's own numbers **the pheromone planes, not the
+  field, are the pass with the right shape** for a device.
 
 ## Licensing and distribution
 

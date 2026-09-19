@@ -28,6 +28,146 @@ use crate::sim::player;
 use crate::sim::world::World;
 use crate::sim::{parallel, rigid};
 
+/// **The eight phases [`step`] orders, named** -- the same eight, in the same
+/// order and under the same names, that `examples/lab_cost.rs`'s `PHASES`
+/// table uses, so a row from the live app and a row from that harness are
+/// comparable without a translation step. Do not reorder or rename one
+/// without the other.
+pub const PHASE_NAMES: [&str; 8] = [
+    "ca_sweep",
+    "liquid_bodies",
+    "chunk_bodies",
+    "player",
+    "active_sites",
+    "particles",
+    "field",
+    "pheromones",
+];
+
+/// Milliseconds spent in each of [`PHASE_NAMES`] since the last
+/// [`take_phase_times`], and how many ticks that covers.
+///
+/// Means, not a single frame: `Reports/evolution-lab-frame-cost-2026-09-01.md`
+/// §11.3 measured the lab's mean frame at about twice its median, so one
+/// frame's split is a sample from a heavy tail and says little. Divide by
+/// `ticks`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PhaseTimes {
+    pub ms: [f64; PHASE_NAMES.len()],
+    pub ticks: u64,
+}
+
+impl PhaseTimes {
+    /// The whole tick, summed -- **not** the frame, which also holds the
+    /// draw. See `PhaseTimes`'s own doc: divide by `ticks`.
+    pub fn total_ms(&self) -> f64 {
+        self.ms.iter().sum()
+    }
+
+    /// Mean milliseconds per tick in phase `i`, or 0 with no ticks yet.
+    pub fn mean_ms(&self, i: usize) -> f64 {
+        if self.ticks == 0 {
+            0.0
+        } else {
+            self.ms[i] / self.ticks as f64
+        }
+    }
+}
+
+/// **A per-phase stopwatch inside the live tick**, accumulating into a
+/// process-wide total that the caller drains. `PIXEL_PHYSICS_PHASE_CLOCK=1`
+/// turns it on; **default off**.
+///
+/// *Why it is here and not in a harness.* `Reports/evolution-lab-playtest-
+/// 2026-09-13.md` §1 is the owner's own session log at 39 -> 2,473 ants, and
+/// it has `awake chunks` and no per-phase split at all -- so the question
+/// "what share of the tick is the field at play population" has never been
+/// answerable, and `Reports/ant-sim-research-review-2026-09-19.md` §8.4 lists
+/// it as the one thing that section could not establish. No harness in this
+/// tree can: `examples/antcost.rs`'s stocking loop tops out at 224 ants,
+/// two orders of magnitude under his bed. The instrument has to run where the
+/// population is.
+///
+/// *Why it is gated.* PR #374 declined stopwatches in the live loop, and the
+/// objection was right for an ungated one -- `Instant::now` twice a phase is
+/// a syscall-ish read on the hot path and the phases it measures are
+/// sometimes microseconds. Gated, the cost when off is the eight `bool` tests
+/// below, once per tick, against a tick that costs milliseconds; no
+/// `Instant::now` is called at all and no accumulator is touched. Measured
+/// rather than argued -- see `Reports/ant-field-wake-2026-09-19.md` §3.
+///
+/// *Why a `static` rather than a field on `World`.* `World` is the most
+/// contested file in this tree (103 branch landings at the last census, 39 of
+/// them in the week this was written), and this needs no world state: it is
+/// wall clock, the tick is driven from one thread, and the accumulator is
+/// drained by whoever prints it. `Mutex` rather than eight atomics so a drain
+/// is a consistent snapshot and not eight independent reads.
+fn phase_clock_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_PHASE_CLOCK").as_deref() == Ok("1"))
+}
+
+/// See [`phase_clock_enabled`] -- exposed so a printer can say `--` rather
+/// than `0.000` when the clock was never running, which is the distinction
+/// `lab::census::row_line` already makes for its perf columns and for the
+/// same reason: zero is a real and alarming finding this is not.
+pub fn phase_clock_on() -> bool {
+    phase_clock_enabled()
+}
+
+static PHASE_ACC: std::sync::Mutex<PhaseTimes> = std::sync::Mutex::new(PhaseTimes {
+    ms: [0.0; PHASE_NAMES.len()],
+    ticks: 0,
+});
+
+/// Drain the accumulator: every tick since the last call, and reset.
+///
+/// **Draining rather than reading** so a row prints the window since the
+/// previous row instead of the whole session average, which is what makes a
+/// split readable beside `awake chunks` as a colony grows -- a running mean
+/// over 100,000 ticks cannot show that the field's share moved.
+pub fn take_phase_times() -> PhaseTimes {
+    let mut acc = PHASE_ACC.lock().expect("the phase clock mutex is never held across a panic");
+    std::mem::take(&mut *acc)
+}
+
+/// The clock's own state for one tick of [`step`]. `None` when the clock is
+/// off, which is what makes every `lap` below a single `Option` test.
+struct Lap {
+    at: std::time::Instant,
+    ms: [f64; PHASE_NAMES.len()],
+}
+
+impl Lap {
+    fn start() -> Option<Self> {
+        phase_clock_enabled().then(|| Lap {
+            at: std::time::Instant::now(),
+            ms: [0.0; PHASE_NAMES.len()],
+        })
+    }
+
+    #[inline]
+    fn mark(lap: &mut Option<Self>, phase: usize) {
+        if let Some(l) = lap {
+            let now = std::time::Instant::now();
+            l.ms[phase] += now.duration_since(l.at).as_secs_f64() * 1000.0;
+            l.at = now;
+        }
+    }
+
+    /// One lock per tick, and only when the clock is on.
+    fn finish(lap: Option<Self>) {
+        if let Some(l) = lap {
+            let mut acc = PHASE_ACC.lock().expect("the phase clock mutex is never held across a panic");
+            for (dst, src) in acc.ms.iter_mut().zip(l.ms.iter()) {
+                *dst += src;
+            }
+            acc.ticks += 1;
+        }
+    }
+}
+
 /// Advance `world` by exactly one tick.
 ///
 /// Every argument is a system that owns state outside the cell grid, so it
@@ -52,7 +192,14 @@ pub fn step(
     // in this tree that drive the world by calling a CA driver directly, the
     // same reason weather and spring live inside the drivers rather than
     // above them.
+    // **The per-phase stopwatch is woven through the phases rather than
+    // wrapping them**, because a wrapper would need a second copy of the
+    // sequence and this module exists to have exactly one. `Lap::start`
+    // returns `None` with the clock off (the default), which makes every
+    // `Lap::mark` below one `Option` test. See `phase_clock_enabled`.
+    let mut lap = Lap::start();
     parallel::step(world);
+    Lap::mark(&mut lap, 0);
     // Liquid heightfield bodies (`Reports/liquid-heightfield-design.md`
     // §8a) after the sweep -- the sweep is what produces this frame's
     // absorptions once a later step adds them -- and before active
@@ -68,6 +215,7 @@ pub fn step(
     // this phase to do; wired in now so later steps land here rather
     // than needing frame-order surgery.
     world.step_liquid_bodies();
+    Lap::mark(&mut lap, 1);
     // M8 chunk bodies in the same slot and for the same reason: a body
     // spanning two same-parity chunks would write to both from separate
     // workers and break `parallel.rs`'s write-disjointness proof
@@ -76,6 +224,7 @@ pub fn step(
     // check this frame sees a landed chunk's cells already in the grid
     // rather than a frame-old hole where they used to be.
     rigid::step_chunk_bodies(world);
+    Lap::mark(&mut lap, 2);
     // M9: the character in the same serial slot as the bodies, right
     // after them — so standing on a body that settled this frame sees
     // its cells already in the grid, not a frame-old gap. The
@@ -113,7 +262,13 @@ pub fn step(
     // M16 active sites after the CA sweep too, for the same reason as
     // particles below: a root deciding whether to drink an adjacent
     // water cell needs this frame's settled position, not last frame's.
+    // The carried quickening above is billed to `player`, whose step it
+    // follows and whose position it reads. It is one `Option` write in a world
+    // that is not held, so the bucket it lands in cannot matter -- said here
+    // so a reader of the split does not go looking for a ninth phase.
+    Lap::mark(&mut lap, 3);
     world.step_active_sites();
+    Lap::mark(&mut lap, 4);
     // Particles after the CA sweep, not before: a landing check needs
     // this frame's fully-settled CA state, not last frame's, or a
     // particle could land inside material that has since moved out from
@@ -135,12 +290,16 @@ pub fn step(
     // droplet's water is actually debited from the pool.
     particle::throw_splashes(world, particles);
     particles.step(world);
+    Lap::mark(&mut lap, 5);
     world.step_fields();
+    Lap::mark(&mut lap, 6);
     // Beside the field step, and for the same reason: a coarse
     // environmental channel with its own cadence, decoupled from the CA
     // sweep. `step_pheromones` gates itself on `PHEROMONE_INTERVAL`, so
     // this is called every frame like its neighbour above.
     world.step_pheromones();
+    Lap::mark(&mut lap, 7);
+    Lap::finish(lap);
 }
 
 #[cfg(test)]

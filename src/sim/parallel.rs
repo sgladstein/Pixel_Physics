@@ -715,7 +715,13 @@ impl CellSurface for ChunkView<'_> {
             }
             let reach = self.world.materials.get(cell.material).sweep_reach();
             let is_liquid = self.world.materials.kind(cell.material) == MaterialKind::Liquid;
-            self.chunk.set_world(x, y, cell, reach, is_liquid);
+            // `World::write_cell` carries the identical line, and for the
+            // identical reason this view re-checks `managed()` and the
+            // organism id above: a same-chunk write never passes through
+            // `World::set`, so every hook that lives at that seam has to be
+            // repeated here. `old` is already in hand from the check above.
+            let field_relevant = self.world.materials.field_relevant_write(old.material, cell.material);
+            self.chunk.set_world(x, y, cell, reach, is_liquid, field_relevant);
         } else {
             // Reach for this chunk's own tracked value is handled when this
             // write is replayed through the ordinary `World::set` after the
