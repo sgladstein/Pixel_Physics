@@ -5,9 +5,9 @@
 a survey written by someone who knew only that this project is an ant-based
 simulation game. **Docs only; nothing built, nothing run.** Every claim about
 the engine below was checked against the tree or the repo's own measured
-record and says where. **The copy of the survey received ends mid-sentence in
-its §9**, so its demography section and the four species-parameter tables its
-TL;DR promises are not reviewed here; §6 says what waits on them.*
+record and says where. The survey arrived in two parts the same day; §2
+covers all nineteen of its sections, §5 its four parameter tables, §6 its
+twelve staged recommendations.*
 
 ## 0. The answer, stated once
 
@@ -15,11 +15,11 @@ TL;DR promises are not reviewed here; §6 says what waits on them.*
 recommendation was taken before it was written.** Stigmergy-first, agents on
 local rules over an evaporating field, a Deneubourg choice function, no
 pathfinding — that is `stigmergy-research.md` (status *implemented*),
-`src/sim/pheromone.rs` and `src/sim/brain.rs`. Of the survey's ~40 named
-mechanisms, this engine ships **14** (one of them, the home bearing, in the
-tree and switched off), has designed and priced **4**, has built and measured
-**6** as rejected or inert, and cannot stage **7** because the world is a
-side-view section. **Three are genuinely new and worth a run.**
+`src/sim/pheromone.rs` and `src/sim/brain.rs`. By the tally in §2.15, of the
+survey's ~85 named mechanisms this engine ships **31**, has **4** built and
+switched off, **7** designed and priced, **10** built and measured as rejected
+or inert, **9** absent and cheap, and **24** it cannot stage or does not want.
+**Three of the nine are worth a run now.**
 
 The survey names five things existing games omit — multiple pheromone types,
 quorum decisions, metabolic scaling, path integration, topochemical
@@ -30,8 +30,8 @@ with numbers:
 | the survey's five gaps | here |
 |---|---|
 | multiple pheromone types | three planes ship (home, food, alarm), each with its own lifetime; a fourth is held until a consumer exists |
-| quorum nest choice | no colony ever relocates; no verb, no need yet |
-| metabolic scaling | every joule is charged per body cell (`ant.ron:118-119`); linear, not ¾-power, and moot at two cells |
+| quorum nest choice | no colony ever relocates; no verb, and no nest worth leaving yet |
+| metabolic scaling | every joule is charged per body cell (`ant.ron:118-119`); linear in ants by construction, and nobody has measured whether crowding already bends it (§3 item 8) |
 | path integration | **built and switched off.** The state ships (`organism.rs:6079` `forage_anchor`) and so does the verb — a fill-weighted homeward re-roll in `tumble` (`creature.rs:11716-11830`, commit `da4a461a`) — gated by `CreatureDef::home_bias`, which no species authors, so it ships at 0.0 |
 | topochemical construction | curvature-attracted deposition is wired (`ant.ron:1470`) and measured at *a tenth steeper*, not a wall |
 
@@ -47,8 +47,9 @@ None of the survey's five is any of those.
 
 1. **A re-test the survey's own numbers call for.** Deposition that rises
    toward the food (Beckers 1992; Czaczkes 2024, *22x more within 10 cm of the
-   food*) was built here as a food-charged odometer on `EmitB` and **rejected
-   on 2026-09-17** — one day before the return leg was fixed. Its rejection
+   food*; the survey's §18 *Trigona* polarity trail is the same shape) was
+   built here as a food-charged odometer on `EmitB` and **rejected on
+   2026-09-17** — one day before the return leg was fixed. Its rejection
    condition is now met. Cost: one archived rider, one run.
 2. **Negative feedback on the emitter, not the reader.** Czaczkes, Grüter &
    Ratnieks 2013: crowded ants lay 5.6x less. Here that is one authored wire,
@@ -71,6 +72,16 @@ I could find**. Under the standing ruling — *ship new behaviours on; a default
 that looks wrong is to register and report, never to tune* — that is a
 question to put to the owner rather than a default to leave.
 
+**Where this engine is ahead of the survey's field.** Its §19 lists as an
+open problem *"realistic underground architecture coupled to digging physics
+and soil mechanics"* and *"multi-pheromone ecosystems with nestmate
+recognition seldom modelled together"*. This engine has a per-cell load
+model, packed soil that holds a gallery, spoil pellets that need footing,
+water that drowns a burrow, three pheromone planes and a heritable scent
+signature, all in one tick. The nest line's problem is not that the physics
+is missing; it is that the colony scratches the whole floor instead of
+digging a nest (`nest-shape-three-negatives`).
+
 **Two corrections the survey needs before anyone builds from it here** (§4):
 evaporation is *not* the parameter on a one-cell trail — diffusion is the
 eraser, measured, and the shipped decay rate is inert; and a new brain input
@@ -81,10 +92,11 @@ six species files and voids every stored baseline.
 
 ## 1. What was checked, and how
 
-Read: the survey; `wiki/ants.md` in full (the bar); `pheromone-master-2026-09-17.md`
+Read: the survey in full; `wiki/ants.md` in full (the bar); `pheromone-master-2026-09-17.md`
 in full; `stigmergy-research.md` in full; the module docs of `pheromone.rs`
-and `brain.rs`; every authored wire in `assets/species/ant.ron`; the openings
-and decision tables of `nest-biology-2026-09-19.md`, `nest-digging-plan-2026-09-19.md`,
+and `brain.rs`; every authored wire in `assets/species/ant.ron`; the
+`tumble` verb and `home_weighted_pick` in `creature.rs`; the openings and
+decision tables of `nest-biology-2026-09-19.md`, `nest-digging-plan-2026-09-19.md`,
 `nest-design-2026-09-14.md` §2, `colony-economy-design-2026-09-09.md`,
 `creature-signature-and-castes-2026-09-06.md`, `creature-stacking-design-2026-09-17.md`;
 the two nest reports still on `claude/nest-biology-research` (PR #472) and the
@@ -158,8 +170,8 @@ chosen: `PHEROMONE_INTERVAL 12`, `DIFFUSE 0.25`, `DECAY_RHO 0.03`,
   `(CarryingFood, EmitB, 2.5)` (`ant.ron:1240`), and `CarryingFood` is a
   boolean — 1.0 for any food in the crop (`creature.rs:5209`, *"one question
   per sensor"*) — so every food-trail deposit is the same strength whatever
-  the load is worth. The survey's shape — strongest at the food, fading toward home —
-  is exactly the *food-charged odometer on `EmitB`* that was built as
+  the load is worth. The survey's shape — strongest at the food, fading toward
+  home — is exactly the *food-charged odometer on `EmitB`* that was built as
   `trailfollow` riders and **rejected on 2026-09-17** (`dead-ends.md:1925`):
   *"the premise is right, the fit is exact, the emitter demonstrably works,
   and the colony does worse the more of it there is."* See §3 item 1 for why
@@ -191,7 +203,7 @@ chosen: `PHEROMONE_INTERVAL 12`, `DIFFUSE 0.25`, `DECAY_RHO 0.03`,
   `PheroALateral`/`PheroBLateral` and **dead for a surface walker** — on a
   one-dimensional floor the side sensors read floor and air (the Jones /
   Physarum three-sensor dead end; `pheromone-master` §7 step 5). Replaced by
-  the along-heading difference. A side-view consequence, §5.
+  the along-heading difference. A side-view consequence, §7.
 - **Trail-geometry polarity** (Jackson 2004, the bifurcation angle): discussed
   in `pheromone-trail-direction-2026-09-16.md`'s biology section; a
   side-view trail has almost no bifurcations to read.
@@ -232,7 +244,7 @@ fault**: pass-through cut blocked moves ~90% and *reduced* intake 35%
 ### 2.5 Navigation (survey §6)
 
 **The survey and the repo's design of record agree, independently, and the
-survey adds one thing.**
+mechanism is already built.**
 
 - *Path integration supplies direction; the trail is a contextual modulator;
   trails are isotropic.* `pheromone-master` §6 says this in the same words,
@@ -276,7 +288,7 @@ survey adds one thing.**
   none proposed (`nest-design` §2 item 5), and the survey itself says a
   functional approximation is enough. The engine's bearings
   (`PreyBearing`, `KinBearing`, `ThreatBearing`, `BloomBearing`) are that
-  approximation; a home bearing would be the fifth.
+  approximation.
 
 ### 2.6 Nest excavation and construction (survey §7)
 
@@ -337,23 +349,157 @@ times: the anthill.
   (`(Energy, Move, −1.75)`, `Stillness`), so *"a well-fed ant mostly rests"*.
   The survey's point is met.
 
-### 2.8 Life cycle and energetics (survey §9, as far as it arrived)
+### 2.8 Life cycle, demography and energetics (survey §9)
 
-- No queen, no egg: an ant *buds* (`wiki/ants.md`, "New ants"). A queen
-  regime exists behind `PIXEL_PHYSICS_BREEDING=queen`
-  (`creature.rs:9308-9370`) and the coordinator's standing ruling is that a
-  queen is *"three authored values over existing mechanisms, never a type the
-  engine knows."* Eggs are designed, not built (`nest-biology` §11).
-- No brood stages, no temperature-dependent development. `FieldCell` carries
-  a depth-graded temperature with the diurnal cycle separable exactly
-  (`nest-biology` finding, §1 table), and nothing but `(TempAboveAmb, Turn,
-  −0.8)` reads it.
-- Sigmoidal colony growth: the engine got boom-and-crash first and settles it
-  with lifespan — *"the colony's size settles near how fast it breeds times
-  how long an ant lives"*.
-- Metabolic scaling: charged per cell, linear (`idle_cost_per_cell`,
-  `move_cost_per_cell`). The survey's sentence on it is where the paste
-  stops.
+| survey | engine | record |
+|---|---|---|
+| nuptial flight → claustral founding → nanitics → ergonomic growth → alates | a colony is **founded by a click**: ~50 workers stood on a patch (`wiki/ants.md`, "Placing a colony"); no queen, no alates, no flight. An ant *buds* — *"there is no queen and no egg"*. A queen regime exists behind `PIXEL_PHYSICS_BREEDING=queen` (`creature.rs:9308-9370`), and the standing ruling is that a queen is *"three authored values over existing mechanisms, never a type the engine knows"* | founding-by-one-queen is `colony-economy-design` §5c and `creature-reproduction-economics` §2.3/§3.2 (*fission*: the parent's body becomes the child's) — designed, not built |
+| brood stages, temperature-dependent development | none. The substrate is there — `FieldCell` carries a depth-graded temperature with the day/night forcing separable exactly — and nothing reads it but `(TempAboveAmb, Turn, −0.8)` | eggs designed in `nest-biology` §11; the lane's decision list says no worker age |
+| sigmoidal colony growth | the engine got boom-and-crash first: a colony *"finds a bed full of food, breeds into the hundreds, eats it to bare ground, and goes all at once"*; **lifespan** is what settles it — *"near how fast it breeds times how long an ant lives"* — and the fall is a slope, not a cliff | shipped 2026-09-12 (`wiki/ants.md`, "Ants get old") |
+| hypometric metabolic scaling (exponent 0.75–0.93); per-capita metabolism falls with colony size; the group effect vanishes in isolation | **linear by construction**: every ant is billed per body cell for standing, walking and thinking (`ant.ron:118-119`), so colony burn is ants × per-ant burn, exponent 1.0. **But** locomotion is 52% of burn (`colony-economy-design` §2) and `(Crowding, Move, −0.3)` makes a crowded ant walk less — so a per-capita burn that *falls* with colony size may already be emergent, and nobody has measured it | §3 item 8 — a measurement, not a build |
+| trophallaxis as a distribution network; famine relief | shipped on, 2026-09-09: `Share` output, `KinNeed` input, rich gives to poor, and since 2026-09-19 across a stacked cell. **First measurement is the opposite of famine relief**: in a bare box sharing *flattened the founders' spread of reserves back into sameness* and ended with fewer survivors on two runs of three — because the spread of reserves is exactly a rich-and-poor, and sharing removes it (`wiki/ants.md`, "Feeding each other") | the survey's "model as flow on the network" is what happened, and the flow erased the variance the founding cliff needed |
+| food storage: repletes, seed caches, fungus gardens | **repletes are the crop** — `store_in_body`, the granary-versus-replete gene, was found redundant against the `Feed`/`Drop` weights (`dead-ends.md:1143`); **seed caching is half there** — a harvester *"became a sower"*: a bitten seed rides home as cargo and is set down where the meal ends, so the midden sprouts, but *"there is no granary in this box"* (`larder_probe`: ten cells in transit, resident 0); no fungus | `nest-biology` finding 7 is the argument for a granary a player can see, rob and lose |
+
+### 2.9 Collective decisions — nest-site selection (survey §10)
+
+**Not staged, and the prerequisite is not the mechanism.** No colony here
+relocates: there is no candidate site, no assessment verb, no transport
+verb. The survey calls emigration "compelling emergent gameplay", and it
+would be — but a colony only leaves a nest that is *worth* something, and
+by owner ruling this one is not yet (`nest-biology` §10). Quorum by
+encounter rate is the one part the engine already computes: `Crowding` is a
+5x5 kin count, which is Pratt's quorum signal; a second `NestSite` would be
+the candidate. Rank it after eggs or a granary give the nest a purpose.
+
+**The collective decision this engine does have is a different one.** A
+colony *splits* when a lineage's scent drifts past the rest's tolerance:
+`World::regroup_by_scent` finds the connected clusters of mutual kin and
+names the new one (`ANT 1b`), *"and the two start to bite each other when
+hungry"* — while a thread of ants walking between two mounds keeps them one
+colony indefinitely (`wiki/ants.md`, "Who is family"). That is speciation
+and colony fission arrived at with no quorum rule, and it is closer to the
+survey's §13 supercolony biology than to its §10.
+
+### 2.10 Collective transport and self-assembly (survey §11)
+
+| survey | engine | verdict |
+|---|---|---|
+| cooperative transport of loads 10,000x an ant's weight | a load is one crop per ant; a corpse or fruit is carried a cell at a time. No shared load, no force vectors | no consumer; a two-cell ant has nothing to haul that needs two of them |
+| rafts, towers, treadmilling | **an ant is footing for a nestmate** (`climbs_over_kin`: *"a nestmate is something to stand on, the same as a rock"*), so a pile of ants is physically expressible and *"an ant standing on a nestmate that walks away has further to drop"*; stacking (many in one cell) is the other axis, off by default | the substrate for a tower exists; nothing motivates one, and nothing that ships would build one |
+| army-ant bridges by cost–benefit | same footing rule across a gap; no verb | not now |
+| circular mills — the artifact of pure trail-following | the engine's word for it is in `pheromone.rs`'s module doc: *"One channel gets milling; two get commuting"* — the reason there are two planes | already designed around |
+
+### 2.11 Movement and locomotion (survey §12)
+
+- **Speed.** An ant here *"only moves on one frame in six even at full
+  speed"* and is two cells long (`wiki/ants.md`), so it covers a twelfth of a
+  body length per frame — about five body lengths a second if the app runs
+  at sixty frames a second, against the survey's 2–10 for *Lasius* on a
+  trail and ~108 for the silver ant. **Pace is heritable** since 2026-09-05:
+  *"one lineage takes its turn twice as often as its neighbours and another
+  half as often"*, charged per turn so the quick one starves first on a lean
+  bed. A **laden ant walks slower and tires faster** (Table 2's *Atta* row).
+- **Temperature dependence of speed, and of evaporation**: **absent**.
+  `TempAboveAmb` reaches only `Turn`; the planes' `rho` is global. Both are
+  one scale each and both would show in the outdoor game's day and seasons
+  (`weather.md`). Note `CLAUDE.md`'s divide-the-oscillator-out rule: a trail
+  that fades faster at noon is a designed cycle reaching a decision, fine on
+  screen, and every measurement taken across it must remove the phase.
+- **Correlated random walk**: on a one-dimensional floor a turning-angle
+  distribution collapses to one number, the reversal rate, and that is
+  `BrainOutput::Persist` — *"this engine's own milling-versus-commuting
+  number"*. `Tumble` re-rolls uniformly among viable headings, and on a flat
+  floor the viable set is mostly {left, right}. Not a gap.
+- **Gait**: none; a two-cell body has no legs. **Body-size effects**: a bigger
+  animal costs more (per cell), a longer one flows over broken ground better,
+  and `crop_capacity` is a species scalar rather than a body-linked one — the
+  survey's "larger workers carry more" is authorable through the
+  developmental block, not automatic.
+
+### 2.12 Inter-colony and interspecies interactions (survey §13)
+
+| survey | engine | record |
+|---|---|---|
+| territoriality and warfare | **there is no enemy**: *"nobody attacks a stranger it is not going to eat"*; strangers are food if the gut digests them and furniture otherwise. Colonies split by scent and then *eat* each other when hungry; `Attack` (biting what you will not eat) exists and *"nothing that ships is born doing it"* | `why-colonies-do-not-fight-2026-09-14.md` is a whole report on this; `animal-conflict-research-2026-09-14.md` the biology |
+| Argentine supercolonies: non-aggressive within, aggressive between | **this is the shipped default.** Every click is one family while they smell alike; *"the thread of ants between two mounds is the whole difference between one colony living in two places and two colonies"*, because a visiting ant re-mixes the mound's smell (`nest blend`, `nest uptake`, `nest scent drift` dials) — which is the real supercolony mechanism, continuous mixing | `wiki/ants.md`, "A nest is a place that holds a smell" |
+| slave-making, social parasitism, aphid tending, fungus farming | none. The nearest thing to farming is the seed-carrying loop — *"the colony that gardens survives"* is the lab's stated direction — and it is dispersal, not cultivation | coordinator note, standing direction |
+| army-ant raids; predator–prey | a beetle eats an ant *"because an ant is meat and the beetle is hungry"*; beetles measured **not yet frightening** — shelter is worth twice as much to an ant with or without predators in the world | `wiki/ants.md`, "A beetle can see"; `population-dynamics-research.md` on why two-species systems go extinct |
+
+### 2.13 Validation, tools, games and other superorganisms (survey §14–18)
+
+- **Tracking data and pattern-oriented modelling.** The survey's validation
+  practice — match several emergent patterns at once, never one — is
+  `CLAUDE.md`'s method under other names: order statistics over seeds, paired
+  comparisons, *look before you measure*, the acceptance scenes and
+  `seedsweep`. What this repo does not do is calibrate against real
+  trajectories, and the owner has ruled it does not have to: *"It does not
+  have to perfectly match how real ants, but we should take inspiration when
+  we can"* (`pheromone-master` §6). The instruments that stand in for
+  tracking are `labstats`, `latecensus`, `colonybooks`, the chronicle, the
+  life record and the watch page.
+- **GPU fields, ML, swarm robotics.** The planes are CPU, double-buffered
+  Jacobi (`dead-ends.md:1119` says why not in-place), and cost 0.0014 ms
+  settled at the shipped world; `pherocost` prices any size. Determinism is
+  required (`PLAN.md`), which rules out the survey's RL and most GPU
+  reductions as decision inputs. Not a gap at this scale; M10 streaming is
+  the known migration.
+- **ACO.** The survey's verdict — take the evaporation-plus-choice formalism
+  and nothing else — is what `stigmergy-research.md` §3 did: it took the
+  ρ band from the ACO literature as a first guess and the engine then
+  measured that band inert on a one-cell trail.
+- **The games.** *Empires of the Undergrowth*'s player verb — command by
+  pheromone marker, never by order — is the lab's *hand in the box* (drag a
+  scent trail, drop an alarm, fling an animal). *SimAnt*'s castes, trails and
+  colony-versus-colony are all here in found rather than authored form. The
+  hobbyist compute-shader sims' three-sensor agent is the design this engine
+  tried and replaced (§2.2, osmotropotaxis). The survey's list of what games
+  omit is answered in §0.
+- **Other superorganisms.** BEEHAVE's demography-plus-energetics-plus-spatial
+  foraging is the shape of `colonybooks` and the founding cliff. The
+  **flitter** is the engine's bee: nectar-only, flying, and *"still about
+  seven times short of feeding itself"*. *Trigona*'s polarity trail — more
+  pheromone near food — is §3 item 1 again. Hive and mound thermoregulation:
+  `nest-biology` §5 decided no ventilation and no CO₂, and named the
+  unread temperature field as the cheapest thing in the report.
+
+### 2.14 Open problems (survey §19)
+
+Three of the survey's six are this engine's strengths, two are its stated
+positions, one is shared. *Underground architecture coupled to digging
+physics and soil mechanics*: here, and the problem is shape, not physics
+(§0). *Multi-pheromone with nestmate recognition together*: three planes and
+a heritable scent signature in one tick. *Individual variation*: every
+number an ant has is heritable; *learning* is deliberately absent — the lab
+is about evolution. *Uncalibrated*: yes, by ruling. *Integrating scales* and
+*colony-level cognition as a whole*: shared, and the master report's
+diagnosis of the trail line is one instance of it.
+
+### 2.15 Scorecard
+
+By survey section. *Ships* means in the tree and on; *off* means built,
+default-off; *designed* means priced in a report and not built; *rejected*
+means built or literature-tested here and measured negative or inert;
+*cheap* means absent and expressible as a wire, a predicate or a run;
+*cannot / not wanted* means unstageable in side view, ruled out, or without a
+consumer. The classification is this review's; the rows above are the
+evidence.
+
+| survey § | ships | off | designed | rejected | cheap | cannot / not wanted |
+|---|---|---|---|---|---|---|
+| 1–2 stigmergy, modelling | 4 | | | 1 | | 1 |
+| 3 pheromones | 5 | | | 4 | 4 | 1 |
+| 4 foraging | 3 | | | 1 | | 2 |
+| 5 traffic | | 1 | | 1 | 1 | 1 |
+| 6 navigation | | 1 | 1 | | | 2 |
+| 7 nest | 2 | 2 | 3 | 3 | 1 | 3 |
+| 8 division of labour | 4 | | | | 1 | 1 |
+| 9 life cycle, energetics | 4 | | 3 | | | 3 |
+| 10 collective decisions | 1 | | | | | 1 |
+| 11 transport, assembly | 1 | | | | | 4 |
+| 12 movement | 3 | | | | 2 | 1 |
+| 13 inter-colony | 3 | | | | | 4 |
+| 14–18 validation, tools, games | 1 | | | | | 0 |
+| **total** | **31** | **4** | **7** | **10** | **9** | **24** |
 
 ---
 
@@ -366,18 +512,18 @@ weighted sum, and `CLAUDE.md`'s *a correct mechanism at inherited constants is
 a regression* makes a joint result unattributable.
 
 1. **Re-test the food-charged odometer on `EmitB`** (survey §3, Beckers /
-   Czaczkes 2024). Rejected 2026-09-17 (`dead-ends.md:1925`) on a bed where
-   **no laden ant ever got home** — the master report's own banner warns
-   *"every `self` number in this document predates a working return leg."*
-   The return leg was fixed 2026-09-18 and the way home keeps on the unlanded
-   lifetime branch. A trail that is strongest at the food and fades toward the
-   nest is only readable *by an ant walking outward from the nest*, which is
-   the leg that now exists. The cheaper arm to run first is the survey's
-   *quality modulation*: today the food trail is laid at one strength for any
-   load (§2.3), and a fill-graded emitter is the odometer's zeroth step.
-   **Cost:** the `trailfollow` riders are archived; one 12-seed run at gap 90
-   per arm. **Score on:** ants reaching food, never deliveries (recruitment,
-   not homing). **Falsifier:** the `mute` arm.
+   Czaczkes 2024; §18 *Trigona*). Rejected 2026-09-17 (`dead-ends.md:1925`)
+   on a bed where **no laden ant ever got home** — the master report's own
+   banner warns *"every `self` number in this document predates a working
+   return leg."* The return leg was fixed 2026-09-18 and the way home keeps
+   on the unlanded lifetime branch. A trail that is strongest at the food and
+   fades toward the nest is only readable *by an ant walking outward from the
+   nest*, which is the leg that now exists. The cheaper arm to run first is
+   the survey's *quality modulation*: today the food trail is laid at one
+   strength for any load (§2.3), and a fill-graded emitter is the odometer's
+   zeroth step. **Cost:** the `trailfollow` riders are archived; one 12-seed
+   run at gap 90 per arm. **Score on:** ants reaching food, never deliveries
+   (recruitment, not homing). **Falsifier:** the `mute` arm.
 2. **`(Crowding, EmitB, −w)`** (survey §3, Czaczkes 2013). One wire in
    `ant.ron`; in the genome, so a line can lose it; no new state, no slot.
    What it buys is the survey's *"self-organised negative feedback that
@@ -420,11 +566,11 @@ a regression* makes a joint result unattributable.
    (§2.5) is the follow-on, and that one is a slot bump — leave it until the
    bias alone has a number.
 5. **Trail lifetime by purpose, not by species** — nothing to build; a
-   framing to carry into the species tables when they arrive (§6). Where the
-   survey's Table 1 lists a half-life per species, the engine's knob is a
-   plane's `rho`/`diffuse` pair and a species' emitter odometer, and the
-   lifetime that matters is measured in *round trips* (`pherolife sweep=rho`
-   prints it that way).
+   framing carried into §5 against the survey's Table 1. Where the survey
+   lists a half-life per species, the engine's knob is a plane's
+   `rho`/`diffuse` pair and a species' emitter odometer, and the lifetime that
+   matters is measured in *round trips* (`pherolife sweep=rho` prints it that
+   way).
 6. **Pellet-attracted deposition** (survey §7, Khuong 2016). The deposition
    half of the nest plan's Stage 4: a `DropSpoil` preference for cells
    adjacent to *existing* spoil. `dead-ends.md:1095` says how to build it —
@@ -436,18 +582,36 @@ a regression* makes a joint result unattributable.
    does not have. **Score by eye**: the mound is the artifact the owner has
    reported three times. **Gate:** after the nest plan's Stage 0 (the census
    undercounts the nest 3x) or the number is wrong.
-7. **Laden right-of-way** (survey §5). One predicate on `try_swap_with_kin`.
-   Low, because congestion is measured not to bind, and because the swap
-   itself reduced intake. Keep on the list for the day stacking ships on.
+7. **Laden right-of-way** (survey §5, §12). One predicate on
+   `try_swap_with_kin`. Low, because congestion is measured not to bind, and
+   because the swap itself reduced intake. Keep on the list for the day
+   stacking ships on.
+8. **Measure whether colony burn is already hypometric** (survey §9, Table 3).
+   A measurement, not a build, and cheap: `colonybooks` prints each colony's
+   burn split into upkeep, walking and brains. Run one bed at four colony
+   sizes — a dozen, fifty, two hundred, eight hundred — and read burn per ant.
+   If it falls with size, `(Crowding, Move, −0.3)` has given the engine the
+   survey's exponent for free and it is worth a wiki line. If it is flat, it
+   is a known absence to *register*, under the ruling that a default that
+   looks wrong is reported and never tuned. **Trap:** pin `RAYON_NUM_THREADS`
+   and take the bed at one age — the coordinator note says bed age and plants
+   paying the ants' bill are what a creature-cost harness measures otherwise.
+9. **Temperature on pace and on evaporation** (survey §12). Two scalars, both
+   absent, both visible only in the outdoor game's day and seasons. Low, and
+   the second one is a designed oscillator reaching every trail measurement
+   — divide it out or every `pherolife` number moves with the hour.
 
 **Not to take**, with the reason: lanes and bidirectional traffic (no lateral
-axis, §5); the bifurcation-angle polarity (no bifurcations); osmotropotaxis
+axis, §7); the bifurcation-angle polarity (no bifurcations); osmotropotaxis
 (built, dead on a surface); tandem running and quorum nest choice (no verb,
-no need, no relocation); central-complex and mushroom-body models (the survey
-itself says approximate); a digging pheromone (measured negative); termite
-and wasp construction (no consumer, and the nest has no purpose yet); fixed
-authored castes (owner ruling); an ODE demography layer (the lab is about
-individuals).
+no need, no nest worth leaving); central-complex and mushroom-body models
+(the survey itself says approximate); a digging pheromone (measured
+negative); termite and wasp construction (no consumer, and the nest has no
+purpose yet); fixed authored castes (owner ruling); an ODE demography layer
+(the lab is about individuals); procedural nests seeded from Tschinkel casts
+(§4 item 8); cooperative transport, rafts and bridges (no load needs two
+ants; no verb); learning and route memory (evolution, not learning, by
+design); calibration against tracking data (owner ruling).
 
 ---
 
@@ -487,57 +651,125 @@ number.
    may reach — under the owner's standing direction to *expose, not tune*.
    A species file is a starting point that *"ships inert"* (README,
    *Parameter-genome status*). Tables of half-lives and walking speeds are
-   useful as the *range* a dial should reach, not as values to author.
+   useful as the *range* a dial should reach, not as values to author. §5.
+7. **"The colony never adapts → increase evaporation"** (the survey's
+   redesign threshold) is the wrong knob twice over: decay is inert on a
+   one-cell trail, and `dead-ends.md:1067` records that more evaporation does
+   not fix ossification here — the crowding input does. Its other half,
+   *"ensure negative feedback is active"*, is right and is §3 items 2 and 3.
+8. **"Seed procedural nest shapes from Tschinkel cast data"** contradicts
+   the one rule this engine will not bend: nothing is painted where the
+   world could produce it. The owner's *no paint* ruling on the nest
+   (`nest-design` §13) retired even the door as a material. Tschinkel's
+   profile is the *bar* a dug nest is judged against (`nest-biology`
+   finding 3), never a template stamped into the ground.
+9. **"Run the field on a GPU with ping-pong textures"** is sound and
+   unnecessary: the planes are already double-buffered and cost 0.0014 ms
+   settled, and a GPU reduction feeding a decision would cost the determinism
+   `PLAN.md` requires.
 
 ---
 
-## 5. The side-view caveat, which cuts across everything
+## 5. The four tables against the dials
+
+**Table 1 — persistence.** The engine's unit is not minutes but *round
+trips*, and the comparison to make is the ratio of trail life to trip time,
+which is what every species row implicitly reports.
+
+| survey row | engine, measured |
+|---|---|
+| Pharaoh ~9 min attractive, ~78 min repellent; fire ant seconds–minutes | the **food plane** as shipped: readable for **0.49 of a round trip**, gone at 0.67 (`pherolife sweep=rho`, on its own 2,200-frame trip); 144 frames unreinforced before the `u16` widening. Pharaoh-like by ratio, and deliberately so — *"it is news about a patch"* |
+| Argentine 30 min–4 h; *Lasius* ~20 min building marker | the **home plane** on the unlanded lifetime branch: readable for **1.06 round trips**, gone at 2.04 — and still gone, by blurring, which is the point |
+| army ants days to a week | nothing here persists that long, and nothing should: a trail that outlives its patch is the named failure (§Z7). The nearest analogue is the nest's own smell, which never fades (`NestSite::scent`) |
+| deposition ~0.5 units/s; 22x near the food | `DEPOSIT 40` per successful move, scaled by the emitter's output; the food emitter is flat (§2.3). The 22x is §3 item 1 |
+| repellent effect lasts 2.4x the attractive one | §3 item 3's design note: the no-entry subtraction should outlast the deposit it cancels |
+
+**Table 2 — speed.** Cells per frame is the unit; §2.11 has the conversion.
+Two of the table's four rules ship (laden slower; bigger costs more) and two
+do not (temperature; body size → faster). The one row that transfers as a
+*design* rather than a number is the silver ant: solitary, path-integrating,
+no trail — which is the `home_bias` ant with `EmitB` at zero, and is
+authorable today as a species file.
+
+**Table 3 — colony size, demography.**
+
+| survey row | engine |
+|---|---|
+| *Temnothorax* 100s; *Lasius* 1,000s–10,000s | a founding is ~50; lab beds reach hundreds to ~3,000 (`evolution-lab-coordinator`: 3,099 at one stop; stacking measured at 2,000) — the *Lasius* range at the top, *Temnothorax* at the bottom |
+| active foragers ~10% | **the opposite**: *"almost every ant is carrying food almost all the time — better than nine in ten"* (`wiki/ants.md`). There is no forager caste and no reserve caste; rest is per ant by energy. The survey's 10% is a *Cataglyphis* number, a solitary desert forager |
+| hypometric burn | linear by construction; §3 item 8 |
+| nest volume ∝ workers, logistic | by construction; and the room-per-ant gate reopens when the brood outgrows it (`wiki/ants.md`, "Digging, and the mound") |
+| quorum ∝ adult workers | not applicable, §2.9 |
+
+**Table 4 — decision parameters.** `n = 2` ships. `k` does not transfer:
+`choose_weighted`'s `k` is in the candidate score's own units (the test
+asserts at `k = 0.1`), not in pheromone concentration, so the survey's 20 is
+not a value to author. Response thresholds and contact rates: §2.7. Quorum:
+§2.9. Memory × pheromone: `Persist` is half of it and no memory is the
+other half.
+
+---
+
+## 6. The survey's staged recommendations against the repo's plans
+
+| survey step | here |
+|---|---|
+| 1. one field per pheromone; deposit, diffuse, decay per tick; a different half-life per pheromone **and species**; GPU ping-pong | done on the CPU, double-buffered (`dead-ends.md:1119`); per plane yes, per species through the emitter odometer. §4 items 1 and 9 |
+| 2. CRW for search; three points ahead; Weber + noise; never A* | done, except the three-point sensor is dead on a surface and the along-heading reader replaced it (§2.2). The survey's two benchmarks are the wrong knobs here: trails not dissolving is a `DIFFUSE` question, and two equal sources cannot be staged on a flat floor — `pherolife mode=junction` is the engine's fork test |
+| 3. trail + alarm + no-entry | two of three; §3 item 3 |
+| 4. path integration + optional view familiarity | **built, off** (§2.5); §3 item 4. View familiarity: never |
+| 5. right-of-way → lanes | no lanes possible; §3 item 7 |
+| 6. thresholds + interaction rates + inactive reserve | done (§2.7) |
+| 7. an ODE demographic layer | deliberately not; lifespan gives the plateau (§2.8) |
+| 8. Khuong construction; procedural nests from casts | deposition half is §3 item 6; the casts are the bar, never a template (§4 item 8) |
+| 9. quorum emigration | after the nest has a purpose (§2.9) |
+| 10. spatial hashing, LOD, mean-field reserve | chunks that sleep and a scheduler are the LOD; off-camera is `ecological-lod-design.md`; mean-field never |
+| 11. species parameters as dials | the lab's parameter page and the species files, under *expose, not tune* (§4 item 6) |
+| 12. validate against published patterns and tracking data | against the wiki's bar, seed sweeps and the owner's eye; not against tracking, by ruling (§2.13) |
+
+The survey's three redesign thresholds: *ants look robotic* — not this
+engine's failure; *large colonies tank performance* — the perf line's
+standing kill condition is 5% whole-frame, and the creature pass is the
+place to look, not the field; *the colony never adapts* — §4 item 7.
+
+---
+
+## 7. The side-view caveat, which cuts across everything
 
 `stigmergy-research.md` §7 stated it before any ant existed and it decides
 which half of the survey transfers: **every foraging diagram in this
 literature is top-down, and this engine is a vertical section.** The
 double-bridge needs terrain to stage two routes; lanes have no axis to form
-in; a trail has almost no bifurcations; the side antennae read floor and air.
-The survey's §3–§5 are the top-down half. Its §7 is the side-view half —
-every real nest cross-section and every one of Toffin's arenas is a vertical
-section — and it transfers, once the ground is deep enough to hold a nest.
+in; a trail has almost no bifurcations; the side antennae read floor and air;
+a turning-angle distribution is a reversal rate. The survey's §3–§5 and §12
+are the top-down half. Its §7 is the side-view half — every real nest
+cross-section and every one of Toffin's arenas is a vertical section — and it
+transfers, once the ground is deep enough to hold a nest.
 `nest-entrance-dimensions-2026-09-19.md` makes the rule quantitative: sort
 every quantity by the plane it was measured in before converting it.
 
 ---
 
-## 6. Pending — the rest of the survey
-
-The copy received stops at *"Metabolic scaling:"* in its §9. Not reviewed,
-because not received: the rest of §9 (metabolic scaling, colony growth, the
-life cycle), any section on existing games, and **Tables 1–4**, the
-species-parameter tables the TL;DR refers to. When they arrive:
-
-- the tables go against `assets/species/ant.ron`'s scalars and the lab's
-  parameter page, as *ranges a dial should reach* (§4 item 6);
-- metabolic scaling goes against the per-cell cost model and
-  `creature-body-extent-2026-08-30.md`;
-- the life cycle goes against `nest-biology` §11 (eggs) and
-  `creature-reproduction-economics.md` §2.3 (the founding queen converts her
-  body into brood — already the engine's *fission* candidate).
-
----
-
-## 7. What this review rests on
+## 8. What this review rests on
 
 Repo documents cited: `stigmergy-research.md`; `pheromone-master-2026-09-17.md`
 and the three reports under it; `nest-design-2026-09-14.md`;
 `nest-biology-2026-09-19.md`; `nest-digging-plan-2026-09-19.md`;
 `nest-shape-three-negatives-2026-09-19.md`; `nest-entrance-dimensions-2026-09-19.md`;
-`colony-economy-design-2026-09-09.md`; `creature-signature-and-castes-2026-09-06.md`;
-`creature-stacking-design-2026-09-17.md`; `decaying-gradient-quantization-2026-09-15.md`;
+`colony-economy-design-2026-09-09.md`; `creature-reproduction-economics.md`;
+`creature-signature-and-castes-2026-09-06.md`;
+`creature-stacking-design-2026-09-17.md`; `why-colonies-do-not-fight-2026-09-14.md`;
+`population-dynamics-research.md`; `ecological-lod-design.md`;
+`decaying-gradient-quantization-2026-09-15.md`; `larder-reachability-2026-08-30.md`;
 `Reports/dead-ends.md` (entries at the lines cited); `Reports/open-bugs-handoff.md`
 (§R4, §T2, §Z6, §Z7); `wiki/ants.md`; `lanes/evolution-lab-coordinator.md`
 (owner rulings); `lanes/evolution-lab-pheromones.md`;
-`lanes/nest-biology-research.md`; `lanes/nest-digging-handoff-2026-09-19.md`.
-Unlanded: `nest-biology-digging-signals-2026-09-19.md` and
-`nest-build-plan-2026-09-19.md` on `claude/nest-biology-research` (PR #472);
-the trail-lifetime split on `claude/upbeat-shannon-cez0w4`.
+`lanes/nest-biology-research.md`; `lanes/nest-digging-handoff-2026-09-19.md`;
+`Reports/instruments.md`. Unlanded: `nest-biology-digging-signals-2026-09-19.md`
+and `nest-build-plan-2026-09-19.md` on `claude/nest-biology-research`
+(PR #472); the trail-lifetime split on `claude/upbeat-shannon-cez0w4`.
 
-Source cited: `src/sim/pheromone.rs`, `src/sim/brain.rs`, `src/sim/creature.rs`,
-`src/sim/organism.rs`, `assets/species/ant.ron`, at the lines given.
+Source cited: `src/sim/pheromone.rs`, `src/sim/brain.rs`, `src/sim/creature.rs`
+(`tumble`, `home_weighted_pick`, the `Carrying`/`CarryingFood` senses, the
+queen regime), `src/sim/organism.rs`, `assets/species/ant.ron`, at the lines
+given.
