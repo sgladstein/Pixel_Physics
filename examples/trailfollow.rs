@@ -1445,6 +1445,52 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // solve for the `Bias` weight that produces it -- `squash` and `unit_scale`
     // between the author and the behaviour is exactly the gap this section's
     // headline bug lived in, and a rider quoting weights would reopen it.
+    // **The temporal comparator, as one rider.** `tcomp=a` installs the three
+    // weights that let an ant compare the smell under its own feet now against
+    // a fading memory of it:
+    //
+    //   (PheroAHere, 7, w_in)     unit 7 = the memory
+    //   (7, w_rec)                the recurrence sets how far back
+    //   (PheroAHere, Move, +a)    live   \  difference = d(smell)/dt
+    //   (7,          Move, -a)    lagged /
+    //
+    // **It needs no geometry**, which is the point: the sample is the animal's
+    // own cell, so it is right on flat ground, a slope, bark or a tunnel roof
+    // alike -- where every `sensor_offset` reading is right only when the
+    // heading happens to follow the surface (§7.47).
+    //
+    // `w_in` and `w_rec` are the fit from `brain.rs`'s ignored
+    // `what_a_temporal_comparator_sees`, run through `eval_brain` rather than
+    // simulated beside it. **0.12 is not `1 - w_rec`**, which is what the
+    // textbook unit-gain average wants: `squash` inside the recurrence settles
+    // the unit at 0.036 when its input is 0.100, so the naive value leaves a
+    // level term 2.8x the signal and the whole thing reads as a level detector.
+    // At 0.12 the level term cancels, and at `w_rec` 0.995 / `a` 32 the signal
+    // is +0.0968 against an offset of -0.0490.
+    if let Some(a) = arg::<f32>("tcomp") {
+        let w_rec: f32 = arg("tcompwrec").unwrap_or(0.995);
+        let w_in: f32 = arg("tcompwin").unwrap_or(0.12);
+        // Unit 7 is the only free hidden unit in `ant.ron`, and it is what the
+        // channel-B odometer riders claim -- arming both would have two
+        // mechanisms writing one unit and neither arm would be what it says.
+        assert!(
+            arg::<f32>("charb").is_none() && arg::<f32>("recurb").is_none() && arg::<f32>("emitb").is_none(),
+            "tcomp and the channel-B odometer riders both drive hidden unit 7; run them one at a time"
+        );
+        for (slot, w) in [
+            (brain::ih_slot(brain::BrainInput::PheroAHere, 7), w_in),
+            (brain::hh_slot(7), w_rec),
+            (brain::io_slot(brain::BrainInput::PheroAHere, O::Move), a),
+            (brain::ho_slot(7, O::Move), -a),
+        ] {
+            assert!(
+                w.abs() >= brain::W_EPS,
+                "tcomp weight {w} is inside W_EPS ({}), so eval_brain would skip it and this arm would be the shipped one",
+                brain::W_EPS
+            );
+            genome[slot] = w;
+        }
+    }
     if let Some(v) = arg::<f32>("tumble") {
         set_via_bias(&mut genome, O::Tumble, v, 1.0, "tumble");
     }
@@ -3084,7 +3130,7 @@ fn main() {
     // a 1.84% open gate where the same command at the default reports 639,100
     // and 1.25%, and nothing in the header said why. Found 2026-09-18 by an
     // archived log failing to reproduce against a binary that was correct.
-    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill} stop={stop} homebias={} cropcap={} hungergate={} arho={} brho={} adiffuse={} tumble={} persist={} tumblegrad={}", gate.name, arg::<f32>("homebias").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("cropcap").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("hungergate").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("arho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("brho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("adiffuse").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tumble").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("persist").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tumblegrad").map_or("shipped".to_string(), |v| format!("{v}")));
+    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill} stop={stop} homebias={} cropcap={} hungergate={} arho={} brho={} adiffuse={} tcomp={} tumble={} persist={} tumblegrad={}", gate.name, arg::<f32>("homebias").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("cropcap").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("hungergate").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("arho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("brho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("adiffuse").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tcomp").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tumble").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("persist").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tumblegrad").map_or("shipped".to_string(), |v| format!("{v}")));
     println!("  gate {}: off {:+.1}  on {:+.1}  along ±{:.1}", gate.name, gate.off, gate.on, gate.along);
     println!("  {LANDED_NOTE}\n");
 

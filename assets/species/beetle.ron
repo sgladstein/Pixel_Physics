@@ -222,7 +222,7 @@
         // surface moved for every species on the shared scaffold regardless,
         // exactly as this file's copy of the comment above already says for
         // the append before this one.
-        mutation_rate: 0.0035570,
+        mutation_rate: 0.0034641,
 
         nest: "nest",
         // **The jaw price, derived at this animal's own constants** -- see

@@ -5075,6 +5075,14 @@ fn sense(
     // change to what happens *below* one old unit -- which is the entire
     // point of the widening. `CLAUDE.md`: when a fix changes what a number
     // means, re-deriving the constants that read it is part of the fix.
+    // **The concentration under the animal's own feet, with no geometry in
+    // it.** Every other pheromone input reads a cell `sensor_offset` away along
+    // the heading, which is what §7.47 found pointing at the sky six times in
+    // eight; an animal's own cell is somewhere a creature can be by
+    // construction, on flat ground, a slope, bark or a tunnel roof alike. See
+    // `brain::BrainInput::PheroAHere` for what it is for.
+    inputs[I::PheroAHere as usize] = world.pheromone_at(Channel::A, x, y) as f32 / pheromone::Scent::MAX as f32;
+
     let guard = pheromone::SCALE as f32;
     // **A sample that landed nowhere reports NO INFORMATION, not "not that
     // way".** See `trail_could_be_here`. Evaluated once for the cell rather

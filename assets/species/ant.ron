@@ -770,7 +770,7 @@
         // surface moved for every species on the shared scaffold regardless,
         // exactly as this file's copy of the comment above already says for
         // the append before this one.
-        mutation_rate: 0.0035570,
+        mutation_rate: 0.0034641,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --

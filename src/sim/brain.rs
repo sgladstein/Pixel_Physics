@@ -40,7 +40,7 @@ use serde::{Deserialize, Serialize};
 /// `INPUT_SLOTS` is 64 against a live count of 29 before this, so lighting
 /// up one more row moves no existing weight and `GENOME_LEN` does not
 /// change.
-pub const BRAIN_INPUTS: usize = 31;
+pub const BRAIN_INPUTS: usize = 32;
 /// **Eight, not four, since 2026-09-02.**
 ///
 /// Four was the whole of an animal's internal state, and `ant.ron` already
@@ -274,6 +274,7 @@ pub const INPUT_NAMES: [&str; BRAIN_INPUTS] = [
     "BloomBearing",
     "Stillness",
     "CarryingFood",
+    "PheroAHere",
 ];
 pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] = [
     "Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse", "DropSpoil", "Attack", "Provision", "Share", "Fly",
@@ -977,6 +978,44 @@ pub enum BrainInput {
     /// switch that trades one wrong answer for another is a measurement
     /// tool; this is the repair.
     CarryingFood = 30,
+
+    /// **How strong the home scent is on the cell the animal is standing on.**
+    ///
+    /// The one pheromone reading in this enum with **no geometry in it at all**,
+    /// and that is the whole reason it exists. [`Self::PheroAFront`] and
+    /// [`Self::PheroAAlong`] both read a cell `sensor_offset` away along the
+    /// heading, and on a surface-dwelling animal six of the eight headings put
+    /// that cell in open sky or inside the ground
+    /// (`pheromone-trail-direction-2026-09-16.md` §7.47). An animal's **own**
+    /// cell is, by construction, somewhere a creature can be — on flat ground,
+    /// on a slope, on bark, in a tunnel, upside down under a branch.
+    ///
+    /// **What it is for: comparing now against a while ago.** A single
+    /// instantaneous sample is a hill-climber, and a hill-climber stops at the
+    /// first bump — which channel A now has permanently wherever traffic has
+    /// been. Differencing this input against a slow copy of itself held in a
+    /// recurrent hidden unit gives *d(smell)/dt*, which needs no geometry and
+    /// is therefore right on every terrain. It is also what the animal this
+    /// simulates actually does, and for our reason exactly: too small to span a
+    /// gradient with your body, so use time instead (Segall, Block & Berg 1986;
+    /// Lazova et al. 2011).
+    ///
+    /// **Normalised by `Scent::MAX`, like `PheroAFront`**, so a wire authored
+    /// against one reads sanely against the other. That makes the value small
+    /// (0.00004–0.22 in play), so a unit fed from it sits near zero — good for a
+    /// long memory, since `squash` is linear there and the recurrence alone sets
+    /// the half-life, but it needs a large output weight, as the odometer needed
+    /// 32.0.
+    /// **Only channel A gets one, deliberately.** The obvious thing is to
+    /// append `PheroBHere` beside it for symmetry, and it is the wrong trade:
+    /// an input column costs `BRAIN_OUTPUTS + BRAIN_HIDDEN` = 24 live slots
+    /// whether or not anything reads it, every species' `mutation_rate` is
+    /// re-derived from that count, and **every breeding scene's numbers move
+    /// from birth 1** (see `the_live_slot_count_is_pinned_because_mutation_
+    /// rate_is_derived_from_it`). Paying that for a slot no measurement wants
+    /// yet is paying for tidiness. The append stays lawful and cheap the day
+    /// the food trail needs one.
+    PheroAHere = 31,
 }
 
 /// Which output slot. Positional and append-only, as above.
@@ -1362,6 +1401,7 @@ pub const INPUTS: [BrainInput; BRAIN_INPUTS] = [
     BrainInput::BloomBearing,
     BrainInput::Stillness,
     BrainInput::CarryingFood,
+    BrainInput::PheroAHere,
 ];
 /// See [`INPUTS`].
 pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
@@ -2031,6 +2071,96 @@ mod tests {
         }
     }
 
+    /// **What a temporal comparator actually sees, through `eval_brain` rather
+    /// than beside it.**
+    ///
+    /// The wiring under test, on the one hidden unit `ant.ron` leaves free:
+    ///
+    /// ```text
+    /// (PheroAHere, 7, w_in)     unit 7 = a fading memory of the smell
+    /// (7, w_rec)                the recurrence sets how far back "a while ago" is
+    /// (PheroAHere, Move, +a)    live   \  difference = d(smell)/dt
+    /// (7,          Move, -a)    lagged /
+    /// ```
+    ///
+    /// It drives that with the sequence a laden ant walking **up** the homing
+    /// ramp would read under its own feet, then the same walked **down**, then
+    /// standing **still** on a constant level -- which is the case that
+    /// separates a comparator from a level detector, and the one a fit that
+    /// only ever climbs cannot see.
+    ///
+    /// **Fitted here rather than simulated in a spreadsheet** for §Z5's reason:
+    /// that odometer was verified by side-simulation, the `W_EPS` gate was
+    /// never seen, and it shipped dead.
+    ///
+    /// `cargo test --release --lib -- --ignored --nocapture what_a_temporal_comparator_sees`
+    #[test]
+    #[ignore = "a readout, not an assertion -- cargo test -- --ignored --nocapture what_a_temporal_comparator_sees"]
+    fn what_a_temporal_comparator_sees() {
+        // `PheroAHere` is normalised by `Scent::MAX`, so a real trail reads
+        // 0.00004-0.22. The ramp below spans a plausible slice of that.
+        let up: Vec<f32> = (0..120).map(|t| 0.02 + 0.0015 * t as f32).collect();
+        let down: Vec<f32> = up.iter().rev().copied().collect();
+        let flat: Vec<f32> = vec![0.1; 120];
+        // **`w_in` is swept, not derived, because `squash` inside the loop
+        // makes the derivation wrong.** A unit-gain exponential average wants
+        // `w_in = 1 - w_rec`; measured, that settles the unit at **0.036 when
+        // its input is 0.100**, because `eval_brain` computes
+        // `h = squash(w_rec*h + w_in*live)` and the fixed point solves
+        // `h(1+h) = w_rec*h + w_in*live`. So `live - lagged` carries a level
+        // term 2.8x the size of the thing being measured, and the readout comes
+        // out a level detector wearing a comparator's wiring: UP/DOWN/STILL
+        // +0.66/+0.62/+0.67 at `w_rec` 0.98.
+        //
+        // The value that cancels it depends on the level itself
+        // (`w_in = 1 + live - w_rec`), so no constant is exact and the honest
+        // move is to find the one that makes STILL smallest while UP-DOWN
+        // survives.
+        //
+        // **UP-DOWN is the signal and STILL is the offset**, printed apart
+        // because their sum is what a single column would show and it hides
+        // which is which.
+        println!("  w_rec  w_in    a      UP-DOWN (the signal)   STILL (the offset it must beat)");
+        for w_rec in [0.95f32, 0.98, 0.995] {
+            for w_in in [1.0 - w_rec, 0.06, 0.12, 0.25, 0.5] {
+                for a in [8.0f32, 32.0] {
+                    let mut g = genome_from_wiring(
+                        &[],
+                        &[HiddenWire(BrainInput::PheroAHere, 7, w_in)],
+                        &[OutputWire(7, BrainOutput::Move, -a)],
+                        &[Recurrence(7, w_rec)],
+                    );
+                    g[io_slot(BrainInput::PheroAHere, BrainOutput::Move)] = a;
+                    let run = |seq: &[f32]| {
+                        let mut state = [0.0f32; BRAIN_HIDDEN];
+                        let mut inputs = [0.0f32; BRAIN_INPUTS];
+                        inputs[BrainInput::PheroAHere as usize] = seq[0];
+                        for _ in 0..400 {
+                            eval_brain(&g, &inputs, &mut state);
+                        }
+                        let mut sum = 0.0f32;
+                        for &v in seq {
+                            inputs[BrainInput::PheroAHere as usize] = v;
+                            let (out, _) = eval_brain(&g, &inputs, &mut state);
+                            sum += out[BrainOutput::Move as usize];
+                        }
+                        sum / seq.len() as f32
+                    };
+                    let (u, d, f) = (run(&up), run(&down), run(&flat));
+                    println!("  {w_rec:<6} {w_in:<7.3} {a:<6} {:+.4}                {:+.4}", u - d, f);
+                }
+            }
+        }
+        println!("  A comparator reads positive climbing, negative descending, and ~0 standing still.");
+        println!("  A level detector reads the same sign for UP and STILL -- that is the failure to look for.");
+        println!();
+        println!("  Read 2026-09-19: `w_in` 0.12 is where the level term cancels, at every `w_rec`.");
+        println!("  Best signal-to-offset is w_rec 0.995 / w_in 0.12 / a 32 -- signal +0.0968 against");
+        println!("  an offset of -0.0490, so the difference is about twice what it rides on.");
+        println!("  a=8 at the same w_in is cleaner (+0.0429 against -0.0127) and half the signal.");
+        println!("  Both are modest next to the homing pair, which moves P(move) 0.03 -> 0.75.");
+    }
+
     fn odometer_curve(
         w_in: f32,
         w_rec: f32,
@@ -2249,7 +2379,16 @@ mod tests {
         // pheromone, `pheromone-trail-direction-2026-09-16.md` §7.22/§7.24/
         // §7.31. No output moved. Every species' `mutation_rate` re-derived to
         // `3.18 / 894 = 0.0035570` in the same change.
-        assert_eq!(live, 894, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
+        // 894 -> 918 on 2026-09-19 with `PheroAHere` (an input column, 24
+        // slots: 16 outputs + 8 hidden) -- the one pheromone reading with no
+        // geometry in it, so an animal can compare the smell under its own feet
+        // now against a moment ago on any terrain
+        // (`pheromone-trail-direction-2026-09-16.md` §7.47). Every species'
+        // `mutation_rate` re-derived to `3.18 / 918 = 0.0034641` in the same
+        // change. **Only channel A got one**: a second column would cost the
+        // same 24 slots and move every breeding scene again for a slot no
+        // measurement wants yet.
+        assert_eq!(live, 918, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
     }
 
     #[test]
@@ -2392,7 +2531,16 @@ mod tests {
         // `3.18 / 894 = 0.0035570` in the same change. **Every breeding
         // scene's numbers move with it from birth 1** -- the remedy is a seed
         // sweep, not a diff.
-        assert_eq!(genome_manifest(), 3_668_326_360);
+        // **Moved again 2026-09-19 by `PheroAHere`.** 894 -> 918 on 2026-09-19 with `PheroAHere` (an input column, 24
+        // slots: 16 outputs + 8 hidden) -- the one pheromone reading with no
+        // geometry in it, so an animal can compare the smell under its own
+        // feet now against a moment ago on any terrain
+        // (`pheromone-trail-direction-2026-09-16.md` §7.47). Every species'
+        // `mutation_rate` re-derived to `3.18 / 918 = 0.0034641` in the same
+        // change. **Only channel A got one**: a second column would cost the
+        // same 24 slots and move every breeding scene again for a slot no
+        // measurement wants yet.
+        assert_eq!(genome_manifest(), 460_972_744);
     }
 
     #[test]

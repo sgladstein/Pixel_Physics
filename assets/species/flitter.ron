@@ -806,7 +806,7 @@
         // from birth 1: `brain::mutate` draws one `unit_f32` per live slot,
         // so this cannot be checked by a diff and the remedy is a seed
         // sweep.
-        mutation_rate: 0.0035570,
+        mutation_rate: 0.0034641,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --

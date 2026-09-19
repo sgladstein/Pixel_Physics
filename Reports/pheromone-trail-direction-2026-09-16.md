@@ -5499,6 +5499,107 @@ property.
 
 **Data:** `Reports/data/nose-geometry-36seed-2026-09-19.log`.
 
+## §7.48 The ant smells over time, and it does not move the outcome
+
+**2026-09-19, after §7.47.** §7.47 stopped the nose lying and the result was
+exactly as predicted: freeze runs halved, the colony got materially better off,
+and **round trips did not move** — unfreezing an ant makes it walk, it does not
+aim it. This is the aiming, and it is a null.
+
+### The mechanism, and why it was the right thing to try
+
+Every other pheromone input reads a cell `sensor_offset` away along the heading,
+which §7.47 found pointing at sky or rock six times in eight. **An animal's own
+cell is somewhere a creature can be by construction** — flat ground, a slope,
+bark, a tunnel roof. So a reading taken *there*, differenced against a fading
+memory of itself, needs no geometry and is right on every terrain. It is also
+what the animal being simulated does, for our reason exactly: too small to span
+a gradient with your body, so use time (Segall/Block/Berg 1986).
+
+`BrainInput::PheroAHere` was appended for it — lawful and cheap on the input
+axis, but **not free**: an input column is 24 live slots, `live_slots` 894 → 918,
+and every species' `mutation_rate` re-derived to `3.18 / 918 = 0.0034641`, which
+moves every breeding scene from birth 1. **Only channel A got one.** The obvious
+symmetric `PheroBHere` would cost the same 24 slots and move every scene again
+for a slot no measurement wants.
+
+### The fit, and the two things it caught that argument would not
+
+`brain.rs`'s ignored `what_a_temporal_comparator_sees` drives the wiring through
+`eval_brain` — not beside it, for §Z5's reason.
+
+**First catch: the textbook gain is wrong here.** A unit-gain exponential
+average wants `w_in = 1 − w_rec`. Measured, that settles the unit at **0.036
+when its input is 0.100**, because `eval_brain` computes
+`h = squash(w_rec·h + w_in·live)` and the fixed point solves
+`h(1+h) = w_rec·h + w_in·live`. So `live − lagged` carries a level term **2.8x**
+the thing being measured, and the readout came out a level detector wearing a
+comparator's wiring: UP/DOWN/STILL **+0.66 / +0.62 / +0.67**.
+
+**Second catch: the value that cancels it is not derivable**, since it depends
+on the level itself (`w_in = 1 + live − w_rec`). Swept:
+
+| `w_rec` | `w_in` | `a` | UP−DOWN (signal) | STILL (offset) |
+|---|---|---|---|---|
+| 0.98 | 0.020 | 32 | +0.0448 | +0.6742 |
+| 0.98 | 0.120 | 32 | +0.1072 | +0.1252 |
+| **0.995** | **0.120** | **32** | **+0.0968** | **−0.0490** |
+| 0.995 | 0.120 | 8 | +0.0429 | −0.0127 |
+
+`w_in = 0.12` is where the level term cancels, at every `w_rec`. The best
+signal-to-offset is about **two to one**.
+
+**And the fit already says the size of the problem.** +0.097 on `Move` is
+modest next to the homing pair, which moves `P(move)` from **0.03 to 0.75**.
+Roughly sevenfold too small before a single world was run.
+
+### The outcome
+
+36 seeds, gap 90, `arms=hand`, paired within seed, two beds:
+
+| bed | arm | homing rate | sign b/w/t | median Δ |
+|---|---|---|---|---|
+| A (`refill=400`) | `a` = 8 | 6.68% | 14/15/7 | +0.00 |
+| A | `a` = 32 | 2.93% | 11/20/5 | −0.89 |
+| B (`refill=2000`) | `a` = 8 | 2.13% | 13/21/2 | −1.93 |
+| B | `a` = 32 | 7.71% | 15/16/5 | +0.00 |
+
+**Every sign test is a coin flip and no arm is consistent across beds** — `a`=8
+has the better pooled rate on A and the worse sign test on B, `a`=32 the
+reverse. The pooled rates bounce 2.13–7.71% with no pattern, which is what that
+statistic does here when nothing is happening.
+
+**It is a null, not a non-event.** The wiring fires: the readout produces a
+correctly-signed signal through the real evaluator, the rider asserts every
+weight clears `W_EPS`, and the arms differ from the baseline in `reach` and
+`alive`. It changes the world and does not change the outcome.
+
+### Why, and what it would take
+
+The signal is about a seventh of what the spatial homing pair delivers when
+that pair gets a reading. §7.47 established the pair is *starved*, not broken —
+it works beautifully on the ~10% of ticks where it has something to read. **A
+term seven times weaker than the one that already works, added on every tick,
+is not the missing piece.** What a temporal read buys is that it works on
+terrain where the spatial one cannot; on this flat bed it is competing with the
+spatial read rather than covering for it.
+
+***Re-test when:*** the bed has terrain the spatial read genuinely cannot
+handle — a route up a trunk, or through a tunnel — which is where this
+mechanism's whole advantage lies and which no bed in this repo currently has.
+Not by raising `a`: the offset scales with it, and the sweep above already
+shows the signal peaking at `w_in` 0.12 and falling either side.
+
+**Data:** `Reports/data/temporal-comparator-36seed-2026-09-19.log`.
+
+**A baseline note, so a reader comparing §7.47 and §7.48 is not confused:**
+their baselines differ (§7.47's bed A honesty arm reads 4.16%, this section's
+2.38%) and both are correct. Appending `PheroAHere` moved `live_slots` and
+therefore `mutation_rate`, which moves every breeding scene from birth 1 — as
+`the_live_slot_count_is_pinned_because_mutation_rate_is_derived_from_it` says in
+as many words. Each sweep is paired within itself; across sections they are
+different worlds.
+
 ## Appendix A. Raw per-seed data
 
 Kept in full because outcomes here have enormous spread, and every headline in
