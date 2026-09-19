@@ -259,6 +259,9 @@ TOPICS = {
         # The light channel's second writer: `Material::beam`, the emitter the
         # lab's fixtures use, lives in `apply_sky_to`'s column descent.
         "Lab lighting status — the fixtures are what light the crop",
+        # What wakes a field tile, and what a walking colony costs the solve:
+        # the two `FIELD_CREATURE_WAKE` settings and the per-phase stopwatch.
+        "Field wake status — the field solves for the ants, and only one half of the fix is free",
     ],
     "worldgen and world structure": [
         "M10 status — the worldgen half",

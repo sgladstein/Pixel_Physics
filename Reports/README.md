@@ -4416,6 +4416,71 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   unclaimed), or drop the read-phase split for an exact independent-set
   partition of whole ticks. Harness: `examples/antcost.rs` `par=on,off`.
 
+- [ant-field-wake-2026-09-19.md](ant-field-wake-2026-09-19.md) — **the field's
+  response to a walking colony: the mechanism confirmed, two switches built,
+  and both of them measured to buy almost nothing.** Lane P of the ant-survey
+  follow-up round, against §8 of the research review. An ant's step marks its
+  chunk dirty and the field seeds its solve set from that, so every tile under a
+  colony re-solves every tick — confirmed by line, and **`rebuild_blocked` is
+  the only place in `field.rs` that reads the CA grid at all**, which bounds the
+  whole proposal. The channel audit found the correction the review missed:
+  `blocked`, `transmission` and `moisture_source` are blind to a creature cell
+  by kind, but **`glow` and `beam` are `max`ed over every cell regardless of
+  kind** and answer zero only because no creature material sets either — so the
+  predicate is keyed on the emission, and a glowing creature drops out of the
+  skip instead of silently breaking it. Two settings on
+  `FIELD_CREATURE_WAKE`, both off: **`blocked`** (an inert write stops marking
+  `Chunk::stale_blocks`) is **bit-identical on both hashes**, under a two-sided
+  control — `antglow=2` with the sound predicate stays green and with the
+  kind-only predicate goes red, so the guard has been watched failing;
+  **`0`** also gates the solve set and is **not** bit-identical, and the reason
+  is not a channel reading a creature cell but the three momentum passes, which
+  run over that set (`FIELD_MOMENTUM=0` in both arms makes the hashes agree
+  exactly). Per-channel divergence against each settle epsilon is tabled, and
+  the velocity channels move by 70% of their own largest value — the air in a
+  sealed box was substantially the ants stirring it by walking, which is
+  `field.rs`'s own reverted momentum-subset finding arriving from the other
+  side. **The brief's falsifier fails and the reason is the halo**: the solve
+  set does not move by one tile (65.4 on, 65.4 off) because a 128-chunk lab bed
+  already solves ~65 for plants and sky, so every chunk an ant occupies is
+  inside the one-tile ring of a tile that was solving anyway. What ants do add
+  is block rescans, 45.9 → 63.3 a tick, of which the write gate recovers 2.6 —
+  **most of the field's response to a colony is charged to what the ants *do*,
+  not to where they are**, and no wake rule can reach a real occupancy change.
+  On the clock 52 ants cost the field 0.081 → 0.117 ms and the switches give
+  back 0.002 and 0.004, inside their own arms' spread: the counter says it
+  fired, the clock says it bought nothing. **Re-measures §8.3's own row and
+  does not reproduce it** — 1.44x for 52 ants, not 2.09x. Also builds the live
+  per-phase stopwatch (`PIXEL_PHYSICS_PHASE_CLOCK=1`, woven through
+  `sim::frame::step`, printed in the chronicle CENSUS row beside
+  `awake_chunks`), which answers #374's objection by being gated and is
+  bit-identical with no measurable cost against `origin/main` over six paired
+  reps. Filed §Z31 on the way, from a third gate that moved the field hash on a
+  bed with zero creatures in it.
+
+- [gpu-field-design-2026-09-19.md](gpu-field-design-2026-09-19.md) — **the GPU
+  field, priced and not built.** The review made it conditional on the field
+  exceeding about a third of the tick; the stopwatch says **20–21% at 52 ants**
+  and the switch above moves it by under a percent, so the condition fails by
+  ~1.6x. The note's argument is that **the share was never the deciding
+  number**. Two harder facts are: the readback is per tick and not optional
+  (the brain, `fire::try_ignite`, the plant economy and the renderer all read
+  the field on the CPU *in the tick it is solved*), and **the sleeping-tile
+  economy is the field's real optimisation and is exactly what a per-pixel
+  device cannot express** — a shader over 128 tiles against a CPU over 65 is a
+  2x handicap before the round trip, and the awake fraction is *lower* outdoors,
+  so the handicap worsens as the world grows. Also records that `PLAN.md`'s
+  *Simulation device* row does not actually cover this proposal (both its
+  reasons — no `rand()`, order-dependence — are about the CA grid, and the
+  field is an order-independent double-buffered Jacobi relaxation), names the
+  three determinism hazards that would have to be contracted away (`fma`
+  contraction, reduction order, denormal flushing against 0.001-scale settle
+  epsilons) and concludes a GPU field does not replace `field.rs` but sits
+  beside it as the oracle. Names the one-day experiment that could kill the
+  idea outright — a bare `wgpu` dispatch-and-map of the right size, no field
+  code — and says that on §8.3's own numbers **the pheromone planes, not the
+  field, are the pass with the right shape** for a device.
+
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled

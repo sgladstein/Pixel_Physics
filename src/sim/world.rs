@@ -8753,7 +8753,8 @@ impl World {
                 let cell = make(cy);
                 debug_assert_eq!(cell.material, material, "fill_run cells must share a material");
                 let old = chunk.get_world(x, cy);
-                chunk.set_world(x, cy, cell, reach, is_liquid);
+                let field_relevant = self.materials.field_relevant_write(old.material, cell.material);
+                chunk.set_world(x, cy, cell, reach, is_liquid, field_relevant);
                 written += 1;
                 if old.managed() || old.organism_id() != 0 || cell.organism_id() != 0 {
                     pending.push((cy, old, cell));
@@ -9189,7 +9190,17 @@ impl World {
         let is_liquid = self.materials.kind(cell.material) == MaterialKind::Liquid;
         let chunk = self.chunks.get_or_insert_with(coord, || Self::new_chunk(coord, self.sweep_rows_override));
         let old = chunk.get_world(x, y);
-        chunk.set_world(x, y, cell, reach, is_liquid);
+        // **Whether the field has anything to re-derive from this write.**
+        // `self.materials` and `self.chunks` are disjoint fields, so this
+        // reads the registry while `chunk` is still borrowed mutably. Here
+        // rather than inside `Chunk::set_world` because a `Chunk` has no
+        // registry to ask, and here rather than at the creature pass because
+        // this is the write seam every mover already goes through -- the same
+        // "an enumeration that has to stay complete is the failure mode this
+        // project keeps rediscovering" this function's other three hooks are
+        // placed for.
+        let field_relevant = self.materials.field_relevant_write(old.material, cell.material);
+        chunk.set_world(x, y, cell, reach, is_liquid, field_relevant);
         self.touch_neighbours(x, y, coord);
         old
     }
@@ -10850,7 +10861,8 @@ impl CellSurface for MoistureView<'_> {
             let old = self.chunk.get_world(x, y);
             let reach = self.world.materials.get(cell.material).sweep_reach();
             let is_liquid = self.world.materials.kind(cell.material) == MaterialKind::Liquid;
-            self.chunk.set_world(x, y, cell, reach, is_liquid);
+            let field_relevant = self.world.materials.field_relevant_write(old.material, cell.material);
+            self.chunk.set_world(x, y, cell, reach, is_liquid, field_relevant);
             // `touch_neighbours` skips the owning chunk, so every mark it
             // makes lands somewhere still resident and it can run now.
             self.world.touch_neighbours(x, y, self.coord);
