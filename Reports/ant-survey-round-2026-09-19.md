@@ -120,7 +120,13 @@ Recorded because the review is on `main` and will be read.
    twenty commits** (`TRAIL_A_RHO 0`). Land the split through #478, or
    through the trail session's own PR and let #478 shrink to Lane T's docs,
    write-backs and harness riders. The coordinator will not merge it without
-   that word.
+   that word. Two facts bear on it, both read at 21:39Z: the trail session
+   is **still running** on that branch (`nose fix tested; aiming circuit
+   next`, $1,035 to date, the owner's own web session), so #478 is a
+   snapshot of live work rather than a finished branch; and #478 went
+   `dirty` against `main` when #479 landed — `README.md` and
+   `Reports/open-bugs-handoff.md` conflict, the two most contested files in
+   the tree.
 2. **The nest site reach.** The blind A/B card is the first half of the
    decision whether `NEST_SITE_ROWS=40` ships as a value. Lane N's note says
    why it should and why it will not say so on its own.
