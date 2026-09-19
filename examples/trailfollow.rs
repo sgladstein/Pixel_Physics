@@ -1574,16 +1574,6 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         cdef.passes_through_kin = true;
         w.species.set_creature(species_id, cdef);
     }
-    // **`ladenpass` is the asymmetric form of the same rule** -- right of way
-    // to the laden only (`CreatureDef::laden_right_of_way`, Dussutour 2009).
-    // Refused together with `kinpass`, because the symmetric swap makes the
-    // predicate moot and the row would be `kinpass` wearing a second name.
-    if flag("ladenpass") {
-        assert!(!flag("kinpass"), "ladenpass with kinpass is the symmetric swap under another name -- run them as two rows");
-        let mut cdef = w.species.get(species_id).creature.clone().expect("ant is a creature");
-        cdef.laden_right_of_way = true;
-        w.species.set_creature(species_id, cdef);
-    }
     // **`homebias=` -- the fill-weighted homeward tumble, the arm §7.26
     // designed.** Refused when it matches the file, for the reason every
     // genome rider here is: a rider that silently re-authors the shipped value

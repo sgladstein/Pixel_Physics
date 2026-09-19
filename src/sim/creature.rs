@@ -13364,23 +13364,14 @@ fn body_has_foothold(world: &World, def: &CreatureDef, landing: &[(i32, i32)], h
 ///
 /// Returns the heading the mover should adopt, or `None` if no swap was made.
 fn try_swap_with_kin(world: &mut World, organism: OrganismId, def: &CreatureDef, chain: &[(i32, i32)], dirs: &[u8], hx: i32, hy: i32) -> Option<u8> {
-    if !def.passes_through_kin && !def.laden_right_of_way {
+    if !def.passes_through_kin {
         return None;
     }
-    // **The asymmetric rule: only a laden mover may displace, and only an
-    // unladen nestmate may be displaced** (`CreatureDef::laden_right_of_way`).
-    // `passes_through_kin` set alongside it makes the symmetric verb the
-    // shipped one and this predicate moot, so the two compose as a widening
-    // and never as a contradiction. Laden means the same thing `CarryingFood`
-    // and the `SPOIL_IS_CARGO` note mean by it: a crop with cells in it, or a
-    // spoil pellet in the jaws.
-    let laden_only = def.laden_right_of_way && !def.passes_through_kin;
-    let is_laden = |st: &organism::OrganismState| st.crop.is_some_and(|c| c.cells > 0) || st.spoil.is_some();
-    let (me_species, me_parted, me_laden) = {
+    let (me_species, me_parted) = {
         let st = world.organism(organism)?;
-        (st.species, !st.parted.is_empty(), is_laden(st))
+        (st.species, !st.parted.is_empty())
     };
-    if me_parted || (laden_only && !me_laden) {
+    if me_parted {
         return None;
     }
     // **A body that is riding cannot trade places.** The exchange below
@@ -13407,11 +13398,6 @@ fn try_swap_with_kin(world: &mut World, organism: OrganismId, def: &CreatureDef,
         // letting it reach across species would be a passability change to
         // every predator in the world rather than a colony one.
         if other_state.species != me_species || !other_state.parted.is_empty() {
-            continue;
-        }
-        // A laden nestmate has the same right of way the mover is claiming,
-        // so the two queue exactly as the shipped rule has them queue.
-        if laden_only && is_laden(other_state) {
             continue;
         }
         let theirs: Vec<(i32, i32)> = other_state.chain.clone();
