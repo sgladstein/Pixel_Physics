@@ -1256,7 +1256,7 @@ const FOOTING_MAX: f32 = 1.2;
 /// replaced: that literal was arbitrary, and it is the number that decides
 /// whether a creature commutes or mills. Handing it to the genome and
 /// letting measurement pick is the entire point of the change.
-const PERSIST_MAX: f32 = 2.0;
+pub const PERSIST_MAX: f32 = 2.0;
 
 // `TUMBLE_ON_FAILED_MOVE` is gone: it is `BrainOutput::Tumble` now. The
 // lesson it recorded still stands and is worth keeping — "how often do I
