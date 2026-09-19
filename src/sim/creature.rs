@@ -882,7 +882,10 @@ fn reconcile_chain(world: &mut World, organism: OrganismId) -> bool {
         // the dark end of the shade ramp -- a limb is poorer eating than a
         // fresh kill, and it should look it.
         let full = (body_energy + def_start_energy(world, organism)).max(1.0);
-        stamp_as_corpse(world, &severed, body_energy, full);
+        // The standing count is the death path's business; a severing books
+        // nothing either way, because a severed cell was already in `stamped`
+        // and is still worth exactly that.
+        stamp_as_corpse(world, organism, &severed, body_energy, full);
         world.creature_stats.severings += 1;
         world.creature_stats.severed_body_cells += severed.len() as u64;
     }
@@ -985,17 +988,58 @@ fn reconcile_chain(world: &mut World, organism: OrganismId) -> bool {
 ///
 /// Books nothing. The caller owns the ledger entry, because the two callers
 /// book differently and for good reasons: a death transfers the animal's
-/// remaining bank into meat, and a severing transfers nothing at all.
-fn stamp_as_corpse(world: &mut World, cells: &[(i32, i32)], worth: f32, full: f32) {
+/// remaining bank into meat, and a severing transfers nothing at all. It does
+/// return **how many of these cells are now standing as meat**, which the
+/// death path's booking needs and cannot work out for itself -- see
+/// [`place_corpse_beside`].
+///
+/// **`organism` is whose meat this is, and the whole rule for a position it
+/// does not own turns on it** (added 2026-09-19, closing two of §10's filed
+/// bugs at once because they are one rule):
+///
+/// * A **dying rider** stamped nothing at all. `creature_dies` filtered its
+///   corpse cells down to the grid-owned ones -- correctly, or a rider's death
+///   would bury its host -- and a rider owns none, so the owner's ruling
+///   (*first free neighbour, else suppressed*) was implemented for a dying
+///   owner and not for a dying rider. The meat simply was not there, and
+///   `corpses_suppressed`, the named-hole counter that exists so a leak
+///   correlated with the experimental arm cannot go unnamed, read 0 the whole
+///   time it happened.
+/// * A **severed ridden cell could overwrite the host.** `reconcile_chain`'s
+///   `surviving` keeps a ridden cell, so one can reach `severed` and arrive
+///   here, where `riders_at(cell).first()` may be **the severing animal
+///   itself** -- and the promotion branch below would then write that
+///   animal's own stored cell over its host's, which is the one failure the
+///   stacking design was built to prevent, reached down a path nobody walked.
+///
+/// The rule that closes both: **a body that does not own this cell in the
+/// world never writes it.** Its flesh was only ever in the rider index, so the
+/// meat goes beside, by the same ruling the promotion branch already follows,
+/// and the host is not touched.
+///
+/// A no-op below a stack cap of 1, structurally: a body owns every cell it
+/// stands in there, so the test cannot fail and the branch is unreachable.
+fn stamp_as_corpse(world: &mut World, organism: OrganismId, cells: &[(i32, i32)], worth: f32, full: f32) -> usize {
     let Some(corpse_id) = world.materials.id_of("corpse") else {
-        return;
+        return 0;
     };
     let aux = worth.round().clamp(0.0, u16::MAX as f32) as u16;
     let shades = world.materials.get(corpse_id).palette.len().max(1) as u32;
     let shade = ((worth / full).clamp(0.0, 1.0) * (shades - 1) as f32).round() as u8;
+    let mut standing = 0usize;
     for &(cx, cy) in cells.iter() {
         let temp = world.get(cx, cy).temperature();
         let corpse = Cell::new(corpse_id, shade).with_temperature(temp).with_aux(aux);
+        // **This body was riding here, not standing here.** See the doc above
+        // for the two bugs that share this branch. The registration goes with
+        // the flesh: `free_organism` and `reconcile_chain`'s abandoned-cell
+        // loop both also clear it, so this is the chokepoint being locally
+        // correct rather than the only thing keeping the index clean.
+        if world.get(cx, cy).organism_id() != organism {
+            world.remove_rider(cx, cy, organism);
+            standing += usize::from(place_corpse_beside(world, (cx, cy), corpse));
+            continue;
+        }
         // **Somebody else is standing here, so the cell is not free to become
         // meat** (`Reports/creature-stacking-design-2026-09-17.md` §5 step 4).
         // Hand it to the oldest rider and put the body down beside it.
@@ -1013,11 +1057,15 @@ fn stamp_as_corpse(world: &mut World, cells: &[(i32, i32)], worth: f32, full: f3
             Some(next) => {
                 world.remove_rider(cx, cy, next.organism);
                 world.set(cx, cy, next.cell);
-                place_corpse_beside(world, (cx, cy), corpse);
+                standing += usize::from(place_corpse_beside(world, (cx, cy), corpse));
             }
-            None => world.set(cx, cy, corpse),
+            None => {
+                world.set(cx, cy, corpse);
+                standing += 1;
+            }
         }
     }
+    standing
 }
 
 /// **Where a corpse goes when its own cell has been taken** -- the owner's
@@ -1034,16 +1082,26 @@ fn stamp_as_corpse(world: &mut World, cells: &[(i32, i32)], worth: f32, full: f3
 /// `NEIGHBOURS_8` order rather than nearest-first or a roll: it is a fixed
 /// array, so the choice is deterministic without a tie-break, which is what
 /// `PLAN.md`'s same-build replay requires.
-fn place_corpse_beside(world: &mut World, (cx, cy): (i32, i32), corpse: Cell) {
+///
+/// **Returns whether the meat is standing in the world**, because the caller
+/// has a ledger entry that depends on it and cannot otherwise tell: a
+/// suppressed corpse carries its worth into `corpse_worth_suppressed` and into
+/// nothing else, so crediting `Account::StoredInMeat` for it would claim meat
+/// that is not there. That is the direction that can take
+/// `EnergyLedger::max_standing_meat` *below* what is actually standing and turn
+/// `the_standing_meat_never_exceeds_what_was_put_into_it` red, which is why it
+/// is a return value rather than a thing the caller estimates.
+fn place_corpse_beside(world: &mut World, (cx, cy): (i32, i32), corpse: Cell) -> bool {
     for &(dx, dy) in NEIGHBOURS_8.iter() {
         let (nx, ny) = (cx + dx, cy + dy);
         if world.in_bounds(nx, ny) && world.is_empty(nx, ny) {
             world.set(nx, ny, corpse);
-            return;
+            return true;
         }
     }
     world.creature_stats.corpses_suppressed += 1;
     world.creature_stats.corpse_worth_suppressed += corpse.aux() as u64;
+    false
 }
 
 /// Energy cost to move into `target_material` at `(x, y)`, or `None` if
@@ -6142,6 +6200,18 @@ fn neediest_kin(world: &World, organism: OrganismId, head: (i32, i32), gut: Gut,
     let body: &[(i32, i32)] = world.organism(organism).map_or(&fallback[..], |s| &s.chain[..]);
     let mut best: Option<NeedyKin> = None;
     for (i, &(bx, by)) in body.iter().enumerate() {
+        // **Its own cells, which no ring walk in this engine looks at** --
+        // `NEIGHBOURS_8` has no `(0, 0)` in it, by design, because a body cell
+        // is not a neighbour of anything. That is exactly half of why a rider
+        // was invisible here; [`fold_ridden_kin`] has the other half.
+        //
+        // Unconditional, with no earlier-cells skip: a position folded twice
+        // yields the same candidate at the same deficit, and the strict `>`
+        // below keeps the first, so the fold is idempotent. There is no
+        // counter downstream of it -- which is the condition that made the
+        // identical duplicate in `adjacent_food_counted` a real bug, since
+        // `bites_refused` was being multiplied by body geometry there.
+        fold_ridden_kin(world, organism, (bx, by), gut, start_energy, &mut best);
         for &(dx, dy) in NEIGHBOURS_8.iter() {
             let (nx, ny) = (bx + dx, by + dy);
             // Same earlier-cells skip as `nearest_foe` and the food scan, for
@@ -6149,6 +6219,12 @@ fn neediest_kin(world: &World, organism: OrganismId, head: (i32, i32), gut: Gut,
             if body[..i].iter().any(|&(px, py)| (nx - px).abs() <= 1 && (ny - py).abs() <= 1) {
                 continue;
             }
+            // **Before the grid owner, so a co-located nestmate takes a tie.**
+            // Unreachable at the shipped cap, so this is a rule for a new case
+            // rather than a change to an old one, and it is the defensible way
+            // round: the animal in my own cell is the one the ring could never
+            // have offered me.
+            fold_ridden_kin(world, organism, (nx, ny), gut, start_energy, &mut best);
             let cell = world.get(nx, ny);
             let owner = cell.organism_id();
             // Somebody else's, never mine -- see `adjacent_food_counted`'s
@@ -6164,6 +6240,56 @@ fn neediest_kin(world: &World, organism: OrganismId, head: (i32, i32), gut: Gut,
         }
     }
     best
+}
+
+/// **Fold the creatures standing in `(nx, ny)` that the grid cannot see into
+/// a kin-need ranking** -- the rider half of every needy-nestmate walk.
+///
+/// **Two independent reasons a ring walk cannot find a rider on its own**, and
+/// closing only one of them would have left the hole exactly where it was
+/// (`Reports/creature-stacking-design-2026-09-17.md` §10): a cell reports its
+/// *owner's* `organism_id`, so everybody else standing in it is invisible to
+/// `World::get`, and `NEIGHBOURS_8` never contains `(0, 0)`, so the animal's
+/// own cell -- where a rider most often is -- is not looked at at all. So
+/// trophallaxis inside a stack could not happen, in the one place a colony
+/// most wants it.
+///
+/// **`nearest_foe` is deliberately left blind to the same thing.** That is not
+/// an oversight to copy across later: reading the cell owner and nobody else
+/// *is* the implementation of the owner's attack ruling -- *"you don't want one
+/// attack hitting 20 creatures at once"* -- so a strike lands on the creature
+/// on top and the identical blindness that is a bug here is the feature there.
+///
+/// **Free below a stack cap of 1, structurally rather than by luck**: nothing
+/// is ever inserted into the sparse index, so its table stays empty and
+/// `riders_at` is a length check. Deliberately *not* gated on
+/// `stack_cap() > 1`, for the reason §10 records for `cell_still_stands_for`,
+/// where that gate was proposed and refused -- it buys a branch that makes the
+/// armed and unarmed paths structurally different, which is the thing the
+/// cap-1 bit-identicality argument rests on.
+///
+/// Strictly greater, so a tie goes to the first rider seen at the lowest ring
+/// position -- the same rule both ring walks use among grid owners. `riders_at`
+/// is insertion-ordered, so that is a function of who arrived first rather than
+/// of a hash walk (`CLAUDE.md`'s tie-order entry).
+fn fold_ridden_kin(world: &World, organism: OrganismId, (nx, ny): (i32, i32), gut: Gut, start_energy: f32, best: &mut Option<NeedyKin>) {
+    for r in world.riders_at(nx, ny) {
+        // **Never itself**, which is the same exclusion `owner != organism`
+        // makes among grid owners and is reachable here in a way it is not
+        // there: this walk looks at the animal's own cells on purpose, and a
+        // riding animal is registered at every one of them. Without it an ant
+        // reads its own hunger as a nestmate's and shares with itself, which
+        // conserves energy perfectly and passes every conservation guard ever
+        // written -- see `adjacent_food_counted`'s note on the same trap.
+        if r.organism == organism || !is_living_kin_id(world, r.organism, gut) {
+            continue;
+        }
+        if let Some(deficit) = kin_deficit(world, r.organism, start_energy) {
+            if best.is_none_or(|b| deficit > b.deficit) {
+                *best = Some(NeedyKin { deficit, id: r.organism, x: nx, y: ny });
+            }
+        }
+    }
 }
 
 /// **An animal being bitten calls out**, on the alarm plane, at the cell that
@@ -6522,7 +6648,20 @@ fn founder_reserve(seed: u64, x: i32, index: i32, total: i32, spread: f32) -> f3
 /// What this still does *not* do is invent an aggression verb; the design
 /// that goes further is `Reports/creature-groups-and-combat-design-2026-09-06.md`.
 fn is_living_kin(world: &World, cell: Cell, gut: Gut) -> bool {
-    world.organism(cell.organism_id()).is_some_and(|s| {
+    is_living_kin_id(world, cell.organism_id(), gut)
+}
+
+/// The same question asked of an organism id rather than of a cell, **because
+/// a rider has no cell to ask it of**.
+///
+/// `is_living_kin` is the cell-shaped reader and stays the one every ring walk
+/// uses; this is the shape the stacking index answers in, where the only thing
+/// a co-located animal is known by is its id (`World::riders_at`). One body
+/// rather than two so the mouth cannot come to disagree with itself about who
+/// is family depending on whether the family member happens to own the cell it
+/// is standing in -- which is the whole defect §10's rider blindness was.
+fn is_living_kin_id(world: &World, id: OrganismId, gut: Gut) -> bool {
+    world.organism(id).is_some_and(|s| {
         (gut.crosses_kinds || s.species == gut.species) && scent_distance_sq(&scent_of(&expressed_traits(s, world.plasticity, world.trait_reach)), &gut.scent) <= gut.tolerance_sq
     })
 }
@@ -6759,6 +6898,27 @@ fn adjacent_food_counted(world: &World, organism: OrganismId, head: (i32, i32), 
     // scoring below keep their indentation and stay diffable.
     let fallback = [head];
     let body: &[(i32, i32)] = world.organism(organism).map_or(&fallback[..], |s| &s.chain[..]);
+    // **The eye has to see a rider too, and this is the half that decides
+    // whether the mouth is ever asked.** `neediest_kin` is `Share`'s target
+    // rule; this scan is `BrainInput::KinNeed`, and `ant.ron` authors
+    // `(Energy, Share, 2.5)` against `(Bias, Share, -2.5)` -- an exact
+    // cancellation at full energy, which is the species file's own words for
+    // *"`KinNeed` is the only input that can open the `Share` gate from
+    // outside the donor's own belly"*. So teaching the mouth about riders and
+    // leaving this blind is a lever that fires and moves nothing: measured, by
+    // putting exactly that arm back --
+    // `a_starving_rider_is_visible_to_the_verb_that_would_feed_it` asserts the
+    // urge is **exactly** 0.0 at a kin need of 0.0, so not one draw is taken
+    // and the target the mouth found is never requested.
+    //
+    // Own cells first and then the ring, which is the one place this walk's
+    // shape differs from `neediest_kin`'s interleaving. It cannot be observed:
+    // the only thing read out of this scan's `kin_need` is `deficit`, and a
+    // tie by definition agrees on that. `NeedyKin`'s position and id are read
+    // from the verb's own walk.
+    for &b in body.iter() {
+        fold_ridden_kin(world, organism, b, gut, start_energy, &mut kin_need);
+    }
     let ring = body
         .iter()
         .enumerate()
@@ -6767,6 +6927,7 @@ fn adjacent_food_counted(world: &World, organism: OrganismId, head: (i32, i32), 
         if body[..i].iter().any(|&(px, py)| (nx - px).abs() <= 1 && (ny - py).abs() <= 1) {
             continue;
         }
+        fold_ridden_kin(world, organism, (nx, ny), gut, start_energy, &mut kin_need);
         let cell = world.get(nx, ny);
         // **Past the mouth, the body reaches only for something alive that is
         // on it.** The first version let the whole body scan for anything
@@ -7709,6 +7870,15 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 did.shares += 1; // billed by `creature_tick`
                 world.creature_stats.shares += 1;
                 world.creature_stats.shared_j += amount as f64;
+                // **The share that could not have happened before**, told
+                // apart by how the recipient was found: a nestmate the grid
+                // names at that cell was always reachable, one the grid does
+                // not is a rider and arrived through [`fold_ridden_kin`].
+                // Structurally 0 at the shipped cap, so it is the sensitivity
+                // half of that change as well as its event count.
+                if world.get(kin.x, kin.y).organism_id() != kin.id {
+                    world.creature_stats.shares_in_stack += 1;
+                }
                 // **The one live-to-live flow in the engine, and the one
                 // that makes a per-colony ledger different from a copy of
                 // the world one.** World-wide it is invisible and rightly
@@ -13765,18 +13935,25 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
     // positions are in it too.** `relocate_chain` inserts them there
     // deliberately -- that is what keeps a rider alive through
     // `reconcile_chain`, which resolves a body against its own list rather
-    // than against the grid -- so filtering on `cells` alone would stamp
-    // corpse over cells this animal never owned and **delete the nestmate it
-    // was standing on**. The grid test is the ownership half, and the two
-    // together are "a cell that is mine, and mine in the world".
+    // than against the grid.
     //
-    // A no-op below a stack cap of 1, where a body owns every cell it
-    // stands in and the two tests cannot disagree.
-    let chain: Vec<(i32, i32)> = world
+    // **What is no longer done here is the grid-ownership filter, and that is
+    // the repair rather than a relaxation** (2026-09-19, §10's first filed
+    // bug). This used to drop every ridden position on the floor, which kept
+    // a rider's death from burying its host -- the only thing that mattered
+    // then -- and meant a dying rider left **no meat at all** while
+    // `corpses_suppressed` read 0. Both ends of the owner's corpse ruling now
+    // live at one chokepoint instead: `stamp_as_corpse` writes a cell it owns
+    // and puts a cell it was only riding *beside*, or counts it suppressed.
+    // So the list handed down is every cell of the body that is still real,
+    // owned or ridden, and it is `stamp_as_corpse` that knows the difference.
+    //
+    // At a stack cap of 1 this is the same list it always was: every `cells`
+    // entry arrives through the grid seam, so none of them can be ridden.
+    let remains: Vec<(i32, i32)> = world
         .organism(organism)
         .map(|s| s.chain.iter().copied().filter(|p| owned.contains_key(p)).collect())
         .unwrap_or_default();
-    let chain: Vec<(i32, i32)> = chain.into_iter().filter(|&(x, y)| world.get(x, y).organism_id() == organism).collect();
     // **What the meat is worth, written into the meat.** The structural
     // stamp the body was granted at spawn, plus whatever the animal had left
     // to spend, divided over the cells that are actually still standing --
@@ -13806,9 +13983,17 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
     // cells' stamps never become corpse either, and they are booked in
     // exactly the same account. Reads 0 for a starved animal, which is
     // every death in a colony scene with nothing biting anything.
-    world.energy_ledger.meat_lost += body_energy as f64 * (chain_before - chain.len()) as f64;
+    //
+    // **A ridden position is not one of them and used to be counted as one.**
+    // It is flesh that is about to become meat beside the cell, so booking it
+    // as destroyed was `meat_lost` claiming a sink for matter that is standing
+    // in the world -- and the divisor below was dividing the animal's worth
+    // over fewer cells than it actually has, making each remaining cell richer
+    // to compensate for the ones it had silently deleted. Both terms read
+    // `remains` now, so the two cannot disagree about how big the body was.
+    world.energy_ledger.meat_lost += body_energy as f64 * (chain_before - remains.len()) as f64;
     if world.materials.id_of("corpse").is_some() {
-        let cells = chain.len().max(1) as f32;
+        let cells = remains.len().max(1) as f32;
         let worth = (body_energy * cells + leftover) / cells;
         let aux = worth.round().clamp(0.0, u16::MAX as f32) as u16;
         // **Shade from worth, not from noise.** A fat corpse and a
@@ -13834,7 +14019,7 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
         // dead body are the same kind of meat, and pricing them by two
         // copies of this arithmetic is how they would come to differ.
         let full = (body_energy + def_start_energy(world, organism)).max(1.0);
-        stamp_as_corpse(world, &chain, worth, full);
+        let standing = stamp_as_corpse(world, organism, &remains, worth, full);
         // **A transfer, not a write-off**, and the account name is the
         // whole difference. `died_holding` said this energy was destroyed;
         // it is standing in the world as meat, and the census that says so
@@ -13842,8 +14027,16 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
         // free one §13l's pump ran on. Booked as the *quantised* total the
         // cells actually carry, not as `leftover` -- rounding to the u16 is
         // a real (sub-joule) loss and the identity has to see it.
-        let meat_written = aux as f64 * chain.len() as f64;
-        let from_stamp = body_energy as f64 * chain.len() as f64;
+        // **The cells that are actually standing, not the cells that were
+        // offered a place.** A corpse with nowhere to go is suppressed and
+        // counted, and crediting `StoredInMeat` for it would claim meat that
+        // is not in the world -- which pushes `max_standing_meat` *down* and
+        // is the one direction that can take
+        // `the_standing_meat_never_exceeds_what_was_put_into_it` red. The
+        // difference exists at cap 1 too, through the promotion branch, and
+        // was silently absorbed into the slack until now.
+        let meat_written = aux as f64 * standing as f64;
+        let from_stamp = body_energy as f64 * standing as f64;
         let from_live = (meat_written - from_stamp).clamp(0.0, leftover as f64);
         world.book(colony, Account::StoredInMeat, from_live);
         world.book(colony, Account::Dissipated, leftover as f64 - from_live);
@@ -13878,7 +14071,7 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
     // comes back, and an animal that starves mid-haul must not be a way for a
     // cell to leave the world. Ahead of the crop below, because there is only
     // ever one of these and it should get the nearest opening.
-    if let (Some(spoil), Some(&(cx, cy))) = (world.organism(organism).and_then(|s| s.spoil), chain.last()) {
+    if let (Some(spoil), Some(&(cx, cy))) = (world.organism(organism).and_then(|s| s.spoil), remains.last()) {
         // **Two rings, not one, and the second is the difference between a
         // sink and a rounding error.** The corpse loop above has just filled
         // this animal's own cells, so a death in a tight gallery can have no
@@ -13908,7 +14101,7 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
             state.spoil = None;
         }
     }
-    if let (Some(held), Some(&(cx, cy))) = (held, chain.last()) {
+    if let (Some(held), Some(&(cx, cy))) = (held, remains.last()) {
         let unit = held.unit_cell(quantise_worth);
         // **A2 -- an ant that dies mid-carry still delivers**, on the same
         // "put down where it fell" rule the rest of this spill already
@@ -15678,6 +15871,23 @@ mod tests {
         }
         no_body_claims_a_cell_the_world_disowns(&armed, "armed");
 
+        // **Trophallaxis reaches inside the stack** -- the event count for
+        // §10's rider-blindness repair, read from *this* run rather than
+        // against the trunk. A paired `shares` reading cannot answer it: the
+        // first stacked tick moves a draw, so the two arms are different
+        // worlds by the next frame, and over six seeds `shares` went 193.3 to
+        // 206.5 -- inside the 169-213 spread of the unfixed arm alone.
+        // `shares_in_stack` needs no second world, because before the repair
+        // there was no path to a rider at all. Measured here: **47**, against
+        // **0** on the unarmed arm below.
+        assert!(
+            armed.creature_stats.shares_in_stack > 0,
+            "not one share reached a nestmate the grid cannot see, in {FRAMES} frames of a colony that stacked {} times -- \
+             the kin walks are reading the grid again (shares {} total)",
+            armed.creature_stats.stacks_entered,
+            armed.creature_stats.shares
+        );
+
         let (mut off, low_off) = colony_bed();
         assert_eq!(off.stack_cap(), 1, "the unarmed arm must run the shipped cap");
         crowded_colony(&mut off, low_off);
@@ -15686,6 +15896,16 @@ mod tests {
         assert_eq!(
             off.creature_stats.stacks_entered, 0,
             "a stack was entered at cap 1 -- the armed arm was not measuring the cap"
+        );
+        // The specificity half of the counter above, and the one that makes it
+        // readable as a "did it fire" number: with no riders anywhere there is
+        // no such share to count, so a non-zero reading here would mean it is
+        // counting something else. `shares` itself stays busy (216 at this
+        // seed), so this is not a bed where nothing shares.
+        assert_eq!(
+            off.creature_stats.shares_in_stack, 0,
+            "a share reached a rider at cap 1, where there are none: the counter is counting ordinary shares too (shares {})",
+            off.creature_stats.shares
         );
         // The specificity half: the same invariant on the arm where riders do
         // not exist. It cannot fail there, and a version of it that did would
@@ -18194,6 +18414,214 @@ mod tests {
         assert_eq!(w.get(at2.0, at2.1).organism_id(), rider2, "and the survivor now owns the cell");
     }
 
+    /// **A handover always changes the cell's owner, whatever cell the rider
+    /// was holding** -- §10's fourth item, which is a *class* of defect rather
+    /// than the one path that reached it.
+    ///
+    /// The defect as measured: an animal left owning a grid cell that is not
+    /// in its chain, with no rider standing there. `creature_biomass` sums
+    /// `cells.len()`, so it over-reports for the rest of that animal's life,
+    /// and a colony reads as gaining biomass in a sealed box -- the one thing
+    /// `a_sealed_colony_never_grows_its_own_biomass` exists to forbid.
+    ///
+    /// **The mechanism, traced rather than argued.** `reindex_organism_cell`
+    /// prunes `cells` only when a cell's `organism_id` *changes*, so a
+    /// promotion that writes a cell already carrying the outgoing owner's id
+    /// is invisible to it: the owner keeps the entry and its chain walks on.
+    /// Reinstating `relocate_chain`'s pre-fix `carried` read -- which let a
+    /// rider store its *host's* cell as its own -- puts it back on the
+    /// crowded-colony bed at **frame 35**: organism 41 owning `(219,119)`
+    /// outside chain `[(221,119),(220,119)]` with riders 0, and organism 49 in
+    /// the same state. That is the shape the report recorded (organism 1,
+    /// chain `[(9,119),(9,118)]`, a third cell at `(5,117)`), and no other
+    /// path in the engine reaches it: with that read restored the whole
+    /// 1,860-test lib suite, the worldgen and determinism suites, and 40,000
+    /// frames of the bed at the shipped cap are clean under the same check.
+    ///
+    /// **So this test is over the seam, not over that caller.** It hands
+    /// `add_rider` exactly the cell the old bug produced -- the host's own --
+    /// and requires the handover to work anyway. Drop
+    /// `cell.with_organism_id(id)` from `World::add_rider` and it goes red on
+    /// the first assertion -- *"the cell still reads as the dead animal's"* --
+    /// which is the id-preserving write the whole mechanism turns on.
+    #[test]
+    fn a_promoted_rider_takes_the_cell_even_holding_its_hosts_body() {
+        let mut w = test_world();
+        w.set_stack_cap(20);
+        let (host, rider) = share_pair(&mut w, "ant", 100, 108, 119);
+        for id in [host, rider] {
+            if let Some(st) = w.organism_mut(id) {
+                st.colony = 7;
+            }
+        }
+        let cell = w.organism(host).unwrap().chain[0];
+
+        // **The wrong cell on purpose**: the host's, which is what a rider
+        // reading its appearance off a grid cell it does not own came away
+        // with. The caller that did this is fixed; the seam must not depend on
+        // that.
+        let hosts_own = w.get(cell.0, cell.1);
+        assert_eq!(hosts_own.organism_id(), host, "test setup: that is not the host's cell");
+        // Vacate where the rider was spawned first: the last assertion below
+        // is the general invariant, and a body left standing in two places at
+        // once would satisfy it for a reason this test is not about.
+        for p in w.organism(rider).unwrap().chain.clone() {
+            if w.get(p.0, p.1).organism_id() == rider {
+                w.set(p.0, p.1, Cell::EMPTY);
+            }
+        }
+        w.add_rider(cell.0, cell.1, rider, hosts_own);
+        if let Some(st) = w.organism_mut(rider) {
+            st.cells.insert(cell, organism::OrganismCell::default());
+            st.chain = vec![cell];
+        }
+
+        creature_dies(&mut w, host, organism::DeathCause::Starved);
+
+        assert_eq!(
+            w.get(cell.0, cell.1).organism_id(),
+            rider,
+            "the promotion did not change hands: the cell still reads as the dead animal's, so nothing pruned its body record"
+        );
+        assert!(
+            w.organism(rider).is_some_and(|st| st.cells.contains_key(&cell)),
+            "the promoted rider does not carry the cell it was just given"
+        );
+        // And the general invariant, which is what the symptom was: nobody
+        // owns a grid cell outside its own chain.
+        for id in w.live_organism_ids() {
+            let Some(st) = w.organism(id) else { continue };
+            if st.chain.is_empty() {
+                continue;
+            }
+            for p in st.cells.keys() {
+                assert!(
+                    w.get(p.0, p.1).organism_id() != id || st.chain.contains(p),
+                    "organism {id} owns {p:?} on the grid and does not carry it in its chain {:?}",
+                    st.chain
+                );
+            }
+        }
+    }
+
+    /// **Trophallaxis reaches inside a stack** -- the hole §10 filed at the
+    /// owner's request, and both halves of it, because closing either one
+    /// alone leaves the verb exactly as dead as it was.
+    ///
+    /// The scene is the case the owner named as *"the place it would matter
+    /// most"*: three ants in one cell, a full host that owns it, a full donor
+    /// riding, and a starving third animal riding beside them. Nothing else
+    /// is within reach of anything.
+    ///
+    /// **The mouth** (`neediest_kin`) could not see the starving rider for two
+    /// independent reasons -- `NEIGHBOURS_8` has no `(0, 0)` and a cell reports
+    /// its owner's id -- so `Share` would have fed the *host*, which is full.
+    ///
+    /// **And the eye is the half that makes the mouth reachable at all**, which
+    /// is why this test evaluates the real genome rather than stopping at the
+    /// target. `ant.ron` authors `(Energy, Share, 2.5)` against
+    /// `(Bias, Share, -2.5)`, an exact cancellation at full energy, so
+    /// **`KinNeed` is the only input that can open the `Share` gate from
+    /// outside the donor's own belly** -- the species file says so in those
+    /// words. `BrainInput::KinNeed` comes from `adjacent_food_counted`'s scan,
+    /// not from `neediest_kin`, and it was blind to a rider in the same two
+    /// ways. So the last two assertions are the measurement that made fixing
+    /// the eye part of fixing the mouth: at the deficit the fixed eye reports
+    /// the urge is positive, and at the `0.0` the old eye reported it is
+    /// **exactly** zero and no draw is ever taken. A mouth that can see a
+    /// nestmate it will never be asked about is `CLAUDE.md`'s lever that
+    /// fires and moves nothing.
+    #[test]
+    fn a_starving_rider_is_visible_to_the_verb_that_would_feed_it() {
+        let mut w = test_world();
+        w.set_stack_cap(20);
+        // Three ants: `host` owns the cell, `donor` and `hungry` ride it. The
+        // spare pair comes from `share_pair` only for its floor and its
+        // spawning; they are lifted into the shared cell below.
+        let (host, donor) = share_pair(&mut w, "ant", 100, 108, 119);
+        let hungry = spawn(&mut w, "ant", 116, 119);
+        assert_ne!(hungry, 0, "test setup: the third ant was not placed");
+        for id in [host, donor, hungry] {
+            if let Some(st) = w.organism_mut(id) {
+                st.colony = 7;
+            }
+        }
+        let def = def_of(&w, "ant");
+        let cell = w.organism(host).unwrap().chain[0];
+
+        // Stand both riders in the host's cell the way `relocate_chain` does:
+        // the index entry AND the body record. Either alone is a ghost.
+        for id in [donor, hungry] {
+            let body = w.get(w.organism(id).unwrap().chain[0].0, w.organism(id).unwrap().chain[0].1);
+            // Clear the cells this animal owned out in the open, so the only
+            // place it stands is the shared one -- otherwise its old body is
+            // still adjacent to something and the scene is not a pure stack.
+            for p in w.organism(id).unwrap().chain.clone() {
+                if w.get(p.0, p.1).organism_id() == id {
+                    w.set(p.0, p.1, Cell::EMPTY);
+                }
+            }
+            w.add_rider(cell.0, cell.1, id, body);
+            if let Some(st) = w.organism_mut(id) {
+                st.cells.insert(cell, organism::OrganismCell::default());
+                st.chain = vec![cell];
+            }
+        }
+        assert_eq!(w.get(cell.0, cell.1).organism_id(), host, "test setup: the host still owns the grid cell");
+        assert_eq!(w.riders_at(cell.0, cell.1).len(), 2, "test setup: two riders in the cell");
+
+        // The host is full, so it is the *wrong* answer and reads a deficit of
+        // zero; the starving rider is the right one. Without that contrast a
+        // scan that returned whichever kin it met first would pass.
+        if let Some(st) = w.organism_mut(host) {
+            st.energy = def.start_energy;
+        }
+        if let Some(st) = w.organism_mut(donor) {
+            st.energy = def.start_energy;
+        }
+        if let Some(st) = w.organism_mut(hungry) {
+            st.energy = def.start_energy * 0.05;
+        }
+
+        let gut = gut_of(&w, donor, &def);
+        let found = neediest_kin(&w, donor, cell, gut, def.start_energy).expect(
+            "the donor found nobody to feed while standing in a cell with two nestmates in it -- `neediest_kin` is still reading only the grid",
+        );
+        assert_eq!(
+            found.id, hungry,
+            "the donor aimed at organism {} rather than at the starving rider; the host is full, so this is a share that moves nothing",
+            found.id
+        );
+
+        // --- the eye, which is the gate ---------------------------------
+        let (inputs, ..) = sense(&w, cell.0, cell.1, donor, w.organism(donor).unwrap().heading, &def);
+        let need = inputs[brain::BrainInput::KinNeed as usize];
+        assert!(
+            need > 0.9,
+            "the donor's own senses read {need} kin need while a nestmate at 5% of full was standing in its cell -- the scan that feeds `BrainInput::KinNeed` is still blind to riders"
+        );
+
+        let genome = w.species.get(w.organism(donor).unwrap().species).genome.clone();
+        let mut state = [0.0f32; brain::BRAIN_HIDDEN];
+        let (outputs, _) = brain::eval_brain(&genome, &inputs, &mut state);
+        assert!(
+            outputs[brain::BrainOutput::Share as usize] > 0.0,
+            "the urge is {} at a kin need of {need}: the mouth can see the starving rider and the brain will never ask it about one",
+            outputs[brain::BrainOutput::Share as usize]
+        );
+
+        // The negative control, and the reason the eye had to move with the
+        // mouth: this is the input the old scan produced in this exact scene.
+        let mut blind = inputs;
+        blind[brain::BrainInput::KinNeed as usize] = 0.0;
+        let mut state = [0.0f32; brain::BRAIN_HIDDEN];
+        let (outputs, _) = brain::eval_brain(&genome, &blind, &mut state);
+        assert_eq!(
+            outputs[brain::BrainOutput::Share as usize], 0.0,
+            "the gate is open at zero kin need, so this test is not measuring what it claims: `(Energy, Share)` and `(Bias, Share)` no longer cancel"
+        );
+    }
+
     /// **A dying rider does not stamp corpse over the animal it was standing
     /// on** -- the delete-the-owner hazard in its third disguise.
     ///
@@ -18234,6 +18662,375 @@ mod tests {
             "the rider's corpse was written over its host -- `cells` was trusted without the grid ownership test"
         );
         assert_eq!(w.get(cell.0, cell.1).organism_id(), owner, "the host must still own its own cell");
+    }
+
+    /// **A pile that starves leaves a graded amount of meat** -- the first of
+    /// this repo's two laws, applied to the corpse rule rather than asserted
+    /// about it.
+    ///
+    /// Before the rider corpse repair a twenty-deep pile that starved left
+    /// **one** body, the cell owner's, and nineteen animals' worth of flesh
+    /// simply was not there -- with `corpses_suppressed` reading 0, so nothing
+    /// said so either. That is the binary outcome `CLAUDE.md` names as a
+    /// defect in its own right: *"a plant that is either thriving or gone, a
+    /// pool that is either full or empty"*.
+    ///
+    /// What it leaves now is a distribution, and the shape is a consequence
+    /// rather than a rule: every rider in the cell scans the *same* eight
+    /// neighbours, so the first few find ground and the rest find the meat of
+    /// the ones before them. So a deep pile puts **some** of itself down and
+    /// **names the rest as lost** — which is the owner's ruling exactly, and
+    /// the reason the ruling needed a counter attached.
+    ///
+    /// The assertions are over the shape, not over the arithmetic of one
+    /// scene: strictly more than the one corpse the old rule left, strictly
+    /// fewer than one per animal, and the difference accounted for rather than
+    /// missing. A test pinned to the exact split would break on any change to
+    /// `NEIGHBOURS_8` order or to the bed, and would be measuring the bed.
+    #[test]
+    fn a_starving_pile_puts_some_of_itself_down_and_counts_the_rest() {
+        const DEEP: usize = 12;
+
+        let mut w = test_world();
+        w.set_stack_cap(20);
+        let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
+        for x in 88..150 {
+            w.set(x, 120, Cell::new(floor, 0).with_attached(true));
+        }
+        // One owner and DEEP-1 riders, all in one cell, all of one colony.
+        //
+        // **Every animal is cut to one cell, the owner included**, so the meat
+        // arithmetic below is over animals rather than over body plans: a
+        // `Chain(2)` owner would leave two corpse cells and the total would be
+        // `DEEP + 1`, which reads as a leak until you notice why.
+        let owner = spawn(&mut w, "ant", 100, 119);
+        assert_ne!(owner, 0, "test setup: the owner did not spawn");
+        let cell = w.organism(owner).unwrap().chain[0];
+        for p in w.organism(owner).unwrap().chain.clone() {
+            if p != cell && w.get(p.0, p.1).organism_id() == owner {
+                w.set(p.0, p.1, Cell::EMPTY);
+            }
+        }
+        if let Some(st) = w.organism_mut(owner) {
+            st.chain = vec![cell];
+        }
+        let mut pile = vec![owner];
+        for i in 1..DEEP {
+            let id = spawn(&mut w, "ant", 110 + i as i32 * 3, 119);
+            assert_ne!(id, 0, "test setup: only {i} of {DEEP} animals placed");
+            let body = w.get(w.organism(id).unwrap().chain[0].0, w.organism(id).unwrap().chain[0].1);
+            for p in w.organism(id).unwrap().chain.clone() {
+                if w.get(p.0, p.1).organism_id() == id {
+                    w.set(p.0, p.1, Cell::EMPTY);
+                }
+            }
+            w.add_rider(cell.0, cell.1, id, body);
+            if let Some(st) = w.organism_mut(id) {
+                st.cells.insert(cell, organism::OrganismCell::default());
+                st.chain = vec![cell];
+            }
+            pile.push(id);
+        }
+        for &id in &pile {
+            if let Some(st) = w.organism_mut(id) {
+                st.colony = 7;
+            }
+        }
+        assert_eq!(w.riders_at(cell.0, cell.1).len(), DEEP - 1, "test setup: the pile is not {DEEP} deep");
+
+        let corpse_id = w.materials.id_of("corpse").expect("corpse ships");
+        let before = w.creature_stats.corpses_suppressed;
+        // The whole pile starves, riders first, so the owner's own handover has
+        // nobody left to hand to -- the order a famine would produce.
+        for &id in pile.iter().skip(1) {
+            creature_dies(&mut w, id, organism::DeathCause::Starved);
+        }
+        creature_dies(&mut w, owner, organism::DeathCause::Starved);
+
+        let standing = (88..150)
+            .flat_map(|x| (100..121).map(move |y| (x, y)))
+            .filter(|&(x, y)| w.get(x, y).material == corpse_id)
+            .count();
+        let suppressed = (w.creature_stats.corpses_suppressed - before) as usize;
+
+        assert!(
+            standing > 1,
+            "a {DEEP}-deep pile starved and left {standing} body/bodies -- the old rule left exactly the owner's, and the rest of the flesh is gone"
+        );
+        assert!(
+            standing < DEEP,
+            "every one of {DEEP} animals in one cell found ground for its body: {standing} standing. \
+             There are only eight neighbours, so this is not a graded outcome, it is a leak somewhere else"
+        );
+        assert_eq!(
+            standing + suppressed,
+            DEEP,
+            "the pile was {DEEP} animals and the meat adds up to {}: {standing} standing, {suppressed} counted as suppressed. \
+             Whatever the difference is, it left the world unnamed",
+            standing + suppressed
+        );
+        assert!(
+            w.creature_stats.corpse_worth_suppressed > 0,
+            "{suppressed} corpses were suppressed and their worth summed to 0 -- the count says how often, only the worth says how much"
+        );
+    }
+
+    /// **Severing a ridden cell does not overwrite the host** -- §10's second
+    /// filed bug, which was filed *without* a reproduction and is reproduced
+    /// here.
+    ///
+    /// It is the one failure the stacking design was built to prevent,
+    /// arriving down a path nobody walked. `reconcile_chain`'s `surviving`
+    /// keeps a ridden cell, because `cell_still_stands_for` says a nestmate's
+    /// cell is somewhere this body may legitimately be. So a ridden cell can
+    /// fall out of the 8-connected component, land in `severed`, and reach
+    /// `stamp_as_corpse` -- where `riders_at(cell).first()` is **the severing
+    /// animal itself**, and the promotion branch would hand it the cell it was
+    /// only borrowing, writing its own stored body over its host's.
+    ///
+    /// **The scene the report said it needed: a multi-cell ant losing a
+    /// segment while riding.** A `Chain(6)` standing in a row with its tail
+    /// cell inside a nestmate, bitten through the middle. The tail half
+    /// disconnects from the head, so the tail *and the ridden cell* are
+    /// severed together -- which is the only way to reach the branch, since a
+    /// body that keeps its ridden cell attached never severs it.
+    ///
+    /// Four assertions, because three of them can pass for the wrong reason:
+    /// the host keeps its cell (the bug), the severing actually happened (a
+    /// scene where nothing severs would satisfy the first for free), the
+    /// severed flesh is accounted for rather than merely not written (a fix
+    /// that dropped the cell silently would also keep the host), and no body
+    /// is left owning a cell outside its chain (the state the overwrite
+    /// leaves behind, and the shape of the separate defect below).
+    #[test]
+    fn severing_a_ridden_cell_leaves_the_host_holding_it() {
+        let mut w = test_world();
+        w.set_stack_cap(20);
+        let y = 119;
+        let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
+        for x in 95..120 {
+            w.set(x, y + 1, Cell::new(floor, 0).with_attached(true));
+        }
+
+        // A six-cell body in a row: head at 110, tail at 105.
+        let rider = spawn(&mut w, "ant_long", 110, y);
+        assert_ne!(rider, 0, "test setup: `ant_long` did not spawn");
+        assert_eq!(w.organism(rider).unwrap().chain.len(), 6, "test setup: this reproduction needs a six-cell body");
+        let tail = *w.organism(rider).unwrap().chain.last().unwrap();
+        let body = w.get(tail.0, tail.1);
+
+        // Vacate the tail cell and put a nestmate in it, so the long body's
+        // last chain position is one it **rides** rather than owns -- which is
+        // exactly §2c's worked case: a long body owning five cells and riding
+        // at the sixth.
+        w.set(tail.0, tail.1, Cell::EMPTY);
+        let host = spawn(&mut w, "ant", tail.0, y);
+        assert_ne!(host, 0, "test setup: the host did not spawn into the vacated tail cell");
+        assert_eq!(w.get(tail.0, tail.1).organism_id(), host, "test setup: the host owns the tail cell");
+        for id in [rider, host] {
+            if let Some(st) = w.organism_mut(id) {
+                st.colony = 7; // `cell_still_stands_for` needs one shared, non-zero label
+            }
+        }
+        w.add_rider(tail.0, tail.1, rider, body);
+        if let Some(st) = w.organism_mut(rider) {
+            st.cells.insert(tail, organism::OrganismCell::default());
+        }
+        assert!(cell_still_stands_for(&w, tail, rider), "test setup: the rider does not read its ridden cell as somewhere it may be");
+        let host_cell = w.get(tail.0, tail.1);
+
+        // The bite: a middle cell taken, which is how every severing in this
+        // engine begins. Two cells behind the head, so the tail half -- the
+        // owned cell at 106 and the ridden one at 105 -- comes off together.
+        let bitten = w.organism(rider).unwrap().chain[3];
+        w.set(bitten.0, bitten.1, Cell::EMPTY);
+        let severings_before = w.creature_stats.severings;
+        let suppressed_before = w.creature_stats.corpses_suppressed;
+
+        assert!(reconcile_chain(&mut w, rider), "the rider died of a bite to the middle; this scene is about an injury");
+
+        assert_eq!(
+            w.creature_stats.severings,
+            severings_before + 1,
+            "nothing severed, so the host keeping its cell says nothing at all"
+        );
+        assert_eq!(
+            w.get(tail.0, tail.1).organism_id(),
+            host,
+            "the severing animal took its host's cell on the way out -- `stamp_as_corpse` promoted the rider into the cell it was riding"
+        );
+        assert_eq!(w.get(tail.0, tail.1).material, host_cell.material, "the host's cell was overwritten");
+        assert!(
+            w.organism(host).is_some_and(|st| st.chain.contains(&tail)),
+            "the host is no longer standing in its own head cell"
+        );
+        // The severed flesh is either on the ground or counted, never neither:
+        // the same graded rule the dying rider follows.
+        let corpse_id = w.materials.id_of("corpse").expect("corpse ships");
+        let beside = NEIGHBOURS_8.iter().any(|&(dx, dy)| w.get(tail.0 + dx, tail.1 + dy).material == corpse_id);
+        assert!(
+            beside || w.creature_stats.corpses_suppressed > suppressed_before,
+            "the ridden cell's flesh was neither laid beside the cell nor counted as suppressed"
+        );
+        // And nothing is left holding a cell the world gave to somebody else,
+        // nor one outside its own chain.
+        for id in [rider, host] {
+            let Some(st) = w.organism(id) else { continue };
+            for p in st.cells.keys() {
+                let owner = w.get(p.0, p.1).organism_id();
+                assert!(
+                    owner == id || w.riders_at(p.0, p.1).iter().any(|r| r.organism == id),
+                    "organism {id} claims {p:?}, which the world says belongs to {owner}"
+                );
+                assert!(
+                    owner != id || st.chain.contains(p),
+                    "organism {id} owns {p:?} on the grid and does not carry it in its chain: {:?}",
+                    st.chain
+                );
+            }
+        }
+    }
+
+    /// **A dying rider leaves meat on the ground, and when there is nowhere
+    /// to put it, says so** -- §10's first filed bug, fixed 2026-09-19.
+    ///
+    /// The ruling is the same one a dying *owner* has followed since it was
+    /// given: *"it goes to the first free neighbour and if there are no free
+    /// neighbours then the corpse is suppressed."* A rider got neither half.
+    /// `creature_dies` filtered its corpse cells to the grid-owned ones, and a
+    /// rider owns none, so its flesh was deleted in silence -- with
+    /// `corpses_suppressed`, the counter that exists precisely so a leak
+    /// correlated with the experimental arm cannot go unnamed, reading 0
+    /// throughout.
+    ///
+    /// **The body is deliberately half riding and half standing**, which is the
+    /// real shape rather than the convenient one: §2c's worked example is a
+    /// `Chain(6)` owning five cells and riding at the sixth, and it is the
+    /// mixed case that can get the arithmetic wrong. So the third assertion is
+    /// over the **divisor**: an animal's worth is spread over the cells it
+    /// actually has, and dropping the ridden one used to make every surviving
+    /// corpse cell richer to make up for meat that had been deleted. Both
+    /// cells must carry the same `aux`, and it must be the two-cell figure.
+    ///
+    /// Put either half of the fix back -- the grid-ownership filter in
+    /// `creature_dies`, or `stamp_as_corpse`'s not-mine branch -- and this goes
+    /// red. `a_dying_rider_does_not_bury_its_host` is the other side of it and
+    /// must stay green: *beside* is the whole point, and *over the host* is
+    /// still forbidden.
+    #[test]
+    fn a_dying_rider_leaves_its_meat_beside_the_cell_or_counts_it_lost() {
+        // --- there is room: the meat lands beside, and the host is untouched
+        let mut w = test_world();
+        w.set_stack_cap(20);
+        let (host, rider) = share_pair(&mut w, "ant", 100, 108, 119);
+        for id in [host, rider] {
+            if let Some(st) = w.organism_mut(id) {
+                st.colony = 7;
+            }
+        }
+        let def = def_of(&w, "ant");
+        let shared = w.organism(host).unwrap().chain[0];
+        let own = (shared.0 + 1, shared.1);
+        let corpse_id = w.materials.id_of("corpse").expect("corpse ships");
+
+        // Stand the rider half in the host's cell and half on its own ground:
+        // clear where it was spawned, take `own` through the grid seam the way
+        // any body cell arrives, and ride `shared` the way `relocate_chain`
+        // does -- the index entry and the body record together.
+        let body = w.get(w.organism(rider).unwrap().chain[0].0, w.organism(rider).unwrap().chain[0].1);
+        for p in w.organism(rider).unwrap().chain.clone() {
+            if w.get(p.0, p.1).organism_id() == rider {
+                w.set(p.0, p.1, Cell::EMPTY);
+            }
+        }
+        w.set(own.0, own.1, body);
+        w.add_rider(shared.0, shared.1, rider, body);
+        if let Some(st) = w.organism_mut(rider) {
+            st.cells.insert(shared, organism::OrganismCell::default());
+            st.chain = vec![shared, own];
+            st.energy = 0.0; // starved: the worth below is the stamp alone
+        }
+        assert_eq!(w.get(shared.0, shared.1).organism_id(), host, "test setup: the host owns the shared cell");
+        assert_eq!(w.get(own.0, own.1).organism_id(), rider, "test setup: the rider owns its other cell");
+        let host_material = w.get(shared.0, shared.1).material;
+        let suppressed_before = w.creature_stats.corpses_suppressed;
+
+        creature_dies(&mut w, rider, organism::DeathCause::Starved);
+
+        assert_eq!(w.get(shared.0, shared.1).material, host_material, "the rider's corpse was written over its host");
+        assert_eq!(w.get(shared.0, shared.1).organism_id(), host, "the host must still own its own cell");
+        assert_eq!(w.get(own.0, own.1).material, corpse_id, "the cell the rider did own was not stamped");
+        // `NEIGHBOURS_8` is a fixed array, so where it goes is not a guess:
+        // `(-1, -1)` is the first free cell around the shared one, the air
+        // above the host's trailing segment.
+        let beside: Vec<(i32, i32)> = NEIGHBOURS_8
+            .iter()
+            .map(|&(dx, dy)| (shared.0 + dx, shared.1 + dy))
+            .filter(|&(nx, ny)| (nx, ny) != own && w.get(nx, ny).material == corpse_id)
+            .collect();
+        assert_eq!(
+            beside.len(),
+            1,
+            "the ridden cell's meat is not on the ground beside it: {beside:?} (suppressed {})",
+            w.creature_stats.corpses_suppressed - suppressed_before
+        );
+        assert_eq!(
+            w.creature_stats.corpses_suppressed, suppressed_before,
+            "the corpse was counted as suppressed while there was a free neighbour to put it in"
+        );
+        // The divisor: a two-cell body's worth over two cells, both alike.
+        let expected = (def.body_energy * 2.0 / 2.0).round() as u16;
+        assert_eq!(w.get(own.0, own.1).aux(), expected, "the owned cell's worth is not the two-cell figure -- the divisor lost the ridden cell");
+        assert_eq!(w.get(beside[0].0, beside[0].1).aux(), expected, "the two halves of one body are priced differently");
+
+        // --- there is no room: the meat is destroyed and the counter says so
+        let mut w = test_world();
+        w.set_stack_cap(20);
+        let (host, rider) = share_pair(&mut w, "ant", 100, 108, 119);
+        for id in [host, rider] {
+            if let Some(st) = w.organism_mut(id) {
+                st.colony = 7;
+            }
+        }
+        let shared = w.organism(host).unwrap().chain[0];
+        let body = w.get(w.organism(rider).unwrap().chain[0].0, w.organism(rider).unwrap().chain[0].1);
+        for p in w.organism(rider).unwrap().chain.clone() {
+            if w.get(p.0, p.1).organism_id() == rider {
+                w.set(p.0, p.1, Cell::EMPTY);
+            }
+        }
+        w.add_rider(shared.0, shared.1, rider, body);
+        if let Some(st) = w.organism_mut(rider) {
+            st.cells.insert(shared, organism::OrganismCell::default());
+            st.chain = vec![shared];
+        }
+        // Wall the cell in. The row below is already floor and the host's own
+        // trailing segment fills one side, so this is the rest of the eight.
+        let stone = w.materials.id_of("stone").unwrap_or(material::STONE);
+        for &(dx, dy) in NEIGHBOURS_8.iter() {
+            let (nx, ny) = (shared.0 + dx, shared.1 + dy);
+            if w.is_empty(nx, ny) {
+                w.set(nx, ny, Cell::new(stone, 0).with_attached(true));
+            }
+        }
+        assert!(
+            NEIGHBOURS_8.iter().all(|&(dx, dy)| !w.is_empty(shared.0 + dx, shared.1 + dy)),
+            "test setup: the cell is not actually walled in, so suppression cannot be what is measured"
+        );
+        let before = w.creature_stats.corpses_suppressed;
+        let worth_before = w.creature_stats.corpse_worth_suppressed;
+
+        creature_dies(&mut w, rider, organism::DeathCause::Starved);
+
+        assert_eq!(
+            w.creature_stats.corpses_suppressed,
+            before + 1,
+            "a rider died with nowhere to put its body and nothing counted it -- the named hole is unnamed again"
+        );
+        assert!(
+            w.creature_stats.corpse_worth_suppressed > worth_before,
+            "the count moved and the worth did not: the counter says how often, and only this one says how much"
+        );
     }
 
     /// **An owner dying under a rider hands the cell over, and the body goes
