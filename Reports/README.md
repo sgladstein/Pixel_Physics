@@ -679,6 +679,29 @@ an example against the fields the engine still has (5b), but only the index
 carries *why* a report stands where it does.
 
 
+- [plant-literature-review-comparison-2026-09-19.md](plant-literature-review-comparison-2026-09-19.md)
+  — **review, 2026-09-19.** An outside survey of plant and ecosystem
+  simulation (L-systems to global vegetation models, with a five-layer
+  architecture recommendation), commissioned by the owner from someone who
+  knew only that this is a plant/ecology game, read against the tree
+  mechanism by mechanism. **The engine already holds nearly everything it
+  recommends for its first two stages, under other names** — Palubicki's
+  `Q` and `n = ⌊v⌋`, Beer–Lambert per column, Michaelis–Menten soil,
+  source–sink from surplus, a Weibull age hazard, functional-balance
+  allocation — and several of its textbook forms are recorded dead ends
+  here (flat maintenance respiration, diffusion-as-dominance, litter that
+  credits the soil, a flat mortality rate, a calendar season). What is
+  worth taking is small: two log-log **pattern readouts** (self-thinning
+  and height–thickness slopes) from numbers an instrument already has; the
+  literature's name and a graded mechanism for open bug §V2 (**hydraulic
+  failure**, conductance lost under sustained deficit); the **PPA** as a
+  candidate patch-tier model for M10 catch-up, where `Z*` is literally the
+  skyline; and the finding that `seed_launch`'s kernel is **uniform** where
+  every field kernel is fat-tailed — one line to fix when the wind verb is
+  built. Its §2 maps Díaz's six-trait global spectrum onto the genome slots
+  and finds the heritable axes contain it, chosen without reference to it.
+  Sibling of the entry below, which is the same literature read from
+  inside the project a month earlier.
 - [plant-simulation-research.md](plant-simulation-research.md) —
   **research.** Growth, evolution and biology directions past M16.
 - [organism-substrate-design.md](organism-substrate-design.md) — **design,
