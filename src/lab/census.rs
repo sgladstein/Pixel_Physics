@@ -92,9 +92,38 @@ pub struct Sample {
     pub standing_flowers: usize,
     /// Void below the original surface with ground somewhere above it in
     /// the same column -- a chamber or a gallery.
+    ///
+    /// **This counts cells that are materially EMPTY, and an ant standing
+    /// in a gallery is not empty** -- so on its own it is not the size of
+    /// the nest. See [`Sample::roofed_bodies`] and [`Sample::room_total`].
     pub roofed: usize,
     /// Void below the original surface open to the sky -- a pit.
     pub pit: usize,
+    /// **Roofed room that is occupied rather than empty** -- creature cells
+    /// standing below the original surface with ground above them.
+    ///
+    /// Measured 2026-09-19 in `examples/digbox`: roofed 157 + open 165 +
+    /// **bodies 692** = 1,014, against **941** cells hauled above the
+    /// original surface. Digging only *moves* material
+    /// (`spoil_dumped/digs` = 0.986), so net void below and material above
+    /// are two sides of one conservation law and must account for each
+    /// other. On [`Sample::roofed`] alone that identity fails by **619
+    /// cells**; with the bodies counted it closes to 8%.
+    ///
+    /// Three results in the nest line were filed as nulls having been
+    /// scored on the unoccupied count alone, which undercounts a dense
+    /// colony's nest by about threefold. `CLAUDE.md`'s metric trap --
+    /// *what a player calls a nest is roofed void* -- is right about the
+    /// roof and silent about the occupant.
+    ///
+    /// **Split from [`Sample::pit_bodies`] deliberately.** `digbox`'s own
+    /// census carries one undivided `bodies` total, which cannot tell an
+    /// ant standing in an open pit from one standing in a gallery; this
+    /// module already separates roofed from open and would otherwise
+    /// inherit that conflation.
+    pub roofed_bodies: usize,
+    /// As [`Sample::roofed_bodies`], for void open to the sky.
+    pub pit_bodies: usize,
     pub packed_below: usize,
     pub packed_above: usize,
     /// Soil, packed soil or nest cells standing above the original surface.
@@ -132,6 +161,31 @@ pub struct Sample {
     /// it: a corpse burnt to charcoal or half digested can fall under the
     /// edible threshold and still be lying on the ground.
     pub corpses: usize,
+}
+
+impl Sample {
+    /// **The size of the nest: room whether or not somebody is standing in
+    /// it.** This, not [`Sample::roofed`], is what a question about how much
+    /// a colony has dug should read.
+    ///
+    /// `roofed + pit + roofed_bodies + pit_bodies`. The conservation
+    /// identity it satisfies is the check that found the defect: digging
+    /// moves material rather than destroying it, so this total should
+    /// account for the material standing above the original surface. Read
+    /// against `roofed` alone the identity fails by hundreds of cells on any
+    /// colony dense enough to fill its own galleries.
+    ///
+    /// [`Sample::roofed_room`] is the same quantity for the roofed half
+    /// alone, which is the one a player would call a nest -- *a hole open to
+    /// the sky is not a room*.
+    pub fn room_total(&self) -> usize {
+        self.roofed + self.pit + self.roofed_bodies + self.pit_bodies
+    }
+
+    /// Roofed room, occupied or not -- `roofed + roofed_bodies`.
+    pub fn roofed_room(&self) -> usize {
+        self.roofed + self.roofed_bodies
+    }
 }
 
 fn is_waiting_seed(world: &World, id: OrganismId, state: &organism::OrganismState) -> bool {
@@ -260,6 +314,26 @@ pub fn census(world: &World, spec: &LabBox, gut: f32, nest_cols: &[i32], ids: &I
                     s.roofed += 1;
                 } else {
                     s.pit += 1;
+                }
+            // **A gallery with an ant in it is still a gallery.** The arm
+            // above counts materially EMPTY cells only, so every occupied
+            // cell of the nest fell through this chain and was counted as
+            // nothing -- see `Sample::roofed_bodies` for the conservation
+            // failure that found it.
+            //
+            // **The material test, not `organism_id() != 0`.** A plant cell
+            // carries an organism id too, which is why the plant branch
+            // above pairs the id with `creature.is_none()`. Matching on
+            // `MaterialKind::Creature` also leaves a corpse out, correctly:
+            // a corpse is a `Powder`, it is ground and larder, not room.
+            // `creature::is_animal_cell` states the same rule and is
+            // private to that module, so this inlines it rather than
+            // widening its visibility for one caller.
+            } else if y >= surface && kind == MaterialKind::Creature {
+                if covered {
+                    s.roofed_bodies += 1;
+                } else {
+                    s.pit_bodies += 1;
                 }
             }
             if ids.flower.contains(&cell.material) {
@@ -802,6 +876,99 @@ mod tests {
     fn fill(world: &mut World, x: i32, y: i32) {
         let soil = world.materials.id_of("soil").expect("soil is compiled in");
         world.set(x, y, Cell::new(soil, 0).with_aux(crate::sim::material::SOIL_FIELD_CAPACITY));
+    }
+
+    /// **A gallery with an ant standing in it is still a gallery.**
+    ///
+    /// The defect this module shipped until 2026-09-19: `roofed` counts
+    /// materially EMPTY cells, so every occupied cell of a nest was counted
+    /// as nothing and a dense colony's workings read about a third of their
+    /// true size. Measured in `examples/digbox`: roofed 157 + open 165 +
+    /// **bodies 692** = 1,014 against 941 cells hauled above the surface --
+    /// a conservation identity that fails by **619 cells** on `roofed`
+    /// alone.
+    ///
+    /// **Both halves, and the first half is the one that matters.** Ten
+    /// tests in this module stayed green straight through the defect,
+    /// because `bare_bed` founds no colony and the one case that does place
+    /// ants puts them *above* the surface datum and asserts only band
+    /// columns. So a guard that merely carves a chamber cannot see this at
+    /// all; the ant has to be standing in it. Provable red by reverting
+    /// `census`'s `MaterialKind::Creature` arm -- `room_total` then drops by
+    /// exactly the cells the body occupies.
+    ///
+    /// The cell is placed by hand rather than by founding a colony: this is
+    /// a test of the *counting rule*, and where a founded ant happens to
+    /// walk is not something a census guard should depend on.
+    #[test]
+    fn an_ant_standing_in_a_chamber_does_not_shrink_the_chamber() {
+        let (mut world, spec, ids) = bare_bed();
+        let ant = world.materials.id_of("ant").expect("the ant material is compiled in");
+        assert_eq!(world.materials.kind(ant), MaterialKind::Creature, "this guard is about creature-kind cells");
+
+        let (cx, cy) = (spec.width / 2, spec.ground_y + 10);
+        for dy in 0..3 {
+            for dx in 0..3 {
+                world.set(cx + dx, cy + dy, Cell::EMPTY);
+            }
+        }
+        let empty = at(&world, &spec, &ids);
+        assert_eq!(empty.roofed, 9, "a 3x3 chamber ten rows under the surface is nine cells of room");
+        assert_eq!(empty.roofed_bodies, 0, "nobody is standing in it yet");
+        assert_eq!(empty.room_total(), 9, "an empty chamber is nine cells of room");
+
+        // One ant, two cells -- `ant.ron` authors `body: Chain(2)`, so
+        // asserting against a hardcoded 8 would be wrong for the shipped
+        // body and would silently stop testing anything if the body widened.
+        world.set(cx, cy, Cell::new(ant, 0));
+        world.set(cx + 1, cy, Cell::new(ant, 0));
+
+        let occupied = at(&world, &spec, &ids);
+        assert_eq!(occupied.roofed, 7, "two of the nine cells are now occupied, so the EMPTY count falls -- this is the number that used to be read alone");
+        assert_eq!(occupied.roofed_bodies, 2, "and the two occupied cells are counted as the room they are");
+        assert_eq!(
+            occupied.room_total(),
+            empty.room_total(),
+            "the chamber did not get smaller because somebody walked into it -- room_total must be invariant under occupancy"
+        );
+
+        // The negative half: take the ants out and the split returns.
+        world.set(cx, cy, Cell::EMPTY);
+        world.set(cx + 1, cy, Cell::EMPTY);
+        let vacated = at(&world, &spec, &ids);
+        assert_eq!(vacated.roofed_bodies, 0, "the bodies column is still reporting ants that have gone");
+        assert_eq!(vacated.roofed, 9, "and the empty count came back");
+    }
+
+    /// **An ant standing in an open pit is not in a chamber**, which is the
+    /// split `digbox`'s own undivided `bodies` total cannot make.
+    ///
+    /// `CLAUDE.md`'s standing metric trap -- *a hole open to the sky is not
+    /// a room* -- applies to the occupant exactly as it applies to the void,
+    /// and a pair that only ever moved together would be one column shipped
+    /// twice.
+    #[test]
+    fn an_ant_in_a_pit_is_counted_as_pit_and_not_as_chamber() {
+        let (mut world, spec, ids) = bare_bed();
+        let ant = world.materials.id_of("ant").expect("the ant material is compiled in");
+        let cx = spec.width / 2;
+        // A shaft open to the sky: every cell from the surface down.
+        for dy in 0..5 {
+            world.set(cx, spec.ground_y + dy, Cell::EMPTY);
+        }
+        world.set(cx, spec.ground_y + 3, Cell::new(ant, 0));
+
+        let s = at(&world, &spec, &ids);
+        assert_eq!(s.pit_bodies, 1, "the ant is in a hole open to the sky");
+        assert_eq!(s.roofed_bodies, 0, "and that hole is not a chamber");
+        assert_eq!(s.room_total(), 5, "five cells of shaft, one of them occupied");
+
+        // Roof the mouth and the same ant becomes a chamber occupant --
+        // the two columns must move in opposite directions, not together.
+        fill(&mut world, cx, spec.ground_y);
+        let roofed = at(&world, &spec, &ids);
+        assert_eq!(roofed.pit_bodies, 0, "the shaft is covered now");
+        assert_eq!(roofed.roofed_bodies, 1, "so the ant is standing in a chamber");
     }
 
     /// **`roofed`: a chamber under intact soil is counted, and filling it in

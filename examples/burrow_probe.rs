@@ -1213,18 +1213,20 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>,
     );
     println!("  55 ants on a soil bank over stone; `void` is standing empty cells inside the bank");
     println!(
-        "  `void` is every empty cell in the bank footprint -- **erosion moves it**; \n           `roofed` is empty with ground standing above it, which erosion cannot produce. Read `roofed`."
+        "  `void` is every empty cell in the bank footprint -- **erosion moves it**; \n           `roofed` is empty with ground standing above it, which erosion cannot produce.\n           `bodies` is bank cells an ANIMAL is standing in -- room that is occupied rather than\n           empty, which `void` and `roofed` both miss. **Read `rfroom` (roofed + roofed bodies),\n           not `roofed`**: on a dense colony the empty count alone undercounts the nest about\n           threefold (digbox 2026-09-19: 157 empty against 692 cells of ant)."
     );
     println!(
         "  `comps`/`largest`/`ge8` are the connected-component split of that void (8-connected,\n           the neighbourhood the digger uses). `lgroof` is how much of the largest run has\n           ground overhead: a quarried face is one huge run with no roof, a gallery is a\n           smaller run that is nearly all roof."
     );
     println!(
-        "{:>6}  {:>7}  {:>8}  {:>8}  {:>8}  {:>6}  {:>8}  {:>5}  {:>7}  {:>7}  {:>7}  {:>9}  {:>10}  {:>7}  {:>7}",
+        "{:>6}  {:>7}  {:>8}  {:>8}  {:>8}  {:>7}  {:>7}  {:>6}  {:>8}  {:>5}  {:>7}  {:>7}  {:>7}  {:>9}  {:>10}  {:>7}  {:>7}",
         "seed",
         "frame",
         "void",
         "roofed",
         "roofed3",
+        "bodies",
+        "rfroom",
         "comps",
         "largest",
         "ge8",
@@ -1486,6 +1488,11 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>,
             let mut roofed3 = 0usize;
             let mut soil = 0usize;
             let mut packed = 0usize;
+            // Cells of the bank an animal is standing in -- room that is
+            // occupied rather than empty. See the `MaterialKind::Creature`
+            // arm below for why this exists.
+            let mut bodies = 0usize;
+            let mut bodies_roofed = 0usize;
             for x in bank_x0..bank_x1 {
                 // Walk the column downward carrying how much ground is
                 // standing above the current row -- one pass, and it counts
@@ -1505,6 +1512,31 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>,
                             }
                             if above >= 3 {
                                 roofed3 += 1;
+                            }
+                        // **A gallery with an ant in it is still a gallery**,
+                        // and this census could not see that until
+                        // 2026-09-19. `void`/`roofed` count materially EMPTY
+                        // cells, so every occupied cell of a burrow fell
+                        // through to neither arm and was counted as nothing
+                        // -- and this instrument's whole job is sizing dug
+                        // space in a bank a colony is living in.
+                        //
+                        // Measured in `examples/digbox`: roofed 157 + open
+                        // 165 + **bodies 692** = 1,014 against 941 cells
+                        // hauled above the original surface, so the
+                        // conservation identity fails by **619 cells** on
+                        // the empty count alone and the nest reads about a
+                        // third of its size. `src/lab/census.rs` carries the
+                        // same repair and the same reasoning.
+                        //
+                        // Kept as its own column rather than folded into
+                        // `void`, so every published `burrow_probe` number
+                        // stays comparable with the ones already in the
+                        // reports; `room` below is the total to read now.
+                        } else if world.materials.kind(m) == MaterialKind::Creature {
+                            bodies += 1;
+                            if above > 0 {
+                                bodies_roofed += 1;
                             }
                         } else if m == soil_id {
                             soil += 1;
@@ -1530,7 +1562,7 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>,
             // `PIXEL_PHYSICS_DIG_SPOIL=destroy`, which is the only baseline a
             // standing quantity has.
             let (float_pieces, float_cells) = floating_ground(world, w, h);
-            (void, roofed, roofed3, soil, packed, float_pieces, float_cells)
+            (void, roofed, roofed3, soil, packed, float_pieces, float_cells, bodies, bodies_roofed)
         };
 
         // **Does the lever have anything to act on?** -- `CLAUDE.md`'s *check
@@ -1621,13 +1653,14 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>,
                 world.step_pheromones();
             }
             if marks.contains(&f) {
-                let (void, roofed, roofed3, soil, packed, floats, float_cells) = census(&world);
+                let (void, roofed, roofed3, soil, packed, floats, float_cells, bodies, bodies_roofed) = census(&world);
                 let comps = void_components(&world, (bank_x0, bank_x1), (bank_y0, bank_y1));
                 let largest = comps.first().copied().unwrap_or_default();
                 let ge8 = comps.iter().filter(|c| c.cells >= 8).count();
                 let st = world.creature_stats;
                 println!(
-                    "{seed:>6}  {f:>7}  {void:>8}  {roofed:>8}  {roofed3:>8}  {:>6}  {:>8}  {ge8:>5}  {:>7}  {:>7}  {:>7}  {soil:>9}  {packed:>10}  {floats:>7}  {float_cells:>7}",
+                    "{seed:>6}  {f:>7}  {void:>8}  {roofed:>8}  {roofed3:>8}  {bodies:>7}  {:>7}  {:>6}  {:>8}  {ge8:>5}  {:>7}  {:>7}  {:>7}  {soil:>9}  {packed:>10}  {floats:>7}  {float_cells:>7}",
+                    roofed + bodies_roofed,
                     comps.len(),
                     largest.cells,
                     largest.roofed,
