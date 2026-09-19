@@ -1126,11 +1126,12 @@ Priced against what exists, worst first.
   hours. It also needs a field consumer that does not exist (§5.5 D5.1) and,
   in the lab, something to unpin `Pin::Clear`. **This is the biologically
   right answer and the most expensive one.**
-- **Brood — expensive, and it changes reproduction.** A brood object means
-  budding stops being instantaneous: an egg, a place to put it, a clock, and
-  a carrier. That is a rework of the one mechanism every evolution result in
-  this repo is measured through, so it would void baselines across the whole
-  creature line.
+- **Brood — ~~expensive, and it changes reproduction~~. MIS-PRICED; see
+  [§11](#11-eggs--the-owners-follow-up-2026-09-19-and-a-correction-to-104).**
+  This bullet ranked brood second-dearest on the reasoning that budding
+  would have to be reworked. That is true of *Stage 4 entire* and false of
+  *the egg*, which is already designed, whose substrate is free, and which
+  is separable from the part that is expensive. §11 replaces this row.
 - **A granary — moderate, and it needs a lean season to matter.** §3.6 D3.1
   is cheap to build (a `Drop` preference plus a cull), but a store is only
   worth having if there is a time when foraging does not pay. The lab has no
@@ -1168,3 +1169,156 @@ chat log: **before researching how to build a thing, ask what in this world
 would be worse off without it.** A mechanism with no consumer is the
 `phototropism_dir` failure with the weights removed — everything correct,
 nothing downstream.
+
+---
+
+## 11. Eggs — the owner's follow-up, 2026-09-19, and a correction to §10.4
+
+> *"We should also consider implementing eggs?"*
+
+**Yes, and §10.4 mis-priced it.** That bullet put brood second-dearest of
+the five purposes. On the evidence it is the *cheapest of the four that
+would actually work*, because the design exists, the hard question is
+already answered, and the expensive half is separable from the half that
+buys everything.
+
+**And the first thing this lane nearly reported was wrong.** `dead-ends.md`
+and `creature-evolution-plan.md` both come back empty on `egg`/`brood`, and
+the near-miss was to call the mechanism unproposed. It is proposed, in
+detail, in a report neither grep reaches — `CLAUDE.md`'s *grepping a prose
+phrase gives false negatives, and a false negative here reads as "the
+content is gone"*, landing on a report index instead of a wrap.
+
+### 11.1 The design already exists, and the hard question is already answered
+
+[`creature-direction.md`](creature-direction.md) §3b and §7b
+(**"direction agreed (2026-08-17)"** in the index; Stage 4, unbuilt) settles
+*what an egg is* the cheapest way available:
+
+> *"Eggs reuse `Seed` (= 0): an egg is a `Powder`-kind material cell (it
+> falls and rolls, exactly like a plant seed) with a `Germinate`-shaped
+> behavior that hatches it. Extend `Germinate` with an optional
+> `hatch_into: CellType` … rather than writing a parallel `Hatch` behavior
+> — the relocated-seed machinery (`plant.rs:605`) that re-finds a seed
+> after it rolls is **needed verbatim for eggs and comes free**."*
+
+That disposes of the question §10.4 was afraid of. **The engine has already
+built this mechanism once, on the plant line**: a dormant bank that halves
+over a half-life, emergence gated on a condition rather than a timer, a
+counter (`seeds_germinated_after_waiting`) and a guard
+(`a_dormant_seed_bank_halves_over_a_half_life_and_does_not_empty`). An egg
+is that object with a different `hatch_into`. §8 of the same report even
+carries `egg_cost` as a term of its proposed `EnergyLedger`, so the
+conservation accounting anticipated this too.
+
+### 11.2 The separable half — and this is the correction
+
+**Stage 4 bundles two changes and only one of them is expensive.**
+
+| | what it is | cost |
+|---|---|---|
+| **the egg** | a **delay** and a **vulnerability** inserted between a parent's investment and a new worker | cheap — the substrate is the seed's, and budding keeps its shape |
+| **the queen, clonal workers, colony-as-selection-unit** | a change to **what evolves** | expensive — it redefines the selection unit, so every creature-line baseline is void |
+
+**Take the first without the second.** A colony can lay eggs and still bud
+from any worker; nothing in §11.1 requires a queen. What §10.4 priced was
+the second row and what the owner asked about is the first.
+
+### 11.3 Why an egg is the keystone rather than one of five
+
+This is the argument for doing it before the other four, and it is not a
+biological argument — it is about what the engine already has with nothing
+reading it.
+
+**An egg is four things at once:**
+
+- **An object that must be put somewhere** → a chamber finally has
+  *contents*. §3's granary problem is structurally solved as a side effect:
+  the nest holds a thing, and the thing can be lost.
+- **Immobile and defenceless** → a predator gets a target worth defending.
+  This matters because the recorded null (§10) is that a beetle cannot beat
+  an adult ant; **refuge becomes real without the predator ever having to
+  win that fight**, which is a far cheaper route to §10.4's predator
+  purpose than buffing the beetle.
+- **Vulnerable to its surroundings** → the first consumer of the
+  depth-graded temperature and the moisture field that §5.5 found already
+  exist with nothing reading them. D5.1 said *build a consumer, not a
+  field*; an egg is the consumer.
+- **A delay between investment and return** → the lean time a granary needs
+  in order to be worth anything (§10.4's *"build the store and the lean time
+  together or neither"*). A colony that has committed energy to eggs is a
+  colony that can be caught short.
+
+**Three of the other four purposes stop being "build a system" and become
+"add a consumer".** No other candidate in §10.4 does that.
+
+**And it closes §10.2's loop rather than competing with it.** An egg is a
+`Powder` — *it falls*. So an egg needs somewhere it will **stay**, and
+underground the only space that reliably persists is **roofed** space,
+because soil is a `Powder` too. That is `NestRoom::roofed` for the third
+time in this report: room-to-grow (§10.2) and eggs turn out to be the same
+finding seen twice, and an egg rolling down a shaft into the open is exactly
+the *graded, visible* failure Law 1 asks for — not a binary "the brood
+died".
+
+### 11.4 The cost that actually bites, and it is not complexity
+
+**It is the reproduction economy, and this report has to say so loudly
+because the repo has already paid for this lesson once.**
+
+The lab bed runs at about **1.03x subsistence** (`dead-ends.md`, the unit-7
+odometer entry). `reproduce_at_of`, `TRAIT_BIRTH_GRANT` and the lifespan
+constants are every one of them calibrated against **instantaneous**
+budding — a parent pays and a worker exists in the same tick. Inserting a
+delay *and* a mortality between those two events reallocates that budget
+without changing any number's meaning, which is precisely `CLAUDE.md`'s
+*a term in a weighted sum is not an independent knob*: the plant line made
+exactly this move, correctly, and reproduction went to **zero** because
+`light_weight` had been calibrated against a codomain the repair widened.
+
+**So re-deriving the reproduction economy is part of the work, not scope
+creep** — and by that rule, *if it is unaffordable the change is not
+scoped, it is merely started*. Name in the budget, before starting:
+`reproduce_at_of`, `TRAIT_BIRTH_GRANT` / `grant_fraction`, the lifespan
+constants, and whatever `EGG_COST` turns out to be. A correct egg at
+inherited constants is a regression, and it will read as *"eggs killed the
+colony"* when what killed it was the arithmetic.
+
+Two smaller ones, both cheap to get wrong:
+
+- **The registry sweep.** An egg is a new member of at least one enumerated
+  set (`CellType`, and a `Behavior`), and `CLAUDE.md`'s gotcha is that
+  *adding a member to a set something sweeps enrols it in every rule over
+  that set, silently* — the `spoil` material broke five censuses and one
+  worldgen preset held `main` red for two hours. **Grep what iterates
+  `CellType` and `Behavior` before adding the row**, and note that
+  `cargo test --lib` cannot reach the `tests/*.rs` guards where several of
+  those live.
+- **`DEATH_CAUSE_LIST` again.** An egg that fails wants a cause, and that
+  list is the same trap (§10.4).
+
+### 11.5 → Decisions
+
+**D11.1 — Yes to eggs, ahead of the granary and ahead of environmental
+death**, and §10.4's brood row is withdrawn in favour of this section.
+
+**D11.2 — Build the egg, not Stage 4.** Keep budding's shape and the
+current selection unit; add the delay and the vulnerability. The queen and
+the colony-as-selection-unit are a separate, dearer decision that does not
+have to be taken now and would void the creature line's baselines if it
+were.
+
+**D11.3 — Budget the reproduction-economy re-derivation in the same
+breath as the mechanism**, naming the four constants in §11.4. This is the
+gate on whether the work is scoped at all.
+
+**D11.4 — Port the seed, do not invent a parallel.** `Germinate` with an
+optional `hatch_into`, per `creature-direction.md` §3b, so the
+relocated-seed machinery is reused rather than mirrored. The plant line's
+dormancy guard is the template for the egg's.
+
+**D11.5 — Eggs are not gated on §10.3, and they subsume it.** §10.3 asks
+whether *room* binds today. Eggs give the nest a purpose whichever way that
+reads — and because an egg is a `Powder` that needs roofed space to stay
+put, a world with eggs in it makes the room question answer itself. If only
+one thing is done from this report, this is the one.

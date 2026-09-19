@@ -3134,7 +3134,36 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   moderate; environmental death faithful and dearest, with the
   `DEATH_CAUSE_LIST` registry-sweep trap named; brood would void the
   creature line's baselines). §10.5's D10.1: **nothing in §9 starts until
-  §10.3 is read.** Docs only; nothing built.
+  §10.3 is read.** **§11 answers the owner's follow-up — *"we should also
+  consider implementing eggs?"* — yes, and it CORRECTS §10.4, which had
+  ranked brood second-dearest.** The design already exists and neither
+  `dead-ends.md` nor `creature-evolution-plan.md` reaches it:
+  `creature-direction.md` §3b/§7b settles *what an egg is* the cheapest
+  way — **an egg reuses `Seed`**, a `Powder` cell that falls and rolls,
+  `Germinate` extended with an optional `hatch_into`, so *"the
+  relocated-seed machinery … is needed verbatim for eggs and comes
+  free"*. **Stage 4 bundles two changes and only one is expensive**: the
+  *egg* (a delay and a vulnerability inserted into budding — cheap, the
+  substrate is the seed's) is separable from the *queen and
+  colony-as-selection-unit* (which redefines what evolves and would void
+  every creature-line baseline). **An egg is the keystone**: it is
+  simultaneously a thing that must be put somewhere (the chamber gets
+  contents), immobile and defenceless (so refuge becomes real **without
+  the beetle ever having to beat an adult ant**, which is the recorded
+  null), vulnerable to its surroundings (the missing consumer for the
+  depth-graded temperature and moisture fields of D5.1), and a delay
+  between investment and return (the lean time a granary needs) — so
+  three of §10.4's other four purposes stop being *build a system* and
+  become *add a consumer*. And because an egg falls, it needs **roofed**
+  space to stay put, which is §10.2's room-to-grow finding a second time.
+  **The cost that bites is not complexity but the reproduction economy**:
+  the bed runs at ~1.03x subsistence and `reproduce_at_of`,
+  `TRAIT_BIRTH_GRANT` and the lifespan constants are all calibrated
+  against *instantaneous* budding, so re-deriving them is part of the
+  work — the `phototropism_dir` shape, which took plant reproduction to
+  zero. D11.5: eggs are **not** gated on §10.3 and subsume it; if only
+  one thing is done from this report, this is it. Docs only; nothing
+  built.
 - [evolution-lab-round-37-brief-2026-09-15.md](evolution-lab-round-37-brief-2026-09-15.md)
   — **brief, 2026-09-15. `lab`/`engine`/`held`.** Opens with **two retracted
   numbers** a reader may have inherited (29.4 is per-bed, not per-ant; the
