@@ -1092,6 +1092,45 @@ fn main() {
                 }
             }
 
+            // **`wet=N` -- the same wetting, on ANY arm, so the colony arm
+            // can be run on ground that is not bone dry.**
+            //
+            // The colony arm's bank is dry by construction, and that turns
+            // out to decide a question this harness is now being asked.
+            // Measured 2026-09-19 with `senses=`: over 55 ants,
+            // `MoistureFront`, `MoistureLateral` and `MoistureGrad` all read
+            // **exactly 0.0000 with one distinct value**, while
+            // `SurfaceCurvature` read 15-16 distinct over -0.67..0.83 and
+            // `Crowding` 6-9. So the instrument has range and the moisture
+            // channels are flat -- not because they are broken, but because
+            // `FieldCell::moisture` sources from damp ground in proportion
+            // to how damp it is, and this bank has none.
+            //
+            // That matters because a weight swept over a flat channel is a
+            // sweep of nothing: two opposite-sign weights on
+            // `(MoistureLateral, Turn)` came back **bit-identical** here,
+            // which is `CLAUDE.md`'s own tell for a knob that was never
+            // connected. Anyone testing a moisture-driven behaviour needs
+            // this argument, and needs `senses=` beside it to prove the
+            // channel woke up.
+            //
+            // Unset changes nothing, so every published colony number
+            // stands. `SOIL_WILTING_POINT` 180, `SOIL_FIELD_CAPACITY` 620,
+            // `SOIL_SATURATED` 1000.
+            if let Some(wet) = arg::<u16>("wet") {
+                for x in 0..width {
+                    for y in ground..(ground + soil) {
+                        let cell = world.get(x, y);
+                        if world.materials.get(cell.material).water_capacity > 0 {
+                            world.set(x, y, cell.with_aux(wet));
+                        }
+                    }
+                }
+                if seed == 1 {
+                    println!("  bank wetted to aux {wet}  [wilting 180, field capacity 620, saturated 1000]");
+                }
+            }
+
             // **Wet the wall from the outside**: the whole bank at
             // `SOIL_SATURATED`, which is a gallery driven below the water
             // table. Every packed cell is then over `SOIL_FIELD_CAPACITY` and
@@ -1431,6 +1470,50 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>,
                         cw, db, cd
                     );
                 }
+            }
+        }
+
+        // **`wire=Input:Output:w,...` -- any weight in the genome, by name,
+        // at runtime.** The three knobs above each needed their own argument
+        // and their own `io_slot` line, so sweeping a *new* pair meant
+        // editing this file; and editing `ant.ron` instead cannot work at
+        // all, because species assets are `include_str!`ed
+        // (`src/sim/organism.rs:7345`) and a prebuilt binary re-run against
+        // an edited `.ron` produces bit-identical "runs" -- the gotcha
+        // `CLAUDE.md` records three of.
+        //
+        // `io_slot` is `output * INPUT_SLOTS + input`, and `INPUT_NAMES` /
+        // `OUTPUT_NAMES` are the same positional tables the `.ron` parser
+        // addresses weights by, so resolving a name to an index here cannot
+        // drift from what the genome means.
+        //
+        // **It prints every pair it set, and refuses a name it does not
+        // know.** A silently ignored argument is how a 3.5-hour study came
+        // back as three populations wearing 24 logs; a knob nobody can see
+        // the value of is a knob nobody can tell is disconnected.
+        if let Some(spec) = arg::<String>("wire") {
+            use pixel_physics::sim::brain::{INPUT_NAMES, INPUT_SLOTS, OUTPUT_NAMES};
+            let id = world.species.id_of("ant").expect("ant");
+            let mut g = world.species.get(id).genome.clone();
+            let mut set: Vec<String> = Vec::new();
+            for triple in spec.split(',').filter(|t| !t.trim().is_empty()) {
+                let parts: Vec<&str> = triple.split(':').collect();
+                assert_eq!(parts.len(), 3, "wire= wants Input:Output:weight triples, got `{triple}`");
+                let find = |names: &[&str], want: &str, what: &str| -> usize {
+                    names.iter().position(|n| n.eq_ignore_ascii_case(want.trim())).unwrap_or_else(|| {
+                        panic!("wire=: no such brain {what} `{}`. Known {what}s: {}", want.trim(), names.join(", "))
+                    })
+                };
+                let i = find(&INPUT_NAMES, parts[0], "input");
+                let o = find(&OUTPUT_NAMES, parts[1], "output");
+                let w: f32 = parts[2].trim().parse().unwrap_or_else(|_| panic!("wire=: `{}` is not a weight", parts[2]));
+                let before = g[o * INPUT_SLOTS + i];
+                g[o * INPUT_SLOTS + i] = w;
+                set.push(format!("({}, {}) {before} -> {w}", INPUT_NAMES[i], OUTPUT_NAMES[o]));
+            }
+            world.species.set_genome(id, g);
+            if seed == 1 {
+                println!("  PATCHED genome by name: {}", set.join("; "));
             }
         }
 
@@ -1781,6 +1864,106 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>,
                     at(0.90),
                     at(1.0)
                 );
+                // **`senses=Name,Name` -- the realised range of any brain
+                // input, at every ant's head, read through the shipped
+                // `probe`.** The generalisation of the `crowd` line above,
+                // and it exists because a weight swept over a channel with
+                // no range in it is a sweep of nothing: `CLAUDE.md`'s *an
+                // input that never leaves saturation cannot demonstrate a
+                // mechanism about its low end*, and its sibling failure
+                // where the channel is not saturated but simply flat.
+                //
+                // **`distinct` is the column to read first.** A channel
+                // reading one distinct value over a whole colony cannot
+                // steer anything, whatever its mean is, and that is not
+                // visible in a min/max pair when both ends are the same
+                // number. Exactly zero across every sample point is the
+                // signature `CLAUDE.md` names -- a weak-but-working
+                // mechanism reads 0.003.
+                if let Some(names) = arg::<String>("senses") {
+                    use pixel_physics::sim::brain::INPUT_NAMES;
+                    // **The stored field value beside the sensed one**, so a
+                    // flat sense can be told apart from an empty field.
+                    // `CLAUDE.md` says measure the number the CONSUMER
+                    // computes -- and when that reads exactly zero, the next
+                    // question is whether the channel under it is zero too,
+                    // which is a different bug with a different fix.
+                    {
+                        let mut raw: Vec<f64> = Vec::new();
+                        for id in world.live_organism_ids() {
+                            let Some(st) = world.organism(id) else { continue };
+                            let Some(&(hx, hy)) = st.chain.first() else { continue };
+                            raw.push(world.field_at_bilinear(hx as f32, hy as f32).moisture as f64);
+                        }
+                        // **And the whole field, not only where ants are.**
+                        // Separates "the source never fired" from "it fired
+                        // and cannot reach the air an ant walks in", which
+                        // are different bugs with different fixes.
+                        let (mut fmax, mut wet_blocks) = (0.0f64, 0usize);
+                        let mut deep = Vec::new();
+                        for x in (bank_x0..bank_x1).step_by(16) {
+                            for y in (bank_y0..bank_y1).step_by(4) {
+                                let m = world.field_at_bilinear(x as f32, y as f32).moisture as f64;
+                                if m > fmax {
+                                    fmax = m;
+                                }
+                                if m > 0.0 {
+                                    wet_blocks += 1;
+                                }
+                                if y > bank_y0 + (bank_y1 - bank_y0) / 2 {
+                                    deep.push(m);
+                                }
+                            }
+                        }
+                        let deep_max = deep.iter().cloned().fold(0.0f64, f64::max);
+                        println!("         field moisture over the whole box: max {fmax:.4}  nonzero samples {wet_blocks}  deep-soil max {deep_max:.4}");
+                        if !raw.is_empty() {
+                            raw.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                            let mut d = raw.clone();
+                            d.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+                            println!(
+                                "         field moisture at {} ant heads: distinct {:>4}  min {:>10.4}  p50 {:>10.4}  max {:>10.4}",
+                                raw.len(),
+                                d.len(),
+                                raw[0],
+                                raw[raw.len() / 2],
+                                raw[raw.len() - 1]
+                            );
+                        }
+                    }
+                    for want in names.split(',').filter(|n| !n.trim().is_empty()) {
+                        let i = INPUT_NAMES
+                            .iter()
+                            .position(|n| n.eq_ignore_ascii_case(want.trim()))
+                            .unwrap_or_else(|| panic!("senses=: no such brain input `{}`", want.trim()));
+                        let mut vals: Vec<f64> = Vec::new();
+                        for id in world.live_organism_ids() {
+                            let Some(st) = world.organism(id) else { continue };
+                            let Some(def) = world.species.get(st.species).creature.as_ref() else { continue };
+                            let Some(&(hx, hy)) = st.chain.first() else { continue };
+                            let (inputs, _, _) = pixel_physics::sim::creature::probe(&world, hx, hy, id, def);
+                            vals.push(inputs[i] as f64);
+                        }
+                        if vals.is_empty() {
+                            println!("         sense {:>16}: no live ants to read it at", INPUT_NAMES[i]);
+                            continue;
+                        }
+                        vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                        let mut distinct: Vec<f64> = vals.clone();
+                        distinct.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+                        let q = |f: f64| vals[(((vals.len() - 1) as f64) * f).round() as usize];
+                        println!(
+                            "         sense {:>16}: n {:>4}  distinct {:>4}  min {:>8.4}  p50 {:>8.4}  max {:>8.4}  mean {:>8.4}",
+                            INPUT_NAMES[i],
+                            vals.len(),
+                            distinct.len(),
+                            q(0.0),
+                            q(0.5),
+                            q(1.0),
+                            vals.iter().sum::<f64>() / vals.len() as f64
+                        );
+                    }
+                }
                 // The distribution, at the last stop only. `comps`/`largest`
                 // are order statistics over it and cannot say whether the
                 // remainder is forty pockets or four hundred crumbs -- which
