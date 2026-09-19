@@ -357,13 +357,27 @@
         // digests it as it walks, so what reaches the nest is what has not
         // been metabolised on the way. See `CreatureDef::crop_capacity`.
         //
-        // **1440 is three leaves at the shipped table (480 each), and three
-        // is a floor rather than a taste.** Food only leaves the crop a whole
-        // cell at a time, so an ant that can hold exactly one leaf is under
-        // one leaf within a tick of ingesting and can never deliver again --
-        // which would take `ascii`'s `deliveries > 0` red and read as the
-        // crop breaking foraging.
-        crop_capacity: 1440.0,
+        // **Three cells of the RICHEST food an ant forages, not of the
+        // cheapest.** Food only leaves the crop a whole cell at a time, so an
+        // ant that can hold exactly one cell is under one cell within a tick
+        // of ingesting and can never deliver again.
+        //
+        // **1440 was three leaves at 480 and that was the wrong denominator**,
+        // which went unnoticed for as long as nobody measured a delivery. A
+        // fruit cell is **960 J**, so 1440 held exactly one of them -- 0.667
+        // of the crop, with two unable to fit -- and put the ant in precisely
+        // the state the paragraph above forbids. Measured on one forager: its
+        // `crop_cells` was 1 on 1,740 ticks, 0 on 16,079, and **never 2** in
+        // 17,819 ticks of life, and the gap bed recorded **zero deliveries on
+        // every run it had ever produced**, at every distance, for that reason
+        // alone. `pheromone-trail-direction-2026-09-16.md` §7.38.
+        //
+        // 2880 is three fruit cells, and restores the floor the old comment
+        // was asking for against the food that actually sets it. It is priced:
+        // `carried_cells` charges `move_cost_per_cell` for whatever is still
+        // in the crop, so a fuller ant is a slower and more expensive one, and
+        // nothing here is free.
+        crop_capacity: 2880.0,
         // **Derived from two brackets, not chosen**, and to be swept before
         // it is trusted (`CreatureDef::digest_rate`):
         //
@@ -422,6 +436,47 @@
         // existence.
         armour_fraction: 0.0001,
         digest_fraction: 0.01515,
+        // **Digestion follows appetite, fully** -- see
+        // `CreatureDef::digest_hunger_weight` for the derivation, which is the
+        // whole argument and does not fit here.
+        //
+        // The short version: `digest_rate` above was setting two things at
+        // once -- how fast an ant feeds itself, and how long food survives in
+        // its crop -- and measured against a real journey the two brackets it
+        // is derived from want values five to ten times apart with no overlap.
+        // A forager metabolised its entire load before reaching home, so the
+        // gap bed recorded **zero deliveries on every run it ever produced**.
+        //
+        // **Authored at 0.0 -- built, wired, countered, and OFF -- because at
+        // 18 seeds it measured twice as bad as no gate at all.** Gap 90,
+        // `hand`, everything else identical:
+        //
+        //   deliveries  511 -> 255      median  6 -> 0
+        //   seeds delivering  9/18 -> 7/18
+        //
+        // No one seed carries that; drop the best seed from each arm and it is
+        // still 392 against 199. Survivors are a wash once seed 10's outlier
+        // colony is set aside (22 against 21).
+        //
+        // **The likely counterweight, and it is one this engine already
+        // charges twice.** `carried_cells` bills `move_cost_per_cell` for
+        // whatever is in the crop, and crop fill lowers `P(move)` -- measured
+        // as the *only* thing fill did, over 570,660 laden decisions
+        // (`home_bias`'s own doc). So protecting cargo keeps the ant heavy and
+        // slow for longer, and a slower ant has a longer journey, which is the
+        // quantity the gate exists to survive. Not confirmed; it is the
+        // mechanism that fits.
+        //
+        // **Kept rather than reverted, and at 1.0-or-nothing rather than
+        // tuned**, because it is the only lever that resolves a real
+        // contradiction: the two brackets `digest_rate` is derived from want
+        // values five to ten times apart once the trip is measured. It cannot
+        // pay for itself in a colony where nobody is ever rich -- the gate
+        // withheld about **1%** of throughput here, because almost no ant gets
+        // above `start_energy` in this bed. Turn it on when a granary makes
+        // colonies rich, which is the condition its usefulness depends on, and
+        // re-measure rather than assuming. `hungergate=` is the rider.
+        digest_hunger_weight: 0.0,
         digest_rate: 3.3,
 
         // **Detritus only, for now.** Owner open question #2: herbivory on
@@ -715,7 +770,7 @@
         // surface moved for every species on the shared scaffold regardless,
         // exactly as this file's copy of the comment above already says for
         // the append before this one.
-        mutation_rate: 0.0036552,
+        mutation_rate: 0.0035570,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --
@@ -1175,7 +1230,14 @@
             // the old values: total channel A over the *whole world* was
             // 164 after 22,138 ant-moves -- a trail that was, for every
             // practical purpose, not there.
-            (Carrying, EmitB, 2.5),
+            // **`CarryingFood`, not `Carrying` -- 2026-09-18.** Channel B's
+            // only emitter. On the old sensor an ant holding a pellet of dig
+            // tailings laid FOOD-TRAIL pheromone, and it did it where it digs:
+            // the nest. §7.31 measured the consequence -- silencing spoil took
+            // the `self` arm's trail to EXACTLY ZERO in every seed where no ant
+            // reached food, i.e. the whole "trail" was dirt-scent at the
+            // colony's own door.
+            (CarryingFood, EmitB, 2.5),
             // **Everyone leaks nest scent, and what makes it a gradient is
             // now three weights instead of a line of Rust.** `creature_tick`
             // used to multiply this output by `1 - since_nest /
@@ -1298,7 +1360,27 @@
             (Bias, Drop, -0.2),
             (AtNest, Drop, 1.0889),
             (Carrying, Drop, 0.2),
-            (MoistureGrad, Drop, 0.169),
+            // **`(MoistureGrad, Drop, 0.169)` REMOVED 2026-09-18, with the
+            // curvature term below, and for the same measured reason.** Both
+            // stay on `DropSpoil`, where the construction argument they were
+            // written for actually holds.
+            //
+            // Traced per tick, one forager, seed 2, gap 90: it picked food up
+            // **17 times and put it down 16**, every one of them at x 116-130
+            // with `AtNest` exactly **0.0000** -- that band *is* the larder
+            // (food at 138, near=10). Not one drop was on the way home, and not
+            // one was a completed digestion. At the heap `SurfaceCurvature`
+            // read **0.417-0.833** (mean 0.441 there against 0.361 elsewhere)
+            // and `MoistureGrad` **0.098-0.317**, putting `drop_urge` at
+            // **0.019-0.113 per tick** -- a **mean hold of 104 ticks against
+            // the 291** one 960 J cell needs to digest.
+            //
+            // **A food heap is curved ground by construction**, so the larder
+            // was triggering the put-it-down reflex of any ant standing on it:
+            // pick a cell off the pile, carry it a few cells, put it back on
+            // the pile. The wires are right for a builder and wrong for a
+            // forager, and `DropSpoil` is where the builder lives.
+            // `Reports/pheromone-trail-direction-2026-09-16.md` §7.35.
             // **The termite bias, for the first time as the thing it was
             // always described as.** §5f: the moisture channel it was
             // supposed to be riding turned out to read *depth*, so
@@ -1367,7 +1449,7 @@
             // the same digging. The mean offset alone moves size the *other*
             // way (89.0), so the spatial term is consolidating a ramified
             // void rather than the colony simply dropping more.
-            (SurfaceCurvature, Drop, 0.169),
+            // Removed with the moisture term above -- see the note there.
 
             // **The spoil dump, unchanged, on a verb of its own.** These two
             // are exactly what `drop_urge` was before the split, so a digger
@@ -1790,19 +1872,82 @@
             // deletion is lawful; shipping it already deleted was not.
             (AtNest,      4,   0.05),
 
-            (Bias,        0, -45.0),
-            (Carrying,    0,  45.5),
-            (PheroAAlong, 0,   6.0),
-            (Bias,        1, -45.0),
-            (Carrying,    1,  45.5),
-            (PheroAAlong, 1,  -6.0),
-            // units 2,3 -- channel B along the heading, gated ON an empty one
-            (Bias,        2,  45.0),
-            (Carrying,    2, -75.0),
-            (PheroBAlong, 2,   6.0),
-            (Bias,        3,  45.0),
-            (Carrying,    3, -75.0),
-            (PheroBAlong, 3,  -6.0),
+            // **Both pairs read `CarryingFood`, not `Carrying`, and the
+            // threshold moved off 0.989 -- 2026-09-18.** Two faults in one
+            // authoring, and together they left the modal laden ant BLIND TO
+            // BOTH CHANNELS:
+            //
+            //   one fruit cell = 960 J / crop_capacity 1440 = 0.667
+            //   units 0/1 opened at 45/45.5   = 0.989  -> shut at 0.667
+            //   units 2/3 closed at 45/75     = 0.600  -> shut at 0.667
+            //
+            // so an ant carrying one item could neither read the homing plane
+            // nor follow the food trail. Measured: the homing gate was OPEN on
+            // **1.84% of 570,660 laden decisions**, and 47.4% of those opens
+            // were ants holding SPOIL rather than food, because `Carrying` is
+            // `crop_fill.max(spoil ? 1.0 : 0.0)`.
+            // (`Reports/pheromone-trail-direction-2026-09-16.md` §7.22/§7.24.)
+            //
+            // **The threshold is not a tuning judgement.** §7.23 prices one
+            // fruit cell at 5-17 round trips over a 90-cell gap (960 J against
+            // a 56 J round trip), so the correct gate is just above zero and
+            // the margin is an order of magnitude. -15.0 puts it at
+            // 15/45.5 = **0.33**, and `crop_fill` is quantised to {0, 0.667,
+            // 1.0} by whole cells, so 0.33 has margin on both sides.
+            //
+            // **The 45.5 magnitude is kept on purpose**: at fill 0 the sum is
+            // still -15, so the unit stays a hard conditional rather than
+            // becoming a soft slope that steers an empty ant homeward while it
+            // should be searching. That was §7.23's stated objection to a
+            // shallower gate and it is answered by moving the bias, not the
+            // gain.
+            (Bias,            0, -45.0),
+            (CarryingFood,    0,  45.5),
+            (PheroAAlong,     0,   6.0),
+            (Bias,            1, -45.0),
+            (CarryingFood,    1,  45.5),
+            (PheroAAlong,     1,  -6.0),
+            // units 2,3 -- channel B along the heading, gated ON an empty one.
+            // **Bias stays at +45**: shutting the food-trail reader once an ant
+            // is laden is intended -- it should be going home, not recruiting.
+            // The sensor change fixes a separate silent fault here, though: on
+            // `Carrying` an ant holding only DIRT read 1.0 and was locked out
+            // of the food trail entirely. On `CarryingFood` it reads 0 and can
+            // follow it again.
+            // **De-saturated 2026-09-18, mirroring what units 0/1 got on
+            // 2026-09-09 -- and this pair was simply never done.**
+            //
+            // At `Bias +45` an EMPTY ant's sum is `45 + 6*along`, and
+            // `squash(x) = x/(1+|x|)` is flat there: squash(51) - squash(39) =
+            // **0.00577**, which across the antisymmetric pair into `Move` is
+            // **0.029**. Measured on one ant, per tick, standing on a hand-laid
+            // trail it could smell on 4,061 of 4,061 ticks at a mean
+            // |PheroBAlong| of 0.585: `p_move` facing toward the food 0.7622
+            // against 0.7244 facing away -- **a 0.038 difference**, and the ant
+            // never left x 56-85 with the food at 138 (§7.33).
+            //
+            // At `Bias +0.5` the same spread is **1.71282**, into `Move`
+            // **+8.56**: a **297x** change in how hard a trail can steer an
+            // empty ant. The laden ant stays shut -- `0.5 - 45.5 = -45`, leak
+            // 0.00577, identical to the homing pair's shut state -- so an ant
+            // carrying food still ignores the food trail and goes home.
+            //
+            // **This is a `dead-ends.md` RE-TEST, not a retry.** The 2026-09-09
+            // arm was rejected as "correct, and makes the animal decisively
+            // worse", because a working reader sends empty ants to patches the
+            // colony has already eaten. The owner's objection to that, and it
+            // holds: **only laden ants lay channel B** -- one emitter,
+            // `(CarryingFood, EmitB, 2.5)` -- so a depleted patch stops being
+            // marked, and the standing trail dies at the measured 1,476-frame
+            // lifetime. The self-limiting behaviour is in the emitter already.
+            // If a dead patch still recruits, that is a decay or emission
+            // defect with its own fix, not a reason to leave the reader deaf.
+            (Bias,            2,   0.5),
+            (CarryingFood,    2, -45.5),
+            (PheroBAlong,     2,   6.0),
+            (Bias,            3,   0.5),
+            (CarryingFood,    3, -45.5),
+            (PheroBAlong,     3,  -6.0),
 
             // units 5,6 -- room at the nest, gated ON standing at the nest,
             // driving Dig.

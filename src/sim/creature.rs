@@ -4570,6 +4570,60 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // intake would open it by every stomach in the world; crediting at the
     // drop would credit food the animal never absorbed.
     let digest_rate = digest_rate_of(def, &traits_of(world, organism, def));
+    // **Appetite, not a clock** -- `CreatureDef::digest_hunger_weight`, which
+    // is 0.0 for every species that has not authored it and then takes the
+    // `1.0 - w + w * hunger` factor to exactly 1.0. Multiplying by a literal
+    // one is bit-identical, so the unauthored arm is a true control rather
+    // than a re-seeding, the same contract `home_bias` keeps.
+    //
+    // **Referenced to `reproduce_threshold`.** Against `start_energy` the
+    // animal asymptotes at subsistence and never banks a surplus, so nothing
+    // ever breeds -- see the field's own doc, where that trap is the reason
+    // the reference is what it is.
+    //
+    // **Gated on there being a crop, which is not decoration.** Scaling the
+    // rate on a tick where the animal is carrying nothing changes no
+    // behaviour, and counting it makes `digest_appetite_held` a sum over a
+    // rate nobody was going to spend -- arithmetically correct and an answer
+    // to a different question, which is this repo's worst-recurring failure.
+    // The focal ant's crop was empty on 16,079 of 17,819 ticks, so counting
+    // ungated overstates by about ten to one.
+    let digest_rate = {
+        let carrying = world.organism(organism).is_some_and(|s| s.crop.is_some());
+        if carrying && def.digest_hunger_weight > 0.0 && def.reproduce_threshold > 0.0 {
+            let w = def.digest_hunger_weight.clamp(0.0, 1.0);
+            let energy = world.organism(organism).map_or(0.0, |s| s.energy);
+            // **Flat at full rate up to `start_energy`, then falling to the
+            // breeding bar** -- not a straight line from zero, which is what
+            // this was first and it measured worse than no gate at all.
+            //
+            // `1 - energy / reproduce_threshold` reads **0.82** for an animal
+            // sitting at exactly `start_energy`, so an ant at subsistence paid
+            // an 18% cut to its intake while holding no surplus for the gate
+            // to protect. Measured at gap 90 over six seeds: deliveries
+            // 144 -> 36 and survivors 8 -> 0 against the same bed with the
+            // gate off. The mechanism was right and the curve was wrong.
+            //
+            // The span is `start_energy .. reproduce_threshold` -- the band in
+            // which an animal is actually accumulating toward a child, and the
+            // only band where withholding cargo costs it nothing it needs.
+            // Below subsistence it is starving and must eat at full rate; that
+            // is not a special case bolted on, it is where the ramp starts.
+            let floor = def.start_energy.min(def.reproduce_threshold);
+            let span = (def.reproduce_threshold - floor).max(f32::EPSILON);
+            let hunger = ((def.reproduce_threshold - energy) / span).clamp(0.0, 1.0);
+            let scaled = digest_rate * (1.0 - w + w * hunger);
+            // The pair `CLAUDE.md` asks for: `digest_appetite_ticks` is the
+            // "it fired" half and `digest_appetite_held` the effect from the
+            // far side of the call -- face value that stayed in a crop
+            // because the animal was not hungry enough to spend it.
+            world.creature_stats.digest_appetite_ticks += 1;
+            world.creature_stats.digest_appetite_held += f64::from(digest_rate - scaled);
+            scaled
+        } else {
+            digest_rate
+        }
+    };
     let digested = if digest_rate > 0.0 {
         let gut = gut_of(world, organism, def);
         world.organism(organism).and_then(|s| s.crop).map_or(0.0, |c| {
@@ -4621,7 +4675,18 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
                 // measure. It cannot be gamed by dropping just before
                 // maturity either: that forfeits the progress *and* the meal,
                 // which is starvation rather than an exploit.
-                state.crop = (left > 0).then_some(Crop { cells: left, digesting: matured - c.unit, ..c });
+                // **The remainder is parked, not discarded** -- see
+                // `OrganismState::digest_carry`. The comment above is still
+                // right that an EMPTY CROP must be `None`; what changed is
+                // where the timer lives when there is no crop to hold it.
+                let remainder = matured - c.unit;
+                state.crop = (left > 0).then_some(Crop { cells: left, digesting: remainder, ..c });
+                if left == 0 && remainder > 0.0 {
+                    state.digest_carry = Some((c.material, remainder));
+                    world.creature_stats.digest_parked += 1;
+                } else if left == 0 {
+                    state.digest_carry = None;
+                }
             }
             // **The owner's rule, 2026-09-11: "where should the seed drop
             // when a creature picks up food -- it should drop where it is
@@ -4998,6 +5063,34 @@ fn sense(
         // bit-identical.
         inputs[I::Carrying as usize] =
             if spoil_is_cargo() { crop_fill.max(state.spoil.map_or(0.0, |_| 1.0)) } else { crop_fill };
+        // **Food only, and never the pellet** -- see `BrainInput::CarryingFood`.
+        // This is the sensor the homing pair, the food-trail reader and `EmitB`
+        // should always have been reading; `Carrying` stays as it is because
+        // the two `Drop` verbs genuinely want "are my mandibles full of
+        // anything". Deliberately outside the `spoil_is_cargo()` branch: that
+        // switch exists to price the confound on the OLD sensor, and this one
+        // has no confound to price.
+        // **Boolean, not graded, and the arithmetic forces it.** The gated
+        // pair needs three things at once: a deep OFF when empty (`|Bias|` far
+        // above the +-6 `along` term, or an empty ant reads the homing plane),
+        // a near-zero ON when laden (or `along` cannot move it -- §Z7's
+        // saturation bug), and to open on a LITTLE food. With
+        // `on = Bias + gain`, an on-state of +0.5 at `Bias -45` forces
+        // `gain = 45.5` and therefore a threshold of **45/45.5 = 0.989**. The
+        // three are incompatible for a graded sensor, and `MUT_CLAMP` (40)
+        // destroys any large gain on the first birth regardless.
+        //
+        // A graded threshold also cannot be picked to suit: one cell of the
+        // shipped foods is 40, 120, 137, 200, 480, 960 or 1440 J against
+        // `crop_capacity` 1440, so **any** fixed fraction leaves some foods
+        // shut and others open, and a value tuned to the harness's 960 J fruit
+        // is tuned to one larder rather than to the animal.
+        //
+        // So the gate asks the question it actually wants -- *am I carrying
+        // food* -- and the GRADED half ("the fuller I am, the likelier I head
+        // home") lives in `CreatureDef::home_bias`, which reads `crop_fill`
+        // directly. One question per sensor.
+        inputs[I::CarryingFood as usize] = if crop_fill > 0.0 { 1.0 } else { 0.0 };
     }
 
     // **A creature is not crowded by itself**, and it was: this scan
@@ -8280,7 +8373,24 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // gut-filtered value would look like matter vanishing.
                 // The gut is applied when the food is absorbed, not when
                 // it is swallowed.
+                // **What a resume was worth**, hoisted out because
+                // `organism_mut` holds `world` and the counter lives on it.
+                // 0.0 for every pickup that did not resume anything, which is
+                // what `digest_resumed` must not count -- see its doc comment.
+                let mut resumed_face = 0.0f64;
                 if let Some(state) = world.organism_mut(organism) {
+                    // **Resume whatever was parked for this material**, and
+                    // only onto an empty crop: a crop with cells already
+                    // carries its own `digesting` through `..c` below, and
+                    // adding a parked remainder on top would credit it twice.
+                    // Different material means start fresh -- the two have
+                    // different `unit`, and crediting one against the other
+                    // would mint joules.
+                    let resumed = match (state.crop, state.digest_carry) {
+                        (None, Some((m, d))) if m == food => d.min(worth),
+                        _ => 0.0,
+                    };
+                    resumed_face = resumed as f64;
                     state.crop = Some(match state.crop {
                         // **`unit` takes the min, not the last.** Corpses
                         // carry per-cell worth in `aux`, so a crop filled
@@ -8294,8 +8404,20 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                         // `Some` given the guard above (`passenger` is only
                         // ever computed when `c.passenger` was `None`).
                         Some(c) => Crop { cells: c.cells.saturating_add(1), unit: c.unit.min(worth), passenger: c.passenger.or(passenger), ..c },
-                        None => Crop { material: food, shade, unit: worth, cells: 1, digesting: 0.0, passenger },
+                        None => Crop {
+                            material: food,
+                            shade,
+                            unit: worth,
+                            cells: 1,
+                            digesting: resumed,
+                            passenger,
+                        },
                     });
+                    state.digest_carry = None;
+                }
+                if resumed_face > 0.0 {
+                    world.creature_stats.digest_resumed += 1;
+                    world.creature_stats.digest_resumed_face += resumed_face;
                 }
                 world.creature_stats.pickups += 1;
                 // `bites` mirrors `pickups` and never `eats` -- see
@@ -8417,6 +8539,9 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     } else {
                         world.set(dx, dy, unit.into_cell(world));
                     }
+                    // Same hoist as the pickup site: `organism_mut` holds
+                    // `world`, and `digest_parked` lives on it.
+                    let mut parked = false;
                     if let Some(state) = world.organism_mut(organism) {
                         // The cell leaves whole; the maturing remainder stays,
                         // because it is progress toward eating the *next* one
@@ -8424,10 +8549,27 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                         // `passenger: None` unconditionally: either it was
                         // already empty, or it was just delivered above and
                         // must not be popped a second time by a later drop.
+                        let mut carry_over = None;
                         state.crop = state.crop.and_then(|c| {
                             let left = c.cells.saturating_sub(1);
+                            // **Putting the last cell down no longer forfeits
+                            // the chewing.** `..c` already carried `digesting`
+                            // across a drop while cells remained; the loss was
+                            // only ever at `left == 0`, where the whole struct
+                            // went `None`. Measured cost of that edge:
+                            // 17 pickups and 2 meals on one forager (§7.34).
+                            if left == 0 && c.digesting > 0.0 {
+                                carry_over = Some((c.material, c.digesting));
+                            }
                             (left > 0).then_some(Crop { cells: left, passenger: None, ..c })
                         });
+                        if let Some(cc) = carry_over {
+                            state.digest_carry = Some(cc);
+                            parked = true;
+                        }
+                    }
+                    if parked {
+                        world.creature_stats.digest_parked += 1;
                     }
                     world.creature_stats.drops += 1;
                     if at_nest {

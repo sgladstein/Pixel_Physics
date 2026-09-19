@@ -279,7 +279,11 @@ fn scent_label(w: &brain::Wiring, channel: BrainOutput) -> &'static str {
             // *different* thing from a channel laid only while standing on
             // the nest, which is the `AtNest` instinct case below.
             BrainInput::AtNest => "HOME SCENT",
-            BrainInput::FoodAdjacent | BrainInput::Carrying => "FOOD ROUTE",
+            // `CarryingFood` beside `Carrying` since 2026-09-18: the food
+            // trail moved onto the food-only sensor so a pellet of dirt stops
+            // laying it, and a page that named only the old wire would go
+            // silent about the ant's most important scent.
+            BrainInput::FoodAdjacent | BrainInput::Carrying | BrainInput::CarryingFood => "FOOD ROUTE",
             BrainInput::KinNear => "COLONY SCENT",
             _ => "A SCENT",
         };
@@ -304,7 +308,7 @@ fn scent_label(w: &brain::Wiring, channel: BrainOutput) -> &'static str {
         }
     }
     match best {
-        Some((BrainInput::Carrying, _)) => "FOOD ROUTE",
+        Some((BrainInput::Carrying, _)) | Some((BrainInput::CarryingFood, _)) => "FOOD ROUTE",
         Some((BrainInput::AtNest, _)) => "NEST MARK",
         Some((BrainInput::Bias, _)) => "HOME SCENT",
         Some(_) => "A SCENT",
@@ -329,7 +333,7 @@ fn scent_phrase(w: &brain::Wiring, input: BrainInput, output: BrainOutput) -> Op
                     // hidden layer produces, so the two read as one list.
                     let who = match input {
                         I::Bias => "ALWAYS LAYS".to_string(),
-                        I::Carrying => "LADEN: LAYS".to_string(),
+                        I::Carrying | I::CarryingFood => "LADEN: LAYS".to_string(),
                         I::AtNest => "AT NEST: LAYS".to_string(),
                         I::FoodAdjacent => "ON FOOD: LAYS".to_string(),
                         // A rare driver gets no condition rather than a
@@ -477,6 +481,13 @@ struct Gated {
 fn gate_words(input: BrainInput) -> Option<(&'static str, &'static str)> {
     Some(match input {
         BrainInput::Carrying => ("LADEN", "EMPTY"),
+        // **The same words for the food-only sensor**, since 2026-09-18: both
+        // gated pairs moved from `Carrying` to `CarryingFood` so a pellet of
+        // dirt stops opening the homing gate and stops laying food-trail
+        // scent. To a reader of the page the condition is still "laden" --
+        // what changed is that it now means *carrying food* rather than
+        // *carrying anything*, which is the distinction the ant was missing.
+        BrainInput::CarryingFood => ("LADEN", "EMPTY"),
         BrainInput::AtNest => ("AT NEST", "AWAY FROM NEST"),
         BrainInput::FoodAdjacent => ("ON FOOD", "OFF FOOD"),
         BrainInput::Energy => ("WELL FED", "HUNGRY"),

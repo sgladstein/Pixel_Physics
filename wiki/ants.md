@@ -1,13 +1,25 @@
 # Ants
 
-*Current as of: 2026-09-19, when **ants sharing a cell started feeding each
-other in it**, which they had not been able to do — see the end of "Standing in
-each other's way". Before that, 2026-09-18, when **several ants of one colony
-could stand in the same cell**, if you turn it on. A nestmate has always been as
-solid as rock, which is a problem the better a trail works: a trail that works
-puts every ant on one line, and a line that cannot overlap is a queue. Off by
-default. Before that, 2026-09-15, when **a trail started reaching all the way
-out.**
+*Current as of: 2026-09-19, when **the putting-down of a load stopped
+reading the ground it is put down on.** An ant used to be a little likelier
+to let go where the ground was uneven or drying out; that reflex fired on a
+food heap too — a heap being curved ground — so a forager standing on the
+larder put its dinner back on the larder and never got home with it. Taking
+it off the carrying verb is what let food reach the nest at all, and it left
+the preference reaching nothing: see "They build without being told to"
+below, which now says so. The same day, **ants sharing a cell started
+feeding each other in it**, which they had not been able to do — see the end
+of "Standing in each other's way". Before that, on 2026-09-18, **an ant could
+finally carry food home instead of eating it on the way.** Its stomach held
+exactly one piece of the food it was sent to fetch, and it digested that
+piece as it walked, so it arrived empty every time and nothing was ever set
+down at the nest — at any distance. It now holds three. See "An ant eats what
+it carries" below. Before that, the same day, **several ants of one colony
+could stand in the same cell**, if you turn it on. A nestmate has always been
+as solid as rock, which is a problem the better a trail works: a trail that
+works puts every ant on one line, and a line that cannot overlap is a queue.
+Off by default. See "Standing in each other's way" below. Before that,
+2026-09-15, when **a trail started reaching all the way out.**
 An ant lays a lot of scent near home and less the further it gets, so a trail
 has always been a slope running downhill away from the nest — and the far half
 of that slope was too shallow for the world to hold. It was still *there*; it
@@ -186,6 +198,27 @@ mostly stops it. See "An ant can carry a seed home" below for the honest
 read of what it does and does not do yet — the plants it produces so far
 stand out in the bed, not ringed around the nest, because an ant sets its
 cargo down wherever it happens to be, not only at the door.
+**Updated again the same day, later still, and this one is the reason a
+colony can feed itself at all: an ant eats what it carries, and until now it
+could only carry one mouthful.** A foraging ant does not have a separate
+shopping bag — the food it is bringing home is the food it is living on, and
+it chews through it steadily as it walks. That is the right tension for an
+animal that forages away from home: the further it goes, the more of the load
+it spends getting back, so distance costs something real.
+
+What was wrong was the size of the stomach. It held three mouthfuls of the
+cheap food an ant nibbles near home, and **one** of the rich food worth
+walking to — so a forager that went out for the good stuff picked up a single
+piece, digested it somewhere on the road, and arrived home with nothing. Not
+sometimes: every time, at every distance. The hoard at the nest that the whole
+colony is supposed to live off never got its first crumb.
+
+Now it holds three of the rich food as well. A forager eats one or two getting
+home and sets the rest down, which is the first time anything has arrived. It
+is not free — a full ant is a heavy ant, and it walks slower and tires faster
+than an empty one, so there is still a real cost to going a long way for a big
+load.
+
 **Updated again the same day, later still: a seed now comes free only when
 the meal it rode in on is actually eaten, not the moment anything is set
 down.** Before this, digesting a carried meal down to nothing quietly
@@ -996,11 +1029,19 @@ one that takes on standing water loses the wettest part — the shaft it came
 in by — and keeps the deeper galleries. Nothing else threatens a burrow, so
 staying dry is the whole of what a colony is defending.
 
-**They build without being told to — and the preference is far weaker than
-this page used to say.** An ant carrying something is a little more likely to
-put it down where the ground is drying out unevenly, and a little less likely
-to cut into ground that is. Nobody wrote a rule that says "build a wall", and
-that part stands.
+**They build without being told to — and as of 2026-09-19 the wet half of
+that preference is not there at all.** An ant carrying something *was* a
+little more likely to put it down where the ground is drying out unevenly.
+That reflex also fired on a food pile, because a pile is curved ground, so a
+forager on the larder kept setting its dinner back down on the larder; taking
+it off the carrying verb is what let food reach the nest for the first time.
+It was meant to survive on the digging verb, where putting tailings down on
+uneven ground is the whole point, and it did not — so today an ant still
+avoids **cutting into** ground that is drying out, and no longer prefers
+anywhere in particular to **put a load down**. Getting it back is a real
+change to where every colony piles its spoil rather than a line, and it is
+written up as an open bug rather than half-done. Nobody wrote a rule that
+says "build a wall", and that part stands.
 
 But *a little* is the honest word, and getting to it took throwing out the
 measurement this page's old claim rested on. Compared against the whole depth of

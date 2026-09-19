@@ -136,14 +136,22 @@ impl Gate {
     fn wires(&self) -> Vec<(I, usize, f32)> {
         let carry = self.on - self.off;
         let mut v = Vec::new();
+        // **`CarryingFood`, since 2026-09-18, and this is a correctness fix
+        // rather than a rename.** `ant.ron` re-authored both gated pairs onto
+        // the food-only sensor; a preset still writing `I::Carrying` would put
+        // its twelve numbers into a slot **the gate no longer reads**, leaving
+        // `CarryingFood` at whatever the species file holds. The arm would run,
+        // print its name, and be a no-op on the thing it claims to set -- which
+        // is exactly how `gate=b2` silently re-imposed the old 0.989 threshold
+        // on the first run after the fix and reported `OPEN on 0 of 26,886`.
         for (u, sign) in [(0usize, 1.0f32), (1, -1.0)] {
             v.push((I::Bias, u, self.off));
-            v.push((I::Carrying, u, carry));
+            v.push((I::CarryingFood, u, carry));
             v.push((I::PheroAAlong, u, sign * self.along));
         }
         for (u, sign) in [(2usize, 1.0f32), (3, -1.0)] {
             v.push((I::Bias, u, self.on));
-            v.push((I::Carrying, u, -carry));
+            v.push((I::CarryingFood, u, -carry));
             v.push((I::PheroBAlong, u, sign * self.along));
         }
         v
@@ -192,6 +200,88 @@ impl Gate {
 /// -1.75)`, so a full ant's residual drive is 0.25 and a starving one's is
 /// 2.0. The gate has to be comparable to *that*, and quoting it against the
 /// bias alone would flatter it.
+/// **The `Feed`-against-`Drop` contest, through the real `eval_brain`** — what
+/// `(Energy, Feed, -w)` would buy, written out before anything is authored.
+///
+/// `creature::act` does not choose between eating and putting down by comparing
+/// the two urges directly: it runs `choose_weighted(&[feed_urge, drop_urge],
+/// CHOICE_EXPLORATION_K, ..)`, which scores each option as `(k + s.max(0))^2`
+/// at `k = 0.1`. So the number that decides behaviour is
+/// `P(drop) = (0.1+d)^2 / ((0.1+f)^2 + (0.1+d)^2)`, and that is what this
+/// prints. **Quoting the raw urges instead would be quoting an input to the
+/// decision rather than the decision** — `CLAUDE.md`'s "ask what your number
+/// counts", in the shape where the arithmetic is one step further on than it
+/// looks.
+///
+/// **Through `eval_brain` with the shipped genome, never hand-summed from the
+/// `.ron`.** `ant.ron` wires through hidden units, a weight under `brain::W_EPS`
+/// is no connection at all, and §Z5's dead odometer was "verified" by exactly
+/// the side-simulation this avoids.
+///
+/// `FoodAdjacent` is pinned at 1.0 throughout: with nothing to eat the contest
+/// does not arise, so the interesting rows are the ones where it does.
+fn feed_gate(base: &[f32], candidates: &[f32]) {
+    use brain::BrainInput as BI;
+    use brain::BrainOutput as BO;
+    let energies = [0.0f32, 0.25, 0.5, 0.75, 1.0];
+    println!("P(drop) PER TICK -- the contest AND the drop_urge roll, which are two gates.");
+    println!("FoodAdjacent = 1.0, Carrying = 1.0 throughout. Lower means the ant holds on.\n");
+    println!("Against it: one `fruit` cell is 960 J and `digest_rate` is 3.3/tick, so a cell");
+    println!("needs 291 ticks in the crop to be absorbed. Expected ticks held = 1/P(drop).\n");
+    println!("{:>8} {:>8} {:>9} {:>9} {:>9} {:>9} {:>9}", "w", "AtNest", "E=0.00", "E=0.25", "E=0.50", "E=0.75", "E=1.00");
+    println!("{:->8} {:->8} {:->9} {:->9} {:->9} {:->9} {:->9}", "", "", "", "", "", "", "");
+    for &cand in candidates {
+        let mut g = base.to_vec();
+        // The candidate wire. `-cand` because `Energy` is a FULLNESS reading
+        // (`state.energy / start_energy`), so a hungry ant reads 0 and the
+        // negative weight is what turns "empty" into "eat".
+        g[brain::io_slot(BI::Energy, BO::Feed)] = -cand;
+        for at_nest in [0.0f32, 1.0] {
+            let mut row = Vec::new();
+            for &e in &energies {
+                let mut inputs = [0.0f32; brain::BRAIN_INPUTS];
+                inputs[BI::Bias as usize] = 1.0;
+                inputs[BI::FoodAdjacent as usize] = 1.0;
+                inputs[BI::AtNest as usize] = at_nest;
+                inputs[BI::Energy as usize] = e;
+                // A laden ant, since putting down is only a question for one.
+                inputs[BI::Carrying as usize] = 1.0;
+                let mut state = [0.0f32; brain::BRAIN_HIDDEN];
+                let (out, _) = brain::eval_brain(&g, &inputs, &mut state);
+                let f = out[BO::Feed as usize].clamp(0.0, 1.0);
+                let d = out[BO::Drop as usize].clamp(0.0, 1.0);
+                let k = 0.1f32;
+                let (bf, bd) = (k + f, k + d);
+                // **Dropping needs BOTH gates and an earlier draft of this
+                // readout printed only the first.** `creature::act` sets
+                // `prefer_drop` from `choose_weighted`, and then the drop
+                // branch rolls again against `drop_urge` itself
+                // (`let p = drop_urge; if draw.unit_f32() < p`). So the
+                // per-tick probability is the product, and the contest alone
+                // overstates it by a factor of `1 / drop_urge`.
+                let contest = bd * bd / (bf * bf + bd * bd);
+                row.push(format!("{:>9.4}", contest * d));
+            }
+            println!("{:>8.2} {:>8} {}", cand, if at_nest > 0.5 { "yes" } else { "no" }, row.join(" "));
+            if cand == 0.0 {
+                // The shipped row is the only one worth converting, and the
+                // conversion is the whole question: how long does a cell stay
+                // in a crop against the 291 ticks it needs.
+                let held: Vec<String> = row
+                    .iter()
+                    .map(|c| {
+                        let pv: f32 = c.trim().parse().unwrap_or(0.0);
+                        if pv <= 0.0 { "    inf".to_string() } else { format!("{:>7.0}", 1.0 / pv) }
+                    })
+                    .collect();
+                println!("{:>8} {:>8} {}", "ticks", "held", held.join("   "));
+            }
+        }
+    }
+    println!("\nw = 0.00 is the shipped ant: `ant.ron` authors no `Energy -> Feed` wire at all,");
+    println!("so hunger does not move this number by a single digit today.");
+}
+
 fn arithmetic(base: &[f32]) {
     let along: Vec<f32> = vec![0.0, 0.05, 0.1, 0.2, 0.35, 0.5, 1.0];
     println!("{:>9} {:>9} | {}", "gate", "carry", along.iter().map(|a| format!("{a:>8.2}")).collect::<Vec<_>>().join(""));
@@ -470,6 +560,27 @@ struct Arm {
     /// it is supposed to be walking to**. `CLAUDE.md`: check the scene still
     /// contains the situation you think it does, before touching the mechanism.
     founded: (i32, i32),
+    /// Where the nest and the food actually sit, so `founded` can be read as a
+    /// **distance** rather than as two bare coordinates.
+    ///
+    /// **`gap=` is the NEST-to-food distance, and the ants are not at the
+    /// nest.** `found_colony_of` lays them in a band about `ants * 4` wide
+    /// centred on the nest, so at 20 ants and `gap=90` the colony spans
+    /// x 12..88 against food at 138 — the nearest founder is **50 cells out,
+    /// not 90**, and nothing in this harness's output said so. The existing
+    /// assertion only catches the extreme case where a founder lands *on* the
+    /// larder; between "on it" and "a gap away" there is a whole range this
+    /// prints rather than implies.
+    nest_x: i32,
+    /// **Where the nest MATERIAL is, and how many founders were born on it.**
+    ///
+    /// `nest_x` above is the founding cursor and reads like a location; the
+    /// comb `paint_nest_patch` lays from it spans `+/- 26` columns with gaps,
+    /// so the two are different facts and only these are the one that decides
+    /// whether an ant has a home. See the census that builds them.
+    nest_span: (i32, i32),
+    founders_on_nest: usize,
+    target_x: i32,
     /// **Frame the first ant reached the food, or 0 for never** -- and the
     /// column that separates "cannot follow the trail" from "died on the way".
     ///
@@ -568,13 +679,75 @@ struct Arm {
     /// that drops as fast as it picks up is forfeiting every meal, because
     /// `digesting` is a timer the drop discards -- and `ant.ron` authors
     /// `(AtNest, Drop, 1.0889)`, so *arriving home* is itself the trigger.
+    ///
+    /// **That "the drop discards it" is what `digest_parked` below repairs**,
+    /// and the pair is here rather than only in the engine because this
+    /// harness is where the claim gets quoted. §7.36's numbers for the
+    /// mechanism -- a forager 21 cells further home, dying with an empty crop
+    /// -- are downstream evidence, and a mechanism with no counter is one
+    /// nobody can prove ran.
     drops: u64,
+    /// **Remainders parked when the last cell left the crop**, and the ones a
+    /// later bite of the same material resumed, with what they were worth.
+    ///
+    /// Read as a chain: `drops` is the opportunity, `digest_parked` is the
+    /// mechanism firing, `digest_resumed` is it paying off, and
+    /// `digest_resumed_face` is how much. Parked-without-resumed is a
+    /// remainder that expired unused -- the mechanism ran and bought nothing,
+    /// which reads identically to working code in every other number here.
+    digest_parked: u64,
+    digest_resumed: u64,
+    /// **Cumulative face value carried across a drop**, not joules saved. An
+    /// ant that parks the same progress, resumes it, and parks it again without
+    /// finishing the cell is counted twice, so this is a throughput figure and
+    /// overstates the stock. Read it for its order of magnitude against
+    /// `digest_resumed`: sub-joule per resume means the absorb site (bounded by
+    /// one tick's chewing) and nothing else; hundreds mean the drop site, which
+    /// is where the 290 ticks live.
+    digest_resumed_face: f64,
+    /// **What the appetite gate withheld, against what the gut actually
+    /// absorbed** -- the pair that says whether scaling the rate by hunger did
+    /// anything. Held near zero with `digested_face` healthy means the colony
+    /// was hungry throughout and the gate never had a surplus to protect,
+    /// which is a true reading of a starving bed rather than a dead mechanism.
+    digest_appetite_held: f64,
+    digested_face: f64,
+
     /// Distinct ants that ever came within `near` of the food -- recruitment.
     visitors: usize,
     /// Distinct ants that ever lived in this run, as the denominator.
     ants_seen: usize,
+    /// **Round trips split by whether the ant was born on the comb** -- the
+    /// within-run control for §7.37. An ant born off it homes to its own birth
+    /// cell for life, so if the anchor is the blocker these two diverge; if
+    /// they do not, the anchor is real and is not what is stopping the loop.
+    trips_on_nest: u64,
+    trips_off_nest: u64,
+    /// The denominator for the pair above -- trips alone cannot be read without
+    /// how many ants were in each group.
+    ants_on_nest: usize,
     /// Honest round trips summed over the colony. See `Track::trips`.
     round_trips: u64,
+    /// **The homeward leg in frames: n / median / p90, over closed round
+    /// trips**, and the same for the subset that closed with larder in the
+    /// crop. Medians rather than means because the tail here is long.
+    ///
+    /// `leg_n` is the pairing `CLAUDE.md` asks for: it must equal
+    /// `round_trips`, and a gap between them means legs are being dropped
+    /// rather than journeys being short.
+    leg_n: usize,
+    leg_med: u64,
+    leg_p90: u64,
+    laden_leg_n: usize,
+    laden_leg_med: u64,
+    laden_leg_p90: u64,
+    /// **The raw legs, because a median of per-run medians is not a median.**
+    /// Closed round trips are rare here -- tens across a whole 18-seed sweep --
+    /// so each run contributes one or two samples and re-medianing the per-run
+    /// figures reports the typical *run* rather than the typical journey. These
+    /// are emitted so the pool can be taken across seeds where it belongs.
+    legs_raw: Vec<u64>,
+    laden_raw: Vec<u64>,
     /// Excursion histogram: how many ants got 0-25 / 25-50 / 50-75 / 75-100 /
     /// over 100 percent of the way to the food, by their furthest point.
     reach: [usize; 5],
@@ -839,7 +1012,54 @@ struct Track {
     /// band.** Counted here rather than read off `CreatureStats::forage_trips`
     /// because this harness can state its own definition, and the loop is the
     /// thing the whole investigation is about.
+    ///
+    /// **`at_nest` here is a +/-26 band around `nest_x`, which is NOT what the
+    /// ant's own `AtNest` sensor reads.** `creature.rs` answers that with
+    /// `adjacent_nest`, an 8-neighbour test for nest *material*, and the comb
+    /// has gaps. So a trip can close on a column the animal itself never
+    /// registered as home. Kept because it is the generous reading and a
+    /// generous reading of zero is still zero -- but it must not be quoted as
+    /// the ant's experience of arriving.
     trips: u32,
+    /// **Was this ant born within one cell of nest material**, and where.
+    ///
+    /// The split that separates "the anchor is the blocker" from "the anchor is
+    /// one of several". `forage_anchor` is the birth cell, so an ant born off
+    /// the comb homes to a private wrong place for life (§7.37) -- and eleven of
+    /// twenty are born on it, so the colony contains its own control. Comparing
+    /// the two groups inside one run cancels seed, supply, gap and crowding,
+    /// which a colony-size ladder would confound with all four.
+    born_on_nest: bool,
+    born_x: i32,
+    /// **The frame of the most recent sample within `near` of the food** — the
+    /// start of the walk home, and half of the only direct measurement of the
+    /// return leg this line has.
+    ///
+    /// Updated on *every* frame the ant is at the food rather than the first,
+    /// so at trip close it holds the moment the animal actually left the
+    /// larder. Taking the first arrival instead measures the visit plus the
+    /// walk, which on a bed where ants linger at food is mostly the visit.
+    left_food: u64,
+    /// The frame this ant last picked larder up, `0` for never. Paired with
+    /// `left_food` so the leg can be split by whether there was anything in
+    /// the crop to carry — a walk home with an empty crop is not the laden
+    /// leg, and averaging the two together is how a journey turns into a
+    /// number about wandering.
+    laden_since: u64,
+}
+
+/// **An order statistic over a sample, 0 when there is nothing to order.**
+///
+/// A median rather than a mean because this line's distributions have long
+/// tails: §7.38's own bracket came from three points, and a mean over a
+/// handful of very long trips reports a journey nobody made.
+fn order_stat(v: &mut [u64], q: f64) -> u64 {
+    if v.is_empty() {
+        return 0;
+    }
+    v.sort_unstable();
+    let i = ((v.len() - 1) as f64 * q).round() as usize;
+    v[i]
 }
 
 /// **Zero every weight into `EmitB`, direct and through the hidden layer** --
@@ -1182,6 +1402,48 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         cdef.home_bias = hb;
         w.species.set_creature(species_id, cdef);
     }
+    // **`cropcap=` -- how many cells of the larder an ant can hold at once**,
+    // which is the one variable that decides whether a foraging trip can
+    // deliver anything at all.
+    //
+    // `ant.ron` authors `crop_capacity: 1440.0` and says in the same breath why:
+    // *"1440 is three leaves at the shipped table (480 each), and three is a
+    // floor rather than a taste. Food only leaves the crop a whole cell at a
+    // time, so an ant that can hold exactly one leaf is under one leaf within a
+    // tick of ingesting and can never deliver again."* That floor holds for a
+    // **480 J** food. This bed's default larder is **fruit at 960 J**, so one
+    // cell is 0.667 of the crop, two do not fit, and the ant is in exactly the
+    // state the comment forbids: it eats its cargo on the walk and arrives
+    // empty. Measured on the focal ant -- `crop_cells` was 1 on 1,740 ticks, 0
+    // on 16,079, and never 2.
+    //
+    // The rider exists so that capacity can be varied **against the same bed and
+    // the same food**. Switching the larder to a 480 J one instead changes the
+    // food's *physics* too (`deadleaf` is a Powder and the pile flows west to
+    // meet the ants: 6/6 seeds survived at gap 90 with `visitors 0/20`), which
+    // is a different experiment wearing this one's clothes.
+    if let Some(cc) = arg::<f32>("cropcap") {
+        let mut cdef = w.species.get(species_id).creature.clone().expect("ant is a creature");
+        assert!(
+            (cdef.crop_capacity - cc).abs() > f32::EPSILON,
+            "cropcap={cc} is already what ant.ron holds, so this arm is the shipped one wearing a different name"
+        );
+        cdef.crop_capacity = cc;
+        w.species.set_creature(species_id, cdef);
+    }
+    // **`hungergate=` -- how far digestion follows appetite**, the control arm
+    // for `CreatureDef::digest_hunger_weight`. `hungergate=0` restores the
+    // clock-driven gut exactly, which is the baseline every number for this
+    // mechanism has to be read against.
+    if let Some(hg) = arg::<f32>("hungergate") {
+        let mut cdef = w.species.get(species_id).creature.clone().expect("ant is a creature");
+        assert!(
+            (cdef.digest_hunger_weight - hg).abs() > f32::EPSILON,
+            "hungergate={hg} is already what ant.ron holds, so this arm is the shipped one wearing a different name"
+        );
+        cdef.digest_hunger_weight = hg;
+        w.species.set_creature(species_id, cdef);
+    }
     // **Placed as a closure because it has to be REPLENISHED, and the arithmetic
     // says why.** 52 ants at two cells, `idle_cost_per_cell` 0.05 and
     // `move_cost_per_cell` 0.125 on a 6-frame tick, need roughly **46,800 J**
@@ -1280,6 +1542,18 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // `sense` per ant per frame, against the 100-frame cadence the columns
     // above are sampled on.
     let tracing = flag("trace");
+    // **Trace an ant that never finds food.** Without this the focal ant is
+    // drawn from larder-carriers, so the seeds where foraging fails outright
+    // produce an empty CSV -- see the selection site.
+    let focal_any = flag("focalany");
+    // **Which ant to follow, by where it starts.** `focalany` takes the first
+    // one seen, which is the westernmost founder -- and the west of this colony
+    // is off the hand-laid trail entirely (it runs `nest_x..=target_x`, while
+    // founders span the band around the nest). Tracing only that ant answers
+    // "what does an ant with no trail under it do" and cannot answer "does an
+    // ant standing ON the trail follow it", which is the question the arm is
+    // for. `focalx=N` picks the ant nearest x = N at selection time.
+    let focal_x: Option<i32> = arg("focalx");
     let mut tr_n = 0u64;
     let mut tr_along_sum = 0.0f64;
     // **The magnitude, separately, because the signed mean cannot answer "is
@@ -1368,7 +1642,12 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let gate_threshold = {
         let g = &genome;
         let bias = g[brain::ih_slot(I::Bias, 0)];
-        let wcarry = g[brain::ih_slot(I::Carrying, 0)];
+        // **`CarryingFood`, since 2026-09-18.** The gate was re-authored onto
+        // the food-only sensor; reading `Carrying` here would find a zero
+        // weight, fall through the `W_EPS` guard and report a threshold of
+        // 0.0 -- a instrument silently answering about a wire that no longer
+        // exists, which is the failure this file has already had twice.
+        let wcarry = g[brain::ih_slot(I::CarryingFood, 0)];
         if wcarry.abs() < brain::W_EPS {
             0.0
         } else {
@@ -1384,6 +1663,49 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             Some(id) => (0..width).flat_map(|x| (0..spec.height).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == id).count(),
         }
     };
+    // **Where the nest material actually is, as columns.**
+    //
+    // `nest_x` is the founding *cursor*, and the header printed it as though
+    // it were the nest. It is not: `paint_nest_patch` lays a masked comb over
+    // `x +/- COLONY_HALF_WIDTH` (26), so at `nest_x = 48` the nest reaches
+    // x 22..74 with teeth and gaps, and 25 cells spread over 53 columns is
+    // not a place -- it is a fence. Reading "nest 48" and an ant's `AtNest`
+    // together produced a confidently wrong extent (2026-09-18): a census of
+    // where one ant *went* was reported as where the nest *is*.
+    //
+    // **`on_nest` is the number this bed actually turns on**: how many
+    // founders are born within one cell of nest material. `forage_anchor` is
+    // set to the birth cell on the stated grounds that a newly hatched ant
+    // has just been at home, so a founder placed off the comb carries a
+    // private wrong home for life and `home_bias` steers it there correctly.
+    // Every other number here is conditional on this one.
+    let (nest_lo, nest_hi, on_nest) = {
+        let nest = w.materials.id_of("nest");
+        match nest {
+            None => (0, 0, 0usize),
+            Some(id) => {
+                let cols: Vec<i32> = (0..width)
+                    .filter(|&x| (0..spec.height).any(|y| w.get(x, y).material == id))
+                    .collect();
+                let on = w
+                    .live_organism_ids()
+                    .into_iter()
+                    .filter(|&oid| w.organism(oid).is_some_and(|s| s.species == species_id))
+                    .filter(|&oid| {
+                        let Some((hx, hy)) = w.organism(oid).and_then(|s| s.chain.first().copied()) else {
+                            return false;
+                        };
+                        (-1..=1).any(|dx| (-1..=1).any(|dy| w.get(hx + dx, hy + dy).material == id))
+                    })
+                    .count();
+                (cols.first().copied().unwrap_or(0), cols.last().copied().unwrap_or(0), on)
+            }
+        }
+    };
+    // Resolved once, outside the per-tick loop: `born_on_nest` needs it on
+    // every ant's first sighting, and a `id_of` per ant per frame is a string
+    // hash in the sweep -- `CLAUDE.md`'s guard-at-the-call-site rule.
+    let nest_id = w.materials.id_of("nest");
     let (mut first_arrival, mut all_dead_frame) = (0u64, 0u64);
     let mut carry_toward_nest = 0i64;
     let mut occupancy = [0u64; 8];
@@ -1395,6 +1717,12 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // the instrument's own positive control, because a count that does not
     // move against a gradient that was never there says nothing.
     let (mut along_sum, mut along_n) = (0.0f64, 0u64);
+    // **Every closed round trip's homeward leg, and the laden subset.** Kept
+    // as the raw samples rather than a running mean: outcomes here have
+    // enormous spread, so the median and p90 are what can be quoted and a mean
+    // over a long tail is not.
+    let mut legs: Vec<u64> = Vec::new();
+    let mut laden_legs: Vec<u64> = Vec::new();
     for f in 1..=frames {
         // **`stop` is what turns this from a pull arm into a loop arm.** Up to
         // `stop` the trail is guaranteed, which breaks the circularity -- a
@@ -1558,7 +1886,15 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         // it was written -- see the note above. On an arm that lays nothing of
         // ours, every frame is fair game.
         let ours_is_down = trail || paint != PaintA::None;
-        let past_our_trail = if ours_is_down { stop > 0 && f > stop + 1500 } else { true };
+        // **3,000, not 1,500, and the old margin was inside the noise.**
+        // `pherolife` on current `main` reports a laid trail **gone at 1,476
+        // frames**, so a window opening at `stop + 1500` opened 24 frames after
+        // our own trail died -- a 1.6% margin on a decay curve, which is no
+        // margin at all. It is why `route pk` once read **88 of 91 in all four
+        // arms alike, including an arm where the ants emit no channel B**:
+        // that was our residue being counted as theirs. At `stop + 3000` the
+        // margin is 2x the measured lifetime.
+        let past_our_trail = if ours_is_down { stop > 0 && f > stop + 3000 } else { true };
         if past_our_trail && f.is_multiple_of(100) {
             let live = (nest_x..=target_x).filter(|&x| w.pheromone_at(Channel::B, x, surface) > 0).count();
             peak_cells = peak_cells.max(live);
@@ -1571,13 +1907,29 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             let Some(&(hx, hy)) = s.chain.first() else { continue };
             ant_ticks += 1;
             let carrying_larder = s.crop.is_some_and(|c| c.material == larder);
-            if tracing && carrying_larder {
+            // **`focalany` traces an ant that never finds food, and without it
+            // the failing case is invisible.** The focal ant was chosen from
+            // larder-carriers only, so in a seed where nobody reaches the food
+            // there is no focal ant and the CSV is empty -- the instrument
+            // could see every run except the ones that fail. Measured
+            // 2026-09-18: at gap 90 with a hand-laid trail, four of six seeds
+            // put **0 or 1** ants of 20 on the larder, and those four produced
+            // no per-tick record at all.
+            let take_as_focal = match (focal_x, focal_any) {
+                // Nearest to the requested column, re-evaluated while no ant has
+                // been chosen yet: the first tick's sweep settles it.
+                (Some(fx), _) => focal.is_none() && (hx - fx).abs() <= 2,
+                (None, true) => focal.is_none(),
+                (None, false) => carrying_larder && focal.is_none(),
+            };
+            if tracing && (carrying_larder || focal == Some(id) || take_as_focal) {
                 // **The focal ant is the first to pick larder up**, traced for
-                // the rest of its life. One ant is n=1 in a chaotic system, so
-                // it is the illustration and the aggregate below is the result;
-                // both are printed because a mean over a bimodal population
-                // describes no ant that exists.
-                if focal.is_none() {
+                // the rest of its life -- or, under `focalany`, simply the first
+                // ant seen, carrying or not. One ant is n=1 in a chaotic system,
+                // so it is the illustration and the aggregate below is the
+                // result; both are printed because a mean over a bimodal
+                // population describes no ant that exists.
+                if take_as_focal {
                     focal = Some(id);
                 }
                 let cdef = w.species.get(species_id).creature.clone().expect("ant is a creature");
@@ -1603,13 +1955,22 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 // The trail's whole contribution: hidden 0/1 are the channel A
                 // pair and nothing else drives `Move` from them.
                 let trail = terms.iter().filter(|(n, _)| n == "h0" || n == "h1").map(|(_, v)| *v).sum::<f32>();
+                // Signed step toward the nest, needed by both the aggregate
+                // below and the focal row, so it lives outside the laden guard.
+                let dx = tracks.get(&id).filter(|t| t.seen).map_or(0, |t| t.last_x - hx);
+                // **Every aggregate below counts LADEN decisions only.** The
+                // focal ant may now be an empty one (`focalany`), and letting it
+                // into these sums would quietly redefine `n` from "laden
+                // decisions" to "laden decisions plus one ant's whole life" --
+                // a denominator change that moves every rate in the block and
+                // looks like a result.
+                if carrying_larder {
                 tr_n += 1;
                 tr_along_sum += along as f64;
                 tr_abs_along_sum += along.abs() as f64;
                 tr_along_hist[(((along + 1.0) * 4.5) as usize).min(8)] += 1;
                 tr_pmove_sum += p_move;
                 tr_trail_sum += trail as f64;
-                let dx = tracks.get(&id).filter(|t| t.seen).map_or(0, |t| t.last_x - hx);
                 tr_dx_home += dx as i64;
                 // The threshold is `creature::sense`'s own guard scale expressed
                 // back as an `along`: below this the reader is looking at two
@@ -1624,7 +1985,8 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 bucket.0 += 1;
                 bucket.1 += p_move;
                 bucket.2 += dx as i64;
-                let carry = tin[I::Carrying as usize];
+                // The gate's own input, not the mandibles-full one.
+                let carry = tin[I::CarryingFood as usize];
                 tr_carry_hist[((carry * 10.0) as usize).min(9)].add(p_move, dx);
                 let open = carry >= gate_threshold;
                 let pooled = if open { &mut tr_open } else { &mut tr_shut };
@@ -1646,12 +2008,38 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                         tr_down_open.2 += dx as i64;
                     }
                 }
+                }
                 if focal == Some(id) {
                     focal_rows.push(format!(
-                        "{f},{hx},{dx},{along:.5},{:.5},{:.4},{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.5},{:.5},{p_move:.5},{trail:.5},{presquash:.5}",
+                        "{f},{hx},{dx},{},{},{along:.5},{:.5},{:.4},{:.4},{},{},{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.5},{:.5},{:.5},{:.5},{:.5},{:.5},{p_move:.5},{:.5},{trail:.5},{presquash:.5},{:.5},{:.5},{:.5}",
+                        // **Where this ant thinks home is, and how stale that
+                        // is** -- `OrganismState::forage_anchor` / `since_nest`.
+                        //
+                        // Here because `home_bias` aims the tumble at the
+                        // ANCHOR, not at the nest, and the two are only the
+                        // same cell for an ant that has touched nest material.
+                        // A founder is placed where the harness spreads it and
+                        // anchors *there* at birth, so without this column a
+                        // laden ant walking confidently to the wrong place is
+                        // indistinguishable from one that will not steer at
+                        // all -- and `tumbles_homeward` reads the same either
+                        // way, because the aim fired correctly both times.
+                        s.forage_anchor.0,
+                        s.since_nest,
                         tin[I::PheroAFront as usize],
                         tin[I::Carrying as usize],
+                        // **`CarryingFood` is the column that decides the gate**
+                        // since 2026-09-18, and a per-tick record without it
+                        // cannot say why the homing pair was open or shut. The
+                        // old `Carrying` stays beside it: the two disagreeing is
+                        // exactly the spoil case, and seeing them differ on one
+                        // row is worth more than either alone.
+                        tin[I::CarryingFood as usize],
+                        s.crop.map_or(0, |c| c.cells),
                         u8::from(s.spoil.is_some()),
+                        // Which way the body is pointing, so a heading change
+                        // is visible as an event rather than inferred from `dx`.
+                        s.heading,
                         tin[I::Energy as usize],
                         tin[I::Crowding as usize],
                         tin[I::AtNest as usize],
@@ -1659,13 +2047,45 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                         tin[I::Stillness as usize],
                         thid[0],
                         thid[1],
+                        // **Channel B and its reader pair.** The homing half
+                        // (h0/h1, `PheroAAlong`) was all this row carried, so it
+                        // could not answer "why did this ant not follow the food
+                        // trail" -- which is the question four of six seeds are
+                        // asking.
+                        tin[I::PheroBAlong as usize],
+                        tin[I::PheroBFront as usize],
+                        thid[2],
+                        thid[3],
+                        // The run-or-tumble roll's other side: `p_move` is the
+                        // chance of stepping along the current heading, and this
+                        // is the chance of re-rolling it. Reading one without
+                        // the other cannot tell "stood still" from "turned".
+                        tout[O::Tumble as usize].clamp(0.0, 1.0),
+                        // **The drop verb and the two terms that drive it away
+                        // from the nest.** `mode=feedgate` computes `drop_urge`
+                        // with `MoistureGrad` and `SurfaceCurvature` set to
+                        // zero, which is a floor rather than a field value --
+                        // and `ant.ron` authors both into `Drop` at 0.169. At a
+                        // food *heap* the curvature term is exactly what is not
+                        // zero, so the synthetic reading cannot explain a drop
+                        // that happens there. Log the real ones.
+                        tout[O::Drop as usize].clamp(0.0, 1.0),
+                        tin[I::MoistureGrad as usize],
+                        tin[I::SurfaceCurvature as usize],
                     ));
                 }
             }
             {
                 let at_food = (hx - target_x).abs() <= near;
                 let at_nest = (hx - nest_x).abs() <= 26;
+                let first_sighting = !tracks.contains_key(&id);
                 let t = tracks.entry(id).or_default();
+                if first_sighting {
+                    t.born_x = hx;
+                    t.born_on_nest = nest_id.is_some_and(|nid| {
+                        (-1..=1).any(|dx| (-1..=1).any(|dy| w.get(hx + dx, hy + dy).material == nid))
+                    });
+                }
                 t.far = t.far.max(hx - nest_x);
                 if carrying_larder && t.seen {
                     // Toward the nest is -x, so negate: positive means the
@@ -1685,6 +2105,12 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     }
                     t.visited = true;
                     t.outbound = true;
+                    t.left_food = f;
+                }
+                if carrying_larder && t.laden_since == 0 {
+                    t.laden_since = f;
+                } else if !carrying_larder {
+                    t.laden_since = 0;
                 }
                 // A trip closes on the return, not the arrival: an ant that
                 // reaches the food and dies there has not made a round trip,
@@ -1693,6 +2119,16 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 if at_nest && t.outbound {
                     t.trips += 1;
                     t.outbound = false;
+                    // **The homeward leg, measured rather than bracketed.**
+                    // §7.38 left it at "436-873 ticks by three data points";
+                    // these are the two frames it needs, and they were already
+                    // being computed for the trip counter.
+                    if t.left_food > 0 && f >= t.left_food {
+                        legs.push(f - t.left_food);
+                        if t.laden_since > 0 {
+                            laden_legs.push(f - t.left_food);
+                        }
+                    }
                 }
             }
             if carrying_larder {
@@ -1933,7 +2369,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         if !focal_rows.is_empty() {
             let path = format!("/tmp/trailfollow-focal-seed{seed}-gap{gap}.csv");
             let mut out = String::from(
-                "frame,x,dx_home,PheroAAlong,PheroAFront,Carrying,spoil,Energy,Crowding,AtNest,FoodAdjacent,Stillness,h0,h1,p_move,trail_term,move_presquash\n",
+                "frame,x,dx_home,anchor_x,since_nest,PheroAAlong,PheroAFront,Carrying,CarryingFood,crop_cells,spoil,heading,Energy,Crowding,AtNest,FoodAdjacent,Stillness,h0,h1,PheroBAlong,PheroBFront,h2,h3,p_move,p_tumble,trail_term,move_presquash,drop_urge,MoistureGrad,SurfaceCurvature\n",
             );
             out.push_str(&focal_rows.join("\n"));
             out.push('\n');
@@ -1974,8 +2410,12 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         eaten_j: diet_by_material(&w, larder).0,
         ate_other_j: diet_by_material(&w, larder).1,
         founded: if founded.0 == i32::MAX { (0, 0) } else { founded },
+        nest_x,
+        target_x,
         ticks: st.ticks,
         nest_cells,
+        nest_span: (nest_lo, nest_hi),
+        founders_on_nest: on_nest,
         atnest_ticks,
         probe_ticks,
         a_peak_amt,
@@ -1991,6 +2431,11 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         tumbles: st.tumbles,
         tumbles_homeward: st.tumbles_homeward,
         drops: st.drops,
+        digest_parked: st.digest_parked,
+        digest_resumed: st.digest_resumed,
+        digest_resumed_face: st.digest_resumed_face,
+        digest_appetite_held: st.digest_appetite_held,
+        digested_face: st.digested_face,
         first_arrival,
         all_dead_frame,
         carry_toward_nest,
@@ -2001,6 +2446,17 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         visitors: tracks.values().filter(|t| t.visited).count(),
         ants_seen: tracks.len(),
         round_trips: tracks.values().map(|t| t.trips as u64).sum(),
+        leg_n: legs.len(),
+        leg_med: order_stat(&mut legs.clone(), 0.5),
+        leg_p90: order_stat(&mut legs.clone(), 0.9),
+        laden_leg_n: laden_legs.len(),
+        laden_leg_med: order_stat(&mut laden_legs.clone(), 0.5),
+        laden_leg_p90: order_stat(&mut laden_legs.clone(), 0.9),
+        legs_raw: legs.clone(),
+        laden_raw: laden_legs.clone(),
+        trips_on_nest: tracks.values().filter(|t| t.born_on_nest).map(|t| t.trips as u64).sum(),
+        trips_off_nest: tracks.values().filter(|t| !t.born_on_nest).map(|t| t.trips as u64).sum(),
+        ants_on_nest: tracks.values().filter(|t| t.born_on_nest).count(),
         reach,
         carry_ticks,
         carry_home_ticks,
@@ -2130,13 +2586,18 @@ fn main() {
     // a 1.84% open gate where the same command at the default reports 639,100
     // and 1.25%, and nothing in the header said why. Found 2026-09-18 by an
     // archived log failing to reproduce against a binary that was correct.
-    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill} stop={stop} homebias={}", gate.name, arg::<f32>("homebias").map_or("shipped".to_string(), |v| format!("{v}")));
+    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill} stop={stop} homebias={} cropcap={} hungergate={}", gate.name, arg::<f32>("homebias").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("cropcap").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("hungergate").map_or("shipped".to_string(), |v| format!("{v}")));
     println!("  gate {}: off {:+.1}  on {:+.1}  along ±{:.1}", gate.name, gate.off, gate.on, gate.along);
     println!("  {LANDED_NOTE}\n");
 
     let spec = LabBox { width: 256, height: 192, ground_y: 96, soil_depth: 48, founders: 0, colonies: 0, seed: seed0, ..LabBox::default() };
     let w = spec.build();
     let base = w.species.get(w.species.id_of("ant").expect("the ant species is compiled in")).genome.clone();
+
+    if mode == "feedgate" {
+        feed_gate(&base, &[0.0, 0.5, 1.0, 1.5, 2.0, 3.0]);
+        return;
+    }
 
     if mode == "arith" {
         println!("P(move) for a fed ant (Energy 1.0), by gate and by along-gradient reading:\n");
@@ -2223,7 +2684,25 @@ fn main() {
         // 3.5-hour study once already.
         let gaps: Vec<i32> = arg_str("gaps")
             .map(|v| v.split(',').map(|t| t.trim().parse().expect("gaps= takes a comma-separated list of integers")).collect())
-            .unwrap_or_else(|| vec![90, 150, 220, 300]);
+            // **90, 140, 200 on every run — owner's standing instruction,
+            // 2026-09-18, and it is a statement about what the experiment IS.**
+            //
+            // 90 is the only distance a colony currently survives (§7.30: at a
+            // real founder distance of 50, 2 of 3 seeds live; at 100 and 160,
+            // **0 of 3** and the food is sometimes never reached at all). The
+            // temptation is to read that as "the bed only works at 90, so test
+            // there" — which is what an earlier draft of §7.30 concluded, and
+            // it is backwards. **The colony dies at 140 and 200 BECAUSE
+            // recruitment does not work.** A lone scout cannot keep a colony
+            // alive a hundred cells out; a recruited column can. So survival at
+            // 140 and 200 is the SUCCESS SIGNAL of the thing being built, not a
+            // precondition for measuring it, and a run that omits them cannot
+            // see the result it is looking for.
+            //
+            // Structural rather than a discipline (`CLAUDE.md`: make it a
+            // command, not a habit) — the old default started at 90 and ran
+            // out to 300, so the three that matter were never one list.
+            .unwrap_or_else(|| vec![90, 140, 200]);
         // **`arms=homeA` runs one arm instead of five**, which is what makes a
         // 36-seed replication affordable: an effect that shows up in 1 seed of
         // 12 needs more seeds, not more arms, and paying for four irrelevant
@@ -2277,15 +2756,28 @@ fn main() {
                         a.round_trips,
                         format!("{} {} {} {} {}", a.reach[0], a.reach[1], a.reach[2], a.reach[3], a.reach[4])
                     );
+                    if !a.legs_raw.is_empty() {
+                        let f = |v: &Vec<u64>| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
+                        println!("{:>16}LEGS legs[{}] laden[{}]", "", f(&a.legs_raw), f(&a.laden_raw));
+                    }
                     // Second line, because these are the shape readouts and a
                     // shape does not fit in a column. `occupancy` is nest-end
                     // first; `carry->nest` is signed cells, positive homeward.
                     let occ: Vec<String> = a.occupancy.iter().map(|v| format!("{}", v / 1000)).collect();
                     println!(
-                        "{:>16}founded x {:>4}..{:<4}  occupancy/1k [{}]  carry->nest {:>7}  born {:>4} died {:>4} (starved {:>4})",
+                        "{:>16}founded x {:>4}..{:<4} (nest cursor {} MATERIAL x {}..{} {} of {} founders born on it; food {}; nearest founder {} cells out, farthest {}, nominal gap {})  occupancy/1k [{}]  carry->nest {:>7}  born {:>4} died {:>4} (starved {:>4})",
                         "",
                         a.founded.0,
                         a.founded.1,
+                        a.nest_x,
+                        a.nest_span.0,
+                        a.nest_span.1,
+                        a.founders_on_nest,
+                        a.ants_seen,
+                        a.target_x,
+                        a.target_x - a.founded.1,
+                        a.target_x - a.founded.0,
+                        a.target_x - a.nest_x,
                         occ.join(" "),
                         a.carry_toward_nest,
                         a.births,
@@ -2303,7 +2795,7 @@ fn main() {
                     // positive means it rises toward the NEST, which is §1c's
                     // prediction and the wrong way round for finding food.
                     println!(
-                        "{:>16}own trail: route pk {:>4} end {:>4} along {:>+7.4}  B nest->food [{}]  blocked {:>8}  kin swaps {:>7}  ticks {:>9}  tumbles {:>9} (homeward {:>8}, {:.2}%)  drops {:>7}",
+                        "{:>16}own trail: route pk {:>4} end {:>4} along {:>+7.4}  B nest->food [{}]  blocked {:>8}  kin swaps {:>7}  ticks {:>9}  tumbles {:>9} (homeward {:>8}, {:.2}%)  drops {:>7}  chew parked {:>6} resumed {:>6} ({:>9.0} J)  DELIVERED {:>5}  leg home n {:>4} med {:>5} p90 {:>5} (laden n {:>4} med {:>5} p90 {:>5})  appetite held {:>9.0} J of {:>9.0}  trips born-on-comb {:>4} ({} ants) / born-off {:>4} ({} ants)",
                         "",
                         a.peak_cells,
                         a.live_cells,
@@ -2315,7 +2807,23 @@ fn main() {
                         a.tumbles,
                         a.tumbles_homeward,
                         if a.tumbles == 0 { 0.0 } else { 100.0 * a.tumbles_homeward as f64 / a.tumbles as f64 },
-                        a.drops
+                        a.drops,
+                        a.digest_parked,
+                        a.digest_resumed,
+                        a.digest_resumed_face,
+                        a.deliveries,
+                        a.leg_n,
+                        a.leg_med,
+                        a.leg_p90,
+                        a.laden_leg_n,
+                        a.laden_leg_med,
+                        a.laden_leg_p90,
+                        a.digest_appetite_held,
+                        a.digested_face,
+                        a.trips_on_nest,
+                        a.ants_on_nest,
+                        a.trips_off_nest,
+                        a.ants_seen - a.ants_on_nest
                     );
                     // **How much of `Carrying` is dig tailings rather than
                     // food.** `Carrying` gates the channel A reader (units 0/1)

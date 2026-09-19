@@ -4139,6 +4139,59 @@ pub struct CreatureDef {
     /// home for a pellet of dig tailings — 47.4% of the old open gate.
     #[serde(default)]
     pub home_bias: f32,
+    /// **How far digestion follows appetite rather than a clock**, 0..1.
+    /// `0.0` is the historical behaviour exactly and takes no arithmetic that
+    /// can change a result; `1.0` scales the gut fully by how hungry the
+    /// animal is.
+    ///
+    /// ```text
+    /// effective_rate = digest_rate * (1 - w + w * (1 - energy / reproduce_threshold))
+    /// ```
+    ///
+    /// **Why this exists: `digest_rate` was doing two jobs that came to want
+    /// opposite values.** It sets how fast an animal feeds itself *and* how
+    /// long cargo survives in the crop, because `matured += digest_rate` ran
+    /// every tick with no gate on need. `ant.ron` derives 3.3 from two
+    /// brackets, and measured against the real journey they contradict
+    /// outright (`pheromone-trail-direction-2026-09-16.md` §7.38–§7.39):
+    ///
+    /// * *the trip must visibly cost the load* assumed a **~130-tick** round
+    ///   trip. The measured laden leg is **436–873 ticks**, so re-derived at
+    ///   the same 30%-of-the-load intent it wants **0.25–0.50**;
+    /// * *a child must be reachable inside a lifetime* wants **>= 2.6**.
+    ///
+    /// Five to ten times apart with no overlap. No setting of one scalar
+    /// satisfies both, which is `CLAUDE.md`'s *when a rule must tell apart two
+    /// things that can look identical, state the difference as data* — four
+    /// support models failed the same way before a bit on the cell settled it.
+    /// Appetite is that data: a starving animal digests at the full rate and
+    /// climbs, a well-fed one barely digests and carries its load home.
+    ///
+    /// **Graded, not a switch.** A threshold would make foraging a binary —
+    /// hoard or eat — and this project's first law is that an outcome is a
+    /// distribution. The gradient is also the interesting part: a poor colony
+    /// eats what it finds and a rich one starts delivering, so the transition
+    /// from subsistence to surplus is something the world does rather than
+    /// something a flag announces.
+    ///
+    /// **Against `reproduce_threshold`, not `start_energy`** — and this is the
+    /// part that is easy to get wrong. Referenced to `start_energy` the animal
+    /// asymptotes at exactly `start_energy`, digesting precisely what it burns
+    /// and banking nothing, so **no animal ever reaches the breeding bar
+    /// again**. That does not relax the second bracket, it deletes it. The
+    /// breeding bar is the only reference that leaves headroom above
+    /// subsistence for a surplus to accumulate in.
+    ///
+    /// **It does not make distance free**, which was the objection to gating
+    /// digestion at all. A walking animal still pays `move_cost_per_cell` and
+    /// still has to make it back out of its cargo, so a longer trip still eats
+    /// more of the load — linear in trip length, the same shape the clock
+    /// gave, at a rate that is ~0.4–1.5 J/tick of face value for this ant.
+    /// That the metabolic figure and the re-derived first bracket agree
+    /// without being fitted to each other is the strongest evidence available
+    /// that the region is right.
+    #[serde(default)]
+    pub digest_hunger_weight: f32,
     /// The material a nest is built from — what `AtNest` senses.
     ///
     /// **Optional since 2026-09-02, and that is the point.** A species that
@@ -4395,6 +4448,7 @@ impl CreatureDef {
             scent_drift,
             kin_crosses_kinds,
             home_bias,
+            digest_hunger_weight,
             nest,
             dig_force,
             bite_force,
@@ -4528,6 +4582,7 @@ impl CreatureDef {
             // A probability, not a length: scaling a body does not change how
             // strongly a full crop should pull it home.
             home_bias: *home_bias,
+            digest_hunger_weight: *digest_hunger_weight,
             nest: nest.clone(),
             dig_force: *dig_force,
             // Dimensionless like `dig_force`, and against the same
@@ -5932,6 +5987,29 @@ pub struct OrganismState {
     /// before the mechanism that renders it" order `CLAUDE.md`'s debug-
     /// readout rule asks for.
     pub last_share_frame: u64,
+    /// **Digestion progress that survives an empty crop**, with the material
+    /// it belongs to. `None` when there is nothing part-chewed.
+    ///
+    /// **Why this is not simply left in `Crop`.** `Crop::digesting` is carried
+    /// across a drop by the `..c` update *while cells remain* — but when the
+    /// last cell goes the whole struct becomes `None`, "remainder and all",
+    /// and the progress dies with it. That choice is deliberate and right:
+    /// `crop.is_some()` has to mean *is carrying*, and a maturing timer on an
+    /// empty stomach once made it mean *has eaten recently*, which had `ascii`
+    /// reporting 18 ants carrying when none held a cell. So the timer needs a
+    /// home outside the crop rather than a zero-cell crop.
+    ///
+    /// **What it costs to leave it broken**, measured per tick on one forager
+    /// (`pheromone-trail-direction-2026-09-16.md` §7.34): 17 pickups, 2
+    /// digestions, and a death by starvation holding a full cell. One 960 J
+    /// cell needs **291 ticks** to absorb, and every put-down before then
+    /// forfeited *the progress and the meal*. A forager that commits to a
+    /// journey is exactly the animal that keeps being interrupted.
+    ///
+    /// **The material is stored with it** so progress on a leaf cannot be
+    /// spent on a corpse — the two have different `unit`, and crediting one
+    /// against the other would mint joules.
+    pub digest_carry: Option<(super::material::MaterialId, f32)>,
     /// Ticks since this creature last touched nest material.
     ///
     /// **This is how an ant finds its way home without ever asking where

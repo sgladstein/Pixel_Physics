@@ -785,7 +785,14 @@ mod tests {
     fn regex_lite_carrying_zero(text: &str) -> Option<f32> {
         text.lines().find_map(|l| {
             let l: String = l.chars().filter(|c| !c.is_whitespace()).collect();
-            let rest = l.strip_prefix("(Carrying,0,")?;
+            // **`CarryingFood` first, `Carrying` for species not yet moved.**
+            // 2026-09-18: both gated pairs were re-authored onto the food-only
+            // sensor so a pellet of dig tailings stops opening the homing gate
+            // (`pheromone-trail-direction-2026-09-16.md` §7.22/§7.24). A
+            // matcher that knows only the old name reports "authors no homing
+            // gate at all" for a species that authors a correct one, which is
+            // a false alarm that looks exactly like a real regression.
+            let rest = l.strip_prefix("(CarryingFood,0,").or_else(|| l.strip_prefix("(Carrying,0,"))?;
             rest.split(')').next()?.parse().ok()
         })
     }

@@ -2936,6 +2936,1480 @@ for**.
 **Data:** `Reports/data/homebias-{0.1,0.25,0.5,1.0}-hand-6seed-2026-09-18.log`
 and the drop-counter pair `homebias-drops-{control,1.0}-hand-6seed-2026-09-18.log`.
 
+## §7.28 The granary — design of record, and the criterion that stops this drifting
+
+**2026-09-18. Nothing here is built.** §7.27 ended with the return leg working
+and starving the colony. This is the plan out of that, written before any code,
+and the first section exists because the owner stopped the work to ask for it.
+
+### 0. The criterion, and why it is first
+
+**The goal of this line is not that colonies survive. It is that a colony lays
+its own food trail.** Stated by the owner, 2026-09-18, on being shown the
+foraging-economy plan: *"I want to make sure we don't lose pheromone context if
+that part isn't finished."*
+
+The risk is specific and was already live. **Every `home_bias` measurement in
+§7.27 was taken on `arms=hand`** — a bed with a trail already laid down for the
+ants. The pheromone question lives in the **`self`** arm, and no run in that
+section touched it. A foraging-economy fix that makes colonies survive on
+`hand` would look like success and answer nothing.
+
+> **ACCEPTANCE, for everything below:** `arms=self`, and **`route pk` rises off
+> **3.4 of 90**. That is §3.2's number for a colony left to build its own trail,
+> and it is indistinguishable from `mute` (channel B zeroed). Survival, `ate J`
+> and `carry@nest` are *diagnostics on the way*; none of them is the finish.
+
+**Why the return leg is upstream of that rather than a detour from it.**
+`ant.ron` drives channel B from exactly one wire:
+
+```
+(Carrying, EmitB, 2.5)
+```
+
+**A food trail is, by construction, the track of a laden ant walking home.** No
+laden return journey, no channel B along a route, no recruitment — structurally,
+not weakly. §7.20 stated the same thing from the other side: *"any mechanism
+whose subject is 'the trail a homing ant lays' is untestable on this bed until
+this number moves."*
+
+So the chain is: `self ≡ mute` ← no channel B laid ← no laden return ← homing
+did not steer (§7.25, now fixable) ← turning it on starves the colony (§7.27)
+← delivering destroys the meal. **The granary is three links down and every link
+is load-bearing.**
+
+**And §7.27's trail columns do NOT answer this** — recorded so nobody quotes
+them. At `home_bias: 1.0` the colony's own trail reads `end 0`, `along +0.0000`
+and a B profile pinned at **8291–8292 in all six seeds**, which is
+`CLAUDE.md`'s tidiness tell: those colonies were dead by frame 7,200–8,832 and
+the measurement window opens at 7,500. It is hand-laid residue. The question is
+**unanswered**, not answered in the negative.
+
+### 0a. This was investigated three weeks ago, and the prior work changes the plan
+
+**Found by grepping `dead-ends.md` for the mechanism before building it, which
+is `CLAUDE.md`'s rule and which nearly did not happen — §0–§7 below were drafted
+first.** Recorded in full because every item either redirects a step or forbids
+one.
+
+**[`larder-reachability-2026-08-30.md`](larder-reachability-2026-08-30.md) asked
+this exact question and answered it.** Its verdict: *"the granary end is an
+empty set"* — not for want of a pile, but because nothing can spend one.
+
+1. **A birth cannot be paid from the world, and it is a code fact.**
+   `creature::try_bud` gates on `state.energy` and charges `state.energy`;
+   `adjacent_nest` is read by a brain input, the drop branch and a visit
+   counter, and **never by anything that looks at what is in the nest
+   neighbourhood.** *"A granary of ten thousand cells would fund exactly zero
+   births."* The only route from a pile to a child is **indirect** — an ant eats
+   from it, its own bank rises, it buds — and that is precisely what §2's wire
+   targets. A *direct* nest-funded birth is the larger change and is that
+   report's §6 item 1.
+2. **The thrash is not new and is not mine.** Measured at colony scale over 18
+   seeds: **140,202 pickups against 137,945 drops**, and **87% of what an ant
+   puts down it puts down away from the nest.** The report names the cause in
+   its §6 item 2 — *"with the pickup branch ahead of the drop branch and no
+   stored bit, a colony cannot hold a pile larger than its own carrying rate:
+   what is put down is picked back up."* §7.27's 285 drops against zero meals is
+   the same phenomenon with `home_bias` concentrating it at the door.
+3. **The pile is a flow, not a store, and that is measured rather than argued.**
+   145 entries against 143 exits over 15,000 frames, `resident` ending at **0** —
+   nothing that was in the first pile is still there. A standing count of ten
+   cannot tell a store of ten from ten in transit; it is ten in transit.
+4. **A granary can physically stand — just not near ants.** A hand-planted
+   40-cell pile in a colony-free world settles to 22–23 and holds for 18,000
+   frames on all 18 seeds. Add a colony and the paired difference is **−14 cells,
+   down on 15 of 18.** So persistence is not the missing piece; the colony is the
+   sink.
+5. **`larder_probe` already exists** and asks the right question — *"is there a
+   standing pile of food beside the nest, and is it a store or a flow?"*, banded
+   by Chebyshev distance to the nearest nest cell, priced in what the gut can
+   digest rather than face value, **with both controls in the binary**
+   (`mode=control` plants the same pile with no colony; `mode=turnover` separates
+   a store from a flow).
+   > ⚠️ **CORRECTED 2026-09-18, and the first version of this line was wrong in
+   > the way that matters.** It said this was "requirement 7's metric built in
+   > advance". **It is not, because it cannot be aimed at this line's bed.**
+   > `larder_probe.rs:89` is `const PRESET: &str = "wetland"` and the argument
+   > list is `mode, frames, every, seeds, plant` — **there is no `scene=`**. It
+   > builds a 512x160 wetland with a 74-cell nest strip, and nothing points it
+   > at `trailfollow`'s `LabBox` gap bed, which is where the pheromone criterion
+   > in §0 lives.
+   >
+   > And `trailfollow` has **no standing-food census at all** — `carry@nest`
+   > counts *ant-ticks carrying larder inside the nest band*, which is ants, not
+   > a pile. So **requirement 7 is outstanding**: on the bed this line is
+   > measured on, there is no number for "is there a store, and is it growing".
+   > Per the requirement's own terms that has to exist **before** the mechanism,
+   > or `ate J` will under-report a working loop exactly as §7.25's numbers did.
+   >
+   > Use `larder_probe` for what it can do — auditing the prior report, which
+   > used this same tool on this same bed — and build the gap-bed census
+   > separately.
+
+**`TRAIT_STORE_IN_BODY` was specced and deliberately not built
+(`dead-ends.md`, 2026-08-31), and its reasoning is the strongest argument for
+§2's wire.** The gene was redundant *because the `Feed`/`Drop` output contest is
+already the granary-versus-replete mechanism*: those weights are heritable,
+mutate at every birth, and are conditioned on everything the brain senses. A
+scalar trait beside them is *"a second knob on one quantity and a strictly weaker
+one, because it is unconditioned."* **So the mechanism is to be reached by
+changing what that contest reads — which is exactly a missing `Energy → Feed`
+wire — and NOT by adding a trait, a flag or a new verb.**
+
+**The order that report settled on, which supersedes any I would invent:**
+(1) make a birth payable from a nest-adjacent store, (2) stop stored cells being
+re-taken, (3) **re-derive whatever was calibrated against the current
+behaviour**, only then (4) write the gene. It flags step 3 as *"not optional and
+the expensive one"* — `hunger_fraction`, `reproduce_threshold` and `drop_urge`
+are all balanced against a world where the pile is inert. That is requirement 6
+below, arrived at twice independently.
+
+> ⚠️ **AND A WARNING AIMED SQUARELY AT THIS PLAN.** `dead-ends.md`, 2026-09-08:
+> *"'The colony starves, so selection cannot have teeth in this bed'; reasoned
+> from a real observation and refuted — **assuming it does sent a session at the
+> larder instead of at the horizon.**"*
+>
+> A previous session saw starvation dominating mortality and went at the larder.
+> That was the wrong call. **This plan must not be the same move wearing a new
+> number.** What makes it different, stated so it can be checked rather than
+> asserted: the claim here is not *"colonies die, therefore fix food"* — it is a
+> mechanism measured end to end, that **100% of carries end in a drop and none in
+> a meal** against a control's ~66/34, with the digestion forfeit named in the
+> engine's own comment and `(AtNest, Drop, 1.0889)` as the trigger. **The
+> falsifier is §2's own: if the wire moves `drops` and `ate J` not at all, this
+> is the larder detour again and the plan stops.**
+
+**One correction to §7.27's reading, before anyone builds on it.** I read the
+control's non-zero `end` (51, 19, 19) as a colony maintaining some trail of its
+own. **The corpus says otherwise and should be believed**: `route pk` reads 88 of
+91 in every `hand` arm alike, *including an arm where the ants lay no channel B
+at all*, which `dead-ends.md` records as independently reproducing §3.2 — **ant
+maintenance of a laid trail is zero.** Those `end` cells are most likely
+hand-laid residue decaying at different rates in a live colony against a dead
+one. Do not quote them as colony trail.
+
+### 0b. What the prior granary evidence can and cannot bear — owner's correction, checked
+
+**Owner, 2026-09-18:** *"The granary fail happened when we had a fully not
+functioning pheromone/forage loop, so I wouldn't place too much weight on the
+failure."* Correct, and §0a as first written leaned on it too hard. The point is
+not that the numbers are wrong — they reproduce — it is **which world they are
+numbers about.**
+
+`dead-ends.md` entries carry *the condition their rejection depends on* for
+exactly this reason. Here that condition is **a colony with no return leg**, and
+it is the condition §7.28's whole plan exists to change. So the larder findings
+are **suspended, not binding**, and the re-test is the same event.
+
+**Ran `larder_probe` rather than citing it**, which is the other half of the
+owner's note (*"when using pre-built tools, make sure they are doing what you
+think they are doing"*) — and §0a had quoted it without ever executing it. Two
+hygiene checks it passes that `trailfollow` did not: it **echoes its own
+parameters** in the header, and it **panics on an unknown argument** instead of
+ignoring it (`larder_probe.rs:122`). Three things the run shows that change how
+its findings read:
+
+- **The colony is dying for the whole census.** `seeds=2 frames=4000`: the `ants`
+  column runs **52 → 47 → 45 → 37 → 36 → 29 → 28 → 24 → 21 → 18 → 16.** Every
+  standing-pile figure in `larder-reachability` is therefore measured on a colony
+  in decline, and *"the pile does not accumulate"* cannot be separated from *"a
+  shrinking colony accumulates nothing."* That is the owner's point, in the
+  instrument's own output.
+- **The bands do not discriminate on this bed.** `<=2`, `<=4`, `<=8` and `<=16`
+  read identically in most rows (5,5,5,5 — 10,10,10,10 — 16,16,16,16), because
+  the scene's nest is a **74-cell strip** (`nest_x=16..90`), so "within two of the
+  nearest nest cell" is most of the colony's world. The banding is not wrong; it
+  is uninformative here, and a conclusion resting on band contrast is not
+  available.
+- **It is a different bed from the pheromone work.** `scene=wetland 512x160
+  ants=52 trees=2`, against `trailfollow`'s `LabBox` gap bed. Nothing about the
+  larder findings transfers to the gap bed without being re-taken there.
+
+**What survives regardless of the condition, because it is a code fact and not a
+measurement:** `try_bud` gates on and charges `state.energy`, and nothing reads
+what is in the nest neighbourhood. A pile still funds zero births *directly*, on
+any bed, working loop or not. The indirect path — eat, bank, bud — is unaffected
+by the correction and remains what §2's wire targets.
+
+**What is now explicitly suspended**, and must be re-taken on a bed where ants
+complete a round trip before it is quoted again: *"the pile is a flow, not a
+store"*, *"87% of drops are away from the nest"*, *"the colony is the sink"*, and
+the 140,202/137,945 pickup–drop identity. Each is consistent with *"ants wander
+at random while holding food"*, which is precisely what §7.25 measured the
+shipped animal doing.
+
+**And one number does survive and is worth keeping in view:** 463 deliveries by
+frame 4,000 against a standing pile of 16. Delivery without accumulation is real
+and reproduces here; what it *means* is what the suspension is about.
+
+### 1. What the engine already has, verified
+
+| | state |
+|---|---|
+| food dropped at a nest | persists as an ordinary world cell — `world.set(dx, dy, unit.into_cell(world))`. **The worth is not destroyed.** |
+| `Share` (trophallaxis) | **works**, evolvable, transfers **`energy`** downhill to `neediest_kin`, gated on `KinNeed` |
+| `Feed` vs `Drop` | already compete for one tick: `choose_weighted(&[feed_urge, drop_urge], ..)` |
+| `(AtNest, Drop, 1.0889)` | a heavy thumb on **Drop** at the nest |
+| `Energy → Feed` | **does not exist.** Hunger does not make an ant eat. |
+| digestion | happens **in the crop**; a drop before `c.unit` forfeits the progress *and* the meal |
+| starvation immunity | **does not exist.** `life_half_life: 0.0` is immortal for *old age* only; the energy death is `creature.rs:11028`, `state.energy <= 0.0` |
+
+**The floor larder already half-exists and defeats itself.** Food is dropped at
+the nest and persists; any ant that picks it up there meets
+`(AtNest, Drop, 1.0889)` and puts it straight back down, and nothing makes a
+hungry ant eat instead. That is a thrash loop, and it is the likeliest reason
+§7.27 measured 285 drops and **zero** meals.
+
+### 2. Step one — one wire, before any mechanism
+
+**`(Energy, Feed, -w)` in `ant.ron`.** A hungry ant eats what is beside it.
+
+- **Why this first:** it is the missing half of a contest that already exists. If
+  it breaks the thrash, the granary **already exists** and the whole defect was
+  one absent wire. That is the cheapest possible outcome and it must be checked
+  for before anything is built.
+- **It is a gene, not a hardcode** — it mutates, so a lineage can evolve how
+  hungry it has to be before it eats its cargo. Point 2 of the owner's
+  considerations (below) is satisfied by construction.
+- **Division of labour for free, with no castes and no age.** A *full* ant
+  carries and drops; a *hungry* ant eats. Energy varies naturally across a
+  colony, so **one genome produces both behaviours** — a distribution rather
+  than a binary, which is the ethos's first law rather than a special case.
+- **Derive `w` before running it, do not fit it.** Follow §7 step 5's own
+  discipline: **write out what the unit computes** at
+  `Energy ∈ {0.0, 0.25, 0.5, 1.0}` × `AtNest ∈ {0, 1}`, through `squash`, and
+  check that a starving ant at the nest beats `drop_urge` while a fed one does
+  not. `Feed` currently sums `(Bias, 0.4)` and `(FoodAdjacent, 0.8)`; `Drop`
+  sums `(Bias, -0.2)`, `(AtNest, 1.0889)`, `(Carrying, 0.2)`,
+  `(MoistureGrad, 0.169)`, `(SurfaceCurvature, 0.169)`.
+- **Falsifier:** if `drops` stays high and `ate J` stays at 0 across the sweep of
+  `w`, the thrash is not the drop contest and the granary is a real build.
+- **Watch for the sweep trap:** `CLAUDE.md`'s *"when every setting of a sweep
+  fails the same way, suspect the sweep"* — run the control that strips the
+  rider, which here is §4 below.
+
+### 3. Step two — the pheromone test, immediately
+
+**The moment colonies survive with `home_bias` on, run `arms=self,mute`.** Not
+later, not after tuning: this is the criterion in §0 and the reason the rest
+exists. `hand` has answered every question it can answer.
+
+### 4. The fallback — starvation immunity as a confound stripper
+
+**The owner's suggestion, 2026-09-18**, and it is methodologically the right
+shape rather than a shortcut: *"you could artificially make it so ants cannot
+die from hunger to just check if they are following pheromones and foraging
+correctly, without the confound of ants dying because they are not eating."*
+
+This is exactly `CLAUDE.md`'s remedy for a sweep whose every setting fails the
+same way — **the mechanism with every rider stripped out.** Starvation is a
+rider that arrived *with* `home_bias` and is constant across every data point in
+§7.27's table, which is precisely the shape that reads as "the approach is
+wrong" and is not.
+
+- **Cost:** one env-gated early return at the energy death (`creature.rs:11028`),
+  measurement-only, same idiom as `SPOIL_IS_CARGO` and
+  `PIXEL_PHYSICS_TROPHALLAXIS`. Small.
+- **What it buys:** it separates *"the loop does not work"* from *"the loop works
+  and the colony cannot afford it."* Those want completely different repairs and
+  nothing measured so far can tell them apart.
+- **What it costs in trust, and the guard against it:** an immortal colony is not
+  a colony, so **no number taken under it may be quoted as a result** — it is a
+  diagnostic arm only, and its own header must say so. The engine has been
+  burned by exactly this: §7.26's `onetrail::hold_gate_laden` evaluated the
+  homing circuit at `Carrying = 1.0`, a value the colony almost never reaches,
+  and its +104-of-112 was read as evidence about a colony for weeks.
+- **When to reach for it:** if step 1 and step 2 both fail. Not before — it is a
+  scalpel for a confound, and reaching for it early would hide the economy
+  problem rather than isolate it.
+
+### 5. The granary proper — only if steps 1–2 fail
+
+**What it is:** food delivered to a nest accumulates as a *visible, persistent,
+spatial* store that the colony eats from.
+
+**Why a store and not ant-to-ant sharing, which was the first recommendation and
+was wrong.** The owner's objection, and it is decisive: *"I don't know if that
+would be visible cuz they're very tiny and there's many of them. Can I tell the
+difference between them sharing and just standing or walking next to each
+other?"* **No.** An ant is two cells; trophallaxis is two ants adjacent for a few
+ticks, which is pixel-for-pixel identical to two ants passing. It would need an
+invented render marker. This repo has already paid for that mistake once —
+`Reports/plant-appearance-design.md`, where three levers all fired, all counted,
+and moved nothing on screen because they only changed *which cell got a label*.
+**A granary changes the silhouette of the nest**, which is a *what and where*, the
+one thing an image can answer.
+
+**The biology supports the store, and the earlier claim that it did not was
+wrong.** Trophallaxis is the **liquid** pathway. Solid food is stored or fed to
+brood, and a physical store is the *more* general pattern across superorganisms,
+not the less: harvester-ant seed granaries, leafcutter fungus gardens, honeybee
+comb, termite fungus combs, honeypot repletes. **"A superorganism accumulates a
+visible store at its home site" generalises across ants, bees, wasps and
+termites; trophallaxis is narrower.** That satisfies the owner's requirement
+that this not be hardcoded for ants.
+
+**Keep `Share`.** Energy-sharing already works and is already evolvable. The two
+are complementary and match the real division: **solid food → store; digested
+energy → share.** The granary is an addition, not a replacement.
+
+### 6. Requirements on the granary, from the owner's considerations
+
+1. **It must work, which means it must not be complicated.** Ranked first by the
+   owner. This is why steps 1 and 2 come before any of §5 — the cheapest thing
+   that could possibly work is a wire, and it has not been tried.
+2. **Biology as inspiration, not as hardcoding.** The mechanism must be "a
+   creature with a crop, a `Drop` and a home marker accumulates a store", with
+   the strengths as *genes*. No ant-shaped special case; the lab's other species
+   and the held world's creatures must get it for free or it is wrong.
+3. **The foraging loop must be visible.** Judged by eye, not by counter. A pile
+   that grows and shrinks is the deliverable.
+4. **A store is a target.** A visible pile at a nest is something beetles and
+   rival colonies can raid — free emergent drama, biologically real, and it turns
+   storage from bookkeeping into a **stake**. Design toward it even if the first
+   build does not include it.
+5. **A store with no sink is a hoard.** If food only accumulates the colony
+   solves hunger for ever and the tension dies. Bound it with brood consumption,
+   spoilage and season — `spoil`, `rot_remains` and weather all already exist. A
+   pile that *shrinks when neglected* is also more visible, not less, and is the
+   ethos's first law again: graded, not binary.
+6. **It recalibrates the whole economy, and that is where the time will go.**
+   Banking food makes starvation rare, which moves birth rates, which moves every
+   constant tuned against the current economy. `CLAUDE.md`: *a correct mechanism
+   at inherited constants is a regression.* **Name the constants before starting
+   or the change is not scoped, it is merely started.**
+7. **The success metric has to exist before the mechanism.** With a store, food
+   can be delivered and not yet eaten, so `ate J` will **under-report a working
+   loop** — the §7.25 trap exactly, a number that is arithmetically right and
+   about the wrong question. Build *stored cells at the nest*, and its turnover
+   rate, **first**.
+8. **This is `engine`, not `lab`.** It lands in the outdoor game, the lab and the
+   held world at once. `Reports/two-games-one-repo-2026-08-30.md` before
+   proposing any scoping of it.
+
+### 7. What not to build
+
+- **Crop-sharing as the primary loop.** Invisible at play scale (§5). It may
+  still be worth having *behind* a granary, for the liquid pathway.
+- **Caste or age-based division of labour.** Real, and real complexity. §2's
+  hunger split gives the same population effect from one genome and no new state.
+  Revisit only if the hunger split provably cannot produce two groups.
+- **A larger `home_bias` sweep before the economy is fixed.** Every row in
+  §7.27's table is conditional on an economy that punishes commuting; re-running
+  it finer measures the economy, not the dial.
+
+## §7.29 291 ticks to digest, 4 ticks held at the nest — the arithmetic that kills step 1
+
+**2026-09-18.** §7.28 planned `(Energy, Feed, -w)` as the cheap first move and
+said to derive `w` through `eval_brain` before running anything. Derived, and
+**the step is falsified without a single sweep** — along with a better answer than
+the one it was looking for. `trailfollow mode=feedgate`.
+
+### The two numbers
+
+**A `fruit` cell needs 291 ticks in a crop.** `digest_rate: 3.3` per tick against
+a cell `unit` of 960 J, absorbed only when `digesting` reaches `unit`. At the
+ant's 6-frame tick that is **1,745 frames**.
+
+**At the nest a cell is held for 4.** P(drop) per tick is **0.2507** with
+`AtNest = 1`, and **0.0000** without it.
+
+So an ant that walks home **puts its food down about seventy times sooner than it
+could ever absorb it**, and the drop discards `digesting` entirely. Going home is
+fatal to the meal, quantitatively, and this is the whole of §7.27's
+"100% of carries end in a drop and none in a meal."
+
+It also explains the shipped animal's survival: with `home_bias: 0.0` an ant
+wanders, rarely touches nest, and P(drop) away from nest is nil — so it holds the
+cell the ~291 ticks it needs and eats. **The colony lives by NOT delivering.**
+
+### Dropping is two gates, and reading one of them overstates it 4x
+
+`creature::act` sets `prefer_drop` from
+`choose_weighted(&[feed_urge, drop_urge], 0.1, ..)` and **then rolls again**
+against `drop_urge` itself (`let p = drop_urge; if draw.unit_f32() < p`). The
+per-tick probability is the **product**.
+
+The first draft of this readout printed only the contest and reported 0.4809 at
+the nest where the truth is 0.2507. Recorded because the error is the standing
+one: **a number that is arithmetically right and one step short of the decision**
+— and it was caught by reading `act` again rather than by anything going wrong.
+
+### Why `(Energy, Feed, -w)` cannot do the job
+
+`Energy` is *fullness*, `state.energy / start_energy`, so the wire contributes
+`-w × Energy` — **zero at E = 0**. It cannot raise a hungry ant's feed urge,
+because at the point of maximum hunger the term vanishes. What it does instead is
+*suppress* feeding when full, which pushes P(drop) at the nest **up**:
+
+```
+       w   AtNest    E=0.00    E=0.25    E=0.50    E=0.75    E=1.00
+    0.00      yes    0.2507    0.2507    0.2507    0.2507    0.2507
+    1.00      yes    0.2507    0.2753    0.3106    0.3629    0.4402
+    3.00      yes    0.2507    0.3629    0.5081    0.5081    0.5081
+```
+
+**Every row is identical at E = 0.00.** No setting of `w` moves a starving ant by
+one digit, and the whole point of the step was to move exactly that ant. A
+positive `Bias` term would move the baseline, but it would move it for *every*
+ant at every fullness, which is not a hunger response at all.
+
+`CLAUDE.md`'s *check that a planned step can demonstrate itself before promising
+it will* — **which cell does this rule actually evaluate?** The answer was "a full
+ant", and the step was written for a hungry one. One readout instead of a lane.
+
+### What the numbers say to build instead
+
+The gap is **291 against 4**, and only three things close it:
+
+1. **`digesting` survives a drop and resumes on re-ingest.** Then delivery stops
+   destroying the meal, cumulative nibbling works, and *a pile at the nest is
+   digestible by the colony over many visits rather than by one ant in one
+   sitting*. **This is the granary, and the arithmetic says it is the right
+   shape** — it is a change to `Crop`, not a new verb, a flag or a trait (which
+   `TRAIT_STORE_IN_BODY`'s rejection forbids).
+2. **A nest-side consumption path** — `larder-reachability` §6 item 1, a birth
+   payable from a nest-adjacent store. Larger, and it is the one that makes the
+   pile *mean* something rather than merely survive.
+3. **Re-derive `digest_rate` or `crop_capacity`.** Cheapest to type and the
+   worst-grounded: it moves a constant calibrated against a world where nobody
+   delivers, and 70x is not a tuning distance.
+
+**Nothing here needs `home_bias` turned down.** The steering was never the
+problem; the 4-tick hold at the nest is.
+
+### One caveat on this readout, stated rather than left for the next reader
+
+The synthetic inputs set `MoistureGrad` and `SurfaceCurvature` to **0**, and
+`ant.ron` authors both into `Drop` at 0.169. A real world does not. So
+**"0.0000 away from the nest" is a floor, not a field value** — colony-scale data
+records 137,945 drops, most of them away from nest, which those two terms and a
+real gradient account for. The nest figure is the one to trust, because `AtNest`
+dominates it at 1.0889.
+
+## §7.30 `gap=` is not the journey — the ants start 40 cells nearer than it says
+
+**2026-09-18.** Owner: *"Make sure the ants are being placed far enough away from
+the food. They place in a spread and we have results earlier where they were
+being placed closer to the food than expected."* Checked, and it is real,
+constant, and was invisible in every row this harness has ever printed.
+
+### The founders are a band, and `gap` measures from its centre
+
+`found_colony_of` lays the colony in a band about `ants * 4` wide **centred on
+the nest**, and `gap` is the **nest**-to-food distance. At `ants=20` the band's
+food-side edge sits a constant 40 cells in front of the nest, so:
+
+| nominal `gap` | nest | food | nearest founder | farthest | nearest as % of nominal |
+|---|---|---|---|---|---|
+| 60 | 48 | 108 | **20** | 96 | 33% |
+| 90 | 48 | 138 | **50** | 126 | 56% |
+| 140 | 48 | 188 | **100** | 176 | 71% |
+| 200 | 48 | 248 | **160** | 236 | 80% |
+
+**The shortfall is a constant 40 cells, not a constant fraction**, so it distorts
+short gaps worst. At `gap=60` with `near=10` the nearest ant starts **ten cells
+from the food's edge** — that is not a foraging journey, it is a standing start.
+
+**The existing assertion does not catch this and is not meant to.** It fires only
+when a founder lands *on* the larder (`fh < target_x - near`), which is the
+extreme case fixed in the 2026-09-16 box-widening. Between "on it" and "a gap
+away" lies the whole range above, and nothing printed it. **It prints now**, on
+the `founded` line, as nest, food, nearest and farthest against the nominal.
+
+**The corpse half of the owner's warning is already guarded and did hold**:
+`ate_other_j` is asserted to **0** on every row when `onlyfood=on`
+(`trailfollow.rs:2346`), so no run in §7.25–§7.29 was feeding on its own dead. A
+hard assertion rather than a column nobody reads, which is the right shape.
+
+### And the bed has a narrow working range, which nobody had measured
+
+Same run, `arms=hand`, 3 seeds, `stop=6000`:
+
+| nominal gap | nearest founder | colonies alive | `ate J`, best seed | `arrive@` |
+|---|---|---|---|---|
+| 60 | 20 | **1 of 3** | 1,004,726 | 330 / 150 / 90 |
+| 90 | 50 | **2 of 3** | 904,047 | 804 / 600 / 564 |
+| 140 | 100 | **0 of 3** | 5,117 | 2,532 / 1,680 / 2,016 |
+| 200 | 160 | **0 of 3** | **0** | 5,124 / 3,984 / **0** |
+
+**Past about 50 cells of real founder distance the colony dies in every seed and
+eats essentially nothing**, and at `gap=200` one seed never reaches the food at
+all (`arrive@ 0`). `trailfollow.rs:980` says *"the distance at which a food trail
+is both necessary and survivable is somewhere between, and nobody has swept it"*
+— this is that sweep, and the answer is that the survivable window closes between
+a real 50 and a real 100.
+
+**Three seeds is not a sweep** (`CLAUDE.md`), and the per-seed scatter here is
+enormous — gap 60 reads 1,004,726 J on seed 1 against 5,520 and 3,120 on the
+other two. Treat the 60/90 rows as indicative. The **6 of 6 deaths across 140 and
+200** are firmer, being the same shape as §7.27's twelve-of-twelve.
+
+### What this constrains — and the conclusion this section first drew was BACKWARDS
+
+**`gap=60` is not a shorter journey to compare against; it is a standing start**,
+and that part stands: 20 real cells against a food radius of 10.
+
+> ⚠️ **CORRECTED 2026-09-18, by the owner, the same day it was written.** This
+> section first concluded that *"the `arms=self` criterion can only be asked
+> where a colony survives at all, which is `gap=90`"*, and that **a gap sweep
+> cannot be used until the colony stops dying.** Both are the wrong way round.
+>
+> Owner: *"They are not surviving at larger distances because we haven't solved
+> the pheromone loop."* **The deaths at 140 and 200 are the symptom under
+> investigation, not a bed limitation that blocks investigating it.** A lone
+> scout cannot keep a colony alive a hundred cells out — 3.7% of ants reach food
+> unaided (§3.2) — and a *recruited column* can. That is the entire claim of the
+> stigmergy mechanism.
+>
+> So **survival at 140 and 200 is the success signal**, and a run that tests only
+> 90 has removed the outcome it is looking for. `gaps=90,140,200` is now
+> `trailfollow`'s default rather than something to remember.
+>
+> The error is worth naming because it is a general one: *a measurement taken
+> where the mechanism is absent was read as a property of the apparatus.* The
+> same shape as §7.28b's suspended larder findings, one section apart, which is
+> how easily it recurs.
+
+What the founder-distance finding does still constrain is **arithmetic, not
+scope**: quote real founder distance, never nominal `gap`, because the two differ
+by a constant 40 cells and the difference is largest exactly where the numbers
+flatter most.
+
+**Quote real founder distance, never nominal `gap`,** in anything downstream. The
+two differ by 40 cells and the difference is largest exactly where the numbers are
+most flattering.
+
+## §7.31 The self arm's trail is mostly dirt — and a returning ant does lay a real one
+
+**2026-09-18.** Owner: *"2 is dependent on 3. Ants lay the trail when they are
+returning. If they don't return they cannot lay their own trail."* Correct, and
+the framing in the previous message had it as "we are solving 2" with 3 as the
+path, which invites exactly the drift this line keeps having. **The goal is 2;
+the active work is 3; and 2 is the test of whether 3 worked.**
+
+This is the first direct measurement of that dependency, and it was available
+without fixing anything.
+
+### The self arm can be read from frame 0, which nothing had noticed
+
+`route pk` waits for `stop + 1500` **only when this harness lays a trail of its
+own** — `ours_is_down = trail || paint != PaintA::None`, and the `self` arm is
+`("self", false, false, PaintA::None)`. So on `self` the window is open from
+frame 0 and samples every 100 frames. **No fix to the digestion problem was
+needed to ask this**; the colonies die around frame 7,600 and still give ~76
+samples, and `route pk` is a peak.
+
+### Most of what the colony lays is dig tailings
+
+`arms=self,mute`, 6 seeds, gap 90, against the same run with `SPOIL_IS_CARGO=0`:
+
+| seed | route pk, spoil ON | spoil OFF | B profile ON | B profile OFF |
+|---|---|---|---|---|
+| 1 | 33 | **11** | [0,12,0,0,0] | [0,0,0,0,0] |
+| 2 | 22 | **0** | [3,3,0,0,0] | [0,0,0,0,0] |
+| 3 | 26 | **0** | [0,8,0,0,0] | [0,0,0,0,0] |
+| 4 | 84 | 55 | [0,10,17,16,1] | **[0,0,119,16,1]** |
+| 5 | 52 | 30 | [4,34,0,0,18] | **[0,0,0,76,0]** |
+| 6 | 31 | **0** | [0,4,0,0,0] | [0,0,0,0,0] |
+
+**In every seed where no ant ever reached the food, silencing spoil takes the
+trail to exactly zero.** `Carrying` is `crop_fill.max(spoil ? 1.0 : 0.0)` and
+`(Carrying, EmitB, 2.5)` is channel B's only emitter, so **an ant holding dig
+tailings lays food-trail pheromone**, and it does it where it digs — the nest.
+Seeds 2, 3 and 6 were laying a puddle of dirt-scent at their own door and
+scoring it as a trail.
+
+### And where an ant did return, the trail is real — and sharper without the dirt
+
+The three seeds with a finder (1, 4, 5 — `arrive@` 4914, 1416, 3018) keep their
+trail with spoil silenced, and **the mass moves out of the nest bands into the
+route**: seed 4's band 2 goes **17 → 119**, seed 5's band 3 goes **0 → 76**.
+The food trail was being *masked* by the nest-side puddle, not produced by it.
+(Consistent with §7.24: silencing spoil makes ants hold cargo rather than drop
+it, so there are more laden ticks along the route to lay from. The two arms are
+different worlds, not one world measured twice.)
+
+**So a returning ant does lay a route trail.** Part 3 feeds part 2, measured
+rather than argued, and the owner's ordering is the right one.
+
+### The real bottleneck on this arm is discovery, and it is severe
+
+Every self-arm colony died, at every gap, in both `home_bias` arms. `ate J` is
+**0** in all six seeds and `trips` is **0**. The reason is upstream of everything
+this line has been working on:
+
+| | seed 1 | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|---|
+| distinct ants ever reaching food, of 20 | 0 | 1 | 0 | **1** | **2** | 0 |
+| `arrive@` | 0 | 3480 | 0 | 1416 | 4494 | 0 |
+
+**Three of six colonies never find the food at all**, and the best manages 2 ants
+of 20. One ant reaching a larder once cannot lay a 90-cell trail, so the return
+leg has almost nothing to act on here. `home_bias` did visibly work on the one
+seed that had a finder — seed 4's `carry@nest` goes **24 → 924**, 38x — and it
+changed no other seed, because there was nothing to change.
+
+This is §3.2's *"discovery is the binding constraint"* with the second clause the
+master already added (*"discovery binds for one ant; the loop needs the return
+leg"*) — **and on the `self` arm the first clause binds so hard the second cannot
+be tested.**
+
+### Two corrections to §7.28's criterion, which this invalidates as written
+
+1. **The baseline is wrong.** §0 sets the bar at *"`route pk` rises off 3.4 of
+   90"*. The shipped self arm reads **22–84** here, not 3.4. Whatever
+   configuration produced 3.4 is not this one, and a criterion whose baseline
+   does not reproduce cannot be passed or failed.
+2. **`route pk` is the wrong instrument.** It counts cells between nest and food
+   holding any channel B, so **a 30-cell puddle at the nest scores 30** — which
+   is exactly what seeds 2, 3 and 6 did while never seeing food. **The criterion
+   must read the outer bands of the `B nest->food` profile**, which separates a
+   route from a door-step, and it should be taken at `SPOIL_IS_CARGO=0` or the
+   number is part dirt.
+
+## §7.32 The compass was built weeks ago and wired to nothing
+
+**2026-09-18.** Four questions from the owner, and two of them overturn a thing
+this line has been reasoning from.
+
+### The odometer is alive, and `brain::what_an_odometer_emits` reads as if it is not
+
+The readout's first row prints
+
+```
+authored (dead: w_in < W_EPS)   emit 0.000 -> 0.000   rms 0.385
+```
+
+and it is a **historical control, not the current animal.** That row hardcodes
+`w_in = 0.0005`, the §Z5 value that sat under `W_EPS`. `ant.ron` authors
+`(AtNest, 4, 0.05)` — fifty times `W_EPS` — with recurrence `0.99995` and
+`(4, EmitA, 32.0)`. The odometer charges at the nest and decays with time away,
+exactly as designed.
+
+**Read the first row as the present state and you conclude channel A has no
+ramp at all**, which is wrong and was one sentence away from being written down
+here. The row deserves a name that says *was*, not *is*.
+
+### But the plane it builds is not nest-tall, and the reason is the population
+
+Surviving colony, `arms=hand`, gap 90, endless larder — channel A nest→food:
+
+```
+end nest->food [0, 194, 1034, 7323, 1520]
+```
+
+**It peaks in the third band, not at the nest.** The odometer makes each ant lay
+more when freshly home; with `AtNest` at **1.37%** almost no ant is freshly home,
+and the plane integrates where the bodies are. *The mechanism works and the
+population defeats it.*
+
+### The gate fix moved that, measurably, and did not finish it
+
+Two surviving colonies, one per gate:
+
+| | food:nest occupancy | `AtNest` |
+|---|---|---|
+| old gate (`Carrying`, threshold 0.989) | **111 : 1** | 0.22% |
+| new gate (`CarryingFood`, boolean) | **27 : 1** | **1.37%** |
+
+The owner's prediction — *"ants were milling about the food because their gate
+never opened; we might not have the blob now"* — is **right in direction and
+incomplete in degree**. The blob shrank fourfold and time at home rose sixfold.
+It is still 27 to 1.
+
+### The compass exists, has shipped for weeks, and nothing steered with it
+
+`OrganismState::forage_anchor` is a home vector: set at spawn, **re-anchored at
+every nest contact**, so it cannot drift and needs no integrator. `creature.rs`
+says what it was for, at the site that maintains it:
+
+> *"**Measurement only** — nothing downstream reads it, and an ant still has no
+> idea where home is."*
+
+Every consumer was telemetry — the reach histogram in `app.rs`, the lab roster's
+RANGE row and `forage_max` percentiles, one `params.rs` row. **No simulation code
+read it until `home_bias`** (`creature.rs:11351`), which is the first thing in
+this engine to steer a body with it.
+
+**So path integration was half-built.** The hard half — a drift-free home vector
+with no accumulation to desynchronise — has been sitting in the tree as a debug
+readout, and the walk home was never wired to it. `home_bias` is not a
+workaround for missing path integration; **it is the missing half of it.**
+
+### What real ants do, and why it retires the plan to fix channel A
+
+Real foragers home by **path integration**: a private home vector, accumulated
+from their own movement, run straight from anywhere with no trail at all. The
+pheromone trail is a *contextual* cue — "you are on a known route" — and it is
+**isotropic**: a real trail carries no direction.
+
+This engine asks a concentration gradient to be a compass, which no real trail
+is. That is `pheromone-master` §1's structural statement reached from the
+biology: *"Channel A and channel B have the same laying rule and need opposite
+ones."* Channel A cannot be tuned into a compass, because the thing it is
+modelled on is not one.
+
+**The consequence for the plan: stop trying to make channel A point home.** The
+compass is `forage_anchor`; channel A's job is the contextual one. Every §7.23
+repair aimed at the ramp's polarity — and §7.19's whole retracted metric — was
+work on a signal that was never going to carry direction.
+
+## §7.33 Ants do not follow the hand-laid trail, and the reader pair is why
+
+**2026-09-18.** Owner: *"I would also recommend reading a few ants' exact brain
+decisions at each tick, unless the results are very clean."* They were not clean
+— one seed of eighteen runs — so this reads one ant, per tick, and the answer is
+neither homing nor the gate.
+
+### The sweep that prompted it
+
+`arms=hand`, `gate=shipped`, endless larder, trail off at 6,000, gaps 90/140/200,
+6 seeds, `home_bias` ∈ {0, 0.25, 0.5, 1.0}:
+
+| gap | hb 0 | 0.25 | 0.5 | 1.0 |
+|---|---|---|---|---|
+| 90 | 0/6, 0 trips | 0/6, 1 | 0/6, 0 | **1/6, 23 trips, 13.7M J** |
+| 140 | 0/6 | 0/6 | 0/6 | 0/6 |
+| 200 | 0/6 | 0/6 | 0/6 | 0/6 |
+
+`home_bias: 1.0` turned seed 6 from dead into **480 alive, 12,131 of 12,499 ants
+reaching food, 22 trips**. The same seed at 0 is dead with 2 visitors. One seed is
+not a result; it is a reason to look at a tick.
+
+### Two instrument gaps had to close first, and the first is the serious one
+
+**The focal ant was chosen from larder-carriers only.** So in a seed where nobody
+reaches the food there was no focal ant and the CSV was empty: **the per-tick
+instrument could see every run except the ones that fail.** `focalany` now takes
+the first ant seen, carrying or not, and `focalx=N` takes the one nearest a
+column — because the first ant is the westernmost, and the west of this colony is
+somewhere the question does not live.
+
+The row also carried only the homing half (`PheroAAlong`, h0/h1), so it could not
+answer *"why did this ant not follow the food trail"*. It now carries
+`CarryingFood`, `crop_cells`, `heading`, `PheroBAlong`, `PheroBFront`, h2, h3 and
+`p_tumble` beside `p_move`.
+
+### The trail does not cover half the colony
+
+The hand-laid trail runs `nest_x..=target_x` = **48 to 138**. Founders span
+**12 to 88**. **Every ant founded west of 48 starts off the trail entirely.**
+Traced, the westernmost ant lived its whole life at **x 4–15** and sensed channel
+B on **0 of 3,875 ticks**. It is not failing to follow a trail; there is no trail
+where it stands.
+
+That is worth fixing, and it is not the main fault.
+
+### An ant standing ON the trail does not follow it either
+
+`focalx=85` — a founder inside the trail's span, seed 2, the same run:
+
+- sensed channel B on **4,061 of 4,061 ticks**, mean `|PheroBAlong|` **0.585**;
+- lived its whole life at **x 56–85**, never passing 85 toward food at 138;
+- faced **down**-gradient on 2,652 ticks against **up** on 1,379, nearly 2:1 away
+  from the food.
+
+And the response to that full-strength signal:
+
+```
+facing UP-gradient (toward food)   n 1379   mean p_move 0.7622
+facing DOWN-gradient               n 2652   mean p_move 0.7244
+                                            difference  +0.0378
+```
+
+**A 0.585 signal buys a 0.038 change in the chance of stepping.**
+
+### Why: units 2/3 are still saturated, and only units 0/1 were ever repaired
+
+`ant.ron` gates the food-trail reader `Bias +45, CarryingFood -75`. For an **empty**
+ant the sum is `45 + 6·along`, and `squash(x) = x/(1+|x|)` is flat there:
+
+```
+along +1 -> squash(51) = 0.98077
+along -1 -> squash(39) = 0.97500
+spread                    0.00577
+across the antisymmetric pair into Move at +-2.5:  0.0288
+```
+
+**Predicted 0.0288 against a measured 0.0378** — the same mechanism, with the
+other `Move` terms making up the remainder.
+
+This is **§Z7's saturation, alive in the shipped animal.** The homing pair (units
+0/1) was moved to a `+0.5` on-state on 2026-09-09; **units 2/3 never were.** The
+food-trail reader has been parked in the state the repair was written for, for
+nine days, and every "the colony will not follow a trail" result on this bed sits
+downstream of it.
+
+### It is a `dead-ends.md` re-test, and the condition it was rejected under is gone
+
+Re-gating units 2/3 was built and rejected 2026-09-09: *"the repair is correct,
+it does exactly what its arithmetic promises, and it makes the animal decisively
+worse."* Its recorded re-test condition is **"what a food trail is worth in this
+bed, not the gate"** — and three things in that bed have since changed:
+
+1. the homing gate opened at all (§7.22 → today: 1.84% → 100%);
+2. the sensor stopped calling dirt cargo (§7.31), so channel B is no longer
+   laid at the nest by diggers;
+3. `home_bias` gave laden ants a way home that does not depend on channel A.
+
+**Do not re-run it as it was.** The 2026-09-09 arm re-gated 2/3 against a colony
+that could not return, on a sensor that laid food-scent while digging. Re-test it
+on today's animal, and read the per-tick `p_move` split above as the acceptance
+number rather than survivor counts — it is the quantity the repair is about.
+
+## §7.34 The reader repair works, and the ant starves holding its meal
+
+**2026-09-18.** §7.33 found the food-trail reader saturated. This is the repair,
+and one ant's whole biography under it.
+
+### The owner's argument that unblocked it
+
+`dead-ends.md` rejected re-gating units 2/3 on 2026-09-09 — *"correct, and makes
+the animal decisively worse"* — because a working reader sends empty ants to
+patches the colony has already eaten. The owner's objection, 2026-09-18:
+
+> *"only laden ants lay channel B, so once the patch depletes, they should stop
+> laying the path. If they don't that is a separate fix. This again sounds like a
+> multi-step fix that we are not trying because it failed at step 1."*
+
+**Both halves check out.** `ant.ron` has exactly one channel-B emitter,
+`(CarryingFood, EmitB, 2.5)`, and `pherolife` measures a laid trail **gone at
+1,476 frames**. So a depleted patch stops being marked and its trail dies: the
+self-limiting behaviour is already in the emitter. The rejected step was rejected
+for a downstream consequence that has its own remedy.
+
+### The repair, and it is four numbers
+
+`(Bias, 2|3, 45.0) → 0.5` and `(CarryingFood, 2|3, -75.0) → -45.5`, mirroring
+what units 0/1 got on 2026-09-09.
+
+| empty ant, sum = `Bias + 6·along` | squash spread | into `Move` |
+|---|---|---|
+| `Bias +45` (shipped) | 0.00577 | +0.029 |
+| `Bias +0.5` (repaired) | **1.71282** | **+8.564** |
+
+A laden ant stays shut — `0.5 − 45.5 = −45`, leak 0.00577, identical to the
+homing pair's shut state — so an ant carrying food still ignores the food trail.
+
+### It does what the arithmetic promised, on the same ant, same seed, same bed
+
+| | saturated | de-saturated |
+|---|---|---|
+| `p_move` facing toward food | 0.7622 | 0.7580 |
+| `p_move` facing away | 0.7244 | **0.3023** |
+| **difference** | **+0.0378** | **+0.4556** |
+| x range (nest 48, food 138) | 56–85 | **84–133** |
+| ticks lived | 4,061 | 8,891 |
+
+**Twelve times the trail response, and the ant walks to the food** instead of
+milling fifty cells short. The return leg moves too: **+0.0289 cells/tick toward
+the nest while laden, against §7.20's shipped +0.0002 — 145x.**
+
+### And then it starves, holding the food
+
+The owner asked what happened at x=102. The last row of the trace answers it:
+
+```
+frame 8891  x 102  CarryingFood 1.0  crop_cells 1  Energy 0.0028
+```
+
+**It died carrying a fruit cell.** Not a drop, not a turn — it ran out of energy
+on the way home with its meal in its crop. Its whole life:
+
+| | |
+|---|---|
+| picked food up | **17 times** |
+| lost it again | **16** |
+| digestions that credited energy | **2** |
+| laden ticks within the nest band | **0** |
+| `Energy`, first pickup → death | 0.5076 → 0.0028 over 6,023 ticks |
+| longest unbroken laden run | 570 ticks (291 needed for one 960 J cell) |
+
+**Seventeen pickups, two meals.** It held long enough to digest most of them —
+570 against 291 — and fifteen of seventeen ended with the cell back on the ground
+before the timer finished, each forfeiting the progress *and* the meal. It never
+once reached the nest while carrying.
+
+This is §7.29's 291-against-4 in one animal's biography rather than as an
+aggregate, and §7.27's wall reached from the other side: **carrying and eating
+are the same act, so a forager that commits to the journey starves holding its
+cargo.**
+
+### Colony level, and it is not resolvable at six seeds
+
+| gap | saturated hb0 | repaired hb0 | saturated hb1.0 | repaired hb1.0 |
+|---|---|---|---|---|
+| 90 | 0/6, 0 trips | **2/6**, 0 | 1/6, **23 trips** | 0/6, 2 |
+| 140 | 0/6 | **1/6** | 0/6 | 0/6 |
+| 200 | 0/6 | 0/6 | 0/6 | 0/6 |
+
+Survival improves without `home_bias` (0→2 at gap 90, 0→1 at 140) and the
+`home_bias` arm's 23 trips came from **one seed**. Six seeds cannot separate
+these on a bed whose per-seed spread is this wide; the per-tick numbers can, and
+they are unambiguous. **Do not read this table as an effect in either
+direction.**
+
+### What is left
+
+Exactly one thing, and it is the same one from both directions: **a forager
+cannot afford the journey while carrying and eating are one act.** The candidates
+are unchanged — `digesting` surviving a drop so cumulative nibbling works, or a
+nest that can be delivered into.
+
+## §7.35 The ant drops food *on the pile*, because a pile is curved ground
+
+**2026-09-18.** Owner: *"Why does the ant drop the food 16 times on its way back
+to the nest?"* It does not. It never drops on the way back, and finding that out
+corrects §7.34's own reading.
+
+### The correction first
+
+§7.34 counted 17 pickups against 16 losses and called them drops **on the return
+leg**. The count was right and the location was assumed. Logged properly — the
+tick before each loss:
+
+```
+frame 3077  x 122  drop_urge 0.08540  Moist 0.11368  Curv 0.83333  AtNest 0.0000
+frame 3767  x 116  drop_urge 0.01990  Moist 0.09797  Curv 0.41667  AtNest 0.0000
+frame 5789  x 130  drop_urge 0.03890  Moist 0.21733  Curv 0.41667  AtNest 0.0000
+frame 6113  x 128  drop_urge 0.11321  Moist 0.31655  Curv 0.83333  AtNest 0.0000
+        ... 16 of 16, all x 116-130, AtNest 0.0000 every time ...
+```
+
+**Every loss is at x 116–130 with `AtNest` exactly 0.** The food sits at 138 with
+`near=10`, so that band *is* the larder. None of them is a completed digestion
+either — no energy credited at any of the sixteen.
+
+**This also means §7.29's `(AtNest, Drop, 1.0889)` story, true as arithmetic, is
+not what killed this ant.** It never reached the nest carrying anything — 0 laden
+ticks in the nest band across its whole life — so the nest-drop wire never fired
+for it. The 4-ticks-at-the-nest figure still describes an ant that *gets* home;
+this one never did.
+
+### What actually fires
+
+`ant.ron` authors five wires into `Drop`, and away from the nest only three can
+move it:
+
+```
+(Bias, Drop, -0.2)  (Carrying, Drop, 0.2)
+(MoistureGrad, Drop, 0.169)   (SurfaceCurvature, Drop, 0.169)
+```
+
+At the heap, `SurfaceCurvature` reads **0.417–0.833** against a mean of **0.441
+at x ≥ 115 versus 0.361 elsewhere**, and `drop_urge` lands at **0.019–0.113 per
+tick**. Compounded, that gives a **mean hold of 104 ticks against the 291 one
+960 J cell needs to digest** — so most pickups are put down before they can ever
+pay. The ant's longest hold was 570 and did digest; sixteen shorter ones did not.
+
+**`mode=feedgate` could not have found this.** It sets `MoistureGrad` and
+`SurfaceCurvature` to zero and reports `P(drop) = 0.0000` away from the nest —
+the caveat §7.29 recorded as *"a floor, not a field value"*. The two terms it
+zeroes are precisely the two that fire at a food pile. A synthetic readout cannot
+see a term whose whole value comes from the terrain.
+
+### The mechanism is a wiring mismatch, not a tuning value
+
+Curvature-drives-drop exists so a **builder** puts material down on uneven
+ground, and it is correctly wired to `DropSpoil` (`SurfaceCurvature, DropSpoil,
+0.169`). It is **also** on `Drop`, which carries food. **A food heap is curved
+ground by construction**, so the larder triggers the put-it-down reflex of an ant
+standing on it. The forager picks a cell off the pile, carries it a few cells,
+and puts it back on the pile.
+
+### The candidate, and it is one number
+
+**Remove `(SurfaceCurvature, Drop, 0.169)`**, keeping it on `DropSpoil` where the
+construction argument holds. `MoistureGrad` is the same shape and worth testing
+separately — at the heap it reads 0.10–0.32, a smaller contribution than
+curvature's 0.42–0.83, so curvature is the one to move first.
+
+**Do not read this as the whole return-leg fix.** It buys longer holds at the
+pile, which is necessary for a forager to leave with something and sufficient for
+nothing. §7.34's wall stands: carrying and eating are one act, so even a
+successful carry starves the carrier unless it can digest on the move or deliver
+into something.
+
+## §7.36 Digestion survives a drop, and the journey gets 21 cells longer
+
+**2026-09-18.** Two steps, measured separately, both on the owner's instruction
+(*"do curvature and moisture and then crop change"*).
+
+### Step 1 — `Drop` stops reading the terrain
+
+`(SurfaceCurvature, Drop, 0.169)` and `(MoistureGrad, Drop, 0.169)` removed;
+**both kept on `DropSpoil`**, where the construction argument holds. Same ant,
+same seed, same bed:
+
+| | terrain drops on | removed |
+|---|---|---|
+| pickups / losses | 17 / 16 | **2 / 1** |
+| mean hold | 104 ticks | **1,464** |
+| longest hold | 570 | 1,740 |
+| digestions | 2 | **32** |
+| ticks lived | 8,891 | 16,985 |
+| died at x (nest 48) | 102 | 91 |
+
+Mean hold goes to **five times** the 291 ticks one 960 J cell needs, and the ant
+eats sixteen times more often.
+
+### Step 2 — the digestion timer survives an empty crop
+
+`Crop::digesting` was already carried across a drop by the `..c` update *while
+cells remained*. **The loss was only ever at `left == 0`**, where the whole struct
+goes `None` — "remainder and all" — and the progress dies with it.
+
+That choice is right and stays: `crop.is_some()` must mean *is carrying*, and a
+timer on an empty stomach once had `ascii` reporting 18 ants carrying when none
+held a cell. So the timer gets a home outside the crop:
+**`OrganismState::digest_carry: Option<(MaterialId, f32)>`**, parked when the last
+cell leaves (by drop *or* by absorption) and resumed on the next ingest **of the
+same material** — different material starts fresh, because the two have different
+`unit` and crediting one against the other would mint joules.
+
+| | before | after |
+|---|---|---|
+| x range (nest 48, food 138) | 84–133 | **63–131** |
+| ticks lived | 16,985 | 17,819 |
+| energy rises | 32 | 29 |
+| died | x 91, **holding a cell** | x 81, **crop empty** |
+
+**The westward reach improves by 21 cells** — 84 → 63, against a nest at 48. The
+forager now gets three quarters of the way home, and dies empty rather than
+starving on top of its own dinner.
+
+### Colony level, and it is still six seeds
+
+| gap | step 1 | step 2 |
+|---|---|---|
+| 90 | 2/6 alive, 4 trips | 1/6 alive, **5 trips** |
+| 140 | 0/6 | 0/6 |
+| 200 | 0/6 | 0/6 |
+
+Survivors move the wrong way and trips the right way, by one each, on six seeds
+of a bed whose per-seed spread runs three orders of magnitude. **That is not a
+result in either direction and is not offered as one.** The per-tick numbers are.
+
+### The counter this section asked for, and what it retracts
+
+The paragraph that stood here said there was no "did it fire" counter for
+`digest_carry`, that the 21-cell improvement was indirect evidence, and that the
+counter should be built **before** these numbers were quoted as the mechanism's.
+It has been built — `CreatureStats::digest_parked` / `digest_resumed` /
+`digest_resumed_face`, printed by `trailfollow` as `chew parked / resumed (J)` —
+and it does not support the attribution.
+
+Same command, six seeds, `hand` arm:
+
+| gap 90, seed | parked | resumed | resumed J | **J per resume** |
+|---|---|---|---|---|
+| 1 | 19 | 14 | 12 | **0.86** |
+| 2 | 13 | 6 | 8 | **1.3** |
+
+**A fruit cell is 960 J and takes 291 ticks.** The mechanism is moving **under
+one joule** per resume — about a quarter of one tick of chewing, against a cell
+that needs 291. Colony-wide over 24,000 frames it transfers **12 J**. That cannot
+move a forager 21 cells, and the headline above is therefore a sample from the
+distribution, not the mechanism: `digest_carry` changes the tick on which a cell
+finishes absorbing, one changed decision tick makes a different world, and
+`CLAUDE.md` is explicit that a single run against a remembered number is not a
+comparison. **The 84→63 row is withdrawn as evidence for step 2.** The code is
+still correct and still lands; what is withdrawn is the claim that it is what
+moved the ant.
+
+**Why it is worth so little here is the interesting half, and it is step 1's
+doing.** There are two parking sites and only one of them carries real money:
+
+- the **drop** site forfeits up to 290 ticks of chewing, and it is the site the
+  17-pickups-2-meals disaster of §7.34 was made of;
+- the **absorb** site parks `matured - c.unit`, the overshoot in the tick that
+  crosses the threshold. That is bounded by *one tick's increment* by
+  construction — it can never be more, whatever the cell is worth. At 3.3 J per
+  tick a mean of 0.86 J is exactly what it should read.
+
+Every joule in the table above is the absorb site. The drop site fired **zero
+times**: `drops 0` on every seed, because step 1 took `Drop` off the terrain and
+`(AtNest, Drop, 1.0889)` — the other trigger — needs an ant to *reach the nest
+carrying*, which none does. **Step 1 had already closed the hole step 2 was built
+for.** `digest_carry` is insurance against a loss that stopped happening one
+commit earlier, and its value reappears the moment ants start arriving home
+laden, which is the whole point of the exercise.
+
+This is the shape `CLAUDE.md` names twice over: an "it fired" counter paired with
+an effect counter from the far side of the call, and the effect counter saying
+the mechanism fires constantly and feeds nobody. `digest_resumed` alone reads 14
+and looks like a working mechanism; only the joules say otherwise.
+
+### What is honestly not established
+
+The loop still does not close: no seed at gap 140 or 200 has ever produced a
+colony, and the forager still dies short of the nest. **Step 1 is the step that
+is carrying the per-tick numbers** — mean hold 104 → 1,464 ticks, 2 → 32
+digestions — and step 2 is a correctness fix whose measurable value in this bed
+is 12 J.
+
+## §7.37 Nine of twenty ants home correctly, to the wrong place
+
+**2026-09-18.** `home_bias` aims at `forage_anchor`, and `forage_anchor` is set
+to the **birth cell**. For a founder born off the nest comb that is a private,
+permanently wrong home, and the mechanism then steers it there correctly.
+
+**This section was published with two wrong numbers and is corrected in place;
+the retraction is kept below because the mistake is one this file warns about.**
+
+### The measurement
+
+Focal ant, seed 2, gap 90, `hand` arm, `homebias=1` — the ant §7.36 traced, with
+`anchor_x` and `since_nest` added to the per-tick CSV:
+
+| `forage_anchor.x` | ticks |
+|---|---|
+| **84** | **17,447** |
+| 70..63 (walking the comb) | 372 |
+
+**98% of its life anchored at x 84**, its own birth cell. It reached nest
+material for the first time at frame **17,448 of 17,819** — 371 frames before it
+starved. Picking food up at x 138, `home_bias` scored the eight viable headings
+against the vector to (84, y) and walked it **east, away from the nest**, with
+the mechanism working perfectly. Its x range of 84–133 is not an ant that fell
+short of home. **It is an ant that arrived.**
+
+### How much of the colony this is — the number that decides it
+
+Censused directly, at frame 1, over all three gaps (`trailfollow` now prints it):
+
+```
+nest cursor 48   MATERIAL x 26..70   11 of 20 founders born on it
+```
+
+**Nine of twenty founders are born off the comb**, and those nine carry a wrong
+home for life. The focal ant, born at x 84, is fourteen cells east of the nest's
+east edge — in that minority, not typical of the colony.
+
+### Why
+
+`creature.rs`'s birth block sets the anchor unconditionally:
+
+```rust
+// Starts *at* the nest as far as scent goes: an ant that has just
+// hatched has, by construction, just been at home.
+state.since_nest = 0;
+state.forage_anchor = (x, y);
+```
+
+Right for a *hatched* ant — an egg is laid in the nest, so its birth cell is a
+nest cell. False for a founder: `paint_nest_patch` lays a masked comb over
+`nest_x ± COLONY_HALF_WIDTH` (26 columns each way, 25 cells with gaps between the
+teeth), while `colony_stations` spreads the bodies about `ants * 4` wide — x
+12..88 at twenty ants. The two spans are different and nothing reconciles them.
+
+### The retraction, and why it is kept
+
+The first version of this section reported **"the nest is an eight-cell band at
+x 63–70"** and **"roughly 18 of 20 carry a private wrong home."** Both are wrong.
+The nest spans x 26..70 and the figure is nine of twenty.
+
+The error was to take the rows where the focal ant's `AtNest` fired, tabulate
+them by x, and report that as the nest's extent. `AtNest` is honest — it is a
+plain 8-neighbour read of nest material — and the table was arithmetically
+correct. **It was a census of where one ant went, published as a census of where
+the nest is.** That is `CLAUDE.md`'s single worst-recurring failure verbatim, and
+the tell was there to be read: the table was *tidy*, eight adjacent columns in a
+neat run, which is what one ant's walk looks like and not what a masked comb
+looks like.
+
+The instrument that settles it existed nowhere, which is the other half of the
+lesson. `trailfollow`'s header printed **`nest 48`** — the founding *cursor* —
+in the slot a reader takes for the nest's position, and no output in this repo
+said where the material was. It now prints the material's span and the count of
+founders born on it, because that count is the precondition every other number
+in the bed is conditional on.
+
+### What this does and does not explain
+
+It explains the nine. It does not explain the eleven: those founders are born on
+the comb, anchor correctly, and the loop still does not close for them. **So the
+anchor is a real defect and not, by itself, the blocker** — and the next test is
+the one that separates them, a run narrow enough that every founder starts on the
+comb.
+
+### What this says about the counter
+
+`CreatureStats::tumbles_homeward` read 1,150 of 15,291 tumbles on this seed and
+every one was a correct aim at a wrong target. That is the sharpest case yet for
+`CLAUDE.md`'s pairing rule and it also defeats the pair as it stands: the "it
+fired" counter and the `P(home)` effect counter beside it **both** report a
+working mechanism, because the aim fired and the body moved as aimed. Only the
+per-tick trace, once it carried the anchor, could see it.
+
+### Three instrument repairs made here
+
+- **`anchor_x` and `since_nest` are focal CSV columns.** Without them a laden ant
+  walking confidently to the wrong place and one that will not steer at all
+  produce identical rows.
+- **The header names the nest material's span and the founders born on it**, in
+  place of a bare cursor that reads as a location.
+- **Every arm of a `trace` run wrote the same file.** `mode=gap` writes
+  `/tmp/trailfollow-focal-seed{seed}-gap{gap}.csv` once per arm, so a four-arm run
+  announces four traces and leaves one on disk — the 17,819-row `hand` trace was
+  silently replaced by a 10,085-row `mute` one, and the two look equally
+  plausible. Run one arm at a time until the path carries the arm name.
+
+### The fork, undecided
+
+- **Put the founders on the comb**, so the birth rule's assumption is true. That
+  is what the experiment is meant to model — ants that hatched at home.
+- **Do not anchor an ant that was not born on nest material.** The more correct
+  engine rule, and it costs the experiment: an ant with no anchor never homes.
+
+Measure before choosing.
+
+## §7.38 The loop closes, and what was holding it was the size of the stomach
+
+**2026-09-18.** Food reached the nest for the first time. 107 deliveries on one
+seed and 37 on another, at gap 90, against **zero on every run this harness has
+ever produced in its shipped configuration**.
+
+### The number
+
+`DELIVERED` is `CreatureStats::deliveries` — a drop the drop site saw at the
+nest. It is new here because neither existing column is delivery: `drops` counts
+food put down anywhere, and `carry@nest` counts *ant-ticks* spent carrying inside
+a ±26 band, which is time rather than cargo. (This section's first draft quoted
+`carry@nest` as "food arriving home". It is not, and the column's own definition
+two hundred lines away says so.)
+
+Six seeds, gap 90, `hand` arm, fruit larder, everything else identical:
+
+| | shipped `crop_capacity: 1440` | `cropcap=2880` |
+|---|---|---|
+| drops | 0, 0, 0, 0, 0, 0 | 0, 0, 0, **107**, **37**, 0 |
+| delivered | 0, 0, 0, 0, 0, 0 | 0, 0, 0, **107**, **37**, 0 |
+
+**Every drop is a delivery.** That is not luck: `849d6d06` took `SurfaceCurvature`
+and `MoistureGrad` off `Drop`, so `(AtNest, Drop, 1.0889)` is the only trigger the
+verb has left and an ant now puts food down **only at the nest**. The earlier
+commit was load-bearing for this one.
+
+### Which arm these numbers are from — added 2026-09-19
+
+**Every delivery figure in this section was measured at `homebias=1`, and
+`CreatureDef::home_bias` ships at `0.0`.** The rider is not named beside the
+numbers above, and a reader would take them for the shipped animal. Measured on
+the same 18 seeds, gap 90, `hand` arm, one binary:
+
+| `home_bias` | deliveries | seeds delivering |
+|---|---|---|
+| **shipped, 0.0** | **124** | 5/18 |
+| 1.0 (the rider) | **511** | 9/18 |
+
+**The loop does close without the rider** — the three fixes in this section are
+sufficient on their own, and an ant that is never told which way home is still
+gets food there by foraging until it happens to arrive. What the return leg buys
+is a multiple, not the mechanism. §7.41 is the sweep that prices it, and it is
+the re-take §7.27 asked for: *"Measuring a commuting rule against an economy that
+punishes commuting measures the economy. Everything in the table above is
+conditional on step 1 and must be re-taken after it."* Step 1 is this section.
+
+### What was holding it
+
+The ant could not carry more than one meal. `ant.ron` authors
+`crop_capacity: 1440.0` and explains it in the same breath:
+
+> **1440 is three leaves at the shipped table (480 each), and three is a floor
+> rather than a taste.** Food only leaves the crop a whole cell at a time, so an
+> ant that can hold exactly one leaf is under one leaf within a tick of ingesting
+> and **can never deliver again**.
+
+This bed's larder is **fruit at 960 J**. One cell is `0.6667` of the crop —
+measured on the focal ant, whose `Carrying` read exactly 0.6667 on all 1,740
+ticks it held anything. Two do not fit. Its `crop_cells` was **1 on 1,740 ticks,
+0 on 16,079, and never 2 in 17,819 ticks of life.**
+
+So the shipped ant in this bed is in precisely the state its own comment
+forbids. It picks up one cell, metabolises it over the 291 ticks the walk takes
+many times over, and arrives empty. `drops 0` is not a steering failure or a
+trail failure. **There was never anything left to put down.**
+
+### It is joules, not cells — which took a wrong turn to establish
+
+The obvious repair is a 480 J food, so that three cells fit at the shipped
+capacity. It does not work, and the two candidates fail differently:
+
+| arm | cells that fit | J in a full crop | delivered (6 seeds, gap 90) |
+|---|---|---|---|
+| fruit 960 @ 1440 (shipped) | 1 | 960 | **0** |
+| **moss 480 @ 1440** | 3 | 1,440 | **0** |
+| deadleaf 480 @ 1440 | 3 | 1,440 | 32, 15 — *but see below* |
+| **fruit 960 @ 2880** | 3 | 2,880 | **107, 37** |
+
+`moss` is the clean comparison — a `Plant`, static like fruit, 480 J — and it
+delivers **nothing on all six seeds** while fitting three cells. `deadleaf` fits
+three cells too and does deliver, and it is not a result: **`deadleaf` is a
+`Powder`.** Four hundred cells dropped at the target slump westward until the pile
+meets the ants, and the run reports `visitors 0/20` with colonies surviving on
+6/6 seeds — a colony that never went anywhere, fed by food that came to it. The
+bed's whole geometry is gone. It reads as the strongest result in the table and
+is the weakest.
+
+So what separates the arms is **how many joules the crop holds**, not how many
+cells. 1,440 J is not enough to survive the walk with a whole cell left over;
+2,880 J is, on two seeds in six.
+
+### Which means the crop was sized against a trip that does not exist
+
+`ant.ron` derives 1440 from an assumed round trip:
+
+> at `forage_probe`'s 87-cell gap and P(move) 0.67 a round trip is **~130 ticks**,
+> and losing ~30% of a 1,440 crop over it wants ~3.3
+
+A 30% loss over 130 ticks. The real journey in this bed is not 130 ticks — the
+focal ant lived 17,819 decisions and never completed one — so the forager
+metabolises **more than the whole load**, and the constant that was derived to
+make the trip "visibly cost the load" instead makes it cost everything. This is
+`CLAUDE.md`'s *fixing a bug often exposes a constant that was compensating for
+it*, arriving from the other side: the constant is honest, its input was wrong,
+and nothing downstream ever checked.
+
+### `digest_carry` was not worthless after all
+
+§7.36 measured `digest_carry` at **0.86 J per resume** and withdrew the claim
+that it mattered, because the only site that fired was the absorb site, whose
+remainder is bounded by one tick's chewing. That was right *and* it was right
+about why: the drop site fires only when ants actually deliver, and none did.
+
+In the arm where they do:
+
+| | shipped | `cropcap=2880`, seed 4 |
+|---|---|---|
+| resumes | 6 | **103** |
+| face value carried across | 8 J | **61,256 J** |
+| per resume | 1.3 J | **~595 J** |
+
+Three orders of magnitude, and ~595 J is most of a 960 J cell rather than a
+quarter of one tick. (`digest_resumed_face` is **throughput, not stock** — a cell
+parked, resumed and parked again is counted twice — so read it for its order of
+magnitude, which is the whole point here.) The mechanism was not weak; it was
+waiting for the loop to close.
+
+### Still open
+
+- **Four of six seeds deliver nothing even at 2,880**, and gaps 140 and 200
+  deliver nothing at any setting. Two seeds is a result that the loop *can*
+  close, not that it does.
+- **2,880 is a rider, not a fix.** Doubling `crop_capacity` on the shipped ant
+  reaches the lab and the held world, and `ant.ron`'s value is load-bearing for
+  the reproduction arithmetic directly under it. The alternatives are a cheaper
+  journey or a slower gut, and neither has been measured.
+- **§7.37's anchor defect is real and is not this.** Its within-run control —
+  trips by ants born on the comb against ants born off it, inside the same run —
+  reads **0.0152 against 0.0122 trips per ant**. Knowing exactly where home is
+  buys nothing while there is nothing to carry there.
+
+## §7.39 The stomach grows, the appetite gate does not pay, and both are kept
+
+**2026-09-18.** Owner's instruction: *"We will build the granary later. build the
+hunger-graded gate against `reproduce_threshold` and increase `crop_capacity`."*
+Both built, measured separately. One is a large win and ships on; the other is
+correct, measures twice as bad, and ships **off** with the rider to turn it on.
+
+### Why a gate was on the table at all
+
+`digest_rate` is one scalar doing two jobs — how fast an animal feeds itself,
+and how long cargo survives in its crop — because `matured += digest_rate` ran
+every tick with no gate on need. `ant.ron` derives 3.3 from two brackets, and
+measured against the real journey they contradict:
+
+| bracket | wants |
+|---|---|
+| *the trip must visibly cost the load*, re-derived at the measured 436–873 tick leg instead of the assumed ~130 | **≤ 0.50** |
+| *a child must be reachable inside a lifetime* | **≥ 2.6** |
+
+Five to ten times apart, no overlap. **No setting of one scalar satisfies both**
+— `CLAUDE.md`'s *when a rule must tell apart two things that can look identical,
+state the difference as data*, which four support models failed before a bit on
+the cell settled it. Appetite is that data.
+
+### Step 1 — `crop_capacity` 1440 → 2880
+
+The old value was three cells of a **480 J** food. Fruit is **960 J**, so the
+crop held exactly one, which is the state `ant.ron`'s own comment forbids. Gap
+90, `hand`, **eighteen** seeds:
+
+| | before | after |
+|---|---|---|
+| deliveries | **0** | **511** |
+| seeds delivering | 0/18 | **9/18** |
+| median | 0 | 6 |
+
+Zero to 511 is not a tuning result. It is the loop existing.
+
+### Step 2 — the appetite gate, and it does not pay here
+
+`CreatureDef::digest_hunger_weight`, `0.0` for every species that has not
+authored it and bit-identical there. At 1.0 the gut scales by hunger, ramped
+across `start_energy .. reproduce_threshold`.
+
+**The first curve was wrong and measuring caught it.** `1 - energy /
+reproduce_threshold` reads **0.82** for an animal at exactly `start_energy`, so a
+subsistence ant paid an 18% cut to its intake while holding no surplus to
+protect: deliveries 144 → 36 and survivors 8 → 0 over six seeds. Ramping from
+`start_energy` instead — full rate at or below subsistence, falling to zero at
+the bar — took it to 46 and 2. The mechanism was right; the curve was not.
+
+Then the honest sweep, because six seeds is not a sweep and the first six were
+unrepresentative — they showed 144 deliveries where eighteen show 511:
+
+| gap 90, 18 seeds | gate off | gate on |
+|---|---|---|
+| deliveries | **511** | 255 |
+| median | 6 | **0** |
+| seeds delivering | 9/18 | 7/18 |
+| survivors | 59 | 29 |
+
+Robust: drop each arm's best seed and it is 392 against 199. The survivor column
+is **not** a result — seed 10 alone carries 37 of the 59, a colony that ate
+78,644 J and delivered nothing; without it, 22 against 21.
+
+### Why it cannot pay in this bed, and the counterweight nobody priced
+
+The gate withheld about **1%** of the gut's throughput, because almost no ant in
+this bed ever gets above `start_energy`. It has no surplus to protect and still
+costs the few ants that do.
+
+And the engine already charges for carrying, **twice**: `carried_cells` bills
+`move_cost_per_cell` for whatever is in the crop, and crop fill lowers `P(move)`
+— measured as the *only* thing fill did, over 570,660 laden decisions (§7.25).
+So protecting cargo keeps the ant heavy and slow for longer, and a slower ant
+has a longer journey, which is the quantity the gate exists to survive. **Not
+confirmed** — it is the mechanism that fits, and it is exactly the shape of
+`CLAUDE.md`'s *a constant nobody can tune in either direction may be a
+counterweight*.
+
+### Disposition, and what would change it
+
+Shipped at `digest_hunger_weight: 0.0`. Built, wired, countered
+(`digest_appetite_ticks` / `digest_appetite_held`), rider-controlled
+(`hungergate=`), and one number from on.
+
+Kept rather than reverted because the contradiction it resolves is real and does
+not go away by ignoring it. **Its usefulness is conditional on a colony that gets
+rich**, which is the granary — so the condition for re-testing is explicit:
+build the granary, then re-measure at eighteen seeds before assuming either way.
+
+### A counter of mine that lied, fixed before it was quoted
+
+`digest_appetite_held` first bumped on **every** tick, including the ~90% where
+the crop is empty, so it summed a rate nobody was going to spend: it read
+13,986 J withheld against 13,440 J absorbed, i.e. the gate looked like it was
+halving the gut. Gated on the crop actually existing it reads **2,020 of
+13,440** — about 15%, and about 1% on the final curve. A **seven-fold**
+overstatement, arithmetically correct throughout, answering a different question
+than the one asked. Caught by this file's own rule before a single number from
+it reached a conclusion.
+
 ## Instruments
 
 - `examples/onetrail.rs` — `mode=arith` (shipped genome, nothing overridden),
@@ -2945,6 +4419,143 @@ and the drop-counter pair `homebias-drops-{control,1.0}-hand-6seed-2026-09-18.lo
 - `examples/trailfollow.rs` — the colony-scale question and the `gate=`
   presets. Note its presets each overwrite **both** gate pairs, so no row of
   its `mode=arith` table is the shipped ant, which is a mix.
+
+## §7.40 The terrain wires: one of them was deleted, not moved, and CI is what said so
+
+`cargo run --example ascii` went red on the branch that closed the loop, on
+the scene named for terrain-driven deposition: `no ant ever dropped anything
+-- the verb never fired`. The message is accurate and points the wrong way.
+
+**§7.35 took two wires off `Drop` and said both would live on `DropSpoil`.**
+They did not. `main`'s `DropSpoil` block is `(AtNest, 0.9)`, `(Carrying,
+0.2)`, `(SurfaceCurvature, 0.169)` — there was **no moisture term there to
+stay on**, so moving curvature was a no-op and moving moisture deleted it
+from the species. `wiki/ants.md` went on describing the preference for
+another day.
+
+**The obvious repair is the expensive one, and it is measured.**
+`trailfollow mode=gap gaps=90 seeds=18 gate=shipped homebias=1`, deliveries
+on the `hand` arm — the arm §7.38's headline is quoted from:
+
+| `Drop` wiring | deliveries | ascii guard |
+|---|---|---|
+| no terrain terms (shipped) | **511** | red, wrong message |
+| `(MoistureGrad, Drop, 0.169)` back | 180 | still red |
+| moisture and curvature both back | 113 | green |
+
+Restoring moisture alone is the worst row available: it costs two thirds of
+the headline **and** leaves CI red, because the guard was riding on
+curvature, not on moisture. That row is where this was heading when the work
+changed hands, and it is recorded because it looks like the cautious move.
+
+**The mechanism behind the whole table is one line of arithmetic.** `Bias
+-0.2` against `Carrying +0.2` puts a laden ant's away-from-nest drop urge at
+exactly `squash(0) = 0`, so on `Drop` the terrain terms are not a bias on the
+rate — they *are* the rate. That is why `AtNest` being the only trigger left
+makes every drop a delivery (§7.38), and equally why any terrain term put
+back is a forager abandoning its dinner somewhere short of home.
+
+**So the scene moved to the verb that owns deposition, and the moisture claim
+came off the bar.** `examples/ascii.rs` now lays a diggable `soil` lattice
+instead of food and reads `spoil_dumped` instead of `drops`; the marker is
+`spoil`, which nothing but an ant putting a pellet down can produce, so the
+attribution is sound rather than merely careful. Attributed events go **17 →
+59** and the moisture field stops being saturated (steep 2.10 against flat
+0.11, margin 1.16 against 0.34) — the channel has range for the first time.
+
+What it cannot do is carry the preference claim, and that is filed as §Z28
+rather than patched: `DropSpoil` has **no `Bias` wire**, so `Carrying` alone
+puts its urge at `squash(0.2 + terrain)` and the pellet goes down within a
+few ticks of being cut. A verb that fires at the face cannot choose a site.
+Adding `(MoistureGrad, DropSpoil, 0.169)` moves the ratio 1.30x → 0.92x and
+the sign test 31.8% → 45.5% — a null either side of no-effect — while moving
+`hand` deliveries 511 → 121 and failing
+`a_share_is_booked_on_both_sides`. One line, three things move.
+
+The bar it replaces is the instrument's own: every dump the engine counted
+is accounted for by the attribution, and most are credited to a cell. Both
+were checked by putting the fault back — recounting settled pellets every
+frame reads `83 credited + 27 unmatched + 3 discarded != 77 dumped` and goes
+red.
+
+## §7.41 The return leg re-swept against the new economy, and the laden leg measured at last
+
+**2026-09-19.** Two things §7.38 left owed. `trailfollow mode=gap gate=shipped
+gaps=90 seeds=18 seed0=1 ants=20 relay=60 near=10 food=400 refill=400
+stop=6000`, one binary for the whole sweep, `hand` arm.
+
+### The sweep, and why its totals must not be read as a ranking
+
+| `home_bias` | deliveries | seeds delivering | ants alive | ate J |
+|---|---|---|---|---|
+| **shipped 0.0** | 124 | 5/18 | 51 | 270,755 |
+| 0.1 | 510 | **2**/18 | 1,301 | 13,220,496 |
+| 0.25 | 331 | **1**/18 | 634 | 7,735,816 |
+| 0.5 | 215 | 6/18 | 788 | 13,134,614 |
+| 1.0 | 511 | 9/18 | 59 | 140,377 |
+
+**The two delivery columns disagree, and the per-seed data says which to
+believe.** At 0.1 the entire 510 is seeds 1 and 18 — 188 and 322 — and those
+same two seeds carry **536 and 722 ants alive**. At 0.25 it is one seed, 331
+deliveries against 600 ants. Those are not foraging results; they are colony
+explosions, and a colony of six hundred delivers incidentally. `CLAUDE.md`'s
+*ask what your number counts*: total deliveries counts colony size times per-ant
+rate, and here the first term moves by two orders of magnitude between seeds.
+
+At 1.0 the 511 is spread over **nine** seeds with **no colony above 37 ants**.
+Same total, entirely different object: small colonies each bringing food home,
+which is the thing being asked about.
+
+**So read breadth, not totals** — 1.0 delivers on 9/18, 0.5 on 6/18, shipped on
+5/18, and the two arms whose totals look best deliver on 2 and 1.
+
+### The answer to §7.27's re-take: still no, and for the same reason
+
+§7.27 shut the dial because `home_bias: 1.0` starved the colony, and said the
+table *"must be re-taken"* once delivering stopped forfeiting the meal. This is
+that re-take, and **the starvation reproduces**: at 1.0, 59 ants alive and
+140,377 J eaten against 1,301 and 13.2 M at 0.1. `digest_carry` fixed the
+*carrier's* loss — chewing survives a drop — and did nothing about the
+*colony's*, because a delivered cell is still an ordinary loose cell that
+nothing stores and nothing eats from.
+
+**So the return leg buys reliability and is still paid for in bodies, and
+`home_bias` should stay at 0.0 until there is a granary.** That is §7.28's
+design, and it is now the prerequisite rather than the next nice thing: the
+dial cannot be priced against an economy that has no way to bank what the dial
+delivers.
+
+### The laden leg, measured rather than bracketed
+
+§7.38 left it at *"436–873 ticks by three data points"*. `Track` now records the
+frame of the last sample within `near` of the food and the frame the trip closes
+at the nest, and emits the raw samples so they pool across seeds — a median of
+per-run medians is not a median when a run contributes one trip.
+
+| arm | n | p25 | **median** | p75 | p90 | max |
+|---|---|---|---|---|---|---|
+| shipped, laden at close | 10 | 835 | **1,909** | 3,025 | 4,249 | 4,447 |
+| `home_bias` 1.0, laden at close | 42 | 913 | **1,837** | 3,565 | 4,573 | 14,551 |
+| shipped, all closed trips | 29 | 3,025 | 4,699 | 7,867 | 11,713 | 17,233 |
+| 1.0, all closed trips | 84 | 1,633 | 4,195 | 7,489 | 10,849 | 15,835 |
+
+**The bracket was low by two to four times.** Two independent samples — a
+different dial, four times the n — agree at **~1,850 frames**, which is the
+number to size anything against from here. The laden subset is roughly *half*
+the all-trips figure, which is worth keeping: an ant that is carrying gets home
+substantially faster than one that is not, so the cargo is not what slows the
+journey.
+
+**Data:** `Reports/data/homebias-resweep-{shipped,0.1,0.25,0.5,1.0}-18seed-gap90-2026-09-19.log`
+and `legs-{shipped,hb1}-18seed-gap90-2026-09-19.log`, whose `LEGS` lines carry
+every raw sample the table pools.
+
+**And it sits above the hold.** §7.35 measured a post-fix mean hold of 1,464
+ticks on the focal ant. A median laden leg of ~1,850 against that is the shape
+of the remaining failure — the journey outlasts the meal that pays for it — and
+it is offered as the comparison to make next rather than as a demonstrated
+mechanism, because the two numbers come from different beds and one of them is a
+single ant.
 
 ## Appendix A. Raw per-seed data
 

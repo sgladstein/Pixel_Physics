@@ -40,7 +40,7 @@ use serde::{Deserialize, Serialize};
 /// `INPUT_SLOTS` is 64 against a live count of 29 before this, so lighting
 /// up one more row moves no existing weight and `GENOME_LEN` does not
 /// change.
-pub const BRAIN_INPUTS: usize = 30;
+pub const BRAIN_INPUTS: usize = 31;
 /// **Eight, not four, since 2026-09-02.**
 ///
 /// Four was the whole of an animal's internal state, and `ant.ron` already
@@ -273,6 +273,7 @@ pub const INPUT_NAMES: [&str; BRAIN_INPUTS] = [
     "BloomNear",
     "BloomBearing",
     "Stillness",
+    "CarryingFood",
 ];
 pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] = [
     "Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse", "DropSpoil", "Attack", "Provision", "Share", "Fly",
@@ -946,6 +947,36 @@ pub enum BrainInput {
     /// old pathology back and has to pay for it in the same currency as
     /// anything else.
     Stillness = 29,
+    /// **Crop fill alone — food, never dig tailings.** `crop.worth() /
+    /// crop_capacity`, clamped, and *nothing* else feeds it.
+    ///
+    /// **Why this exists, and it is a defect that took three sittings to
+    /// stop measuring around.** [`BrainInput::Carrying`] is
+    /// `crop_fill.max(spoil ? 1.0 : 0.0)` — one sensor with five wires in
+    /// `ant.ron` across three verbs, and only the two `Drop` verbs want the
+    /// widened answer. It was widened *for them*: an ant that had just dug
+    /// reported empty-handed, so the gene deciding when to put a pellet down
+    /// was being asked a question about food. That fix was right and it
+    /// silently re-answered the question for three other wires that mean
+    /// "am I carrying **food**":
+    ///
+    /// - the homing pair, gated `Bias -45, Carrying +45.5`, so **a pellet of
+    ///   dirt reads 1.0 and opens it** while one fruit cell reads 0.667 and
+    ///   does not (`pheromone-trail-direction-2026-09-16.md` §7.22, §7.24:
+    ///   **47.4%** of gate-open decisions were ants also holding spoil);
+    /// - `(Carrying, EmitB, 2.5)`, channel B's only emitter, so **an ant
+    ///   lays food-trail pheromone where it digs.** §7.31 measured the
+    ///   consequence: with spoil silenced the `self` arm's trail falls to
+    ///   **exactly zero** in every seed where no ant reached food — the
+    ///   "trail" was a puddle of dirt-scent at the colony's own door;
+    /// - units 2/3, the food-trail reader, inverted on the same sensor.
+    ///
+    /// **`SPOIL_IS_CARGO=0` is not the fix and never was.** It removes spoil
+    /// from *every* consumer including `Drop`, which puts the original bug
+    /// back, and it still leaves the homing gate shut on one food cell. A
+    /// switch that trades one wrong answer for another is a measurement
+    /// tool; this is the repair.
+    CarryingFood = 30,
 }
 
 /// Which output slot. Positional and append-only, as above.
@@ -1330,6 +1361,7 @@ pub const INPUTS: [BrainInput; BRAIN_INPUTS] = [
     BrainInput::BloomNear,
     BrainInput::BloomBearing,
     BrainInput::Stillness,
+    BrainInput::CarryingFood,
 ];
 /// See [`INPUTS`].
 pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
@@ -2211,7 +2243,13 @@ mod tests {
         // end, `open-bugs-handoff.md` §Z13 and the owner's ruling that day.
         // No output moved. Every species' `mutation_rate` re-derived to
         // `3.18 / 870 = 0.0036552` in the same change.
-        assert_eq!(live, 870, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
+        // 870 -> 894 on 2026-09-18 with `CarryingFood` (an input column, 24
+        // slots: 16 outputs + 8 hidden) -- the food/spoil split that stops a
+        // pellet of dirt opening the homing gate and laying food-trail
+        // pheromone, `pheromone-trail-direction-2026-09-16.md` §7.22/§7.24/
+        // §7.31. No output moved. Every species' `mutation_rate` re-derived to
+        // `3.18 / 894 = 0.0035570` in the same change.
+        assert_eq!(live, 894, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
     }
 
     #[test]
@@ -2341,7 +2379,20 @@ mod tests {
         // breeding scene's numbers move with it from birth 1**, because
         // `brain::mutate` draws one `unit_f32` per live slot -- see the
         // live-slot pin above; the remedy is a seed sweep, not a diff.
-        assert_eq!(genome_manifest(), 477_694_432);
+        //
+        // **Moved again 2026-09-18 by `CarryingFood`** -- crop fill with the
+        // dig-tailings term taken out, so the homing pair, the food-trail
+        // reader and `EmitB` stop being told a pellet of dirt is cargo
+        // (`pheromone-trail-direction-2026-09-16.md` §7.22/§7.24/§7.31).
+        // Lawful on the input axis exactly as every append above:
+        // `BRAIN_INPUTS` 30 -> 31 lights one more column of the 64-wide
+        // reserve that was already there and already zero, `GENOME_LEN` is
+        // unchanged, and not one existing weight moves. `live_slots`
+        // 870 -> 894 and every species' `mutation_rate` re-derived to
+        // `3.18 / 894 = 0.0035570` in the same change. **Every breeding
+        // scene's numbers move with it from birth 1** -- the remedy is a seed
+        // sweep, not a diff.
+        assert_eq!(genome_manifest(), 3_668_326_360);
     }
 
     #[test]
