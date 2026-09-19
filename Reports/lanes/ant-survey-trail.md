@@ -61,3 +61,15 @@ pair too; `gate=b2` is a no-op since the 18th and panics rather than lying;
 `pkill -f` on a pattern matching the calling shell.
 
 **PR #478** (`claude/ant-survey-trail` → `main`), opened 2026-09-19 at head `4c1ea7de`; this note's own commit sits one above it, and the PR page carries the current head. Gates at `4c1ea7de`: clippy clean, `cargo test` 1,871 + 60 passed / 0 failed, docscheck clean.
+
+**Close-out, 21:35Z, on the coordinator's poke.** Nothing uncommitted. The
+raw rows behind every table in the report are archived under
+`Reports/data/ant-survey-trail-2026-09-19/`: the twelve 36-seed
+`trailfollow` configs (per-seed rows plus the paired summary), the four
+arena races, the `pherolife` rho sweep, and per-seed summaries of the
+labforage trophallaxis and channel-B decay runs (the full labforage logs
+are ~200 lines a seed and stayed in the session's scratchpad). `main`
+merged after Lane N's #477 at `45a7d845`, index regenerated, `adjacent_nest`
+/ `deposit_at_vacated` order confirmed. Two pokes to the trail lane, 15:30Z
+and 21:32Z, carry every finding on its line. No further sweeps.
+

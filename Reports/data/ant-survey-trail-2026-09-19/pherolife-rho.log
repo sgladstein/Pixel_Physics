@@ -1,0 +1,12 @@
+pherolife: scene=ramp len=120 interval=12 round trip=2200 frames
+           a trail is laid once at frame 0 and NOTHING re-lays it.
+
+arm                 peak   drive      trail gone  stops steering
+rho 0.03 shipped   10240   0.526     1476  0.67x     1080  0.49x
+rho 0.10 lit low   10240   0.526      612  0.28x      480  0.22x
+rho 0.25 lit mid   10240   0.526      288  0.13x      180  0.08x
+rho 0.50 lit top   10240   0.526      144  0.07x      108  0.05x
+
+`trail gone` is `plane.max() == 0`. `stops steering` is the frame the ant's own run
+drive falls under 0.25 -- about a tenth of its Move baseline. The trail is
+still on the plane after that; it has stopped being worth reading.

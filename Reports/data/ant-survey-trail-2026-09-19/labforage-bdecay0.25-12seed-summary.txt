@@ -1,0 +1,6 @@
+bdecay0.25: 12 seeds
+  f   9000: alive per seed [12, 17, 9, 23, 5, 9, 35, 10, 9, 18, 10, 7]  median 10.0 p10 7 p90 18 colonies alive 12/12  E10/50/90 med 58/136/312  shares med 282
+  f  30600: alive per seed [6, 13, 7, 26, 2, 8, 37, 8, 10, 8, 11, 6]  median 8.0 p10 6 p90 13 colonies alive 12/12  E10/50/90 med 190/518/774  shares med 336
+  f  60300: alive per seed [4, 19, 11, 27, 5, 11, 81, 17, 16, 7, 11, 6]  median 11.0 p10 5 p90 19 colonies alive 12/12  E10/50/90 med 238/440/802  shares med 384
+  f  90000: alive per seed [13, 15, 18, 25, 3, 12, 89, 17, 25, 8, 15, 4]  median 15.0 p10 4 p90 25 colonies alive 12/12  E10/50/90 med 210/424/728  shares med 474
+  f 149400: alive per seed [9, 13, 6, 12, 0, 8, 86, 8, 116, 37, 19, 0]  median 10.5 p10 0 p90 37 colonies alive 10/12  E10/50/90 med 194/405/720  shares med 712
