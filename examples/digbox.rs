@@ -38,6 +38,7 @@
 //! ```text
 //! cargo run --release --example digbox
 //! cargo run --release --example digbox -- ants=40 frames=12000 out=/tmp/box.png
+//! cargo run --release --example digbox -- seed=3          # a different colony in the same box
 //! cargo run --release --example digbox -- selftest
 //! PIXEL_PHYSICS_NEST_SITE_ROWS=8 cargo run --release --example digbox
 //! ```
@@ -175,7 +176,25 @@ fn build_graded(b: &Box2, wet: u16, grad: Option<(u16, u16)>) -> World {
 /// 2026-09-19: across the whole `cols` sweep the ant spread tracked the dial
 /// exactly while `room_total` sat at 453-668 with no trend, and a rendered
 /// pair showed no visible difference underground. Read `room w x h` below.
-fn census(world: &World, b: &Box2) -> (usize, usize, usize, usize, i32, i32) {
+///
+/// **And the bounding box is an extreme-value statistic, which is the trap
+/// that replaced the last one.** `room w` is `max(x) - min(x)`: one stray
+/// dug cell at the edge of the box sets it, and nothing about the other
+/// thousand moves it. Measured 2026-09-19 over twelve seeds of the
+/// *unchanged* control, `room w` runs **96 to 191** -- a 2x spread with no
+/// arm and no switch, wider than the差 between any two arms the shape
+/// report compared at one run each. So a bbox can say *a shaft happened*
+/// (nothing reaches that) and cannot rank two lenses.
+///
+/// `iqr` is the companion that can: the number of columns holding the
+/// **middle half** of the room's cells, which is a quantile rather than a
+/// maximum and therefore does not move when one ant wanders. It is the
+/// reading for *"did this concentrate the nest"* -- the question every
+/// aggregation-point arm is about. `p50x` is where that middle half is
+/// centred, in columns from the nest patch, so a widening that is **local
+/// to the aggregation** and one that is a uniform rise everywhere can be
+/// told apart, which is Stage 2's own check that can fail.
+fn census(world: &World, b: &Box2) -> (usize, usize, usize, usize, i32, i32, i32, i32) {
     let (mut roofed, mut open) = (0, 0);
     // **Cells below the old surface that hold an animal.**
     //
@@ -255,7 +274,51 @@ fn census(world: &World, b: &Box2) -> (usize, usize, usize, usize, i32, i32) {
         }
     }
     let (rw, rh) = if x1 >= x0 { (x1 - x0 + 1, y1 - y0 + 1) } else { (0, 0) };
-    (roofed, open, above, bodies, rw, rh)
+    // **The middle half of the room, by column.** Counted per column, then
+    // walked from both ends discarding a quarter of the mass at each --
+    // so the answer is how wide the nest is where the nest actually is,
+    // and a single cell at the far wall cannot set it.
+    let mut per_col = vec![0i64; b.w.max(1) as usize];
+    for x in 1..b.w - 1 {
+        let mut covered = false;
+        for y in b.surface..b.floor {
+            let cell = world.get(x, y);
+            let kind = world.materials.kind(cell.material);
+            let is_ground = cell.material != material::EMPTY
+                && matches!(kind, MaterialKind::Powder | MaterialKind::Solid)
+                && cell.organism_id() == 0;
+            if is_ground {
+                covered = true;
+                continue;
+            }
+            if covered && (cell.material == material::EMPTY || kind == MaterialKind::Creature) {
+                per_col[x as usize] += 1;
+            }
+        }
+    }
+    let total: i64 = per_col.iter().sum();
+    let (mut lo, mut hi) = (0i32, b.w - 1);
+    if total > 0 {
+        let q = total / 4;
+        let mut run = 0i64;
+        for x in 0..b.w {
+            run += per_col[x as usize];
+            if run > q {
+                lo = x;
+                break;
+            }
+        }
+        run = 0;
+        for x in (0..b.w).rev() {
+            run += per_col[x as usize];
+            if run > q {
+                hi = x;
+                break;
+            }
+        }
+    }
+    let (iqr, p50x) = if total > 0 { (hi - lo + 1, (lo + hi) / 2 - b.w / 2) } else { (0, 0) };
+    (roofed, open, above, bodies, rw, rh, iqr, p50x)
 }
 
 /// **The moisture gradient as the ant's own brain reads it**, sampled at
@@ -321,6 +384,24 @@ fn charge(world: &World) -> (usize, f32) {
 /// mints a fresh colony per call, and `instruments.md` records a harness that
 /// did exactly that and spent months reporting on **55 mutual strangers**
 /// rather than a colony.
+///
+/// **And it takes a seed, because this box had none and twelve seeds is the
+/// house rule for anything chaotic in the seed.** The box's scene is fixed
+/// -- one stone shell, one uniform fill, no noise anywhere -- so the only
+/// thing a seed can vary is *which colony* gets founded in it. `seed=0` is
+/// the shipped left-to-right walk and is bit-exact with every number taken
+/// here before 2026-09-19; `seed=N` shuffles the order the patch's columns
+/// are filled in, which is `examples/burrow_probe`'s own device and for the
+/// same reason: an ant placed at a different column starts its walk facing
+/// different ground, and by frame 6,000 that is a different colony rather
+/// than the same one slid sideways.
+///
+/// **Why a seed was needed at all**, since a deterministic box is a virtue:
+/// every arm-versus-arm number this line published came from **one run per
+/// arm**, which `CLAUDE.md` calls a sample from a wide distribution. It is
+/// not a hypothetical here -- the three `Crowding` nulls were scored that
+/// way, and `dead-ends.md`'s own `(Crowding, Dig, 0.6)` entry records four
+/// seeds reading 4 of 4 and twelve reading 16 of 33.
 struct Trickle {
     colony: Option<u32>,
     placed: usize,
@@ -328,11 +409,23 @@ struct Trickle {
     /// How many to try per frame. The cap is space, not this.
     rate: usize,
     cursor: i32,
+    /// The order the patch's columns are tried in. Empty at `seed=0`, which
+    /// is the plain walk.
+    order: Vec<i32>,
 }
 
 impl Trickle {
-    fn new(target: usize, rate: usize) -> Self {
-        Trickle { colony: None, placed: 0, target, rate, cursor: 0 }
+    fn new(target: usize, rate: usize, seed: u64, span: i32) -> Self {
+        let mut order = Vec::new();
+        if seed > 0 {
+            use pixel_physics::sim::rng;
+            order = (0..span).collect();
+            let mut draw = rng::stream(seed, 0xD1_6B0C, 0, 0);
+            for i in (1..order.len()).rev() {
+                order.swap(i, draw.below(i as u32 + 1) as usize);
+            }
+        }
+        Trickle { colony: None, placed: 0, target, rate, cursor: 0, order }
     }
 
     fn done(&self) -> bool {
@@ -358,7 +451,10 @@ impl Trickle {
             // sweep keeps the box seed-free, and `CLAUDE.md` wants
             // determinism for same-build runs.
             self.cursor = (self.cursor + 1) % span;
-            let x = cx - half + self.cursor;
+            // `seed=0` keeps the bare walk, so every figure taken from this
+            // box before it gained a seed still reproduces to the cell.
+            let col = if self.order.is_empty() { self.cursor } else { self.order[self.cursor as usize] };
+            let x = cx - half + col;
             let y = b.surface - 1;
             if let Some(site) = pixel_physics::sim::creature::plant_creature_seed_in(world, x, y, "ant", self.colony) {
                 if self.colony.is_none() {
@@ -691,7 +787,9 @@ fn main() {
         println!("  PATCHED genome by name: {}", set.join("; "));
     }
     world.paint_nest_patch(b.w / 2, b.surface - 1);
-    let mut trickle = Trickle::new(ants as usize, arg("rate").unwrap_or(4));
+    let seed: u64 = arg("seed").unwrap_or(0);
+    let span = 26.min(b.w / 2 - 2) * 2 + 1;
+    let mut trickle = Trickle::new(ants as usize, arg("rate").unwrap_or(4), seed, span);
 
     // The endowment horizon, printed rather than assumed -- a run past it is
     // measuring starvation, not digging.
@@ -701,8 +799,9 @@ fn main() {
     let horizon = (def.start_energy / per_tick) as u64 * def.tick_interval.max(1);
 
     println!(
-        "digbox: {}x{} box, soil {} rows ({}..{}), colony of {} trickled in at {}/frame, seed-free scene",
-        b.w, b.h, soil, b.surface, b.floor, ants, trickle.rate
+        "digbox: {}x{} box, soil {} rows ({}..{}), colony of {} trickled in at {}/frame, seed={} ({})",
+        b.w, b.h, soil, b.surface, b.floor, ants, trickle.rate, seed,
+        if seed == 0 { "the shipped walk; the scene itself carries no noise" } else { "founding order shuffled" }
     );
     println!(
         "  no food, no plants, no lamps, no weather -- FoodAdjacent is 0 by construction, so the dig you see is the nest mechanism alone"
@@ -753,7 +852,7 @@ fn main() {
         }
         trickle.step(&mut world, &b);
         if stops.contains(&f) {
-            let (roofed, open, above, bodies, _rw, _rh) = census(&world, &b);
+            let (roofed, open, above, bodies, _rw, _rh, _iqr, _p50x) = census(&world, &b);
             let (n, e) = charge(&world);
             let st = world.creature_stats;
             // `per roll` and the wetness gradient moved to the SUMMARY: the
@@ -780,10 +879,10 @@ fn main() {
     }
 
     let st = world.creature_stats;
-    let (roofed, open, above, bodies, rw, rh) = census(&world, &b);
+    let (roofed, open, above, bodies, rw, rh, iqr, p50x) = census(&world, &b);
     println!();
     println!(
-        "SUMMARY digs={} rolls={} per_roll={:.3} roofed={roofed} open={open} ants_in_it={bodies} room_total={} hauled_up={above} spoil_dumped={} room={rw}w x{rh}h vert={:.2}",
+        "SUMMARY digs={} rolls={} per_roll={:.3} roofed={roofed} open={open} ants_in_it={bodies} room_total={} hauled_up={above} spoil_dumped={} room={rw}w x{rh}h vert={:.2} iqr={iqr} p50x={p50x:+}",
         st.digs,
         st.dig_rolls,
         if st.dig_rolls > 0 { st.digs as f64 / st.dig_rolls as f64 } else { 0.0 },
@@ -858,7 +957,22 @@ fn main() {
     }
 
     if let Some(path) = out {
-        let (tw, th) = (b.w as u32, b.h as u32);
+        // **`crop=x,y,w,h` in world cells, because a 400-wide box drawn
+        // whole is 99% undisturbed dirt.** The nest is 50-odd columns of a
+        // 400-column world and the question is always what happened *at*
+        // it, so a sheet of the whole box puts the answer in a twentieth of
+        // its own picture -- which the owner reads on a phone. Same spelling
+        // as `examples/filmstrip`'s.
+        let (cx0, cy0, cw, ch) = match arg::<String>("crop") {
+            Some(v) => {
+                let n: Vec<i32> = v.split(',').map(|p| p.trim().parse().expect("crop=x,y,w,h")).collect();
+                assert_eq!(n.len(), 4, "crop= wants x,y,w,h in world cells, got `{v}`");
+                (n[0].clamp(0, b.w - 1), n[1].clamp(0, b.h - 1), n[2], n[3])
+            }
+            None => (0, 0, b.w, b.h),
+        };
+        let (cw, ch) = (cw.min(b.w - cx0).max(1), ch.min(b.h - cy0).max(1));
+        let (tw, th) = (cw as u32, ch as u32);
         let (sw, sh) = (tw * scale, th * shots.len() as u32 * scale);
         let mut sheet = vec![0u8; (sw * sh * 4) as usize];
         for (i, tile) in shots.iter().enumerate() {
@@ -867,7 +981,7 @@ fn main() {
                 for ry in 0..scale {
                     let dst_row = ((y0 + y * scale + ry) * sw * 4) as usize;
                     for x in 0..tw {
-                        let src = ((y * tw + x) * 4) as usize;
+                        let src = (((y + cy0 as u32) * b.w as u32 + x + cx0 as u32) * 4) as usize;
                         let px = &tile[src..src + 4];
                         for rx in 0..scale {
                             let dst = dst_row + ((x * scale + rx) * 4) as usize;
@@ -892,7 +1006,7 @@ fn selftest_run(b: &Box2) {
         bare.step_active_sites();
         bare.step_fields();
     }
-    let (roofed, open, _, _, _, _) = census(&bare, b);
+    let (roofed, open, ..) = census(&bare, b);
     println!("digbox selftest: empty box after 600 frames reads roofed {roofed} open {open} (both must be 0)");
     assert_eq!((roofed, open), (0, 0), "a box with no ants must hold no dug void -- the soil fill is slumping, or the census is measuring the scene");
 
@@ -905,7 +1019,7 @@ fn selftest_run(b: &Box2) {
             carved.set(x, y, Cell::EMPTY);
         }
     }
-    let (roofed2, open2, _, _, _, _) = census(&carved, b);
+    let (roofed2, open2, ..) = census(&carved, b);
     println!("  a hand-carved 10x3 chamber 10 rows down reads roofed {roofed2} open {open2} (must be 30 and 0)");
     assert_eq!((roofed2, open2), (30, 0), "the census must find a known chamber, and must call it roofed rather than open");
 
@@ -915,9 +1029,46 @@ fn selftest_run(b: &Box2) {
     for y in b.surface..b.surface + 6 {
         shaft.set(cx, y, Cell::EMPTY);
     }
-    let (roofed3, open3, _, _, _, _) = census(&shaft, b);
+    let (roofed3, open3, ..) = census(&shaft, b);
     println!("  a 6-deep shaft open to the sky reads roofed {roofed3} open {open3} (must be 0 and 6)");
     assert_eq!((roofed3, open3), (0, 6), "a hole open to the sky is not a room");
+
+    // **And `iqr` must tell a concentrated room from a scattered one of the
+    // identical volume, which no other column here can.** This is the same
+    // guard `burrow_probe`'s `arms=selftest` draws with a bar and the bar
+    // rotated, pointed at the other blind spot: `roofed`, `open`, `bodies`
+    // and `room total` are counts, so thirty cells in one chamber and thirty
+    // cells in ten scattered pits read identical -- and the *bounding box*
+    // reads the scattered one as the WIDER nest, which is the reading the
+    // three-negatives report's shape table rests on. Both halves are
+    // asserted, so the test fails if `iqr` ever stops discriminating and
+    // also if the counts ever start to.
+    let mut lump = build(b);
+    let mut spread = build(b);
+    for i in 0..10 {
+        for y in cy..cy + 3 {
+            // One block of ten columns against ten single columns spread
+            // evenly across the whole box -- same thirty cells, same depth,
+            // same roof. The spacing is derived from `b.w` rather than
+            // authored, because the selftest runs at the default width and
+            // a hardcoded stride walked the pits off the edge of the world,
+            // where they are not dug at all and the control silently
+            // compares thirty cells against eighteen.
+            lump.set(cx - 5 + i, y, Cell::EMPTY);
+            spread.set(2 + i * ((b.w - 6) / 10), y, Cell::EMPTY);
+        }
+    }
+    let (lr, lo_, _, _, lw, _, liqr, _) = census(&lump, b);
+    let (sr, so_, _, _, sw, _, siqr, _) = census(&spread, b);
+    println!(
+        "  thirty cells in one chamber against thirty in ten scattered pits: room total {} vs {}, bbox {lw}w vs {sw}w, iqr {liqr} vs {siqr}"
+    , lr + lo_, sr + so_);
+    assert_eq!(lr + lo_, sr + so_, "the two beds must hold the same volume, or this control is not one");
+    assert!(lw < sw, "the scattered bed must have the wider bounding box, which is the point: a max statistic calls scattering a bigger nest");
+    assert!(
+        siqr > liqr * 4,
+        "iqr {siqr} against {liqr}: the middle-half width must separate a concentrated room from a scattered one, or it is a third blind column"
+    );
 
     // Sensitivity: ants in the box must actually dig. A colony that never
     // places, or never wakes, reports a clean null that reads as a finding.
@@ -931,7 +1082,7 @@ fn selftest_run(b: &Box2) {
         live.step_pheromones();
     }
     let st = live.creature_stats;
-    let (roofed4, _, _, _, _, _) = census(&live, b);
+    let (roofed4, ..) = census(&live, b);
     println!("  {founded} ants for 4,000 frames: {} digs, {} rolls, roofed {roofed4}", st.digs, st.dig_rolls);
     assert!(st.dig_rolls > 0, "not one dig was even attempted -- the colony is not thinking, so any null from this box is the harness");
     assert!(st.digs > 0, "digs attempted but none landed -- every roll hit air, rock or another ant, and this box cannot answer a digging question");
