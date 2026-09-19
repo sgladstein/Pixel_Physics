@@ -1,11 +1,10 @@
 # The field's response to a walking colony — mechanism, two switches, and what they buy
 
 *Lane P of the ant-survey follow-up round
-(`ant-survey-followup-brief-2026-09-19.md`),
-answering §8 of `ant-sim-research-review-2026-09-19.md`. **Both of those are
-in flight on `origin/claude/ant-sim-research-review-eyuol2` (PR #475) and are
-named rather than linked for that reason** — when it lands, the links work and
-`Reports/README.md`'s in-flight section loses its entry.
+([`ant-survey-followup-brief-2026-09-19.md`](ant-survey-followup-brief-2026-09-19.md)),
+answering §8 of
+[`ant-sim-research-review-2026-09-19.md`](ant-sim-research-review-2026-09-19.md),
+which landed as PR #475 while this lane was running.
 All runs on one four-core container, `RAYON_NUM_THREADS=4`, release build of the
 same commit, examples rebuilt in the same command as every run. Read the
 counters and the hashes; the milliseconds are for this box only.*

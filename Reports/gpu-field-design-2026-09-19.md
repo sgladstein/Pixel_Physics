@@ -2,7 +2,7 @@
 
 *Lane P of the ant-survey follow-up round, item 4 of its brief:
 **a design note, nothing built.** It prices §8.5 step 4 of
-`ant-sim-research-review-2026-09-19.md`,
+[`ant-sim-research-review-2026-09-19.md`](ant-sim-research-review-2026-09-19.md),
 which made the GPU field conditional on a share measured after step 2. Step 2 is
 built and measured in
 [`ant-field-wake-2026-09-19.md`](ant-field-wake-2026-09-19.md); this says what
