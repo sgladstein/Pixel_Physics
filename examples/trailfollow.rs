@@ -125,12 +125,17 @@ const GATES: &[Gate] = &[
     Gate { name: "foodsat", off: -45.0, on: 30.0, along: 6.0, on_home: 0.5 },
 ];
 
-/// What `ant.ron` actually carries since 2026-09-09: units 0/1 at `b2`, units
-/// 2/3 still `saturated`. Named separately rather than added to `GATES`
-/// because a `Gate` is by construction a mirrored pair of pairs, and the
-/// landed state deliberately is not one -- which is the finding.
+/// What `ant.ron` carried between 2026-09-09 and 2026-09-18: units 0/1 at
+/// `b2`, units 2/3 still `saturated`. Named separately rather than added to
+/// `GATES` because a `Gate` was by construction a mirrored pair of pairs, and
+/// that landed state deliberately was not one -- which was the finding.
+/// **Since `ac02ac03` the file is `b2` on both pairs** (the owner's argument:
+/// only laden ants lay channel B, so an eaten patch stops being marked and
+/// its trail dies on its own); the asymmetric state survives as the
+/// `foodsat` preset, which is what the 2026-09-19 re-evaluation raced the
+/// shipped animal against.
 const LANDED_NOTE: &str =
-    "landed 2026-09-09: units 0/1 = b2 (off -45, on +0.5, along 6); units 2/3 = saturated (off -45, on +30, along 6). See open-bugs-handoff.md Z7.";
+    "landed 2026-09-09: units 0/1 = b2 (off -45, on +0.5, along 6); units 2/3 saturated (off -45, on +30) until ac02ac03 (2026-09-18) de-saturated them to b2 as well -- so `gate=b2` is a no-op against the file since, and `gate=foodsat` is the pre-09-18 animal. See open-bugs-handoff.md Z7 and ant-survey-trail-reevaluation-2026-09-19.md.";
 
 fn gate_by_name(n: &str) -> Gate {
     *GATES

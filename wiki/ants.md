@@ -1,6 +1,16 @@
 # Ants
 
-*Current as of: 2026-09-19, when **the way home stopped fading before an ant
+*Current as of: 2026-09-19, when **the page caught up with the food route being
+read.** An empty ant has followed the food scent since 2026-09-18, and this
+page said for another day that it was deaf on purpose. The two paragraphs
+under "Coming home" now say what changed, why the old worry answered itself,
+and what the measurement on a bed where laden ants get home says it is
+worth: 22 colonies of 36 alive with a drawn trail against 4 with the deaf
+ant. Also recorded there, because it is the half a reader could wrongly
+infer: the colony's own food scent still recruits nobody and costs the ants
+that lay it.*
+
+*Before that, the same day: 2026-09-19, when **the way home stopped fading before an ant
 could walk it.** The two scents a colony lays now keep for different lengths
 of time, which they never did. The food scent still fades on the old schedule
 and has to: it is news about a patch, and a trail to a patch that has been
@@ -270,12 +280,15 @@ to plant moved a colony by exactly nothing, twice. **Half of that is fixed and
 the other half turned out not to be worth fixing.** A laden ant now really does
 run home along the home scent, and a trail you draw by hand is followed --
 which is why the scent tool starts on the home scent instead of the food route.
-The food route is still deaf on purpose: making an *empty* ant follow it works
-exactly as designed and makes the colony worse, because the food scent is only
-laid by an ant that has already found something, so a colony that can read it
-crowds onto patches it has already eaten and stops looking anywhere else. Two
-colonies raced side by side in one box, the readers took a quarter of the
-animals against three quarters for the colony that keeps searching at random. **And the
+The food route was deaf on purpose until 2026-09-18, and is not any more: an
+empty ant now follows the food scent as readily as a laden one follows the
+home scent. The reason it was left deaf — a colony that can read it crowds
+onto patches it has already eaten — has its own remedy in the scent itself,
+because only an ant carrying food lays it, so an eaten-out patch stops being
+marked and its trail is gone within about a round trip. Measured 2026-09-19 on
+a bed where laden ants do get home: with a trail drawn by hand, 22 colonies
+of 36 lived against 4 with the old deaf ant, and half the ants found the food
+against one in twenty. **And the
 starving colony is the harness's colony**: dropped on seedlings at frame
 zero it collapses; founded on a grown bed, the way the game is actually
 played, it holds. Earlier the same day the note below was corrected: **an ant
@@ -661,19 +674,25 @@ the same keeping as the way home it is actively bad: tried, a third as many
 ants ever found food at all, because the colony spent the session walking to
 somewhere it had already eaten.
 
-The food route was left deaf **on purpose**, and this is the part that is a
-finding rather than a job not yet done. Turning it up works exactly as
-intended and the colony does worse for it. The food scent is only laid by an
-ant that has *already found* something, so a colony that can read it converges
-on the patch it is already eating and stops searching anywhere else — it eats
-out its own doorstep and never walks to the far end of the bed. Raced side by
-side in one box, six times, the colony that could read the food route took a
-quarter of the animals and the one that keeps searching at random took three
-quarters. A colony that returns home in a straight line and searches at random
-is what a real ant colony is; the trail that pays is the way *back*, not the
-way *out*. What would change it is food arranged in clumps worth advertising,
-or a food scent that fades fast enough to stop recruiting once its patch is
-gone — neither of which has been tried yet.
+The food route was left deaf **on purpose** for nine days, and that ended on
+2026-09-18. The worry was real: the food scent is only laid by an ant that has
+*already found* something, so a colony that can read it converges on the patch
+it is already eating — raced side by side in one box, six times, the readers
+took a quarter of the animals against three quarters for the colony that kept
+searching at random. The answer was that the worry has its own remedy. Only a
+laden ant lays the scent, so an eaten-out patch stops being marked and its
+trail dies on its own within about a round trip; a reader that follows a
+trail nobody is renewing is following it to nothing for a short while, not
+for ever. Re-measured on 2026-09-19 with the return leg working, reading the
+food route is worth the whole difference between a colony that uses a drawn
+trail and one that ignores it: 22 colonies of 36 alive against 4, half the
+ants at the food against one in twenty. And two things did *not* change with
+it. The colony still cannot lay a trail worth following by itself — its own
+food scent recruits nobody, and on the same bed the colonies whose ants laid
+no food scent at all did best, because laying costs energy and bought
+nothing. And the older cure that was proposed for the eaten-patch worry, a
+food scent that fades faster, turns out to change nothing either way: it
+neither kills a trail the colony is using nor helps one.
 
 What is true, and is the thing to fix, is the outcome: **a colony still
 starves inside one play session with far more food standing in its own bed

@@ -196,8 +196,69 @@ patch — is the units-2/3 entry's named re-test on the played bed:
 
 ## 7. Candidate 5 — laden right-of-way, the test not run
 
-*(paragraph)*
+**Not built, by instruction**: the trail lane is building the foraging loop
+and this lane tests. The predicate was written, pushed at `8071d002` and
+withdrawn at `a1d1730a` in the same hour, so the diff exists if the trail
+lane wants it: one field on `CreatureDef` and two conditions in
+`try_swap_with_kin` — the mover must be carrying (a crop with cells in it,
+or a spoil pellet under `SPOIL_IS_CARGO`), the nestmate it displaces must
+not be, and the symmetric `passes_through_kin` overrides it when set.
+
+**What the 2026-09-16 rejection could not see.** The symmetric swap was
+measured on a bed where a laden ant's net homeward drift was +0.0002 cells
+per carrying tick — the ants were not going anywhere, so a rule about who
+yields to whom on the way home had no traffic to act on. What it measured
+was ants passing *each other* on the way out, which is the dispersal it
+reported (intake −35%, "ants that can pass each other disperse instead of
+following"). The asymmetric rule cannot produce that: an empty ant never
+displaces anybody, so the outbound leg is bit-identical to the shipped
+queue.
+
+**The run that answers it**, on the bed above (`trailfollow mode=gap
+gaps=90 seeds=36 gate=shipped frames=24000 food=200 refill=2000 stop=6000`,
+`TRAIL_A_RHO 0`): three rows, shipped queue / `kinpass` / the laden rule,
+arms `hand` and `self`, scored on `trips` and `carry@nest` paired within
+seed, with `kin swaps` (the counter already printed per row) as the "did it
+fire" half and `blocked` as the effect half. The prediction the record
+makes: `kinpass` reproduces −35% intake and dispersal; the laden rule moves
+`blocked` on laden ticks only, and if `trips` does not move with it the
+queue is not what a homing ant is stuck on. The falsifier is `kin swaps`
+at 0 on the laden arm — no laden ant ever met an empty one head-on, which
+is a statement about traffic density on this bed, not about the rule.
+
+
 
 ## 8. Traps met on the way
 
-*(list)*
+- **`trailfollow`'s default gate is `saturated`, and it saturates the
+  homing pair too.** Every row above passes `gate=shipped` explicitly. A run
+  that omits it is a three-change comparison wearing the shipped animal's
+  name.
+- **`gate=b2` is a no-op against today's file** — since `ac02ac03` the food
+  pair ships at b2 — and the harness says so by panicking (*"changed no
+  slot"*), which is the only reason the first queue's b2 rows are missing
+  rather than silently equal to base. The deaf reader needed its own preset
+  (`foodsat`: homing pair as shipped, food pair as the pre-09-18 file).
+- **A commit that overturns a dead end without writing it back leaves two
+  records disagreeing.** `ac02ac03` de-saturated the reader on the owner's
+  argument, changed `ant.ron` and one report section, and left the
+  `dead-ends.md` entry, `wiki/ants.md` (two paragraphs) and `trailfollow`'s
+  own `LANDED_NOTE` saying the food route is deaf on purpose. The review
+  written the next day quoted them. Fixed here.
+- **The `wire=` rider echoed nothing.** A wire nobody can see the value of
+  is the megastudy trap; it prints the slot's old and new value now.
+- **Two configs with byte-identical `self` summaries** (`crowd235`,
+  `crowd450`) were not a stale binary: 8 of 36 seed rows differ. The
+  aggregate was identical because the arm's colonies are dead by the end in
+  both. Check the rows, not the summary, before calling a binary stale — and
+  check the binary before believing the rows.
+- **A survival gain from an emitter-side wire is a cost effect until the
+  no-emission arm says otherwise.** `(Crowding, EmitB, −4.5)` read 31
+  colonies against 22 and looked like negative feedback working;
+  `carryb=0` reads 29 with no channel B at all. Emission is billed per unit
+  laid, and laying less is cheaper.
+- **`pkill -f` on a pattern that matches the calling shell kills the
+  shell.** Twice in one session (`CLAUDE.md` names the same trap for the
+  druid capture). `for p in $(pgrep -x cargo); do kill $p; done`.
+
+
