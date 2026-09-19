@@ -394,6 +394,34 @@ struct Shape {
     /// tunnel.
     inradius: f64,
     buds: usize,
+    /// **Bounding-box height and width of the cavity, and the only columns
+    /// here that can tell a shaft from a lens.**
+    ///
+    /// `cells`, `perimeter`, `circularity`, `inradius` and `buds` are every
+    /// one **rotation-invariant**: a 46-wide by 2-deep lens and a 2-wide by
+    /// 46-deep shaft read *identical* on all five. This arm's own selftest
+    /// has proved it by accident since it was written -- it draws
+    /// `bar 64x3 (no chamber)` and nothing in the table moves if you stand
+    /// that bar on its end. So the instrument was blind to the one axis the
+    /// nest question is about, which is `CLAUDE.md`'s *ask what your number
+    /// counts* landing on a whole column family at once.
+    ///
+    /// The literature says which way is right. Mikheyev et al. 2004 on
+    /// *Formica pallidefulva*: real nests are **vertical shafts bearing
+    /// chambers**, shafts are the modular unit of growth, and nests are
+    /// **top-heavy, with volume declining exponentially with depth**. So
+    /// `verticality` above 1 is nest-shaped and well under 1 is a scrape.
+    bbox_w: i32,
+    bbox_h: i32,
+}
+
+impl Shape {
+    /// Bounding-box height over width -- **>1 is a shaft, <1 is a lens**, and
+    /// 46x2 reads 0.04 against a 2x46's 23.0. The one reading in this struct
+    /// that changes when the cavity is rotated.
+    fn verticality(&self) -> f64 {
+        if self.bbox_w > 0 { self.bbox_h as f64 / self.bbox_w as f64 } else { 0.0 }
+    }
 }
 
 /// How far past the inscribed disc a cell has to stand before it counts as a
@@ -548,12 +576,23 @@ fn shape_of(mask: &[bool], w: i32, h: i32, bud_k: f64) -> Shape {
     }
 
     let (a, p) = (cells.len() as f64, perimeter as f64);
+    // The extent of the cavity on each axis. Cheap -- `cells` is already
+    // materialised -- and it is the only thing here that knows up from along.
+    let (mut x0, mut x1, mut y0, mut y1) = (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
+    for &(x, y) in &cells {
+        x0 = x0.min(x);
+        x1 = x1.max(x);
+        y0 = y0.min(y);
+        y1 = y1.max(y);
+    }
     Shape {
         cells: cells.len(),
         perimeter,
         circularity: if p > 0.0 { 4.0 * std::f64::consts::PI * a / (p * p) } else { 0.0 },
         inradius,
         buds,
+        bbox_w: x1 - x0 + 1,
+        bbox_h: y1 - y0 + 1,
     }
 }
 
@@ -715,15 +754,31 @@ fn selftest_arm(bud_k: f64) {
     }
     shapes.push(("bar 64x3 (no chamber)", bar));
 
+    // **The same bar stood on its end, and it is this arm's whole reason for
+    // existing.** A 3-wide by 64-deep shaft is the shape a nest is supposed
+    // to be; a 64-wide by 3-deep bar is the lens this engine actually digs.
+    // They are the same cells rotated, so `cells`, `perimeter`, `circ`,
+    // `inradius` and `buds` must read **identical** for both -- and that is
+    // exactly why none of them could ever have seen the problem. Only
+    // `vert` separates them. `CLAUDE.md`'s positive control, aimed at the
+    // column rather than at the world.
+    let mut shaft = vec![false; (w * h) as usize];
+    for y in 8..72 {
+        for x in 39..=41 {
+            shaft[idx(x, y)] = true;
+        }
+    }
+    shapes.push(("shaft 3x64 (the bar rotated)", shaft));
+
     shapes.push(("empty", vec![false; (w * h) as usize]));
 
     println!("=== arm selftest ===  the shape columns, on shapes whose answer is known");
     println!("  `circ` ceiling on a grid is not the textbook 1.0 -- these are the reference values.");
-    println!("{:>26}  {:>7}  {:>9}  {:>6}  {:>10}  {:>5}", "shape", "cells", "perimeter", "circ", "inradius", "buds");
+    println!("{:>28}  {:>7}  {:>9}  {:>6}  {:>10}  {:>5}  {:>5}  {:>5}  {:>6}", "shape", "cells", "perimeter", "circ", "inradius", "buds", "bboxw", "bboxh", "vert");
     let mut read: Vec<(&str, Shape)> = Vec::new();
     for (name, mask) in &shapes {
         let s = shape_of(mask, w, h, bud_k);
-        println!("{name:>26}  {:>7}  {:>9}  {:>6.3}  {:>10.2}  {:>5}", s.cells, s.perimeter, s.circularity, s.inradius, s.buds);
+        println!("{name:>28}  {:>7}  {:>9}  {:>6.3}  {:>10.2}  {:>5}  {:>5}  {:>5}  {:>6.2}", s.cells, s.perimeter, s.circularity, s.inradius, s.buds, s.bbox_w, s.bbox_h, s.verticality());
         read.push((name, s));
     }
     let get = |name: &str| read.iter().find(|(n, _)| *n == name).map(|(_, s)| *s).expect("shape");
@@ -740,6 +795,25 @@ fn selftest_arm(bud_k: f64) {
     // mechanism is quiet or the probe never reached it).
     assert_eq!(spurs.buds, 3, "three tunnels were drawn off one cavity and three must be counted -- this is the regime the column is for");
     assert_eq!(bar.buds, 2, "a uniform gallery has two ends and both stand off its own inscribed disc");
+
+    // **The rotation control, both halves.** The five old columns must be
+    // blind to the rotation -- that is the defect being pinned, not a
+    // property being praised -- and `vert` must not be.
+    let shaft = get("shaft 3x64 (the bar rotated)");
+    assert_eq!(shaft.cells, bar.cells, "the rotated bar is the same cells");
+    assert_eq!(shaft.perimeter, bar.perimeter, "and the same wall");
+    assert!((shaft.circularity - bar.circularity).abs() < 1e-9, "circ cannot tell a shaft from a lens -- this is the blind spot, asserted so nobody argues from that column again");
+    assert!((shaft.inradius - bar.inradius).abs() < 1e-9, "neither can inradius");
+    assert_eq!(shaft.buds, bar.buds, "nor buds");
+    // ...and the column that exists because of all that.
+    assert!(bar.verticality() < 0.1, "a 64x3 lens must read flat, and read {:.3}", bar.verticality());
+    assert!(shaft.verticality() > 10.0, "a 3x64 shaft must read tall, and read {:.3}", shaft.verticality());
+    assert!(
+        shaft.verticality() > bar.verticality() * 100.0,
+        "vert must separate the two by orders of magnitude, or it is no better than the columns it was added to fix: {:.3} against {:.3}",
+        shaft.verticality(),
+        bar.verticality()
+    );
 
     // **The stated blind spot, pinned rather than hidden.** "Protrusions off
     // the main cavity" is undefined when there is no main cavity: a comb is
@@ -1676,9 +1750,18 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>,
                 let (crowd, live) = crowding(&world);
                 let at = |q: f64| crowd.get(((crowd.len() as f64 - 1.0) * q).round() as usize).copied().unwrap_or(0.0);
                 let mean = if live > 0 { crowd.iter().sum::<f64>() / live as f64 } else { 0.0 };
+                // **`vert` is the one to read for "is this a nest or a
+                // scrape", and the other four cannot answer it.** All four
+                // are rotation-invariant, so a 46-wide by 2-deep lens and a
+                // 2-wide by 46-deep shaft read identical on every one of
+                // them -- `arms=selftest` asserts exactly that against the
+                // same bar drawn both ways. Real nests are vertical shafts
+                // bearing chambers (Mikheyev et al. 2004, *Formica
+                // pallidefulva*), so above 1 is nest-shaped and well under 1
+                // is the lens this engine digs today.
                 println!(
-                    "         chamber: {:>5} cells  circ {:>5.3}  inradius {:>5.2}  buds {:>3}",
-                    shape.cells, shape.circularity, shape.inradius, shape.buds
+                    "         chamber: {:>5} cells  circ {:>5.3}  inradius {:>5.2}  buds {:>3}  bbox {:>3}w x{:>3}h  vert {:>6.2}",
+                    shape.cells, shape.circularity, shape.inradius, shape.buds, shape.bbox_w, shape.bbox_h, shape.verticality()
                 );
                 // **Whether a body this size could walk it**, which `inradius`
                 // above cannot answer: that is an inscribed disc and a gnome is
