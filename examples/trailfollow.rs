@@ -47,7 +47,7 @@ use pixel_physics::lab::scene::LabBox;
 use pixel_physics::sim::brain::{self, BrainInput as I, BrainOutput as O};
 use pixel_physics::sim::creature;
 use pixel_physics::sim::explosion::Blasts;
-use pixel_physics::sim::material::MaterialId;
+use pixel_physics::sim::material::{MaterialId, MaterialKind};
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::pheromone::{self, Channel};
 use pixel_physics::sim::Cell;
@@ -1723,6 +1723,18 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // which is off the hand-laid trail entirely, so a cohort drawn the same way
     // would be five ants all answering the same unrepresentative question.
     let focal_n: usize = arg("focaln").unwrap_or(0);
+    // **A real tick discriminator, because the row cannot infer one.** Focal
+    // rows are written every FRAME while the ant decides every `tick_interval`
+    // (6), so consecutive rows are mostly re-reads of one decision and the only
+    // tell is that `x`/`heading` happened not to change -- which is also what a
+    // *stalled* ant looks like, i.e. exactly the case this trace exists to
+    // study. `OrganismState::since_nest` is incremented once per creature tick
+    // (`creature.rs:4647`) and reset only at the nest, so a CHANGE in it marks
+    // a tick unambiguously, reset included. (`age_ticks` looks like the right
+    // field and is not: grep says only `plant.rs` ever increments it, so it
+    // reads 0 for every ant for ever.)
+    let mut tick_of: std::collections::HashMap<pixel_physics::sim::cell::OrganismId, (u16, u64)> =
+        std::collections::HashMap::new();
     // **The channel A amplitude profile along the route, every `aprofevery`
     // frames.** See the dump site for why a gradient reading cannot answer it.
     let a_profile = flag("aprofile");
@@ -1776,6 +1788,25 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // roll `creature.rs` makes is `clamp(out, 0, 1)`, so most of this ant's
     // ticks sit at a hard zero and a mean over them averages in cells where the
     // homing term is disconnected. See the `p_move` note at its assignment.
+    // **The two censuses the sensor-geometry diagnosis rests on**, so it is a
+    // readout rather than a post-hoc script over a CSV.
+    //
+    // `tr_by_kind` splits every laden decision by WHAT THE NOSE IS POINTING AT
+    // -- `creature::sense` samples `(x + dx*so, y + dy*so)`, and with +y down,
+    // six of the eight `DIRS` entries put that six rows off the ant's own row:
+    // three in open air, three inside the ground. A walking creature only ever
+    // lays a trail at its body cell, so those six read exactly 0, and
+    // `(0 - here)/(0 + here + SCALE)` is a confident STRONG NEGATIVE where the
+    // honest answer is "I am looking at the sky and know nothing".
+    // Index: 0 air, 1 solid, 2 surface. Fields: n, sum along, n usable, n frozen.
+    let mut tr_by_kind = [(0u64, 0.0f64, 0u64, 0u64); 3];
+    // Freeze runs: how long a laden ant sits at `P(move)` exactly zero. The
+    // mean cannot show this -- a 9-tick median with a 157-tick tail is a
+    // different animal from one that pauses evenly, and only the run length
+    // says which.
+    let mut tr_freeze_runs: Vec<u32> = Vec::new();
+    let mut tr_freeze_open: std::collections::HashMap<pixel_physics::sim::cell::OrganismId, u32> =
+        std::collections::HashMap::new();
     let mut tr_up = (0u64, 0.0f64, 0i64, 0u64);
     let mut tr_down = (0u64, 0.0f64, 0i64, 0u64);
     let mut tr_flat = (0u64, 0.0f64, 0i64, 0u64);
@@ -2220,6 +2251,48 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     e.0 += *v as f64;
                     e.1 += 1;
                 }
+                // **What kind of place the nose is pointing at, for every
+                // traced ant** -- hoisted out of the focal-only block below
+                // because the census needs it for the population, not for one
+                // illustration. `ahead` reproduces `creature::sense`'s own
+                // sample point, `(x + dx*so, y + dy*so)` from `DIRS`; `sense`
+                // is private so this is a copy, and the guard test in
+                // `creature.rs` is what keeps the two honest.
+                let (sdx, sdy) = creature::DIRS[(s.heading % 8) as usize];
+                let (ax, ay) = (hx + sdx * sensor_offset, hy + sdy * sensor_offset);
+                let here_a = w.pheromone_at(Channel::A, hx, hy);
+                let ahead_a = w.pheromone_at(Channel::A, ax, ay);
+                let solid_at = |cx: i32, cy: i32| {
+                    matches!(
+                        w.materials.kind(w.get(cx, cy).material),
+                        MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant
+                    )
+                };
+                // `surface` is the walkability test `step_chain` uses (P-25):
+                // not solid itself, and 8-adjacent to something to stand on.
+                // It is the only one of the three where a trail could be.
+                let kind_idx = if solid_at(ax, ay) {
+                    1usize
+                } else if (-1..=1).any(|ddx| (-1..=1).any(|ddy| (ddx, ddy) != (0, 0) && solid_at(ax + ddx, ay + ddy))) {
+                    2usize
+                } else {
+                    0usize
+                };
+                let sensor_kind = ["air", "solid", "surface"][kind_idx];
+                // **One creature tick, not one frame.** `since_nest` is
+                // incremented once per tick (`creature.rs:4647`) and reset only
+                // at the nest, so a change in it marks a tick including the
+                // reset. Rows are written every frame, so a census that did not
+                // gate on this would count each decision six times -- harmless
+                // for a ratio and wrong for a run LENGTH, which is the number
+                // the freeze census exists to report.
+                let tick_e = tick_of.entry(id).or_insert((u16::MAX, 0));
+                let is_tick = u8::from(tick_e.0 != s.since_nest);
+                if is_tick == 1 {
+                    tick_e.0 = s.since_nest;
+                    tick_e.1 += 1;
+                }
+                let tick = tick_e.1;
                 let along = tin[I::PheroAAlong as usize];
                 // **`clamp`, not `unit_scale` -- corrected 2026-09-19, and every
                 // `P(move)` figure in §7.41-§7.44 was in the wrong unit.**
@@ -2260,6 +2333,24 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 // a denominator change that moves every rate in the block and
                 // looks like a result.
                 if carrying_larder {
+                // **Per TICK, unlike the accumulators below**, which have always
+                // counted frames -- harmless for the ratios they report and
+                // wrong for a run length, which is what the freeze census is.
+                if is_tick == 1 {
+                    let k = &mut tr_by_kind[kind_idx];
+                    k.0 += 1;
+                    k.1 += along as f64;
+                    k.2 += u64::from(along >= 0.02);
+                    let frozen = p_move == 0.0;
+                    k.3 += u64::from(frozen);
+                    let run = tr_freeze_open.entry(id).or_insert(0);
+                    if frozen {
+                        *run += 1;
+                    } else if *run > 0 {
+                        tr_freeze_runs.push(*run);
+                        *run = 0;
+                    }
+                }
                 tr_n += 1;
                 tr_along_sum += along as f64;
                 tr_abs_along_sum += along.abs() as f64;
@@ -2310,7 +2401,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 }
                 if focal == Some(id) || in_cohort {
                     focal_rows.push(format!(
-                        "{id:?},{f},{hx},{hy},{dx},{},{},{along:.5},{:.5},{:.4},{:.4},{},{},{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.5},{:.5},{:.5},{:.5},{:.5},{:.5},{p_move:.5},{:.5},{trail:.5},{presquash:.5},{:.5},{:.5},{:.5}",
+                        "{id:?},{f},{hx},{hy},{dx},{},{},{along:.5},{:.5},{:.4},{:.4},{},{},{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.5},{:.5},{:.5},{:.5},{:.5},{:.5},{p_move:.5},{:.5},{trail:.5},{presquash:.5},{:.5},{:.5},{:.5},{tick},{is_tick},{here_a},{ahead_a},{sensor_kind}",
                         // **Where this ant thinks home is, and how stale that
                         // is** -- `OrganismState::forage_anchor` / `since_nest`.
                         //
@@ -2586,6 +2677,70 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     );
                 }
             };
+            // **What the nose was pointing at, and what it read there.** The
+            // homing circuit is fed by `PheroAAlong`, and `sense` samples
+            // `(x + dx*so, y + dy*so)` -- so on flat ground six of the eight
+            // headings sample six rows into open air or into the ground, where
+            // a walking creature has never laid anything. A zero there is not
+            // "no trail", it is "no place a trail could be", and the formula
+            // turns it into a confident large negative. Read the `usable`
+            // column against `surface`: if `air` and `solid` are near zero
+            // while `surface` is not, the ant is being told a story about six
+            // directions in eight.
+            {
+                let labels = ["air (nose in open sky)", "solid (nose in ground)", "surface (a trail could be here)"];
+                let tot: u64 = tr_by_kind.iter().map(|k| k.0).sum();
+                if tot > 0 {
+                    // **The tick discriminator's own positive control, printed
+                    // rather than trusted.** Rows are written every frame and
+                    // the ant decides every `tick_interval`, so this ratio must
+                    // come out at exactly that -- 6 for the shipped ant. A
+                    // discriminator that silently stopped working would read
+                    // 1.0 here and the freeze-run lengths would be six times
+                    // too long with nothing to say so.
+                    println!(
+                        "    TRACE laden TICKS by what the sensor cell is -- the geometry test  [{:.2} frames/tick, must equal tick_interval]:",
+                        tr_n as f64 / tot as f64
+                    );
+                    for (i, lbl) in labels.iter().enumerate() {
+                        let k = tr_by_kind[i];
+                        if k.0 == 0 {
+                            println!("      {lbl:<34} n 0");
+                            continue;
+                        }
+                        println!(
+                            "      {lbl:<34} n {:>8} ({:>5.1}% of ticks)   mean along {:+.4}   usable (>= +0.02) {:>5.1}%   frozen {:>5.1}%",
+                            k.0,
+                            100.0 * k.0 as f64 / tot as f64,
+                            k.1 / k.0 as f64,
+                            100.0 * k.2 as f64 / k.0 as f64,
+                            100.0 * k.3 as f64 / k.0 as f64
+                        );
+                    }
+                    let frozen: u64 = tr_by_kind.iter().map(|k| k.3).sum();
+                    if frozen > 0 {
+                        println!(
+                            "      => of {frozen} FROZEN laden ticks (P(move) exactly 0), {:.0}% had the nose in sky or ground",
+                            100.0 * (tr_by_kind[0].3 + tr_by_kind[1].3) as f64 / frozen as f64
+                        );
+                    }
+                }
+                // A freeze is a RUN, and the mean cannot show one: a median of
+                // 9 ticks with a 157-tick tail is a different animal from one
+                // that pauses evenly.
+                let mut runs = tr_freeze_runs.clone();
+                runs.extend(tr_freeze_open.values().copied().filter(|&r| r > 0));
+                if !runs.is_empty() {
+                    runs.sort_unstable();
+                    println!(
+                        "    TRACE freeze runs: n {}   median {} ticks   p90 {}   longest {}",
+                        runs.len(),
+                        runs[runs.len() / 2],
+                        runs[runs.len() * 9 / 10],
+                        runs[runs.len() - 1]
+                    );
+                }
+            }
             println!("    TRACE split by the sign of `along` -- the run-and-tumble test:");
             row("facing UP-gradient", tr_up);
             row("facing DOWN-gradient", tr_down);
@@ -2698,7 +2853,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         if !focal_rows.is_empty() {
             let path = format!("/tmp/trailfollow-focal-seed{seed}-gap{gap}.csv");
             let mut out = String::from(
-                "id,frame,x,y,dx_home,anchor_x,since_nest,PheroAAlong,PheroAFront,Carrying,CarryingFood,crop_cells,spoil,heading,Energy,Crowding,AtNest,FoodAdjacent,Stillness,h0,h1,PheroBAlong,PheroBFront,h2,h3,p_move,p_tumble,trail_term,move_presquash,drop_urge,MoistureGrad,SurfaceCurvature\n",
+                "id,frame,x,y,dx_home,anchor_x,since_nest,PheroAAlong,PheroAFront,Carrying,CarryingFood,crop_cells,spoil,heading,Energy,Crowding,AtNest,FoodAdjacent,Stillness,h0,h1,PheroBAlong,PheroBFront,h2,h3,p_move,p_tumble,trail_term,move_presquash,drop_urge,MoistureGrad,SurfaceCurvature,tick,is_tick,here_a,ahead_a,sensor_kind\n",
             );
             out.push_str(&focal_rows.join("\n"));
             out.push('\n');
