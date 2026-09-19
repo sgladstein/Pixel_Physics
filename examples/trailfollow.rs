@@ -1474,8 +1474,21 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // **Takes a value so it cannot be a silent no-op**, and asserts the wire it
     // is removing was actually there: `carryb=0` on a genome that has already
     // lost that wire is an arm wearing a name for something it did not do.
+    //
+    // **`CarryingFood`, not `Carrying` -- corrected 2026-09-19, and the
+    // assertion above is what found it.** `ant.ron`'s emitter was
+    // `(Carrying, EmitB, 2.5)` when this rider was written and became
+    // `(CarryingFood, EmitB, 2.5)` in `1f7b6f95` the next day ("the homing
+    // gate reads food, not dirt"). Those are two different `BrainInput`
+    // variants -- 12 and 30 -- so the rider went on zeroing a slot that was
+    // already zero, which is exactly the "arm wearing a name for something it
+    // did not do" this assertion exists to refuse. `dead-ends.md`'s
+    // food-odometer entry says re-running it costs one command; it did not,
+    // and the only reason that is a five-minute correction rather than a
+    // silently wrong table is that the check was written to take a value and
+    // fail loudly on a no-op.
     if let Some(c) = arg::<f32>("carryb") {
-        let slot = brain::io_slot(brain::BrainInput::Carrying, O::EmitB);
+        let slot = brain::io_slot(brain::BrainInput::CarryingFood, O::EmitB);
         assert!(
             (genome[slot] - c).abs() > f32::EPSILON,
             "carryb={c} is already what the Carrying->EmitB slot holds, so this arm is the shipped one wearing a different name"
