@@ -4400,6 +4400,64 @@ it reached a conclusion.
   presets. Note its presets each overwrite **both** gate pairs, so no row of
   its `mode=arith` table is the shipped ant, which is a mix.
 
+## §7.40 The terrain wires: one of them was deleted, not moved, and CI is what said so
+
+`cargo run --example ascii` went red on the branch that closed the loop, on
+the scene named for terrain-driven deposition: `no ant ever dropped anything
+-- the verb never fired`. The message is accurate and points the wrong way.
+
+**§7.35 took two wires off `Drop` and said both would live on `DropSpoil`.**
+They did not. `main`'s `DropSpoil` block is `(AtNest, 0.9)`, `(Carrying,
+0.2)`, `(SurfaceCurvature, 0.169)` — there was **no moisture term there to
+stay on**, so moving curvature was a no-op and moving moisture deleted it
+from the species. `wiki/ants.md` went on describing the preference for
+another day.
+
+**The obvious repair is the expensive one, and it is measured.**
+`trailfollow mode=gap gaps=90 seeds=18 gate=shipped homebias=1`, deliveries
+on the `hand` arm — the arm §7.38's headline is quoted from:
+
+| `Drop` wiring | deliveries | ascii guard |
+|---|---|---|
+| no terrain terms (shipped) | **511** | red, wrong message |
+| `(MoistureGrad, Drop, 0.169)` back | 180 | still red |
+| moisture and curvature both back | 113 | green |
+
+Restoring moisture alone is the worst row available: it costs two thirds of
+the headline **and** leaves CI red, because the guard was riding on
+curvature, not on moisture. That row is where this was heading when the work
+changed hands, and it is recorded because it looks like the cautious move.
+
+**The mechanism behind the whole table is one line of arithmetic.** `Bias
+-0.2` against `Carrying +0.2` puts a laden ant's away-from-nest drop urge at
+exactly `squash(0) = 0`, so on `Drop` the terrain terms are not a bias on the
+rate — they *are* the rate. That is why `AtNest` being the only trigger left
+makes every drop a delivery (§7.38), and equally why any terrain term put
+back is a forager abandoning its dinner somewhere short of home.
+
+**So the scene moved to the verb that owns deposition, and the moisture claim
+came off the bar.** `examples/ascii.rs` now lays a diggable `soil` lattice
+instead of food and reads `spoil_dumped` instead of `drops`; the marker is
+`spoil`, which nothing but an ant putting a pellet down can produce, so the
+attribution is sound rather than merely careful. Attributed events go **17 →
+59** and the moisture field stops being saturated (steep 2.10 against flat
+0.11, margin 1.16 against 0.34) — the channel has range for the first time.
+
+What it cannot do is carry the preference claim, and that is filed as §Z28
+rather than patched: `DropSpoil` has **no `Bias` wire**, so `Carrying` alone
+puts its urge at `squash(0.2 + terrain)` and the pellet goes down within a
+few ticks of being cut. A verb that fires at the face cannot choose a site.
+Adding `(MoistureGrad, DropSpoil, 0.169)` moves the ratio 1.30x → 0.92x and
+the sign test 31.8% → 45.5% — a null either side of no-effect — while moving
+`hand` deliveries 511 → 121 and failing
+`a_share_is_booked_on_both_sides`. One line, three things move.
+
+The bar it replaces is the instrument's own: every dump the engine counted
+is accounted for by the attribution, and most are credited to a cell. Both
+were checked by putting the fault back — recounting settled pellets every
+frame reads `83 credited + 27 unmatched + 3 discarded != 77 dumped` and goes
+red.
+
 ## Appendix A. Raw per-seed data
 
 Kept in full because outcomes here have enormous spread, and every headline in

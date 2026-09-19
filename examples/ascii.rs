@@ -2514,13 +2514,14 @@ fn nest_dig_scene() {
 /// consequences of that, and writing a "build a wall" behaviour would be
 /// the signal to go and re-read that section.
 fn construction_scene() {
-    if !begin("ants: deposition follows the moisture gradient, with no build rule anywhere") {
+    if !begin("ants: deposition, with no build rule anywhere -- and the moisture preference that now reaches no verb") {
         return;
     }
     let (w, h) = (240i32, 120i32);
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     let floor = h - 8;
-    let corpse = world.materials.id_of("corpse").expect("corpse");
+    let soil = world.materials.id_of("soil").expect("soil");
+    let spoil = world.materials.id_of("spoil").expect("spoil");
 
     for x in 0..w {
         for y in floor..h {
@@ -2535,10 +2536,37 @@ fn construction_scene() {
         world.set(60, y, Cell::new(material::STONE, 0).with_attached(true));
         world.set(68, y, Cell::new(material::STONE, 0).with_attached(true));
     }
-    // Food spread thinly across the whole floor, so ants pick up wherever
-    // they are and then carry across both halves.
+    // **Diggable soil spread thinly across the whole floor, so ants pick up
+    // wherever they are and then carry across both halves** -- the same bed
+    // shape this scene has always had, laid in the material the deposition
+    // verb actually takes.
+    //
+    // **It was food until 2026-09-19, and the swap is the whole repair.**
+    // `(MoistureGrad, Drop, 0.169)` and `(SurfaceCurvature, Drop, 0.169)`
+    // left the *forager's* verb when the foraging loop closed, and they are
+    // not coming back: measured over 18 seeds at gap 90 on `trailfollow`,
+    // deliveries read **511 with both wires off `Drop`, 180 with the moisture
+    // one restored, and 113 with both** -- because any away-from-nest drop
+    // probability is a laden ant abandoning its dinner somewhere short of
+    // home, and the longer the journey the likelier it is. Both wires are
+    // for actually holds, so that is the verb this scene now measures.
+    //
+    // **And only one of them arrived.** The commit that cut them said "BOTH
+    // STAY ON `DropSpoil`"; `DropSpoil` on `main` carried
+    // `(SurfaceCurvature, 0.169)` and no moisture term at all, so moving
+    // curvature was a no-op and moving moisture **deleted it from the
+    // species**. The preference `wiki/ants.md` describes -- an ant carrying
+    // something is a little likelier to put it down where the ground is
+    // drying out unevenly -- reaches **no verb** as this scene is written,
+    // which is why the moisture columns below are printed and no longer
+    // asserted on. Filed, with what restoring it costs, in
+    // `Reports/open-bugs-handoff.md`. See `assets/species/ant.ron`'s drop
+    // block and `Reports/pheromone-trail-direction-2026-09-16.md` §7.35/§7.38.
+    //
+    // Attached, so the lattice is ground rather than a powder that slumps
+    // into a heap before an ant reaches it.
     for x in (20..220).step_by(4) {
-        world.set(x, floor - 1, Cell::new(corpse, 0));
+        world.set(x, floor - 1, Cell::new(soil, 0).with_attached(true));
     }
     // **The ablation, as a switch rather than as a `.ron` edit and a
     // rebuild** -- the shape `PIXEL_PHYSICS_BURROW_LINING` and
@@ -2586,7 +2614,17 @@ fn construction_scene() {
     // first, and the two arms came back **byte-identical**, which is
     // `CLAUDE.md`'s standing tell for a change that must have moved something
     // and did not.
-    let ablate = std::env::var("PIXEL_PHYSICS_DROP_MOISTURE").ok().and_then(|v| {
+    // **`PIXEL_PHYSICS_DROP_TERRAIN`, renamed from `PIXEL_PHYSICS_DROP_MOISTURE`
+    // on 2026-09-19 along with what it ablates.** It zeroed
+    // `(MoistureGrad, Drop, w)`; that wire no longer exists on either verb
+    // (see the deposition note at the head of this scene), so the switch
+    // would have folded a 0.0 into the bias and reported an ablation that
+    // ablated nothing -- a control that cannot move, which is the failure
+    // `CLAUDE.md` calls a positive control's whole job to catch. It now takes
+    // `(SurfaceCurvature, DropSpoil, w)`, the one terrain term a laden ant
+    // still reads. Older reports quoting the previous name are records of
+    // runs against the previous wiring and are left as they are.
+    let ablate = std::env::var("PIXEL_PHYSICS_DROP_TERRAIN").ok().and_then(|v| {
         // `off` folds at the calibrated default; `off:0.9` overrides it. The
         // fraction is a **calibration of the control**, not a result, and it
         // is a knob rather than a literal because matching the rate has to be
@@ -2598,12 +2636,13 @@ fn construction_scene() {
         use pixel_physics::sim::brain::{io_slot, BrainInput, BrainOutput};
         let id = world.species.id_of("ant").expect("ant");
         let mut g = world.species.get(id).genome.clone();
-        let slot = io_slot(BrainInput::MoistureGrad, BrainOutput::Drop);
-        let w_moist = g[slot];
+        let slot = io_slot(BrainInput::SurfaceCurvature, BrainOutput::DropSpoil);
+        let w_terrain = g[slot];
+        assert!(w_terrain != 0.0, "the ablation arm has nothing to ablate: (SurfaceCurvature, DropSpoil) is already 0.0");
         g[slot] = 0.0;
-        g[io_slot(BrainInput::Bias, BrainOutput::Drop)] += w_moist * fold;
+        g[io_slot(BrainInput::Bias, BrainOutput::DropSpoil)] += w_terrain * fold;
         world.species.set_genome(id, g);
-        println!("  ABLATED: (MoistureGrad, Drop, {w_moist:.4}) folded into the bias at {fold} of its ceiling -- the dependence gone, the rate held");
+        println!("  ABLATED: (SurfaceCurvature, DropSpoil, {w_terrain:.4}) folded into the bias at {fold} of its ceiling -- the dependence gone, the rate held");
     }
 
     // **One colony, not fifty-five.** `World::plant_ant` claims a fresh
@@ -2691,10 +2730,6 @@ fn construction_scene() {
     // enough above the flat half's own 0.1061 that a world where both
     // halves are merely damp cannot clear it.
     const MARGIN_BAR: f64 = 0.5;
-    /// **The bar the scene's headline claim is actually asserted on.** See the
-    /// five-arm table at the bottom of this function for where it comes from
-    /// and what to run before changing it.
-    const MATCHED_BAR: f64 = 0.90;
     let mut wet_sum = 0.0f64;
     let mut dry_sum = 0.0f64;
     let mut samples = 0u32;
@@ -2744,18 +2779,26 @@ fn construction_scene() {
     // same phase of the weather -- the ratio divides all of it out and is 1.0
     // when the bias is absent, which is a bar that can go red.
     //
-    // **Drop sites are attributed rather than censused.** Standing corpse
-    // cells cannot be the numerator: this scene lays *corpse* as food and a
-    // dead ant also becomes corpse, so the old census counts every ant that
-    // starved on the floor as a deposit -- 44-48 deaths against 66 "standing
-    // drops". Instead the band is diffed frame by frame, and new corpse cells
-    // are credited to the drop verb only on frames where `deaths` did not
-    // move. Frames where both happened are discarded rather than guessed at.
+    // **Drop sites are attributed rather than censused.** Standing cells
+    // cannot be the numerator: when this scene laid *corpse* as food, a dead
+    // ant also became corpse, so the census counted every ant that starved on
+    // the floor as a deposit -- 44-48 deaths against 66 "standing drops".
+    // Instead the band is diffed frame by frame, and new pellet cells are
+    // credited to the drop verb only on frames where `deaths` did not move.
+    // Frames where both happened are discarded rather than guessed at.
+    //
+    // **`spoil` makes that attribution sound rather than merely careful.** A
+    // hauled pellet is its own material (`assets/materials/spoil.ron`), so
+    // nothing in this world can produce a `spoil` cell except an ant putting
+    // one down -- the bank is `soil` and a dead ant is `corpse`, and neither
+    // can be mistaken for a deposit. The death guard and the fell-into guard
+    // below are kept anyway: they cost nothing and they are what makes the
+    // `credited` against `spoil_dumped` pairing readable.
     let band = |x: i32, y: i32| (20..220).contains(&x) && ((floor - 12)..floor).contains(&y);
-    let corpse_set = |world: &World| -> std::collections::HashSet<(i32, i32)> {
+    let spoil_set = |world: &World| -> std::collections::HashSet<(i32, i32)> {
         (20..220)
             .flat_map(|x| ((floor - 12)..floor).map(move |y| (x, y)))
-            .filter(|&(x, y)| world.get(x, y).material == corpse)
+            .filter(|&(x, y)| world.get(x, y).material == spoil)
             .collect()
     };
     // **Both the raw field gradient and the value the brain is actually
@@ -2771,7 +2814,7 @@ fn construction_scene() {
         let gy = world.field_at_bilinear(x as f32, (y + 4) as f32).moisture - world.field_at_bilinear(x as f32, (y - 4) as f32).moisture;
         ((gx * gx + gy * gy).sqrt()) as f64
     };
-    let mut prev_corpse = corpse_set(&world);
+    let mut prev_spoil = spoil_set(&world);
     let (mut prev_drops, mut prev_deaths) = (0u64, 0u64);
     let (mut event_grad, mut event_in, mut event_n) = (0.0f64, 0.0f64, 0u32);
     let (mut stood_grad, mut stood_in, mut stood_n) = (0.0f64, 0.0f64, 0u32);
@@ -2791,10 +2834,13 @@ fn construction_scene() {
         }
 
         let st = world.creature_stats;
-        let (d_drops, d_deaths) = (st.drops - prev_drops, st.deaths - prev_deaths);
-        prev_drops = st.drops;
+        // **`spoil_dumped`, not `drops`.** `drops` is the forager putting food
+        // down, and this scene has no food in it: the verb under test is
+        // `DropSpoil`, so its counter is the one that has to move.
+        let (d_drops, d_deaths) = (st.spoil_dumped - prev_drops, st.deaths - prev_deaths);
+        prev_drops = st.spoil_dumped;
         prev_deaths = st.deaths;
-        let now = corpse_set(world);
+        let now = spoil_set(world);
         if d_drops > 0 && d_deaths == 0 {
             // **A new corpse cell in the band is not automatically a
             // deposit, and the first version of this believed it was** --
@@ -2824,10 +2870,10 @@ fn construction_scene() {
             // between two runs of the *same binary*, which is a guard that can
             // flake for no reason at all. The elements are set members, so
             // there are no equal keys and no tie order to worry about.
-            let mut new_cells: Vec<(i32, i32)> = now.difference(&prev_corpse).copied().collect();
+            let mut new_cells: Vec<(i32, i32)> = now.difference(&prev_spoil).copied().collect();
             new_cells.sort_unstable();
             for (x, y) in new_cells {
-                let fell = [(-1, -1), (0, -1), (1, -1)].iter().any(|&(dx, dy)| prev_corpse.contains(&(x + dx, y + dy)));
+                let fell = [(-1, -1), (0, -1), (1, -1)].iter().any(|&(dx, dy)| prev_spoil.contains(&(x + dx, y + dy)));
                 let by_ant = heads.iter().any(|&(hx, hy)| (hx - x).abs() <= 1 && (hy - y).abs() <= 1);
                 if fell || !by_ant {
                     continue;
@@ -2860,7 +2906,14 @@ fn construction_scene() {
             let mut laden_n = 0u32;
             for id in world.live_organism_ids() {
                 let Some(state) = world.organism(id) else { continue };
-                if state.crop.is_none_or(|c| c.cells == 0) {
+                // **Laden with a PELLET, not with food.** The numerator is
+                // `DropSpoil` events, so the denominator has to be the same
+                // population -- ants that had something to put down and did
+                // not. Read as `crop` while this scene laid food, it sampled
+                // **3** ants against 59 credited drops: a ratio whose two
+                // halves are different animals, which is `CLAUDE.md`'s
+                // worst-recurring failure wearing a denominator.
+                if state.spoil.is_none() {
                     continue;
                 }
                 let Some(&(hx, hy)) = state.chain.first() else { continue };
@@ -2885,18 +2938,19 @@ fn construction_scene() {
         } else if d_drops > 0 {
             ambiguous += d_drops as u32;
         }
-        prev_corpse = now;
+        prev_spoil = now;
 
     });
 
     let water_after = count_water(&world);
     let (wet_grad, dry_grad) = (wet_sum / samples as f64, dry_sum / samples as f64);
-    // Drops land as material, so count what is standing where nothing was
-    // placed: any corpse cell not on the original 4-cell lattice row.
+    // Drops land as material, so count what is standing. **No lattice
+    // exclusion any more**: the bed is laid as `soil` and a pellet is
+    // `spoil`, so every cell this counts was put there by an ant.
     let dropped = |x0: i32, x1: i32| -> usize {
         (x0..x1)
             .flat_map(|x| ((floor - 12)..floor).map(move |y| (x, y)))
-            .filter(|&(x, y)| world.get(x, y).material == corpse && !(y == floor - 1 && x % 4 == 0))
+            .filter(|&(x, y)| world.get(x, y).material == spoil)
             .count()
     };
     let (wet_drops, dry_drops) = (dropped(20, w / 2), dropped(w / 2, 220));
@@ -2942,7 +2996,7 @@ fn construction_scene() {
         for y in (floor - 12)..floor {
             band_grad += grad_at(&world, x, y);
             band_n += 1;
-            if world.get(x, y).material == corpse && !(y == floor - 1 && x % 4 == 0) {
+            if world.get(x, y).material == spoil {
                 drop_grad += grad_at(&world, x, y);
                 drop_n += 1;
             }
@@ -2952,7 +3006,7 @@ fn construction_scene() {
     let at_drops = drop_grad / drop_n.max(1) as f64;
     let uphill = if ambient > 0.0 { at_drops / ambient } else { 0.0 };
     let st = world.creature_stats;
-    println!("  pickups {} drops {} digs {} deaths {}", st.pickups, st.drops, st.digs, st.deaths);
+    println!("  digs {} spoil dumped {} (lifted {}) pickups {} deaths {}", st.digs, st.spoil_dumped, st.spoil_lifted, st.pickups, st.deaths);
     // The level the gradient is a gradient *of*: a flat field at zero and a
     // flat field at saturation both print 0.000 as a gradient and mean
     // opposite things, and it was the *level* being zero that turned out to
@@ -2985,7 +3039,7 @@ fn construction_scene() {
     let matched_input = if stood_input > 0.0 { drop_input / stood_input } else { 0.0 };
     println!(
         "  matched: |grad moisture| at {event_n} attributed drop events {drop_raw:.4} vs {stood_raw:.4} where {stood_n} laden ants stood -- {matched:.2}x\n           (of {} drops: {ambiguous} discarded for a death in the same frame, {unattributed} not matched to a cell)",
-        st.drops
+        st.spoil_dumped
     );
     println!(
         "  ...and on the value the brain is handed (clamped at 1.0): {drop_input:.4} at drops vs {stood_input:.4} standing -- {matched_input:.2}x"
@@ -3013,7 +3067,7 @@ fn construction_scene() {
         initial_margin > MARGIN_BAR,
         "the scene must actually contain the gradient it is testing, measured before the colony touches it: {initial_margin:.4} <= {MARGIN_BAR} (the run mean was steep {wet_grad:.4} vs flat {dry_grad:.4}, margin {margin:.4})"
     );
-    assert!(st.drops > 0, "no ant ever dropped anything -- the verb never fired");
+    assert!(st.spoil_dumped > 0, "no ant ever put a pellet down -- the verb never fired");
     // **`wet_drops > dry_drops` was here and has been demoted to the print
     // above, because it was measured to be vacuous.** Deleting
     // `moisture_gradient` from the drop probability in `creature.rs`
@@ -3119,11 +3173,65 @@ fn construction_scene() {
     assert!(
         stood_n > 0,
         "no laden ant was ever sampled, so the ratio has no denominator: {} drops over {paired_n} crediting frames",
-        st.drops
+        st.spoil_dumped
+    );
+    // **`matched > MATCHED_BAR` stood here and is demoted to the print above,
+    // 2026-09-19, because the verb it now measures has no room to express a
+    // preference.** This is the third statistic this scene has had to give up
+    // and the reason is a new one, so it is worth stating plainly rather than
+    // filed as another retune.
+    //
+    // `Drop` could carry this claim because its sum is knife-edge: `Bias -0.2`
+    // against `Carrying +0.2` means a laden ant's baseline drop urge away from
+    // the nest is **exactly zero**, so the terrain terms were not a bias on
+    // the rate, they *were* the rate, and a preference had the whole range to
+    // show in. `DropSpoil` has **no `Bias` wire at all** -- `(AtNest, 0.9)`,
+    // `(Carrying, 0.2)`, `(SurfaceCurvature, 0.169)`, `(MoistureGrad, 0.169)`
+    // -- so a pellet in the mandibles puts the urge at `squash(0.2 + terrain)`
+    // before any ground is read. The ant puts the pellet down within a few
+    // ticks of cutting it, and a site preference on a verb that fires at the
+    // face cannot select a site.
+    //
+    // **Two things would have to be true for this bar to mean anything, and
+    // neither is.** Moisture reaches `DropSpoil` at all -- it does not, the
+    // live wires are `(AtNest, 0.9)`, `(Carrying, 0.2)` and
+    // `(SurfaceCurvature, 0.169)` -- and the verb has headroom to choose a
+    // site with, which the missing `Bias` denies it.
+    //
+    // **Both were measured rather than reasoned, and the second is why the
+    // first is not simply repaired here.** Adding
+    // `(MoistureGrad, DropSpoil, 0.169)` to the genome, same bed, same seed,
+    // the wire the only difference: the ratio goes **1.30x -> 0.92x** and the
+    // sign test **7 of 22 frames (31.8%) -> 10 of 22 (45.5%)**. Both ratios
+    // sit either side of 1.0 and both sign tests either side of half, in no
+    // consistent direction -- a null, exactly as a verb with no headroom
+    // predicts, and a 0.90 bar over it would be passing on the 0.02 it
+    // happens to land above. And the same wire is **not free elsewhere**: on
+    // `trailfollow`, 18 seeds at gap 90, deliveries on the hand arm go
+    // **511 -> 121**, because spoil decisions perturb the bed the foraging
+    // result is measured on.
+    //
+    // **So the finding is filed rather than fixed.** Restoring the preference
+    // means the wire *and* a `Bias` for `DropSpoil` to spend it against, and
+    // that is a genome re-derivation rather than a line: it changes where
+    // every colony in both games puts its tailings, and the excavation
+    // scene's standing-bank, roofed-void and packed-wall numbers are all
+    // calibrated against the present behaviour. `Reports/open-bugs-handoff.md`.
+    //
+    // **What is asserted instead is the instrument**, which is the half that
+    // can still go red honestly: every dump the engine counted is accounted
+    // for by this attribution, and most of them are credited to a cell. Both
+    // fail loudly if the numerator breaks the way it did in 2026-09-05's
+    // "2,230 events against a counter reading 1,495".
+    assert_eq!(
+        u64::from(event_n) + unattributed + u64::from(ambiguous),
+        st.spoil_dumped,
+        "the attribution has lost track of the verb: {event_n} credited + {unattributed} unmatched + {ambiguous} discarded != {} dumped",
+        st.spoil_dumped
     );
     assert!(
-        matched > MATCHED_BAR,
-        "deposition no longer follows the moisture gradient: |grad m| at {event_n} drop events {drop_raw:.4} against {stood_raw:.4} where laden ants stood -- {matched:.2}x, under the {MATCHED_BAR} bar. \
-         Run PIXEL_PHYSICS_DROP_MOISTURE=off:0.9 before touching this number: that arm measured 0.77x on 2026-09-05, and if it now clears the bar too then this guard has gone blind rather than the mechanism having broken."
+        u64::from(event_n) * 2 > st.spoil_dumped,
+        "most pellets could not be matched to a cell, so the numerator is measuring a minority of the verb: {event_n} credited of {} dumped",
+        st.spoil_dumped
     );
 }

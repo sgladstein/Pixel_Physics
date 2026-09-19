@@ -1,6 +1,13 @@
 # Ants
 
-*Current as of: 2026-09-18, later the same day, when **an ant could finally
+*Current as of: 2026-09-19, when **the putting-down of a load stopped
+reading the ground it is put down on.** An ant used to be a little likelier
+to let go where the ground was uneven or drying out; that reflex fired on a
+food heap too — a heap being curved ground — so a forager standing on the
+larder put its dinner back on the larder and never got home with it. Taking
+it off the carrying verb is what let food reach the nest at all, and it left
+the preference reaching nothing: see "They build without being told to"
+below, which now says so. Before that, on 2026-09-18, **an ant could finally
 carry food home instead of eating it on the way.** Its stomach held exactly
 one piece of the food it was sent to fetch, and it digested that piece as it
 walked, so it arrived empty every time and nothing was ever set down at the
@@ -1020,11 +1027,19 @@ one that takes on standing water loses the wettest part — the shaft it came
 in by — and keeps the deeper galleries. Nothing else threatens a burrow, so
 staying dry is the whole of what a colony is defending.
 
-**They build without being told to — and the preference is far weaker than
-this page used to say.** An ant carrying something is a little more likely to
-put it down where the ground is drying out unevenly, and a little less likely
-to cut into ground that is. Nobody wrote a rule that says "build a wall", and
-that part stands.
+**They build without being told to — and as of 2026-09-19 the wet half of
+that preference is not there at all.** An ant carrying something *was* a
+little more likely to put it down where the ground is drying out unevenly.
+That reflex also fired on a food pile, because a pile is curved ground, so a
+forager on the larder kept setting its dinner back down on the larder; taking
+it off the carrying verb is what let food reach the nest for the first time.
+It was meant to survive on the digging verb, where putting tailings down on
+uneven ground is the whole point, and it did not — so today an ant still
+avoids **cutting into** ground that is drying out, and no longer prefers
+anywhere in particular to **put a load down**. Getting it back is a real
+change to where every colony piles its spoil rather than a line, and it is
+written up as an open bug rather than half-done. Nobody wrote a rule that
+says "build a wall", and that part stands.
 
 But *a little* is the honest word, and getting to it took throwing out the
 measurement this page's old claim rested on. Compared against the whole depth of
