@@ -735,6 +735,13 @@ struct Arm {
     /// `leg_n` is the pairing `CLAUDE.md` asks for: it must equal
     /// `round_trips`, and a gap between them means legs are being dropped
     /// rather than journeys being short.
+    /// **The return ledger.** `reached` is ants that got within `near` of the
+    /// food at all; `returned` is those that then reached the nest band; the
+    /// last two split those returns by whether anything was being carried.
+    reached: usize,
+    returned: usize,
+    trips_laden: u64,
+    trips_empty: u64,
     leg_n: usize,
     leg_med: u64,
     leg_p90: u64,
@@ -1040,6 +1047,13 @@ struct Track {
     /// larder. Taking the first arrival instead measures the visit plus the
     /// walk, which on a bed where ants linger at food is mostly the visit.
     left_food: u64,
+    /// **Round trips that closed with larder in the crop, and without.** The
+    /// pair answers the question `trips` alone cannot: an ant that reaches the
+    /// food, turns round and walks home EMPTY has made a round trip and
+    /// provisioned nothing. Counting those as foraging is how an exposure
+    /// number turns into a foraging one.
+    trips_laden: u32,
+    trips_empty: u32,
     /// The frame this ant last picked larder up, `0` for never. Paired with
     /// `left_food` so the leg can be split by whether there was anything in
     /// the crop to carry — a walk home with an empty crop is not the laden
@@ -1554,6 +1568,17 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // ant standing ON the trail follow it", which is the question the arm is
     // for. `focalx=N` picks the ant nearest x = N at selection time.
     let focal_x: Option<i32> = arg("focalx");
+    // **`focaln=N` follows a COHORT instead of one ant, and one ant is the
+    // thing this instrument could never answer with.** A single trace is n=1 in
+    // a chaotic system: it says what *an* ant did, and the question "why does
+    // nobody reach food at gap 200" is about the population, not about a
+    // protagonist. The rows carry an `id` column so they split per animal.
+    //
+    // The cohort is taken at first sighting, spread across the founding band
+    // rather than all from one end -- `focalany` takes the westernmost founder,
+    // which is off the hand-laid trail entirely, so a cohort drawn the same way
+    // would be five ants all answering the same unrepresentative question.
+    let focal_n: usize = arg("focaln").unwrap_or(0);
     let mut tr_n = 0u64;
     let mut tr_along_sum = 0.0f64;
     // **The magnitude, separately, because the signed mean cannot answer "is
@@ -1655,6 +1680,11 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         }
     };
     let mut focal = None;
+    // **The cohort, and the stride that spreads it.** `cohort_stride` is set
+    // once the founding span is known; until then members are admitted by
+    // column so the five are not five neighbours.
+    let mut cohort: Vec<pixel_physics::sim::cell::OrganismId> = Vec::new();
+    let mut cohort_next_x = i32::MIN;
     let mut focal_rows: Vec<String> = Vec::new();
     let nest_cells = {
         let nest = w.materials.id_of("nest");
@@ -1922,7 +1952,26 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 (None, true) => focal.is_none(),
                 (None, false) => carrying_larder && focal.is_none(),
             };
-            if tracing && (carrying_larder || focal == Some(id) || take_as_focal) {
+            // **Cohort admission, by column, at first sighting.** Spread over
+            // the founding band: an ant is admitted only if it stands at least
+            // `relay/focal_n` columns east of the last one taken, so the five
+            // sample the colony rather than its western edge.
+            if focal_n > 0 && cohort.len() < focal_n && !cohort.contains(&id) {
+                // **The stride spans the FOUNDING BAND, not `relay`.** The
+                // first cut divided `relay` here, which is the trail re-laying
+                // interval in *frames* -- a number with no business setting a
+                // distance in columns. It happened to give 10 and spread the
+                // cohort over x 12..72, so it looked right; `relay=600` would
+                // have put all six on the same ant. `ants * 3` is the span
+                // `plant_creature_seed_in` actually lays founders over below.
+                let stride = ((ants * 3) / focal_n as i32).max(1);
+                if cohort_next_x == i32::MIN || hx >= cohort_next_x {
+                    cohort.push(id);
+                    cohort_next_x = hx + stride;
+                }
+            }
+            let in_cohort = cohort.contains(&id);
+            if tracing && (in_cohort || carrying_larder || focal == Some(id) || take_as_focal) {
                 // **The focal ant is the first to pick larder up**, traced for
                 // the rest of its life -- or, under `focalany`, simply the first
                 // ant seen, carrying or not. One ant is n=1 in a chaotic system,
@@ -2009,9 +2058,9 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     }
                 }
                 }
-                if focal == Some(id) {
+                if focal == Some(id) || in_cohort {
                     focal_rows.push(format!(
-                        "{f},{hx},{dx},{},{},{along:.5},{:.5},{:.4},{:.4},{},{},{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.5},{:.5},{:.5},{:.5},{:.5},{:.5},{p_move:.5},{:.5},{trail:.5},{presquash:.5},{:.5},{:.5},{:.5}",
+                        "{id:?},{f},{hx},{hy},{dx},{},{},{along:.5},{:.5},{:.4},{:.4},{},{},{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.5},{:.5},{:.5},{:.5},{:.5},{:.5},{p_move:.5},{:.5},{trail:.5},{presquash:.5},{:.5},{:.5},{:.5}",
                         // **Where this ant thinks home is, and how stale that
                         // is** -- `OrganismState::forage_anchor` / `since_nest`.
                         //
@@ -2060,7 +2109,24 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                         // chance of stepping along the current heading, and this
                         // is the chance of re-rolling it. Reading one without
                         // the other cannot tell "stood still" from "turned".
-                        tout[O::Tumble as usize].clamp(0.0, 1.0),
+                        // **`unit_scale`, not `clamp` -- fixed 2026-09-19, and
+                        // the bug was not cosmetic.** `creature.rs` rolls the
+                        // re-heading against
+                        // `brain::unit_scale(outputs[Tumble], 1.0)`, which is
+                        // `(out + 1) / 2`, so a raw output of **0.0 is a 50%
+                        // tumble chance**. Clamping the raw output instead
+                        // reported **0.0000 on every row of every ant**, and the
+                        // obvious reading of that column -- "the ants never
+                        // change direction, so of course they never find
+                        // anything" -- is the opposite of the truth. `p_move`
+                        // one line up had always scaled correctly, which is what
+                        // made the pair look consistent enough to trust.
+                        //
+                        // **It is a conditional probability and the column
+                        // cannot say so**: `step` only reaches the tumble roll
+                        // in the `else` of a move that did not happen, so this
+                        // is P(re-roll | did not move), not P(re-roll).
+                        brain::unit_scale(tout[O::Tumble as usize], 1.0),
                         // **The drop verb and the two terms that drive it away
                         // from the nest.** `mode=feedgate` computes `drop_urge`
                         // with `MoistureGrad` and `SurfaceCurvature` set to
@@ -2123,6 +2189,11 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     // §7.38 left it at "436-873 ticks by three data points";
                     // these are the two frames it needs, and they were already
                     // being computed for the trip counter.
+                    if t.laden_since > 0 {
+                        t.trips_laden += 1;
+                    } else {
+                        t.trips_empty += 1;
+                    }
                     if t.left_food > 0 && f >= t.left_food {
                         legs.push(f - t.left_food);
                         if t.laden_since > 0 {
@@ -2369,7 +2440,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         if !focal_rows.is_empty() {
             let path = format!("/tmp/trailfollow-focal-seed{seed}-gap{gap}.csv");
             let mut out = String::from(
-                "frame,x,dx_home,anchor_x,since_nest,PheroAAlong,PheroAFront,Carrying,CarryingFood,crop_cells,spoil,heading,Energy,Crowding,AtNest,FoodAdjacent,Stillness,h0,h1,PheroBAlong,PheroBFront,h2,h3,p_move,p_tumble,trail_term,move_presquash,drop_urge,MoistureGrad,SurfaceCurvature\n",
+                "id,frame,x,y,dx_home,anchor_x,since_nest,PheroAAlong,PheroAFront,Carrying,CarryingFood,crop_cells,spoil,heading,Energy,Crowding,AtNest,FoodAdjacent,Stillness,h0,h1,PheroBAlong,PheroBFront,h2,h3,p_move,p_tumble,trail_term,move_presquash,drop_urge,MoistureGrad,SurfaceCurvature\n",
             );
             out.push_str(&focal_rows.join("\n"));
             out.push('\n');
@@ -2446,6 +2517,10 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         visitors: tracks.values().filter(|t| t.visited).count(),
         ants_seen: tracks.len(),
         round_trips: tracks.values().map(|t| t.trips as u64).sum(),
+        reached: tracks.values().filter(|t| t.visited).count(),
+        returned: tracks.values().filter(|t| t.trips > 0).count(),
+        trips_laden: tracks.values().map(|t| u64::from(t.trips_laden)).sum(),
+        trips_empty: tracks.values().map(|t| u64::from(t.trips_empty)).sum(),
         leg_n: legs.len(),
         leg_med: order_stat(&mut legs.clone(), 0.5),
         leg_p90: order_stat(&mut legs.clone(), 0.9),
@@ -2755,6 +2830,10 @@ fn main() {
                         a.ants_seen,
                         a.round_trips,
                         format!("{} {} {} {} {}", a.reach[0], a.reach[1], a.reach[2], a.reach[3], a.reach[4])
+                    );
+                    println!(
+                        "{:>16}RETURN LEDGER reached food {:>4} of {:>4} ants | came back {:>4} | trips laden {:>4} empty {:>4}",
+                        "", a.reached, a.ants_seen, a.returned, a.trips_laden, a.trips_empty
                     );
                     if !a.legs_raw.is_empty() {
                         let f = |v: &Vec<u64>| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
