@@ -207,11 +207,38 @@ a dig-face pheromone is measured and negative (Bruce 2015). It needs `spoil`,
 which already exists as a distinct material, as a *material adjacency* test.
 That is the plan's Stage 4 and on this evidence it should be first.
 
-**One caution carried from the dimensional audit**: at `body: Chain(2)` a
-shaft is 1–2 cells and the 8-neighbour kernel Toffin's rule uses is 3 across,
-so the kernel is wider than the feature it is meant to create. Toffin's ant is
-4 cells and his kernel 3 — narrower than the feature. That ratio, not the rule,
-is the thing to check first.
+**But check the marker exists before building the rule that reads it.** Two
+censuses, added the same night and run before any of Stage 4 was written:
+
+```
+spoil standing in the world: 143 cells, against 2662 pellets ever put down
+spoil adjacency: 11 of 11157 diggable cells have spoil in reach (0.1%)
+```
+
+**About 5% of dug spoil persists as `spoil` at all**, and of the 143 cells
+that do, **11 sit next to ground a dig could target.** A weight on *"is there
+spoil beside me"* would be off essentially everywhere — not the always-on
+failure that was expected, but the same dead end reached from the other side,
+and it would have made the build fail mysteriously.
+
+Haulage is **not** the cause, measured rather than reasoned: adjacency is
+0.1–0.2% under *every* `PIXEL_PHYSICS_SPOIL_LIFT` mode including `none`, where
+only 57 cells are hauled clear against `climb`'s 638. The spoil simply does
+not last.
+
+That is a design requirement rather than a refutation, and it lands on a
+parameter the entrance research already flagged — Toffin's marker decays with
+a lifetime of tens of steps, and Khuong's needs more than ten minutes before
+any structure forms. The dimensional audit's rule for porting those is that a
+decay rate belongs in **dig cycles**, and ours is unmeasured. **So the first
+question for Stage 4 is not the response curve. It is how long a pellet has to
+stay a pellet.**
+
+**And one caution from the dimensional audit after that**: at `body: Chain(2)`
+a shaft is 1–2 cells while the 8-neighbour kernel Toffin's rule uses is 3
+across, so the kernel is wider than the feature it is meant to create.
+Toffin's ant is 4 cells and his kernel 3 — narrower than the feature. That
+ratio is the second thing to check, and neither is the rule itself.
 
 ---
 
