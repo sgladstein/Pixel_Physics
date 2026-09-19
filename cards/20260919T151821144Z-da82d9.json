@@ -1,0 +1,46 @@
+{
+  "id": "20260919T151821144Z-da82d9",
+  "created": "2026-09-19T15:18:21Z",
+  "board": "nest",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/ant-survey-nest",
+    "commit": "5f92c761",
+    "agent": null,
+    "session_id": "cd55c963-ef7b-5c37-899c-dfd004a422ff",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The nest goes down when 'at the nest' has depth",
+  "question": "Which of these reads as a nest being dug, rather than the floor being scratched?",
+  "context_md": "Same colony, same box, same 6,000 frames. One arm counts an ant as 'at home' only in the top row or two; the other, 40 rows down. COUNTS, seed 2 of 12: digs 2,872 -> 5,564; cells of room 709 -> 1,002; room depth 18 -> 37 rows; height over width 0.11 -> 0.20. Over 12 paired seeds: room 1.44x, bigger on 12 of 12; height-over-width 1.81x, taller on 11 of 12.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "control (shipped)",
+      "files": [
+        "20260919T151821144Z-da82d9/000-c_s2.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "nest reach 40 rows",
+      "files": [
+        "20260919T151821144Z-da82d9/001-r_s2.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
