@@ -126,6 +126,36 @@ must not be quoted. §8 is what has already cost days.
 
 ## 1. The one-page answer
 
+> **SUPERSEDED IN ITS HEADLINE, 2026-09-18 — food now reaches the nest.** The
+> sentence below ("does not bring food home") was true for this document's whole
+> life and is not any more. Eighteen seeds at gap 90: **0 → 511 deliveries**,
+> 0/18 seeds delivering → **9/18**. It was not a pheromone problem at all.
+>
+> **What it was**, in the order the layers came off — full account in
+> [`pheromone-trail-direction-2026-09-16.md`](pheromone-trail-direction-2026-09-16.md)
+> §7.34–§7.39:
+>
+> 1. `Drop` read the terrain, and a food pile *is* curved ground, so the forager
+>    put its load down on the larder. Removed — and because `(AtNest, Drop)` is
+>    now the only trigger left, **every drop is a delivery**.
+> 2. Digestion progress died when the crop emptied. `OrganismState::digest_carry`
+>    parks it.
+> 3. **The binding one: `crop_capacity: 1440` against a 960 J fruit cell held
+>    exactly ONE cell** — the state `ant.ron`'s own comment forbids ("can never
+>    deliver again"). The focal ant's `crop_cells` was 1 on 1,740 ticks, 0 on
+>    16,079, and never 2. Now 2880.
+>
+> **Facts 1 and 2 below still stand and are still the open problem.** A hand-laid
+> trail is still decisive and the colony still cannot lay one itself; what has
+> changed is that the *return leg* now works, which is the half fact 2 depends on
+> — an ant that never gets home never lays channel B on the way. Re-measure the
+> `self` arm before quoting it: every `self` number in this document predates a
+> working return leg.
+>
+> Also do not reach for an appetite gate on `digest_rate` without reading
+> `dead-ends.md` `creatures:084` first — it is built, in the tree at `0.0`, and
+> halves deliveries until a granary exists.
+
 **The colony forages and does not bring food home.** That is the problem; it has
 been the problem since §T2 was filed, and none of the pheromone work has moved it.
 
