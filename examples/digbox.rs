@@ -490,6 +490,34 @@ fn main() {
             c.start_energy = arg("energy").unwrap_or(20_000.0);
         }
     }
+    // **`gate=` re-centres the chamber gate on the band `Crowding` actually
+    // occupies**, patched into the genome here rather than edited into
+    // `ant.ron` so an arm and its control run from one binary.
+    //
+    // `ant.ron` authors `(Bias, 5, -30)`, `(AtNest, 5, +30)`,
+    // `(Crowding, 5, +6)` and the mirror on unit 6, and units 5 and 6 drive
+    // **`Dig` and nothing else** -- so this reallocates nothing outside the
+    // dig decision, and `(Crowding, Move, -0.3)` is a separate direct weight
+    // that is not touched.
+    //
+    // At the nest the pair reduces to `2.5*squash(6c) - 2.5*squash(-6c)`,
+    // and `6c` over the realised band 0.57..0.92 is 3.4..5.5 -- already deep
+    // in `squash`. Measured: the input moves a third of its scale and the
+    // decision moves 0.013, a **26x compression**. Lowering the `AtNest`
+    // weight shifts the pair's operating point down into the responsive part
+    // of the curve without touching what it does away from the nest, where
+    // `AtNest` is 0 and the weight cannot apply: at 25.5 the same band spans
+    // **0.517..0.787**, a swing of 0.269 against 0.013, and the
+    // away-from-nest value is 0.152 either way.
+    if let Some(g) = arg::<f32>("gate") {
+        use pixel_physics::sim::brain::{ih_slot, BrainInput};
+        let id = world.species.id_of("ant").expect("ant ships");
+        let mut genome = world.species.get(id).genome.clone();
+        genome[ih_slot(BrainInput::AtNest, 5)] = g;
+        genome[ih_slot(BrainInput::AtNest, 6)] = g;
+        world.species.set_genome(id, genome);
+        println!("  chamber gate re-centred: (AtNest, 5/6) = {g} instead of the authored 30.0");
+    }
     world.paint_nest_patch(b.w / 2, b.surface - 1);
     let mut trickle = Trickle::new(ants as usize, arg("rate").unwrap_or(4));
 
