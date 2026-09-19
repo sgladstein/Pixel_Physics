@@ -315,6 +315,23 @@ fn stem_stiffness_override() -> Option<f32> {
 /// `CLAUDE.md` is explicit that a switch is the only way to take both arms
 /// from one binary, and without one the comparison has to cross a rebuild,
 /// which is the confound this line has already been caught by twice today.
+/// **The runtime A/B for `SpeciesDef::submerged_shoot`** --
+/// `PIXEL_PHYSICS_SUBMERGED_SHOOT=off` forces every species' flag false, so
+/// the control arm is the *same binary* rather than a second checkout.
+/// `CLAUDE.md`'s paired-comparison rule, and its stale-binary gotcha: a
+/// before/after built twice is the case that came back byte-identical
+/// because only one side was rebuilt.
+///
+/// This is the positive control Phase 1 ships on. With it off, a reed must
+/// take **exactly zero** cells below the waterline while still germinating
+/// and rooting in the sediment -- which separates "the predicate fired" from
+/// "something else in the bed changed".
+fn submerged_shoot_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_SUBMERGED_SHOOT").as_deref(), Ok("off")))
+}
+
 fn roots_need_substrate() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
@@ -346,7 +363,7 @@ fn touches_substrate(world: &World, x: i32, y: i32) -> bool {
     })
 }
 
-fn growable(world: &World, x: i32, y: i32, penetration_force: f32) -> bool {
+fn growable(world: &World, x: i32, y: i32, penetration_force: f32, submerged_shoot: bool) -> bool {
     let cell = world.get(x, y);
     if cell.material == material::EMPTY {
         // **A shoot may take any empty cell; a root may not leave the
@@ -381,7 +398,22 @@ fn growable(world: &World, x: i32, y: i32, penetration_force: f32) -> bool {
         return penetration_force <= 0.0 || !roots_need_substrate() || touches_substrate(world, x, y);
     }
     if penetration_force <= 0.0 {
-        return false;
+        // **A shoot carries no penetrating force, so an occupied cell
+        // refuses it -- except open water, and only for a species that has
+        // opted in.** `SpeciesDef::submerged_shoot`, which is `false` for
+        // every species but the reed and therefore cannot move one of them.
+        //
+        // **The bool is tested first deliberately**, so a species that has
+        // not opted in pays one already-loaded branch and never reaches the
+        // material lookup -- `CLAUDE.md`'s *guard hot-path work at the call
+        // site that already has the data*, met by hoisting the flag out of
+        // `organism_tick`'s per-neighbour loop rather than by asking the
+        // species table once per candidate cell.
+        //
+        // **`Liquid` and not merely "not `Solid`"**: a reed stands in water,
+        // it does not grow through mud or push a powder aside. That is the
+        // root's verb and it is priced below.
+        return submerged_shoot && world.materials.get(cell.material).kind == MaterialKind::Liquid;
     }
     let m = world.materials.get(cell.material);
     // `Powder` only. `Solid` never yields however hard a root pushes --
@@ -491,6 +523,94 @@ fn displace_soil_water(world: &mut World, x: i32, y: i32) {
     // conserved only because nothing ever read it again.
     let now = world.get(x, y);
     world.set(x, y, now.with_aux(0));
+}
+
+/// Push the water standing in the `Liquid` cell at `(x, y)` into its
+/// neighbours, before something overwrites that cell.
+///
+/// **The `Liquid` twin of `displace_soil_water` above, and it exists for
+/// exactly the same reason one step later.** That function was written
+/// because a root entering penetrable `Powder` deleted the moisture in it.
+/// `SpeciesDef::submerged_shoot` opens the same hole in open water: a reed
+/// shoot may now take a water cell, `Grow` writes its cell straight over it,
+/// and the fill that was there ceases to exist.
+///
+/// **Measured on `the_pond_reeds.ron` before this existed, 2026-09-18**,
+/// RAYON_NUM_THREADS=1, 20,000 frames: the pond went 3,648,000 -> 1,459,605,
+/// against 3,487,316 in the `PIXEL_PHYSICS_SUBMERGED_SHOOT=off` control on
+/// the same bed and the same binary. **The reeds cost 2,027,711 units --
+/// 56% of the pond** -- and a reed bed that drinks its own pond dry inside
+/// 20,000 frames destroys the bed the whole phase was built on, voiding
+/// Brief A0's own ship condition (fill flat to the unit from frame 5,000).
+///
+/// **A stem displaces water, it does not consume it**, so the fill goes to
+/// the neighbouring water rather than to the plant -- crediting the reed
+/// would double-count against `Absorb`, which is the behaviour that already
+/// exists to take water up, exactly as `displace_soil_water` records for the
+/// root case.
+///
+/// Whatever will not fit goes to the atmosphere rather than being destroyed,
+/// for that function's reason and through the same ledger: a reed growing
+/// among reeds increasingly has nowhere local to hand its water on to, and
+/// `weather::condense_under_a_lid` gives an indoor bed's share back.
+fn displace_liquid(world: &mut World, x: i32, y: i32) {
+    let cell = world.get(x, y);
+    if world.materials.kind(cell.material) != MaterialKind::Liquid {
+        return;
+    }
+    // **`aux == 0` on a `Liquid` means FULL, not empty** -- the convention
+    // `material::LIQUID_FULL`'s own doc calls the easiest in the engine to
+    // get backwards, and getting it backwards here would *mint* water at
+    // every full cell a reed grows through. Read through `update::liquid_fill`
+    // rather than off `aux`, which is what that doc asks every caller to do.
+    let mut carried = update::liquid_fill(cell);
+    if carried == 0 {
+        return;
+    }
+    let capacity = material::LIQUID_FULL + material::LIQUID_MAX_COMPRESS;
+    for (dx, dy) in NEIGHBOURS_8 {
+        if carried == 0 {
+            break;
+        }
+        let (nx, ny) = (x + dx, y + dy);
+        let n = world.get(nx, ny);
+        // The same liquid only. Water must not be poured into oil.
+        if n.material != cell.material {
+            continue;
+        }
+        let held = update::liquid_fill(n);
+        let moved = carried.min(capacity.saturating_sub(held));
+        if moved == 0 {
+            continue;
+        }
+        let now = held + moved;
+        // Canonical form: a cell holding exactly `LIQUID_FULL` is written
+        // `aux == 0`. Writing 1000 reads back identically through
+        // `liquid_fill`, but the engine's fast paths test `aux == 0` for
+        // full, so leave one spelling of it in the world.
+        //
+        // **`==`, never `>=`, and a guard caught this being wrong.** A cell
+        // may hold up to `LIQUID_FULL + LIQUID_MAX_COMPRESS` (1010), and
+        // `aux == 0` reads back as 1000 flat -- so folding a *compressed*
+        // cell into the canonical spelling silently destroys its compression.
+        // Measured by `displacing_a_water_cell_moves_its_fill_rather_than_
+        // destroying_it` the first time it ran: 80 units lost into eight
+        // neighbours, exactly `8 * LIQUID_MAX_COMPRESS`. The arithmetic named
+        // the bug faster than reading the code would have.
+        let aux = if now == material::LIQUID_FULL { 0 } else { now };
+        world.set(nx, ny, n.with_aux(aux));
+        carried -= moved;
+    }
+    if carried > 0 {
+        world.credit_atmosphere(carried);
+    }
+    // Zeroed for `displace_soil_water`'s reason: every production caller
+    // overwrites this cell immediately, and a standalone caller must not find
+    // water here that has already been booked somewhere else -- on a
+    // `Liquid`, whose `aux == 0` means full, leaving it would mint a whole
+    // cell rather than a remainder. Written as `EMPTY` instead, which is the
+    // one unambiguous way to say "there is no water here" for this kind.
+    world.set(x, y, Cell::EMPTY);
 }
 
 /// Local foliage proximity at a growth candidate — **any organism's, not
@@ -3410,7 +3530,11 @@ fn set_seed(world: &mut World, x: i32, y: i32, parent_id: OrganismId, seed_cost:
     if world.organism(parent_id).is_none() {
         return false;
     }
-    let Some(seed_material) = world.materials.id_of("seed") else {
+    // **The parent's own seed material** -- a reed's seeds must sink for the
+    // same reason its founder's did, or the species can establish once and
+    // never spread. See `SpeciesDef::seed_material`.
+    let seed_name = world.organism(parent_id).map(|st| world.species.get(st.species).seed_material.clone());
+    let Some(seed_material) = seed_name.and_then(|n| world.materials.id_of(&n)).or_else(|| world.materials.id_of("seed")) else {
         return false;
     };
     // Somewhere open beside the parent cell. Deliberately *any* free
@@ -4377,6 +4501,12 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
         return Vec::new();
     };
     let species_id = state.species;
+    // **May this species' shoots stand in water?** Read once per tick beside
+    // the species id rather than once per candidate neighbour: `Grow` scores
+    // all eight, and `growable` is the innermost thing in the plant sweep.
+    // `CLAUDE.md`'s *guard hot-path work at the call site that already has
+    // the data* -- the data is `species_id`, and it is already here.
+    let submerged_shoot = world.species.get(species_id).submerged_shoot && submerged_shoot_enabled();
     // **This individual's own numbers**, read out beside its species id and
     // applied to every behaviour the dispatch below copies. See
     // `organism::ParamGenome`: empty on every founder, so the cost here is a
@@ -5130,7 +5260,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 let mut candidates: Vec<(i32, i32, f32)> = Vec::new();
                 for (dx, dy) in NEIGHBOURS_8 {
                     let (nx, ny) = (x + dx, y + dy);
-                    if !growable(world, nx, ny, penetration_force) {
+                    if !growable(world, nx, ny, penetration_force, submerged_shoot) {
                         continue;
                     }
                     // Affordable-this-tick ground only. A poor root
@@ -5484,6 +5614,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     world.organs_built += 1;
                 }
                 displace_soil_water(world, tx, ty);
+                displace_liquid(world, tx, ty);
                 world.set(tx, ty, new_cell);
                 // Straight continuation of this shoot, so the child keeps
                 // the parent's order. The lateral below is what increments.
@@ -5588,7 +5719,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                         NEIGHBOURS_8
                             .iter()
                             .map(|&(dx, dy)| (x + dx, y + dy))
-                            .filter(|&(nx, ny)| (nx, ny) != (tx, ty) && growable(world, nx, ny, penetration_force))
+                            .filter(|&(nx, ny)| (nx, ny) != (tx, ty) && growable(world, nx, ny, penetration_force, submerged_shoot))
                             .map(|(nx, ny)| (nx, ny, 1.0))
                             .collect()
                     } else {
@@ -5680,7 +5811,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                         // for the primary step; an unaffordable target
                         // just means no branch this tick.
                         let branch_step_cost = cost * penetration_cost_mult(world, bx, by);
-                        if growable(world, bx, by, penetration_force) && resource >= branch_step_cost {
+                        if growable(world, bx, by, penetration_force, submerged_shoot) && resource >= branch_step_cost {
                             // Same organ-material rule as the primary child
                             // above. **This is the truss**: a lateral whose
                             // label differs from its parent's is a fruiting
@@ -5724,6 +5855,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                                 world.root_shoots_launched += 1;
                             }
                             displace_soil_water(world, bx, by);
+                            displace_liquid(world, bx, by);
                             world.set(bx, by, branch_cell);
                             // **The only place order increases.** A lateral
                             // is one branching further from the seed, so it
@@ -12327,7 +12459,11 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: OrganismId, cell: C
         _ => None,
     })
     .unwrap_or(0.0);
-    if growable(world, x, y + 1, root_force) {
+    // **`false`, and it is a statement rather than a default**: this is the
+    // companion *root*, and no species roots into water. A reed's root goes
+    // into the sediment under the pond; the flag it carries is about the
+    // shoot standing above it. See `SpeciesDef::submerged_shoot`.
+    if growable(world, x, y + 1, root_force, false) {
         // The companion root is `rootwood`, and that choice propagates for
         // free: every cell `Grow` creates copies its parent's material, so
         // the whole root system below ground comes out as rootwood while
@@ -12780,14 +12916,25 @@ impl World {
     /// position isn't empty or `wood`/the named species isn't loaded,
     /// mirroring `plant_moss_seed`'s own no-op preconditions.
     pub fn plant_tree_species(&mut self, x: i32, y: i32, species_name: &str) -> bool {
-        // `seed` material, not `wood`: a seed is a Powder and falls to the
-        // ground on its own rather than hanging wherever it was placed.
-        // Falls back to `wood` so a stripped asset set still plants.
-        let seed_material = self.materials.id_of("seed").or_else(|| self.materials.id_of("wood"));
-        let Some(seed_material) = seed_material else {
+        let Some(tree_species) = self.species.id_of(species_name) else {
             return false;
         };
-        let Some(tree_species) = self.species.id_of(species_name) else {
+        // `seed` material, not `wood`: a seed is a Powder and falls to the
+        // ground on its own rather than hanging wherever it was placed.
+        //
+        // **Per species, because whether it falls *through water* is a
+        // species trait.** `seed.ron` is density 0.6 against water's 1.0, so
+        // the shared seed floats -- which meant no plant could ever be
+        // founded on the bottom of a pond, however the rest of it was
+        // tuned. See `SpeciesDef::seed_material`. Falls back to the shared
+        // `seed`, then to `wood`, so a stripped asset set still plants.
+        let seed_name = self.species.get(tree_species).seed_material.clone();
+        let seed_material = self
+            .materials
+            .id_of(&seed_name)
+            .or_else(|| self.materials.id_of("seed"))
+            .or_else(|| self.materials.id_of("wood"));
+        let Some(seed_material) = seed_material else {
             return false;
         };
         if !self.is_empty(x, y) {
@@ -12850,8 +12997,15 @@ pub(crate) fn sow_specimen_seed(
     lineage_seed: u64,
     rng: &mut Rng,
 ) -> Option<OrganismId> {
-    let seed_material = world.materials.id_of("seed").or_else(|| world.materials.id_of("wood"))?;
     let species = world.species.id_of(species_name)?;
+    // Per species, as at the two other minting sites -- see
+    // `SpeciesDef::seed_material`.
+    let seed_name = world.species.get(species).seed_material.clone();
+    let seed_material = world
+        .materials
+        .id_of(&seed_name)
+        .or_else(|| world.materials.id_of("seed"))
+        .or_else(|| world.materials.id_of("wood"))?;
     if !world.is_empty(x, y) {
         return None;
     }
@@ -18963,26 +19117,26 @@ of a saturating curve over a linear ramp", at(0.5));
 
         // One cell above the bed still has ground against it, so a root may
         // take it -- a root at the surface is not doing anything wrong.
-        assert!(growable(&w, 100, 60, ROOT), "a root must be able to reach the cell just above the bed");
+        assert!(growable(&w, 100, 60, ROOT, false), "a root must be able to reach the cell just above the bed");
         // Two above, nothing but air around it: that is the sky, and it is
         // the step that walked roots up out of the ground.
         assert!(
-            !growable(&w, 100, 59, ROOT),
+            !growable(&w, 100, 59, ROOT, false),
             "a root took a cell with no ground touching it -- the step §W6 is about, and rain four cells up \
 is enough to point a tip at it"
         );
 
         // **A shoot is unaffected**, because open air is where it lives.
-        assert!(growable(&w, 100, 60, SHOOT), "a shoot must still take open air");
-        assert!(growable(&w, 100, 59, SHOOT), "a shoot must still take open air well clear of the ground");
+        assert!(growable(&w, 100, 60, SHOOT, false), "a shoot must still take open air");
+        assert!(growable(&w, 100, 59, SHOOT, false), "a shoot must still take open air well clear of the ground");
 
         // **The over-reach guard**: a cavity inside the ground is not the
         // sky. A root threading an ant gallery or a crack has walls against
         // it and must still go there, or this rule costs more than the bug.
         w.set(100, 65, Cell::EMPTY);
-        assert!(growable(&w, 100, 65, ROOT), "a root must still enter a cavity underground -- walls are ground");
+        assert!(growable(&w, 100, 65, ROOT, false), "a root must still enter a cavity underground -- walls are ground");
         w.set(100, 64, Cell::EMPTY);
-        assert!(growable(&w, 100, 64, ROOT), "a root must still cross a gap inside the bed");
+        assert!(growable(&w, 100, 64, ROOT, false), "a root must still cross a gap inside the bed");
     }
 
     /// **A cell that changes role changes tissue** — §W6's actual fix.
@@ -18998,6 +19152,130 @@ is enough to point a tip at it"
     /// Four arms, because a swap rule that only swaps is half-tested: the
     /// conversion, the reverse conversion, the shared destination it must
     /// leave alone, and the non-change it must not touch.
+
+    /// **The Phase 1 predicate, asserted directly.**
+    /// `Reports/aquatic-implementation-plan-2026-09-14.md` §2: a shoot may
+    /// enter standing water **for a species that has opted in, and for no
+    /// other**.
+    ///
+    /// Written as four assertions over one cell of water because that is the
+    /// whole rule, and a tight assertion on a deterministic predicate cannot
+    /// be blind in the way `CLAUDE.md` warns about -- there is no emergent
+    /// behaviour here for a green to be the default state of. The two arms
+    /// that matter are the *same* cell with the flag flipped, so nothing but
+    /// the flag can be producing the difference.
+    #[test]
+    fn a_submerged_shoot_may_take_water_and_nothing_else_may() {
+        const ROOT: f32 = 1.0;
+        const SHOOT: f32 = 0.0;
+
+        let mut w = test_world();
+        let water = w.materials.id_of("water").expect("water is compiled in");
+        w.set(50, 50, Cell::new(water, 0));
+
+        assert!(
+            growable(&w, 50, 50, SHOOT, true),
+            "a reed's shoot must be able to stand in water -- this is the whole of Phase 1"
+        );
+        assert!(
+            !growable(&w, 50, 50, SHOOT, false),
+            "a shoot that has NOT opted in took a water cell -- the opt-in is what keeps this a no-op for \
+the twenty species that shipped before the reed, and it is a no-op BY CONSTRUCTION or not at all"
+        );
+        // A root is a separate question and the answer is no, whatever the
+        // species says: water is `Absorb`'s business, not something to thread.
+        assert!(!growable(&w, 50, 50, ROOT, true), "a root entered water -- `Absorb` takes water up, roots do not grow through it");
+        assert!(!growable(&w, 50, 50, ROOT, false), "a root entered water with the flag off too");
+        // And the flag must not open anything that is not water.
+        let stone = w.materials.id_of("stone").expect("stone is compiled in");
+        w.set(51, 50, Cell::new(stone, 0));
+        assert!(!growable(&w, 51, 50, SHOOT, true), "the submerged-shoot flag let a shoot grow into stone");
+    }
+
+    /// **A reed's seed sinks and every other seed floats, and that is the
+    /// finding rather than a tuning choice.**
+    ///
+    /// Measured 2026-09-18: `seed.ron` is density 0.6 against water's 1.0, so
+    /// before `SpeciesDef::seed_material` existed *no plant in this engine
+    /// could be founded on the bottom of a pond*. `the_pond_sediment.ron`'s
+    /// two founders, which its own comment calls "in the sediment", rested on
+    /// the water surface 23 rows above it for the whole run -- so the §1.6
+    /// result Phase 1 was scoped from was a seed that never landed.
+    ///
+    /// Asserted as an inequality against water rather than as a literal,
+    /// because the number that matters is the comparison the powder sweep
+    /// actually makes. A future `water.ron` that changed density would break
+    /// this test, which is correct: it would also break the reed.
+    #[test]
+    fn a_reed_seed_sinks_and_the_shared_seed_floats() {
+        let w = test_world();
+        let water = w.materials.get(w.materials.id_of("water").expect("water")).density;
+        let seed = w.materials.get(w.materials.id_of("seed").expect("seed")).density;
+        let reedseed = w.materials.get(w.materials.id_of("reedseed").expect("reedseed")).density;
+        assert!(seed < water, "the shared seed no longer floats ({seed} against water {water}) -- this test records WHY reedseed exists, so if this fires, re-read whether it still needs to");
+        assert!(reedseed > water, "a reed seed must sink ({reedseed} against water {water}) or it cannot found a plant on the bottom of a pond");
+        // And the species must actually be wired to it -- the density is
+        // useless if `reed.ron` still names the shared seed.
+        let reed = w.species.id_of("reed").expect("reed is compiled in");
+        assert_eq!(w.species.get(reed).seed_material, "reedseed", "reed.ron is not using the seed that sinks");
+        assert!(w.species.get(reed).submerged_shoot, "reed.ron has lost its submerged_shoot opt-in");
+    }
+
+    /// **Displacing a water cell must move its fill, not destroy it.**
+    ///
+    /// The `Liquid` twin of the conservation rule `displace_soil_water`
+    /// already carries. Measured on `the_pond_reeds.ron` before
+    /// `displace_liquid` existed: the pond went 3,648,000 -> 1,459,605 over
+    /// 20,000 frames against 3,487,316 in the flag-off control on the same
+    /// binary -- **56% of the pond**, deleted one reed cell at a time.
+    ///
+    /// The assertion is over the *whole* ledger (neighbours plus the
+    /// atmospheric bank) rather than over the neighbours alone, because the
+    /// remainder is deliberately banked rather than kept when there is
+    /// nowhere local to put it, exactly as the soil case books its own.
+    #[test]
+    fn displacing_a_water_cell_moves_its_fill_rather_than_destroying_it() {
+        let mut w = test_world();
+        let water = w.materials.id_of("water").expect("water is compiled in");
+        // A small pool: three by three, all full.
+        for y in 49..52 {
+            for x in 49..52 {
+                w.set(x, y, Cell::new(water, 0));
+            }
+        }
+        let fill_of = |w: &World| -> u64 {
+            let mut t = 0u64;
+            for y in 45..56 {
+                for x in 45..56 {
+                    let c = w.get(x, y);
+                    if w.materials.kind(c.material) == MaterialKind::Liquid {
+                        t += update::liquid_fill(c) as u64;
+                    }
+                }
+            }
+            t
+        };
+        let before = fill_of(&w);
+        let bank_before = w.atmospheric_bank;
+        assert_eq!(before, 9 * material::LIQUID_FULL as u64, "the fixture is not nine full cells");
+
+        displace_liquid(&mut w, 50, 50);
+
+        let after = fill_of(&w);
+        let banked = ((w.atmospheric_bank - bank_before) * material::LIQUID_FULL as f64).round() as u64;
+        assert_eq!(
+            after + banked,
+            before,
+            "displacing one water cell lost {} units -- it must go to the neighbours or to the sky, never nowhere",
+            before.saturating_sub(after + banked)
+        );
+        assert_eq!(
+            w.materials.kind(w.get(50, 50).material),
+            MaterialKind::Empty,
+            "the displaced cell must be left empty, or the caller that is about to overwrite it double-counts"
+        );
+    }
+
     #[test]
     fn a_cell_that_changes_role_changes_tissue() {
         let mut w = test_world();
@@ -20885,11 +21163,11 @@ threshold {MIZ_THRESHOLD}  (+y is DOWN)");
         const ROOT: f32 = 1.2;
         const SHOOT: f32 = 0.0;
 
-        assert!(growable(&w, 10, 10, ROOT), "a root should push through loose soil (0.8 MPa against 1.2)");
-        assert!(!growable(&w, 11, 10, ROOT), "no root may enter Solid stone, whatever its force");
-        assert!(!growable(&w, 12, 10, ROOT), "gravel at 3.5 MPa is past the 2-3 MPa bound where root elongation stops");
-        assert!(!growable(&w, 10, 10, SHOOT), "a canopy shoot has no penetrating force and must stay in open air");
-        assert!(growable(&w, 50, 50, SHOOT), "open air is always growable");
+        assert!(growable(&w, 10, 10, ROOT, false), "a root should push through loose soil (0.8 MPa against 1.2)");
+        assert!(!growable(&w, 11, 10, ROOT, false), "no root may enter Solid stone, whatever its force");
+        assert!(!growable(&w, 12, 10, ROOT, false), "gravel at 3.5 MPa is past the 2-3 MPa bound where root elongation stops");
+        assert!(!growable(&w, 10, 10, SHOOT, false), "a canopy shoot has no penetrating force and must stay in open air");
+        assert!(growable(&w, 50, 50, SHOOT, false), "open air is always growable");
     }
 
     /// Leaves hang *off* the stem, never form part of it — asserted the way
