@@ -3206,8 +3206,16 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   touches. **One difference is not a strip and is a live candidate**:
   `BrainInput` gained `Stillness = 29` in the window, widening the ant's
   genome, alongside `ec1dffdd` *"an animal that stands still gets
-  restless"*. §6 lists the candidate commits; **attribution is deliberately
-  not done here**. Six cropped nest images and both logs under
+  restless"*. **§8 (added 2026-09-19) runs four more arms between the two
+  endpoints and overturns that**: on the matched-colony probe the whole step
+  is **09-11 -> 09-12, 166 digs to 404, one day**, and everything after drifts
+  *down* (404/361/361/351/351). So `Stillness` is ruled out -- it landed
+  09-13, after the step -- and **the entire stacking series is ruled out
+  outright**, because 09-16 and 09-19 are identical on every stop and column
+  from two different binaries. The 37 commits of 09-12 are all tagged `lab:`,
+  and the leading candidate is `1f5bc393` *"an ant at the nest is asked how
+  much room the colony has, not how packed it is"*, which touches `ant.ron`
+  and `brain.rs`. Narrowed to a day, **not to a commit**. Six cropped nest images and both logs under
   `data/digbox-*`.
 - [evolution-lab-round-37-brief-2026-09-15.md](evolution-lab-round-37-brief-2026-09-15.md)
   — **brief, 2026-09-15. `lab`/`engine`/`held`.** Opens with **two retracted

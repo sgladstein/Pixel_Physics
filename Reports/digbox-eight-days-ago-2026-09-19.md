@@ -222,3 +222,99 @@ suspicion is not retired: this is not a null.** But it is also not "the nest
 got bigger", which is the reading the `roofed`-only figures in this line would
 have given, and the direction to look is at rate and at occupancy, not at how
 much room the mechanism is ultimately willing to open.
+
+---
+
+## 8. Six arms, and the step is one day — 2026-09-12
+
+**Added after the owner pointed out that the commits cluster around the
+weekend.** Four more arms were built between the two endpoints. Every arm is
+its own binary (md5-checked, 6 distinct of 6) and **every one passed the
+selftest before any number here was quoted**.
+
+### 8.1 The clean signal: the matched-colony arm
+
+The selftest's own sensitivity arm founds exactly 30 ants with
+`found_colony_of` and runs 4,000 frames. **Colony size is fixed by
+construction**, which removes the confound §2 had to apologise for:
+
+| arm | digs (30 ants, 4,000 frames) | roofed |
+|---|---|---|
+| 09-11 `ccaef282` | **166** | 9 |
+| **09-12 `04e6fe24`** | **404** | **45** |
+| 09-13 `bc9ab1d7` | 361 | 8 |
+| 09-14 `58caa5fd` | 361 | 8 |
+| 09-16 `9197d5ff` | 351 | 9 |
+| 09-19 `50bacc64` | 351 | 9 |
+
+**The entire change is 09-11 → 09-12: 166 to 404, a 2.4x step in one day.**
+Everything after is a slow drift *downward* — 404, 361, 361, 351, 351 — and
+flat from 09-16.
+
+### 8.2 The full colony agrees on the headline and is noisier in the middle
+
+At 30,000 frames, `ants / digs / roofed / open / bodies / room total / hauled up`:
+
+```
+09-11    417    6668    226    93    312     631     680
+09-12    523    8735    252   179    766    1197    1124
+09-13    463    8742    173    74    541     788     710
+09-14    531   11276    199   102    715    1016     896
+09-16    462    9300    190   135    531     856     818
+09-19    462    9300    190   135    531     856     818
+```
+
+The big move is again 09-11 → 09-12 (room total 631 → 1,197, **1.90x**, and
+the largest single step in the series). The middle is **not monotonic** —
+09-13 dips, 09-14 spikes on `digs` — and the colony-size column moves with it
+(417 → 523 → 463 → 531 → 462), which is the confound §2 names. **Read §8.1 for
+the trend and this table for corroboration, not the other way round.**
+
+### 8.3 Two hypotheses from §6 are now dead
+
+**`ec1dffdd` "an animal that stands still gets restless" — the `Stillness`
+brain input — is ruled out.** It landed 09-13, and the step happened on 09-12,
+*before* it. 09-13 measures **lower** than 09-12 (361 against 404), not higher.
+This was the report's leading candidate and the measurement overturns it.
+
+**The whole stacking series is ruled out, and more strongly.** 09-16 and 09-19
+are **identical on every stop and every column** — 462/9300/190/135/531/856/818
+at 30,000, and the same at 10,000 and 20,000 — from two binaries with different
+md5s (`35eb50a9…` against `a2711006…`). The only textual differences in the two
+logs are lines that exist solely in the newer build. So **nothing that landed
+on 09-17, 09-18 or 09-19 changes anything in this box**, which is the entire
+stacking series including `aa133a06` *"a body may stand in a cell another body
+owns"*. `26839803`'s subject — *"the cap that is its own toggle"* — suggests it
+ships off, but this measurement says only that it is inert here, not why.
+
+### 8.4 Where to look instead
+
+37 creature-touching commits landed on 09-12, so this narrows the search to a
+day, **not to a commit**. Three of them touch the dig decision at the nest, and
+one names it outright:
+
+- **`1f5bc393` *"an ant at the nest is asked how much room the colony has, not
+  how packed it is"*** — touches `assets/species/ant.ron` and
+  `src/sim/brain.rs`. The dig wiring runs through
+  `u5/u6 = squash(-30 + 30*AtNest ± 6*Crowding)`, so changing what that input
+  *means* at the nest rewires the chamber gate directly. The strongest
+  candidate by a distance.
+- `6734f2ca` *"a 12-seed sweep says the dig gate's question is not what makes
+  the mound"*, and `48b8930e` / `cda538fa` / `71a81384` on whether the room
+  gate ships on, off, or env-only.
+- `84dd9bfc` *"a nest holds an odour, and scent drift ships on at 0.15"*.
+
+**Note what they have in common: they are all tagged `lab:`.** The change that
+moved the *engine's* digging came out of the lab's round-29/30 work on shared
+`creature.rs`, `brain.rs` and `ant.ron` — not from the creature-line commits of
+the following weekend, which is where §6 pointed and where anyone reading the
+commit subjects would have looked.
+
+### 8.5 What this arm series cannot say
+
+Each arm is **one deterministic run of one scene** — reproducible exactly, but
+a single box. The non-monotonic middle of §8.2 is real difference between
+builds rather than noise, but it is also a warning that the ranking of two
+adjacent arms is not robust; only the 09-11 → 09-12 step is large enough to
+carry weight at this sample size. Bisecting the 37 commits of 09-12 on the
+§8.1 probe would cost about five builds and is the obvious next step.
