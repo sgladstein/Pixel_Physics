@@ -1153,6 +1153,61 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology  ·  `engine`
 
+- [ant-sim-research-review-2026-09-19.md](ant-sim-research-review-2026-09-19.md)
+  — **review, 2026-09-19, docs only. `engine`/`lab`.** An outside literature
+  survey on ant simulation, checked section by section against the tree and
+  the measured record. **Its architecture is this engine's architecture**:
+  stigmergy-first, a Deneubourg choice, a Weber-law reader, no pathfinding —
+  all shipped before it was written. Of ~85 named mechanisms (scorecard in
+  §2.15), 31 ship, 4 are built and switched off, 7 designed and priced, 10
+  built and measured as rejected or inert, 9 absent and cheap, 24 unstageable
+  in a side-view world or ruled out. **The survey's five "gaps in existing
+  games" are not this engine's gaps** — discovery of the first meal, a return
+  leg that worked for the first time on 2026-09-18, a nest with no purpose by
+  owner ruling, and ground too shallow for a nest are — and three of its §19
+  "open problems" are this engine's strengths. **Three things worth a run**:
+  re-test the food-charged `EmitB` odometer now the return leg exists
+  (rejected one day before it did); `(Crowding, EmitB, −w)`, one wire, the
+  deposit-side negative feedback §Z7 is short of; and the *no-entry* mark as a
+  negative deposit on the food plane rather than a fourth plane. Plus one
+  measurement: whether `(Crowding, Move, −0.3)` already makes colony burn
+  hypometric. Corrections the survey needs here: on a one-cell trail
+  **diffusion is the eraser and decay is inert**; a new brain input is not
+  cheap (six species files re-derive `mutation_rate`); and Tschinkel's casts
+  are the bar, never a template. Finds the fill-weighted homeward re-roll
+  **built and shipped off** (`home_bias: 0.0`, `da4a461a`) with no dial and no
+  wiki line. §5 puts the survey's four parameter tables against the engine's
+  dials in round trips and cells; §6 its twelve staged recommendations
+  against the repo's own plans. Source:
+  [ant-sim-literature-review-external-2026-09-19.md](ant-sim-literature-review-external-2026-09-19.md).
+- [ant-survey-followup-brief-2026-09-19.md](ant-survey-followup-brief-2026-09-19.md)
+  — **round brief, 2026-09-19. `engine`/`lab`.** Three lanes spawned on the
+  owner's instruction after reading the survey review: **P** builds the
+  review's two performance proposals behind switches (a gated per-phase
+  stopwatch for his own bed; creature-only chunk activity not waking the
+  field, with the field hash and the awake-chunk count as falsifiers) and
+  writes the GPU-field design note; **T** re-evaluates the trail line's four
+  rejections under *"don't trust past results"* — the food-charged `EmitB`
+  odometer (rejected before the return leg worked), the full-gain food-trail
+  reader with the entry's own patchy-larder and faster-decay re-tests plus
+  the survey's two negative-feedback terms, `DECAY_RHO`'s band on `u16`,
+  trophallaxis on a played bed; **N** re-scores the `Crowding`-to-dig nulls
+  on the corrected census and re-evaluates pellet-attracted deposition, the
+  spoil-placement rejections, the downward dig bias and the dig-face
+  pheromone. Names the unlanded lifetime branch (20 ahead, no PR) every
+  trail measurement has to reckon with. Models chosen per the
+  `lab-coordinator` skill and stated with the reason.
+- [ant-sim-literature-review-external-2026-09-19.md](ant-sim-literature-review-external-2026-09-19.md)
+  — **external document, 2026-09-19, reproduced as received. `engine`.** A
+  literature survey of ant and superorganism simulation in nineteen sections
+  — Deneubourg's double bridge, pheromone half-lives by species, negative
+  pheromones, path integration, Khuong's construction model, response
+  thresholds, quorum emigration, collective transport, the existing games —
+  with four parameter tables and twelve staged recommendations, written by
+  someone who knew nothing of this project beyond "an ant-based simulation
+  game". **Not checked against the engine; the review above is.** Received in
+  two parts; the second arrived as plain text and had its headings, bullets
+  and tables restored with no word changed.
 - [creature-stacking-design-2026-09-17.md](creature-stacking-design-2026-09-17.md)
   — **design 2026-09-17, built and landed as PR #465; four review follow-ups
   closed 2026-09-19 in §11. `engine`.** How many creatures of one
@@ -3195,6 +3250,70 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   zero. D11.5: eggs are **not** gated on §10.3 and subsume it; if only
   one thing is done from this report, this is it. Docs only; nothing
   built.
+- [nest-entrance-dimensions-2026-09-19.md](nest-entrance-dimensions-2026-09-19.md)
+  — **research and method, 2026-09-19. `lab`/`engine`.** The dimensional
+  audit of the owner's entrance research report, which closed the gap both
+  prior nest reports named. **The one rule: sort every quantity by the plane
+  it was measured in** — this world is a vertical section, so vertical
+  results transfer and horizontal ones need a factor or cannot be posed.
+  `stigmergy-research.md` §7 states the principle; this makes it
+  quantitative over a set of formulas, and **three of them change**.
+  **Keep `A^0.5`, do not take the offered `V^(2/3)`** — Toffin's arena is
+  our geometry, so the substitution would correct a formula that was
+  already right. **The crater needs a factor of `1/r`**: a radial 3D walk
+  spreads mass over `2πr`, so porting `p(r)` straight gives a ridge with a
+  dip inside it — two humps, not a mound; judge-by-eye, not a metric.
+  **The amplification kernel is wider than the shaft it exists to
+  create** — Toffin's ant is 4 cells and his 8-neighbour kernel 3, ours is
+  `Chain(2)` and a shaft 1–2 cells, so the kernel cannot resolve the
+  feature; this is the *spatial* form of the quantisation rule, and it
+  predicts exactly when endogenous (marker-driven) concentration fails.
+  Four conversion tiers, of which **only dimensionless and body-length
+  rows are safe**: `K`, `ν`, `θ` and the marker units are bound to a
+  0.265 mm lattice and a one-minute step, and a decay rate should be
+  carried **in dig cycles**. Cell scale is cited from
+  `nest-biology-2026-09-19.md` §2.5 (2–5 mm), not re-derived. **§6 flags
+  the author's own anisotropic-kernel proposal as invention**, ranks it
+  behind the measured downward bias it is confounded with, and asks that
+  somebody else score it. Also: `found_colony_of` **excavates zero
+  cells** — founding paints a 46-cell door where biology digs a 1–2 cell
+  shaft — and `digbox`'s 1,200 ants sit 4x beyond the largest fitted
+  group, so the lens may be a jam. Docs only; nothing built.
+- [nest-shape-three-negatives-2026-09-19.md](nest-shape-three-negatives-2026-09-19.md)
+  — **measurement, 2026-09-19. `lab`/`engine`.** Four levers tested against
+  the nest's shape and **all four negative**, plus the one column that made
+  them readable. **A colony here does not dig a nest — it scratches the whole
+  floor, and "the nest" is the densest part of the scratching**: the room's
+  bounding box is **62–208 cells wide in a 400-wide box against a 53-column
+  door**, and `vert` (height/width) never leaves 0.19 on any arm. Narrowing
+  the door with the new `PIXEL_PHYSICS_NEST_SITE_COLS` gives the **widest**
+  room; a downward dig-target bias was refuted from the code before building
+  (the dig target and the step target are the same cell, so an override
+  severs the coupling that makes tunnels); and steering the heading by
+  `MoistureFront`/`MoistureLateral` leaves the control the best of five arms.
+  With `(Bias, Dig)` swept 0.15 → −1.0 everything scales together and nothing
+  concentrates — **the lens is what scratching-everywhere looks like turned
+  down**, and a fourth lever ran the other way from its hypothesis: removing
+  the spoil teleport (`SPOIL_LIFT=none`) collapses digging to a third and the
+  workings to three rows, while the *maximum* teleport gives the best shape of
+  the four — the abstraction holds the mechanic up rather than hiding one. So
+  the remaining candidate is the one the entrance research names:
+  self-amplification on recent digging, as a `spoil` **material adjacency**
+  test rather than a pheromone (a dig-face pheromone is measured and
+  negative). **Three instrument faults found on the way, two of which had
+  already produced findings**: `digbox`'s `trace` "spread over N columns × M
+  rows" is at-nest ANT spread and follows its own dial by construction — it
+  read "6 columns × 21 rows" and was nearly reported as a shaft, caught only
+  by rendering the pair and looking; every shape column in `burrow_probe`
+  (`circ`, `inradius`, `buds`) is **rotation-invariant**, now pinned by a
+  rotated-bar selftest; and a `wet=` argument of the author's own went into
+  the wrong branch and produced a retracted finding inside an hour. Also
+  corrects the record on `MoistureGrad`: the channel is **not inert** — 1
+  distinct value dry, 26 at field capacity, 3 at saturation (it clips), **44
+  on a graded bed**, so the null was a property of uniform hand-built beds.
+  And measures the at-nest crowding input **saturated in its top tenth for
+  100.0% of ticks**, which is what `roofed / ants` gives when `roofed`
+  excludes the ants.
 - [nest-biology-digging-signals-2026-09-19.md](nest-biology-digging-signals-2026-09-19.md)
   — **research, 2026-09-19. `lab`/`engine`.** Answers a coordinator's seven
   questions on **what signals ants actually dig by**, after a night of
@@ -4349,6 +4468,14 @@ untracked; the branch `perf-audit` is **zero commits ahead of `main`** and
 never held the report at all; and a worktree's name is not its branch's name
 (plant-branch-angle lives in a worktree called `plant-crown`).
 
+- The digging-signals biology and the build plan —
+  **`origin/claude/nest-biology-research`** (PR #472). Two research reports
+  on what regulates an ant's dig, and the staged plan built from them. The
+  branch that carried the harness beside them
+  (`origin/claude/sweet-tesla-ommknn`) **landed 2026-09-19 as PR #474**, so
+  `examples/digbox.rs` and its two default-off switches are on `main` and
+  indexed above; it sat finished with no PR for a day, which is what
+  `branchcheck.sh --prs` exists to catch.
 - ~~`origin/perf-lock`~~ — **RETIRED 2026-08-25, not landed.** Its report is
   now in this directory (indexed above) and its two generalising findings are
   `CLAUDE.md` rules. What stays unlanded is the machine-wide timing lock

@@ -10,6 +10,47 @@ Companion to `nest-biology-2026-09-19.md` (PR #468, merged),
 
 ---
 
+## Status, 2026-09-19 (later the same day): §2's Stage 1 is refuted, and Stage 4 should be first
+
+**Read [`nest-shape-three-negatives-2026-09-19.md`](nest-shape-three-negatives-2026-09-19.md)
+before acting on the stages below.** Three of this plan's levers were built
+or refuted that night and the ordering did not survive:
+
+- **Stage 1 as written — "a bias on the dig target at the call site" — is
+  refuted, from the code rather than by a sweep.** The dig target and the
+  step target are the same cell: the dig reads `DIRS[heading]`
+  (`creature.rs:8716`) and `step_chain` chooses among
+  `[heading+AHEAD_LEFT, heading, heading+AHEAD_RIGHT]` (`creature.rs:9606`),
+  with the middle candidate being the cell just dug and `passable` requiring
+  it to be empty. **The dig is what licenses the next step**, so an override
+  severs the coupling that makes a tunnel at all.
+- **Its replacement — steering the heading by `MoistureLateral` /
+  `MoistureFront` — is also negative**, measured over five arms on a bed
+  where the channel has its full range. The control was the best of the
+  five.
+- **The door's reach is not the nest's shape either.** A new
+  `PIXEL_PHYSICS_NEST_SITE_COLS` narrows where ants *stand* and not where
+  they dig; the narrowest door gives the *widest* room.
+
+**What stands, and is stronger than when this was written:** §1's structural
+fact (*"interventions on whether cannot produce a shape"*) predicted the
+dig-target failure before the record was re-read, and **Stage 4 — fresh
+spoil attracts digging — is the only candidate left.** It is Toffin's
+self-amplification in physical form, it needs no pheromone (which is as
+well: a dig-face pheromone is measured and negative), and the measurement
+that points at it is that with `(Bias, Dig)` swept 0.15 → −1.0 everything
+scales together and nothing concentrates. **It should be first, not fourth.**
+
+**And Stage 0 is done**: the ant-blind census is fixed in `lab::census` and
+`examples/burrow_probe`, with a guard proven red both ways.
+
+**One warning about scoring anything here.** `digbox`'s `trace` line
+*"spread over N columns × M rows"* is the spread of **at-nest ants** and
+follows the reach dial by construction — it read "6 columns × 21 rows" and
+was nearly reported as a shaft. Score shape on `SUMMARY`'s `room WxH vert`.
+
+---
+
 ## 0. The finding the plan turns on
 
 **Chambers in the biology are density-dependent digging *around a thing*. This

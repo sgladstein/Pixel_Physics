@@ -2421,6 +2421,54 @@ pub fn nest_site_rows() -> Option<i32> {
     *ROWS.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SITE_ROWS").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v >= 0))
 }
 
+/// **The site reach in COLUMNS, half-width, or `None` for
+/// [`COLONY_HALF_WIDTH`].**
+///
+/// `PIXEL_PHYSICS_NEST_SITE_COLS=n` narrows the half-width
+/// [`adjacent_nest`]'s site branch tests, which [`nest_site_rows`] leaves at
+/// 26 -- a door 53 columns wide. It is the other half of the same dial and
+/// it exists because the width, not the depth, is the number the biology
+/// disagrees with most.
+///
+/// **What a real door is.** A nest shaft is about **one ant wide**
+/// (Gravish et al., *PNAS* 2013: tunnel diameter close to one body length,
+/// which is what lets an ant brace against both walls and arrest a fall).
+/// `ant.ron` authors `body: Chain(2)`, so that is **1-2 cells** -- and the
+/// conclusion survives the open question in
+/// `Reports/nest-biology-2026-09-19.md` §2.5 about whether `Chain(2)` is two
+/// ant-lengths or a head-plus-body abstraction, because it is single-digit
+/// either way. Against that, this engine's door is 46 columns of painted
+/// ground and 2 rows deep: **the shaft's dimensions transposed.**
+///
+/// **Why it should move the nest at all**, which is the part worth stating
+/// before anyone sweeps it: digging is gated on `AtNest` --
+/// `assets/species/ant.ron` says so at the `(Bias, Dig, 0.15)` comment,
+/// *"the crowding term below is gated on `AtNest` through hidden units
+/// 5/6"* -- and `BrainInput::Crowding` falls back to a saturated local
+/// density anywhere else. So the region where a colony will cut a chamber
+/// **is** this rectangle, and `examples/digbox`'s trace reports the
+/// workings as exactly `46 columns x 2 rows`. A lens that matches the door
+/// to the cell is not obviously the physics; it may be the door.
+///
+/// **This is a reach constant, not a mechanism**, which is what keeps it
+/// clear of `Reports/dead-ends.md`'s verdict that a *dig-target preference*
+/// fails at any tuning. Nothing here changes which cell a dig lands on.
+///
+/// **A parse failure falls back to the default, never to 0** -- the rule
+/// [`nest_core`] states and the reason it gives: a typo that silently
+/// reverted the mechanism would put the control in a sweep wearing another
+/// point's label. Unset is bit-exact.
+///
+/// **Do not ship a narrow door on this alone.** `AtNest` also gates `Drop`,
+/// the homing gradient, `nest_visits` and `deliveries`; a door too narrow to
+/// find is `open-bugs-handoff.md` §T2's shape, *"the colony simply lost its
+/// front door"*. `digbox` has no food, so the shape question is answered
+/// there and the foraging question is not asked at all.
+pub fn nest_site_cols() -> Option<i32> {
+    static COLS: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *COLS.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SITE_COLS").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v >= 0))
+}
+
 /// **What `BrainInput::Crowding` reports at the nest**, or `None` for the
 /// shipped colony-wide reading.
 ///
@@ -7607,7 +7655,7 @@ fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
             return false;
         };
         let site = world.nest_sites[i];
-        return (site.x - x).abs() <= COLONY_HALF_WIDTH && (site.surface - y).abs() <= rows;
+        return (site.x - x).abs() <= nest_site_cols().unwrap_or(COLONY_HALF_WIDTH) && (site.surface - y).abs() <= rows;
     }
     NEIGHBOURS_8.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == nest)
 }
@@ -9031,6 +9079,11 @@ fn lift_reach(world: &World, x: i32, y: i32, dig_force: f32, mode: SpoilLift) ->
     if mode == SpoilLift::Unbounded {
         return SPOIL_LIFT;
     }
+    // **Nothing is lifted**, so the drop scan never leaves the animal's own
+    // row and every row of haulage is walked. See `SpoilLift::None`.
+    if mode == SpoilLift::None {
+        return 0;
+    }
     for dy in 1..=SPOIL_LIFT {
         let cell = world.get(x, y - dy);
         if cell.material == material::EMPTY {
@@ -9100,6 +9153,23 @@ enum SpoilLift {
     /// `Dig`, and a row of open air passes only where there is a wall beside it
     /// to climb. The default.
     Climb,
+    /// **No lift at all** -- the pellet goes down where the animal is
+    /// standing, and every row of haulage has to be walked.
+    ///
+    /// The ablation arm, off by default, and it exists because all three
+    /// modes above abstract the *return trip* away. Inside a shaft there is
+    /// always a wall beside you, so even `Climb` lifts the full
+    /// [`SPOIL_LIFT`] (160 rows) exactly where a real nest would have a
+    /// haulage corridor -- and a shaft in a real nest is largely a haulage
+    /// corridor. Measured in `examples/digbox` on 2026-09-19: **638 cells
+    /// standing above the original ground line against 137 cells of void
+    /// below it**, so the material is leaving the ground rather than lining
+    /// a gallery.
+    ///
+    /// **Whether that is a cause or a consequence is the open question this
+    /// arm is for.** Do not ship it without measuring what it costs: an ant
+    /// that cannot put a pellet anywhere may simply carry it for ever.
+    None,
 }
 
 fn spoil_lift_mode() -> SpoilLift {
@@ -9107,6 +9177,7 @@ fn spoil_lift_mode() -> SpoilLift {
     *MODE.get_or_init(|| match std::env::var("PIXEL_PHYSICS_SPOIL_LIFT").as_deref() {
         Ok("unbounded") => SpoilLift::Unbounded,
         Ok("dig") => SpoilLift::Dig,
+        Ok("none") => SpoilLift::None,
         _ => SpoilLift::Climb,
     })
 }
