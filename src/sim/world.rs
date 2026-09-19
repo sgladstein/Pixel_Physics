@@ -2113,6 +2113,25 @@ pub struct CreatureStats {
     /// trophallaxis. A share that was rolled and found nobody, and a share
     /// that moved joules, are the same silence in every other readout.
     pub shares: u64,
+    /// **Shares that reached a nestmate the grid cannot see** -- the "did it
+    /// fire at all" counter for trophallaxis inside a stack, and the one
+    /// number that says whether teaching the kin walks about riders bought
+    /// anything (`Reports/creature-stacking-design-2026-09-17.md` §10).
+    ///
+    /// **A within-run count, on purpose.** The alternative was a paired
+    /// `shares` reading against the trunk, and it cannot answer this: arming
+    /// the cap changes an RNG draw on the first stacked tick, so the two arms
+    /// are different worlds by the next frame and the `shares` delta is
+    /// mostly divergence. Measured over six seeds, cap 20, 3,000 frames:
+    /// 193.3 shares against 206.5, which is inside the seed spread of either
+    /// arm alone (169-213 and 183-224) and says nothing. This counter needs no
+    /// second world -- it is **structurally 0** before the change, because
+    /// there was no path to a rider at all.
+    ///
+    /// Counted by whether the recipient was reached through the rider index
+    /// rather than through the grid, which is exactly the set of shares that
+    /// could not have happened before. Zero at the shipped cap of 1.
+    pub shares_in_stack: u64,
     /// **Joules actually moved** -- the effect counter from the far side of
     /// the call, and `CLAUDE.md` asks for it by name. `shares` can climb
     /// with `shared_j` near zero if every gap is trivial, which is a colony
@@ -8885,7 +8904,33 @@ impl World {
     /// Idempotent: a body that re-enters a cell it already rides does not
     /// get counted twice, which matters because a chain's landing shares
     /// most of its cells with where it already stands.
+    ///
+    /// **The stored cell is attributed to `id` here rather than trusted from
+    /// the caller, and that one line closes a whole class of bug rather than
+    /// an instance of one** (2026-09-19). The index is the only place a
+    /// rider's appearance exists, so promotion writes whatever is in it -- and
+    /// if that cell carries *somebody else's* `organism_id`, the promoting
+    /// `World::set` is an id-preserving write, [`Self::reindex_organism_cell`]
+    /// takes its `was == now` early return, and **nothing prunes the old
+    /// owner's `cells`**. Its chain then walks on and it is left owning a grid
+    /// cell that is not in its body, with no rider standing there to explain
+    /// it. That is the defect filed as §10's fourth item, and it was traced by
+    /// putting the cause back: reinstate `relocate_chain`'s pre-fix `carried`
+    /// read and the crowded-colony bed produces it at **frame 35** -- organism
+    /// 41 holding `(219,119)` outside chain `[(221,119),(220,119)]`, riders 0,
+    /// and organism 49 the same shape while climbing away from it.
+    ///
+    /// `relocate_chain` no longer hands over a foreign cell, so this is a
+    /// no-op on every live path. It is here because the invariant belongs to
+    /// the seam: the caller that got it wrong looked correct, the symptom
+    /// surfaced in a different animal's bookkeeping two hundred frames later,
+    /// and the engine has one place that can state the rule for every caller
+    /// there will ever be. **A `debug_assert` was the first version and is the
+    /// wrong tool** -- it is compiled out of `--release`, which is where every
+    /// long run in this repo is measured, so it would guard exactly the runs
+    /// that are short enough not to need it.
     pub fn add_rider(&mut self, x: i32, y: i32, id: OrganismId, cell: Cell) {
+        let cell = cell.with_organism_id(id);
         let slot = self.stacked.entry((x, y)).or_default();
         if let Some(existing) = slot.iter_mut().find(|r| r.organism == id) {
             // Re-entering a cell it already rides refreshes what the rider
