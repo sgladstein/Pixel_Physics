@@ -4801,6 +4801,94 @@ reproduce.
 **Data:** `Reports/data/achannel-decay-*-36seed-gap90-2026-09-19.log`,
 `aplane-profile-seed1-2026-09-19.txt`.
 
+## §7.44 The §Z29 fix works, and the colony starves doing it
+
+**2026-09-19, same night as §7.43.** §Z29 says the ant stands on its own
+freshest deposit so `along` reads negative whichever way it faces. This is the
+repair, measured — and the one place it fails is the one the register predicted.
+
+### The repair
+
+`PIXEL_PHYSICS_DEPOSIT_AT=vacated` lays the mark on the cell the ant just left
+rather than the head it arrived on. Unset is bit-identical; P-11 is untouched,
+the deposit still happening only on a successful move.
+
+**Alone it does nothing** — 41 round trips against 47, paired 11 better / 7
+worse, total −6. The traces say why: it removes the negative bias without
+creating a positive one, because the ambient plane it then reads has no slope.
+Facing home gives `along > 0` on 4.0% and 13.4% of laden ticks against 8.2% and
+1.2% shipped: the reading goes from negative to roughly zero.
+
+**With a persistent plane it is the strongest result of the session.** 36 seeds,
+gap 90, `hand` arm:
+
+| arm | READ% | ants ever | round trips | trips per 1k ants | deliveries | alive |
+|---|---|---|---|---|---|---|
+| **shipped** | 13.7 | 5,890 | **47** | 8.0 | 322 | 683 |
+| vacated | 13.7 | 7,067 | 41 | 5.8 | 162 | 885 |
+| vacated + decay 0.02 | 16.0 | 1,433 | 21 | 14.7 | 77 | 169 |
+| vacated + decay 0.01 | 20.3 | 907 | 20 | 22.1 | 59 | 127 |
+| vacated + decay 0.005 | 27.6 | 803 | 36 | 44.8 | 151 | 60 |
+| vacated + decay 0.002 | 41.7 | 830 | 46 | 55.4 | 506 | 62 |
+| **vacated + decay 0** | 53.9 | 857 | **61** | **71.2** | **693** | 73 |
+
+Paired on round trips against shipped, `vacated + decay 0` reads **21 seeds
+better, 6 worse, 9 tied**, median +1.0, total **+14** — the only arm all session
+to move trips up on both the total and the paired test. The per-ant rate rises
+**monotonically with persistence, 8.0 → 71.2 per thousand, a factor of nine.**
+
+The ratchet is the strongest measured: P(move) **0.4155 facing home against
+0.2629 facing away** (+0.1526) where shipped reads +0.0630. And it works by
+*stalling an ant pointed away* rather than speeding one pointed home — which is
+how run-and-tumble is supposed to work.
+
+### And then the colony starves
+
+| arm | deliveries | **ate J** | born | starved | alive |
+|---|---|---|---|---|---|
+| shipped | 322 | **6,151,294** | 5,173 | 755 | 683 |
+| vacated | 162 | 7,918,778 | 6,359 | 592 | 885 |
+| vacated + decay 0.002 | 506 | **234,086** | 110 | 588 | 62 |
+| vacated + decay 0 | 693 | **270,810** | 137 | 595 | 73 |
+
+**Intake falls 23-fold while deliveries double.** Births go 5,173 → 137. The
+starvation *rate* goes from 13% of ants ever alive to **69%**. Per ant,
+deliveries rise about eightyfold while the colony that makes them cannot feed
+itself.
+
+The mechanism is not subtle and it is not new: **a delivered cell is left on the
+ground and nothing banks it**, so an ant that walks its meal home has spent the
+journey and given the colony a cell it does not eat. Shipped ants survive by
+*not* delivering.
+
+**The alternative reading, stated because it is the honest rival:** the colony
+might collapse first for another reason, leaving delivery as a survivor effect.
+Per-ant deliveries argue against — 5.06 per ant against 0.06 — but this is one
+bed and the confound is real.
+
+### What this settles about the granary
+
+Earlier in this session the claim "the granary gates all of this" was withdrawn
+on the grounds that banking a delivered cell cannot make a gradient readable.
+**That withdrawal was right about the mechanism and wrong to drop the gate.**
+The two claims are separate and both are now measured on this branch:
+
+1. The granary does **not** fix channel A. §Z29 is a sensing bug with a sensing
+   fix, and the repair above needs no economy change to work.
+2. The granary **does** gate whether working homing is survivable. Tonight it
+   reproduced twice by different routes — `home_bias 1.0` (59 alive against
+   1,301, §7.41) and `vacated + decay 0` (73 against 683, here).
+
+So the order is: §Z29's repair is a real fix to a real bug and should land on
+its own terms; **turning the persistence up to exploit it is gated on a larder**
+(§7.28), exactly as §7.27 said and for exactly the reason it gave.
+
+***Re-test the decay ladder when:*** a nest drop banks the cell's worth. Until
+then every row above trades colony for commuting and the trade is the economy's,
+not the sensor's.
+
+**Data:** `Reports/data/z29-*-36seed-gap90-2026-09-19.log`.
+
 ## Appendix A. Raw per-seed data
 
 Kept in full because outcomes here have enormous spread, and every headline in

@@ -13320,5 +13320,19 @@ deposit site and is the cheapest to try. Note P-11 (deposit only on a
 successful move) is *unconditional* in `dead-ends.md:1059` and none of these
 candidates touches it.
 
-**Data:** `Reports/data/achannel-decay-*-36seed-gap90-2026-09-19.log`; cohort
-traces reproduced with `trailfollow ... arms=hand trace focaln=6`.
+**The repair is built as a switch and measured — §7.44.**
+`PIXEL_PHYSICS_DEPOSIT_AT=vacated` lays the mark on the cell just left; unset is
+bit-identical. **Alone it does nothing** (41 round trips against 47): it removes
+the negative bias without creating a positive one, because the ambient plane has
+no slope. **With a persistent plane it is the strongest result measured** — 61
+round trips against 47, paired 21 seeds better / 6 worse / 9 tied, deliveries
+322 → 693, and a ratchet of +0.1526 on P(move) against the shipped +0.0630.
+
+**And it is gated on a larder.** Intake falls 6,151,294 → 270,810 J and births
+5,173 → 137 while deliveries double, because a delivered cell is left on the
+ground and nothing banks it. So §Z29's repair should land on its own terms as a
+sensing fix; *turning persistence up to exploit it* waits on §7.28.
+
+**Data:** `Reports/data/achannel-decay-*-36seed-gap90-2026-09-19.log`,
+`z29-*-36seed-gap90-2026-09-19.log`; cohort traces reproduced with
+`trailfollow ... arms=hand trace focaln=6`.
