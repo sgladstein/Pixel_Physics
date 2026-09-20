@@ -3024,6 +3024,29 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   `forage_anchor` the engine already keeps** — with the `DIFFUSE`-on-A dial
   (§5.3's 3-of-3 result) taken first because it needs no code. Read this before
   any other report on this line.
+- [ant-return-leg-plan-2026-09-20.md](ant-return-leg-plan-2026-09-20.md)
+  — **plan, 2026-09-20. `engine`.** **A laden ant cannot read its own trail, by
+  construction** — measured, 8 seeds, ~500,000 decisions, binning every laden
+  decision by the angle between heading and the exact home vector: pointed at
+  home reads `along` **−0.20**, pointed away **−0.24**, negative in *every* bin.
+  `here` is the ant's own freshest deposit and `ahead` is six cells out, 70% of
+  the time in sky or rock reading zero, so the numerator is `(≈0 − own deposit)`.
+  The ant is a moving point source on a plane where it is the brightest object.
+  §Z29's own remedy (`DEPOSIT_AT=vacated`) is partial — 5.3% → 7.0% positive,
+  still 93% wrong-signed. **This reconciles the whole line:** trail-reading is
+  the *follower's* mechanism and path integration the *layer's* (Beckers 1992,
+  discoverers lay and recruits follow), and a laden ant walking home **is the
+  discoverer** — which is why `TRAIL_A_RHO = 0`, the nose honesty gate and the
+  temporal comparator all improved the reading and none moved the outcome. Plan:
+  give the home vector authority over `Move` via a new `HomeAligned` input,
+  keep `vacated` as a component, re-measure at a run length that can hold a leg
+  (one leg is 73–79% of an ant's life today), and move the fold-change /
+  adaptive-guard work to **recruitment**, where a second ant reads a trail it
+  did not lay — no normalisation fixes a sign. Names the three traps already
+  paid for: only **one** free hidden unit, `DELIVERED` is not provisioning, and
+  pair within seed rather than pooling. Data
+  `Reports/data/align-census-8seed-2026-09-20.log`; handoff in
+  `Reports/lanes/homing-return-arm.md`.
 - [ant-navigation-plan-2026-09-20.md](ant-navigation-plan-2026-09-20.md)
   — **plan, 2026-09-20. `engine`.** The return arm does not work because the
   trail is wired to the wrong decision. An ant makes two separate choices per

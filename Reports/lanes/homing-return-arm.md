@@ -101,3 +101,76 @@ every "unmoved" on this line needs restating.
 - **§Z30** — `filmstrip` never calls `step_pheromones`, so every scene it has
   drawn with ants in it showed a trail that cannot fade, spread or sleep. Filed,
   not fixed: eight branches hold unlanded commits in that file.
+
+---
+
+## HANDOFF, 2026-09-20 — read this first if you are picking this up
+
+**The diagnosis is finished and committed. The implementation has not started.**
+Everything below the line is history; this section is the brief.
+
+### What the session established, in one line
+
+**A laden ant cannot read its own trail, by construction** — so every repair to
+the *reading* was doomed, and the fix is to give the **home vector** authority
+over `Move`.
+
+Measured (`Reports/data/align-census-8seed-2026-09-20.log`, 8 seeds, ~500k
+decisions), binning every laden decision by the angle between heading and the
+exact home vector:
+
+| heading vs home | mean `along` | % positive |
+|---|---|---|
+| pointed **away** | −0.24 | 3.9% |
+| pointed **at home** | **−0.20** | **5.3%** |
+
+Negative in every bin; facing home differs from facing away by **0.04**. `here`
+is the ant's own freshest deposit and `ahead` is 6 cells out, 70% of the time in
+sky or rock reading 0 — so the numerator is `(≈0 − own deposit)`, negative by
+construction. **The ant is a moving point source on a plane where it is the
+brightest object.**
+
+`PIXEL_PHYSICS_DEPOSIT_AT=vacated` (§Z29's own remedy) is partial: −0.200 →
+−0.162, 5.3% → 7.0% positive. **Still 93% wrong-signed.** A component, not a fix.
+
+**The reconciliation:** trail-reading is the *follower's* mechanism, path
+integration is the *layer's* (Beckers 1992 — discoverers lay, recruits follow).
+A laden ant walking home **is the discoverer**. That is why `TRAIL_A_RHO = 0`
+(§7.46), the nose honesty gate (§7.47) and the temporal comparator (§7.48) all
+failed to move the outcome.
+
+### The plan
+
+**[`Reports/ant-return-leg-plan-2026-09-20.md`](../ant-return-leg-plan-2026-09-20.md)**
+— full, with the wiring, the costs and the pre-registered predictions.
+
+### The three traps, already paid for — do not rediscover them
+
+1. **There is exactly ONE free hidden unit (7), and a gated pair needs two.**
+   `ant.ron` wires 0–6; `BRAIN_HIDDEN = 8`. The plan gives the single-unit
+   wiring that replaces the pair, and names what it loses. The 2026-09-19
+   fold-change plan wants unit 7 as well — **they collide**.
+2. **`DELIVERED` is not a provisioning counter.** It increments on any crop drop
+   at the nest and runs **24–45x** the laden foraging trips. Read `ate J`,
+   `came back` and `carry->nest` with `scripts/trailledger.py`. A headline built
+   on `DELIVERED` survived about an hour.
+3. **Pair within seed, never pool.** Arms found colonies of very different
+   sizes; pooled shares are weighted by whichever arm founded. Pooled said the
+   nose fix doubled the up-gradient share; paired it is **19/17** and moves
+   nothing (§7.49). `scripts/tracepair.py` and `scripts/trailledger.py`.
+
+### Two more facts worth having
+
+- **The run is shorter than one leg.** Median completed laden leg **2,900–3,200
+  decision ticks**; an ant's whole life in a 24,000-frame run is **4,000**. No
+  outcome number on this line is trustworthy until this is re-measured longer.
+- **`home_bias` is saturated** — response linear to the 1.0 cap; a laden ant
+  with a full crop already re-aims homeward on every tumble. Do not sweep it
+  further expecting headroom.
+
+### State of the tree
+
+Branch `claude/upbeat-shannon-cez0w4`, head `808e2aa7`. `home_bias` is **still
+0.0** — nothing shipped, engine behaviour unchanged. The alignment census
+(`tr_align`) is in `examples/trailfollow.rs` and is the instrument the next
+session needs. All gates green at `fcea4b88`; `docscheck` clean at head.
