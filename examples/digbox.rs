@@ -1187,6 +1187,61 @@ fn main() {
             // biology (section 3 of the excavation reference) has an ant walk a
             // few body lengths out and drop, so a small offset is correct
             // and a large one is not.
+            // **Orphans, on the rule's own definition** -- worked ground with
+            // no path down to the world floor through ground, which is what
+            // `hangcensus` counts and what `update::unpack_orphans` acts on.
+            //
+            // The `floating` column below is NOT this and must not be read as
+            // it: it counts a cell with air directly beneath, which every
+            // roof of every cavity in the mound also has. An anchored
+            // overhang is legitimate and reads as `floating`; only an orphan
+            // is a bug. Measuring the repair on `floating` would have scored
+            // it against a number it is not trying to move -- `CLAUDE.md`'s
+            // *ask what your number counts when nothing is wrong*, caught
+            // here by the repair failing to zero a column it never should.
+            let orphans = {
+                let (bw, bh) = (b.w as usize, (b.floor + 1) as usize);
+                let gidx = |x: usize, y: usize| y * bw + x;
+                let is_gnd = |wld: &World, x: i32, y: i32| {
+                    let c = wld.get(x, y);
+                    c.material != material::EMPTY
+                        && c.organism_id() == 0
+                        && matches!(wld.materials.kind(c.material), MaterialKind::Powder | MaterialKind::Solid)
+                };
+                let mut seen = vec![false; bw * bh];
+                let mut st: Vec<(i32, i32)> = Vec::new();
+                for x in 0..b.w {
+                    if is_gnd(&world, x, b.floor) && !seen[gidx(x as usize, b.floor as usize)] {
+                        seen[gidx(x as usize, b.floor as usize)] = true;
+                        st.push((x, b.floor));
+                    }
+                }
+                while let Some((x, y)) = st.pop() {
+                    for (dx, dy) in [(-1i32, -1i32), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)] {
+                        let (nx, ny) = (x + dx, y + dy);
+                        if nx < 0 || ny < 0 || nx >= b.w || ny > b.floor {
+                            continue;
+                        }
+                        if !seen[gidx(nx as usize, ny as usize)] && is_gnd(&world, nx, ny) {
+                            seen[gidx(nx as usize, ny as usize)] = true;
+                            st.push((nx, ny));
+                        }
+                    }
+                }
+                let mut o = 0i64;
+                for x in 0..b.w {
+                    for y in 0..=b.floor {
+                        if !seen[gidx(x as usize, y as usize)] && is_gnd(&world, x, y) {
+                            o += 1;
+                        }
+                    }
+                }
+                o
+            };
+            println!(
+                "SUMMARY orphaned ground (no path to the floor): {orphans} cells   |   un-packed this run: {}",
+                st.unpacked
+            );
             let (mut floating, mut on_ant, mut sx, mut n) = (0i64, 0i64, 0i64, 0i64);
             // **Which material is doing the floating**, because the repair
             // already on `main` reaches exactly one of them. `spoil.ron`
