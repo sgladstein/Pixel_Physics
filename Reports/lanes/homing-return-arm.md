@@ -106,8 +106,28 @@ every "unmoved" on this line needs restating.
 
 ## HANDOFF, 2026-09-20 — read this first if you are picking this up
 
+**You lead this work. You are not a lane and there is no coordinator above
+you.** This file sits in `Reports/lanes/` for historical reasons — the session
+that wrote it needed a return path to answer Lane T, which is the first half of
+this document and is finished business. **Do not read the lane protocol
+(`Reports/session-programs.md`) as applying to you unless someone tells you it
+does.**
+
+**The session that wrote this has ended.** It is not waiting on a report and
+cannot answer a question. **Your one reporting line is the owner** — every
+decision below that needs a human goes to them directly.
+
+**Two of those are open and are the owner's, not yours to settle:**
+
+- **`home_bias` has not shipped**, and whether to turn it on before the fix
+  below lands is their call. It is measured either way
+  (`Reports/ant-navigation-plan-2026-09-20.md` §4b, §4c).
+- **This branch has no PR**, on the owner's standing *"no PR right now"* for
+  this line, and **Lane T's PR #478 carries twenty of its commits** — see the
+  reply above. Do not open or land anything on that without asking.
+
 **The diagnosis is finished and committed. The implementation has not started.**
-Everything below the line is history; this section is the brief.
+Everything above the line is history; everything below is the brief.
 
 ### What the session established, in one line
 
