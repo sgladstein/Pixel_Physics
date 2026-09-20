@@ -254,3 +254,25 @@ at the nest in **5 of 8** seeds; the wire arm drops in **8 of 8** (209 → 1,944
 cells). `DELIVERED` is still not the loop counter — it runs ~100x `trips_laden`
 here — but it is not zero, and the "nothing is ever banked" story built on it
 was overstated.
+
+7. **§Z29's THIRD repair candidate is built and is a dead end** — the
+   two-forward-sample comparator, `PIXEL_PHYSICS_TRAIL_READ=fwd`, channel A
+   only, off. All three of that entry's candidates are now measured.
+   `dead-ends.md` `other:134`. Two things to carry, both of which will save
+   somebody a day:
+   - **A repair to how an ant reads channel A is sized against a trail it will
+     then change.** The 6/12 reading separates **+0.0617** on the shipped
+     world and **−0.0160** on its own (4 seeds up / 20, p 0.0015). *Why* is
+     one sweep short of established: nest-band ant-ticks fall 124,560 → 86,252
+     but paired that is 9 up / 15 down, and `(AtNest, 4, 0.05)` →
+     `(4, EmitA, 32.0)` is channel A's only writer, so it is the candidate
+     rather than a finding. *Re-test when* channel A has a writer that is not
+     the foraging ants.
+   - **Scope any `PheroAAlong` change to channel A.** The reading loop sweeps
+     both planes; rewriting B collapses the outbound leg to **0 ants reaching
+     food in all 24 seeds**, because units 2/3 read `PheroBAlong` gated on
+     *not* carrying food.
+
+8. **C-sensory is therefore closed**, and the remaining half of option C is
+   **C-omniscient** — aim at `world.nearest_nest_site()`, telling the ant
+   something it cannot smell. Still owner's call, still undiscussed.

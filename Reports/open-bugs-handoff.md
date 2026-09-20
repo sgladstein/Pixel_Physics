@@ -170,8 +170,8 @@ point.
 | Z27 | **OPEN** | 13140 | Heat cannot cross a shallow gradient into ground already at ambient, and the fix that exi... |
 | Z28 | **OPEN** | 13197 | The moisture deposition preference was deleted rather than moved, and DropSpoil has no he... |
 | Z29 | **OPEN** | 13269 | An ant stands on its own freshest deposit, so the homing gradient reads "home is behind m... |
-| Z30 | **OPEN** | 13394 | filmstrip never steps the pheromone planes, so every scene it runs ants in shows a trail ... |
-| Z31 | **OPEN** | 13485 | field::step carries derived arrays forward over a settled chunk that still holds an un-ta... |
+| Z30 | **OPEN** | 13435 | filmstrip never steps the pheromone planes, so every scene it runs ants in shows a trail ... |
+| Z31 | **OPEN** | 13526 | field::step carries derived arrays forward over a settled chunk that still holds an un-ta... |
 
 <!-- END GENERATED INDEX -->
 
@@ -13390,6 +13390,47 @@ changed. What changed is that the trail reading is no longer the only thing
 throttling `Move` on the return leg. Read the `P(move)` column of `tr_align`
 for the effect, not the `mean along` column, which this change cannot move by
 construction.
+
+**THE THIRD REPAIR CANDIDATE IS NOW MEASURED, AND IT IS A DEAD END —
+2026-09-20** (`dead-ends.md` `other:134`,
+`Reports/ant-return-leg-result-2026-09-20.md`). All three of this entry's
+candidates have now been tried: `vacated` (a component, above), reading `here`
+before the deposit (§7.46/§7.47 rule it out with the rest of the reading
+repairs), and **two forward samples at `so` and `2·so`** — built behind
+`PIXEL_PHYSICS_TRAIL_READ=fwd`, **channel A only**, and bit-identical unset.
+
+**The blindness fear that kept it unbuilt for four days was wrong by a factor
+of six.** §7.47's ~70% sky-or-rock rate suggested a two-sample reading would
+read nothing; measured with the new `tr_cmp` oracle in `trailfollow`, both
+samples read zero on **11.8%** of laden ticks, because the plane carries
+diffused value into cells no creature can stand in.
+
+**It moves the reading and not the loop.** 24 seeds, paired within seed, gap
+90: `MEAN |PheroAAlong|` 0.3603 → 0.3230 (18 of 23 seeds, p 0.011) and the
+trail term into `Move` −2.218 → −1.922 (17 of 23, p 0.035), while closed laps
+go 91 → 88 (10 up / 11 down), drops 3,781 → 3,682 and `net cells homeward`
+500.9 → 500.3.
+
+**Because it erodes the ramp it was sized on, which is the finding this entry
+should carry forward.** `tr_cmp` reads the plane rather than the sensor, so the
+same row in two arms asks how separable *the trail those ants laid* is. The
+6/12 pair the runtime reads separates **+0.0617 on the shipped world and
+−0.0160 on the comparator's own world** (4 up / 20, p 0.0015) — it goes
+negative — while the short pairs improve (1/2: +0.0075 → +0.0240, p 0.007).
+The arm spends a third less ant-time in the nest band (124,560 → 86,252) and
+the nest band is where `(AtNest, 4, 0.05)` → `(4, EmitA, 32.0)` fires, which is
+the ramp's only writer. **Channel A is laid by the same animals that read it,
+so every repair to how they read it is sized against a trail it will then
+change.** *Re-test when* channel A gets a writer that is not the foraging ants
+— a nest that emits on its own, or a fixed beacon; not by moving the offsets.
+
+**And the scoping is load-bearing, which is worth a line here because it is a
+one-line edit away.** Applied to both planes the outbound leg collapses
+outright — **0 ants reached food in all 24 seeds** — because units 2/3 read
+`PheroBAlong` gated on *not* carrying food, and an empty ant emits A from the
+odometer but never B. Only A has the animal standing on its own mark.
+
+**Data:** `Reports/data/trail-comparator-24seed-2026-09-20-{shipped,fwd}.log`.
 
 ### Z30. `filmstrip` never steps the pheromone planes, so every scene it runs ants in shows a trail that cannot decay, diffuse or move (engine/creatures) — **OPEN, found 2026-09-19**
 

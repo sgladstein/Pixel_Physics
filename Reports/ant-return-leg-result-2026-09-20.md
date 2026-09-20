@@ -33,9 +33,10 @@ stands whatever is decided about shipping it.
 - [Why they do not drop — read off the brains](#why-they-do-not-drop--read-off-the-brains-186067-laden-ant-ticks)
 - [`AtNest` is not a drop gate](#atnest-is-not-a-drop-gate--it-is-the-colonys-whole-sense-of-home)
 - [The cue beside the nest exists, and the nose cannot see it](#the-cue-beside-the-nest-exists-and-the-nose-cannot-see-it)
+- [The sensor repair erodes the trail — dead end](#the-sensor-repair-works-on-the-reading-and-erodes-the-trail--dead-end)
 - [Step 2: `vacated` is not attributable](#step-2-of-the-plan-deposit_atvacated-is-not-attributable-drop-it)
 - [What shipped, and what is open](#what-shipped-and-what-is-open)
-- [Reproducing the two arms](#reproducing-the-two-arms-which-changed-name-when-the-default-did)
+- [Reproducing the two arms](#reproducing-the-two-arms)
 
 ### Reproduced first, bit-identically
 
@@ -388,11 +389,123 @@ negative whichever way it faces. The defect does not weaken near the nest.
   carries the animal's own mark"*. That removes `here` from the reading
   entirely, which is the whole defect.
 
-**That reorders the work.** C-sensory is gated on a sensor repair that is
-already specified, cheap, and independently worth having — it would fix the
-route reading as well as the doorstep one. Building the two-forward-sample
-comparator is the prerequisite, and it is a better next step than either half of
-C, because it is the thing both halves of the homing problem are waiting on.
+**That reordered the work**, and the next section is what came of it.
+C-sensory is gated on a sensor repair that was already specified and cheap, so
+the comparator went first as the thing both halves of the homing problem were
+waiting on. **It was built, measured, and is a dead end** — so read the two
+bullets above as *the cue is there and no reader we can build today reaches
+it*, and C-sensory as closed rather than pending.
+
+### The sensor repair works on the reading and erodes the trail — dead end
+
+**Built, because the section above made it the prerequisite for everything
+else.** §Z29's third repair candidate, named 2026-09-16 and never tried:
+*"compare two forward samples (`so` and `2·so`) so neither term carries the
+animal's own mark"*. Behind `PIXEL_PHYSICS_TRAIL_READ=fwd`, **channel A only**,
+bit-identical when unset. The register entry is `dead-ends.md` `other:134`.
+
+**The precondition held, which is why it was worth building.** §7.47 found the
+single sensor lands in open sky or solid rock on ~70% of laden ticks, so a
+reading that needs *two* samples to land looked hopeless in advance. Measured
+with a new oracle in `trailfollow` (`tr_cmp`, which reads the plane directly
+rather than through the sensor): both samples read zero on **11.8%** of laden
+ticks at gap 90, because the plane carries diffused value into cells no
+creature can stand in. The fear was wrong by a factor of six.
+
+**24 seeds, paired within seed, one binary, gap 90.** Gaps 140 and 200 ran
+too and cannot discriminate — the shipped arm closes **6** laps and **0**
+laps there — so they are a floor, not a replication.
+
+| | shipped | comparator | paired |
+|---|---|---|---|
+| closed laps, nest → food → nest | 91 | 88 | 10 up / 11 down |
+| ants that reached the food | 199 | 193 | 10 / 11 |
+| cells dropped at the nest | 3,781 | 3,682 | 8 / 15 |
+| cells carried homeward | 9,560 | 9,938 | 12 / 12 |
+| `net cells homeward`, per seed | 500.9 | 500.3 | 13 / 10 |
+
+**Every one a coin flip — and the null is about the mechanism, not the
+wiring.** The switch is provably connected, and moves the reading exactly as
+designed: `MEAN |PheroAAlong|` **0.3603 → 0.3230**, down in 18 of 23 seeds
+(p 0.011), and the trail term into `Move` **−2.218 → −1.922**, up in 17 of 23
+(p 0.035). The animal reads a different number and walks to the same place.
+
+**Why — and this is the part worth keeping.** `tr_cmp` reads the plane, not
+the sensor, so the same row in the two arms asks *how separable is the trail
+these ants actually laid*. Per-seed mean over 24 seeds at gap 90:
+
+| near/far | shipped world | comparator world | paired | p |
+|---|---|---|---|---|
+| 1 / 2 | +0.0075 | **+0.0240** | 19 up / 5 | 0.007 |
+| 1 / 3 | +0.0156 | **+0.0449** | 18 / 6 | 0.023 |
+| 2 / 4 | +0.0165 | **+0.0399** | 18 / 6 | 0.023 |
+| 3 / 6 | +0.0300 | +0.0380 | 12 / 12 | 1.0 |
+| **6 / 12** ← the runtime pair | **+0.0617** | **−0.0160** | 4 / **20** | **0.0015** |
+
+`sensor_offset` is 6, so 6/12 is the pair the ants actually read — and on
+their own world it **goes negative**: the reading points away from home on
+average. The short pairs get *better*. That shape is a tighter local mark with
+no ramp under it.
+
+**The candidate mechanism, and it is a candidate rather than a finding.**
+Nest-band ant-ticks fall **124,560 → 86,252**, median 4,332 → 2,880 — but
+paired it is **9 seeds up against 15 down** (p 0.31), so the direction is
+suggestive and the magnitude rides a handful of seeds. What makes it the
+candidate rather than one of several is that `(AtNest, 4, 0.05)` →
+`(4, EmitA, 32.0)` is channel A's **only** writer in `ant.ron` —
+`(Bias, EmitA, 2.0)` was removed deliberately — so the nest band is the only
+place the long-range ramp gets built at all. **The erosion itself is the
+finding; why it happens is one seed sweep away from being one.**
+
+**So the sizing measurement was valid and inapplicable.** It is `CLAUDE.md`'s
+*a cost that vanishes may be work that vanished* pointing the other way: a
+**benefit** measured on a world the change does not produce. Channel A is laid
+by the same animals that read it, so any repair to *how* they read it is
+measured against a trail it will then change.
+
+**The re-test condition is a different precondition, not a retune.** Give
+channel A a writer that is not the foraging ants — a nest that emits on its
+own, a fixed beacon — and the erosion cannot happen. Do **not** re-test by
+moving the offsets: the short pairs are already better in the comparator world
+and still buy nothing, because what the brain lacks is range, not contrast.
+
+**One thing the attempt established that outlives it: the channel scoping is
+load-bearing.** Applied to *both* trail planes — the reading loop sweeps them
+together, which is `CLAUDE.md`'s *adding a member to a set something sweeps
+enrols it in every rule over that set* arriving as a one-line edit — the
+outbound leg collapses outright: **0 ants reached food in all 24 seeds**,
+against 7–10 of 20 shipped. Units 2/3 read `PheroBAlong` gated on *not*
+carrying food, and an empty ant emits A (from the odometer) but never B, so on
+B the `here` term is somebody else's trail and the subtraction is doing its
+job. The two planes are asymmetric in who laid them, and only A has the animal
+standing on its own mark.
+
+**The speculation contract was the one real cost of building it.** `sense`
+now reads a sixth off-body cell, so `SENSE_RECTS` goes 5 → 6 and
+`sense_read_rects` declares `forward_far` **from the same `trail_sample_point`
+call `sense` uses** rather than restating the geometry. The rect is spent
+whether or not the switch is on, so it cannot go stale against it. A sample
+`sense` reads and the footprint does not declare is a cell a neighbour can
+write without invalidating the speculation — a wrong world, only under
+parallelism, and silent.
+
+Two checks, and they are different claims.
+`the_declared_footprint_contains_the_trail_sensor_cell` now loops both reaches
+and was **proved sensitive the way `CLAUDE.md` asks** — drop `forward_far`
+from the declaration and it goes red on every heading. And
+`antcost par=verify ants=400` runs clean at **`cached%` 37.3**, which is the
+number that says the check was not vacuous: speculation actually happened and
+was verified against a fresh read 37% of the time. The unit guard is the
+sensitivity evidence; `Verify` is the runtime corroboration.
+
+**And a measurement error worth recording, because it is new here.** The first
+pass at these numbers was wrong twice over: the analysis parsed the log *while
+it was still being written*, and `trailfollow` sweeps three commute distances
+(90 / 140 / 200) which the parser silently pooled into one seed key, last write
+wins. It produced a plausible, tidy, entirely different table. The tell was two
+of my own instruments disagreeing on the same file — 189 against 144 for one
+column. **Key a parse on every dimension the harness sweeps, and do not read a
+log until its writer has exited** (`pgrep -x`, never `-f`).
 
 ### Step 2 of the plan: `DEPOSIT_AT=vacated` is not attributable, drop it
 
@@ -421,19 +534,33 @@ wire. **Do not re-test this by raising the gain**: 1.5 / 3.0 / 6.0 all land
 within 6 points of each other on loop completion and none of them makes a
 second lap fit.
 
-### Reproducing the two arms, which changed name when the default did
+### Reproducing the two arms
 
-The archived logs were taken against a binary whose `ant.ron` held **3.0**, so
-they read `homewire=0` (control) against `homewire=shipped` (test). The file now
-holds **0.0**, so the same two arms are **default** (control) against
-**`homewire=3`** (test) — and `homewire=0` now trips the rider's own
-*"already what ant.ron holds"* assertion, which is the assertion doing its job.
+**`ant.ron` holds `(HomeAligned, Move, 3.0)` — the wire ships ON**, so the
+control is `homewire=0` and the test is the default. (An earlier draft of this
+section described the arms the other way round, from the hours when the wire
+was authored at 0.0 pending the loop ruling; `homewire=3` now trips the rider's
+own *"already what `ant.ron` holds"* assertion, which is that assertion doing
+its job.)
 
 ```
 cargo build --release --example trailfollow          # set -o pipefail; ant.ron is include_str!'d
 RAYON_NUM_THREADS=2 ./target/release/examples/trailfollow \
   mode=gap gate=shipped gaps=90 arms=hand seeds=8 seed0=1 ants=20 \
-  frames=24000 relay=60 near=10 food=400 refill=400 stop=6000 trace homewire=3
+  frames=24000 relay=60 near=10 food=400 refill=400 stop=6000 trace homewire=0
+```
+
+**And the comparator's two arms, which are an env switch rather than a rider,
+so one binary serves both.** `gaps=` omitted on purpose: the sweep's own
+90/140/200 is the experiment, and **a parse of the output must be keyed on the
+gap as well as the seed** — pooling them is how the first reading of this run
+came out wrong.
+
+```
+B=./target/release/examples/trailfollow
+C="mode=gap gate=shipped frames=24000 seeds=24 seed0=1 ants=20 relay=60 near=10 food=400 refill=400 stop=6000 trace"
+RAYON_NUM_THREADS=2                              $B $C > shipped.log
+RAYON_NUM_THREADS=2 PIXEL_PHYSICS_TRAIL_READ=fwd $B $C > fwd.log
 ```
 
 ### Data
@@ -448,6 +575,10 @@ RAYON_NUM_THREADS=2 ./target/release/examples/trailfollow \
   arms read `homewire=0` / `homewire=shipped`.
 - `Reports/data/home-wire-response-curve-2026-09-20.log` — the four wiring
   forms through `eval_brain`.
+- `Reports/data/trail-comparator-24seed-2026-09-20-{shipped,fwd}.log` — the
+  comparator's two arms, 24 seeds x 7 bed arms x **3 gaps**. Everything quoted
+  from them in this report is **gap 90 only**; a parse keyed on the seed alone
+  silently pools all three.
 
 ### Also worth knowing
 

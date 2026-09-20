@@ -670,6 +670,31 @@ usually collapsed the complexity — often the very thing being measured. The
 six cases, and why each could not answer, are in
 [`Reports/method-worked-cases-2026-09-05.md`](Reports/method-worked-cases-2026-09-05.md).
 
+### A parse is a measurement, and it inherits every dimension the run swept
+
+The instrument does not have to be the harness. **Keying a parse on fewer
+dimensions than the run varies pools them silently, last write wins**, and the
+result is a complete, plausible, tidy table about nothing. Nothing in the
+output says so: the rows look like rows.
+
+Measured 2026-09-20 on the ant line, and the shape is any swept harness here —
+`seedsweep`'s presets, `filmstrip`'s scenes, `labstats`' beds. A paired
+24-seed comparison was keyed on `(seed, arm)` while `trailfollow` sweeps
+**three commute distances**, so three experiments landed in one dict and the
+answer was whichever finished last. **The same run was also read before its
+writer had exited**, which is the same failure in time rather than in key —
+half the seeds carried one sweep's value and half the next.
+
+**The tell is two of your own instruments disagreeing on one file.** A chart
+script and a stats script over the same log gave 189 and 144 for one column;
+neither number was wrong arithmetically and neither answered the question.
+Nothing else caught it — every per-seed row was individually real.
+
+**So, before believing a parsed table: print the key's cardinality and check
+it against what the run swept** (24 seeds × 3 gaps, not 24 rows), **and wait
+for the writer to exit** — `pgrep -x <exe>`, never `-f`, which matches the
+waiting shell's own command line and hangs forever.
+
 ### When the complaint is visible and persistent, measure the standing state, not the event rate
 
 Attributing film *creation* blamed the

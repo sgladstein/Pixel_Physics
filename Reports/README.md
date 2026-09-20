@@ -3094,6 +3094,23 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   `Reports/data/homewire-loop-2x2-8seed-*-2026-09-20.log`,
   `home-wire-response-curve-2026-09-20.log` and
   `homewire-{24k,100k}-8seed-*-2026-09-20.log`.
+  **ALSO CLOSES §Z29's LAST REPAIR CANDIDATE, added 2026-09-20.** The
+  two-forward-sample comparator — read `PheroAAlong` as `(far - near)` at
+  `so`/`2·so`, channel A only, so neither term is the animal's own mark — is
+  built behind `PIXEL_PHYSICS_TRAIL_READ=fwd` and is a **dead end**
+  (`other:134`). It moves the reading exactly as designed (`MEAN |PheroAAlong|`
+  0.3603 → 0.3230, 18 of 23 seeds, p 0.011) and moves nothing downstream (laps
+  91 → 88, 10 up / 11 down over 24 paired seeds). **Because it erodes the ramp
+  it was sized on**: the 6/12 reading separates **+0.0617 on the shipped world
+  and −0.0160 on its own** (4 up / 20, p 0.0015). The candidate mechanism — the
+  arm spending less ant-time in the nest band, which holds channel A's only
+  writer — is consistent (124,560 → 86,252) but **not established**: paired it
+  is 9 seeds up against 15 down. Generalises past ants — **any repair to how a population reads a
+  field that same population writes is sized against a field it will then
+  change**. Two live findings survive it: the two-sample blindness fear is
+  wrong (11.8%, not ~70%) and scoping to channel A is load-bearing (both planes
+  → 0 ants reach food in all 24 seeds). Data
+  `Reports/data/trail-comparator-24seed-2026-09-20-{shipped,fwd}.log`.
 - [ant-navigation-plan-2026-09-20.md](ant-navigation-plan-2026-09-20.md)
   — **plan, 2026-09-20. `engine`.** The return arm does not work because the
   trail is wired to the wrong decision. An ant makes two separate choices per

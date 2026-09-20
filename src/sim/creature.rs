@@ -5236,32 +5236,67 @@ fn sense(
             // Comparing two cells AHEAD leaves the animal's own mark out of the
             // arithmetic entirely.
             //
-            // **`so` and `2*so`, measured rather than assumed**, over 24 seeds
-            // of laden ticks against four shorter pairs. The quantity that
-            // matters is SEPARATION -- `ant.ron` reads `along` through a
-            // mirrored gated pair (`PheroAAlong` at +6.0 and -6.0 into units
-            // 0/1), so the drive is monotonic in the reading and what steers is
-            // the gap between pointed-home and pointed-away, not the sign:
+            // **MEASURED, AND IT DOES NOT WORK. Off by default, and a dead
+            // end** (`dead-ends.md`, `other:134`). 24 seeds paired within
+            // seed, one binary, gap 90 -- the only commute a colony survives:
+            // closed laps 91 -> 88 (10 seeds up, 11 down), ants that reached
+            // the food 199 -> 193, cells dropped at the nest 3,781 -> 3,682,
+            // cells carried homeward 9,560 -> 9,938. Every one a coin flip.
+            // Gaps 140 and 200 agree and cannot discriminate -- 6 laps and 0
+            // laps respectively across 24 shipped seeds, so they are a floor,
+            // not a replication.
             //
-            //   near/far   blind   home      away      separation
-            //      1/2      7.5%   -0.0432   -0.0508   +0.0076
-            //      1/3      7.2%   -0.0995   -0.1100   +0.0105
-            //      2/4      7.7%   -0.1187   -0.1249   +0.0062
-            //      3/6      8.3%   -0.1711   -0.1909   +0.0198
-            //      6/12    13.1%   -0.1992   -0.3019   +0.1027   <- this
-            //   shipped `(ahead - here)`  -0.2003   -0.2399   +0.0396
+            // **The switch IS connected, which is what makes the null
+            // informative.** It moves the reading exactly as designed:
+            // `MEAN |PheroAAlong|` 0.3603 -> 0.3230 (down in 18 of 23 seeds,
+            // p 0.011) and the trail term into `Move` -2.218 -> -1.922 (up in
+            // 17 of 23, p 0.035). What does not move is `net cells homeward`:
+            // 500.9 against 500.3. The animal reads a different number and
+            // walks to the same place.
             //
-            // **2.6x the shipped separation**, and the fear that killed it in
-            // advance did not survive measurement: §7.47 found the single
-            // sensor lands in sky or rock ~70% of ticks, so a pair needing TWO
-            // landings looked hopeless -- and both samples read zero on only
-            // **13.1%**, because the plane carries diffused value into cells no
-            // creature can stand in.
+            // **Why: it erodes the ramp it was sized on.** `trailfollow`'s
+            // `tr_cmp` reads the plane directly, so the same row in two arms
+            // asks how separable the trail THOSE ants actually laid is. At
+            // gap 90, per-seed mean over 24 seeds:
             //
-            // **Still negative in both bins, and that is not the failure it
-            // looks like** -- see the mirrored pair above. It is also the
-            // honest limit of this repair: it widens the gap the brain reads
-            // and does not make the reading point home.
+            //   near/far   shipped world   comparator world   paired
+            //      1/2        +0.0075          +0.0240        19 up / 5   p 0.007
+            //      1/3        +0.0156          +0.0449        18 up / 6   p 0.023
+            //      2/4        +0.0165          +0.0399        18 up / 6   p 0.023
+            //      3/6        +0.0300          +0.0380        12 / 12     p 1.0
+            //      6/12       +0.0617          -0.0160         4 up / 20  p 0.0015
+            //
+            // The pair the runtime actually reads (`sensor_offset` is 6, so
+            // 6/12) **goes negative on its own world** -- the reading points
+            // away from home on average -- while the SHORT pairs get better.
+            // A tighter local mark and no long-range ramp is what you get from
+            // ants that stop commuting, and the run is **consistent with that
+            // and does not establish it**: nest-band ant-ticks fall 124,560 ->
+            // 86,252 with the median 4,332 -> 2,880, but paired it is 9 seeds
+            // up against 15 down (p 0.31), so the direction is suggestive and
+            // the magnitude is a few seeds. `(AtNest, 4, 0.05)` ->
+            // `(4, EmitA, 32.0)` is channel A's ONLY writer in `ant.ron`
+            // (`(Bias, EmitA, 2.0)` was removed deliberately), so the nest
+            // band is the only place the ramp is built -- which is what makes
+            // this the candidate mechanism rather than one of several.
+            //
+            // **So the sizing measurement was valid and inapplicable**, which
+            // is `CLAUDE.md`'s *a cost that vanishes may be work that
+            // vanished* pointing the other way: a BENEFIT measured on a world
+            // the change does not produce. Any repair that alters how the
+            // animal reads channel A has this shape, because channel A is laid
+            // by the same animals that read it. **The condition on this
+            // rejection:** it depends on the odometer being the ramp's only
+            // writer. Give channel A a writer that is not the foraging ants --
+            // a nest that emits on its own, a fixed beacon -- and the erosion
+            // cannot happen, and this is worth retrying.
+            //
+            // **The precondition it was built on DID hold**, and that part
+            // stands: §7.47's fear that a two-sample reading would be blind
+            // (the single sensor lands in sky or rock ~70% of ticks) is wrong.
+            // Both samples read zero on 11.8% of laden ticks at gap 90,
+            // because the plane carries diffused value into cells no creature
+            // can stand in.
             // **Channel A only, and the scoping is the whole correctness of
             // this.** The defect is *the animal standing on its own freshest
             // deposit*, and the two planes are not symmetric in who laid them:
