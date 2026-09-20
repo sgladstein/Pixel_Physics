@@ -736,6 +736,10 @@ struct Arm {
     /// "is this a repeating loop or a one-off" is exactly the question the
     /// sum hides. Asked by the owner 2026-09-20; nothing in the harness could
     /// answer it before.
+    /// **The foraging loop as a funnel** -- `funnel[n]` is how many ants ever
+    /// reached stage `n` or beyond, so `funnel[0]` is every ant that lived.
+    /// Monotone and per ANT, never per event: see `Track::stage`.
+    funnel: [usize; FUNNEL.len()],
     loopers: usize,
     repeat_loopers: usize,
     max_loops: u32,
@@ -1019,6 +1023,20 @@ impl FillBin {
     }
 }
 
+/// **The stages of the foraging loop, in order.** An ant is booked at the
+/// furthest one it ever reached, so each row is a subset of the one above and
+/// the percentages compose.
+const FUNNEL: [&str; 8] = [
+    "lived",
+    "reached the food",
+    "picked food up out there",
+    "turned for home with it",
+    "got back to the nest still holding it",
+    "PUT IT DOWN there",
+    "went back out again",
+    "reached the food a SECOND time",
+];
+
 #[derive(Default, Clone, Copy)]
 struct Track {
     /// Furthest this ant ever got from the nest, in cells. The excursion
@@ -1100,6 +1118,27 @@ struct Track {
     /// four ants doing one.
     loops_anchor_ok: u32,
     loops_anchor_bad: u32,
+    /// **How far down the foraging loop this ant ever got**, monotone, one
+    /// stage per `FUNNEL` row below. Owner's instruction, 2026-09-20: *"count
+    /// the number of ants that make it to the food, how many of those then go
+    /// pick up the food and return it to the nest, how many of those get all
+    /// the way back and drop it, how many of those start the next loop -- all
+    /// of these should be both counts and percentages. Something that doubles
+    /// from two ants to four sometimes looks really good, but actually still
+    /// 90% of the ants aren't doing anything."**
+    ///
+    /// Monotone so an ant is counted at its high-water mark and cannot be
+    /// double-counted by a later relapse -- which is what every rate in this
+    /// harness that divides events by events gets wrong.
+    stage: u8,
+    /// Distance from the anchor at the moment this ant last picked food up,
+    /// so stage 3 can ask whether it actually TURNED AROUND rather than
+    /// wandering off with a full crop.
+    pickup_dist: i32,
+    /// Crop cells last seen, to tell a delivery from a digestion -- since
+    /// 2026-09-20 the crop also empties by being eaten, so a falling cell
+    /// count is no longer a drop by itself.
+    last_cells: u8,
     picked_up_anchor_ok: u32,
     picked_up_anchor_bad: u32,
 }
@@ -2948,6 +2987,47 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     t.anchor_on_comb_at_pickup = Some(ok);
                     if ok { t.picked_up_anchor_ok += 1 } else { t.picked_up_anchor_bad += 1 }
                 }
+                // **THE FUNNEL, advanced here and nowhere else.** Monotone:
+                // `t.stage = t.stage.max(n)` so an ant is booked at its
+                // high-water mark. See `Track::stage`.
+                let anchor_dist = {
+                    let (anx, any) = s.forage_anchor;
+                    (anx - hx).abs().max((any - hy).abs())
+                };
+                let cells = s.crop.map_or(0, |c| c.cells.min(255) as u8);
+                if at_food {
+                    t.stage = t.stage.max(1);
+                }
+                if carrying_larder && t.outbound {
+                    if t.stage < 2 {
+                        t.pickup_dist = anchor_dist;
+                    }
+                    t.stage = t.stage.max(2);
+                }
+                // Turned for home: half the distance it picked up at, closed
+                // while still holding. A wanderer with a full crop does not
+                // clear this and should not.
+                if carrying_larder && t.stage >= 2 && t.pickup_dist > 4 && anchor_dist * 2 <= t.pickup_dist {
+                    t.stage = t.stage.max(3);
+                }
+                if carrying_larder && at_nest && t.stage >= 2 {
+                    t.stage = t.stage.max(4);
+                }
+                // **A delivery, not a digestion.** Since the crop pays out as
+                // it is chewed, a falling cell count away from the nest is the
+                // ant EATING its cargo; only one inside the nest band is a
+                // drop. Conflating the two is the same shape as counting
+                // nest-loitering pickups as commutes.
+                if cells < t.last_cells && at_nest && t.stage >= 4 {
+                    t.stage = t.stage.max(5);
+                }
+                if t.stage >= 5 && !at_nest {
+                    t.stage = t.stage.max(6);
+                }
+                if t.stage >= 6 && at_food {
+                    t.stage = t.stage.max(7);
+                }
+                t.last_cells = cells;
                 if !carrying_larder {
                     t.laden_since = 0;
                 }
@@ -3506,6 +3586,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         lit_n: live_cells_n,
         reached: tracks.values().filter(|t| t.visited).count(),
         returned: tracks.values().filter(|t| t.trips > 0).count(),
+        funnel: std::array::from_fn(|n| tracks.values().filter(|t| t.stage as usize >= n).count()),
         loopers: tracks.values().filter(|t| t.trips_laden >= 1).count(),
         loops_anchor_ok: tracks.values().map(|t| u64::from(t.loops_anchor_ok)).sum(),
         loops_anchor_bad: tracks.values().map(|t| u64::from(t.loops_anchor_bad)).sum(),
@@ -3835,6 +3916,26 @@ fn main() {
                         100.0 * a.read_away as f64 / a.read_n.max(1) as f64,
                         100.0 * a.lit as f64 / a.lit_n.max(1) as f64, a.a_peak_amt, a.a_peak_cells
                     );
+                    // **THE FUNNEL -- counts AND percentages, per ant, at
+                    // the ant's high-water mark.** Owner's instruction,
+                    // 2026-09-20. Two percentage columns on purpose: `of
+                    // prev` is where ants are LOST, and `of all` is whether
+                    // the colony is doing anything at all. A change that
+                    // doubles a stage looks like a win in the first column
+                    // and can still be 4 ants out of 40 in the second, which
+                    // is the reading that keeps getting missed.
+                    println!("{:>16}THE LOOP, ANT BY ANT:", "");
+                    for (n, name) in FUNNEL.iter().enumerate() {
+                        let c = a.funnel[n];
+                        let prev = if n == 0 { c } else { a.funnel[n - 1] };
+                        let all = a.funnel[0];
+                        println!(
+                            "{:>16}  {n}. {name:<38} {c:>5}   {:>6.1}% of prev   {:>6.1}% of all",
+                            "",
+                            if prev == 0 { 0.0 } else { 100.0 * c as f64 / prev as f64 },
+                            if all == 0 { 0.0 } else { 100.0 * c as f64 / all as f64 },
+                        );
+                    }
                     println!(
                         "{:>16}RETURN LEDGER reached food {:>4} of {:>4} ants | came back {:>4} | trips laden {:>4} empty {:>4} | LOOPERS {:>4} of {:>4} ants ({:>4.1}% of those that reached food), repeat {:>4}, most loops by one ant {:>3}",
                         "", a.reached, a.ants_seen, a.returned, a.trips_laden, a.trips_empty,
