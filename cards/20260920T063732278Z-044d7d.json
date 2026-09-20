@@ -1,0 +1,58 @@
+{
+  "id": "20260920T063732278Z-044d7d",
+  "created": "2026-09-20T06:37:32Z",
+  "board": "ants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/upbeat-shannon-cez0w4",
+    "commit": "8127d051",
+    "agent": null,
+    "session_id": "51c3e26b-8bfd-5ee3-8024-dc14b1e1c9c4",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The return leg: does a laden ant now walk home?",
+  "question": "Orange is an ant carrying food. Does the wire arm read as an animal HEADING somewhere, or just as one stepping more often? And is that worth switching on while it costs the colony its larder?",
+  "context_md": "Each panel is **one ant**, same seed, same bed, x-position over its whole life. The nest is the blue line, the far end of the route is green.\n\n- **A — control**: the wire is present and unread. The ant reaches food and sits at the far end, laden, for its entire life. It never moves toward the nest.\n- **B — home wire on**: `(HomeAligned, Move, 3.0)`. The laden track runs straight down to the nest line and stays there.\n\n**These two panels are n=1 and the lifespans differ** — the control ant died at 192 decisions, the wire ant lived 7,951. The aggregate behind them is not n=1: over 8 seeds and ~500k laden decisions, `P(move)` for an ant pointed at home goes **0.115 → 0.509** while pointed away goes **0.078 → 0.028**, so the two move in opposite directions and this is steering rather than ladenness.\n\n**The catch, and the reason this is a question rather than a result.** Larder intake falls **12,699 → 2,280 J** (six seeds of eight worse), births 6 → 0, and colonies alive at the end fall monotonically as the wire is turned up. Nothing at the nest banks a delivered cell, so walking home is pure energy cost until the granary lands. **It is shipped authored at 0.0** — off, engine unchanged — exactly as `home_bias` is.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — control (wire unread)",
+      "files": [
+        "20260920T063732278Z-044d7d/000-focal-ctrl.png"
+      ],
+      "caption": "reaches food, never leaves it",
+      "meta": {
+        "laden decision ticks": 192,
+        "round trips, 8 seeds": 1,
+        "larder intake J (median)": 12699,
+        "colonies alive of 8": 4,
+        "births (median)": 6
+      },
+      "focus": null
+    },
+    {
+      "label": "B — home wire at 3.0",
+      "files": [
+        "20260920T063732278Z-044d7d/001-focal-wire.png"
+      ],
+      "caption": "laden track runs to the nest line",
+      "meta": {
+        "laden decision ticks": 3486,
+        "round trips, 8 seeds": 3,
+        "larder intake J (median)": 2280,
+        "colonies alive of 8": 3,
+        "births (median)": 0
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
