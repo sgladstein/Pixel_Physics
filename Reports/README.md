@@ -3038,10 +3038,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   `tumble`, gated on `CreatureDef::home_bias`, which no species authors.
   **Measured 2026-09-20, 36 seeds, paired within seed: `carry->nest` (signed
   cells homeward) 123 → 254.5 at **34/2/0**, and round trips — the exact column
-  §7.47 was null on — median 1 → 2 at 21/9/6.** But **larder intake does not
-  follow**: `ate J` 8,367 → 7,098, *worse* in 21 of 36, and `carry@nest` a
-  coin flip at 18/18/0. So the return arm improves and the loop still does not
-  close, which is the finding. (A first version of this report led on
+  §7.47 was null on — median 1 → 2 at 21/9/6.** **Larder intake falls with it** —
+  `ate J` 8,367 → 7,098, worse in 21 of 36 — and that is **the bill the
+  record predicted**: *"trips up, intake down on a hungry bed, until a granary
+  makes a delivery worth something"*. An ant carrying food into a nest measured
+  at *ten cells in transit, resident 0* must show intake down. So the granary
+  is the stage **after**, on this repo's own writer/reader rule: built before
+  the carrier it is a reader with no writer, which `dead-ends.md` records this
+  project hitting three times. (A first version of this report led on
   `DELIVERED` and was corrected within the hour: that counter increments on
   any drop at the nest, so a change driving laden ants there inflates it by
   construction — `CLAUDE.md`'s worst-recurring failure, in a plan citing it.)

@@ -302,12 +302,20 @@ counter `dead-ends.md` `[other:128]` names as the return leg's test. `reached
 food` falls (13/20/3, 11/24/1) — unsurprising, the ants are going home instead
 of searching.
 
-> **So the return arm improves and the loop still does not close.** An ant
-> that walks home is not an ant that feeds the colony, and the gap between
-> those two sentences is now the whole problem. Three candidates, none yet
-> tested: the returning ants are not carrying larder food; they carry it but
-> drop it somewhere that does not book; or the lost search time costs more
-> food than the improved return recovers.
+> **So the return arm improves, and the intake it costs is the bill this was
+> predicted to carry.** The research review wrote it before the run: *"trips
+> up, intake down on a hungry bed, **until a granary makes a delivery worth
+> something**"* (§3 item 4). An ant carrying food home instead of eating it at
+> the larder, into a nest `larder_probe` measures at *ten cells in transit,
+> resident 0*, **must** show intake down — that is the mechanic working and
+> the world not yet catching it.
+>
+> **Which is why the granary is Stage 6 and not Stage 0.** A granary built
+> before this is a reader with no writer, the failure `dead-ends.md` records
+> three times. `home_bias` is the writer. A prediction landing is also
+> evidence the model is right: this is the second time on this line that the
+> record called a result in advance, and `CLAUDE.md`'s tidiness rule cuts in
+> favour of a messy predicted outcome over a clean unexpected one.
 
 **4. The founding cost is real at 1.0 and marginal at 0.5.** `born` 3.5 → 2.0
 (12/20/4, p ≈ 0.18) and → 0.0 (5/23/8, p ≈ 0.0005).
@@ -350,26 +358,37 @@ and leaves only the value open.**
   trade showed up only there, and §4b is one bed.
 - **Outcome** `DELIVERED` and `carry->nest`, paired within seed, with `born`
   and `alive` in the same table.
-- **The bar, pre-registered, and it is now two-sided.** §4b changed what this
-  stage has to clear: the largest value whose `born` sign test is not
-  significantly worse **and whose `ate J` is not worse than baseline**. On the
-  data in §4b **no value clears the second half** — 0.5 reads 15/21/0 on
-  intake — so *Stage 1 does not ship yet*. It ships when Stage 1b below finds
-  where the food goes, or when a lower `home_bias` takes the return leg
-  without the intake cost.
+- **The bar, pre-registered: `came back` and `carry->nest` up, `born` the cost
+  to minimise.** The value that buys the most return leg for the least
+  founding cost.
+- **`ate J` is NOT a bar on this stage, and an earlier revision of this
+  document wrongly made it one.** That version required intake not to fall,
+  which asks the return leg to pay for a granary that does not exist —
+  inverting the loop's own order. Ants that carry food home instead of eating
+  it at the larder, into a nest measured at *"ten cells in transit, resident
+  0"*, **must** show intake down; that is the mechanic working and the world
+  not yet catching it, and §5 is where it gets caught. Record `ate J`, do not
+  gate on it.
 - **Never read `DELIVERED`** for this or anything else on this line. Read
   `ate J`, `came back` and `carry->nest`. The first version of this plan led
-  on `DELIVERED` and was wrong within the hour.
+  on `DELIVERED` and was wrong within the hour — **that withdrawal stands and
+  is unrelated to the bar above**: one was a counter measuring the wrong
+  thing, the other a correct counter used as the wrong gate.
 - Add the **lab dial** and the **`wiki/ants.md` line**, both of which the
   review flags as missing, and a **README status section** before calling it
   done.
 
-### Stage 1b — Where does the food go? (new, and it now blocks Stage 1)
+### Stage 1b — Confirm where the food goes (one run, does not block)
 
 §4b's finding is that **an ant that walks home is not an ant that feeds the
 colony**: `carry->nest` doubles at 34/2/0 while `ate J` falls at 15/21/0 and
-`carry@nest` is a coin flip. Three candidates, and they want different fixes,
-so they must be separated before anything ships:
+`carry@nest` is a coin flip.
+
+**The answer is predicted, so this is a confirmation and not a hunt.** The
+research review wrote it down before the run: *"trips up, intake down on a
+hungry bed, until a granary makes a delivery worth something"* (§3 item 4).
+The run below checks the predicted cause and gives §5 its baseline; nothing
+waits on it. Three candidates, in the order they are likely:
 
 1. **The returning ants are not carrying larder food.** `Carrying` is
    `crop_fill.max(spoil ? 1.0 : 0.0)` and `home_bias` is keyed on *crop fill*
@@ -387,7 +406,7 @@ so they must be separated before anything ships:
    however well they navigate — and that would make this a **scene** finding,
    not a navigation one.
 
-The discriminator for (3) is free and should run first: split `ate J` by
+The discriminator is free and is the whole of this stage: split `ate J` by
 **where it was eaten**, at the larder against inside the nest band. The
 harness already books by material; this needs the position.
 
@@ -464,6 +483,36 @@ This is also the defence against the failure §7.49 records: a per-tick trace
 has no denominator to get wrong.
 
 ---
+
+### Stage 6 — Then the granary, and not before it
+
+**The loop is discovery → return → recruitment → granary, and the granary is
+the last stage for a reason that is this repo's own rule rather than a
+preference.** *A channel needs a writer and a reader, and the compiler checks
+neither* — a field written and never read is dead weight; one **read and never
+written is worse, because every consumer of it is dead code that looks
+alive.** `dead-ends.md` records this project hitting that three times: light
+with no writer, canopy density with an always-zero reader, pressure with no
+liquid consumer.
+
+A granary built today is **a reader with no writer**. `larder_probe` measured
+the nest at *ten cells in transit, resident 0* — nothing arrives and stays,
+because until stages 1–3 nothing reliably arrives at all. Build the store
+first and it is a fourth entry in that list; build the carrier first and the
+store has something to catch on its first frame.
+
+So this stage **inverts §4b's cost into the thing that pays for itself**: the
+intake `home_bias` spends on transport is intake the colony gets back once a
+delivery is worth something. That is why §4b's `ate J` column is recorded and
+not gated on.
+
+Out of scope here beyond naming it — the nest needs a store a delivery lands
+in, that persists, that the colony can draw on when hungry, and that a player
+can see, rob and lose. `nest-biology-2026-09-19.md` finding 7 is the standing
+argument for one, and `ant-sim-research-review-2026-09-19.md` §2.3 has the
+biology (repletes are the crop; seed caching is half there). **It gets its own
+plan, and it now has a writer feeding it.**
+
 
 ## 6. Risks, and the re-derivation budget
 
