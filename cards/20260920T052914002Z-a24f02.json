@@ -1,0 +1,37 @@
+{
+  "id": "20260920T052914002Z-a24f02",
+  "created": "2026-09-20T05:29:14Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/adoring-bohr-yynn7j",
+    "commit": "3e5f7cfc",
+    "agent": null,
+    "session_id": "07d08e77-4571-5952-9cee-27cb033fb80b",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Is this the \"one giant hole\", or a sprawl of 2-cell scratches?",
+  "question": "You said they dig one giant hole right now. The new chamber census disagrees and I want your eye on which reading is right, because the two need opposite fixes. It says nothing anywhere in this nest is more than 2 cells across -- no 8-cell square fits anywhere in it, at ants=40, 150, 300 or 600. So it reads as a scratch network sprawled across 150 columns rather than a cavern. Looking at it: is the problem that it is too WIDE and merged (stop it merging), or that it is too THIN everywhere (make it dig wider)?",
+  "context_md": "Your spec, 2026-09-20: passage ~4 cells across, chambers 8-16 tall, wider than tall, 2-4x contrast.\n\nNew `digbox` column scores exactly that -- a distance transform over the room, so a chamber is somewhere an 8-cell square fits. Proven on three carved beds: a target nest reads 2 chambers / 12h x 32w / contrast 3.0x, one 120x14 hole reads 1 chamber 120 wide, and 2-cell galleries read 0 chambers.\n\nPointed at the real colony it reads **0 chambers, passage bore 2** at every colony size.\n\nSame column on the founding shaft from PR #482: its entrance chamber is carved two rows tall (`for dy in 0..2`) and up to 25 long -- the exact shape you just ruled unreadable. Shaft is 2 wide against your 4.\n\n7 stops top to bottom, 12,000 frames, 300 ants, no food in the box.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260920T052914002Z-a24f02/000-today.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
