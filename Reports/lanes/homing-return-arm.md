@@ -276,3 +276,29 @@ was overstated.
 8. **C-sensory is therefore closed**, and the remaining half of option C is
    **C-omniscient** — aim at `world.nearest_nest_site()`, telling the ant
    something it cannot smell. Still owner's call, still undiscussed.
+
+9. **THE RETURN LEG IS NOT WHERE THE LOOP IS LOST, and the funnel says so.**
+   `trailfollow` now books every ant at the furthest stage it reached and
+   prints counts and percentages (`FUNNEL`, `Track::stage`; method in
+   `.claude/skills/funnel/SKILL.md`). Of 573 ants: 303 reach the food, 87 put
+   food down at the nest, **8 reach the food a second time**. The two biggest
+   leaks are **52% who never reach the food at all** and **18% who deliver,
+   walk back out and never find it again** — 70% of the colony, one mechanism:
+   `PheroBFront` reads **exactly 0.00000** tick after tick while `P(move)` is a
+   healthy 0.34–0.69. The food trail is in the world and the nose is not
+   finding it. **Nobody has worked on channel B's readability and it is larger
+   than everything this lane has done.**
+
+10. **The graded crop shipped and answers the starvation question**: deaths
+    holding food **25% → 1%**. Behind `PIXEL_PHYSICS_DIGEST=lump`. It moves
+    stage 1 (198 → 264 reach food) and does **not** move the walk home; the
+    `PheroARise` sensor moves the walk home (82 → 106) and nothing else does.
+    **Read either alone and it is a null.** That is the standing warning for
+    this lane: a fix gated behind a different broken stage measures as inert.
+
+11. **Open defect in `PheroARise`, found by per-tick trace, not yet repaired.**
+    A stopped ant's trail decays under it, reads as falling, and `arise=3`
+    puts that onto `Move` — a freeze latch. 9 of 78 laden ants frozen >90% of
+    their laden ticks; frozen ticks read +0.076 against +0.188 moving, so it
+    is a tail rather than the median. Do not author the wire into `ant.ron`
+    until this is settled.

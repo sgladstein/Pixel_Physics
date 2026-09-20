@@ -35,6 +35,7 @@ stands whatever is decided about shipping it.
 - [The cue beside the nest exists, and the nose cannot see it](#the-cue-beside-the-nest-exists-and-the-nose-cannot-see-it)
 - [The sensor repair erodes the trail — dead end](#the-sensor-repair-works-on-the-reading-and-erodes-the-trail--dead-end)
 - [Step 2: `vacated` is not attributable](#step-2-of-the-plan-deposit_atvacated-is-not-attributable-drop-it)
+- [The loop as a funnel — 70% lost to one thing](#the-loop-as-a-funnel--and-70-of-the-colony-is-lost-to-one-thing)
 - [What shipped, and what is open](#what-shipped-and-what-is-open)
 - [Reproducing the two arms](#reproducing-the-two-arms)
 
@@ -514,6 +515,88 @@ for. **Alone** it moves loop completion 6.8% → 10.4%, paired **3/4/1** — a c
 flip. **On top of the wire** it moves 28.1% → 28.8%, which is nothing. The wire
 carries the whole result and `vacated` is not a component of it. It stays behind
 its env switch, off.
+
+### The loop as a funnel — and 70% of the colony is lost to one thing
+
+**Owner's instruction, 2026-09-20**, after two headline numbers in this report
+turned out to be measuring churn: *count the ants through every stage, as
+counts AND percentages, because something that doubles from two to four looks
+good while 90% of the colony still does nothing.* The instrument is
+`trailfollow`'s `FUNNEL`/`Track::stage`; the method is
+`.claude/skills/funnel/SKILL.md`.
+
+24 seeds, gap 90, `arms=hand`, three arms off one binary:
+
+| | lump | graded crop | graded + sensor |
+|---|---|---|---|
+| lived | 483 | 533 | 573 |
+| reached the food | 198 · 41% | 264 · 50% | 303 · 53% |
+| picked it up out there | 178 · 37% | 228 · 43% | 248 · 43% |
+| turned for home with it | 146 · 30% | 157 · 29% | 160 · 28% |
+| got back still holding it | 82 · 17% | 82 · 15% | **106 · 18%** |
+| **put it down** | 65 · 13% | 67 · 13% | **87 · 15%** |
+| went back out | 52 · 11% | 48 · 9% | 71 · 12% |
+| reached the food a **second** time | 6 · 1% | 8 · 2% | 8 · 1% |
+
+**It corrects a headline this report would otherwise have carried.** Closed
+laps on the harness's generous ±26 band read **88 → 144, p 0.0002**, and
+`drops` reads 4,159 → 11,939. Per ant, deliveries are **65 → 87** — real, a
+third better, and not the 1.6–2.9x those columns suggest. The colony also
+grew, so as a share of ants that lived it is 13% → 15%.
+
+**The two changes fix different stages, which is why neither was a win alone.**
+The graded crop moves stage 1 (198 → 264 reach the food at all; energy eaten
+5.4x) and does **not** move the walk home — 82 in both arms. The sensor moves
+the walk home, 82 → 106, and is the only thing that does. Read separately each
+is a null or a modest effect; read on the funnel they are complements.
+
+#### Where they are actually lost, read off the ants' own decisions
+
+160 ants traced tick by tick over 8 seeds, on the shipped arm. Empty-tick
+columns are the walk out, laden-tick columns the walk home:
+
+| stopped at | ants | `PheroBFront` (empty) | laden `P(move)>0` | energy at death |
+|---|---|---|---|---|
+| never reached the food | 84 · 52% | **0.00040** | — | 0.001 |
+| reached it, never picked up | 13 · 8% | 0.02257 | 13% | 0.001 |
+| picked up, never turned home | 4 · 2% | 0.00691 | **19%** | 0.002 |
+| turned home, never got back | 21 · 13% | 0.01755 | 51% | 0.001 |
+| got back holding, never dropped | 6 · 4% | 0.01018 | 59% | 0.001 |
+| dropped, never went out again | 3 · 2% | 0.00182 | 24% | **1.000** |
+| went out, never found food again | 28 · 18% | **0.00072** | 29% | 0.002 |
+
+**The two biggest leaks are one mechanism, and it is not the return leg.**
+Stage 0→1 and stage 6→7 together are **70% of every ant**, and both read the
+food trail at essentially zero: ants that ever reached the food read
+**0.00800**, ants that never did read **0.00040** — twenty times less. Read
+per tick it is starker than a mean: `PheroBFront` prints **exactly 0.00000**
+tick after tick while `P(move)` sits at a healthy 0.34–0.69. They are not
+ignoring the trail and they are not frozen; there is nothing at the nose to
+read, so run-and-tumble is a plain random walk. Ant 8 of seed 4 spent all
+24,000 frames never getting more than **six cells** from home.
+
+**"The loop does not repeat" was read all session as ants dying on the way
+home. It is mostly ants that got home fine and could not find the larder
+again.** Of 71 that delivered and went back out, eight reached food a second
+time.
+
+**And the answer to the question the graded crop was built for: they no longer
+starve holding food.** Deaths with food in the crop go **57 of 228 (25%) on
+the lump payout to 2 of 142 (1%)**. The failure moved rather than vanished —
+the stage-3 ants now die with an *empty* crop, energy sliding to 0.002 with
+`P(move)` at 0.66. They eat the cargo, which keeps them alive longer, and run
+out anyway.
+
+**One defect in the sensor, found the same way.** Ant 8 of seed 1, laden and
+pointed home at `HomeAligned` 0.741, reads `PheroARise` −0.39 → −0.51 and
+`P(move)` **exactly 0.0000 for seven consecutive ticks**. A stopped ant's
+trail decays under it, which reads as falling, which `arise=3` puts onto
+`Move`, which keeps it stopped — a latch. Across the population it is **9 of
+78 laden ants frozen for over 90% of their laden ticks**, and frozen ticks
+read +0.076 against +0.188 moving, so it is a tail rather than the median.
+Recorded, not yet repaired.
+
+**Data:** `Reports/data/loop-funnel-24seed-2026-09-20-{lump,graded,both}.log`.
 
 ### What shipped, and what is open
 
