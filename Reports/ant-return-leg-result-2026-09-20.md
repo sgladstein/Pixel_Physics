@@ -31,6 +31,8 @@ stands whatever is decided about shipping it.
 - [Yes, the ant eats its cargo on the way home](#yes-the-ant-eats-its-cargo-on-the-way-home--and-that-is-the-whole-economy)
 - [Where the loop is actually lost](#where-the-loop-is-actually-lost--and-it-is-not-the-anchor)
 - [Why they do not drop — read off the brains](#why-they-do-not-drop--read-off-the-brains-186067-laden-ant-ticks)
+- [`AtNest` is not a drop gate](#atnest-is-not-a-drop-gate--it-is-the-colonys-whole-sense-of-home)
+- [The cue beside the nest exists, and the nose cannot see it](#the-cue-beside-the-nest-exists-and-the-nose-cannot-see-it)
 - [Step 2: `vacated` is not attributable](#step-2-of-the-plan-deposit_atvacated-is-not-attributable-drop-it)
 - [What shipped, and what is open](#what-shipped-and-what-is-open)
 - [Reproducing the two arms](#reproducing-the-two-arms-which-changed-name-when-the-default-did)
@@ -276,6 +278,121 @@ two or three cells, cannot do that: it is only non-zero where the ant has
 already arrived. §Z28's numbers do not cover it and do not forbid it. **Measure
 it before building it** — the 17,322 ticks in row two are the population it
 would convert, and that is a bounded, checkable prediction.
+
+### `AtNest` is not a drop gate — it is the colony's whole sense of home
+
+**This is the finding that decides the option space, and it was measured by an
+oracle rather than argued.** The drop census said laden ants are almost never
+adjacent to the comb, which reads as *the target is too small*. So: widen it.
+`PIXEL_PHYSICS_NEST_REACH=r<N>` makes nest material count within N Chebyshev
+cells instead of the shipped 8-neighbourhood. 24 seeds, paired within seed:
+
+| reach | median loop rate | drops | paired vs shipped |
+|---|---|---|---|
+| **r1 (shipped)** | **34.8%** | **743** | base |
+| r3 | 26.1% | 8 | 11/11/2 |
+| r8 | **0.0%** | **0** | **1/23/0** |
+
+**Widening the target takes deliveries to zero.** Not worse — *zero*, in 23 of
+24 seeds.
+
+**The mechanism, and the engine states it in its own comment.** `AtNest` drives
+**five wires across four verbs** in `ant.ron`: `Drop` (1.0889), `DropSpoil`
+(0.9), the `Crowding`->`Dig` gate through units 5/6 (30.0), and — the one that
+matters — `(AtNest, 4, 0.05)` into a unit with recurrence `0.99995` whose output
+is `(4, EmitA, 32.0)`. That is the **nest-charged odometer**, and `creature.rs`
+says what it is for: *"Touching the nest resets the scent clock, which is what
+makes channel A a gradient rather than a uniform smear."*
+
+Widen `AtNest` and the odometer charges over a wide region, so the homing trail
+stops being a ramp. **Measured directly** — the ants' own channel A, sampled at
+five points nest->food:
+
+| arm | profile | peak route cells |
+|---|---|---|
+| shipped | `[0, 4875, 0, 0, 0]` — a localised mark | 43.5 |
+| r8 | `[4045, 9582, 3290, 13, 0]` — smeared over three | 32.5 |
+
+**So the fix defeats itself through the navigation it depends on**: a wider door
+destroys the gradient that brings ants to the door. That kills the
+widen-the-target family outright, and for a better reason than §Z28's — §Z28 is
+about dropping short of home, this is about not finding home at all.
+
+**It also indicts the body-reach repair.** `nest_within_reach` widens `AtNest`
+too, by one body cell rather than eight — the same defect in miniature, and the
+likely reason its drops fell **743 -> 451**. It fires (the 2-cell bucket goes
+`P(drop)` 0.0000 -> 0.0040/0.1140, so the mechanism is connected) and the loop
+does not move: **12/11/1**. It ships **off**, behind
+`PIXEL_PHYSICS_NEST_REACH=body`.
+
+**And it is structurally incapable of fixing the miss it was built for.**
+Measured on the focal ant's 253 real steps, **72.3% are purely horizontal**, so
+the trailing body cell sits at the *same height* as the head. The body extends
+backwards along the path, not downwards — for a vertical miss the tail is two
+rows up as well.
+
+**What a valid repair now has to look like.** It must move `Drop` **without
+touching `AtNest`**, because `AtNest` is load-bearing for the trail gradient.
+That means a separate sense — a `Drop`-only input meaning *nest material is
+near* — or changing the geometry so the shipped radius-1 test succeeds more
+often, rather than changing what "at the nest" means for the whole animal.
+
+**One trap removed on the way.** `adjacent_nest`'s site branch
+(`PIXEL_PHYSICS_NEST_SITE_ROWS/_COLS`) looks like the ready-made widening and
+**cannot answer this question**: it measures its rows from `NestSite::surface`,
+which is `colony_surface` at the site's **centre column only**, while the comb
+follows the ground across all 53 columns. On terrain that is not flat it
+therefore *excludes* most of the comb — drops **743 -> 11** at `ROWS=2,
+COLS=26`. That is a defect in the switch, not a verdict on widening.
+
+### The cue beside the nest exists, and the nose cannot see it
+
+**The question option C turns on.** Two-phase homing — run the path-integration
+vector far out, close the last cells on a sensory cue — is what a real ant does
+and it needs no omniscience, but only if the cue is both *there* and *readable*.
+§Z29 established a laden ant cannot read channel A **on the route**; whether
+that also holds **beside the comb**, where the nest's own odometer emission is
+strongest and the ant's mark is one tick old, had never been asked.
+
+24 seeds, 60,654 laden ticks at a 2–4 cell miss:
+
+| | |
+|---|---|
+| mean channel A one step **toward** the comb | **4,785.5** |
+| mean channel A one step **away** | 4,172.7 |
+| toward is stronger on | **62.8%** of ticks |
+| the two are equal on | 0.1% |
+
+**The signal is there.** 62.8% against a 50% null, on a 15% magnitude
+difference, with the equal-rate at 0.1% so the plane is not degenerate — that
+is a usable gradient beside the nest.
+
+| the ant's own `PheroAAlong` at the same ticks | |
+|---|---|
+| pointed **at** the comb | **−0.3437** |
+| pointed **away** | −0.3852 |
+
+**And the nose cannot see it.** Both strongly negative, separated by **0.0415**
+— the same order as the −0.20/−0.24 gap §Z29 measured on the route, and for the
+same reason: `here` is the animal's own freshest deposit, so `(ahead − here)` is
+negative whichever way it faces. The defect does not weaken near the nest.
+
+**So C splits, and the sensory half is the one worth having.**
+
+- **C-omniscient** — aim at `world.nearest_nest_site()`. Works, and buys the fix
+  by telling the ant something it cannot sense.
+- **C-sensory** — climb the gradient. The gradient is real (62.8%) and the
+  *current reader* is blind to it. It is not available today and it is not far
+  away: **§Z29 already named the repair and nobody built it** — its third
+  candidate, *"compare two forward samples (`so` and `2·so`) so neither term
+  carries the animal's own mark"*. That removes `here` from the reading
+  entirely, which is the whole defect.
+
+**That reorders the work.** C-sensory is gated on a sensor repair that is
+already specified, cheap, and independently worth having — it would fix the
+route reading as well as the doorstep one. Building the two-forward-sample
+comparator is the prerequisite, and it is a better next step than either half of
+C, because it is the thing both halves of the homing problem are waiting on.
 
 ### Step 2 of the plan: `DEPOSIT_AT=vacated` is not attributable, drop it
 

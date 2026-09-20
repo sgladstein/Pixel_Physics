@@ -1,0 +1,1762 @@
+  diet: larder=fruit onlyfood=on
+  odometer A: recur=shipped emita=shipped biasa=shipped   odometer B: charb=shipped recurb=shipped emitb=shipped biasb=shipped carryb=shipped
+trailfollow: mode=gap gate=shipped frames=24000 seeds=24 seed0=1 ants=20 relay=60 near=10 food=400 refill=400 stop=6000 homebias=shipped cropcap=shipped hungergate=shipped arho=shipped brho=shipped adiffuse=shipped tcomp=shipped tumble=shipped persist=shipped tumblegrad=shipped homewire=shipped
+  gate shipped: off -45.0  on +0.5  along ±6.0
+  landed 2026-09-09: units 0/1 = b2 (off -45, on +0.5, along 6); units 2/3 = saturated (off -45, on +30, along 6). See open-bugs-handoff.md Z7.
+
+  gap seed   arm     alive     ate J  arrive@    dead@    carry    @nest  visitors  trips reach 0-25-50-75-100
+----- ---- ----- --------- --------- -------- -------- -------- -------- --------- ------ ------------------
+    TRACE laden ants: n 32184  mean PheroAAlong -0.31254  MEAN |PheroAAlong| 0.33566  mean P(move) 0.1313  mean trail term (h0+h1 -> Move) -2.70334  net cells homeward 512 (+0.015909/tick)
+    TRACE laden TICKS by what the sensor cell is -- the geometry test  [6.00 frames/tick, must equal tick_interval]:
+      air (nose in open sky)             n     2803 ( 52.3% of ticks)   mean along -0.3160   usable (>= +0.02)   4.1%   frozen  83.6%
+      solid (nose in ground)             n     1374 ( 25.6% of ticks)   mean along -0.3867   usable (>= +0.02)   1.7%   frozen  79.1%
+      surface (a trail could be here)    n     1187 ( 22.1% of ticks)   mean along -0.2184   usable (>= +0.02)  20.3%   frozen  63.9%
+      => of 4190 FROZEN laden ticks (P(move) exactly 0), 82% had the nose in sky or ground
+    TRACE freeze runs: n 283   median 5 ticks   p90 28   longest 386
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     2430   P(move) 0.7885   not resting   95.6%   P(move)|>0 0.8252   cells homeward      235 (+0.096708/tick)
+      facing DOWN-gradient   n    29130   P(move) 0.0694   not resting   14.8%   P(move)|>0 0.4696   cells homeward      242 (+0.008308/tick)
+      no readable gradient   n      624   P(move) 0.4615   not resting   67.3%   P(move)|>0 0.6856   cells homeward       35 (+0.056090/tick)
+      => P(move) up-gradient minus down-gradient: +0.7192  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]156 [-0.67]4518 [-0.44]10038 [-0.22]13224 [+0.00]3144 [+0.22]840 [+0.44]174 [+0.67]78 [+0.89]12
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 32184 of 32184 laden decisions (100.00%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     2430   P(move) 0.7885   not resting   95.6%   P(move)|>0 0.8252   cells homeward      235 (+0.096708/tick)
+        facing DOWN-gradient n    29130   P(move) 0.0694   not resting   14.8%   P(move)|>0 0.4696   cells homeward      242 (+0.008308/tick)
+      => with the gate open, P(move) up minus down: +0.7192; cells homeward up minus down: +0.088400/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 32184 gate-open decisions, 1548 (4.8%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n    32184   P(move) 0.1313   not resting   21.9%   P(move)|>0 0.5997   cells homeward      512 (+0.015909/tick)
+      gate SHUT              n 0
+    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:
+       nearest nest material  laden ticks   % of laden  P(drop)      drops
+                     4 cells          186         0.6%   0.4886          0
+                     8 cells         3342        10.4%   0.4994        111
+                    16 cells         4818        15.0%   0.0000          3
+                    32 cells        11298        35.1%   0.0415         21
+              further / none        12540        39.0%   0.0000          0
+    TRACE ...and when it misses by 2-4 cells, is the miss SIDEWAYS or UPWARD? (rows = |dx|, cols = |dy|)
+                  |dy|=0         1         2         3        4+
+        |dx|=4      0.0%      0.0%      0.0%      0.0%    100.0%
+      MISSED ONLY UPWARD (|dx|<=1, |dy|>=2) -- standing on the doorstep, head too high: 0.0%
+      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at
+      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never
+      REACH the comb, and a large one with few drops would mean they reach it and decline.
+    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:
+      heading vs home          n  mean along % positive   P(move)
+        -1.0..-0.6      11388     -0.3966       2.9%    0.0090
+        -0.6..-0.2       3750     -0.2769       0.0%    0.0007
+        -0.2..+0.2       4728     -0.3628       0.3%    0.0118
+        +0.2..+0.6        846     -0.2589       0.0%    0.1225
+        +0.6..+1.0       6804     -0.1738      30.3%    0.5732   <- POINTED AT HOME: this row is the answer
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.9-1.0      32184    0.1313    0.0173    0.0014     +0.015909   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      h2               -2.34203   (live in 34722 of 32184)
+      h3               +2.15009   (live in 34722 of 32184)
+      Bias             +2.00000   (live in 34722 of 32184)
+      h1               -1.28287   (live in 34722 of 32184)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      h0               -1.22310   (live in 34722 of 32184)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Energy           -0.85522   (live in 34722 of 32184)
+      KinNeed          +0.57720   (live in 34722 of 32184)
+      HomeAligned      -0.45761   (live in 34722 of 32184)
+      Stillness        +0.19855   (live in 34722 of 32184)
+      Crowding         -0.16982   (live in 34722 of 32184)
+      FoodAdjacent     -0.08272   (live in 34722 of 32184)
+      Alarm            +0.00000   (live in 34722 of 32184)
+    TRACE focal ant: 7038 decisions written to /tmp/trailfollow-focal-seed1-gap90.csv
+   90    1  hand    0/0         3648      804    16674    32184      186   10/20        4         5 0 3 12 0
+                A READ  ant-readable homeward along >= 0.02 on  60.2% of route-cell samples | FOODWARD  22.8% | plane lit on  82.5% | peak amt  44591 cells  88
+                RETURN LEDGER reached food   10 of   20 ants | came back    4 | trips laden    0 empty    4 | LOOPERS    0 of   20 ants ( 0.0% of those that reached food), repeat    0, most loops by one ant   0
+                BY ANCHOR AT PICKUP  anchor ON nest material:    0 loops /    0 pickups (  0.0%) | anchor OFF it:    0 /  129 (  0.0%)
+                BY BIRTH SITE  born ON comb:   0 of   6 that reached food looped (  0.0%) | born OFF comb:   0 of   4 (  0.0%)
+                LEGS legs[6067,7015,11929,9343] laden[]
+                founded x   12..88   (nest cursor 48 MATERIAL x 26..70 11 of 20 founders born on it; food 138; nearest founder 50 cells out, farthest 126, nominal gap 90)  occupancy/1k [28 7 40 60 37 11 8 5]  carry->nest     512  born    0 died   20 (starved   20)
+                own trail: route pk   36 end    0 along +0.0000  B nest->food [89,3092,6650,9663,8291]  blocked      402  kin swaps       0  ticks     33441  tumbles     13719 (homeward        0, 0.00%)  drops     311  chew parked    191 resumed    184 (    88579 J)  DELIVERED   311  leg home n    4 med  9343 p90 11929 (laden n    0 med     0 p90     0)  appetite held         0 J of     15360  trips born-on-comb    2 (11 ants) / born-off    2 (9 ants)
+                channel A: PEAK amt  44591 cells   88 (of 91 route)  POLARITY|| +0.12961 && +0.12071 SPAN +0.02995 edge   5.5  end nest->food [4045,9582,3290,13,0]  nest   25  AtNest 27.71%
+                Carrying: laden     44004  of which SPOIL     13368 ( 30.4%)
+    TRACE laden ants: n 25650  mean PheroAAlong -0.25117  MEAN |PheroAAlong| 0.29935  mean P(move) 0.1627  mean trail term (h0+h1 -> Move) -2.09117  net cells homeward 393 (+0.015322/tick)
+    TRACE laden TICKS by what the sensor cell is -- the geometry test  [6.01 frames/tick, must equal tick_interval]:
+      air (nose in open sky)             n     1499 ( 35.1% of ticks)   mean along -0.3407   usable (>= +0.02)   9.2%   frozen  77.2%
+      solid (nose in ground)             n     1088 ( 25.5% of ticks)   mean along -0.3459   usable (>= +0.02)   2.8%   frozen  86.8%
+      surface (a trail could be here)    n     1684 ( 39.4% of ticks)   mean along -0.1103   usable (>= +0.02)  25.6%   frozen  53.6%
+      => of 3004 FROZEN laden ticks (P(move) exactly 0), 70% had the nose in sky or ground
+    TRACE freeze runs: n 336   median 4 ticks   p90 18   longest 156
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     4194   P(move) 0.4891   not resting   73.0%   P(move)|>0 0.6703   cells homeward      217 (+0.051741/tick)
+      facing DOWN-gradient   n    21096   P(move) 0.0975   not resting   20.8%   P(move)|>0 0.4675   cells homeward      173 (+0.008201/tick)
+      no readable gradient   n      360   P(move) 0.1809   not resting   43.3%   P(move)|>0 0.4174   cells homeward        3 (+0.008333/tick)
+      => P(move) up-gradient minus down-gradient: +0.3916  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]390 [-0.67]3180 [-0.44]6450 [-0.22]7434 [+0.00]6252 [+0.22]1410 [+0.44]354 [+0.67]180 [+0.89]0
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 25650 of 25650 laden decisions (100.00%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     4194   P(move) 0.4891   not resting   73.0%   P(move)|>0 0.6703   cells homeward      217 (+0.051741/tick)
+        facing DOWN-gradient n    21096   P(move) 0.0975   not resting   20.8%   P(move)|>0 0.4675   cells homeward      173 (+0.008201/tick)
+      => with the gate open, P(move) up minus down: +0.3916; cells homeward up minus down: +0.043540/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 25650 gate-open decisions, 0 (0.0%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n    25650   P(move) 0.1627   not resting   29.7%   P(move)|>0 0.5480   cells homeward      393 (+0.015322/tick)
+      gate SHUT              n 0
+    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:
+       nearest nest material  laden ticks   % of laden  P(drop)      drops
+           ADJACENT (AtNest)          258         1.0%   0.4886          0   <- the only row where Drop can fire
+                     2 cells         2400         9.4%   0.4886          0
+                     4 cells          528         2.1%   0.4886          0
+                     8 cells          258         1.0%   0.4886          0
+                    16 cells         3654        14.2%   0.0377          3
+                    32 cells         8250        32.2%   0.0078          1
+              further / none        10302        40.2%   0.0000          1
+    TRACE ...and when it misses by 2-4 cells, is the miss SIDEWAYS or UPWARD? (rows = |dx|, cols = |dy|)
+                  |dy|=0         1         2         3        4+
+        |dx|=1      0.0%      0.0%     48.2%      0.0%      0.0%
+        |dx|=2      0.0%     25.6%      8.2%      0.4%      0.0%
+        |dx|=3      0.0%      0.0%      0.0%      0.0%     16.6%
+        |dx|=4      0.0%      0.0%      1.0%      0.0%      0.0%
+      MISSED ONLY UPWARD (|dx|<=1, |dy|>=2) -- standing on the doorstep, head too high: 48.2%
+      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at
+      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never
+      REACH the comb, and a large one with few drops would mean they reach it and decline.
+    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:
+      heading vs home          n  mean along % positive   P(move)
+        -1.0..-0.6       8832     -0.2105      25.7%    0.0653
+        -0.6..-0.2        174     -0.2590      17.2%    0.1320
+        -0.2..+0.2       2472     -0.3691       1.0%    0.0199
+        +0.2..+0.6        366     -0.3391       0.0%    0.0691
+        +0.6..+1.0       7764     -0.2668      18.8%    0.4044   <- POINTED AT HOME: this row is the answer
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.9-1.0      25650    0.1627    0.0206    0.0053     +0.015322   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      Bias             +2.00000   (live in 32718 of 25650)
+      h2               -1.97011   (live in 32718 of 25650)
+      h3               +1.63567   (live in 32718 of 25650)
+      Energy           -1.12601   (live in 32718 of 25650)
+      h0               -1.10815   (live in 32718 of 25650)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      h1               -0.53205   (live in 32718 of 25650)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      KinNeed          +0.23469   (live in 32718 of 25650)
+      Crowding         -0.08959   (live in 32718 of 25650)
+      Stillness        +0.06522   (live in 32718 of 25650)
+      HomeAligned      -0.06407   (live in 32718 of 25650)
+      FoodAdjacent     -0.00964   (live in 32718 of 25650)
+      Alarm            +0.00000   (live in 32718 of 25650)
+    TRACE focal ant: 15786 decisions written to /tmp/trailfollow-focal-seed2-gap90.csv
+   90    2  hand    0/0         2964      600    17088    25650     3468    7/20        5          6 6 1 7 0
+                A READ  ant-readable homeward along >= 0.02 on  50.2% of route-cell samples | FOODWARD  24.8% | plane lit on  74.7% | peak amt  58121 cells  89
+                RETURN LEDGER reached food    7 of   20 ants | came back    5 | trips laden    0 empty    5 | LOOPERS    0 of   20 ants ( 0.0% of those that reached food), repeat    0, most loops by one ant   0
+                BY ANCHOR AT PICKUP  anchor ON nest material:    0 loops /    0 pickups (  0.0%) | anchor OFF it:    0 /   34 (  0.0%)
+                BY BIRTH SITE  born ON comb:   0 of   2 that reached food looped (  0.0%) | born OFF comb:   0 of   5 (  0.0%)
+                LEGS legs[4417,7213,13783,9715,7387] laden[]
+                founded x   12..88   (nest cursor 48 MATERIAL x 26..70 11 of 20 founders born on it; food 138; nearest founder 50 cells out, farthest 126, nominal gap 90)  occupancy/1k [42 36 37 59 12 6 9 3]  carry->nest     393  born    0 died   20 (starved   20)
+                own trail: route pk   70 end    0 along +0.0000  B nest->food [89,3135,6528,9590,8291]  blocked      197  kin swaps       0  ticks     34640  tumbles     14959 (homeward        0, 0.00%)  drops     290  chew parked    298 resumed    290 (   151108 J)  DELIVERED   290  leg home n    5 med  7387 p90 13783 (laden n    0 med     0 p90     0)  appetite held         0 J of     12480  trips born-on-comb    1 (11 ants) / born-off    4 (9 ants)
+                channel A: PEAK amt  58121 cells   89 (of 91 route)  POLARITY|| +0.11279 && +0.10148 SPAN +0.03782 edge   5.6  end nest->food [1385,6642,2873,0,0]  nest   25  AtNest 43.76%
+                Carrying: laden     30912  of which SPOIL      5262 ( 17.0%)
+    TRACE laden ants: n 13836  mean PheroAAlong -0.29431  MEAN |PheroAAlong| 0.36146  mean P(move) 0.2266  mean trail term (h0+h1 -> Move) -2.19232  net cells homeward 380 (+0.027465/tick)
+    TRACE laden TICKS by what the sensor cell is -- the geometry test  [6.01 frames/tick, must equal tick_interval]:
+      air (nose in open sky)             n      859 ( 37.3% of ticks)   mean along -0.4293   usable (>= +0.02)   6.9%   frozen  70.5%
+      solid (nose in ground)             n      749 ( 32.6% of ticks)   mean along -0.4001   usable (>= +0.02)   2.0%   frozen  80.4%
+      surface (a trail could be here)    n      693 ( 30.1% of ticks)   mean along -0.0110   usable (>= +0.02)  43.3%   frozen  37.1%
+      => of 1465 FROZEN laden ticks (P(move) exactly 0), 82% had the nose in sky or ground
+    TRACE freeze runs: n 182   median 4 ticks   p90 16   longest 157
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     2310   P(move) 0.6243   not resting   79.2%   P(move)|>0 0.7881   cells homeward      188 (+0.081385/tick)
+      facing DOWN-gradient   n    11148   P(move) 0.1334   not resting   26.1%   P(move)|>0 0.5110   cells homeward      170 (+0.015249/tick)
+      no readable gradient   n      378   P(move) 0.5453   not resting   73.0%   P(move)|>0 0.7468   cells homeward       22 (+0.058201/tick)
+      => P(move) up-gradient minus down-gradient: +0.4909  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]456 [-0.67]2994 [-0.44]3042 [-0.22]3852 [+0.00]2106 [+0.22]948 [+0.44]366 [+0.67]60 [+0.89]12
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 13836 of 13836 laden decisions (100.00%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     2310   P(move) 0.6243   not resting   79.2%   P(move)|>0 0.7881   cells homeward      188 (+0.081385/tick)
+        facing DOWN-gradient n    11148   P(move) 0.1334   not resting   26.1%   P(move)|>0 0.5110   cells homeward      170 (+0.015249/tick)
+      => with the gate open, P(move) up minus down: +0.4909; cells homeward up minus down: +0.066136/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 13836 gate-open decisions, 0 (0.0%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n    13836   P(move) 0.2266   not resting   36.3%   P(move)|>0 0.6250   cells homeward      380 (+0.027465/tick)
+      gate SHUT              n 0
+    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:
+       nearest nest material  laden ticks   % of laden  P(drop)      drops
+           ADJACENT (AtNest)           36         0.3%   0.4886          0   <- the only row where Drop can fire
+                     2 cells          474         3.4%   0.4906          7
+                     4 cells          318         2.3%   0.4921          6
+                     8 cells         1092         7.9%   0.4958         21
+                    16 cells         1080         7.8%   0.0027          0
+                    32 cells         3870        28.0%   0.1406         35
+              further / none         6966        50.3%   0.0000          0
+    TRACE ...and when it misses by 2-4 cells, is the miss SIDEWAYS or UPWARD? (rows = |dx|, cols = |dy|)
+                  |dy|=0         1         2         3        4+
+        |dx|=1      0.0%      0.0%     29.5%      0.0%      0.0%
+        |dx|=2      0.0%      0.0%     30.3%      6.8%      0.0%
+        |dx|=3      0.0%      0.0%      0.0%      0.0%     15.2%
+        |dx|=4      0.0%      3.0%      0.8%      0.0%     14.4%
+      MISSED ONLY UPWARD (|dx|<=1, |dy|>=2) -- standing on the doorstep, head too high: 29.5%
+      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at
+      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never
+      REACH the comb, and a large one with few drops would mean they reach it and decline.
+    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:
+      heading vs home          n  mean along % positive   P(move)
+        -1.0..-0.6       4458     -0.3001      16.7%    0.0233
+        -0.6..-0.2         30     -0.3475       0.0%    0.0000
+        -0.2..+0.2       1152     -0.4086       1.6%    0.0625
+        +0.2..+0.6         78     -0.5356       0.0%    0.0631
+        +0.6..+1.0       4476     -0.1476      30.0%    0.6142   <- POINTED AT HOME: this row is the answer
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.9-1.0      13836    0.2266    0.0312    0.0038     +0.027465   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      h2               -2.09423   (live in 19248 of 13836)
+      Bias             +2.00000   (live in 19248 of 13836)
+      h0               -1.30126   (live in 19248 of 13836)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      h3               +1.27960   (live in 19248 of 13836)
+      Energy           -0.52776   (live in 19248 of 13836)
+      KinNeed          +0.44148   (live in 19248 of 13836)
+      h1               -0.27584   (live in 19248 of 13836)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      FoodAdjacent     -0.09847   (live in 19248 of 13836)
+      Crowding         -0.06572   (live in 19248 of 13836)
+      HomeAligned      +0.05552   (live in 19248 of 13836)
+      Stillness        +0.05326   (live in 19248 of 13836)
+      Alarm            +0.00000   (live in 19248 of 13836)
+    TRACE focal ant: 7764 decisions written to /tmp/trailfollow-focal-seed3-gap90.csv
+   90    3  hand    0/0          912      564     9468    13836      984    7/20        1          6 5 0 9 0
+                A READ  ant-readable homeward along >= 0.02 on  59.9% of route-cell samples | FOODWARD  16.7% | plane lit on  78.0% | peak amt  28204 cells  86
+                RETURN LEDGER reached food    7 of   20 ants | came back    1 | trips laden    1 empty    0 | LOOPERS    1 of   20 ants (14.3% of those that reached food), repeat    0, most loops by one ant   1
+                BY ANCHOR AT PICKUP  anchor ON nest material:    0 loops /    0 pickups (  0.0%) | anchor OFF it:    1 /   28 (  3.6%)
+                BY BIRTH SITE  born ON comb:   1 of   2 that reached food looped ( 50.0%) | born OFF comb:   0 of   5 (  0.0%)
+                LEGS legs[985] laden[985]
+                founded x   12..88   (nest cursor 48 MATERIAL x 26..70 11 of 20 founders born on it; food 138; nearest founder 50 cells out, farthest 126, nominal gap 90)  occupancy/1k [35 16 21 16 15 15 10 4]  carry->nest     380  born    0 died   20 (starved   19)
+                own trail: route pk   45 end    0 along +0.0000  B nest->food [89,3105,6487,9625,8291]  blocked      117  kin swaps       0  ticks     22541  tumbles      9159 (homeward        0, 0.00%)  drops     213  chew parked    147 resumed    140 (    39861 J)  DELIVERED   213  leg home n    1 med   985 p90   985 (laden n    1 med   985 p90   985)  appetite held         0 J of      3840  trips born-on-comb    1 (11 ants) / born-off    0 (9 ants)
+                channel A: PEAK amt  28204 cells   86 (of 91 route)  POLARITY|| +0.12672 && +0.11868 SPAN +0.03618 edge   5.9  end nest->food [1971,963,219,0,0]  nest   25  AtNest 43.75%
+                Carrying: laden     20046  of which SPOIL      6210 ( 31.0%)
+    TRACE laden ants: n 26088  mean PheroAAlong -0.27602  MEAN |PheroAAlong| 0.32564  mean P(move) 0.1594  mean trail term (h0+h1 -> Move) -2.23220  net cells homeward 414 (+0.015869/tick)
+    TRACE laden TICKS by what the sensor cell is -- the geometry test  [6.00 frames/tick, must equal tick_interval]:
+      air (nose in open sky)             n     1447 ( 33.3% of ticks)   mean along -0.4125   usable (>= +0.02)   3.9%   frozen  86.1%
+      solid (nose in ground)             n     1108 ( 25.5% of ticks)   mean along -0.3894   usable (>= +0.02)   0.4%   frozen  88.4%
+      surface (a trail could be here)    n     1790 ( 41.2% of ticks)   mean along -0.0953   usable (>= +0.02)  23.5%   frozen  50.4%
+      => of 3129 FROZEN laden ticks (P(move) exactly 0), 71% had the nose in sky or ground
+    TRACE freeze runs: n 361   median 5 ticks   p90 18   longest 92
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     3252   P(move) 0.5196   not resting   72.7%   P(move)|>0 0.7148   cells homeward      158 (+0.048585/tick)
+      facing DOWN-gradient   n    21228   P(move) 0.0915   not resting   20.0%   P(move)|>0 0.4588   cells homeward      180 (+0.008479/tick)
+      no readable gradient   n     1608   P(move) 0.3270   not resting   43.7%   P(move)|>0 0.7491   cells homeward       76 (+0.047264/tick)
+      => P(move) up-gradient minus down-gradient: +0.4281  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]540 [-0.67]3480 [-0.44]8124 [-0.22]6312 [+0.00]5808 [+0.22]1170 [+0.44]366 [+0.67]276 [+0.89]12
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 26088 of 26088 laden decisions (100.00%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     3252   P(move) 0.5196   not resting   72.7%   P(move)|>0 0.7148   cells homeward      158 (+0.048585/tick)
+        facing DOWN-gradient n    21228   P(move) 0.0915   not resting   20.0%   P(move)|>0 0.4588   cells homeward      180 (+0.008479/tick)
+      => with the gate open, P(move) up minus down: +0.4281; cells homeward up minus down: +0.040106/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 26088 gate-open decisions, 6 (0.0%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n    26088   P(move) 0.1594   not resting   28.0%   P(move)|>0 0.5696   cells homeward      414 (+0.015869/tick)
+      gate SHUT              n 0
+    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:
+       nearest nest material  laden ticks   % of laden  P(drop)      drops
+           ADJACENT (AtNest)           18         0.1%   0.4886          0   <- the only row where Drop can fire
+                     2 cells           12         0.0%   0.4886          0
+                     4 cells           60         0.2%   0.4886          0
+                     8 cells         3498        13.4%   0.4926         65
+                    16 cells         2430         9.3%   0.0012          3
+                    32 cells         7392        28.3%   0.1688         34
+              further / none        12678        48.6%   0.0000          2
+    TRACE ...and when it misses by 2-4 cells, is the miss SIDEWAYS or UPWARD? (rows = |dx|, cols = |dy|)
+                  |dy|=0         1         2         3        4+
+        |dx|=0      0.0%      0.0%      8.3%      0.0%      0.0%
+        |dx|=2      0.0%      8.3%      0.0%      0.0%      0.0%
+        |dx|=3      0.0%      0.0%      0.0%     75.0%      0.0%
+        |dx|=4      0.0%      8.3%      0.0%      0.0%      0.0%
+      MISSED ONLY UPWARD (|dx|<=1, |dy|>=2) -- standing on the doorstep, head too high: 8.3%
+      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at
+      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never
+      REACH the comb, and a large one with few drops would mean they reach it and decline.
+    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:
+      heading vs home          n  mean along % positive   P(move)
+        -1.0..-0.6       7824     -0.2035      18.4%    0.0311
+        -0.6..-0.2         54     -0.4925       0.0%    0.0000
+        -0.2..+0.2       2862     -0.4109       0.2%    0.0164
+        +0.2..+0.6        132     -0.4416       4.5%    0.0663
+        +0.6..+1.0       6984     -0.2086      16.4%    0.4642   <- POINTED AT HOME: this row is the answer
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.9-1.0      26088    0.1594    0.0204    0.0045     +0.015869   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      h2               -2.00846   (live in 35388 of 26088)
+      Bias             +2.00000   (live in 35388 of 26088)
+      h3               +1.42141   (live in 35388 of 26088)
+      h0               -1.25866   (live in 35388 of 26088)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Energy           -0.86192   (live in 35388 of 26088)
+      h1               -0.38794   (live in 35388 of 26088)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      KinNeed          +0.37532   (live in 35388 of 26088)
+      FoodAdjacent     -0.08378   (live in 35388 of 26088)
+      Stillness        +0.07937   (live in 35388 of 26088)
+      Crowding         -0.07879   (live in 35388 of 26088)
+      HomeAligned      -0.06356   (live in 35388 of 26088)
+      Alarm            +0.00000   (live in 35388 of 26088)
+    TRACE focal ant: 12786 decisions written to /tmp/trailfollow-focal-seed4-gap90.csv
+   90    4  hand    0/0         2280     1062    15228    26088      252    6/20        0          9 3 1 7 0
+                A READ  ant-readable homeward along >= 0.02 on  58.5% of route-cell samples | FOODWARD  18.6% | plane lit on  77.3% | peak amt  27271 cells  87
+                RETURN LEDGER reached food    6 of   20 ants | came back    0 | trips laden    0 empty    0 | LOOPERS    0 of   20 ants ( 0.0% of those that reached food), repeat    0, most loops by one ant   0
+                BY ANCHOR AT PICKUP  anchor ON nest material:    0 loops /    0 pickups (  0.0%) | anchor OFF it:    0 /   95 (  0.0%)
+                BY BIRTH SITE  born ON comb:   0 of   1 that reached food looped (  0.0%) | born OFF comb:   0 of   5 (  0.0%)
+                founded x   12..88   (nest cursor 48 MATERIAL x 26..70 11 of 20 founders born on it; food 138; nearest founder 50 cells out, farthest 126, nominal gap 90)  occupancy/1k [60 16 37 27 16 11 12 5]  carry->nest     414  born    0 died   20 (starved   20)
+                own trail: route pk   57 end    0 along +0.0000  B nest->food [89,3099,6512,9637,8290]  blocked      212  kin swaps       0  ticks     31395  tumbles     13430 (homeward        0, 0.00%)  drops     456  chew parked    362 resumed    352 (   130717 J)  DELIVERED   456  leg home n    0 med     0 p90     0 (laden n    0 med     0 p90     0)  appetite held         0 J of      9600  trips born-on-comb    0 (11 ants) / born-off    0 (9 ants)
+                channel A: PEAK amt  27271 cells   87 (of 91 route)  POLARITY|| +0.13267 && +0.12380 SPAN +0.03867 edge   5.9  end nest->food [2112,1412,467,0,0]  nest   25  AtNest 48.00%
+                Carrying: laden     34674  of which SPOIL      8592 ( 24.8%)
+    TRACE laden ants: n 9708  mean PheroAAlong -0.30194  MEAN |PheroAAlong| 0.35714  mean P(move) 0.2406  mean trail term (h0+h1 -> Move) -2.29369  net cells homeward 274 (+0.028224/tick)
+    TRACE laden TICKS by what the sensor cell is -- the geometry test  [6.00 frames/tick, must equal tick_interval]:
+      air (nose in open sky)             n      442 ( 27.3% of ticks)   mean along -0.4618   usable (>= +0.02)   7.5%   frozen  64.9%
+      solid (nose in ground)             n      518 ( 32.0% of ticks)   mean along -0.4369   usable (>= +0.02)   0.4%   frozen  82.0%
+      surface (a trail could be here)    n      657 ( 40.6% of ticks)   mean along -0.0878   usable (>= +0.02)  31.4%   frozen  37.9%
+      => of 961 FROZEN laden ticks (P(move) exactly 0), 74% had the nose in sky or ground
+    TRACE freeze runs: n 113   median 5 ticks   p90 18   longest 68
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     1536   P(move) 0.6222   not resting   91.8%   P(move)|>0 0.6778   cells homeward      136 (+0.088542/tick)
+      facing DOWN-gradient   n     7992   P(move) 0.1556   not resting   29.5%   P(move)|>0 0.5272   cells homeward      116 (+0.014515/tick)
+      no readable gradient   n      180   P(move) 0.7583   not resting   93.3%   P(move)|>0 0.8125   cells homeward       22 (+0.122222/tick)
+      => P(move) up-gradient minus down-gradient: +0.4667  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]96 [-0.67]2052 [-0.44]2754 [-0.22]2382 [+0.00]1392 [+0.22]852 [+0.44]102 [+0.67]78 [+0.89]0
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 9708 of 9708 laden decisions (100.00%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     1536   P(move) 0.6222   not resting   91.8%   P(move)|>0 0.6778   cells homeward      136 (+0.088542/tick)
+        facing DOWN-gradient n     7992   P(move) 0.1556   not resting   29.5%   P(move)|>0 0.5272   cells homeward      116 (+0.014515/tick)
+      => with the gate open, P(move) up minus down: +0.4667; cells homeward up minus down: +0.074027/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 9708 gate-open decisions, 0 (0.0%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n     9708   P(move) 0.2406   not resting   40.5%   P(move)|>0 0.5934   cells homeward      274 (+0.028224/tick)
+      gate SHUT              n 0
+    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:
+       nearest nest material  laden ticks   % of laden  P(drop)      drops
+                     4 cells          576         5.9%   0.4930          7
+                     8 cells          390         4.0%   0.4905          4
+                    16 cells         1014        10.4%   0.2024          0
+                    32 cells         1554        16.0%   0.0984          3
+              further / none         6174        63.6%   0.0000          1
+    TRACE ...and when it misses by 2-4 cells, is the miss SIDEWAYS or UPWARD? (rows = |dx|, cols = |dy|)
+                  |dy|=0         1         2         3        4+
+        |dx|=4      0.0%      0.0%      0.0%    100.0%      0.0%
+      MISSED ONLY UPWARD (|dx|<=1, |dy|>=2) -- standing on the doorstep, head too high: 0.0%
+      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at
+      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never
+      REACH the comb, and a large one with few drops would mean they reach it and decline.
+    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:
+      heading vs home          n  mean along % positive   P(move)
+        -1.0..-0.6       2814     -0.3608      19.8%    0.0434
+        -0.2..+0.2        888     -0.4622       1.4%    0.0184
+        +0.6..+1.0       3786     -0.2036      23.5%    0.5565   <- POINTED AT HOME: this row is the answer
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.9-1.0       9708    0.2406    0.0318    0.0036     +0.028224   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      h2               -2.00698   (live in 14064 of 9708)
+      Bias             +2.00000   (live in 14064 of 9708)
+      h0               -1.38327   (live in 14064 of 9708)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      h3               +1.18562   (live in 14064 of 9708)
+      Energy           -0.67804   (live in 14064 of 9708)
+      KinNeed          +0.41711   (live in 14064 of 9708)
+      HomeAligned      +0.21074   (live in 14064 of 9708)
+      h1               -0.20137   (live in 14064 of 9708)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Crowding         -0.07423   (live in 14064 of 9708)
+      Stillness        +0.05286   (live in 14064 of 9708)
+      FoodAdjacent     -0.02804   (live in 14064 of 9708)
+      Alarm            +0.00000   (live in 14064 of 9708)
+    TRACE focal ant: 6204 decisions written to /tmp/trailfollow-focal-seed5-gap90.csv
+   90    5  hand    0/0          456      534     8250     9708      996    7/20        0          9 1 2 8 0
+                A READ  ant-readable homeward along >= 0.02 on  63.3% of route-cell samples | FOODWARD  12.3% | plane lit on  76.3% | peak amt  14806 cells  87
+                RETURN LEDGER reached food    7 of   20 ants | came back    0 | trips laden    0 empty    0 | LOOPERS    0 of   20 ants ( 0.0% of those that reached food), repeat    0, most loops by one ant   0
+                BY ANCHOR AT PICKUP  anchor ON nest material:    0 loops /    0 pickups (  0.0%) | anchor OFF it:    0 /   18 (  0.0%)
+                BY BIRTH SITE  born ON comb:   0 of   3 that reached food looped (  0.0%) | born OFF comb:   0 of   4 (  0.0%)
+                founded x   12..88   (nest cursor 48 MATERIAL x 26..70 11 of 20 founders born on it; food 138; nearest founder 50 cells out, farthest 126, nominal gap 90)  occupancy/1k [31 26 11 7 13 13 16 3]  carry->nest     274  born    0 died   20 (starved   19)
+                own trail: route pk    7 end    0 along +0.0000  B nest->food [89,3094,6439,9559,8290]  blocked      143  kin swaps       0  ticks     20627  tumbles      8468 (homeward        0, 0.00%)  drops     120  chew parked    107 resumed    103 (    34492 J)  DELIVERED   120  leg home n    0 med     0 p90     0 (laden n    0 med     0 p90     0)  appetite held         0 J of      1920  trips born-on-comb    0 (11 ants) / born-off    0 (9 ants)
+                channel A: PEAK amt  14806 cells   87 (of 91 route)  POLARITY|| +0.12594 && +0.11813 SPAN +0.04139 edge   5.6  end nest->food [1529,160,0,0,0]  nest   25  AtNest 46.82%
+                Carrying: laden     16314  of which SPOIL      6606 ( 40.5%)
+    TRACE laden ants: n 22056  mean PheroAAlong -0.38323  MEAN |PheroAAlong| 0.43121  mean P(move) 0.1509  mean trail term (h0+h1 -> Move) -2.72508  net cells homeward 354 (+0.016050/tick)
+    TRACE laden TICKS by what the sensor cell is -- the geometry test  [6.00 frames/tick, must equal tick_interval]:
+      air (nose in open sky)             n     1996 ( 54.3% of ticks)   mean along -0.4814   usable (>= +0.02)   2.9%   frozen  91.4%
+      solid (nose in ground)             n      870 ( 23.7% of ticks)   mean along -0.4334   usable (>= +0.02)   3.4%   frozen  78.6%
+      surface (a trail could be here)    n      809 ( 22.0% of ticks)   mean along -0.0873   usable (>= +0.02)  35.5%   frozen  32.3%
+      => of 2769 FROZEN laden ticks (P(move) exactly 0), 91% had the nose in sky or ground
+    TRACE freeze runs: n 211   median 4 ticks   p90 16   longest 443
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     2460   P(move) 0.6931   not resting   88.0%   P(move)|>0 0.7872   cells homeward      184 (+0.074797/tick)
+      facing DOWN-gradient   n    19374   P(move) 0.0799   not resting   16.3%   P(move)|>0 0.4906   cells homeward      163 (+0.008413/tick)
+      no readable gradient   n      222   P(move) 0.3404   not resting   51.4%   P(move)|>0 0.6630   cells homeward        7 (+0.031532/tick)
+      => P(move) up-gradient minus down-gradient: +0.6132  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]1272 [-0.67]6024 [-0.44]6546 [-0.22]4074 [+0.00]2586 [+0.22]1062 [+0.44]264 [+0.67]186 [+0.89]42
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 22056 of 22056 laden decisions (100.00%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     2460   P(move) 0.6931   not resting   88.0%   P(move)|>0 0.7872   cells homeward      184 (+0.074797/tick)
+        facing DOWN-gradient n    19374   P(move) 0.0799   not resting   16.3%   P(move)|>0 0.4906   cells homeward      163 (+0.008413/tick)
+      => with the gate open, P(move) up minus down: +0.6132; cells homeward up minus down: +0.066383/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 22056 gate-open decisions, 0 (0.0%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n    22056   P(move) 0.1509   not resting   24.6%   P(move)|>0 0.6124   cells homeward      354 (+0.016050/tick)
+      gate SHUT              n 0
+    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:
+       nearest nest material  laden ticks   % of laden  P(drop)      drops
+                     2 cells          156         0.7%   0.4886          0
+                     4 cells          360         1.6%   0.4886          0
+                     8 cells          420         1.9%   0.4891          1
+                    16 cells         5340        24.2%   0.0236          1
+                    32 cells         8226        37.3%   0.0128          3
+              further / none         7554        34.2%   0.0000          0
+    TRACE ...and when it misses by 2-4 cells, is the miss SIDEWAYS or UPWARD? (rows = |dx|, cols = |dy|)
+                  |dy|=0         1         2         3        4+
+        |dx|=1      0.0%      0.0%     19.8%      0.0%      0.0%
+        |dx|=2      0.0%      0.0%     10.5%     33.7%      0.0%
+        |dx|=3      0.0%      0.0%      0.0%      0.0%     25.6%
+        |dx|=4      0.0%      1.2%      3.5%      2.3%      3.5%
+      MISSED ONLY UPWARD (|dx|<=1, |dy|>=2) -- standing on the doorstep, head too high: 19.8%
+      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at
+      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never
+      REACH the comb, and a large one with few drops would mean they reach it and decline.
+    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:
+      heading vs home          n  mean along % positive   P(move)
+        -1.0..-0.6       9612     -0.4422       7.7%    0.0259
+        -0.6..-0.2        786     -0.4617       0.0%    0.0000
+        -0.2..+0.2       4122     -0.4331       1.3%    0.0259
+        +0.2..+0.6        366     -0.3567       0.0%    0.0600
+        +0.6..+1.0       5154     -0.2210      28.1%    0.5253   <- POINTED AT HOME: this row is the answer
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.9-1.0      22056    0.1509    0.0197    0.0037     +0.016050   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      Bias             +2.00000   (live in 28740 of 22056)
+      h2               -1.85688   (live in 28740 of 22056)
+      h3               +1.61344   (live in 28740 of 22056)
+      h0               -1.46751   (live in 28740 of 22056)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Energy           -0.86905   (live in 28740 of 22056)
+      h1               -0.62417   (live in 28740 of 22056)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      HomeAligned      -0.39288   (live in 28740 of 22056)
+      KinNeed          +0.37890   (live in 28740 of 22056)
+      Stillness        +0.25101   (live in 28740 of 22056)
+      Crowding         -0.11470   (live in 28740 of 22056)
+      FoodAdjacent     -0.04190   (live in 28740 of 22056)
+      Alarm            +0.00000   (live in 28740 of 22056)
+    TRACE focal ant: 10164 decisions written to /tmp/trailfollow-focal-seed6-gap90.csv
+   90    6  hand    0/0         2280      528    11046    22056      792    6/20        4          4 5 4 7 0
+                A READ  ant-readable homeward along >= 0.02 on  56.8% of route-cell samples | FOODWARD  24.5% | plane lit on  81.6% | peak amt  65535 cells  88
+                RETURN LEDGER reached food    6 of   20 ants | came back    4 | trips laden    0 empty    4 | LOOPERS    0 of   20 ants ( 0.0% of those that reached food), repeat    0, most loops by one ant   0
+                BY ANCHOR AT PICKUP  anchor ON nest material:    0 loops /    0 pickups (  0.0%) | anchor OFF it:    0 /   40 (  0.0%)
+                BY BIRTH SITE  born ON comb:   0 of   2 that reached food looped (  0.0%) | born OFF comb:   0 of   4 (  0.0%)
+                LEGS legs[6355,6235,6343,1183] laden[]
+                founded x   12..88   (nest cursor 48 MATERIAL x 26..70 11 of 20 founders born on it; food 138; nearest founder 50 cells out, farthest 126, nominal gap 90)  occupancy/1k [61 20 61 17 6 5 6 4]  carry->nest     354  born    0 died   20 (starved   20)
+                own trail: route pk   59 end    0 along +0.0000  B nest->food [89,3138,6550,9574,8291]  blocked      234  kin swaps       0  ticks     30620  tumbles     12998 (homeward        0, 0.00%)  drops     111  chew parked    116 resumed    105 (    27057 J)  DELIVERED   111  leg home n    4 med  6343 p90  6355 (laden n    0 med     0 p90     0)  appetite held         0 J of      9600  trips born-on-comb    0 (11 ants) / born-off    4 (9 ants)
+                channel A: PEAK amt  65535 cells   88 (of 91 route)  POLARITY|| +0.12002 && +0.11250 SPAN +0.03074 edge   5.7  end nest->food [2855,6515,3160,21,0]  nest   25  AtNest 60.60%
+                Carrying: laden     26370  of which SPOIL      4314 ( 16.4%)
+    TRACE laden ants: n 31350  mean PheroAAlong -0.31389  MEAN |PheroAAlong| 0.34249  mean P(move) 0.1344  mean trail term (h0+h1 -> Move) -2.44696  net cells homeward 454 (+0.014482/tick)
+    TRACE laden TICKS by what the sensor cell is -- the geometry test  [6.01 frames/tick, must equal tick_interval]:
+      air (nose in open sky)             n     2408 ( 46.2% of ticks)   mean along -0.4299   usable (>= +0.02)   2.2%   frozen  88.1%
+      solid (nose in ground)             n     1003 ( 19.2% of ticks)   mean along -0.3799   usable (>= +0.02)   0.4%   frozen  82.9%
+      surface (a trail could be here)    n     1806 ( 34.6% of ticks)   mean along -0.1221   usable (>= +0.02)  26.8%   frozen  57.8%
+      => of 3996 FROZEN laden ticks (P(move) exactly 0), 74% had the nose in sky or ground
+    TRACE freeze runs: n 343   median 4 ticks   p90 26   longest 419
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     3792   P(move) 0.5085   not resting   70.3%   P(move)|>0 0.7238   cells homeward      193 (+0.050897/tick)
+      facing DOWN-gradient   n    27372   P(move) 0.0810   not resting   16.8%   P(move)|>0 0.4833   cells homeward      253 (+0.009243/tick)
+      no readable gradient   n      186   P(move) 0.3571   not resting   48.4%   P(move)|>0 0.7380   cells homeward        8 (+0.043011/tick)
+      => P(move) up-gradient minus down-gradient: +0.4274  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]1122 [-0.67]5544 [-0.44]8448 [-0.22]8046 [+0.00]6966 [+0.22]936 [+0.44]198 [+0.67]78 [+0.89]12
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 31350 of 31350 laden decisions (100.00%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     3792   P(move) 0.5085   not resting   70.3%   P(move)|>0 0.7238   cells homeward      193 (+0.050897/tick)
+        facing DOWN-gradient n    27372   P(move) 0.0810   not resting   16.8%   P(move)|>0 0.4833   cells homeward      253 (+0.009243/tick)
+      => with the gate open, P(move) up minus down: +0.4274; cells homeward up minus down: +0.041654/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 31350 gate-open decisions, 78 (0.2%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n    31350   P(move) 0.1344   not resting   23.4%   P(move)|>0 0.5736   cells homeward      454 (+0.014482/tick)
+      gate SHUT              n 0
+    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:
+       nearest nest material  laden ticks   % of laden  P(drop)      drops
+                     2 cells         1608         5.1%   0.4899         13
+                     4 cells         4152        13.2%   0.4906         41
+                     8 cells         2484         7.9%   0.4906         13
+                    16 cells         4950        15.8%   0.0903          4
+                    32 cells        10074        32.1%   0.0468          9
+              further / none         8082        25.8%   0.0036          1
+    TRACE ...and when it misses by 2-4 cells, is the miss SIDEWAYS or UPWARD? (rows = |dx|, cols = |dy|)
+                  |dy|=0         1         2         3        4+
+        |dx|=1      0.0%      0.0%     12.9%      0.0%      0.0%
+        |dx|=2      0.0%      4.3%     10.7%     15.0%      0.0%
+        |dx|=3      0.0%      0.0%      0.0%      0.0%     22.3%
+        |dx|=4      0.0%      2.1%      1.8%      0.5%     30.4%
+      MISSED ONLY UPWARD (|dx|<=1, |dy|>=2) -- standing on the doorstep, head too high: 12.9%
+      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at
+      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never
+      REACH the comb, and a large one with few drops would mean they reach it and decline.
+    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:
+      heading vs home          n  mean along % positive   P(move)
+        -1.0..-0.6       9768     -0.3062      15.0%    0.0108
+        -0.6..-0.2        240     -0.3732       0.0%    0.0000
+        -0.2..+0.2       1710     -0.4647       0.4%    0.0088
+        +0.2..+0.6         42     -0.3316       0.0%    0.0000
+        +0.6..+1.0       6456     -0.1829      24.7%    0.5201   <- POINTED AT HOME: this row is the answer
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.9-1.0      31350    0.1344    0.0176    0.0031     +0.014482   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      h2               -2.31665   (live in 33246 of 31350)
+      h3               +2.23697   (live in 33246 of 31350)
+      Bias             +2.00000   (live in 33246 of 31350)
+      h1               -1.27438   (live in 33246 of 31350)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      h0               -1.03314   (live in 33246 of 31350)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Energy           -0.93479   (live in 33246 of 31350)
+      KinNeed          +0.36451   (live in 33246 of 31350)
+      HomeAligned      -0.21950   (live in 33246 of 31350)
+      Stillness        +0.14671   (live in 33246 of 31350)
+      Crowding         -0.10698   (live in 33246 of 31350)
+      FoodAdjacent     -0.06385   (live in 33246 of 31350)
+      Alarm            +0.00000   (live in 33246 of 31350)
+    TRACE focal ant: 4416 decisions written to /tmp/trailfollow-focal-seed7-gap90.csv
+   90    7  hand    1/1         2964      888        0    31350     8580    7/20        4          6 7 0 7 0
+                A READ  ant-readable homeward along >= 0.02 on  55.8% of route-cell samples | FOODWARD  25.7% | plane lit on  81.1% | peak amt  55856 cells  88
+                RETURN LEDGER reached food    7 of   20 ants | came back    4 | trips laden    0 empty    4 | LOOPERS    0 of   20 ants ( 0.0% of those that reached food), repeat    0, most loops by one ant   0
+                BY ANCHOR AT PICKUP  anchor ON nest material:    0 loops /    0 pickups (  0.0%) | anchor OFF it:    0 /   41 (  0.0%)
+                BY BIRTH SITE  born ON comb:   0 of   2 that reached food looped (  0.0%) | born OFF comb:   0 of   5 (  0.0%)
+                LEGS legs[1399,5563,7057,9049] laden[]
+                founded x   12..88   (nest cursor 48 MATERIAL x 26..70 11 of 20 founders born on it; food 138; nearest founder 50 cells out, farthest 126, nominal gap 90)  occupancy/1k [35 42 76 12 12 5 10 2]  carry->nest     454  born    0 died   19 (starved   19)
+                own trail: route pk   27 end    7 along +0.0000  B nest->food [89,3190,6607,9680,8291]  blocked      228  kin swaps       0  ticks     32759  tumbles     14331 (homeward        0, 0.00%)  drops     740  chew parked    672 resumed    660 (   264455 J)  DELIVERED   740  leg home n    4 med  7057 p90  9049 (laden n    0 med     0 p90     0)  appetite held         0 J of     12480  trips born-on-comb    2 (11 ants) / born-off    2 (9 ants)
+                channel A: PEAK amt  55856 cells   88 (of 91 route)  POLARITY|| +0.12124 && +0.11230 SPAN +0.04213 edge   5.3  end nest->food [2914,7010,1837,0,0]  nest   25  AtNest 67.14%
+                Carrying: laden     40332  of which SPOIL      9060 ( 22.5%)
+    TRACE laden ants: n 14562  mean PheroAAlong -0.39191  MEAN |PheroAAlong| 0.41951  mean P(move) 0.1198  mean trail term (h0+h1 -> Move) -2.83145  net cells homeward 207 (+0.014215/tick)
+    TRACE laden TICKS by what the sensor cell is -- the geometry test  [6.00 frames/tick, must equal tick_interval]:
+      air (nose in open sky)             n      968 ( 39.9% of ticks)   mean along -0.4486   usable (>= +0.02)   2.6%   frozen  88.6%
+      solid (nose in ground)             n      817 ( 33.7% of ticks)   mean along -0.4718   usable (>= +0.02)   2.9%   frozen  91.4%
+      surface (a trail could be here)    n      641 ( 26.4% of ticks)   mean along -0.2047   usable (>= +0.02)  27.0%   frozen  40.9%
+      => of 1867 FROZEN laden ticks (P(move) exactly 0), 86% had the nose in sky or ground
+    TRACE freeze runs: n 159   median 4 ticks   p90 35   longest 110
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     1464   P(move) 0.6236   not resting   82.8%   P(move)|>0 0.7532   cells homeward      122 (+0.083333/tick)
+      facing DOWN-gradient   n    13074   P(move) 0.0633   not resting   16.3%   P(move)|>0 0.3884   cells homeward       85 (+0.006501/tick)
+      no readable gradient   n       24   P(move) 0.1563   not resting   50.0%   P(move)|>0 0.3127   cells homeward        0 (+0.000000/tick)
+      => P(move) up-gradient minus down-gradient: +0.5603  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]1182 [-0.67]3450 [-0.44]3972 [-0.22]3660 [+0.00]1644 [+0.22]528 [+0.44]78 [+0.67]42 [+0.89]6
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 14562 of 14562 laden decisions (100.00%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     1464   P(move) 0.6236   not resting   82.8%   P(move)|>0 0.7532   cells homeward      122 (+0.083333/tick)
+        facing DOWN-gradient n    13074   P(move) 0.0633   not resting   16.3%   P(move)|>0 0.3884   cells homeward       85 (+0.006501/tick)
+      => with the gate open, P(move) up minus down: +0.5603; cells homeward up minus down: +0.076832/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 14562 gate-open decisions, 96 (0.7%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n    14562   P(move) 0.1198   not resting   23.0%   P(move)|>0 0.5200   cells homeward      207 (+0.014215/tick)
+      gate SHUT              n 0
+    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:
+       nearest nest material  laden ticks   % of laden  P(drop)      drops
+                     2 cells          312         2.1%   0.4886          0
+                     4 cells          918         6.3%   0.4899          8
+                     8 cells         4218        29.0%   0.4914         29
+                    16 cells          630         4.3%   0.0186          0
+                    32 cells         1830        12.6%   0.1623          8
+              further / none         6654        45.7%   0.0000          0
+    TRACE ...and when it misses by 2-4 cells, is the miss SIDEWAYS or UPWARD? (rows = |dx|, cols = |dy|)
+                  |dy|=0         1         2         3        4+
+        |dx|=1      0.0%      0.0%     12.2%      0.0%      0.0%
+        |dx|=2      0.0%      0.5%     12.7%     24.9%      0.0%
+        |dx|=3      0.0%      0.0%      0.0%      0.0%     19.0%
+        |dx|=4      0.0%      0.0%      0.0%      0.0%     30.7%
+      MISSED ONLY UPWARD (|dx|<=1, |dy|>=2) -- standing on the doorstep, head too high: 12.2%
+      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at
+      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never
+      REACH the comb, and a large one with few drops would mean they reach it and decline.
+    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:
+      heading vs home          n  mean along % positive   P(move)
+        -1.0..-0.6       4110     -0.3862      12.4%    0.0291
+        -0.6..-0.2         36     -0.4189       0.0%    0.0000
+        -0.2..+0.2       1368     -0.5694       0.9%    0.0069
+        +0.2..+0.6        120     -0.3059       0.0%    0.0717
+        +0.6..+1.0       3936     -0.3523      21.0%    0.3785   <- POINTED AT HOME: this row is the answer
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.9-1.0      14562    0.1198    0.0168    0.0026     +0.014215   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      Bias             +2.00000   (live in 19524 of 14562)
+      h2               -1.97946   (live in 19524 of 14562)
+      h0               -1.52807   (live in 19524 of 14562)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      h3               +1.47127   (live in 19524 of 14562)
+      Energy           -0.92711   (live in 19524 of 14562)
+      h1               -0.58558   (live in 19524 of 14562)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      KinNeed          +0.36120   (live in 19524 of 14562)
+      Stillness        +0.07088   (live in 19524 of 14562)
+      Crowding         -0.07023   (live in 19524 of 14562)
+      FoodAdjacent     -0.04919   (live in 19524 of 14562)
+      HomeAligned      +0.00739   (live in 19524 of 14562)
+      Alarm            +0.00000   (live in 19524 of 14562)
+    TRACE focal ant: 6264 decisions written to /tmp/trailfollow-focal-seed8-gap90.csv
+   90    8  hand    1/1         1368     2532        0    14562     1476    6/20        2          5 7 1 7 0
+                A READ  ant-readable homeward along >= 0.02 on  57.4% of route-cell samples | FOODWARD  22.1% | plane lit on  77.7% | peak amt  29297 cells  88
+                RETURN LEDGER reached food    6 of   20 ants | came back    2 | trips laden    0 empty    2 | LOOPERS    0 of   20 ants ( 0.0% of those that reached food), repeat    0, most loops by one ant   0
+                BY ANCHOR AT PICKUP  anchor ON nest material:    0 loops /    0 pickups (  0.0%) | anchor OFF it:    0 /   93 (  0.0%)
+                BY BIRTH SITE  born ON comb:   0 of   2 that reached food looped (  0.0%) | born OFF comb:   0 of   4 (  0.0%)
+                LEGS legs[5893,4369] laden[]
+                founded x   12..88   (nest cursor 48 MATERIAL x 26..70 11 of 20 founders born on it; food 138; nearest founder 50 cells out, farthest 126, nominal gap 90)  occupancy/1k [34 28 38 15 18 8 5 5]  carry->nest     207  born    0 died   19 (starved   18)
+                own trail: route pk   11 end    5 along -0.0000  B nest->food [89,3097,6417,9544,8290]  blocked      198  kin swaps       0  ticks     25928  tumbles     11139 (homeward        0, 0.00%)  drops     471  chew parked    432 resumed    422 (   128686 J)  DELIVERED   471  leg home n    2 med  5893 p90  5893 (laden n    0 med     0 p90     0)  appetite held         0 J of      5760  trips born-on-comb    1 (11 ants) / born-off    1 (9 ants)
+                channel A: PEAK amt  29297 cells   88 (of 91 route)  POLARITY|| +0.12058 && +0.11162 SPAN +0.03731 edge   5.6  end nest->food [1630,3830,1148,0,0]  nest   25  AtNest 58.23%
+                Carrying: laden     19680  of which SPOIL      5214 ( 26.5%)
+    TRACE laden ants: n 16260  mean PheroAAlong -0.31454  MEAN |PheroAAlong| 0.37141  mean P(move) 0.1660  mean trail term (h0+h1 -> Move) -2.43285  net cells homeward 301 (+0.018512/tick)
+    TRACE laden TICKS by what the sensor cell is -- the geometry test  [6.00 frames/tick, must equal tick_interval]:
+      air (nose in open sky)             n     1240 ( 45.8% of ticks)   mean along -0.4176   usable (>= +0.02)   2.5%   frozen  83.2%
+      solid (nose in ground)             n      676 ( 24.9% of ticks)   mean along -0.4290   usable (>= +0.02)   4.0%   frozen  85.8%
+      surface (a trail could be here)    n      794 ( 29.3% of ticks)   mean along -0.0562   usable (>= +0.02)  31.2%   frozen  47.0%
+      => of 1985 FROZEN laden ticks (P(move) exactly 0), 81% had the nose in sky or ground
+    TRACE freeze runs: n 162   median 5 ticks   p90 21   longest 261
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     1890   P(move) 0.7423   not resting   94.3%   P(move)|>0 0.7873   cells homeward      167 (+0.088360/tick)
+      facing DOWN-gradient   n    13554   P(move) 0.0613   not resting   14.5%   P(move)|>0 0.4232   cells homeward       64 (+0.004722/tick)
+      no readable gradient   n      816   P(move) 0.5709   not resting   74.3%   P(move)|>0 0.7687   cells homeward       70 (+0.085784/tick)
+      => P(move) up-gradient minus down-gradient: +0.6811  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]972 [-0.67]2538 [-0.44]4506 [-0.22]4770 [+0.00]2250 [+0.22]654 [+0.44]366 [+0.67]186 [+0.89]18
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 16260 of 16260 laden decisions (100.00%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     1890   P(move) 0.7423   not resting   94.3%   P(move)|>0 0.7873   cells homeward      167 (+0.088360/tick)
+        facing DOWN-gradient n    13554   P(move) 0.0613   not resting   14.5%   P(move)|>0 0.4232   cells homeward       64 (+0.004722/tick)
+      => with the gate open, P(move) up minus down: +0.6811; cells homeward up minus down: +0.083638/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 16260 gate-open decisions, 216 (1.3%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n    16260   P(move) 0.1660   not resting   26.8%   P(move)|>0 0.6205   cells homeward      301 (+0.018512/tick)
+      gate SHUT              n 0
+    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:
+       nearest nest material  laden ticks   % of laden  P(drop)      drops
+                     8 cells         2232        13.7%   0.4925         34
+                    16 cells         4338        26.7%   0.0000          1
+                    32 cells         5046        31.0%   0.0555          8
+              further / none         4644        28.6%   0.0000          0
+      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at
+      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never
+      REACH the comb, and a large one with few drops would mean they reach it and decline.
+    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:
+      heading vs home          n  mean along % positive   P(move)
+        -1.0..-0.6       6420     -0.3509       8.5%    0.0375
+        -0.6..-0.2         72     -0.5336       0.0%    0.0000
+        -0.2..+0.2       1860     -0.3620       1.0%    0.0198
+        +0.2..+0.6         66     -0.3949       0.0%    0.0000
+        +0.6..+1.0       4452     -0.1723      26.5%    0.5098   <- POINTED AT HOME: this row is the answer
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.9-1.0      16260    0.1660    0.0218    0.0033     +0.018512   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      h2               -2.17100   (live in 21780 of 16260)
+      Bias             +2.00000   (live in 21780 of 16260)
+      h3               +1.38185   (live in 21780 of 16260)
+      h0               -1.35602   (live in 21780 of 16260)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Energy           -0.85630   (live in 21780 of 16260)
+      h1               -0.46119   (live in 21780 of 16260)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      KinNeed          +0.45943   (live in 21780 of 16260)
+      HomeAligned      -0.19977   (live in 21780 of 16260)
+      Stillness        +0.12591   (live in 21780 of 16260)
+      Crowding         -0.10727   (live in 21780 of 16260)
+      FoodAdjacent     -0.08106   (live in 21780 of 16260)
+      Alarm            +0.00000   (live in 21780 of 16260)
+    TRACE focal ant: 8850 decisions written to /tmp/trailfollow-focal-seed9-gap90.csv
+   90    9  hand    0/0          912      642     9738    16260        0    6/20        0          5 2 5 8 0
+                A READ  ant-readable homeward along >= 0.02 on  60.5% of route-cell samples | FOODWARD  13.8% | plane lit on  73.8% | peak amt  18067 cells  87
+                RETURN LEDGER reached food    6 of   20 ants | came back    0 | trips laden    0 empty    0 | LOOPERS    0 of   20 ants ( 0.0% of those that reached food), repeat    0, most loops by one ant   0
+                BY ANCHOR AT PICKUP  anchor ON nest material:    0 loops /    0 pickups (  0.0%) | anchor OFF it:    0 /   57 (  0.0%)
+                BY BIRTH SITE  born ON comb:   0 of   2 that reached food looped (  0.0%) | born OFF comb:   0 of   4 (  0.0%)
+                founded x   12..88   (nest cursor 48 MATERIAL x 26..70 11 of 20 founders born on it; food 138; nearest founder 50 cells out, farthest 126, nominal gap 90)  occupancy/1k [25 15 27 29 20 13 3 1]  carry->nest     301  born    0 died   20 (starved   20)
+                own trail: route pk   16 end    0 along +0.0000  B nest->food [89,3093,6465,9595,8291]  blocked      216  kin swaps       0  ticks     22793  tumbles      9612 (homeward        0, 0.00%)  drops     214  chew parked    175 resumed    167 (    79536 J)  DELIVERED   214  leg home n    0 med     0 p90     0 (laden n    0 med     0 p90     0)  appetite held         0 J of      3840  trips born-on-comb    0 (11 ants) / born-off    0 (9 ants)
+                channel A: PEAK amt  18067 cells   87 (of 91 route)  POLARITY|| +0.13881 && +0.13197 SPAN +0.03258 edge   5.9  end nest->food [2243,792,117,0,0]  nest   25  AtNest 41.38%
+                Carrying: laden     23394  of which SPOIL      7350 ( 31.4%)
+    TRACE laden ants: n 18690  mean PheroAAlong -0.39768  MEAN |PheroAAlong| 0.43132  mean P(move) 0.1257  mean trail term (h0+h1 -> Move) -2.82918  net cells homeward 325 (+0.017389/tick)
+    TRACE laden TICKS by what the sensor cell is -- the geometry test  [6.00 frames/tick, must equal tick_interval]:
+      air (nose in open sky)             n     1766 ( 56.7% of ticks)   mean along -0.4393   usable (>= +0.02)   2.0%   frozen  86.7%
+      solid (nose in ground)             n      802 ( 25.8% of ticks)   mean along -0.5091   usable (>= +0.02)   1.7%   frozen  83.5%
+      surface (a trail could be here)    n      546 ( 17.5% of ticks)   mean along -0.0990   usable (>= +0.02)  24.4%   frozen  40.8%
+      => of 2425 FROZEN laden ticks (P(move) exactly 0), 91% had the nose in sky or ground
+    TRACE freeze runs: n 151   median 5 ticks   p90 36   longest 432
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     1416   P(move) 0.6519   not resting   81.4%   P(move)|>0 0.8013   cells homeward      122 (+0.086158/tick)
+      facing DOWN-gradient   n    16494   P(move) 0.0616   not resting   14.9%   P(move)|>0 0.4138   cells homeward      147 (+0.008912/tick)
+      no readable gradient   n      780   P(move) 0.5270   not resting   67.7%   P(move)|>0 0.7785   cells homeward       56 (+0.071795/tick)
+      => P(move) up-gradient minus down-gradient: +0.5904  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]1002 [-0.67]4782 [-0.44]6450 [-0.22]3054 [+0.00]2550 [+0.22]408 [+0.44]372 [+0.67]54 [+0.89]18
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 18690 of 18690 laden decisions (100.00%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     1416   P(move) 0.6519   not resting   81.4%   P(move)|>0 0.8013   cells homeward      122 (+0.086158/tick)
+        facing DOWN-gradient n    16494   P(move) 0.0616   not resting   14.9%   P(move)|>0 0.4138   cells homeward      147 (+0.008912/tick)
+      => with the gate open, P(move) up minus down: +0.5904; cells homeward up minus down: +0.077246/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 18690 gate-open decisions, 6 (0.0%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n    18690   P(move) 0.1257   not resting   22.1%   P(move)|>0 0.5684   cells homeward      325 (+0.017389/tick)
+      gate SHUT              n 0
+    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:
+       nearest nest material  laden ticks   % of laden  P(drop)      drops
+                     4 cells          132         0.7%   0.4886          0
+                     8 cells         3840        20.5%   0.4920         55
+                    16 cells         5526        29.6%   0.0106          2
+                    32 cells         4470        23.9%   0.2325         20
+              further / none         4722        25.3%   0.0012          0
+    TRACE ...and when it misses by 2-4 cells, is the miss SIDEWAYS or UPWARD? (rows = |dx|, cols = |dy|)
+                  |dy|=0         1         2         3        4+
+        |dx|=3      0.0%      0.0%      0.0%      0.0%     31.8%
+        |dx|=4      0.0%      0.0%      0.0%      0.0%     68.2%
+      MISSED ONLY UPWARD (|dx|<=1, |dy|>=2) -- standing on the doorstep, head too high: 0.0%
+      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at
+      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never
+      REACH the comb, and a large one with few drops would mean they reach it and decline.
+    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:
+      heading vs home          n  mean along % positive   P(move)
+        -1.0..-0.6       6372     -0.3885       7.3%    0.0163
+        -0.6..-0.2         42     -0.5867      14.3%    0.1008
+        -0.2..+0.2       1104     -0.4827       1.6%    0.0386
+        +0.2..+0.6         60     -0.2818      10.0%    0.1555
+        +0.6..+1.0       5022     -0.3565      17.3%    0.4104   <- POINTED AT HOME: this row is the answer
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.9-1.0      18690    0.1257    0.0187    0.0013     +0.017389   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      h2               -2.08450   (live in 23532 of 18690)
+      Bias             +2.00000   (live in 23532 of 18690)
+      h3               +1.63453   (live in 23532 of 18690)
+      h0               -1.46668   (live in 23532 of 18690)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      h1               -0.78136   (live in 23532 of 18690)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Energy           -0.77508   (live in 23532 of 18690)
+      KinNeed          +0.50112   (live in 23532 of 18690)
+      Stillness        +0.24401   (live in 23532 of 18690)
+      Crowding         -0.13152   (live in 23532 of 18690)
+      FoodAdjacent     -0.07779   (live in 23532 of 18690)
+      HomeAligned      -0.01363   (live in 23532 of 18690)
+      Alarm            +0.00000   (live in 23532 of 18690)
+    TRACE focal ant: 8400 decisions written to /tmp/trailfollow-focal-seed10-gap90.csv
+   90   10  hand    0/0         1596      648    11670    18690      330    7/20        2          5 3 4 8 0
+                A READ  ant-readable homeward along >= 0.02 on  51.8% of route-cell samples | FOODWARD  27.6% | plane lit on  79.5% | peak amt  41163 cells  88
+                RETURN LEDGER reached food    7 of   20 ants | came back    2 | trips laden    0 empty    2 | LOOPERS    0 of   20 ants ( 0.0% of those that reached food), repeat    0, most loops by one ant   0
+                BY ANCHOR AT PICKUP  anchor ON nest material:    0 loops /    0 pickups (  0.0%) | anchor OFF it:    0 /   49 (  0.0%)
+                BY BIRTH SITE  born ON comb:   0 of   2 that reached food looped (  0.0%) | born OFF comb:   0 of   5 (  0.0%)
+                LEGS legs[7771,6703] laden[]
+                founded x   12..88   (nest cursor 48 MATERIAL x 26..70 11 of 20 founders born on it; food 138; nearest founder 50 cells out, farthest 126, nominal gap 90)  occupancy/1k [32 24 57 23 8 6 7 2]  carry->nest     325  born    0 died   20 (starved   20)
+                own trail: route pk   30 end    0 along +0.0000  B nest->food [89,3094,6501,9625,8291]  blocked      195  kin swaps       0  ticks     27109  tumbles     11364 (homeward        0, 0.00%)  drops     463  chew parked    393 resumed    383 (   120009 J)  DELIVERED   463  leg home n    2 med  7771 p90  7771 (laden n    0 med     0 p90     0)  appetite held         0 J of      6720  trips born-on-comb    0 (11 ants) / born-off    2 (9 ants)
+                channel A: PEAK amt  41163 cells   88 (of 91 route)  POLARITY|| +0.11454 && +0.10566 SPAN +0.04147 edge   5.5  end nest->food [1658,2298,1059,0,0]  nest   25  AtNest 51.64%
+                Carrying: laden     24192  of which SPOIL      5508 ( 22.8%)
+    TRACE laden ants: n 10620  mean PheroAAlong -0.30666  MEAN |PheroAAlong| 0.35383  mean P(move) 0.1510  mean trail term (h0+h1 -> Move) -2.18500  net cells homeward 223 (+0.020998/tick)
+    TRACE laden TICKS by what the sensor cell is -- the geometry test  [6.01 frames/tick, must equal tick_interval]:
+      air (nose in open sky)             n      663 ( 37.5% of ticks)   mean along -0.4522   usable (>= +0.02)   5.1%   frozen  84.9%
+      solid (nose in ground)             n      527 ( 29.8% of ticks)   mean along -0.3295   usable (>= +0.02)   3.4%   frozen  87.1%
+      surface (a trail could be here)    n      578 ( 32.7% of ticks)   mean along -0.1176   usable (>= +0.02)  22.7%   frozen  48.8%
+      => of 1304 FROZEN laden ticks (P(move) exactly 0), 78% had the nose in sky or ground
+    TRACE freeze runs: n 91   median 6 ticks   p90 30   longest 221
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     1236   P(move) 0.5131   not resting   73.3%   P(move)|>0 0.7000   cells homeward       82 (+0.066343/tick)
+      facing DOWN-gradient   n     7632   P(move) 0.0902   not resting   19.3%   P(move)|>0 0.4686   cells homeward       99 (+0.012972/tick)
+      no readable gradient   n     1752   P(move) 0.1604   not resting   23.3%   P(move)|>0 0.6888   cells homeward       42 (+0.023973/tick)
+      => P(move) up-gradient minus down-gradient: +0.4228  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]228 [-0.67]2562 [-0.44]2856 [-0.22]1386 [+0.00]2862 [+0.22]558 [+0.44]108 [+0.67]60 [+0.89]0
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 10620 of 10620 laden decisions (100.00%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     1236   P(move) 0.5131   not resting   73.3%   P(move)|>0 0.7000   cells homeward       82 (+0.066343/tick)
+        facing DOWN-gradient n     7632   P(move) 0.0902   not resting   19.3%   P(move)|>0 0.4686   cells homeward       99 (+0.012972/tick)
+      => with the gate open, P(move) up minus down: +0.4228; cells homeward up minus down: +0.053371/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 10620 gate-open decisions, 0 (0.0%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n    10620   P(move) 0.1510   not resting   26.2%   P(move)|>0 0.5762   cells homeward      223 (+0.020998/tick)
+      gate SHUT              n 0
+    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:
+       nearest nest material  laden ticks   % of laden  P(drop)      drops
+                     4 cells           18         0.2%   0.4886          0
+                     8 cells         2064        19.4%   0.4920         37
+                    16 cells          846         8.0%   0.0173          0
+                    32 cells         1734        16.3%   0.0524          0
+              further / none         5958        56.1%   0.0000          1
+    TRACE ...and when it misses by 2-4 cells, is the miss SIDEWAYS or UPWARD? (rows = |dx|, cols = |dy|)
+                  |dy|=0         1         2         3        4+
+        |dx|=4      0.0%    100.0%      0.0%      0.0%      0.0%
+      MISSED ONLY UPWARD (|dx|<=1, |dy|>=2) -- standing on the doorstep, head too high: 0.0%
+      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at
+      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never
+      REACH the comb, and a large one with few drops would mean they reach it and decline.
+    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:
+      heading vs home          n  mean along % positive   P(move)
+        -1.0..-0.6       4482     -0.3321      13.1%    0.0176
+        -0.2..+0.2       1236     -0.3031       0.0%    0.0070
+        +0.2..+0.6         18     -0.1529       0.0%    0.1135
+        +0.6..+1.0       2580     -0.1627      23.7%    0.5624   <- POINTED AT HOME: this row is the answer
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.9-1.0      10620    0.1510    0.0218    0.0008     +0.020998   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      h2               -2.07088   (live in 16398 of 10620)
+      Bias             +2.00000   (live in 16398 of 10620)
+      h0               -1.37725   (live in 16398 of 10620)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      h3               +0.96079   (live in 16398 of 10620)
+      Energy           -0.86361   (live in 16398 of 10620)
+      KinNeed          +0.49104   (live in 16398 of 10620)
+      HomeAligned      -0.25313   (live in 16398 of 10620)
+      Stillness        +0.13294   (live in 16398 of 10620)
+      FoodAdjacent     -0.10172   (live in 16398 of 10620)
+      Crowding         -0.08963   (live in 16398 of 10620)
+      h1               -0.04019   (live in 16398 of 10620)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Alarm            +0.00000   (live in 16398 of 10620)
+    TRACE focal ant: 7518 decisions written to /tmp/trailfollow-focal-seed11-gap90.csv
+   90   11  hand    0/0          684      828     9300    10620       48    7/20        0         7 1 2 10 0
+                A READ  ant-readable homeward along >= 0.02 on  53.6% of route-cell samples | FOODWARD  25.5% | plane lit on  77.5% | peak amt  23021 cells  88
+                RETURN LEDGER reached food    7 of   20 ants | came back    0 | trips laden    0 empty    0 | LOOPERS    0 of   20 ants ( 0.0% of those that reached food), repeat    0, most loops by one ant   0
+                BY ANCHOR AT PICKUP  anchor ON nest material:    0 loops /    0 pickups (  0.0%) | anchor OFF it:    0 /   26 (  0.0%)
+                BY BIRTH SITE  born ON comb:   0 of   4 that reached food looped (  0.0%) | born OFF comb:   0 of   3 (  0.0%)
+                founded x   12..88   (nest cursor 48 MATERIAL x 26..70 11 of 20 founders born on it; food 138; nearest founder 50 cells out, farthest 126, nominal gap 90)  occupancy/1k [26 1 33 18 13 20 12 6]  carry->nest     223  born    0 died   20 (starved   20)
+                own trail: route pk   29 end    0 along +0.0000  B nest->food [89,3093,6444,9511,8290]  blocked      234  kin swaps       0  ticks     22017  tumbles      9208 (homeward        0, 0.00%)  drops     113  chew parked     77 resumed     73 (    23408 J)  DELIVERED   113  leg home n    0 med     0 p90     0 (laden n    0 med     0 p90     0)  appetite held         0 J of      2880  trips born-on-comb    0 (11 ants) / born-off    0 (9 ants)
+                channel A: PEAK amt  23021 cells   88 (of 91 route)  POLARITY|| +0.09917 && +0.08664 SPAN +0.04987 edge   5.5  end nest->food [889,278,164,0,0]  nest   25  AtNest 36.97%
+                Carrying: laden     16788  of which SPOIL      6168 ( 36.7%)
+    TRACE laden ants: n 16698  mean PheroAAlong -0.28007  MEAN |PheroAAlong| 0.32437  mean P(move) 0.1833  mean trail term (h0+h1 -> Move) -2.00372  net cells homeward 345 (+0.020661/tick)
+    TRACE laden TICKS by what the sensor cell is -- the geometry test  [6.00 frames/tick, must equal tick_interval]:
+      air (nose in open sky)             n      718 ( 25.8% of ticks)   mean along -0.3937   usable (>= +0.02)  10.6%   frozen  63.5%
+      solid (nose in ground)             n     1114 ( 40.0% of ticks)   mean along -0.3958   usable (>= +0.02)   1.7%   frozen  81.7%
+      surface (a trail could be here)    n      950 ( 34.1% of ticks)   mean along -0.0585   usable (>= +0.02)  40.4%   frozen  56.2%
+      => of 1900 FROZEN laden ticks (P(move) exactly 0), 72% had the nose in sky or ground
+    TRACE freeze runs: n 227   median 3 ticks   p90 15   longest 182
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     3030   P(move) 0.4866   not resting   62.2%   P(move)|>0 0.7826   cells homeward      196 (+0.064686/tick)
+      facing DOWN-gradient   n    12354   P(move) 0.1091   not resting   24.3%   P(move)|>0 0.4482   cells homeward      141 (+0.011413/tick)
+      no readable gradient   n     1314   P(move) 0.1813   not resting   30.6%   P(move)|>0 0.5927   cells homeward        8 (+0.006088/tick)
+      => P(move) up-gradient minus down-gradient: +0.3775  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]582 [-0.67]3516 [-0.44]3360 [-0.22]2658 [+0.00]5640 [+0.22]708 [+0.44]180 [+0.67]54 [+0.89]0
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 16698 of 16698 laden decisions (100.00%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     3030   P(move) 0.4866   not resting   62.2%   P(move)|>0 0.7826   cells homeward      196 (+0.064686/tick)
+        facing DOWN-gradient n    12354   P(move) 0.1091   not resting   24.3%   P(move)|>0 0.4482   cells homeward      141 (+0.011413/tick)
+      => with the gate open, P(move) up minus down: +0.3775; cells homeward up minus down: +0.053273/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 16698 gate-open decisions, 72 (0.4%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n    16698   P(move) 0.1833   not resting   31.7%   P(move)|>0 0.5782   cells homeward      345 (+0.020661/tick)
+      gate SHUT              n 0
+    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:
+       nearest nest material  laden ticks   % of laden  P(drop)      drops
+                     2 cells           18         0.1%   0.4886          0
+                     4 cells           54         0.3%   0.4886          0
+                     8 cells          318         1.9%   0.4899          2
+                    16 cells          660         4.0%   0.0577          0
+                    32 cells         2916        17.5%   0.0350          8
+              further / none        12732        76.2%   0.0000          2
+    TRACE ...and when it misses by 2-4 cells, is the miss SIDEWAYS or UPWARD? (rows = |dx|, cols = |dy|)
+                  |dy|=0         1         2         3        4+
+        |dx|=1      0.0%      0.0%     25.0%      0.0%      0.0%
+        |dx|=2      0.0%      0.0%      0.0%     33.3%      0.0%
+        |dx|=4      0.0%      0.0%      0.0%     25.0%     16.7%
+      MISSED ONLY UPWARD (|dx|<=1, |dy|>=2) -- standing on the doorstep, head too high: 25.0%
+      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at
+      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never
+      REACH the comb, and a large one with few drops would mean they reach it and decline.
+    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:
+      heading vs home          n  mean along % positive   P(move)
+        -1.0..-0.6       7092     -0.3178      19.6%    0.0163
+        -0.2..+0.2       2874     -0.3465       1.3%    0.0767
+        +0.2..+0.6         36     -0.0268      66.7%    0.5753
+        +0.6..+1.0       5256     -0.2210      25.2%    0.4773   <- POINTED AT HOME: this row is the answer
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.9-1.0      16698    0.1833    0.0237    0.0030     +0.020661   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      Bias             +2.00000   (live in 23142 of 16698)
+      h2               -1.82996   (live in 23142 of 16698)
+      h3               +1.41155   (live in 23142 of 16698)
+      h0               -1.16264   (live in 23142 of 16698)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Energy           -0.70676   (live in 23142 of 16698)
+      h1               -0.28384   (live in 23142 of 16698)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      KinNeed          +0.27633   (live in 23142 of 16698)
+      HomeAligned      -0.18503   (live in 23142 of 16698)
+      Stillness        +0.06417   (live in 23142 of 16698)
+      Crowding         -0.04490   (live in 23142 of 16698)
+      FoodAdjacent     -0.03579   (live in 23142 of 16698)
+      Alarm            +0.00000   (live in 23142 of 16698)
+    TRACE focal ant: 11670 decisions written to /tmp/trailfollow-focal-seed12-gap90.csv
+   90   12  hand    0/0         1824      630    13146    16698      150    8/20        0          5 6 1 8 0
+                A READ  ant-readable homeward along >= 0.02 on  60.0% of route-cell samples | FOODWARD  18.6% | plane lit on  80.4% | peak amt  25345 cells  89
+                RETURN LEDGER reached food    8 of   20 ants | came back    0 | trips laden    0 empty    0 | LOOPERS    0 of   20 ants ( 0.0% of those that reached food), repeat    0, most loops by one ant   0
+                BY ANCHOR AT PICKUP  anchor ON nest material:    0 loops /    0 pickups (  0.0%) | anchor OFF it:    0 /   39 (  0.0%)
+                BY BIRTH SITE  born ON comb:   0 of   3 that reached food looped (  0.0%) | born OFF comb:   0 of   5 (  0.0%)
+                founded x   12..88   (nest cursor 48 MATERIAL x 26..70 11 of 20 founders born on it; food 138; nearest founder 50 cells out, farthest 126, nominal gap 90)  occupancy/1k [72 4 10 12 20 19 18 6]  carry->nest     345  born    0 died   20 (starved   20)
+                own trail: route pk   59 end    0 along +0.0000  B nest->food [89,3093,6465,9586,8291]  blocked      172  kin swaps       0  ticks     27797  tumbles     11440 (homeward        0, 0.00%)  drops      61  chew parked     57 resumed     50 (    13573 J)  DELIVERED    61  leg home n    0 med     0 p90     0 (laden n    0 med     0 p90     0)  appetite held         0 J of      7680  trips born-on-comb    0 (11 ants) / born-off    0 (9 ants)
+                channel A: PEAK amt  25345 cells   89 (of 91 route)  POLARITY|| +0.11839 && +0.10944 SPAN +0.04393 edge   5.1  end nest->food [2016,879,20,0,0]  nest   25  AtNest 46.07%
+                Carrying: laden     22128  of which SPOIL      5502 ( 24.9%)
+    TRACE laden ants: n 25656  mean PheroAAlong -0.26598  MEAN |PheroAAlong| 0.30816  mean P(move) 0.1276  mean trail term (h0+h1 -> Move) -2.25570  net cells homeward 348 (+0.013564/tick)
+    TRACE laden TICKS by what the sensor cell is -- the geometry test  [6.00 frames/tick, must equal tick_interval]:
+      air (nose in open sky)             n     2041 ( 47.7% of ticks)   mean along -0.3165   usable (>= +0.02)   4.5%   frozen  84.0%
+      solid (nose in ground)             n     1062 ( 24.8% of ticks)   mean along -0.3917   usable (>= +0.02)   1.0%   frozen  82.1%
+      surface (a trail could be here)    n     1172 ( 27.4% of ticks)   mean along -0.0638   usable (>= +0.02)  36.0%   frozen  61.4%
+      => of 3306 FROZEN laden ticks (P(move) exactly 0), 78% had the nose in sky or ground
+    TRACE freeze runs: n 304   median 4 ticks   p90 23   longest 471
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     3342   P(move) 0.4546   not resting   59.4%   P(move)|>0 0.7650   cells homeward      203 (+0.060742/tick)
+      facing DOWN-gradient   n    21408   P(move) 0.0590   not resting   14.7%   P(move)|>0 0.4023   cells homeward       95 (+0.004438/tick)
+      no readable gradient   n      906   P(move) 0.5424   not resting   76.2%   P(move)|>0 0.7122   cells homeward       50 (+0.055188/tick)
+      => P(move) up-gradient minus down-gradient: +0.3957  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]114 [-0.67]3684 [-0.44]6210 [-0.22]10176 [+0.00]2988 [+0.22]2178 [+0.44]204 [+0.67]66 [+0.89]36
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 25656 of 25656 laden decisions (100.00%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     3342   P(move) 0.4546   not resting   59.4%   P(move)|>0 0.7650   cells homeward      203 (+0.060742/tick)
+        facing DOWN-gradient n    21408   P(move) 0.0590   not resting   14.7%   P(move)|>0 0.4023   cells homeward       95 (+0.004438/tick)
+      => with the gate open, P(move) up minus down: +0.3957; cells homeward up minus down: +0.056304/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 25656 gate-open decisions, 528 (2.1%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n    25656   P(move) 0.1276   not resting   22.7%   P(move)|>0 0.5630   cells homeward      348 (+0.013564/tick)
+      gate SHUT              n 0
+    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:
+       nearest nest material  laden ticks   % of laden  P(drop)      drops
+                     2 cells          468         1.8%   0.4907          0
+                     4 cells          168         0.7%   0.4980          0
+                     8 cells         3708        14.5%   0.4949          1
+                    16 cells         2064         8.0%   0.0813          2
+                    32 cells         8004        31.2%   0.0143          2
+              further / none        11244        43.8%   0.0000          1
+    TRACE ...and when it misses by 2-4 cells, is the miss SIDEWAYS or UPWARD? (rows = |dx|, cols = |dy|)
+                  |dy|=0         1         2         3        4+
+        |dx|=1      0.0%      0.0%      0.9%      0.0%      0.0%
+        |dx|=2      0.0%     12.3%     60.4%      8.5%      0.0%
+        |dx|=4      0.0%      0.0%     13.2%      0.0%      4.7%
+      MISSED ONLY UPWARD (|dx|<=1, |dy|>=2) -- standing on the doorstep, head too high: 0.9%
+      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at
+      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never
+      REACH the comb, and a large one with few drops would mean they reach it and decline.
+    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:
+      heading vs home          n  mean along % positive   P(move)
+        -1.0..-0.6       8400     -0.3136      18.9%    0.0076
+        -0.6..-0.2        276     -0.3616       2.2%    0.0157
+        -0.2..+0.2       3888     -0.3228       1.9%    0.0575
+        +0.2..+0.6        312     -0.4336       0.0%    0.0150
+        +0.6..+1.0       5772     -0.1793      23.8%    0.4736   <- POINTED AT HOME: this row is the answer
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.9-1.0      25656    0.1276    0.0163    0.0028     +0.013564   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      h2               -2.21618   (live in 28896 of 25656)
+      h3               +2.02476   (live in 28896 of 25656)
+      Bias             +2.00000   (live in 28896 of 25656)
+      h0               -1.03667   (live in 28896 of 25656)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Energy           -0.96916   (live in 28896 of 25656)
+      h1               -0.96657   (live in 28896 of 25656)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      KinNeed          +0.32269   (live in 28896 of 25656)
+      HomeAligned      -0.22077   (live in 28896 of 25656)
+      Stillness        +0.16534   (live in 28896 of 25656)
+      Crowding         -0.12387   (live in 28896 of 25656)
+      FoodAdjacent     -0.06945   (live in 28896 of 25656)
+      Alarm            +0.00000   (live in 28896 of 25656)
+    TRACE focal ant: 12390 decisions written to /tmp/trailfollow-focal-seed13-gap90.csv
+   90   13  hand    0/0         2508      600    13458    25656     1236    7/20        2         5 2 2 11 0
+                A READ  ant-readable homeward along >= 0.02 on  57.9% of route-cell samples | FOODWARD  22.4% | plane lit on  79.3% | peak amt  37615 cells  87
+                RETURN LEDGER reached food    7 of   20 ants | came back    2 | trips laden    0 empty    2 | LOOPERS    0 of   20 ants ( 0.0% of those that reached food), repeat    0, most loops by one ant   0
+                BY ANCHOR AT PICKUP  anchor ON nest material:    0 loops /    0 pickups (  0.0%) | anchor OFF it:    0 /   83 (  0.0%)
+                BY BIRTH SITE  born ON comb:   0 of   2 that reached food looped (  0.0%) | born OFF comb:   0 of   5 (  0.0%)
+                LEGS legs[9373,11239] laden[]
+                founded x   12..88   (nest cursor 48 MATERIAL x 26..70 11 of 20 founders born on it; food 138; nearest founder 50 cells out, farthest 126, nominal gap 90)  occupancy/1k [44 13 18 62 21 22 7 3]  carry->nest     348  born    0 died   20 (starved   20)
+                own trail: route pk   51 end    0 along +0.0000  B nest->food [89,3100,6517,9753,8291]  blocked      283  kin swaps       0  ticks     32501  tumbles     13958 (homeward        0, 0.00%)  drops     201  chew parked    206 resumed    198 (    90961 J)  DELIVERED   201  leg home n    2 med 11239 p90 11239 (laden n    0 med     0 p90     0)  appetite held         0 J of     10560  trips born-on-comb    0 (11 ants) / born-off    2 (9 ants)
+                channel A: PEAK amt  37615 cells   87 (of 91 route)  POLARITY|| +0.10825 && +0.09937 SPAN +0.03953 edge   5.8  end nest->food [1181,1538,509,0,0]  nest   25  AtNest 32.46%
+                Carrying: laden     33744  of which SPOIL      8616 ( 25.5%)
+    TRACE laden ants: n 23124  mean PheroAAlong -0.34363  MEAN |PheroAAlong| 0.37244  mean P(move) 0.1410  mean trail term (h0+h1 -> Move) -2.67188  net cells homeward 407 (+0.017601/tick)
+    TRACE laden TICKS by what the sensor cell is -- the geometry test  [6.00 frames/tick, must equal tick_interval]:
+      air (nose in open sky)             n     1937 ( 50.3% of ticks)   mean along -0.4081   usable (>= +0.02)   2.9%   frozen  80.9%
+      solid (nose in ground)             n     1065 ( 27.6% of ticks)   mean along -0.4294   usable (>= +0.02)   0.6%   frozen  86.9%
+      surface (a trail could be here)    n      852 ( 22.1% of ticks)   mean along -0.0899   usable (>= +0.02)  25.5%   frozen  45.7%
+      => of 2882 FROZEN laden ticks (P(move) exactly 0), 87% had the nose in sky or ground
+    TRACE freeze runs: n 276   median 6 ticks   p90 27   longest 105
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     2226   P(move) 0.5891   not resting   74.7%   P(move)|>0 0.7891   cells homeward      182 (+0.081761/tick)
+      facing DOWN-gradient   n    20244   P(move) 0.0826   not resting   18.8%   P(move)|>0 0.4396   cells homeward      194 (+0.009583/tick)
+      no readable gradient   n      654   P(move) 0.4217   not resting   56.0%   P(move)|>0 0.7535   cells homeward       31 (+0.047401/tick)
+      => P(move) up-gradient minus down-gradient: +0.5065  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]420 [-0.67]4944 [-0.44]7422 [-0.22]5922 [+0.00]3414 [+0.22]726 [+0.44]186 [+0.67]84 [+0.89]6
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 23124 of 23124 laden decisions (100.00%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     2226   P(move) 0.5891   not resting   74.7%   P(move)|>0 0.7891   cells homeward      182 (+0.081761/tick)
+        facing DOWN-gradient n    20244   P(move) 0.0826   not resting   18.8%   P(move)|>0 0.4396   cells homeward      194 (+0.009583/tick)
+      => with the gate open, P(move) up minus down: +0.5065; cells homeward up minus down: +0.072178/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 23124 gate-open decisions, 0 (0.0%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n    23124   P(move) 0.1410   not resting   25.2%   P(move)|>0 0.5589   cells homeward      407 (+0.017601/tick)
+      gate SHUT              n 0
+    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:
+       nearest nest material  laden ticks   % of laden  P(drop)      drops
+                     4 cells          204         0.9%   0.4906          3
+                     8 cells         3366        14.6%   0.4931         71
+                    16 cells         4518        19.5%   0.0000          2
+                    32 cells         9294        40.2%   0.1704         38
+              further / none         5742        24.8%   0.0000          0
+    TRACE ...and when it misses by 2-4 cells, is the miss SIDEWAYS or UPWARD? (rows = |dx|, cols = |dy|)
+                  |dy|=0         1         2         3        4+
+        |dx|=4      0.0%     26.5%     14.7%     26.5%     32.4%
+      MISSED ONLY UPWARD (|dx|<=1, |dy|>=2) -- standing on the doorstep, head too high: 0.0%
+      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at
+      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never
+      REACH the comb, and a large one with few drops would mean they reach it and decline.
+    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:
+      heading vs home          n  mean along % positive   P(move)
+        -1.0..-0.6       5814     -0.3956      12.3%    0.0101
+        -0.6..-0.2        582     -0.5260       0.0%    0.0000
+        -0.2..+0.2       2046     -0.4726       1.8%    0.0236
+        +0.2..+0.6        552     -0.5048       1.1%    0.0130
+        +0.6..+1.0       6642     -0.2443      19.7%    0.4357   <- POINTED AT HOME: this row is the answer
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.9-1.0      23124    0.1410    0.0193    0.0017     +0.017601   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      h2               -2.11708   (live in 31104 of 23124)
+      Bias             +2.00000   (live in 31104 of 23124)
+      h0               -1.44950   (live in 31104 of 23124)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      h3               +1.39472   (live in 31104 of 23124)
+      Energy           -0.83386   (live in 31104 of 23124)
+      h1               -0.53797   (live in 31104 of 23124)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      KinNeed          +0.53666   (live in 31104 of 23124)
+      Crowding         -0.12206   (live in 31104 of 23124)
+      FoodAdjacent     -0.10517   (live in 31104 of 23124)
+      Stillness        +0.09038   (live in 31104 of 23124)
+      HomeAligned      +0.07619   (live in 31104 of 23124)
+      Alarm            +0.00000   (live in 31104 of 23124)
+    TRACE focal ant: 11682 decisions written to /tmp/trailfollow-focal-seed14-gap90.csv
+   90   14  hand    0/0         2280      564    13644    23124      204    9/20        1         4 3 3 10 0
+                A READ  ant-readable homeward along >= 0.02 on  55.0% of route-cell samples | FOODWARD  22.1% | plane lit on  79.3% | peak amt  23520 cells  89
+                RETURN LEDGER reached food    9 of   20 ants | came back    1 | trips laden    0 empty    1 | LOOPERS    0 of   20 ants ( 0.0% of those that reached food), repeat    0, most loops by one ant   0
+                BY ANCHOR AT PICKUP  anchor ON nest material:    0 loops /    0 pickups (  0.0%) | anchor OFF it:    0 /  248 (  0.0%)
+                BY BIRTH SITE  born ON comb:   0 of   4 that reached food looped (  0.0%) | born OFF comb:   0 of   5 (  0.0%)
+                LEGS legs[10357] laden[]
+                founded x   12..88   (nest cursor 48 MATERIAL x 26..70 11 of 20 founders born on it; food 138; nearest founder 50 cells out, farthest 126, nominal gap 90)  occupancy/1k [30 37 52 32 14 7 12 3]  carry->nest     407  born    0 died   20 (starved   20)
+                own trail: route pk   13 end    0 along +0.0000  B nest->food [89,3094,6487,9632,8291]  blocked      200  kin swaps       0  ticks     31689  tumbles     13724 (homeward        0, 0.00%)  drops     517  chew parked    412 resumed    400 (   139011 J)  DELIVERED   517  leg home n    1 med 10357 p90 10357 (laden n    0 med     0 p90     0)  appetite held         0 J of      9600  trips born-on-comb    0 (11 ants) / born-off    1 (9 ants)
+                channel A: PEAK amt  23520 cells   89 (of 91 route)  POLARITY|| +0.12238 && +0.11387 SPAN +0.03409 edge   5.3  end nest->food [1556,1668,568,0,0]  nest   25  AtNest 51.51%
+                Carrying: laden     29076  of which SPOIL      5952 ( 20.5%)
+    TRACE laden ants: n 18342  mean PheroAAlong -0.29027  MEAN |PheroAAlong| 0.32612  mean P(move) 0.1569  mean trail term (h0+h1 -> Move) -2.37755  net cells homeward 365 (+0.019900/tick)
+    TRACE laden TICKS by what the sensor cell is -- the geometry test  [6.00 frames/tick, must equal tick_interval]:
+      air (nose in open sky)             n     1193 ( 39.1% of ticks)   mean along -0.3808   usable (>= +0.02)   8.6%   frozen  74.4%
+      solid (nose in ground)             n      889 ( 29.1% of ticks)   mean along -0.3642   usable (>= +0.02)   3.7%   frozen  84.0%
+      surface (a trail could be here)    n      973 ( 31.8% of ticks)   mean along -0.1111   usable (>= +0.02)  25.7%   frozen  63.2%
+      => of 2250 FROZEN laden ticks (P(move) exactly 0), 73% had the nose in sky or ground
+    TRACE freeze runs: n 172   median 4 ticks   p90 25   longest 271
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     2472   P(move) 0.5946   not resting   77.7%   P(move)|>0 0.7656   cells homeward      180 (+0.072816/tick)
+      facing DOWN-gradient   n    15618   P(move) 0.0845   not resting   17.9%   P(move)|>0 0.4732   cells homeward      174 (+0.011141/tick)
+      no readable gradient   n      252   P(move) 0.3516   not resting   47.6%   P(move)|>0 0.7384   cells homeward       11 (+0.043651/tick)
+      => P(move) up-gradient minus down-gradient: +0.5101  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]174 [-0.67]2874 [-0.44]5166 [-0.22]5616 [+0.00]3726 [+0.22]516 [+0.44]228 [+0.67]30 [+0.89]12
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 18342 of 18342 laden decisions (100.00%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     2472   P(move) 0.5946   not resting   77.7%   P(move)|>0 0.7656   cells homeward      180 (+0.072816/tick)
+        facing DOWN-gradient n    15618   P(move) 0.0845   not resting   17.9%   P(move)|>0 0.4732   cells homeward      174 (+0.011141/tick)
+      => with the gate open, P(move) up minus down: +0.5101; cells homeward up minus down: +0.061675/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 18342 gate-open decisions, 0 (0.0%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n    18342   P(move) 0.1569   not resting   26.3%   P(move)|>0 0.5960   cells homeward      365 (+0.019900/tick)
+      gate SHUT              n 0
+    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:
+       nearest nest material  laden ticks   % of laden  P(drop)      drops
+                     4 cells          180         1.0%   0.4886          0
+                     8 cells         1452         7.9%   0.4888          2
+                    16 cells         2154        11.7%   0.0068          1
+                    32 cells         4014        21.9%   0.0340          7
+              further / none        10542        57.5%   0.0000          1
+    TRACE ...and when it misses by 2-4 cells, is the miss SIDEWAYS or UPWARD? (rows = |dx|, cols = |dy|)
+                  |dy|=0         1         2         3        4+
+        |dx|=3      0.0%      0.0%      0.0%      0.0%     23.3%
+        |dx|=4      0.0%      0.0%      0.0%     36.7%     40.0%
+      MISSED ONLY UPWARD (|dx|<=1, |dy|>=2) -- standing on the doorstep, head too high: 0.0%
+      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at
+      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never
+      REACH the comb, and a large one with few drops would mean they reach it and decline.
+    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:
+      heading vs home          n  mean along % positive   P(move)
+        -1.0..-0.6       8670     -0.3041       9.4%    0.0089
+        -0.6..-0.2         30     -0.3318       0.0%    0.0972
+        -0.2..+0.2       2250     -0.4645       0.8%    0.0114
+        +0.2..+0.6        120     -0.3710       0.0%    0.1603
+        +0.6..+1.0       5202     -0.1930      29.3%    0.5101   <- POINTED AT HOME: this row is the answer
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.9-1.0      18342    0.1569    0.0214    0.0015     +0.019900   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      h2               -2.00370   (live in 23958 of 18342)
+      Bias             +2.00000   (live in 23958 of 18342)
+      h3               +1.54472   (live in 23958 of 18342)
+      h0               -1.27682   (live in 23958 of 18342)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Energy           -0.88147   (live in 23958 of 18342)
+      h1               -0.54415   (live in 23958 of 18342)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      KinNeed          +0.47035   (live in 23958 of 18342)
+      HomeAligned      -0.35894   (live in 23958 of 18342)
+      Stillness        +0.11365   (live in 23958 of 18342)
+      Crowding         -0.10240   (live in 23958 of 18342)
+      FoodAdjacent     -0.01240   (live in 23958 of 18342)
+      Alarm            +0.00000   (live in 23958 of 18342)
+    TRACE focal ant: 7356 decisions written to /tmp/trailfollow-focal-seed15-gap90.csv
+   90   15  hand    0/0         2052      972    14166    18342      210   10/20        1         4 1 5 10 0
+                A READ  ant-readable homeward along >= 0.02 on  60.5% of route-cell samples | FOODWARD  23.6% | plane lit on  84.6% | peak amt  30431 cells  88
+                RETURN LEDGER reached food   10 of   20 ants | came back    1 | trips laden    0 empty    1 | LOOPERS    0 of   20 ants ( 0.0% of those that reached food), repeat    0, most loops by one ant   0
+                BY ANCHOR AT PICKUP  anchor ON nest material:    0 loops /    0 pickups (  0.0%) | anchor OFF it:    0 /  133 (  0.0%)
+                BY BIRTH SITE  born ON comb:   0 of   5 that reached food looped (  0.0%) | born OFF comb:   0 of   5 (  0.0%)
+                LEGS legs[5797] laden[]
+                founded x   12..88   (nest cursor 48 MATERIAL x 26..70 11 of 20 founders born on it; food 138; nearest founder 50 cells out, farthest 126, nominal gap 90)  occupancy/1k [21 32 14 28 30 21 19 2]  carry->nest     365  born    0 died   20 (starved   20)
+                own trail: route pk   22 end    0 along +0.0000  B nest->food [89,3092,6502,9634,8291]  blocked      257  kin swaps       0  ticks     28477  tumbles     11881 (homeward        0, 0.00%)  drops     157  chew parked    155 resumed    148 (    64891 J)  DELIVERED   157  leg home n    1 med  5797 p90  5797 (laden n    0 med     0 p90     0)  appetite held         0 J of      8640  trips born-on-comb    0 (11 ants) / born-off    1 (9 ants)
+                channel A: PEAK amt  30431 cells   88 (of 91 route)  POLARITY|| +0.11266 && +0.10220 SPAN +0.03071 edge   5.2  end nest->food [1561,2593,1512,0,0]  nest   25  AtNest 34.47%
+                Carrying: laden     26958  of which SPOIL      8616 ( 32.0%)
+    TRACE laden ants: n 17202  mean PheroAAlong -0.36922  MEAN |PheroAAlong| 0.40171  mean P(move) 0.1359  mean trail term (h0+h1 -> Move) -2.79971  net cells homeward 272 (+0.015812/tick)
+    TRACE laden TICKS by what the sensor cell is -- the geometry test  [6.00 frames/tick, must equal tick_interval]:
+      air (nose in open sky)             n     1093 ( 38.2% of ticks)   mean along -0.4399   usable (>= +0.02)   5.9%   frozen  85.9%
+      solid (nose in ground)             n     1068 ( 37.3% of ticks)   mean along -0.4325   usable (>= +0.02)   2.6%   frozen  87.4%
+      surface (a trail could be here)    n      704 ( 24.6% of ticks)   mean along -0.1638   usable (>= +0.02)  19.0%   frozen  48.4%
+      => of 2213 FROZEN laden ticks (P(move) exactly 0), 85% had the nose in sky or ground
+    TRACE freeze runs: n 171   median 5 ticks   p90 31   longest 220
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     1512   P(move) 0.6312   not resting   82.9%   P(move)|>0 0.7611   cells homeward      102 (+0.067460/tick)
+      facing DOWN-gradient   n    15138   P(move) 0.0683   not resting   14.6%   P(move)|>0 0.4668   cells homeward      115 (+0.007597/tick)
+      no readable gradient   n      552   P(move) 0.6340   not resting   79.3%   P(move)|>0 0.7991   cells homeward       55 (+0.099638/tick)
+      => P(move) up-gradient minus down-gradient: +0.5629  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]582 [-0.67]3564 [-0.44]6462 [-0.22]3738 [+0.00]1992 [+0.22]558 [+0.44]246 [+0.67]48 [+0.89]12
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 17202 of 17202 laden decisions (100.00%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     1512   P(move) 0.6312   not resting   82.9%   P(move)|>0 0.7611   cells homeward      102 (+0.067460/tick)
+        facing DOWN-gradient n    15138   P(move) 0.0683   not resting   14.6%   P(move)|>0 0.4668   cells homeward      115 (+0.007597/tick)
+      => with the gate open, P(move) up minus down: +0.5629; cells homeward up minus down: +0.059864/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 17202 gate-open decisions, 12 (0.1%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n    17202   P(move) 0.1359   not resting   22.7%   P(move)|>0 0.5985   cells homeward      272 (+0.015812/tick)
+      gate SHUT              n 0
+    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:
+       nearest nest material  laden ticks   % of laden  P(drop)      drops
+           ADJACENT (AtNest)           12         0.1%   0.4886          0   <- the only row where Drop can fire
+                     2 cells          522         3.0%   0.4894          0
+                     4 cells         3780        22.0%   0.4954         86
+                     8 cells         2988        17.4%   0.4972         90
+                    16 cells         1812        10.5%   0.2759          6
+                    32 cells         3786        22.0%   0.2260         37
+              further / none         4302        25.0%   0.0000          0
+    TRACE ...and when it misses by 2-4 cells, is the miss SIDEWAYS or UPWARD? (rows = |dx|, cols = |dy|)
+                  |dy|=0         1         2         3        4+
+        |dx|=0      0.0%      0.0%      0.7%      0.0%      0.0%
+        |dx|=1      0.0%      0.0%      3.3%     13.7%      0.0%
+        |dx|=2      0.0%      0.8%      7.3%      7.3%      1.4%
+        |dx|=3      0.0%      0.0%      0.0%     12.6%      7.7%
+        |dx|=4     15.6%     11.9%     10.5%      2.9%      4.5%
+      MISSED ONLY UPWARD (|dx|<=1, |dy|>=2) -- standing on the doorstep, head too high: 17.7%
+      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at
+      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never
+      REACH the comb, and a large one with few drops would mean they reach it and decline.
+    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:
+      heading vs home          n  mean along % positive   P(move)
+        -1.0..-0.6       2976     -0.3450      17.1%    0.0438
+        -0.6..-0.2         30     -0.4161       0.0%    0.0000
+        -0.2..+0.2       1068     -0.4826       0.0%    0.0002
+        +0.2..+0.6         60     -0.3359       0.0%    0.1238
+        +0.6..+1.0       3150     -0.2024      24.0%    0.5965   <- POINTED AT HOME: this row is the answer
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.9-1.0      17202    0.1359    0.0178    0.0020     +0.015812   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      h2               -2.06645   (live in 25458 of 17202)
+      Bias             +2.00000   (live in 25458 of 17202)
+      h0               -1.60623   (live in 25458 of 17202)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      h3               +1.10002   (live in 25458 of 17202)
+      KinNeed          +0.53372   (live in 25458 of 17202)
+      Energy           -0.49924   (live in 25458 of 17202)
+      h1               -0.28738   (live in 25458 of 17202)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      FoodAdjacent     -0.27977   (live in 25458 of 17202)
+      Crowding         -0.14279   (live in 25458 of 17202)
+      Stillness        +0.11708   (live in 25458 of 17202)
+      HomeAligned      +0.04372   (live in 25458 of 17202)
+      Alarm            +0.00000   (live in 25458 of 17202)
+    TRACE focal ant: 11178 decisions written to /tmp/trailfollow-focal-seed16-gap90.csv
+   90   16  hand    0/0          912      684    12768    17202     5496    6/20        1          7 5 2 6 0
+                A READ  ant-readable homeward along >= 0.02 on  51.4% of route-cell samples | FOODWARD  23.4% | plane lit on  74.7% | peak amt  22739 cells  88
+                RETURN LEDGER reached food    6 of   20 ants | came back    1 | trips laden    1 empty    0 | LOOPERS    1 of   20 ants (16.7% of those that reached food), repeat    0, most loops by one ant   1
+                BY ANCHOR AT PICKUP  anchor ON nest material:    0 loops /    0 pickups (  0.0%) | anchor OFF it:    1 /   45 (  2.2%)
+                BY BIRTH SITE  born ON comb:   0 of   2 that reached food looped (  0.0%) | born OFF comb:   1 of   4 ( 25.0%)
+                LEGS legs[6295] laden[6295]
+                founded x   12..88   (nest cursor 48 MATERIAL x 26..70 11 of 20 founders born on it; food 138; nearest founder 50 cells out, farthest 126, nominal gap 90)  occupancy/1k [56 21 44 13 11 1 3 1]  carry->nest     272  born    0 died   20 (starved   20)
+                own trail: route pk   18 end    0 along +0.0000  B nest->food [89,3180,6499,9528,8291]  blocked      115  kin swaps       0  ticks     25631  tumbles     11126 (homeward        0, 0.00%)  drops     688  chew parked    473 resumed    463 (   187614 J)  DELIVERED   688  leg home n    1 med  6295 p90  6295 (laden n    1 med  6295 p90  6295)  appetite held         0 J of      3840  trips born-on-comb    0 (11 ants) / born-off    1 (9 ants)
+                channel A: PEAK amt  22739 cells   88 (of 91 route)  POLARITY|| +0.11783 && +0.11013 SPAN +0.04040 edge   5.7  end nest->food [1158,2088,447,0,0]  nest   25  AtNest 68.21%
+                Carrying: laden     21318  of which SPOIL      4128 ( 19.4%)
+    TRACE laden ants: n 17676  mean PheroAAlong -0.29803  MEAN |PheroAAlong| 0.33256  mean P(move) 0.1538  mean trail term (h0+h1 -> Move) -2.27661  net cells homeward 326 (+0.018443/tick)
+    TRACE laden TICKS by what the sensor cell is -- the geometry test  [6.00 frames/tick, must equal tick_interval]:
+      air (nose in open sky)             n     1120 ( 38.0% of ticks)   mean along -0.4147   usable (>= +0.02)   2.5%   frozen  80.4%
+      solid (nose in ground)             n      696 ( 23.6% of ticks)   mean along -0.4131   usable (>= +0.02)   1.9%   frozen  82.2%
+      surface (a trail could be here)    n     1128 ( 38.3% of ticks)   mean along -0.1116   usable (>= +0.02)  27.8%   frozen  62.0%
+      => of 2171 FROZEN laden ticks (P(move) exactly 0), 68% had the nose in sky or ground
+    TRACE freeze runs: n 235   median 4 ticks   p90 17   longest 152
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     2376   P(move) 0.4744   not resting   63.9%   P(move)|>0 0.7426   cells homeward      136 (+0.057239/tick)
+      facing DOWN-gradient   n    14322   P(move) 0.0998   not resting   19.6%   P(move)|>0 0.5100   cells homeward      176 (+0.012289/tick)
+      no readable gradient   n      978   P(move) 0.1655   not resting   33.7%   P(move)|>0 0.4905   cells homeward       14 (+0.014315/tick)
+      => P(move) up-gradient minus down-gradient: +0.3746  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]576 [-0.67]2718 [-0.44]5172 [-0.22]3510 [+0.00]5022 [+0.22]426 [+0.44]144 [+0.67]54 [+0.89]54
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 17676 of 17676 laden decisions (100.00%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     2376   P(move) 0.4744   not resting   63.9%   P(move)|>0 0.7426   cells homeward      136 (+0.057239/tick)
+        facing DOWN-gradient n    14322   P(move) 0.0998   not resting   19.6%   P(move)|>0 0.5100   cells homeward      176 (+0.012289/tick)
+      => with the gate open, P(move) up minus down: +0.3746; cells homeward up minus down: +0.044950/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 17676 gate-open decisions, 0 (0.0%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n    17676   P(move) 0.1538   not resting   26.3%   P(move)|>0 0.5845   cells homeward      326 (+0.018443/tick)
+      gate SHUT              n 0
+    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:
+       nearest nest material  laden ticks   % of laden  P(drop)      drops
+           ADJACENT (AtNest)            6         0.0%   0.4886          0   <- the only row where Drop can fire
+                     2 cells          330         1.9%   0.4886          0
+                     4 cells           54         0.3%   0.4886          0
+                     8 cells          252         1.4%   0.4886          0
+                    16 cells         1926        10.9%   0.0244          0
+                    32 cells         2604        14.7%   0.0056          1
+              further / none        12504        70.7%   0.0000          1
+    TRACE ...and when it misses by 2-4 cells, is the miss SIDEWAYS or UPWARD? (rows = |dx|, cols = |dy|)
+                  |dy|=0         1         2         3        4+
+        |dx|=1      0.0%      0.0%     20.3%      0.0%      0.0%
+        |dx|=2      0.0%      0.0%     65.6%      0.0%      0.0%
+        |dx|=3      0.0%      0.0%      0.0%      0.0%      3.1%
+        |dx|=4      0.0%      0.0%      9.4%      0.0%      1.6%
+      MISSED ONLY UPWARD (|dx|<=1, |dy|>=2) -- standing on the doorstep, head too high: 20.3%
+      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at
+      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never
+      REACH the comb, and a large one with few drops would mean they reach it and decline.
+    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:
+      heading vs home          n  mean along % positive   P(move)
+        -1.0..-0.6       7248     -0.3562      12.8%    0.0029
+        -0.2..+0.2       2898     -0.3906       0.2%    0.0306
+        +0.6..+1.0       5208     -0.2007      18.5%    0.4413   <- POINTED AT HOME: this row is the answer
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.9-1.0      17676    0.1538    0.0208    0.0024     +0.018443   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      Bias             +2.00000   (live in 24240 of 17676)
+      h2               -1.91408   (live in 24240 of 17676)
+      h3               +1.40754   (live in 24240 of 17676)
+      h0               -1.27149   (live in 24240 of 17676)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Energy           -0.97538   (live in 24240 of 17676)
+      h1               -0.38948   (live in 24240 of 17676)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      KinNeed          +0.34019   (live in 24240 of 17676)
+      HomeAligned      -0.20641   (live in 24240 of 17676)
+      Crowding         -0.09651   (live in 24240 of 17676)
+      Stillness        +0.05337   (live in 24240 of 17676)
+      FoodAdjacent     -0.02785   (live in 24240 of 17676)
+      Alarm            +0.00000   (live in 24240 of 17676)
+    TRACE focal ant: 8304 decisions written to /tmp/trailfollow-focal-seed17-gap90.csv
+   90   17  hand    0/0         2052      480    15594    17676      486    8/20        2         5 3 2 10 0
+                A READ  ant-readable homeward along >= 0.02 on  61.7% of route-cell samples | FOODWARD  23.3% | plane lit on  86.4% | peak amt  37745 cells  88
+                RETURN LEDGER reached food    8 of   20 ants | came back    2 | trips laden    0 empty    2 | LOOPERS    0 of   20 ants ( 0.0% of those that reached food), repeat    0, most loops by one ant   0
+                BY ANCHOR AT PICKUP  anchor ON nest material:    0 loops /    0 pickups (  0.0%) | anchor OFF it:    0 /   28 (  0.0%)
+                BY BIRTH SITE  born ON comb:   0 of   3 that reached food looped (  0.0%) | born OFF comb:   0 of   5 (  0.0%)
+                LEGS legs[2413,7129] laden[]
+                founded x   12..88   (nest cursor 48 MATERIAL x 26..70 11 of 20 founders born on it; food 138; nearest founder 50 cells out, farthest 126, nominal gap 90)  occupancy/1k [57 9 10 19 8 30 26 3]  carry->nest     326  born    0 died   20 (starved   20)
+                own trail: route pk   26 end    0 along +0.0000  B nest->food [89,3114,6455,9607,8291]  blocked      424  kin swaps       0  ticks     27556  tumbles     11172 (homeward        0, 0.00%)  drops      70  chew parked     77 resumed     66 (    17411 J)  DELIVERED    70  leg home n    2 med  7129 p90  7129 (laden n    0 med     0 p90     0)  appetite held         0 J of      8640  trips born-on-comb    1 (11 ants) / born-off    1 (9 ants)
+                channel A: PEAK amt  37745 cells   88 (of 91 route)  POLARITY|| +0.11580 && +0.10655 SPAN +0.03479 edge   5.5  end nest->food [2254,2260,1030,0,0]  nest   25  AtNest 40.17%
+                Carrying: laden     30156  of which SPOIL     12480 ( 41.4%)
+    TRACE laden ants: n 18930  mean PheroAAlong -0.32731  MEAN |PheroAAlong| 0.36356  mean P(move) 0.1490  mean trail term (h0+h1 -> Move) -2.56683  net cells homeward 373 (+0.019704/tick)
+    TRACE laden TICKS by what the sensor cell is -- the geometry test  [6.01 frames/tick, must equal tick_interval]:
+      air (nose in open sky)             n     1063 ( 33.7% of ticks)   mean along -0.4339   usable (>= +0.02)   4.0%   frozen  76.9%
+      solid (nose in ground)             n     1182 ( 37.5% of ticks)   mean along -0.3619   usable (>= +0.02)   1.4%   frozen  89.5%
+      surface (a trail could be here)    n      907 ( 28.8% of ticks)   mean along -0.1569   usable (>= +0.02)  25.4%   frozen  55.8%
+      => of 2381 FROZEN laden ticks (P(move) exactly 0), 79% had the nose in sky or ground
+    TRACE freeze runs: n 179   median 5 ticks   p90 23   longest 392
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     1872   P(move) 0.7704   not resting   97.1%   P(move)|>0 0.7933   cells homeward      184 (+0.098291/tick)
+      facing DOWN-gradient   n    16242   P(move) 0.0685   not resting   15.1%   P(move)|>0 0.4544   cells homeward      156 (+0.009605/tick)
+      no readable gradient   n      816   P(move) 0.3249   not resting   44.9%   P(move)|>0 0.7243   cells homeward       33 (+0.040441/tick)
+      => P(move) up-gradient minus down-gradient: +0.7020  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]774 [-0.67]3414 [-0.44]4902 [-0.22]6288 [+0.00]2406 [+0.22]876 [+0.44]234 [+0.67]18 [+0.89]18
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 18930 of 18930 laden decisions (100.00%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     1872   P(move) 0.7704   not resting   97.1%   P(move)|>0 0.7933   cells homeward      184 (+0.098291/tick)
+        facing DOWN-gradient n    16242   P(move) 0.0685   not resting   15.1%   P(move)|>0 0.4544   cells homeward      156 (+0.009605/tick)
+      => with the gate open, P(move) up minus down: +0.7020; cells homeward up minus down: +0.088686/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 18930 gate-open decisions, 30 (0.2%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n    18930   P(move) 0.1490   not resting   24.5%   P(move)|>0 0.6088   cells homeward      373 (+0.019704/tick)
+      gate SHUT              n 0
+    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:
+       nearest nest material  laden ticks   % of laden  P(drop)      drops
+           ADJACENT (AtNest)           60         0.3%   0.4886          0   <- the only row where Drop can fire
+                     2 cells           42         0.2%   0.4886          0
+                     4 cells         2118        11.2%   0.4910         20
+                     8 cells         1302         6.9%   0.4899          8
+                    16 cells         1200         6.3%   0.1476          3
+                    32 cells         3144        16.6%   0.1883         10
+              further / none        11064        58.4%   0.0000          2
+    TRACE ...and when it misses by 2-4 cells, is the miss SIDEWAYS or UPWARD? (rows = |dx|, cols = |dy|)
+                  |dy|=0         1         2         3        4+
+        |dx|=0      0.0%      0.0%      0.6%      0.0%      0.0%
+        |dx|=1      0.0%      0.0%      0.6%      0.0%      0.0%
+        |dx|=2      0.0%      0.0%      0.8%      8.3%      2.5%
+        |dx|=3      0.0%      0.0%      0.0%      0.0%     10.8%
+        |dx|=4      0.0%      0.8%     50.6%     16.7%      8.3%
+      MISSED ONLY UPWARD (|dx|<=1, |dy|>=2) -- standing on the doorstep, head too high: 1.1%
+      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at
+      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never
+      REACH the comb, and a large one with few drops would mean they reach it and decline.
+    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:
+      heading vs home          n  mean along % positive   P(move)
+        -1.0..-0.6       5910     -0.3681       5.1%    0.0182
+        -0.6..-0.2         54     -0.5865       0.0%    0.0000
+        -0.2..+0.2       3624     -0.3949       0.3%    0.0119
+        +0.2..+0.6         90     -0.3517       0.0%    0.0459
+        +0.6..+1.0       4686     -0.1982      30.2%    0.5210   <- POINTED AT HOME: this row is the answer
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.9-1.0      18930    0.1490    0.0206    0.0009     +0.019704   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      h2               -2.05557   (live in 27276 of 18930)
+      Bias             +2.00000   (live in 27276 of 18930)
+      h0               -1.48105   (live in 27276 of 18930)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      h3               +1.18702   (live in 27276 of 18930)
+      Energy           -0.83311   (live in 27276 of 18930)
+      KinNeed          +0.46713   (live in 27276 of 18930)
+      h1               -0.30210   (live in 27276 of 18930)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      FoodAdjacent     -0.19180   (live in 27276 of 18930)
+      Stillness        +0.18052   (live in 27276 of 18930)
+      Crowding         -0.07901   (live in 27276 of 18930)
+      HomeAligned      -0.04019   (live in 27276 of 18930)
+      Alarm            +0.00000   (live in 27276 of 18930)
+    TRACE focal ant: 12942 decisions written to /tmp/trailfollow-focal-seed18-gap90.csv
+   90   18  hand    0/0         1824      876    16140    18930     2976    6/20        4          4 3 4 9 0
+                A READ  ant-readable homeward along >= 0.02 on  59.8% of route-cell samples | FOODWARD  23.3% | plane lit on  82.8% | peak amt  27057 cells  90
+                RETURN LEDGER reached food    6 of   20 ants | came back    4 | trips laden    1 empty    3 | LOOPERS    1 of   20 ants (16.7% of those that reached food), repeat    0, most loops by one ant   1
+                BY ANCHOR AT PICKUP  anchor ON nest material:    0 loops /    0 pickups (  0.0%) | anchor OFF it:    1 /   92 (  1.1%)
+                BY BIRTH SITE  born ON comb:   0 of   1 that reached food looped (  0.0%) | born OFF comb:   1 of   5 ( 20.0%)
+                LEGS legs[2341,3577,5029,5131] laden[3577]
+                founded x   12..88   (nest cursor 48 MATERIAL x 26..70 11 of 20 founders born on it; food 138; nearest founder 50 cells out, farthest 126, nominal gap 90)  occupancy/1k [45 18 42 13 25 8 9 4]  carry->nest     373  born    0 died   20 (starved   17)
+                own trail: route pk   59 end    0 along +0.0000  B nest->food [89,3121,6491,9579,8290]  blocked      140  kin swaps       0  ticks     28305  tumbles     12014 (homeward        0, 0.00%)  drops     385  chew parked    350 resumed    339 (   139043 J)  DELIVERED   385  leg home n    4 med  5029 p90  5131 (laden n    1 med  3577 p90  3577)  appetite held         0 J of      7680  trips born-on-comb    1 (11 ants) / born-off    3 (9 ants)
+                channel A: PEAK amt  27057 cells   90 (of 91 route)  POLARITY|| +0.12604 && +0.11757 SPAN +0.03549 edge   5.3  end nest->food [2383,4498,1855,0,0]  nest   25  AtNest 57.58%
+                Carrying: laden     25260  of which SPOIL      6360 ( 25.2%)
+    TRACE laden ants: n 14796  mean PheroAAlong -0.28937  MEAN |PheroAAlong| 0.35664  mean P(move) 0.2240  mean trail term (h0+h1 -> Move) -2.17428  net cells homeward 288 (+0.019465/tick)
+    TRACE laden TICKS by what the sensor cell is -- the geometry test  [6.00 frames/tick, must equal tick_interval]:
+      air (nose in open sky)             n     1115 ( 45.2% of ticks)   mean along -0.3799   usable (>= +0.02)   9.6%   frozen  74.2%
+      solid (nose in ground)             n      447 ( 18.1% of ticks)   mean along -0.3983   usable (>= +0.02)   3.6%   frozen  68.5%
+      surface (a trail could be here)    n      904 ( 36.7% of ticks)   mean along -0.1239   usable (>= +0.02)  28.2%   frozen  42.8%
+      => of 1520 FROZEN laden ticks (P(move) exactly 0), 75% had the nose in sky or ground
+    TRACE freeze runs: n 216   median 4 ticks   p90 18   longest 81
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     2406   P(move) 0.6604   not resting   89.0%   P(move)|>0 0.7418   cells homeward      185 (+0.076891/tick)
+      facing DOWN-gradient   n    11910   P(move) 0.1218   not resting   26.6%   P(move)|>0 0.4577   cells homeward       61 (+0.005122/tick)
+      no readable gradient   n      480   P(move) 0.5734   not resting   75.4%   P(move)|>0 0.7603   cells homeward       42 (+0.087500/tick)
+      => P(move) up-gradient minus down-gradient: +0.5386  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]708 [-0.67]2796 [-0.44]3012 [-0.22]4086 [+0.00]2754 [+0.22]888 [+0.44]390 [+0.67]132 [+0.89]30
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 14796 of 14796 laden decisions (100.00%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     2406   P(move) 0.6604   not resting   89.0%   P(move)|>0 0.7418   cells homeward      185 (+0.076891/tick)
+        facing DOWN-gradient n    11910   P(move) 0.1218   not resting   26.6%   P(move)|>0 0.4577   cells homeward       61 (+0.005122/tick)
+      => with the gate open, P(move) up minus down: +0.5386; cells homeward up minus down: +0.071769/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 14796 gate-open decisions, 0 (0.0%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n    14796   P(move) 0.2240   not resting   38.3%   P(move)|>0 0.5843   cells homeward      288 (+0.019465/tick)
+      gate SHUT              n 0
+    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:
+       nearest nest material  laden ticks   % of laden  P(drop)      drops
+                     4 cells            6         0.0%   0.4886          0
+                     8 cells          162         1.1%   0.4886          0
+                    16 cells         2280        15.4%   0.0000          0
+                    32 cells         5766        39.0%   0.0122          3
+              further / none         6582        44.5%   0.0000          0
+    TRACE ...and when it misses by 2-4 cells, is the miss SIDEWAYS or UPWARD? (rows = |dx|, cols = |dy|)
+                  |dy|=0         1         2         3        4+
+        |dx|=4      0.0%      0.0%      0.0%      0.0%    100.0%
+      MISSED ONLY UPWARD (|dx|<=1, |dy|>=2) -- standing on the doorstep, head too high: 0.0%
+      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at
+      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never
+      REACH the comb, and a large one with few drops would mean they reach it and decline.
+    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:
+      heading vs home          n  mean along % positive   P(move)
+        -1.0..-0.6       5160     -0.2378      18.6%    0.0696
+        -0.6..-0.2        132     -0.3604       4.5%    0.0392
+        -0.2..+0.2       1800     -0.4007       2.7%    0.0341
+        +0.2..+0.6        282     -0.4328       0.0%    0.1167
+        +0.6..+1.0       5598     -0.2835      22.0%    0.4817   <- POINTED AT HOME: this row is the answer
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.9-1.0      14796    0.2240    0.0255    0.0061     +0.019465   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      h2               -2.09280   (live in 20250 of 14796)
+      Bias             +2.00000   (live in 20250 of 14796)
+      h3               +1.35092   (live in 20250 of 14796)
+      h0               -1.26332   (live in 20250 of 14796)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Energy           -0.67810   (live in 20250 of 14796)
+      KinNeed          +0.61724   (live in 20250 of 14796)
+      h1               -0.32604   (live in 20250 of 14796)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Crowding         -0.13980   (live in 20250 of 14796)
+      HomeAligned      +0.08562   (live in 20250 of 14796)
+      Stillness        +0.07356   (live in 20250 of 14796)
+      FoodAdjacent     -0.00859   (live in 20250 of 14796)
+      Alarm            +0.00000   (live in 20250 of 14796)
+    TRACE focal ant: 10770 decisions written to /tmp/trailfollow-focal-seed19-gap90.csv
+   90   19  hand    0/0         1824      636    12174    14796       72    6/20        4         4 0 5 11 0
+                A READ  ant-readable homeward along >= 0.02 on  51.6% of route-cell samples | FOODWARD  23.6% | plane lit on  76.1% | peak amt  38442 cells  86
+                RETURN LEDGER reached food    6 of   20 ants | came back    4 | trips laden    0 empty    4 | LOOPERS    0 of   20 ants ( 0.0% of those that reached food), repeat    0, most loops by one ant   0
+                BY ANCHOR AT PICKUP  anchor ON nest material:    0 loops /    0 pickups (  0.0%) | anchor OFF it:    0 /   23 (  0.0%)
+                BY BIRTH SITE  born ON comb:   0 of   3 that reached food looped (  0.0%) | born OFF comb:   0 of   3 (  0.0%)
+                LEGS legs[10003,8257,6163,5779] laden[]
+                founded x   12..88   (nest cursor 48 MATERIAL x 26..70 11 of 20 founders born on it; food 138; nearest founder 50 cells out, farthest 126, nominal gap 90)  occupancy/1k [23 5 24 53 22 24 8 1]  carry->nest     288  born    0 died   20 (starved   20)
+                own trail: route pk   36 end    0 along +0.0000  B nest->food [89,3092,6481,9576,8290]  blocked      147  kin swaps       0  ticks     27373  tumbles     11125 (homeward        0, 0.00%)  drops      26  chew parked     31 resumed     25 (     1154 J)  DELIVERED    26  leg home n    4 med  8257 p90 10003 (laden n    0 med     0 p90     0)  appetite held         0 J of      7680  trips born-on-comb    1 (11 ants) / born-off    3 (9 ants)
+                channel A: PEAK amt  38442 cells   86 (of 91 route)  POLARITY|| +0.13008 && +0.12159 SPAN +0.04259 edge   5.9  end nest->food [1695,2382,895,0,0]  nest   25  AtNest 20.02%
+                Carrying: laden     17814  of which SPOIL      3018 ( 16.9%)
+    TRACE laden ants: n 17898  mean PheroAAlong -0.36326  MEAN |PheroAAlong| 0.40369  mean P(move) 0.1445  mean trail term (h0+h1 -> Move) -2.74971  net cells homeward 295 (+0.016482/tick)
+    TRACE laden TICKS by what the sensor cell is -- the geometry test  [6.00 frames/tick, must equal tick_interval]:
+      air (nose in open sky)             n     1281 ( 43.0% of ticks)   mean along -0.4535   usable (>= +0.02)   2.6%   frozen  83.5%
+      solid (nose in ground)             n      897 ( 30.1% of ticks)   mean along -0.4275   usable (>= +0.02)   0.3%   frozen  86.7%
+      surface (a trail could be here)    n      803 ( 26.9% of ticks)   mean along -0.1474   usable (>= +0.02)  25.2%   frozen  44.0%
+      => of 2201 FROZEN laden ticks (P(move) exactly 0), 84% had the nose in sky or ground
+    TRACE freeze runs: n 194   median 5 ticks   p90 34   longest 90
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     1482   P(move) 0.7298   not resting  100.0%   P(move)|>0 0.7298   cells homeward      142 (+0.095816/tick)
+      facing DOWN-gradient   n    15990   P(move) 0.0855   not resting   18.8%   P(move)|>0 0.4540   cells homeward      137 (+0.008568/tick)
+      no readable gradient   n      426   P(move) 0.3231   not resting   43.7%   P(move)|>0 0.7401   cells homeward       16 (+0.037559/tick)
+      => P(move) up-gradient minus down-gradient: +0.6443  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]432 [-0.67]4206 [-0.44]6312 [-0.22]3936 [+0.00]1794 [+0.22]888 [+0.44]210 [+0.67]120 [+0.89]0
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 17898 of 17898 laden decisions (100.00%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     1482   P(move) 0.7298   not resting  100.0%   P(move)|>0 0.7298   cells homeward      142 (+0.095816/tick)
+        facing DOWN-gradient n    15990   P(move) 0.0855   not resting   18.8%   P(move)|>0 0.4540   cells homeward      137 (+0.008568/tick)
+      => with the gate open, P(move) up minus down: +0.6443; cells homeward up minus down: +0.087249/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 17898 gate-open decisions, 0 (0.0%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n    17898   P(move) 0.1445   not resting   26.1%   P(move)|>0 0.5527   cells homeward      295 (+0.016482/tick)
+      gate SHUT              n 0
+    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:
+       nearest nest material  laden ticks   % of laden  P(drop)      drops
+                     4 cells          930         5.2%   0.4886          0
+                     8 cells         4746        26.5%   0.4947         95
+                    16 cells         3078        17.2%   0.0048          4
+                    32 cells         3522        19.7%   0.1435         24
+              further / none         5622        31.4%   0.0000          1
+    TRACE ...and when it misses by 2-4 cells, is the miss SIDEWAYS or UPWARD? (rows = |dx|, cols = |dy|)
+                  |dy|=0         1         2         3        4+
+        |dx|=4      0.0%      0.0%     59.4%     40.6%      0.0%
+      MISSED ONLY UPWARD (|dx|<=1, |dy|>=2) -- standing on the doorstep, head too high: 0.0%
+      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at
+      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never
+      REACH the comb, and a large one with few drops would mean they reach it and decline.
+    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:
+      heading vs home          n  mean along % positive   P(move)
+        -1.0..-0.6       4716     -0.3738       7.9%    0.0275
+        -0.6..-0.2        108     -0.4920       0.0%    0.0000
+        -0.2..+0.2       1866     -0.4876       0.0%    0.0073
+        +0.2..+0.6        102     -0.4298       0.0%    0.0347
+        +0.6..+1.0       4320     -0.2145      22.8%    0.5221   <- POINTED AT HOME: this row is the answer
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.9-1.0      17898    0.1445    0.0191    0.0026     +0.016482   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      h2               -2.14619   (live in 22818 of 17898)
+      Bias             +2.00000   (live in 22818 of 17898)
+      h3               +1.56827   (live in 22818 of 17898)
+      h0               -1.45484   (live in 22818 of 17898)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      h1               -0.70331   (live in 22818 of 17898)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Energy           -0.58836   (live in 22818 of 17898)
+      KinNeed          +0.53197   (live in 22818 of 17898)
+      FoodAdjacent     -0.13634   (live in 22818 of 17898)
+      Crowding         -0.11905   (live in 22818 of 17898)
+      Stillness        +0.09483   (live in 22818 of 17898)
+      HomeAligned      -0.02908   (live in 22818 of 17898)
+      Alarm            +0.00000   (live in 22818 of 17898)
+    TRACE focal ant: 6534 decisions written to /tmp/trailfollow-focal-seed20-gap90.csv
+   90   20  hand    0/0         1644      672     7980    17898      960    7/21        0          5 4 4 8 0
+                A READ  ant-readable homeward along >= 0.02 on  58.3% of route-cell samples | FOODWARD  22.8% | plane lit on  80.9% | peak amt  22164 cells  87
+                RETURN LEDGER reached food    7 of   21 ants | came back    0 | trips laden    0 empty    0 | LOOPERS    0 of   21 ants ( 0.0% of those that reached food), repeat    0, most loops by one ant   0
+                BY ANCHOR AT PICKUP  anchor ON nest material:    0 loops /    0 pickups (  0.0%) | anchor OFF it:    0 /   19 (  0.0%)
+                BY BIRTH SITE  born ON comb:   0 of   2 that reached food looped (  0.0%) | born OFF comb:   0 of   5 (  0.0%)
+                founded x   12..88   (nest cursor 48 MATERIAL x 26..70 11 of 21 founders born on it; food 138; nearest founder 50 cells out, farthest 126, nominal gap 90)  occupancy/1k [36 3 33 16 28 8 5 2]  carry->nest     295  born    1 died   21 (starved   21)
+                own trail: route pk    0 end    0 along +0.0000  B nest->food [89,3095,6501,9528,8291]  blocked      183  kin swaps       0  ticks     22400  tumbles      9288 (homeward        0, 0.00%)  drops     448  chew parked    326 resumed    314 (   103545 J)  DELIVERED   448  leg home n    0 med     0 p90     0 (laden n    0 med     0 p90     0)  appetite held         0 J of      2880  trips born-on-comb    0 (11 ants) / born-off    0 (10 ants)
+                channel A: PEAK amt  22164 cells   87 (of 91 route)  POLARITY|| +0.12139 && +0.11370 SPAN +0.02137 edge   5.7  end nest->food [2235,1175,774,0,0]  nest   25  AtNest 41.40%
+                Carrying: laden     25674  of which SPOIL      7776 ( 30.3%)
+    TRACE laden ants: n 20226  mean PheroAAlong -0.32282  MEAN |PheroAAlong| 0.36566  mean P(move) 0.1805  mean trail term (h0+h1 -> Move) -2.48202  net cells homeward 457 (+0.022595/tick)
+    TRACE laden TICKS by what the sensor cell is -- the geometry test  [6.00 frames/tick, must equal tick_interval]:
+      air (nose in open sky)             n     1468 ( 43.5% of ticks)   mean along -0.4118   usable (>= +0.02)   5.7%   frozen  76.2%
+      solid (nose in ground)             n      966 ( 28.7% of ticks)   mean along -0.4098   usable (>= +0.02)   2.1%   frozen  78.3%
+      surface (a trail could be here)    n      937 ( 27.8% of ticks)   mean along -0.0937   usable (>= +0.02)  27.5%   frozen  49.0%
+      => of 2333 FROZEN laden ticks (P(move) exactly 0), 80% had the nose in sky or ground
+    TRACE freeze runs: n 255   median 4 ticks   p90 21   longest 127
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     2304   P(move) 0.7336   not resting   92.2%   P(move)|>0 0.7958   cells homeward      205 (+0.088976/tick)
+      facing DOWN-gradient   n    17166   P(move) 0.0936   not resting   21.2%   P(move)|>0 0.4421   cells homeward      208 (+0.012117/tick)
+      no readable gradient   n      756   P(move) 0.4670   not resting   61.9%   P(move)|>0 0.7543   cells homeward       44 (+0.058201/tick)
+      => P(move) up-gradient minus down-gradient: +0.6400  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]396 [-0.67]4272 [-0.44]5574 [-0.22]5472 [+0.00]3150 [+0.22]1002 [+0.44]234 [+0.67]108 [+0.89]18
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 20226 of 20226 laden decisions (100.00%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     2304   P(move) 0.7336   not resting   92.2%   P(move)|>0 0.7958   cells homeward      205 (+0.088976/tick)
+        facing DOWN-gradient n    17166   P(move) 0.0936   not resting   21.2%   P(move)|>0 0.4421   cells homeward      208 (+0.012117/tick)
+      => with the gate open, P(move) up minus down: +0.6400; cells homeward up minus down: +0.076859/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 20226 gate-open decisions, 60 (0.3%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n    20226   P(move) 0.1805   not resting   30.8%   P(move)|>0 0.5862   cells homeward      457 (+0.022595/tick)
+      gate SHUT              n 0
+    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:
+       nearest nest material  laden ticks   % of laden  P(drop)      drops
+                     8 cells         2592        12.8%   0.4921         39
+                    16 cells         4050        20.0%   0.0000          4
+                    32 cells         4728        23.4%   0.0974          2
+              further / none         8856        43.8%   0.0000          0
+      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at
+      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never
+      REACH the comb, and a large one with few drops would mean they reach it and decline.
+    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:
+      heading vs home          n  mean along % positive   P(move)
+        -1.0..-0.6       6456     -0.3938       8.0%    0.0246
+        -0.6..-0.2        648     -0.3061       0.9%    0.0068
+        -0.2..+0.2       2496     -0.4740       0.5%    0.0250
+        +0.2..+0.6        198     -0.2705       0.0%    0.2192
+        +0.6..+1.0       6576     -0.2182      25.2%    0.4882   <- POINTED AT HOME: this row is the answer
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.9-1.0      20226    0.1805    0.0249    0.0023     +0.022595   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      h2               -2.23084   (live in 25752 of 20226)
+      Bias             +2.00000   (live in 25752 of 20226)
+      h3               +1.53788   (live in 25752 of 20226)
+      h0               -1.31114   (live in 25752 of 20226)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Energy           -0.72049   (live in 25752 of 20226)
+      h1               -0.63899   (live in 25752 of 20226)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      KinNeed          +0.52172   (live in 25752 of 20226)
+      Crowding         -0.10939   (live in 25752 of 20226)
+      Stillness        +0.07605   (live in 25752 of 20226)
+      FoodAdjacent     -0.04946   (live in 25752 of 20226)
+      HomeAligned      +0.01053   (live in 25752 of 20226)
+      Alarm            +0.00000   (live in 25752 of 20226)
+    TRACE focal ant: 9012 decisions written to /tmp/trailfollow-focal-seed21-gap90.csv
+   90   21  hand    0/0         1596      630    13968    20226        0   10/20        0         4 0 5 11 0
+                A READ  ant-readable homeward along >= 0.02 on  58.2% of route-cell samples | FOODWARD  23.4% | plane lit on  81.6% | peak amt  16699 cells  88
+                RETURN LEDGER reached food   10 of   20 ants | came back    0 | trips laden    0 empty    0 | LOOPERS    0 of   20 ants ( 0.0% of those that reached food), repeat    0, most loops by one ant   0
+                BY ANCHOR AT PICKUP  anchor ON nest material:    0 loops /    0 pickups (  0.0%) | anchor OFF it:    0 /  100 (  0.0%)
+                BY BIRTH SITE  born ON comb:   0 of   5 that reached food looped (  0.0%) | born OFF comb:   0 of   5 (  0.0%)
+                founded x   12..88   (nest cursor 48 MATERIAL x 26..70 11 of 20 founders born on it; food 138; nearest founder 50 cells out, farthest 126, nominal gap 90)  occupancy/1k [25 12 28 40 26 14 14 2]  carry->nest     457  born    0 died   20 (starved   20)
+                own trail: route pk   35 end    0 along +0.0000  B nest->food [89,3093,6584,9631,8291]  blocked      198  kin swaps       0  ticks     27355  tumbles     11522 (homeward        0, 0.00%)  drops     274  chew parked    236 resumed    227 (    89316 J)  DELIVERED   274  leg home n    0 med     0 p90     0 (laden n    0 med     0 p90     0)  appetite held         0 J of      6720  trips born-on-comb    0 (11 ants) / born-off    0 (9 ants)
+                channel A: PEAK amt  16699 cells   88 (of 91 route)  POLARITY|| +0.11260 && +0.10301 SPAN +0.03091 edge   5.3  end nest->food [1182,868,497,0,0]  nest   25  AtNest 26.30%
+                Carrying: laden     26520  of which SPOIL      6354 ( 24.0%)
+    TRACE laden ants: n 13068  mean PheroAAlong -0.26757  MEAN |PheroAAlong| 0.32505  mean P(move) 0.2482  mean trail term (h0+h1 -> Move) -1.85248  net cells homeward 250 (+0.019131/tick)
+    TRACE laden TICKS by what the sensor cell is -- the geometry test  [6.01 frames/tick, must equal tick_interval]:
+      air (nose in open sky)             n      768 ( 35.3% of ticks)   mean along -0.4271   usable (>= +0.02)   4.8%   frozen  65.6%
+      solid (nose in ground)             n      583 ( 26.8% of ticks)   mean along -0.3139   usable (>= +0.02)   0.7%   frozen  68.4%
+      surface (a trail could be here)    n      822 ( 37.8% of ticks)   mean along -0.0862   usable (>= +0.02)  24.0%   frozen  46.1%
+      => of 1282 FROZEN laden ticks (P(move) exactly 0), 70% had the nose in sky or ground
+    TRACE freeze runs: n 187   median 4 ticks   p90 16   longest 114
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     1530   P(move) 0.6911   not resting   92.2%   P(move)|>0 0.7499   cells homeward      130 (+0.084967/tick)
+      facing DOWN-gradient   n     8430   P(move) 0.1059   not resting   23.3%   P(move)|>0 0.4551   cells homeward       73 (+0.008660/tick)
+      no readable gradient   n     3108   P(move) 0.4161   not resting   63.9%   P(move)|>0 0.6511   cells homeward       47 (+0.015122/tick)
+      => P(move) up-gradient minus down-gradient: +0.5852  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]306 [-0.67]3132 [-0.44]2550 [-0.22]1572 [+0.00]4308 [+0.22]726 [+0.44]372 [+0.67]96 [+0.89]6
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 13068 of 13068 laden decisions (100.00%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     1530   P(move) 0.6911   not resting   92.2%   P(move)|>0 0.7499   cells homeward      130 (+0.084967/tick)
+        facing DOWN-gradient n     8430   P(move) 0.1059   not resting   23.3%   P(move)|>0 0.4551   cells homeward       73 (+0.008660/tick)
+      => with the gate open, P(move) up minus down: +0.5852; cells homeward up minus down: +0.076308/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 13068 gate-open decisions, 0 (0.0%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n    13068   P(move) 0.2482   not resting   41.0%   P(move)|>0 0.6053   cells homeward      250 (+0.019131/tick)
+      gate SHUT              n 0
+    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:
+       nearest nest material  laden ticks   % of laden  P(drop)      drops
+                     4 cells          390         3.0%   0.4938          8
+                     8 cells         1380        10.6%   0.4908         14
+                    16 cells         1656        12.7%   0.0000          2
+                    32 cells         3288        25.2%   0.2331         23
+              further / none         6354        48.6%   0.0000          0
+    TRACE ...and when it misses by 2-4 cells, is the miss SIDEWAYS or UPWARD? (rows = |dx|, cols = |dy|)
+                  |dy|=0         1         2         3        4+
+        |dx|=4      0.0%    100.0%      0.0%      0.0%      0.0%
+      MISSED ONLY UPWARD (|dx|<=1, |dy|>=2) -- standing on the doorstep, head too high: 0.0%
+      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at
+      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never
+      REACH the comb, and a large one with few drops would mean they reach it and decline.
+    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:
+      heading vs home          n  mean along % positive   P(move)
+        -1.0..-0.6       3402     -0.2052      13.4%    0.0550
+        -0.6..-0.2        330     -0.2319       0.0%    0.1286
+        -0.2..+0.2       1068     -0.2744       0.0%    0.2500
+        +0.2..+0.6        312     -0.1097       0.0%    0.4781
+        +0.6..+1.0       4164     -0.1798      22.5%    0.5741   <- POINTED AT HOME: this row is the answer
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.9-1.0      13068    0.2482    0.0253    0.0061     +0.019131   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      h2               -2.12608   (live in 16002 of 13068)
+      Bias             +2.00000   (live in 16002 of 13068)
+      h3               +1.72840   (live in 16002 of 13068)
+      h0               -0.92041   (live in 16002 of 13068)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Energy           -0.65926   (live in 16002 of 13068)
+      h1               -0.59304   (live in 16002 of 13068)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      KinNeed          +0.37178   (live in 16002 of 13068)
+      FoodAdjacent     -0.17818   (live in 16002 of 13068)
+      HomeAligned      +0.12322   (live in 16002 of 13068)
+      Crowding         -0.07698   (live in 16002 of 13068)
+      Stillness        +0.01738   (live in 16002 of 13068)
+      Alarm            +0.00000   (live in 16002 of 13068)
+    TRACE focal ant: 4920 decisions written to /tmp/trailfollow-focal-seed22-gap90.csv
+   90   22  hand    0/0         3592      666     8874    13068      390    9/23        0         8 2 3 10 0
+                A READ  ant-readable homeward along >= 0.02 on  64.6% of route-cell samples | FOODWARD  13.4% | plane lit on  78.2% | peak amt  18304 cells  87
+                RETURN LEDGER reached food    9 of   23 ants | came back    0 | trips laden    0 empty    0 | LOOPERS    0 of   23 ants ( 0.0% of those that reached food), repeat    0, most loops by one ant   0
+                BY ANCHOR AT PICKUP  anchor ON nest material:    0 loops /    0 pickups (  0.0%) | anchor OFF it:    0 /   54 (  0.0%)
+                BY BIRTH SITE  born ON comb:   0 of   2 that reached food looped (  0.0%) | born OFF comb:   0 of   7 (  0.0%)
+                founded x   12..88   (nest cursor 48 MATERIAL x 26..70 11 of 23 founders born on it; food 138; nearest founder 50 cells out, farthest 126, nominal gap 90)  occupancy/1k [46 15 13 11 16 11 8 4]  carry->nest     250  born    3 died   23 (starved   23)
+                own trail: route pk    9 end    0 along +0.0000  B nest->food [89,3094,6490,9569,8299]  blocked      150  kin swaps       0  ticks     21261  tumbles      8509 (homeward        0, 0.00%)  drops     241  chew parked    196 resumed    189 (    44798 J)  DELIVERED   241  leg home n    0 med     0 p90     0 (laden n    0 med     0 p90     0)  appetite held         0 J of      2880  trips born-on-comb    0 (11 ants) / born-off    0 (12 ants)
+                channel A: PEAK amt  18304 cells   87 (of 91 route)  POLARITY|| +0.13568 && +0.12842 SPAN +0.03210 edge   5.9  end nest->food [2708,885,291,0,0]  nest   25  AtNest 50.47%
+                Carrying: laden     18330  of which SPOIL      5262 ( 28.7%)
+    TRACE laden ants: n 15474  mean PheroAAlong -0.29606  MEAN |PheroAAlong| 0.34775  mean P(move) 0.1414  mean trail term (h0+h1 -> Move) -2.26269  net cells homeward 261 (+0.016867/tick)
+    TRACE laden TICKS by what the sensor cell is -- the geometry test  [6.00 frames/tick, must equal tick_interval]:
+      air (nose in open sky)             n     1029 ( 39.9% of ticks)   mean along -0.3915   usable (>= +0.02)   8.5%   frozen  83.8%
+      solid (nose in ground)             n      640 ( 24.8% of ticks)   mean along -0.4214   usable (>= +0.02)   0.5%   frozen  87.3%
+      surface (a trail could be here)    n      908 ( 35.2% of ticks)   mean along -0.0995   usable (>= +0.02)  28.6%   frozen  53.9%
+      => of 1910 FROZEN laden ticks (P(move) exactly 0), 74% had the nose in sky or ground
+    TRACE freeze runs: n 191   median 5 ticks   p90 19   longest 153
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     2430   P(move) 0.4359   not resting   61.7%   P(move)|>0 0.7062   cells homeward      150 (+0.061728/tick)
+      facing DOWN-gradient   n    12510   P(move) 0.0773   not resting   18.2%   P(move)|>0 0.4252   cells homeward       95 (+0.007594/tick)
+      no readable gradient   n      534   P(move) 0.3028   not resting   43.8%   P(move)|>0 0.6910   cells homeward       16 (+0.029963/tick)
+      => P(move) up-gradient minus down-gradient: +0.3587  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]672 [-0.67]2754 [-0.44]3438 [-0.22]4236 [+0.00]3426 [+0.22]594 [+0.44]204 [+0.67]138 [+0.89]12
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 15474 of 15474 laden decisions (100.00%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     2430   P(move) 0.4359   not resting   61.7%   P(move)|>0 0.7062   cells homeward      150 (+0.061728/tick)
+        facing DOWN-gradient n    12510   P(move) 0.0773   not resting   18.2%   P(move)|>0 0.4252   cells homeward       95 (+0.007594/tick)
+      => with the gate open, P(move) up minus down: +0.3587; cells homeward up minus down: +0.054134/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 15474 gate-open decisions, 12 (0.1%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n    15474   P(move) 0.1414   not resting   25.9%   P(move)|>0 0.5459   cells homeward      261 (+0.016867/tick)
+      gate SHUT              n 0
+    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:
+       nearest nest material  laden ticks   % of laden  P(drop)      drops
+                     4 cells           60         0.4%   0.4886          0
+                     8 cells         1674        10.8%   0.4899         11
+                    16 cells         2712        17.5%   0.0151          2
+                    32 cells         4194        27.1%   0.0960          5
+              further / none         6834        44.2%   0.0000          0
+    TRACE ...and when it misses by 2-4 cells, is the miss SIDEWAYS or UPWARD? (rows = |dx|, cols = |dy|)
+                  |dy|=0         1         2         3        4+
+        |dx|=2      0.0%      0.0%      0.0%     40.0%      0.0%
+        |dx|=3      0.0%      0.0%      0.0%      0.0%     60.0%
+      MISSED ONLY UPWARD (|dx|<=1, |dy|>=2) -- standing on the doorstep, head too high: 0.0%
+      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at
+      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never
+      REACH the comb, and a large one with few drops would mean they reach it and decline.
+    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:
+      heading vs home          n  mean along % positive   P(move)
+        -1.0..-0.6       4842     -0.2297      27.8%    0.0318
+        -0.6..-0.2         84     -0.5245       0.0%    0.0000
+        -0.2..+0.2       2292     -0.4389       0.5%    0.0105
+        +0.2..+0.6        150     -0.5948       0.0%    0.0000
+        +0.6..+1.0       4476     -0.2669      20.6%    0.4053   <- POINTED AT HOME: this row is the answer
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.9-1.0      15474    0.1414    0.0195    0.0026     +0.016867   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      h2               -2.01046   (live in 22122 of 15474)
+      Bias             +2.00000   (live in 22122 of 15474)
+      h0               -1.33816   (live in 22122 of 15474)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      h3               +1.22738   (live in 22122 of 15474)
+      Energy           -0.84694   (live in 22122 of 15474)
+      KinNeed          +0.36933   (live in 22122 of 15474)
+      h1               -0.24671   (live in 22122 of 15474)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      Crowding         -0.08493   (live in 22122 of 15474)
+      FoodAdjacent     -0.07719   (live in 22122 of 15474)
+      Stillness        +0.06055   (live in 22122 of 15474)
+      HomeAligned      -0.04273   (live in 22122 of 15474)
+      Alarm            +0.00000   (live in 22122 of 15474)
+    TRACE focal ant: 7722 decisions written to /tmp/trailfollow-focal-seed23-gap90.csv
+   90   23  hand    0/0         1140      546    11172    15474      330    8/20        1         4 3 3 10 0
+                A READ  ant-readable homeward along >= 0.02 on  55.1% of route-cell samples | FOODWARD  23.7% | plane lit on  79.4% | peak amt  21947 cells  87
+                RETURN LEDGER reached food    8 of   20 ants | came back    1 | trips laden    0 empty    1 | LOOPERS    0 of   20 ants ( 0.0% of those that reached food), repeat    0, most loops by one ant   0
+                BY ANCHOR AT PICKUP  anchor ON nest material:    0 loops /    0 pickups (  0.0%) | anchor OFF it:    0 /   44 (  0.0%)
+                BY BIRTH SITE  born ON comb:   0 of   4 that reached food looped (  0.0%) | born OFF comb:   0 of   4 (  0.0%)
+                LEGS legs[5509] laden[]
+                founded x   12..88   (nest cursor 48 MATERIAL x 26..70 11 of 20 founders born on it; food 138; nearest founder 50 cells out, farthest 126, nominal gap 90)  occupancy/1k [32 13 32 24 18 16 14 2]  carry->nest     261  born    0 died   20 (starved   20)
+                own trail: route pk   43 end    0 along +0.0000  B nest->food [89,3099,6413,9561,8290]  blocked      118  kin swaps       0  ticks     26034  tumbles     11231 (homeward        0, 0.00%)  drops     220  chew parked    207 resumed    198 (    36841 J)  DELIVERED   220  leg home n    1 med  5509 p90  5509 (laden n    0 med     0 p90     0)  appetite held         0 J of      4800  trips born-on-comb    1 (11 ants) / born-off    0 (9 ants)
+                channel A: PEAK amt  21947 cells   87 (of 91 route)  POLARITY|| +0.11173 && +0.10231 SPAN +0.03464 edge   5.7  end nest->food [902,1099,244,0,0]  nest   25  AtNest 42.06%
+                Carrying: laden     19056  of which SPOIL      3594 ( 18.9%)
+    TRACE laden ants: n 18468  mean PheroAAlong -0.31850  MEAN |PheroAAlong| 0.35602  mean P(move) 0.1727  mean trail term (h0+h1 -> Move) -2.47310  net cells homeward 399 (+0.021605/tick)
+    TRACE laden TICKS by what the sensor cell is -- the geometry test  [6.00 frames/tick, must equal tick_interval]:
+      air (nose in open sky)             n     1227 ( 39.9% of ticks)   mean along -0.3572   usable (>= +0.02)   9.5%   frozen  71.4%
+      solid (nose in ground)             n     1010 ( 32.8% of ticks)   mean along -0.3902   usable (>= +0.02)   1.4%   frozen  82.4%
+      surface (a trail could be here)    n      841 ( 27.3% of ticks)   mean along -0.1759   usable (>= +0.02)  22.5%   frozen  52.2%
+      => of 2147 FROZEN laden ticks (P(move) exactly 0), 80% had the nose in sky or ground
+    TRACE freeze runs: n 219   median 4 ticks   p90 26   longest 88
+    TRACE split by the sign of `along` -- the run-and-tumble test:
+      facing UP-gradient     n     2040   P(move) 0.6519   not resting   85.3%   P(move)|>0 0.7643   cells homeward      154 (+0.075490/tick)
+      facing DOWN-gradient   n    15894   P(move) 0.1108   not resting   23.4%   P(move)|>0 0.4741   cells homeward      234 (+0.014723/tick)
+      no readable gradient   n      534   P(move) 0.1836   not resting   24.7%   P(move)|>0 0.7427   cells homeward       11 (+0.020599/tick)
+      => P(move) up-gradient minus down-gradient: +0.5411  (the homing drive; ~0 means the circuit is inert)
+    TRACE PheroAAlong histogram (-1..+1 in ninths): [-0.89]240 [-0.67]4206 [-0.44]4602 [-0.22]5022 [+0.00]3258 [+0.22]888 [+0.44]198 [+0.67]54 [+0.89]0
+    TRACE homing gate: opens at Carrying >= 0.9890; OPEN on 18468 of 18468 laden decisions (100.00%)
+    TRACE the same split, GATE OPEN only -- the only rows where the pair can respond at all:
+        facing UP-gradient   n     2040   P(move) 0.6519   not resting   85.3%   P(move)|>0 0.7643   cells homeward      154 (+0.075490/tick)
+        facing DOWN-gradient n    15894   P(move) 0.1108   not resting   23.4%   P(move)|>0 0.4741   cells homeward      234 (+0.014723/tick)
+      => with the gate open, P(move) up minus down: +0.5411; cells homeward up minus down: +0.060768/tick
+         (positive cells-homeward means the ramp the colony built points at the NEST)
+    TRACE of the 18468 gate-open decisions, 0 (0.0%) are ants ALSO holding spoil -- see `tr_gate_open_spoil`
+    TRACE split by whether the homing gate is OPEN -- the conversion test:
+      gate OPEN              n    18468   P(move) 0.1727   not resting   30.2%   P(move)|>0 0.5709   cells homeward      399 (+0.021605/tick)
+      gate SHUT              n 0
+    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:
+       nearest nest material  laden ticks   % of laden  P(drop)      drops
+                     8 cells         1998        10.8%   0.4991         71
+                    16 cells         2520        13.6%   0.0000          3
+                    32 cells         3666        19.9%   0.0000          0
+              further / none        10284        55.7%   0.0000          2
+      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at
+      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never
+      REACH the comb, and a large one with few drops would mean they reach it and decline.
+    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:
+      heading vs home          n  mean along % positive   P(move)
+        -1.0..-0.6       7038     -0.3823       7.6%    0.0155
+        -0.6..-0.2        312     -0.3340       0.0%    0.0000
+        -0.2..+0.2       2472     -0.4398       0.2%    0.0092
+        +0.2..+0.6        204     -0.3984       2.9%    0.0242
+        +0.6..+1.0       6210     -0.2202      21.1%    0.4753   <- POINTED AT HOME: this row is the answer
+    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:
+           fill          n   P(move)   P(home)   P(away)    cells/tick
+        0.9-1.0      18468    0.1727    0.0235    0.0019     +0.021605   <- the gate threshold falls inside this bin
+    TRACE Move pre-squash terms, mean over the decisions each one was live for:
+      Bias             +2.00000   (live in 25542 of 18468)
+      h2               -1.94040   (live in 25542 of 18468)
+      h0               -1.39195   (live in 25542 of 18468)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      h3               +1.37674   (live in 25542 of 18468)
+      Energy           -0.88544   (live in 25542 of 18468)
+      h1               -0.39759   (live in 25542 of 18468)   <- THE TRAIL. `PheroAAlong` reaches `Move` here and nowhere else.
+      KinNeed          +0.38052   (live in 25542 of 18468)
+      Crowding         -0.10275   (live in 25542 of 18468)
+      FoodAdjacent     -0.06612   (live in 25542 of 18468)
+      HomeAligned      -0.06128   (live in 25542 of 18468)
+      Stillness        +0.04386   (live in 25542 of 18468)
+      Alarm            +0.00000   (live in 25542 of 18468)
+    TRACE focal ant: 10560 decisions written to /tmp/trailfollow-focal-seed24-gap90.csv
+   90   24  hand    0/0         2784      810    12810    18468        0   10/21        2         6 0 2 13 0
+                A READ  ant-readable homeward along >= 0.02 on  51.8% of route-cell samples | FOODWARD  30.5% | plane lit on  81.9% | peak amt  33678 cells  88
+                RETURN LEDGER reached food   10 of   21 ants | came back    2 | trips laden    0 empty    2 | LOOPERS    0 of   21 ants ( 0.0% of those that reached food), repeat    0, most loops by one ant   0
+                BY ANCHOR AT PICKUP  anchor ON nest material:    0 loops /    0 pickups (  0.0%) | anchor OFF it:    0 /   65 (  0.0%)
+                BY BIRTH SITE  born ON comb:   0 of   6 that reached food looped (  0.0%) | born OFF comb:   0 of   4 (  0.0%)
+                LEGS legs[9313,5239] laden[]
+                founded x   12..88   (nest cursor 48 MATERIAL x 26..70 11 of 21 founders born on it; food 138; nearest founder 50 cells out, farthest 126, nominal gap 90)  occupancy/1k [20 5 28 34 35 13 12 5]  carry->nest     399  born    1 died   21 (starved   18)
+                own trail: route pk   54 end    0 along +0.0000  B nest->food [89,3093,6501,9616,8291]  blocked      196  kin swaps       0  ticks     25986  tumbles     10380 (homeward        0, 0.00%)  drops     133  chew parked     64 resumed     57 (    28109 J)  DELIVERED   133  leg home n    2 med  9313 p90  9313 (laden n    0 med     0 p90     0)  appetite held         0 J of      7680  trips born-on-comb    1 (11 ants) / born-off    1 (10 ants)
+                channel A: PEAK amt  33678 cells   88 (of 91 route)  POLARITY|| +0.08591 && +0.07348 SPAN +0.03866 edge   5.5  end nest->food [380,1938,1625,0,0]  nest   25  AtNest 22.63%
+                Carrying: laden     21990  of which SPOIL      3522 ( 16.0%)
+
+  larder put out, over the whole sweep: 97680-100800 J, against a need near 46,800 J
+    for 52 ants over 24,000 frames -- so these colonies are provisioned, not starved.
+  intake off anything that is not the larder is ASSERTED to be 0 in every row, not printed.
+
+  `self` vs `mute` is the real question: do the ants' OWN trails do anything?
+  `visitors` is DISTINCT ants that reached the food over distinct ants that ever lived --
+    recruitment, which `near` ant-ticks cannot see: 50 visitors and 1 resident read alike.
+  `trips` is nest -> food -> nest, closed on the RETURN. `reach` buckets every ant by how
+  `occupancy` is ant-ticks in 8 equal bands, NEST END FIRST, food end last -- a commuting
+    colony is bimodal, a dispersing one slides its mass right, a homebody is a spike at 0.
+  `carry->nest` is signed cells moved while holding larder, POSITIVE = homeward. Near zero
+    means food is picked up and wandered with, which is a different fault from not finding it.
+    far it ever got, as a share of the gap, so a commuting population is visible as a shape.
+  `hand` vs `self` only says whether a laid ramp beats what they bootstrap.
+  `hmute` is the DECAY BASELINE for `route pk`: our ramp laid, the ants silenced.
+  `flatN`/`flatF` are the POLARITY metric's negative controls: a FLAT channel A blob over
+    the nest half / the food half, ants' EmitA silenced. A field with no ramp in it at all.
+    A correct metric reads 0 on both. POLARITY|| is predicted to read ~+0.12 and ~-0.12,
+    which brackets every polarity figure in the report -- see `lay_flat`.
+  `homeA` lays a channel A HOMING ramp and no food trail -- if laden ants only fail
+    to route because they cannot find their way home, this is where their own B appears.
+  `carry` is ant-ticks holding larder in the crop; `carry@nest` is those inside the +-26 nest band --
+    that pair is the answer to "is food being carried back", which a cell census cannot give.
+  `other J` must read 0 in every row: it is the check that `onlyfood` held.
+  A gap where `alive` reaches 0 in every arm is measuring a dead colony, not a deaf one.

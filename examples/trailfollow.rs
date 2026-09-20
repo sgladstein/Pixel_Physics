@@ -1991,6 +1991,25 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // (nearest material within 4 cells), because a miss by 32 is a navigation
     // question and not this one.
     let mut tr_miss = [[0u64; 5]; 5];
+    // **Can a laden ant SMELL its way the last few cells to the comb?** The
+    // question option C turns on: two-phase homing -- run the path-integration
+    // vector far out, then close the last cells on a sensory cue -- needs the
+    // cue to exist AND to be readable, and neither is obvious here. §Z29
+    // established that a laden ant cannot read channel A *on the route*,
+    // because `here` is its own freshest deposit; whether that also holds
+    // **beside the nest**, where the comb's own odometer emission is strongest
+    // and the ant's own mark is one tick old, is a different question and
+    // nobody has asked it.
+    //
+    // Two halves, because they fail independently:
+    //   `.0/.1/.2/.3/.4` IS THE SIGNAL THERE -- channel A one step toward the
+    //   comb against one step away, read off the plane, nothing to do with the
+    //   ant's sensor.
+    //   `tr_smell_along` CAN THE ANT READ IT -- the ant's own `PheroAAlong`,
+    //   split by whether its heading points at the comb. A signal that exists
+    //   and is invisible to its reader is what §Z29 already found once.
+    let mut tr_smell: (u64, f64, f64, u64, u64) = (0, 0.0, 0.0, 0, 0);
+    let mut tr_smell_along: (f64, u64, f64, u64) = (0.0, 0, 0.0, 0);
     let mut tr_drop_prev: std::collections::HashMap<u32, u8> = std::collections::HashMap::new();
     let mut tr_gate_open = 0u64;
     // **The gate-open and gate-shut populations, pooled across gradient
@@ -2571,6 +2590,27 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                             }
                             if let Some((dx, dy)) = best {
                                 tr_miss[dx.unsigned_abs().min(4) as usize][dy.unsigned_abs().min(4) as usize] += 1;
+                                // One step toward the comb against one step
+                                // away -- the plane's own answer, no sensor.
+                                let (sx, sy) = (dx.signum(), dy.signum());
+                                let toward = f64::from(w.pheromone_at(Channel::A, hx + sx, hy + sy));
+                                let away = f64::from(w.pheromone_at(Channel::A, hx - sx, hy - sy));
+                                tr_smell.0 += 1;
+                                tr_smell.1 += toward;
+                                tr_smell.2 += away;
+                                tr_smell.3 += u64::from(toward > away);
+                                tr_smell.4 += u64::from((toward - away).abs() < f64::EPSILON);
+                                // ...and what the ANT reads, split by whether
+                                // it is already pointed at the comb.
+                                let (hdx, hdy) = creature::DIRS[s.heading as usize % 8];
+                                let along = f64::from(tin[I::PheroAAlong as usize]);
+                                if hdx * dx + hdy * dy > 0 {
+                                    tr_smell_along.0 += along;
+                                    tr_smell_along.1 += 1;
+                                } else {
+                                    tr_smell_along.2 += along;
+                                    tr_smell_along.3 += 1;
+                                }
                             }
                         }
                     }
@@ -3129,6 +3169,27 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     let vertical: u64 = tr_miss.iter().enumerate().map(|(dx, r)| if dx <= 1 { r.iter().skip(2).sum::<u64>() } else { 0 }).sum();
                     println!("      MISSED ONLY UPWARD (|dx|<=1, |dy|>=2) -- standing on the doorstep, head too high: {:.1}%", 100.0 * vertical as f64 / tot as f64);
                 }
+            }
+            if tr_smell.0 > 0 {
+                let n = tr_smell.0 as f64;
+                println!("    TRACE CAN IT SMELL THE LAST FEW CELLS? -- channel A one step TOWARD the comb vs one step AWAY, at a 2-4 cell miss:");
+                println!(
+                    "      n {}  |  mean toward {:.1}  mean away {:.1}  |  toward is STRONGER on {:.1}% of ticks, equal on {:.1}%",
+                    tr_smell.0,
+                    tr_smell.1 / n,
+                    tr_smell.2 / n,
+                    100.0 * tr_smell.3 as f64 / n,
+                    100.0 * tr_smell.4 as f64 / n
+                );
+                let (a, an, b, bn) = tr_smell_along;
+                println!(
+                    "      and what the ANT reads there -- its own PheroAAlong: pointed AT the comb {:+.4} (n {})  |  pointed away {:+.4} (n {})",
+                    if an > 0 { a / an as f64 } else { 0.0 },
+                    an,
+                    if bn > 0 { b / bn as f64 } else { 0.0 },
+                    bn
+                );
+                println!("      A cue only works if BOTH lines are good: the plane has to carry it AND the nose has to see it.");
             }
             println!("      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at");
             println!("      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never");

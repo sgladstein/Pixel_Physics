@@ -377,6 +377,31 @@
         // `carried_cells` charges `move_cost_per_cell` for whatever is still
         // in the crop, so a fuller ant is a slower and more expensive one, and
         // nothing here is free.
+        // **The homeward steering, 2026-09-20 — the other half of the wire
+        // this file already carries.** `(HomeAligned, Move, 3.0)` above is a
+        // THROTTLE: it decides *whether* a laden ant steps, and it was shipped
+        // while `home_bias` — which decides *which of the viable headings it
+        // takes* — was never authored here at all and defaulted to 0.0. So the
+        // ant ran hard when it happened to point home and tumbled at random
+        // otherwise. Owner's decision, 2026-09-20, after the loop census.
+        //
+        // **1.0 because the response is linear to the cap**, measured: this is
+        // saturated rather than tuned, so there is no interior optimum to find
+        // and sweeping it further is wasted (`Reports/lanes/homing-return-arm.md`).
+        //
+        // **What it buys, honestly: the best arm measured and not a
+        // significant one.** 24 seeds, paired within seed, loop completions as
+        // a share of ants that reached food: median **34.8% -> 37.5%**, median
+        // loopers **2 -> 3**, sign **14/9/1**. Its positive control does fire —
+        // homeward tumbles go **0.00% -> 3.52%**, which is the counter that
+        // reads exactly zero when this field is 0.0. Read the sign test rather
+        // than the medians: 14 of 23 non-ties is a lean, not a result.
+        //
+        // **It is shipped anyway because the alternative is a half-built
+        // mechanism**: a throttle with no steering is the configuration that
+        // produced the 52% sideways miss in the drop census, and the two
+        // halves were always meant to run together.
+        home_bias: 1.0,
         crop_capacity: 2880.0,
         // **Derived from two brackets, not chosen**, and to be swept before
         // it is trusted (`CreatureDef::digest_rate`):

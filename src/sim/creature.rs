@@ -5288,7 +5288,7 @@ fn sense(
     let mouth_scan = adjacent_food_counted(world, organism, (x, y), gut_of(world, organism, def), def.start_energy);
     inputs[I::FoodAdjacent as usize] = if mouth_scan.best.is_some() { 1.0 } else { 0.0 };
     inputs[I::KinNeed as usize] = mouth_scan.kin_need.map_or(0.0, |k| k.deficit);
-    inputs[I::AtNest as usize] = if adjacent_nest(world, x, y, def) { 1.0 } else { 0.0 };
+    inputs[I::AtNest as usize] = if nest_within_reach(world, organism, x, y, def) { 1.0 } else { 0.0 };
 
     if let Some(state) = world.organism(organism) {
         // **Renormalizing this against `reproduce_at_of` (a child's worth,
@@ -8089,6 +8089,93 @@ fn dig_down_bias() -> Option<f32> {
     })
 }
 
+/// **Is this ANIMAL at its nest** — every cell of the body, not just the head.
+///
+/// **The same repair `adjacent_food_counted` got on 2026-09-06, arriving at the
+/// other end of the animal three months late.** That function's own comment
+/// states the defect exactly, about biting: *"An attacker on a trailing cell is
+/// adjacent to the animal while the animal's head is three cells from the
+/// attacker, so a chain creature could not bite what was eating its back."*
+/// Substitute the nest for the attacker and it is this. Food adjacency was
+/// fixed; nest adjacency was left reading the head alone, so **an ant could
+/// reach food with its body and not its own home.**
+///
+/// **Measured 2026-09-20, and this is the share it is for.** `paint_nest_patch`
+/// writes one nest cell per masked column at `colony_surface`, i.e. a single
+/// row at the terrain surface, while `AtNest` reads the head's 8-neighbourhood.
+/// `ant.ron` authors `body: Chain(2)`. Over 186,067 laden ant-ticks, of the
+/// near misses (nearest nest material 2–4 cells away) **23.0% were `|dx| <= 1`
+/// with `|dy| >= 2`** — the ant standing on its own doorstep with its head two
+/// rows above the comb — and the single commonest offset was exactly
+/// `|dy| = 2`. `Drop` is `(Bias, -0.2)` against `(AtNest, 1.0889)`, so those
+/// ticks carry `P(drop)` of **exactly zero** at any crop fill, including a full
+/// one. Data: `Reports/data/drop-miss-direction-8seed-2026-09-20.log`.
+///
+/// **Which object does this rule evaluate?** `CLAUDE.md` asks it and the answer
+/// is *the whole animal* — "am I home" is not a property of one cell. The two
+/// callers that ask that question use this; the two that ask about a *position*
+/// (the body-reversal test, and the nest-contact reset, which is handed a cell
+/// the animal has not moved into yet) keep [`adjacent_nest`].
+///
+/// **Switchable, defaulting to the shipped head-only read**, so the unset arm
+/// is bit-identical and both arms come out of one binary:
+/// `PIXEL_PHYSICS_NEST_REACH=body`.
+fn nest_within_reach(world: &World, organism: OrganismId, x: i32, y: i32, def: &CreatureDef) -> bool {
+    if !nest_reach_is_body() {
+        return adjacent_nest(world, x, y, def);
+    }
+    // The head is tested first and separately: it is the common hit, and on a
+    // hit this costs one ring rather than a chain walk.
+    if adjacent_nest(world, x, y, def) {
+        return true;
+    }
+    let Some(state) = world.organism(organism) else {
+        return false;
+    };
+    // **The chain, not `cells`.** `cells` is every cell the organism owns,
+    // which for a creature is the body and for anything grown would be the
+    // whole plant; `chain` is the ordered body the movement code walks, and it
+    // is what `adjacent_food_counted` uses.
+    state.chain.iter().skip(1).any(|&(cx, cy)| adjacent_nest(world, cx, cy, def))
+}
+
+/// **Whether "at the nest" reaches from the whole body** —
+/// `PIXEL_PHYSICS_NEST_REACH=body`. Unset keeps the head-only read and is
+/// bit-identical. See [`nest_within_reach`].
+fn nest_reach_is_body() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_REACH").as_deref() == Ok("body"))
+}
+
+/// **How far from the head nest material still counts, in Chebyshev cells.**
+/// `PIXEL_PHYSICS_NEST_REACH=r<N>`; 1 is the shipped 8-neighbourhood and is
+/// bit-identical.
+///
+/// **This exists as an ORACLE, not as a candidate.** The question it answers is
+/// *is the loop limited by the SIZE of the drop target, or by something else* —
+/// and it answers it by making the target absurdly large. If completion does
+/// not move at `r8`, target size is not the constraint and no amount of
+/// widening, site-testing or better aim will close the loop.
+///
+/// **It exists because the switch that looked like it could answer this cannot.**
+/// `adjacent_nest`'s site branch measures its rows from `NestSite::surface`,
+/// which is `colony_surface` at the site's **centre column only**, while the
+/// comb itself "follows the ground" across all 53 columns. On any terrain that
+/// is not flat the site test therefore *excludes* most of the comb rather than
+/// including more of it: measured 2026-09-20 at `ROWS=2, COLS=26`, drops fell
+/// **743 → 11** over 24 seeds. That is a defect in the site switch and not a
+/// verdict on widening the door, which is what this knob is for.
+fn nest_reach_radius() -> i32 {
+    static R: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    *R.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_NEST_REACH")
+            .ok()
+            .and_then(|v| v.strip_prefix('r').and_then(|n| n.parse::<i32>().ok()))
+            .filter(|r| *r >= 1)
+            .unwrap_or(1)
+    })
+}
+
 fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
     // **The `nest` field is read as a flag in both branches, never only as a
     // material.** A species that authors no nest has no home under either
@@ -8111,7 +8198,11 @@ fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
         let site = world.nest_sites[i];
         return (site.x - x).abs() <= nest_site_cols().unwrap_or(COLONY_HALF_WIDTH) && (site.surface - y).abs() <= rows;
     }
-    NEIGHBOURS_8.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == nest)
+    let r = nest_reach_radius();
+    if r == 1 {
+        return NEIGHBOURS_8.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == nest);
+    }
+    (-r..=r).any(|dy| (-r..=r).any(|dx| (dx != 0 || dy != 0) && world.get(x + dx, y + dy).material == nest))
 }
 
 /// **Where a trail mark lands — the head, or the cell just vacated.**
@@ -9279,7 +9370,10 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // fifteenth), and a weight inside `squash` *shifts* it. `ant.ron`
             // is re-authored against measured endpoints rather than by
             // porting the numbers -- see its `instincts` list.
-            let at_nest = adjacent_nest(world, x, y, def);
+            // Body-aware, to match the `AtNest` the brain was handed: a
+            // counter that disagrees with the behaviour it counts is worse
+            // than no counter.
+            let at_nest = nest_within_reach(world, organism, x, y, def);
             let p = drop_urge;
             if draw.unit_f32() < p {
                 if let Some((dx, dy)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| world.is_empty(px, py)) {
@@ -25753,6 +25847,30 @@ mod tests {
     /// exist.
     fn two_colony_bed() -> (World, u32, u32) {
         let mut w = test_world();
+        // **`home_bias` held at 0.0 for this bed, and that is not a
+        // convenience.** What these tests guard is the LEDGER — that both
+        // sides of a share are booked — and the bed reaches the crossing they
+        // exist for by letting ants from two colonies 30 cells apart mingle.
+        // `ant.ron` authored `home_bias: 1.0` on 2026-09-20 and a homed ant
+        // goes back to its own nest instead of wandering into the neighbour's,
+        // so **every share stayed inside one colony and the pair's own
+        // positive control went red** — `a_share_is_booked_on_both_sides`'s
+        // *"the crossing these accounts exist for is untested"*, which is the
+        // assertion doing its job rather than a flake. The equality itself
+        // still held.
+        //
+        // Pinned rather than worked around, because a ledger test that reaches
+        // its subject only as a side effect of how far ants wander is a test
+        // whose positive control any navigation change can switch off. The
+        // behaviour this removes is real and is recorded where it belongs:
+        // **homing makes colonies territorial**, which is a finding about
+        // `home_bias` and not about double-entry booking.
+        if let Some(id) = w.species.id_of("ant") {
+            if let Some(mut cdef) = w.species.get(id).creature.clone() {
+                cdef.home_bias = 0.0;
+                w.species.set_creature(id, cdef);
+            }
+        }
         for x in 10..190 {
             w.set(x, 101, Cell::new(material::STONE, 0));
         }
