@@ -8481,11 +8481,43 @@ fn deposit_at_vacated() -> bool {
 /// readability test below catches both, so neither lies; the projection simply
 /// does not put the nose on the ground more often on real ground.
 ///
-/// ***Do not turn this on as an obvious improvement.*** What would change the
-/// verdict is a sample that **follows the surface** rather than the row —
-/// walking out from the head along the substrate — which is right on flat
-/// ground, slopes, trunks and tunnels alike. That is priced as a bounded search
-/// per sample per creature per tick and has not been measured.
+/// ***That verdict was about HOMING, and it does not transfer. Since
+/// 2026-09-20 this ships ON*** — `PIXEL_PHYSICS_SENSOR_PROJECT=off` restores
+/// the diagonal sample, `=none` the whole pre-2026-09-19 reading.
+///
+/// **What changed is the question, not the tuning.** `other:131` measured this
+/// on channel A, for the walk *home*, and turned it down. Nobody had pointed it
+/// at the walk *out*, and that is where the colony was being lost:
+/// `open-bugs-handoff.md` §Z32 found an empty ant reading the food trail as
+/// **exactly 0.00000 tick after tick** while walking along a lit one.
+///
+/// **The mechanism is geometric and needs no tuning argument.** The trail is a
+/// five-row band; a diagonal heading sampled `sensor_offset` cells along BOTH
+/// axes, and `sensor_offset` is 6, so the nose sat six rows off the band and
+/// missed it by construction. Measured over 15,844 empty ant-ticks: on a
+/// diagonal the animal stands on **7,670** and its nose reads **757**, a
+/// tenfold loss on **46%** of ticks, with `mean |dy|` exactly **6.00**.
+///
+/// **What projecting it buys, 24 seeds paired within seed, per ANT through
+/// every stage of the loop** (`trailfollow`'s funnel):
+///
+/// | | off | on |
+/// |---|---|---|
+/// | reached the food | 303 · 53% | **391 · 72%** |
+/// | turned for home with it | 160 · 28% | **322 · 59%** |
+/// | put it down at the nest | 87 · 15% | **239 · 44%** |
+/// | reached the food a SECOND time | 8 · 1% | **76 · 14%** |
+///
+/// Closed laps **144 → 376, better in 23 seeds of 24 and worse in none**;
+/// cells carried homeward 10,347 → 24,043. **Every stage improves, including
+/// the walk home (66% → 84%)** — not a second mechanism, but an ant that can
+/// smell the route walking one instead of a random walk, and so spending far
+/// less energy to get anywhere.
+///
+/// **The surface-following sample this comment used to ask for is still the
+/// better answer** and is still unmeasured; it is right on slopes, trunks and
+/// tunnels where the row projection is right only on flat ground. This bed is
+/// flat. Do not read this result as settling that.
 ///
 /// **Read by `sense` AND by `sense_read_rects`, and that is not a detail.**
 /// They are one contract in two functions: the second declares the footprint
@@ -8500,7 +8532,7 @@ fn deposit_at_vacated() -> bool {
 /// lock and an allocation.
 pub fn sensor_projected() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_SENSOR_PROJECT").as_deref() == Ok("on"))
+    *V.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_SENSOR_PROJECT").as_deref(), Ok("off") | Ok("none")))
 }
 
 /// **The honesty half, ablatable separately** — `PIXEL_PHYSICS_SENSOR_PROJECT=none`

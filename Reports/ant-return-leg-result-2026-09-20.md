@@ -36,6 +36,7 @@ stands whatever is decided about shipping it.
 - [The sensor repair erodes the trail — dead end](#the-sensor-repair-works-on-the-reading-and-erodes-the-trail--dead-end)
 - [Step 2: `vacated` is not attributable](#step-2-of-the-plan-deposit_atvacated-is-not-attributable-drop-it)
 - [The loop as a funnel — 70% lost to one thing](#the-loop-as-a-funnel--and-70-of-the-colony-is-lost-to-one-thing)
+- [The nose was six rows off the trail](#the-loop-was-never-a-return-leg-problem--the-nose-was-six-rows-off-the-trail)
 - [What shipped, and what is open](#what-shipped-and-what-is-open)
 - [Reproducing the two arms](#reproducing-the-two-arms)
 
@@ -597,6 +598,60 @@ read +0.076 against +0.188 moving, so it is a tail rather than the median.
 Recorded, not yet repaired.
 
 **Data:** `Reports/data/loop-funnel-24seed-2026-09-20-{lump,graded,both}.log`.
+
+### The loop was never a return-leg problem — the nose was six rows off the trail
+
+**The last thing this session found, and the largest.** The funnel said 70% of
+ants are lost never reaching the larder or never finding it again; the per-tick
+trace said `PheroBFront` reads **exactly 0.00000** while the animal walks a lit
+trail at `P(move)` 0.34–0.69. The cause is geometry with no tuning in it.
+
+The hand-laid trail is a **five-row band** (`lay`: `surface-3 ..= surface+1`).
+`trail_sample_point` with projection off takes a diagonal heading
+`sensor_offset` cells along **both** axes, and `sensor_offset` is 6 — so the
+nose sits six rows above or below the animal and misses the band every time.
+15,844 empty ant-ticks:
+
+| heading | ticks | under the ant | at the nose | blind while on trail | mean \|dy\| |
+|---|---|---|---|---|---|
+| cardinal | 8,575 | 6,576.2 | 3,720.3 | 2.9% | 2.42 |
+| **diagonal** | 7,269 | **7,670.0** | **757.4** | **10.5%** | **6.00** |
+
+**`sensor_projected` now ships ON.** `PIXEL_PHYSICS_SENSOR_PROJECT=off`
+reproduces the old arm byte-identically on every seed checked. 24 seeds paired,
+per ant through the funnel:
+
+| stage | off | on |
+|---|---|---|
+| reached the food | 303 · 53% | **391 · 72%** |
+| picked it up out there | 248 · 43% | **361 · 66%** |
+| turned for home with it | 160 · 28% | **322 · 59%** |
+| got back still holding it | 106 · 18% | **269 · 49%** |
+| put it down at the nest | 87 · 15% | **239 · 44%** |
+| went back out again | 71 · 12% | 199 · 36% |
+| **reached the food a SECOND time** | **8 · 1%** | **76 · 14%** |
+
+Closed laps **144 → 376, better in 23 seeds of 24 and worse in none**; cells
+carried homeward 10,347 → 24,043. **The loop repeats for the first time.**
+
+**Every stage improves, including ones this report diagnosed as economy
+failures.** The walk home goes 66% → 84%. That is not a second mechanism: an
+ant that can smell the route walks one instead of a random walk, and so spends
+far less energy getting anywhere. A large part of "they starve on the way home"
+was a drunkard's path.
+
+**The fix was already in the tree and its own rejection entry predicted it.**
+`dead-ends.md` `other:131` measured the projection on channel A *for homing*,
+rejected it, and recorded that it *"roughly doubles how usable a reading is
+where the sample lands somewhere readable"* and was *"DEAD for homing and live
+evidence about something else"*. It was right twice. Nobody pointed it at the
+outbound leg.
+
+**What does not close with it:** the row projection is right on flat ground and
+this bed is flat. A sample that **follows the surface** is the answer on slopes,
+trunks and tunnels; it is priced in `sensor_projected`'s doc and is unmeasured.
+
+**Data:** `Reports/data/sensor-project-24seed-2026-09-20-{off,on}.log`.
 
 ### What shipped, and what is open
 

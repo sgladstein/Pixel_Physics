@@ -302,3 +302,32 @@ was overstated.
     their laden ticks; frozen ticks read +0.076 against +0.188 moving, so it
     is a tail rather than the median. Do not author the wire into `ant.ron`
     until this is settled.
+
+12. **§Z32 IS FOUND AND FIXED, AND IT IS BIGGER THAN EVERYTHING ELSE THIS LANE
+    DID.** The food trail is a five-row band; a diagonal heading sampled
+    `sensor_offset` cells along **both** axes, and `sensor_offset` is 6, so the
+    nose sat six rows off the band and missed it by construction — on a
+    diagonal the animal stands on **7,670** and reads **757**, a tenfold loss
+    on **46%** of ticks, `mean |dy|` exactly 6.00. `sensor_projected` now ships
+    **ON**; `PIXEL_PHYSICS_SENSOR_PROJECT=off` reproduces the old arm
+    byte-identically.
+
+    24 seeds paired, per ant: reached the food **303 → 391**, put it down at
+    the nest **87 → 239**, reached the food a **second** time **8 → 76**.
+    Closed laps 144 → 376, better in **23 seeds of 24 and worse in none**.
+
+13. **The lesson for whoever picks this up: the fix was in the tree, rejected,
+    and its own rejection entry predicted it.** `other:131` measured the
+    projection on channel A *for homing*, turned it down, and wrote that it
+    *"roughly doubles how usable a reading is where the sample lands somewhere
+    readable"* and was *"DEAD for homing and live evidence about something
+    else"*. Nobody pointed it at the outbound leg for a day and a half.
+    **Before building a sensor repair here, re-read the register for entries
+    rejected on a different question.**
+
+14. **What is still open.** The row projection is right on flat ground and this
+    bed is flat — a sample that FOLLOWS THE SURFACE is the answer on slopes,
+    trunks and tunnels, is priced in `sensor_projected`'s doc, and is
+    unmeasured. And the `PheroARise` freeze latch (item 11) is unrepaired; with
+    the outbound leg fixed it is worth re-measuring rather than assuming the
+    old numbers hold.

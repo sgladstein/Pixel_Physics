@@ -11,7 +11,7 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 <!-- BEGIN GENERATED INDEX -- regenerate with scripts/bugindex.py -->
 
-**66 open, 127 bugs** (plus 20 landing-note items,
+**65 open, 127 bugs** (plus 20 landing-note items,
 marked `note`). Generated from the headings by
 `scripts/bugindex.py` -- a bug's verdict is written into its own heading, so
 this is derived, never maintained by hand. Entries are never moved when they
@@ -170,9 +170,9 @@ point.
 | Z27 | **OPEN** | 13141 | Heat cannot cross a shallow gradient into ground already at ambient, and the fix that exi... |
 | Z28 | **OPEN** | 13198 | The moisture deposition preference was deleted rather than moved, and DropSpoil has no he... |
 | Z29 | **OPEN** | 13270 | An ant stands on its own freshest deposit, so the homing gradient reads "home is behind m... |
-| Z32 | **OPEN** | 13436 | An empty ant reads the food trail as exactly zero, tick after tick, so half the colony ne... |
-| Z30 | **OPEN** | 13528 | filmstrip never steps the pheromone planes, so every scene it runs ants in shows a trail ... |
-| Z31 | **OPEN** | 13619 | field::step carries derived arrays forward over a settled chunk that still holds an un-ta... |
+| Z32 | closed | 13436 | An empty ant reads the food trail as exactly zero, tick after tick, so half the colony ne... |
+| Z30 | **OPEN** | 13552 | filmstrip never steps the pheromone planes, so every scene it runs ants in shows a trail ... |
+| Z31 | **OPEN** | 13643 | field::step carries derived arrays forward over a settled chunk that still holds an un-ta... |
 
 <!-- END GENERATED INDEX -->
 
@@ -13433,7 +13433,7 @@ odometer but never B. Only A has the animal standing on its own mark.
 
 **Data:** `Reports/data/trail-comparator-24seed-2026-09-20-{shipped,fwd}.log`.
 
-### Z32. An empty ant reads the food trail as exactly zero, tick after tick, so half the colony never reaches the larder and never finds it again (engine/creatures) — **OPEN, found 2026-09-20**
+### Z32. An empty ant reads the food trail as exactly zero, tick after tick, so half the colony never reaches the larder and never finds it again (engine/creatures) — **FIXED 2026-09-20, found the same day**
 
 **The largest single loss in the foraging loop, and nothing has been aimed at
 it.** Found by the funnel (`trailfollow`'s `FUNNEL`/`Track::stage`,
@@ -13499,8 +13499,32 @@ while the animal walks along a lit trail.
 The census is `tr_bsniff` in `examples/trailfollow.rs`; it needs `focaln=`,
 because the tracing block only reaches an empty ant through the cohort.
 
-***Fix candidates:*** **`PIXEL_PHYSICS_SENSOR_PROJECT=on` is already in the
-tree and was measured on the wrong question.** It makes a diagonal sample
+**FIXED: the projection now ships on**, and `PIXEL_PHYSICS_SENSOR_PROJECT=off`
+reproduces the broken arm byte-identically. 24 seeds paired, per ANT through
+the whole loop:
+
+| stage | off | on |
+|---|---|---|
+| reached the food | 303 · 53% | **391 · 72%** |
+| picked it up out there | 248 · 43% | **361 · 66%** |
+| turned for home with it | 160 · 28% | **322 · 59%** |
+| got back still holding it | 106 · 18% | **269 · 49%** |
+| put it down at the nest | 87 · 15% | **239 · 44%** |
+| went back out again | 71 · 12% | 199 · 36% |
+| **reached the food a SECOND time** | **8 · 1%** | **76 · 14%** |
+
+Closed laps **144 → 376, better in 23 seeds of 24 and worse in none**; cells
+carried homeward 10,347 → 24,043. **Every stage improves, including the walk
+home (66% → 84%)** — not a second mechanism, but an ant that can smell the
+route walking one instead of a random walk, and so spending far less energy.
+
+**What does NOT close with it:** the row projection is right on flat ground and
+this bed is flat. A sample that **follows the surface** is the answer on slopes,
+trunks and tunnels, it is priced in `sensor_projected`'s own doc, and it is
+still unmeasured. Do not read this as settling that.
+
+***Where the fix came from:*** **`PIXEL_PHYSICS_SENSOR_PROJECT=on` was already in the
+tree and had been measured on the wrong question.** It makes a diagonal sample
 `(x + dx*so, y)` — the animal's own row — which is exactly the band the trail
 is in. `dead-ends.md` `other:131` rejected it on channel A **for homing**, and
 that entry's own text records that it *"roughly doubles how usable a reading is
