@@ -2421,6 +2421,29 @@ pub fn nest_site_rows() -> Option<i32> {
     *ROWS.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SITE_ROWS").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v >= 0))
 }
 
+/// **How many rows the founding gesture DIGS, or `None` for the shipped
+/// painted-only door.**
+///
+/// `PIXEL_PHYSICS_NEST_SHAFT=<rows>` makes founding cut a shaft and an
+/// entrance chamber instead of only converting surface ground; see
+/// [`World::dig_founding_shaft`] for the architecture and where its numbers
+/// come from. Unset is bit-exact.
+///
+/// **A parse failure falls back to unset rather than to 0**, matching
+/// [`nest_core`]: a typo that silently reverted the mechanism would put the
+/// control into a sweep wearing another point's label.
+///
+/// Depth is a dial rather than a constant on purpose. The founding queen's
+/// depth control is *idiothetic and temporal* (Roces, *J. Exp. Biol.* 2012)
+/// -- she digs until a preset length or a preset elapsed time, with no
+/// external cue at all -- so there is no environmental quantity to read it
+/// off, and a number swept from a harness is the honest stand-in for an
+/// internal reference nothing here models yet.
+pub fn nest_shaft_rows() -> Option<i32> {
+    static ROWS: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *ROWS.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SHAFT").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v > 0))
+}
+
 /// **The site reach in COLUMNS, half-width, or `None` for
 /// [`COLONY_HALF_WIDTH`].**
 ///
@@ -3691,7 +3714,110 @@ impl World {
                 }
             }
         }
+        self.dig_founding_shaft(x, y);
         painted
+    }
+
+    /// **The entrance, dug rather than painted** -- a shaft about one ant
+    /// wide sunk from the founding point, with a chamber at the bottom.
+    ///
+    /// `PIXEL_PHYSICS_NEST_SHAFT=<rows>` opens it; unset changes nothing and
+    /// is bit-exact, so every measurement taken on the painted door still
+    /// stands.
+    ///
+    /// **Why this exists at all.** [`World::paint_nest_patch`] converts
+    /// **53 columns of surface ground and excavates zero cells**: this
+    /// engine's founding gesture paints a strip *across* where the biology's
+    /// digs a shaft *down*. That is a real nest's dimensions transposed, and
+    /// nothing downstream can recover from it -- a colony founded on flat
+    /// ground has no hole to enlarge, so the workings spread sideways from
+    /// the first frame.
+    ///
+    /// **The numbers are the literature's, not taste.**
+    ///
+    /// - **Width.** A tunnel is about one body length across (Gravish et al.,
+    ///   *PNAS* 2013) -- that is what lets an ant brace against both walls
+    ///   and arrest a fall. `ant.ron` authors `body: Chain(2)`, so the shaft
+    ///   is **2 cells**, and the conclusion survives
+    ///   `Reports/nest-biology-2026-09-19.md` §2.5's open question about
+    ///   whether `Chain(2)` is two ant-lengths or a head-plus-body
+    ///   abstraction, because it is single-digit either way.
+    /// - **The chamber under it.** Harvester nests put an entrance chamber
+    ///   about 5 cm long, 2-3 cm below the surface, with the tunnels from
+    ///   every opening converging on it. At §2.5's **2-5 mm per cell** that
+    ///   is roughly **10-25 cells long, 4-15 cells down**, so the chamber
+    ///   here is sized from the shaft's depth rather than given its own
+    ///   constant: one chamber-width per side, floor at the shaft's foot.
+    /// - **Depth is an argument, not a constant**, because the founding
+    ///   queen's own depth control is idiothetic and temporal (Roces, *J.
+    ///   Exp. Biol.* 2012) -- she digs until a preset length or a preset
+    ///   time, with no external cue. A number swept from a harness is the
+    ///   honest stand-in for an internal reference nothing here models yet.
+    ///
+    /// **What this is NOT, and the distinction cost a night.** It is not a
+    /// convergence rule: nothing makes ants *choose* this opening, and both
+    /// research reports refused to invent one because the literature has the
+    /// function of a single entrance and not its origin. The entrance is a
+    /// *founding* fact -- there is one because one was dug -- which is the
+    /// reading `Reports/nest-entrance-dimensions-2026-09-19.md` settles on.
+    /// It is also not [`nest_site_cols`], which narrows the region an ant
+    /// *feels* at home in and is measured not to narrow the excavation at
+    /// all (`Reports/nest-shape-three-negatives-2026-09-19.md`). That dial
+    /// changes a sensation; this changes the world.
+    ///
+    /// **The open question it exists to answer** is whether a colony given a
+    /// hole keeps it, deepens it, or fills it in. Nothing in this engine
+    /// concentrates digging, so the shaft may simply erode while the ants
+    /// scratch around it -- and that is worth knowing before anything
+    /// dearer is built on top of it.
+    fn dig_founding_shaft(&mut self, x: i32, y: i32) {
+        let Some(rows) = nest_shaft_rows() else { return };
+        if rows <= 0 {
+            return;
+        }
+        // **Two cells wide, and it is the ant's own body that says so** --
+        // the centre column plus one beside it. Written as a span rather
+        // than a radius because a radius of 1 is three cells, which is
+        // already half again the width the tunnelling paper gives.
+        const SHAFT_SPAN: i32 = 2;
+        let Some(top) = colony_surface(self, x, y) else { return };
+        let depth = scaled_cells(self, rows).max(1);
+
+        // **The shaft.** Cut from the surface down, leaving the painted door
+        // above it alone -- the door is a threshold and this is the hole
+        // through it.
+        for dy in 0..depth {
+            for dx in 0..SHAFT_SPAN {
+                let (cx, cy) = (x + dx, top + dy);
+                if self.in_bounds(cx, cy) && self.is_diggable_ground(cx, cy) {
+                    self.set(cx, cy, Cell::EMPTY);
+                }
+            }
+        }
+
+        // **The entrance chamber**, at the foot of the shaft: the one piece
+        // of measured architecture in the whole entrance literature. Sized
+        // from the shaft rather than from a constant of its own -- see the
+        // doc above for why 10-25 cells long is the target and how it is
+        // derived.
+        let chamber_half = (depth / 2).clamp(3, 12);
+        let floor = top + depth;
+        for dy in 0..2 {
+            for dx in -chamber_half..=chamber_half {
+                let (cx, cy) = (x + dx, floor + dy);
+                if self.in_bounds(cx, cy) && self.is_diggable_ground(cx, cy) {
+                    self.set(cx, cy, Cell::EMPTY);
+                }
+            }
+        }
+    }
+
+    /// Ground a founding cut may remove: solid or powder, and nobody's body.
+    fn is_diggable_ground(&self, x: i32, y: i32) -> bool {
+        let cell = self.get(x, y);
+        cell.material != material::EMPTY
+            && matches!(self.materials.kind(cell.material), MaterialKind::Solid | MaterialKind::Powder)
+            && cell.organism_id() == 0
     }
 }
 
