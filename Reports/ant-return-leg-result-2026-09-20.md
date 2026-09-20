@@ -30,6 +30,7 @@ stands whatever is decided about shipping it.
 - [It is NOT a repeating loop](#it-is-not-a-repeating-loop-and-that-is-the-finding-that-matters)
 - [Yes, the ant eats its cargo on the way home](#yes-the-ant-eats-its-cargo-on-the-way-home--and-that-is-the-whole-economy)
 - [Where the loop is actually lost](#where-the-loop-is-actually-lost--and-it-is-not-the-anchor)
+- [Why they do not drop — read off the brains](#why-they-do-not-drop--read-off-the-brains-186067-laden-ant-ticks)
 - [Step 2: `vacated` is not attributable](#step-2-of-the-plan-deposit_atvacated-is-not-attributable-drop-it)
 - [What shipped, and what is open](#what-shipped-and-what-is-open)
 - [Reproducing the two arms](#reproducing-the-two-arms-which-changed-name-when-the-default-did)
@@ -228,6 +229,53 @@ blocker.
 that is true — but it is downstream of a delivery step that fails for reasons
 not yet localised, so a granary would be tuned against a delivery rate that is
 about to move.
+
+### Why they do not drop — read off the brains, 186,067 laden ant-ticks
+
+Owner's rule: check the brains at every tick that mattered. `trailfollow` now
+probes `Drop` for **every** laden ant (it already ran `probe_full` on them and
+nothing read it) and buckets the tick by the one input that decides the verb —
+how far the nearest nest material is from the head.
+
+| nearest nest material | laden ticks | % of laden | `P(drop)` | drops |
+|---|---|---|---|---|
+| **adjacent** (`AtNest` true) | 26,425 | **14.2%** | **0.4916** | **331** |
+| 2 cells | 17,322 | 9.3% | **0.0000** | 3 |
+| 4 cells | 3,276 | 1.8% | 0.0000 | 1 |
+| 8 cells | 10,692 | 5.7% | 0.0000 | 3 |
+| 16 cells | 12,174 | 6.5% | 0.0000 | 2 |
+| 32 cells | 36,072 | 19.4% | 0.0000 | 11 |
+| further / none | 80,106 | **43.1%** | 0.0000 | 8 |
+
+**The `Drop` decision is not broken.** On the comb the verb fires readily —
+`P(drop)` 0.4916, 331 drops out of 26,425 adjacent ticks. Every earlier account
+on this line, this report's own included, treated the drop as the failure. It is
+not.
+
+**They are almost never on the comb: 85.8% of laden ant-time is spent where
+`P(drop)` is exactly zero.**
+
+**The second row is the sharp one.** 17,322 laden ticks — 9.3% of laden life —
+**exactly two cells** from nest material: ants that walked home, are standing
+beside the comb, and cannot put the load down. **Three drops in seventeen
+thousand ticks.** `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` is a
+step function at adjacency, so a two-cell miss is as good as a mile.
+
+**So the loop fails on spatial precision, not on a decision.** Homing delivers
+the ant to the nest *region*; the verb demands *adjacency*. The 43.1% at 32+
+cells or with no material findable is the §7.37 wrong-anchor population plus
+ants in transit — the anchor defect showing up again, and still not the whole
+story, exactly as the ceiling measurement said.
+
+**This re-opens a question §Z28 looks like it closed.** §Z28 measured deliveries
+**511 → 180** when away-from-nest drop probability was added and concluded the
+knife-edge must stay. That measured *terrain-triggered* drops — `MoistureGrad`,
+`SurfaceCurvature` — which fire **anywhere on the walk home**, so an ant dumps
+its load mid-route. A **distance-graded** drop, full at adjacency and zero by
+two or three cells, cannot do that: it is only non-zero where the ant has
+already arrived. §Z28's numbers do not cover it and do not forbid it. **Measure
+it before building it** — the 17,322 ticks in row two are the population it
+would convert, and that is a bounded, checkable prediction.
 
 ### Step 2 of the plan: `DEPOSIT_AT=vacated` is not attributable, drop it
 

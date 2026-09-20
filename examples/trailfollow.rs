@@ -1968,6 +1968,20 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     //
     // `(n, sum along, n with along > 1e-3, sum P(move))`.
     let mut tr_align = [(0u64, 0.0f64, 0u64, 0.0f64); 5];
+    // **Why a laden ant is not putting its load down -- read off its own brain,
+    // not inferred from an outcome.** Owner's rule, 2026-09-20: the test is to
+    // check the brains at every tick that mattered and every decision and why.
+    //
+    // Bucketed by the ONE input that decides `Drop`: how far the nearest nest
+    // material is from the head. `(AtNest, Drop, 1.0889)` is the only positive
+    // term in the row against `(Bias, Drop, -0.2)`, so `P(drop)` is EXACTLY
+    // zero at any distance above adjacency, at any crop fill -- including a
+    // full one. Buckets: 0 = adjacent (`AtNest` true), then 2, 4, 8, 16, 32,
+    // further. Each carries laden ticks, summed `drop_urge`, and the drops
+    // that actually fired, so "never got there" and "got there and did not
+    // drop" cannot be confused for one another.
+    let mut tr_drop: [(u64, f64, u64); 7] = [(0, 0.0, 0); 7];
+    let mut tr_drop_prev: std::collections::HashMap<u32, u8> = std::collections::HashMap::new();
     let mut tr_gate_open = 0u64;
     // **The gate-open and gate-shut populations, pooled across gradient
     // direction** -- the paired arm for "does an open gate turn into homeward
@@ -2507,6 +2521,54 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 // vector of at least one cell for the same reason
                 // `home_weighted_pick` is: standing on the anchor, every
                 // heading scores alike and the bearing is meaningless.
+                // **The drop census, read from this ant's own brain.** Only
+                // laden ticks: an empty ant has nothing to put down and would
+                // swamp every bucket.
+                if carrying_larder {
+                    // Nearest nest material to the HEAD, which is the quantity
+                    // `AtNest` answers at radius 1. Bounded and widening, so a
+                    // hit costs the small ring rather than the whole box.
+                    let mut dist = u8::MAX;
+                    if let Some(nid) = nest_id {
+                        'ring: for r in [1i32, 2, 4, 8, 16, 32] {
+                            for dy in -r..=r {
+                                for dx in -r..=r {
+                                    if dx.abs() != r && dy.abs() != r {
+                                        continue;
+                                    }
+                                    if w.get(hx + dx, hy + dy).material == nid {
+                                        dist = r.min(255) as u8;
+                                        break 'ring;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    let b = match dist {
+                        1 => 0,
+                        2 => 1,
+                        4 => 2,
+                        8 => 3,
+                        16 => 4,
+                        32 => 5,
+                        _ => 6,
+                    };
+                    let urge = tout[O::Drop as usize].clamp(0.0, 1.0) as f64;
+                    tr_drop[b].0 += 1;
+                    tr_drop[b].1 += urge;
+                    // A drop is a fall in crop cells between two laden ticks --
+                    // the effect counter from the far side of the call, so the
+                    // urge and what it produced are never read apart.
+                    let cells = s.crop.map_or(0, |c| c.cells.min(255) as u8);
+                    if let Some(&prev) = tr_drop_prev.get(&id) {
+                        if cells < prev {
+                            tr_drop[b].2 += 1;
+                        }
+                    }
+                    tr_drop_prev.insert(id, cells);
+                } else {
+                    tr_drop_prev.remove(&id);
+                }
                 {
                     let (anx, any) = s.forage_anchor;
                     let (vx, vy) = ((anx - hx) as f32, (any - hy) as f32);
@@ -3002,6 +3064,26 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             // did not step, or stepped vertically, is neither, and that share
             // is the third thing the curve has to show. A bin where both rise
             // together is an ant moving MORE, not an ant moving home.
+            println!("    TRACE WHY A LADEN ANT IS NOT PUTTING ITS LOAD DOWN -- its own `Drop` output, by how far the nearest nest material is:");
+            println!("      {:>22} {:>12} {:>12} {:>8} {:>10}", "nearest nest material", "laden ticks", "% of laden", "P(drop)", "drops");
+            for (i, b) in tr_drop.iter().enumerate() {
+                if b.0 == 0 {
+                    continue;
+                }
+                let label = ["ADJACENT (AtNest)", "2 cells", "4 cells", "8 cells", "16 cells", "32 cells", "further / none"][i];
+                println!(
+                    "      {:>22} {:>12} {:>11.1}% {:>8.4} {:>10}{}",
+                    label,
+                    b.0,
+                    100.0 * b.0 as f64 / tr_drop.iter().map(|x| x.0).sum::<u64>().max(1) as f64,
+                    b.1 / b.0 as f64,
+                    b.2,
+                    if i == 0 { "   <- the only row where Drop can fire" } else { "" }
+                );
+            }
+            println!("      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at");
+            println!("      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never");
+            println!("      REACH the comb, and a large one with few drops would mean they reach it and decline.");
             println!("    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:");
             println!("      {:>12} {:>10} {:>11} {:>10} {:>9}", "heading vs home", "n", "mean along", "% positive", "P(move)");
             for (i, b) in tr_align.iter().enumerate() {
