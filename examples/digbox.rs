@@ -1089,6 +1089,18 @@ fn main() {
     // This one does not: see `chambers`. Printed beside them rather than
     // instead of them, because every prior arm was scored on `room_total`
     // and those numbers have to stay comparable.
+    // **Did the haulage rule fire at all?** `PIXEL_PHYSICS_SPOIL_HAUL` steers
+    // the heading through `tumble`, which is the *blocked-path* re-roll and
+    // not the ordinary step -- so a null on the mound could equally mean the
+    // mechanism is wrong or that it almost never gets a turn. Those want
+    // opposite work, and only this pair separates them: `CLAUDE.md`'s rule
+    // that a "did it happen" counter must be read beside the effect it claims.
+    println!(
+        "SUMMARY tumbles: {} total, {} of them steered homeward ({:.1}%)",
+        st.tumbles,
+        st.tumbles_homeward,
+        if st.tumbles > 0 { 100.0 * st.tumbles_homeward as f64 / st.tumbles as f64 } else { 0.0 }
+    );
     let ch = chambers(&world, &b);
     println!(
         "SUMMARY chambers={} median={}h x{}w widest={}w passage={} contrast={:.1}x   -- owner spec 2026-09-20: passage ~4, chamber 8-16 tall and wider than tall, 2-4x contrast",
