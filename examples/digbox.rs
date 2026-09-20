@@ -1172,6 +1172,44 @@ fn main() {
             v.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
             let line: Vec<String> = v.iter().map(|(n, c)| format!("{n} {c}")).collect();
             println!("SUMMARY the mound, by material: {}", line.join(", "));
+            // **What is holding the mound up** -- owner playtest, 2026-09-20,
+            // looking at a 7-stop sheet of this very run: *"there's a hole in
+            // the ground with weird floating spoil above it that isn't
+            // actually where the nest entrance was landed."*
+            //
+            // Three numbers, because the complaint has three parts and they
+            // want different repairs. A cell **standing on nothing** is a
+            // support bug. A cell **standing on an ant** is `dead-ends.md`'s
+            // residual hanging class arriving without a plant in the box to
+            // blame -- worked ground cut in place resting on a body, which
+            // walks away. And the mound's **offset from the nest** says
+            // whether haulage is putting the crater where the door is; the
+            // biology (section 3 of the excavation reference) has an ant walk a
+            // few body lengths out and drop, so a small offset is correct
+            // and a large one is not.
+            let (mut floating, mut on_ant, mut sx, mut n) = (0i64, 0i64, 0i64, 0i64);
+            for x in 1..b.w - 1 {
+                for y in 0..b.surface {
+                    let cell = world.get(x, y);
+                    if cell.material == material::EMPTY || cell.organism_id() != 0 {
+                        continue;
+                    }
+                    sx += x as i64;
+                    n += 1;
+                    let below = world.get(x, y + 1);
+                    if below.material == material::EMPTY {
+                        floating += 1;
+                    } else if below.organism_id() != 0 && world.materials.kind(below.material) == MaterialKind::Creature {
+                        on_ant += 1;
+                    }
+                }
+            }
+            let centroid = if n > 0 { (sx / n) as i32 } else { b.w / 2 };
+            println!(
+                "SUMMARY the mound stands on: nothing {floating}, an ant {on_ant}, ground {} of {n} cells   |   its centre is {:+} columns from the nest door",
+                n - floating - on_ant,
+                centroid - b.w / 2
+            );
         }
         println!("SUMMARY spoil standing in the world: {spoil_cells} cells, against {} pellets ever put down", st.spoil_dumped);
         // **Khuong's rule, priced where the decision is taken.** The
