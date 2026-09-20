@@ -3436,11 +3436,18 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   refuted** — Toffin's dig-marker, a decaying scalar on dug cells scored
   `x²/(x²+K²)`, with K = 50, ν = 0.05 and 100 units to a dug cell — which is
   `nest-shape-three-negatives-2026-09-19.md` §0's missing *concentration* and
-  `nest-digging-plan-2026-09-19.md`'s Stage 4, with constants. **Two collisions
-  its own header flags**: the marker is **not a pheromone** (a dig-face
-  pheromone is measured and negative here; the physical spoil form is
-  untested), and its pellet-placement rules sit on a question this repo closed
-  by owner ruling — the drop is the ant's, on `drop_urge`. Its **2D arching
+  `nest-digging-plan-2026-09-19.md`'s Stage 4, with constants. **Three collisions
+  its header flags**: the marker is **not a pheromone** (a dig-face pheromone
+  is measured and negative here; the physical spoil form is untested); its
+  pellet-placement rules sit on a question this repo closed by owner ruling —
+  the drop is the ant's, on `drop_urge`; and **§4/§9's density regulation is
+  a measured null here, three times**, most recently with the local reading
+  §9 asks for and the saturation objection measured away (top-tenth 97.8% →
+  1.3%, nest unmoved), so a reader must not rebuild it — §2 is spatial and
+  unbuilt, §4/§9 scalar and closed. Also flags the **kernel-ratio trap**:
+  Toffin's 3-cell kernel is narrower than his 4-cell ant, and the same
+  8-neighbour kernel here is *wider* than a `Chain(2)` ant and a 1–2 cell
+  shaft, so it would smear where it should concentrate. Its **2D arching
   caution** reaches `load.rs`'s `arch_span` wall from the biology side.
 - [nest-build-plan-2026-09-19.md](nest-build-plan-2026-09-19.md) — **plan,
   2026-09-19. `lab`/`engine`. Nothing built.** The staged build the two nest

@@ -44,7 +44,8 @@
 >   side view a bore is a slot whose roof genuinely spans the whole
 >   excavation"*).
 >
-> **Two collisions to know before building from it.** The §2 dig-marker is a
+> **Three collisions to know before building from it**, added 2026-09-20 when
+> this line was handed over. The §2 dig-marker is a
 > decaying scalar on dug cells, **not a pheromone**, and that distinction is
 > load-bearing here: a dig-face pheromone is *measured and negative* in this
 > engine (`nest-digging-plan-2026-09-19.md`), while the physical form — spoil
@@ -57,6 +58,31 @@
 > (`dead-ends.md`, `src/sim/creature.rs` `act`). Neither is a reason not to
 > read the document. Both are reasons not to lift a constant out of it into a
 > rule this repo settled on other grounds.
+>
+> **And the third, which is the one a reader of this document is most likely
+> to rebuild.** §4's rate law and §9's per-ant regulation — *dig while locally
+> crowded, stop when area per ant reaches its target* — is the mechanism this
+> engine has built three times and measured **null every time**. The most
+> recent scoring is the hard one, because it removes the standing excuse: over
+> twelve paired seeds the local density reading §9 itself asks for was wired
+> in, the at-nest crowding histogram desaturated from **97.8% top-tenth to
+> 1.3%** — so the input varies exactly as Toffin's model wants — and the nest
+> did not move (0.90x, better on 5 of 12). Given somewhere to act it actively
+> **subtracts**: a 40-row aggregation site alone gives `vert` 1.81x on 11 of
+> 12, and adding the density reading takes that to 1.43x and the room's depth
+> from 30 rows to 21. The repo's structural reading of why generalises past
+> ants: **interventions on *whether* to dig cannot produce a shape.** §2 is
+> spatial and unbuilt here; §4 and §9 are scalar and closed
+> (`nest-rejections-rescored-2026-09-19.md` §2–§2b, `dead-ends.md`).
+>
+> **One scale trap, because it inverts a ratio rather than mis-sizing a
+> constant.** §2's rule sums marker over a cell's 8 neighbours — a kernel 3
+> cells across, around an ant 4 cells wide, so in Toffin's lattice the kernel
+> is **narrower** than the ant and than the tunnel it builds. At `body:
+> Chain(2)` this engine's ant is 2 cells and a shaft is 1–2, so the same
+> 8-neighbour kernel is **wider than the feature it is meant to create** and
+> would smear precisely where it is supposed to concentrate. Size the kernel
+> off the ant, never by copying the number.
 
 2026-09-19 · Scott
 
