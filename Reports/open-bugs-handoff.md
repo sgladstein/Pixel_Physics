@@ -171,8 +171,8 @@ point.
 | Z28 | **OPEN** | 13198 | The moisture deposition preference was deleted rather than moved, and DropSpoil has no he... |
 | Z29 | **OPEN** | 13270 | An ant stands on its own freshest deposit, so the homing gradient reads "home is behind m... |
 | Z32 | **OPEN** | 13436 | An empty ant reads the food trail as exactly zero, tick after tick, so half the colony ne... |
-| Z30 | **OPEN** | 13498 | filmstrip never steps the pheromone planes, so every scene it runs ants in shows a trail ... |
-| Z31 | **OPEN** | 13589 | field::step carries derived arrays forward over a settled chunk that still holds an un-ta... |
+| Z30 | **OPEN** | 13528 | filmstrip never steps the pheromone planes, so every scene it runs ants in shows a trail ... |
+| Z31 | **OPEN** | 13619 | field::step carries derived arrays forward over a settled chunk that still holds an un-ta... |
 
 <!-- END GENERATED INDEX -->
 
@@ -13479,7 +13479,37 @@ ants dying on the walk home. It is mostly ants that got home fine and could
 not find the larder again: of 71 that delivered and went back out, **eight**
 reached food a second time.
 
-***Fix candidates, none measured:*** the sensor-geometry repairs already tried
+**THE MECHANISM, MEASURED 2026-09-20 — the nose is six rows out of the plane
+on half of all ticks.** The hand-laid trail is a **five-row band** (`lay`:
+`surface-3 ..= surface+1`). `trail_sample_point` with projection OFF, which is
+what ships, takes a diagonal heading `sensor_offset` cells along **both** axes,
+and `sensor_offset` is 6. So a diagonal nose samples six rows above or below
+the animal, outside the band by construction. 15,844 empty ant-ticks:
+
+| heading | ticks | channel B **under the ant** | **at the nose** | nose blind while the ant is on trail | mean \|dy\| |
+|---|---|---|---|---|---|
+| cardinal | 8,575 | 6,576.2 | 3,720.3 | 2.9% | 2.42 |
+| **diagonal** | 7,269 | **7,670.0** | **757.4** | **10.5%** | **6.00** |
+
+**A tenfold loss on 46% of ticks, and `mean |dy|` is exactly the sensor
+offset.** It is not decay and it is not noise: the sample point misses the band
+every time. That is why `PheroBFront` prints exactly 0.00000 tick after tick
+while the animal walks along a lit trail.
+
+The census is `tr_bsniff` in `examples/trailfollow.rs`; it needs `focaln=`,
+because the tracing block only reaches an empty ant through the cohort.
+
+***Fix candidates:*** **`PIXEL_PHYSICS_SENSOR_PROJECT=on` is already in the
+tree and was measured on the wrong question.** It makes a diagonal sample
+`(x + dx*so, y)` — the animal's own row — which is exactly the band the trail
+is in. `dead-ends.md` `other:131` rejected it on channel A **for homing**, and
+that entry's own text records that it *"roughly doubles how usable a reading is
+where the sample lands somewhere readable"*, which is the half that matters
+here and which nobody has measured on the outbound leg. Its rejection does not
+transfer: homing and trail-following are different questions on different
+planes.
+
+Also unmeasured, and independent of the geometry: the sensor-geometry repairs already tried
 on channel A are the obvious place to start and their results do **not**
 transfer — `sensor_projected` (`other:131`) was measured on A and rejected
 *for homing*, and its own entry records that it roughly doubles how usable a

@@ -2070,6 +2070,18 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     /// it was built to justify.
     const W_REC: f64 = 0.995;
     let mut tr_here_mem: std::collections::HashMap<u32, f64> = std::collections::HashMap::new();
+    // **WHY AN EMPTY ANT READS THE FOOD TRAIL AS EXACTLY ZERO** --
+    // `open-bugs-handoff.md` §Z32, the largest loss in the loop. Per EMPTY
+    // tick: what channel B holds under the animal, what it holds at the cell
+    // the nose actually samples, and how far apart those two cells are
+    // vertically. Split by whether the heading is a cardinal or a diagonal,
+    // because `trail_sample_point` with projection OFF -- which is shipped --
+    // takes a diagonal `so` cells along BOTH axes, six rows up or down, while
+    // the hand-laid trail is a five-row band (`lay`: `surface-3 ..= surface+1`).
+    //
+    // `[cardinal, diagonal]` -> (ticks, sum under the ant, sum at the nose,
+    // ticks the nose read zero while the ant's own cell did not, sum |dy|).
+    let mut tr_bsniff: [(u64, f64, f64, u64, i64); 2] = [(0, 0.0, 0.0, 0, 0); 2];
     let mut tr_here_prev: std::collections::HashMap<u32, (pixel_physics::sim::pheromone::Scent, i32, i32)> =
         std::collections::HashMap::new();
     let mut tr_smell_along: (f64, u64, f64, u64) = (0.0, 0, 0.0, 0);
@@ -2541,6 +2553,31 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     tick_e.1 += 1;
                 }
                 let tick = tick_e.1;
+                // **Two gates had to be cleared for this to run at all, and
+                // the first two attempts printed nothing.** It needs `focaln=`,
+                // because the tracing block is `in_cohort || carrying_larder ||
+                // ...` and without a cohort an empty ant is never traced. And
+                // it has to sit ABOVE the `if carrying_larder {` that opens
+                // further down and does not close until past the temporal
+                // census -- nested inside that, a `!carrying_larder` census is
+                // dead by construction. Both are the same shape as a guard
+                // whose inputs cannot vary what it guards, arriving in a
+                // measurement; the tell was a counter flat at exactly 0.
+                if !carrying_larder {
+                    tr_bsniff[0].3 += 0; // reached
+                }
+                if !carrying_larder && is_tick == 1 {
+                    let (nx, ny) = creature::trail_sample_point(hx, hy, s.heading, sensor_offset, false, creature::sensor_projected());
+                    let under = f64::from(w.pheromone_at(Channel::B, hx, hy));
+                    let nose = f64::from(w.pheromone_at(Channel::B, nx, ny));
+                    let diag = usize::from(creature::DIRS[s.heading as usize % 8].1 != 0 && creature::DIRS[s.heading as usize % 8].0 != 0);
+                    let e = &mut tr_bsniff[diag];
+                    e.0 += 1;
+                    e.1 += under;
+                    e.2 += nose;
+                    e.3 += u64::from(nose == 0.0 && under > 0.0);
+                    e.4 += i64::from((ny - hy).abs());
+                }
                 let along = tin[I::PheroAAlong as usize];
                 // **`clamp`, not `unit_scale` -- corrected 2026-09-19, and every
                 // `P(move)` figure in §7.41-§7.44 was in the wrong unit.**
@@ -3423,6 +3460,28 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 println!("      SEPARATION IS THE COLUMN. The shipped `(ahead - here)` reads -0.20 home against -0.24 away:");
                 println!("      a gap of 0.04 and NEGATIVE in both. A comparator earns its place by making that gap real");
                 println!("      AND by not being blind -- a pair that reads 0.0 most of the time is not a sensor.");
+            }
+            if tr_bsniff.iter().any(|b| b.0 > 0) {
+                println!("    TRACE WHY AN EMPTY ANT CANNOT SMELL THE FOOD TRAIL (§Z32) -- channel B under the animal against channel B at the nose:");
+                println!("      {:>10} {:>10} {:>14} {:>14} {:>26} {:>12}", "heading", "ticks", "under the ant", "at the nose", "nose BLIND, ant on trail", "mean |dy|");
+                for (i, nm) in ["cardinal", "diagonal"].iter().enumerate() {
+                    let b = tr_bsniff[i];
+                    if b.0 == 0 {
+                        continue;
+                    }
+                    println!(
+                        "      {:>10} {:>10} {:>14.1} {:>14.1} {:>25.1}% {:>12.2}",
+                        nm,
+                        b.0,
+                        b.1 / b.0 as f64,
+                        b.2 / b.0 as f64,
+                        100.0 * b.3 as f64 / b.0 as f64,
+                        b.4 as f64 / b.0 as f64
+                    );
+                }
+                println!("      The hand-laid trail is a FIVE-ROW band (`lay`: surface-3 ..= surface+1). With projection off --");
+                println!("      which is shipped -- a diagonal heading samples `so` cells along BOTH axes, so the nose is six rows");
+                println!("      above or below the animal and outside that band by construction. `mean |dy|` is the test.");
             }
             if tr_temporal.iter().flatten().flatten().any(|b| b.0 > 0) {
                 println!("    TRACE DOES SMELLING OVER TIME CARRY THE DIRECTION? -- `(live - lagged) / (live + lagged + guard)` on the ant's OWN cell,");
