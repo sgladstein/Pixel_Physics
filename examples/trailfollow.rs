@@ -1981,6 +1981,16 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // that actually fired, so "never got there" and "got there and did not
     // drop" cannot be confused for one another.
     let mut tr_drop: [(u64, f64, u64); 7] = [(0, 0.0, 0); 7];
+    // **When a laden ant misses the comb, does it miss SIDEWAYS or UPWARD?**
+    // The two want opposite fixes and the distance alone cannot tell them
+    // apart. The comb is a single row of cells at the terrain SURFACE, and
+    // `adjacent_nest` reads the 8-neighbourhood of the HEAD -- so a `Chain(2)`
+    // ant standing on its own doorstep with its head two rows up reads
+    // `AtNest` false while being, in every sense a player would use, at home.
+    // Indexed [dx.abs().min(4)][dy.abs().min(4)] over near misses only
+    // (nearest material within 4 cells), because a miss by 32 is a navigation
+    // question and not this one.
+    let mut tr_miss = [[0u64; 5]; 5];
     let mut tr_drop_prev: std::collections::HashMap<u32, u8> = std::collections::HashMap::new();
     let mut tr_gate_open = 0u64;
     // **The gate-open and gate-shut populations, pooled across gradient
@@ -2544,6 +2554,26 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                             }
                         }
                     }
+                    // The offset to that nearest material, kept only for near
+                    // misses -- see `tr_miss`.
+                    if dist != u8::MAX && dist <= 4 && dist > 1 {
+                        if let Some(nid) = nest_id {
+                            let mut best: Option<(i32, i32)> = None;
+                            for dy in -4i32..=4 {
+                                for dx in -4i32..=4 {
+                                    if w.get(hx + dx, hy + dy).material == nid {
+                                        let d = dx.abs().max(dy.abs());
+                                        if best.is_none_or(|(bx, by)| d < bx.abs().max(by.abs())) {
+                                            best = Some((dx, dy));
+                                        }
+                                    }
+                                }
+                            }
+                            if let Some((dx, dy)) = best {
+                                tr_miss[dx.unsigned_abs().min(4) as usize][dy.unsigned_abs().min(4) as usize] += 1;
+                            }
+                        }
+                    }
                     let b = match dist {
                         1 => 0,
                         2 => 1,
@@ -3080,6 +3110,25 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     b.2,
                     if i == 0 { "   <- the only row where Drop can fire" } else { "" }
                 );
+            }
+            {
+                let tot: u64 = tr_miss.iter().flatten().sum();
+                if tot > 0 {
+                    println!("    TRACE ...and when it misses by 2-4 cells, is the miss SIDEWAYS or UPWARD? (rows = |dx|, cols = |dy|)");
+                    println!("      {:>8} {:>9} {:>9} {:>9} {:>9} {:>9}", "", "|dy|=0", "1", "2", "3", "4+");
+                    for (dx, row) in tr_miss.iter().enumerate() {
+                        if row.iter().sum::<u64>() == 0 {
+                            continue;
+                        }
+                        print!("      {:>8}", format!("|dx|={dx}"));
+                        for v in row {
+                            print!(" {:>8.1}%", 100.0 * *v as f64 / tot as f64);
+                        }
+                        println!();
+                    }
+                    let vertical: u64 = tr_miss.iter().enumerate().map(|(dx, r)| if dx <= 1 { r.iter().skip(2).sum::<u64>() } else { 0 }).sum();
+                    println!("      MISSED ONLY UPWARD (|dx|<=1, |dy|>=2) -- standing on the doorstep, head too high: {:.1}%", 100.0 * vertical as f64 / tot as f64);
+                }
             }
             println!("      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at");
             println!("      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never");
