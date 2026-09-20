@@ -321,6 +321,200 @@ fn census(world: &World, b: &Box2) -> (usize, usize, usize, usize, i32, i32, i32
     (roofed, open, above, bodies, rw, rh, iqr, p50x)
 }
 
+/// **Chambers and tunnels, or one hole?** — the question `vert` and `iqr`
+/// structurally cannot answer, and the one the owner's spec is written in.
+///
+/// Owner ruling, 2026-09-20: *"the chambers have to be readable. Chambers
+/// that are just two cells tall are not going to look like a chamber in this
+/// game. We can go bigger but at some point the answer is just digging one
+/// giant hole which is actually what they do right now and then it's not
+/// chambers and tunnels."* The target therefore has a failure mode on
+/// **both** sides, and the quantity separating them is not volume: it is the
+/// **contrast** between a chamber's bore and the bore of the passage joining
+/// it — he put the passage at about 4 cells and the chamber at 2–4x that.
+///
+/// **Why every column already here is blind to it.** `roofed`, `open` and
+/// `room total` are counts, so they rank a bigger hole above a better one.
+/// `vert` and `iqr` describe the bounding box of the *whole* excavation, so
+/// one chamber of 12x32 and a 12x32 smear score identically. Five arms have
+/// now been scored on those columns and every one came back a coin flip —
+/// which is what a shape question looks like when it is measured by volume.
+///
+/// **And not connected components either.** A nest is connected *by
+/// definition* — the tunnels join the chambers — so a component count over
+/// the void is 1 for the target and 1 for the giant hole. The separation has
+/// to come from *width*, not from adjacency.
+///
+/// **So: a Chebyshev distance transform over the room.** Every void cell
+/// gets the radius of the largest square of void centred on it, which makes
+/// a 4-cell bore read 2 whichever way it runs — the property worth having,
+/// because a shaft and a tunnel are one feature rotated. A chamber 12 cells
+/// tall reads 6. Cells at or above [`CHAMBER_R`] are *chamber core*; the
+/// rest is passage. Counting components **of the core** is what separates
+/// the three cases: two chambers joined by a narrow tunnel are two, because
+/// the tunnel never reaches the core threshold; a hole with no narrow waist
+/// anywhere is one; scratches reach the threshold nowhere and are none.
+///
+/// Reads the same "room" the rest of this census does — roofed void, with
+/// the ants standing in it counted as room rather than as wall, so a chamber
+/// does not stop being one when somebody walks into it.
+struct Chambers {
+    /// Discrete chambers: components of the core. **0 = scratches, 1 = the
+    /// giant hole, 2+ = structure** — but read `max_w` with it, because one
+    /// chamber is also what a correct small nest looks like early on.
+    count: i32,
+    /// Median chamber box, in cells, recovered by letting each core cell
+    /// claim the square it is the centre of. Against the owner's spec
+    /// directly: 8–16 tall, and wider than tall.
+    med_h: i32,
+    med_w: i32,
+    /// The widest chamber. **This is the giant-hole tell**: today's nest is
+    /// one chamber ~120 cells wide, which no ruling in this file calls a
+    /// chamber.
+    max_w: i32,
+    /// Typical bore of the void that is *not* chamber — the tunnels, plus
+    /// the fringe of every chamber, which is why it reads a little under the
+    /// true passage width rather than over it.
+    passage: i32,
+    /// Median chamber bore over passage bore. **The owner's 2–4x.** 1.0 is
+    /// "there is no distinction between a room and a corridor here".
+    contrast: f32,
+}
+
+/// Half the smallest bore this game will read as a chamber: the owner's
+/// 2x-the-passage floor, at a 4-cell passage, is 8 cells — so radius 4.
+/// **A design constant, not a measurement**, and deliberately the *bottom*
+/// of the stated band so the census does not quietly raise the bar.
+const CHAMBER_R: i32 = 4;
+
+fn chambers(world: &World, b: &Box2) -> Chambers {
+    let (w, h) = (b.w as usize, (b.floor - b.surface) as usize);
+    let idx = |x: usize, y: usize| y * w + x;
+    // Room mask, on the census's own predicate. Anything outside stays
+    // solid, so the box walls bound the transform instead of leaking.
+    let mut void = vec![false; w * h];
+    for x in 1..b.w - 1 {
+        let mut covered = false;
+        for y in b.surface..b.floor {
+            let cell = world.get(x, y);
+            let kind = world.materials.kind(cell.material);
+            let is_ground = cell.material != material::EMPTY
+                && matches!(kind, MaterialKind::Powder | MaterialKind::Solid)
+                && cell.organism_id() == 0;
+            if is_ground {
+                covered = true;
+                continue;
+            }
+            if covered && (cell.material == material::EMPTY || kind == MaterialKind::Creature) {
+                void[idx(x as usize, (y - b.surface) as usize)] = true;
+            }
+        }
+    }
+    // Chebyshev distance to the nearest non-room cell, two passes.
+    const FAR: i32 = 1 << 20;
+    let mut d: Vec<i32> = void.iter().map(|&v| if v { FAR } else { 0 }).collect();
+    for y in 0..h {
+        for x in 0..w {
+            if d[idx(x, y)] == 0 {
+                continue;
+            }
+            let mut best = FAR;
+            if x > 0 {
+                best = best.min(d[idx(x - 1, y)]);
+            }
+            if y > 0 {
+                best = best.min(d[idx(x, y - 1)]);
+                if x > 0 {
+                    best = best.min(d[idx(x - 1, y - 1)]);
+                }
+                if x + 1 < w {
+                    best = best.min(d[idx(x + 1, y - 1)]);
+                }
+            }
+            d[idx(x, y)] = d[idx(x, y)].min(best + 1);
+        }
+    }
+    for y in (0..h).rev() {
+        for x in (0..w).rev() {
+            if d[idx(x, y)] == 0 {
+                continue;
+            }
+            let mut best = FAR;
+            if x + 1 < w {
+                best = best.min(d[idx(x + 1, y)]);
+            }
+            if y + 1 < h {
+                best = best.min(d[idx(x, y + 1)]);
+                if x + 1 < w {
+                    best = best.min(d[idx(x + 1, y + 1)]);
+                }
+                if x > 0 {
+                    best = best.min(d[idx(x - 1, y + 1)]);
+                }
+            }
+            d[idx(x, y)] = d[idx(x, y)].min(best + 1);
+        }
+    }
+    // Components of the core, 8-connected, flood filled iteratively -- a
+    // recursive fill blows the stack on a box-wide hole, which is exactly
+    // the case this census exists to name.
+    let core: Vec<bool> = d.iter().map(|&v| v >= CHAMBER_R).collect();
+    let mut seen = vec![false; w * h];
+    let mut boxes: Vec<(i32, i32)> = Vec::new();
+    let mut stack: Vec<(usize, usize)> = Vec::new();
+    for sy in 0..h {
+        for sx in 0..w {
+            if !core[idx(sx, sy)] || seen[idx(sx, sy)] {
+                continue;
+            }
+            let (mut x0, mut x1, mut y0, mut y1) = (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
+            seen[idx(sx, sy)] = true;
+            stack.push((sx, sy));
+            while let Some((x, y)) = stack.pop() {
+                // Each core cell claims the square it is the centre of, so
+                // the box is the chamber rather than its middle band.
+                let r = d[idx(x, y)] - 1;
+                x0 = x0.min(x as i32 - r);
+                x1 = x1.max(x as i32 + r);
+                y0 = y0.min(y as i32 - r);
+                y1 = y1.max(y as i32 + r);
+                for dy in -1i32..=1 {
+                    for dx in -1i32..=1 {
+                        let (nx, ny) = (x as i32 + dx, y as i32 + dy);
+                        if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 {
+                            continue;
+                        }
+                        let (nx, ny) = (nx as usize, ny as usize);
+                        if core[idx(nx, ny)] && !seen[idx(nx, ny)] {
+                            seen[idx(nx, ny)] = true;
+                            stack.push((nx, ny));
+                        }
+                    }
+                }
+            }
+            boxes.push((y1 - y0 + 1, x1 - x0 + 1));
+        }
+    }
+    // Passage: the void that never reached the core threshold.
+    let mut passage_bores: Vec<i32> = d
+        .iter()
+        .zip(void.iter())
+        .filter(|(&dv, &v)| v && dv < CHAMBER_R)
+        .map(|(&dv, _)| dv * 2)
+        .collect();
+    passage_bores.sort_unstable();
+    let passage = passage_bores.get(passage_bores.len() / 2).copied().unwrap_or(0);
+    let mut hs: Vec<i32> = boxes.iter().map(|&(hh, _)| hh).collect();
+    let mut ws: Vec<i32> = boxes.iter().map(|&(_, ww)| ww).collect();
+    hs.sort_unstable();
+    ws.sort_unstable();
+    let med_h = hs.get(hs.len() / 2).copied().unwrap_or(0);
+    let med_w = ws.get(ws.len() / 2).copied().unwrap_or(0);
+    let max_w = ws.last().copied().unwrap_or(0);
+    let contrast = if passage > 0 { med_h as f32 / passage as f32 } else { 0.0 };
+    Chambers { count: boxes.len() as i32, med_h, med_w, max_w, passage, contrast }
+}
+
 /// **The moisture gradient as the ant's own brain reads it**, sampled at
 /// every ant's head.
 ///
@@ -891,6 +1085,15 @@ fn main() {
         if rw > 0 { rh as f64 / rw as f64 } else { 0.0 },
         st.digs_aimed_down
     );
+    // **The shape columns above rank a bigger hole above a better one.**
+    // This one does not: see `chambers`. Printed beside them rather than
+    // instead of them, because every prior arm was scored on `room_total`
+    // and those numbers have to stay comparable.
+    let ch = chambers(&world, &b);
+    println!(
+        "SUMMARY chambers={} median={}h x{}w widest={}w passage={} contrast={:.1}x   -- owner spec 2026-09-20: passage ~4, chamber 8-16 tall and wider than tall, 2-4x contrast",
+        ch.count, ch.med_h, ch.med_w, ch.max_w, ch.passage, ch.contrast
+    );
     // **Can the one remaining candidate demonstrate itself?**
     //
     // `CLAUDE.md`: *check that a planned step can demonstrate itself, before
@@ -1128,6 +1331,64 @@ fn selftest_run(b: &Box2) {
         siqr > liqr * 4,
         "iqr {siqr} against {liqr}: the middle-half width must separate a concentrated room from a scattered one, or it is a third blind column"
     );
+
+    // **And the chamber census must tell the owner's three cases apart**,
+    // which is the whole reason it exists: `roofed`/`room total` rank the
+    // giant hole *highest* of the three, and `vert`/`iqr` describe a
+    // bounding box that the target and the smear share.
+    //
+    // Owner, 2026-09-20: *"Chambers that are just two cells tall are not
+    // going to look like a chamber... at some point the answer is just
+    // digging one giant hole which is actually what they do right now and
+    // then it's not chambers and tunnels."* Three hand-carved beds, one per
+    // case, and the assertions are what make this a control rather than a
+    // printout -- put any of the three shapes in and the wrong one out, and
+    // this goes red.
+    let carve = |wld: &mut World, x: i32, y: i32, cw: i32, chh: i32| {
+        for yy in y..y + chh {
+            for xx in x..x + cw {
+                wld.set(xx, yy, Cell::EMPTY);
+            }
+        }
+    };
+    // (a) TARGET: two chambers joined by a 4-cell tunnel, under a roof.
+    let mut target = build(b);
+    carve(&mut target, cx - 50, cy, 32, 12); // chamber 12 tall x 32 wide
+    carve(&mut target, cx - 18, cy + 4, 20, 4); // passage, 4 cells across
+    carve(&mut target, cx + 2, cy + 2, 24, 10); // chamber 10 tall x 24 wide
+    let ct = chambers(&target, b);
+    // (b) TOO BIG: one hole with no narrow waist anywhere -- today's nest.
+    let mut hole = build(b);
+    carve(&mut hole, 10, cy, 120, 14);
+    let chl = chambers(&hole, b);
+    // (c) TOO SMALL: galleries two cells tall, which read as scratches.
+    let mut scratch = build(b);
+    for i in 0..4 {
+        carve(&mut scratch, 20 + i * 40, cy + i * 3, 34, 2);
+    }
+    let cs = chambers(&scratch, b);
+    println!(
+        "  chamber census on three carved beds -- target: {} chambers, {}h x{}w, passage {}, contrast {:.1}x",
+        ct.count, ct.med_h, ct.med_w, ct.passage, ct.contrast
+    );
+    println!(
+        "                                       one hole: {} chamber(s), widest {}w   |   scratches: {} chambers",
+        chl.count, chl.max_w, cs.count
+    );
+    assert_eq!(ct.count, 2, "two chambers joined by a 4-cell tunnel must read as two, or the core threshold is leaking through the passage");
+    assert!(
+        ct.contrast >= 2.0,
+        "target contrast {:.1}x: a chamber 2-4x the passage must read at or above 2x, or the column cannot score the owner's spec",
+        ct.contrast
+    );
+    assert_eq!(chl.count, 1, "a hole with no narrow waist is one chamber, however big");
+    assert!(
+        chl.max_w > ct.max_w * 2,
+        "the giant hole must read far wider ({}w) than the target's chambers ({}w) -- that width IS the tell, and without it this census cannot name today's failure",
+        chl.max_w,
+        ct.max_w
+    );
+    assert_eq!(cs.count, 0, "two-cell galleries are not chambers -- if these count, the threshold is below what this game can read");
 
     // Sensitivity: ants in the box must actually dig. A colony that never
     // places, or never wakes, reports a clean null that reads as a finding.
