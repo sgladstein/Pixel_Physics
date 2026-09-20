@@ -170,8 +170,8 @@ point.
 | Z27 | **OPEN** | 13140 | Heat cannot cross a shallow gradient into ground already at ambient, and the fix that exi... |
 | Z28 | **OPEN** | 13197 | The moisture deposition preference was deleted rather than moved, and DropSpoil has no he... |
 | Z29 | **OPEN** | 13269 | An ant stands on its own freshest deposit, so the homing gradient reads "home is behind m... |
-| Z30 | **OPEN** | 13385 | filmstrip never steps the pheromone planes, so every scene it runs ants in shows a trail ... |
-| Z31 | **OPEN** | 13476 | field::step carries derived arrays forward over a settled chunk that still holds an un-ta... |
+| Z30 | **OPEN** | 13394 | filmstrip never steps the pheromone planes, so every scene it runs ants in shows a trail ... |
+| Z31 | **OPEN** | 13485 | field::step carries derived arrays forward over a settled chunk that still holds an un-ta... |
 
 <!-- END GENERATED INDEX -->
 
@@ -13373,7 +13373,16 @@ vector, and until 2026-09-20 nothing in the brain could see one.
 
 **WHAT LANDED, 2026-09-20:** `BrainInput::HomeAligned` — the cosine between
 heading and home vector, zero for an empty ant — wired `(HomeAligned, Move,
-3.0)` in `ant.ron`. `BRAIN_INPUTS` 32 → 33, `live_slots` 918 → 942, every
+3.0)` in `ant.ron`. **Judged on the loop** (owner's ruling that day: the loop
+is the axis, not starvation) it takes completed laden returns from **6.8% to
+28.1%** of the ants that reach food, better in 8 seeds of 8, and colonies where
+nobody ever completes a lap from 4 of 8 to **0 of 8**.
+**`Reports/ant-return-leg-result-2026-09-20.md`** has it all, including the two
+findings this entry should be read beside: the loop **does not repeat** (one ant
+in 733 did it twice — the homeward leg alone is longer than an ant's life), and
+**the crop is the forager's own food** (`digest_rate` applies to it every tick
+it is held), so delivering is giving up what you were living on and the intake
+fall *is* the homing rather than a side effect of it. `BRAIN_INPUTS` 32 → 33, `live_slots` 918 → 942, every
 species' `mutation_rate` re-derived to `3.18 / 942 = 0.0033758`. **It does not
 close this entry**: the self-deposit is still there and `PheroAAlong` still
 reads negative whichever way a laden ant faces — nothing about the *plane*

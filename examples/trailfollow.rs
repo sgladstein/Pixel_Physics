@@ -745,6 +745,15 @@ struct Arm {
     lit_n: u64,
     reached: usize,
     returned: usize,
+    /// **Distinct ants that completed the loop at least once, and the ones
+    /// that did it more than once.** `trips_laden` is a sum over ants, so it
+    /// cannot tell eight ants doing one loop from two ants doing four -- and
+    /// "is this a repeating loop or a one-off" is exactly the question the
+    /// sum hides. Asked by the owner 2026-09-20; nothing in the harness could
+    /// answer it before.
+    loopers: usize,
+    repeat_loopers: usize,
+    max_loops: u32,
     trips_laden: u64,
     trips_empty: u64,
     leg_n: usize,
@@ -3062,6 +3071,9 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         lit_n: live_cells_n,
         reached: tracks.values().filter(|t| t.visited).count(),
         returned: tracks.values().filter(|t| t.trips > 0).count(),
+        loopers: tracks.values().filter(|t| t.trips_laden >= 1).count(),
+        repeat_loopers: tracks.values().filter(|t| t.trips_laden >= 2).count(),
+        max_loops: tracks.values().map(|t| t.trips_laden).max().unwrap_or(0),
         trips_laden: tracks.values().map(|t| u64::from(t.trips_laden)).sum(),
         trips_empty: tracks.values().map(|t| u64::from(t.trips_empty)).sum(),
         leg_n: legs.len(),
@@ -3381,8 +3393,10 @@ fn main() {
                         100.0 * a.lit as f64 / a.lit_n.max(1) as f64, a.a_peak_amt, a.a_peak_cells
                     );
                     println!(
-                        "{:>16}RETURN LEDGER reached food {:>4} of {:>4} ants | came back {:>4} | trips laden {:>4} empty {:>4}",
-                        "", a.reached, a.ants_seen, a.returned, a.trips_laden, a.trips_empty
+                        "{:>16}RETURN LEDGER reached food {:>4} of {:>4} ants | came back {:>4} | trips laden {:>4} empty {:>4} | LOOPERS {:>4} of {:>4} ants ({:>4.1}% of those that reached food), repeat {:>4}, most loops by one ant {:>3}",
+                        "", a.reached, a.ants_seen, a.returned, a.trips_laden, a.trips_empty,
+                        a.loopers, a.ants_seen, 100.0 * a.loopers as f64 / a.reached.max(1) as f64,
+                        a.repeat_loopers, a.max_loops
                     );
                     if !a.legs_raw.is_empty() {
                         let f = |v: &Vec<u64>| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");

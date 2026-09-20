@@ -1279,45 +1279,42 @@
             // **And it costs no hidden unit**, so unit 7 stays free and the
             // collision with the 2026-09-19 fold-change plan does not happen.
             //
-            // # Authored at 0.0 -- built, measured, and OFF pending the owner
+            // # What it buys, measured on the LOOP
             //
-            // **It works, and on the only bed we have it kills the colony.**
-            // Measured 2026-09-20, 8 seeds, paired within seed, against
-            // `homewire=0` -- which is this same genome with this one slot
-            // unread, so `mutation_rate`, `live_slots` and every dimension are
-            // identical across the pair and the wire is the only difference.
+            // **The loop is the thing: follow the trail out, pick food up,
+            // turn round, carry it home, put it down, go again.** Measured
+            // 2026-09-20, 8 seeds, paired within seed, against `homewire=0` --
+            // which is this same genome with this one slot unread, so
+            // `mutation_rate`, `live_slots` and every dimension are identical
+            // across the pair and this wire is the only difference.
             //
-            // The mechanism does exactly what it was built to do. `P(move)`
-            // for a laden ant pointed at home goes **0.115 -> 0.509**, pointed
-            // away **0.078 -> 0.028** -- a home/away ratio of 1.5x to **18x**,
-            // and the two bins move in OPPOSITE directions, so it is steering
-            // rather than a `laden ants move more` lever. Homeward displacement
-            // `carry->nest` 152 -> 329 (sign **7/1/0**) and round trips 1 -> 3
-            // (**6/2/0**).
+            // **Completed laden returns, as a share of the ants that reached
+            // the food:** 6.8% -> **29.7%** pooled, per-seed median 2.2% ->
+            // 23.6%, and **better in 8 seeds of 8**. The blunter form of the
+            // same number: in **4 of the 8 control colonies not one ant ever
+            // completes the loop in the whole run**, and with the wire on that
+            // is **0 of 8** -- every colony has ants running it.
             //
-            // And: larder intake `ate J` **12,699 -> 2,280** (2/6/0 -- six
-            // seeds worse), starved 15 -> 18.5 (**7/1/0**), born 6 -> 0, and
-            // colonies alive at the end median **4.5 -> 0**, falling
-            // monotonically in the gain (4 of 8 seeds alive at 0.0, 3 at 1.5,
-            // 3 at 3.0, **1 at 6.0**).
+            // **The gain is not the lever** -- 1.5 / 3.0 / 6.0 give 26.2% /
+            // 29.7% / 31.8% and per-seed medians within 1.5 points of each
+            // other. 3.0 is chosen because `squash(3.0) = 0.75` matches the
+            // authority the trail pair already has (measured moving `P(move)`
+            // 0.03 -> 0.75, `dead-ends.md`), not because the sweep picked it.
             //
-            // **The reading, which is §Z29's own and not a new finding:**
-            // `DELIVERED` is 0 in BOTH arms, so nothing this bed carries home
-            // is ever banked -- *"a delivered cell is left on the ground and
-            // nothing banks it"*. Walking home is therefore pure energy cost
-            // on a bed already running near subsistence, and a better return
-            // leg buys nothing until the granary (§7.28) lands. §Z29 predicted
-            // this shape for its own repair and it arrived unchanged.
+            // **And the steering is real rather than a step-rate change.**
+            // Laden `P(move)` pointed at home goes 0.115 -> 0.509 while
+            // pointed away goes 0.078 -> 0.028 -- the two bins moving in
+            // OPPOSITE directions, which is what separates steering from
+            // `laden ants move more`. Home/away ratio 1.5x -> 18x.
             //
-            // **So it ships at 0.0, exactly as `CreatureDef::home_bias` does
-            // and for the same reason** -- a homing mechanism that is correct
-            // and unaffordable. Turning it on is one character and it is the
-            // owner's call, not a lane's. Authored rather than omitted so the
-            // wire is visible, and `is_live_slot` counts the slot either way,
-            // so selection can still find it. `homewire=` in
-            // `examples/trailfollow.rs` is the switch; 3.0 is the value the
-            // numbers above were measured at.
-            (HomeAligned, Move, 0.0),
+            // **What it costs, recorded and deliberately not gating this.**
+            // Larder intake falls (12,699 -> 2,280 J, 2/6/0) and colonies die
+            // sooner, because nothing at the nest banks a delivered cell
+            // (§7.28's granary) so the walk home is energy the colony does not
+            // get back. Owner's ruling 2026-09-20: **the loop is what this
+            // line is for, and starvation is not the axis it is judged on.**
+            // The granary is the fix for the cost and it comes next.
+            (HomeAligned, Move, 3.0),
 
             // -- what gets laid down ---------------------------------
             // Laden ants lay the food trail; that is what makes a

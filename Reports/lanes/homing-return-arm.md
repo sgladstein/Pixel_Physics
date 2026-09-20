@@ -196,34 +196,61 @@ Branch `claude/upbeat-shannon-cez0w4`, head `808e2aa7`. `home_bias` is **still
 (`tr_align`) is in `examples/trailfollow.rs` and is the instrument the next
 session needs. All gates green at `fcea4b88`; `docscheck` clean at head.
 
-## STEP 1 IS BUILT AND MEASURED, 2026-09-20 — it works, and it is OFF
+## STEP 1 IS BUILT, MEASURED AND SHIPPED ON, 2026-09-20
 
-**Full account, with every number and both re-test conditions:**
+**Full account:**
 [`Reports/ant-return-leg-result-2026-09-20.md`](../ant-return-leg-result-2026-09-20.md).
-Only the four things another session would act on are kept here.
+Five things another session would act on:
 
 1. **The plan's Step 1 wiring is WRONG — read the box at the head of
-   `ant-return-leg-plan-2026-09-20.md` before that section.** A single gated
-   hidden unit is not neutral when shut (`squash(-45) = -0.978`), so it puts
-   **-2.439 on every empty ant's `Move`** against a walking sum of +0.25: a
-   colony that never forages. Rejected in `dead-ends.md` (`other:133`).
+   `ant-return-leg-plan-2026-09-20.md`.** A single gated hidden unit is not
+   neutral when shut (`squash(-45) = -0.978`), so it puts **-2.439 on every
+   empty ant's `Move`** against a walking sum of +0.25: a colony that never
+   forages. Rejected in `dead-ends.md` (`other:133`). What shipped gates in the
+   sensor and spends **no hidden unit**, so **unit 7 is still free** and the
+   fold-change collision does not happen.
 
-2. **`BrainInput::HomeAligned` landed and the mechanism works.** Laden
-   `P(move)` pointed at home **0.115 → 0.509**, pointed away **0.078 → 0.028**
-   — the two bins moving in *opposite* directions, so it is steering rather
-   than ladenness. `carry->nest` 152 → 329 (7/1/0), round trips 1 → 3 (6/2/0).
+2. **It ships ON at `(HomeAligned, Move, 3.0)`, judged on the LOOP.** Completed
+   laden returns as a share of ants that reached food: **6.8% → 28.1%**, better
+   in **8 seeds of 8**; colonies where nobody ever completes a lap **4 of 8 → 0
+   of 8**. Laden leg **2,671 → 1,924 ticks**.
 
-3. **It ships authored at 0.0 and that is the owner's to settle**, exactly as
-   `home_bias` is parked and for the same reason: larder intake 12,699 → 2,280 J
-   (2/6/0), births 6 → 0, colonies alive monotone-down in the gain. `DELIVERED`
-   is 0 in *both* arms, so nothing carried home is banked and homing is pure
-   energy cost until the granary (§7.28). §Z29 predicted this shape.
+3. **THE LOOP DOES NOT REPEAT, and this is the live problem now.** Across four
+   arms and 733 ants, **one ant completed it twice**. The homeward half alone
+   (1,924 ticks median) is longer than an ant's whole life (1,491 ticks mean),
+   so a second lap is arithmetically unavailable. Attacking it means making the
+   lap fit inside a life — a granary so the trip pays for itself, a nearer
+   larder, or a faster lap. **Not a gain retune**: 1.5/3.0/6.0 all land within
+   6 points and none makes a second lap fit.
 
-4. **Unit 7 is still free.** The shipped wire is a direct instinct and spends no
-   hidden unit, so trap 1 — the collision with the 2026-09-19 fold-change plan —
-   does not happen.
+4. **The crop is the forager's packed lunch, not freight** (owner's question,
+   2026-09-20). `digest_rate` applies to the crop every tick it is held and the
+   energy goes to that ant, so delivering and surviving are the same resource.
+   Gut absorption **187,200 → 83,520 J** against drops **209 → 1,944**, and
+   mid-digestion chew-parks 7.5x higher — the control ant eats its cargo and
+   never arrives, the wire ant arrives and goes hungry. **Do not read the
+   intake fall as a side effect of homing; it is homing.**
 
-**Do not re-test by retuning the gain** (1.5 / 3.0 / 6.0 all give one picture)
-**or by grading the sensor on crop fill** (960 J fruit against a 1,440 J crop
-puts a laden ant at 0.667 fill and it cannot hold two cells, so grading is a
-33% gain cut and gain 1.5 already measured there).
+5. **Step 2 is done and negative.** `DEPOSIT_AT=vacated` crossed with the wire
+   rather than beside it: alone 6.8% → 10.4% (paired **3/4/1**, a coin flip),
+   on top of the wire 28.1% → 28.8%, i.e. nothing. Not a component. Off.
+
+6. **Step 5 is not needed.** The plan's branch was *"if `P(move)` rises and the
+   leg does not shorten, the step choice is next"*. It rose **and** the leg
+   shortened, so §R4 stays closed.
+
+**Owner's ruling, 2026-09-20, and it overturned this session's first
+recommendation:** *"I don't care about starvation. I care about the loop."* The
+first draft parked the wire at 0.0 because intake and colony survival fell. That
+was the wrong axis. Intake and survival are still recorded — they fall, because
+nothing banks a delivered cell (§7.28) — and they do not gate this line.
+**Starvation re-enters only as a mechanism**: it is what caps lifespan, and
+lifespan is what stops the loop repeating.
+
+**One correction worth carrying, because it was wrong in a committed report for
+an hour:** *"`DELIVERED` is 0 in both arms"* is FALSE. It was read off two
+control seeds that happen to be zero and generalised. The control drops nothing
+at the nest in **5 of 8** seeds; the wire arm drops in **8 of 8** (209 → 1,944
+cells). `DELIVERED` is still not the loop counter — it runs ~100x `trips_laden`
+here — but it is not zero, and the "nothing is ever banked" story built on it
+was overstated.

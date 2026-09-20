@@ -86,6 +86,20 @@ that is structurally uninformative for this animal.
 >
 > Everything else in this section stands: the quantity, the re-pin list, the
 > speculation contract and the pre-registered predictions are unchanged.
+>
+> **The predictions resolved, 2026-09-20.** `P(move)` in the pointed-at-home bin
+> rose 0.078 → **0.509** (toward the 0.59 named here) and the laden leg
+> shortened **2,671 → 1,924** ticks — so the branch this section sets out
+> (*"if `P(move)` rises and the leg does not shorten... the step choice is
+> next"*) resolves **against** Step 5, and §R4 stays closed.
+>
+> **And this plan's acceptance criteria were weighted wrongly.** They gate on
+> *"return leg and food reaching the nest"* with intake and founding *"recorded,
+> not gated"*, which the first draft of the result read as licence to park the
+> wire at 0.0 when the colony did worse. Owner's ruling, 2026-09-20: **the loop
+> is the axis and starvation is not.** On the loop the wire is better in 8 seeds
+> of 8 and it ships **on**. See
+> [`ant-return-leg-result-2026-09-20.md`](ant-return-leg-result-2026-09-20.md).
 
 
 `home_weighted_pick` aims the body from the exact home vector; `P(move)` is set
@@ -145,11 +159,25 @@ the step choice (Step 4) is next.
 
 ### Step 2 — Keep `DEPOSIT_AT=vacated` as a component, measured on its own
 
+> **DONE 2026-09-20, and the answer is no.** Crossed with Step 1 rather than
+> measured beside it, exactly as this section asks: **alone** it moves loop
+> completion 6.8% → 10.4% (paired 3/4/1, a coin flip); **on top of Step 1** it
+> moves 28.1% → 28.8%, i.e. nothing. Step 1 carries the whole result and
+> `vacated` is not a component of it. It stays behind its env switch, off.
+
 It is a real improvement to the sensor (5.3% → 7.0% positive when pointed home)
 and it is nearly free. Sweep it **with and without Step 1** so its contribution
 is attributable rather than absorbed.
 
 ### Step 3 — Run length, which no outcome number survives without
+
+> **DONE 2026-09-20.** Re-run at `frames=100000`. It does not rescue the outcome
+> numbers and it does not need to: **every colony in every arm is dead well
+> before 100,000 frames**, so that length cannot answer an outcome question at
+> all. What it did establish is that the intake gap widens rather than closes
+> with time. The real run-length finding came from the loop instead: **one lap
+> is longer than one ant's life** (median homeward leg 1,924 ticks against a
+> mean lifetime of 1,491), which is why the loop does not repeat.
 
 The median completed laden leg is **2,900–3,200 decision ticks**; an ant's whole
 life in a 24,000-frame run is **4,000 ticks**. One leg is 73–79% of an ant's

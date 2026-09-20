@@ -1,4 +1,4 @@
-# The return leg steers, and on this bed it starves the colony
+# The return leg works one lap, and one lap is longer than one ant's life
 
 *Result, 2026-09-20. `engine`. Executes Step 1 of
 [`ant-return-leg-plan-2026-09-20.md`](ant-return-leg-plan-2026-09-20.md);
@@ -6,9 +6,14 @@ diagnosis in `Reports/open-bugs-handoff.md` §Z29; handoff in
 [`Reports/lanes/homing-return-arm.md`](lanes/homing-return-arm.md).*
 
 **In one line:** `BrainInput::HomeAligned` gives a laden ant a sense that knows
-where home is, it steers exactly as pre-registered, and because nothing at the
-nest banks what arrives it costs the colony its larder — so it ships authored
-at **0.0**, as `CreatureDef::home_bias` does, and turning it on is the owner's.
+where home is; the share of food-finding ants that complete the return goes
+**6.8% → 28.1%**, better in 8 seeds of 8, and colonies where nobody ever
+completes a lap go **4 of 8 → 0 of 8**. It ships **on**.
+
+**And the loop still does not repeat.** One ant in 733 completed it twice,
+because the homeward leg alone (1,924 ticks median) is longer than an ant's
+whole life (1,491 ticks mean). That is the next problem on this line and this
+wire does not touch it.
 
 **Two things in it outlive the verdict.** The plan's wiring was unsound in a way
 one run of the real evaluator catches and no amount of world-running would have
@@ -21,9 +26,11 @@ stands whatever is decided about shipping it.
 - [Reproduced first, bit-identically](#reproduced-first-bit-identically)
 - [The plan's circuit does not work](#the-plans-circuit-does-not-work-and-eval_brain-says-so-in-one-run)
 - [The mechanism bar: passed](#the-mechanism-bar-passed-decisively)
-- [The outcome bar: the leg improves and the colony dies](#the-outcome-bar-the-leg-improves-and-the-colony-dies)
-- [Why, and it is §Z29's own prediction](#why-and-it-is-z29s-own-prediction-rather-than-a-new-finding)
-- [What is open, and it is the owner's](#what-is-open-and-it-is-the-owners)
+- [The outcome bar, read on the LOOP](#the-outcome-bar-read-on-the-loop--owners-ruling-2026-09-20)
+- [It is NOT a repeating loop](#it-is-not-a-repeating-loop-and-that-is-the-finding-that-matters)
+- [Yes, the ant eats its cargo on the way home](#yes-the-ant-eats-its-cargo-on-the-way-home--and-that-is-the-whole-economy)
+- [Step 2: `vacated` is not attributable](#step-2-of-the-plan-deposit_atvacated-is-not-attributable-drop-it)
+- [What shipped, and what is open](#what-shipped-and-what-is-open)
 - [Reproducing the two arms](#reproducing-the-two-arms-which-changed-name-when-the-default-did)
 
 ### Reproduced first, bit-identically
@@ -82,51 +89,125 @@ alignment census must separate"* is loose: `mean along` is the `PheroAAlong`
 reading and **this change cannot move it**, because it does not touch the
 plane.
 
-### The outcome bar: the leg improves and the colony dies
+### The outcome bar, read on the LOOP — owner's ruling, 2026-09-20
 
-Paired within seed, at **both** 24,000 and 100,000 frames (Step 3's length):
+**The axis is the loop and not starvation.** Owner, 2026-09-20: *"I don't care
+about starvation. I care about the loop... are most of them following the trail
+to the food, picking up food, turning around, going back to the nest, dropping
+it off, repeating."* An earlier draft of this report gated the
+recommendation on colony survival and intake, and that was the wrong weighting.
 
-| | 24k ctrl → gain 3 | sign | 100k ctrl → gain 3 | sign |
+**The loop counter is `trips_laden`** — an ant that reached the food, carried
+it, and got back to the nest. Not `DELIVERED`, which runs ~100x it here.
+
+| | neither | **wire** | vacated | vacated + wire |
 |---|---|---|---|---|
-| `carry->nest` (cells home) | 152 → **329** | **7/1/0** | 159 → **329** | **7/1/0** |
-| `CAME BACK` (round trips) | 1 → **3** | **6/2/0** | 1.5 → **3** | **6/2/0** |
-| `ate J` (larder intake) | 12,699 → **2,280** | 2/6/0 | 14,730 → **2,280** | 2/6/0 |
-| `starved` | 15 → 18.5 | 7/1/0 | 15.5 → 19 | 6/1/1 |
-| `born` | 6 → **0** | 1/6/1 | 7 → **0** | 1/6/1 |
-| colonies alive at end | 4 of 8 → **3 of 8** | | **0 of 8 → 0 of 8** | |
+| ants that ever lived | 218 | 162 | 193 | 160 |
+| reached the food | 133 | 64 | 106 | 66 |
+| **completed the loop (distinct ants)** | **9** | **18** | 11 | 19 |
+| **as a share of ants that reached food** | **6.8%** | **28.1%** | 10.4% | 28.8% |
+| colonies where **nobody** ever completes it | **4 of 8** | **0 of 8** | 3 of 8 | 1 of 8 |
+| completed it **twice** | 0 | **1** | 0 | 0 |
 
-Colonies alive falls monotonically in the gain at 24k: **4 / 3 / 3 / 1** at
-gains 0 / 1.5 / 3.0 / 6.0. **At 100,000 frames every colony in every arm is
-dead**, so that column measures nothing at that length — the log prints the
-warning itself. The longer run still *strengthens* the intake finding rather
-than softening it: a healthy control colony compounds, and control seed 7 banks
-**178,321 J** against the gain-3 arm's best seed at 7,356.
+Paired within seed on the completion *rate*, the wire is better in **8 seeds of
+8**; per-seed median 2.2% → 23.6%. The gain is not the lever: 1.5 / 3.0 / 6.0
+give 26.2% / 29.7% / 31.8%.
 
-### Why, and it is §Z29's own prediction rather than a new finding
+**And the leg got shorter, which is the pre-registered branch point.** Median
+laden leg **2,671 → 1,924 ticks**, shorter in all four seeds where both arms
+completed one. The plan says *"if `P(move)` rises and the leg does not shorten,
+the step choice (Step 5) is next"*. `P(move)` rose **and** the leg shortened, so
+**Step 5 is not needed** and §R4 stays closed.
 
-**`DELIVERED` is 0 in both arms.** Nothing this bed carries home is ever banked
-— §Z29's own words, *"a delivered cell is left on the ground and nothing banks
-it"*. So walking home is pure energy cost on a bed already near subsistence,
-and **a better return leg buys nothing until the granary (§7.28) lands.** §Z29
-predicted this shape for its own repair (*"intake falls 6,151,294 → 270,810 J
-and births 5,173 → 137 while deliveries double"*) and it arrived unchanged.
-`home_bias` produced the milder version of it (`dead-ends.md`: *"the return leg
-navigates and does not provision"*).
+### It is NOT a repeating loop, and that is the finding that matters
 
-**This is not a reason to disbelieve the mechanism.** The steering is measured
-on 500k decisions and is not a small-n question. The colony numbers are 8 seeds
-on one bed, which `CLAUDE.md` is explicit is not a sweep — but they point one
-way at every gain and at both run lengths, and the causal story is already on
-the record rather than inferred from them.
+**Across all four arms and 733 ants, exactly ONE ant ever completed the loop
+twice.** `max loops by one ant` is 1 in every seed but one. The repeat step the
+loop is named for does not happen.
 
-### What is open, and it is the owner's
+**The reason is arithmetic rather than behaviour**, and it is the same standing
+fact the handoff already carried, now measured on both sides:
 
-**Turn the wire on, or leave it at 0.0 until the granary lands?** It is
-`(HomeAligned, Move, 0.0)` in `ant.ron` and `homewire=` in `trailfollow`. The
-case for on: the return leg is the thing this line exists to fix and it now
-works. The case for off: on the only bed we have it costs six seeds of eight
-their larder intake and takes births to zero. **Parked at 0.0 rather than
-settled**, on the precedent that `home_bias` is parked for the same reason.
+| | neither | wire |
+|---|---|---|
+| mean decision ticks an ant **lives** | 1,721 | 1,491 |
+| median ticks for the **homeward half alone** | 2,671 | 1,924 |
+
+**The return leg alone is longer than the average ant's whole life.** A full lap
+is well over two lifetimes, so a second lap is unavailable to almost every ant
+no matter how well it steers. The ants that do complete one are the long-lived
+tail.
+
+So what this wire bought is precisely **one lap becoming reachable** — 6.8% →
+28% of food-finders — and not a forage cycle. **A repeating loop needs the lap
+to fit inside a life**, which is either a longer life (the colony is starving,
+so lifespan is the binding constraint — starvation matters here as a
+*mechanism*, not as a value) or a shorter lap (a nearer larder, or faster
+travel). That is the next question on this line, and nothing in the current plan
+addresses it.
+
+### Yes, the ant eats its cargo on the way home — and that is the whole economy
+
+Asked by the owner, 2026-09-20: *"Don't ants have food in their mouth for the
+whole return arm? Do they not digest that?"* They do. `digest_rate_of` is
+applied to the crop every tick the animal holds one, and the face value is
+credited to that animal's own energy. **The crop is not freight, it is the
+forager's packed lunch**, and the return leg is eaten out of it.
+
+That makes delivering and surviving the *same* resource, and the two columns
+show the trade directly:
+
+| | neither | wire |
+|---|---|---|
+| face value the gut **absorbed** | 187,200 J | **83,520 J** |
+| cells **put down at the nest** | 209 | **1,944** |
+| chews **parked** mid-digestion by a drop | ~224 | **~1,670** |
+
+**The control ant eats its cargo and never arrives. The wire ant arrives and
+goes hungry.** The parked-chew counter is the mechanism caught in the act: it
+fires when an animal puts its last crop cell down part-way through chewing it,
+and it is **7.5x higher** with the wire — ants carrying food home, mid-meal, and
+dropping the remainder.
+
+**So the cost recorded above is not a side effect of homing, it is homing.** A
+forager that delivers has given away the food it was living on, and nothing at
+the nest gives it back (§7.28). This is also why the honest framing of the
+lifespan limit is a loop through the economy rather than a bare constant:
+
+> deliver → give up your own supply → shorter life → one lap is already longer
+> than a life → no second lap.
+
+**Both arms hit that wall**: mean lifetime is 1,721 (neither) and 1,491 (wire)
+decision ticks, against a median homeward leg of 2,671 and 1,924. **In neither
+arm does the average ant live long enough to complete the leg it is on.** The
+ones that do are the tail.
+
+### Step 2 of the plan: `DEPOSIT_AT=vacated` is not attributable, drop it
+
+Crossed with the wire rather than measured beside it, which is what Step 2 asked
+for. **Alone** it moves loop completion 6.8% → 10.4%, paired **3/4/1** — a coin
+flip. **On top of the wire** it moves 28.1% → 28.8%, which is nothing. The wire
+carries the whole result and `vacated` is not a component of it. It stays behind
+its env switch, off.
+
+### What shipped, and what is open
+
+**The wire ships ON at `(HomeAligned, Move, 3.0)`.** It is the loop that this
+line exists to fix, the loop is better in 8 seeds of 8, and it takes the number
+of colonies where *nobody* ever completes a lap from 4 of 8 to **0 of 8**.
+
+**Recorded, and explicitly not gating that:** larder intake falls 12,699 →
+2,280 J (2/6/0) and colonies die sooner, because nothing at the nest banks a
+delivered cell (§7.28's granary), so the walk home is energy the colony does not
+get back. Owner's ruling: the loop is the axis, not starvation.
+
+**What is open is no longer a ship/don't-ship question. It is this:** one lap is
+longer than one ant's life, so the loop cannot repeat. Whichever way that is
+attacked — a granary so the trip pays for itself and ants live longer, a nearer
+larder, or a faster lap — it is a new piece of work and not a tuning of this
+wire. **Do not re-test this by raising the gain**: 1.5 / 3.0 / 6.0 all land
+within 6 points of each other on loop completion and none of them makes a
+second lap fit.
 
 ### Reproducing the two arms, which changed name when the default did
 
@@ -142,6 +223,19 @@ RAYON_NUM_THREADS=2 ./target/release/examples/trailfollow \
   mode=gap gate=shipped gaps=90 arms=hand seeds=8 seed0=1 ants=20 \
   frames=24000 relay=60 near=10 food=400 refill=400 stop=6000 trace homewire=3
 ```
+
+### Data
+
+- `Reports/data/homewire-loop-2x2-8seed-{a_none,b_wire,c_vac,d_vac_wire}-2026-09-20.log`
+  — the 2x2 that carries the loop table and Step 2. It is the only one with the
+  `LOOPERS ... repeat ... most loops by one ant` columns, which were added to
+  `examples/trailfollow.rs` on 2026-09-20 to answer *"is it a repeating loop"*;
+  `trips_laden` is a sum over ants and structurally cannot.
+- `Reports/data/homewire-{24k,100k}-8seed-{ctrl0,gain3}-2026-09-20.log` — the
+  earlier run length pair, taken before the wire's default changed, so their
+  arms read `homewire=0` / `homewire=shipped`.
+- `Reports/data/home-wire-response-curve-2026-09-20.log` — the four wiring
+  forms through `eval_brain`.
 
 ### Also worth knowing
 
