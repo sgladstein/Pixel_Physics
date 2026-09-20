@@ -5894,5 +5894,21 @@ whose weights are the thing you are trying to measure.
 `scripts/tracepair.py` does the pairing and refuses to run when the seed counts
 disagree; `--selftest` is its positive control.
 
+### The nulls are real nulls — the control this section left owed, paid
+
+§7.47 read "round trips do not move" off a table whose `came back` has a
+per-seed median of **one**, and a rate built on one event per seed is
+consistent with *no effect* **and** with *an effect this bed cannot resolve*.
+Those are different findings and nothing here separated them.
+
+**Paid 2026-09-20, on the same bed, same harness, same 36 seeds**
+(`ant-navigation-plan-2026-09-20.md` §4b): switching on `CreatureDef::home_bias`
+moves `DELIVERED` from a median of **0 to 28** and `carry->nest` from 125.5 to
+254.5 at **32/2/0**. **So the instrument can see a large effect on this bed**,
+and the nulls in §7.47 and above are about the change rather than about the
+bar. Read the outcome columns with `scripts/trailpair.py`, which is this
+script's sibling for the far side of the call.
+
 **Data:** the same `Reports/data/nose-geometry-36seed-2026-09-19.log` and the
-six per-arm logs behind it.
+six per-arm logs behind it; the control's own numbers in
+`Reports/data/homebias-36seed-2026-09-20.log`.

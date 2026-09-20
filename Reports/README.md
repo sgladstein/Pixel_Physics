@@ -3024,6 +3024,30 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   `forage_anchor` the engine already keeps** — with the `DIFFUSE`-on-A dial
   (§5.3's 3-of-3 result) taken first because it needs no code. Read this before
   any other report on this line.
+- [ant-navigation-plan-2026-09-20.md](ant-navigation-plan-2026-09-20.md)
+  — **plan, 2026-09-20. `engine`.** The return arm does not work because the
+  trail is wired to the wrong decision. An ant makes two separate choices per
+  tick — *whether* to step and *which of three cells* — and the pheromone
+  reaches only the first: `Move`'s four hidden units carry the whole homing
+  circuit, while direction is `persist + footing` with `TempAboveAmb −0.8` as
+  the only steering wire in any ant-family genome. So the shipped animal is a
+  **run-and-tumble bacterium**: the trail sets the duration of runs, never
+  their heading. The survey and this repo's own design of record both call
+  that the wrong primitive, and **the right one was already in the tree and
+  switched off** — `home_weighted_pick` reads an exact `forage_anchor` inside
+  `tumble`, gated on `CreatureDef::home_bias`, which no species authors.
+  **Measured 2026-09-20, 36 seeds, paired within seed: `DELIVERED` median
+  0 → 28 and `carry->nest` 125.5 → 254.5 (32/2/0)**, with an interior optimum
+  — 0.5 beats 1.0 on deliveries — and a founding cost significant only at 1.0.
+  It **composes with** rather than substitutes for `TRAIL_A_RHO = 0`: the
+  baseline doubled when the plane was fixed and the compass still doubled it
+  again. Also pays the positive control §7.47's nulls were owed, on the same
+  bed, so those nulls are real. Five staged steps: ship it on at the value a
+  fine grid picks, weight by vector length as well as crop fill, soften its
+  argmax into `choose_weighted` (the noise is load-bearing, and an exact
+  compass is a binary where the ethos asks for a distribution), size §R4's
+  dead `Turn`, and make the per-tick decision trace the standing readout of
+  this line. Data `Reports/data/homebias-36seed-2026-09-20.log`.
 - [pheromone-trail-direction-2026-09-16.md](pheromone-trail-direction-2026-09-16.md)
   — **investigation, 2026-09-16. `engine`.** Started from *"do pheromone
   trails work at all?"* and ended somewhere else. They do: a laden ant walks a

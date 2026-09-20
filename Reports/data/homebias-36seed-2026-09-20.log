@@ -1,0 +1,27 @@
+# home_bias, 36 seeds, gap 90, arms=hand, refill=400, RAYON_NUM_THREADS=2, 2026-09-20.
+# Tree fcea4b88: after TRAIL_A_RHO=0, after the 7.47 sensor repair, after main merged.
+# Behind Reports/ant-navigation-plan-2026-09-20.md 4b.
+
+baseline: hb_off   36 seeds, `hand` arm, paired within seed
+
+  homeward tumble %   hb_05:     5.64 36/ 0/ 0    hb_10:    10.48 36/ 0/ 0    hb_off:     0.00 (base)  
+  DELIVERED           hb_05:    28.00 21/ 9/ 6    hb_10:    21.50 18/15/ 3    hb_off:     0.00 (base)  
+  carry->nest         hb_05:   226.00 25/ 9/ 0    hb_10:   254.50 32/ 2/ 0    hb_off:   125.50 (base)  
+  laden leg med       hb_05:  2260.00 23/10/ 3    hb_10:  2527.00 23/12/ 1    hb_off:  1253.50 (base)  
+  alive               hb_05:     2.00 15/16/ 5    hb_10:     3.00 19/14/ 3    hb_off:     2.50 (base)  
+  born                hb_05:     2.00 12/20/ 4    hb_10:     0.00  5/23/ 8    hb_off:     3.50 (base)  
+  starved             hb_05:    15.00 16/18/ 2    hb_10:    15.00 13/18/ 5    hb_off:    14.00 (base)  
+
+## And the pre-repair 18-seed sweep found unlanded on this box (2026-09-19 03:37,
+## i.e. EIGHT HOURS BEFORE TRAIL_A_RHO=0 landed at 11:52). Kept for 4a's composition
+## argument; not a result on any current tree.
+
+baseline: shipped   18 seeds, `hand` arm, paired within seed
+
+  homeward tumble %   0.1:     1.10 18/ 0/ 0    0.25:     1.85 18/ 0/ 0    0.5:     4.28 18/ 0/ 0    1.0:     8.35 18/ 0/ 0    shipped:     0.00 (base)  
+  DELIVERED           0.1:     0.00  2/ 5/11    0.25:     0.00  1/ 5/12    0.5:     0.00  5/ 5/ 8    1.0:     6.00  9/ 4/ 5    shipped:     0.00 (base)  
+  carry->nest         0.1:    76.00 11/ 5/ 0    0.25:   100.00 12/ 6/ 0    0.5:   121.50 14/ 2/ 0    1.0:   216.50 17/ 1/ 0    shipped:    64.50 (base)  
+  laden leg med       0.1:     0.00  2/ 7/ 9    0.25:     0.00  1/ 7/10    0.5:     0.00  4/ 6/ 8    1.0:  1675.00 10/ 4/ 4    shipped:     0.00 (base)  
+  alive               0.1:     3.00 10/ 4/ 4    0.25:     0.50  8/ 5/ 5    0.5:     2.00  8/ 5/ 5    1.0:     1.00  5/ 7/ 6    shipped:     0.00 (base)  
+  born                0.1:     4.00 10/ 6/ 2    0.25:     1.00  6/10/ 2    0.5:     0.50  6/ 8/ 4    1.0:     0.00  3/11/ 4    shipped:     2.50 (base)  
+  starved             0.1:    17.00  8/10/ 0    0.25:    18.00  8/ 6/ 4    0.5:    17.50  8/ 6/ 4    1.0:    18.00 10/ 7/ 1    shipped:    17.50 (base)  
