@@ -768,6 +768,10 @@ struct Arm {
     /// group runs away with it, it is.
     loopers_on_comb: usize,
     loopers_off_comb: usize,
+    loops_anchor_ok: u64,
+    loops_anchor_bad: u64,
+    pickups_anchor_ok: u64,
+    pickups_anchor_bad: u64,
     reached_on_comb: usize,
     reached_off_comb: usize,
     trips_laden: u64,
@@ -1090,6 +1094,29 @@ struct Track {
     /// leg, and averaging the two together is how a journey turns into a
     /// number about wandering.
     laden_since: u64,
+    /// **Was `forage_anchor` actually on nest material when this ant picked up
+    /// its load** -- the causal variable, which birth site is NOT.
+    ///
+    /// The 2026-09-20 within-run control split loop completions by
+    /// `born_on_nest` and read the result as "the anchor is not the blocker".
+    /// That split is invalid and the reason is one line of `creature.rs`:
+    /// `forage_anchor` is **re-set on every nest contact**, so an off-comb-born
+    /// ant that touches the comb once carries a CORRECT anchor from then on.
+    /// The born-off group is therefore contaminated with corrected ants -- and
+    /// they are the ones likeliest to complete a lap, which biases that group
+    /// upward, i.e. straight toward the null the split reported.
+    ///
+    /// Sampled at the pickup because that is when the return leg's target is
+    /// decided; an anchor corrected *after* the load is already on board is a
+    /// different experiment.
+    anchor_on_comb_at_pickup: Option<bool>,
+    /// Loops completed while the anchor was on nest material at pickup, and
+    /// while it was not. Per ant, so one ant doing four cannot stand in for
+    /// four ants doing one.
+    loops_anchor_ok: u32,
+    loops_anchor_bad: u32,
+    picked_up_anchor_ok: u32,
+    picked_up_anchor_bad: u32,
 }
 
 /// **An order statistic over a sample, 0 when there is nothing to order.**
@@ -2647,9 +2674,29 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     t.outbound = true;
                     t.left_food = f;
                 }
-                if carrying_larder && t.laden_since == 0 {
+                // **Only a pickup that STARTS A RETURN LEG counts**, i.e. one
+                // made by an ant that has reached the food. Without `outbound`
+                // the denominator is swamped by nest-local churn -- ants
+                // loitering on the comb picking the same cells up and putting
+                // them down, which can never close a loop by construction and
+                // which lands almost entirely in the anchor-ok group because
+                // those ants have just touched nest material. Measured
+                // 2026-09-20 before the guard: 3,600 anchor-ok pickups against
+                // 137 anchor-bad, and the rates came out 37x the WRONG way.
+                if carrying_larder && t.laden_since == 0 && t.outbound {
                     t.laden_since = f;
-                } else if !carrying_larder {
+                    // **The causal reading, taken at the pickup.** Same
+                    // 8-neighbour test for nest material `creature::sense`
+                    // answers `AtNest` with, applied to the cell the homing
+                    // vector actually points at.
+                    let (anx, any) = s.forage_anchor;
+                    let ok = nest_id.is_some_and(|nid| {
+                        (-1..=1).any(|dx| (-1..=1).any(|dy| w.get(anx + dx, any + dy).material == nid))
+                    });
+                    t.anchor_on_comb_at_pickup = Some(ok);
+                    if ok { t.picked_up_anchor_ok += 1 } else { t.picked_up_anchor_bad += 1 }
+                }
+                if !carrying_larder {
                     t.laden_since = 0;
                 }
                 // A trip closes on the return, not the arrival: an ant that
@@ -2665,6 +2712,11 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     // being computed for the trip counter.
                     if t.laden_since > 0 {
                         t.trips_laden += 1;
+                        match t.anchor_on_comb_at_pickup {
+                            Some(true) => t.loops_anchor_ok += 1,
+                            Some(false) => t.loops_anchor_bad += 1,
+                            None => {}
+                        }
                     } else {
                         t.trips_empty += 1;
                     }
@@ -3088,6 +3140,10 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         reached: tracks.values().filter(|t| t.visited).count(),
         returned: tracks.values().filter(|t| t.trips > 0).count(),
         loopers: tracks.values().filter(|t| t.trips_laden >= 1).count(),
+        loops_anchor_ok: tracks.values().map(|t| u64::from(t.loops_anchor_ok)).sum(),
+        loops_anchor_bad: tracks.values().map(|t| u64::from(t.loops_anchor_bad)).sum(),
+        pickups_anchor_ok: tracks.values().map(|t| u64::from(t.picked_up_anchor_ok)).sum(),
+        pickups_anchor_bad: tracks.values().map(|t| u64::from(t.picked_up_anchor_bad)).sum(),
         loopers_on_comb: tracks.values().filter(|t| t.born_on_nest && t.trips_laden >= 1).count(),
         loopers_off_comb: tracks.values().filter(|t| !t.born_on_nest && t.trips_laden >= 1).count(),
         reached_on_comb: tracks.values().filter(|t| t.born_on_nest && t.visited).count(),
@@ -3421,6 +3477,19 @@ fn main() {
                     // **§7.37's within-run control.** Printed beside the total
                     // rather than instead of it: the total is what moved, and
                     // this is the split that says whether the anchor is why.
+                    // **The causal split.** Birth site is a proxy that
+                    // `forage_anchor`'s re-set on nest contact invalidates; this
+                    // is the reading taken at the moment the return leg's target
+                    // is chosen. Printed as LOOPS per PICKUP, so an ant that
+                    // picks up twice contributes twice on both sides.
+                    println!(
+                        "{:>16}BY ANCHOR AT PICKUP  anchor ON nest material: {:>4} loops / {:>4} pickups ({:>5.1}%) | anchor OFF it: {:>4} / {:>4} ({:>5.1}%)",
+                        "",
+                        a.loops_anchor_ok, a.pickups_anchor_ok,
+                        100.0 * a.loops_anchor_ok as f64 / a.pickups_anchor_ok.max(1) as f64,
+                        a.loops_anchor_bad, a.pickups_anchor_bad,
+                        100.0 * a.loops_anchor_bad as f64 / a.pickups_anchor_bad.max(1) as f64
+                    );
                     println!(
                         "{:>16}BY BIRTH SITE  born ON comb: {:>3} of {:>3} that reached food looped ({:>5.1}%) | born OFF comb: {:>3} of {:>3} ({:>5.1}%)",
                         "",

@@ -197,23 +197,32 @@ knife-edge on `AtNest`: 0.4886 when nest material is in reach of the head,
 deliveries **511 → 180** when any away-from-nest drop probability was added: an
 ant that may drop short of home does, and the longer the walk the likelier.
 
-**The obvious culprit was already known and is not the blocker.** §7.37
-(2026-09-18) established that `forage_anchor` is the **birth cell**, so nine of
-twenty founders born off the comb carry a private wrong home for life — the
-traced ant above is an independent reproduction of exactly that. But §7.37 also
-left the deciding question open, and **this session answered it** with the
-within-run control that splits loop completions by birth site:
+**The obvious culprit was already known.** §7.37 (2026-09-18) established that
+`forage_anchor` is the **birth cell**, so nine of twenty founders born off the
+comb carry a private wrong home for life — the traced ant above reproduces it
+exactly. §7.37 also left the deciding question open, and this session answered
+it. **It took three attempts and the first two were invalid**; both are recorded
+in §7.37 because each fails in a way this repo warns about — a birth-site split
+that was underpowered by an order of magnitude *and* contaminated (the anchor is
+re-set on every nest contact, so the "wrong anchor" group fills up with corrected
+ants), then a fix whose denominator was swamped by ants loitering on the comb,
+which reported a correct anchor as **37x worse**.
 
-| | born **on** comb (anchor correct) | born **off** comb | paired |
-|---|---|---|---|
-| shipped | 5.4% | **7.3%** | 1/3/4 |
-| wire on | 33.3% | 23.5% | **3/3/2** |
+The valid form, 24 seeds, restricted to pickups by ants that had reached the
+food:
 
-**A correct anchor does not buy a completed loop** — off-comb is slightly better
-shipped, and it is a dead heat with the wire. So the anchor is a real defect
-worth fixing on its own terms and **it is not what gates the loop**, exactly as
-§7.37 suspected. The two-thirds of food-finders that have a correct home and
-still fail are unexplained, and that is where the next measurement goes.
+| wire on | loops / return-leg pickups | rate |
+|---|---|---|
+| anchor **on** nest material at pickup | 25 / 73 | **34.25%** |
+| anchor **off** it | 35 / 123 | 28.46% |
+| | +5.79 pts, 0.85 SE, paired 11/10/1 | no detectable effect |
+
+**The finding is the ceiling rather than the difference**, and that is what makes
+it robust: **66% of return legs fail with a verified-correct anchor** (95%
+interval 23–45% on the good-anchor rate, so at best 55% still fail). Repairing
+the anchor moves the bad-anchor legs to at most the good-anchor rate — about
+**seven more completed legs in 196**. Worth doing on its own terms; not the
+blocker.
 
 **Do not start the granary on this.** Nothing banks a delivered cell (§7.28) and
 that is true — but it is downstream of a delivery step that fails for reasons

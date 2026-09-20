@@ -4165,41 +4165,59 @@ fired" counter and the `P(home)` effect counter beside it **both** report a
 working mechanism, because the aim fired and the body moved as aimed. Only the
 per-tick trace, once it carried the anchor, could see it.
 
-### ANSWERED 2026-09-20: the next test was run, and the anchor is not the blocker
+### ANSWERED 2026-09-20 — the anchor is real and it is not the ceiling
 
-This section says the separating test is *"a run narrow enough that every founder
-starts on the comb"*. It was run as the cheaper and stricter form the
-`born_on_nest` field was put there for — **the within-run control**, splitting
-loop completions by birth site inside one run, which cancels seed, supply, gap
-and crowding together where a narrow bed changes all four at once.
+**Read the third table. The first two are recorded because they are wrong, and
+each is wrong in a way this file already warns about.**
 
-`trailfollow mode=gap gaps=90 arms=hand seeds=8 ants=20`, completed laden
-returns as a share of the ants that reached food:
+**Attempt 1, birth site — INVALID, two independent defects.** Split loop
+completions by `born_on_nest` and read 33.3% against 23.5% as a null.
 
-| | born **on** comb (anchor correct) | born **off** comb (anchor wrong) | paired, on vs off |
-|---|---|---|---|
-| shipped | 5.4% (2 of 37) | **7.3%** (7 of 96) | **1/3/4** |
-| `HomeAligned` wired | 33.3% (10 of 30) | 23.5% (8 of 34) | **3/3/2** |
+- **Underpowered by an order of magnitude.** n of 30 and 34; the smallest
+  difference it could have called significant is **22 points**. Born-on-comb
+  ants could have been completing at nearly double the rate and it would still
+  have reported a dead heat.
+- **The grouping variable is not the causal one**, and one line of
+  `creature.rs` says so: `forage_anchor` is **re-set on every nest contact**, so
+  an off-comb-born ant that touches the comb once carries a *correct* anchor
+  from then on. The born-off group is contaminated with corrected ants — the
+  ones likeliest to complete a lap — which biases it upward, straight toward
+  the null that was reported.
 
-**A correct anchor does not buy a completed loop.** Shipped, the off-comb group
-is slightly *better*; with the homing wire on it is a dead heat. This section's
-own reading is confirmed rather than overturned: the anchor defect is real, it is
-what the §7.36/§7.37 focal ant was suffering from, and **it is not what gates the
-loop at population scale**.
+**Attempt 2, anchor validity at pickup — INVALID, the denominator.** Splitting
+by whether `forage_anchor` was on nest material gave **0.69% against 25.55%**,
+i.e. a correct anchor looking **37x worse**. The denominators were 3,600 against
+137: the anchor-ok side was swamped by ants **loitering on the comb**, picking
+the same cells up and putting them down, which have just touched nest material
+and can never close a loop because they never went outbound. Arithmetically
+correct, about a different question.
 
-**So do not build the anchor repair expecting the loop to close.** It is worth
-fixing on its own terms — an ant steering confidently to a private wrong place is
-a bug whatever it costs — but the eleven this section could not explain are still
-unexplained, and they are where the loop is actually lost.
+**Attempt 3, the same split with the denominator restricted to pickups by ants
+that had actually reached the food** — 24 seeds, `gaps=90`, `arms=hand`:
 
-**Independently reproduced on the way here**, which is worth recording because it
-cost a detour: a 2026-09-20 session traced a focal ant born at x 88, anchored at
-88, with `AtNest` **false for all 7,950 ticks of its life** — it reached its
-anchor, stood on it for 732 ticks holding food at `P(drop)` exactly 0.0000, and
-died there. That is this section's ant in a different seed. The detour was
-avoidable: `Track::born_on_nest`'s own doc names this section, and grepping it
-first would have started from the open question instead of rediscovering the
-closed one.
+| `HomeAligned` wired | loops / return-leg pickups | rate |
+|---|---|---|
+| anchor **on** nest material at pickup | 25 / 73 | **34.25%** |
+| anchor **off** it | 35 / 123 | 28.46% |
+| | +5.79 pts, **0.85 SE**, paired **11/10/1** | no detectable effect |
+
+**The finding is the ceiling, not the difference.** A correct anchor buys at most
+a few points and the test cannot resolve it either way — but **66% of return legs
+fail with a verified-correct anchor** (95% interval on that rate 23–45%, so at
+best 55% still fail). Repairing the anchor moves the ~123 bad-anchor legs to at
+most the good-anchor rate: **about seven more completed legs in 196**. This
+section's own reading stands, and now on evidence that survives: *the anchor is a
+real defect and not, by itself, the blocker.*
+
+**So fix it on its own terms — an ant steering confidently to a private wrong
+place is a bug whatever it costs — and do not expect the loop to close.** What
+stops the other two-thirds is unmeasured, and it is upstream of the granary.
+
+**Independently reproduced on the way here:** a focal ant born at x 88, anchored
+at 88, `AtNest` **false for all 7,950 ticks of its life** — it reached its
+anchor, stood on it 732 ticks holding food at `P(drop)` exactly 0.0000, and died
+there. This section's ant in a different seed. The detour was avoidable:
+`Track::born_on_nest`'s own doc names this section.
 
 ### Three instrument repairs made here
 
