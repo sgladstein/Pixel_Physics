@@ -339,6 +339,73 @@ and §7.49's nulls are about the change rather than about the bar.
 only `{0, 0.5, 1.0}`. 0.5 and 1.0 were each tested against baseline and
 **never against each other**, so "0.5 beats 1.0" is not established.
 
+### 4c. The fine grid, both beds — and there is no free setting
+
+**2026-09-20, 36 seeds each, gap 90, `arms=hand`, `RAYON_NUM_THREADS=2`,
+paired within seed.** `refill` is the **restock interval in frames**: bed A
+tops the larder up every 400, bed B every 2,000.
+
+**Bed A (restock/400)**
+
+| `home_bias` | homeward % | `carry->nest` | `came back` | `ate J` | `born` |
+|---|---|---|---|---|---|
+| 0 | 0.0 | 123.0 | 1.0 | 8,367 | 3.5 |
+| 0.1 | 1.3 — 36/0/0 | 175.0 — 26/10/0 | 1.0 — **14/15/7** | 8,015 — 19/17/0 | 2.5 — 12/18/6 |
+| 0.25 | 3.0 — 36/0/0 | 175.5 — 23/13/0 | 1.0 — 17/10/9 | 7,238 — 15/21/0 | 2.0 — 10/20/6 |
+| **0.5** | 5.6 — 36/0/0 | 226.0 — 27/9/0 | **2.0 — 21/9/6** | 7,098 — 15/21/0 | 2.0 — 12/20/4 |
+| 0.75 | 7.3 — 36/0/0 | 229.0 — 27/9/0 | 2.0 — 21/10/5 | 5,246 — 13/23/0 | 1.0 — 8/22/6 |
+| 1.0 | 10.5 — 36/0/0 | 254.5 — **34/2/0** | 2.0 — 22/7/7 | 5,586 — 15/20/1 | 0.0 — **5/23/8** |
+
+**Bed B (restock/2,000)**
+
+| `home_bias` | homeward % | `carry->nest` | `came back` | `ate J` | `born` |
+|---|---|---|---|---|---|
+| 0 | 0.0 | 186.0 | 1.0 | 20,700 | 11.5 |
+| 0.1 | 1.4 — 36/0/0 | 184.5 — **19/17/0** | 2.0 — 17/13/6 | 11,863 — **10/26/0** | 5.5 — **9/26/1** |
+| 0.25 | 3.3 — 36/0/0 | 218.0 — 22/14/0 | 2.0 — **14/12/10** | 8,671 — **11/25/0** | 3.0 — **10/24/2** |
+| 0.5 | 6.8 — 36/0/0 | 244.5 — 24/12/0 | 2.0 — 20/13/3 | 9,846 — **9/27/0** | 3.5 — **8/28/0** |
+| 1.0 | 9.9 — 36/0/0 | 274.5 — 26/10/0 | 3.0 — 19/9/8 | 5,244 — **6/30/0** | 0.0 — **5/30/1** |
+
+**1. The positive control is perfect on both beds.** Homeward tumble % reads
+0.00 at baseline and rises monotonically, **36/0/0 at every one of nine
+settings**. The lever fires exactly as authored; nothing below is a
+disconnected knob.
+
+**2. The return-leg benefit needs `home_bias ≥ 0.5`.** At 0.1 `came back` is a
+dead null on bed A (**14/15/7**) and `carry->nest` is null on bed B
+(**19/17/0**). The trips do not follow until 0.5.
+
+**3. The cost on bed B is large and significant at *every* setting, including
+0.1.** `ate J` 20,700 → 11,863 at **10/26/0** and `born` 11.5 → 5.5 at
+**9/26/1**, both p < 0.01 at the gentlest value tested. Bed A's costs are
+marginal; bed B's are not, and bed B is the bed §7.46 warned a one-bed result
+cannot see.
+
+> **So there is no free setting.** The values that buy the return leg (≥ 0.5)
+> are the ones that cost most, and the value that costs least (0.1) buys
+> nothing measurable on trips. **The bar in Stage 1 does not pick a value**,
+> and forcing it to would be choosing a number rather than measuring one.
+
+**4. 0.5 beats 1.0, now tested directly** rather than each against baseline:
+paired head to head on bed A, 1.0 is marginally better on navigation
+(`came back` 21/11/4, `carry->nest` 21/14/1 — neither significant) and
+**significantly worse on founding** (`born` 7/18/11, p ≈ 0.04). The earlier
+withdrawal of "0.5 beats 1.0" can be reinstated on this evidence.
+
+**5. A bed asymmetry worth a separate look, and it may matter.** Bed B's
+*baseline* colony is far healthier than bed A's — `ate J` 20,700 against
+8,367, `born` 11.5 against 3.5 — **despite restocking five times less often**,
+which is backwards. `place_food` writes `Cell::new(larder, 0)` over whatever
+occupies the coordinate, and at `refill=400` it does that 60 times a run
+against bed B's 12. **If it is overwriting ants standing at the larder, bed
+A's baseline is artificially suppressed and bed B is the bed to trust** —
+which is the more cautious reading of everything above. `CLAUDE.md`: *a scene
+that contradicts the code will look like a bug in the code.* Unverified;
+filed here rather than chased, because it changes which bed is authoritative
+and nothing else on this page.
+
+**Data:** `Reports/data/homebias-finegrid-2026-09-20.log`.
+
 ---
 
 ## 5. The plan

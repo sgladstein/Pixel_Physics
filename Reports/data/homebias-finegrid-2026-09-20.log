@@ -1,0 +1,43 @@
+# home_bias FINE GRID, both beds, 36 seeds, gap 90, arms=hand, RAYON_NUM_THREADS=2,
+# 2026-09-20, tree 443792a8. Behind Reports/ant-navigation-plan-2026-09-20.md 4c.
+# refill is the RESTOCK INTERVAL in frames: bed A tops up every 400, bed B every 2000.
+# Read the ledger columns. DELIVERED is not a provisioning measure -- see 4b.
+
+=========== BED A (restock every 400 frames) ===========
+baseline hb_off, 36 seeds, `hand` arm, paired within seed
+
+  homeward tumble %                 hb_01:       1.3 36/ 0/ 0    hb_025:       3.0 36/ 0/ 0    hb_05:       5.6 36/ 0/ 0    hb_075:       7.3 36/ 0/ 0    hb_10:      10.5 36/ 0/ 0    hb_off:       0.0 (base)  
+  carry->nest (signed cells home)   hb_01:     175.0 26/10/ 0    hb_025:     175.5 23/13/ 0    hb_05:     226.0 27/ 9/ 0    hb_075:     229.0 27/ 9/ 0    hb_10:     254.5 34/ 2/ 0    hb_off:     123.0 (base)  
+  CAME BACK (round trips)           hb_01:       1.0 14/15/ 7    hb_025:       1.0 17/10/ 9    hb_05:       2.0 21/ 9/ 6    hb_075:       2.0 21/10/ 5    hb_10:       2.0 22/ 7/ 7    hb_off:       1.0 (base)  
+  trips laden                       hb_01:       0.0 13/14/ 9    hb_025:       1.0 11/10/15    hb_05:       1.0 18/ 8/10    hb_075:       1.5 21/ 6/ 9    hb_10:       1.0 19/ 9/ 8    hb_off:       1.0 (base)  
+  reached food                      hb_01:      12.5 18/17/ 1    hb_025:      11.5 14/20/ 2    hb_05:      11.0 13/20/ 3    hb_075:      11.0 12/22/ 2    hb_10:      10.0 11/24/ 1    hb_off:      12.5 (base)  
+  ate J (LARDER INTAKE)             hb_01:    8015.0 19/17/ 0    hb_025:    7237.5 15/21/ 0    hb_05:    7098.0 15/21/ 0    hb_075:    5246.0 13/23/ 0    hb_10:    5586.0 15/20/ 1    hb_off:    8367.5 (base)  
+  carry@nest                        hb_01:   45903.5 20/16/ 0    hb_025:   43636.0 19/17/ 0    hb_05:   43239.0 18/18/ 0    hb_075:   38886.5 14/22/ 0    hb_10:   42501.0 16/20/ 0    hb_off:   39689.0 (base)  
+  born                              hb_01:       2.5 12/18/ 6    hb_025:       2.0 10/20/ 6    hb_05:       2.0 12/20/ 4    hb_075:       1.0  8/22/ 6    hb_10:       0.0  5/23/ 8    hb_off:       3.5 (base)  
+  starved                           hb_01:      14.0 14/19/ 3    hb_025:      14.5 16/18/ 2    hb_05:      15.0 16/18/ 2    hb_075:      16.0 17/15/ 4    hb_10:      15.0 13/18/ 5    hb_off:      14.0 (base)  
+
+=========== BED B (restock every 2000 frames) ===========
+baseline hb_off, 36 seeds, `hand` arm, paired within seed
+
+  homeward tumble %                 hb_01:       1.4 36/ 0/ 0    hb_025:       3.3 36/ 0/ 0    hb_05:       6.8 36/ 0/ 0    hb_10:       9.9 36/ 0/ 0    hb_off:       0.0 (base)  
+  carry->nest (signed cells home)   hb_01:     184.5 19/17/ 0    hb_025:     218.0 22/14/ 0    hb_05:     244.5 24/12/ 0    hb_10:     274.5 26/10/ 0    hb_off:     186.0 (base)  
+  CAME BACK (round trips)           hb_01:       2.0 17/13/ 6    hb_025:       2.0 14/12/10    hb_05:       2.0 20/13/ 3    hb_10:       3.0 19/ 9/ 8    hb_off:       1.0 (base)  
+  trips laden                       hb_01:       1.0 14/14/ 8    hb_025:       1.0 15/13/ 8    hb_05:       1.0 17/11/ 8    hb_10:       2.0 21/ 7/ 8    hb_off:       1.0 (base)  
+  reached food                      hb_01:      15.5  9/24/ 3    hb_025:      13.0 10/25/ 1    hb_05:      15.0 11/24/ 1    hb_10:      10.0  7/29/ 0    hb_off:      20.5 (base)  
+  ate J (LARDER INTAKE)             hb_01:   11863.0 10/26/ 0    hb_025:    8671.0 11/25/ 0    hb_05:    9846.0  9/27/ 0    hb_10:    5244.0  6/30/ 0    hb_off:   20700.5 (base)  
+  carry@nest                        hb_01:   52837.5 11/25/ 0    hb_025:   49051.0  9/27/ 0    hb_05:   53304.0 10/26/ 0    hb_10:   40206.0  9/27/ 0    hb_off:   79539.5 (base)  
+  born                              hb_01:       5.5  9/26/ 1    hb_025:       3.0 10/24/ 2    hb_05:       3.5  8/28/ 0    hb_10:       0.0  5/30/ 1    hb_off:      11.5 (base)  
+  starved                           hb_01:      16.0 17/15/ 4    hb_025:      17.0 16/16/ 4    hb_05:      15.0 16/19/ 1    hb_10:      17.0 20/15/ 1    hb_off:      15.0 (base)  
+
+=========== 0.5 vs 1.0, paired DIRECTLY (bed A) ===========
+baseline hb_05, 36 seeds, `hand` arm, paired within seed
+
+  homeward tumble %                 hb_01:       1.3  0/36/ 0    hb_025:       3.0  4/32/ 0    hb_05:       5.6 (base)    hb_075:       7.3 26/10/ 0    hb_10:      10.5 29/ 7/ 0    hb_off:       0.0  0/36/ 0  
+  carry->nest (signed cells home)   hb_01:     175.0 13/23/ 0    hb_025:     175.5 14/22/ 0    hb_05:     226.0 (base)    hb_075:     229.0 22/14/ 0    hb_10:     254.5 21/14/ 1    hb_off:     123.0  9/27/ 0  
+  CAME BACK (round trips)           hb_01:       1.0 10/21/ 5    hb_025:       1.0 11/16/ 9    hb_05:       2.0 (base)    hb_075:       2.0 11/14/11    hb_10:       2.0 21/11/ 4    hb_off:       1.0  9/21/ 6  
+  trips laden                       hb_01:       0.0  5/17/14    hb_025:       1.0  8/13/15    hb_05:       1.0 (base)    hb_075:       1.5 17/ 9/10    hb_10:       1.0 17/10/ 9    hb_off:       1.0  8/18/10  
+  reached food                      hb_01:      12.5 19/12/ 5    hb_025:      11.5 15/17/ 4    hb_05:      11.0 (base)    hb_075:      11.0 19/17/ 0    hb_10:      10.0 15/20/ 1    hb_off:      12.5 20/13/ 3  
+  ate J (LARDER INTAKE)             hb_01:    8015.0 20/16/ 0    hb_025:    7237.5 16/20/ 0    hb_05:    7098.0 (base)    hb_075:    5246.0 15/21/ 0    hb_10:    5586.0 15/19/ 2    hb_off:    8367.5 21/15/ 0  
+  carry@nest                        hb_01:   45903.5 19/17/ 0    hb_025:   43636.0 17/19/ 0    hb_05:   43239.0 (base)    hb_075:   38886.5 13/23/ 0    hb_10:   42501.0 18/18/ 0    hb_off:   39689.0 18/18/ 0  
+  born                              hb_01:       2.5 18/11/ 7    hb_025:       2.0 15/10/11    hb_05:       2.0 (base)    hb_075:       1.0 13/16/ 7    hb_10:       0.0  7/18/11    hb_off:       3.5 20/12/ 4  
+  starved                           hb_01:      14.0 16/16/ 4    hb_025:      14.5 15/19/ 2    hb_05:      15.0 (base)    hb_075:      16.0 19/13/ 4    hb_10:      15.0 17/15/ 4    hb_off:      14.0 18/16/ 2  
