@@ -127,37 +127,68 @@ impl Box2 {
 /// Anything not named here draws **white** and still gets a legend row, so a
 /// material nobody anticipated announces itself instead of hiding inside a
 /// neighbour's colour.
-fn material_colour(world: &World, cell: Cell) -> ([u8; 4], String) {
+fn material_colour(world: &World, cell: Cell, was_empty: bool) -> ([u8; 4], String) {
     if cell.material == material::EMPTY {
         return ([16, 16, 24, 255], "air".to_string());
     }
-    let name = world.materials.get(cell.material).name.clone();
     if cell.organism_id() != 0 && world.materials.kind(cell.material) == MaterialKind::Creature {
-        return ([0, 255, 140, 255], "ant".to_string());
+        return ([255, 255, 255, 255], "ant".to_string());
     }
-    let rgb = match name.as_str() {
-        "stone" => [110, 110, 122],
-        "soil" => [40, 110, 255],
-        "packedsoil" => [255, 45, 45],
-        "spoil" => [255, 210, 0],
-        "corpse" => [255, 120, 0],
-        "nest" => [255, 0, 220],
-        "water" => [0, 220, 255],
-        _ => [255, 255, 255],
+    let name = world.materials.get(cell.material).name.clone();
+    // **Placed, or worked in place?** Owner, 2026-09-20: *"we should
+    // differentiate spoil which is turned into packed soil and real spoil
+    // because you're missing that. There's a ton of packed soil above the
+    // ground line which is clearly spoil cuz it's not there at the beginning
+    // of the test but you're not marking it to spoil."*
+    //
+    // He is right and the distinction is the whole nest argument. `packedsoil`
+    // has two completely different origins that the material cannot tell
+    // apart: bed that an ant worked into a gallery wall (a lining, which is
+    // what buys ~5x the roofed void) and a dumped pellet that `line_burrow`
+    // relabelled (tailings, which is what stands in the sky). One colour for
+    // both hid the finding inside the render that was supposed to show it.
+    //
+    // **The discriminator is the frame-0 world, not position.** A height test
+    // would call a pellet dropped into a gallery "lining" and would need the
+    // bed to be flat; asking whether this cell was EMPTY before the colony
+    // started is exact for anything that arrived from somewhere else.
+    //
+    // **Its limit, stated rather than discovered:** a cell that was bed, was
+    // dug out, and then had a pellet packed into it reads as worked-in-place,
+    // because the snapshot only records what was there at the start. The
+    // mound -- which was open sky at frame 0 -- is exact, and the mound is
+    // what the question is about.
+    let (rgb, label) = match (name.as_str(), was_empty) {
+        ("packedsoil", true) => ([255, 130, 0], "packed spoil"),
+        ("packedsoil", false) => ([255, 45, 45], "lining (cut in place)"),
+        ("soil", true) => ([120, 200, 255], "loose spoil (slumped)"),
+        ("soil", false) => ([40, 110, 255], "bed"),
+        ("spoil", _) => ([255, 210, 0], "loose spoil (pellet)"),
+        ("stone", _) => ([110, 110, 122], "box wall"),
+        ("corpse", _) => ([150, 0, 60], "corpse"),
+        ("nest", _) => ([255, 0, 220], "nest patch"),
+        ("water", _) => ([0, 220, 255], "water"),
+        _ => ([0, 255, 255], "other"),
     };
-    ([rgb[0], rgb[1], rgb[2], 255], name)
+    ([rgb[0], rgb[1], rgb[2], 255], label.to_string())
 }
 
 /// Paint one stop from the cells rather than from the renderer.
-fn paint_materials(world: &World, b: &Box2, buf: &mut [u8], seen: &mut std::collections::BTreeMap<String, [u8; 4]>) {
+fn paint_materials(
+    world: &World,
+    b: &Box2,
+    buf: &mut [u8],
+    was_empty: &[bool],
+    seen: &mut std::collections::BTreeMap<String, [u8; 4]>,
+) {
     for y in 0..b.h {
         for x in 0..b.w {
-            let (rgba, name) = material_colour(world, world.get(x, y));
+            let i = (y * b.w + x) as usize;
+            let (rgba, name) = material_colour(world, world.get(x, y), was_empty[i]);
             if name != "air" {
                 seen.insert(name, rgba);
             }
-            let i = ((y * b.w + x) * 4) as usize;
-            buf[i..i + 4].copy_from_slice(&rgba);
+            buf[i * 4..i * 4 + 4].copy_from_slice(&rgba);
         }
     }
 }
@@ -1112,6 +1143,21 @@ fn main() {
     // judgement on this sheet is made against it.
     let pseudo = flag("materials");
     let mut seen: std::collections::BTreeMap<String, [u8; 4]> = std::collections::BTreeMap::new();
+    // **The frame-0 snapshot**, taken before the colony has moved a cell, so
+    // `material_colour` can tell a pellet that arrived from bed that was
+    // worked where it lay. Cheap and taken unconditionally: one bit per cell
+    // of a box this size is under 20 KB, and making it conditional on
+    // `materials` would mean the switch changed what the run *is* rather than
+    // only how it is drawn.
+    let was_empty: Vec<bool> = {
+        let mut v = Vec::with_capacity((b.w * b.h) as usize);
+        for y in 0..b.h {
+            for x in 0..b.w {
+                v.push(world.get(x, y).material == material::EMPTY);
+            }
+        }
+        v
+    };
 
     for f in 0..=frames {
         if f > 0 {
@@ -1142,7 +1188,7 @@ fn main() {
                 let (vw, vh) = (b.w as u32, b.h as u32);
                 let mut buf = vec![0u8; (vw * vh * 4) as usize];
                 if pseudo {
-                    paint_materials(&world, &b, &mut buf, &mut seen);
+                    paint_materials(&world, &b, &mut buf, &was_empty, &mut seen);
                 } else {
                     let touched = world.take_touched_chunks();
                     renderer.draw(&world, &particles, &touched, &mut buf, (vw, vh), true);
