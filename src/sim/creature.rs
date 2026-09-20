@@ -5273,6 +5273,63 @@ fn sense(
         // home") lives in `CreatureDef::home_bias`, which reads `crop_fill`
         // directly. One question per sensor.
         inputs[I::CarryingFood as usize] = if crop_fill > 0.0 { 1.0 } else { 0.0 };
+        // **Which way home is, for an animal that has a reason to go there** --
+        // `brain::BrainInput::HomeAligned`, the return leg's own bearing.
+        //
+        // **Why the carrying test is here and not in the genome, which is a
+        // real departure from how every other gated sense in `ant.ron`
+        // works.** The gated pair above spends TWO hidden units on one sense
+        // precisely so the gate can be deep: units 0 and 1 both sit at
+        // `squash(-45) = -0.978` when shut, and the mirror subtracts them to
+        // exactly zero. With a single unit there is no mirror, so a shut
+        // `(Bias, 7, -45)` unit does not read 0, it reads **-0.978**, and at
+        // the pair's own output weight that is a standing **-2.446** on `Move`
+        // for every EMPTY ant -- against a walking ant's `Move` sum of about
+        // +0.25, i.e. `squash` clamped to P(move) = 0 and a colony that never
+        // forages at all. `brain.rs`'s `what_the_home_wire_emits` prints the
+        // three curves side by side.
+        //
+        // **Unit 7 is the only free one** (0/1 channel A, 2/3 channel B, 4 the
+        // `AtNest` odometer, 5/6 `Crowding`->`Dig`, `BRAIN_HIDDEN` 8), so the
+        // pair form is not available at any price and the gate has to move
+        // upstream of `squash`. The sensor is the cheapest correct place, and
+        // it is not unprecedented here: `CarryingFood` immediately above,
+        // `FoodAdjacent` and `Stillness` are all conditional reads. It also
+        // leaves unit 7 genuinely free, which dissolves the collision the
+        // 2026-09-19 fold-change plan was heading for.
+        //
+        // **Boolean, on `CarryingFood`'s own predicate, deliberately.** The
+        // graded half -- *the fuller I am, the likelier I head home* -- already
+        // belongs to `CreatureDef::home_bias`, exactly as the comment above
+        // says. One question per sensor: this one answers *which way*.
+        inputs[I::HomeAligned as usize] = if crop_fill > 0.0 {
+            let (ax, ay) = state.forage_anchor;
+            let (vx, vy) = ((ax - x) as f32, (ay - y) as f32);
+            let len = (vx * vx + vy * vy).sqrt();
+            // **Standing on the anchor is not a direction** -- the guard
+            // `home_weighted_pick` takes, for the same reason: inside one cell
+            // every heading scores alike, so a bearing read there is an
+            // arbitrary constant rather than a direction. 0.0 is also the
+            // right answer behaviourally, since an ant at its own nest should
+            // be wandering off again.
+            if len < 1.0 {
+                0.0
+            } else {
+                let (hdx, hdy) = DIRS[heading as usize % 8];
+                // `DIRS`' diagonals are `(1, -1)`, so `|d|` is `sqrt(2)` on the
+                // odd headings and 1 on the even ones. Dividing by it is what
+                // makes this a cosine rather than the raw dot product
+                // `home_weighted_pick` ranks with -- see the input's own doc
+                // for why a 1.414 on four of eight headings would be a silent
+                // heading-dependent gain. A table, not a `sqrt`: both values
+                // are exact and the parity picks between them.
+                const DIR_LEN: [f32; 2] = [1.0, std::f32::consts::SQRT_2];
+                let dlen = DIR_LEN[(heading as usize % 8) & 1];
+                ((hdx as f32 * vx + hdy as f32 * vy) / (len * dlen)).clamp(-1.0, 1.0)
+            }
+        } else {
+            0.0
+        };
     }
 
     // **A creature is not crowded by itself**, and it was: this scan

@@ -162,7 +162,8 @@ failed to move the outcome.
 ### The plan
 
 **[`Reports/ant-return-leg-plan-2026-09-20.md`](../ant-return-leg-plan-2026-09-20.md)**
-— full, with the wiring, the costs and the pre-registered predictions.
+— full, with the costs and the pre-registered predictions. **Its Step 1 wiring
+is wrong**; the box at that section's head says why and what replaced it.
 
 ### The three traps, already paid for — do not rediscover them
 
@@ -194,3 +195,35 @@ Branch `claude/upbeat-shannon-cez0w4`, head `808e2aa7`. `home_bias` is **still
 0.0** — nothing shipped, engine behaviour unchanged. The alignment census
 (`tr_align`) is in `examples/trailfollow.rs` and is the instrument the next
 session needs. All gates green at `fcea4b88`; `docscheck` clean at head.
+
+## STEP 1 IS BUILT AND MEASURED, 2026-09-20 — it works, and it is OFF
+
+**Full account, with every number and both re-test conditions:**
+[`Reports/ant-return-leg-result-2026-09-20.md`](../ant-return-leg-result-2026-09-20.md).
+Only the four things another session would act on are kept here.
+
+1. **The plan's Step 1 wiring is WRONG — read the box at the head of
+   `ant-return-leg-plan-2026-09-20.md` before that section.** A single gated
+   hidden unit is not neutral when shut (`squash(-45) = -0.978`), so it puts
+   **-2.439 on every empty ant's `Move`** against a walking sum of +0.25: a
+   colony that never forages. Rejected in `dead-ends.md` (`other:133`).
+
+2. **`BrainInput::HomeAligned` landed and the mechanism works.** Laden
+   `P(move)` pointed at home **0.115 → 0.509**, pointed away **0.078 → 0.028**
+   — the two bins moving in *opposite* directions, so it is steering rather
+   than ladenness. `carry->nest` 152 → 329 (7/1/0), round trips 1 → 3 (6/2/0).
+
+3. **It ships authored at 0.0 and that is the owner's to settle**, exactly as
+   `home_bias` is parked and for the same reason: larder intake 12,699 → 2,280 J
+   (2/6/0), births 6 → 0, colonies alive monotone-down in the gain. `DELIVERED`
+   is 0 in *both* arms, so nothing carried home is banked and homing is pure
+   energy cost until the granary (§7.28). §Z29 predicted this shape.
+
+4. **Unit 7 is still free.** The shipped wire is a direct instinct and spends no
+   hidden unit, so trap 1 — the collision with the 2026-09-19 fold-change plan —
+   does not happen.
+
+**Do not re-test by retuning the gain** (1.5 / 3.0 / 6.0 all give one picture)
+**or by grading the sensor on crop fill** (960 J fruit against a 1,440 J crop
+puts a laden ant at 0.667 fill and it cannot hold two cells, so grading is a
+33% gain cut and gain 1.5 already measured there).

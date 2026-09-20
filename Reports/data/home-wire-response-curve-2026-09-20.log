@@ -1,0 +1,25 @@
+   Compiling pixel-physics v0.1.0 (/home/user/Pixel_Physics)
+    Finished `release` profile [optimized] target(s) in 3m 34s
+     Running unittests src/lib.rs (target/release/deps/pixel_physics-935c115be3d8bf44)
+
+running 1 test
+
+contribution to the `Move` SUM (pre-squash), by cos(heading, home):
+                                                 arm     -1.0    -0.5     0.0    +0.5    +1.0   EMPTY ant
+                             plan: gated single unit   -2.115  -1.786   0.833   1.944   2.167      -2.439
+gated PAIR (unavailable: needs two free units, there is one)   -4.282  -3.730   0.000   3.730   4.282       0.011
+          shipped: sensor-gated single unit, no bias   -2.143  -1.875   0.000   1.875   2.143       0.000
+
+READ THE LAST COLUMN FIRST. An empty ant must read 0.000: `ant.ron` gives
+a walking ant a `Move` sum of about +0.25, so a standing -2.446 on it is
+`squash` clamped to P(move) = 0 -- a colony that never forages at all.
+Then read the zero column: a laden ant ACROSS the bearing must also read
+0.000, or the wire is a `laden ants move more` lever wearing a homing
+lever's name, and every alignment bin rises together.
+test sim::brain::tests::what_the_home_wire_emits ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1964 filtered out; finished in 0.00s
+
+EXIT=0
+
+[exited with code 0]

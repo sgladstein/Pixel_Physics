@@ -1491,6 +1491,26 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             genome[slot] = w;
         }
     }
+    // **`homewire=` -- the return leg's throttle**, `ant.ron`'s
+    // `(HomeAligned, Move, 3.0)`. The one wire in the shipped genome that
+    // reads a quantity which knows where home is; `w` is its authority over
+    // `P(move)`, and `squash(w)` is the rate a laden ant pointed straight at
+    // the nest runs at once the ant's other `Move` terms are near zero.
+    // `homewire=0` is the control arm -- the engine as it was before 2026-09-20
+    // with the input present and unread, which is the right baseline because it
+    // holds `mutation_rate` and every genome dimension fixed across the pair.
+    if let Some(w) = arg::<f32>("homewire") {
+        let slot = brain::io_slot(brain::BrainInput::HomeAligned, O::Move);
+        assert!(
+            (genome[slot] - w).abs() > f32::EPSILON,
+            "homewire={w} is already what ant.ron holds, so this arm is the shipped one wearing a different name"
+        );
+        // **No `W_EPS` assertion here, unlike every rider above**, and
+        // deliberately: 0 is this knob's control arm and `eval_brain` skipping
+        // the slot is exactly what the control wants. Every non-zero value a
+        // sweep would use clears `W_EPS` (1e-3) by three orders of magnitude.
+        genome[slot] = w;
+    }
     if let Some(v) = arg::<f32>("tumble") {
         set_via_bias(&mut genome, O::Tumble, v, 1.0, "tumble");
     }
@@ -3184,7 +3204,7 @@ fn main() {
     // a 1.84% open gate where the same command at the default reports 639,100
     // and 1.25%, and nothing in the header said why. Found 2026-09-18 by an
     // archived log failing to reproduce against a binary that was correct.
-    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill} stop={stop} homebias={} cropcap={} hungergate={} arho={} brho={} adiffuse={} tcomp={} tumble={} persist={} tumblegrad={}", gate.name, arg::<f32>("homebias").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("cropcap").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("hungergate").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("arho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("brho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("adiffuse").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tcomp").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tumble").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("persist").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tumblegrad").map_or("shipped".to_string(), |v| format!("{v}")));
+    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill} stop={stop} homebias={} cropcap={} hungergate={} arho={} brho={} adiffuse={} tcomp={} tumble={} persist={} tumblegrad={} homewire={}", gate.name, arg::<f32>("homebias").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("cropcap").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("hungergate").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("arho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("brho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("adiffuse").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tcomp").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tumble").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("persist").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tumblegrad").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("homewire").map_or("shipped".to_string(), |v| format!("{v}")));
     println!("  gate {}: off {:+.1}  on {:+.1}  along ±{:.1}", gate.name, gate.off, gate.on, gate.along);
     println!("  {LANDED_NOTE}\n");
 

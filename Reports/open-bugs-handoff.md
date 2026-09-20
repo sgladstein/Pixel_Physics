@@ -170,8 +170,8 @@ point.
 | Z27 | **OPEN** | 13140 | Heat cannot cross a shallow gradient into ground already at ambient, and the fix that exi... |
 | Z28 | **OPEN** | 13197 | The moisture deposition preference was deleted rather than moved, and DropSpoil has no he... |
 | Z29 | **OPEN** | 13269 | An ant stands on its own freshest deposit, so the homing gradient reads "home is behind m... |
-| Z30 | **OPEN** | 13342 | filmstrip never steps the pheromone planes, so every scene it runs ants in shows a trail ... |
-| Z31 | **OPEN** | 13433 | field::step carries derived arrays forward over a settled chunk that still holds an un-ta... |
+| Z30 | **OPEN** | 13385 | filmstrip never steps the pheromone planes, so every scene it runs ants in shows a trail ... |
+| Z31 | **OPEN** | 13476 | field::step carries derived arrays forward over a settled chunk that still holds an un-ta... |
 
 <!-- END GENERATED INDEX -->
 
@@ -13338,6 +13338,49 @@ sensing fix; *turning persistence up to exploit it* waits on §7.28.
 **Data:** `Reports/data/achannel-decay-*-36seed-gap90-2026-09-19.log`,
 `z29-*-36seed-gap90-2026-09-19.log`; cohort traces reproduced with
 `trailfollow ... arms=hand trace focaln=6`.
+
+**THE CAUSE IS STRUCTURAL, NOT A READING TO REPAIR — measured 2026-09-20, 8
+seeds, ~500k laden decisions** (`Reports/data/align-census-8seed-2026-09-20.log`,
+reproduced bit-identically on 2026-09-20 before any work began). Binning every
+laden decision by the angle between the ant's heading and its **exact** home
+vector — the census is `tr_align` in `examples/trailfollow.rs`:
+
+| heading vs home | mean `along` | % positive |
+|---|---|---|
+| pointed **away** | −0.2399 | 3.9% |
+| pointed **at home** | **−0.2003** | **5.3%** |
+
+**Negative in every bin, and facing home differs from facing away by 0.04.**
+`here` is the ant's own freshest deposit and `ahead` is six cells out, 70% of
+the time in sky or rock reading zero, so the numerator is `(≈0 − own deposit)`
+— negative by construction. The ant is a moving point source on a plane where
+it is the brightest object. **So every repair aimed at the *reading* was
+doomed**, which is what `TRAIL_A_RHO = 0` (§7.46), the nose honesty gate
+(§7.47) and the temporal comparator (§7.48) each independently measured.
+
+**`DEPOSIT_AT=vacated` is a component, not a fix, and this entry's own text
+above overstates it.** On the same 8 seeds it moves the pointed-at-home row
+−0.2003 → **−0.1615** and 5.3% → **7.0%** positive: a real improvement to the
+sensor, nearly free, and **still 93% wrong-signed**. It widens the home/away
+gap from 0.0396 to 0.0651, which is what makes it a usable sensitivity control
+on the census and not a repair.
+
+**The reconciliation, which is why no sensor fix could have worked.**
+Trail-reading is the **follower's** mechanism and path integration is the
+**layer's** (Beckers et al. 1992 — discoverers lay, recruits follow). A laden
+ant walking home *is the discoverer*. It should be navigating by its own
+vector, and until 2026-09-20 nothing in the brain could see one.
+
+**WHAT LANDED, 2026-09-20:** `BrainInput::HomeAligned` — the cosine between
+heading and home vector, zero for an empty ant — wired `(HomeAligned, Move,
+3.0)` in `ant.ron`. `BRAIN_INPUTS` 32 → 33, `live_slots` 918 → 942, every
+species' `mutation_rate` re-derived to `3.18 / 942 = 0.0033758`. **It does not
+close this entry**: the self-deposit is still there and `PheroAAlong` still
+reads negative whichever way a laden ant faces — nothing about the *plane*
+changed. What changed is that the trail reading is no longer the only thing
+throttling `Move` on the return leg. Read the `P(move)` column of `tr_align`
+for the effect, not the `mean along` column, which this change cannot move by
+construction.
 
 ### Z30. `filmstrip` never steps the pheromone planes, so every scene it runs ants in shows a trail that cannot decay, diffuse or move (engine/creatures) — **OPEN, found 2026-09-19**
 

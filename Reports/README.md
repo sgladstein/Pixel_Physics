@@ -3047,6 +3047,49 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   pair within seed rather than pooling. Data
   `Reports/data/align-census-8seed-2026-09-20.log`; handoff in
   `Reports/lanes/homing-return-arm.md`.
+  **BUILT AND MEASURED 2026-09-20, and Step 1's wiring in this plan is WRONG —
+  read the box at its head before the section.** A single gated hidden unit is
+  not neutral when shut (`squash(-45) = -0.978`), so the specified circuit puts
+  **-2.439 on every empty ant's `Move`** against a walking sum of +0.25: a
+  colony that never forages. The gate moved into the sensor instead and the
+  wire is a direct `(HomeAligned, Move, w)` instinct spending no hidden unit,
+  which also frees unit 7. **The mechanism then did what it promised** — laden
+  `P(move)` pointed at home 0.115 → 0.509 against 0.078 → 0.028 pointed away,
+  the two bins moving in opposite directions — **and the colony did worse**:
+  larder intake 12,699 → 2,280 J (2/6/0), births 6 → 0, colonies alive
+  monotone-down in the gain. Cause is §Z29's own prediction, not a new finding:
+  `DELIVERED` is 0 in both arms, so nothing banked means homing is pure energy
+  cost until the granary (§7.28). **Shipped authored at 0.0**, as `home_bias`
+  is and for the same reason; turning it on is the owner's. Data
+  `Reports/data/home-wire-response-curve-2026-09-20.log` and
+  `Reports/data/homewire-{24k,100k}-8seed-{ctrl0,gain3}-2026-09-20.log`;
+  rejected wiring in `Reports/dead-ends.md` (`other:133`).
+- [ant-return-leg-result-2026-09-20.md](ant-return-leg-result-2026-09-20.md)
+  — **result, 2026-09-20. `engine`.** Executes Step 1 of the plan above, and
+  carries two things that outlive its verdict. **The plan's wiring was unsound
+  and one run of `eval_brain` catches it**: a single gated hidden unit is not
+  neutral when shut (`squash(-45) = -0.978`, not 0 — the gated pair's mirror is
+  the neutraliser, not decoration), so the specified circuit puts **-2.439 on
+  every empty ant's `Move`** against a walking sum of +0.25, which is a colony
+  that never forages, plus **+0.833 on a laden ant across the bearing**, which
+  is a *laden ants move more* lever wearing a homing lever's name. The gate
+  moved into the sensor instead and the wire is a direct `(HomeAligned, Move,
+  w)` instinct spending **no hidden unit**, which frees unit 7 and dissolves the
+  fold-change collision. **The mechanism then did what it promised**: laden
+  `P(move)` pointed at home **0.115 → 0.509** against **0.078 → 0.028** pointed
+  away, the two bins moving in opposite directions, so it is steering rather
+  than ladenness — `carry->nest` 152 → 329 (7/1/0), round trips 1 → 3 (6/2/0).
+  **And the colony did worse**: larder intake 12,699 → 2,280 J (2/6/0), births
+  6 → 0, colonies alive monotone-down in the gain (4/3/3/1 of 8 at gains
+  0/1.5/3.0/6.0), reproduced at 100,000 frames where every colony in both arms
+  dies. Cause is §Z29's own prediction rather than a new finding — `DELIVERED`
+  is 0 in both arms, so nothing is banked and homing is pure energy cost until
+  the granary (§7.28). **Ships authored at 0.0**, as `home_bias` does; turning
+  it on is the owner's. Rejects retuning the gain and grading the sensor on crop
+  fill (this bed cannot hold two food cells, so grading is a 33% gain cut).
+  Rejected wiring in `dead-ends.md` (`other:133`); data
+  `Reports/data/home-wire-response-curve-2026-09-20.log` and
+  `homewire-{24k,100k}-8seed-{ctrl0,gain3}-2026-09-20.log`.
 - [ant-navigation-plan-2026-09-20.md](ant-navigation-plan-2026-09-20.md)
   — **plan, 2026-09-20. `engine`.** The return arm does not work because the
   trail is wired to the wrong decision. An ant makes two separate choices per

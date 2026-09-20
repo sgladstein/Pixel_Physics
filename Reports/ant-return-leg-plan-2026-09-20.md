@@ -60,6 +60,34 @@ that is structurally uninformative for this animal.
 
 ### Step 1 — Give the home vector authority over `Move`
 
+> **BUILT 2026-09-20, AND THE WIRING BELOW IS WRONG — read this box before the
+> section.** The goal is right and shipped; the *circuit* specified here does
+> not work and the reason is arithmetic rather than tuning. `squash` is
+> `x / (1 + |x|)`, so a shut `(Bias, 7, -45)` unit reads **-0.978, not 0** —
+> the gated pair is neutral when shut only because it has two units at -0.978
+> and subtracts them. **The mirror is the neutraliser, not decoration.**
+> Measured through `eval_brain` (`brain.rs`'s ignored
+> `what_the_home_wire_emits`,
+> [`Reports/data/home-wire-response-curve-2026-09-20.log`](data/home-wire-response-curve-2026-09-20.log)),
+> the single-unit form puts **-2.439 on every EMPTY ant's `Move`** against a
+> walking ant's +0.25 — `P(move)` clamped to 0, a colony that never forages —
+> and **+0.833 on a laden ant across the bearing**, which is a *laden ants move
+> more* lever that would have lifted every alignment bin together and made the
+> result unattributable.
+>
+> **What shipped instead:** the gate moved upstream of `squash` into the
+> sensor — `creature::sense` reads `BrainInput::HomeAligned` as 0.0 for an
+> empty ant — and the wire is a direct `(HomeAligned, Move, 3.0)` instinct with
+> **no hidden unit at all**: 0.000 empty, 0.000 across, ±2.143 on the bearing.
+> What that costs is the gate as a *gene*: selection can move the gain but not
+> the threshold. What it buys, beyond working, is that **unit 7 stays free**,
+> so trap 1 below — the collision with the 2026-09-19 fold-change plan — does
+> not happen. Full entry in `Reports/dead-ends.md` (`other:133`).
+>
+> Everything else in this section stands: the quantity, the re-pin list, the
+> speculation contract and the pre-registered predictions are unchanged.
+
+
 `home_weighted_pick` aims the body from the exact home vector; `P(move)` is set
 by `PheroAAlong` and nothing else knows where home is. So an ant pointed at its
 own nest computes `P(move) ≈ 0.01`. **That is the fix, and after the test above

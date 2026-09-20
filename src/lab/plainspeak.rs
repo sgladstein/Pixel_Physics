@@ -135,6 +135,10 @@ fn phrasebook(input: BrainInput, output: BrainOutput) -> Option<(&'static str, &
         (I::AtNest, O::Move) => ("LEAVES THE NEST AT ONCE", "SETTLES AT THE NEST"),
         (I::Carrying, O::Drop) => ("DROPS WHAT IT PICKS UP", "HOLDS ON TO ITS LOAD"),
         (I::Carrying, O::Move) => ("CARRIES ITS LOAD FAST", "SLOWS DOWN WHEN LADEN"),
+        // The return leg. `HomeAligned` reads 0 for an empty ant, so both
+        // sentences are about a laden one and can say so without a qualifier.
+        (I::HomeAligned, O::Move) => ("RUNS WHEN POINTED HOME", "BALKS WHEN POINTED HOME"),
+        (I::HomeAligned, O::Tumble) => ("RE-AIMS AWAY FROM HOME", "HOLDS ITS LINE HOMEWARD"),
 
         // -- digging.
         (I::Bias, O::Dig) => ("DIGS BY DEFAULT", "AVOIDS DIGGING"),
