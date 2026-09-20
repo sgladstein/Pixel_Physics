@@ -30,6 +30,17 @@ search.**
   first.** This is a real limitation and it is stated here rather than
   buried, because the coordinator says they will build whatever is named.
 
+**Partly repaired, 2026-09-20.** The owner handed over a sourced survey of
+nest *excavation* —
+[`nest-excavation-mechanics-2026-09-19.md`](nest-excavation-mechanics-2026-09-19.md)
+— which carries URLs, species and setups for much of this ground, including
+Toffin 2009, Monaenkova 2015, Gravish 2013, Aguilar 2018 and the Tschinkel
+architecture work. **It does not retire this report's [search] tags**: it is a
+different document with its own hedges, not a validation of these claims, and
+where the two touch the same paper the numbers should be read there rather
+than here. What it removes is the excuse — several of §9's read-the-paper-first
+items now have a link.
+
 **One trap found while searching, flagged because it would have been
 expensive.** A search result from `animalsaroundtheglobe.com` states that
 ants' digging pheromone "blends" vary seasonally — *"summer pheromone blends

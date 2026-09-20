@@ -18,6 +18,16 @@ were built or refuted against that, and none of them changes it, because none
 of them is the missing thing. The missing thing is *concentration*: nothing in
 the engine makes a dug cell attract the next dig.
 
+**That mechanism has a published form, added 2026-09-20.**
+[`nest-excavation-mechanics-2026-09-19.md`](nest-excavation-mechanics-2026-09-19.md)
+§2 is Toffin's dig-marker rule with constants: a decaying scalar on dug cells,
+a cell scored `x²/(x²+K²) + ξ` on the marker summed over its eight neighbours,
+K = 50, ξ = 0.001, 100 units laid by a dig, ν = 0.05 evaporating per step. The
+x² is the part that matters to §0's finding — it is what makes a slightly-dug
+site beat a fresh one hard enough that **one shaft wins over many shallow
+pits**, which is this report's whole complaint stated as a functional form.
+Nothing here has been measured in this engine.
+
 The evidence is one column that nobody had: the **bounding box of the room**.
 
 | arm | room bbox | `vert` | room total | digs |

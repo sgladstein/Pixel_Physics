@@ -41,6 +41,20 @@ well: a dig-face pheromone is measured and negative), and the measurement
 that points at it is that with `(Bias, Dig)` swept 0.15 → −1.0 everything
 scales together and nothing concentrates. **It should be first, not fourth.**
 
+**And Toffin is now in the repo with his constants, 2026-09-20.**
+[`nest-excavation-mechanics-2026-09-19.md`](nest-excavation-mechanics-2026-09-19.md)
+§2 gives the self-amplification rule this stage names in the form the paper
+published it — `x²/(x²+K²) + ξ` over the marker in a cell's eight neighbours,
+K = 50, ξ = 0.001, 100 units a dig, ν = 0.05 per step — plus §4's rate law and
+the §13 tables to score an arm against. Two cautions carry over from that
+file's header. Its marker is a **decaying scalar on dug cells, not a
+pheromone**, which is the distinction this paragraph already relies on; and
+its §3/§12 rules for *where a pellet lands* are not adoptable here, because
+both hand-written placement rules were built, measured and withdrawn and the
+owner ruled the drop is the ant's, on `drop_urge`. Take §2's shape and the
+constants as a starting point to sweep from, not as values to install: they
+are a 0.07 mm² cell and a four-cell ant, and this engine's cell is 2–5 mm.
+
 **And Stage 0 is done**: the ant-blind census is fixed in `lab::census` and
 `examples/burrow_probe`, with a guard proven red both ways.
 

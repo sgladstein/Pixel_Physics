@@ -3420,6 +3420,35 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   neither nest report had: **arching makes tunnel-surface grains low-stress
   and ants avoid high-force grains**, which `load.rs`/`structural.rs` can
   already express with no new field. Docs only; nothing built.
+- [nest-excavation-mechanics-2026-09-19.md](nest-excavation-mechanics-2026-09-19.md)
+  — **external reference, 2026-09-19, reproduced as received. `lab`/`engine`.**
+  The owner's own survey of ant nest excavation, organised for an agent-based
+  simulation in a **vertical x–z cross-section** — this engine's geometry, and
+  the reason it carries further here than the horizontal-arena literature it
+  draws on. Fourteen sections from substrate and pellet mechanics to whole-nest
+  architecture targets, with an input-parameter table and a validation table,
+  and every statement marked **measured** (a cited study, species and setup
+  named) or **modeling hypothesis** (§14 lists the six that are). **Not checked
+  against the engine.** **It repairs a hole the record states about itself**:
+  the digging-signals report above could open no journal page, and this
+  document carries the URLs and per-study setups its §9 asked someone to read.
+  **And §2 is the published form of the one lever the nest line has not
+  refuted** — Toffin's dig-marker, a decaying scalar on dug cells scored
+  `x²/(x²+K²)`, with K = 50, ν = 0.05 and 100 units to a dug cell — which is
+  `nest-shape-three-negatives-2026-09-19.md` §0's missing *concentration* and
+  `nest-digging-plan-2026-09-19.md`'s Stage 4, with constants. **Three collisions
+  its header flags**: the marker is **not a pheromone** (a dig-face pheromone
+  is measured and negative here; the physical spoil form is untested); its
+  pellet-placement rules sit on a question this repo closed by owner ruling —
+  the drop is the ant's, on `drop_urge`; and **§4/§9's density regulation is
+  a measured null here, three times**, most recently with the local reading
+  §9 asks for and the saturation objection measured away (top-tenth 97.8% →
+  1.3%, nest unmoved), so a reader must not rebuild it — §2 is spatial and
+  unbuilt, §4/§9 scalar and closed. Also flags the **kernel-ratio trap**:
+  Toffin's 3-cell kernel is narrower than his 4-cell ant, and the same
+  8-neighbour kernel here is *wider* than a `Chain(2)` ant and a 1–2 cell
+  shaft, so it would smear where it should concentrate. Its **2D arching
+  caution** reaches `load.rs`'s `arch_span` wall from the biology side.
 - [nest-build-plan-2026-09-19.md](nest-build-plan-2026-09-19.md) — **plan,
   2026-09-19. `lab`/`engine`. Nothing built.** The staged build the two nest
   research reports imply, written after the owner asked whether it is

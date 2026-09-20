@@ -7819,6 +7819,41 @@ const COVER_REACH: i32 = 20;
 /// not this. Same shape as `PIXEL_PHYSICS_CROWDING_LOCAL` and
 /// `PIXEL_PHYSICS_NEST_SITE_ROWS`, both of which stand in for genome changes
 /// nobody has paid for yet.
+/// **How strongly an ant carrying tailings walks to the door**, or `None`
+/// for the shipped behaviour, which is that it does not.
+///
+/// `PIXEL_PHYSICS_SPOIL_HAUL=<0.0..=1.0>` is the probability, per re-roll,
+/// that a spoil-laden ant re-aims at the nest's surface instead of tumbling
+/// uniformly. Unset takes **no RNG draw**, so the default arm is a true
+/// control rather than a re-seeding -- the same contract `home_bias` keeps
+/// and for the same reason.
+///
+/// **The gap it is for.** Measured 2026-09-20 on `digbox` at 300 ants: of
+/// everything the colony digs, **19% reaches the surface**. Tschinkel's
+/// coloured-sand study has a real colony leaving about **2.5%** below ground
+/// (`Reports/nest-excavation-mechanics-2026-09-19.md` section 11) -- so this
+/// engine backfills its own burrow with four fifths of its tailings, and the
+/// mound is starved.
+///
+/// **And the missing verb is the ascent, not the drop.** The excavation
+/// reference's cycle is grab, *ascend*, exit, carry out, drop; this engine
+/// has grab and drop and nothing in between. Damping the underground drop
+/// alone (`spoil_drop_cover`) makes it **worse** -- 19% to 8% -- because an
+/// ant that may not put the pellet down simply never puts it down: measured
+/// **212,906 damped rolls against 1,452 actual drops**, a ratio of 147 to 1,
+/// with digging falling 42% because a held pellet blocks the next dig. The
+/// drop rule is the second half of a mechanism whose first half did not
+/// exist, which is why it read as a regression when measured alone.
+fn spoil_haul() -> Option<f32> {
+    static W: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *W.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_SPOIL_HAUL")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+            .filter(|v| (0.0..=1.0).contains(v))
+    })
+}
+
 fn spoil_drop_cover() -> Option<f32> {
     static W: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
     *W.get_or_init(|| {
@@ -12074,7 +12109,7 @@ fn tumble(world: &mut World, organism: OrganismId, def: &CreatureDef, draw: &mut
     // by default and therefore byte-identical to the uniform tumble above.
     // See `home_weighted_pick`: at 0 it takes **no RNG draw at all**, which is
     // what makes the default arm a true control rather than a re-seeding.
-    let homeward = home_weighted_pick(world, organism, def, (hx, hy), &viable, draw);
+    let homeward = home_weighted_pick(world, organism, def, (hx, hy), &viable, draw, spoil_haul());
     if let Some(state) = world.organism_mut(organism) {
         state.heading = match homeward {
             Some(d) => d,
@@ -12133,18 +12168,50 @@ fn home_weighted_pick(
     head: (i32, i32),
     viable: &[u8],
     draw: &mut rng::Rng,
+    // The haulage weight from `spoil_haul`, read at the call site so the
+    // guard can exercise both arms -- the switch is a `OnceLock` and a test
+    // cannot toggle it, and a guard that cannot run the rule it is named for
+    // is the blind kind rather than the weak kind.
+    haul: Option<f32>,
 ) -> Option<u8> {
-    if def.home_bias <= 0.0 || viable.is_empty() {
+    if viable.is_empty() {
         return None;
     }
     let state = world.organism(organism)?;
-    let crop = state.crop?;
-    let cap = organism_crop_capacity(world, organism, def);
-    let fill = if cap > 0.0 { (crop.worth() / cap).clamp(0.0, 1.0) } else { 1.0 };
-    if fill <= 0.0 {
-        return None;
-    }
-    let (ax, ay) = state.forage_anchor;
+    // **The haulage arm, and it does not steer by `forage_anchor`.**
+    //
+    // The anchor is re-set to the ant's *own position* on every nest contact
+    // ("re-anchor on every contact ... stops an ant strolling the length of a
+    // 32-cell nest patch from accumulating a 30-cell excursion"), so for the
+    // one animal this arm is about -- a digger standing inside the nest -- it
+    // is always within a cell of itself, `len < 1.0` fires, and the pick
+    // returns `None`. Keying haulage on it would have been vacuous **by
+    // construction**, which is `CLAUDE.md`'s *a change that moves nothing*
+    // arriving before the change rather than after it.
+    //
+    // `NestSite::surface` is the fixed thing the anchor is not: the ground
+    // row the site was founded on, at the site's own column. That is the
+    // door, it does not drift, and walking to it is walking *out* -- which is
+    // also where the biology puts the spoil, in a crater around the entrance.
+    let (bias, target) = match haul.filter(|_| state.spoil.is_some()) {
+        Some(w) => {
+            let site = world.nest_sites.get(world.nearest_nest_site(head.0, head.1)?)?;
+            (w, (site.x, site.surface))
+        }
+        None => {
+            if def.home_bias <= 0.0 {
+                return None;
+            }
+            let crop = state.crop?;
+            let cap = organism_crop_capacity(world, organism, def);
+            let fill = if cap > 0.0 { (crop.worth() / cap).clamp(0.0, 1.0) } else { 1.0 };
+            if fill <= 0.0 {
+                return None;
+            }
+            (def.home_bias * fill, state.forage_anchor)
+        }
+    };
+    let (ax, ay) = target;
     let (vx, vy) = ((ax - head.0) as f32, (ay - head.1) as f32);
     let len = (vx * vx + vy * vy).sqrt();
     // **Standing on the anchor is not a direction.** Within one cell the
@@ -12156,7 +12223,7 @@ fn home_weighted_pick(
         return None;
     }
     // The draw is last, so every early return above is free.
-    if draw.unit_f32() >= (def.home_bias * fill).clamp(0.0, 1.0) {
+    if draw.unit_f32() >= bias.clamp(0.0, 1.0) {
         return None;
     }
     viable.iter().copied().max_by(|&a, &b| {
@@ -21200,6 +21267,105 @@ mod tests {
             w.schedule_active_site(site);
             w.get(x, y).organism_id()
         }).expect("the species should be placeable here")
+    }
+
+    /// **A laden ant walks to the door; an empty one is untouched.**
+    ///
+    /// The arm this guards exists because the engine has no *ascend* leg:
+    /// measured on `digbox` at 300 ants, 19% of everything dug reaches the
+    /// surface against the ~97.5% Tschinkel measured in a real colony, and
+    /// damping the underground drop on its own makes that **worse** (19% to
+    /// 8%, 212,906 damped rolls against 1,452 drops) because an ant that may
+    /// not set the pellet down never goes anywhere with it.
+    ///
+    /// **Arm A is the one that nearly was not built.** The obvious target for
+    /// a homeward march is `forage_anchor`, and it is vacuous by
+    /// construction: it is re-set to the ant's own position at every nest
+    /// contact, so a digger standing in the nest is always within a cell of
+    /// it and `len < 1.0` returns `None` before anything can happen. The arm
+    /// steers by `NestSite::surface` instead -- the fixed ground row the site
+    /// was founded on -- so this asserts the pick is *upward*, which is the
+    /// property `forage_anchor` could never have delivered.
+    ///
+    /// **Arm B is the control every measurement of this is read against.**
+    /// Unset must consume no RNG draw, or the default arm is a re-seeded
+    /// world rather than a control, and the whole archived corpus would have
+    /// to be re-taken. Asserted by cloning the stream and comparing the next
+    /// value, not by eye.
+    ///
+    /// **Watched red, both arms, and one claimed condition did not hold.**
+    /// Putting the target back to `forage_anchor` fails A with no direction
+    /// at all, exactly as the paragraph above predicts -- that one is
+    /// verified. The first draft of this note also claimed B would fail if
+    /// the `haul.filter(..)` were made unconditional; it would not, because B
+    /// passes `haul: None` and the filter never runs. B's real red condition
+    /// is moving the `draw.unit_f32()` above the early returns, which is what
+    /// was actually run.
+    #[test]
+    fn a_laden_ant_walks_to_the_door_and_an_empty_one_takes_no_draw() {
+        use super::super::chunk::Rect;
+        use super::super::world::World;
+
+        let mut w = World::new(Rect::new(0, 0, 127, 127));
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        // A bed with a surface at row 40, so the site has a real ground row
+        // to found on -- `NestSite::surface` falls back to the cursor row in
+        // a column with no ground, which would make this test about nothing.
+        for x in 0..128 {
+            for y in 40..128 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        w.register_nest_site(64, 39, 8);
+        assert!(!w.nest_sites.is_empty(), "no site registered -- the arm cannot steer and this guard is vacuous");
+        let site_surface = w.nest_sites[0].surface;
+        assert!(site_surface < 60, "the door must be ABOVE the ant for 'walks to the door' to mean 'walks up'; it is at row {site_surface}");
+
+        // A chamber for it to stand in, well below the door. An ant cannot be
+        // placed into solid ground, and a spawn that fails here reads as the
+        // rule being wrong rather than the scene being unbuildable --
+        // `CLAUDE.md`'s *a scene that contradicts the code looks like a bug in
+        // the code*.
+        for x in 60..69 {
+            for y in 55..63 {
+                w.set(x, y, Cell::EMPTY);
+            }
+        }
+        // An ant well below the door, holding a pellet.
+        let ant = spawn(&mut w, "ant", 64, 61);
+        assert_ne!(ant, 0, "the scene does not contain the situation this test is about");
+        let head = {
+            let state = w.organism_mut(ant).expect("just placed");
+            state.spoil = Some(super::super::organism::Spoil { cell: Cell::new(soil, 0) });
+            state.chain.first().copied().unwrap_or((64, 61))
+        };
+        let def = w.species.get(w.organism(ant).expect("live").species).creature.clone().expect("ant is a creature");
+        let viable: Vec<u8> = (0..8).collect();
+
+        // ARM A -- carrying, switch on: the pick must point upward, toward
+        // the door's row.
+        let mut draw = rng::Rng::default();
+        let pick = home_weighted_pick(&w, ant, &def, head, &viable, &mut draw, Some(1.0))
+            .expect("a laden ant below the door must pick a direction -- `None` here is the forage_anchor failure this arm exists to avoid");
+        let (dx, dy) = DIRS[pick as usize];
+        assert!(
+            dy < 0,
+            "picked ({dx}, {dy}): an ant at row {} hauling to a door at row {site_surface} must walk UP",
+            head.1
+        );
+
+        // ARM B -- switch off: no direction, and no draw consumed.
+        let mut a = rng::Rng::default();
+        let mut b = a.clone();
+        assert!(
+            home_weighted_pick(&w, ant, &def, head, &viable, &mut a, None).is_none(),
+            "unset must not steer -- `ant.ron` ships `home_bias: 0.0` and this ant has no crop"
+        );
+        assert_eq!(
+            a.unit_f32(),
+            b.unit_f32(),
+            "the off arm consumed an RNG draw: the default is then a re-seeded world, not a control, and every measurement taken before this switch existed is void"
+        );
     }
 
     #[test]
