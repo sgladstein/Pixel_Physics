@@ -5901,12 +5901,13 @@ per-seed median of **one**, and a rate built on one event per seed is
 consistent with *no effect* **and** with *an effect this bed cannot resolve*.
 Those are different findings and nothing here separated them.
 
-**Paid 2026-09-20, on the same bed, same harness, same 36 seeds**
-(`ant-navigation-plan-2026-09-20.md` §4b): switching on `CreatureDef::home_bias`
-moves `DELIVERED` from a median of **0 to 28** and `carry->nest` from 125.5 to
-254.5 at **32/2/0**. **So the instrument can see a large effect on this bed**,
-and the nulls in §7.47 and above are about the change rather than about the
-bar. Read the outcome columns with `scripts/trailpair.py`, which is this
+**Paid 2026-09-20, on the same bed, same harness, same 36 seeds, and on this
+very column** (`ant-navigation-plan-2026-09-20.md` §4b): switching on
+`CreatureDef::home_bias` moves `came back` from a per-seed median of **1 to
+2**, sign **21/9/6** and **22/7/7**, totals 58 → 80 → 95, with `carry->nest`
+— signed cells homeward — doubling at **34/2/0**. **So the bed can resolve a
+real effect on round trips**, and the nulls in §7.47 and above are about the
+change rather than about the bar. Read the outcome columns with `scripts/trailpair.py`, which is this
 script's sibling for the far side of the call.
 
 **Data:** the same `Reports/data/nose-geometry-36seed-2026-09-19.log` and the

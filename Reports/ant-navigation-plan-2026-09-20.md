@@ -260,56 +260,76 @@ seed. **`homebias=0.0` cannot be passed** — the harness asserts a rider must
 differ from the file — so the baseline arm is the one that omits it, which is
 also the proof the rider is wired.
 
+> **Read this table, not the one that stood here first.** The original §4b
+> headline was *"`DELIVERED` median 0 → 28"*, and `DELIVERED` is not a
+> provisioning measure. `trailfollow`'s own doc disqualifies it:
+> `CreatureStats::deliveries` increments on **any** drop while `at_nest`,
+> whatever was dropped and wherever it came from, and the harness proves it —
+> at gap 300 `near on` is **0 in all six seeds** (not one ant ever reached the
+> food) while `deliv on` reads 0, 0, 6, 4, 13, 10. **A change that drives
+> laden ants to the nest inflates that counter by construction.** Corrected
+> 2026-09-20 within the hour, against the ledger columns below. `CLAUDE.md`'s
+> worst-recurring failure, walked into while writing a plan that cites it.
+
 | | **0 (shipped)** | **0.5** | **1.0** |
 |---|---|---|---|
-| homeward tumble % | **0.00** | 5.64 — **36/0/0** | 10.48 — **36/0/0** |
-| **`DELIVERED`** med | **0** | **28** — 21/9/6 | 21.5 — 18/15/3 |
-| **`carry->nest`** med | 125.5 | 226 — 25/9/0 | 254.5 — **32/2/0** |
-| laden leg med | 1,253 | 2,260 — 23/10/3 | 2,527 — 23/12/1 |
-| `alive` med | 2.5 | 2.0 — 15/16/5 | 3.0 — 19/14/3 |
-| **`born`** med | **3.5** | 2.0 — 12/20/4 | 0.0 — **5/23/8** |
-| `starved` med | 14.0 | 15.0 — 16/18/2 | 15.0 — 13/18/5 |
+| homeward tumble % | **0.00** | 5.6 — **36/0/0** | 10.5 — **36/0/0** |
+| **`carry->nest`** (signed cells home) | 123.0 | 226.0 — 27/9/0 | 254.5 — **34/2/0** |
+| **`came back`** (round trips) | 1.0 | 2.0 — **21/9/6** | 2.0 — **22/7/7** |
+| `trips laden` | 1.0 | 1.0 — 18/8/10 | 1.0 — 19/9/8 |
+| `reached food` | 12.5 | 11.0 — 13/20/3 | 10.0 — 11/24/1 |
+| **`ate J`** (larder intake) | **8,367** | 7,098 — **15/21/0** | 5,586 — 15/20/1 |
+| `carry@nest` | 39,689 | 43,239 — 18/18/0 | 42,501 — 16/20/0 |
+| `born` | 3.5 | 2.0 — 12/20/4 | 0.0 — **5/23/8** |
+| `starved` | 14.0 | 15.0 — 16/18/2 | 15.0 — 13/18/5 |
 
-**1. The colony goes from delivering nothing to delivering something.**
-`DELIVERED`'s median is **0 at the shipped default and 28 at `home_bias =
-0.5`**, 21 seeds better of 30 non-ties (p ≈ 0.04). `carry->nest` doubles at
-25/9/0 (p ≈ 0.009), and at 1.0 reaches 32/2/0 (p < 0.0001). The laden leg
-median doubles. This is the return arm working.
+**1. The navigation claim holds, and it is large.** `carry->nest` is *signed
+cells, positive homeward* — a real displacement measure, not a proximity
+count — and it **doubles**, 123 → 226 at 27/9/0 and → 254.5 at **34/2/0**
+(p < 0.0001). The mechanism counter beside it reads 0.00 on the baseline and
+36/0/0 with the lever. **The ant genuinely gets home better.**
 
-**2. There is an interior optimum, and 1.0 is past it.** `DELIVERED` is
-**higher at 0.5 than at 1.0** (28 against 21.5) while `carry->nest` keeps
-rising — so above some value the ant is pressed home so hard it stops finding
-anything to bring. A dose-response with a peak is exactly the graded shape
-`CLAUDE.md`'s first law asks for, and it is the argument for Stage 3.
+**2. Round trips rise — the exact column §7.47 was null on.** `came back`
+median 1 → 2, sign **21/9/6** (p ≈ 0.04) and **22/7/7** (p ≈ 0.009); totals
+58 → 80 → 95. This is the first thing measured on this line that moves that
+number since `TRAIL_A_RHO = 0`.
 
-**3. The cost is founding, and it is only significant at 1.0.** `born` falls
-3.5 → 2.0 at 0.5 (12/20/4, p ≈ 0.18 — **not significant**) and 3.5 → 0.0 at
-1.0 (5/23/8, p ≈ 0.0005 — **clearly worse**). `alive` and `starved` are washes
-at both. So the pre-registered bar in Stage 1 — *the largest value whose
-`born` sign test is not worse* — lands on **0.5** without needing a judgement
-call.
+**3. And the colony is not better fed. This is the finding.** `ate J` — the
+larder intake from `ColonyBooks::diet()`, the measure the harness says the
+ledger cannot fool — goes **8,367 → 7,098 → 5,586**, *worse* in 21 and 20 of
+36 seeds. `carry@nest` is a dead coin flip at 18/18/0, and that is the exact
+counter `dead-ends.md` `[other:128]` names as the return leg's test. `reached
+food` falls (13/20/3, 11/24/1) — unsurprising, the ants are going home instead
+of searching.
 
-**4. The compass and the persistent plane compose; they do not substitute.**
-This was §4a's open question and the numbers answer it. Pre-repair, at
-`home_bias = 1.0`: `carry->nest` 64.5 → 216.5 and `DELIVERED` 0 → 6. On the
-current tree the *baseline itself* has doubled (64.5 → 125.5) from
-`TRAIL_A_RHO = 0` alone — and the compass still doubles it again, with
-`DELIVERED` reaching **28 rather than 6**. Had the compass merely been
-compensating for a dead plane, its advantage would have shrunk once the plane
-was fixed. It grew.
+> **So the return arm improves and the loop still does not close.** An ant
+> that walks home is not an ant that feeds the colony, and the gap between
+> those two sentences is now the whole problem. Three candidates, none yet
+> tested: the returning ants are not carrying larder food; they carry it but
+> drop it somewhere that does not book; or the lost search time costs more
+> food than the improved return recovers.
 
-**5. And this retires the open worry about the instrument.** §7.47 reported
-round trips "unmoved" for the sensor repairs from a table whose `came back`
-had a per-seed median of **one**, which is consistent with both *no effect*
-and *an effect the bed cannot resolve*. The positive control was owed and is
-now paid, on the **same bed, same harness, same seeds**: this change moves
-`DELIVERED` from 0 to 28 and `carry->nest` at 32/2/0. **The instrument can see
-a large effect, so §7.47's and §7.49's nulls are real nulls.**
+**4. The founding cost is real at 1.0 and marginal at 0.5.** `born` 3.5 → 2.0
+(12/20/4, p ≈ 0.18) and → 0.0 (5/23/8, p ≈ 0.0005).
 
-**What this run does not resolve:** only `{0, 0.5, 1.0}` were run on the
-current tree. The prior sweep's 0.1 and 0.25 rows hint the founding cost may
-be avoidable entirely — at 0.1 it read *better* on `born` — so the fine grid
-is Stage 1's job, not a conclusion here.
+**5. The compass composes with the plane fix rather than substituting.** §4a's
+open question. Pre-repair at 1.0, `carry->nest` went 64.5 → 216.5; on the
+current tree the baseline itself has doubled to 123 and the compass still
+doubles it again. Had it merely been compensating for a dead plane its
+advantage would have shrunk. **Caveat: the two trees also differ by the §7.47
+sensor repair and by `main`, so "the plane fix doubled the baseline" is an
+attribution this run cannot make** — only the composition claim is supported.
+
+**6. The control §7.47 owed is paid, and on the right column.** That section
+read "round trips do not move" off a table whose `came back` has a per-seed
+median of **one** — consistent with *no effect* and with *an effect the bed
+cannot resolve*. Same bed, same harness, same 36 seeds, `came back` here moves
+**21/9/6**. So the bed can resolve a real effect on that column, and §7.47's
+and §7.49's nulls are about the change rather than about the bar.
+
+**What this run does not resolve:** one bed (`refill=400`), one gap (90), and
+only `{0, 0.5, 1.0}`. 0.5 and 1.0 were each tested against baseline and
+**never against each other**, so "0.5 beats 1.0" is not established.
 
 ---
 
@@ -330,14 +350,46 @@ and leaves only the value open.**
   trade showed up only there, and §4b is one bed.
 - **Outcome** `DELIVERED` and `carry->nest`, paired within seed, with `born`
   and `alive` in the same table.
-- **The bar, pre-registered**: the largest value whose `born` sign test is not
-  significantly worse than baseline. **On the data in §4b that is `0.5`**, and
-  it is a real pick rather than a tie — 0.5 beats 1.0 on `DELIVERED` as well
-  as on `born`. If the fine grid puts 0.25 or 0.1 level with 0.5 on
-  `DELIVERED`, take the lower one: it leaves more of the outcome to the trail.
+- **The bar, pre-registered, and it is now two-sided.** §4b changed what this
+  stage has to clear: the largest value whose `born` sign test is not
+  significantly worse **and whose `ate J` is not worse than baseline**. On the
+  data in §4b **no value clears the second half** — 0.5 reads 15/21/0 on
+  intake — so *Stage 1 does not ship yet*. It ships when Stage 1b below finds
+  where the food goes, or when a lower `home_bias` takes the return leg
+  without the intake cost.
+- **Never read `DELIVERED`** for this or anything else on this line. Read
+  `ate J`, `came back` and `carry->nest`. The first version of this plan led
+  on `DELIVERED` and was wrong within the hour.
 - Add the **lab dial** and the **`wiki/ants.md` line**, both of which the
   review flags as missing, and a **README status section** before calling it
   done.
+
+### Stage 1b — Where does the food go? (new, and it now blocks Stage 1)
+
+§4b's finding is that **an ant that walks home is not an ant that feeds the
+colony**: `carry->nest` doubles at 34/2/0 while `ate J` falls at 15/21/0 and
+`carry@nest` is a coin flip. Three candidates, and they want different fixes,
+so they must be separated before anything ships:
+
+1. **The returning ants are not carrying larder food.** `Carrying` is
+   `crop_fill.max(spoil ? 1.0 : 0.0)` and `home_bias` is keyed on *crop fill*
+   specifically to avoid marching an ant home for dig tailings — but the
+   `trips laden` totals (28 → 44 → 54) against `came back` (58 → 80 → 95) say
+   under half of returns are laden at all. **Census what a returning ant
+   holds**, by material, at the moment it crosses the nest band.
+2. **They carry it home and it does not book.** `ate J` comes from
+   `ColonyBooks::diet()`; a drop that lands outside the band, or a crop that
+   empties into a corpse, books nowhere. Pair the drop counter with the diet
+   band per seed.
+3. **The search time lost costs more than the return gains.** `reached food`
+   falls 13/20/3. If most of the intake was always eaten *at* the larder
+   rather than carried, a change that pulls ants off the food is a net loss
+   however well they navigate — and that would make this a **scene** finding,
+   not a navigation one.
+
+The discriminator for (3) is free and should run first: split `ate J` by
+**where it was eaten**, at the larder against inside the nest band. The
+harness already books by material; this needs the position.
 
 ### Stage 2 — Weight by vector *length*, not only by crop fill
 

@@ -3036,9 +3036,15 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   that the wrong primitive, and **the right one was already in the tree and
   switched off** — `home_weighted_pick` reads an exact `forage_anchor` inside
   `tumble`, gated on `CreatureDef::home_bias`, which no species authors.
-  **Measured 2026-09-20, 36 seeds, paired within seed: `DELIVERED` median
-  0 → 28 and `carry->nest` 125.5 → 254.5 (32/2/0)**, with an interior optimum
-  — 0.5 beats 1.0 on deliveries — and a founding cost significant only at 1.0.
+  **Measured 2026-09-20, 36 seeds, paired within seed: `carry->nest` (signed
+  cells homeward) 123 → 254.5 at **34/2/0**, and round trips — the exact column
+  §7.47 was null on — median 1 → 2 at 21/9/6.** But **larder intake does not
+  follow**: `ate J` 8,367 → 7,098, *worse* in 21 of 36, and `carry@nest` a
+  coin flip at 18/18/0. So the return arm improves and the loop still does not
+  close, which is the finding. (A first version of this report led on
+  `DELIVERED` and was corrected within the hour: that counter increments on
+  any drop at the nest, so a change driving laden ants there inflates it by
+  construction — `CLAUDE.md`'s worst-recurring failure, in a plan citing it.)
   It **composes with** rather than substitutes for `TRAIL_A_RHO = 0`: the
   baseline doubled when the plane was fixed and the compass still doubled it
   again. Also pays the positive control §7.47's nulls were owed, on the same
