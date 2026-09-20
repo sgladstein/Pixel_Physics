@@ -12039,6 +12039,12 @@ fn step_flight(world: &mut World, organism: OrganismId, def: &CreatureDef) -> Ve
         return Vec::new();
     };
     state.energy -= spent;
+    if let Some(frac) = no_starve() {
+        // The airborne charge does not route through `apply_creature_energy`
+        // on this branch, so the floor is applied twice or it leaks exactly
+        // where a long run would find it.
+        state.energy = state.energy.max(def.start_energy * frac);
+    }
     if state.energy <= 0.0 {
         // **Told apart from the ordinary starvation below, deliberately.**
         // This is the idle charge levied while airborne, so the flight verb
@@ -14370,6 +14376,43 @@ fn spoil_is_cargo() -> bool {
     *ON.get_or_init(|| std::env::var("SPOIL_IS_CARGO").map(|v| v != "0").unwrap_or(true))
 }
 
+/// **A floor under every animal's bank, so a run can outlast a life.**
+///
+/// `PIXEL_PHYSICS_NO_STARVE=<0.0..=1.0>` holds energy at that fraction of the
+/// species' `start_energy` instead of letting it reach zero. Unset changes
+/// nothing and costs one `OnceLock` read.
+///
+/// **An artifice for harnesses, not a model.** `examples/digbox` has no food
+/// by construction -- that is the point of the box -- so `start_energy: 200`
+/// against `idle_cost_per_cell: 0.05` on a two-cell body buys 2,000 decision
+/// ticks, which at `tick_interval: 6` is **12,000 frames**. Asked for a
+/// 36,000-frame run, the colony was dead at 18,000 and the last four stops
+/// were byte-identical: 2,936 digs at frame 18,000 and 2,936 at 36,000. Three
+/// times the frames bought **28 digs**.
+///
+/// **Why a fraction and not a boolean**, which is the part worth reading.
+/// Energy funds budding, so an animal pinned at full charge *breeds*: at
+/// `ants=60` the colony already reached **167** by frame 6,000 unaided, and
+/// pinning it full would grow it back into the clump this switch was asked
+/// for in order to avoid. The fraction separates "does not die" from "breeds
+/// freely".
+///
+/// **What it changes, stated rather than buried.** `BrainInput::Energy` is a
+/// live input every species reads, so an animal held at a fixed charge does
+/// not behave like a hungry one. That is the intended effect -- a starving
+/// colony digs differently and this removes the confound -- but **no
+/// measurement taken under this switch is comparable with one taken without
+/// it**, and the two must never appear in the same table.
+fn no_starve() -> Option<f32> {
+    static FRAC: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *FRAC.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_NO_STARVE")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+            .filter(|v| (0.0..=1.0).contains(v))
+    })
+}
+
 /// Charge energy, reschedule or die. The chain-creature counterpart of
 /// `apply_energy_delta`.
 fn apply_creature_energy(world: &mut World, x: i32, y: i32, organism: OrganismId, delta: f32, def: &CreatureDef) -> Vec<ActiveSite> {
@@ -14377,6 +14420,12 @@ fn apply_creature_energy(world: &mut World, x: i32, y: i32, organism: OrganismId
         return Vec::new();
     };
     state.energy += delta;
+    // The floor, if a harness asked for one -- see `no_starve`. Applied here
+    // because this function's own doc calls it "the one place every credit and
+    // every charge passes through", so a floor anywhere else would leak.
+    if let Some(frac) = no_starve() {
+        state.energy = state.energy.max(def.start_energy * frac);
+    }
     let energy = state.energy;
     // **The high-water mark, taken here because this is the one place every
     // credit and every charge passes through.** Sampling it at the end of a
