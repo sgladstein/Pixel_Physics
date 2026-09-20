@@ -845,6 +845,156 @@ pub(crate) fn spoil_footing() -> bool {
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_SPOIL_FOOTING").as_deref() != Ok("off"))
 }
 
+
+/// **The ablation switch for the un-packing rule**, off by default.
+///
+/// `PIXEL_PHYSICS_UNPACK=on` makes [`unpack_orphans`] run. Unset, it returns
+/// before touching a cell, so every measurement taken before this existed
+/// still stands and an arm and its control run from one binary.
+pub(crate) fn unpack_rule() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_UNPACK").as_deref() == Ok("on"))
+}
+
+/// How often the pass runs. A support question is not urgent to the frame --
+/// what matters is that dirt does not stand in the sky for *minutes* -- and
+/// the cost is a flood fill over the bounded world, so this is the dial that
+/// prices it.
+pub(crate) const UNPACK_INTERVAL: u64 = 60;
+
+/// **An orphaned wall is not a wall.**
+///
+/// Owner playtest, 2026-09-20: *"there's a hole in the ground with weird
+/// floating spoil above it."* Measured on the plant-free `digbox` bed, where
+/// nothing else can be hanging in the air: **every** floating cell is
+/// `packedsoil` -- 76 of 76 at 300 ants, 20 of 20 at 40 -- and not one loose
+/// `spoil` pellet floats, so the `needs_footing` rule above works exactly as
+/// built and structurally cannot reach this.
+///
+/// **What puts it there.** `creature.rs`'s `line_burrow` relabels the eight
+/// neighbours of every dug cell that carry `packs_into` into `packedsoil`,
+/// which is `self_supporting` -- and that grant is permanent and never
+/// re-checked. An ant digs through its own heap, the loose soil around the
+/// dig becomes a *wall*, whatever it was resting on later slumps or is dug
+/// out, and the wall stays in the sky. Proven by ablation, one switch and
+/// nothing else changed: `PIXEL_PHYSICS_BURROW_LINING=off` takes floating
+/// from **76 to 0**.
+///
+/// **And the lining cannot simply be removed**, which is what decides the
+/// shape of this rule. Four seeds at 300 ants, roofed void against floating
+/// cells: lining on reads roofed 107/85/222/102 and floating 76/88/164/133;
+/// lining off reads roofed **16/28/12/24** and floating 0/0/0/1. The lining
+/// buys about **5x the roofed void** -- it is the whole reason a burrow is a
+/// place rather than a five-frame event -- and it is also the entire source
+/// of the dirt in the sky. One rule, both effects. So the repair is not to
+/// stop granting self-support; it is to stop the grant being *permanent*.
+///
+/// **Why this is connectivity and not another contact count.** The crumb
+/// rule above already erodes a worked cell with fewer than three contacts,
+/// and its own doc records why raising that number cannot work: *"a gallery
+/// roof and a hanging slab are the same shape -- both are worked ground with
+/// air beneath"*, the finding four successive support models produced. A 2x2
+/// block in mid-air sits at three contacts each and stands for ever. What
+/// separates a roof from an orphan is not shape at all, it is whether there
+/// is a **path down to the floor through ground** -- which is exactly the
+/// definition `examples/hangcensus` already censuses by, so the instrument
+/// and the rule now agree on what "hanging" means.
+///
+/// Reverts through `spoils_into` rather than to a name: an un-packed wall
+/// becomes the pellet it was, and `spoil` already knows how to fall.
+///
+/// **Bounded worlds only, and that is a real limitation rather than an
+/// oversight.** The seed is the world's own floor row, so an unbounded or
+/// streaming world (M10) has no floor to seed from and this returns without
+/// acting. Stated here rather than discovered later: a per-chunk version
+/// would have to reconcile at the seams, which is `CLAUDE.md`'s recurring
+/// root cause, and it is not worth paying before the rule has earned it.
+pub(crate) fn unpack_orphans(world: &mut World) {
+    if !unpack_rule() || !world.frame.is_multiple_of(UNPACK_INTERVAL) {
+        return;
+    }
+    unpack_orphans_now(world);
+}
+
+/// The pass itself, with the gate and the schedule lifted off it.
+///
+/// Split out so the guard can run it directly: `unpack_rule` is a `OnceLock`
+/// read once per process, so a test cannot toggle the switch, and a guard
+/// that cannot run the rule it is named for is the blind kind `CLAUDE.md`
+/// warns about rather than a weak one.
+pub(crate) fn unpack_orphans_now(world: &mut World) {
+    let Some(b) = world.bounds() else { return };
+    let (w, h) = ((b.max_x - b.min_x + 1) as usize, (b.max_y - b.min_y + 1) as usize);
+    if w == 0 || h == 0 {
+        return;
+    }
+    // Ground, on the censuses' own predicate: a non-organism `Powder` or
+    // `Solid`. Tissue and bodies are not footings -- a pellet posted into a
+    // canopy is held by leaves and one on an ant walks away, and both read on
+    // screen as exactly the dirt-in-the-air being reported.
+    let is_ground = |world: &World, x: i32, y: i32| {
+        let c = world.get(x, y);
+        c.material != material::EMPTY
+            && c.organism_id() == 0
+            && matches!(world.materials.kind(c.material), MaterialKind::Powder | MaterialKind::Solid)
+    };
+    let idx = |x: i32, y: i32| ((y - b.min_y) as usize) * w + (x - b.min_x) as usize;
+    let mut grounded = vec![false; w * h];
+    let mut stack: Vec<(i32, i32)> = Vec::new();
+    // Seed from the floor row. Iterative rather than recursive: a bed-wide
+    // sheet of ground is the normal case, not the exception.
+    for x in b.min_x..=b.max_x {
+        if is_ground(world, x, b.max_y) && !grounded[idx(x, b.max_y)] {
+            grounded[idx(x, b.max_y)] = true;
+            stack.push((x, b.max_y));
+        }
+    }
+    // Spelled here rather than borrowed from `creature.rs`, whose copy is
+    // private: support conducts through a diagonal contact exactly as it does
+    // through a face, and a 4-neighbour walk would call a diagonally-braced
+    // arch an orphan.
+    const RING_8: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
+    while let Some((x, y)) = stack.pop() {
+        for (dx, dy) in RING_8 {
+            let (nx, ny) = (x + dx, y + dy);
+            if nx < b.min_x || ny < b.min_y || nx > b.max_x || ny > b.max_y {
+                continue;
+            }
+            if !grounded[idx(nx, ny)] && is_ground(world, nx, ny) {
+                grounded[idx(nx, ny)] = true;
+                stack.push((nx, ny));
+            }
+        }
+    }
+    // Collected first, written second: the walk reads the same grid the
+    // writes would change, and reverting in place would let one orphan's
+    // removal decide the next one's answer within a single pass.
+    let mut orphans: Vec<(i32, i32, super::material::MaterialId)> = Vec::new();
+    for y in b.min_y..=b.max_y {
+        for x in b.min_x..=b.max_x {
+            if grounded[idx(x, y)] {
+                continue;
+            }
+            let cell = world.get(x, y);
+            if cell.material == material::EMPTY || cell.organism_id() != 0 {
+                continue;
+            }
+            let def = world.materials.get(cell.material);
+            if !def.self_supporting {
+                continue;
+            }
+            let Some(loose) = def.spoils_into else { continue };
+            orphans.push((x, y, loose));
+        }
+    }
+    for (x, y, loose) in orphans {
+        let mut cell = world.get(x, y);
+        cell.material = loose;
+        world.set(x, y, cell);
+        world.creature_stats.unpacked += 1;
+    }
+}
+
 fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, rightward: bool) -> bool {
     // Water first: a grain that is about to move should carry the moisture
     // it just absorbed with it, and `move_cell` copies the whole cell.
@@ -3035,6 +3185,99 @@ mod tests {
         assert!(!w.materials.get(w.get(50, 39).material).self_supporting, "...and what it became must not be self-supporting, or the lattice is legal again under another name");
         assert_eq!(w.get(50, 40).material, root, "...and it must come down without eating the plant it was sitting on");
         assert_eq!(w.get(40, 55).material, spoil, "a pellet standing on the bank is standing on something: if this arm goes red the rule is 'all spoil dissolves' and the heap is gone");
+    }
+
+    /// **The case the crumb rule documents that it cannot reach**, and the
+    /// case that must survive the repair.
+    ///
+    /// The contact rule above erodes a worked cell with fewer than three
+    /// contacts, and its own doc says why raising that number is not the fix:
+    /// *"a gallery roof and a hanging slab are the same shape -- both are
+    /// worked ground with air beneath"*. A 2x2 block in mid-air sits at three
+    /// contacts each and stands for ever. So this guard is built from exactly
+    /// that block, plus the two things the repair must not break: a lined
+    /// roof over a tunnel, and a block that is simply resting on the floor.
+    ///
+    /// Watched red both ways while it was written: with `unpack_orphans_now`
+    /// stubbed out the floater arm fails, and with the ground predicate
+    /// widened to count organism cells the roof arm still passes but a pellet
+    /// on tissue stops being an orphan -- which is why the predicate is
+    /// asserted here rather than only in the pass.
+    #[test]
+    fn an_orphaned_wall_unpacks_and_a_lined_roof_does_not() {
+        use super::super::chunk::Rect;
+        use super::super::world::World;
+
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let packed = w.materials.id_of("packedsoil").expect("packedsoil is compiled in");
+        let spoil = w.materials.id_of("spoil").expect("spoil is compiled in");
+        assert!(
+            w.materials.get(packed).self_supporting,
+            "the whole rule is that this grant is not permanent; if packedsoil is not self-supporting the arms below are vacuous"
+        );
+        assert_eq!(
+            w.materials.get(packed).spoils_into,
+            Some(spoil),
+            "an un-packed wall must revert to the pellet it was -- `spoil` is what already knows how to fall"
+        );
+
+        // A floor, which is what everything below is measured against.
+        for x in 0..64 {
+            w.set(x, 63, Cell::new(material::STONE, 0));
+        }
+        // ARM A -- a 2x2 block of worked wall in mid-air, touching nothing.
+        // Three contacts each, so the contact rule is satisfied and leaves it
+        // alone; there is no path to the floor, so this rule must not.
+        for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+            w.set(10 + dx, 20 + dy, Cell::new(packed, 0));
+        }
+        // ARM B -- a bank with a tunnel through it, roofed in worked wall.
+        // Every roof cell has air beneath it by definition; all of them reach
+        // the floor through the bank, so all of them must stand.
+        for x in 30..60 {
+            for y in 50..63 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        for x in 34..56 {
+            for y in 55..59 {
+                w.set(x, y, Cell::EMPTY); // the tunnel
+            }
+            w.set(x, 54, Cell::new(packed, 0)); // its lined roof
+        }
+        // ARM C -- worked wall resting on the floor. Specificity: a rule that
+        // clears the sky by clearing the ground has not fixed anything.
+        for dx in 0..2 {
+            w.set(20 + dx, 62, Cell::new(packed, 0));
+        }
+
+        super::unpack_orphans_now(&mut w);
+
+        for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+            assert_eq!(
+                w.get(10 + dx, 20 + dy).material,
+                spoil,
+                "ARM A: a worked block with no path to the floor is not a wall -- the cell at ({}, {}) stayed packed",
+                10 + dx,
+                20 + dy
+            );
+        }
+        for x in 34..56 {
+            assert_eq!(
+                w.get(x, 54).material,
+                packed,
+                "ARM B: a lined roof reaches the floor through its own bank and must stand -- column {x} un-packed, which is the tunnel collapse this rule exists not to cause"
+            );
+        }
+        for dx in 0..2 {
+            assert_eq!(
+                w.get(20 + dx, 62).material,
+                packed,
+                "ARM C: worked wall standing on the floor must be left alone"
+            );
+        }
+        assert_eq!(w.creature_stats.unpacked, 4, "the counter must say what happened -- a silent pass and a pass that found nothing look identical");
     }
 
     /// **A worked cell hanging on nothing is a crumb and falls; one that is

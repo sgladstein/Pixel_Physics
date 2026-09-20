@@ -2070,6 +2070,12 @@ pub struct CreatureStats {
     /// terrain around the parent and the other is a property of the
     /// engine's address space.
     pub births_denied_no_space: u64,
+    /// Cells the un-packing rule reverted from a worked wall to loose spoil
+    /// because nothing connected them to the floor any more. **The "did it
+    /// fire at all" counter** for `update::unpack_orphans` -- a rule that
+    /// silently never runs and a rule that runs and finds nothing produce the
+    /// same clean sky, and only this number tells them apart.
+    pub unpacked: u64,
     /// How many *distinct animals* have ever had a birth refused for want of
     /// room — the denominator [`Self::births_denied_no_space`] does not have.
     ///
@@ -5859,6 +5865,12 @@ impl World {
 
     pub fn step_active_sites(&mut self) {
         scheduler::step(self);
+        // **The un-packing pass**, gated and periodic -- see
+        // `update::unpack_orphans`. Hooked here rather than given its own
+        // per-frame method because `step_active_sites` already has 150 call
+        // sites and every one of them wants this; unset, it costs one
+        // `OnceLock` read.
+        super::update::unpack_orphans(self);
         // Mature organism cells are no longer on that schedule at all --
         // their upkeep runs here, once per organism. See
         // `plant::step_organisms`.
