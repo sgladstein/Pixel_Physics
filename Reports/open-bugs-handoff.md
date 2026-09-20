@@ -171,7 +171,7 @@ point.
 | Z28 | **OPEN** | 13197 | The moisture deposition preference was deleted rather than moved, and DropSpoil has no he... |
 | Z29 | **OPEN** | 13269 | An ant stands on its own freshest deposit, so the homing gradient reads "home is behind m... |
 | Z30 | **OPEN** | 13342 | filmstrip never steps the pheromone planes, so every scene it runs ants in shows a trail ... |
-| Z31 | **OPEN** | 13397 | field::step carries derived arrays forward over a settled chunk that still holds an un-ta... |
+| Z31 | **OPEN** | 13433 | field::step carries derived arrays forward over a settled chunk that still holds an un-ta... |
 
 <!-- END GENERATED INDEX -->
 
@@ -13391,6 +13391,42 @@ creature in it — including the ones other lanes are mid-way through judging.
 Whoever takes it should re-run `scripts/acceptance.sh` (structural scenes, so
 expected to be unaffected — verified green on this branch *without* the fix)
 and say so in the same commit.
+
+**CONFIRMED BY DIRECT MEASUREMENT, 2026-09-20, and it is worse than filed.**
+The census this section needed is now in `examples/trailfollow.rs` (`tr_align`):
+every laden decision binned by the angle between the ant's heading and its
+**exact home vector**. 8 seeds, ~500,000 decisions.
+
+| heading vs home | mean `along` | % positive |
+|---|---|---|
+| pointed **away** (−1.0..−0.6) | −0.24 | 3.9% |
+| pointed **at home** (+0.6..+1.0) | **−0.20** | **5.3%** |
+
+**Negative in every alignment bin, and facing home differs from facing away by
+0.04.** So the sensor carries essentially no information about which way home
+is — this section's claim, measured rather than argued.
+
+**The mechanism is structural, not a tuning fault.** `here` is the ant's own
+freshest deposit; `ahead` is six cells out and **70% of laden ticks put that
+sample in open sky or solid rock**, reading 0 after the §7.47 honesty gate. So
+the numerator is `(≈0 − own deposit)` — negative by construction. The ant is a
+moving point source on a plane where it is the brightest object.
+
+**And `PIXEL_PHYSICS_DEPOSIT_AT=vacated` is a partial remedy, not a fix.**
+Same census with it on: pointed-at-home −0.200 → **−0.162**, positive 5.3% →
+**7.0%**. Directionally right, still **93% wrong-signed**. Keep it as a
+component; do not close this on it.
+
+**What it implies, and it is the reason this matters beyond one bug.**
+Trail-reading is the *follower's* mechanism; path integration is the *layer's*
+(Beckers 1992, *discoverers lay, recruits follow*). A laden ant walking home
+**is the discoverer**, and it has been asked to navigate by reading the trail it
+is in the act of creating. Every repair to the reading has therefore failed to
+move the outcome — `TRAIL_A_RHO = 0` (§7.46), the nose honesty gate (§7.47),
+the temporal comparator (§7.48). The fix is to give the **home vector**
+authority over `Move`, which no signal in the animal currently has.
+
+**Data:** `Reports/data/align-census-8seed-2026-09-20.log`.
 
 ---
 

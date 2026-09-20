@@ -1877,6 +1877,25 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // discipline `onetrail::hold_gate_laden` uses, so it stays right if
     // `ant.ron` retunes the gate.
     let mut tr_carry_hist = [FillBin::default(); 10];
+    // **Does pointing at home actually produce a positive reading?** The one
+    // question that separates three candidate fixes, and nothing measured it.
+    //
+    // The compass (`home_weighted_pick`) aims the body from the exact home
+    // vector; `P(move)` is set by `PheroAAlong`, the trail gradient under the
+    // nose. They are different signals and they may disagree. Binned by
+    // alignment between the ant's heading and its home vector, -1..+1:
+    //
+    //   high alignment -> `along` POSITIVE      the trail points home; the
+    //                                           throttle simply will not act
+    //                                           on it (authority is the fix)
+    //   high alignment -> positive but TINY     the constant guard is crushing
+    //                                           it (fold-change is the fix)
+    //   high alignment -> `along` NEGATIVE      the trail does not point home
+    //                                           where ants walk; both of the
+    //                                           above are treating symptoms
+    //
+    // `(n, sum along, n with along > 1e-3, sum P(move))`.
+    let mut tr_align = [(0u64, 0.0f64, 0u64, 0.0f64); 5];
     let mut tr_gate_open = 0u64;
     // **The gate-open and gate-shut populations, pooled across gradient
     // direction** -- the paired arm for "does an open gate turn into homeward
@@ -2412,6 +2431,24 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 // The threshold is `creature::sense`'s own guard scale expressed
                 // back as an `along`: below this the reader is looking at two
                 // cells it cannot tell apart, so it is neither up nor down.
+                // **The alignment census** -- see `tr_align`. Guarded on a
+                // vector of at least one cell for the same reason
+                // `home_weighted_pick` is: standing on the anchor, every
+                // heading scores alike and the bearing is meaningless.
+                {
+                    let (anx, any) = s.forage_anchor;
+                    let (vx, vy) = ((anx - hx) as f32, (any - hy) as f32);
+                    let vlen = (vx * vx + vy * vy).sqrt();
+                    if vlen >= 1.0 {
+                        let (hdx, hdy) = creature::DIRS[s.heading as usize % 8];
+                        let align = (hdx as f32 * vx + hdy as f32 * vy) / vlen;
+                        let b = &mut tr_align[(((align + 1.0) * 2.5) as usize).min(4)];
+                        b.0 += 1;
+                        b.1 += along as f64;
+                        b.2 += u64::from(along > 1e-3);
+                        b.3 += p_move;
+                    }
+                }
                 let bucket = if along > 1e-3 {
                     &mut tr_up
                 } else if along < -1e-3 {
@@ -2868,6 +2905,23 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             // did not step, or stepped vertically, is neither, and that share
             // is the third thing the curve has to show. A bin where both rise
             // together is an ant moving MORE, not an ant moving home.
+            println!("    TRACE does pointing HOME give a POSITIVE reading? -- the three-way fix test, see `tr_align`:");
+            println!("      {:>12} {:>10} {:>11} {:>10} {:>9}", "heading vs home", "n", "mean along", "% positive", "P(move)");
+            for (i, b) in tr_align.iter().enumerate() {
+                if b.0 == 0 {
+                    continue;
+                }
+                let n = b.0 as f64;
+                println!(
+                    "      {:>12} {:>10} {:>11.4} {:>9.1}% {:>9.4}{}",
+                    format!("{:+.1}..{:+.1}", i as f32 / 2.5 - 1.0, (i + 1) as f32 / 2.5 - 1.0),
+                    b.0,
+                    b.1 / n,
+                    100.0 * b.2 as f64 / n,
+                    b.3 / n,
+                    if i == 4 { "   <- POINTED AT HOME: this row is the answer" } else { "" }
+                );
+            }
             println!("    TRACE response vs crop fill -- P(home) should CLIMB with fill; a step or a flat line is the defect:");
             println!("      {:>9} {:>10} {:>9} {:>9} {:>9} {:>13}", "fill", "n", "P(move)", "P(home)", "P(away)", "cells/tick");
             for (i, b) in tr_carry_hist.iter().enumerate() {
