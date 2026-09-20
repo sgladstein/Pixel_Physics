@@ -675,36 +675,21 @@ struct Arm {
     /// came of them is `P(home)` per crop-fill bin in the trace.
     tumbles: u64,
     tumbles_homeward: u64,
-    /// Cells put back down out of the crop. Read against `ate J`: a colony
-    /// that drops as fast as it picks up is forfeiting every meal, because
-    /// `digesting` is a timer the drop discards -- and `ant.ron` authors
-    /// `(AtNest, Drop, 1.0889)`, so *arriving home* is itself the trigger.
+    /// Cells put back down out of the crop.
     ///
-    /// **That "the drop discards it" is what `digest_parked` below repairs**,
-    /// and the pair is here rather than only in the engine because this
-    /// harness is where the claim gets quoted. §7.36's numbers for the
-    /// mechanism -- a forager 21 cells further home, dying with an empty crop
-    /// -- are downstream evidence, and a mechanism with no counter is one
-    /// nobody can prove ran.
+    /// **A drop no longer forfeits anything — 2026-09-20.** It used to: the
+    /// crop paid out in a 291-tick lump, so putting a cell down at tick 290
+    /// threw away the whole meal, and `digest_parked`/`digest_resumed` existed
+    /// to repair that by parking the remainder. Under the continuous payout
+    /// the animal has already been credited every joule it chewed, the cell
+    /// leaves at `unit - digesting`, and there is no remainder to park -- so
+    /// those three counters retired with the mechanism they measured.
+    ///
+    /// **Read it against the per-commute trace, never alone.** Measured 12
+    /// seeds, 240 ants: **1,998 of 2,132 laden legs are 12-frame pickups and
+    /// putdowns at the comb**, so this column is dominated by nest loitering
+    /// and a change can move it 64% while real commutes fall.
     drops: u64,
-    /// **Remainders parked when the last cell left the crop**, and the ones a
-    /// later bite of the same material resumed, with what they were worth.
-    ///
-    /// Read as a chain: `drops` is the opportunity, `digest_parked` is the
-    /// mechanism firing, `digest_resumed` is it paying off, and
-    /// `digest_resumed_face` is how much. Parked-without-resumed is a
-    /// remainder that expired unused -- the mechanism ran and bought nothing,
-    /// which reads identically to working code in every other number here.
-    digest_parked: u64,
-    digest_resumed: u64,
-    /// **Cumulative face value carried across a drop**, not joules saved. An
-    /// ant that parks the same progress, resumes it, and parks it again without
-    /// finishing the cell is counted twice, so this is a throughput figure and
-    /// overstates the stock. Read it for its order of magnitude against
-    /// `digest_resumed`: sub-joule per resume means the absorb site (bounded by
-    /// one tick's chewing) and nothing else; hundreds mean the drop site, which
-    /// is where the 290 ticks live.
-    digest_resumed_face: f64,
     /// **What the appetite gate withheld, against what the gut actually
     /// absorbed** -- the pair that says whether scaling the rate by hunger did
     /// anything. Held near zero with `digested_face` healthy means the colony
@@ -3502,9 +3487,6 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         tumbles: st.tumbles,
         tumbles_homeward: st.tumbles_homeward,
         drops: st.drops,
-        digest_parked: st.digest_parked,
-        digest_resumed: st.digest_resumed,
-        digest_resumed_face: st.digest_resumed_face,
         digest_appetite_held: st.digest_appetite_held,
         digested_face: st.digested_face,
         first_arrival,
@@ -3922,7 +3904,7 @@ fn main() {
                     // positive means it rises toward the NEST, which is §1c's
                     // prediction and the wrong way round for finding food.
                     println!(
-                        "{:>16}own trail: route pk {:>4} end {:>4} along {:>+7.4}  B nest->food [{}]  blocked {:>8}  kin swaps {:>7}  ticks {:>9}  tumbles {:>9} (homeward {:>8}, {:.2}%)  drops {:>7}  chew parked {:>6} resumed {:>6} ({:>9.0} J)  DELIVERED {:>5}  leg home n {:>4} med {:>5} p90 {:>5} (laden n {:>4} med {:>5} p90 {:>5})  appetite held {:>9.0} J of {:>9.0}  trips born-on-comb {:>4} ({} ants) / born-off {:>4} ({} ants)",
+                        "{:>16}own trail: route pk {:>4} end {:>4} along {:>+7.4}  B nest->food [{}]  blocked {:>8}  kin swaps {:>7}  ticks {:>9}  tumbles {:>9} (homeward {:>8}, {:.2}%)  drops {:>7}  DELIVERED {:>5}  leg home n {:>4} med {:>5} p90 {:>5} (laden n {:>4} med {:>5} p90 {:>5})  appetite held {:>9.0} J of {:>9.0}  trips born-on-comb {:>4} ({} ants) / born-off {:>4} ({} ants)",
                         "",
                         a.peak_cells,
                         a.live_cells,
@@ -3935,9 +3917,6 @@ fn main() {
                         a.tumbles_homeward,
                         if a.tumbles == 0 { 0.0 } else { 100.0 * a.tumbles_homeward as f64 / a.tumbles as f64 },
                         a.drops,
-                        a.digest_parked,
-                        a.digest_resumed,
-                        a.digest_resumed_face,
                         a.deliveries,
                         a.leg_n,
                         a.leg_med,

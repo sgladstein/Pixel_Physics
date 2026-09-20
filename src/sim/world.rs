@@ -1484,38 +1484,6 @@ pub struct CreatureStats {
     /// it is an exact identity where the old per-bite mean was an
     /// approximation.
     pub digested_face: f64,
-    /// **Times a part-chewed remainder was parked when its last cell left the
-    /// crop** -- the "it fired at all" counter for `OrganismState::digest_carry`.
-    ///
-    /// It exists because that mechanism is invisible in every other readout.
-    /// Parking a remainder and forfeiting one put the crop in the identical
-    /// state (`None`), so the numbers §7.36 quotes for it -- a forager that
-    /// reaches 21 cells further home and dies with an empty crop -- are
-    /// downstream evidence, not evidence the code ran. `CLAUDE.md`'s worked
-    /// case is a collapse that rendered as working chunks while the feature
-    /// had never once executed.
-    ///
-    /// Read against `digest_resumed` below, which is the far side of the same
-    /// call: parking without resuming is a remainder that expired unused, and
-    /// buys the forager nothing.
-    pub digest_parked: u64,
-    /// **Times a pickup resumed a parked remainder** -- the effect counter for
-    /// `digest_parked`, paired as `CLAUDE.md`'s timing rules ask.
-    ///
-    /// Strictly below `digest_parked`: a resume needs the *same material*, so
-    /// an ant that parks leaf progress and next picks up a corpse starts
-    /// fresh. A run where this stays 0 while `digest_parked` climbs means the
-    /// remainder never survives to the next bite, and the mechanism is
-    /// bookkeeping rather than food.
-    pub digest_resumed: u64,
-    /// **Joules of progress actually credited back by those resumes.**
-    ///
-    /// The quantity behind the count, because a resume is only worth what it
-    /// carries: forty resumes of 3 J each is a mechanism that fires
-    /// constantly and feeds nobody, and reads identically to forty resumes of
-    /// 600 J in `digest_resumed` alone. Face value on the same scale as
-    /// `digested_face`, so the two divide.
-    pub digest_resumed_face: f64,
     /// **Ticks on which the appetite gate scaled the gut** -- the "it fired"
     /// counter for `CreatureDef::digest_hunger_weight`, exactly 0 for every
     /// species that has not authored the field.
@@ -6503,8 +6471,6 @@ impl World {
         let fates = super::organism::FateGenome::from_table(self.species.get(species).fate_table());
         let state = OrganismState {
             fates,
-            // Nothing part-chewed at birth. See `OrganismState::digest_carry`.
-            digest_carry: None,
             // **The identity, stamped at the one allocation seam.** See
             // `OrganismState::born_frame`: the handle alone is not an
             // identity because slots are reused, and this is the term that

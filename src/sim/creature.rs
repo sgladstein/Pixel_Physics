@@ -4903,26 +4903,57 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     let digested = if digest_rate > 0.0 {
         let gut = gut_of(world, organism, def);
         world.organism(organism).and_then(|s| s.crop).map_or(0.0, |c| {
-            // **The remainder matures, then a whole cell is spent.** Nothing
-            // is credited while `digesting` is climbing -- it is a timer, not
-            // a stock -- so a cell is either standing in the crop, counted at
-            // face by `carried_meat`, or absorbed, credited at yield. There is
-            // never a fraction for the two censuses to disagree about.
-            let matured = c.digesting + digest_rate;
-            if c.unit <= 0.0 || matured < c.unit || c.cells == 0 {
-                // Still chewing, or nothing left to chew. Carry the progress.
-                if let Some(state) = world.organism_mut(organism) {
-                    // Progress is kept even with an empty crop, so an animal
-                    // that ingests again does not restart the clock and get a
-                    // free cell out of the timing.
-                    state.crop = Some(Crop { digesting: matured.min(c.unit.max(0.0)), ..c });
-                }
+            // **The cell pays out AS IT IS CHEWED, not in one lump at the
+            // end — 2026-09-20, owner's ruling.** It paid in a lump until
+            // then, on the accounting argument that a cell should be wholly
+            // in the crop or wholly in the body so `carried_meat` and the
+            // energy bank could never disagree about a fraction. That is a
+            // real hazard and it is solved by pricing the fraction instead:
+            // `Crop::worth()` now subtracts `digesting`, so the joules this
+            // animal has already been credited are no longer also counted as
+            // standing meat, and the live identity closes at every instant
+            // rather than only at cell boundaries.
+            //
+            // **What the lump cost, measured per ant per tick over 12 seeds
+            // and 129 real commutes.** One fruit cell is 960 J and this gut
+            // chews at 3.3 a tick, so the lump arrived **291 ticks** after
+            // pickup — and a commute on the gap bed is ~290. Of the ants that
+            // starved carrying food, **not one of 55 had held it long enough
+            // to be credited a single joule**: median 50 ticks held, against
+            // 64 ticks of life left at their own measured burn. They died of
+            // hunger holding a meal that was not food yet. And the third that
+            // did survive the walk absorbed the whole 960 J **one cell from
+            // the nest**, because arriving and maturing are the same clock.
+            //
+            // **It also dissolves a contradiction this file has been fighting
+            // in the open.** `digest_hunger_weight`'s note records that
+            // `digest_rate` sets two things at once — how fast an ant feeds
+            // itself and how long food survives its crop — and that the two
+            // brackets want values *five to ten times apart with no overlap*.
+            // The lump is what manufactures that gap: with one feeding event
+            // at tick 291, an animal that needs food in the next 50 ticks can
+            // be given none at any rate that also lets a cell survive the
+            // trip. Paid continuously, 50 ticks buys 165 J *and* leaves 83% of
+            // the cell to deliver, so partial time buys partial benefit on
+            // both sides and one rate serves both brackets.
+            //
+            // **The 2026-09-05 attempt is not this one, and the difference is
+            // the drop path.** An earlier continuous version was rebuilt away
+            // because it let digestion take the crop's remaining *face value*
+            // under one unit while the drop site required a whole unit to
+            // hand over — so a forager carried a stub it could never put down
+            // and deliveries went 1,128 -> 125. The guard there is now a cell
+            // COUNT (`held.cells > 0`), and the drop hands over
+            // `unit - digesting`, so a part-chewed cell is always droppable
+            // and leaves at what it is actually worth.
+            if c.unit <= 0.0 || c.cells == 0 {
                 return 0.0;
             }
             // The gut's filter applies here, where the food is actually
-            // absorbed -- the crop holds face value, and the difference
-            // between the two is the digestive loss `max_standing_meat`
-            // already carries as one-directional slack.
+            // absorbed -- the crop holds face value net of what has been
+            // eaten, and the difference between gross and net is the
+            // digestive loss `max_standing_meat` already carries as
+            // one-directional slack.
             let quality = diet_quality(world, c.material, gut.bias);
             // **The digestive overhead, priced per unit of throughput.**
             // A faster gut turns crop into body sooner *and* lightens the
@@ -4938,31 +4969,49 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             // `sum(state.energy)` and `expected_live_total` is why. Booking
             // the gross and subtracting afterwards would break it.
             let overhead = (def.digest_fraction * digest_rate).clamp(0.0, MAX_DIGEST_OVERHEAD);
-            let gain = c.unit * quality * (1.0 - overhead);
-            let left = c.cells - 1;
-            if let Some(state) = world.organism_mut(organism) {
-                // **An empty crop is `None`, remainder and all.** Keeping a
-                // maturing timer on a stomach with nothing in it made
-                // `crop.is_some()` mean "has eaten recently" rather than "is
-                // carrying something", and every laden readout in the tree
-                // asks it the second question -- `ascii` reported 18 ants
-                // carrying when none of them held a cell. There is no next
-                // cell for the timer to mature into, so it has nothing to
-                // measure. It cannot be gamed by dropping just before
-                // maturity either: that forfeits the progress *and* the meal,
-                // which is starvation rather than an exploit.
-                // **The remainder is parked, not discarded** -- see
-                // `OrganismState::digest_carry`. The comment above is still
-                // right that an EMPTY CROP must be `None`; what changed is
-                // where the timer lives when there is no crop to hold it.
-                let remainder = matured - c.unit;
-                state.crop = (left > 0).then_some(Crop { cells: left, digesting: remainder, ..c });
-                if left == 0 && remainder > 0.0 {
-                    state.digest_carry = Some((c.material, remainder));
-                    world.creature_stats.digest_parked += 1;
-                } else if left == 0 {
-                    state.digest_carry = None;
+            // **Never past the cell's own worth**, which is what keeps a joule
+            // from being credited twice: the tick that finishes a cell is paid
+            // only for the sliver that was left.
+            let lumpy = organism::digest_is_lumpy();
+            let progressed = digest_rate.min((c.unit - c.digesting).max(0.0));
+            let matured = c.digesting + progressed;
+            let finished = matured >= c.unit;
+            // **`PIXEL_PHYSICS_DIGEST=lump` is the pre-2026-09-20 arm**, kept so
+            // both behaviours come out of one binary. It pays the whole cell at
+            // maturity and nothing before it, which is the 291-tick cliff.
+            let gain = if lumpy {
+                if finished {
+                    c.unit * quality * (1.0 - overhead)
+                } else {
+                    0.0
                 }
+            } else {
+                progressed * quality * (1.0 - overhead)
+            };
+            let left = if finished { c.cells - 1 } else { c.cells };
+            if let Some(state) = world.organism_mut(organism) {
+                // **An empty crop is `None`.** Keeping a maturing timer on a
+                // stomach with nothing in it made `crop.is_some()` mean "has
+                // eaten recently" rather than "is carrying something", and
+                // every laden readout in the tree asks it the second question
+                // -- `ascii` reported 18 ants carrying when none of them held
+                // a cell.
+                //
+                // **And there is no remainder to park any more.** `progressed`
+                // is capped at what was left of the cell, so `matured` can
+                // never exceed `c.unit` and a finished cell leaves with
+                // `digesting` at exactly 0. That is what retired
+                // `OrganismState::digest_carry`: under a lump payout the
+                // overshoot was unspent progress worth keeping, and under a
+                // continuous one it cannot exist.
+                state.crop = (left > 0).then_some(Crop {
+                    cells: left,
+                    // Lumpy carries the overshoot to the next cell, because
+                    // under a lump it is progress that has been made and not
+                    // yet paid for. Continuous cannot overshoot at all.
+                    digesting: if finished { 0.0 } else { matured },
+                    ..c
+                });
             }
             // **The owner's rule, 2026-09-11: "where should the seed drop
             // when a creature picks up food -- it should drop where it is
@@ -9398,24 +9447,13 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // gut-filtered value would look like matter vanishing.
                 // The gut is applied when the food is absorbed, not when
                 // it is swallowed.
-                // **What a resume was worth**, hoisted out because
-                // `organism_mut` holds `world` and the counter lives on it.
-                // 0.0 for every pickup that did not resume anything, which is
-                // what `digest_resumed` must not count -- see its doc comment.
-                let mut resumed_face = 0.0f64;
+                // **Nothing to resume any more — 2026-09-20.** A parked
+                // remainder only meant something while the payout was a lump:
+                // progress that had been made and not yet paid for. Under the
+                // continuous payout the animal has already been credited every
+                // joule of `digesting`, so a new cell starts from 0 and
+                // `OrganismState::digest_carry` retired with the mechanism.
                 if let Some(state) = world.organism_mut(organism) {
-                    // **Resume whatever was parked for this material**, and
-                    // only onto an empty crop: a crop with cells already
-                    // carries its own `digesting` through `..c` below, and
-                    // adding a parked remainder on top would credit it twice.
-                    // Different material means start fresh -- the two have
-                    // different `unit`, and crediting one against the other
-                    // would mint joules.
-                    let resumed = match (state.crop, state.digest_carry) {
-                        (None, Some((m, d))) if m == food => d.min(worth),
-                        _ => 0.0,
-                    };
-                    resumed_face = resumed as f64;
                     state.crop = Some(match state.crop {
                         // **`unit` takes the min, not the last.** Corpses
                         // carry per-cell worth in `aux`, so a crop filled
@@ -9434,15 +9472,10 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                             shade,
                             unit: worth,
                             cells: 1,
-                            digesting: resumed,
+                            digesting: 0.0,
                             passenger,
                         },
                     });
-                    state.digest_carry = None;
-                }
-                if resumed_face > 0.0 {
-                    world.creature_stats.digest_resumed += 1;
-                    world.creature_stats.digest_resumed_face += resumed_face;
                 }
                 world.creature_stats.pickups += 1;
                 // `bites` mirrors `pickups` and never `eats` -- see
@@ -9567,37 +9600,37 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     } else {
                         world.set(dx, dy, unit.into_cell(world));
                     }
-                    // Same hoist as the pickup site: `organism_mut` holds
-                    // `world`, and `digest_parked` lives on it.
-                    let mut parked = false;
                     if let Some(state) = world.organism_mut(organism) {
-                        // The cell leaves whole; the maturing remainder stays,
-                        // because it is progress toward eating the *next* one
-                        // and clearing it would hand the animal a free restart.
                         // `passenger: None` unconditionally: either it was
                         // already empty, or it was just delivered above and
                         // must not be popped a second time by a later drop.
-                        let mut carry_over = None;
+                        // **The chewing leaves WITH the cell — 2026-09-20.**
+                        // `unit_cell` hands the ground `unit - digesting`,
+                        // because the rest is already in this animal's energy
+                        // bank under the continuous payout. Carrying
+                        // `digesting` forward across the drop, as `..c` used
+                        // to, would let the next cell inherit progress that
+                        // physically left with this one and the animal would
+                        // be paid for it twice. So it resets to 0, and there
+                        // is nothing left to park: `OrganismState::
+                        // digest_carry` retired in the same change.
+                        //
+                        // What the old note here was protecting -- "putting the
+                        // last cell down no longer forfeits the chewing", worth
+                        // 17 pickups and 2 meals on one forager (§7.34) -- is
+                        // no longer a loss to protect against. Under a lump
+                        // payout, unspent progress was real value; under this
+                        // one it has already been paid.
+                        let keep_chewing = organism::digest_is_lumpy();
                         state.crop = state.crop.and_then(|c| {
                             let left = c.cells.saturating_sub(1);
-                            // **Putting the last cell down no longer forfeits
-                            // the chewing.** `..c` already carried `digesting`
-                            // across a drop while cells remained; the loss was
-                            // only ever at `left == 0`, where the whole struct
-                            // went `None`. Measured cost of that edge:
-                            // 17 pickups and 2 meals on one forager (§7.34).
-                            if left == 0 && c.digesting > 0.0 {
-                                carry_over = Some((c.material, c.digesting));
-                            }
-                            (left > 0).then_some(Crop { cells: left, passenger: None, ..c })
+                            // Under the lump arm the cell leaves whole and the
+                            // chewing stays, because none of it has been paid
+                            // for yet. Under the continuous one it leaves at
+                            // `unit - digesting` and the progress goes with it.
+                            let digesting = if keep_chewing { c.digesting } else { 0.0 };
+                            (left > 0).then_some(Crop { cells: left, digesting, passenger: None, ..c })
                         });
-                        if let Some(cc) = carry_over {
-                            state.digest_carry = Some(cc);
-                            parked = true;
-                        }
-                    }
-                    if parked {
-                        world.creature_stats.digest_parked += 1;
                     }
                     world.creature_stats.drops += 1;
                     if at_nest {
@@ -25805,6 +25838,76 @@ mod tests {
         assert_eq!(crop.cells, 1, "test setup: digestion must actually have consumed a cell, or this proves nothing about the passenger");
         assert!(crop.passenger.is_some(), "digestion must not consume the passenger riding alongside the food it digests");
         assert_eq!(crop.passenger.map(|p| p.organism_id), Some(seed_id), "the surviving passenger must still be the same seed");
+    }
+
+    /// **A joule in the crop and a joule in the animal are the same joule, and
+    /// exactly one census may hold it.**
+    ///
+    /// This is the guard the continuous payout needs and **it did not exist**.
+    /// Digestion pays out as a cell is chewed since 2026-09-20, so the crop
+    /// must be priced net of what has been eaten (`Crop::worth`). Price it at
+    /// face and every chewed joule is counted twice -- once in the animal's
+    /// bank, once as standing meat -- which is the accounting hazard that kept
+    /// the payout lumpy for a year.
+    ///
+    /// **The three ledger guards are BLIND to that fault, measured by putting
+    /// it back**: with `worth()` restored to `unit * cells`,
+    /// `the_standing_meat_never_exceeds_what_was_put_into_it`,
+    /// `a_sealed_colony_never_grows_its_own_biomass` and
+    /// `the_energy_ledger_still_closes_when_a_colony_breeds` all stay **green**.
+    /// They bound the total one-sidedly against a ceiling with headroom in it,
+    /// and a sealed box's ants never carry enough crop to cross it --
+    /// `CLAUDE.md`'s *check that a guard's inputs actually vary what it
+    /// guards*. So this one asserts the identity directly, on one animal, over
+    /// ticks where the answer is arithmetic rather than emergent.
+    #[test]
+    fn a_part_chewed_cell_is_never_counted_twice() {
+        let mut w = test_world();
+        for x in 0..200 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        // **`corpse`, not `leaf`, and that is not a detail.** `carried_meat`
+        // counts only materials flagged `worth_in_aux`, and corpse is the only
+        // one in the tree -- so a crop full of fruit or leaf is never standing
+        // meat in the first place and the double-count this guards cannot
+        // arise for it. The hazard is real for carried flesh and only for
+        // carried flesh, which is worth knowing before anyone argues from the
+        // lump payout again.
+        let corpse = w.materials.id_of("corpse").expect("corpse.ron must be registered");
+        w.plant_ant(20, 100);
+        let ant = w.get(20, 100).organism_id();
+        assert_ne!(ant, 0, "the ant must have hatched, or this measures nothing");
+        let species = w.organism(ant).expect("live").species;
+        let def = w.species.get(species).creature.clone().expect("an ant is a creature");
+        // **One cell, worth far more than one tick of chewing**, so every tick
+        // below is a PART-chewed cell -- which is the only state this guard is
+        // about. A unit the gut finishes in one tick would never enter it.
+        let unit = digest_rate_of(&def, &traits_of(&w, ant, &def)) * 20.0;
+        w.organism_mut(ant).expect("live").crop = Some(Crop { material: corpse, cells: 1, digesting: 0.0, unit, shade: 0, passenger: None });
+
+        let standing0 = carried_meat(&w);
+        assert!(standing0 > 0.0, "test setup: the crop must be worth something, or the identity below is 0 == 0");
+        let mut last = standing0;
+        for tick in 1..=5 {
+            creature_tick(&mut w, 20, 100, ant, &def, &SpecWindow::default());
+            let crop = w.organism(ant).expect("live").crop.expect("five ticks must not finish a twenty-tick cell");
+            let standing = carried_meat(&w);
+            // **The cell is worth what is left of it.** Face value here is the
+            // fault: it would hold `standing` at `standing0` for all twenty
+            // ticks while the animal was being paid, and this assertion is
+            // what goes red for it.
+            assert!(
+                standing < last,
+                "tick {tick}: the crop still prices at {standing:.4} after being chewed from {last:.4} -- \
+                 a joule credited to the animal is being counted as standing meat as well"
+            );
+            let left = f64::from(unit - crop.digesting);
+            assert!(
+                (standing - left).abs() < 1e-3,
+                "tick {tick}: the crop prices at {standing:.4} but has {left:.4} of its {unit:.4} left unchewed"
+            );
+            last = standing;
+        }
     }
 
     /// **A2 -- a carried seed still decays on its own clock** (§2.5): the
