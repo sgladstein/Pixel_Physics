@@ -29,6 +29,7 @@ stands whatever is decided about shipping it.
 - [The outcome bar, read on the LOOP](#the-outcome-bar-read-on-the-loop--owners-ruling-2026-09-20)
 - [It is NOT a repeating loop](#it-is-not-a-repeating-loop-and-that-is-the-finding-that-matters)
 - [Yes, the ant eats its cargo on the way home](#yes-the-ant-eats-its-cargo-on-the-way-home--and-that-is-the-whole-economy)
+- [Where the loop is actually lost](#where-the-loop-is-actually-lost--and-it-is-not-the-anchor)
 - [Step 2: `vacated` is not attributable](#step-2-of-the-plan-deposit_atvacated-is-not-attributable-drop-it)
 - [What shipped, and what is open](#what-shipped-and-what-is-open)
 - [Reproducing the two arms](#reproducing-the-two-arms-which-changed-name-when-the-default-did)
@@ -181,6 +182,43 @@ lifespan limit is a loop through the economy rather than a bare constant:
 decision ticks, against a median homeward leg of 2,671 and 1,924. **In neither
 arm does the average ant live long enough to complete the leg it is on.** The
 ones that do are the tail.
+
+### Where the loop is actually lost — and it is NOT the anchor
+
+**The stall is at the drop, not the return.** Traced on one ant with the wire
+on: it covered the homeward leg in **186 laden ticks**, then spent **3,300 more
+inside its own nest band holding food with `P(drop)` exactly 0.0000** — 732 of
+them standing on its remembered home cell — and died there. `Drop` is a
+knife-edge on `AtNest`: 0.4886 when nest material is in reach of the head,
+**0.0000 otherwise at any crop fill, including a full one**. That ant had
+`AtNest` false for all 7,950 ticks of its life.
+
+**The knife-edge is deliberate and must not be loosened.** §Z28 measured
+deliveries **511 → 180** when any away-from-nest drop probability was added: an
+ant that may drop short of home does, and the longer the walk the likelier.
+
+**The obvious culprit was already known and is not the blocker.** §7.37
+(2026-09-18) established that `forage_anchor` is the **birth cell**, so nine of
+twenty founders born off the comb carry a private wrong home for life — the
+traced ant above is an independent reproduction of exactly that. But §7.37 also
+left the deciding question open, and **this session answered it** with the
+within-run control that splits loop completions by birth site:
+
+| | born **on** comb (anchor correct) | born **off** comb | paired |
+|---|---|---|---|
+| shipped | 5.4% | **7.3%** | 1/3/4 |
+| wire on | 33.3% | 23.5% | **3/3/2** |
+
+**A correct anchor does not buy a completed loop** — off-comb is slightly better
+shipped, and it is a dead heat with the wire. So the anchor is a real defect
+worth fixing on its own terms and **it is not what gates the loop**, exactly as
+§7.37 suspected. The two-thirds of food-finders that have a correct home and
+still fail are unexplained, and that is where the next measurement goes.
+
+**Do not start the granary on this.** Nothing banks a delivered cell (§7.28) and
+that is true — but it is downstream of a delivery step that fails for reasons
+not yet localised, so a granary would be tuned against a delivery rate that is
+about to move.
 
 ### Step 2 of the plan: `DEPOSIT_AT=vacated` is not attributable, drop it
 

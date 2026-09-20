@@ -754,6 +754,22 @@ struct Arm {
     loopers: usize,
     repeat_loopers: usize,
     max_loops: u32,
+    /// **The within-run control §7.37 asks for, and the test it says is next.**
+    /// That section established that nine of twenty founders are born off the
+    /// comb and carry `forage_anchor` = their birth cell for life, then says
+    /// plainly what it does *not* explain: *"those founders are born on the
+    /// comb, anchor correctly, and the loop still does not close for them. So
+    /// the anchor is a real defect and not, by itself, the blocker."*
+    ///
+    /// Splitting the loop count by birth site answers that inside one run,
+    /// which cancels seed, supply, gap and crowding together -- a narrow-bed
+    /// arm changes all four at once. If the two groups complete the loop at
+    /// the same rate the anchor is not what blocks it; if the born-on-comb
+    /// group runs away with it, it is.
+    loopers_on_comb: usize,
+    loopers_off_comb: usize,
+    reached_on_comb: usize,
+    reached_off_comb: usize,
     trips_laden: u64,
     trips_empty: u64,
     leg_n: usize,
@@ -3072,6 +3088,10 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         reached: tracks.values().filter(|t| t.visited).count(),
         returned: tracks.values().filter(|t| t.trips > 0).count(),
         loopers: tracks.values().filter(|t| t.trips_laden >= 1).count(),
+        loopers_on_comb: tracks.values().filter(|t| t.born_on_nest && t.trips_laden >= 1).count(),
+        loopers_off_comb: tracks.values().filter(|t| !t.born_on_nest && t.trips_laden >= 1).count(),
+        reached_on_comb: tracks.values().filter(|t| t.born_on_nest && t.visited).count(),
+        reached_off_comb: tracks.values().filter(|t| !t.born_on_nest && t.visited).count(),
         repeat_loopers: tracks.values().filter(|t| t.trips_laden >= 2).count(),
         max_loops: tracks.values().map(|t| t.trips_laden).max().unwrap_or(0),
         trips_laden: tracks.values().map(|t| u64::from(t.trips_laden)).sum(),
@@ -3397,6 +3417,17 @@ fn main() {
                         "", a.reached, a.ants_seen, a.returned, a.trips_laden, a.trips_empty,
                         a.loopers, a.ants_seen, 100.0 * a.loopers as f64 / a.reached.max(1) as f64,
                         a.repeat_loopers, a.max_loops
+                    );
+                    // **§7.37's within-run control.** Printed beside the total
+                    // rather than instead of it: the total is what moved, and
+                    // this is the split that says whether the anchor is why.
+                    println!(
+                        "{:>16}BY BIRTH SITE  born ON comb: {:>3} of {:>3} that reached food looped ({:>5.1}%) | born OFF comb: {:>3} of {:>3} ({:>5.1}%)",
+                        "",
+                        a.loopers_on_comb, a.reached_on_comb,
+                        100.0 * a.loopers_on_comb as f64 / a.reached_on_comb.max(1) as f64,
+                        a.loopers_off_comb, a.reached_off_comb,
+                        100.0 * a.loopers_off_comb as f64 / a.reached_off_comb.max(1) as f64
                     );
                     if !a.legs_raw.is_empty() {
                         let f = |v: &Vec<u64>| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
