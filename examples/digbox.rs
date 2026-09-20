@@ -1188,6 +1188,16 @@ fn main() {
             // few body lengths out and drop, so a small offset is correct
             // and a large one is not.
             let (mut floating, mut on_ant, mut sx, mut n) = (0i64, 0i64, 0i64, 0i64);
+            // **Which material is doing the floating**, because the repair
+            // already on `main` reaches exactly one of them. `spoil.ron`
+            // carries `needs_footing: true`, so a dumped pellet is a wall
+            // only while something is under it -- but a mound is mostly
+            // `packedsoil`, which is worked ground *cut in place* rather than
+            // a pellet and carries no such flag. If the floaters are packed,
+            // the landed repair cannot reach them and a second one is needed;
+            // if they are spoil, the flag is not doing its job. The lab-bed
+            // lane could not run this test because its floaters were plants.
+            let mut float_mat: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
             for x in 1..b.w - 1 {
                 for y in 0..b.surface {
                     let cell = world.get(x, y);
@@ -1199,6 +1209,7 @@ fn main() {
                     let below = world.get(x, y + 1);
                     if below.material == material::EMPTY {
                         floating += 1;
+                        *float_mat.entry(world.materials.get(cell.material).name.clone()).or_default() += 1;
                     } else if below.organism_id() != 0 && world.materials.kind(below.material) == MaterialKind::Creature {
                         on_ant += 1;
                     }
@@ -1210,6 +1221,15 @@ fn main() {
                 n - floating - on_ant,
                 centroid - b.w / 2
             );
+            {
+                let mut v: Vec<(String, usize)> = float_mat.into_iter().collect();
+                v.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+                let line: Vec<String> = v.iter().map(|(n, c)| format!("{n} {c}")).collect();
+                println!(
+                    "SUMMARY ...and what is floating, by material: {}   -- `spoil` carries needs_footing on main; `packedsoil` does not",
+                    if line.is_empty() { "nothing".to_string() } else { line.join(", ") }
+                );
+            }
         }
         println!("SUMMARY spoil standing in the world: {spoil_cells} cells, against {} pellets ever put down", st.spoil_dumped);
         // **Khuong's rule, priced where the decision is taken.** The
