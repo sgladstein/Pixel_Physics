@@ -5646,6 +5646,33 @@ is not the missing piece.** What a temporal read buys is that it works on
 terrain where the spatial one cannot; on this flat bed it is competing with the
 spatial read rather than covering for it.
 
+**SUPERSEDED 2026-09-20 — the owner reopened this and the mechanism was
+right; two things about the *build* were not.** Full account in
+[`ant-return-leg-result-2026-09-20.md`](ant-return-leg-result-2026-09-20.md);
+in one paragraph:
+
+- **The signal is real and is the best one in the engine.** Read off the plane
+  with no wiring, normalised, and bucketed by distance — because heading and
+  distance are correlated and an unbucketed raw-unit split reads **backwards**
+  — it separates pointed-home from pointed-away by **+0.05 to +0.19**, positive
+  in 7 of 8 cells, against the shipped spatial read's +0.0396. Strongest 45+
+  cells from home, where the spatial read has nothing.
+- **The level term is not cancellable by a constant, which this section
+  half-saw.** It records that the cancelling `w_in` "is not derivable, since it
+  depends on the level itself", and then picks one. Channel A's level runs
+  **3,283 on the nest doorstep against 493 at the larder — 6.7x across one
+  journey** — so that fit is correct at exactly one distance from home. `sense`
+  now does the subtraction and normalises it (`BrainInput::PheroARise`), which
+  is scale-free and leaves nothing to tune.
+- **`Move` was the wrong output.** Ungated it is a *nest tether*: channel A is
+  brightest at the nest, so an empty ant walking out reads a falling scent and
+  `Move` suppresses its step — ants reaching food **199 → 156**, p 0.0072
+  (`dead-ends.md` `other:135`). Gated on carrying food, as `HomeAligned` is,
+  that harm goes away.
+
+This section's re-test condition — *terrain the spatial read cannot handle* —
+was never met and was never what was wrong.
+
 ***Re-test when:*** the bed has terrain the spatial read genuinely cannot
 handle — a route up a trunk, or through a tunnel — which is where this
 mechanism's whole advantage lies and which no bed in this repo currently has.

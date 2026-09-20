@@ -6080,6 +6080,26 @@ pub struct OrganismState {
     /// See `forage_anchor`. Chebyshev cells, saturating; reset to 0 at every
     /// nest contact.
     pub forage_max: u16,
+    /// **A fading memory of the trail strength under this animal's own feet**,
+    /// in the same normalised units `sense` reads the plane in.
+    ///
+    /// It lives here rather than in a hidden unit because `sense` must stay
+    /// pure -- it is speculated and re-run under `ParMode::Verify`, and the
+    /// two calls have to agree -- so the *read* happens in `sense` and the
+    /// *update* once per tick beside `since_nest`. That split is the whole
+    /// reason this field exists; `brain_state` below would have served
+    /// otherwise.
+    ///
+    /// **Why a sensor and not a recurrent hidden unit**, which is what
+    /// 2026-09-19 tried: a hidden unit hands the brain two raw levels and asks
+    /// it to subtract them, so whatever the difference fails to cancel is a
+    /// *level* term. Channel A is a ramp, and measured over 58,522 laden ticks
+    /// its level runs **3,283 on the nest doorstep against 493 out at the
+    /// food** -- 6.7x across one journey. The fit that cancels the level term
+    /// does so at one value of the level, so it is correct at exactly one
+    /// distance from home. `sense` normalises instead, which is scale-free and
+    /// has nothing left to tune. See `brain::BrainInput::PheroARise`.
+    pub phero_a_mem: f32,
     /// Persisted hidden-layer activations, so recurrence has something to
     /// read. Zero for anything without a brain.
     pub brain_state: [f32; super::brain::BRAIN_HIDDEN],

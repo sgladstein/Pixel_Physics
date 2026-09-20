@@ -282,7 +282,7 @@ pub const INPUT_NAMES: [&str; BRAIN_INPUTS] = [
     "BloomBearing",
     "Stillness",
     "CarryingFood",
-    "PheroAHere",
+    "PheroARise",
     "HomeAligned",
 ];
 pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] = [
@@ -1009,12 +1009,41 @@ pub enum BrainInput {
     /// gradient with your body, so use time instead (Segall, Block & Berg 1986;
     /// Lazova et al. 2011).
     ///
-    /// **Normalised by `Scent::MAX`, like `PheroAFront`**, so a wire authored
-    /// against one reads sanely against the other. That makes the value small
-    /// (0.00004–0.22 in play), so a unit fed from it sits near zero — good for a
-    /// long memory, since `squash` is linear there and the recurrence alone sets
-    /// the half-life, but it needs a large output weight, as the odometer needed
-    /// 32.0.
+    /// **It is the DIFFERENCE, computed in the sensor, and that is the whole
+    /// repair — 2026-09-20.** This slot held the raw level (`PheroAHere`) from
+    /// 2026-09-19 until then, on the plan that a recurrent hidden unit would
+    /// hold the fading copy and the brain would subtract the two. Built and
+    /// measured over 36 seeds on two beds, that is a **null**
+    /// (`dead-ends.md` `other:132`, `pheromone-trail-direction-2026-09-16.md`
+    /// §7.48), and it stayed a null when re-run on the tree that ships
+    /// `(HomeAligned, Move, 3.0)`: `a`=32 takes closed laps 91 -> 81 and
+    /// drops 3,781 -> 2,291 over 24 paired seeds, `a`=8 is a coin flip.
+    ///
+    /// **The reason is a level term no constant can cancel.** Handing the brain
+    /// two raw levels to subtract leaves whatever the subtraction misses as a
+    /// function of how bright the plane is, and §7.48's own fit found the
+    /// cancelling weight is *not derivable* because it depends on that
+    /// brightness. It then picked one value of it. Measured 2026-09-20 over
+    /// 58,522 laden ticks, channel A's level runs **3,283 on the nest doorstep
+    /// against 493 out at the food — 6.7x across one journey** — so a constant
+    /// is correct at exactly one distance from home and worst near the nest.
+    ///
+    /// So `sense` does the subtraction and normalises it, exactly as
+    /// `PheroAAlong` already does for the spatial read:
+    /// `(live - lagged) / (live + lagged + guard)`, scale-free, nothing left to
+    /// tune. The fading copy lives on `OrganismState::phero_a_mem` because
+    /// `sense` must stay pure for `ParMode::Verify`.
+    ///
+    /// **The signal is real and it is the best one in the engine**, measured
+    /// off the plane with no wiring, bucketed by distance because heading and
+    /// distance are correlated. Separation between pointed-home and
+    /// pointed-away is **+0.05 to +0.19**, positive in 7 of 8 distance x moved
+    /// cells, against the shipped spatial reading's +0.0396 — and it is
+    /// strongest **45+ cells from home**, which is where the spatial read has
+    /// nothing. It is also immune to what killed the spatial repairs
+    /// (`other:134`): the animal's own mark sits on one side only of a
+    /// difference in *space*, and in both terms of a difference in *time*.
+    ///
     /// **Only channel A gets one, deliberately.** The obvious thing is to
     /// append `PheroBHere` beside it for symmetry, and it is the wrong trade:
     /// an input column costs `BRAIN_OUTPUTS + BRAIN_HIDDEN` = 24 live slots
@@ -1024,7 +1053,7 @@ pub enum BrainInput {
     /// rate_is_derived_from_it`). Paying that for a slot no measurement wants
     /// yet is paying for tidiness. The append stays lawful and cheap the day
     /// the food trail needs one.
-    PheroAHere = 31,
+    PheroARise = 31,
 
     /// **Cosine of the angle between the heading and the direction home**:
     /// `+1` walking straight at the nest anchor, `-1` straight away from it,
@@ -1466,7 +1495,7 @@ pub const INPUTS: [BrainInput; BRAIN_INPUTS] = [
     BrainInput::BloomBearing,
     BrainInput::Stillness,
     BrainInput::CarryingFood,
-    BrainInput::PheroAHere,
+    BrainInput::PheroARise,
     BrainInput::HomeAligned,
 ];
 /// See [`INPUTS`].
@@ -2245,95 +2274,22 @@ mod tests {
         }
     }
 
-    /// **What a temporal comparator actually sees, through `eval_brain` rather
-    /// than beside it.**
-    ///
-    /// The wiring under test, on the one hidden unit `ant.ron` leaves free:
-    ///
-    /// ```text
-    /// (PheroAHere, 7, w_in)     unit 7 = a fading memory of the smell
-    /// (7, w_rec)                the recurrence sets how far back "a while ago" is
-    /// (PheroAHere, Move, +a)    live   \  difference = d(smell)/dt
-    /// (7,          Move, -a)    lagged /
-    /// ```
-    ///
-    /// It drives that with the sequence a laden ant walking **up** the homing
-    /// ramp would read under its own feet, then the same walked **down**, then
-    /// standing **still** on a constant level -- which is the case that
-    /// separates a comparator from a level detector, and the one a fit that
-    /// only ever climbs cannot see.
-    ///
-    /// **Fitted here rather than simulated in a spreadsheet** for §Z5's reason:
-    /// that odometer was verified by side-simulation, the `W_EPS` gate was
-    /// never seen, and it shipped dead.
-    ///
-    /// `cargo test --release --lib -- --ignored --nocapture what_a_temporal_comparator_sees`
-    #[test]
-    #[ignore = "a readout, not an assertion -- cargo test -- --ignored --nocapture what_a_temporal_comparator_sees"]
-    fn what_a_temporal_comparator_sees() {
-        // `PheroAHere` is normalised by `Scent::MAX`, so a real trail reads
-        // 0.00004-0.22. The ramp below spans a plausible slice of that.
-        let up: Vec<f32> = (0..120).map(|t| 0.02 + 0.0015 * t as f32).collect();
-        let down: Vec<f32> = up.iter().rev().copied().collect();
-        let flat: Vec<f32> = vec![0.1; 120];
-        // **`w_in` is swept, not derived, because `squash` inside the loop
-        // makes the derivation wrong.** A unit-gain exponential average wants
-        // `w_in = 1 - w_rec`; measured, that settles the unit at **0.036 when
-        // its input is 0.100**, because `eval_brain` computes
-        // `h = squash(w_rec*h + w_in*live)` and the fixed point solves
-        // `h(1+h) = w_rec*h + w_in*live`. So `live - lagged` carries a level
-        // term 2.8x the size of the thing being measured, and the readout comes
-        // out a level detector wearing a comparator's wiring: UP/DOWN/STILL
-        // +0.66/+0.62/+0.67 at `w_rec` 0.98.
-        //
-        // The value that cancels it depends on the level itself
-        // (`w_in = 1 + live - w_rec`), so no constant is exact and the honest
-        // move is to find the one that makes STILL smallest while UP-DOWN
-        // survives.
-        //
-        // **UP-DOWN is the signal and STILL is the offset**, printed apart
-        // because their sum is what a single column would show and it hides
-        // which is which.
-        println!("  w_rec  w_in    a      UP-DOWN (the signal)   STILL (the offset it must beat)");
-        for w_rec in [0.95f32, 0.98, 0.995] {
-            for w_in in [1.0 - w_rec, 0.06, 0.12, 0.25, 0.5] {
-                for a in [8.0f32, 32.0] {
-                    let mut g = genome_from_wiring(
-                        &[],
-                        &[HiddenWire(BrainInput::PheroAHere, 7, w_in)],
-                        &[OutputWire(7, BrainOutput::Move, -a)],
-                        &[Recurrence(7, w_rec)],
-                    );
-                    g[io_slot(BrainInput::PheroAHere, BrainOutput::Move)] = a;
-                    let run = |seq: &[f32]| {
-                        let mut state = [0.0f32; BRAIN_HIDDEN];
-                        let mut inputs = [0.0f32; BRAIN_INPUTS];
-                        inputs[BrainInput::PheroAHere as usize] = seq[0];
-                        for _ in 0..400 {
-                            eval_brain(&g, &inputs, &mut state);
-                        }
-                        let mut sum = 0.0f32;
-                        for &v in seq {
-                            inputs[BrainInput::PheroAHere as usize] = v;
-                            let (out, _) = eval_brain(&g, &inputs, &mut state);
-                            sum += out[BrainOutput::Move as usize];
-                        }
-                        sum / seq.len() as f32
-                    };
-                    let (u, d, f) = (run(&up), run(&down), run(&flat));
-                    println!("  {w_rec:<6} {w_in:<7.3} {a:<6} {:+.4}                {:+.4}", u - d, f);
-                }
-            }
-        }
-        println!("  A comparator reads positive climbing, negative descending, and ~0 standing still.");
-        println!("  A level detector reads the same sign for UP and STILL -- that is the failure to look for.");
-        println!();
-        println!("  Read 2026-09-19: `w_in` 0.12 is where the level term cancels, at every `w_rec`.");
-        println!("  Best signal-to-offset is w_rec 0.995 / w_in 0.12 / a 32 -- signal +0.0968 against");
-        println!("  an offset of -0.0490, so the difference is about twice what it rides on.");
-        println!("  a=8 at the same w_in is cleaner (+0.0429 against -0.0127) and half the signal.");
-        println!("  Both are modest next to the homing pair, which moves P(move) 0.03 -> 0.75.");
-    }
+    // **`what_a_temporal_comparator_sees` was deleted 2026-09-20, with the
+    // input it read.** It drove the hidden-unit wiring -- `(PheroAHere, 7,
+    // w_in)`, recurrence `w_rec`, `(PheroAHere, Move, +a)`, `(7, Move, -a)` --
+    // through `eval_brain` and swept `w_in` for the value that cancels the
+    // level term. It cannot be run any more, because slot 31 no longer carries
+    // a raw level: `sense` now does the subtraction and normalises it
+    // (`BrainInput::PheroARise`), so there is no level term left for a fit to
+    // cancel and nothing for the readout to sweep.
+    //
+    // **Its findings are the reason the mechanism moved into the sensor, and
+    // they are kept** in `dead-ends.md` `other:132` and
+    // `pheromone-trail-direction-2026-09-16.md` §7.48: the textbook
+    // `w_in = 1 - w_rec` settles the unit at 0.036 on an input of 0.100, so
+    // `live - lagged` carried a level term 2.8x the signal; `w_in = 0.12`
+    // cancels it at every `w_rec` **and only at one value of the level**,
+    // which is the defect the sensor-side normalisation removes.
 
     fn odometer_curve(
         w_in: f32,
@@ -2728,7 +2684,24 @@ mod tests {
         // one existing weight moves. The manifest hashes the dimensions and
         // the ordered slot names, so appending a name at the end changes it
         // while every stored genome still means exactly what it meant.
-        assert_eq!(genome_manifest(), 2_947_005_114);
+        // **Moved again 2026-09-20 by `PheroAHere` -> `PheroARise`, and this
+        // one is a RENAME rather than an append.** Slot 31 stops carrying the
+        // raw trail level under the animal and starts carrying the normalised
+        // rate of change of it, computed in `sense` (`BrainInput::PheroARise`
+        // has the measurement). So:
+        //
+        // - `live_slots` does **not** move -- it stays 942 and no species'
+        //   `mutation_rate` is re-derived, because the column count is the
+        //   same. That is the whole reason this was done as a rename: the
+        //   alternative, appending a second column beside a dead one, costs 24
+        //   slots and moves every breeding scene from birth 1 for a slot
+        //   nothing reads. Nothing in the repo wires slot 31 -- checked across
+        //   all 21 species files -- so no authored genome changes meaning.
+        // - A stored genome's slot-31 weights now mean something different,
+        //   which is exactly what the manifest exists to catch, and it does:
+        //   any jar written before this refuses to load rather than being
+        //   silently reinterpreted.
+        assert_eq!(genome_manifest(), 4_147_102_827);
     }
 
     #[test]

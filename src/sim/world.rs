@@ -6612,6 +6612,10 @@ impl World {
             traffic_deferred: 0,
             forage_anchor: (0, 0),
             forage_max: 0,
+            // Zero is "no memory yet"; the first tick's read sees `live - 0`,
+            // which normalises to +1 and decays to the true reading within a
+            // few ticks. See `OrganismState::phero_a_mem`.
+            phero_a_mem: 0.0,
             brain_state: [0.0; organism::BRAIN_HIDDEN_FOR_STATE],
             genome: Vec::new(),
             shoot_top_y: None,

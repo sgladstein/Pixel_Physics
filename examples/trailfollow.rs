@@ -1497,50 +1497,33 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // solve for the `Bias` weight that produces it -- `squash` and `unit_scale`
     // between the author and the behaviour is exactly the gap this section's
     // headline bug lived in, and a rider quoting weights would reopen it.
-    // **The temporal comparator, as one rider.** `tcomp=a` installs the three
-    // weights that let an ant compare the smell under its own feet now against
-    // a fading memory of it:
+    // **The temporal reading, as two one-weight riders -- `arise=` into
+    // `Move` and `arisetumble=` into `Tumble`.**
     //
-    //   (PheroAHere, 7, w_in)     unit 7 = the memory
-    //   (7, w_rec)                the recurrence sets how far back
-    //   (PheroAHere, Move, +a)    live   \  difference = d(smell)/dt
-    //   (7,          Move, -a)    lagged /
+    // `BrainInput::PheroARise` is `(live - lagged) / (live + lagged + guard)`
+    // on the animal's own cell, computed in `sense`, so there is nothing to
+    // wire but the output weight. That replaces the 2026-09-19 `tcomp=` rider,
+    // which spent hidden unit 7 as the fading memory and asked the brain to
+    // subtract two raw levels -- measured null then, and still null on the
+    // tree that ships `(HomeAligned, Move, 3.0)`: a=32 takes closed laps
+    // 91 -> 81, a=8 is a coin flip. **Unit 7 is free again.**
     //
-    // **It needs no geometry**, which is the point: the sample is the animal's
-    // own cell, so it is right on flat ground, a slope, bark or a tunnel roof
-    // alike -- where every `sensor_offset` reading is right only when the
-    // heading happens to follow the surface (§7.47).
-    //
-    // `w_in` and `w_rec` are the fit from `brain.rs`'s ignored
-    // `what_a_temporal_comparator_sees`, run through `eval_brain` rather than
-    // simulated beside it. **0.12 is not `1 - w_rec`**, which is what the
-    // textbook unit-gain average wants: `squash` inside the recurrence settles
-    // the unit at 0.036 when its input is 0.100, so the naive value leaves a
-    // level term 2.8x the signal and the whole thing reads as a level detector.
-    // At 0.12 the level term cancels, and at `w_rec` 0.995 / `a` 32 the signal
-    // is +0.0968 against an offset of -0.0490.
-    if let Some(a) = arg::<f32>("tcomp") {
-        let w_rec: f32 = arg("tcompwrec").unwrap_or(0.995);
-        let w_in: f32 = arg("tcompwin").unwrap_or(0.12);
-        // Unit 7 is the only free hidden unit in `ant.ron`, and it is what the
-        // channel-B odometer riders claim -- arming both would have two
-        // mechanisms writing one unit and neither arm would be what it says.
-        assert!(
-            arg::<f32>("charb").is_none() && arg::<f32>("recurb").is_none() && arg::<f32>("emitb").is_none(),
-            "tcomp and the channel-B odometer riders both drive hidden unit 7; run them one at a time"
-        );
-        for (slot, w) in [
-            (brain::ih_slot(brain::BrainInput::PheroAHere, 7), w_in),
-            (brain::hh_slot(7), w_rec),
-            (brain::io_slot(brain::BrainInput::PheroAHere, O::Move), a),
-            (brain::ho_slot(7, O::Move), -a),
-        ] {
+    // **The two outputs are different mechanisms and the signs differ.**
+    // `Move` is how long a run lasts, so "the smell is improving" means step
+    // MORE and the weight is positive. `Tumble` is whether a failed step
+    // throws the current heading away for a random one, so "improving" means
+    // tumble LESS and the weight is negative -- which is the actual bacterial
+    // rule (Segall/Block/Berg 1986), and the one §7.48 never tried. **No ant
+    // genome in this repo authors a single weight into `Tumble`**, so that arm
+    // starts from the unauthored midpoint `unit_scale(0, 1.0) = 0.5`.
+    for (name, out) in [("arise", O::Move), ("arisetumble", O::Tumble)] {
+        if let Some(w) = arg::<f32>(name) {
             assert!(
                 w.abs() >= brain::W_EPS,
-                "tcomp weight {w} is inside W_EPS ({}), so eval_brain would skip it and this arm would be the shipped one",
+                "{name}={w} is inside W_EPS ({}), so eval_brain would skip it and this arm would be the shipped one",
                 brain::W_EPS
             );
-            genome[slot] = w;
+            genome[brain::io_slot(brain::BrainInput::PheroARise, out)] = w;
         }
     }
     // **`homewire=` -- the return leg's throttle**, `ant.ron`'s
@@ -2055,9 +2038,12 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     /// `[band][moved][homeward]` -> (ticks, sum of normalised exp-lag
     /// difference, ticks where it rose).
     const DIST_BANDS: [i32; 4] = [8, 20, 45, i32::MAX];
-    let mut tr_temporal = [[[(0u64, 0f64, 0u64); 2]; 2]; 4];
-    /// The `tcomp` rider's fitted recurrence, so the lag is the one the wiring
-    /// would actually give the brain rather than a new one.
+    let mut tr_temporal = [[[(0u64, 0f64, 0u64, 0f64); 2]; 2]; 4];
+    /// **The engine's own `PHERO_A_MEM_RECURRENCE`** (`creature.rs`, beside
+    /// `since_nest`), so this oracle lags exactly as `BrainInput::PheroARise`
+    /// does. It is restated rather than imported because `creature.rs` keeps it
+    /// private; if the two ever drift, this census stops describing the sensor
+    /// it was built to justify.
     const W_REC: f64 = 0.995;
     let mut tr_here_mem: std::collections::HashMap<u32, f64> = std::collections::HashMap::new();
     let mut tr_here_prev: std::collections::HashMap<u32, (pixel_physics::sim::pheromone::Scent, i32, i32)> =
@@ -2756,7 +2742,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     // NEW side only and does not cancel -- the same asymmetry
                     // that kills the spatial repair, arriving through the back
                     // door. The EXPONENTIAL memory is what the wiring actually
-                    // delivers (`tcomp`'s `w_rec`), and there the self-deposit
+                    // delivers (`PHERO_A_MEM_RECURRENCE`), and there the self-deposit
                     // is in both terms, so it can cancel. Measuring only the
                     // first would condemn a mechanism nobody proposed.
                     let mem = tr_here_mem.entry(id).or_insert(f64::from(here_a));
@@ -2777,6 +2763,14 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                             e.0 += 1;
                             e.1 += d;
                             e.2 += u64::from(d > 0.0);
+                            // **The LEVEL, per band, and it is the crux.**
+                            // §7.48's fit cancels the level term at one value
+                            // of the level; channel A is a ramp, so the level
+                            // is a function of distance from the nest. If it
+                            // varies across these bands, a constant `w_in`
+                            // cannot cancel it everywhere and the wiring is
+                            // correct at exactly one distance from home.
+                            e.3 += live;
                         }
                     }
                 }
@@ -3361,7 +3355,10 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 println!("    TRACE DOES SMELLING OVER TIME CARRY THE DIRECTION? -- `(live - lagged) / (live + lagged + guard)` on the ant's OWN cell,");
                 println!("      exponential lag {W_REC}, read off the plane with no wiring. Bucketed by distance from home, because heading and");
                 println!("      distance are correlated: an ant pointed away has usually just left the nest and stands in the bright end of the ramp.");
-                println!("      {:>14} {:>8} {:>9} {:>14} {:>9} {:>14} {:>12}", "distance", "state", "ticks", "along HOME", "ticks", "along AWAY", "separation");
+                println!(
+                    "      {:>14} {:>8} {:>9} {:>13} {:>9} {:>13} {:>12} {:>12}",
+                    "distance", "state", "ticks", "along HOME", "ticks", "along AWAY", "separation", "mean level"
+                );
                 let mut lo = 0;
                 for (bi, &hi) in DIST_BANDS.iter().enumerate() {
                     let label = if hi == i32::MAX { format!("{lo}+ cells") } else { format!("{lo}-{hi} cells") };
@@ -3372,9 +3369,10 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                             continue;
                         }
                         let (hm, am) = (h.1 / h.0 as f64, a.1 / a.0 as f64);
+                        let lvl = (h.3 + a.3) / (h.0 + a.0) as f64;
                         println!(
-                            "      {:>14} {:>8} {:>9} {:>+14.4} {:>9} {:>+14.4} {:>+12.4}",
-                            label, mname, h.0, hm, a.0, am, hm - am
+                            "      {:>14} {:>8} {:>9} {:>+13.4} {:>9} {:>+13.4} {:>+12.4} {:>12.1}",
+                            label, mname, h.0, hm, a.0, am, hm - am, lvl
                         );
                     }
                     lo = hi;
@@ -3382,6 +3380,9 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 println!("      SEPARATION IS THE COLUMN, and `moved` is the row that matters -- a frozen ant is watching its OWN");
                 println!("      deposit climb on a cell it never left, which reads as up-gradient while it goes nowhere.");
                 println!("      Compare against the spatial table above: that one separates +0.0617 at 6/12 on the shipped world.");
+                println!("      AND READ THE LEVEL COLUMN. Channel A is a ramp, so the level is a function of distance -- and §7.48's");
+                println!("      fit cancels the wiring's level term at ONE value of it (`w_in` 0.12). If the level moves across these");
+                println!("      bands, no constant `w_in` cancels it everywhere and the wiring is right at one distance from home.");
             }
             println!("      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at");
             println!("      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never");
@@ -3676,7 +3677,7 @@ fn main() {
     // a 1.84% open gate where the same command at the default reports 639,100
     // and 1.25%, and nothing in the header said why. Found 2026-09-18 by an
     // archived log failing to reproduce against a binary that was correct.
-    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill} stop={stop} homebias={} cropcap={} hungergate={} arho={} brho={} adiffuse={} tcomp={} tumble={} persist={} tumblegrad={} homewire={}", gate.name, arg::<f32>("homebias").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("cropcap").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("hungergate").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("arho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("brho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("adiffuse").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tcomp").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tumble").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("persist").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tumblegrad").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("homewire").map_or("shipped".to_string(), |v| format!("{v}")));
+    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill} stop={stop} homebias={} cropcap={} hungergate={} arho={} brho={} adiffuse={} arise={}/{} tumble={} persist={} tumblegrad={} homewire={}", gate.name, arg::<f32>("homebias").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("cropcap").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("hungergate").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("arho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("brho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("adiffuse").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("arise").map_or("off".to_string(), |v| format!("{v}")), arg::<f32>("arisetumble").map_or("off".to_string(), |v| format!("{v}")), arg::<f32>("tumble").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("persist").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tumblegrad").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("homewire").map_or("shipped".to_string(), |v| format!("{v}")));
     println!("  gate {}: off {:+.1}  on {:+.1}  along ±{:.1}", gate.name, gate.off, gate.on, gate.along);
     println!("  {LANDED_NOTE}\n");
 

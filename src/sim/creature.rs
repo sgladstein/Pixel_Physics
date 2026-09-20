@@ -4768,8 +4768,25 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         }
     }
 
+    // **The fading copy of the trail underfoot, advanced once per tick.**
+    // Read in `sense`, updated here, because `sense` is speculated and must
+    // stay pure -- see `OrganismState::phero_a_mem` and
+    // `brain::BrainInput::PheroARise`.
+    //
+    // `0.995` is §7.48's fitted recurrence, kept because the *lag* it sets was
+    // never the thing that failed; what failed was asking the brain to
+    // subtract two raw levels. At one tick per decision that is a half-life of
+    // about 138 ticks, which is roughly half a commute on the gap bed.
+    // The head AFTER whatever this tick did -- the same lookup the deposit
+    // block makes, and it has to be re-read here because `hx`/`hy` there are
+    // scoped to `if moved`.
+    let (mem_x, mem_y) = world.organism(organism).and_then(|s| s.chain.first().copied()).unwrap_or((x, y));
+    let phero_a_live = world.pheromone_at(Channel::A, mem_x, mem_y) as f32 / pheromone::Scent::MAX as f32;
+
     let mut rest_bout_ended = 0u16;
     if let Some(state) = world.organism_mut(organism) {
+        const PHERO_A_MEM_RECURRENCE: f32 = 0.995;
+        state.phero_a_mem = PHERO_A_MEM_RECURRENCE * state.phero_a_mem + (1.0 - PHERO_A_MEM_RECURRENCE) * phero_a_live;
         state.since_nest = state.since_nest.saturating_add(1);
         // **The other odometer, and the one that gives a rest an end.**
         // Reset by a step or a launch, counted up by anything else --
@@ -5201,13 +5218,47 @@ fn sense(
     // change to what happens *below* one old unit -- which is the entire
     // point of the widening. `CLAUDE.md`: when a fix changes what a number
     // means, re-deriving the constants that read it is part of the fix.
-    // **The concentration under the animal's own feet, with no geometry in
-    // it.** Every other pheromone input reads a cell `sensor_offset` away along
-    // the heading, which is what §7.47 found pointing at the sky six times in
-    // eight; an animal's own cell is somewhere a creature can be by
-    // construction, on flat ground, a slope, bark or a tunnel roof alike. See
-    // `brain::BrainInput::PheroAHere` for what it is for.
-    inputs[I::PheroAHere as usize] = world.pheromone_at(Channel::A, x, y) as f32 / pheromone::Scent::MAX as f32;
+    // **How fast the trail under the animal's own feet is RISING, with no
+    // geometry in it.** Every other pheromone input reads a cell
+    // `sensor_offset` away along the heading, which §7.47 found pointing at the
+    // sky six times in eight; an animal's own cell is somewhere a creature can
+    // be by construction, on flat ground, a slope, bark or a tunnel roof alike.
+    //
+    // **Normalised here rather than differenced in the brain, and that is the
+    // 2026-09-20 repair** -- `brain::BrainInput::PheroARise` carries the
+    // measurement. The same shape as `PheroAAlong` below, with *time* in place
+    // of *space*: a scale-free ratio, so the reading does not change meaning
+    // between the nest doorstep and the larder, where channel A's level differs
+    // **6.7x**.
+    //
+    // **The lagged term lives on the organism, not in a hidden unit**, because
+    // `sense` is speculated and re-run under `ParMode::Verify` and so must be
+    // pure. This reads `phero_a_mem`; the once-per-tick update sits beside
+    // `since_nest`. A fresh animal has `phero_a_mem == 0`, which reads `+1` for
+    // a tick or two and then settles -- deliberate, and the same "no history
+    // yet" convention `Stillness` uses.
+    //
+    // **Zero unless the animal is carrying food, and that gate is measured
+    // rather than tidy.** Ungated, wired `(PheroARise, Move, 3.0)`, it is a
+    // NEST TETHER: channel A is a ramp that is brightest at the nest, so an
+    // EMPTY ant walking out to the larder is walking *down* it and reads a
+    // falling scent, which through `Move` suppresses the step. Measured over
+    // 24 paired seeds, that takes ants that ever reached the food from **199
+    // to 156** (4 seeds up, 17 down, p 0.0072) and cells carried homeward from
+    // 9,560 to 7,129 (5/19, p 0.0066) -- a significant harm, not a null. A
+    // homing gradient has nothing to say to an ant that is not going home, and
+    // the same gate for the same reason sits on `HomeAligned` below.
+    {
+        let carrying = world.organism(organism).is_some_and(|st| st.crop.is_some_and(|c| c.cells > 0));
+        inputs[I::PheroARise as usize] = if carrying {
+            let live = world.pheromone_at(Channel::A, x, y) as f32 / pheromone::Scent::MAX as f32;
+            let lagged = world.organism(organism).map_or(0.0, |st| st.phero_a_mem);
+            let g = pheromone::SCALE as f32 / pheromone::Scent::MAX as f32;
+            (live - lagged) / (live + lagged + g)
+        } else {
+            0.0
+        };
+    }
 
     let guard = pheromone::SCALE as f32;
     // **A sample that landed nowhere reports NO INFORMATION, not "not that
