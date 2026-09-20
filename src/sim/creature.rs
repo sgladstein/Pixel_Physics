@@ -5219,11 +5219,74 @@ fn sense(
         || raw_ahead[0] > 0
         || raw_ahead[1] > 0
         || trail_could_be_here(world, px, py);
+    // **The far sample, for the two-forward comparator.** Taken through the
+    // same helper as the near one so the two cannot drift apart, and so
+    // `sense_read_rects` can derive its rect from the same call rather than
+    // restating the geometry -- the mistake that function's own comment warns
+    // about.
+    let (fx2, fy2) = trail_sample_point(x, y, heading, so.saturating_mul(2), airborne, sensor_projected());
     for (channel, slot) in [(Channel::A, I::PheroAAlong), (Channel::B, I::PheroBAlong)] {
         inputs[slot as usize] = if readable {
-            let here = world.pheromone_at(channel, x, y) as f32;
-            let ahead = raw_ahead[channel as usize] as f32;
-            (ahead - here) / (ahead + here + guard)
+            // **Neither term is the animal's own cell** -- §Z29's third repair
+            // candidate, and the only one of the three that removes the defect
+            // rather than softening it. `here` is the ant's freshest deposit
+            // and the brightest thing in its neighbourhood, so `(ahead - here)`
+            // is negative whichever way it faces: -0.20 pointed at home against
+            // -0.24 pointed away, over 8 seeds and ~500k laden decisions.
+            // Comparing two cells AHEAD leaves the animal's own mark out of the
+            // arithmetic entirely.
+            //
+            // **`so` and `2*so`, measured rather than assumed**, over 24 seeds
+            // of laden ticks against four shorter pairs. The quantity that
+            // matters is SEPARATION -- `ant.ron` reads `along` through a
+            // mirrored gated pair (`PheroAAlong` at +6.0 and -6.0 into units
+            // 0/1), so the drive is monotonic in the reading and what steers is
+            // the gap between pointed-home and pointed-away, not the sign:
+            //
+            //   near/far   blind   home      away      separation
+            //      1/2      7.5%   -0.0432   -0.0508   +0.0076
+            //      1/3      7.2%   -0.0995   -0.1100   +0.0105
+            //      2/4      7.7%   -0.1187   -0.1249   +0.0062
+            //      3/6      8.3%   -0.1711   -0.1909   +0.0198
+            //      6/12    13.1%   -0.1992   -0.3019   +0.1027   <- this
+            //   shipped `(ahead - here)`  -0.2003   -0.2399   +0.0396
+            //
+            // **2.6x the shipped separation**, and the fear that killed it in
+            // advance did not survive measurement: §7.47 found the single
+            // sensor lands in sky or rock ~70% of ticks, so a pair needing TWO
+            // landings looked hopeless -- and both samples read zero on only
+            // **13.1%**, because the plane carries diffused value into cells no
+            // creature can stand in.
+            //
+            // **Still negative in both bins, and that is not the failure it
+            // looks like** -- see the mirrored pair above. It is also the
+            // honest limit of this repair: it widens the gap the brain reads
+            // and does not make the reading point home.
+            // **Channel A only, and the scoping is the whole correctness of
+            // this.** The defect is *the animal standing on its own freshest
+            // deposit*, and the two planes are not symmetric in who laid them:
+            // an ant emits A continuously from the `AtNest` odometer
+            // (`(4, EmitA, 32.0)`) and emits B only while laden
+            // (`(CarryingFood, EmitB, 2.5)`). So for A the `here` term is the
+            // ant's own mark and the reading is negative by construction; for
+            // B, read by an EMPTY ant walking out to the food, `here` is
+            // somebody else's trail and the subtraction is doing its job.
+            //
+            // **Measured, by getting it wrong first.** Applied to both channels
+            // -- the loop sweeps them together, which is `CLAUDE.md`'s *adding
+            // a member to a set something sweeps enrols it in every rule over
+            // that set* arriving as a one-line edit -- the outbound leg
+            // collapsed outright: **0 ants reached food in all 24 seeds**,
+            // against 7-10 of 20 shipped. Units 2/3 read `PheroBAlong` gated on
+            // NOT carrying food, so rewriting B's reading is rewriting how an
+            // empty ant follows the food trail.
+            let comparator = trail_read_is_forward() && matches!(channel, Channel::A);
+            let (near, far) = if comparator {
+                (raw_ahead[channel as usize] as f32, world.pheromone_at(channel, fx2, fy2) as f32)
+            } else {
+                (world.pheromone_at(channel, x, y) as f32, raw_ahead[channel as usize] as f32)
+            };
+            (far - near) / (far + near + guard)
         } else {
             0.0
         };
@@ -6102,7 +6165,13 @@ pub struct SensedAhead {
 const MOISTURE_GRADIENT_SPAN: i32 = 4;
 
 /// The body ring, the head's discs, and one per off-body pheromone sample.
-const SENSE_RECTS: usize = 5;
+/// **Six since 2026-09-20**, for the two-forward comparator's far sample at
+/// `2 * sensor_offset` (`trail_read_is_forward`). A sample `sense` reads and
+/// this function does not declare is a cell a neighbour can write without
+/// invalidating the speculation — a wrong world, only under parallelism, and
+/// silent. The rect is spent whether or not the switch is on, which costs one
+/// unused entry and cannot go stale against it.
+const SENSE_RECTS: usize = 6;
 
 /// **Where one `sense` read, split by which of the watch's three maps the
 /// reads belong to.** Three reaches, not one — see the section header.
@@ -6214,11 +6283,18 @@ fn sense_read_rects(
     // is what makes the two agree by construction rather than by review.
     // `(fx, fy)` is still read, by `field_at_bilinear` for moisture, and is
     // covered by `field_rect` above, whose reach is `sensor_offset` on each
-    // axis — so it needs no rect of its own and `SENSE_RECTS` stays 5.
+    // axis — so it needs no rect of its own, and it is not one of the six.
     let airborne = state.flight.is_some();
     let forward = trail_sample_point(x, y, heading, so, airborne, sensor_projected());
+    // **The comparator's far sample, derived from the same helper `sense`
+    // uses** -- restating the geometry here is exactly how a declaration drifts
+    // from the read it is meant to cover. Declared unconditionally: the switch
+    // is a `OnceLock` read and a rect that appears only when it is on is a rect
+    // nobody tests with it off.
+    let forward_far = trail_sample_point(x, y, heading, so.saturating_mul(2), airborne, sensor_projected());
     for (sx, sy) in [
         forward,
+        forward_far,
         {
             let (dx, dy) = DIRS[((heading + AHEAD_LEFT) % 8) as usize];
             (x + dx * so, y + dy * so)
@@ -8210,6 +8286,15 @@ fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
 /// `PIXEL_PHYSICS_DEPOSIT_AT=vacated` moves it; anything else, including
 /// unset, keeps the shipped head deposit and is bit-identical. See the deposit
 /// site and `open-bugs-handoff.md` §Z29 for what it is for.
+/// **Whether `PheroAAlong` compares two FORWARD samples instead of
+/// `(ahead - here)`** — `PIXEL_PHYSICS_TRAIL_READ=fwd`. Unset keeps the shipped
+/// reading and is bit-identical. See the reading site and
+/// `open-bugs-handoff.md` §Z29 for the defect it removes.
+fn trail_read_is_forward() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_TRAIL_READ").as_deref() == Ok("fwd"))
+}
+
 fn deposit_at_vacated() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DEPOSIT_AT").as_deref() == Ok("vacated"))
@@ -24310,25 +24395,35 @@ mod tests {
             w.organism_mut(id).expect("live").heading = heading;
             let state = w.organism(id).expect("live").clone();
             let fp = sense_read_rects(&w, 100, 100, id, &def, &state);
-            let (px, py) = trail_sample_point(100, 100, heading, so, false, sensor_projected());
-            // **The SENSOR rects, not any rect, and the difference is the
-            // whole value of this guard.** Injected both ways: asserted over
-            // all of `rects` it stays green even with the declaration left on
-            // the old geometry, because the head rect happens to be wide enough
-            // for this species today -- `head` is the max of the crowding
-            // radius, the curvature radius and the eye, none of which is a
-            // promise about where the nose is. A species that evolved a smaller
-            // crowding radius would lose the coverage with nothing to say so.
-            // The contract is that the sensor rectangles cover the sensor
-            // points; anything else is a coincidence this file should not rest
-            // on.
-            let sensor_rects = &fp.rects[2..fp.used as usize];
-            let covered = sensor_rects.iter().any(|&(x0, y0, x1, y1)| px >= x0 && px <= x1 && py >= y0 && py <= y1);
-            assert!(
-                covered,
-                "heading {heading}: sense reads ({px},{py}) and the sensor rects declare {sensor_rects:?} -- \
-                 a neighbour could write that cell without invalidating the speculation"
-            );
+            // **Both samples, since 2026-09-20.** The near one at `so` and the
+            // comparator's far one at `2 * so`
+            // (`trail_read_is_forward`). Checking only the near one left this
+            // guard blind to the sample that was just added, which is
+            // `CLAUDE.md`'s *a guard test must be able to fail for the
+            // REPLACEMENT artifact* -- verified the way that rule asks, by
+            // dropping `forward_far` from the declared rects and watching this
+            // go red on every heading.
+            for reach in [so, so.saturating_mul(2)] {
+                let (px, py) = trail_sample_point(100, 100, heading, reach, false, sensor_projected());
+                // **The SENSOR rects, not any rect, and the difference is the
+                // whole value of this guard.** Injected both ways: asserted over
+                // all of `rects` it stays green even with the declaration left on
+                // the old geometry, because the head rect happens to be wide enough
+                // for this species today -- `head` is the max of the crowding
+                // radius, the curvature radius and the eye, none of which is a
+                // promise about where the nose is. A species that evolved a smaller
+                // crowding radius would lose the coverage with nothing to say so.
+                // The contract is that the sensor rectangles cover the sensor
+                // points; anything else is a coincidence this file should not rest
+                // on.
+                let sensor_rects = &fp.rects[2..fp.used as usize];
+                let covered = sensor_rects.iter().any(|&(x0, y0, x1, y1)| px >= x0 && px <= x1 && py >= y0 && py <= y1);
+                assert!(
+                    covered,
+                    "heading {heading}, reach {reach}: sense reads ({px},{py}) and the sensor rects declare {sensor_rects:?} -- \
+                     a neighbour could write that cell without invalidating the speculation"
+                );
+            }
         }
     }
 

@@ -2009,6 +2009,25 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     //   split by whether its heading points at the comb. A signal that exists
     //   and is invisible to its reader is what §Z29 already found once.
     let mut tr_smell: (u64, f64, f64, u64, u64) = (0, 0.0, 0.0, 0, 0);
+    // **Can a TWO-FORWARD-SAMPLE comparator read the homing plane?** §Z29's
+    // third repair candidate, never built: *"compare two forward samples (`so`
+    // and `2*so`) so neither term carries the animal's own mark"*. It removes
+    // `here` -- the ant's own freshest deposit -- from `(ahead - here)`, which
+    // is the whole of the defect.
+    //
+    // **Measured BEFORE building it, because it may not be able to work.**
+    // §7.47 found the single sensor at `so = 6` lands in open sky or solid rock
+    // on ~70% of ticks; a comparator needs TWO samples to land, and the literal
+    // `so`/`2*so` pair reaches 12 cells out on a two-cell animal. So the
+    // precondition is measured across candidate offsets first: a pair that is
+    // blind most of the time is not a repair however good its arithmetic.
+    //
+    // Per pair: [both-zero ticks, n pointed home, sum along home, n pointed
+    // away, sum along away]. Both-zero is "no information", which an average
+    // over `along` hides by reading 0.0 -- the exhausted-representation
+    // signature `CLAUDE.md` warns reads as a working-but-weak mechanism.
+    const CMP_PAIRS: [(i32, i32); 5] = [(1, 2), (1, 3), (2, 4), (3, 6), (6, 12)];
+    let mut tr_cmp: [(u64, u64, f64, u64, f64); 5] = [(0, 0, 0.0, 0, 0.0); 5];
     let mut tr_smell_along: (f64, u64, f64, u64) = (0.0, 0, 0.0, 0);
     let mut tr_drop_prev: std::collections::HashMap<u32, u8> = std::collections::HashMap::new();
     let mut tr_gate_open = 0u64;
@@ -2639,6 +2658,36 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 } else {
                     tr_drop_prev.remove(&id);
                 }
+                // **The comparator pre-check** -- every laden tick, for each
+                // candidate offset pair, what a two-forward-sample reading
+                // WOULD say. Read off the plane directly: this asks whether
+                // the signal is there to be had, not whether today's sensor
+                // sees it.
+                if carrying_larder {
+                    let (anx, any) = s.forage_anchor;
+                    let (vx, vy) = (anx - hx, any - hy);
+                    if vx != 0 || vy != 0 {
+                        let (hdx, hdy) = creature::DIRS[s.heading as usize % 8];
+                        let homeward = hdx * vx + hdy * vy > 0;
+                        let guard = f64::from(pixel_physics::sim::pheromone::SCALE);
+                        for (i, (near_off, far_off)) in CMP_PAIRS.iter().enumerate() {
+                            let near = f64::from(w.pheromone_at(Channel::A, hx + hdx * near_off, hy + hdy * near_off));
+                            let far = f64::from(w.pheromone_at(Channel::A, hx + hdx * far_off, hy + hdy * far_off));
+                            if near == 0.0 && far == 0.0 {
+                                tr_cmp[i].0 += 1;
+                                continue;
+                            }
+                            let along = (far - near) / (far + near + guard);
+                            if homeward {
+                                tr_cmp[i].1 += 1;
+                                tr_cmp[i].2 += along;
+                            } else {
+                                tr_cmp[i].3 += 1;
+                                tr_cmp[i].4 += along;
+                            }
+                        }
+                    }
+                }
                 {
                     let (anx, any) = s.forage_anchor;
                     let (vx, vy) = ((anx - hx) as f32, (any - hy) as f32);
@@ -3190,6 +3239,31 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     bn
                 );
                 println!("      A cue only works if BOTH lines are good: the plane has to carry it AND the nose has to see it.");
+            }
+            if tr_cmp.iter().any(|c| c.1 + c.3 > 0) {
+                println!("    TRACE WOULD A TWO-FORWARD-SAMPLE COMPARATOR READ THE PLANE? -- `(far - near) / (far + near + guard)`, neither term the ant's own cell:");
+                println!("      {:>10} {:>12} {:>14} {:>14} {:>10}", "near/far", "blind (both 0)", "along POINTED HOME", "along AWAY", "separation");
+                for (i, (n, f)) in CMP_PAIRS.iter().enumerate() {
+                    let c = tr_cmp[i];
+                    let tot = c.0 + c.1 + c.3;
+                    if tot == 0 {
+                        continue;
+                    }
+                    let home = if c.1 > 0 { c.2 / c.1 as f64 } else { 0.0 };
+                    let away = if c.3 > 0 { c.4 / c.3 as f64 } else { 0.0 };
+                    println!(
+                        "      {:>10} {:>11.1}% {:>14.4} {:>14.4} {:>+10.4}{}",
+                        format!("{n} / {f}"),
+                        100.0 * c.0 as f64 / tot as f64,
+                        home,
+                        away,
+                        home - away,
+                        if *f == 12 { "   <- Z29's literal suggestion" } else { "" }
+                    );
+                }
+                println!("      SEPARATION IS THE COLUMN. The shipped `(ahead - here)` reads -0.20 home against -0.24 away:");
+                println!("      a gap of 0.04 and NEGATIVE in both. A comparator earns its place by making that gap real");
+                println!("      AND by not being blind -- a pair that reads 0.0 most of the time is not a sensor.");
             }
             println!("      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at");
             println!("      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never");
