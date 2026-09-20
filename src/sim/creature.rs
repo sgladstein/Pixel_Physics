@@ -5062,17 +5062,33 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             } else {
                 world.book_meal(colony, Account::HarvestedPlant, c.material, gain as f64);
             }
-            world.creature_stats.digested_face += c.unit as f64;
+            // **PER TICK, not per cell -- and getting this wrong is what the
+            // three guards below caught on 2026-09-20.** These three lines
+            // book a per-CELL quantity, and under the lump payout they ran
+            // once per cell because the whole block did. Continuous payout
+            // runs the block every tick a crop exists, so `c.unit` booked
+            // here is the whole cell charged ~291 times over:
+            // `a_faster_gut_keeps_less_of_every_meal` read the overhead at
+            // **1,493.85 against an expected 50** and
+            // `the_eat_verb_pays_the_filter_not_the_face_value` read the
+            // absorbed share at **0.007**. Both are the per-cell figure
+            // divided by the ticks it takes to chew one. `progressed` is the
+            // tick's own share and sums to `c.unit` across the cell.
+            world.creature_stats.digested_face += progressed as f64;
             // **What the overhead ate, counted rather than inferred.** A loss
             // that only shows up as a smaller credit is indistinguishable
             // from food that was never eaten, and those want different
             // fixes. `CLAUDE.md`: pair every "it fired" counter with an
             // effect counter from the far side of the call.
-            world.creature_stats.digest_overhead_energy += (c.unit * quality * overhead) as f64;
-            // **One mouthful, one event.** Whole-cell consumption gives `eats`
-            // its old meaning back -- a bite -- where the continuous version
-            // had no events to count at all.
-            world.creature_stats.eats += 1;
+            world.creature_stats.digest_overhead_energy += (progressed * quality * overhead) as f64;
+            // **One mouthful, one event** -- fired when a cell is FINISHED,
+            // so `eats` keeps meaning "a bite" rather than "a tick of
+            // chewing". Under the lump payout reaching this line WAS
+            // finishing a cell; under continuous payout it is not, and
+            // counting ticks here would put `eats` up by the chew length.
+            if finished {
+                world.creature_stats.eats += 1;
+            }
             gain
         })
     } else {
@@ -26220,7 +26236,21 @@ mod tests {
     #[test]
     fn a_share_is_booked_on_both_sides() {
         let (mut w, _, _) = two_colony_bed();
-        run(&mut w, 12_000);
+        // **36,000 rather than 12,000 since 2026-09-20, and the reason is the
+        // positive control below rather than the equality above.** The graded
+        // crop feeds an ant as it chews instead of in one lump at tick 291, so
+        // nobody in this bed is ever as hungry as they used to be, and the
+        // CROSSING -- a share that leaves one colony's books and lands in the
+        // other's -- stopped happening inside 12,000 frames. The guarded
+        // equality stayed green throughout, which is exactly the case
+        // `CLAUDE.md` says to distrust: `0 == 0` passes it, and only the
+        // control says whether the bed still contains the thing being
+        // asserted. Tripling the budget restores it.
+        //
+        // If this needs raising again, do not weaken the control instead: a
+        // bed that no longer produces a cross-colony share is a bed that
+        // cannot test these two accounts, however green the sum looks.
+        run(&mut w, 36_000);
         let out: f64 = w.all_colony_books().iter().map(|b| b.get(Account::SharedOut)).sum();
         let into: f64 = w.all_colony_books().iter().map(|b| b.get(Account::SharedIn)).sum();
         assert!((out - into).abs() <= 1e-9 * out.abs().max(1.0), "{out:.6} shared out against {into:.6} shared in");

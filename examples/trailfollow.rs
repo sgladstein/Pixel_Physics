@@ -2852,10 +2852,11 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 }
                 if focal == Some(id) || in_cohort {
                     focal_rows.push(format!(
-                        "{id:?},{f},{hx},{hy},{dx},{},{},{along:.5},{:.5},{:.4},{:.4},{},{},{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.5},{:.5},{:.5},{:.5},{:.5},{:.5},{p_move:.5},{:.5},{trail:.5},{presquash:.5},{:.5},{:.5},{:.5},{tick},{is_tick},{here_a},{ahead_a},{sensor_kind}",
+                        "{id:?},{},{f},{hx},{hy},{dx},{},{},{:.5},{:.5},{along:.5},{:.5},{:.4},{:.4},{},{},{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.5},{:.5},{:.5},{:.5},{:.5},{:.5},{p_move:.5},{:.5},{trail:.5},{presquash:.5},{:.5},{:.5},{:.5},{tick},{is_tick},{here_a},{ahead_a},{sensor_kind}",
                         // **Where this ant thinks home is, and how stale that
                         // is** -- `OrganismState::forage_anchor` / `since_nest`.
                         //
+                        tracks.get(&id).map_or(0, |t| t.stage),
                         // Here because `home_bias` aims the tumble at the
                         // ANCHOR, not at the nest, and the two are only the
                         // same cell for an ant that has touched nest material.
@@ -2867,6 +2868,13 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                         // way, because the aim fired correctly both times.
                         s.forage_anchor.0,
                         s.since_nest,
+                        // **The two inputs the return leg now runs on**, so a
+                        // per-tick row can say whether the ant could see home
+                        // and whether the trail under it was rising. Without
+                        // them the brain columns describe a decision made on
+                        // numbers the row does not contain.
+                        tin[I::PheroARise as usize],
+                        tin[I::HomeAligned as usize],
                         tin[I::PheroAFront as usize],
                         tin[I::Carrying as usize],
                         // **`CarryingFood` is the column that decides the gate**
@@ -3505,7 +3513,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         if !focal_rows.is_empty() {
             let path = format!("/tmp/trailfollow-focal-seed{seed}-gap{gap}.csv");
             let mut out = String::from(
-                "id,frame,x,y,dx_home,anchor_x,since_nest,PheroAAlong,PheroAFront,Carrying,CarryingFood,crop_cells,spoil,heading,Energy,Crowding,AtNest,FoodAdjacent,Stillness,h0,h1,PheroBAlong,PheroBFront,h2,h3,p_move,p_tumble,trail_term,move_presquash,drop_urge,MoistureGrad,SurfaceCurvature,tick,is_tick,here_a,ahead_a,sensor_kind\n",
+                "id,stage,frame,x,y,dx_home,anchor_x,since_nest,PheroARise,HomeAligned,PheroAAlong,PheroAFront,Carrying,CarryingFood,crop_cells,spoil,heading,Energy,Crowding,AtNest,FoodAdjacent,Stillness,h0,h1,PheroBAlong,PheroBFront,h2,h3,p_move,p_tumble,trail_term,move_presquash,drop_urge,MoistureGrad,SurfaceCurvature,tick,is_tick,here_a,ahead_a,sensor_kind\n",
             );
             out.push_str(&focal_rows.join("\n"));
             out.push('\n');
