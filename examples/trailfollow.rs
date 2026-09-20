@@ -2028,6 +2028,40 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // signature `CLAUDE.md` warns reads as a working-but-weak mechanism.
     const CMP_PAIRS: [(i32, i32); 5] = [(1, 2), (1, 3), (2, 4), (3, 6), (6, 12)];
     let mut tr_cmp: [(u64, u64, f64, u64, f64); 5] = [(0, 0, 0.0, 0, 0.0); 5];
+    // **The temporal pre-check's four bins**, indexed
+    // `homeward + 2*moved`: [away&frozen, home&frozen, away&moved, home&moved].
+    // Per bin: [ticks, sum of d(PheroAHere), ticks where it rose, sum of the
+    // level]. The level is carried because a difference is only a gradient
+    // reading if it is not just tracking how bright the cell is -- the same
+    // level-term trap `brain.rs`'s fit found in the wiring (§7.48).
+    /// **The temporal pre-check, bucketed by DISTANCE FROM HOME and normalised
+    /// -- and the first cut of it was neither, which made it unreadable.**
+    ///
+    /// Measured 2026-09-20: split only by heading, a raw `d(PheroAHere)` in
+    /// scent units said an ant walking AWAY from home sees a bigger rise than
+    /// one walking toward it (`-483` separation over 58,522 ticks). It is a
+    /// confound, not a finding: the level column gave it away at **2,724
+    /// against 1,292**. An ant pointed home is typically FAR out in dim
+    /// country; an ant pointed away has typically just left the nest and is
+    /// standing in the brightest part of the ramp. The split was measuring
+    /// where the two groups stand, not what they can smell.
+    ///
+    /// Two repairs, both needed. **Bucket by distance**, so home and away are
+    /// compared where the plane is equally bright. And **normalise**, as
+    /// `PheroAAlong` and `tr_cmp` already do -- `(live - lagged) / (live +
+    /// lagged + guard)` is scale-free, so a band that is dim overall does not
+    /// read as a weaker mechanism.
+    ///
+    /// `[band][moved][homeward]` -> (ticks, sum of normalised exp-lag
+    /// difference, ticks where it rose).
+    const DIST_BANDS: [i32; 4] = [8, 20, 45, i32::MAX];
+    let mut tr_temporal = [[[(0u64, 0f64, 0u64); 2]; 2]; 4];
+    /// The `tcomp` rider's fitted recurrence, so the lag is the one the wiring
+    /// would actually give the brain rather than a new one.
+    const W_REC: f64 = 0.995;
+    let mut tr_here_mem: std::collections::HashMap<u32, f64> = std::collections::HashMap::new();
+    let mut tr_here_prev: std::collections::HashMap<u32, (pixel_physics::sim::pheromone::Scent, i32, i32)> =
+        std::collections::HashMap::new();
     let mut tr_smell_along: (f64, u64, f64, u64) = (0.0, 0, 0.0, 0);
     let mut tr_drop_prev: std::collections::HashMap<u32, u8> = std::collections::HashMap::new();
     let mut tr_gate_open = 0u64;
@@ -2688,6 +2722,64 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                         }
                     }
                 }
+                // **THE TEMPORAL PRE-CHECK -- does smelling over TIME carry
+                // the direction the spatial read cannot?** Owner's ruling,
+                // 2026-09-20: reopen §7.48. This is the precondition, asked the
+                // same way `tr_cmp` asks the spatial one -- off the plane
+                // directly, before any wiring -- because a signal the plane
+                // does not carry cannot be rescued by a gain.
+                //
+                // **The reason it is worth asking again is structural, not a
+                // retune.** `other:134` measured that every SPATIAL repair
+                // erodes the ramp it reads, because channel A is written by the
+                // same animals that read it. A difference between two cells at
+                // one instant keeps the animal's own mark on one side only; a
+                // difference of ONE cell across time has that mark on both
+                // sides, where a slowly-varying contribution cancels. The
+                // odometer's output moves at `recurrence 0.99995`, so the
+                // self-deposit is exactly that kind of term.
+                //
+                // Split three ways, because the confound is as interesting as
+                // the signal: pointed home against pointed away is the signal;
+                // MOVED against FROZEN is the confound, since an ant that does
+                // not step keeps depositing on the cell it is standing on and
+                // watches its own mark climb, which reads as up-gradient while
+                // it goes nowhere. `P(move)` is exactly 0 on 48-72% of laden
+                // ticks, so that arm is most of the data.
+                if carrying_larder && is_tick == 1 {
+                    let (anx, any) = s.forage_anchor;
+                    let (vx, vy) = (anx - hx, any - hy);
+                    // **Two lags, because they are different claims.** The
+                    // ONE-TICK difference is the harshest reading and the one
+                    // that exposes the self-deposit: an ant that steps deposits
+                    // on the cell it arrives at, so its own mark sits on the
+                    // NEW side only and does not cancel -- the same asymmetry
+                    // that kills the spatial repair, arriving through the back
+                    // door. The EXPONENTIAL memory is what the wiring actually
+                    // delivers (`tcomp`'s `w_rec`), and there the self-deposit
+                    // is in both terms, so it can cancel. Measuring only the
+                    // first would condemn a mechanism nobody proposed.
+                    let mem = tr_here_mem.entry(id).or_insert(f64::from(here_a));
+                    let lagged = *mem;
+                    *mem = W_REC * *mem + (1.0 - W_REC) * f64::from(here_a);
+                    let prev = tr_here_prev.insert(id, (here_a, hx, hy));
+                    if let Some((_, px_, py_)) = prev {
+                        if vx != 0 || vy != 0 {
+                            let (hdx, hdy) = creature::DIRS[s.heading as usize % 8];
+                            let homeward = usize::from(hdx * vx + hdy * vy > 0);
+                            let moved = usize::from((px_, py_) != (hx, hy));
+                            let dist = ((vx * vx + vy * vy) as f64).sqrt() as i32;
+                            let band = DIST_BANDS.iter().position(|&b| dist <= b).unwrap_or(3);
+                            let live = f64::from(here_a);
+                            let guard = f64::from(pixel_physics::sim::pheromone::SCALE);
+                            let d = (live - lagged) / (live + lagged + guard);
+                            let e = &mut tr_temporal[band][moved][homeward];
+                            e.0 += 1;
+                            e.1 += d;
+                            e.2 += u64::from(d > 0.0);
+                        }
+                    }
+                }
                 {
                     let (anx, any) = s.forage_anchor;
                     let (vx, vy) = ((anx - hx) as f32, (any - hy) as f32);
@@ -3264,6 +3356,32 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 println!("      SEPARATION IS THE COLUMN. The shipped `(ahead - here)` reads -0.20 home against -0.24 away:");
                 println!("      a gap of 0.04 and NEGATIVE in both. A comparator earns its place by making that gap real");
                 println!("      AND by not being blind -- a pair that reads 0.0 most of the time is not a sensor.");
+            }
+            if tr_temporal.iter().flatten().flatten().any(|b| b.0 > 0) {
+                println!("    TRACE DOES SMELLING OVER TIME CARRY THE DIRECTION? -- `(live - lagged) / (live + lagged + guard)` on the ant's OWN cell,");
+                println!("      exponential lag {W_REC}, read off the plane with no wiring. Bucketed by distance from home, because heading and");
+                println!("      distance are correlated: an ant pointed away has usually just left the nest and stands in the bright end of the ramp.");
+                println!("      {:>14} {:>8} {:>9} {:>14} {:>9} {:>14} {:>12}", "distance", "state", "ticks", "along HOME", "ticks", "along AWAY", "separation");
+                let mut lo = 0;
+                for (bi, &hi) in DIST_BANDS.iter().enumerate() {
+                    let label = if hi == i32::MAX { format!("{lo}+ cells") } else { format!("{lo}-{hi} cells") };
+                    for (mi, mname) in [(1usize, "moved"), (0usize, "frozen")] {
+                        let h = tr_temporal[bi][mi][1];
+                        let a = tr_temporal[bi][mi][0];
+                        if h.0 == 0 || a.0 == 0 {
+                            continue;
+                        }
+                        let (hm, am) = (h.1 / h.0 as f64, a.1 / a.0 as f64);
+                        println!(
+                            "      {:>14} {:>8} {:>9} {:>+14.4} {:>9} {:>+14.4} {:>+12.4}",
+                            label, mname, h.0, hm, a.0, am, hm - am
+                        );
+                    }
+                    lo = hi;
+                }
+                println!("      SEPARATION IS THE COLUMN, and `moved` is the row that matters -- a frozen ant is watching its OWN");
+                println!("      deposit climb on a cell it never left, which reads as up-gradient while it goes nowhere.");
+                println!("      Compare against the spatial table above: that one separates +0.0617 at 6/12 on the shipped world.");
             }
             println!("      READ THE TOP ROW'S SHARE. `(AtNest, Drop, 1.0889)` against `(Bias, Drop, -0.2)` puts P(drop) at");
             println!("      EXACTLY 0 anywhere below adjacency, at any crop fill. So a small top row means the ants never");
