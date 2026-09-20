@@ -64,8 +64,19 @@ fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
     })
 }
 
+/// A bare-word switch -- `digbox selftest`, `digbox materials`.
+///
+/// **Also accepts `key=1` and `key=true`**, because the bare form is not
+/// guessable from the `key=value` arguments beside it and a mistyped switch
+/// used to be a silent no-op: `materials=1` parsed as an unknown `key=value`,
+/// was ignored, and produced the ordinary sheet with no hint that the flag
+/// had not taken. `CLAUDE.md`'s *a knob nobody can tell is disconnected is a
+/// knob nobody can tell is disconnected* -- cheaper to accept both spellings
+/// than to debug the one that does nothing.
 fn flag(key: &str) -> bool {
-    std::env::args().skip(1).any(|a| a == key)
+    std::env::args().skip(1).any(|a| {
+        a == key || a == format!("{key}=1") || a == format!("{key}=true")
+    })
 }
 
 /// The box's geometry, in one place so the census and the builder cannot
@@ -91,6 +102,66 @@ impl Box2 {
 /// **Soil is placed `with_attached(true)`** exactly as `burrow_probe`'s bank
 /// is, so the fill starts settled rather than slumping for the first hundred
 /// frames and reading as excavation.
+/// **Every material in a bright colour of its own, with nothing blended.**
+///
+/// Owner, 2026-09-20, twice: *"what are all the gray pixels in the image?"*
+/// and then *"can you pseudo color every material type in a bright color with
+/// a legend so I can understand what exactly I am looking at"*. The shipped
+/// palette is the problem -- `soil`, `packedsoil` and `spoil` are three browns
+/// a few bytes apart, chosen to look like dirt, and at a contact-sheet zoom
+/// they are one colour. Every finding this line has made is about *which* of
+/// those three a cell is, and the render could not show it.
+///
+/// **A full replace, not a tint.** `CLAUDE.md` records a magnitude-scaled
+/// blend producing a canopy sheet that read as blank -- the ramp was red, wood
+/// is brown, and a mid value moved one colour byte from 139 to 155, so the
+/// obvious reading was "the mechanism is dead" and it would have sent a fix at
+/// working code. The colours below owe nothing to the cell's own.
+///
+/// The three that matter to the nest question are deliberately far apart:
+/// **`packedsoil` red** (the self-supporting wall that cannot fall),
+/// **`spoil` yellow** (the loose pellet that can), **`soil` blue** (bed that
+/// was never worked). How much of a mound is red *is* the floating-dirt
+/// finding, and on this palette it is visible rather than measured.
+///
+/// Anything not named here draws **white** and still gets a legend row, so a
+/// material nobody anticipated announces itself instead of hiding inside a
+/// neighbour's colour.
+fn material_colour(world: &World, cell: Cell) -> ([u8; 4], String) {
+    if cell.material == material::EMPTY {
+        return ([16, 16, 24, 255], "air".to_string());
+    }
+    let name = world.materials.get(cell.material).name.clone();
+    if cell.organism_id() != 0 && world.materials.kind(cell.material) == MaterialKind::Creature {
+        return ([0, 255, 140, 255], "ant".to_string());
+    }
+    let rgb = match name.as_str() {
+        "stone" => [110, 110, 122],
+        "soil" => [40, 110, 255],
+        "packedsoil" => [255, 45, 45],
+        "spoil" => [255, 210, 0],
+        "corpse" => [255, 120, 0],
+        "nest" => [255, 0, 220],
+        "water" => [0, 220, 255],
+        _ => [255, 255, 255],
+    };
+    ([rgb[0], rgb[1], rgb[2], 255], name)
+}
+
+/// Paint one stop from the cells rather than from the renderer.
+fn paint_materials(world: &World, b: &Box2, buf: &mut [u8], seen: &mut std::collections::BTreeMap<String, [u8; 4]>) {
+    for y in 0..b.h {
+        for x in 0..b.w {
+            let (rgba, name) = material_colour(world, world.get(x, y));
+            if name != "air" {
+                seen.insert(name, rgba);
+            }
+            let i = ((y * b.w + x) * 4) as usize;
+            buf[i..i + 4].copy_from_slice(&rgba);
+        }
+    }
+}
+
 fn build(b: &Box2) -> World {
     build_wet(b, material::SOIL_FIELD_CAPACITY)
 }
@@ -1036,6 +1107,11 @@ fn main() {
         None => (0..=frames).step_by((frames / 6).max(1) as usize).collect(),
     };
     let mut shots: Vec<Vec<u8>> = Vec::new();
+    // `materials=1` -- see `material_colour`. Off by default, because the
+    // shipped palette is what the game actually looks like and every other
+    // judgement on this sheet is made against it.
+    let pseudo = flag("materials");
+    let mut seen: std::collections::BTreeMap<String, [u8; 4]> = std::collections::BTreeMap::new();
 
     for f in 0..=frames {
         if f > 0 {
@@ -1065,8 +1141,12 @@ fn main() {
             if out.is_some() {
                 let (vw, vh) = (b.w as u32, b.h as u32);
                 let mut buf = vec![0u8; (vw * vh * 4) as usize];
-                let touched = world.take_touched_chunks();
-                renderer.draw(&world, &particles, &touched, &mut buf, (vw, vh), true);
+                if pseudo {
+                    paint_materials(&world, &b, &mut buf, &mut seen);
+                } else {
+                    let touched = world.take_touched_chunks();
+                    renderer.draw(&world, &particles, &touched, &mut buf, (vw, vh), true);
+                }
                 shots.push(buf);
             }
         }
@@ -1360,10 +1440,65 @@ fn main() {
         };
         let (cw, ch) = (cw.min(b.w - cx0).max(1), ch.min(b.h - cy0).max(1));
         let (tw, th) = (cw as u32, ch as u32);
-        let (sw, sh) = (tw * scale, th * shots.len() as u32 * scale);
+        // **The legend is drawn, not described.** A swatch the reader has to
+        // match against a sentence in another window is a colour-matching
+        // task; a labelled band is a picture that stands on its own, which is
+        // the whole point of the review protocol.
+        let lscale: i32 = 2;
+        let row_h = (pixel_physics::hud::GLYPH_HEIGHT * lscale + 6) as u32;
+        // **Only what is actually in frame.** `seen` is collected over the
+        // whole box, and the crop usually cuts the stone shell out -- a
+        // legend row for a colour that is not on the sheet is the same defect
+        // as a missing one, and this line exists because the first render had
+        // `stone` in its key and no stone in its picture.
+        let seen: std::collections::BTreeMap<String, [u8; 4]> = if pseudo {
+            let mut present: std::collections::BTreeSet<[u8; 4]> = Default::default();
+            for tile in &shots {
+                for y in cy0..(cy0 + ch) {
+                    for x in cx0..(cx0 + cw) {
+                        let i = ((y * b.w + x) * 4) as usize;
+                        present.insert([tile[i], tile[i + 1], tile[i + 2], tile[i + 3]]);
+                    }
+                }
+            }
+            seen.into_iter().filter(|(_, c)| present.contains(c)).collect()
+        } else {
+            seen
+        };
+        let legend_h = if pseudo && !seen.is_empty() { row_h * seen.len() as u32 + 8 } else { 0 };
+        let (sw, sh) = (tw * scale, th * shots.len() as u32 * scale + legend_h);
         let mut sheet = vec![0u8; (sw * sh * 4) as usize];
+        if legend_h > 0 {
+            for px in sheet.chunks_exact_mut(4).take((sw * legend_h) as usize) {
+                px.copy_from_slice(&[24, 24, 30, 255]);
+            }
+            for (n, (name, rgba)) in seen.iter().enumerate() {
+                let top = 4 + n as u32 * row_h;
+                // Swatch, then the name in the same colour -- so a reader who
+                // is matching by hue and one who is reading the word land on
+                // the same answer.
+                for yy in top..(top + row_h - 6).min(sh) {
+                    for xx in 6..(6 + row_h - 6).min(sw) {
+                        let i = ((yy * sw + xx) * 4) as usize;
+                        sheet[i..i + 4].copy_from_slice(rgba);
+                    }
+                }
+                // `draw_text_scaled` multiplies the coordinates it is given
+                // by `scale` (see `hud`), so these are glyph-space, not
+                // pixels. Passing pixels drew the rows at double spacing and
+                // ran the last three labels off the band.
+                pixel_physics::hud::draw_text_scaled(
+                    &mut sheet,
+                    (sw, sh),
+                    lscale,
+                    ((8 + row_h) as i32 / lscale, top as i32 / lscale),
+                    name,
+                    *rgba,
+                );
+            }
+        }
         for (i, tile) in shots.iter().enumerate() {
-            let y0 = i as u32 * th * scale;
+            let y0 = legend_h + i as u32 * th * scale;
             for y in 0..th {
                 for ry in 0..scale {
                     let dst_row = ((y0 + y * scale + ry) * sw * 4) as usize;
