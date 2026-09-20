@@ -534,6 +534,45 @@ of scale, genuinely hard to judge on a one-cell-wide twig. Pair every debug
 channel with a probe that prints the values (`examples/plant_probe.rs`),
 and reach for it the moment the question turns quantitative.
 
+### "Why did it do that" is answered by tracing individuals, never by a population statistic
+
+**Owner's rule, 2026-09-20:** *"The best tests are when you check the ants'
+brains at every tick that mattered and check every decision they made and
+why."* Stated about ants and it is not about ants: it holds for anything that
+decides per individual — a plant choosing where to put a bud, a rigid body
+choosing where to break.
+
+**The cost of not doing it, measured in one session on one question** (*is the
+homing anchor what stops the foraging loop?*): **three** population splits, all
+arithmetically correct, all invalid, each in a different way — one underpowered
+by an order of magnitude (it could not resolve under 22 points and a 10-point
+gap was read as "no effect"), one whose grouping variable was reset by the
+engine mid-run so the groups contaminated each other, one whose denominator
+counted a different *kind* of event on each side and came out **37x backwards**.
+Against that, **one** per-tick trace of **one** animal answered it immediately
+and was never wrong: 186 ticks to walk home, then 3,300 standing on its own
+doorstep at `P(drop)` exactly 0.0000.
+
+**The mechanism of the failure is that an aggregate cannot carry the reason.**
+A rate says *how often*; it cannot say *because the gate it needed was shut*. So
+every question of the form "why is this not working" is a trace question, and
+reaching for a split is how you spend a day proving something you then have to
+withdraw.
+
+**And the pairing rule does not save you here, which is why this is its own
+entry.** `Reports/pheromone-trail-direction-2026-09-16.md` §7.37 found
+`tumbles_homeward` at 1,150 of 15,291 where **every one was a correct aim at a
+wrong target**: the "it fired" counter and the effect counter beside it *both*
+reported a working mechanism, because the aim did fire and the body did move as
+aimed. Only the per-tick trace, once it carried the target, could see it.
+
+**Practically:** trace every individual that reached the state in question, not
+one focal animal — `examples/trailfollow.rs`'s focal CSV is one ant by
+construction, and one ant is an anecdote until the population trace agrees with
+it. Put the *inputs and the chosen output* in the row, not just the position:
+an animal walking confidently to the wrong place and one that will not steer at
+all produce identical position rows.
+
 ### "Did it fire at all" needs a counter, not a picture
 
 An image shows
