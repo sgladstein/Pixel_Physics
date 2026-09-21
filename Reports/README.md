@@ -3151,6 +3151,20 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   hand-laid ramp's 100%**, so no colony builds a nest-to-food trail in any seed.
   Three instruments, each with a positive control: `funnelpair.py`,
   `btrailchart.py`, `loopchart.py`.
+  **AND TWO RESULTS THAT CHANGE THE PICTURE, §7.** **The colony's own trail is
+  not weak, it is harmful**: silencing `EmitB` and changing nothing else
+  (`hmute`) takes second laps **87 → 182**, better in 19 seeds of 24, with every
+  stage improving. So the repeat rate happens *despite* channel B. The mechanism
+  is the **leg, not the strength or the lifetime** — `(CarryingFood, EmitB, 2.5)`
+  is the only writer, so an outbound ant lays none of it and channel B is a
+  record of where *laden* ants have been. Its duty cycle is **weakest exactly
+  where a recruit reads it**: 7.8% lit at the nest against 72% twenty cells out.
+  **And the levers do not extend range** — at gap 140 they *hurt* (reached food
+  down in 18 seeds of 24) and second laps are **zero in both arms at 140 and
+  200**, so §3's +42% improves the one distance the colony already survived and
+  buys nothing where recruitment would show. One confound declared: muting
+  zeroes a weight and `active_synapses` counts non-zero weights, so a muted ant
+  has one synapse less of tax.
 - [ant-navigation-plan-2026-09-20.md](ant-navigation-plan-2026-09-20.md)
   — **plan, 2026-09-20. `engine`.** The return arm does not work because the
   trail is wired to the wrong decision. An ant makes two separate choices per

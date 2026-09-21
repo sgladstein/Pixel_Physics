@@ -337,3 +337,85 @@ Three new instruments, each with a positive control:
 
 Review cards: `20260921T211003508Z-37b573` (the picture) and
 `20260921T212556849Z-ecbaf8` (the correction that supersedes its metric).
+
+---
+
+## 7. Measured after the gates went green, and both change the picture
+
+### 7a. The ants' own trail is not weak — it is harmful
+
+The owner's objection, 2026-09-21: *"they don't look right, but we also know
+that 25% of ants are reaching the food a 2nd time, so the trail must be at least
+somewhat functional."* Right to push: §4b describes the trail and cannot say
+whether it **causes** anything. That is an ablation question, and `hmute` — the
+hand-laid ramp laid as usual, the ants' own `EmitB` silenced — is the arm for
+it. All levers on, gap 90, 24 seeds paired:
+
+| stage | ants lay it | **silenced** | hand better / worse |
+|---|---|---|---|
+| lived | 526 | **596** | 1 / 19 |
+| reached the food | 407 | **443** | 4 / 15 |
+| picked it up | 394 | **434** | 6 / 15 |
+| turned for home | 363 | **394** | 6 / 13 |
+| got back holding it | 336 | **365** | 7 / 16 |
+| put it down | 333 | **365** | 7 / 17 |
+| went back out | 210 | **300** | 4 / 20 |
+| **reached the food a SECOND time** | **87** | **182** | **3 / 19** |
+
+**Taking the trail away more than doubles second laps.** So the repeat rate
+happens *despite* the colony's own channel B, not because of it.
+
+**The confound, declared rather than buried.** `mute_channel` zeroes weights and
+`active_synapses` counts non-zero weights, so a muted ant carries a marginally
+cheaper brain (`synapse_tax = synapse_fraction * start_energy * active_synapses`).
+It is **one** synapse — `(CarryingFood, EmitB, 2.5)` is `ant.ron`'s only `EmitB`
+wire — which cannot plausibly double a lap count, but it is not zero. Treat the
+`lived` row as the weakest line in the table rather than the strongest, and
+prefer the stages downstream of survival.
+
+**The mechanism this points at is the LEG, not the strength or the lifetime.**
+`(CarryingFood, EmitB, 2.5)` is the only writer, so an empty ant walking *out*
+lays no channel B at all: every cell of it was painted by a laden ant walking
+*home*. Channel B is therefore a record of where ants carrying food have been,
+and an outbound ant reads it as guidance. The duty-cycle profile fits — measured
+over the ant era, per stretch of route:
+
+| stretch | lit | mean |
+|---|---|---|
+| `x 48–57` (**at the nest**) | **7.8%** | **19.5** |
+| `x 58–67` | 36.0% | 124.1 |
+| `x 68–77` | **72.0%** | **708.1** |
+| `x 78–87` | 41.0% | 556.5 |
+| `x 88–117` | 25–31% | 307–357 |
+| `x 118–138` (at the food) | 36–44% | 581–694 |
+
+**It is weakest exactly where a recruit picks it up** — 7.8% lit at the nest
+against 72% twenty cells out, a thirty-six-fold difference in mean. The
+candidate for the dark nest end is the graded crop: an ant that has finished
+absorbing its cargo stops carrying, so it stops laying, and the 2026-09-20 trace
+found **34% absorb the whole load one cell short of the nest**.
+
+**And the hand-laid ramp has the same defect**, which is why `layfrom=founders`
+moves two things at once: `lay()` starts `t` at 0, so the cell at the nest
+cursor holds exactly zero. Both trails are faintest at the one place they have
+to be read.
+
+### 7b. The levers do not extend range, and that is the limit on §3
+
+The owner's standing instruction (2026-09-18) puts 90/140/200 in every run
+because survival at the longer distances **is** recruitment's success signal.
+Base against all three levers, 24 seeds at each gap:
+
+| gap | reached food | put it down | second lap |
+|---|---|---|---|
+| 90 | 389 → **407** (19 up / 3) | 249 → **333** (18 / 2) | 79 → 87 |
+| 140 | 181 → **137** (4 / 18) | 57 → 48 | **0 → 0** |
+| 200 | 17 → 14 | 2 → 2 | **0 → 0** |
+
+**At 140 the levers hurt** — reached-food is down in 18 seeds of 24 — and at 200
+both arms are floored. Second laps are **zero in both arms at both distances**.
+
+So §3's +42% is a real improvement to *the one distance the colony already
+survived*, and buys nothing at the distances that would show recruitment
+working. That is consistent with 7a rather than a separate disappointment: range
+cannot be extended by a trail the readers are better off without.
