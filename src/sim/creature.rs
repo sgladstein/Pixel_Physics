@@ -3932,6 +3932,88 @@ fn nest_mask(half_width: i32, core: i32, drain_period: usize) -> Vec<bool> {
     mask
 }
 
+/// **Where a laden animal thinks home is** — `PIXEL_PHYSICS_HOME_TARGET=nest`
+/// aims at the nest patch's centre instead of [`OrganismState::forage_anchor`].
+///
+/// **The anchor is a MEASUREMENT anchor and homing inherited its rule.** Its
+/// own doc says what the rule is for: *"re-anchored on every contact — an ant
+/// walking along a 32-cell nest patch touches nest at every step, so the anchor
+/// follows it and the depth stays at 1. Loitering ON the nest cannot manufacture
+/// an excursion."* That is exactly right for `forage_max`, which is what it was
+/// built for, and `creature_tick`'s own comment beside it still says
+/// **"Measurement only — nothing downstream reads it"**. `sense` has read it as
+/// the homing direction since `HomeAligned` shipped, and the comment was never
+/// corrected.
+///
+/// **What the inherited rule does to a forager.** Re-anchoring to the touched
+/// cell means "home" is *whichever nest cell I last brushed*, and a colony whose
+/// food lies east always brushes its last nest cell on the **eastern edge**.
+/// Measured 2026-09-21 over **743,889 laden ant-ticks** (every ant that carried
+/// food, every tick it held it, 8 seeds, `examples/trailfollow.rs ladencsv`), on
+/// a bed whose nest material spans `x 26..70` around a cursor at **48**:
+///
+/// | `anchor_x` | share of laden ticks |
+/// |---|---|
+/// | **71** | **77.6%** |
+/// | 70 | 13.5% |
+/// | 65–69 | 8.9% |
+/// | west of 65 | **0%** |
+///
+/// So a laden ant walks "home" to `x ≈ 71`, twenty-three cells short, arrives,
+/// and **stops**: `HomeAligned` returns 0.0 on the anchor by the guard below —
+/// individually correct, *standing on a point is not a direction* — and with no
+/// direction left, `p_move`'s median at that distance is **exactly 0.0000**.
+/// **98.63% of all laden ant-ticks involve no movement at all**, and since the
+/// engine deposits **only on a successful move**, the trail those animals exist
+/// to lay is laid on **1.37%** of the ticks they intend to lay it on. `emit_b`
+/// is above 0.71 the entire time; the mark simply never lands.
+///
+/// That one fact accounts for the rest of the foraging line's open puzzles: the
+/// food trail is dark at the nest (**7.8%** of frames lit at `x 48..57`, against
+/// **72%** twenty cells out) because no laden animal ever walks there; the
+/// hotspot at `x 68..77` is where 64% of laden ant-time is spent; empty ants
+/// park at a median `x` of **72**; and silencing `EmitB` outright **more than
+/// doubles** second laps, because it removes a beacon sitting exactly where
+/// animals already get stuck.
+///
+/// **`CLAUDE.md`'s *which object does this rule evaluate* in a new costume.**
+/// Re-anchoring evaluates an **excursion**; homing needs a **place**. Nothing at
+/// either site said they were different objects.
+///
+/// Off by default: it changes how every laden creature in three games navigates,
+/// so it ships as a selector with a measurement behind it rather than as a
+/// silent repair.
+fn home_target(world: &World, state: &crate::sim::organism::OrganismState) -> (i32, i32) {
+    if !home_target_is_nest() {
+        return state.forage_anchor;
+    }
+    // **Nearest site, and the head's own position is the tie-break that keeps
+    // it cheap.** `NestSite` carries no colony id — identity is by scent, and
+    // resolving that here would put a three-axis comparison in `sense`'s hot
+    // path. Nearest is exact for a single colony and right for neighbours
+    // thirty cells apart, which is every bed this is measured on; a scent
+    // match belongs here the moment a bed puts two nests within one commute.
+    //
+    // Reached only when the animal is carrying (`crop_fill > 0.0` at the call
+    // site), so this scan is off the empty-ant path entirely.
+    let (ax, ay) = state.forage_anchor;
+    world
+        .nest_sites
+        .iter()
+        .map(|n| (n.x, n.surface))
+        .min_by_key(|&(nx, ny)| (nx - ax).abs().max((ny - ay).abs()))
+        // A world with no painted nest keeps the old behaviour rather than
+        // sending every laden animal to the origin.
+        .unwrap_or((ax, ay))
+}
+
+/// Whether `PIXEL_PHYSICS_HOME_TARGET` asks for the nest centre. `OnceLock`
+/// like its neighbours: `sense` runs per creature per decision tick.
+fn home_target_is_nest() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_HOME_TARGET").as_deref() == Ok("nest"))
+}
+
 /// Whether `PIXEL_PHYSICS_COLONY_BAND` asks for the centred band that
 /// [`World::colony_stations`] replaced. Read through a `OnceLock` like its
 /// neighbours.
@@ -5736,7 +5818,7 @@ fn sense(
         // belongs to `CreatureDef::home_bias`, exactly as the comment above
         // says. One question per sensor: this one answers *which way*.
         inputs[I::HomeAligned as usize] = if crop_fill > 0.0 {
-            let (ax, ay) = state.forage_anchor;
+            let (ax, ay) = home_target(world, state);
             let (vx, vy) = ((ax - x) as f32, (ay - y) as f32);
             let len = (vx * vx + vy * vy).sqrt();
             // **Standing on the anchor is not a direction** -- the guard
@@ -11291,8 +11373,13 @@ fn step_chain(
     world.creature_stats.moves += 1;
 
     // How deep this excursion has got, in cells from the last nest contact.
-    // **Measurement only** — nothing downstream reads it, and an ant still
-    // has no idea where home is. See `OrganismState::forage_anchor`.
+    // **`forage_max` is measurement only. `forage_anchor` beside it is NOT,
+    // and this comment said it was until 2026-09-21.** `sense` reads the
+    // anchor as the homing direction for `BrainInput::HomeAligned`, so the
+    // re-anchor below — correct for keeping a loiterer's excursion depth at 1,
+    // which is the rule's stated purpose — also moves where every laden animal
+    // of this colony thinks home is. See `creature::home_target` for what that
+    // costs a forager and for the switch that aims at the nest centre instead.
     if let Some(state) = world.organism_mut(organism) {
         let (ax, ay) = state.forage_anchor;
         // Chebyshev, because movement is an 8-neighbour step: it is the

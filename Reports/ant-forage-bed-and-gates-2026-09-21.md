@@ -459,3 +459,163 @@ to the brightness, which argues the trail comes first — but that is an
 inference. The question is of the form *"why did it do that"*, so the answer is
 a per-tick trace of what an ant standing at `x 72` reads and chooses, never a
 population statistic.
+
+---
+
+## 8. Why the trail does not work: the ants that lay it are standing still
+
+Owner's instruction, 2026-09-21: *"1) understand what the trail should look
+like. 2) take every ant in the simulation that finds food and examine their
+brain and actions while they hold food. See where they are moving and what trail
+they are laying. 3) how does that differ from the expectation."*
+
+### 8a. The expectation, written down before measuring
+
+From the owner's own statement of intent — *"ant finds food, picks it up, starts
+walking home while laying the correct trail on its way home"* — turned into
+claims a census can contradict:
+
+| | expectation |
+|---|---|
+| E1 | `emit_b > 0` on essentially every laden tick |
+| E3 | `dx_home > 0` — moving homeward — on the large majority of laden ticks |
+| E4 | the mark lands along the **whole** route, not one stretch |
+| E6 | per ant, one contiguous laden run from pickup to drop |
+
+Two failure modes were on the record and want opposite fixes, so they were named
+first: **F1**, the leg is wrong (only laden ants lay, so the outbound leg is
+bare); **F2**, the lay is right and decay eats it. **The census found neither.**
+
+### 8b. What they actually do
+
+`ladencsv` — every ant that carried food, every tick it held it. 743,889 laden
+ant-ticks, 150 ants, 8 seeds, gap 90.
+
+| | |
+|---|---|
+| ticks intending to lay (`emit_b > 0`) | **100.00%**, median 0.714 |
+| ticks where x changed | **1.37%** |
+| ticks not moving at all | **98.63%** |
+
+**The engine deposits on a successful move only.** So the intent fires on every
+tick and the mark lands on 1.4% of them. E1 passes and means nothing; **E3 fails
+by a factor of seventy.** They are not laying a trail because they are not
+walking.
+
+And they stand in one place — 64% of every laden tick 20–29 cells from the nest
+cursor:
+
+| dist band | ticks | `p_move` | `drop_urge` | `HomeAligned` | moved |
+|---|---|---|---|---|---|
+| 10–19 | 56,017 | **0.0000** | 0.4886 | **0.0000** | 0.45% |
+| **20–29** | **478,286** | **0.0000** | 0.4884 | **0.0000** | 0.43% |
+| 30–39 | 21,504 | 0.7248 | 0.0000 | 0.4961 | 5.82% |
+| 40–49 | 23,436 | 0.4697 | 0.0000 | 0.5800 | 5.44% |
+
+`p_move` is **exactly zero** where they are, and so is `HomeAligned`.
+
+### 8c. Why: `forage_anchor` re-anchors to the nest's perimeter
+
+`HomeAligned` reads `OrganismState::forage_anchor`, and `creature.rs` re-anchors
+it **to the exact cell on every nest contact** — deliberately, for the reason its
+own comment gives: *"that is what stops an ant strolling the length of a 32-cell
+nest patch from accumulating a 30-cell excursion."* Correct for measuring
+excursion depth, which is what the field was built for.
+
+The nest material spans `x 26..70`, the cursor is 48, and the food is **east**.
+So an ant leaving always brushes its last nest cell at the **eastern edge** and
+carries that as "home" for the whole trip:
+
+| `anchor_x` | share of laden ticks |
+|---|---|
+| **71** | **77.6%** |
+| 70 | 13.5% |
+| 65–69 | 8.9% |
+| west of 65 | **0%** |
+
+**46.3% of laden ticks are spent standing on the anchor**, where `HomeAligned`
+returns 0.0 by an explicit and individually correct guard — *"standing on the
+anchor is not a direction"*. The guard is right; what it is guarding points at
+the wrong cell.
+
+So: walk out, brush the nest's east edge, anchor there, reach the food, pick up,
+walk "home" to `x ≈ 71` rather than 48, arrive, lose all direction, stop, and
+stand there emitting into one cell for the rest of the journey.
+
+### 8d. It resolves every other observation in this report
+
+- §7a's **dark nest end** (7.8% lit at `x 48..57`): laden ants never go west of
+  `x ≈ 65`, so that stretch is never laid by anyone.
+- §7a's **hotspot at `x 68..77`**: it is where 64% of all laden ant-time is spent.
+- §7c's **parking at median `x 72`**: the anchor.
+- §7a's **ablation**: silencing `EmitB` removes a beacon sitting exactly where
+  animals already get stuck.
+
+### 8e. A live contradiction in the source
+
+`creature.rs:11294`, of `forage_anchor`: *"**Measurement only** — nothing
+downstream reads it, and an ant still has no idea where home is."*
+`creature.rs:5739` reads it as the homing direction.
+
+The comment is stale, and the staleness is the bug's cover: a field whose
+re-anchoring rule is right for a *metric* was wired into *navigation*, where that
+same rule makes "home" mean "whichever nest cell I last brushed".
+
+**This is `CLAUDE.md`'s *ask which object this rule evaluates* in a new costume.**
+Re-anchoring evaluates an *excursion*; homing needs a *place*. They are not the
+same object, and nothing in either site says so.
+
+### 8f. What actually pins `Move` at zero — and it is not the anchor
+
+Aiming home at the nest centre (`PIXEL_PHYSICS_HOME_TARGET=nest`, added here)
+**is connected and does not fix the stall**. It moves what the animal reads —
+`HomeAligned` median `0.0000 → −0.5914`, laden ticks within ten cells of the
+nest cursor `0.00% → 1.49%`, median `dist_nest` 23 → 19 — and leaves the
+headline untouched: movement on **1.23%** of laden ticks against 1.37%. Worse,
+the new bearing reads *negative*, so through `(HomeAligned, Move, 3.0)` it
+actively suppresses stepping. **A connected switch that moves the reading and
+not the behaviour is the most informative kind of null**: it rules the anchor
+out as the blocker.
+
+Splitting laden ticks on `p_move` and reading the `Move` decomposition:
+
+| column | stuck (`p_move == 0`) | moving |
+|---|---|---|
+| `move_presquash` | **−2.0595** | +2.8344 |
+| **`trail_term`** | **−2.1150** | −0.5129 |
+| `HomeAligned` | −0.6000 | +0.9985 |
+| `Crowding` | 0.5600 | 0.1250 |
+
+**The pheromone terms alone contribute −2.12, which is the entire deficit.** And
+the reason is §Z29, already named in this file:
+
+| | `here_a` | `ahead_a` | `here > ahead` |
+|---|---|---|---|
+| **stuck** | 9,855 | 7,187 | **93.9%** of ticks |
+| moving | 7,716 | 7,079 | 60.3% |
+
+The stuck animal is standing on the brightest cell in its own neighbourhood —
+**its own mark** — so every direction it could step reads *weaker that way*.
+`creature.rs`' own words: *"the cell underfoot is the freshest thing in the
+neighbourhood and `along = (ahead - here)` is negative... The animal's own trail
+blinds its own homing sensor."*
+
+**It is a self-trapping loop**: arrive → deposit at the head → the cell underfoot
+is now brightest → every step reads downhill → do not move → keep reading the
+same thing. The deposit-on-move rule seals it, because a stopped animal stops
+refreshing anything *except* the cell it is on.
+
+**And the 2026-09-20 projection flip is predicted to have sharpened it**, which
+is worth stating because it is this line's own headline change: before it, a
+diagonal-facing ant sampled six rows off its own row — *away* from its own mark
+— and now it samples along the row where that mark is. The change that fixed
+the outbound leg plausibly tightened the trap on the laden one. Not yet
+established; it is one ablation (`PIXEL_PHYSICS_SENSOR_PROJECT=off` crossed with
+the laden census) and it should be run.
+
+**This re-opens a dead end on its stated condition.** §Z29's designed remedy is
+built — `PIXEL_PHYSICS_DEPOSIT_AT=vacated`, marking the cell just left rather
+than the head — and `dead-ends.md` records it as *"not a component"* on a 3/4/1
+coin flip. That measurement predates the sensor projection, the graded crop, the
+narrow founding band and stacking. `CLAUDE.md`: **re-test a do-not-retry entry
+once something changes the condition its rejection depended on.**
