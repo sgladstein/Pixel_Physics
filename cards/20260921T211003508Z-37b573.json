@@ -1,0 +1,45 @@
+{
+  "id": "20260921T211003508Z-37b573",
+  "created": "2026-09-21T21:10:03Z",
+  "board": "ants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/upbeat-shannon-cez0w4",
+    "commit": "08b49906",
+    "agent": null,
+    "session_id": "32f46678-8b08-560e-8bb2-b26566c40d63",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The food trail over time: hand-laid, then whatever the ants keep",
+  "question": "Four seeds of one arm. Does the ant-laid trail read as a trail at all, or as scattered marks that happen to be on the route? And is seed 4 (bottom) the one to aim at, or is a trail that only some colonies hold the wrong target?",
+  "context_md": "Answering your question from earlier: *how the hand-laid trail compares to the ant-laid one, and how it changes over time.*\n\nEach panel is one seed. **Time runs DOWN, the route runs ACROSS** — nest at the left, larder at the right. Brightness is channel B. The gutter on the far left is **RED while the hand-laid ramp is still being refreshed** and **GREY after it is withdrawn at frame 6,000**, so the handover is the colour change about a fifth of the way down.\n\nThe hand-laid ramp is the clean saturated band at the top of every panel: monotone, full length, nest to larder. What the colony builds instead is the thin blue streaking below it.\n\n**Each panel is on its own scale** so the ant era is legible — the hand-laid band clips to white as a result. Real magnitudes in the meta.\n\nThis also corrects something: the harness's `B nest->food` column is a **mean over the whole run**, so it prints a healthy ramp for a run whose route is bare for its last 18,000 frames. It is not evidence the trail survived.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "four seeds, gap 90, stop=6000",
+      "files": [
+        "20260921T211003508Z-37b573/000-trail_grid.png"
+      ],
+      "caption": "top to bottom: seeds 1, 2, 3, 4",
+      "meta": {
+        "seed 1 ant peak vs hand": "18% -- route BARE in last 6k frames, 0 of 91 cells lit",
+        "seed 2": "27% -- 30 of 91 cells lit at the end",
+        "seed 3": "32% -- 32 of 91 lit",
+        "seed 4": "78% -- 70 of 91 lit, trail held to the end",
+        "hand-laid peak (all seeds)": "52,057-56,012",
+        "frames": 24000,
+        "sampled every": 500
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
