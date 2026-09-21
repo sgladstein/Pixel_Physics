@@ -619,3 +619,67 @@ than the head — and `dead-ends.md` records it as *"not a component"* on a 3/4/
 coin flip. That measurement predates the sensor projection, the graded crop, the
 narrow founding band and stacking. `CLAUDE.md`: **re-test a do-not-retry entry
 once something changes the condition its rejection depended on.**
+
+### 8g. Both remedies measured, both negative — and the correction to 8f
+
+Four arms, 24 seeds, paired within seed, on today's stack. `ate J` is the
+measure quoted:
+
+| arm | ate J | paired | second lap |
+|---|---|---|---|
+| head (today's stack) | 14,707 | — | 87 |
+| `DEPOSIT_AT=vacated` | 15,919 | **12 / 12** | 90 (12/9) |
+| `HOME_TARGET=nest` | 14,073 | 10 / 14 | 88 (10/11) |
+| both | 12,756 | **6 / 18** | 87 |
+
+**`dead-ends.md`'s verdict on `vacated` stands**, with its rejection condition
+changed exactly as `CLAUDE.md` asks it to be re-tested. Re-tested; same answer.
+
+**And the mechanism check corrects 8f.** Running the laden census under
+`vacated`:
+
+| | head | vacated |
+|---|---|---|
+| moved on | 1.37% | **1.02%** |
+| median `p_move` | 0.0000 | **0.0000** |
+| median `here_a` under the ant | 9,855 | **9,316** |
+| median `dist_nest` | 23 | **23** |
+
+**`vacated` cannot release the trap because a stuck ant never vacates
+anything.** The deposit is gated on a successful move, so a frozen animal lays
+nothing at either site, and the cell beneath it stays bright regardless.
+
+So 8f's framing — *the ant is standing on **its own** mark* — is wrong, and the
+individual-level reading is what made it look right. 64% of all laden ant-time
+is spent in one ten-cell band, so that ground is saturated by **the whole
+colony**. It is a **congregation trap, not a self-trap**, which is why an
+individual-level remedy cannot touch it and why muting `EmitB` for everyone
+(§7a) can.
+
+### 8h. Why no per-ant fix works: the trail is wired to a timer, not a rudder
+
+`ant-navigation-plan-2026-09-20.md` named this before any of today's
+measurements, and the census is the per-individual evidence it did not have:
+
+> *"Direction is uncoupled from the trail. `Turn` carries one wire, and it is
+> temperature."* … *"We ship Deneubourg's function with the pheromone removed
+> from its arguments."* … **"We feed it into a timer instead of a rudder."**
+
+`open-bugs-handoff.md` §R4 is the same fact from the motor end: *"A walking
+creature on level ground cannot be steered; it can only be scattered."*
+
+**That is exactly what 98.63% means.** The pheromone terms reach `Move` — whether
+to step — and reach direction not at all. So when the reading is bad the animal
+does not turn toward something better; it **stops**. `trail_term` at −2.12 is
+not a navigation error, it is a brake being applied by a sensor that has no
+steering wire to use instead.
+
+Every lever tried in §8 moves *what the animal reads* and none moves *what it
+can do about it*: the anchor fix gave it a home bearing (`HomeAligned`
+0.0000 → −0.5914) and it still did not move, because the bearing feeds the same
+timer the trail is jamming.
+
+**So the next change is architectural and is the owner's call**, not a tuning
+pass: give the pheromone a path into direction. That is the navigation plan's
+own proposal, and this section is the measurement that says it is the binding
+constraint rather than one of several.

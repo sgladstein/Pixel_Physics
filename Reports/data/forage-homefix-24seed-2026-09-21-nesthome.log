@@ -1,0 +1,490 @@
+  diet: larder=fruit onlyfood=on
+  odometer A: recur=shipped emita=shipped biasa=shipped   odometer B: charb=shipped recurb=shipped emitb=shipped biasb=shipped carryb=shipped
+trailfollow: mode=gap gate=shipped frames=24000 seeds=24 seed0=1 ants=20 relay=60 near=10 food=400 refill=400 stop=6000 homebias=shipped cropcap=shipped hungergate=shipped arho=shipped brho=shipped adiffuse=shipped arise=off/off tumble=shipped persist=shipped tumblegrad=shipped homewire=shipped
+  gate shipped: off -45.0  on +0.5  along ±6.0
+  landed 2026-09-09: units 0/1 = b2 (off -45, on +0.5, along 6); units 2/3 = saturated (off -45, on +30, along 6). See open-bugs-handoff.md Z7.
+
+  gap seed   arm     alive     ate J  arrive@    dead@    carry    @nest  visitors  trips reach 0-25-50-75-100
+----- ---- ----- --------- --------- -------- -------- -------- -------- --------- ------ ------------------
+   90    1  hand   15/14       13015     1320        0    92990    73940   17/22       17         3 1 0 18 0
+                A READ  ant-readable homeward along >= 0.02 on  66.7% of route-cell samples | FOODWARD  20.7% | plane lit on  96.7% | peak amt  65535 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     22    100.0% of prev    100.0% of all
+                  1. reached the food                          17     77.3% of prev     77.3% of all
+                  2. picked food up out there                  16     94.1% of prev     72.7% of all
+                  3. turned for home with it                   16    100.0% of prev     72.7% of all
+                  4. got back to the nest still holding it     16    100.0% of prev     72.7% of all
+                  5. PUT IT DOWN there                         16    100.0% of prev     72.7% of all
+                  6. went back out again                       10     62.5% of prev     45.5% of all
+                  7. reached the food a SECOND time             1     10.0% of prev      4.5% of all
+                RETURN LEDGER reached food   17 of   22 ants | came back   16 | trips laden   17 empty    0 | LOOPERS   16 of   22 ants (94.1% of those that reached food), repeat    1, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   17 loops /   18 pickups ( 94.4%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  16 of  17 that reached food looped ( 94.1%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[583,541,595,667,643,523,493,901,565,511,1585,745,1549,625,1165,2827,1645] laden[583,541,595,667,643,523,493,901,565,511,1585,745,1549,625,1165,2827,1645]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 22 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [44 224 40 17 26 21 17 5]  carry->nest    1154  born    2 died    7 (starved    7)
+                own trail: route pk   76 end    0 along +0.0000  B nest->food [2106,5221,7826,10507,8308]  blocked      362  kin swaps       0  ticks     66062  tumbles     28471 (homeward     2695, 9.47%)  drops    1524  DELIVERED  1524  leg home n   17 med   643 p90  1585 (laden n   17 med   643 p90  1585)  appetite held         0 J of     50998  trips born-on-comb   17 (21 ants) / born-off    0 (1 ants)
+                channel A: PEAK amt  65535 cells   91 (of 91 route)  POLARITY|| +0.08411 && +0.07965 SPAN -0.00318 edge   1.2  end nest->food [14145,17763,2001,694,0]  nest   25  AtNest 33.45%
+                Carrying: laden    125311  of which SPOIL     37145 ( 29.6%)
+   90    2  hand    9/9         9227     1266        0    66829    38815   15/21       11         4 2 0 15 0
+                A READ  ant-readable homeward along >= 0.02 on  66.9% of route-cell samples | FOODWARD  17.4% | plane lit on  96.0% | peak amt  49983 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     21    100.0% of prev    100.0% of all
+                  1. reached the food                          15     71.4% of prev     71.4% of all
+                  2. picked food up out there                  14     93.3% of prev     66.7% of all
+                  3. turned for home with it                   13     92.9% of prev     61.9% of all
+                  4. got back to the nest still holding it     11     84.6% of prev     52.4% of all
+                  5. PUT IT DOWN there                         11    100.0% of prev     52.4% of all
+                  6. went back out again                        7     63.6% of prev     33.3% of all
+                  7. reached the food a SECOND time             1     14.3% of prev      4.8% of all
+                RETURN LEDGER reached food   15 of   21 ants | came back   11 | trips laden   10 empty    1 | LOOPERS   10 of   21 ants (66.7% of those that reached food), repeat    0, most loops by one ant   1
+                BY ANCHOR AT PICKUP  anchor ON nest material:   10 loops /   17 pickups ( 58.8%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  10 of  15 that reached food looped ( 66.7%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[697,595,1891,1291,1687,1639,709,493,1633,3325,3859] laden[697,595,1891,1291,1687,1639,709,493,1633,3325]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 21 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [53 139 37 13 24 30 29 9]  carry->nest     877  born    1 died   12 (starved   10)
+                own trail: route pk   55 end   14 along +0.1790  B nest->food [2112,4903,7699,10417,8308]  blocked      571  kin swaps       0  ticks     56041  tumbles     23712 (homeward     1542, 6.50%)  drops     626  DELIVERED   626  leg home n   11 med  1633 p90  3325 (laden n   10 med  1633 p90  1891)  appetite held         0 J of     36913  trips born-on-comb   11 (20 ants) / born-off    0 (1 ants)
+                channel A: PEAK amt  49983 cells   91 (of 91 route)  POLARITY|| +0.10797 && +0.10335 SPAN -0.00403 edge   1.7  end nest->food [8377,10038,1546,347,0]  nest   25  AtNest 28.29%
+                Carrying: laden     97927  of which SPOIL     32304 ( 33.0%)
+   90    3  hand   12/12       11773      978        0    81046    60550   17/22       15         1 2 0 19 0
+                A READ  ant-readable homeward along >= 0.02 on  59.5% of route-cell samples | FOODWARD  24.0% | plane lit on  98.3% | peak amt  65535 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     22    100.0% of prev    100.0% of all
+                  1. reached the food                          17     77.3% of prev     77.3% of all
+                  2. picked food up out there                  15     88.2% of prev     68.2% of all
+                  3. turned for home with it                   12     80.0% of prev     54.5% of all
+                  4. got back to the nest still holding it     12    100.0% of prev     54.5% of all
+                  5. PUT IT DOWN there                         12    100.0% of prev     54.5% of all
+                  6. went back out again                        7     58.3% of prev     31.8% of all
+                  7. reached the food a SECOND time             3     42.9% of prev     13.6% of all
+                RETURN LEDGER reached food   17 of   22 ants | came back   12 | trips laden   14 empty    1 | LOOPERS   12 of   22 ants (70.6% of those that reached food), repeat    2, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   14 loops /   19 pickups ( 73.7%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  12 of  17 that reached food looped ( 70.6%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[553,613,613,715,811,709,589,757,439,511,565,469,643,499,4309] laden[553,613,613,715,811,709,589,757,439,511,565,469,643,499]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 22 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [64 184 18 9 16 36 38 7]  carry->nest    1027  born    2 died   10 (starved    7)
+                own trail: route pk   40 end    0 along +0.0000  B nest->food [2106,5117,7755,10396,8308]  blocked      429  kin swaps       0  ticks     62742  tumbles     26005 (homeward     2122, 8.16%)  drops     905  DELIVERED   905  leg home n   15 med   613 p90   811 (laden n   14 med   613 p90   757)  appetite held         0 J of     44491  trips born-on-comb   15 (20 ants) / born-off    0 (2 ants)
+                channel A: PEAK amt  65535 cells   91 (of 91 route)  POLARITY|| +0.07378 && +0.07107 SPAN -0.00402 edge   0.4  end nest->food [25870,45273,3785,1208,1]  nest   25  AtNest 28.10%
+                Carrying: laden    105934  of which SPOIL     28236 ( 26.7%)
+   90    4  hand   16/16       16173      996        0   122546    95630   17/22       19         2 2 0 18 0
+                A READ  ant-readable homeward along >= 0.02 on  66.6% of route-cell samples | FOODWARD  20.3% | plane lit on  97.3% | peak amt  36410 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     22    100.0% of prev    100.0% of all
+                  1. reached the food                          17     77.3% of prev     77.3% of all
+                  2. picked food up out there                  17    100.0% of prev     77.3% of all
+                  3. turned for home with it                   16     94.1% of prev     72.7% of all
+                  4. got back to the nest still holding it     16    100.0% of prev     72.7% of all
+                  5. PUT IT DOWN there                         16    100.0% of prev     72.7% of all
+                  6. went back out again                        6     37.5% of prev     27.3% of all
+                  7. reached the food a SECOND time             3     50.0% of prev     13.6% of all
+                RETURN LEDGER reached food   17 of   22 ants | came back   16 | trips laden   17 empty    2 | LOOPERS   14 of   22 ants (82.4% of those that reached food), repeat    3, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   17 loops /   20 pickups ( 85.0%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  14 of  17 that reached food looped ( 82.4%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[637,649,637,751,931,505,835,535,1051,589,841,565,1081,781,1219,3037,2635,2095,11395] laden[637,649,637,751,931,505,835,535,1051,589,841,565,1081,781,1219,3037,2095]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 22 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [10 294 30 14 18 33 22 6]  carry->nest    1183  born    2 died    6 (starved    2)
+                own trail: route pk   69 end    8 along -0.0000  B nest->food [2106,5203,7782,10402,8308]  blocked      383  kin swaps       0  ticks     71486  tumbles     31919 (homeward     3286, 10.29%)  drops    1528  DELIVERED  1528  leg home n   19 med   835 p90  2635 (laden n   17 med   781 p90  1219)  appetite held         0 J of     67508  trips born-on-comb   19 (20 ants) / born-off    0 (2 ants)
+                channel A: PEAK amt  36410 cells   91 (of 91 route)  POLARITY|| +0.08349 && +0.07973 SPAN -0.00308 edge   1.3  end nest->food [1926,7256,1702,551,0]  nest   25  AtNest 35.28%
+                Carrying: laden    142525  of which SPOIL     20640 ( 14.5%)
+   90    5  hand   10/10       10737      990        0    82123    62755   14/20       20         1 2 3 14 0
+                A READ  ant-readable homeward along >= 0.02 on  68.9% of route-cell samples | FOODWARD  17.0% | plane lit on  96.5% | peak amt  42533 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     20    100.0% of prev    100.0% of all
+                  1. reached the food                          14     70.0% of prev     70.0% of all
+                  2. picked food up out there                  14    100.0% of prev     70.0% of all
+                  3. turned for home with it                   14    100.0% of prev     70.0% of all
+                  4. got back to the nest still holding it     14    100.0% of prev     70.0% of all
+                  5. PUT IT DOWN there                         14    100.0% of prev     70.0% of all
+                  6. went back out again                       10     71.4% of prev     50.0% of all
+                  7. reached the food a SECOND time             6     60.0% of prev     30.0% of all
+                RETURN LEDGER reached food   14 of   20 ants | came back   14 | trips laden   20 empty    0 | LOOPERS   14 of   20 ants (100.0% of those that reached food), repeat    6, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   20 loops /   22 pickups ( 90.9%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  14 of  14 that reached food looped (100.0%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[883,595,625,595,577,661,733,517,571,871,1375,631,883,811,739,961,817,625,553,757] laden[883,595,625,595,577,661,733,517,571,871,1375,631,883,811,739,961,817,625,553,757]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 20 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [105 142 30 14 17 18 18 6]  carry->nest    1332  born    0 died   10 (starved    4)
+                own trail: route pk   29 end    9 along +0.0254  B nest->food [2106,5073,7943,10653,8308]  blocked      267  kin swaps       0  ticks     59016  tumbles     25954 (homeward     1708, 6.58%)  drops     794  DELIVERED   794  leg home n   20 med   733 p90   883 (laden n   20 med   733 p90   883)  appetite held         0 J of     45206  trips born-on-comb   20 (20 ants) / born-off    0 (0 ants)
+                channel A: PEAK amt  42533 cells   91 (of 91 route)  POLARITY|| +0.09094 && +0.08691 SPAN -0.00276 edge   1.7  end nest->food [4602,2727,1207,326,0]  nest   25  AtNest 22.46%
+                Carrying: laden     95126  of which SPOIL     13003 ( 13.7%)
+   90    6  hand   12/12       13557      936        0    94643    56704   18/23       15         2 2 1 18 0
+                A READ  ant-readable homeward along >= 0.02 on  67.8% of route-cell samples | FOODWARD  17.2% | plane lit on  97.7% | peak amt  33692 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     23    100.0% of prev    100.0% of all
+                  1. reached the food                          18     78.3% of prev     78.3% of all
+                  2. picked food up out there                  16     88.9% of prev     69.6% of all
+                  3. turned for home with it                   15     93.8% of prev     65.2% of all
+                  4. got back to the nest still holding it     15    100.0% of prev     65.2% of all
+                  5. PUT IT DOWN there                         15    100.0% of prev     65.2% of all
+                  6. went back out again                        8     53.3% of prev     34.8% of all
+                  7. reached the food a SECOND time             2     25.0% of prev      8.7% of all
+                RETURN LEDGER reached food   18 of   23 ants | came back   15 | trips laden   13 empty    2 | LOOPERS   13 of   23 ants (72.2% of those that reached food), repeat    0, most loops by one ant   1
+                BY ANCHOR AT PICKUP  anchor ON nest material:   13 loops /   20 pickups ( 65.0%) | anchor OFF it:    0 /    3 (  0.0%)
+                BY BIRTH SITE  born ON comb:  13 of  17 that reached food looped ( 76.5%) | born OFF comb:   0 of   1 (  0.0%)
+                LEGS legs[739,709,601,1009,709,751,577,1957,607,1171,637,2743,607,6511,5449] laden[739,709,601,1009,709,751,577,1957,607,1171,637,2743,607]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 23 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [140 52 71 24 28 18 17 24]  carry->nest    1027  born    3 died   11 (starved    9)
+                own trail: route pk   85 end   20 along +0.2283  B nest->food [2216,4851,7784,10511,8308]  blocked      396  kin swaps       0  ticks     63452  tumbles     26664 (homeward     2523, 9.46%)  drops     561  DELIVERED   561  leg home n   15 med   739 p90  5449 (laden n   13 med   709 p90  1957)  appetite held         0 J of     52700  trips born-on-comb   15 (22 ants) / born-off    0 (1 ants)
+                channel A: PEAK amt  33692 cells   91 (of 91 route)  POLARITY|| +0.09357 && +0.09000 SPAN -0.00510 edge   0.9  end nest->food [4837,5121,2689,736,0]  nest   25  AtNest 20.11%
+                Carrying: laden    116645  of which SPOIL     25680 ( 22.0%)
+   90    7  hand   13/13       12132     1146        0    89291    64241   18/21       19         2 1 0 18 0
+                A READ  ant-readable homeward along >= 0.02 on  64.4% of route-cell samples | FOODWARD  22.6% | plane lit on  97.5% | peak amt  31614 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     21    100.0% of prev    100.0% of all
+                  1. reached the food                          18     85.7% of prev     85.7% of all
+                  2. picked food up out there                  16     88.9% of prev     76.2% of all
+                  3. turned for home with it                   16    100.0% of prev     76.2% of all
+                  4. got back to the nest still holding it     15     93.8% of prev     71.4% of all
+                  5. PUT IT DOWN there                         15    100.0% of prev     71.4% of all
+                  6. went back out again                        6     40.0% of prev     28.6% of all
+                  7. reached the food a SECOND time             2     33.3% of prev      9.5% of all
+                RETURN LEDGER reached food   18 of   21 ants | came back   17 | trips laden   13 empty    6 | LOOPERS   13 of   21 ants (72.2% of those that reached food), repeat    0, most loops by one ant   1
+                BY ANCHOR AT PICKUP  anchor ON nest material:   13 loops /   17 pickups ( 76.5%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  13 of  18 that reached food looped ( 72.2%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[643,529,781,1039,715,1129,883,1687,559,1573,1753,4501,4945,2179,2407,2593,2269,2209,793] laden[643,529,781,1039,715,1129,883,1687,559,1573,1753,4945,793]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 21 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [26 241 26 14 24 28 26 6]  carry->nest     993  born    1 died    8 (starved    5)
+                own trail: route pk   77 end   14 along +0.0091  B nest->food [2106,5046,7823,10468,8308]  blocked      365  kin swaps       0  ticks     66168  tumbles     28920 (homeward     2439, 8.43%)  drops    1356  DELIVERED  1356  leg home n   19 med  1573 p90  2593 (laden n   13 med   883 p90  1753)  appetite held         0 J of     50104  trips born-on-comb   19 (21 ants) / born-off    0 (0 ants)
+                channel A: PEAK amt  31614 cells   91 (of 91 route)  POLARITY|| +0.08945 && +0.08563 SPAN -0.00335 edge   1.1  end nest->food [2269,6233,1884,744,0]  nest   25  AtNest 34.47%
+                Carrying: laden    114030  of which SPOIL     25723 ( 22.6%)
+   90    8  hand   14/14       13984     1158        0    94621    58399   18/22       19         2 1 1 18 0
+                A READ  ant-readable homeward along >= 0.02 on  66.7% of route-cell samples | FOODWARD  18.4% | plane lit on  98.1% | peak amt  43398 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     22    100.0% of prev    100.0% of all
+                  1. reached the food                          18     81.8% of prev     81.8% of all
+                  2. picked food up out there                  17     94.4% of prev     77.3% of all
+                  3. turned for home with it                   15     88.2% of prev     68.2% of all
+                  4. got back to the nest still holding it     15    100.0% of prev     68.2% of all
+                  5. PUT IT DOWN there                         15    100.0% of prev     68.2% of all
+                  6. went back out again                        9     60.0% of prev     40.9% of all
+                  7. reached the food a SECOND time             4     44.4% of prev     18.2% of all
+                RETURN LEDGER reached food   18 of   22 ants | came back   16 | trips laden   14 empty    5 | LOOPERS   12 of   22 ants (66.7% of those that reached food), repeat    2, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   14 loops /   23 pickups ( 60.9%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  12 of  18 that reached food looped ( 66.7%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[595,697,769,547,775,853,817,1453,577,613,673,667,763,2713,6145,2503,3283,4195,6307] laden[595,697,769,547,775,853,817,1453,577,613,673,667,763,2713]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 22 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [132 137 25 20 19 46 43 8]  carry->nest    1209  born    2 died    8 (starved    3)
+                own trail: route pk   61 end   10 along +0.3599  B nest->food [2158,5112,7755,10581,8309]  blocked      270  kin swaps       0  ticks     72551  tumbles     31674 (homeward     2683, 8.47%)  drops    1234  DELIVERED  1234  leg home n   19 med   775 p90  4195 (laden n   14 med   763 p90  1453)  appetite held         0 J of     52250  trips born-on-comb   19 (20 ants) / born-off    0 (2 ants)
+                channel A: PEAK amt  43398 cells   91 (of 91 route)  POLARITY|| +0.07019 && +0.06697 SPAN -0.00593 edge   0.4  end nest->food [5571,3892,2405,1213,0]  nest   25  AtNest 28.05%
+                Carrying: laden    106957  of which SPOIL     14238 ( 13.3%)
+   90    9  hand   11/11       11711      984        0    80426    54800   14/22       15         5 2 0 15 0
+                A READ  ant-readable homeward along >= 0.02 on  66.3% of route-cell samples | FOODWARD  18.9% | plane lit on  98.0% | peak amt  59291 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     22    100.0% of prev    100.0% of all
+                  1. reached the food                          14     63.6% of prev     63.6% of all
+                  2. picked food up out there                  14    100.0% of prev     63.6% of all
+                  3. turned for home with it                   13     92.9% of prev     59.1% of all
+                  4. got back to the nest still holding it     11     84.6% of prev     50.0% of all
+                  5. PUT IT DOWN there                         11    100.0% of prev     50.0% of all
+                  6. went back out again                        6     54.5% of prev     27.3% of all
+                  7. reached the food a SECOND time             4     66.7% of prev     18.2% of all
+                RETURN LEDGER reached food   14 of   22 ants | came back   11 | trips laden   14 empty    1 | LOOPERS   11 of   22 ants (78.6% of those that reached food), repeat    3, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   14 loops /   18 pickups ( 77.8%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  11 of  14 that reached food looped ( 78.6%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[619,1207,733,541,607,703,619,955,709,1627,751,3337,2935,2527,4531] laden[619,1207,733,541,607,703,619,955,709,1627,751,3337,2935,2527]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 22 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [143 101 21 16 17 27 22 5]  carry->nest    1100  born    2 died   11 (starved    8)
+                own trail: route pk   52 end    0 along +0.0000  B nest->food [2106,5125,7830,10532,8308]  blocked      390  kin swaps       0  ticks     58964  tumbles     24775 (homeward     1840, 7.43%)  drops     865  DELIVERED   865  leg home n   15 med   751 p90  3337 (laden n   14 med   751 p90  2935)  appetite held         0 J of     44212  trips born-on-comb   15 (21 ants) / born-off    0 (1 ants)
+                channel A: PEAK amt  59291 cells   91 (of 91 route)  POLARITY|| +0.09333 && +0.08989 SPAN -0.00075 edge   0.8  end nest->food [27450,35117,1656,776,0]  nest   25  AtNest 34.58%
+                Carrying: laden    108909  of which SPOIL     34249 ( 31.4%)
+   90   10  hand    9/9        14648     1026        0   102313    71695   18/22       15         2 1 1 18 0
+                A READ  ant-readable homeward along >= 0.02 on  62.7% of route-cell samples | FOODWARD  20.0% | plane lit on  98.0% | peak amt  33389 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     22    100.0% of prev    100.0% of all
+                  1. reached the food                          18     81.8% of prev     81.8% of all
+                  2. picked food up out there                  18    100.0% of prev     81.8% of all
+                  3. turned for home with it                   17     94.4% of prev     77.3% of all
+                  4. got back to the nest still holding it     15     88.2% of prev     68.2% of all
+                  5. PUT IT DOWN there                         15    100.0% of prev     68.2% of all
+                  6. went back out again                        9     60.0% of prev     40.9% of all
+                  7. reached the food a SECOND time             3     33.3% of prev     13.6% of all
+                RETURN LEDGER reached food   18 of   22 ants | came back   15 | trips laden   15 empty    0 | LOOPERS   15 of   22 ants (83.3% of those that reached food), repeat    0, most loops by one ant   1
+                BY ANCHOR AT PICKUP  anchor ON nest material:   15 loops /   22 pickups ( 68.2%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  15 of  18 that reached food looped ( 83.3%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[571,1231,823,523,523,985,805,673,973,1831,781,1567,3043,2299,523] laden[571,1231,823,523,523,985,805,673,973,1831,781,1567,3043,2299,523]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 22 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [90 116 29 15 45 34 29 6]  carry->nest    1288  born    2 died   13 (starved    9)
+                own trail: route pk   79 end    0 along +0.0000  B nest->food [2106,5007,7794,10654,8308]  blocked      352  kin swaps       0  ticks     61304  tumbles     25926 (homeward     2344, 9.04%)  drops    1693  DELIVERED  1693  leg home n   15 med   823 p90  2299 (laden n   15 med   823 p90  2299)  appetite held         0 J of     56278  trips born-on-comb   15 (21 ants) / born-off    0 (1 ants)
+                channel A: PEAK amt  33389 cells   91 (of 91 route)  POLARITY|| +0.08280 && +0.07929 SPAN -0.00633 edge   0.6  end nest->food [2332,4767,2852,970,0]  nest   25  AtNest 33.76%
+                Carrying: laden    114212  of which SPOIL     12019 ( 10.5%)
+   90   11  hand   16/16       14205      900        0   103296    86928   17/21       19         4 0 0 17 0
+                A READ  ant-readable homeward along >= 0.02 on  65.6% of route-cell samples | FOODWARD  20.1% | plane lit on  98.4% | peak amt  41955 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     21    100.0% of prev    100.0% of all
+                  1. reached the food                          17     81.0% of prev     81.0% of all
+                  2. picked food up out there                  16     94.1% of prev     76.2% of all
+                  3. turned for home with it                   16    100.0% of prev     76.2% of all
+                  4. got back to the nest still holding it     16    100.0% of prev     76.2% of all
+                  5. PUT IT DOWN there                         16    100.0% of prev     76.2% of all
+                  6. went back out again                        7     43.8% of prev     33.3% of all
+                  7. reached the food a SECOND time             4     57.1% of prev     19.0% of all
+                RETURN LEDGER reached food   17 of   21 ants | came back   16 | trips laden   19 empty    0 | LOOPERS   16 of   21 ants (94.1% of those that reached food), repeat    3, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   19 loops /   19 pickups (100.0%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  16 of  17 that reached food looped ( 94.1%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[697,601,799,589,607,1141,793,1039,931,649,961,511,2143,451,781,793,493,397,643] laden[697,601,799,589,607,1141,793,1039,931,649,961,511,2143,451,781,793,493,397,643]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 21 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [140 190 11 9 13 21 21 7]  carry->nest    1306  born    1 died    5 (starved    4)
+                own trail: route pk   18 end   10 along +0.0002  B nest->food [2106,5314,7830,10602,8308]  blocked      327  kin swaps       0  ticks     69562  tumbles     30525 (homeward     2169, 7.11%)  drops    1457  DELIVERED  1457  leg home n   19 med   697 p90  1039 (laden n   19 med   697 p90  1039)  appetite held         0 J of     57027  trips born-on-comb   19 (21 ants) / born-off    0 (0 ants)
+                channel A: PEAK amt  41955 cells   91 (of 91 route)  POLARITY|| +0.07659 && +0.07344 SPAN -0.00553 edge   0.4  end nest->food [4047,7089,2059,1041,0]  nest   25  AtNest 39.18%
+                Carrying: laden    136851  of which SPOIL     36291 ( 26.5%)
+   90   12  hand    0/0        14162      810    23784    96077    58295   18/22       20         0 4 0 18 0
+                A READ  ant-readable homeward along >= 0.02 on  65.0% of route-cell samples | FOODWARD  20.6% | plane lit on  98.1% | peak amt  65017 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     22    100.0% of prev    100.0% of all
+                  1. reached the food                          18     81.8% of prev     81.8% of all
+                  2. picked food up out there                  18    100.0% of prev     81.8% of all
+                  3. turned for home with it                   16     88.9% of prev     72.7% of all
+                  4. got back to the nest still holding it     16    100.0% of prev     72.7% of all
+                  5. PUT IT DOWN there                         16    100.0% of prev     72.7% of all
+                  6. went back out again                       14     87.5% of prev     63.6% of all
+                  7. reached the food a SECOND time             5     35.7% of prev     22.7% of all
+                RETURN LEDGER reached food   18 of   22 ants | came back   17 | trips laden   17 empty    3 | LOOPERS   15 of   22 ants (83.3% of those that reached food), repeat    2, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   17 loops /   24 pickups ( 70.8%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  15 of  18 that reached food looped ( 83.3%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[577,1075,661,763,793,913,445,481,541,943,1807,637,2005,901,2479,2269,3517,3229,5647,7129] laden[577,1075,661,763,793,913,445,481,541,943,1807,637,2005,901,2479,2269,3517]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 22 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [33 215 49 22 54 19 25 7]  carry->nest    1292  born    2 died   22 (starved   18)
+                own trail: route pk   47 end    0 along +0.0000  B nest->food [2106,5146,7878,10551,8308]  blocked      631  kin swaps       0  ticks     72297  tumbles     30247 (homeward     2708, 8.95%)  drops    1008  DELIVERED  1008  leg home n   20 med   943 p90  3517 (laden n   17 med   901 p90  2269)  appetite held         0 J of     54148  trips born-on-comb   20 (22 ants) / born-off    0 (0 ants)
+                channel A: PEAK amt  65017 cells   91 (of 91 route)  POLARITY|| +0.07775 && +0.07400 SPAN -0.00159 edge   0.6  end nest->food [13090,35817,3791,1125,0]  nest   25  AtNest 24.35%
+                Carrying: laden    120128  of which SPOIL     34437 ( 28.7%)
+   90   13  hand   12/11       15537     1044        0   112510    94444   17/23       19         6 0 0 17 0
+                A READ  ant-readable homeward along >= 0.02 on  63.4% of route-cell samples | FOODWARD  22.7% | plane lit on  97.9% | peak amt  37480 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     23    100.0% of prev    100.0% of all
+                  1. reached the food                          17     73.9% of prev     73.9% of all
+                  2. picked food up out there                  16     94.1% of prev     69.6% of all
+                  3. turned for home with it                   16    100.0% of prev     69.6% of all
+                  4. got back to the nest still holding it     16    100.0% of prev     69.6% of all
+                  5. PUT IT DOWN there                         16    100.0% of prev     69.6% of all
+                  6. went back out again                        8     50.0% of prev     34.8% of all
+                  7. reached the food a SECOND time             4     50.0% of prev     17.4% of all
+                RETURN LEDGER reached food   17 of   23 ants | came back   16 | trips laden   19 empty    0 | LOOPERS   16 of   23 ants (94.1% of those that reached food), repeat    3, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   19 loops /   20 pickups ( 95.0%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  16 of  17 that reached food looped ( 94.1%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[541,637,817,637,865,433,415,649,643,475,745,535,2311,1399,1201,721,697,667,841] laden[541,637,817,637,865,433,415,649,643,475,745,535,2311,1399,1201,721,697,667,841]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 23 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [17 245 19 11 22 23 14 5]  carry->nest    1269  born    3 died   11 (starved    8)
+                own trail: route pk   18 end    0 along +0.0000  B nest->food [2106,5226,7837,10595,8308]  blocked      172  kin swaps       0  ticks     59535  tumbles     25671 (homeward     3409, 13.28%)  drops    1297  DELIVERED  1297  leg home n   19 med   667 p90  1201 (laden n   19 med   667 p90  1201)  appetite held         0 J of     61457  trips born-on-comb   19 (21 ants) / born-off    0 (2 ants)
+                channel A: PEAK amt  37480 cells   91 (of 91 route)  POLARITY|| +0.07559 && +0.07214 SPAN -0.00494 edge   0.6  end nest->food [1974,7537,2371,1063,0]  nest   25  AtNest 30.01%
+                Carrying: laden    127076  of which SPOIL     14692 ( 11.6%)
+   90   14  hand   12/12       11671      942        0    89287    72295   18/20       22         1 0 1 18 0
+                A READ  ant-readable homeward along >= 0.02 on  68.7% of route-cell samples | FOODWARD  19.8% | plane lit on  98.0% | peak amt  43244 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     20    100.0% of prev    100.0% of all
+                  1. reached the food                          18     90.0% of prev     90.0% of all
+                  2. picked food up out there                  17     94.4% of prev     85.0% of all
+                  3. turned for home with it                   17    100.0% of prev     85.0% of all
+                  4. got back to the nest still holding it     17    100.0% of prev     85.0% of all
+                  5. PUT IT DOWN there                         17    100.0% of prev     85.0% of all
+                  6. went back out again                       10     58.8% of prev     50.0% of all
+                  7. reached the food a SECOND time             6     60.0% of prev     30.0% of all
+                RETURN LEDGER reached food   18 of   20 ants | came back   17 | trips laden   18 empty    4 | LOOPERS   16 of   20 ants (88.9% of those that reached food), repeat    2, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   18 loops /   21 pickups ( 85.7%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  16 of  18 that reached food looped ( 88.9%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[469,625,619,637,523,487,517,727,895,613,955,829,631,433,877,607,685,691,2125,4711,1129,1387] laden[469,625,619,637,523,487,517,727,895,613,955,829,631,433,877,607,685,691]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 20 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [17 261 33 22 18 13 13 5]  carry->nest    1359  born    0 died    8 (starved    5)
+                own trail: route pk   76 end   11 along +0.0004  B nest->food [2106,5408,7990,10481,8308]  blocked      211  kin swaps       0  ticks     64260  tumbles     27811 (homeward     2434, 8.75%)  drops     526  DELIVERED   526  leg home n   22 med   685 p90  1387 (laden n   18 med   631 p90   877)  appetite held         0 J of     49139  trips born-on-comb   22 (20 ants) / born-off    0 (0 ants)
+                channel A: PEAK amt  43244 cells   91 (of 91 route)  POLARITY|| +0.07939 && +0.07573 SPAN -0.00513 edge   0.7  end nest->food [3165,8762,2893,968,0]  nest   25  AtNest 30.91%
+                Carrying: laden    111097  of which SPOIL     21810 ( 19.6%)
+   90   15  hand    1/1        11851     1014        0    86824    52959   17/21       17         0 4 0 17 0
+                A READ  ant-readable homeward along >= 0.02 on  59.6% of route-cell samples | FOODWARD  25.4% | plane lit on  98.0% | peak amt  65535 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     21    100.0% of prev    100.0% of all
+                  1. reached the food                          17     81.0% of prev     81.0% of all
+                  2. picked food up out there                  16     94.1% of prev     76.2% of all
+                  3. turned for home with it                   16    100.0% of prev     76.2% of all
+                  4. got back to the nest still holding it     14     87.5% of prev     66.7% of all
+                  5. PUT IT DOWN there                         14    100.0% of prev     66.7% of all
+                  6. went back out again                       11     78.6% of prev     52.4% of all
+                  7. reached the food a SECOND time             4     36.4% of prev     19.0% of all
+                RETURN LEDGER reached food   17 of   21 ants | came back   16 | trips laden   13 empty    4 | LOOPERS   13 of   21 ants (76.5% of those that reached food), repeat    0, most loops by one ant   1
+                BY ANCHOR AT PICKUP  anchor ON nest material:   13 loops /   19 pickups ( 68.4%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  13 of  17 that reached food looped ( 76.5%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[607,919,1507,1027,673,1123,1447,595,1621,1537,535,3391,1219,5137,3913,5539,6559] laden[607,919,1507,1027,673,1123,1447,595,1621,1537,535,3391,1219]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 21 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [21 202 52 15 20 25 32 8]  carry->nest    1119  born    1 died   20 (starved   15)
+                own trail: route pk   72 end   12 along +0.0000  B nest->food [2106,4939,7794,10573,8308]  blocked      636  kin swaps       0  ticks     63547  tumbles     25820 (homeward     1863, 7.22%)  drops     972  DELIVERED   972  leg home n   17 med  1447 p90  5137 (laden n   13 med  1123 p90  1621)  appetite held         0 J of     48009  trips born-on-comb   17 (20 ants) / born-off    0 (1 ants)
+                channel A: PEAK amt  65535 cells   91 (of 91 route)  POLARITY|| +0.08606 && +0.08274 SPAN -0.00308 edge   0.4  end nest->food [12141,30262,3248,998,0]  nest   25  AtNest 30.45%
+                Carrying: laden    117755  of which SPOIL     36409 ( 30.9%)
+   90   16  hand   17/17       14472      888        0   100599    70311   17/22       19         3 1 0 18 0
+                A READ  ant-readable homeward along >= 0.02 on  69.1% of route-cell samples | FOODWARD  18.9% | plane lit on  97.8% | peak amt  43144 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     22    100.0% of prev    100.0% of all
+                  1. reached the food                          17     77.3% of prev     77.3% of all
+                  2. picked food up out there                  16     94.1% of prev     72.7% of all
+                  3. turned for home with it                   16    100.0% of prev     72.7% of all
+                  4. got back to the nest still holding it     16    100.0% of prev     72.7% of all
+                  5. PUT IT DOWN there                         16    100.0% of prev     72.7% of all
+                  6. went back out again                        8     50.0% of prev     36.4% of all
+                  7. reached the food a SECOND time             3     37.5% of prev     13.6% of all
+                RETURN LEDGER reached food   17 of   22 ants | came back   16 | trips laden   15 empty    4 | LOOPERS   13 of   22 ants (76.5% of those that reached food), repeat    2, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   15 loops /   21 pickups ( 71.4%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  13 of  17 that reached food looped ( 76.5%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[589,871,541,1003,457,547,799,1099,679,823,709,2209,1327,1003,2983,4393,6667,10603,8113] laden[589,871,541,1003,457,547,799,1099,679,823,709,2209,1327,1003,2983]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 22 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [101 213 27 20 20 35 34 5]  carry->nest    1220  born    2 died    5 (starved    2)
+                own trail: route pk   76 end   13 along +0.0154  B nest->food [2106,5079,7895,10567,8308]  blocked      404  kin swaps       0  ticks     76122  tumbles     33536 (homeward     2037, 6.07%)  drops    1061  DELIVERED  1061  leg home n   19 med  1003 p90  6667 (laden n   15 med   823 p90  2209)  appetite held         0 J of     55323  trips born-on-comb   19 (21 ants) / born-off    0 (1 ants)
+                channel A: PEAK amt  43144 cells   91 (of 91 route)  POLARITY|| +0.08902 && +0.08569 SPAN -0.00377 edge   0.9  end nest->food [3780,7451,2298,727,0]  nest   25  AtNest 41.72%
+                Carrying: laden    140711  of which SPOIL     46220 ( 32.8%)
+   90   17  hand   21/20       17159      762        0   104397    58457   20/24       19         3 1 0 20 0
+                A READ  ant-readable homeward along >= 0.02 on  67.0% of route-cell samples | FOODWARD  18.4% | plane lit on  98.1% | peak amt  35156 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     24    100.0% of prev    100.0% of all
+                  1. reached the food                          20     83.3% of prev     83.3% of all
+                  2. picked food up out there                  19     95.0% of prev     79.2% of all
+                  3. turned for home with it                   16     84.2% of prev     66.7% of all
+                  4. got back to the nest still holding it     16    100.0% of prev     66.7% of all
+                  5. PUT IT DOWN there                         16    100.0% of prev     66.7% of all
+                  6. went back out again                        4     25.0% of prev     16.7% of all
+                  7. reached the food a SECOND time             2     50.0% of prev      8.3% of all
+                RETURN LEDGER reached food   20 of   24 ants | came back   17 | trips laden   10 empty    9 | LOOPERS    9 of   24 ants (45.0% of those that reached food), repeat    1, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   10 loops /   20 pickups ( 50.0%) | anchor OFF it:    0 /    3 (  0.0%)
+                BY BIRTH SITE  born ON comb:   9 of  18 that reached food looped ( 50.0%) | born OFF comb:   0 of   2 (  0.0%)
+                LEGS legs[991,493,1405,877,775,727,1339,1729,2671,3169,6127,6265,3031,3037,6103,6991,3373,6619,5575] laden[991,493,1405,877,775,727,1339,1729,2671,3169]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 24 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [175 164 48 24 19 33 24 9]  carry->nest    1177  born    4 died    3 (starved    1)
+                own trail: route pk   42 end   12 along +0.5082  B nest->food [2292,4981,7841,10604,8309]  blocked      187  kin swaps       0  ticks     82860  tumbles     37362 (homeward     2257, 6.04%)  drops    1520  DELIVERED  1520  leg home n   19 med  3031 p90  6265 (laden n   10 med  1339 p90  2671)  appetite held         0 J of     55914  trips born-on-comb   19 (21 ants) / born-off    0 (3 ants)
+                channel A: PEAK amt  35156 cells   91 (of 91 route)  POLARITY|| +0.07994 && +0.07697 SPAN -0.00219 edge   0.9  end nest->food [3725,3572,1434,607,0]  nest   25  AtNest 25.46%
+                Carrying: laden    113367  of which SPOIL      9144 (  8.1%)
+   90   18  hand    6/6        11912     1182        0    82880    62072   19/21       19         2 0 0 19 0
+                A READ  ant-readable homeward along >= 0.02 on  63.7% of route-cell samples | FOODWARD  22.0% | plane lit on  97.4% | peak amt  65535 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     21    100.0% of prev    100.0% of all
+                  1. reached the food                          19     90.5% of prev     90.5% of all
+                  2. picked food up out there                  18     94.7% of prev     85.7% of all
+                  3. turned for home with it                   17     94.4% of prev     81.0% of all
+                  4. got back to the nest still holding it     17    100.0% of prev     81.0% of all
+                  5. PUT IT DOWN there                         17    100.0% of prev     81.0% of all
+                  6. went back out again                       12     70.6% of prev     57.1% of all
+                  7. reached the food a SECOND time             2     16.7% of prev      9.5% of all
+                RETURN LEDGER reached food   19 of   21 ants | came back   17 | trips laden   17 empty    2 | LOOPERS   17 of   21 ants (89.5% of those that reached food), repeat    0, most loops by one ant   1
+                BY ANCHOR AT PICKUP  anchor ON nest material:   17 loops /   19 pickups ( 89.5%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  17 of  19 that reached food looped ( 89.5%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[787,673,637,1429,1405,529,925,1171,1435,661,835,505,763,835,787,2941,1669,1867,4573] laden[787,673,637,1429,1405,529,925,1171,1435,661,835,505,763,835,787,2941,1669]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 21 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [26 205 41 14 30 21 21 4]  carry->nest    1123  born    1 died   15 (starved    9)
+                own trail: route pk   43 end    0 along +0.0000  B nest->food [2106,5203,7848,10450,8308]  blocked      378  kin swaps       0  ticks     61551  tumbles     25183 (homeward     2511, 9.97%)  drops    1004  DELIVERED  1004  leg home n   19 med   835 p90  1867 (laden n   17 med   835 p90  1435)  appetite held         0 J of     46667  trips born-on-comb   19 (20 ants) / born-off    0 (1 ants)
+                channel A: PEAK amt  65535 cells   91 (of 91 route)  POLARITY|| +0.08288 && +0.07884 SPAN -0.00189 edge   0.6  end nest->food [27098,51499,4910,1381,0]  nest   25  AtNest 28.84%
+                Carrying: laden    101176  of which SPOIL     19490 ( 19.3%)
+   90   19  hand   14/14       16656     1272        0   110643    82065   19/22       26         1 1 0 20 0
+                A READ  ant-readable homeward along >= 0.02 on  63.7% of route-cell samples | FOODWARD  22.6% | plane lit on  97.9% | peak amt  47727 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     22    100.0% of prev    100.0% of all
+                  1. reached the food                          19     86.4% of prev     86.4% of all
+                  2. picked food up out there                  18     94.7% of prev     81.8% of all
+                  3. turned for home with it                   17     94.4% of prev     77.3% of all
+                  4. got back to the nest still holding it     17    100.0% of prev     77.3% of all
+                  5. PUT IT DOWN there                         17    100.0% of prev     77.3% of all
+                  6. went back out again                       12     70.6% of prev     54.5% of all
+                  7. reached the food a SECOND time             7     58.3% of prev     31.8% of all
+                RETURN LEDGER reached food   19 of   22 ants | came back   19 | trips laden   19 empty    7 | LOOPERS   16 of   22 ants (84.2% of those that reached food), repeat    3, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   19 loops /   24 pickups ( 79.2%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  16 of  19 that reached food looped ( 84.2%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[883,655,907,679,901,643,781,1321,1009,697,565,1321,613,811,787,679,709,2023,2203,2767,3895,3763,6181,2209,2461,2995] laden[883,655,907,679,901,643,781,1321,1009,697,565,1321,613,811,787,679,709,2023,2767]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 22 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [61 228 49 32 23 23 35 6]  carry->nest    1363  born    2 died    8 (starved    1)
+                own trail: route pk   29 end   15 along +0.0319  B nest->food [2106,5201,8170,10595,8308]  blocked      150  kin swaps       0  ticks     78117  tumbles     33984 (homeward     2864, 8.43%)  drops    1545  DELIVERED  1545  leg home n   26 med   907 p90  3763 (laden n   19 med   787 p90  1321)  appetite held         0 J of     61619  trips born-on-comb   26 (20 ants) / born-off    0 (2 ants)
+                channel A: PEAK amt  47727 cells   91 (of 91 route)  POLARITY|| +0.05470 && +0.05167 SPAN -0.00950 edge   0.4  end nest->food [1912,6141,3254,1869,71]  nest   25  AtNest 28.27%
+                Carrying: laden    121293  of which SPOIL     10929 (  9.0%)
+   90   20  hand   14/14       12640      984        0    93078    64980   15/22       16         3 4 0 15 0
+                A READ  ant-readable homeward along >= 0.02 on  64.1% of route-cell samples | FOODWARD  19.3% | plane lit on  96.7% | peak amt  56393 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     22    100.0% of prev    100.0% of all
+                  1. reached the food                          15     68.2% of prev     68.2% of all
+                  2. picked food up out there                  15    100.0% of prev     68.2% of all
+                  3. turned for home with it                   14     93.3% of prev     63.6% of all
+                  4. got back to the nest still holding it     13     92.9% of prev     59.1% of all
+                  5. PUT IT DOWN there                         13    100.0% of prev     59.1% of all
+                  6. went back out again                        5     38.5% of prev     22.7% of all
+                  7. reached the food a SECOND time             4     80.0% of prev     18.2% of all
+                RETURN LEDGER reached food   15 of   22 ants | came back   13 | trips laden   16 empty    0 | LOOPERS   13 of   22 ants (86.7% of those that reached food), repeat    3, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   16 loops /   23 pickups ( 69.6%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  13 of  15 that reached food looped ( 86.7%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[847,619,667,673,937,439,511,685,553,787,931,775,1633,1117,2389,1585] laden[847,619,667,673,937,439,511,685,553,787,931,775,1633,1117,2389,1585]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 22 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [31 251 23 12 13 31 24 5]  carry->nest    1221  born    2 died    8 (starved    8)
+                own trail: route pk   45 end    5 along +0.0000  B nest->food [2106,5071,7944,10581,8308]  blocked      260  kin swaps       0  ticks     65347  tumbles     28901 (homeward     1675, 5.80%)  drops     954  DELIVERED   954  leg home n   16 med   787 p90  1633 (laden n   16 med   787 p90  1633)  appetite held         0 J of     51175  trips born-on-comb   16 (21 ants) / born-off    0 (1 ants)
+                channel A: PEAK amt  56393 cells   91 (of 91 route)  POLARITY|| +0.09070 && +0.08667 SPAN -0.00197 edge   1.4  end nest->food [4590,7414,1586,412,0]  nest   25  AtNest 20.26%
+                Carrying: laden    107870  of which SPOIL     25760 ( 23.9%)
+   90   21  hand   16/16       18378     1092        0   123470   105674   20/24       24         4 0 0 20 0
+                A READ  ant-readable homeward along >= 0.02 on  65.5% of route-cell samples | FOODWARD  20.1% | plane lit on  97.9% | peak amt  37519 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     24    100.0% of prev    100.0% of all
+                  1. reached the food                          20     83.3% of prev     83.3% of all
+                  2. picked food up out there                  20    100.0% of prev     83.3% of all
+                  3. turned for home with it                   19     95.0% of prev     79.2% of all
+                  4. got back to the nest still holding it     19    100.0% of prev     79.2% of all
+                  5. PUT IT DOWN there                         19    100.0% of prev     79.2% of all
+                  6. went back out again                       10     52.6% of prev     41.7% of all
+                  7. reached the food a SECOND time             5     50.0% of prev     20.8% of all
+                RETURN LEDGER reached food   20 of   24 ants | came back   19 | trips laden   24 empty    0 | LOOPERS   19 of   24 ants (95.0% of those that reached food), repeat    5, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   24 loops /   25 pickups ( 96.0%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  19 of  20 that reached food looped ( 95.0%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[775,535,553,565,517,541,553,523,463,637,733,553,769,865,1477,631,667,1519,373,553,469,571,595,463] laden[775,535,553,565,517,541,553,523,463,637,733,553,769,865,1477,631,667,1519,373,553,469,571,595,463]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 24 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [74 257 26 12 18 22 21 6]  carry->nest    1573  born    4 died    8 (starved    3)
+                own trail: route pk   18 end    0 along +0.0000  B nest->food [2106,5537,8087,10658,8309]  blocked       90  kin swaps       0  ticks     72693  tumbles     32221 (homeward     3679, 11.42%)  drops    1733  DELIVERED  1733  leg home n   24 med   565 p90   865 (laden n   24 med   565 p90   865)  appetite held         0 J of     67501  trips born-on-comb   24 (20 ants) / born-off    0 (4 ants)
+                channel A: PEAK amt  37519 cells   91 (of 91 route)  POLARITY|| +0.06378 && +0.05981 SPAN -0.00666 edge   0.4  end nest->food [2289,4728,3010,1617,19]  nest   25  AtNest 47.16%
+                Carrying: laden    136654  of which SPOIL     13499 (  9.9%)
+   90   22  hand   16/16       15193      948        0    97099    73970   16/23       18         4 1 0 18 0
+                A READ  ant-readable homeward along >= 0.02 on  62.3% of route-cell samples | FOODWARD  21.5% | plane lit on  97.8% | peak amt  33784 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     23    100.0% of prev    100.0% of all
+                  1. reached the food                          16     69.6% of prev     69.6% of all
+                  2. picked food up out there                  16    100.0% of prev     69.6% of all
+                  3. turned for home with it                   16    100.0% of prev     69.6% of all
+                  4. got back to the nest still holding it     16    100.0% of prev     69.6% of all
+                  5. PUT IT DOWN there                         16    100.0% of prev     69.6% of all
+                  6. went back out again                        4     25.0% of prev     17.4% of all
+                  7. reached the food a SECOND time             3     75.0% of prev     13.0% of all
+                RETURN LEDGER reached food   16 of   23 ants | came back   16 | trips laden   16 empty    2 | LOOPERS   15 of   23 ants (93.8% of those that reached food), repeat    1, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   16 loops /   19 pickups ( 84.2%) | anchor OFF it:    0 /    1 (  0.0%)
+                BY BIRTH SITE  born ON comb:  15 of  15 that reached food looped (100.0%) | born OFF comb:   0 of   1 (  0.0%)
+                LEGS legs[649,529,823,697,529,667,487,955,475,487,1045,637,655,721,3961,4526,4771,727] laden[649,529,823,697,529,667,487,955,475,487,1045,637,655,721,3961,727]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 23 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [47 239 36 8 27 31 20 4]  carry->nest    1155  born    3 died    7 (starved    5)
+                own trail: route pk   77 end   12 along +0.0022  B nest->food [2106,5135,7773,10516,8307]  blocked      207  kin swaps       0  ticks     70040  tumbles     30993 (homeward     2668, 8.61%)  drops    1219  DELIVERED  1219  leg home n   18 med   697 p90  3961 (laden n   16 med   667 p90  1045)  appetite held         0 J of     53794  trips born-on-comb   17 (20 ants) / born-off    1 (3 ants)
+                channel A: PEAK amt  33784 cells   91 (of 91 route)  POLARITY|| +0.08369 && +0.08029 SPAN -0.00263 edge   0.9  end nest->food [1904,14365,1561,670,0]  nest   25  AtNest 29.07%
+                Carrying: laden    112062  of which SPOIL     15220 ( 13.6%)
+   90   23  hand   12/12       16179     1494        0   106962    86940   20/24       21         3 1 0 20 0
+                A READ  ant-readable homeward along >= 0.02 on  64.9% of route-cell samples | FOODWARD  21.2% | plane lit on  97.7% | peak amt  46179 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     24    100.0% of prev    100.0% of all
+                  1. reached the food                          20     83.3% of prev     83.3% of all
+                  2. picked food up out there                  18     90.0% of prev     75.0% of all
+                  3. turned for home with it                   17     94.4% of prev     70.8% of all
+                  4. got back to the nest still holding it     17    100.0% of prev     70.8% of all
+                  5. PUT IT DOWN there                         17    100.0% of prev     70.8% of all
+                  6. went back out again                        8     47.1% of prev     33.3% of all
+                  7. reached the food a SECOND time             5     62.5% of prev     20.8% of all
+                RETURN LEDGER reached food   20 of   24 ants | came back   17 | trips laden   19 empty    2 | LOOPERS   17 of   24 ants (85.0% of those that reached food), repeat    2, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   19 loops /   23 pickups ( 82.6%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  17 of  20 that reached food looped ( 85.0%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[439,529,487,487,997,649,589,793,631,907,499,487,577,523,1015,511,613,1063,1447,2101,1783] laden[439,529,487,487,997,649,589,793,631,907,499,487,577,523,1015,511,613,1063,1447]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 24 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [21 257 20 11 20 29 21 8]  carry->nest    1339  born    4 died   12 (starved    5)
+                own trail: route pk   60 end    0 along +0.0000  B nest->food [2106,5325,7883,10620,8308]  blocked      107  kin swaps       0  ticks     65684  tumbles     28778 (homeward     3481, 12.10%)  drops    1209  DELIVERED  1209  leg home n   21 med   613 p90  1447 (laden n   19 med   589 p90  1015)  appetite held         0 J of     59330  trips born-on-comb   21 (22 ants) / born-off    0 (2 ants)
+                channel A: PEAK amt  46179 cells   91 (of 91 route)  POLARITY|| +0.06253 && +0.05873 SPAN -0.00820 edge   0.5  end nest->food [1376,4346,2693,1439,4]  nest   25  AtNest 33.96%
+                Carrying: laden    112771  of which SPOIL      7687 (  6.8%)
+   90   24  hand   11/11       14890     1320        0   106907    84437   17/22       19         4 1 0 17 0
+                A READ  ant-readable homeward along >= 0.02 on  62.7% of route-cell samples | FOODWARD  20.6% | plane lit on  97.5% | peak amt  35157 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     22    100.0% of prev    100.0% of all
+                  1. reached the food                          17     77.3% of prev     77.3% of all
+                  2. picked food up out there                  16     94.1% of prev     72.7% of all
+                  3. turned for home with it                   16    100.0% of prev     72.7% of all
+                  4. got back to the nest still holding it     16    100.0% of prev     72.7% of all
+                  5. PUT IT DOWN there                         16    100.0% of prev     72.7% of all
+                  6. went back out again                        8     50.0% of prev     36.4% of all
+                  7. reached the food a SECOND time             5     62.5% of prev     22.7% of all
+                RETURN LEDGER reached food   17 of   22 ants | came back   16 | trips laden   19 empty    0 | LOOPERS   16 of   22 ants (94.1% of those that reached food), repeat    3, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   19 loops /   22 pickups ( 86.4%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  16 of  17 that reached food looped ( 94.1%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[541,823,553,619,715,691,913,1051,631,697,703,787,871,565,625,721,577,763,10753] laden[541,823,553,619,715,691,913,1051,631,697,703,787,871,565,625,721,577,763,10753]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 22 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [64 151 38 13 18 32 25 8]  carry->nest    1280  born    2 died   11 (starved    6)
+                own trail: route pk   63 end   11 along +0.0140  B nest->food [2106,5086,7943,10608,8308]  blocked      256  kin swaps       0  ticks     58941  tumbles     25455 (homeward     1519, 5.97%)  drops    1929  DELIVERED  1929  leg home n   19 med   703 p90   913 (laden n   19 med   703 p90   913)  appetite held         0 J of     58967  trips born-on-comb   19 (21 ants) / born-off    0 (1 ants)
+                channel A: PEAK amt  35157 cells   91 (of 91 route)  POLARITY|| +0.08141 && +0.07789 SPAN -0.00497 edge   0.6  end nest->food [1986,3940,2205,883,0]  nest   25  AtNest 39.37%
+                Carrying: laden    121889  of which SPOIL     16716 ( 13.7%)
+
+  larder put out, over the whole sweep: 101760-107040 J, against a need near 46,800 J
+    for 52 ants over 24,000 frames -- so these colonies are provisioned, not starved.
+  intake off anything that is not the larder is ASSERTED to be 0 in every row, not printed.
+
+  `self` vs `mute` is the real question: do the ants' OWN trails do anything?
+  `visitors` is DISTINCT ants that reached the food over distinct ants that ever lived --
+    recruitment, which `near` ant-ticks cannot see: 50 visitors and 1 resident read alike.
+  `trips` is nest -> food -> nest, closed on the RETURN. `reach` buckets every ant by how
+  `occupancy` is ant-ticks in 8 equal bands, NEST END FIRST, food end last -- a commuting
+    colony is bimodal, a dispersing one slides its mass right, a homebody is a spike at 0.
+  `carry->nest` is signed cells moved while holding larder, POSITIVE = homeward. Near zero
+    means food is picked up and wandered with, which is a different fault from not finding it.
+    far it ever got, as a share of the gap, so a commuting population is visible as a shape.
+  `hand` vs `self` only says whether a laid ramp beats what they bootstrap.
+  `hmute` is the DECAY BASELINE for `route pk`: our ramp laid, the ants silenced.
+  `flatN`/`flatF` are the POLARITY metric's negative controls: a FLAT channel A blob over
+    the nest half / the food half, ants' EmitA silenced. A field with no ramp in it at all.
+    A correct metric reads 0 on both. POLARITY|| is predicted to read ~+0.12 and ~-0.12,
+    which brackets every polarity figure in the report -- see `lay_flat`.
+  `homeA` lays a channel A HOMING ramp and no food trail -- if laden ants only fail
+    to route because they cannot find their way home, this is where their own B appears.
+  `carry` is ant-ticks holding larder in the crop; `carry@nest` is those inside the +-26 nest band --
+    that pair is the answer to "is food being carried back", which a cell census cannot give.
+  `other J` must read 0 in every row: it is the check that `onlyfood` held.
+  A gap where `alive` reaches 0 in every arm is measuring a dead colony, not a deaf one.
