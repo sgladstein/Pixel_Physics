@@ -1960,6 +1960,10 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // **The channel-B trail as a time series** -- see the emit site. Off by
     // default: it is one line per sample and would drown a sweep's table.
     let btrail = flag("btrail");
+    // **The laden census** -- see the push site. Needs `trace`, because the
+    // brain evaluation it reads is gated on it.
+    let laden_csv = flag("ladencsv");
+    assert!(!laden_csv || tracing, "ladencsv needs `trace`: the brain evaluation it records is gated on it, so without it every row would be missing");
     // **Asserted rather than documented, because the failure is silent.** The
     // emit site sits inside the existing every-100-frames sample block, so a
     // value that is not a multiple of 100 quietly samples at the lowest common
@@ -2246,6 +2250,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let mut cohort: Vec<pixel_physics::sim::cell::OrganismId> = Vec::new();
     let mut cohort_next_x = i32::MIN;
     let mut focal_rows: Vec<String> = Vec::new();
+    let mut laden_rows: Vec<String> = Vec::new();
     let nest_cells = {
         let nest = w.materials.id_of("nest");
         match nest {
@@ -2673,6 +2678,12 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 let (ax, ay) = creature::trail_sample_point(hx, hy, s.heading, sensor_offset, false, creature::sensor_projected());
                 let here_a = w.pheromone_at(Channel::A, hx, hy);
                 let ahead_a = w.pheromone_at(Channel::A, ax, ay);
+                // **Channel B under the ant and at its nose.** The A pair has
+                // been here since §Z29; B had no equivalent, which is why "what
+                // is this animal actually laying, and onto what" could not be
+                // asked of a laden ant at all.
+                let here_b = w.pheromone_at(Channel::B, hx, hy);
+                let ahead_b = w.pheromone_at(Channel::B, ax, ay);
                 let solid_at = |cx: i32, cy: i32| {
                     matches!(
                         w.materials.kind(w.get(cx, cy).material),
@@ -3037,6 +3048,49 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                         tr_down_open.3 += u64::from(p_move > 0.0);
                     }
                 }
+                }
+                // **THE LADEN CENSUS -- every ant that is carrying food, every
+                // tick it holds it, with what it LAYS in the row.**
+                //
+                // Owner's instruction, 2026-09-21: *"take every ant in the
+                // simulation that finds food and examine their brain and
+                // actions while they hold food. See where they are moving and
+                // what trail they are laying."* Nothing could answer the second
+                // half: the focal CSV carries `here_a`/`ahead_a` and the whole
+                // input vector, and **no column for either emit output**, so
+                // the one quantity that says whether a trail is being laid was
+                // the one quantity not recorded.
+                //
+                // **Not a cohort and not a focal ant.** `carrying_larder` is
+                // already in this block's gate, so the full brain is evaluated
+                // for every laden ant on every laden tick whether or not
+                // anything writes it down -- the census is free and the sample
+                // is the population. `CLAUDE.md`: trace every individual that
+                // reached the state in question, not one focal animal.
+                //
+                // `deposit_b` is the engine's own arithmetic
+                // (`creature.rs`: `emit_b.clamp(0,1) * pheromone::DEPOSIT`)
+                // rather than a number this file invents, and it is what
+                // `deposit_pheromone` is handed -- **on a successful move
+                // only**, which is why `moved_home` belongs in the same row: a
+                // tick that lays nothing because the animal did not move looks
+                // identical, in any aggregate, to one that chose not to lay.
+                if laden_csv && carrying_larder {
+                    let emit_b = tout[O::EmitB as usize].clamp(0.0, 1.0);
+                    let emit_a_o = tout[O::EmitA as usize].clamp(0.0, 1.0);
+                    laden_rows.push(format!(
+                        "{seed},{gap},{},{id:?},{f},{},{hx},{hy},{dx},{},{emit_b:.6},{},{here_b},{ahead_b},{emit_a_o:.6},{here_a},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}",
+                        gate.name,
+                        tracks.get(&id).map_or(0, |t| t.stage),
+                        hx - nest_x,
+                        (emit_b * pheromone::DEPOSIT as f32) as u32,
+                        tin[I::HomeAligned as usize],
+                        tin[I::PheroBAlong as usize],
+                        tin[I::PheroBFront as usize],
+                        tin[I::PheroAAlong as usize],
+                        p_move,
+                        tout[O::Drop as usize].clamp(0.0, 1.0),
+                    ));
                 }
                 if focal == Some(id) || in_cohort {
                     focal_rows.push(format!(
@@ -3718,6 +3772,21 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 // live for a subset of the decisions, and a mean over the
                 // wrong denominator would understate it.
                 println!("      {n:<16} {v:+.5}   (live in {c} of {tr_n}){note}");
+            }
+        }
+        if !laden_rows.is_empty() {
+            let path = format!("/tmp/trailfollow-laden-seed{seed}-gap{gap}.csv");
+            // The header names `dx_home` for what it is -- cells moved TOWARD
+            // the nest this tick, positive homeward -- because "dx" on its own
+            // has been read with the wrong sign in this file before.
+            let mut out = String::from(
+                "seed,gap,arm,id,frame,stage,x,y,dx_home,dist_nest,emit_b,deposit_b,here_b,ahead_b,emit_a,here_a,HomeAligned,PheroBAlong,PheroBFront,PheroAAlong,p_move,drop_urge\n",
+            );
+            out.push_str(&laden_rows.join("\n"));
+            out.push('\n');
+            match std::fs::write(&path, out) {
+                Ok(()) => println!("    LADEN CENSUS: {} laden ant-ticks written to {path}", laden_rows.len()),
+                Err(e) => println!("    LADEN CENSUS: could not write {path}: {e}"),
             }
         }
         if !focal_rows.is_empty() {
