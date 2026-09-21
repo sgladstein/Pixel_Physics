@@ -163,6 +163,12 @@ Per-seed medians, paired within seed:
 **Starvation is the cleanest signal in the table.** D halves the median and is
 down in **22 seeds and up in none**.
 
+**Note that the two headline figures are different arms**, and it is worth
+keeping them apart rather than quoting "+42% and 0/22" as one result: E is best
+on intake, D is best on starvation. E also spends slightly more of the colony
+getting there — `lived` 526 against D's 537 — which is the shape of a lever that
+sends more animals out.
+
 ### 3b. Stacking fires and, on its own, feeds nobody
 
 This is `CLAUDE.md`'s counter rule playing out exactly as written — pair the
