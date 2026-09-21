@@ -419,3 +419,43 @@ So §3's +42% is a real improvement to *the one distance the colony already
 survived*, and buys nothing at the distances that would show recruitment
 working. That is consistent with 7a rather than a separate disappointment: range
 cannot be extended by a trail the readers are better off without.
+
+### 7c. The stall is a population effect, and it sits on the trail's own hotspot
+
+The owner, on a single-ant trajectory: *"it is also just 1 ant, so it should be
+checked across a larger sample."* Correct, and the check overturned the
+illustration. 60 ants traced across 6 seeds, 57 of which carried food, 43 of
+which lived more than 500 ticks past their last delivery:
+
+| where an ant parks after its last delivery | x |
+|---|---|
+| min | 67 |
+| p25 | 70 |
+| **median** | **72** |
+| p75 | 97 |
+| max | 123 |
+
+**40 of 43 spend under 1% of their remaining life within ten cells of the
+food**; the median is **0.00%**. The focal ant that produced the illustration
+parked at **114** — above p75, real but in the tail. `CLAUDE.md`'s rule holds
+exactly as written: one ant is an anecdote until the population trace agrees,
+and here it agreed about the *behaviour* and not about the *place*.
+
+**And the place is the interesting part.** Against 7a's duty cycle, `x 68–77` is
+the brightest stretch of the ants' own channel B — **72% lit, mean 708**, the
+only stretch above 700 — and the population parks at a median of **72**. Two
+independent measurements, one of ant positions and one of the pheromone plane,
+landing on the same ten cells.
+
+That is a mechanism for 7a rather than a restatement of it: the colony is not
+being mildly misdirected along its route, it is being **held 24 cells out from
+home by the brightest thing it can smell**, on a hotspot that is nobody's
+destination. Silencing `EmitB` removes the hotspot, which is what the ablation
+does.
+
+**The direction of causation is not established and the next trace is the
+test.** Ants lay only while carrying, so a parked empty ant contributes nothing
+to the brightness, which argues the trail comes first — but that is an
+inference. The question is of the form *"why did it do that"*, so the answer is
+a per-tick trace of what an ant standing at `x 72` reads and chooses, never a
+population statistic.
