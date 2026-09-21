@@ -1,0 +1,43 @@
+{
+  "id": "20260921T212556849Z-ecbaf8",
+  "created": "2026-09-21T21:25:56Z",
+  "board": "ants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/upbeat-shannon-cez0w4",
+    "commit": "08b49906",
+    "agent": null,
+    "session_id": "32f46678-8b08-560e-8bb2-b26566c40d63",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "CORRECTION to 20260921T211003508Z-37b573: the ants never build a trail, in any seed",
+  "question": "With the peak thrown out, is 'the colony cannot hold a route-length trail at all' the right problem to work on next -- or is a blob at the nest plus episodic streaks actually enough, and the thing to fix is elsewhere?",
+  "context_md": "**Supersedes the meta on the previous card, which was wrong.** You rejected it on sight: *\"ant-laid peak doesn't seem like a good metric... for seed 4 it is caused by a single bright spot not a good trail from nest to food.\"* Correct -- `max()` over cells cannot see a hole.\n\nSame image. The metric is now the **longest unbroken dark run** along the route, against the ant's own `sensor_offset` of 6, because a gap the animal can see across is not a break.\n\n| seed | cells lit | worst dark gap | route connected |\n|---|---|---|---|\n| hand-laid, every seed | **91/91** | **0** | **100%** of frames |\n| 1 | 0/91 | 91 | 8% |\n| 2 | 26/91 | 47 | 8% |\n| 3 | 25/91 | 44 | 8% |\n| 4 (the \"78% peak\") | 30/91 | **43** | 8% |\n\nSeed 4 has a **43-cell hole in a 91-cell route**. On peak it looked 4x better than seed 1; on connectivity all four are identical. It is not a distribution -- **no colony builds a nest-to-food trail in any seed.**",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "four seeds, gap 90, stop=6000",
+      "files": [
+        "20260921T212556849Z-ecbaf8/000-trail_grid.png"
+      ],
+      "caption": "top to bottom: seeds 1, 2, 3, 4 -- unchanged image, corrected metric",
+      "meta": {
+        "hand-laid route connected": "100% of frames, worst gap 0",
+        "ant-laid route connected": "8% of frames, all four seeds",
+        "ant-laid worst dark gap (median)": "43-91 cells of 91",
+        "ant sensor reach used": 6,
+        "what the peak said instead": "18/27/32/78% -- a spike, not a trail"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
