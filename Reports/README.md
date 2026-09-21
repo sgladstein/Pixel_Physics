@@ -3111,6 +3111,46 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   wrong (11.8%, not ~70%) and scoping to channel A is load-bearing (both planes
   → 0 ants reach food in all 24 seeds). Data
   `Reports/data/trail-comparator-24seed-2026-09-20-{shipped,fwd}.log`.
+- [ant-forage-bed-and-gates-2026-09-21.md](ant-forage-bed-and-gates-2026-09-21.md)
+  — **result, 2026-09-21. `engine`.** Follows the result above. **Two red gates
+  repaired, and neither was the code's fault.** The trail-sensor geometry test
+  asserted that every off-row heading reads exactly 0 and said *"Off by
+  default"* in its own comment — it was guarding the bug the projection fixed;
+  rewritten to the shipped contract and injected one half at a time, which land
+  on **different assertions** (projection → NE reads 0.0 against E's 0.0667;
+  readability → N reads −0.909). It also corrects a quoted figure: reverting the
+  projection **alone** gives 0.0, not the −0.48 attributed to it, which is both
+  halves off. The per-colony books bar barred a colony at `world_drift + 1e-3`,
+  but **the world's drift is the colonies' signed SUM**, so opposite-signed
+  drifts cancel and the whole reads tighter than either part; measured,
+  `sum_of_colony_d == world_d` to every digit, and at 12,000 frames the signs
+  differ. **It is rounding, not a leak, and the sign settles it** — colony 1
+  runs +0.0122, +0.0229, +0.0116, **−0.0119**, a walk that changes sign. New bar
+  scales to throughput and goes red **1,234x** for a mislabelled account while
+  the sum test stays green. **The bed was measuring birth position wearing a
+  navigation label**: the founding band spans `x 12..88` while the hand-laid
+  ramp starts at 48, so **11 of 20 founders are off the nest** and read the food
+  trail as exactly 0.00000 — 40% of them reach food against 98%. Two independent
+  fixes, both selectors: `PIXEL_PHYSICS_COLONY_SPACING=2` (the corridor is
+  `body_span * 2` and one body width works — full colony, band 76 → 38 cells,
+  **20 of 20** on the comb) and `layfrom=founders`. **Stacking does NOT narrow a
+  founding band** — `spacing=1` founds 10 at `STACK_DEPTH` 1 and 4 alike,
+  because `stack_cap` gates the *step* and the founding walk never consults it.
+  Five arms, 24 seeds paired, and the two headline figures are **different
+  arms**: larder intake **+42%** with all three levers (20 seeds up / 4 down),
+  and starvation median **16.5 → 5.0** with narrow+stacking, **down in 22 seeds
+  and up in none** (all three gives 6.0, 3/20). **Stacking halves blocked moves
+  (12,454 → 6,555) and on its own is a 12/12 coin flip on whether the colony
+  eats** — the counter rule paying out exactly as written; it is the levers'
+  *interaction* that carries it. **And `DELIVERED` said 4.04x**, which
+  `instruments.md` already records as inflated by construction. **A peak cannot
+  see a hole**: the ant-laid trail was first quoted as 18/27/32/78% of the
+  hand-laid peak and the owner rejected it on the picture — on longest-dark-run
+  against the ant's own reach, seed 4's 78% is a **43-cell gap in a 91-cell
+  route** and all four seeds are identical at **8% connected against the
+  hand-laid ramp's 100%**, so no colony builds a nest-to-food trail in any seed.
+  Three instruments, each with a positive control: `funnelpair.py`,
+  `btrailchart.py`, `loopchart.py`.
 - [ant-navigation-plan-2026-09-20.md](ant-navigation-plan-2026-09-20.md)
   — **plan, 2026-09-20. `engine`.** The return arm does not work because the
   trail is wired to the wrong decision. An ant makes two separate choices per

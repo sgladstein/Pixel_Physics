@@ -1,6 +1,20 @@
 # Ants
 
-*Current as of: 2026-09-19, when **an ant stopped being told the trail was
+*Current as of: 2026-09-20, when **an ant's nose came down onto the ground it
+walks on.** A trail is a mark a few rows thick lying on the surface, and an ant
+facing any of the four slanted directions used to sniff six rows off it --
+above the trail if it faced upward, below the trail if it faced downward --
+on nearly half of all its steps. It walked the length of a lit trail smelling
+nothing, and the colony read as though it could not follow a trail at all. The
+nose now looks along the ground ahead, where an ant can actually put its feet,
+and the two straight-up-and-down directions are left alone on purpose so a
+colony can still follow a trail up a trunk. This is the change that closed the
+foraging loop: for the first time ants reach the food, carry it home, put it
+down, go back out and **find the food again** -- a second lap went from eight
+ants in a colony to seventy-six. Every part of the round trip got better at
+once, including the walk home, which nothing in the change touches: an ant that
+can smell where it is going spends far less of itself getting anywhere. Before
+that the day before, **an ant stopped being told the trail was
 weak in directions it could not actually smell.** Its nose points wherever its
 body points, and six of the eight ways it can face point six cells into open
 sky or solid rock -- places no ant has ever walked, so no scent can be there.

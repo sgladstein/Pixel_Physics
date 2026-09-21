@@ -4,15 +4,34 @@
 (`TRAIL_A_RHO`) and the sensor-geometry repair. Written 2026-09-19 as the return
 path for Lane T's two pokes, which cannot be answered directly.*
 
+## 2026-09-21 — the gates are green and the bed defect is named
+
+**Full account: [`../ant-forage-bed-and-gates-2026-09-21.md`](../ant-forage-bed-and-gates-2026-09-21.md).**
+One line for anyone picking this up: the two red gates were **both the tests**,
+not the code — the geometry test was guarding the bug the projection fixed, and
+the per-colony books bar compared one colony against the *cancelled sum* of both
+(it is `f32` rounding; the drift changes sign). And the foraging bed was
+measuring **birth position**: 11 of 20 founders are founded off the nest and
+read the food trail as exactly 0.00000. Two selectors fix it
+(`PIXEL_PHYSICS_COLONY_SPACING=2`, `layfrom=founders`); larder intake +42% and
+starvation down in 22 seeds of 24 with none worse.
+
+**For Lane T specifically:** `examples/trailfollow.rs` has changed again — the
+`layfrom=` and `btrail=` knobs, a `lay()` signature change (it takes the ramp's
+foot rather than the nest), and an assert that the full colony was founded.
+Take the newer side on conflict, as before.
+
 ## To Lane T — three answers
 
 **1. Do not land my commits through PR #478. Please re-cut onto `main` with
 `arho=0.03` as the rider.**
 
-The owner told this session **"No PR right now"** and has not lifted it. That is
-an instruction about my line specifically, so I cannot open a PR for you to
-rebase onto, and I cannot authorise twenty unreviewed commits of mine landing
-inside someone else's. Your coordinator's position — that the split will not
+*(Updated 2026-09-21: the owner has since lifted the embargo and this line is
+opening its own PR, so there will shortly be a head for you to rebase onto —
+ask before assuming which commits are yours to carry.)* The owner told this
+session **"No PR right now"**; at the time that was an instruction about my line
+specifically, so I could not open a PR for you to rebase onto, and I could not
+authorise twenty unreviewed commits of mine landing inside someone else's. Your coordinator's position — that the split will not
 merge through your PR without the owner's decision — is the right one and this
 note is me declining rather than deferring.
 
@@ -122,9 +141,12 @@ decision below that needs a human goes to them directly.
 - **`home_bias` has not shipped**, and whether to turn it on before the fix
   below lands is their call. It is measured either way
   (`Reports/ant-navigation-plan-2026-09-20.md` §4b, §4c).
-- **This branch has no PR**, on the owner's standing *"no PR right now"* for
-  this line, and **Lane T's PR #478 carries twenty of its commits** — see the
-  reply above. Do not open or land anything on that without asking.
+- ~~**This branch has no PR**, on the owner's standing *"no PR right now"* for
+  this line.~~ **LIFTED by the owner 2026-09-21**, asked directly: open the PR
+  once the gates are green. **Lane T's PR #478 still carries twenty of this
+  line's commits**, so the §1 reply above stands on its own terms — the re-cut
+  request was never about the PR embargo, it was about twenty unreviewed
+  commits landing inside someone else's PR.
 
 **The diagnosis is finished and committed. The implementation has not started.**
 Everything above the line is history; everything below is the brief.

@@ -3521,7 +3521,13 @@ impl World {
         // colony gridlocks exactly as dead ends 775/829's 27,386 blocked ticks
         // did. The ant *count* is not a length and stays put; the band widens
         // under it.
-        let spacing = scaled_cells(self, COLONY_ANT_SPACING.max(body_span * 2));
+        // The override replaces the whole computed value, body floor included:
+        // `body_span * 2` is the same gridlock argument in another costume, so
+        // an override that kept it could not test the thing it exists to test.
+        let spacing = match colony_spacing_override() {
+            Some(n) => n,
+            None => scaled_cells(self, COLONY_ANT_SPACING.max(body_span * 2)),
+        };
         let want = ants.max(0) as usize;
         if want == 0 || spacing <= 0 {
             return Vec::new();
@@ -3932,6 +3938,93 @@ fn nest_mask(half_width: i32, core: i32, drain_period: usize) -> Vec<bool> {
 fn colony_band() -> bool {
     static BAND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *BAND.get_or_init(|| std::env::var("PIXEL_PHYSICS_COLONY_BAND").is_ok_and(|v| v != "0"))
+}
+
+/// **How far apart founders stand** — `PIXEL_PHYSICS_COLONY_SPACING=<n>`,
+/// overriding [`World::colony_stations`]' computed spacing outright.
+///
+/// The default is `COLONY_ANT_SPACING.max(body_span * 2)`, and the reason it is
+/// that wide is dead ends 775/829's **27,386 blocked ticks**: a colony stamped
+/// shoulder to shoulder gridlocked, so the band was widened until every animal
+/// had somewhere to go.
+///
+/// **That rejection's condition has since changed and nothing re-tested it.**
+/// `CreatureDef::climbs_over_kin` makes a living nestmate count as footing and
+/// `ant.ron` authors it `true`; the stacking work then let a pile feed itself
+/// and a rider's body reach the ground. The animals that used to queue can now
+/// go *over* each other. `CLAUDE.md` asks for exactly this: re-test a
+/// do-not-retry entry once something changes the condition its rejection
+/// depended on.
+///
+/// **What the wide band costs, measured on the foraging bed 2026-09-21.** At
+/// spacing 4 a colony of 20 spans ~80 columns, while `trailfollow`'s hand-laid
+/// food ramp starts at the nest cursor in the *middle* of it — so half the
+/// founders are born west of any trail at all and read it as exactly 0.00000.
+/// Split on that line they reach the food **40% against 98%**, and close a
+/// second lap **1% against 23%**. That is not a gradient, it is a cliff, and it
+/// is the strongest single predictor of an ant's life in that bed: the scene
+/// was measuring birth position wearing a navigation label (`CLAUDE.md`: a
+/// scene that contradicts the code will look like a bug in the code).
+///
+/// **This is a PLACEMENT rule and `PIXEL_PHYSICS_STACK_DEPTH` is a MOVEMENT
+/// one — they are orthogonal, and that is measured rather than assumed.**
+/// Stacking does let two animals of one colony occupy a cell
+/// (`World::stack_cap`, default 1), so it is tempting to expect a deeper cap to
+/// let a colony found in a tighter band. It does not: measured 2026-09-21 at
+/// `ants=20`, `PIXEL_PHYSICS_COLONY_SPACING=1` founds **10** at
+/// `STACK_DEPTH=1` and **10** at `STACK_DEPTH=4`, byte-identical bands at
+/// every spacing tried. `stack_cap` gates *"may I enter a cell"* — the step —
+/// and `plant_creature_seed_in` never consults it, so the founding walk sees
+/// the pre-stacking world whatever the cap says.
+///
+/// What a deeper cap buys is **flow on a working trail**, which is the case it
+/// was built for: the better a trail works the more animals it puts on one
+/// line, and a line that cannot overlap jams. That shows up in `moves_blocked`,
+/// not here. Do not reach for it to fix a founding band, and do not read a null
+/// in this table as evidence against it — the two levers answer different
+/// questions.
+///
+/// **0 is refused rather than clamped**, because a spacing of 0 asks the
+/// placement walk for two stations on one column and the second is dropped
+/// silently, which is the failure the row above already documents in its
+/// loudest form.
+///
+/// **Measured over the setting, `ants=20` on the flat foraging bed,
+/// 2026-09-21** — and the first row is the reason this doc exists:
+///
+/// | spacing | band founded | founders placed | born on the comb |
+/// |---|---|---|---|
+/// | 1 | `39..57` (18 cells) | **10 — half the colony** | 10 of 10 |
+/// | **2** | `30..68` (38) | **20** | **20 of 20** |
+/// | 3 | `21..78` (57) | 20 | 15 of 20 |
+/// | 4 (default) | `12..88` (76) | 20 | 11 of 20 |
+///
+/// **1 silently founds half the colony and says nothing.** The corridor admits
+/// the column, and then the *placement* refuses it, because the ant's body is
+/// two cells nose-to-tail and the second cell lands on the neighbour — so every
+/// other station fails and `found_colony_of` returns a number nobody reads. A
+/// ten-ant arm compared against a twenty-ant one is the denominator failure the
+/// `funnel` skill exists to prevent, so callers that sweep this **must check
+/// the placed count**, which is why `examples/trailfollow.rs` now asserts it.
+///
+/// **2 is the floor that works, and it is one body width rather than two.**
+/// That is the whole of the default's conservatism: `COLONY_ANT_SPACING.max(
+/// body_span * 2)` reserves twice the body, and the geometry only needs one. At
+/// 2 the colony founds in half the band *and every founder stands on the nest*
+/// — against 11 of 20 at the shipped 4, which is the stage-zero cliff in one
+/// number.
+///
+/// Off by default and a selector rather than a new constant, because this
+/// function founds the real game's `Y` key and the evolution lab's beds as well
+/// as the foraging harness: a placement change here reaches three games at once.
+fn colony_spacing_override() -> Option<i32> {
+    static V: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        let raw = std::env::var("PIXEL_PHYSICS_COLONY_SPACING").ok()?;
+        let n: i32 = raw.parse().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_COLONY_SPACING={raw} is not an integer"));
+        assert!(n >= 1, "PIXEL_PHYSICS_COLONY_SPACING={n}: a spacing below 1 would ask two animals to share one cell, which the grid cannot represent");
+        Some(n)
+    })
 }
 
 /// Whether `PIXEL_PHYSICS_NEST_SHAPE` asks for the old comb. Read through a
@@ -24394,8 +24487,10 @@ mod tests {
     }
 
     /// **The trail sample is taken somewhere a trail could be**, and the six
-    /// headings that used to point at sky or rock now say *nothing* rather than
-    /// *definitely not that way*.
+    /// headings that used to point at sky or rock are handled two ways: the
+    /// four with a horizontal component are projected back onto the walker's
+    /// own row, and the two without one say *nothing* rather than *definitely
+    /// not that way*.
     ///
     /// **Written against the replacement, not the original** (`CLAUDE.md`).
     /// Assertion 6 is the one aimed at the tempting over-fix: projecting the
@@ -24403,10 +24498,21 @@ mod tests {
     /// and zero `PheroALateral` in every world for ever, which no assertion
     /// about the along input would ever catch.
     ///
-    /// Injected both ways before it was trusted. Under the old geometry
-    /// assertions 3 and 4 go red — the measured readings there are E -0.15,
-    /// NE -0.48, S -0.63 on a laden ant, i.e. the off-row headings are not
-    /// merely different from E, they are three times as negative.
+    /// **Injected one half at a time, 2026-09-21, and they land on different
+    /// assertions** -- which is the whole reason 3 and 3b are separate:
+    ///
+    /// | injection | red at | reads | wants |
+    /// |---|---|---|---|
+    /// | `sensor_projected` -> false | 3, on NE | 0.0 | E's 0.06666667 |
+    /// | `sensor_honest` -> false | 3b, on N | -0.90909094 | 0.0 |
+    ///
+    /// Note what the first one is *not*: with the projection reverted but the
+    /// readability test still standing, NE reads **0.0**, not the -0.48 a
+    /// laden ant gave before either half existed. Both halves off is the
+    /// pre-2026-09-19 world (`PIXEL_PHYSICS_SENSOR_PROJECT=none`), and only
+    /// there do the off-row headings give the confident large negative -- E
+    /// -0.15 against NE -0.48 and S -0.63. Quoting that figure for the
+    /// projection alone would be attributing one half's damage to the other.
     ///
     /// **Deliberately not gated on `PIXEL_PHYSICS_SENSOR_PROJECT`.**
     /// `sensor_projected()` caches in a `OnceLock` and the test binary shares
@@ -24457,22 +24563,53 @@ mod tests {
         assert!(e >= 0.02, "east is up the ramp and must read so: {e}");
         assert!(west <= -0.02, "west is down the ramp and must read so: {west}");
 
-        // 3. **The assertion that carries what ships.** Every heading whose
-        //    sample lands off this row lands in open sky on this bed, and must
-        //    say so -- exactly 0, "no information", not the confident large
-        //    negative the old reading produced (NE -0.48 against E's -0.15).
-        //    `assert_eq` against 0.0 rather than a tolerance, because the whole
-        //    defect was a number that was small-looking and wasn't.
-        for (h, v) in [("NE", ne), ("N", n), ("NW", nw), ("SW", sw), ("S", s), ("SE", se)] {
+        // 3. **The assertion that carries what ships**, and since 2026-09-20
+        //    what ships is the projected reading. A heading with a horizontal
+        //    component samples along the row its horizontal takes it down, so
+        //    on this bed NE and SE read where E reads, and NW and SW read
+        //    where W reads -- *exactly*, because every trail sample in `sense`
+        //    comes from `trail_sample_point` and nothing else in the along
+        //    arithmetic is heading-dependent. Equality rather than a sign
+        //    test: the defect guarded here is a nose on the wrong row, and
+        //    "reads the same row as E" states that claim directly instead of
+        //    approximating it.
+        //
+        //    **Red for the original fault.** Revert the projection and these
+        //    four go back to the confident large negative they always gave
+        //    (NE -0.48 against E's -0.15) -- which is not E's value, so the
+        //    equality fails rather than merely loosening.
+        for (h, v, want, named) in
+            [("NE", ne, e, "E"), ("SE", se, e, "E"), ("NW", nw, west, "W"), ("SW", sw, west, "W")]
+        {
+            assert_eq!(v, want, "{h} projects onto {named}'s row and must read what {named} reads, not {v}");
+        }
+
+        // 3b. **The two headings the projection deliberately leaves alone**,
+        //    which is the other half of the contract and not an exception to
+        //    it. N and S have no horizontal component, so they keep the full
+        //    offset -- right for an animal on a trunk, whose surface *is*
+        //    vertical -- and on this flat bed that puts the nose in open sky.
+        //    The readability test is what must turn that into exactly 0, "no
+        //    information", rather than the confident negative the old reading
+        //    produced. `assert_eq` against 0.0 rather than a tolerance,
+        //    because the whole defect was a number that was small-looking and
+        //    wasn't.
+        //
+        //    **Red for the honesty half on its own.** Drop `sensor_honest` and
+        //    these two go to a large negative while every line above stays
+        //    green -- the failure no assertion about the projection could
+        //    catch, and the reason the two halves have separate arms.
+        for (h, v) in [("N", n), ("S", s)] {
             assert_eq!(v, 0.0, "{h} samples open sky and must report no information, not {v}");
         }
 
-        // 4. ...and the row projection, when a run turns it on, reads the
-        //    horizontal instead. **Tested through the helper, not the env
+        // 4. ...and the projection is a property of the helper, asserted on
+        //    the helper so the geometry above stays pinned even if `sense`
+        //    stops calling it. **Tested through the helper, not the env
         //    switch**: `sensor_projected()` caches in a `OnceLock` and the test
         //    binary shares one process, so a `set_var` arm would pass or fail by
-        //    test order. Off by default -- see `sensor_projected` for the two
-        //    beds that measured it costing round trips.
+        //    test order. On by default -- see `sensor_projected` for the
+        //    24-seed funnel that flipped it.
         for (h, dir) in [(1u8, 0u8), (7, 0), (3, 4), (5, 4)] {
             let proj = trail_sample_point(100, 100, h, so, false, true);
             let flat = trail_sample_point(100, 100, dir, so, false, false);
@@ -26305,23 +26442,70 @@ mod tests {
     /// charge landing on the wrong colony passes the sum test above -- the
     /// total is still right -- and fails here, which is why both exist.
     ///
-    /// The bar is the world ledger's own drift on the same run rather than
-    /// a constant: the identity is `f32` banks summed into `f64` accounts,
-    /// so it is exact only up to the rounding the world identity already
-    /// carries, and a per-colony bar set tighter than the whole is a bar
-    /// that fails for arithmetic.
+    /// The identity is `f32` banks summed into `f64` accounts, so it closes
+    /// only up to that rounding and the bar has to be scaled to it.
+    ///
+    /// **The bar used to be the WORLD ledger's drift on the same run, and that
+    /// was wrong in a way that took a year of small drifts to expose.** The
+    /// world's drift is not an envelope around each colony's -- it is their
+    /// *signed sum*, so two colonies erring in opposite directions cancel and
+    /// the whole reads tighter than either part. Measured 2026-09-21 on this
+    /// bed, `sum_of_colony_d == world_d` to every printed digit at 3k, 6k, 12k
+    /// and 24k frames:
+    ///
+    /// | frames | colony 1 | colony 2 | world | old bar |
+    /// |---|---|---|---|---|
+    /// | 3,000 | +0.01219 | +0.00699 | +0.01918 | 0.02018 |
+    /// | 6,000 | +0.02288 | -0.00162 | +0.02127 | 0.02227 |
+    /// | 12,000 | +0.01157 | **-0.02809** | -0.01652 | **0.01752** |
+    /// | 24,000 | -0.01189 | -0.06327 | -0.07516 | 0.07616 |
+    ///
+    /// The 12,000-frame row is this test, and it is the row where the two
+    /// colonies' signs differ: colony 2 alone is larger than the cancelled
+    /// whole, so the old bar failed on arithmetic that is entirely correct.
+    /// The graded crop (2026-09-20) is what surfaced it -- paying a meal out
+    /// over ~291 chewing ticks instead of one lump multiplies the `f32`
+    /// additions by the same factor, so every drift grew until the old bar's
+    /// 1e-3 slack stopped covering the cancellation.
+    ///
+    /// **It is rounding and not a leak, and the sign is what settles that.**
+    /// Colony 1 runs +0.0122, +0.0229, +0.0116, **-0.0119** -- a walk that
+    /// changes sign, which no leak does. Against throughput it sits at
+    /// **4e-7 to 1e-5**, which is `f32` accumulation territory (machine
+    /// epsilon 6e-8 over ~10^4-10^5 additions) and four orders below the
+    /// smallest joule this engine books.
+    ///
+    /// So the bar is scaled to what actually flowed through this colony's own
+    /// `f32` banks, with about 18x headroom on the worst measured point. It
+    /// is still far tighter than any real misbooking: a mislabelled call site
+    /// fires every tick, and one account of one colony sent to its neighbour
+    /// costs hundreds of joules over this run, not hundredths. Injected
+    /// 2026-09-21 -- routing colony 2's `Metabolized` into colony 1 takes this
+    /// red by **1,234x** -- 1264.57 J apart against a bar of 1.02 -- while
+    /// `every_account_sums_over_the_colonies` stays green on the same tree,
+    /// because a charge on the wrong colony leaves the world total right and
+    /// that test structurally cannot see it. This is the fault this test is
+    /// named for, and the pair is why both exist.
     #[test]
     fn the_books_close_for_every_colony() {
         let (mut w, _, _) = two_colony_bed();
         run(&mut w, 12_000);
         let live = w.live_creature_energy_by_colony();
-        let whole = (w.live_creature_energy() - w.energy_ledger.expected_live_total()).abs();
         for (colony, books) in w.all_colony_books().iter().enumerate() {
             let held = live.get(colony).copied().unwrap_or(0.0);
             let expected = books.expected_live_total();
+            // Throughput, not the standing bank: `f32` error accumulates over
+            // every joule that ever crossed the bank, and a colony that has
+            // eaten and spent 10,000 J carries more of it than its remaining
+            // 500 J suggests. The 1e-3 floor keeps a colony that has barely
+            // traded from being held to a bar of nearly zero.
+            let through = books.income() + books.outgo().abs();
+            let bar = 1e-4 * through + 1e-3;
             assert!(
-                (held - expected).abs() <= whole + 1e-3,
-                "colony {colony}: its animals hold {held:.4} against books of {expected:.4} (the world's own drift is {whole:.4})"
+                (held - expected).abs() <= bar,
+                "colony {colony}: its animals hold {held:.4} against books of {expected:.4} \
+                 -- {:+.6} apart, against a bar of {bar:.6} for {through:.1} J of throughput",
+                held - expected
             );
         }
     }

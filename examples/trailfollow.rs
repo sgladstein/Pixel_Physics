@@ -14,6 +14,8 @@
 //! cargo run --release --example trailfollow -- gate=saturated seeds=3  # the null
 //! cargo run --release --example trailfollow -- gate=b2 seeds=3       # the candidate
 //! cargo run --release --example trailfollow -- gate=b2 spec          # print the arena's hidden= string and stop
+//! cargo run --release --example trailfollow -- btrail btrailevery=500 stop=6000   # the food trail as a SERIES, across the hand-laid handover
+//! cargo run --release --example trailfollow -- layfrom=founders       # ...with the hand-laid ramp covering the whole founding band
 //! ```
 //!
 //! # Two halves, and the first one cannot lie
@@ -461,9 +463,51 @@ fn move_terms(
     (terms, sum)
 }
 
-fn lay(w: &mut pixel_physics::sim::world::World, nest_x: i32, target_x: i32, surface: i32) {
-    for x in nest_x..=target_x {
-        let t = (x - nest_x) as f32 / (target_x - nest_x) as f32;
+/// **The hand-laid food ramp, from `foot_x` up to the larder.**
+///
+/// `foot_x` is where the ramp's *zero* sits and is not always the nest. The
+/// bed founds its colony across a band centred on `nest_x` -- at 20 ants,
+/// `x 12..88` around a cursor at 48 -- while this function used to run
+/// `nest_x..=target_x`, so **every cell west of the nest carried no channel B
+/// at all**. Measured 2026-09-21 on the projection-on arm, 240 ants split on
+/// that line:
+///
+/// | born | reached food | closed two laps | median life |
+/// |---|---|---|---|
+/// | west of `nest_x` | 40% | 1% | 979 ticks |
+/// | on or east of it | 98% | 23% | 3,643 ticks |
+///
+/// That is a cliff rather than a gradient, and it is the single strongest
+/// predictor of an ant's whole life in this bed -- **a property of the scene,
+/// not of the colony**, and `CLAUDE.md`'s *a scene that contradicts the code
+/// will look like a bug in the code*. Every "half the colony never reaches the
+/// food" figure this harness has ever printed, §Z32's included, is
+/// substantially this.
+///
+/// **`layfrom=founders` is the repair and it is opt-in**, because moving the
+/// foot changes the ramp's *slope* -- the same `DEPOSIT` spread over a longer
+/// span -- so an arm that took it silently would not be comparable with any
+/// row measured before today. Default stays `nest`.
+///
+/// **And it moves two things at once, which the arm's name does not say.**
+/// Extending the foot west also lifts the ramp's whole floor, because `t` is
+/// renormalised over the longer span: at 20 ants and gap 90 the cell *at the
+/// nest cursor* goes from `t = 0` -- an amount of exactly **zero**, so the
+/// founders standing on the nest read no trail either -- to `t = 0.29`, about
+/// **29% of `DEPOSIT`**. So this arm is not only "the trail reaches further
+/// west"; it is also "the trail is readable at the nest at all", and that may
+/// well be the larger half. Separating them needs a third arm that extends the
+/// foot while holding the slope, and nothing here has measured which half
+/// carries the effect -- do not report this arm as though it had.
+///
+/// **Channel A is deliberately left alone.** The homing ramp (`lay_home`) is
+/// what an ant reads walking *back*, and an ant that has not yet reached the
+/// food has no homeward leg to be lost on. The stage this fixes is the walk
+/// *out*, which is channel B's.
+fn lay(w: &mut pixel_physics::sim::world::World, foot_x: i32, target_x: i32, surface: i32) {
+    let span = (target_x - foot_x).max(1) as f32;
+    for x in foot_x..=target_x {
+        let t = (x - foot_x) as f32 / span;
         let amount = (t * pheromone::DEPOSIT as f32) as pheromone::Scent;
         for y in (surface - 3)..=(surface + 1) {
             w.deposit_pheromone(Channel::B, x, y, amount);
@@ -658,9 +702,21 @@ struct Arm {
     /// and as the gradient a real reader computes.** See the fill site for the
     /// arithmetic that predicts it is two orders of magnitude too flat to read.
     a_profile: [u32; 5],
-    /// See the fill site: channel B at the same five points. The column that
-    /// says whether the colony's own food trail peaks at the FOOD or at the
-    /// NEST, which `route pk` and `along` both average away.
+    /// Channel B at the same five points -- the column that says whether the
+    /// colony's own food trail peaks at the FOOD or at the NEST, which
+    /// `route pk` and `along` both average away.
+    ///
+    /// **It is a MEAN OVER THE WHOLE RUN and `a_profile` beside it is not** --
+    /// that one is an instantaneous end-of-run sample. Same name shape, two
+    /// different quantities, and the difference decides what the column can be
+    /// asked. Measured 2026-09-21: with `stop=6000` in a 24,000-frame bed, 60
+    /// of the 240 samples are taken while the HAND-LAID ramp is still being
+    /// refreshed at full `DEPOSIT`, which is far above anything the ants lay --
+    /// so this column prints healthy numbers for a run whose plane is empty
+    /// for its last 18,000 frames. **A healthy `b_profile` is therefore not
+    /// evidence against the trail having decayed away**, and reading it as one
+    /// is `CLAUDE.md`'s *ask what your number counts*. For the current
+    /// reading, and for the hand-laid-to-ant-laid handover, use `btrail=`.
     b_profile: [u32; 5],
     /// Times a body traded places with a nestmate -- the "did it fire" counter
     /// for `kinpass`, which must read 0 when the switch is off.
@@ -1627,6 +1683,24 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let sensor_offset = w.species.get(species_id).creature.as_ref().expect("ant is a creature").sensor_offset;
     let placed = w.found_colony_of(nest_x, surface, "ant", ants);
     assert!(placed > 0, "no ants placed at the nest end; there is nothing to measure");
+    // **A SHORT COLONY IS NOT A SMALLER EXPERIMENT, IT IS A DIFFERENT ONE**, and
+    // it used to pass silently: only `placed > 0` was checked, so an arm that
+    // founded half the animals was compared, seed for seed, against one that
+    // founded all of them. Every per-colony total is then a measurement of the
+    // founding, which is the denominator failure the `funnel` skill exists to
+    // prevent.
+    //
+    // Measured 2026-09-21, the run that produced this line:
+    // `PIXEL_PHYSICS_COLONY_SPACING=1` at `ants=20` places **10**. The corridor
+    // admits the column and the placement then refuses it, because the ant is
+    // two cells nose-to-tail and its second cell lands on the neighbour -- so
+    // every other station fails and the count nobody was reading went to half.
+    // Spacing 2 is the floor that founds the full colony (see
+    // `creature::colony_spacing_override` for the table).
+    assert_eq!(
+        placed, ants as usize,
+        "the bed asked for {ants} ants and founded {placed}. A short colony is a different experiment, not a          smaller one -- every total below would be a measurement of the founding. If this is PIXEL_PHYSICS_COLONY_SPACING,          2 is the narrowest that still founds a full colony of two-cell ants; if it is terrain, widen the box."
+    );
     // **The guard that would have caught the scene bug above**, checked
     // against the founders' real positions rather than against the arithmetic
     // that was supposed to produce them. A colony wider than the gap is not a
@@ -1644,6 +1718,26 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
          roughly half of that. Use a larger gap= or fewer ants=.",
         ants * 4
     );
+
+    // **Where the food ramp's zero sits**, decided here because this is the
+    // first point the founders' *real* span is known -- `fl` above is measured
+    // off the placed animals, not off the arithmetic that was meant to produce
+    // them, which is the distinction the guard above exists for.
+    //
+    // `layfrom=founders` walks the ramp's foot west to the furthest-west ant
+    // actually placed, so every founder stands on a gradient that climbs
+    // toward the larder. `layfrom=nest` (the default) leaves it on the nest
+    // cursor and reproduces every row measured before 2026-09-21. See `lay`
+    // for the 40%-against-98% split that makes this worth a switch.
+    // Read here rather than threaded through `run`'s parameter list, as
+    // `aprofile` and its siblings already are: it is a scene constant that no
+    // sweep varies per arm, and the list is long enough.
+    let layfrom: String = arg_str("layfrom").unwrap_or_else(|| "nest".to_string());
+    let lay_foot_x = match layfrom.as_str() {
+        "founders" => fl.min(nest_x),
+        "nest" => nest_x,
+        other => panic!("layfrom={other} is not a thing: use layfrom=nest (default) or layfrom=founders"),
+    };
 
     // **`food=` is the positive control for the READOUT, not for the trail.**
     // Every recorded result from this harness is an exact tie -- 595 = 595 here,
@@ -1863,6 +1957,22 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // **The channel A amplitude profile along the route, every `aprofevery`
     // frames.** See the dump site for why a gradient reading cannot answer it.
     let a_profile = flag("aprofile");
+    // **The channel-B trail as a time series** -- see the emit site. Off by
+    // default: it is one line per sample and would drown a sweep's table.
+    let btrail = flag("btrail");
+    // **Asserted rather than documented, because the failure is silent.** The
+    // emit site sits inside the existing every-100-frames sample block, so a
+    // value that is not a multiple of 100 quietly samples at the lowest common
+    // multiple instead -- `btrailevery=250` would give every 500 -- and prints
+    // a complete, plausible series at half the rate asked for. `CLAUDE.md`: a
+    // knob nobody can see the value of is a knob nobody can tell is
+    // disconnected.
+    let btrail_every: u64 = arg("btrailevery").unwrap_or(500);
+    assert!(
+        btrail_every > 0 && btrail_every.is_multiple_of(100),
+        "btrailevery={btrail_every} must be a positive multiple of 100: the sampler it rides on runs \
+         every 100 frames, so anything else silently samples at the lowest common multiple instead"
+    );
     let a_prof_every: u64 = arg("aprofevery").unwrap_or(2000);
     let a_prof_step: usize = arg("aprofstep").unwrap_or(10);
     // **`arho=` / `adiffuse=` -- channel A's persistence, per plane.**
@@ -2224,7 +2334,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         // the ants themselves put down.
         if (stop == 0 || f <= stop) && (f == 1 || f.is_multiple_of(relay)) {
             if trail {
-                lay(&mut w, nest_x, target_x, surface);
+                lay(&mut w, lay_foot_x, target_x, surface);
             }
             match paint {
                 PaintA::None => {}
@@ -2246,6 +2356,47 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 *acc += w.pheromone_at(Channel::B, x, surface) as f64;
             }
             b_prof_n += 1;
+            // **The food trail as a SERIES, which is the only form that can
+            // answer "what happens when the hand-laid one is withdrawn".**
+            //
+            // `b_profile` above is a mean over the whole run and is dominated
+            // by the hand-laid era whenever `stop=` is set -- see its doc. This
+            // prints the *current* plane, so the handover at frame `stop` is
+            // visible as a cliff rather than averaged into a healthy-looking
+            // ramp. Sampled along `lay_foot_x..target_x` so it covers the
+            // extended band under `layfrom=founders` too.
+            //
+            // Emitted as `BTRAIL` rows on stdout for a parser to pick up. The
+            // row carries `stop` in every line rather than once in a header:
+            // `CLAUDE.md`'s harness-echoes-its-own-parameters rule, after a
+            // 3.5-hour study turned out to be one parameter wearing 24 logs.
+            if btrail && f.is_multiple_of(btrail_every) {
+                // **Every cell of the route, not a handful of sample points.**
+                // The question is *where* the trail survives once the hand-laid
+                // one stops being refreshed, and a colony's own channel B is a
+                // scatter of decaying bursts a few cells wide -- five or nine
+                // probes spaced 20-odd cells apart step straight over it and
+                // report a clean empty plane. The row is long; it is a log for
+                // a parser (`scripts/btrailchart.py`), not for reading by eye,
+                // and the summary columns beside it are the by-eye version.
+                let mut prof: Vec<String> = Vec::with_capacity((target_x - lay_foot_x + 1).max(0) as usize);
+                let (mut live, mut peak) = (0usize, 0u32);
+                for x in lay_foot_x..=target_x {
+                    let v = w.pheromone_at(Channel::B, x, surface) as u32;
+                    if v > 0 {
+                        live += 1;
+                    }
+                    peak = peak.max(v);
+                    prof.push(v.to_string());
+                }
+                println!(
+                    "BTRAIL seed={seed} arm={} stop={stop} gap={gap} layfrom={layfrom} x0={lay_foot_x} x1={target_x} \
+                     frame={f} hand={} cells={live} peak={peak} prof={}",
+                    gate.name,
+                    u8::from(stop == 0 || f <= stop),
+                    prof.join(",")
+                );
+            }
             let mut amt = 0u32;
             let mut cells = 0usize;
             for x in nest_x..=target_x {
