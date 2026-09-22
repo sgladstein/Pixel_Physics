@@ -3111,6 +3111,31 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   wrong (11.8%, not ~70%) and scoping to channel A is load-bearing (both planes
   → 0 ants reach food in all 24 seeds). Data
   `Reports/data/trail-comparator-24seed-2026-09-20-{shipped,fwd}.log`.
+- [what-controls-creature-movement-2026-09-22.md](what-controls-creature-movement-2026-09-22.md)
+  — **reference, 2026-09-22. `engine`.** The walking path end to end, written
+  from the source with every link read rather than recalled, because three wrong
+  diagnoses in two days came from assembling this chain from memory. **Six stages
+  and a decision can die at any of them**: whose turn it is (`tick_interval`,
+  scaled by `TRAIT_PACE` — the denominator of every movement rate, and quoting a
+  per-frame figure against an implied ceiling of 100% instead of **1 in 6** is
+  how one headline went wrong); whether to step (`p_move`, one draw, **the clamp
+  manufactures exact zeros** so a negative sum forbids rather than discourages);
+  fly instead; **which of three cells**; whether the landing is legal; and the
+  blocked path. **The move and the tumble are the two arms of one `if`**, so a
+  creature that steps does not re-roll its heading and one that cannot step gets
+  a chance to turn. **The pheromone reaches stage 2 and nothing else**: both
+  planes enter as `Along` through hidden units 0–3 which output to `Move`, while
+  the forward cone is scored `[turn, persist, -turn]` plus a footing bonus with
+  no pheromone term anywhere — and `Turn` on the shipped ant carries one wire,
+  `(TempAboveAmb, Turn, -0.8)`. **The laterals, the only part of a pheromone
+  reading that carries *which way*, are wired to nothing**, while the comment
+  above the `Turn` wire claims they are "now via hidden units 0–3"; those units
+  read `Along`. A creature can turn only 45° per step. `home_weighted_pick` is
+  the single mechanism that can aim a walker, and it is gated to laden animals
+  off their anchor at probability `home_bias × fill` — **and its printed rate has
+  a denominator problem**: `tumbles N (homeward M, x%)` divides by *all* tumbles,
+  most of them by empty animals that structurally cannot qualify, so 0.51% is not
+  evidence the lever is inert.
 - [ant-forage-bed-and-gates-2026-09-21.md](ant-forage-bed-and-gates-2026-09-21.md)
   — **result, 2026-09-21. `engine`.** Follows the result above. **Two red gates
   repaired, and neither was the code's fault.** The trail-sensor geometry test
