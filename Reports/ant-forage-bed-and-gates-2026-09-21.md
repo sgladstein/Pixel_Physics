@@ -683,3 +683,85 @@ timer the trail is jamming.
 pass: give the pheromone a path into direction. That is the navigation plan's
 own proposal, and this section is the measurement that says it is the binding
 constraint rather than one of several.
+
+---
+
+## 9. CORRECTION to §8: it is the homing vector, not the pheromone
+
+The owner, reading §8h, 2026-09-22: *"I thought the issue was that they are not
+moving, not that they are moving in the wrong direction?"*
+
+Right, and §8h's conclusion does not follow from §8's evidence. A rudder does not
+start a stopped animal. Re-checking it found the decomposition was taken from the
+wrong arm as well.
+
+### 9a. Three claims in §8 that do not survive
+
+**1. "`trail_term` at −2.12 is the entire `Move` deficit" — overstated, and from
+the wrong arm.** Those focal CSVs were written during the `HOME_TARGET=nest` run,
+an arm where `HomeAligned` is non-zero by construction. On the **default** arm:
+
+| | stuck | moving | share of the gap |
+|---|---|---|---|
+| `move_presquash` | −1.7035 | +2.6210 | +4.32 total |
+| `HomeAligned` × 3.0 | 0.0000 | 0.7208 | **+2.16 — 50%** |
+| `trail_term` | −2.0567 | −0.6903 | +1.37 — 32% |
+
+**2. "A congregation trap" — there are two populations, not one.** Of stuck laden
+ticks, **55% are at the nest** (median `x` 71, `drop_urge` 0.50, `Crowding` 0.75)
+holding food they are not releasing, and **45% are out on the route** (median `x`
+106, `drop_urge` 0.00). Different places, different urges, different crowding.
+What they share is `HomeAligned` at exactly **0.0000**, against 0.7208 for every
+ant that moves.
+
+**3. "Give the pheromone a path into direction" — wrong wire.** It is
+`HomeAligned` that reaches `Move` and not direction.
+
+### 9b. What is actually happening
+
+Laden ants away from the nest, home due west. **The tumble is unbiased** —
+headings are near-uniform, homeward 32.5% against a uniform 37.5% — so nothing
+steers them wrong:
+
+| heading | share of ticks | `P(move \| heading)` |
+|---|---|---|
+| **W** | 12.7% | **87.6%** |
+| **NW** | 12.3% | **64.8%** |
+| **SW** | 7.5% | **58.0%** |
+| SE | 9.0% | 22.9% |
+| S | 16.7% | 5.2% |
+| N | 13.6% | 2.3% |
+| E | 12.2% | 2.3% |
+| NE | 16.0% | 1.9% |
+
+**Facing home, 72.1% move. Facing any other way, 5.7%. Thirteenfold.**
+
+**A laden ant can only step when it already happens to be facing home.** It
+cannot turn toward home; it waits for a random tumble to point it there — a
+re-roll about every 25 ticks — and faces home about a third of the time. So it
+walks on roughly a quarter of its ticks and stands still on the rest. That is the
+98.63% of §8b, and it is not a trap, a hotspot, or a decay problem. It is a
+**duty cycle**.
+
+`(HomeAligned, Move, 3.0)` makes the homing vector a **permission to walk** rather
+than a rudder. `ant-navigation-plan-2026-09-20.md`'s *"we feed it into a timer
+instead of a rudder"* is exactly right and §8h pointed it at the wrong input.
+
+### 9c. What this predicts, and what it does not settle
+
+If a laden ant could **turn** toward home rather than wait to be pointed there,
+homeward steps should rise by roughly the reciprocal of the duty cycle — about
+3x — and since the engine lays **on a move**, the trail laid along the route
+should rise with it. That is a prediction, not a result.
+
+**It collides with `open-bugs-handoff.md` §R4**, which is open and says a walking
+creature on flat ground *"cannot be steered; it can only be scattered"* — both
+outer diagonals fail their own passability checks. So the change is two changes:
+give the homing vector a path into heading selection, **and** make heading
+selection able to act on flat ground. Neither is started; both are the owner's
+call.
+
+**And it does not explain population A**, the 55% standing at the nest with
+`drop_urge` 0.50 and food still in the crop. Those animals are home. Why the
+drop does not complete is a separate question, and `b15d08b2` (*"AtNest is not a
+drop gate"*) is where it was last looked at.
