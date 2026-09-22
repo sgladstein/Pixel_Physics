@@ -3133,9 +3133,37 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   questions (owner, 2026-09-22). Supersedes
   `what-controls-creature-movement-2026-09-22.md` as the description of the
   mechanism.
+- [ant-decision-census-2026-09-22.md](ant-decision-census-2026-09-22.md)
+  — **result, 2026-09-22. `engine`. Step 1 of the movement plan: where the
+  ants' decisions go, and what freezes them.**
+  - **What was built.** The engine records every walking decision itself
+    (`creature::DecisionRow`, off by default): the roll, the branch taken,
+    the setting, and why the homeward re-roll did or did not fire. It is
+    reconciled against the census, the per-verb counters and the head's
+    positions, in three guard tests watched red and inside every
+    `trailfollow decisioncsv` run (all 504 passed).
+  - **On the gap-90 bed the ants are mostly frozen.** Their chance of
+    stepping is exactly zero on **70% of empty-ant and 83% of laden
+    decisions**.
+  - **Empty ants are frozen by trail B**: −3.13 on the stepping sum when
+    frozen, against +0.10 when moving. 79% of their long-stall time is spent
+    on local peaks where every heading they tried read downhill.
+  - **The reading causes the freeze and also gets them to food.** Empty-ant
+    stepping is 11.5% shipped, 19.1% with their own trail muted, and 38.1%
+    with the reader off. But the reader off collapses the loop (second trips
+    87 → 0), while muting their own trail doubles second trips (87 → 183).
+  - **Laden tumbles:** the homeward re-roll is refused 52% of the time on
+    the anchor, and fires 18%; 9% of the firings point away from home.
+  - **Corrections:** "open" on this bed is crowds of ants (2.8% at the
+    shipped stack depth), and most decisions are made at 3–5 usable
+    headings, not in corridors.
+  - **A setup confound is declared**: the reader-off arm on the hand-ramp
+    bed also hides the ramp, so the no-ramp arms carry that question.
+  - Data: `Reports/data/decision-census-*-2026-09-22.log` and
+    `decisions-seed1-gap90-2026-09-22.csv.gz`.
 - [ant-movement-plan-2026-09-22.md](ant-movement-plan-2026-09-22.md)
-  — **plan of record, 2026-09-22, agreed with the owner; nothing built.
-  `engine`.**
+  — **plan of record, 2026-09-22, agreed with the owner. Step 1 built
+  (see `ant-decision-census-2026-09-22.md`); nothing after it. `engine`.**
   - **Four corrections:**
     - *"`home_bias` does not visibly bias the re-roll"* is a measuring
       artifact. Its test cannot see a re-pick of the current heading, its

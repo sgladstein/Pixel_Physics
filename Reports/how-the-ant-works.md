@@ -5,8 +5,10 @@ every tick, how each mechanism is implemented, and what it reads.** It is
 written from the source and describes the code as it is now, not as it was or
 will be.
 
-- **Verified against:** `main` at `bb65d507`, 2026-09-22. Update this line
-  whenever a section is re-checked against the code.
+- **Verified against:** `main` at `bb65d507`, 2026-09-22. §2, §6c, §13 and
+  §15 re-checked the same day against the decision-trace change
+  (`usable_headings`, `home_weighted_pick_why`). Update this line whenever a
+  section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
   document was wrong, fix the text and say so in the commit message. It
@@ -69,8 +71,9 @@ ant's expressed `TRAIT_PACE` and by its body's leg fraction. A founder decides
 - **Foothold** (`head_has_foothold`): the **head's** 8 neighbours include
   `Solid`, `Powder` or `Plant`, or a nestmate (`climbs_over_kin: true`).
   Ants walk on walls and ceilings.
-- **Usable heading:** enterable **and** footed. This one predicate decides
-  what the ant can do in each setting:
+- **Usable heading** (`usable_headings`): enterable **and** footed. This one
+  predicate decides what the ant can do in each setting, and both the tumble
+  and the decision trace's setting class read it:
 
 | Setting | Usable headings |
 |---|---|
@@ -251,7 +254,7 @@ roll fails does nothing.
 
 Re-roll the heading **uniformly among the usable headings** (§2's predicate,
 over all 8). **The one exception is the homeward re-roll**
-(`home_weighted_pick`), which replaces the uniform pick with **the usable
+(`home_weighted_pick_why`), which replaces the uniform pick with **the usable
 heading whose cosine to `forage_anchor` is highest**: a hard argmax, ties to
 the last. It fires only if all of these hold:
 
@@ -264,7 +267,8 @@ the last. It fires only if all of these hold:
 It aims at `forage_anchor` **even when `PIXEL_PHYSICS_HOME_TARGET=nest`**
 moves `HomeAligned`'s target, so under that switch the throttle and the
 re-roll aim at different places. `creature_stats.tumbles_homeward` counts its
-firings; nothing counts its refusals.
+firings. Its refusals are recorded, by the gate that refused, only in the
+decision trace (§15).
 
 **This re-roll is the only place in the engine where anything aims a walking
 ant.** `HomeAligned` only grants or withholds permission to step.
@@ -391,8 +395,9 @@ Read once per process from the environment. The default is what ships.
 ## 13. Where the implementation lives
 
 - `creature.rs`: `creature_tick`, `sense`, `act`, `step_chain`, `tumble`,
-  `home_weighted_pick`, `trail_sample_point`, `adjacent_nest`,
-  `line_burrow`, `choose_weighted`.
+  `usable_headings`, `home_weighted_pick_why`, `trail_sample_point`,
+  `adjacent_nest`, `line_burrow`, `choose_weighted`, and the decision trace's
+  types (`DecisionRow`, `DecisionOutcome`, `HomewardWhy`).
 - `brain.rs`: `eval_brain`, the `BrainInput` / `BrainOutput` enums.
 - `pheromone.rs`: the planes and the constants in §7.
 - `organism.rs`: `OrganismState` (`forage_anchor`, `crop`, `still_ticks`,
@@ -414,3 +419,36 @@ Delete each line when the comment is fixed.
 - `creature.rs`, `home_weighted_pick`'s doc and the test
   `a_laden_ant_walks_to_the_door_and_an_empty_one_takes_no_draw`: speak of
   "the shipped `home_bias: 0.0`". `ant.ron` ships 1.0.
+
+## 15. The decision trace, built into the ant
+
+Off unless a harness sets `World::decision_log = Some(Vec::new())`. While it
+is on, every walking decision, the move stage of `creature_tick`, pushes one
+`DecisionRow`:
+- the head position and heading before and after;
+- the usable-heading mask, which gives the setting class (0–1 pocket,
+  2 corridor, 3–5 junction, 6–8 open);
+- the leg as the brain saw it, the crop fill and the anchor;
+- the wired inputs, the raw `Move`, `p_move` and `Turn`;
+- both rolls;
+- the branch taken (`DecisionOutcome`);
+- the homeward re-roll's gate (`HomewardWhy`) and, if it fired, the true
+  cosine of the chosen heading.
+
+`CreatureStats::decision_census` counts the same decisions by leg × setting
+× outcome.
+
+- **It takes no RNG draw and changes no branch.** `step_chain` and `tumble`
+  write a scratch value (`World::decision_scratch`) only while it is on.
+- **Guards:**
+  - `the_decision_trace_changes_nothing_it_watches` compares a whole bed
+    with it on and off;
+  - `the_setting_class_reads_the_ground_the_ant_stands_on` checks the
+    classifier on three known terrains;
+  - `every_traced_decision_agrees_with_the_counters_and_the_positions`
+    checks rows against the census, against the per-verb counters, and
+    against where the head went.
+- **In the harness:** `trailfollow decisioncsv` writes the rows and repeats
+  those reconciliations at the end of every run; `decisionnorows` keeps only
+  the census. `scripts/decisioncensus.py` reads the rows.
+

@@ -468,6 +468,152 @@ pub fn choose_weighted(scores: &[f32], k: f32, draw: f32) -> usize {
     scores.len() - 1
 }
 
+// --- the decision trace ------------------------------------------------------
+//
+// **What one walking decision did, recorded where the roll and the branch are
+// known.** `Reports/ant-movement-plan-2026-09-22.md` §5 makes a per-tick trace
+// the primary evidence on the movement line, because every earlier trace was
+// reconstructed from *outside* the engine -- `trailfollow`'s `ladencsv` probes
+// the brain again and infers what happened from how the head moved, so it can
+// see *that* an ant stood still and never *why*: a failed roll, a tumble, a
+// blocked step and a refused reversal all leave the same position row.
+//
+// Off unless a harness sets `World::decision_log` to `Some`. **Recording takes
+// no RNG draw and changes no branch**; the guard is
+// `the_decision_trace_changes_nothing_it_watches`, which runs one scene with
+// the log on and off and compares the whole creature state.
+
+/// Which branch a decision ended in. The index into
+/// `CreatureStats::decision_census`'s last axis.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[repr(u8)]
+pub enum DecisionOutcome {
+    /// The move roll won and `step_chain` took one of its forward candidates.
+    Stepped = 0,
+    /// The move roll won and the body was unsupported, so it fell a cell.
+    Fell = 1,
+    /// The move roll won and `Impulse` launched it (0 for the shipped ant).
+    Launched = 2,
+    /// Blocked, and swapped places with a nestmate (`passes_through_kin`).
+    SwappedKin = 3,
+    /// Blocked, and entered a trunk `Crossing`.
+    Crossing = 4,
+    /// Blocked and boxed in all eight headings, and the body reversed.
+    Reversed = 5,
+    /// The move roll won, nothing ahead was usable, and it re-rolled heading.
+    BlockedTumbled = 6,
+    /// The move roll failed and the tumble roll won.
+    RollFailedTumbled = 7,
+    /// The move roll failed and so did the tumble roll: nothing happened.
+    #[default]
+    RollFailedIdle = 8,
+    /// `step_chain` found no live body to move. Should never appear.
+    NoBody = 9,
+}
+pub const DECISION_OUTCOMES: usize = 10;
+pub const DECISION_OUTCOME_NAMES: [&str; DECISION_OUTCOMES] =
+    ["stepped", "fell", "launched", "swapped", "crossing", "reversed", "blocked_tumbled", "roll_failed_tumbled", "roll_failed_idle", "no_body"];
+
+/// Why the homeward re-roll did or did not aim a tumble -- one value per
+/// call to `home_weighted_pick_why`, in the order its gates are tested.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[repr(u8)]
+pub enum HomewardWhy {
+    /// No tumble happened this decision, so the re-roll was never asked.
+    #[default]
+    NotAsked = 0,
+    NoUsable = 1,
+    BiasOff = 2,
+    NoCrop = 3,
+    EmptyCrop = 4,
+    NoSite = 5,
+    OnAnchor = 6,
+    RollFailed = 7,
+    Fired = 8,
+    FiredHaul = 9,
+}
+pub const HOMEWARD_WHY_NAMES: [&str; 10] =
+    ["not_asked", "no_usable", "bias_off", "no_crop", "empty_crop", "no_site", "on_anchor", "roll_failed", "fired", "fired_haul"];
+
+/// The ant's leg as its brain saw it this tick (`CarryingFood`, then
+/// `Carrying`), not as `act` left it: the decision being traced was made from
+/// these inputs.
+pub const DECISION_LEGS: usize = 3;
+pub const DECISION_LEG_NAMES: [&str; DECISION_LEGS] = ["empty", "laden", "spoil"];
+
+/// The setting a decision was made in, by how many of the eight headings were
+/// usable (`usable_headings`): 0–1 a pocket, 2 a corridor (flat ground, a
+/// 1-wide tunnel, a wall face), 3–5 a junction or corner, 6–8 open (a canopy).
+pub const DECISION_SETTINGS: usize = 4;
+pub const DECISION_SETTING_NAMES: [&str; DECISION_SETTINGS] = ["pocket", "corridor", "junction", "open"];
+
+pub fn setting_class(usable: u8) -> usize {
+    match usable.count_ones() {
+        0 | 1 => 0,
+        2 => 1,
+        3..=5 => 2,
+        _ => 3,
+    }
+}
+
+/// Record which branch `step_chain` left by, while a decision is being traced.
+/// A no-op otherwise, so the untraced engine pays one `is_some` per exit.
+fn note_outcome(world: &mut World, outcome: DecisionOutcome) {
+    if world.decision_log.is_some() {
+        world.decision_scratch.outcome = outcome;
+    }
+}
+
+/// Written by `step_chain` and `tumble` while a decision is being traced, and
+/// read back by `creature_tick` when it writes the row.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DecisionScratch {
+    pub outcome: DecisionOutcome,
+    pub homeward: HomewardWhy,
+    /// Cosine between the heading the homeward re-roll chose and its target.
+    /// `NaN` unless it fired.
+    pub home_cos: f32,
+}
+
+/// One row of the decision trace. Positions are the head's.
+#[derive(Clone, Copy, Debug)]
+pub struct DecisionRow {
+    pub frame: u64,
+    pub id: OrganismId,
+    pub leg: u8,
+    /// Crop fill after `act`, the value the homeward re-roll reads.
+    pub fill: f32,
+    pub head: (i32, i32),
+    pub head_after: (i32, i32),
+    pub heading: u8,
+    pub heading_after: u8,
+    /// Bit `d` set if heading `d` was usable before the move (`usable_headings`).
+    pub usable: u8,
+    pub anchor: (i32, i32),
+    pub energy: f32,
+    pub home_aligned: f32,
+    pub at_nest: f32,
+    pub crowding: f32,
+    pub stillness: f32,
+    pub along_a: f32,
+    pub along_b: f32,
+    pub food_adjacent: f32,
+    pub kin_need: f32,
+    pub alarm: f32,
+    /// The raw `Move` output, before the clamp to `p_move`.
+    pub move_out: f32,
+    pub p_move: f32,
+    pub turn: f32,
+    pub roll_move: f32,
+    /// The tumble roll, `NaN` when the move roll won and none was taken.
+    pub roll_tumble: f32,
+    pub outcome: DecisionOutcome,
+    pub homeward: HomewardWhy,
+    pub home_cos: f32,
+    /// Whether this decision laid trail (`moved` in `creature_tick`).
+    pub moved: bool,
+}
+
 fn worm_tick(world: &mut World, x: i32, y: i32, organism: OrganismId) -> Vec<ActiveSite> {
     // A stale handle: this worm's slot was freed, and may since have been
     // handed to something else entirely. Drop the site silently -- that is
@@ -4793,7 +4939,31 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // question. See `CreatureStats::p_move_hist`.
     world.creature_stats.p_move_hist[if p_move == 0.0 { 0 } else { ((p_move * 10.0).ceil() as usize).clamp(1, 10) }] += 1;
     let mut moved = false;
-    if draw.unit_f32() < p_move {
+    // **The decision trace's "before" half** (`DecisionRow`), taken on the
+    // world `act` left, which is the world this move is decided in. Nothing
+    // here draws or writes anything the untraced engine reads.
+    let trace_pre = if world.decision_log.is_some() {
+        world.decision_scratch = DecisionScratch { home_cos: f32::NAN, ..DecisionScratch::default() };
+        let usable = usable_headings(world, organism, def).iter().fold(0u8, |m, &d| m | (1 << d));
+        let st = world.organism(organism);
+        let head = st.and_then(|s| s.chain.first().copied()).unwrap_or((x, y));
+        let anchor = st.map_or((x, y), |s| s.forage_anchor);
+        let cap = organism_crop_capacity(world, organism, def);
+        let fill = st.and_then(|s| s.crop).map_or(0.0, |c| if cap > 0.0 { (c.worth() / cap).clamp(0.0, 1.0) } else { 1.0 });
+        let leg = if inputs[brain::BrainInput::CarryingFood as usize] > 0.0 {
+            1
+        } else if inputs[brain::BrainInput::Carrying as usize] > 0.0 {
+            2
+        } else {
+            0
+        };
+        Some((head, usable, anchor, fill, leg))
+    } else {
+        None
+    };
+    let mut roll_tumble = f32::NAN;
+    let roll_move = draw.unit_f32();
+    if roll_move < p_move {
         // **Hop, or walk.** `Impulse` is read raw and gated on strictly
         // positive, which is the whole of the "byte-identical for species
         // that do not use the verb" guard (`creature-motion-design.md` §7):
@@ -4803,6 +4973,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         // stream from the next line on, whether or not it can jump.
         let impulse = outputs[brain::BrainOutput::Impulse as usize].clamp(0.0, 1.0);
         if impulse > 0.0 && draw.unit_f32() < impulse && launch(world, organism, heading) {
+            note_outcome(world, DecisionOutcome::Launched);
             // **A launch is a relocation even though it is deliberately not
             // a `move`** -- see the `moved` note below. `Stillness` is about
             // whether the body is in the same place, not about which verb
@@ -4838,8 +5009,17 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
                 world.book(colony, Account::Moved, step as f64);
             }
         }
-    } else if draw.unit_f32() < brain::unit_scale(outputs[brain::BrainOutput::Tumble as usize], 1.0) {
-        tumble(world, organism, def, &mut draw);
+    } else {
+        // The same draw the old `else if` took, bound to a name so the trace
+        // can report it.
+        let roll = draw.unit_f32();
+        roll_tumble = roll;
+        if roll < brain::unit_scale(outputs[brain::BrainOutput::Tumble as usize], 1.0) {
+            note_outcome(world, DecisionOutcome::RollFailedTumbled);
+            tumble(world, organism, def, &mut draw);
+        } else {
+            note_outcome(world, DecisionOutcome::RollFailedIdle);
+        }
     }
 
     // --- deposit, only on a successful move (P-11) ----------------------
@@ -4955,6 +5135,49 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // The head AFTER whatever this tick did -- the same lookup the deposit
     // block makes, and it has to be re-read here because `hx`/`hy` there are
     // scoped to `if moved`.
+    // **The decision trace's "after" half**, and the C4 census beside it.
+    if let Some((head, usable, anchor, fill, leg)) = trace_pre {
+        let st = world.organism(organism);
+        let head_after = st.and_then(|s| s.chain.first().copied()).unwrap_or(head);
+        let heading_after = st.map_or(heading, |s| s.heading);
+        let sc = world.decision_scratch;
+        world.creature_stats.decision_census[leg][setting_class(usable)][sc.outcome as usize] += 1;
+        use brain::BrainInput as I;
+        let row = DecisionRow {
+            frame: world.frame,
+            id: organism,
+            leg: leg as u8,
+            fill,
+            head,
+            head_after,
+            heading,
+            heading_after,
+            usable,
+            anchor,
+            energy: inputs[I::Energy as usize],
+            home_aligned: inputs[I::HomeAligned as usize],
+            at_nest: inputs[I::AtNest as usize],
+            crowding: inputs[I::Crowding as usize],
+            stillness: inputs[I::Stillness as usize],
+            along_a: inputs[I::PheroAAlong as usize],
+            along_b: inputs[I::PheroBAlong as usize],
+            food_adjacent: inputs[I::FoodAdjacent as usize],
+            kin_need: inputs[I::KinNeed as usize],
+            alarm: inputs[I::Alarm as usize],
+            move_out: outputs[brain::BrainOutput::Move as usize],
+            p_move,
+            turn: outputs[brain::BrainOutput::Turn as usize],
+            roll_move,
+            roll_tumble,
+            outcome: sc.outcome,
+            homeward: sc.homeward,
+            home_cos: sc.home_cos,
+            moved,
+        };
+        if let Some(log) = world.decision_log.as_mut() {
+            log.push(row);
+        }
+    }
     let (mem_x, mem_y) = world.organism(organism).and_then(|s| s.chain.first().copied()).unwrap_or((x, y));
     let phero_a_live = world.pheromone_at(Channel::A, mem_x, mem_y) as f32 / pheromone::Scent::MAX as f32;
 
@@ -10920,9 +11143,11 @@ fn step_chain(
     draw: &mut rng::Rng,
 ) -> bool {
     let Some((chain, groups, fates)) = world.organism(organism).map(|s| (s.chain.clone(), s.segment_groups.clone(), s.fates)) else {
+        note_outcome(world, DecisionOutcome::NoBody);
         return false;
     };
     let Some(&(hx, hy)) = chain.first() else {
+        note_outcome(world, DecisionOutcome::NoBody);
         return false;
     };
     // **Once per tick, not once per candidate.** `segment_authored`
@@ -10967,6 +11192,7 @@ fn step_chain(
             // is exact, not an approximation.
             relocate_chain(world, organism, def, &[], BodySide { cells: &chain, groups: &groups }, BodySide { cells: &fallen, groups: &groups });
             world.creature_stats.falls += 1;
+            note_outcome(world, DecisionOutcome::Fell);
             return true;
         }
     }
@@ -11080,6 +11306,7 @@ fn step_chain(
                     state.crossing = Some(organism::Crossing { to, heading, due, thickness });
                 }
                 world.creature_stats.crossings += 1;
+                note_outcome(world, DecisionOutcome::Crossing);
                 return false;
             }
         }
@@ -11248,6 +11475,7 @@ fn step_chain(
                     if let Some(state) = world.organism_mut(organism) {
                         state.life.moves_blocked += 1;
                     }
+                    note_outcome(world, DecisionOutcome::Reversed);
                     return false;
                 }
                 world.creature_stats.reversals_refused += 1;
@@ -11268,6 +11496,7 @@ fn step_chain(
                 state.traffic_deferred = 0;
             }
             world.creature_stats.moves += 1;
+            note_outcome(world, DecisionOutcome::SwappedKin);
             return true;
         }
         tumble(world, organism, def, draw);
@@ -11330,6 +11559,7 @@ fn step_chain(
         if let Some(state) = world.organism_mut(organism) {
             state.life.moves_blocked += 1;
         }
+        note_outcome(world, DecisionOutcome::BlockedTumbled);
         return false;
     }
 
@@ -11471,6 +11701,7 @@ fn step_chain(
             world.creature_stats.forage_depth_max = world.creature_stats.forage_depth_max.max(depth as u64);
         }
     }
+    note_outcome(world, DecisionOutcome::Stepped);
     true
 }
 
@@ -12908,9 +13139,15 @@ fn axis_step(f: f32) -> i32 {
 /// re-roll lands straight back in the blocked state better than a third of
 /// the time — measured at 29,344 blocked ticks against 41,843 moves before
 /// this was narrowed.
-fn tumble(world: &mut World, organism: OrganismId, def: &CreatureDef, draw: &mut rng::Rng) {
+/// **The headings this creature could step to right now**: enterable and
+/// footed, over all eight, as a list in `DIRS` order.
+///
+/// `tumble`'s re-roll draws from exactly this list, and the decision trace's
+/// setting class (`setting_class`) counts it, so the two cannot disagree about
+/// what a wall is. Empty for a creature with no body.
+fn usable_headings(world: &World, organism: OrganismId, def: &CreatureDef) -> Vec<u8> {
     let Some((hx, hy)) = world.organism(organism).and_then(|s| s.chain.first().copied()) else {
-        return;
+        return Vec::new();
     };
     let chain = world.organism(organism).map(|s| s.chain.clone()).unwrap_or_default();
     let groups = world.organism(organism).map(|s| s.segment_groups.clone()).unwrap_or_default();
@@ -12921,7 +13158,7 @@ fn tumble(world: &mut World, organism: OrganismId, def: &CreatureDef, draw: &mut
     // agree with the walk about what a wall is, and this comment's sibling
     // below records what it cost when the two predicates last drifted apart.
     let stacker = stacker_of(world, organism);
-    let viable: Vec<u8> = (0..8u8)
+    (0..8u8)
         .filter(|&d| {
             let (dx, dy) = DIRS[d as usize];
             let (tx, ty) = (hx + dx, hy + dy);
@@ -12935,12 +13172,23 @@ fn tumble(world: &mut World, organism: OrganismId, def: &CreatureDef, draw: &mut
             landing_is_placeable_through_tissue(world, &chain, &landing, push, stacker)
                 && body_has_foothold(world, def, &landing, (tx, ty), kin_footing(world, organism, def))
         })
-        .collect();
+        .collect()
+}
+
+fn tumble(world: &mut World, organism: OrganismId, def: &CreatureDef, draw: &mut rng::Rng) {
+    let Some((hx, hy)) = world.organism(organism).and_then(|s| s.chain.first().copied()) else {
+        return;
+    };
+    let viable = usable_headings(world, organism, def);
     // **The fill-weighted homeward re-roll** -- `CreatureDef::home_bias`, 0.0
     // by default and therefore byte-identical to the uniform tumble above.
     // See `home_weighted_pick`: at 0 it takes **no RNG draw at all**, which is
     // what makes the default arm a true control rather than a re-seeding.
-    let homeward = home_weighted_pick(world, organism, def, (hx, hy), &viable, draw, spoil_haul());
+    let (homeward, why, home_cos) = home_weighted_pick_why(world, organism, def, (hx, hy), &viable, draw, spoil_haul());
+    if world.decision_log.is_some() {
+        world.decision_scratch.homeward = why;
+        world.decision_scratch.home_cos = home_cos;
+    }
     if let Some(state) = world.organism_mut(organism) {
         state.heading = match homeward {
             Some(d) => d,
@@ -12992,6 +13240,9 @@ fn tumble(world: &mut World, organism: OrganismId, def: &CreatureDef, draw: &mut
 /// needs the home vector to bisect two of the eight directions exactly; it is
 /// rare, and it resolves the same way every run. `CLAUDE.md`'s tie-order rule
 /// is why this is written down rather than left to the reader.
+// Test-only since the decision trace: the engine calls `home_weighted_pick_why`
+// and the guard below keeps calling this, which is the same body.
+#[cfg(test)]
 fn home_weighted_pick(
     world: &World,
     organism: OrganismId,
@@ -13005,10 +13256,32 @@ fn home_weighted_pick(
     // is the blind kind rather than the weak kind.
     haul: Option<f32>,
 ) -> Option<u8> {
+    home_weighted_pick_why(world, organism, def, head, viable, draw, haul).0
+}
+
+/// `home_weighted_pick`, also saying **which gate decided** and, when it fired,
+/// the true cosine between the chosen heading and the target. The body is the
+/// one `home_weighted_pick` always had; only the early returns now name
+/// themselves, so the decision trace can report a refusal by reason rather
+/// than leave it to be reconstructed from positions. **The draw is still
+/// taken last and only once**, so a caller that ignores the reason runs the
+/// identical stream.
+fn home_weighted_pick_why(
+    world: &World,
+    organism: OrganismId,
+    def: &CreatureDef,
+    head: (i32, i32),
+    viable: &[u8],
+    draw: &mut rng::Rng,
+    haul: Option<f32>,
+) -> (Option<u8>, HomewardWhy, f32) {
+    let refuse = |why: HomewardWhy| (None, why, f32::NAN);
     if viable.is_empty() {
-        return None;
+        return refuse(HomewardWhy::NoUsable);
     }
-    let state = world.organism(organism)?;
+    let Some(state) = world.organism(organism) else {
+        return refuse(HomewardWhy::NoUsable);
+    };
     // **The haulage arm, and it does not steer by `forage_anchor`.**
     //
     // The anchor is re-set to the ant's *own position* on every nest contact
@@ -13024,22 +13297,26 @@ fn home_weighted_pick(
     // row the site was founded on, at the site's own column. That is the
     // door, it does not drift, and walking to it is walking *out* -- which is
     // also where the biology puts the spoil, in a crater around the entrance.
-    let (bias, target) = match haul.filter(|_| state.spoil.is_some()) {
+    let (bias, target, hauling) = match haul.filter(|_| state.spoil.is_some()) {
         Some(w) => {
-            let site = world.nest_sites.get(world.nearest_nest_site(head.0, head.1)?)?;
-            (w, (site.x, site.surface))
+            let Some(site) = world.nearest_nest_site(head.0, head.1).and_then(|i| world.nest_sites.get(i)) else {
+                return refuse(HomewardWhy::NoSite);
+            };
+            (w, (site.x, site.surface), true)
         }
         None => {
             if def.home_bias <= 0.0 {
-                return None;
+                return refuse(HomewardWhy::BiasOff);
             }
-            let crop = state.crop?;
+            let Some(crop) = state.crop else {
+                return refuse(HomewardWhy::NoCrop);
+            };
             let cap = organism_crop_capacity(world, organism, def);
             let fill = if cap > 0.0 { (crop.worth() / cap).clamp(0.0, 1.0) } else { 1.0 };
             if fill <= 0.0 {
-                return None;
+                return refuse(HomewardWhy::EmptyCrop);
             }
-            (def.home_bias * fill, state.forage_anchor)
+            (def.home_bias * fill, state.forage_anchor, false)
         }
     };
     let (ax, ay) = target;
@@ -13051,19 +13328,26 @@ fn home_weighted_pick(
     // bearing -- and an ant at its own nest is exactly the one that should
     // be wandering off again.
     if len < 1.0 {
-        return None;
+        return refuse(HomewardWhy::OnAnchor);
     }
     // The draw is last, so every early return above is free.
     if draw.unit_f32() >= bias.clamp(0.0, 1.0) {
-        return None;
+        return refuse(HomewardWhy::RollFailed);
     }
-    viable.iter().copied().max_by(|&a, &b| {
+    let pick = viable.iter().copied().max_by(|&a, &b| {
         let score = |d: u8| {
             let (dx, dy) = DIRS[d as usize];
             (dx as f32 * vx + dy as f32 * vy) / len
         };
         score(a).total_cmp(&score(b))
-    })
+    });
+    // Reported as a true cosine, dividing out the diagonal's length that the
+    // ranking above does not need to.
+    let cos = pick.map_or(f32::NAN, |d| {
+        let (dx, dy) = DIRS[d as usize];
+        (dx as f32 * vx + dy as f32 * vy) / (len * ((dx * dx + dy * dy) as f32).sqrt())
+    });
+    (pick, if hauling { HomewardWhy::FiredHaul } else { HomewardWhy::Fired }, cos)
 }
 
 /// **Is this cell living plant tissue at all** — alive, and a plant.
@@ -22091,6 +22375,221 @@ mod tests {
             arm(true, &[crate::sim::world::Quickening::at(100, 119, 40)]),
             "an ant inside a quickening must think again -- otherwise this gate is an off switch rather than a place"
         );
+    }
+
+    /// The live creatures in a world, found by scanning for their cells --
+    /// the world keeps its organism table private, and a scan is also what
+    /// makes this independent of the table the trace itself reads.
+    fn creature_ids(w: &World) -> Vec<OrganismId> {
+        let b = w.bounds().expect("the scene sets bounds");
+        let mut ids: Vec<OrganismId> = Vec::new();
+        for y in b.min_y..=b.max_y {
+            for x in b.min_x..=b.max_x {
+                let c = w.get(x, y);
+                if c.organism_id() != 0 && w.materials.kind(c.material) == MaterialKind::Creature && !ids.contains(&c.organism_id()) {
+                    ids.push(c.organism_id());
+                }
+            }
+        }
+        ids.sort_unstable();
+        ids
+    }
+
+    /// Everything a creature decision could have changed, as one comparable
+    /// string: the grid, both trail planes, every creature's body, heading,
+    /// energy and crop, and every creature counter except the census the
+    /// trace itself fills.
+    fn creature_world_state(w: &World) -> String {
+        let b = w.bounds().expect("the scene sets bounds");
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut mix = |v: u64| h = (h ^ v).wrapping_mul(0x0000_0100_0000_01b3);
+        for y in b.min_y..=b.max_y {
+            for x in b.min_x..=b.max_x {
+                let c = w.get(x, y);
+                mix(c.material.0 as u64);
+                mix(c.aux() as u64);
+                mix(c.organism_id() as u64);
+                mix(w.pheromone_at(Channel::A, x, y) as u64);
+                mix(w.pheromone_at(Channel::B, x, y) as u64);
+            }
+        }
+        let bodies: Vec<String> = creature_ids(w)
+            .into_iter()
+            .filter_map(|id| w.organism(id).map(|s| format!("{id}:{:?}:{}:{}:{:?}", s.chain, s.heading, s.energy, s.crop.map(|c| (c.cells, c.worth())))))
+            .collect();
+        let mut stats = w.creature_stats;
+        stats.decision_census = Default::default();
+        format!("{h:x}|{bodies:?}|{stats:?}")
+    }
+
+    /// **The decision trace changes nothing it watches.**
+    ///
+    /// The trace is only evidence if turning it on leaves the world it records
+    /// exactly as it would have been. It takes no RNG draw and writes nothing
+    /// the engine reads (`DecisionRow`), and this is the check of that claim:
+    /// one colony bed, run twice from the same seed with the log off and on,
+    /// compared on the grid, both trail planes, every creature's state and
+    /// every counter.
+    ///
+    /// **Watched red** by adding one `draw.unit_f32()` inside the trace's
+    /// "before" block: the bodies diverge within the run and this fails.
+    /// The vacuity checks come first, because a bed where nothing moved, got
+    /// laden or tumbled would pass whatever the trace did.
+    #[test]
+    fn the_decision_trace_changes_nothing_it_watches() {
+        let run_bed = |traced: bool| {
+            let (mut w, low) = colony_bed();
+            assert!(w.found_colony(200, low - 32) > 0, "the bed placed no ants -- the scene is wrong, not the rule");
+            if traced {
+                w.decision_log = Some(Vec::new());
+            }
+            run(&mut w, 3000);
+            let rows = w.decision_log.take().unwrap_or_default();
+            (creature_world_state(&w), rows, w.creature_stats)
+        };
+        let (off, off_rows, off_stats) = run_bed(false);
+        let (on, on_rows, _) = run_bed(true);
+        assert!(off_rows.is_empty(), "the untraced run recorded {} decisions", off_rows.len());
+        assert!(off_stats.moves > 100 && off_stats.tumbles > 100, "moves {} tumbles {}: the bed barely moved, so equality proves nothing", off_stats.moves, off_stats.tumbles);
+        assert!(on_rows.len() > 1000, "only {} decisions traced", on_rows.len());
+        assert!(on_rows.iter().any(|r| r.leg == 1), "no laden decision was traced, so the laden half of the trace is untested here");
+        assert_eq!(off, on, "turning the decision trace on changed the world it records");
+    }
+
+    /// **The setting class reads the ground the ant stands on.**
+    ///
+    /// Three hand-built places with known answers, from
+    /// `Reports/how-the-ant-works.md` §2's table: flat ground is a corridor
+    /// with exactly forward and back usable; a sealed pocket leaves only the
+    /// cell the ant's own tail is in; a hollow ring of stone two cells out
+    /// gives every neighbour a foothold, which is the open setting a canopy
+    /// is. **Watched red** by making `usable_headings` ignore the foothold
+    /// test: the flat slab then reads the upper diagonals as usable and the
+    /// corridor assertion fails.
+    #[test]
+    fn the_setting_class_reads_the_ground_the_ant_stands_on() {
+        let stone = Cell::new(material::STONE, 0).with_attached(true);
+        let def_of = |w: &World, id: OrganismId| w.species.get(w.organism(id).expect("live").species).creature.clone().expect("a creature");
+        let mask = |v: &[u8]| v.iter().fold(0u8, |m, &d| m | (1 << d));
+
+        // Flat ground: a stone floor, air above.
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        for x in 0..64 {
+            for y in 41..64 {
+                w.set(x, y, stone);
+            }
+        }
+        let ant = spawn(&mut w, "ant", 32, 40);
+        let def = def_of(&w, ant);
+        let usable = usable_headings(&w, ant, &def);
+        assert_eq!(mask(&usable), (1 << 0) | (1 << 4), "flat ground must leave exactly east and west usable, got {usable:?}");
+        assert_eq!(DECISION_SETTING_NAMES[setting_class(mask(&usable))], "corridor");
+
+        // A sealed pocket: stone everywhere but the two cells the body fills.
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        for x in 0..64 {
+            for y in 0..64 {
+                w.set(x, y, stone);
+            }
+        }
+        w.set(32, 40, Cell::EMPTY);
+        w.set(31, 40, Cell::EMPTY);
+        let ant = spawn(&mut w, "ant", 32, 40);
+        let def = def_of(&w, ant);
+        let usable = usable_headings(&w, ant, &def);
+        assert!(usable.len() <= 1, "a sealed pocket left {usable:?} usable");
+        assert_eq!(DECISION_SETTING_NAMES[setting_class(mask(&usable))], "pocket");
+
+        // Open: a hollow 5x5 ring of stone, the ant at its centre.
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        for x in 30..=34 {
+            for y in 38..=42 {
+                if x == 30 || x == 34 || y == 38 || y == 42 {
+                    w.set(x, y, stone);
+                }
+            }
+        }
+        let ant = spawn(&mut w, "ant", 32, 40);
+        let def = def_of(&w, ant);
+        let usable = usable_headings(&w, ant, &def);
+        assert_eq!(DECISION_SETTING_NAMES[setting_class(mask(&usable))], "open", "inside a ring every neighbour is footed, got {usable:?}");
+    }
+
+    /// **Every traced decision agrees with the engine's own counters and with
+    /// where the head actually went.**
+    ///
+    /// Plan §5's rule: a counter is trusted only once it matches the per-tick
+    /// trace exactly, and the trace only once it matches something it does not
+    /// itself compute. So three independent checks on one bed:
+    ///
+    /// - **the census against the rows** -- the same decisions counted two
+    ///   ways must agree cell for cell;
+    /// - **the rows against the legacy counters**, which are incremented at
+    ///   their own sites inside `step_chain` and `tumble`: `moves`, `falls`,
+    ///   `reversals`, `crossings`, `tumbles`, `tumbles_homeward`;
+    /// - **the rows against the positions** they carry: a step moves the head
+    ///   one cell along a `DIRS` heading, a fall moves it one down, and every
+    ///   outcome that is not a relocation leaves it where it was.
+    #[test]
+    fn every_traced_decision_agrees_with_the_counters_and_the_positions() {
+        let (mut w, low) = colony_bed();
+        assert!(w.found_colony(200, low - 32) > 0, "the bed placed no ants -- the scene is wrong, not the rule");
+        let before = w.creature_stats;
+        w.decision_log = Some(Vec::new());
+        run(&mut w, 3000);
+        let rows = w.decision_log.take().expect("the log was on");
+        let after = w.creature_stats;
+        let count = |f: &dyn Fn(&DecisionRow) -> bool| rows.iter().filter(|r| f(r)).count() as u64;
+        use DecisionOutcome as D;
+
+        // Census against rows.
+        let mut from_rows = [[[0u64; DECISION_OUTCOMES]; DECISION_SETTINGS]; DECISION_LEGS];
+        for r in &rows {
+            from_rows[r.leg as usize][setting_class(r.usable)][r.outcome as usize] += 1;
+        }
+        assert_eq!(after.decision_census, from_rows, "the census and the rows it summarises disagree");
+
+        // Rows against the legacy counters.
+        assert_eq!(count(&|r| matches!(r.outcome, D::Stepped | D::SwappedKin)), after.moves - before.moves, "stepped+swapped rows against `moves`");
+        assert_eq!(count(&|r| r.outcome == D::Fell), after.falls - before.falls, "fell rows against `falls`");
+        assert_eq!(count(&|r| r.outcome == D::Reversed), after.reversals - before.reversals, "reversed rows against `reversals`");
+        assert_eq!(count(&|r| r.outcome == D::Crossing), after.crossings - before.crossings, "crossing rows against `crossings`");
+        assert_eq!(count(&|r| matches!(r.outcome, D::RollFailedTumbled | D::BlockedTumbled)), after.tumbles - before.tumbles, "tumbled rows against `tumbles`");
+        assert_eq!(
+            count(&|r| matches!(r.homeward, HomewardWhy::Fired | HomewardWhy::FiredHaul)),
+            after.tumbles_homeward - before.tumbles_homeward,
+            "fired rows against `tumbles_homeward`"
+        );
+
+        // Rows against positions, and the flags that follow from the outcome.
+        for r in &rows {
+            let (dx, dy) = (r.head_after.0 - r.head.0, r.head_after.1 - r.head.1);
+            match r.outcome {
+                D::Stepped => assert!(DIRS.contains(&(dx, dy)), "a step moved the head by ({dx}, {dy}): {r:?}"),
+                D::Fell => assert_eq!((dx, dy), (0, 1), "a fall moved the head by ({dx}, {dy}): {r:?}"),
+                D::RollFailedIdle | D::RollFailedTumbled | D::BlockedTumbled | D::Crossing => {
+                    assert_eq!((dx, dy), (0, 0), "{:?} moved the head: {r:?}", r.outcome)
+                }
+                _ => {}
+            }
+            assert_eq!(r.moved, matches!(r.outcome, D::Stepped | D::Fell | D::SwappedKin), "`moved` disagrees with the outcome: {r:?}");
+            let tumbled = matches!(r.outcome, D::RollFailedTumbled | D::BlockedTumbled);
+            assert_eq!(r.homeward != HomewardWhy::NotAsked, tumbled, "the homeward reason is set exactly when a tumble happened: {r:?}");
+            assert_eq!(r.roll_tumble.is_nan(), r.roll_move < r.p_move, "a tumble roll is taken exactly when the move roll fails: {r:?}");
+            if r.outcome == D::RollFailedIdle {
+                assert_eq!(r.heading_after, r.heading, "nothing happened, yet the heading changed: {r:?}");
+            }
+        }
+
+        // Vacuity: the checks above only mean something if these happened.
+        for (what, n) in [
+            ("stepped", count(&|r| r.outcome == D::Stepped)),
+            ("tumbled after a failed roll", count(&|r| r.outcome == D::RollFailedTumbled)),
+            ("idle", count(&|r| r.outcome == D::RollFailedIdle)),
+            ("laden", count(&|r| r.leg == 1)),
+        ] {
+            assert!(n > 0, "no decision {what} on this bed, so the checks on it are vacuous");
+        }
     }
 
     fn spawn(w: &mut World, species: &str, x: i32, y: i32) -> OrganismId {

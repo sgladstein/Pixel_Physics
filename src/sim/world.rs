@@ -1587,6 +1587,14 @@ pub struct CreatureStats {
     /// Paired with `ticks` the way `CLAUDE.md` requires: `ticks` is "was it
     /// asked", this is "what did it decide", `moves` is "what came of it".
     pub p_move_hist: [u64; 11],
+    /// **Every traced decision, by leg x setting x outcome** -- C4 of
+    /// `Reports/ant-movement-plan-2026-09-22.md` §5. Indexed by
+    /// `creature::DECISION_LEG_NAMES`, `DECISION_SETTING_NAMES` and
+    /// `DECISION_OUTCOME_NAMES`. **Filled only while `World::decision_log` is
+    /// on**, because the setting needs all eight headings tested, which is
+    /// work the untraced engine does not do. Must equal a count over the
+    /// trace's own rows exactly; `scripts/decisioncensus.py` checks it.
+    pub decision_census: [[[u64; crate::sim::creature::DECISION_OUTCOMES]; crate::sim::creature::DECISION_SETTINGS]; crate::sim::creature::DECISION_LEGS],
     /// **How long each rest actually lasted**, in creature decision ticks,
     /// bucketed by power of two: `bucket = floor(log2(ticks)) + 1`, so index
     /// 1 is a one-tick pause, index 2 is 2-3 ticks, index 3 is 4-7, and index
@@ -3241,6 +3249,16 @@ pub struct World {
     /// convincingly for a whole run while its body count said the feature
     /// had never once executed).
     pub creature_stats: CreatureStats,
+    /// **The per-decision trace**, off (`None`) unless a harness turns it on
+    /// by setting `Some(Vec::new())`. Every walking creature decision pushes
+    /// one `creature::DecisionRow`, and `CreatureStats::decision_census`
+    /// counts the same decisions by leg, setting and outcome. The harness
+    /// drains it. Recording draws nothing and changes nothing -- see
+    /// `creature::DecisionRow`.
+    pub decision_log: Option<Vec<crate::sim::creature::DecisionRow>>,
+    /// Scratch that `step_chain` and `tumble` write while a decision is being
+    /// traced; meaningless otherwise.
+    pub decision_scratch: crate::sim::creature::DecisionScratch,
     /// **Which material stopped a creature**, counted per blocked tick and
     /// indexed by `MaterialId` — the breakdown `CreatureStats::
     /// blocked_by_plant` deliberately does not carry, because that struct is
@@ -5574,6 +5592,8 @@ impl World {
             field_stats: field::FieldStats::default(),
             soil_water_stats: SoilWaterStats::default(),
             creature_stats: CreatureStats::default(),
+            decision_log: None,
+            decision_scratch: crate::sim::creature::DecisionScratch::default(),
             blocked_tissue_by_material: Vec::new(),
             energy_ledger: EnergyLedger::default(),
             colony_books: Vec::new(),

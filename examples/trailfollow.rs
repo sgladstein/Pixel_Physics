@@ -1369,6 +1369,26 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         let silenced = mute_channel_b(&mut genome);
         assert!(silenced > 0, "no EmitB weight was zeroed, so the muted arm still lays the plane it is meant to be without");
     }
+    // **`breadoff` -- trail B read by nobody, still laid by everybody.** The
+    // one arm `Reports/ant-movement-plan-2026-09-22.md` §7 says still matters:
+    // muting B (`hmute`, `mute`) removes the laying *and* the reading, so it
+    // cannot say which of the two did the harm when muting helped. This zeroes
+    // only the empty ant's reader, `(PheroBAlong, 2/3, +-6)`, and leaves
+    // `(CarryingFood, EmitB, 2.5)` alone. The pair of hidden units stays in
+    // place with its bias and gate, so a shut unit still cancels its mirror
+    // exactly as it did -- the reading, and nothing else, is gone.
+    if flag("breadoff") {
+        let mut zeroed = 0;
+        for h in [2usize, 3] {
+            let slot = brain::ih_slot(brain::BrainInput::PheroBAlong, h);
+            if genome[slot].abs() >= brain::W_EPS {
+                genome[slot] = 0.0;
+                zeroed += 1;
+            }
+        }
+        assert_eq!(zeroed, 2, "breadoff zeroed {zeroed} of the two PheroBAlong reader wires, so it is not the arm it is named for");
+        assert!(!mute, "breadoff on a muted arm reads a plane nobody lays -- it is the muted arm again");
+    }
     // **The two weights that shape the homing ramp, as runtime riders.**
     //
     // §7.15: channel A inverts in exactly the colonies that forage. Hidden unit
@@ -1963,6 +1983,21 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // **The laden census** -- see the push site. Needs `trace`, because the
     // brain evaluation it reads is gated on it.
     let laden_csv = flag("ladencsv");
+    // **`decisioncsv` -- every walking decision of every creature, as the
+    // engine made it** (`creature::DecisionRow`): the roll, the branch taken,
+    // why the homeward re-roll did or did not fire, and the setting it was
+    // decided in. Unlike `ladencsv` and the focal trace, nothing here is
+    // re-derived by probing the brain from outside, so it can say *why* an
+    // ant stood still rather than only that it did. `dtag=` suffixes the file
+    // name so two arms of one seed cannot overwrite each other, and
+    // `decisiondir=` says where the files go (default `/tmp`).
+    let decision_csv = flag("decisioncsv");
+    let decision_dir: String = arg_str("decisiondir").unwrap_or_else(|| "/tmp".into());
+    let decision_tag: String = arg_str("dtag").unwrap_or_default();
+    // `decisionnorows`: keep the census and its reconciliation, skip the file.
+    // For comparison arms, where the table is the result and 14 MB of rows per
+    // seed is not.
+    let decision_write_rows = !flag("decisionnorows");
     // **A GIF of this bed, because for creatures it is the only instrument.**
     // Owner-verified 2026-08-30 on a contact sheet of a colony: *"visually, I
     // cannot tell anything from these. ants are mostly visible with their
@@ -2272,6 +2307,21 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let mut cohort_next_x = i32::MIN;
     let mut focal_rows: Vec<String> = Vec::new();
     let mut laden_rows: Vec<String> = Vec::new();
+    let mut decision_rows: Vec<String> = Vec::new();
+    let mut decision_recount = [[[0u64; creature::DECISION_OUTCOMES]; creature::DECISION_SETTINGS]; creature::DECISION_LEGS];
+    let stats_at_trace_start = w.creature_stats;
+    if decision_csv {
+        w.decision_log = Some(Vec::new());
+    }
+    let arm_name = match (trail, mute, paint) {
+        (true, false, PaintA::None) => "hand",
+        (true, true, PaintA::None) => "hmute",
+        (false, false, PaintA::None) => "self",
+        (false, true, PaintA::None) => "mute",
+        (_, _, PaintA::Ramp) => "homeA",
+        (_, _, PaintA::FlatNest) => "flatN",
+        (_, _, PaintA::FlatFood) => "flatF",
+    };
     let mut gif_frames: Vec<Vec<u8>> = Vec::new();
     let mut renderer = pixel_physics::render::Renderer::new();
     let mut blockers: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
@@ -2376,6 +2426,51 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             }
         }
         frame::step(&mut w, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
+        if let Some(log) = w.decision_log.as_mut() {
+            for r in log.drain(..) {
+                decision_recount[r.leg as usize][creature::setting_class(r.usable)][r.outcome as usize] += 1;
+                if !decision_write_rows {
+                    continue;
+                }
+                decision_rows.push(format!(
+                    "{seed},{gap},{arm_name},{},{},{},{},{:.4},{},{},{},{},{},{},{},{},{},{:.4},{:.4},{},{:.4},{:.4},{:.5},{:.5},{},{:.4},{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{},{},{:.4},{}",
+                    decision_tag,
+                    r.frame,
+                    r.id,
+                    creature::DECISION_LEG_NAMES[r.leg as usize],
+                    r.fill,
+                    r.head.0,
+                    r.head.1,
+                    r.head_after.0,
+                    r.head_after.1,
+                    r.heading,
+                    r.heading_after,
+                    r.usable,
+                    creature::DECISION_SETTING_NAMES[creature::setting_class(r.usable)],
+                    r.anchor.0,
+                    r.anchor.1,
+                    r.energy,
+                    r.home_aligned,
+                    r.at_nest,
+                    r.crowding,
+                    r.stillness,
+                    r.along_a,
+                    r.along_b,
+                    r.food_adjacent,
+                    r.kin_need,
+                    nest_x,
+                    r.move_out,
+                    r.p_move,
+                    r.turn,
+                    r.roll_move,
+                    r.roll_tumble,
+                    creature::DECISION_OUTCOME_NAMES[r.outcome as usize],
+                    creature::HOMEWARD_WHY_NAMES[r.homeward as usize],
+                    r.home_cos,
+                    u8::from(r.moved),
+                ));
+            }
+        }
         if food > 0 && refill > 0 && f.is_multiple_of(refill) {
             place_food(&mut w, food, &mut larder_placed);
         }
@@ -3903,6 +3998,63 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             }
         }
     }
+    if decision_csv {
+        // **The run checks its own trace before anyone reads it.** Three
+        // counts of the same decisions, made at three different sites, must
+        // agree exactly: the engine's census, this harness's recount of the
+        // rows it drained, and the engine's older per-verb counters, which
+        // `step_chain` and `tumble` increment themselves. A disagreement is
+        // a broken instrument, so it stops the run rather than printing.
+        let census = w.creature_stats.decision_census;
+        assert_eq!(census, decision_recount, "decision census and the drained rows disagree -- the trace is not the census");
+        let s0 = stats_at_trace_start;
+        let s1 = w.creature_stats;
+        let by = |o: creature::DecisionOutcome| -> u64 { decision_recount.iter().flatten().map(|row| row[o as usize]).sum() };
+        use creature::DecisionOutcome as D;
+        assert_eq!(by(D::Stepped) + by(D::SwappedKin), s1.moves - s0.moves, "stepped+swapped rows against `moves`");
+        assert_eq!(by(D::Fell), s1.falls - s0.falls, "fell rows against `falls`");
+        assert_eq!(by(D::Reversed), s1.reversals - s0.reversals, "reversed rows against `reversals`");
+        assert_eq!(by(D::RollFailedTumbled) + by(D::BlockedTumbled), s1.tumbles - s0.tumbles, "tumbled rows against `tumbles`");
+        let total: u64 = decision_recount.iter().flatten().flatten().sum();
+        println!("    DECISION CENSUS: {total} decisions, reconciled against the rows and the engine's counters");
+        println!(
+            "      {:<7} {:<9} {:>8} {}",
+            "leg",
+            "setting",
+            "n",
+            creature::DECISION_OUTCOME_NAMES.iter().map(|n| format!("{:>8}", &n[..n.len().min(8)])).collect::<Vec<_>>().join("")
+        );
+        for (li, leg) in decision_recount.iter().enumerate() {
+            for (si, row) in leg.iter().enumerate() {
+                let n: u64 = row.iter().sum();
+                if n == 0 {
+                    continue;
+                }
+                println!(
+                    "      {:<7} {:<9} {:>8} {}",
+                    creature::DECISION_LEG_NAMES[li],
+                    creature::DECISION_SETTING_NAMES[si],
+                    n,
+                    row.iter().map(|&c| format!("{:>7.1}%", 100.0 * c as f64 / n as f64)).collect::<Vec<_>>().join("")
+                );
+            }
+        }
+        if decision_write_rows {
+            let suffix = if decision_tag.is_empty() { String::new() } else { format!("-{decision_tag}") };
+            let path = format!("{decision_dir}/trailfollow-decisions-seed{seed}-gap{gap}-{arm_name}{suffix}.csv");
+            let mut out = String::from(
+                "seed,gap,arm,tag,frame,id,leg,fill,x,y,x2,y2,heading,heading2,usable,setting,ax,ay,energy,home_aligned,at_nest,crowding,stillness,along_a,along_b,food_adjacent,kin_need,nest_x,move_out,p_move,turn,roll_move,roll_tumble,outcome,homeward,home_cos,moved\n",
+            );
+            out.push_str(&decision_rows.join("\n"));
+            out.push('\n');
+            match std::fs::write(&path, out) {
+                Ok(()) => println!("    DECISIONS: {} rows written to {path}", decision_rows.len()),
+                Err(e) => println!("    DECISIONS: could not write {path}: {e}"),
+            }
+        } else {
+            println!("    DECISIONS: rows not written (decisionnorows)");
+        }
+    }
 
     // `dietdump` names every material the colony actually booked intake
     // against, which is the only thing that can say *what* an unexpected
@@ -4157,6 +4309,18 @@ fn main() {
     // archived log failing to reproduce against a binary that was correct.
     println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill} stop={stop} homebias={} cropcap={} hungergate={} arho={} brho={} adiffuse={} arise={}/{} tumble={} persist={} tumblegrad={} homewire={}", gate.name, arg::<f32>("homebias").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("cropcap").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("hungergate").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("arho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("brho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("adiffuse").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("arise").map_or("off".to_string(), |v| format!("{v}")), arg::<f32>("arisetumble").map_or("off".to_string(), |v| format!("{v}")), arg::<f32>("tumble").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("persist").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tumblegrad").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("homewire").map_or("shipped".to_string(), |v| format!("{v}")));
     println!("  gate {}: off {:+.1}  on {:+.1}  along ±{:.1}", gate.name, gate.off, gate.on, gate.along);
+    // The trace and trail-B switches, and the environment levers every bed in
+    // `ant-forage-bed-and-gates-2026-09-21.md` is run with, echoed so a log
+    // that does not name them was written by a binary that never had them.
+    println!(
+        "  breadoff={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} layfrom={}",
+        flag("breadoff"),
+        flag("decisioncsv"),
+        arg_str("dtag").unwrap_or_default(),
+        std::env::var("PIXEL_PHYSICS_COLONY_SPACING").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_STACK_DEPTH").unwrap_or_else(|_| "shipped".into()),
+        arg_str("layfrom").unwrap_or_else(|| "nest".into())
+    );
     println!("  {LANDED_NOTE}\n");
 
     let spec = LabBox { width: 256, height: 192, ground_y: 96, soil_depth: 48, founders: 0, colonies: 0, seed: seed0, ..LabBox::default() };

@@ -1,7 +1,9 @@
 # The ant's walk: what is built, what the research says it should be, and the plan
 
-*2026-09-22. Plan of record, agreed with the owner the same day. **Nothing in
-it is built yet.** The mechanism it builds on is described in
+*2026-09-22. Plan of record, agreed with the owner the same day. **Step 1
+(the decision trace and census) is built; results in
+[`ant-decision-census-2026-09-22.md`](ant-decision-census-2026-09-22.md).
+Nothing after it is.** The mechanism it builds on is described in
 [`how-the-ant-works.md`](how-the-ant-works.md), the living reference, which
 is read instead of re-deriving the ant from reports. This report is the plan
 and the reasoning; that document is the ant.*
@@ -543,7 +545,10 @@ movement one, so **it is not tested without the owner's go-ahead.**
 ## 9. Order of work
 
 1. **C4 and the full trace, on today's code, today's beds.** Trace only; no
-   behaviour change. Includes §7's essential trail-B arm.
+   behaviour change. Includes §7's essential trail-B arm. **Done 2026-09-22:
+   [`ant-decision-census-2026-09-22.md`](ant-decision-census-2026-09-22.md).**
+   Empty ants are frozen on trail-B peaks, and the reader-off arm is
+   confounded on the ramp bed (that report's §7a).
 2. **C1–C3**, each reconciled against the trace and given a positive
    control. At the same time, fix the four contradicting source comments
    listed in `how-the-ant-works.md` §14.

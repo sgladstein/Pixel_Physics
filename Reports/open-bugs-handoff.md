@@ -148,31 +148,31 @@ point.
 | W7 | closed | 10276 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
 | Z6 | **OPEN** | 10382 | Every shipped bed starves its ant colony inside one play session |
 | Z7 | **OPEN** | 10560 | The trail-following gate saturates the signal it gates: the ant reads its own trail at ±0... |
-| Z8 | closed | 10712 | A fruit severed by ordinary structural failure lands as an ownerless windfall, and it can... |
-| Z9 | closed | 10833 | A hopping animal that comes down on water never lands: it hangs there, is charged the air... |
-| Z10 | closed | 10946 | The flitter's float never switches off on a bed that has flowers in it |
-| Z11 | closed | 11043 | At the widest zoom-out the view drew one cell in sixteen and dropped the rest, so thin th... |
-| Z12 | **OPEN** | 11138 | Most of what piles up in a long-run long-ant colony is one-cell ants, and they are bred t... |
-| Z13 | closed | 11218 | Every animal in both games can reach a rest it cannot leave (engine) |
-| Z14 | **OPEN** | 11613 | The played bed's 500,000-frame trajectory is chaotic, and scent_drift: 0.15 re-rolled it |
-| Z15 | **OPEN** | 11705 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
-| Z16 | closed | 11783 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
-| Z18 | **OPEN** | 11924 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
-| Z19 | closed | 12134 | A pellet of spoil crosses up to 116 rows with nothing carrying it |
-| Z17 | **OPEN** | 12251 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
-| Z20 | closed | 12303 | labgif wire= was a silent no-op for every card it has ever produced (lab) |
-| Z21 | closed | 12344 | The held world's grown and dead starts fill every organism slot, so C founds nothing |
-| Z22 | **OPEN** | 12531 | A colony inside a quickening eats about a sixth of the garden, and nothing on screen says so |
-| Z23 | closed | 12626 | nearest_foe counts a plant as a foe, so a fed colony quietly vandalises its own larder |
-| Z24 | **OPEN** | 12836 | A loop of plant_ant is a crowd of strangers, and nine harnesses still do it |
-| Z25 | closed | 12917 | Nothing can hear an alarm: the plane's audible radius is about two cells |
-| Z26 | **OPEN** | 13082 | review.py inbox shows every lane's verdicts as yours in a cloud session, and --mark-seen ... |
-| Z27 | **OPEN** | 13141 | Heat cannot cross a shallow gradient into ground already at ambient, and the fix that exi... |
-| Z28 | **OPEN** | 13198 | The moisture deposition preference was deleted rather than moved, and DropSpoil has no he... |
-| Z29 | **OPEN** | 13270 | An ant stands on its own freshest deposit, so the homing gradient reads "home is behind m... |
-| Z32 | closed | 13436 | An empty ant reads the food trail as exactly zero, tick after tick, so half the colony ne... |
-| Z30 | **OPEN** | 13552 | filmstrip never steps the pheromone planes, so every scene it runs ants in shows a trail ... |
-| Z31 | **OPEN** | 13643 | field::step carries derived arrays forward over a settled chunk that still holds an un-ta... |
+| Z8 | closed | 10735 | A fruit severed by ordinary structural failure lands as an ownerless windfall, and it can... |
+| Z9 | closed | 10856 | A hopping animal that comes down on water never lands: it hangs there, is charged the air... |
+| Z10 | closed | 10969 | The flitter's float never switches off on a bed that has flowers in it |
+| Z11 | closed | 11066 | At the widest zoom-out the view drew one cell in sixteen and dropped the rest, so thin th... |
+| Z12 | **OPEN** | 11161 | Most of what piles up in a long-run long-ant colony is one-cell ants, and they are bred t... |
+| Z13 | closed | 11241 | Every animal in both games can reach a rest it cannot leave (engine) |
+| Z14 | **OPEN** | 11636 | The played bed's 500,000-frame trajectory is chaotic, and scent_drift: 0.15 re-rolled it |
+| Z15 | **OPEN** | 11728 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
+| Z16 | closed | 11806 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
+| Z18 | **OPEN** | 11947 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
+| Z19 | closed | 12157 | A pellet of spoil crosses up to 116 rows with nothing carrying it |
+| Z17 | **OPEN** | 12274 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
+| Z20 | closed | 12326 | labgif wire= was a silent no-op for every card it has ever produced (lab) |
+| Z21 | closed | 12367 | The held world's grown and dead starts fill every organism slot, so C founds nothing |
+| Z22 | **OPEN** | 12554 | A colony inside a quickening eats about a sixth of the garden, and nothing on screen says so |
+| Z23 | closed | 12649 | nearest_foe counts a plant as a foe, so a fed colony quietly vandalises its own larder |
+| Z24 | **OPEN** | 12859 | A loop of plant_ant is a crowd of strangers, and nine harnesses still do it |
+| Z25 | closed | 12940 | Nothing can hear an alarm: the plane's audible radius is about two cells |
+| Z26 | **OPEN** | 13105 | review.py inbox shows every lane's verdicts as yours in a cloud session, and --mark-seen ... |
+| Z27 | **OPEN** | 13164 | Heat cannot cross a shallow gradient into ground already at ambient, and the fix that exi... |
+| Z28 | **OPEN** | 13221 | The moisture deposition preference was deleted rather than moved, and DropSpoil has no he... |
+| Z29 | **OPEN** | 13293 | An ant stands on its own freshest deposit, so the homing gradient reads "home is behind m... |
+| Z32 | closed | 13459 | An empty ant reads the food trail as exactly zero, tick after tick, so half the colony ne... |
+| Z30 | **OPEN** | 13575 | filmstrip never steps the pheromone planes, so every scene it runs ants in shows a trail ... |
+| Z31 | **OPEN** | 13666 | field::step carries derived arrays forward over a settled chunk that still holds an un-ta... |
 
 <!-- END GENERATED INDEX -->
 
@@ -10706,6 +10706,29 @@ way. If the lever works it is somewhere else on the dial, or it is the larder.
 **Instruments.** `examples/trailfollow` (both halves of this, re-runnable),
 `creature_arena`'s new `hidden=` and `plant=` riders, `labforage`'s `hidden=`,
 `bdecay=`/`adecay=` and its `deliveries`/`nest_visits` columns.
+
+**2026-09-22: what the shipped food reader costs, measured per decision.**
+`ant.ron` now ships units 2–3 de-saturated (`Bias +0.5`), so the reader
+reads. On the gap-90 foraging bed (24 seeds, the bed report's levers), the
+engine's own decision trace shows the cost §Z7 asked about:
+
+- **Frozen empty ants.** They have `p_move` exactly 0 on **70%** of their
+  decisions, and the trail-B term is **−3.13** on the stepping sum at those
+  decisions, against +0.10 when they move.
+- **Local peaks.** 79% of their stalled time is spent where every heading
+  they tried read downhill on B.
+- **The reader is also what finds food.** Switching it off raises empty-ant
+  stepping from 11.5% to 38.1%, but collapses the loop (reached food
+  558 → 105, second trips 87 → 0), because it also hides the hand-laid ramp.
+  Muting only the ants' own B keeps the ramp readable and doubles second
+  trips.
+
+The reader works and it traps, and both are the same forward-difference
+arithmetic. Full account and data in
+[`ant-decision-census-2026-09-22.md`](ant-decision-census-2026-09-22.md).
+The planned repair, reading B as presence per usable heading and turning
+rather than freezing, is stage 2 of
+[`ant-movement-plan-2026-09-22.md`](ant-movement-plan-2026-09-22.md).
 
 ---
 
