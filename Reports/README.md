@@ -3153,8 +3153,11 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   - **The design:** one chooser over the usable moves, scored by turning
     preference, a home term and a trail term. The trail is read where the
     ant would step and integrated over time with engine-side running
-    averages, and the weights are new brain outputs. Rejected alternatives
-    and costs are included.
+    averages, and the weights are new brain outputs. It is **built in two
+    stages**: turning preference plus home term first, judged on exploring
+    and getting home; the trail terms second. The home pull is set by
+    distance, not crop fill, and falling stops depending on the step roll.
+    Rejected alternatives and costs are included.
   - **Measurement:** traces first, counters reconciled against them.
   - **Six scenes, S0–S5, with predictions written before any is run.**
     Today's ant should pass a flat walk home and be trapped by a wall of
@@ -3162,7 +3165,10 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   - **Experiments:** the trail-B three-arm experiment, and five drop-blockage
     hypotheses with the census that separates them.
   - **Owner rulings:** brain outputs yes, food memory no, drop reach
-    deferred.
+    deferred. Revised the same day to put exploration first (a fed empty
+    ant is predicted to reverse as often as it steps), to treat the
+    blocked drop as possibly a nest-digging problem, and to leave
+    digesting the crop in transit as an open question for the owner.
 - [what-controls-creature-movement-2026-09-22.md](what-controls-creature-movement-2026-09-22.md)
   — **reference, 2026-09-22. `engine`. SUPERSEDED the same day by
   [`how-the-ant-works.md`](how-the-ant-works.md)**, the living reference,

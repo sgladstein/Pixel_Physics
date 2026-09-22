@@ -6,6 +6,11 @@ it is built yet.** The mechanism it builds on is described in
 is read instead of re-deriving the ant from reports. This report is the plan
 and the reasoning; that document is the ant.*
 
+*Revised the same day, with the owner's agreement, after writing
+`how-the-ant-works.md` from the source turned up five things that change the
+order and some details. The revisions are folded in, not appended; §1 lists
+them.*
+
 ## 0. The answer, stated once
 
 - **The shipped ant picks its direction almost entirely at random.** Stepping
@@ -33,6 +38,13 @@ and the reasoning; that document is the ant.*
      can actually make**, scored by turning preference, a home term and a
      trail term. The trail is read where the ant would step and integrated
      over time. The chooser's weights are brain outputs, so they can evolve.
+     **Build it in two stages** (§4i): turning preference and the home term
+     first, judged on exploring and getting home; then the trail terms.
+- **Exploring matters as much as getting home.** A fed empty ant on flat
+  ground is predicted to reverse as often as it steps (S0), which fits the
+  line's standing finding that discovery of food is the binding constraint.
+  S0 is the first scene, and exploration is the first thing the new chooser
+  is judged on.
 
 ## 1. Owner rulings, 2026-09-22
 
@@ -44,6 +56,8 @@ and the reasoning; that document is the ant.*
 | Counters reconciled against per-tick traces | at first implementation, and whenever results are confusing, unexpected, or an issue has dragged on; not on every run |
 | Letting a drop reach past the eight neighbours | **deferred**: first understand why ants are blocked (§8) |
 | Traces | per-tick brain, decision, position and environment traces have been more informative on this line than counters, so both are used, with the trace primary |
+| Revisions after the living reference was written | agreed, and folded in: exploration first (§0, §6 S0); the chooser in two stages (§4i); the home pull set by distance, not crop fill (§4a); falling independent of the step roll (§4e); the drop treated as possibly a nest-digging problem (§8); the trail-B experiment narrowed to its one essential arm (§7) |
+| Digesting the crop while carrying it | **not changed.** A test of `digest_hunger_weight` waits for the owner's go-ahead (§8b) |
 
 ## 2. Corrections to the record
 
@@ -179,7 +193,10 @@ randomness. The score is the sum of:
   preferred, reversing least likely. Its sharpness comes from `Persist`, and
   `Turn` keeps its left/right bias;
 - a **home term**: gain × the cosine to the home vector, weighted by the
-  vector's length;
+  vector's length. It switches on when the ant carries **anything**, and is
+  **not** scaled by how full the crop is. Today's re-roll scales by fill, and
+  the ant digests its cargo on the way home, so the longer it has been lost
+  the less it is steered home, which is backwards;
 - a **trail term** per plane (§4b);
 - **footing**, from `Caution`, as today.
 
@@ -245,6 +262,16 @@ gated hidden units: a shut hidden unit is not neutral (`squash(−45) =
   throttle on `Move` (hidden units 0–3) is retired.
 - **`(HomeAligned, Move, 3.0)` becomes a speed adjustment with a floor**, so
   an ant can walk around an obstacle.
+- **Falling stops depending on the brain.** Today the support check runs
+  only inside `step_chain`, after a successful step roll. So an ant whose
+  footing is dug away with `P(move) = 0` hangs in the air, and a fall counts
+  as a move and lays trail. The check runs every tick regardless of the roll,
+  and a fall is not a move. This belongs in stage 1, because stage 1 changes
+  when ants step.
+- **`Move` becomes an activity level only.** Once navigation leaves it, what
+  remains is how active the ant is. Today that is set almost entirely by one
+  clamp: `Energy` reads `energy / 200` capped at 1, so every fed ant reads
+  1.0 and steps at 0.20 per decision.
 
 ### 4f. New brain outputs
 
@@ -270,10 +297,26 @@ redefined behind the switch.
   Decisions happen once per 6 frames per ant.
 - **Constants calibrated against today's behaviour** must be re-derived as
   part of the work, not inherited:
-  - the `Move` bias and `Energy` weight;
+  - the `Move` bias and `Energy` weight, including whether `Energy` should
+    still saturate at `start_energy`;
   - `DEPOSIT` and the trail fade rates;
   - `home_bias`, `Stillness`;
   - every constant sized against the throttle.
+
+  Each stage in §4i re-derives the ones it touches.
+
+### 4i. Two stages, each judged on its own scenes
+
+| Stage | What it adds | What it replaces | Judged on |
+|---|---|---|---|
+| **1** | the chooser with turning preference, home term and footing; falling every tick | the random re-roll, the homeward argmax, `(HomeAligned, Move, 3.0)` as a gate | S0 (how far an empty ant gets, and how quickly it finds food), S1, S2, S3 |
+| **2** | the trail terms, spatial (§4b) and temporal (§4c) | the trail-gradient throttle (hidden units 0–3) | S4, S5, then one paired run on the colony bed |
+
+**Why two stages:** the turning preference alone should change exploration a
+lot. Adding the trail at the same moment would make it impossible to say
+which change did what, and would re-derive the stepping constants twice at
+once. Stage 1 still has to keep laden ants aimed, so the home term cannot
+wait for stage 2.
 
 ## 5. Measuring: traces first, counters reconciled against them
 
@@ -342,7 +385,9 @@ probability 0.2, a reversal with 0.2, a same-heading re-roll with 0.2, and
 nothing with 0.4. **Stepping and reversing are equally likely, so an empty
 ant jitters rather than explores.** At `Energy` 0.5 it steps 0.53 and
 reverses 0.12. Research expects long runs. This is the baseline the turning
-preference must change.
+preference must change. **Run first.** Measure distance covered per decision,
+and, on a flat slab with food 90 cells out, time to first find it. This is
+the first thing stage 1 is judged on.
 
 **S1. Flat slab, laden ant, home 40 cells away** (no nest material, so no
 trail A is laid and the trail throttle reads 0).
@@ -422,23 +467,23 @@ of growth, day/night light, and walking through tissue.
 seeds of 24. Muting removes both laying and reading, so it cannot say which
 one hurts.
 
-**The experiment** (folded into step 1 of §9). Trace every empty ant on
-trail-B cells, every decision: position, facing food or nest, B underfoot
-and ahead, units 2–3's contribution to `Move`, `p_move`, and the outcome.
-Three paired arms:
+**The experiment** (folded into step 1 of §9). **The question that still
+matters is whether laying B hurts on its own**, because the way B is read
+today is being replaced in stage 2 anyway, while laying carries forward into
+the new design.
 
-- shipped;
-- **reader off, laying on** — the two `PheroBAlong` wires zeroed; the arm
-  nobody has run;
-- B muted.
-
-Predictions:
-
-- **Direction:** on the trail, facing food reads negative and facing the
-  nest positive.
-- **Trapping:** stalls cluster at B's local peaks.
-- **Which part hurts:** if reader-off matches muted, the reading is the
-  harm. If reader-off matches shipped, the laying is.
+- **The essential arm:** reader off, laying on (the two `PheroBAlong` wires
+  zeroed), paired against shipped. Nobody has run it.
+  - If it matches shipped, the harm is in the laying (beacons where ants
+    stall, congestion), and stage 2 inherits it.
+  - If it matches muted, the harm is in the reading, which stage 2 removes.
+- **Optional, if the essential arm is ambiguous:** trace every empty ant on
+  trail-B cells, every decision: position, facing food or nest, B underfoot
+  and ahead, units 2–3's contribution to `Move`, `p_move`, and outcome.
+  Predictions:
+  - **Direction:** on the trail, facing food reads negative and facing the
+    nest positive.
+  - **Trapping:** stalls cluster at B's local peaks.
 
 **Setup:** a hand-laid trail for the direction test, since its ramp is
 known. The colony's own trail for the harm test. The bed corrections from
@@ -470,18 +515,47 @@ frame 0 and the dig/drop event log, and record the same for successful
 drops. Then run one controlled scene: a nest with a known empty chamber,
 with digging on and off.
 
+**It may be a nest-digging problem rather than a drop problem.** From the
+source:
+
+- Empty ants dig when the nest is short of roofed room per ant (the target
+  is 2 cells per ant), and every dug cell turns the soil around it into
+  `packedsoil`.
+- Every successful drop fills one free cell.
+
+So the colony builds pockets sized for ants, with no space set aside for
+food. If H1 and H3 carry the census, the fix is probably in how the nest is
+dug (chambers with open space) or where food is handed over, not in how far a
+drop reaches. From outside our reports: real foragers mostly unload near the
+entrance, into chambers or to nestmates.
+
+### 8b. An open question for the owner: digesting the crop while carrying it
+
+In real ants the crop is a "social stomach", whose contents are mostly not
+digested on the way home *(outside our reports; check before building on
+it)*. Here digestion runs every tick the crop holds food, and
+`ant-return-leg-result-2026-09-20.md` found that makes delivery "giving up
+your supply", which costs the colony its second trips. A switch already
+exists: `digest_hunger_weight`, which makes digestion wait for hunger, is
+authored at 0.0 for the ant. It is a colony-economy change rather than a
+movement one, so **it is not tested without the owner's go-ahead.**
+
 ## 9. Order of work
 
 1. **C4 and the full trace, on today's code, today's beds.** Trace only; no
-   behaviour change. Includes §7's trail-B experiment.
+   behaviour change. Includes §7's essential trail-B arm.
 2. **C1–C3**, each reconciled against the trace and given a positive
    control. At the same time, fix the four contradicting source comments
    listed in `how-the-ant-works.md` §14.
-3. **Scenes S0–S5 on today's code**, predictions above, as the baseline.
+3. **Scenes S0–S5 on today's code**, **S0 first**, with the predictions
+   above, as the baseline.
 4. **The drop census (§8)**, in parallel with step 3.
-5. **The chooser (§4), behind its switch**, judged first on the scenes,
-   then on one paired run on the colony bed. Update `how-the-ant-works.md`
-   in the same change.
+5. **Chooser stage 1** (§4i), behind its switch: turning preference, home
+   term, falling every tick. Judged on S0–S3.
+6. **Chooser stage 2**: the trail terms. Judged on S4–S5, then one paired
+   run on the colony bed.
+
+Each of steps 5 and 6 updates `how-the-ant-works.md` in the same change.
 
 ## 10. What this rests on
 
