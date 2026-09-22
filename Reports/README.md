@@ -3111,8 +3111,63 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   wrong (11.8%, not ~70%) and scoping to channel A is load-bearing (both planes
   → 0 ants reach food in all 24 seeds). Data
   `Reports/data/trail-comparator-24seed-2026-09-20-{shipped,fwd}.log`.
+- [how-the-ant-works.md](how-the-ant-works.md)
+  — **LIVING REFERENCE, edited in place. `engine`. Read this before any other
+  report on the ant line.** What the shipped ant does on every tick and how
+  each mechanism is implemented, written from the source. It covers:
+  - the tick order;
+  - every wired sense and how it is computed;
+  - the founder brain's hidden units and outputs, with `P(move)` in common
+    states;
+  - `act`'s order and its early returns;
+  - the step, the cone, the blocked path, the tumble and the homeward
+    re-roll;
+  - the trail planes, the anchor, the crop and digestion;
+  - a laden-versus-empty table;
+  - the other species sharing the wiring, the behaviour switches with their
+    defaults, and source comments that currently contradict the code.
+
+  **Unlike every dated report, it describes the ant as it is now**: a change
+  to a mechanism it describes updates it in the same commit, and a
+  correction is made in place. It carries no measurements, history or open
+  questions (owner, 2026-09-22). Supersedes
+  `what-controls-creature-movement-2026-09-22.md` as the description of the
+  mechanism.
+- [ant-movement-plan-2026-09-22.md](ant-movement-plan-2026-09-22.md)
+  — **plan of record, 2026-09-22, agreed with the owner; nothing built.
+  `engine`.**
+  - **Four corrections:**
+    - *"`home_bias` does not visibly bias the re-roll"* is a measuring
+      artifact. Its test cannot see a re-pick of the current heading, its
+      baseline assumed 8 headings, and the per-ant trace shows the median
+      facing-away episode ending in 3 decisions, with 50 of 659 long
+      episodes holding 56% of the time.
+    - The bed report's `HOME_TARGET=nest` arm moved the sensor but not the
+      re-roll.
+    - `Persist` is not the reversal rate on flat ground.
+    - Laden ants never dig; the `packedsoil` around blocked drops is burrow
+      lining from empty diggers.
+  - **The mechanism against the research, by setting** (corridor, junction,
+    canopy, nest) **and by leg** (laden, empty). The empty ant has nothing
+    that aims it, and on flat ground reverses as often as it steps.
+  - **The design:** one chooser over the usable moves, scored by turning
+    preference, a home term and a trail term. The trail is read where the
+    ant would step and integrated over time with engine-side running
+    averages, and the weights are new brain outputs. Rejected alternatives
+    and costs are included.
+  - **Measurement:** traces first, counters reconciled against them.
+  - **Six scenes, S0–S5, with predictions written before any is run.**
+    Today's ant should pass a flat walk home and be trapped by a wall of
+    height 4 or more, or by a U-bend.
+  - **Experiments:** the trail-B three-arm experiment, and five drop-blockage
+    hypotheses with the census that separates them.
+  - **Owner rulings:** brain outputs yes, food memory no, drop reach
+    deferred.
 - [what-controls-creature-movement-2026-09-22.md](what-controls-creature-movement-2026-09-22.md)
-  — **reference, 2026-09-22. `engine`.** The walking path end to end, written
+  — **reference, 2026-09-22. `engine`. SUPERSEDED the same day by
+  [`how-the-ant-works.md`](how-the-ant-works.md)**, the living reference,
+  for the mechanism. **Its §7 measurement, *"does not visibly bias the
+  re-roll"*, is withdrawn**: see `ant-movement-plan-2026-09-22.md` §2a. The walking path end to end, written
   from the source with every link read rather than recalled, because three wrong
   diagnoses in two days came from assembling this chain from memory. **Six stages
   and a decision can die at any of them**: whose turn it is (`tick_interval`,

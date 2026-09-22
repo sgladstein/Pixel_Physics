@@ -567,6 +567,12 @@ same object, and nothing in either site says so.
 
 ### 8f. What actually pins `Move` at zero — and it is not the anchor
 
+> **Correction, 2026-09-22.** `PIXEL_PHYSICS_HOME_TARGET=nest` changes only
+> the `HomeAligned` sensor (`home_target()`). The homeward re-roll
+> (`home_weighted_pick`) still aims at `forage_anchor`, so in that arm the
+> throttle and the re-roll aim at different places, and the null below does
+> not rule the anchor out. See `ant-movement-plan-2026-09-22.md` §2b.
+
 Aiming home at the nest centre (`PIXEL_PHYSICS_HOME_TARGET=nest`, added here)
 **is connected and does not fix the stall**. It moves what the animal reads —
 `HomeAligned` median `0.0000 → −0.5914`, laden ticks within ten cells of the
