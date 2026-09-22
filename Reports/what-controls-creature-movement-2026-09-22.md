@@ -203,6 +203,32 @@ So the only thing in this engine that can aim a walking creature is available
 probability `home_bias × fill`** — and it steers toward `forage_anchor`, which
 re-anchors to whichever nest cell was last touched (`ant-forage-bed-and-gates-2026-09-21.md` §8c).
 
+### Measured: it does not visibly bias the re-roll
+
+`home_bias: 1.0` ships on, so the question is not whether the lever exists but
+whether it acts. Isolating tumbles directly — a heading change with **no**
+displacement, which the exclusive `if`/`else if` above makes a clean signature —
+and keeping only laden animals **off** their anchor, the population the gates
+admit:
+
+| | measured | chance (uniform over 8) |
+|---|---|---|
+| new heading has a homeward x-component | **31.2%** | 37.5% |
+| new heading is vertical (`dx == 0`) | 29.6% | 25.0% |
+
+**n = 372**, 4 seeds. The re-roll is at or slightly *below* chance homeward for
+exactly the animals `home_weighted_pick` is written for. That is consistent with
+the whole-population heading distribution measured independently on the foraging
+bed — homeward 32.5% against a uniform 37.5%.
+
+**Treat this as a flag, not a verdict**: n is small, and the sample comes from
+one bed. What it rules out is the comfortable reading that the lever is working
+and merely under-reported. It is authored on, it is gated to the right animals,
+and on the evidence available it does not move their headings. **The honest next
+step is a counter inside `home_weighted_pick` recording calls, gate rejections
+by reason, and firings** — none of which exists, which is why this had to be
+reconstructed from position traces.
+
 **And its readout has a denominator problem worth naming.** `trailfollow` prints
 `tumbles N (homeward M, x%)` with *all* tumbles as the denominator — but empty
 animals are structurally incapable of a homeward tumble (`state.crop?`), and
