@@ -844,3 +844,85 @@ directions. The clean test is a bed whose nest has a known free-cell budget.
 cannot currently distinguish "chose not to drop" from "chose to and could not",
 and neither can any harness. Everything above had to be reconstructed from
 outside the engine. That counter is worth having before anything is tuned.
+
+---
+
+## 11. Two corrections the owner's questions forced, and the wiring in one line
+
+### 11a. "Two populations" was wrong — it is one journey with two phases
+
+Owner, 2026-09-22: *"why are there these two separate populations, or was that
+incorrect and the answer is just moving towards home very slowly when laden?"*
+
+Checked per ant: **74% of the ants that ever carried food contribute ticks to
+BOTH** the stuck-at-nest and stuck-away buckets (50 of 68; 10 at-nest only, 8
+away only). They are not two populations. They are the same animals in two
+phases — walk home, then sit at the nest.
+
+### 11b. "98.63% standing still" was wrong twice, and the corrected number
+changes the conclusion
+
+Two defects in that figure, both mine:
+
+1. It counted `dx` only, so a move with no x component read as "stuck".
+2. It used **every frame** as the denominator. `ant.ron` authors
+   `tick_interval: 6`, so a brain decides once in six frames and the ceiling on
+   movement is **16.7%**, not 100%.
+
+Recomputed over 294,370 consecutive-frame pairs across all laden ants, counting
+displacement on **either** axis and against the real ceiling:
+
+| | moves per frame | **per decision opportunity** |
+|---|---|---|
+| overall | 1.88% | **11%** |
+| **out on the route** | 4.87% | **29%** |
+| **within the nest band** | 0.50% | **3%** |
+
+**They are not uniformly stuck.** Out on the route a laden ant moves on **29%**
+of the chances it gets — slow, but genuinely walking home, which is why ants do
+arrive. The freeze is *specifically at the nest*: **3%**.
+
+**So §9 and §10 unify.** The ant walks home at about 29% efficiency, arrives, and
+then freezes at the nest because it cannot drop (§10). And since the engine lays
+**on a move**, a frozen ant lays nothing — which is exactly why the nest end of
+the trail is the dark end, **7.8% lit against 72% twenty cells out** (§7a). The
+trail's shape was telling us where the animals stop, and it was read as a
+property of the trail.
+
+### 11c. Is movement uncoupled from the pheromone? Yes, and the comment lies
+
+Owner: *"this sounds 100% uncoupled from the pheromone trail. Is that accurate?"*
+
+**Direction: entirely.** `step_chain` scores the three forward candidates as
+`base = [turn.max(0.0), persist, (-turn).max(0.0)]` plus a footing bonus — no
+pheromone term exists in heading selection. And `ant.ron` gives `Turn` exactly
+one wire:
+
+```
+(TempAboveAmb, Turn, -0.8)
+```
+
+**The throttle: coupled.** The pheromone's whole path is
+`PheroAAlong`/`PheroBAlong` → hidden units 0–3 → **`Move`**:
+
+```
+(PheroAAlong, 0,  6.0)   (PheroAAlong, 1, -6.0)
+(PheroBAlong, 2,  6.0)   (PheroBAlong, 3, -6.0)
+(0, Move, 2.5)  (1, Move, -2.5)  (2, Move, 2.5)  (3, Move, -2.5)
+```
+
+**And the laterals — the left/right difference, the only part of a pheromone
+reading that carries *which way* — are wired to nothing.** Zero non-comment
+occurrences as a source in `ant.ron`. The lines immediately above the `Turn`
+wire claim otherwise:
+
+```
+// (PheroBLateral, Turn, ...) -- now via hidden units 2 and 3
+// (PheroALateral, Turn, ...) -- now via hidden units 0 and 1
+```
+
+Those units read **`Along`**, not `Lateral`. That the laterals are unread is
+already on the record (`lanes/evolution-lab-pheromones.md`, *"four of seven
+reader slots are read by no species: the laterals deliberately"*); what is new
+is that this comment asserts a rerouting that did not happen, and it sits three
+lines from the one wire that does steer.
