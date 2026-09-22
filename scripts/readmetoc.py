@@ -213,6 +213,10 @@ TOPICS = {
         # mechanism that fixes it deliberately does not look like anything.
         "Stacking status — many ants of one colony in one cell, off by default",
         "Trail status — the ant reads its way home, and the food trail is the larder's problem",
+        # The sibling of the line above and the half it could not settle: that
+        # one is about whether the ant can *read* a trail, this one about
+        # whether the trail is still there when it looks.
+        "Trail lifetime status — the way home keeps, the food trail still fades",
         "Lifespan status — an ant gets old, and the colony's fall becomes a slope",
         # The books under the two lines above: hunger and trophallaxis are
         # both *mechanisms*, and this is the reading that says what either

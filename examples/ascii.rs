@@ -1981,10 +1981,19 @@ fn forage_loop_scene() {
     run(&mut world, 10000);
     print_state(&world, "after 12000 frames");
     println!(
-        "  frame cost with {} live organisms: worst {:.3} ms, mean {:.3} ms over {frames_run} frames",
+        "  frame cost with {} live organisms: worst {:.3} ms, mean {:.3} ms over {frames_run} frames | pheromone tiles processed {} ({:.1}/pass)",
         world.live_organism_count(),
         worst.as_secs_f64() * 1000.0,
-        sum.as_secs_f64() * 1000.0 / frames_run as f64
+        sum.as_secs_f64() * 1000.0 / frames_run as f64,
+        // **The counter that says whether the clock is telling the truth.** A
+        // plane sleeps only at max 0 (`pheromone.rs` `tile_awake`), so slowing
+        // its decay keeps tiles awake -- and a wall clock cannot tell "the work
+        // did not cost anything" from "the work did not happen". This is the
+        // effect counter for `PIXEL_PHYSICS_A_RHO`, and it is load-independent
+        // where the clock is not.
+        world.pheromones.stats.tiles_processed,
+        world.pheromones.stats.tiles_processed as f64
+            / (frames_run as f64 / pixel_physics::sim::pheromone::PHEROMONE_INTERVAL as f64)
     );
 
     // **What holds, and what does not.** The outbound half of the loop is

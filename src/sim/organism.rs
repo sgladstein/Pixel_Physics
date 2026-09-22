@@ -5223,15 +5223,54 @@ pub struct Spoil {
     pub cell: Cell,
 }
 
+/// **Whether the crop pays out in one lump at maturity, as it did before
+/// 2026-09-20** — `PIXEL_PHYSICS_DIGEST=lump`. Unset is the shipped continuous
+/// payout and this reads `false`.
+///
+/// It exists so both arms come out of one binary: the change it gates touches
+/// three sites that have to agree (the payout, `Crop::worth`, and what the
+/// drop hands over), and measuring it against a previous commit's binary would
+/// put every other change since then inside the comparison.
+pub fn digest_is_lumpy() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DIGEST").as_deref() == Ok("lump"))
+}
+
 impl Crop {
     /// Face value standing in this crop, which is what a meat census prices.
     pub fn worth(&self) -> f32 {
-        self.unit * self.cells as f32
+        // **Net of what has already been eaten — 2026-09-20.** Digestion pays
+        // out as a cell is chewed (`creature::…` digestion block), so the
+        // joules in `digesting` are already in the animal's energy bank. Face
+        // value would count them a second time as standing meat and
+        // `the_standing_meat_never_exceeds_what_was_put_into_it` would read the
+        // colony as a pump. Subtracting here is what lets the payout be
+        // continuous at all: it is the whole of the accounting objection that
+        // kept the payout lumpy.
+        if digest_is_lumpy() {
+            return self.unit * self.cells as f32;
+        }
+        (self.unit * self.cells as f32 - self.digesting).max(0.0)
     }
 
-    /// **What one whole cell of this crop looks like on the ground.**
+    /// **What one cell of this crop looks like on the ground — at what is
+    /// left of it, not at face.**
+    ///
+    /// The crop tracks one `digesting` timer, so the cell being handed over is
+    /// the one being chewed and it leaves at `unit - digesting`. Handing over
+    /// a whole `unit` after the animal had been credited part of it would mint
+    /// joules, which is exactly the hazard that kept digestion lumpy until
+    /// 2026-09-20. **The caller must reset `digesting` to 0 when it takes
+    /// one**, or the next cell inherits progress that left with this one.
+    ///
+    /// **A part-chewed cell is still droppable**, which is the half a 2026-09-05
+    /// rebuild got wrong: it let the remaining *face value* fall under one unit
+    /// and then required a whole unit to drop, so a forager carried a stub it
+    /// could never put down and deliveries went 1,128 -> 125. The drop guard is
+    /// a cell count, not a worth, so there is no such state here.
     pub fn unit_cell(&self, quantise: impl Fn(f32) -> u16) -> Carried {
-        Carried { material: self.material, worth: quantise(self.unit), shade: self.shade }
+        let worth = if digest_is_lumpy() { self.unit } else { (self.unit - self.digesting).max(0.0) };
+        Carried { material: self.material, worth: quantise(worth), shade: self.shade }
     }
 }
 
@@ -5987,29 +6026,6 @@ pub struct OrganismState {
     /// before the mechanism that renders it" order `CLAUDE.md`'s debug-
     /// readout rule asks for.
     pub last_share_frame: u64,
-    /// **Digestion progress that survives an empty crop**, with the material
-    /// it belongs to. `None` when there is nothing part-chewed.
-    ///
-    /// **Why this is not simply left in `Crop`.** `Crop::digesting` is carried
-    /// across a drop by the `..c` update *while cells remain* — but when the
-    /// last cell goes the whole struct becomes `None`, "remainder and all",
-    /// and the progress dies with it. That choice is deliberate and right:
-    /// `crop.is_some()` has to mean *is carrying*, and a maturing timer on an
-    /// empty stomach once made it mean *has eaten recently*, which had `ascii`
-    /// reporting 18 ants carrying when none held a cell. So the timer needs a
-    /// home outside the crop rather than a zero-cell crop.
-    ///
-    /// **What it costs to leave it broken**, measured per tick on one forager
-    /// (`pheromone-trail-direction-2026-09-16.md` §7.34): 17 pickups, 2
-    /// digestions, and a death by starvation holding a full cell. One 960 J
-    /// cell needs **291 ticks** to absorb, and every put-down before then
-    /// forfeited *the progress and the meal*. A forager that commits to a
-    /// journey is exactly the animal that keeps being interrupted.
-    ///
-    /// **The material is stored with it** so progress on a leaf cannot be
-    /// spent on a corpse — the two have different `unit`, and crediting one
-    /// against the other would mint joules.
-    pub digest_carry: Option<(super::material::MaterialId, f32)>,
     /// Ticks since this creature last touched nest material.
     ///
     /// **This is how an ant finds its way home without ever asking where
@@ -6080,6 +6096,26 @@ pub struct OrganismState {
     /// See `forage_anchor`. Chebyshev cells, saturating; reset to 0 at every
     /// nest contact.
     pub forage_max: u16,
+    /// **A fading memory of the trail strength under this animal's own feet**,
+    /// in the same normalised units `sense` reads the plane in.
+    ///
+    /// It lives here rather than in a hidden unit because `sense` must stay
+    /// pure -- it is speculated and re-run under `ParMode::Verify`, and the
+    /// two calls have to agree -- so the *read* happens in `sense` and the
+    /// *update* once per tick beside `since_nest`. That split is the whole
+    /// reason this field exists; `brain_state` below would have served
+    /// otherwise.
+    ///
+    /// **Why a sensor and not a recurrent hidden unit**, which is what
+    /// 2026-09-19 tried: a hidden unit hands the brain two raw levels and asks
+    /// it to subtract them, so whatever the difference fails to cancel is a
+    /// *level* term. Channel A is a ramp, and measured over 58,522 laden ticks
+    /// its level runs **3,283 on the nest doorstep against 493 out at the
+    /// food** -- 6.7x across one journey. The fit that cancels the level term
+    /// does so at one value of the level, so it is correct at exactly one
+    /// distance from home. `sense` normalises instead, which is scale-free and
+    /// has nothing left to tune. See `brain::BrainInput::PheroARise`.
+    pub phero_a_mem: f32,
     /// Persisted hidden-layer activations, so recurrence has something to
     /// read. Zero for anything without a brain.
     pub brain_state: [f32; super::brain::BRAIN_HIDDEN],

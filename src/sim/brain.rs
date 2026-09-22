@@ -32,7 +32,15 @@
 
 use serde::{Deserialize, Serialize};
 
-/// **30, not 29, since 2026-09-13.** `Stillness` appended -- see that
+/// **33, not 32, since 2026-09-20.** `HomeAligned` appended -- see that
+/// variant, and `open-bugs-handoff.md` §Z29 for the measurement that asked
+/// for it: the trail inputs read negative whichever way a laden ant faces,
+/// so the return leg needed an input that actually knows where home is.
+/// Lawful under the reserve on the same terms as every append below --
+/// `INPUT_SLOTS` is 64 against 33 live, so no existing weight moves and
+/// `GENOME_LEN` does not change.
+///
+/// Before it, **30, not 29, since 2026-09-13.** `Stillness` appended -- see that
 /// variant, and `open-bugs-handoff.md` §Z13 for the ruling that asked for
 /// it. Before it, 29 since 2026-09-10 (`BloomNear`/`BloomBearing`, and
 /// `Reports/evolution-lab-pollinator-design-2026-09-10.md` §2.3). Lawful
@@ -40,7 +48,7 @@ use serde::{Deserialize, Serialize};
 /// `INPUT_SLOTS` is 64 against a live count of 29 before this, so lighting
 /// up one more row moves no existing weight and `GENOME_LEN` does not
 /// change.
-pub const BRAIN_INPUTS: usize = 31;
+pub const BRAIN_INPUTS: usize = 33;
 /// **Eight, not four, since 2026-09-02.**
 ///
 /// Four was the whole of an animal's internal state, and `ant.ron` already
@@ -274,6 +282,8 @@ pub const INPUT_NAMES: [&str; BRAIN_INPUTS] = [
     "BloomBearing",
     "Stillness",
     "CarryingFood",
+    "PheroARise",
+    "HomeAligned",
 ];
 pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] = [
     "Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse", "DropSpoil", "Attack", "Provision", "Share", "Fly",
@@ -977,6 +987,129 @@ pub enum BrainInput {
     /// switch that trades one wrong answer for another is a measurement
     /// tool; this is the repair.
     CarryingFood = 30,
+
+    /// **How strong the home scent is on the cell the animal is standing on.**
+    ///
+    /// The one pheromone reading in this enum with **no geometry in it at all**,
+    /// and that is the whole reason it exists. [`Self::PheroAFront`] and
+    /// [`Self::PheroAAlong`] both read a cell `sensor_offset` away along the
+    /// heading, and on a surface-dwelling animal six of the eight headings put
+    /// that cell in open sky or inside the ground
+    /// (`pheromone-trail-direction-2026-09-16.md` §7.47). An animal's **own**
+    /// cell is, by construction, somewhere a creature can be — on flat ground,
+    /// on a slope, on bark, in a tunnel, upside down under a branch.
+    ///
+    /// **What it is for: comparing now against a while ago.** A single
+    /// instantaneous sample is a hill-climber, and a hill-climber stops at the
+    /// first bump — which channel A now has permanently wherever traffic has
+    /// been. Differencing this input against a slow copy of itself held in a
+    /// recurrent hidden unit gives *d(smell)/dt*, which needs no geometry and
+    /// is therefore right on every terrain. It is also what the animal this
+    /// simulates actually does, and for our reason exactly: too small to span a
+    /// gradient with your body, so use time instead (Segall, Block & Berg 1986;
+    /// Lazova et al. 2011).
+    ///
+    /// **It is the DIFFERENCE, computed in the sensor, and that is the whole
+    /// repair — 2026-09-20.** This slot held the raw level (`PheroAHere`) from
+    /// 2026-09-19 until then, on the plan that a recurrent hidden unit would
+    /// hold the fading copy and the brain would subtract the two. Built and
+    /// measured over 36 seeds on two beds, that is a **null**
+    /// (`dead-ends.md` `other:132`, `pheromone-trail-direction-2026-09-16.md`
+    /// §7.48), and it stayed a null when re-run on the tree that ships
+    /// `(HomeAligned, Move, 3.0)`: `a`=32 takes closed laps 91 -> 81 and
+    /// drops 3,781 -> 2,291 over 24 paired seeds, `a`=8 is a coin flip.
+    ///
+    /// **The reason is a level term no constant can cancel.** Handing the brain
+    /// two raw levels to subtract leaves whatever the subtraction misses as a
+    /// function of how bright the plane is, and §7.48's own fit found the
+    /// cancelling weight is *not derivable* because it depends on that
+    /// brightness. It then picked one value of it. Measured 2026-09-20 over
+    /// 58,522 laden ticks, channel A's level runs **3,283 on the nest doorstep
+    /// against 493 out at the food — 6.7x across one journey** — so a constant
+    /// is correct at exactly one distance from home and worst near the nest.
+    ///
+    /// So `sense` does the subtraction and normalises it, exactly as
+    /// `PheroAAlong` already does for the spatial read:
+    /// `(live - lagged) / (live + lagged + guard)`, scale-free, nothing left to
+    /// tune. The fading copy lives on `OrganismState::phero_a_mem` because
+    /// `sense` must stay pure for `ParMode::Verify`.
+    ///
+    /// **The signal is real and it is the best one in the engine**, measured
+    /// off the plane with no wiring, bucketed by distance because heading and
+    /// distance are correlated. Separation between pointed-home and
+    /// pointed-away is **+0.05 to +0.19**, positive in 7 of 8 distance x moved
+    /// cells, against the shipped spatial reading's +0.0396 — and it is
+    /// strongest **45+ cells from home**, which is where the spatial read has
+    /// nothing. It is also immune to what killed the spatial repairs
+    /// (`other:134`): the animal's own mark sits on one side only of a
+    /// difference in *space*, and in both terms of a difference in *time*.
+    ///
+    /// **Only channel A gets one, deliberately.** The obvious thing is to
+    /// append `PheroBHere` beside it for symmetry, and it is the wrong trade:
+    /// an input column costs `BRAIN_OUTPUTS + BRAIN_HIDDEN` = 24 live slots
+    /// whether or not anything reads it, every species' `mutation_rate` is
+    /// re-derived from that count, and **every breeding scene's numbers move
+    /// from birth 1** (see `the_live_slot_count_is_pinned_because_mutation_
+    /// rate_is_derived_from_it`). Paying that for a slot no measurement wants
+    /// yet is paying for tidiness. The append stays lawful and cheap the day
+    /// the food trail needs one.
+    PheroARise = 31,
+
+    /// **Cosine of the angle between the heading and the direction home**:
+    /// `+1` walking straight at the nest anchor, `-1` straight away from it,
+    /// `0` across it or when there is no usable bearing.
+    ///
+    /// **This is the only input in the enum that knows where home is, and it
+    /// exists because the trail inputs provably do not.** Measured 2026-09-20
+    /// over 8 seeds and ~500k laden decisions (`open-bugs-handoff.md` §Z29,
+    /// `Reports/data/align-census-8seed-2026-09-20.log`): binning every laden
+    /// decision by this exact quantity, [`Self::PheroAAlong`] reads **-0.20
+    /// pointed at home against -0.24 pointed away** -- negative in every bin,
+    /// and the two differ by 0.04. `here` is the animal's own freshest deposit
+    /// and `ahead` is six cells out, reading zero in sky or rock 70% of the
+    /// time, so `(ahead - here)` is negative by construction. **A laden ant is
+    /// a moving point source on a plane where it is the brightest object.**
+    ///
+    /// That is not a bug to tune out of the reading, which is why `TRAIL_A_RHO
+    /// = 0` (§7.46), the nose honesty gate (§7.47) and the temporal comparator
+    /// (§7.48) all measured as no-ops on the outcome. Trail-*following* is the
+    /// recruit's mechanism and path integration is the layer's (Beckers et al.
+    /// 1992: discoverers lay, recruits follow). **A laden ant walking home is
+    /// the discoverer**, and the discoverer navigates by its own vector.
+    ///
+    /// **The quantity already existed and only the brain could not see it.**
+    /// `home_weighted_pick` has aimed the body from `forage_anchor` since the
+    /// homing work landed, but `P(move)` is set by `PheroAAlong` and nothing
+    /// else, so an ant pointed exactly at its own nest computed `P(move)` of
+    /// about 0.078 and stood still. Direction without a throttle is not
+    /// homing.
+    ///
+    /// # Why a cosine and not the raw dot product
+    ///
+    /// `home_weighted_pick` and the `tr_align` census both score
+    /// `(d . v) / |v|` with `d` straight out of [`DIRS`], whose diagonals are
+    /// `(1, -1)` and therefore `sqrt(2)` long. For *ranking* eight candidates
+    /// that is harmless. As a brain input it is not: a perfectly-aligned
+    /// diagonal would read **1.414** where a perfectly-aligned cardinal reads
+    /// 1.000, so one authored weight would mean a 41% larger gain on four of
+    /// the eight headings -- a silent heading-dependent gain, and exactly the
+    /// kind of asymmetry that is unfalsifiable from a colony-scale number.
+    /// Divided by `|d|` as well, the input is a true cosine and a weight
+    /// authored against it means one thing in every direction.
+    ///
+    /// **Zero is "no bearing", not "across the bearing".** With no anchor, or
+    /// standing within one cell of it, every heading scores alike and the
+    /// bearing is meaningless -- `home_weighted_pick` declines on the same
+    /// test and for the same reason. Reading 0.0 there puts the hidden unit on
+    /// its bias, which is the correct behaviour for an ant that is already
+    /// home.
+    ///
+    /// **Cost, paid knowingly:** an input column is `BRAIN_OUTPUTS +
+    /// BRAIN_HIDDEN` = 24 live slots, so every species' `mutation_rate` is
+    /// re-derived to `3.18 / 942` and **every breeding scene's numbers move
+    /// from birth 1** -- see
+    /// `the_live_slot_count_is_pinned_because_mutation_rate_is_derived_from_it`.
+    HomeAligned = 32,
 }
 
 /// Which output slot. Positional and append-only, as above.
@@ -1362,6 +1495,8 @@ pub const INPUTS: [BrainInput; BRAIN_INPUTS] = [
     BrainInput::BloomBearing,
     BrainInput::Stillness,
     BrainInput::CarryingFood,
+    BrainInput::PheroARise,
+    BrainInput::HomeAligned,
 ];
 /// See [`INPUTS`].
 pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
@@ -1865,6 +2000,114 @@ mod tests {
         }
     }
 
+    /// **What the return-leg wire actually does to `Move`, laden and empty**
+    /// — the response curve `Reports/ant-return-leg-plan-2026-09-20.md` Step 1
+    /// says must be read before a bed result is trusted.
+    ///
+    /// `cargo test --release --lib -- --ignored --nocapture what_the_home_wire_emits`
+    ///
+    /// **It exists because the plan's arithmetic has a hole in it and one run
+    /// of this shows it.** The plan proposes `ant.ron`'s proven gated-pair
+    /// shape minus its mirror — `(Bias, 7, -45), (CarryingFood, 7, +45.5),
+    /// (HomeAligned, 7, w)`, `(7, Move, w2)` — and names the cost as *"loses
+    /// the symmetric swing"*. That is true and it is the smaller half. The
+    /// larger half is that **a single gated unit is not neutral when its gate
+    /// is shut**: `squash(-45)` is `-0.978`, not 0, so an *empty* ant carries
+    /// `w2 * -0.978` on `Move` for ever. The pair never had this problem
+    /// because both its units sit at `-0.978` when shut and the difference
+    /// cancels — the mirror is not decoration, it is the neutraliser.
+    #[test]
+    #[ignore = "a readout, not an assertion -- cargo test -- --ignored --nocapture what_the_home_wire_emits"]
+    fn what_the_home_wire_emits() {
+        use BrainInput as I;
+        use BrainOutput as O;
+        // Only the wires under test, into a bare `Move`. The shipped ant's
+        // other `Move` terms are a constant offset on every row here and would
+        // only obscure the shape.
+        /// One arm of the comparison: a name, and the three authored wiring
+        /// lists that build its genome. Named rather than written inline
+        /// because clippy's `type_complexity` is a CI error here, and because
+        /// the tuple reads as nothing without it.
+        type Arm = (&'static str, Vec<Instinct>, Vec<HiddenWire>, Vec<OutputWire>);
+        let arms: [Arm; 4] = [
+            (
+                "plan: gated single unit",
+                vec![],
+                vec![HiddenWire(I::Bias, 7, -45.0), HiddenWire(I::CarryingFood, 7, 45.5), HiddenWire(I::HomeAligned, 7, 6.0)],
+                vec![OutputWire(7, O::Move, 2.5)],
+            ),
+            (
+                "gated PAIR (unavailable: needs two free units, there is one)",
+                vec![],
+                vec![
+                    HiddenWire(I::Bias, 0, -45.0),
+                    HiddenWire(I::CarryingFood, 0, 45.5),
+                    HiddenWire(I::HomeAligned, 0, 6.0),
+                    HiddenWire(I::Bias, 1, -45.0),
+                    HiddenWire(I::CarryingFood, 1, 45.5),
+                    HiddenWire(I::HomeAligned, 1, -6.0),
+                ],
+                vec![OutputWire(0, O::Move, 2.5), OutputWire(1, O::Move, -2.5)],
+            ),
+            (
+                "sensor-gated hidden unit, no bias (saturates)",
+                vec![],
+                vec![HiddenWire(I::HomeAligned, 7, 6.0)],
+                vec![OutputWire(7, O::Move, 2.5)],
+            ),
+            (
+                "SHIPPED: sensor-gated direct wire, no hidden unit",
+                vec![Instinct(I::HomeAligned, O::Move, 3.0)],
+                vec![],
+                vec![],
+            ),
+        ];
+        println!();
+        println!("contribution to the `Move` SUM (pre-squash), by cos(heading, home):");
+        println!("{:>52}  {:>7} {:>7} {:>7} {:>7} {:>7}   {:>9}", "arm", "-1.0", "-0.5", "0.0", "+0.5", "+1.0", "EMPTY ant");
+        for (name, inst, hid, outs) in &arms {
+            let g = genome_from_wiring(inst, hid, outs, &[]);
+            let row = |carrying: f32, cos: f32| {
+                let mut inputs = [0.0f32; BRAIN_INPUTS];
+                inputs[I::Bias as usize] = 1.0;
+                inputs[I::CarryingFood as usize] = carrying;
+                // The shipped sensor reads 0 for an empty ant; the two genome-
+                // gated arms read the true bearing and lean on their gate.
+                // The two sensor-gated arms read what `sense` now computes:
+                // the bearing, zeroed for an empty ant. The two genome-gated
+                // arms read the raw bearing and lean on their own gate.
+                inputs[I::HomeAligned as usize] = if name.contains("sensor-gated") { cos * carrying } else { cos };
+                let mut state = [0.0f32; BRAIN_HIDDEN];
+                let (out, _) = eval_brain(&g, &inputs, &mut state);
+                // `squash` is its own inverse-free: recover the sum the wire
+                // contributed so the rows are comparable and additive against
+                // the ant's other `Move` terms.
+                let s = out[O::Move as usize];
+                s / (1.0 - s.abs()).max(1e-6)
+            };
+            println!(
+                "{name:>52}  {:>7.3} {:>7.3} {:>7.3} {:>7.3} {:>7.3}   {:>9.3}",
+                row(1.0, -1.0),
+                row(1.0, -0.5),
+                row(1.0, 0.0),
+                row(1.0, 0.5),
+                row(1.0, 1.0),
+                row(0.0, 0.8),
+            );
+        }
+        println!();
+        println!("READ THE LAST COLUMN FIRST. An empty ant must read 0.000: `ant.ron` gives");
+        println!("a walking ant a `Move` sum of about +0.25, so a standing -2.446 on it is");
+        println!("`squash` clamped to P(move) = 0 -- a colony that never forages at all.");
+        println!("Then read the zero column: a laden ant ACROSS the bearing must also read");
+        println!("0.000, or the wire is a `laden ants move more` lever wearing a homing");
+        println!("lever's name, and every alignment bin rises together.");
+        println!();
+        println!("The shipped row is the direct wire: linear in the cosine, so it says");
+        println!("`how much of my heading is homeward` rather than the hidden unit's");
+        println!("near-sign-function. It also spends NO hidden unit, which leaves 7 free.");
+    }
+
     /// Run one odometer through `eval_brain` and describe what came out.
     ///
     /// `touch` is the nest-contact duration in ticks and is a parameter
@@ -2030,6 +2273,23 @@ mod tests {
             }
         }
     }
+
+    // **`what_a_temporal_comparator_sees` was deleted 2026-09-20, with the
+    // input it read.** It drove the hidden-unit wiring -- `(PheroAHere, 7,
+    // w_in)`, recurrence `w_rec`, `(PheroAHere, Move, +a)`, `(7, Move, -a)` --
+    // through `eval_brain` and swept `w_in` for the value that cancels the
+    // level term. It cannot be run any more, because slot 31 no longer carries
+    // a raw level: `sense` now does the subtraction and normalises it
+    // (`BrainInput::PheroARise`), so there is no level term left for a fit to
+    // cancel and nothing for the readout to sweep.
+    //
+    // **Its findings are the reason the mechanism moved into the sensor, and
+    // they are kept** in `dead-ends.md` `other:132` and
+    // `pheromone-trail-direction-2026-09-16.md` §7.48: the textbook
+    // `w_in = 1 - w_rec` settles the unit at 0.036 on an input of 0.100, so
+    // `live - lagged` carried a level term 2.8x the signal; `w_in = 0.12`
+    // cancels it at every `w_rec` **and only at one value of the level**,
+    // which is the defect the sensor-side normalisation removes.
 
     fn odometer_curve(
         w_in: f32,
@@ -2249,7 +2509,23 @@ mod tests {
         // pheromone, `pheromone-trail-direction-2026-09-16.md` §7.22/§7.24/
         // §7.31. No output moved. Every species' `mutation_rate` re-derived to
         // `3.18 / 894 = 0.0035570` in the same change.
-        assert_eq!(live, 894, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
+        // 894 -> 918 on 2026-09-19 with `PheroAHere` (an input column, 24
+        // slots: 16 outputs + 8 hidden) -- the one pheromone reading with no
+        // geometry in it, so an animal can compare the smell under its own feet
+        // now against a moment ago on any terrain
+        // (`pheromone-trail-direction-2026-09-16.md` §7.47). Every species'
+        // `mutation_rate` re-derived to `3.18 / 918 = 0.0034641` in the same
+        // change. **Only channel A got one**: a second column would cost the
+        // same 24 slots and move every breeding scene again for a slot no
+        // measurement wants yet.
+        // 918 -> 942 on 2026-09-20 with `HomeAligned` (an input column, 24
+        // slots: 16 outputs + 8 hidden) -- the return leg's own bearing, after
+        // the alignment census proved a laden ant reads its own trail negative
+        // whichever way it faces (`open-bugs-handoff.md` §Z29,
+        // `Reports/ant-return-leg-plan-2026-09-20.md`). No output moved. Every
+        // species' `mutation_rate` re-derived to `3.18 / 942 = 0.0033758` in
+        // the same change.
+        assert_eq!(live, 942, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
     }
 
     #[test]
@@ -2392,7 +2668,40 @@ mod tests {
         // `3.18 / 894 = 0.0035570` in the same change. **Every breeding
         // scene's numbers move with it from birth 1** -- the remedy is a seed
         // sweep, not a diff.
-        assert_eq!(genome_manifest(), 3_668_326_360);
+        // **Moved again 2026-09-19 by `PheroAHere`.** 894 -> 918 on 2026-09-19 with `PheroAHere` (an input column, 24
+        // slots: 16 outputs + 8 hidden) -- the one pheromone reading with no
+        // geometry in it, so an animal can compare the smell under its own
+        // feet now against a moment ago on any terrain
+        // (`pheromone-trail-direction-2026-09-16.md` §7.47). Every species'
+        // `mutation_rate` re-derived to `3.18 / 918 = 0.0034641` in the same
+        // change. **Only channel A got one**: a second column would cost the
+        // same 24 slots and move every breeding scene again for a slot no
+        // measurement wants yet.
+        // **Moved again 2026-09-20 by `HomeAligned`**, and lawfully on the same
+        // terms as every append above: `BRAIN_INPUTS` 32 -> 33 lights up one
+        // more column of a 64-wide reserve that was already there and already
+        // zero, `GENOME_LEN` does not change, no name is renumbered, and not
+        // one existing weight moves. The manifest hashes the dimensions and
+        // the ordered slot names, so appending a name at the end changes it
+        // while every stored genome still means exactly what it meant.
+        // **Moved again 2026-09-20 by `PheroAHere` -> `PheroARise`, and this
+        // one is a RENAME rather than an append.** Slot 31 stops carrying the
+        // raw trail level under the animal and starts carrying the normalised
+        // rate of change of it, computed in `sense` (`BrainInput::PheroARise`
+        // has the measurement). So:
+        //
+        // - `live_slots` does **not** move -- it stays 942 and no species'
+        //   `mutation_rate` is re-derived, because the column count is the
+        //   same. That is the whole reason this was done as a rename: the
+        //   alternative, appending a second column beside a dead one, costs 24
+        //   slots and moves every breeding scene from birth 1 for a slot
+        //   nothing reads. Nothing in the repo wires slot 31 -- checked across
+        //   all 21 species files -- so no authored genome changes meaning.
+        // - A stored genome's slot-31 weights now mean something different,
+        //   which is exactly what the manifest exists to catch, and it does:
+        //   any jar written before this refuses to load rather than being
+        //   silently reinterpreted.
+        assert_eq!(genome_manifest(), 4_147_102_827);
     }
 
     #[test]

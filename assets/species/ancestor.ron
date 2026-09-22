@@ -617,7 +617,24 @@
         // surface moved for every species on the shared scaffold regardless,
         // exactly as this file's copy of the comment above already says for
         // the append before this one.
-        mutation_rate: 0.0035570,
+        //
+        // **0.0033758, re-derived 2026-09-20** when `HomeAligned` appended --
+        // the return leg's own bearing, after the alignment census measured a
+        // laden ant reading its own trail negative whichever way it faces
+        // (`open-bugs-handoff.md` §Z29,
+        // `Reports/ant-return-leg-plan-2026-09-20.md`). An input column is 24
+        // live slots (16 outputs + 8 hidden), so `live_slots` 918 -> 942 and
+        // `3.18 / 942 = 0.0033758`.
+        //
+        // **Three appends between 2026-09-11 and here went into the value and
+        // not into this comment** -- `Stillness` (846 -> 870, 0.0036552),
+        // `CarryingFood` (870 -> 894, 0.0035570) and `PheroAHere` (894 -> 918,
+        // 0.0034641). Named rather than reconstructed: the complete ledger,
+        // with what each append cost and why, is the comment on
+        // `brain.rs`'s `the_live_slot_count_is_pinned_because_mutation_rate_
+        // is_derived_from_it`, which is also the test that fails if this value
+        // and that count ever disagree again.
+        mutation_rate: 0.0033758,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --

@@ -1256,7 +1256,7 @@ const FOOTING_MAX: f32 = 1.2;
 /// replaced: that literal was arbitrary, and it is the number that decides
 /// whether a creature commutes or mills. Handing it to the genome and
 /// letting measurement pick is the entire point of the change.
-const PERSIST_MAX: f32 = 2.0;
+pub const PERSIST_MAX: f32 = 2.0;
 
 // `TUMBLE_ON_FAILED_MOVE` is gone: it is `BrainOutput::Tumble` now. The
 // lesson it recorded still stands and is worth keeping — "how often do I
@@ -3521,7 +3521,13 @@ impl World {
         // colony gridlocks exactly as dead ends 775/829's 27,386 blocked ticks
         // did. The ant *count* is not a length and stays put; the band widens
         // under it.
-        let spacing = scaled_cells(self, COLONY_ANT_SPACING.max(body_span * 2));
+        // The override replaces the whole computed value, body floor included:
+        // `body_span * 2` is the same gridlock argument in another costume, so
+        // an override that kept it could not test the thing it exists to test.
+        let spacing = match colony_spacing_override() {
+            Some(n) => n,
+            None => scaled_cells(self, COLONY_ANT_SPACING.max(body_span * 2)),
+        };
         let want = ants.max(0) as usize;
         if want == 0 || spacing <= 0 {
             return Vec::new();
@@ -3926,12 +3932,181 @@ fn nest_mask(half_width: i32, core: i32, drain_period: usize) -> Vec<bool> {
     mask
 }
 
+/// **Where a laden animal thinks home is** — `PIXEL_PHYSICS_HOME_TARGET=nest`
+/// aims at the nest patch's centre instead of [`OrganismState::forage_anchor`].
+///
+/// **The anchor is a MEASUREMENT anchor and homing inherited its rule.** Its
+/// own doc says what the rule is for: *"re-anchored on every contact — an ant
+/// walking along a 32-cell nest patch touches nest at every step, so the anchor
+/// follows it and the depth stays at 1. Loitering ON the nest cannot manufacture
+/// an excursion."* That is exactly right for `forage_max`, which is what it was
+/// built for, and `creature_tick`'s own comment beside it still says
+/// **"Measurement only — nothing downstream reads it"**. `sense` has read it as
+/// the homing direction since `HomeAligned` shipped, and the comment was never
+/// corrected.
+///
+/// **What the inherited rule does to a forager.** Re-anchoring to the touched
+/// cell means "home" is *whichever nest cell I last brushed*, and a colony whose
+/// food lies east always brushes its last nest cell on the **eastern edge**.
+/// Measured 2026-09-21 over **743,889 laden ant-ticks** (every ant that carried
+/// food, every tick it held it, 8 seeds, `examples/trailfollow.rs ladencsv`), on
+/// a bed whose nest material spans `x 26..70` around a cursor at **48**:
+///
+/// | `anchor_x` | share of laden ticks |
+/// |---|---|
+/// | **71** | **77.6%** |
+/// | 70 | 13.5% |
+/// | 65–69 | 8.9% |
+/// | west of 65 | **0%** |
+///
+/// So a laden ant walks "home" to `x ≈ 71`, twenty-three cells short, arrives,
+/// and **stops**: `HomeAligned` returns 0.0 on the anchor by the guard below —
+/// individually correct, *standing on a point is not a direction* — and with no
+/// direction left, `p_move`'s median at that distance is **exactly 0.0000**.
+/// **98.63% of all laden ant-ticks involve no movement at all**, and since the
+/// engine deposits **only on a successful move**, the trail those animals exist
+/// to lay is laid on **1.37%** of the ticks they intend to lay it on. `emit_b`
+/// is above 0.71 the entire time; the mark simply never lands.
+///
+/// That one fact accounts for the rest of the foraging line's open puzzles: the
+/// food trail is dark at the nest (**7.8%** of frames lit at `x 48..57`, against
+/// **72%** twenty cells out) because no laden animal ever walks there; the
+/// hotspot at `x 68..77` is where 64% of laden ant-time is spent; empty ants
+/// park at a median `x` of **72**; and silencing `EmitB` outright **more than
+/// doubles** second laps, because it removes a beacon sitting exactly where
+/// animals already get stuck.
+///
+/// **`CLAUDE.md`'s *which object does this rule evaluate* in a new costume.**
+/// Re-anchoring evaluates an **excursion**; homing needs a **place**. Nothing at
+/// either site said they were different objects.
+///
+/// Off by default: it changes how every laden creature in three games navigates,
+/// so it ships as a selector with a measurement behind it rather than as a
+/// silent repair.
+fn home_target(world: &World, state: &crate::sim::organism::OrganismState) -> (i32, i32) {
+    if !home_target_is_nest() {
+        return state.forage_anchor;
+    }
+    // **Nearest site, and the head's own position is the tie-break that keeps
+    // it cheap.** `NestSite` carries no colony id — identity is by scent, and
+    // resolving that here would put a three-axis comparison in `sense`'s hot
+    // path. Nearest is exact for a single colony and right for neighbours
+    // thirty cells apart, which is every bed this is measured on; a scent
+    // match belongs here the moment a bed puts two nests within one commute.
+    //
+    // Reached only when the animal is carrying (`crop_fill > 0.0` at the call
+    // site), so this scan is off the empty-ant path entirely.
+    let (ax, ay) = state.forage_anchor;
+    world
+        .nest_sites
+        .iter()
+        .map(|n| (n.x, n.surface))
+        .min_by_key(|&(nx, ny)| (nx - ax).abs().max((ny - ay).abs()))
+        // A world with no painted nest keeps the old behaviour rather than
+        // sending every laden animal to the origin.
+        .unwrap_or((ax, ay))
+}
+
+/// Whether `PIXEL_PHYSICS_HOME_TARGET` asks for the nest centre. `OnceLock`
+/// like its neighbours: `sense` runs per creature per decision tick.
+fn home_target_is_nest() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_HOME_TARGET").as_deref() == Ok("nest"))
+}
+
 /// Whether `PIXEL_PHYSICS_COLONY_BAND` asks for the centred band that
 /// [`World::colony_stations`] replaced. Read through a `OnceLock` like its
 /// neighbours.
 fn colony_band() -> bool {
     static BAND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *BAND.get_or_init(|| std::env::var("PIXEL_PHYSICS_COLONY_BAND").is_ok_and(|v| v != "0"))
+}
+
+/// **How far apart founders stand** — `PIXEL_PHYSICS_COLONY_SPACING=<n>`,
+/// overriding [`World::colony_stations`]' computed spacing outright.
+///
+/// The default is `COLONY_ANT_SPACING.max(body_span * 2)`, and the reason it is
+/// that wide is dead ends 775/829's **27,386 blocked ticks**: a colony stamped
+/// shoulder to shoulder gridlocked, so the band was widened until every animal
+/// had somewhere to go.
+///
+/// **That rejection's condition has since changed and nothing re-tested it.**
+/// `CreatureDef::climbs_over_kin` makes a living nestmate count as footing and
+/// `ant.ron` authors it `true`; the stacking work then let a pile feed itself
+/// and a rider's body reach the ground. The animals that used to queue can now
+/// go *over* each other. `CLAUDE.md` asks for exactly this: re-test a
+/// do-not-retry entry once something changes the condition its rejection
+/// depended on.
+///
+/// **What the wide band costs, measured on the foraging bed 2026-09-21.** At
+/// spacing 4 a colony of 20 spans ~80 columns, while `trailfollow`'s hand-laid
+/// food ramp starts at the nest cursor in the *middle* of it — so half the
+/// founders are born west of any trail at all and read it as exactly 0.00000.
+/// Split on that line they reach the food **40% against 98%**, and close a
+/// second lap **1% against 23%**. That is not a gradient, it is a cliff, and it
+/// is the strongest single predictor of an ant's life in that bed: the scene
+/// was measuring birth position wearing a navigation label (`CLAUDE.md`: a
+/// scene that contradicts the code will look like a bug in the code).
+///
+/// **This is a PLACEMENT rule and `PIXEL_PHYSICS_STACK_DEPTH` is a MOVEMENT
+/// one — they are orthogonal, and that is measured rather than assumed.**
+/// Stacking does let two animals of one colony occupy a cell
+/// (`World::stack_cap`, default 1), so it is tempting to expect a deeper cap to
+/// let a colony found in a tighter band. It does not: measured 2026-09-21 at
+/// `ants=20`, `PIXEL_PHYSICS_COLONY_SPACING=1` founds **10** at
+/// `STACK_DEPTH=1` and **10** at `STACK_DEPTH=4`, byte-identical bands at
+/// every spacing tried. `stack_cap` gates *"may I enter a cell"* — the step —
+/// and `plant_creature_seed_in` never consults it, so the founding walk sees
+/// the pre-stacking world whatever the cap says.
+///
+/// What a deeper cap buys is **flow on a working trail**, which is the case it
+/// was built for: the better a trail works the more animals it puts on one
+/// line, and a line that cannot overlap jams. That shows up in `moves_blocked`,
+/// not here. Do not reach for it to fix a founding band, and do not read a null
+/// in this table as evidence against it — the two levers answer different
+/// questions.
+///
+/// **0 is refused rather than clamped**, because a spacing of 0 asks the
+/// placement walk for two stations on one column and the second is dropped
+/// silently, which is the failure the row above already documents in its
+/// loudest form.
+///
+/// **Measured over the setting, `ants=20` on the flat foraging bed,
+/// 2026-09-21** — and the first row is the reason this doc exists:
+///
+/// | spacing | band founded | founders placed | born on the comb |
+/// |---|---|---|---|
+/// | 1 | `39..57` (18 cells) | **10 — half the colony** | 10 of 10 |
+/// | **2** | `30..68` (38) | **20** | **20 of 20** |
+/// | 3 | `21..78` (57) | 20 | 15 of 20 |
+/// | 4 (default) | `12..88` (76) | 20 | 11 of 20 |
+///
+/// **1 silently founds half the colony and says nothing.** The corridor admits
+/// the column, and then the *placement* refuses it, because the ant's body is
+/// two cells nose-to-tail and the second cell lands on the neighbour — so every
+/// other station fails and `found_colony_of` returns a number nobody reads. A
+/// ten-ant arm compared against a twenty-ant one is the denominator failure the
+/// `funnel` skill exists to prevent, so callers that sweep this **must check
+/// the placed count**, which is why `examples/trailfollow.rs` now asserts it.
+///
+/// **2 is the floor that works, and it is one body width rather than two.**
+/// That is the whole of the default's conservatism: `COLONY_ANT_SPACING.max(
+/// body_span * 2)` reserves twice the body, and the geometry only needs one. At
+/// 2 the colony founds in half the band *and every founder stands on the nest*
+/// — against 11 of 20 at the shipped 4, which is the stage-zero cliff in one
+/// number.
+///
+/// Off by default and a selector rather than a new constant, because this
+/// function founds the real game's `Y` key and the evolution lab's beds as well
+/// as the foraging harness: a placement change here reaches three games at once.
+fn colony_spacing_override() -> Option<i32> {
+    static V: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        let raw = std::env::var("PIXEL_PHYSICS_COLONY_SPACING").ok()?;
+        let n: i32 = raw.parse().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_COLONY_SPACING={raw} is not an integer"));
+        assert!(n >= 1, "PIXEL_PHYSICS_COLONY_SPACING={n}: a spacing below 1 would ask two animals to share one cell, which the grid cannot represent");
+        Some(n)
+    })
 }
 
 /// Whether `PIXEL_PHYSICS_NEST_SHAPE` asks for the old comb. Read through a
@@ -4323,11 +4498,11 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         Some(a) => {
             SENSE_CACHED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             if world.creature_par.mode == ParMode::Verify {
-                let (fresh, _, _, _) = sense(world, x, y, organism, heading, def);
+                let (fresh, _, _, _) = sense(world, x, y, organism, heading, def, false);
                 for (i, (c, f)) in a.inputs.iter().zip(fresh.iter()).enumerate() {
                     if c.to_bits() != f.to_bits() {
                         VERIFY_FAILS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let (fresh2, _, _, _) = sense(world, x, y, organism, heading, def);
+                        let (fresh2, _, _, _) = sense(world, x, y, organism, heading, def, false);
                         let so = def.sensor_offset;
                         let (dx, dy) = DIRS[heading as usize % 8];
                         let (fx, fy) = (x + dx * so, y + dy * so);
@@ -4343,7 +4518,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
                         break;
                     }
                 }
-                let (inputs, seen, sight_reads, curvature_reads) = sense(world, x, y, organism, heading, def);
+                let (inputs, seen, sight_reads, curvature_reads) = sense(world, x, y, organism, heading, def, false);
                 (inputs, seen, sight_reads, curvature_reads, None)
             } else {
                 (a.inputs, a.seen, a.sight_reads, a.curvature_reads, Some((a.outputs, a.active_synapses, a.brain_state)))
@@ -4351,7 +4526,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         }
         None => {
             SENSE_FRESH.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let (inputs, seen, sight_reads, curvature_reads) = sense(world, x, y, organism, heading, def);
+            let (inputs, seen, sight_reads, curvature_reads) = sense(world, x, y, organism, heading, def, false);
             (inputs, seen, sight_reads, curvature_reads, None)
         }
     };
@@ -4729,8 +4904,25 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         // ant past `nest_memory` used to contribute nothing at all.
         let emit_a = outputs[brain::BrainOutput::EmitA as usize].clamp(0.0, 1.0);
         let emit_b = outputs[brain::BrainOutput::EmitB as usize].clamp(0.0, 1.0);
-        world.deposit_pheromone(Channel::A, hx, hy, (emit_a * pheromone::DEPOSIT as f32) as pheromone::Scent);
-        world.deposit_pheromone(Channel::B, hx, hy, (emit_b * pheromone::DEPOSIT as f32) as pheromone::Scent);
+        // **Where the mark goes: the head it arrived on, or the cell it just
+        // left.** `PIXEL_PHYSICS_DEPOSIT_AT=vacated` is a measurement switch
+        // for `open-bugs-handoff.md` §Z29, and it defaults to the shipped
+        // `head` so an unset environment is bit-identical.
+        //
+        // §Z29: depositing at the head means `sense` reads that same cell as
+        // `here` on the next tick, so the cell underfoot is the freshest thing
+        // in the neighbourhood and `along = (ahead - here) / ...` is **negative
+        // whichever way the animal faces**. Measured on laden ants, facing the
+        // nest yields a homeward reading on **1-8% of ticks**, and `here >
+        // ahead` on 75-87% of them. The animal's own trail blinds its own
+        // homing sensor.
+        //
+        // `vacated` puts the mark on the ground already walked, which is also
+        // the physical reading of laying a trail as you go. It does not touch
+        // P-11 -- the deposit still happens only on a successful move.
+        let (dx_, dy_) = if deposit_at_vacated() { (x, y) } else { (hx, hy) };
+        world.deposit_pheromone(Channel::A, dx_, dy_, (emit_a * pheromone::DEPOSIT as f32) as pheromone::Scent);
+        world.deposit_pheromone(Channel::B, dx_, dy_, (emit_b * pheromone::DEPOSIT as f32) as pheromone::Scent);
         // **Laying a trail costs, and until 2026-09-05 it did not.** Charged
         // on the sum of both planes and in proportion to what was actually
         // put down, so a whisper is cheaper than a shout -- a per-event
@@ -4751,8 +4943,25 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         }
     }
 
+    // **The fading copy of the trail underfoot, advanced once per tick.**
+    // Read in `sense`, updated here, because `sense` is speculated and must
+    // stay pure -- see `OrganismState::phero_a_mem` and
+    // `brain::BrainInput::PheroARise`.
+    //
+    // `0.995` is §7.48's fitted recurrence, kept because the *lag* it sets was
+    // never the thing that failed; what failed was asking the brain to
+    // subtract two raw levels. At one tick per decision that is a half-life of
+    // about 138 ticks, which is roughly half a commute on the gap bed.
+    // The head AFTER whatever this tick did -- the same lookup the deposit
+    // block makes, and it has to be re-read here because `hx`/`hy` there are
+    // scoped to `if moved`.
+    let (mem_x, mem_y) = world.organism(organism).and_then(|s| s.chain.first().copied()).unwrap_or((x, y));
+    let phero_a_live = world.pheromone_at(Channel::A, mem_x, mem_y) as f32 / pheromone::Scent::MAX as f32;
+
     let mut rest_bout_ended = 0u16;
     if let Some(state) = world.organism_mut(organism) {
+        const PHERO_A_MEM_RECURRENCE: f32 = 0.995;
+        state.phero_a_mem = PHERO_A_MEM_RECURRENCE * state.phero_a_mem + (1.0 - PHERO_A_MEM_RECURRENCE) * phero_a_live;
         state.since_nest = state.since_nest.saturating_add(1);
         // **The other odometer, and the one that gives a rest an end.**
         // Reset by a step or a launch, counted up by anything else --
@@ -4869,26 +5078,57 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     let digested = if digest_rate > 0.0 {
         let gut = gut_of(world, organism, def);
         world.organism(organism).and_then(|s| s.crop).map_or(0.0, |c| {
-            // **The remainder matures, then a whole cell is spent.** Nothing
-            // is credited while `digesting` is climbing -- it is a timer, not
-            // a stock -- so a cell is either standing in the crop, counted at
-            // face by `carried_meat`, or absorbed, credited at yield. There is
-            // never a fraction for the two censuses to disagree about.
-            let matured = c.digesting + digest_rate;
-            if c.unit <= 0.0 || matured < c.unit || c.cells == 0 {
-                // Still chewing, or nothing left to chew. Carry the progress.
-                if let Some(state) = world.organism_mut(organism) {
-                    // Progress is kept even with an empty crop, so an animal
-                    // that ingests again does not restart the clock and get a
-                    // free cell out of the timing.
-                    state.crop = Some(Crop { digesting: matured.min(c.unit.max(0.0)), ..c });
-                }
+            // **The cell pays out AS IT IS CHEWED, not in one lump at the
+            // end — 2026-09-20, owner's ruling.** It paid in a lump until
+            // then, on the accounting argument that a cell should be wholly
+            // in the crop or wholly in the body so `carried_meat` and the
+            // energy bank could never disagree about a fraction. That is a
+            // real hazard and it is solved by pricing the fraction instead:
+            // `Crop::worth()` now subtracts `digesting`, so the joules this
+            // animal has already been credited are no longer also counted as
+            // standing meat, and the live identity closes at every instant
+            // rather than only at cell boundaries.
+            //
+            // **What the lump cost, measured per ant per tick over 12 seeds
+            // and 129 real commutes.** One fruit cell is 960 J and this gut
+            // chews at 3.3 a tick, so the lump arrived **291 ticks** after
+            // pickup — and a commute on the gap bed is ~290. Of the ants that
+            // starved carrying food, **not one of 55 had held it long enough
+            // to be credited a single joule**: median 50 ticks held, against
+            // 64 ticks of life left at their own measured burn. They died of
+            // hunger holding a meal that was not food yet. And the third that
+            // did survive the walk absorbed the whole 960 J **one cell from
+            // the nest**, because arriving and maturing are the same clock.
+            //
+            // **It also dissolves a contradiction this file has been fighting
+            // in the open.** `digest_hunger_weight`'s note records that
+            // `digest_rate` sets two things at once — how fast an ant feeds
+            // itself and how long food survives its crop — and that the two
+            // brackets want values *five to ten times apart with no overlap*.
+            // The lump is what manufactures that gap: with one feeding event
+            // at tick 291, an animal that needs food in the next 50 ticks can
+            // be given none at any rate that also lets a cell survive the
+            // trip. Paid continuously, 50 ticks buys 165 J *and* leaves 83% of
+            // the cell to deliver, so partial time buys partial benefit on
+            // both sides and one rate serves both brackets.
+            //
+            // **The 2026-09-05 attempt is not this one, and the difference is
+            // the drop path.** An earlier continuous version was rebuilt away
+            // because it let digestion take the crop's remaining *face value*
+            // under one unit while the drop site required a whole unit to
+            // hand over — so a forager carried a stub it could never put down
+            // and deliveries went 1,128 -> 125. The guard there is now a cell
+            // COUNT (`held.cells > 0`), and the drop hands over
+            // `unit - digesting`, so a part-chewed cell is always droppable
+            // and leaves at what it is actually worth.
+            if c.unit <= 0.0 || c.cells == 0 {
                 return 0.0;
             }
             // The gut's filter applies here, where the food is actually
-            // absorbed -- the crop holds face value, and the difference
-            // between the two is the digestive loss `max_standing_meat`
-            // already carries as one-directional slack.
+            // absorbed -- the crop holds face value net of what has been
+            // eaten, and the difference between gross and net is the
+            // digestive loss `max_standing_meat` already carries as
+            // one-directional slack.
             let quality = diet_quality(world, c.material, gut.bias);
             // **The digestive overhead, priced per unit of throughput.**
             // A faster gut turns crop into body sooner *and* lightens the
@@ -4904,31 +5144,49 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             // `sum(state.energy)` and `expected_live_total` is why. Booking
             // the gross and subtracting afterwards would break it.
             let overhead = (def.digest_fraction * digest_rate).clamp(0.0, MAX_DIGEST_OVERHEAD);
-            let gain = c.unit * quality * (1.0 - overhead);
-            let left = c.cells - 1;
-            if let Some(state) = world.organism_mut(organism) {
-                // **An empty crop is `None`, remainder and all.** Keeping a
-                // maturing timer on a stomach with nothing in it made
-                // `crop.is_some()` mean "has eaten recently" rather than "is
-                // carrying something", and every laden readout in the tree
-                // asks it the second question -- `ascii` reported 18 ants
-                // carrying when none of them held a cell. There is no next
-                // cell for the timer to mature into, so it has nothing to
-                // measure. It cannot be gamed by dropping just before
-                // maturity either: that forfeits the progress *and* the meal,
-                // which is starvation rather than an exploit.
-                // **The remainder is parked, not discarded** -- see
-                // `OrganismState::digest_carry`. The comment above is still
-                // right that an EMPTY CROP must be `None`; what changed is
-                // where the timer lives when there is no crop to hold it.
-                let remainder = matured - c.unit;
-                state.crop = (left > 0).then_some(Crop { cells: left, digesting: remainder, ..c });
-                if left == 0 && remainder > 0.0 {
-                    state.digest_carry = Some((c.material, remainder));
-                    world.creature_stats.digest_parked += 1;
-                } else if left == 0 {
-                    state.digest_carry = None;
+            // **Never past the cell's own worth**, which is what keeps a joule
+            // from being credited twice: the tick that finishes a cell is paid
+            // only for the sliver that was left.
+            let lumpy = organism::digest_is_lumpy();
+            let progressed = digest_rate.min((c.unit - c.digesting).max(0.0));
+            let matured = c.digesting + progressed;
+            let finished = matured >= c.unit;
+            // **`PIXEL_PHYSICS_DIGEST=lump` is the pre-2026-09-20 arm**, kept so
+            // both behaviours come out of one binary. It pays the whole cell at
+            // maturity and nothing before it, which is the 291-tick cliff.
+            let gain = if lumpy {
+                if finished {
+                    c.unit * quality * (1.0 - overhead)
+                } else {
+                    0.0
                 }
+            } else {
+                progressed * quality * (1.0 - overhead)
+            };
+            let left = if finished { c.cells - 1 } else { c.cells };
+            if let Some(state) = world.organism_mut(organism) {
+                // **An empty crop is `None`.** Keeping a maturing timer on a
+                // stomach with nothing in it made `crop.is_some()` mean "has
+                // eaten recently" rather than "is carrying something", and
+                // every laden readout in the tree asks it the second question
+                // -- `ascii` reported 18 ants carrying when none of them held
+                // a cell.
+                //
+                // **And there is no remainder to park any more.** `progressed`
+                // is capped at what was left of the cell, so `matured` can
+                // never exceed `c.unit` and a finished cell leaves with
+                // `digesting` at exactly 0. That is what retired
+                // `OrganismState::digest_carry`: under a lump payout the
+                // overshoot was unspent progress worth keeping, and under a
+                // continuous one it cannot exist.
+                state.crop = (left > 0).then_some(Crop {
+                    cells: left,
+                    // Lumpy carries the overshoot to the next cell, because
+                    // under a lump it is progress that has been made and not
+                    // yet paid for. Continuous cannot overshoot at all.
+                    digesting: if finished { 0.0 } else { matured },
+                    ..c
+                });
             }
             // **The owner's rule, 2026-09-11: "where should the seed drop
             // when a creature picks up food -- it should drop where it is
@@ -4979,17 +5237,33 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             } else {
                 world.book_meal(colony, Account::HarvestedPlant, c.material, gain as f64);
             }
-            world.creature_stats.digested_face += c.unit as f64;
+            // **PER TICK, not per cell -- and getting this wrong is what the
+            // three guards below caught on 2026-09-20.** These three lines
+            // book a per-CELL quantity, and under the lump payout they ran
+            // once per cell because the whole block did. Continuous payout
+            // runs the block every tick a crop exists, so `c.unit` booked
+            // here is the whole cell charged ~291 times over:
+            // `a_faster_gut_keeps_less_of_every_meal` read the overhead at
+            // **1,493.85 against an expected 50** and
+            // `the_eat_verb_pays_the_filter_not_the_face_value` read the
+            // absorbed share at **0.007**. Both are the per-cell figure
+            // divided by the ticks it takes to chew one. `progressed` is the
+            // tick's own share and sums to `c.unit` across the cell.
+            world.creature_stats.digested_face += progressed as f64;
             // **What the overhead ate, counted rather than inferred.** A loss
             // that only shows up as a smaller credit is indistinguishable
             // from food that was never eaten, and those want different
             // fixes. `CLAUDE.md`: pair every "it fired" counter with an
             // effect counter from the far side of the call.
-            world.creature_stats.digest_overhead_energy += (c.unit * quality * overhead) as f64;
-            // **One mouthful, one event.** Whole-cell consumption gives `eats`
-            // its old meaning back -- a bite -- where the continuous version
-            // had no events to count at all.
-            world.creature_stats.eats += 1;
+            world.creature_stats.digest_overhead_energy += (progressed * quality * overhead) as f64;
+            // **One mouthful, one event** -- fired when a cell is FINISHED,
+            // so `eats` keeps meaning "a bite" rather than "a tick of
+            // chewing". Under the lump payout reaching this line WAS
+            // finishing a cell; under continuous payout it is not, and
+            // counting ticks here would put `eats` up by the chew length.
+            if finished {
+                world.creature_stats.eats += 1;
+            }
             gain
         })
     } else {
@@ -5058,7 +5332,7 @@ pub fn probe_full(
     let Some(state) = world.organism(organism) else {
         return ([0.0; brain::BRAIN_INPUTS], [0.0; brain::BRAIN_HIDDEN], [0.0; brain::BRAIN_OUTPUTS], 0);
     };
-    let (inputs, _, _, _) = sense(world, x, y, organism, state.heading, def);
+    let (inputs, _, _, _) = sense(world, x, y, organism, state.heading, def, state.flight.is_some());
     let mut brain_state = state.brain_state;
     let (outputs, active) = brain::eval_brain(&state.genome, &inputs, &mut brain_state);
     (inputs, brain_state, outputs, active)
@@ -5106,6 +5380,11 @@ fn sense(
     organism: OrganismId,
     heading: u8,
     def: &CreatureDef,
+    // **Passed rather than looked up**, because the one caller that needs it
+    // true is `fly_brain_tick` and the state lookup would otherwise be paid by
+    // every walking creature on every tick to answer a question only a flier
+    // asks. See `trail_sample_point`.
+    airborne: bool,
 ) -> ([f32; brain::BRAIN_INPUTS], Sightings, u64, u64) {
     use brain::BrainInput as I;
     let mut inputs = [0.0f32; brain::BRAIN_INPUTS];
@@ -5119,11 +5398,26 @@ fn sense(
     let (fx, fy) = at(heading);
     let (lx, ly) = at((heading + AHEAD_LEFT) % 8);
     let (rx, ry) = at((heading + AHEAD_RIGHT) % 8);
+    // **The trail planes get their own forward point; the moisture field keeps
+    // this one.** `at()` is shared, and for moisture the vertical component is
+    // not noise but the whole signal — `moisture_gradient`'s own doc measures
+    // depth at 1.91x against curvature's 1.012x, so projecting it onto the
+    // walker's row would delete the only thing that channel carries. The two
+    // are different kinds of quantity: a trail is a surface mark at cell
+    // resolution, moisture is a volume field at `FIELD_SCALE`.
+    //
+    // **The laterals keep `at()` too, and that is load-bearing.** Project them
+    // and ahead-left and ahead-right collapse onto the same cell — for heading
+    // E both become `(x + so, y)` — so `r - l` would be identically zero in
+    // every world for ever. That is a worse failure than the one being fixed,
+    // and it would take away the one pair that could serve a flier.
+    let (px, py) = trail_sample_point(x, y, heading, so, airborne, sensor_projected());
 
     // Front concentration plus a *lateral difference*, per channel. The
     // pairing is what makes trail-following reachable by one connection
     // from a lateral input to the turn output: concentration says "there is
     // something", the difference says "that way".
+    let mut raw_ahead = [0 as pheromone::Scent; 2];
     for (channel, front_slot, lateral_slot) in
         [(Channel::A, I::PheroAFront, I::PheroALateral), (Channel::B, I::PheroBFront, I::PheroBLateral)]
     {
@@ -5131,7 +5425,15 @@ fn sense(
         // widened to `pheromone::Scent` (u16) on 2026-09-15; dividing by 255
         // here would hand the brain a number up to 257 and throw away the
         // resolution the widening exists to provide, in the same breath.
-        let f = world.pheromone_at(channel, fx, fy) as f32 / pheromone::Scent::MAX as f32;
+        // **Front moves with `along` and the laterals do not.** They read the
+        // same cell and always have, so leaving them apart would put two
+        // definitions of "forward" in one function. Hoisted into `raw_ahead`
+        // because the along loop below wanted the identical value and was
+        // re-reading the plane for it — two redundant samples per creature per
+        // tick, removed.
+        let raw = world.pheromone_at(channel, px, py);
+        raw_ahead[channel as usize] = raw;
+        let f = raw as f32 / pheromone::Scent::MAX as f32;
         let l = world.pheromone_at(channel, lx, ly) as f32 / pheromone::Scent::MAX as f32;
         let r = world.pheromone_at(channel, rx, ry) as f32 / pheromone::Scent::MAX as f32;
         inputs[front_slot as usize] = f;
@@ -5156,11 +5458,164 @@ fn sense(
     // change to what happens *below* one old unit -- which is the entire
     // point of the widening. `CLAUDE.md`: when a fix changes what a number
     // means, re-deriving the constants that read it is part of the fix.
+    // **How fast the trail under the animal's own feet is RISING, with no
+    // geometry in it.** Every other pheromone input reads a cell
+    // `sensor_offset` away along the heading, which §7.47 found pointing at the
+    // sky six times in eight; an animal's own cell is somewhere a creature can
+    // be by construction, on flat ground, a slope, bark or a tunnel roof alike.
+    //
+    // **Normalised here rather than differenced in the brain, and that is the
+    // 2026-09-20 repair** -- `brain::BrainInput::PheroARise` carries the
+    // measurement. The same shape as `PheroAAlong` below, with *time* in place
+    // of *space*: a scale-free ratio, so the reading does not change meaning
+    // between the nest doorstep and the larder, where channel A's level differs
+    // **6.7x**.
+    //
+    // **The lagged term lives on the organism, not in a hidden unit**, because
+    // `sense` is speculated and re-run under `ParMode::Verify` and so must be
+    // pure. This reads `phero_a_mem`; the once-per-tick update sits beside
+    // `since_nest`. A fresh animal has `phero_a_mem == 0`, which reads `+1` for
+    // a tick or two and then settles -- deliberate, and the same "no history
+    // yet" convention `Stillness` uses.
+    //
+    // **Zero unless the animal is carrying food, and that gate is measured
+    // rather than tidy.** Ungated, wired `(PheroARise, Move, 3.0)`, it is a
+    // NEST TETHER: channel A is a ramp that is brightest at the nest, so an
+    // EMPTY ant walking out to the larder is walking *down* it and reads a
+    // falling scent, which through `Move` suppresses the step. Measured over
+    // 24 paired seeds, that takes ants that ever reached the food from **199
+    // to 156** (4 seeds up, 17 down, p 0.0072) and cells carried homeward from
+    // 9,560 to 7,129 (5/19, p 0.0066) -- a significant harm, not a null. A
+    // homing gradient has nothing to say to an ant that is not going home, and
+    // the same gate for the same reason sits on `HomeAligned` below.
+    {
+        let carrying = world.organism(organism).is_some_and(|st| st.crop.is_some_and(|c| c.cells > 0));
+        inputs[I::PheroARise as usize] = if carrying {
+            let live = world.pheromone_at(Channel::A, x, y) as f32 / pheromone::Scent::MAX as f32;
+            let lagged = world.organism(organism).map_or(0.0, |st| st.phero_a_mem);
+            let g = pheromone::SCALE as f32 / pheromone::Scent::MAX as f32;
+            (live - lagged) / (live + lagged + g)
+        } else {
+            0.0
+        };
+    }
+
     let guard = pheromone::SCALE as f32;
+    // **A sample that landed nowhere reports NO INFORMATION, not "not that
+    // way".** See `trail_could_be_here`. Evaluated once for the cell rather
+    // than per channel, and only when **both** planes read zero there — a
+    // non-zero reading is its own proof that a creature walks there, so the
+    // nine cell reads are skipped on any lit sample.
+    let readable = !sensor_honest()
+        || raw_ahead[0] > 0
+        || raw_ahead[1] > 0
+        || trail_could_be_here(world, px, py);
+    // **The far sample, for the two-forward comparator.** Taken through the
+    // same helper as the near one so the two cannot drift apart, and so
+    // `sense_read_rects` can derive its rect from the same call rather than
+    // restating the geometry -- the mistake that function's own comment warns
+    // about.
+    let (fx2, fy2) = trail_sample_point(x, y, heading, so.saturating_mul(2), airborne, sensor_projected());
     for (channel, slot) in [(Channel::A, I::PheroAAlong), (Channel::B, I::PheroBAlong)] {
-        let here = world.pheromone_at(channel, x, y) as f32;
-        let ahead = world.pheromone_at(channel, fx, fy) as f32;
-        inputs[slot as usize] = (ahead - here) / (ahead + here + guard);
+        inputs[slot as usize] = if readable {
+            // **Neither term is the animal's own cell** -- §Z29's third repair
+            // candidate, and the only one of the three that removes the defect
+            // rather than softening it. `here` is the ant's freshest deposit
+            // and the brightest thing in its neighbourhood, so `(ahead - here)`
+            // is negative whichever way it faces: -0.20 pointed at home against
+            // -0.24 pointed away, over 8 seeds and ~500k laden decisions.
+            // Comparing two cells AHEAD leaves the animal's own mark out of the
+            // arithmetic entirely.
+            //
+            // **MEASURED, AND IT DOES NOT WORK. Off by default, and a dead
+            // end** (`dead-ends.md`, `other:134`). 24 seeds paired within
+            // seed, one binary, gap 90 -- the only commute a colony survives:
+            // closed laps 91 -> 88 (10 seeds up, 11 down), ants that reached
+            // the food 199 -> 193, cells dropped at the nest 3,781 -> 3,682,
+            // cells carried homeward 9,560 -> 9,938. Every one a coin flip.
+            // Gaps 140 and 200 agree and cannot discriminate -- 6 laps and 0
+            // laps respectively across 24 shipped seeds, so they are a floor,
+            // not a replication.
+            //
+            // **The switch IS connected, which is what makes the null
+            // informative.** It moves the reading exactly as designed:
+            // `MEAN |PheroAAlong|` 0.3603 -> 0.3230 (down in 18 of 23 seeds,
+            // p 0.011) and the trail term into `Move` -2.218 -> -1.922 (up in
+            // 17 of 23, p 0.035). What does not move is `net cells homeward`:
+            // 500.9 against 500.3. The animal reads a different number and
+            // walks to the same place.
+            //
+            // **Why: it erodes the ramp it was sized on.** `trailfollow`'s
+            // `tr_cmp` reads the plane directly, so the same row in two arms
+            // asks how separable the trail THOSE ants actually laid is. At
+            // gap 90, per-seed mean over 24 seeds:
+            //
+            //   near/far   shipped world   comparator world   paired
+            //      1/2        +0.0075          +0.0240        19 up / 5   p 0.007
+            //      1/3        +0.0156          +0.0449        18 up / 6   p 0.023
+            //      2/4        +0.0165          +0.0399        18 up / 6   p 0.023
+            //      3/6        +0.0300          +0.0380        12 / 12     p 1.0
+            //      6/12       +0.0617          -0.0160         4 up / 20  p 0.0015
+            //
+            // The pair the runtime actually reads (`sensor_offset` is 6, so
+            // 6/12) **goes negative on its own world** -- the reading points
+            // away from home on average -- while the SHORT pairs get better.
+            // A tighter local mark and no long-range ramp is what you get from
+            // ants that stop commuting, and the run is **consistent with that
+            // and does not establish it**: nest-band ant-ticks fall 124,560 ->
+            // 86,252 with the median 4,332 -> 2,880, but paired it is 9 seeds
+            // up against 15 down (p 0.31), so the direction is suggestive and
+            // the magnitude is a few seeds. `(AtNest, 4, 0.05)` ->
+            // `(4, EmitA, 32.0)` is channel A's ONLY writer in `ant.ron`
+            // (`(Bias, EmitA, 2.0)` was removed deliberately), so the nest
+            // band is the only place the ramp is built -- which is what makes
+            // this the candidate mechanism rather than one of several.
+            //
+            // **So the sizing measurement was valid and inapplicable**, which
+            // is `CLAUDE.md`'s *a cost that vanishes may be work that
+            // vanished* pointing the other way: a BENEFIT measured on a world
+            // the change does not produce. Any repair that alters how the
+            // animal reads channel A has this shape, because channel A is laid
+            // by the same animals that read it. **The condition on this
+            // rejection:** it depends on the odometer being the ramp's only
+            // writer. Give channel A a writer that is not the foraging ants --
+            // a nest that emits on its own, a fixed beacon -- and the erosion
+            // cannot happen, and this is worth retrying.
+            //
+            // **The precondition it was built on DID hold**, and that part
+            // stands: §7.47's fear that a two-sample reading would be blind
+            // (the single sensor lands in sky or rock ~70% of ticks) is wrong.
+            // Both samples read zero on 11.8% of laden ticks at gap 90,
+            // because the plane carries diffused value into cells no creature
+            // can stand in.
+            // **Channel A only, and the scoping is the whole correctness of
+            // this.** The defect is *the animal standing on its own freshest
+            // deposit*, and the two planes are not symmetric in who laid them:
+            // an ant emits A continuously from the `AtNest` odometer
+            // (`(4, EmitA, 32.0)`) and emits B only while laden
+            // (`(CarryingFood, EmitB, 2.5)`). So for A the `here` term is the
+            // ant's own mark and the reading is negative by construction; for
+            // B, read by an EMPTY ant walking out to the food, `here` is
+            // somebody else's trail and the subtraction is doing its job.
+            //
+            // **Measured, by getting it wrong first.** Applied to both channels
+            // -- the loop sweeps them together, which is `CLAUDE.md`'s *adding
+            // a member to a set something sweeps enrols it in every rule over
+            // that set* arriving as a one-line edit -- the outbound leg
+            // collapsed outright: **0 ants reached food in all 24 seeds**,
+            // against 7-10 of 20 shipped. Units 2/3 read `PheroBAlong` gated on
+            // NOT carrying food, so rewriting B's reading is rewriting how an
+            // empty ant follows the food trail.
+            let comparator = trail_read_is_forward() && matches!(channel, Channel::A);
+            let (near, far) = if comparator {
+                (raw_ahead[channel as usize] as f32, world.pheromone_at(channel, fx2, fy2) as f32)
+            } else {
+                (world.pheromone_at(channel, x, y) as f32, raw_ahead[channel as usize] as f32)
+            };
+            (far - near) / (far + near + guard)
+        } else {
+            0.0
+        };
     }
 
     // **The alarm is read where the animal IS, not on the cell ahead of it**
@@ -5222,7 +5677,7 @@ fn sense(
     let mouth_scan = adjacent_food_counted(world, organism, (x, y), gut_of(world, organism, def), def.start_energy);
     inputs[I::FoodAdjacent as usize] = if mouth_scan.best.is_some() { 1.0 } else { 0.0 };
     inputs[I::KinNeed as usize] = mouth_scan.kin_need.map_or(0.0, |k| k.deficit);
-    inputs[I::AtNest as usize] = if adjacent_nest(world, x, y, def) { 1.0 } else { 0.0 };
+    inputs[I::AtNest as usize] = if nest_within_reach(world, organism, x, y, def) { 1.0 } else { 0.0 };
 
     if let Some(state) = world.organism(organism) {
         // **Renormalizing this against `reproduce_at_of` (a child's worth,
@@ -5333,6 +5788,63 @@ fn sense(
         // home") lives in `CreatureDef::home_bias`, which reads `crop_fill`
         // directly. One question per sensor.
         inputs[I::CarryingFood as usize] = if crop_fill > 0.0 { 1.0 } else { 0.0 };
+        // **Which way home is, for an animal that has a reason to go there** --
+        // `brain::BrainInput::HomeAligned`, the return leg's own bearing.
+        //
+        // **Why the carrying test is here and not in the genome, which is a
+        // real departure from how every other gated sense in `ant.ron`
+        // works.** The gated pair above spends TWO hidden units on one sense
+        // precisely so the gate can be deep: units 0 and 1 both sit at
+        // `squash(-45) = -0.978` when shut, and the mirror subtracts them to
+        // exactly zero. With a single unit there is no mirror, so a shut
+        // `(Bias, 7, -45)` unit does not read 0, it reads **-0.978**, and at
+        // the pair's own output weight that is a standing **-2.446** on `Move`
+        // for every EMPTY ant -- against a walking ant's `Move` sum of about
+        // +0.25, i.e. `squash` clamped to P(move) = 0 and a colony that never
+        // forages at all. `brain.rs`'s `what_the_home_wire_emits` prints the
+        // three curves side by side.
+        //
+        // **Unit 7 is the only free one** (0/1 channel A, 2/3 channel B, 4 the
+        // `AtNest` odometer, 5/6 `Crowding`->`Dig`, `BRAIN_HIDDEN` 8), so the
+        // pair form is not available at any price and the gate has to move
+        // upstream of `squash`. The sensor is the cheapest correct place, and
+        // it is not unprecedented here: `CarryingFood` immediately above,
+        // `FoodAdjacent` and `Stillness` are all conditional reads. It also
+        // leaves unit 7 genuinely free, which dissolves the collision the
+        // 2026-09-19 fold-change plan was heading for.
+        //
+        // **Boolean, on `CarryingFood`'s own predicate, deliberately.** The
+        // graded half -- *the fuller I am, the likelier I head home* -- already
+        // belongs to `CreatureDef::home_bias`, exactly as the comment above
+        // says. One question per sensor: this one answers *which way*.
+        inputs[I::HomeAligned as usize] = if crop_fill > 0.0 {
+            let (ax, ay) = home_target(world, state);
+            let (vx, vy) = ((ax - x) as f32, (ay - y) as f32);
+            let len = (vx * vx + vy * vy).sqrt();
+            // **Standing on the anchor is not a direction** -- the guard
+            // `home_weighted_pick` takes, for the same reason: inside one cell
+            // every heading scores alike, so a bearing read there is an
+            // arbitrary constant rather than a direction. 0.0 is also the
+            // right answer behaviourally, since an ant at its own nest should
+            // be wandering off again.
+            if len < 1.0 {
+                0.0
+            } else {
+                let (hdx, hdy) = DIRS[heading as usize % 8];
+                // `DIRS`' diagonals are `(1, -1)`, so `|d|` is `sqrt(2)` on the
+                // odd headings and 1 on the even ones. Dividing by it is what
+                // makes this a cosine rather than the raw dot product
+                // `home_weighted_pick` ranks with -- see the input's own doc
+                // for why a 1.414 on four of eight headings would be a silent
+                // heading-dependent gain. A table, not a `sqrt`: both values
+                // are exact and the parity picks between them.
+                const DIR_LEN: [f32; 2] = [1.0, std::f32::consts::SQRT_2];
+                let dlen = DIR_LEN[(heading as usize % 8) & 1];
+                ((hdx as f32 * vx + hdy as f32 * vy) / (len * dlen)).clamp(-1.0, 1.0)
+            }
+        } else {
+            0.0
+        };
     }
 
     // **A creature is not crowded by itself**, and it was: this scan
@@ -5979,7 +6491,13 @@ pub struct SensedAhead {
 const MOISTURE_GRADIENT_SPAN: i32 = 4;
 
 /// The body ring, the head's discs, and one per off-body pheromone sample.
-const SENSE_RECTS: usize = 5;
+/// **Six since 2026-09-20**, for the two-forward comparator's far sample at
+/// `2 * sensor_offset` (`trail_read_is_forward`). A sample `sense` reads and
+/// this function does not declare is a cell a neighbour can write without
+/// invalidating the speculation — a wrong world, only under parallelism, and
+/// silent. The rect is spent whether or not the switch is on, which costs one
+/// unused entry and cannot go stale against it.
+const SENSE_RECTS: usize = 6;
 
 /// **Where one `sense` read, split by which of the watch's three maps the
 /// reads belong to.** Three reaches, not one — see the section header.
@@ -6069,9 +6587,49 @@ fn sense_read_rects(
     let heading = state.heading;
     let p = sense_rect_margin();
     let mut used = 2u8;
-    for dir in [heading, (heading + AHEAD_LEFT) % 8, (heading + AHEAD_RIGHT) % 8] {
-        let (dx, dy) = DIRS[dir as usize % 8];
-        let (sx, sy) = (x + dx * so, y + dy * so);
+    // **The forward rect follows `sense`'s trail-plane point, not `DIRS`.**
+    // This function declares the footprint `ParMode::Checked` trusts when it
+    // reuses a cached sense; if the sample moves and the declaration does not,
+    // a neighbour can write the real sample cell without invalidating the
+    // speculation and the creature acts on a reading of a cell it never looked
+    // at -- a wrong world, only under parallelism, and silent.
+    //
+    // **That danger turned out not to be live here, and the reason is worth
+    // keeping** (measured 2026-09-19 by leaving this line on the old geometry
+    // and injecting): a diagonal's projected point *is* its horizontal
+    // cone-neighbour's sample point -- project NE onto the row and you land
+    // exactly where `at(E)` already looks -- so the projection cannot leave the
+    // three cells this function already declares. That is the same structural
+    // fact that makes the projection principled, arriving as a safety property.
+    // `the_declared_footprint_contains_the_trail_sensor_cell` asserts it for
+    // every heading, so a later projection that is *not* a cone member cannot
+    // land quietly.
+    //
+    // **Derived from the same helper `sense` calls, never restated** -- which
+    // is what makes the two agree by construction rather than by review.
+    // `(fx, fy)` is still read, by `field_at_bilinear` for moisture, and is
+    // covered by `field_rect` above, whose reach is `sensor_offset` on each
+    // axis — so it needs no rect of its own, and it is not one of the six.
+    let airborne = state.flight.is_some();
+    let forward = trail_sample_point(x, y, heading, so, airborne, sensor_projected());
+    // **The comparator's far sample, derived from the same helper `sense`
+    // uses** -- restating the geometry here is exactly how a declaration drifts
+    // from the read it is meant to cover. Declared unconditionally: the switch
+    // is a `OnceLock` read and a rect that appears only when it is on is a rect
+    // nobody tests with it off.
+    let forward_far = trail_sample_point(x, y, heading, so.saturating_mul(2), airborne, sensor_projected());
+    for (sx, sy) in [
+        forward,
+        forward_far,
+        {
+            let (dx, dy) = DIRS[((heading + AHEAD_LEFT) % 8) as usize];
+            (x + dx * so, y + dy * so)
+        },
+        {
+            let (dx, dy) = DIRS[((heading + AHEAD_RIGHT) % 8) as usize];
+            (x + dx * so, y + dy * so)
+        },
+    ] {
         rects[used as usize] = (sx - p, sy - p, sx + p, sy + p);
         used += 1;
     }
@@ -6110,7 +6668,7 @@ fn sense_ahead(world: &World, site: &ActiveSite) -> Option<SensedAhead> {
     }
     let heading = state.heading;
     let read = sense_read_rects(world, x, y, organism, def, state);
-    let (inputs, seen, sight_reads, curvature_reads) = sense(world, x, y, organism, heading, def);
+    let (inputs, seen, sight_reads, curvature_reads) = sense(world, x, y, organism, heading, def, false);
     let mut brain_state = state.brain_state;
     let (outputs, active_synapses) = brain::eval_brain(&state.genome, &inputs, &mut brain_state);
     Some(SensedAhead { organism, x, y, heading, read, inputs, seen, sight_reads, curvature_reads, outputs, active_synapses, brain_state })
@@ -7933,6 +8491,93 @@ fn dig_down_bias() -> Option<f32> {
     })
 }
 
+/// **Is this ANIMAL at its nest** — every cell of the body, not just the head.
+///
+/// **The same repair `adjacent_food_counted` got on 2026-09-06, arriving at the
+/// other end of the animal three months late.** That function's own comment
+/// states the defect exactly, about biting: *"An attacker on a trailing cell is
+/// adjacent to the animal while the animal's head is three cells from the
+/// attacker, so a chain creature could not bite what was eating its back."*
+/// Substitute the nest for the attacker and it is this. Food adjacency was
+/// fixed; nest adjacency was left reading the head alone, so **an ant could
+/// reach food with its body and not its own home.**
+///
+/// **Measured 2026-09-20, and this is the share it is for.** `paint_nest_patch`
+/// writes one nest cell per masked column at `colony_surface`, i.e. a single
+/// row at the terrain surface, while `AtNest` reads the head's 8-neighbourhood.
+/// `ant.ron` authors `body: Chain(2)`. Over 186,067 laden ant-ticks, of the
+/// near misses (nearest nest material 2–4 cells away) **23.0% were `|dx| <= 1`
+/// with `|dy| >= 2`** — the ant standing on its own doorstep with its head two
+/// rows above the comb — and the single commonest offset was exactly
+/// `|dy| = 2`. `Drop` is `(Bias, -0.2)` against `(AtNest, 1.0889)`, so those
+/// ticks carry `P(drop)` of **exactly zero** at any crop fill, including a full
+/// one. Data: `Reports/data/drop-miss-direction-8seed-2026-09-20.log`.
+///
+/// **Which object does this rule evaluate?** `CLAUDE.md` asks it and the answer
+/// is *the whole animal* — "am I home" is not a property of one cell. The two
+/// callers that ask that question use this; the two that ask about a *position*
+/// (the body-reversal test, and the nest-contact reset, which is handed a cell
+/// the animal has not moved into yet) keep [`adjacent_nest`].
+///
+/// **Switchable, defaulting to the shipped head-only read**, so the unset arm
+/// is bit-identical and both arms come out of one binary:
+/// `PIXEL_PHYSICS_NEST_REACH=body`.
+fn nest_within_reach(world: &World, organism: OrganismId, x: i32, y: i32, def: &CreatureDef) -> bool {
+    if !nest_reach_is_body() {
+        return adjacent_nest(world, x, y, def);
+    }
+    // The head is tested first and separately: it is the common hit, and on a
+    // hit this costs one ring rather than a chain walk.
+    if adjacent_nest(world, x, y, def) {
+        return true;
+    }
+    let Some(state) = world.organism(organism) else {
+        return false;
+    };
+    // **The chain, not `cells`.** `cells` is every cell the organism owns,
+    // which for a creature is the body and for anything grown would be the
+    // whole plant; `chain` is the ordered body the movement code walks, and it
+    // is what `adjacent_food_counted` uses.
+    state.chain.iter().skip(1).any(|&(cx, cy)| adjacent_nest(world, cx, cy, def))
+}
+
+/// **Whether "at the nest" reaches from the whole body** —
+/// `PIXEL_PHYSICS_NEST_REACH=body`. Unset keeps the head-only read and is
+/// bit-identical. See [`nest_within_reach`].
+fn nest_reach_is_body() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_REACH").as_deref() == Ok("body"))
+}
+
+/// **How far from the head nest material still counts, in Chebyshev cells.**
+/// `PIXEL_PHYSICS_NEST_REACH=r<N>`; 1 is the shipped 8-neighbourhood and is
+/// bit-identical.
+///
+/// **This exists as an ORACLE, not as a candidate.** The question it answers is
+/// *is the loop limited by the SIZE of the drop target, or by something else* —
+/// and it answers it by making the target absurdly large. If completion does
+/// not move at `r8`, target size is not the constraint and no amount of
+/// widening, site-testing or better aim will close the loop.
+///
+/// **It exists because the switch that looked like it could answer this cannot.**
+/// `adjacent_nest`'s site branch measures its rows from `NestSite::surface`,
+/// which is `colony_surface` at the site's **centre column only**, while the
+/// comb itself "follows the ground" across all 53 columns. On any terrain that
+/// is not flat the site test therefore *excludes* most of the comb rather than
+/// including more of it: measured 2026-09-20 at `ROWS=2, COLS=26`, drops fell
+/// **743 → 11** over 24 seeds. That is a defect in the site switch and not a
+/// verdict on widening the door, which is what this knob is for.
+fn nest_reach_radius() -> i32 {
+    static R: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    *R.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_NEST_REACH")
+            .ok()
+            .and_then(|v| v.strip_prefix('r').and_then(|n| n.parse::<i32>().ok()))
+            .filter(|r| *r >= 1)
+            .unwrap_or(1)
+    })
+}
+
 fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
     // **The `nest` field is read as a flag in both branches, never only as a
     // material.** A species that authors no nest has no home under either
@@ -7955,7 +8600,201 @@ fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
         let site = world.nest_sites[i];
         return (site.x - x).abs() <= nest_site_cols().unwrap_or(COLONY_HALF_WIDTH) && (site.surface - y).abs() <= rows;
     }
-    NEIGHBOURS_8.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == nest)
+    let r = nest_reach_radius();
+    if r == 1 {
+        return NEIGHBOURS_8.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == nest);
+    }
+    (-r..=r).any(|dy| (-r..=r).any(|dx| (dx != 0 || dy != 0) && world.get(x + dx, y + dy).material == nest))
+}
+
+/// **Where a trail mark lands — the head, or the cell just vacated.**
+///
+/// `PIXEL_PHYSICS_DEPOSIT_AT=vacated` moves it; anything else, including
+/// unset, keeps the shipped head deposit and is bit-identical. See the deposit
+/// site and `open-bugs-handoff.md` §Z29 for what it is for.
+/// **Whether `PheroAAlong` compares two FORWARD samples instead of
+/// `(ahead - here)`** — `PIXEL_PHYSICS_TRAIL_READ=fwd`. Unset keeps the shipped
+/// reading and is bit-identical. See the reading site and
+/// `open-bugs-handoff.md` §Z29 for the defect it removes.
+fn trail_read_is_forward() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_TRAIL_READ").as_deref() == Ok("fwd"))
+}
+
+fn deposit_at_vacated() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DEPOSIT_AT").as_deref() == Ok("vacated"))
+}
+
+/// **Whether the trail-plane sample is projected onto the walker's own row** —
+/// `PIXEL_PHYSICS_SENSOR_PROJECT=on`. **Off by default, and that is a
+/// measurement rather than caution.**
+///
+/// The projection is argued for in [`trail_sample_point`] and it is *not wrong*
+/// — it recovers a correct, correctly-signed reading on the four diagonal
+/// headings, and when the sample lands somewhere readable the reading is about
+/// twice as usable. It costs the thing it was built to buy.
+///
+/// **36 seeds, gap 90, `arms=hand`, paired within seed against the engine with
+/// neither half of this repair** (`pheromone-trail-direction-2026-09-16.md`
+/// §7.47), on two beds:
+///
+/// | | round trips | ants reaching food | colony alive |
+/// |---|---|---|---|
+/// | readability test alone | 11/10/15, 16/9/11 | 23/12/1, 24/9/3 | 22/8/6, 23/8/5 |
+/// | ...plus this projection | **7/17/12, 9/17/10** | 31/4/1, 26/10/0 | 34/2/0, 27/8/1 |
+///
+/// The projection is the best arm for **colony survival** — 34 seeds better and
+/// 2 worse is the strongest single result on this line — and the worst for
+/// **round trips**, on both beds, which is the quantity the work exists for.
+///
+/// **The mechanism, and it is the terrain argument arriving as data.** Six
+/// cells along the walker's own row is air whenever the ground dips, and the
+/// lab bed is not flat — an ant there roams eight rows and changes level on
+/// ~17% of its ticks. So the projection trades *"looking six rows up at the
+/// sky"* for *"looking six cells along at the sky over a hollow"*. The
+/// readability test below catches both, so neither lies; the projection simply
+/// does not put the nose on the ground more often on real ground.
+///
+/// ***That verdict was about HOMING, and it does not transfer. Since
+/// 2026-09-20 this ships ON*** — `PIXEL_PHYSICS_SENSOR_PROJECT=off` restores
+/// the diagonal sample, `=none` the whole pre-2026-09-19 reading.
+///
+/// **What changed is the question, not the tuning.** `other:131` measured this
+/// on channel A, for the walk *home*, and turned it down. Nobody had pointed it
+/// at the walk *out*, and that is where the colony was being lost:
+/// `open-bugs-handoff.md` §Z32 found an empty ant reading the food trail as
+/// **exactly 0.00000 tick after tick** while walking along a lit one.
+///
+/// **The mechanism is geometric and needs no tuning argument.** The trail is a
+/// five-row band; a diagonal heading sampled `sensor_offset` cells along BOTH
+/// axes, and `sensor_offset` is 6, so the nose sat six rows off the band and
+/// missed it by construction. Measured over 15,844 empty ant-ticks: on a
+/// diagonal the animal stands on **7,670** and its nose reads **757**, a
+/// tenfold loss on **46%** of ticks, with `mean |dy|` exactly **6.00**.
+///
+/// **What projecting it buys, 24 seeds paired within seed, per ANT through
+/// every stage of the loop** (`trailfollow`'s funnel):
+///
+/// | | off | on |
+/// |---|---|---|
+/// | reached the food | 303 · 53% | **391 · 72%** |
+/// | turned for home with it | 160 · 28% | **322 · 59%** |
+/// | put it down at the nest | 87 · 15% | **239 · 44%** |
+/// | reached the food a SECOND time | 8 · 1% | **76 · 14%** |
+///
+/// Closed laps **144 → 376, better in 23 seeds of 24 and worse in none**;
+/// cells carried homeward 10,347 → 24,043. **Every stage improves, including
+/// the walk home (66% → 84%)** — not a second mechanism, but an ant that can
+/// smell the route walking one instead of a random walk, and so spending far
+/// less energy to get anywhere.
+///
+/// **The surface-following sample this comment used to ask for is still the
+/// better answer** and is still unmeasured; it is right on slopes, trunks and
+/// tunnels where the row projection is right only on flat ground. This bed is
+/// flat. Do not read this result as settling that.
+///
+/// **Read by `sense` AND by `sense_read_rects`, and that is not a detail.**
+/// They are one contract in two functions: the second declares the footprint
+/// the first reads, and `ParMode::Checked` trusts the declaration. Calling one
+/// helper from both is what makes them agree by construction; an arm that
+/// restated the geometry in one of them could consume a **stale
+/// cached sense** — a wrong world rather than a slow one, and only under
+/// parallelism, which is to say only in the real game.
+///
+/// `OnceLock` rather than a `var` per call, for the reason all its siblings
+/// are: `sense` runs per creature per decision tick, and `std::env::var` is a
+/// lock and an allocation.
+pub fn sensor_projected() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_SENSOR_PROJECT").as_deref(), Ok("off") | Ok("none")))
+}
+
+/// **The honesty half, ablatable separately** — `PIXEL_PHYSICS_SENSOR_PROJECT=none`
+/// turns off *both* halves and restores the pre-2026-09-19 reading exactly.
+///
+/// **Without this there is no baseline arm, and the first sweep nearly ran
+/// without one.** `off` disables the projection but leaves the readability test
+/// standing, so an `off` arm measures the honesty half **alone** rather than the
+/// original behaviour. Two changes with one switch between them is one arm
+/// short: the table would have compared "both" against "one of them" and called
+/// the difference the whole repair.
+fn sensor_honest() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_SENSOR_PROJECT").as_deref() != Ok("none"))
+}
+
+/// **Where a walking creature's nose is, for the trail planes only.**
+///
+/// The bug this exists for: `sense` sampled at `(x + dx*so, y + dy*so)` from
+/// [`DIRS`], and with +y down **six of the eight headings put that six rows off
+/// the walker's own row** — three in open air, three inside the ground. A
+/// walking creature lays a trail only at its body cell, so those six read
+/// exactly 0, and `(0 - here)/(0 + here + SCALE)` turns that into a confident
+/// large negative: *"the trail is much weaker that way"*, when the honest
+/// answer is *"I am looking at the sky and know nothing."* Measured on laden
+/// ants, gap 90: the six off-row headings gave a usable reading on **0.2-2.3%**
+/// of ticks against **10.9%** for a sample that landed somewhere a trail could
+/// be, and **89% of all frozen laden ticks** had the nose in sky or ground.
+///
+/// **Why the horizontal component alone is the right projection**, rather than
+/// a convenience: `step_chain` only ever offers a forward cone of three
+/// (`AHEAD_LEFT`, the heading, `AHEAD_RIGHT`), and that cone's *mean horizontal
+/// displacement* is exactly `DIRS[h].0` for every heading — including **zero at
+/// N and S**. So this samples where the next three steps are expected to take
+/// the animal along its surface, and the resulting `along == 0` on the two
+/// vertical headings is a derived result rather than a special case.
+///
+/// **`dx == 0` keeps the full offset on purpose.** An animal climbing a trunk
+/// holds heading N or S, its surface *is* vertical, and the old geometry is
+/// exactly right for it — six cells up the bark is where the trail is. Silence
+/// those two and a colony could never follow a trail up a tree. What stops the
+/// flat-ground case reading sky through that door is the readability test at
+/// the call site, not this function.
+///
+/// **A flier is excluded** because it genuinely does move in open 2D, which is
+/// the stated reason [`brain::BrainInput::PheroAAlong`]'s doc keeps the open-2D
+/// triad at all.
+///
+/// **`pub` for the harnesses, and that is the point rather than a concession.**
+/// `examples/trailfollow.rs` classifies every laden tick by what the nose is
+/// pointing at, and its first version restated `(x + dx*so, y + dy*so)` from
+/// `DIRS` -- so the moment this function existed, the census was labelling ticks
+/// by a cell the engine no longer read, and reported the repair as doing almost
+/// nothing. Caught 2026-09-19 by the numbers barely moving. A measurement that
+/// keeps its own copy of the thing it measures will eventually measure the copy.
+pub fn trail_sample_point(x: i32, y: i32, heading: u8, so: i32, airborne: bool, project: bool) -> (i32, i32) {
+    let (dx, dy) = DIRS[heading as usize % 8];
+    if airborne || !project || dx == 0 {
+        return (x + dx * so, y + dy * so);
+    }
+    (x + dx * so, y)
+}
+
+/// **Could a trail be here at all** — not solid itself, and something to stand
+/// on within reach.
+///
+/// This is the other half of the repair above and the half that carries the
+/// non-flat cases. A sample that lands inside rock, or six cells up in the
+/// open, is not a measurement of a faint trail; it is a measurement of the fact
+/// that nothing walks there. Reporting 0 for the gradient says *no
+/// information*, which the brain already handles, instead of *definitely not
+/// that way*.
+///
+/// **It reuses `head_has_foothold`** rather than restating the rule, so the
+/// question "where could a creature stand" has one answer in this file — and it
+/// inherits that function's world-edge correction, without which the boundary
+/// reads as an infinitely tall ladder.
+///
+/// **Cost is why the caller gates it.** This is up to nine `World::get`s, and
+/// `sense` is a hot path — so it is only ever reached when the sample read
+/// *zero on both planes*, which on a lit plane is rare. A non-zero reading is
+/// its own proof that a trail can be there.
+fn trail_could_be_here(world: &World, x: i32, y: i32) -> bool {
+    !matches!(
+        world.materials.kind(world.get(x, y).material),
+        MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant
+    ) && head_has_foothold(world, (x, y), None)
 }
 
 /// Local `|grad moisture|`, normalized.
@@ -8831,24 +9670,13 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // gut-filtered value would look like matter vanishing.
                 // The gut is applied when the food is absorbed, not when
                 // it is swallowed.
-                // **What a resume was worth**, hoisted out because
-                // `organism_mut` holds `world` and the counter lives on it.
-                // 0.0 for every pickup that did not resume anything, which is
-                // what `digest_resumed` must not count -- see its doc comment.
-                let mut resumed_face = 0.0f64;
+                // **Nothing to resume any more — 2026-09-20.** A parked
+                // remainder only meant something while the payout was a lump:
+                // progress that had been made and not yet paid for. Under the
+                // continuous payout the animal has already been credited every
+                // joule of `digesting`, so a new cell starts from 0 and
+                // `OrganismState::digest_carry` retired with the mechanism.
                 if let Some(state) = world.organism_mut(organism) {
-                    // **Resume whatever was parked for this material**, and
-                    // only onto an empty crop: a crop with cells already
-                    // carries its own `digesting` through `..c` below, and
-                    // adding a parked remainder on top would credit it twice.
-                    // Different material means start fresh -- the two have
-                    // different `unit`, and crediting one against the other
-                    // would mint joules.
-                    let resumed = match (state.crop, state.digest_carry) {
-                        (None, Some((m, d))) if m == food => d.min(worth),
-                        _ => 0.0,
-                    };
-                    resumed_face = resumed as f64;
                     state.crop = Some(match state.crop {
                         // **`unit` takes the min, not the last.** Corpses
                         // carry per-cell worth in `aux`, so a crop filled
@@ -8867,15 +9695,10 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                             shade,
                             unit: worth,
                             cells: 1,
-                            digesting: resumed,
+                            digesting: 0.0,
                             passenger,
                         },
                     });
-                    state.digest_carry = None;
-                }
-                if resumed_face > 0.0 {
-                    world.creature_stats.digest_resumed += 1;
-                    world.creature_stats.digest_resumed_face += resumed_face;
                 }
                 world.creature_stats.pickups += 1;
                 // `bites` mirrors `pickups` and never `eats` -- see
@@ -8974,7 +9797,10 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // fifteenth), and a weight inside `squash` *shifts* it. `ant.ron`
             // is re-authored against measured endpoints rather than by
             // porting the numbers -- see its `instincts` list.
-            let at_nest = adjacent_nest(world, x, y, def);
+            // Body-aware, to match the `AtNest` the brain was handed: a
+            // counter that disagrees with the behaviour it counts is worse
+            // than no counter.
+            let at_nest = nest_within_reach(world, organism, x, y, def);
             let p = drop_urge;
             if draw.unit_f32() < p {
                 if let Some((dx, dy)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| world.is_empty(px, py)) {
@@ -8997,37 +9823,37 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     } else {
                         world.set(dx, dy, unit.into_cell(world));
                     }
-                    // Same hoist as the pickup site: `organism_mut` holds
-                    // `world`, and `digest_parked` lives on it.
-                    let mut parked = false;
                     if let Some(state) = world.organism_mut(organism) {
-                        // The cell leaves whole; the maturing remainder stays,
-                        // because it is progress toward eating the *next* one
-                        // and clearing it would hand the animal a free restart.
                         // `passenger: None` unconditionally: either it was
                         // already empty, or it was just delivered above and
                         // must not be popped a second time by a later drop.
-                        let mut carry_over = None;
+                        // **The chewing leaves WITH the cell — 2026-09-20.**
+                        // `unit_cell` hands the ground `unit - digesting`,
+                        // because the rest is already in this animal's energy
+                        // bank under the continuous payout. Carrying
+                        // `digesting` forward across the drop, as `..c` used
+                        // to, would let the next cell inherit progress that
+                        // physically left with this one and the animal would
+                        // be paid for it twice. So it resets to 0, and there
+                        // is nothing left to park: `OrganismState::
+                        // digest_carry` retired in the same change.
+                        //
+                        // What the old note here was protecting -- "putting the
+                        // last cell down no longer forfeits the chewing", worth
+                        // 17 pickups and 2 meals on one forager (§7.34) -- is
+                        // no longer a loss to protect against. Under a lump
+                        // payout, unspent progress was real value; under this
+                        // one it has already been paid.
+                        let keep_chewing = organism::digest_is_lumpy();
                         state.crop = state.crop.and_then(|c| {
                             let left = c.cells.saturating_sub(1);
-                            // **Putting the last cell down no longer forfeits
-                            // the chewing.** `..c` already carried `digesting`
-                            // across a drop while cells remained; the loss was
-                            // only ever at `left == 0`, where the whole struct
-                            // went `None`. Measured cost of that edge:
-                            // 17 pickups and 2 meals on one forager (§7.34).
-                            if left == 0 && c.digesting > 0.0 {
-                                carry_over = Some((c.material, c.digesting));
-                            }
-                            (left > 0).then_some(Crop { cells: left, passenger: None, ..c })
+                            // Under the lump arm the cell leaves whole and the
+                            // chewing stays, because none of it has been paid
+                            // for yet. Under the continuous one it leaves at
+                            // `unit - digesting` and the progress goes with it.
+                            let digesting = if keep_chewing { c.digesting } else { 0.0 };
+                            (left > 0).then_some(Crop { cells: left, digesting, passenger: None, ..c })
                         });
-                        if let Some(cc) = carry_over {
-                            state.digest_carry = Some(cc);
-                            parked = true;
-                        }
-                    }
-                    if parked {
-                        world.creature_stats.digest_parked += 1;
                     }
                     world.creature_stats.drops += 1;
                     if at_nest {
@@ -10547,8 +11373,13 @@ fn step_chain(
     world.creature_stats.moves += 1;
 
     // How deep this excursion has got, in cells from the last nest contact.
-    // **Measurement only** — nothing downstream reads it, and an ant still
-    // has no idea where home is. See `OrganismState::forage_anchor`.
+    // **`forage_max` is measurement only. `forage_anchor` beside it is NOT,
+    // and this comment said it was until 2026-09-21.** `sense` reads the
+    // anchor as the homing direction for `BrainInput::HomeAligned`, so the
+    // re-anchor below — correct for keeping a loiterer's excursion depth at 1,
+    // which is the rule's stated purpose — also moves where every laden animal
+    // of this colony thinks home is. See `creature::home_target` for what that
+    // costs a forager and for the switch that aims at the nest centre instead.
     if let Some(state) = world.organism_mut(organism) {
         let (ax, ay) = state.forage_anchor;
         // Chebyshev, because movement is an 8-neighbour step: it is the
@@ -11430,7 +12261,7 @@ fn octant_of(vx: f32, vy: f32) -> u8 {
 fn fly_brain_tick(world: &mut World, organism: OrganismId, def: &CreatureDef, flight: &mut Flight, cells: &[(i32, i32)]) -> f32 {
     let (hx, hy) = cells.first().copied().unwrap_or((0, 0));
     let heading = world.organism(organism).map_or(0, |s| s.heading);
-    let (inputs, seen, sight_reads, curvature_reads) = sense(world, hx, hy, organism, heading, def);
+    let (inputs, seen, sight_reads, curvature_reads) = sense(world, hx, hy, organism, heading, def, true);
     // **The eye's counters fire aloft too, and they have to.** Until this
     // existed an airborne animal never cast, so `sight_casts` was a count of
     // *walking* casts wearing the name of all of them -- and
@@ -19315,7 +20146,7 @@ mod tests {
         );
 
         // --- the eye, which is the gate ---------------------------------
-        let (inputs, ..) = sense(&w, cell.0, cell.1, donor, w.organism(donor).unwrap().heading, &def);
+        let (inputs, ..) = sense(&w, cell.0, cell.1, donor, w.organism(donor).unwrap().heading, &def, false);
         let need = inputs[brain::BrainInput::KinNeed as usize];
         assert!(
             need > 0.9,
@@ -20002,7 +20833,7 @@ mod tests {
             neediest_kin(&w, ant, (x, y), gut, def.start_energy).is_none(),
             "a lone ant's own body must never read as kin needing feeding, however hungry it is"
         );
-        let (inputs, ..) = sense(&w, x, y, ant, 0, &def);
+        let (inputs, ..) = sense(&w, x, y, ant, 0, &def, false);
         assert_eq!(inputs[brain::BrainInput::KinNeed as usize], 0.0, "a lone ant must read zero kin need, not its own hunger");
         let did = act_share(&mut w, ant, &def);
         assert_eq!(did.shares, 0, "an ant must not be able to share with its own body");
@@ -23735,11 +24566,290 @@ mod tests {
         let id = spawn(&mut w, "ant", 100, 100);
         let ant = w.species.id_of("ant").expect("ant");
         let def = w.species.get(ant).creature.clone().expect("creature");
-        let (inputs, ..) = sense(&w, 100, 100, id, 0, &def);
+        let (inputs, ..) = sense(&w, 100, 100, id, 0, &def, false);
         assert_eq!(inputs[brain::BrainInput::Made as usize], 0.0, "a founder was made of nothing");
         w.organism_mut(id).expect("live").made = 0.7;
-        let (inputs, ..) = sense(&w, 100, 100, id, 0, &def);
+        let (inputs, ..) = sense(&w, 100, 100, id, 0, &def, false);
         assert_eq!(inputs[brain::BrainInput::Made as usize], 0.7);
+    }
+
+    /// **The trail sample is taken somewhere a trail could be**, and the six
+    /// headings that used to point at sky or rock are handled two ways: the
+    /// four with a horizontal component are projected back onto the walker's
+    /// own row, and the two without one say *nothing* rather than *definitely
+    /// not that way*.
+    ///
+    /// **Written against the replacement, not the original** (`CLAUDE.md`).
+    /// Assertion 6 is the one aimed at the tempting over-fix: projecting the
+    /// *laterals* too would collapse ahead-left and ahead-right onto one cell
+    /// and zero `PheroALateral` in every world for ever, which no assertion
+    /// about the along input would ever catch.
+    ///
+    /// **Injected one half at a time, 2026-09-21, and they land on different
+    /// assertions** -- which is the whole reason 3 and 3b are separate:
+    ///
+    /// | injection | red at | reads | wants |
+    /// |---|---|---|---|
+    /// | `sensor_projected` -> false | 3, on NE | 0.0 | E's 0.06666667 |
+    /// | `sensor_honest` -> false | 3b, on N | -0.90909094 | 0.0 |
+    ///
+    /// Note what the first one is *not*: with the projection reverted but the
+    /// readability test still standing, NE reads **0.0**, not the -0.48 a
+    /// laden ant gave before either half existed. Both halves off is the
+    /// pre-2026-09-19 world (`PIXEL_PHYSICS_SENSOR_PROJECT=none`), and only
+    /// there do the off-row headings give the confident large negative -- E
+    /// -0.15 against NE -0.48 and S -0.63. Quoting that figure for the
+    /// projection alone would be attributing one half's damage to the other.
+    ///
+    /// **Deliberately not gated on `PIXEL_PHYSICS_SENSOR_PROJECT`.**
+    /// `sensor_projected()` caches in a `OnceLock` and the test binary shares
+    /// one process, so an arm that set the variable would pass or fail
+    /// depending on which test ran first.
+    #[test]
+    fn the_trail_sample_is_taken_where_a_trail_could_be() {
+        let mut w = test_world();
+        // Flat stone floor at y=101, the ant standing on it at y=100.
+        for x in 60..140 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        // A monotone ramp ON THE ANT'S OWN ROW ONLY -- nothing above, nothing
+        // below -- so a sample six rows off reads exactly 0 and the fault under
+        // test is the only one in the bed.
+        for x in 60..140 {
+            w.deposit_pheromone(Channel::A, x, 100, ((x - 60) as pheromone::Scent) * 64);
+        }
+        let id = spawn(&mut w, "ant", 100, 100);
+        let ant = w.species.id_of("ant").expect("ant");
+        let def = w.species.get(ant).creature.clone().expect("creature");
+        let so = def.sensor_offset;
+
+        // 1. **The positive control, before `sense` is called at all.** Without
+        //    it the whole test passes over an empty plane, which is the failure
+        //    `a_tile_seam_does_not_block_or_bias_diffusion` records shipping
+        //    twice.
+        assert!(
+            w.pheromone_at(Channel::A, 100 - so, 100) > 0 && w.pheromone_at(Channel::A, 100 + so, 100) > 0,
+            "the ramp is not under the sample points, so nothing below tests anything"
+        );
+        assert!(
+            w.pheromone_at(Channel::A, 100 + so, 100) > w.pheromone_at(Channel::A, 100 - so, 100),
+            "the ramp does not climb eastward, so the signs below are meaningless"
+        );
+        assert_eq!(w.pheromone_at(Channel::A, 100, 100 - so), 0, "the bed must be bare six rows up");
+
+        let along = |w: &World, h: u8| {
+            let (i, ..) = sense(w, 100, 100, id, h, &def, false);
+            i[brain::BrainInput::PheroAAlong as usize]
+        };
+        // `DIRS` order: 0 E, 1 NE, 2 N, 3 NW, 4 W, 5 SW, 6 S, 7 SE (+y is down).
+        let (e, ne, se) = (along(&w, 0), along(&w, 1), along(&w, 7));
+        let (west, nw, sw) = (along(&w, 4), along(&w, 3), along(&w, 5));
+        let (n, s) = (along(&w, 2), along(&w, 6));
+
+        // 2. The two headings that were always right are still right.
+        assert!(e >= 0.02, "east is up the ramp and must read so: {e}");
+        assert!(west <= -0.02, "west is down the ramp and must read so: {west}");
+
+        // 3. **The assertion that carries what ships**, and since 2026-09-20
+        //    what ships is the projected reading. A heading with a horizontal
+        //    component samples along the row its horizontal takes it down, so
+        //    on this bed NE and SE read where E reads, and NW and SW read
+        //    where W reads -- *exactly*, because every trail sample in `sense`
+        //    comes from `trail_sample_point` and nothing else in the along
+        //    arithmetic is heading-dependent. Equality rather than a sign
+        //    test: the defect guarded here is a nose on the wrong row, and
+        //    "reads the same row as E" states that claim directly instead of
+        //    approximating it.
+        //
+        //    **Red for the original fault.** Revert the projection and these
+        //    four go back to the confident large negative they always gave
+        //    (NE -0.48 against E's -0.15) -- which is not E's value, so the
+        //    equality fails rather than merely loosening.
+        for (h, v, want, named) in
+            [("NE", ne, e, "E"), ("SE", se, e, "E"), ("NW", nw, west, "W"), ("SW", sw, west, "W")]
+        {
+            assert_eq!(v, want, "{h} projects onto {named}'s row and must read what {named} reads, not {v}");
+        }
+
+        // 3b. **The two headings the projection deliberately leaves alone**,
+        //    which is the other half of the contract and not an exception to
+        //    it. N and S have no horizontal component, so they keep the full
+        //    offset -- right for an animal on a trunk, whose surface *is*
+        //    vertical -- and on this flat bed that puts the nose in open sky.
+        //    The readability test is what must turn that into exactly 0, "no
+        //    information", rather than the confident negative the old reading
+        //    produced. `assert_eq` against 0.0 rather than a tolerance,
+        //    because the whole defect was a number that was small-looking and
+        //    wasn't.
+        //
+        //    **Red for the honesty half on its own.** Drop `sensor_honest` and
+        //    these two go to a large negative while every line above stays
+        //    green -- the failure no assertion about the projection could
+        //    catch, and the reason the two halves have separate arms.
+        for (h, v) in [("N", n), ("S", s)] {
+            assert_eq!(v, 0.0, "{h} samples open sky and must report no information, not {v}");
+        }
+
+        // 4. ...and the projection is a property of the helper, asserted on
+        //    the helper so the geometry above stays pinned even if `sense`
+        //    stops calling it. **Tested through the helper, not the env
+        //    switch**: `sensor_projected()` caches in a `OnceLock` and the test
+        //    binary shares one process, so a `set_var` arm would pass or fail by
+        //    test order. On by default -- see `sensor_projected` for the
+        //    24-seed funnel that flipped it.
+        for (h, dir) in [(1u8, 0u8), (7, 0), (3, 4), (5, 4)] {
+            let proj = trail_sample_point(100, 100, h, so, false, true);
+            let flat = trail_sample_point(100, 100, dir, so, false, false);
+            assert_eq!(proj, flat, "projected heading {h} should sample where heading {dir} does");
+        }
+        assert_eq!(
+            trail_sample_point(100, 100, 2, so, false, true),
+            trail_sample_point(100, 100, 2, so, false, false),
+            "straight up has no horizontal component, so the projection must leave it alone -- \
+             that is what keeps a trail up a trunk readable"
+        );
+
+        // 5. The front slot reads the same cell the along slot does, whatever
+        //    that cell is -- one definition of "forward" in this function, not
+        //    two. Checked on E, where the trail is, so the value is non-zero
+        //    and the equality is not trivially true.
+        let (i_e2, ..) = sense(&w, 100, 100, id, 0, &def, false);
+        let expect = w.pheromone_at(Channel::A, 100 + so, 100) as f32 / pheromone::Scent::MAX as f32;
+        assert!(expect > 0.0, "the cell ahead must hold trail, or the line below is trivially true");
+        assert!(
+            (i_e2[brain::BrainInput::PheroAFront as usize] - expect).abs() < 1e-9,
+            "PheroAFront and PheroAAlong are reading different cells: got {} want {expect}",
+            i_e2[brain::BrainInput::PheroAFront as usize]
+        );
+
+        // 6. **The anti-trade assertion.** The laterals must keep their true
+        //    45-degree geometry: project them and `r - l` is identically zero
+        //    in every world, which is a worse bug than the one fixed here and
+        //    is invisible to every assertion above.
+        //
+        //    The bed has to put something where the LATERALS land, which is not
+        //    where the forward sample lands: facing E they are `at(NE)` and
+        //    `at(SE)`, i.e. `(x + so, y - so)` and `(x + so, y + so)` -- six
+        //    rows up and six rows down, not one. A band on only the upper one
+        //    makes left and right differ.
+        for x in 60..140 {
+            w.deposit_pheromone(Channel::A, x, 100 - so, 8000);
+        }
+        assert!(
+            w.pheromone_at(Channel::A, 100 + so, 100 - so) > 0 && w.pheromone_at(Channel::A, 100 + so, 100 + so) == 0,
+            "the lateral bed is not asymmetric, so a zero below would prove nothing"
+        );
+        let (i_e, ..) = sense(&w, 100, 100, id, 0, &def, false);
+        assert!(
+            i_e[brain::BrainInput::PheroALateral as usize].abs() > 1e-6,
+            "PheroALateral is identically zero -- ahead-left and ahead-right have been collapsed onto one cell"
+        );
+    }
+
+    /// **The declared footprint contains the cell the trail sensor actually
+    /// reads** — the one contract that spans two functions, asserted directly.
+    ///
+    /// `sense_read_rects` declares where `sense` reads, and `ParMode::Checked`
+    /// trusts that declaration to decide whether a cached sense is still valid.
+    /// Move the sample without moving the declaration and a neighbour can write
+    /// the real cell without invalidating the speculation: the creature acts on
+    /// a reading of a cell it never looked at. That is a **wrong world**, it
+    /// happens only under parallelism, and nothing prints.
+    ///
+    /// **This replaces relying on `a_speculated_read_phase_reproduces_the_
+    /// serial_world_exactly` for this fault, because that guard is blind to
+    /// it** — measured 2026-09-19 by injecting exactly the omission (the rects
+    /// left on the old geometry while `sense` projected) and watching it stay
+    /// green. It compares two world hashes over a 40-ant bed, so it can only
+    /// fire if a neighbour happens to dirty the divergent cell inside the
+    /// speculation window during those 150 steps. `CLAUDE.md` says a guard that
+    /// does not go red for its fault is not weak but blind, and is to be
+    /// replaced rather than widened. The structural form below cannot be blind:
+    /// it is the contract itself, over every heading, with no bed and no timing
+    /// in it.
+    ///
+    /// `sense_read_rects`' own doc already states the rule this asserts — *"the
+    /// sample points still have to be inside a rectangle"*. It was prose.
+    #[test]
+    fn the_declared_footprint_contains_the_trail_sensor_cell() {
+        let mut w = test_world();
+        for x in 60..140 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let id = spawn(&mut w, "ant", 100, 100);
+        let ant = w.species.id_of("ant").expect("ant");
+        let def = w.species.get(ant).creature.clone().expect("creature");
+        let so = def.sensor_offset;
+        assert!(so > 1, "a sensor offset of {so} would put the sample inside the body rect and prove nothing");
+
+        for heading in 0..8u8 {
+            w.organism_mut(id).expect("live").heading = heading;
+            let state = w.organism(id).expect("live").clone();
+            let fp = sense_read_rects(&w, 100, 100, id, &def, &state);
+            // **Both samples, since 2026-09-20.** The near one at `so` and the
+            // comparator's far one at `2 * so`
+            // (`trail_read_is_forward`). Checking only the near one left this
+            // guard blind to the sample that was just added, which is
+            // `CLAUDE.md`'s *a guard test must be able to fail for the
+            // REPLACEMENT artifact* -- verified the way that rule asks, by
+            // dropping `forward_far` from the declared rects and watching this
+            // go red on every heading.
+            for reach in [so, so.saturating_mul(2)] {
+                let (px, py) = trail_sample_point(100, 100, heading, reach, false, sensor_projected());
+                // **The SENSOR rects, not any rect, and the difference is the
+                // whole value of this guard.** Injected both ways: asserted over
+                // all of `rects` it stays green even with the declaration left on
+                // the old geometry, because the head rect happens to be wide enough
+                // for this species today -- `head` is the max of the crowding
+                // radius, the curvature radius and the eye, none of which is a
+                // promise about where the nose is. A species that evolved a smaller
+                // crowding radius would lose the coverage with nothing to say so.
+                // The contract is that the sensor rectangles cover the sensor
+                // points; anything else is a coincidence this file should not rest
+                // on.
+                let sensor_rects = &fp.rects[2..fp.used as usize];
+                let covered = sensor_rects.iter().any(|&(x0, y0, x1, y1)| px >= x0 && px <= x1 && py >= y0 && py <= y1);
+                assert!(
+                    covered,
+                    "heading {heading}, reach {reach}: sense reads ({px},{py}) and the sensor rects declare {sensor_rects:?} -- \
+                     a neighbour could write that cell without invalidating the speculation"
+                );
+            }
+        }
+    }
+
+    /// **A sample inside solid rock is no information either**, which is the
+    /// half of the repair that carries the non-flat cases: a creature in a
+    /// tunnel or against a wall gets silence rather than a confident negative.
+    #[test]
+    fn a_sample_buried_in_rock_reads_no_information() {
+        let mut w = test_world();
+        for x in 60..140 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        // A wall to the east, so the projected sample lands inside it.
+        for y in 90..102 {
+            for x in 104..112 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for x in 60..104 {
+            w.deposit_pheromone(Channel::A, x, 100, 20000);
+        }
+        let id = spawn(&mut w, "ant", 100, 100);
+        let ant = w.species.id_of("ant").expect("ant");
+        let def = w.species.get(ant).creature.clone().expect("creature");
+        assert!(
+            matches!(w.materials.kind(w.get(100 + def.sensor_offset, 100).material), MaterialKind::Solid),
+            "the wall is not where the sample lands, so this tests nothing"
+        );
+        assert!(w.pheromone_at(Channel::A, 100, 100) > 0, "the ant must be standing on trail, or 0 is trivial");
+        let (i, ..) = sense(&w, 100, 100, id, 0, &def, false);
+        assert_eq!(
+            i[brain::BrainInput::PheroAAlong as usize],
+            0.0,
+            "a sample buried in rock must read no information, not a strong negative"
+        );
     }
 
     #[test]
@@ -25002,6 +26112,76 @@ mod tests {
         assert_eq!(crop.passenger.map(|p| p.organism_id), Some(seed_id), "the surviving passenger must still be the same seed");
     }
 
+    /// **A joule in the crop and a joule in the animal are the same joule, and
+    /// exactly one census may hold it.**
+    ///
+    /// This is the guard the continuous payout needs and **it did not exist**.
+    /// Digestion pays out as a cell is chewed since 2026-09-20, so the crop
+    /// must be priced net of what has been eaten (`Crop::worth`). Price it at
+    /// face and every chewed joule is counted twice -- once in the animal's
+    /// bank, once as standing meat -- which is the accounting hazard that kept
+    /// the payout lumpy for a year.
+    ///
+    /// **The three ledger guards are BLIND to that fault, measured by putting
+    /// it back**: with `worth()` restored to `unit * cells`,
+    /// `the_standing_meat_never_exceeds_what_was_put_into_it`,
+    /// `a_sealed_colony_never_grows_its_own_biomass` and
+    /// `the_energy_ledger_still_closes_when_a_colony_breeds` all stay **green**.
+    /// They bound the total one-sidedly against a ceiling with headroom in it,
+    /// and a sealed box's ants never carry enough crop to cross it --
+    /// `CLAUDE.md`'s *check that a guard's inputs actually vary what it
+    /// guards*. So this one asserts the identity directly, on one animal, over
+    /// ticks where the answer is arithmetic rather than emergent.
+    #[test]
+    fn a_part_chewed_cell_is_never_counted_twice() {
+        let mut w = test_world();
+        for x in 0..200 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        // **`corpse`, not `leaf`, and that is not a detail.** `carried_meat`
+        // counts only materials flagged `worth_in_aux`, and corpse is the only
+        // one in the tree -- so a crop full of fruit or leaf is never standing
+        // meat in the first place and the double-count this guards cannot
+        // arise for it. The hazard is real for carried flesh and only for
+        // carried flesh, which is worth knowing before anyone argues from the
+        // lump payout again.
+        let corpse = w.materials.id_of("corpse").expect("corpse.ron must be registered");
+        w.plant_ant(20, 100);
+        let ant = w.get(20, 100).organism_id();
+        assert_ne!(ant, 0, "the ant must have hatched, or this measures nothing");
+        let species = w.organism(ant).expect("live").species;
+        let def = w.species.get(species).creature.clone().expect("an ant is a creature");
+        // **One cell, worth far more than one tick of chewing**, so every tick
+        // below is a PART-chewed cell -- which is the only state this guard is
+        // about. A unit the gut finishes in one tick would never enter it.
+        let unit = digest_rate_of(&def, &traits_of(&w, ant, &def)) * 20.0;
+        w.organism_mut(ant).expect("live").crop = Some(Crop { material: corpse, cells: 1, digesting: 0.0, unit, shade: 0, passenger: None });
+
+        let standing0 = carried_meat(&w);
+        assert!(standing0 > 0.0, "test setup: the crop must be worth something, or the identity below is 0 == 0");
+        let mut last = standing0;
+        for tick in 1..=5 {
+            creature_tick(&mut w, 20, 100, ant, &def, &SpecWindow::default());
+            let crop = w.organism(ant).expect("live").crop.expect("five ticks must not finish a twenty-tick cell");
+            let standing = carried_meat(&w);
+            // **The cell is worth what is left of it.** Face value here is the
+            // fault: it would hold `standing` at `standing0` for all twenty
+            // ticks while the animal was being paid, and this assertion is
+            // what goes red for it.
+            assert!(
+                standing < last,
+                "tick {tick}: the crop still prices at {standing:.4} after being chewed from {last:.4} -- \
+                 a joule credited to the animal is being counted as standing meat as well"
+            );
+            let left = f64::from(unit - crop.digesting);
+            assert!(
+                (standing - left).abs() < 1e-3,
+                "tick {tick}: the crop prices at {standing:.4} but has {left:.4} of its {unit:.4} left unchewed"
+            );
+            last = standing;
+        }
+    }
+
     /// **A2 -- a carried seed still decays on its own clock** (§2.5): the
     /// decay clock keeps running while riding in a crop, settled as one
     /// roll at delivery over the whole carried span rather than accruing
@@ -25223,6 +26403,30 @@ mod tests {
     /// exist.
     fn two_colony_bed() -> (World, u32, u32) {
         let mut w = test_world();
+        // **`home_bias` held at 0.0 for this bed, and that is not a
+        // convenience.** What these tests guard is the LEDGER — that both
+        // sides of a share are booked — and the bed reaches the crossing they
+        // exist for by letting ants from two colonies 30 cells apart mingle.
+        // `ant.ron` authored `home_bias: 1.0` on 2026-09-20 and a homed ant
+        // goes back to its own nest instead of wandering into the neighbour's,
+        // so **every share stayed inside one colony and the pair's own
+        // positive control went red** — `a_share_is_booked_on_both_sides`'s
+        // *"the crossing these accounts exist for is untested"*, which is the
+        // assertion doing its job rather than a flake. The equality itself
+        // still held.
+        //
+        // Pinned rather than worked around, because a ledger test that reaches
+        // its subject only as a side effect of how far ants wander is a test
+        // whose positive control any navigation change can switch off. The
+        // behaviour this removes is real and is recorded where it belongs:
+        // **homing makes colonies territorial**, which is a finding about
+        // `home_bias` and not about double-entry booking.
+        if let Some(id) = w.species.id_of("ant") {
+            if let Some(mut cdef) = w.species.get(id).creature.clone() {
+                cdef.home_bias = 0.0;
+                w.species.set_creature(id, cdef);
+            }
+        }
         for x in 10..190 {
             w.set(x, 101, Cell::new(material::STONE, 0));
         }
@@ -25288,7 +26492,21 @@ mod tests {
     #[test]
     fn a_share_is_booked_on_both_sides() {
         let (mut w, _, _) = two_colony_bed();
-        run(&mut w, 12_000);
+        // **36,000 rather than 12,000 since 2026-09-20, and the reason is the
+        // positive control below rather than the equality above.** The graded
+        // crop feeds an ant as it chews instead of in one lump at tick 291, so
+        // nobody in this bed is ever as hungry as they used to be, and the
+        // CROSSING -- a share that leaves one colony's books and lands in the
+        // other's -- stopped happening inside 12,000 frames. The guarded
+        // equality stayed green throughout, which is exactly the case
+        // `CLAUDE.md` says to distrust: `0 == 0` passes it, and only the
+        // control says whether the bed still contains the thing being
+        // asserted. Tripling the budget restores it.
+        //
+        // If this needs raising again, do not weaken the control instead: a
+        // bed that no longer produces a cross-colony share is a bed that
+        // cannot test these two accounts, however green the sum looks.
+        run(&mut w, 36_000);
         let out: f64 = w.all_colony_books().iter().map(|b| b.get(Account::SharedOut)).sum();
         let into: f64 = w.all_colony_books().iter().map(|b| b.get(Account::SharedIn)).sum();
         assert!((out - into).abs() <= 1e-9 * out.abs().max(1.0), "{out:.6} shared out against {into:.6} shared in");
@@ -25311,23 +26529,70 @@ mod tests {
     /// charge landing on the wrong colony passes the sum test above -- the
     /// total is still right -- and fails here, which is why both exist.
     ///
-    /// The bar is the world ledger's own drift on the same run rather than
-    /// a constant: the identity is `f32` banks summed into `f64` accounts,
-    /// so it is exact only up to the rounding the world identity already
-    /// carries, and a per-colony bar set tighter than the whole is a bar
-    /// that fails for arithmetic.
+    /// The identity is `f32` banks summed into `f64` accounts, so it closes
+    /// only up to that rounding and the bar has to be scaled to it.
+    ///
+    /// **The bar used to be the WORLD ledger's drift on the same run, and that
+    /// was wrong in a way that took a year of small drifts to expose.** The
+    /// world's drift is not an envelope around each colony's -- it is their
+    /// *signed sum*, so two colonies erring in opposite directions cancel and
+    /// the whole reads tighter than either part. Measured 2026-09-21 on this
+    /// bed, `sum_of_colony_d == world_d` to every printed digit at 3k, 6k, 12k
+    /// and 24k frames:
+    ///
+    /// | frames | colony 1 | colony 2 | world | old bar |
+    /// |---|---|---|---|---|
+    /// | 3,000 | +0.01219 | +0.00699 | +0.01918 | 0.02018 |
+    /// | 6,000 | +0.02288 | -0.00162 | +0.02127 | 0.02227 |
+    /// | 12,000 | +0.01157 | **-0.02809** | -0.01652 | **0.01752** |
+    /// | 24,000 | -0.01189 | -0.06327 | -0.07516 | 0.07616 |
+    ///
+    /// The 12,000-frame row is this test, and it is the row where the two
+    /// colonies' signs differ: colony 2 alone is larger than the cancelled
+    /// whole, so the old bar failed on arithmetic that is entirely correct.
+    /// The graded crop (2026-09-20) is what surfaced it -- paying a meal out
+    /// over ~291 chewing ticks instead of one lump multiplies the `f32`
+    /// additions by the same factor, so every drift grew until the old bar's
+    /// 1e-3 slack stopped covering the cancellation.
+    ///
+    /// **It is rounding and not a leak, and the sign is what settles that.**
+    /// Colony 1 runs +0.0122, +0.0229, +0.0116, **-0.0119** -- a walk that
+    /// changes sign, which no leak does. Against throughput it sits at
+    /// **4e-7 to 1e-5**, which is `f32` accumulation territory (machine
+    /// epsilon 6e-8 over ~10^4-10^5 additions) and four orders below the
+    /// smallest joule this engine books.
+    ///
+    /// So the bar is scaled to what actually flowed through this colony's own
+    /// `f32` banks, with about 18x headroom on the worst measured point. It
+    /// is still far tighter than any real misbooking: a mislabelled call site
+    /// fires every tick, and one account of one colony sent to its neighbour
+    /// costs hundreds of joules over this run, not hundredths. Injected
+    /// 2026-09-21 -- routing colony 2's `Metabolized` into colony 1 takes this
+    /// red by **1,234x** -- 1264.57 J apart against a bar of 1.02 -- while
+    /// `every_account_sums_over_the_colonies` stays green on the same tree,
+    /// because a charge on the wrong colony leaves the world total right and
+    /// that test structurally cannot see it. This is the fault this test is
+    /// named for, and the pair is why both exist.
     #[test]
     fn the_books_close_for_every_colony() {
         let (mut w, _, _) = two_colony_bed();
         run(&mut w, 12_000);
         let live = w.live_creature_energy_by_colony();
-        let whole = (w.live_creature_energy() - w.energy_ledger.expected_live_total()).abs();
         for (colony, books) in w.all_colony_books().iter().enumerate() {
             let held = live.get(colony).copied().unwrap_or(0.0);
             let expected = books.expected_live_total();
+            // Throughput, not the standing bank: `f32` error accumulates over
+            // every joule that ever crossed the bank, and a colony that has
+            // eaten and spent 10,000 J carries more of it than its remaining
+            // 500 J suggests. The 1e-3 floor keeps a colony that has barely
+            // traded from being held to a bar of nearly zero.
+            let through = books.income() + books.outgo().abs();
+            let bar = 1e-4 * through + 1e-3;
             assert!(
-                (held - expected).abs() <= whole + 1e-3,
-                "colony {colony}: its animals hold {held:.4} against books of {expected:.4} (the world's own drift is {whole:.4})"
+                (held - expected).abs() <= bar,
+                "colony {colony}: its animals hold {held:.4} against books of {expected:.4} \
+                 -- {:+.6} apart, against a bar of {bar:.6} for {through:.1} J of throughput",
+                held - expected
             );
         }
     }

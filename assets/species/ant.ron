@@ -377,6 +377,31 @@
         // `carried_cells` charges `move_cost_per_cell` for whatever is still
         // in the crop, so a fuller ant is a slower and more expensive one, and
         // nothing here is free.
+        // **The homeward steering, 2026-09-20 — the other half of the wire
+        // this file already carries.** `(HomeAligned, Move, 3.0)` above is a
+        // THROTTLE: it decides *whether* a laden ant steps, and it was shipped
+        // while `home_bias` — which decides *which of the viable headings it
+        // takes* — was never authored here at all and defaulted to 0.0. So the
+        // ant ran hard when it happened to point home and tumbled at random
+        // otherwise. Owner's decision, 2026-09-20, after the loop census.
+        //
+        // **1.0 because the response is linear to the cap**, measured: this is
+        // saturated rather than tuned, so there is no interior optimum to find
+        // and sweeping it further is wasted (`Reports/lanes/homing-return-arm.md`).
+        //
+        // **What it buys, honestly: the best arm measured and not a
+        // significant one.** 24 seeds, paired within seed, loop completions as
+        // a share of ants that reached food: median **34.8% -> 37.5%**, median
+        // loopers **2 -> 3**, sign **14/9/1**. Its positive control does fire —
+        // homeward tumbles go **0.00% -> 3.52%**, which is the counter that
+        // reads exactly zero when this field is 0.0. Read the sign test rather
+        // than the medians: 14 of 23 non-ties is a lean, not a result.
+        //
+        // **It is shipped anyway because the alternative is a half-built
+        // mechanism**: a throttle with no steering is the configuration that
+        // produced the 52% sideways miss in the drop census, and the two
+        // halves were always meant to run together.
+        home_bias: 1.0,
         crop_capacity: 2880.0,
         // **Derived from two brackets, not chosen**, and to be swept before
         // it is trusted (`CreatureDef::digest_rate`):
@@ -770,7 +795,24 @@
         // surface moved for every species on the shared scaffold regardless,
         // exactly as this file's copy of the comment above already says for
         // the append before this one.
-        mutation_rate: 0.0035570,
+        //
+        // **0.0033758, re-derived 2026-09-20** when `HomeAligned` appended --
+        // the return leg's own bearing, after the alignment census measured a
+        // laden ant reading its own trail negative whichever way it faces
+        // (`open-bugs-handoff.md` §Z29,
+        // `Reports/ant-return-leg-plan-2026-09-20.md`). An input column is 24
+        // live slots (16 outputs + 8 hidden), so `live_slots` 918 -> 942 and
+        // `3.18 / 942 = 0.0033758`.
+        //
+        // **Three appends between 2026-09-11 and here went into the value and
+        // not into this comment** -- `Stillness` (846 -> 870, 0.0036552),
+        // `CarryingFood` (870 -> 894, 0.0035570) and `PheroAHere` (894 -> 918,
+        // 0.0034641). Named rather than reconstructed: the complete ledger,
+        // with what each append cost and why, is the comment on
+        // `brain.rs`'s `the_live_slot_count_is_pinned_because_mutation_rate_
+        // is_derived_from_it`, which is also the test that fails if this value
+        // and that count ever disagree again.
+        mutation_rate: 0.0033758,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --
@@ -1219,6 +1261,85 @@
             // rather than argued -- round 33's lane note carries the
             // alive/born/starved columns across nine seeds.
             (Stillness, Move, 1.5),
+            // **The return leg's throttle, and the only wire in this file that
+            // knows where home is.**
+            //
+            // `home_weighted_pick` has aimed a laden body from `forage_anchor`
+            // since the homing work landed; `P(move)` has been set by
+            // `PheroAAlong` and nothing else. Measured 2026-09-20 over 8 seeds
+            // and ~500k laden decisions, that reading is **-0.20 pointed at
+            // home against -0.24 pointed away** -- negative in every alignment
+            // bin, because `here` is the ant's own freshest deposit and
+            // `ahead` is six cells out reading zero 70% of the time
+            // (`open-bugs-handoff.md` §Z29). So the pair above throttles the
+            // return leg on a signal that cannot tell home from away, and an
+            // ant pointed exactly at its own nest computed `P(move)` of about
+            // 0.078 and stood still. Direction without a throttle is not
+            // homing.
+            //
+            // **A direct wire rather than the gated pair every other sense
+            // here uses, and the reason is arithmetic rather than taste.**
+            // `Reports/ant-return-leg-plan-2026-09-20.md` Step 1 proposed the
+            // pair's shape on the one free hidden unit. Measured through the
+            // real evaluator (`brain.rs`'s `what_the_home_wire_emits`,
+            // `Reports/data/home-wire-response-curve-2026-09-20.log`) that form
+            // puts **-2.439 on every EMPTY ant's `Move`** -- a shut
+            // `(Bias, 7, -45)` unit reads `squash(-45) = -0.978`, not 0, and
+            // only the pair's mirror cancels it -- against a walking ant's
+            // `Move` sum of about +0.25. That is P(move) clamped to zero and a
+            // colony that never forages. The gate therefore moved upstream of
+            // `squash`, into the sensor (see `creature.rs`'s `sense`), which
+            // leaves this end a plain proportional term: **zero for an empty
+            // ant, zero across the bearing, +-w on it**.
+            //
+            // **3.0 because that is the authority the trail pair already
+            // has.** `squash(3.0) = 0.75`, and the pair is measured moving
+            // `P(move)` from 0.03 to 0.75 (`dead-ends.md`, the temporal
+            // comparator entry). So a laden ant pointed at home runs at the
+            // rate a laden ant on a perfect trail would have run at, and one
+            // pointed away is clamped to a stop and re-rolls its heading --
+            // which is the homing mechanism `creature_tick` already describes,
+            // finally driven by a quantity that knows the answer.
+            //
+            // **And it costs no hidden unit**, so unit 7 stays free and the
+            // collision with the 2026-09-19 fold-change plan does not happen.
+            //
+            // # What it buys, measured on the LOOP
+            //
+            // **The loop is the thing: follow the trail out, pick food up,
+            // turn round, carry it home, put it down, go again.** Measured
+            // 2026-09-20, 8 seeds, paired within seed, against `homewire=0` --
+            // which is this same genome with this one slot unread, so
+            // `mutation_rate`, `live_slots` and every dimension are identical
+            // across the pair and this wire is the only difference.
+            //
+            // **Completed laden returns, as a share of the ants that reached
+            // the food:** 6.8% -> **29.7%** pooled, per-seed median 2.2% ->
+            // 23.6%, and **better in 8 seeds of 8**. The blunter form of the
+            // same number: in **4 of the 8 control colonies not one ant ever
+            // completes the loop in the whole run**, and with the wire on that
+            // is **0 of 8** -- every colony has ants running it.
+            //
+            // **The gain is not the lever** -- 1.5 / 3.0 / 6.0 give 26.2% /
+            // 29.7% / 31.8% and per-seed medians within 1.5 points of each
+            // other. 3.0 is chosen because `squash(3.0) = 0.75` matches the
+            // authority the trail pair already has (measured moving `P(move)`
+            // 0.03 -> 0.75, `dead-ends.md`), not because the sweep picked it.
+            //
+            // **And the steering is real rather than a step-rate change.**
+            // Laden `P(move)` pointed at home goes 0.115 -> 0.509 while
+            // pointed away goes 0.078 -> 0.028 -- the two bins moving in
+            // OPPOSITE directions, which is what separates steering from
+            // `laden ants move more`. Home/away ratio 1.5x -> 18x.
+            //
+            // **What it costs, recorded and deliberately not gating this.**
+            // Larder intake falls (12,699 -> 2,280 J, 2/6/0) and colonies die
+            // sooner, because nothing at the nest banks a delivered cell
+            // (§7.28's granary) so the walk home is energy the colony does not
+            // get back. Owner's ruling 2026-09-20: **the loop is what this
+            // line is for, and starvation is not the axis it is judged on.**
+            // The granary is the fix for the cost and it comes next.
+            (HomeAligned, Move, 3.0),
 
             // -- what gets laid down ---------------------------------
             // Laden ants lay the food trail; that is what makes a

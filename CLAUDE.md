@@ -176,6 +176,15 @@ line* and kills the script instead, which reads as the same failure a second
 time. `for p in $(pgrep -x druid); do kill $p; done` is the one that works.
 Both cost twenty minutes on 2026-09-14, one after the other.
 
+**That `-f` trap is not about screenshots and bites hardest in a *wait* loop.**
+Any `pgrep -f`/`pkill -f` whose pattern appears in the wrapping shell's own
+command line matches itself, and `while pgrep -f 'cargo test --release'; do
+sleep 20; done` therefore **never exits** — which reads as the job never
+finishing rather than as a bug in the waiting. Worse than the kill case,
+because nothing dies and there is no error to notice: it simply waits until
+the watch times out. `pgrep -x <exe>` matches the process name and cannot
+match the shell. Hit again 2026-09-19, waiting on a test run.
+
 `filmstrip` writes a contact-sheet PNG — several frames of one run in a grid —
 so an artifact can be judged by eye without a window. Add `gif=1 out=x.gif` and
 it encodes an animation instead, still with no window and no GPU: reach for that
@@ -525,6 +534,45 @@ of scale, genuinely hard to judge on a one-cell-wide twig. Pair every debug
 channel with a probe that prints the values (`examples/plant_probe.rs`),
 and reach for it the moment the question turns quantitative.
 
+### "Why did it do that" is answered by tracing individuals, never by a population statistic
+
+**Owner's rule, 2026-09-20:** *"The best tests are when you check the ants'
+brains at every tick that mattered and check every decision they made and
+why."* Stated about ants and it is not about ants: it holds for anything that
+decides per individual — a plant choosing where to put a bud, a rigid body
+choosing where to break.
+
+**The cost of not doing it, measured in one session on one question** (*is the
+homing anchor what stops the foraging loop?*): **three** population splits, all
+arithmetically correct, all invalid, each in a different way — one underpowered
+by an order of magnitude (it could not resolve under 22 points and a 10-point
+gap was read as "no effect"), one whose grouping variable was reset by the
+engine mid-run so the groups contaminated each other, one whose denominator
+counted a different *kind* of event on each side and came out **37x backwards**.
+Against that, **one** per-tick trace of **one** animal answered it immediately
+and was never wrong: 186 ticks to walk home, then 3,300 standing on its own
+doorstep at `P(drop)` exactly 0.0000.
+
+**The mechanism of the failure is that an aggregate cannot carry the reason.**
+A rate says *how often*; it cannot say *because the gate it needed was shut*. So
+every question of the form "why is this not working" is a trace question, and
+reaching for a split is how you spend a day proving something you then have to
+withdraw.
+
+**And the pairing rule does not save you here, which is why this is its own
+entry.** `Reports/pheromone-trail-direction-2026-09-16.md` §7.37 found
+`tumbles_homeward` at 1,150 of 15,291 where **every one was a correct aim at a
+wrong target**: the "it fired" counter and the effect counter beside it *both*
+reported a working mechanism, because the aim did fire and the body did move as
+aimed. Only the per-tick trace, once it carried the target, could see it.
+
+**Practically:** trace every individual that reached the state in question, not
+one focal animal — `examples/trailfollow.rs`'s focal CSV is one ant by
+construction, and one ant is an anecdote until the population trace agrees with
+it. Put the *inputs and the chosen output* in the row, not just the position:
+an animal walking confidently to the wrong place and one that will not steer at
+all produce identical position rows.
+
 ### "Did it fire at all" needs a counter, not a picture
 
 An image shows
@@ -621,6 +669,31 @@ and six *better*. When the first number tells a clean story, something has
 usually collapsed the complexity — often the very thing being measured. The
 six cases, and why each could not answer, are in
 [`Reports/method-worked-cases-2026-09-05.md`](Reports/method-worked-cases-2026-09-05.md).
+
+### A parse is a measurement, and it inherits every dimension the run swept
+
+The instrument does not have to be the harness. **Keying a parse on fewer
+dimensions than the run varies pools them silently, last write wins**, and the
+result is a complete, plausible, tidy table about nothing. Nothing in the
+output says so: the rows look like rows.
+
+Measured 2026-09-20 on the ant line, and the shape is any swept harness here —
+`seedsweep`'s presets, `filmstrip`'s scenes, `labstats`' beds. A paired
+24-seed comparison was keyed on `(seed, arm)` while `trailfollow` sweeps
+**three commute distances**, so three experiments landed in one dict and the
+answer was whichever finished last. **The same run was also read before its
+writer had exited**, which is the same failure in time rather than in key —
+half the seeds carried one sweep's value and half the next.
+
+**The tell is two of your own instruments disagreeing on one file.** A chart
+script and a stats script over the same log gave 189 and 144 for one column;
+neither number was wrong arithmetically and neither answered the question.
+Nothing else caught it — every per-seed row was individually real.
+
+**So, before believing a parsed table: print the key's cardinality and check
+it against what the run swept** (24 seeds × 3 gaps, not 24 rows), **and wait
+for the writer to exit** — `pgrep -x <exe>`, never `-f`, which matches the
+waiting shell's own command line and hangs forever.
 
 ### When the complaint is visible and persistent, measure the standing state, not the event rate
 
@@ -823,7 +896,20 @@ regions `rigid::fracture_failing_region` declined and the cells they took --
 and `filmstrip` prints it as `crumbled to grit` beside the mean. Read that,
 not the mean, whenever the question is whether something turned to dust.
 
-### A timing number is only as trustworthy as the box was quiet
+**And when an A/B's arms have different denominators, an aggregate over the
+pooled events is a weighted average whose weights are the thing under test.**
+This rule was in front of a session that then made exactly this mistake, so it
+needs the mechanical form: **before quoting any per-run aggregate across arms,
+read its `n` across arms first.** Measured 2026-09-19 on the ant sensor, and
+the shape is any arm that changes how much of the run there is — a population
+that grows, a cascade that lasts longer, a colony that founds. Three arms over
+the same 36 seeds pooled **55,322 / 69,875 / 87,369** decisions, because their
+colonies were **1.0 / 2.5 / 11.0** animals at the median; pooled, the shipped
+change looked like it doubled the share of animals reading the signal
+correctly, and paired within seed it is **19/17** and moves nothing. The
+instrument was printing both reductions the whole time — the per-run block and
+a pooled footer — and the footer is the one that catches the eye. **The tell
+was on the same line as the mean**: the arms' `n` differed by 58%.
 
 Two runs of a **byte-identical** `examples/ascii` on bit-identical
 deterministic work disagreed **2.42x**, and on another scene reversed the

@@ -1,0 +1,24 @@
+# home_bias, 36 seeds, gap 90, arms=hand, refill=400, RAYON_NUM_THREADS=2, 2026-09-20.
+# Tree fcea4b88. Behind Reports/ant-navigation-plan-2026-09-20.md 4b.
+#
+# READ THE LEDGER COLUMNS. `DELIVERED` is NOT a provisioning measure -- it
+# increments on ANY drop while at_nest, whatever was dropped and wherever it
+# came from. trailfollow's own doc carries the disproof: at gap 300 `near on`
+# is 0 in all six seeds -- not one ant ever reached the food -- while `deliv
+# on` reads 0, 0, 6, 4, 13, 10. A change that drives laden ants to the nest
+# inflates that counter by construction, which is exactly what this one does.
+#
+# `ate J` is the ledger measure (ColonyBooks::diet), `came back` is the column
+# 7.47's null was about, and `carry->nest` is signed cells positive homeward.
+
+baseline hb_off, 36 seeds, `hand` arm, paired within seed
+
+  homeward tumble %                 hb_05:       5.6 36/ 0/ 0    hb_10:      10.5 36/ 0/ 0    hb_off:       0.0 (base)  
+  carry->nest (signed cells home)   hb_05:     226.0 27/ 9/ 0    hb_10:     254.5 34/ 2/ 0    hb_off:     123.0 (base)  
+  CAME BACK (round trips)           hb_05:       2.0 21/ 9/ 6    hb_10:       2.0 22/ 7/ 7    hb_off:       1.0 (base)  
+  trips laden                       hb_05:       1.0 18/ 8/10    hb_10:       1.0 19/ 9/ 8    hb_off:       1.0 (base)  
+  reached food                      hb_05:      11.0 13/20/ 3    hb_10:      10.0 11/24/ 1    hb_off:      12.5 (base)  
+  ate J (LARDER INTAKE)             hb_05:    7098.0 15/21/ 0    hb_10:    5586.0 15/20/ 1    hb_off:    8367.5 (base)  
+  carry@nest                        hb_05:   43239.0 18/18/ 0    hb_10:   42501.0 16/20/ 0    hb_off:   39689.0 (base)  
+  born                              hb_05:       2.0 12/20/ 4    hb_10:       0.0  5/23/ 8    hb_off:       3.5 (base)  
+  starved                           hb_05:      15.0 16/18/ 2    hb_10:      15.0 13/18/ 5    hb_off:      14.0 (base)  

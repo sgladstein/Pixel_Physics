@@ -3946,14 +3946,35 @@ same seed, same bed:
 | | terrain drops on | removed |
 |---|---|---|
 | pickups / losses | 17 / 16 | **2 / 1** |
-| mean hold | 104 ticks | **1,464** |
+| mean hold | 104 **frames** | **1,464 frames** |
 | longest hold | 570 | 1,740 |
 | digestions | 2 | **32** |
-| ticks lived | 8,891 | 16,985 |
+| frames lived | 8,891 | 16,985 |
 | died at x (nest 48) | 102 | 91 |
 
-Mean hold goes to **five times** the 291 ticks one 960 J cell needs, and the ant
-eats sixteen times more often.
+> **CORRECTED 2026-09-19 — these columns are FRAMES, and this section called
+> them ticks.** The row beneath the table read *"Mean hold goes to five times
+> the 291 ticks one 960 J cell needs"*, and it is wrong by
+> `CreatureDef::tick_interval`, which is **6** for the ant. The focal-ant CSV
+> writes one row per **frame** — `examples/trailfollow.rs` pushes inside the
+> per-frame organism sweep — while §7.29's 291 is in **ticks**, because
+> `digest_rate: 3.3` is charged once per tick.
+>
+> One 960 J `fruit` cell therefore needs **291 ticks = 1,746 frames**. The
+> post-fix mean hold of 1,464 frames is **244 ticks — less than one cell**, so
+> the shipped ant holds its food for about **0.84 of a digestion**, not 5x.
+>
+> **Verified against two long-lived ants rather than re-derived on paper**
+> (seed 1, gap 90, `hand`): one laden for 7,693 frames = 4.41 cells' worth of
+> clock recorded **4** completed digestions, and one laden for 8,718 frames =
+> 4.99 cells' worth recorded **5**. The model is exact.
+>
+> **Every duration in this section and §7.38 is in frames.** Divide by 6 before
+> comparing any of them against §7.29, and see §7.42 for what the corrected
+> arithmetic implies about the return leg.
+
+Mean hold goes to **0.84 of** the 291 ticks (1,746 frames) one 960 J cell needs,
+and the ant eats sixteen times more often.
 
 ### Step 2 — the digestion timer survives an empty crop
 
@@ -4143,6 +4164,60 @@ every one was a correct aim at a wrong target. That is the sharpest case yet for
 fired" counter and the `P(home)` effect counter beside it **both** report a
 working mechanism, because the aim fired and the body moved as aimed. Only the
 per-tick trace, once it carried the anchor, could see it.
+
+### ANSWERED 2026-09-20 — the anchor is real and it is not the ceiling
+
+**Read the third table. The first two are recorded because they are wrong, and
+each is wrong in a way this file already warns about.**
+
+**Attempt 1, birth site — INVALID, two independent defects.** Split loop
+completions by `born_on_nest` and read 33.3% against 23.5% as a null.
+
+- **Underpowered by an order of magnitude.** n of 30 and 34; the smallest
+  difference it could have called significant is **22 points**. Born-on-comb
+  ants could have been completing at nearly double the rate and it would still
+  have reported a dead heat.
+- **The grouping variable is not the causal one**, and one line of
+  `creature.rs` says so: `forage_anchor` is **re-set on every nest contact**, so
+  an off-comb-born ant that touches the comb once carries a *correct* anchor
+  from then on. The born-off group is contaminated with corrected ants — the
+  ones likeliest to complete a lap — which biases it upward, straight toward
+  the null that was reported.
+
+**Attempt 2, anchor validity at pickup — INVALID, the denominator.** Splitting
+by whether `forage_anchor` was on nest material gave **0.69% against 25.55%**,
+i.e. a correct anchor looking **37x worse**. The denominators were 3,600 against
+137: the anchor-ok side was swamped by ants **loitering on the comb**, picking
+the same cells up and putting them down, which have just touched nest material
+and can never close a loop because they never went outbound. Arithmetically
+correct, about a different question.
+
+**Attempt 3, the same split with the denominator restricted to pickups by ants
+that had actually reached the food** — 24 seeds, `gaps=90`, `arms=hand`:
+
+| `HomeAligned` wired | loops / return-leg pickups | rate |
+|---|---|---|
+| anchor **on** nest material at pickup | 25 / 73 | **34.25%** |
+| anchor **off** it | 35 / 123 | 28.46% |
+| | +5.79 pts, **0.85 SE**, paired **11/10/1** | no detectable effect |
+
+**The finding is the ceiling, not the difference.** A correct anchor buys at most
+a few points and the test cannot resolve it either way — but **66% of return legs
+fail with a verified-correct anchor** (95% interval on that rate 23–45%, so at
+best 55% still fail). Repairing the anchor moves the ~123 bad-anchor legs to at
+most the good-anchor rate: **about seven more completed legs in 196**. This
+section's own reading stands, and now on evidence that survives: *the anchor is a
+real defect and not, by itself, the blocker.*
+
+**So fix it on its own terms — an ant steering confidently to a private wrong
+place is a bug whatever it costs — and do not expect the loop to close.** What
+stops the other two-thirds is unmeasured, and it is upstream of the granary.
+
+**Independently reproduced on the way here:** a focal ant born at x 88, anchored
+at 88, `AtNest` **false for all 7,950 ticks of its life** — it reached its
+anchor, stood on it 732 ticks holding food at `P(drop)` exactly 0.0000, and died
+there. This section's ant in a different seed. The detour was avoidable:
+`Track::born_on_nest`'s own doc names this section.
 
 ### Three instrument repairs made here
 
@@ -4550,12 +4625,1069 @@ journey.
 and `legs-{shipped,hb1}-18seed-gap90-2026-09-19.log`, whose `LEGS` lines carry
 every raw sample the table pools.
 
-**And it sits above the hold.** §7.35 measured a post-fix mean hold of 1,464
-ticks on the focal ant. A median laden leg of ~1,850 against that is the shape
+**And it sits above the hold — corrected 2026-09-19.** §7.35 measured a post-fix
+mean hold of 1,464 **frames** (it said ticks; see the correction block there). A median laden leg of ~1,850 against that is the shape
 of the remaining failure — the journey outlasts the meal that pays for it — and
 it is offered as the comparison to make next rather than as a demonstrated
 mechanism, because the two numbers come from different beds and one of them is a
 single ant.
+
+## §7.42 The ant at the larder: the gate opens onto nothing, and the plane stops 25 cells short
+
+**2026-09-19.** Traced tick by tick, on the owner's question: an ant with
+`Carrying` at 1.0000 and the homing gate open — what is it deciding instead of
+going home, and why?
+
+### What it does
+
+Ant 16, seed 1, gap 90, `hand`. Longest gate-open run 1,728 frames (288 decision
+ticks) at x≈131, food at 138, nest band ending at 74.
+
+```
+frame    x   heading   moved  p_move  PheroAAlong    h0      h1   trail_term
+21552  131   S              0.3134     0.0000     0.3333  0.3333    0.0000
+21558  131   SE       NO    0.3114     0.0000     0.3333  0.3333    0.0000
+21588  131   NE       NO    0.2941     0.0000     0.3333  0.3333    0.0000
+21648  131   SW       NO    0.3608     0.0000     0.3333  0.3333    0.0000
+21684  131   N        NO    0.3899     0.0000     0.3333  0.3333    0.0000
+```
+
+`moved` is **NO on every tick**. The heading spins through all eight directions
+and no step is taken; net displacement over the window is **2 cells**.
+
+**Why each choice comes out that way.** `PheroAAlong` is **0.0000**, so `h0` and
+`h1` pin at a constant **0.3333** and their contribution to `Move` is
+**0.0000** — the homing pair is wired in and carrying nothing. What is left is
+`(Bias, +2.0)`, `(Energy, −1.75)` and `(FoodAdjacent, −1.16)`, giving
+`move_presquash` −0.60..−0.26 and P(move) 0.31–0.40. `p_tumble` is a flat
+**0.5000**, an uninformed re-roll. A stationary random walker.
+
+### The control, and it is decisive
+
+The one cohort member that went home, at the **same x**:
+
+| | `PheroAAlong` | P(move) facing home | facing away | net x |
+|---|---|---|---|---|
+| ant 16 (stayed) | 0.0000 flat | 0.5480 | 0.5352 | 131 → 129 |
+| ant 19 (went home) | −0.012 … +0.015 | **0.4099** | **0.2557** | 131 → **119** |
+
+`ant.ron` calls that ratio *"the homing mechanism"*. It is intact. Its input is
+zero.
+
+### Why the input is zero — and the first answer was wrong
+
+**Outbound ants lay the plane.** An earlier reading on this branch said it never
+extends because no ant returns to lay it; that is false and `aprofile` (added
+with this section) shows it directly. Seed 1, gap 90, amplitude along the route:
+
+```
+f=6000  63:155  68:1351  73:2011  78:1135  83:837  88:715  93:916
+        98:1768 103:595 108:590 113:1784 | 118:27  123:4  128:12  133:0  138:0
+```
+
+Strong and continuous from the nest to **x≈113**, about 85% of the way, then a
+cliff. **133 and 138 read 0 in every sample of every window.** The food is at
+138 and the ants that reach it stand at 128–138 — past the edge.
+
+**It is transient as well as short.** Down to 21–120 across the whole route by
+f=7500 and zero nearly everywhere by f=9000. The traced window above is
+f=21,552, long after anything existed anywhere.
+
+### The loop that holds the edge short
+
+Two rules colliding, both already in the engine:
+
+1. **Deposits happen only on a successful move** — `creature.rs`,
+   `if moved { ..deposit.. }`. A stationary ant lays nothing.
+2. **Arriving at food is what stops an ant moving** — `(Energy, Move, −1.75)`
+   and `(FoodAdjacent, Move, −1.16)` both bite at once on a fed ant standing on
+   the larder.
+
+So: reach food → fed and on food suppress `Move` → stop walking → **deposit
+nothing** → no channel A at the larder → no homing gradient → no reason to move
+→ stay stationary. **The plane's outer edge sits where ants are still walking,
+and arrival is what ends walking**, so it cannot reach the thing ants walk
+toward.
+
+**It is not density.** The far band is the *most* crowded of the eight, at 127
+per 1k. The ants are there; they are not moving.
+
+### What this predicts, and the cheap test
+
+An ant that kept moving at the larder would lay the missing stretch itself. That
+is testable as an **ablation switch** rather than a genome edit — zero
+`(FoodAdjacent, Move)` for one arm and read `aprofile` at 128–138 — and it is
+the control to run before proposing any change to the wires.
+
+**Instruments added for this**: `focaln=N` (cohort tracing with an `id` column,
+because one ant is n=1), the return ledger, and `aprofile`/`aprofevery`/
+`aprofstep`. A `p_tumble` column bug was found and fixed on the way: it printed
+the raw brain output clamped instead of `unit_scale`d, reading **0.0000 on every
+row of every ant**, whose obvious reading — *the ants never change direction* —
+is the opposite of the truth.
+
+## §7.43 The homing plane made four times more readable, and not one extra round trip
+
+**2026-09-19.** §7.42 found an ant at the larder reading `PheroAAlong = 0.0000`
+and concluded the plane was unreadable where the ants stand. This is the sweep
+that followed, and it refutes the repair rather than confirming it.
+
+### The plane is a scatter of bursts, not a ramp
+
+First, what `aprofile` shows once it is time-averaged rather than read off one
+frame. Over 3 seeds x 18 samples, channel A's **median is 0 from x=78 outward**
+while its means run 100-470, and route cells are nonzero **55% of the time near
+the nest, 25-40% mid-route, 3.7% at x=134 and 0% at 136-138.**
+
+Per cell over time it is a sawtooth — x=62 reads 2857, 809, 2476, 114, 720, 32,
+0. An ant walks over, deposits, and it decays to nothing before the next one
+arrives. **So the ramp in §7.42 is an artifact of averaging bursts, and no ant
+ever stands on it.** That is `CLAUDE.md`'s *ask what your number counts*, and the
+mean profile walked the previous section into it.
+
+### The guard was not the suppressor
+
+§7.42 proposed re-deriving `sense`'s `guard = SCALE` on the grounds that it is
+95% of the denominator where the plane is faint. Swept post-hoc at guard 256
+against 16, readability moves **0-4 points at every x and every baseline** — the
+failure is both cells reading exactly zero, and `(0-0)/(0+0+g)` is zero for any
+guard. **That proposal is withdrawn.**
+
+### The sweep the register's own conditions had opened
+
+`DIFFUSE` and `DECAY_RHO` both carry re-test conditions tied to the plane being
+`u8` (`dead-ends.md:1200-1202`), and the `u8` -> `u16` widening landed
+2026-09-15 without either being re-swept. `arho=` / `adiffuse=` reach channel A
+alone; B is untouched, because a food trail and a homing ramp want different
+lifetimes.
+
+36 seeds, gap 90, `hand` arm, one binary. `READ%` is the fraction of route-cell
+samples on which an ant facing the nest gets a homeward `along` of at least 0.02
+— the bar a real ant was observed to act on (§7.42's homing cohort member did it
+on ~0.01).
+
+| channel A decay | READ% | plane lit % | ants reached food | **round trips** | ants alive |
+|---|---|---|---|---|---|
+| **0.03, shipped** | 13.7 | 25.9 | 5,359 | **47** | 683 |
+| 0.01 | 21.2 | 37.3 | 1,514 | 29 | 304 |
+| 0.0075 | 23.5 | 40.9 | 460 | 23 | 120 |
+| 0.005 | 27.4 | 45.1 | 390 | 27 | 108 |
+| 0.002 | 40.2 | 59.5 | 375 | 38 | 87 |
+| 0.0 | **54.6** | 68.5 | 814 | **48** | 124 |
+
+Diffusion is nearly inert here — 0.05 against 0.25 at fixed decay moves `READ` by
+1-3 points — so the rows above vary decay alone. That is itself a correction:
+`DIFFUSE`'s doc argues it dominates *an isolated cell's lifetime*, and for
+readability across a route it does not.
+
+**Readability rises fourfold, colony size falls eightfold, and round trips do not
+move.** 47 at shipped, 48 at the most readable setting, 23-38 everywhere between.
+
+### The rate that looked like a win was a denominator collapse
+
+`back/reached` reads 0.88% shipped against 5.90% at decay 0 — 6.7x, and the
+paired sign test on `came back` is **20 seeds better, 6 worse, 10 tied**, which
+is p < 0.01 against no effect. Both are real and both are about the wrong thing:
+
+| | shipped | decay 0 |
+|---|---|---|
+| round trips | 47 | **48** |
+| ants that reached food | 5,359 | **814** |
+| ants ever alive | 5,890 | **1,244** |
+
+The rate improved because the denominator fell 6.6x. Per-seed the difference is
+**median +1.0 but mean +0.03**, min **-30**, max +3 — many small wins and one
+catastrophic loss, which is exactly the distribution that makes a median and a
+total disagree. **The honest statement is that round trips are flat.**
+
+### What this rules out, and what it points at
+
+**Readability is not the binding constraint.** A plane four times more readable,
+lit on 68% of route cells instead of 26%, produces the same ~47 round trips. So
+the ant reads a homeward gradient and does not convert it into homeward
+displacement.
+
+That points at §7.42's D4 rather than its D1: `p_move` ~0.5 against a flat
+`p_tumble` of 0.5 gives a heading change every ~4 ticks — **a mean run of about
+2 cells** — and the homing pair modulates *whether to step*, not *which way*.
+A ratchet that biases stepping cannot accumulate displacement when the heading
+is re-rolled uniformly every two cells. `BrainOutput::Persist`'s own doc names
+this: *"the single number that decides milling versus commuting — median net
+displacement was 2% of path length."*
+
+### Why it cannot convert — the ant reads its own deposit (§Z29)
+
+Chasing the flat outcome into the per-tick traces found the cause, and it is
+upstream of everything above. **Laden ants only**, since the homing pair is
+gated shut for an empty one:
+
+| run | facing HOME gives along > 0 | facing AWAY gives along < 0 |
+|---|---|---|
+| seed 1, shipped | **8.2%** | 60.3% |
+| seed 6, shipped | **1.2%** | 78.7% |
+| seed 1, decay 0 | **7.5%** | 91.9% |
+| seed 6, decay 0 | **2.5%** | 20.9% |
+
+Facing the nest gives a homeward reading on **1–8% of laden ticks**. The
+reading is negative *whichever way the animal faces*.
+
+`step` deposits channel A at the ant's own head cell after a successful move,
+and `sense` reads that same cell as `here`. So the cell underfoot is the
+freshest thing in the neighbourhood and `ahead − here` is negative by
+construction. Reconstructed from `along` and `PheroAFront`, median `ahead` is
+**0.0** against a median `here` of **105 and 457**, with `here > ahead` on
+**75–87%** of laden ticks.
+
+**This is why a four-times-more-readable plane bought nothing**: the signal got
+bigger and stayed negative in every direction. It also explains the measured
+ratchet of +0.04 to +0.11 where `ant.ron`'s own note describes 0.84 against 0 —
+`|along|` is healthy (median 0.23–0.53 against the 0.486 that note needs), and
+what is broken is the **correlation between heading and sign**, which no census
+of the plane or the reading can see.
+
+Filed as §Z29 with fix candidates; it is not §Z7, whose homing half was fixed
+2026-09-09 and which concerns the gate rather than its input.
+
+***Re-test this decay sweep when:*** §Z29 is fixed. Until then it measures a
+reader that is looking at its own footprints, and every row above will
+reproduce.
+
+**Data:** `Reports/data/achannel-decay-*-36seed-gap90-2026-09-19.log`,
+`aplane-profile-seed1-2026-09-19.txt`.
+
+## §7.44 The §Z29 fix works, and the colony starves doing it
+
+**2026-09-19, same night as §7.43.** §Z29 says the ant stands on its own
+freshest deposit so `along` reads negative whichever way it faces. This is the
+repair, measured — and the one place it fails is the one the register predicted.
+
+### The repair
+
+`PIXEL_PHYSICS_DEPOSIT_AT=vacated` lays the mark on the cell the ant just left
+rather than the head it arrived on. Unset is bit-identical; P-11 is untouched,
+the deposit still happening only on a successful move.
+
+**Alone it does nothing** — 41 round trips against 47, paired 11 better / 7
+worse, total −6. The traces say why: it removes the negative bias without
+creating a positive one, because the ambient plane it then reads has no slope.
+Facing home gives `along > 0` on 4.0% and 13.4% of laden ticks against 8.2% and
+1.2% shipped: the reading goes from negative to roughly zero.
+
+**With a persistent plane it is the strongest result of the session.** 36 seeds,
+gap 90, `hand` arm:
+
+| arm | READ% | ants ever | round trips | trips per 1k ants | deliveries | alive |
+|---|---|---|---|---|---|---|
+| **shipped** | 13.7 | 5,890 | **47** | 8.0 | 322 | 683 |
+| vacated | 13.7 | 7,067 | 41 | 5.8 | 162 | 885 |
+| vacated + decay 0.02 | 16.0 | 1,433 | 21 | 14.7 | 77 | 169 |
+| vacated + decay 0.01 | 20.3 | 907 | 20 | 22.1 | 59 | 127 |
+| vacated + decay 0.005 | 27.6 | 803 | 36 | 44.8 | 151 | 60 |
+| vacated + decay 0.002 | 41.7 | 830 | 46 | 55.4 | 506 | 62 |
+| **vacated + decay 0** | 53.9 | 857 | **61** | **71.2** | **693** | 73 |
+
+Paired on round trips against shipped, `vacated + decay 0` reads **21 seeds
+better, 6 worse, 9 tied**, median +1.0, total **+14** — the only arm all session
+to move trips up on both the total and the paired test. The per-ant rate rises
+**monotonically with persistence, 8.0 → 71.2 per thousand, a factor of nine.**
+
+The ratchet is the strongest measured: P(move) **0.4155 facing home against
+0.2629 facing away** (+0.1526) where shipped reads +0.0630. And it works by
+*stalling an ant pointed away* rather than speeding one pointed home — which is
+how run-and-tumble is supposed to work.
+
+### And then the colony starves
+
+| arm | deliveries | **ate J** | born | starved | alive |
+|---|---|---|---|---|---|
+| shipped | 322 | **6,151,294** | 5,173 | 755 | 683 |
+| vacated | 162 | 7,918,778 | 6,359 | 592 | 885 |
+| vacated + decay 0.002 | 506 | **234,086** | 110 | 588 | 62 |
+| vacated + decay 0 | 693 | **270,810** | 137 | 595 | 73 |
+
+**Intake falls 23-fold while deliveries double.** Births go 5,173 → 137. The
+starvation *rate* goes from 13% of ants ever alive to **69%**. Per ant,
+deliveries rise about eightyfold while the colony that makes them cannot feed
+itself.
+
+The mechanism is not subtle and it is not new: **a delivered cell is left on the
+ground and nothing banks it**, so an ant that walks its meal home has spent the
+journey and given the colony a cell it does not eat. Shipped ants survive by
+*not* delivering.
+
+**The alternative reading, stated because it is the honest rival:** the colony
+might collapse first for another reason, leaving delivery as a survivor effect.
+Per-ant deliveries argue against — 5.06 per ant against 0.06 — but this is one
+bed and the confound is real.
+
+### What this settles about the granary
+
+Earlier in this session the claim "the granary gates all of this" was withdrawn
+on the grounds that banking a delivered cell cannot make a gradient readable.
+**That withdrawal was right about the mechanism and wrong to drop the gate.**
+The two claims are separate and both are now measured on this branch:
+
+1. The granary does **not** fix channel A. §Z29 is a sensing bug with a sensing
+   fix, and the repair above needs no economy change to work.
+2. The granary **does** gate whether working homing is survivable. Tonight it
+   reproduced twice by different routes — `home_bias 1.0` (59 alive against
+   1,301, §7.41) and `vacated + decay 0` (73 against 683, here).
+
+So the order is: §Z29's repair is a real fix to a real bug and should land on
+its own terms; **turning the persistence up to exploit it is gated on a larder**
+(§7.28), exactly as §7.27 said and for exactly the reason it gave.
+
+***Re-test the decay ladder when:*** a nest drop banks the cell's worth. Until
+then every row above trades colony for commuting and the trade is the economy's,
+not the sensor's.
+
+**Data:** `Reports/data/z29-*-36seed-gap90-2026-09-19.log`.
+
+## §7.45 The P(move) column was in the wrong units, and correcting it moves the diagnosis
+
+**2026-09-19, overnight after §7.44.** Everything below follows from one line
+of the harness being wrong, and the correction makes the homing circuit look
+**better** than reported while moving the blame somewhere else entirely.
+
+### The bug
+
+`examples/trailfollow.rs` wrote the `p_move` column as
+`brain::unit_scale(out, 1.0)` = `(out + 1) / 2`. `src/sim/creature.rs:4368`,
+which is what actually rolls the step, uses `out.clamp(0.0, 1.0)`. Those are
+different functions. `unit_scale` is the right convention for `Tumble`,
+`Persist` and `Caution` — and `Move` is the one output that does not use it.
+
+They differ most exactly where this ant lives: **every negative `Move` output
+prints as something between 0 and 0.5 under `unit_scale` and is rolled as a
+hard zero.**
+
+**The control cost nothing and was already on disk**, which is the part worth
+carrying: the cohort traces carry positions, so the observed step rate per
+printed bucket says which function the engine is using.
+
+| printed `p_move` | ticks | ants stepped | if the column were P | if P = `clamp(2p−1)` |
+|---|---|---|---|---|
+| 0.15 | 4,328 | **0.0%** | 15% | 0% |
+| 0.25 | 1,373 | 0.0% | 25% | 0% |
+| 0.45 | 1,458 | 0.1% | 45% | 0% |
+| 0.55 | 1,907 | 12.3% | 55% | 10% |
+| 0.75 | 1,096 | 48.3% | 75% | 50% |
+| 0.95 | 51 | 76.5% | 95% | 90% |
+
+Weighted absolute error over 13,248 ticks: **1.4 points for `clamp`, 27.7 for
+`unit_scale`.** In the four lowest buckets the column claimed 5–35% and the
+ants stepped **0 times in 6,819 ticks**.
+
+### What it changes
+
+Every `P(move)` figure in §7.41–§7.44 is in the wrong unit. The corrected ones,
+`gate=shipped gaps=90 arms=hand`:
+
+| | as reported | corrected |
+|---|---|---|
+| ratchet, P(move) up-gradient − down | +0.0630 / +0.1526 | **+0.2620 / +0.6255** |
+| engine P(move) exactly **zero** | not measured | **48–72% of all ticks** |
+
+The old number was not merely small; it was a mean over ticks where the homing
+term is **disconnected**. Zero plus a small number is still zero, so on 62% of
+this ant's ticks the gradient cannot move the behaviour at all whatever it
+reads. A mean across that boundary is `CLAUDE.md`'s "ask what your number
+counts" with the clamp doing the hiding.
+
+### And split out, the circuit is doing exactly what run-and-tumble should
+
+`not resting %` is the share of ticks the clamp has *not* already pinned at
+zero; `P(move)|>0` is the mean over only those. Twelve seeds, gap 90:
+
+| arm | facing up-gradient | | facing down-gradient | |
+|---|---|---|---|---|
+| | not resting | P(move)\|>0 | not resting | P(move)\|>0 |
+| shipped | **90.8%** | 0.636 | **16.4%** | 0.046 |
+| vacated | 88.3% | 0.559 | 22.0% | 0.055 |
+
+**The homing drive is almost entirely the rest gate and barely at all the
+speed** — an ant facing up the ramp is five and a half times more likely to be
+in a state where it can step at all, and when both are moving they move at
+similar rates. That is the mechanism the design asked for, working.
+
+### So the bottleneck is not the ratchet. It is that the reading is almost
+### never positive
+
+Same runs, the count the split is taken over:
+
+| arm | laden ticks facing **up** | facing **down** | ratio |
+|---|---|---|---|
+| shipped | 11,255 | 169,037 | **15.0 : 1** |
+| vacated | 12,521 | 173,300 | 13.8 : 1 |
+
+An ant reads the homing plane as pointing the way it is facing on about **6% of
+its laden ticks**. `§Z29`'s vacated deposit moves that 15.0 → 13.8 and no
+further. **Everything downstream is fine; there is nothing coming in.**
+
+And the arithmetic closes: facing up-gradient the ant nets **+0.0142 cells/tick**
+homeward, facing down **+0.0011**. Pooled that is +0.0017/tick, so 90 cells
+takes about **53,000 frames** — more than twice the whole run.
+
+### T0: the guard is not the suppressor, and this is now settled
+
+§7.42's D5 said `sense`'s `guard = SCALE` (256 raw) swamps a faint plane —
+95% of the denominator at the food end against 2.5% at the nest. Post-hoc over
+36 recorded profiles (3 seeds × frames ≤ 6,000), recomputing what an ant facing
+home would read at every x:
+
+| x | g256/b6 | g16/b6 | g256/b30 | g16/b30 |
+|---|---|---|---|---|
+| 78 | 17% | 19% | 47% | 53% |
+| 108 | 28% | 28% | 36% | 39% |
+| 138 | 3% | 3% | 22% | 22% |
+
+**A sixteenfold cut in the guard moves readability 0–5 points at every x and
+every baseline.** The baseline does about twice as much — and 30 cells is the
+radar reach already rejected on plausibility. **Part 1 of the plan is dead**,
+and cheaply: no code was written.
+
+### T1: the plane is not spiky. It is absent
+
+D2 ("spikes that locally invert") rested on one sample. Time-averaged over 3
+seeds × 18 frames:
+
+| x | mean | median | nonzero% |
+|---|---|---|---|
+| 48 (nest) | 228.4 | **6.5** | 55.6% |
+| 78 | 196.9 | **0.0** | 48.1% |
+| 108 | 30.9 | 0.0 | 25.9% |
+| 122 | 56.7 | 0.0 | 25.9% |
+
+**Median zero from x=78 outward, and a quarter of samples lit past x=106.** The
+mean-to-median ratio of 35:1 at the nest is the signature: this is a scatter of
+short-lived bursts, not a ramp with noise on it. So D2 is the wrong reading of
+D1 — there are no spikes to smooth, there is nothing there most of the time.
+
+### T2: the run is over before the ant has moved once
+
+Run-length census over five cohort traces, one row per tick:
+
+| | shipped | vacated | vacated + decay 0 |
+|---|---|---|---|
+| run length, ticks (mean / median) | 3.35 / 2 | 3.15 / 2 | 3.13 / 2 |
+| run length, **cells** (mean) | **0.35** | 0.30 | 0.37 |
+| net displacement / path length (median) | 12.0% | 15.7% | 4.7% |
+| **actually stepped on** | **13.0%** of ticks | 12.4% | 16.4% |
+
+The plan predicted "a mean run of ~2 cells". It is **0.35**. The heading turns
+over about six times faster than the body moves, because the tumble roll fires
+in the `else` of a *failed* move — so an ant the ratchet has correctly stalled
+re-rolls the heading it was stalled for, about every other tick.
+
+### The constant that was lost in a refactor, and did not turn out to matter
+
+`dead-ends.md:1083` records the measurement: re-orienting on **every** failed
+move roll took food discovery from 33 pickups to **1**, and
+`TUMBLE_ON_FAILED_MOVE = 0.35` was the fix. That const became
+`BrainOutput::Tumble`, whose silent output is `unit_scale(0.0)` = **0.5**, and
+`ant.ron` authors no `Tumble` wire — so the shipped ant has been re-rolling on
+half its failed rolls against an authored answer of 0.35, and nothing said so.
+`Persist` is the same shape: an anonymous `0.15` became a silent **1.0**.
+
+Restoring them, and the gradient-into-`Tumble` wiring that output's own doc
+asks for. Twelve seeds, gap 90, `arms=hand`, paired within seed against
+shipped on **`came back / reached food`** — a rate, because two arms scored
+`reached food` in the thousands on colonies that founded rather than navigated:
+
+| arm | reach/seed | back/seed | homing rate | sign b/w/t | median Δ |
+|---|---|---|---|---|---|
+| shipped | 9.0 | 1.0 | 6.61% | — | — |
+| vacated | 10.0 | 0.0 | 3.68% | 2/7/3 | −2.09 |
+| + tumble 0.35 | 13.0 | 0.0 | 3.14% | 3/6/3 | −0.97 |
+| + tumble 0.20 | 11.5 | 1.0 | 7.19% | 5/4/3 | +0.00 |
+| + tumble 0.10 | 7.5 | 0.0 | 9.62% | 4/5/3 | +0.00 |
+| + persist 1.5 | 11.5 | 0.5 | 6.47% | 4/5/3 | +0.00 |
+| + persist 0.5 | 10.5 | 0.0 | 0.21% | 3/6/3 | −2.50 |
+| + `PheroAAlong→Tumble` −3.0 | 12.0 | 0.0 | 2.96% | 3/6/3 | −2.50 |
+| + tumble 0.35, persist 1.5 | 10.0 | 1.0 | 0.99% | 5/4/3 | +0.00 |
+
+**Null, every arm.** Best sign test 5/4/3, median difference zero. L3 does not
+fix homing.
+
+**Read the totals in that sweep as the trap they are.** `persist 0.5` scored
+`reached food` **6,615** against shipped's 121 and `born` 6,638 against 37 —
+and its per-seed median reach is **10.5 against 9.0**. One or two seeds founded
+a colony and the rest did not; the thousands are population, not navigation.
+The pooled homing *rate* on that arm is **0.21%**, the worst in the table.
+
+### What this leaves
+
+The sensor is fine. The ratchet is strong and correctly shaped. The plane is
+the whole of it, and the number to move is the **15:1 down:up ratio** — which
+needs to know whether the ramp points at the food (§7.15's polarity inversion)
+or whether a milling ant builds a mound of its own deposits and reads downhill
+in every direction. `A READ` now prints the **foodward** reading beside the
+homeward one, which separates those two for the first time: a ramp pointing at
+the food gives one high and one low, a mound gives both low.
+
+**Data:** `Reports/data/runlength-12seed-gap90-2026-09-19.log`.
+
+## §7.46 The homing plane was being erased faster than an ant can walk home
+
+**2026-09-19, following §7.45.** With the sensor cleared (§7.45: the ratchet is
+strong, correctly shaped, and reads a positive gradient on 6% of laden ticks),
+the remaining suspect was the plane. `dead-ends.md:1202` had left the decay
+sweep open — *"a wider-precision plane would need re-sweeping"*, a condition
+met when `u8` → `u16` landed on 2026-09-15 and never acted on. This is that
+sweep, and it is the strongest result on this line.
+
+### The dose-response
+
+36 seeds, gap 90, `arms=hand`, paired within seed on **`came back / reached
+food`** — a rate, for §7.45's reason. `arho` is channel A's decay per pass;
+`DECAY_RHO` ships at 0.03 on both trail planes.
+
+| channel A rho | homeward readable | foodward | plane lit | homing rate | sign b/w/t | median Δ |
+|---|---|---|---|---|---|---|
+| **0.03 (shipped)** | 13.6% | 12.9% | 26.1% | **0.88%** | — | — |
+| 0.01 | 20.5% | 15.0% | 35.4% | 1.02% | 12/8/16 | +0.00 |
+| 0.005 | 27.9% | 17.6% | 44.8% | 1.51% | 16/8/12 | +0.00 |
+| **0** | **53.2%** | 15.6% | 69.2% | **14.84%** | **23/6/7** | **+8.37** |
+
+Four settings, monotone in both the mechanism number and the outcome, which is
+better evidence than any single arm. The sign test on `rho 0` is 23 better, 6
+worse, 7 tied over 36 seeds — **p ≈ 0.002** two-sided over the 29 non-ties.
+
+Note the **foodward** column barely moves while homeward quadruples. The plane
+does not merely get louder; it becomes a **ramp that points home**, 3.4:1
+against the shipped arm's 1.05:1 coin flip.
+
+Adding §7.45's tumble constant on top gives 24/5/7 and median **+11.81**; tumble
+**alone** is 9/11/16, median 0.00. So run length is not a second lever, it is a
+multiplier on a plane that is readable in the first place.
+
+### Why only zero works, and it is about how slowly this ant walks
+
+`rho 0.005` is null. The required lifetime is not a tuning matter: §7.45 measured
+the laden ant netting **+0.0142 cells/tick** homeward at best, so a 90-cell walk
+is tens of thousands of frames, and at `PHEROMONE_INTERVAL = 12` a run of 24,000
+frames is 2,000 decay passes. `0.995^2000` is 4.5e-5. **Nothing but zero survives
+the trip.** Channel A was being erased between one ant's visit and the next.
+
+### "Rho 0" does not mean the plane never forgets, and the control says so
+
+The obvious objection is that a plane which does not decay is a plane that never
+clears and never sleeps. `examples/ascii scene=pheromone` is the control, and it
+is titled for exactly this claim — *"a blob spreads, drains to zero, and the
+plane goes back to sleep"*:
+
+| | at deposit | after 400 frames | after 4,000 |
+|---|---|---|---|
+| shipped | max 200 | max 60 | **max 0** |
+| `A_RHO=0` | max 200 | max 166 | **max 0** |
+
+**Diffusion, not decay, is what erases this plane** — which is what
+`set_channel_diffuse`'s own doc already said in a different context (the blend
+takes 16.7% per pass against decay's 2.9%, so decay "is close to inert because
+it is the smaller term"). A 3x3 mean of a thin trail rounds to zero at low
+values, so a weak plane still dies; what `DECAY_RHO` was adding was a second,
+faster eraser on top of one that already worked.
+
+### How it works, and it is not the number §7.45 pointed at
+
+§7.45 named the **15:1 down:up ratio** as the bottleneck — the ant reads the
+plane as pointing its way on 6% of laden ticks. A persistent plane does not fix
+that. It makes it *worse*:
+
+| arm | up-gradient share of laden ticks | cells/tick homeward **when facing up** | pooled cells/tick |
+|---|---|---|---|
+| shipped | **17.0%** | +0.0026 | +0.00068 |
+| channel A rho 0 | **6.6%** | **+0.0602** | **+0.00541** |
+| + tumble 0.35 | 7.1% | +0.0589 | +0.00543 |
+| rho 0.005 | 8.3% | +0.0301 | +0.00287 |
+| rho 0.01 | 11.0% | +0.0208 | +0.00245 |
+
+**What changed is not how often an up-gradient reading arrives, it is whether
+the reading is true.** On the shipped scatter an "uphill" reading mostly points
+at the nearest random burst, and the ant walks toward noise: an up-gradient tick
+is worth +0.0026 cells homeward. On a persistent plane uphill means *the nest*,
+and the same tick is worth **+0.0602 — twenty-three times as much**. The share
+falls because a plane lit on 69% of cells instead of 26% converts "no readable
+gradient" ticks into readable ones, most of which are downhill.
+
+Pooled, the laden ant's homeward drift goes **+0.00068 → +0.00541 cells/tick**,
+eightfold. Over a 24,000-frame run that is 21.6 cells of net progress against
+2.7 — still well short of the 90 the trip needs, which is exactly why the rate
+lands at 14.8% rather than at 90%. **The arithmetic pins the outcome**, which is
+the check a rate this much improved otherwise invites.
+
+`d:u` was a count, and a count cannot see whether the things it counts are
+right. That is `CLAUDE.md`'s "ask what your number counts" arriving on a number
+this report had just finished promoting.
+
+### Run length did not move, and that is the point
+
+Acceptance criterion 2 asked for mean run length and net displacement to rise
+off ~2 cells / ~2%. Re-measured on the winning arm, three seeds, one row per
+tick:
+
+| | shipped | channel A rho 0 |
+|---|---|---|
+| run length, ticks (mean) | 3.04–3.50 | 2.98–3.18 |
+| run length, cells (mean) | 0.37–0.42 | 0.26–0.40 |
+| stepped on | 14.3–17.6% of ticks | 11.4–16.8% |
+
+**Unmoved, and net/path is noise at three seeds** (two of three better). So the
+criterion **fails as written and the change works anyway**: the ant still mills,
+it simply mills *biased*. The fix is entirely in what the ant can read, and
+nothing about how it moves had to change — which is the cheapest possible shape
+for it and the reason the tumble arm is a multiplier rather than a lever.
+
+### Frame cost: measured, and it is not the gate
+
+`CLAUDE.md` requires the cost of anything that keeps tiles awake, read as
+`PheromoneStats::tiles_processed` and `ascii`'s worst frame. `scene=ants`,
+12,000 frames:
+
+| channel A rho | tiles/pass | mean ms | worst ms |
+|---|---|---|---|
+| 0.03 (shipped) | 16.7 | 0.779 | 9.95 |
+| 0.01 | 16.6 | 0.780 | 6.66 |
+| 0.005 | 16.0 | 0.756 | 6.03 |
+| **0** | **17.4** | **0.773** | 6.86 |
+
+**A 4% rise in awake tiles and no measurable frame cost.** Read the *mean*: the
+worst column swings 6.0–9.9 ms across arms whose tile counts differ by 4%, which
+fails `CLAUDE.md`'s pinning test (mean × frames nowhere near worst), so the worst
+here is an order statistic over many similar frames and is noise wearing a
+number. And the counter moving **up** is what rules out the other failure —
+a cost that vanishes because the work vanished.
+
+### The instrument built for this question, which nobody asked
+
+`examples/pherolife` exists to answer *"how long does a trail live once nobody
+is re-laying it, and what holds one up?"* — `Reports/instruments.md` says to
+grep it before building a harness, and the trailfollow sweep above was built
+first. Its `sweep=rho`, on a 120-cell ramp with a **2,200-frame round trip**:
+
+| rho | trail gone | of a round trip | stops steering | of a round trip |
+|---|---|---|---|---|
+| **0.03 (shipped)** | 1,476 frames | **0.67x** | 1,080 | **0.49x** |
+| 0.10 | 612 | 0.28x | 480 | 0.22x |
+| 0.25 | 288 | 0.13x | 180 | 0.08x |
+| **0** | 4,488 | **2.04x** | 2,328 | **1.06x** |
+
+`stops steering` is the frame the ant's own run drive — `ant.ron`'s authored
+path from `PheroAAlong` into `Move`, so it is what the animal does rather than
+what the plane holds — falls under a tenth of its baseline.
+
+**At the shipped decay a homing trail stops being worth reading at half a round
+trip. At zero it clears one, barely.** That is this whole section in the
+instrument's own units, it was answerable without a single new line of harness,
+and it is an independent check: `pherolife` builds its planes with its own
+`rho=` and never reads `TRAIL_A_RHO`.
+
+It also predicts the size of the win rather than just its sign. One trail laid
+and abandoned covers **1.06** round trips at rho 0 — so a colony gets home when
+traffic re-lays the route and not otherwise, which is exactly an outcome of
+14.8% rather than 90%.
+
+### The food trail wants the opposite, which settles how this ships
+
+The awkward part of shipping this is that A is the homing plane **only because a
+species wires it that way** — the 2026-09-02 genome refactor exists to make that
+a species' choice rather than the engine's. So the alternative worth measuring is
+that neither trail plane decays and diffusion sets both lifetimes, needing no
+per-channel rule at all. Measured, 36 seeds, gap 90:
+
+| arm | ants reaching food / seed | homing rate |
+|---|---|---|
+| shipped | **11.0** | 0.88% |
+| channel A rho 0 | 9.5 | 14.84% |
+| channel **B** rho 0 | **3.0** | 2.46% |
+| both planes rho 0 | **3.0** | 10.45% |
+
+**Killing the food trail's decay destroys the outbound leg** — a third as many
+ants ever reach the larder. That is `set_channel_rho`'s own §Z7 argument
+arriving as a measurement: a trail that outlives its patch keeps recruiting to
+an exhausted one. So the two planes want opposite settings, the engine already
+has that idea (`ALARM_RHO` is a third lifetime for a third plane), and a
+per-plane constant is the honest shape. **The evolvable version — lifetime as a
+species field rather than an engine constant — is the next step and is not this
+change.**
+
+### What the longer gaps say, which is that they cannot say anything
+
+T5 asked for gaps 90 **and** 140. At 140 and 200 the outbound leg fails first:
+`reached food` is **2.5 and 1.0 ants per seed** against gap 90's 11.0, and the
+homing rate is 0.00% in *both* arms. There is nothing to be paired. That is
+§7.42's finding — the hand-laid trail does not get ants to food past ~140 —
+and it makes gap 90 the only bed on which this question is currently askable.
+
+### A correction to §7.44: the starvation was a pooled-total artifact
+
+§7.44 reported that the persistent plane starved the colony — *"intake falls
+23-fold while deliveries double"*, 6,151,294 J → 270,810, births 5,173 → 137.
+**Those are pooled sums over 36 seeds**, and §7.45 showed what that does here:
+one or two seeds found a runaway colony and own the total. Paired per seed, same
+runs:
+
+| arm | intake/seed (median) | born | starved | alive | sign test on intake |
+|---|---|---|---|---|---|
+| shipped | 7,116 | 2 | 17 | 1 | — |
+| channel A rho 0 | 5,164 | 2 | 17 | 0 | **15/21/0** |
+| + tumble 0.35 | 4,848 | 2 | 18 | 0 | 16/20/0 |
+
+A median dip of about a third that **does not clear a sign test at 36 seeds**,
+with births, starvations and survivors flat. So the honest reading is
+**unresolved, not absent** — and it is nothing like a 23-fold collapse.
+
+**This reverses §7.44's ordering.** That section concluded *"turning the
+persistence up to exploit it is gated on a larder"*. On the paired statistic it
+is not gated on anything: the plane's lifetime is a sensor question, it pays for
+itself four-fold on the outcome it was changed for, and its cost to the economy
+is inside the noise of a bed where every colony starves in every arm.
+
+### A second bed, and the cost is real after all — correcting the correction above
+
+The section above corrected §7.44's *"persistence starves the colony"* to
+*"unresolved"* on a paired sign test of 15/21. **That was right about that bed
+and wrong to generalise it.** Re-run on a second one — `refill=2000` instead of
+400, a third as much food arriving, both arms sharing it — 36 seeds, gap 90,
+paired within seed:
+
+| column | old (rho 0.03) | new (rho 0) | sign b/w/t | median Δ |
+|---|---|---|---|---|
+| **round trips closed** | 0.88% | **2.92%** | **20/10/6** | **+6.12 pts** |
+| what a homing ant can read | 13.5% | **55.3%** | — | — |
+| ants that reached the food | 15.0 | 11.5 | **9/24/3** | −2.5 |
+| intake, J | 10,842 | 6,654 | **11/25/0** | −2,650 |
+| born | 6.5 | 3.5 | **9/23/4** | −2.0 |
+| alive | 4.0 | 1.0 | 10/18/8 | −0.5 |
+| starved | 17 | 18 | 18/13/5 | +0.5 |
+
+**The mechanism replicates and so does a cost that bed one could not resolve.**
+Round trips are up on 20 of 30 non-ties; intake, births and food contacts are
+each down on about three quarters of seeds, which at 36 seeds is real.
+
+**The fall in `reached food` is downstream of the fall in births, not a
+navigation effect** — per ant born it goes *up*, 2.3 → 3.3 — and the homing
+pair cannot steer an empty ant anyway: `ant.ron` gates units 0/1 at
+`(Bias, 0, -45.0)` / `(CarryingFood, 0, 45.5)`, so a forager with nothing in its
+mandibles has them saturated off. What falls first is **intake**.
+
+**And that is §7.44's argument, arriving with a paired statistic instead of a
+pooled one.** An ant that successfully walks its meal home has spent the journey
+and handed the colony a cell nothing banks; an ant that eats where it stands has
+not. On a bed with food to spare the trade is invisible; on a food-limited one
+it is the dominant term. So the ordering §7.44 gave was right in substance and
+its *evidence* was still a pooled-total artifact — both things are true, and the
+part this report got wrong was reading "the totals are an artifact" as "the
+effect is not there".
+
+**What this does not change:** the sensor fix stands on its own terms. Channel A
+was being erased faster than an ant can walk and now is not, which is a defect
+either way — §7.28's larder is what decides whether a colony can *afford* to use
+it, exactly as §7.27 said. **What it does change** is that this is a trade rather
+than a free win, and on the bed where food is scarce the colony currently pays
+more than it earns.
+
+***Re-test the whole of §7.46 when:*** a nest drop banks the cell's worth. That
+is the same condition §7.44 set, and it is now set on better evidence.
+
+**Data:** `Reports/data/planerho-36seed-2026-09-19.log`.
+
+## §7.47 The ant's nose points at the sky six times out of eight
+
+> **Corrected by §7.49 (same day).** Every *sensor-level* figure below was read
+> from `trailfollow`'s **pooled** TRACE footer, and the three arms run 55k, 70k
+> and 87k laden ticks because their colonies differ 11x at the median — so the
+> pooled shares are weighted by colony size. Paired within seed, the readability
+> test changes **no** sensor-level share measurably, and *"roughly doubles how
+> usable the reading is"* is unsupported on either denominator. The **outcome**
+> table in this section was paired and stands.
+
+**2026-09-19.** §7.46 got the share of foragers that reach the larder and then
+reach home again from 0.88% to 14.84%. **That was never the target** — one in
+seven is a failure — and the arithmetic of the shortfall was already on the
+record and not chased: a laden ant's pooled homeward drift is **+0.0054
+cells/tick**, so over a 24,000-frame run it covers **~22 cells of a 90-cell
+trip**. The average ant gets a quarter of the way home and dies.
+
+### Tracking ants tick by tick, and it is not the trail
+
+Time-averaged, the plane is a clean monotone ramp whose homeward reading is
+**positive at every position on the route**, +0.04 to +0.37 against a 0.02 bar.
+The fault is the **nose**.
+
+`creature.rs`'s `sense` samples the trail planes at `(x + dx*so, y + dy*so)`
+from `DIRS`, and with +y down, **six of the eight headings put that six rows off
+the walker's own row** — three into open air, three inside the ground. A walking
+creature lays a trail only at its body cell, so those six read exactly **0**,
+and `(0 − here)/(0 + here + SCALE)` turns that into a **confident large
+negative** — *"the trail is much weaker that way"* — where the honest answer is
+*"I am looking at the sky and know nothing."* Injected, the reading is
+**−0.909**.
+
+| heading | mean `PheroAAlong` | usable (≥ +0.02) |
+|---|---|---|
+| E, W (along the ground) | −0.15, −0.17 | **28.3%, 26.7%** |
+| NE / N / NW (air) | −0.48 / −0.28 / −0.42 | 0.8% / 5.5% / 6.4% |
+| SW / S / SE (rock) | −0.47 / −0.63 / −0.46 | 0.0% / 0.0% / 1.5% |
+
+Behaviourally, on the shipped engine: `P(move)` is **exactly zero on 41-83% of
+laden ticks**, **89% of those frozen ticks have the nose in sky or rock** (air
+42.6%, solid 42.7%, ground-level 14.6%), and freeze runs last a median of **9
+ticks**, p90 **73**, longest **515**.
+
+**The ratchet is not broken, it is starved.** Facing up-gradient the ant is
+non-resting on 100% of ticks at `P(move)` 0.75 and nets **+0.062 cells/tick** —
+enough to close 90 cells in ~1,500 ticks. One ant, one row per tick:
+
+```
+ tick   x   y  heading  sensor sees     along  P(move)  moved
+ 1074  95  95       SW        SOLID   -0.8345   0.0000
+ 1076  94  94       NW          AIR   -0.8362   0.0000   STEP
+ 1077  94  94       W   ground-level  +0.0418   0.6571     .   <- rolls W, finds the ground
+ ...  eight cells homeward in fourteen ticks ...
+ 1098  91  94       NE          AIR   -0.8945   0.0000   STEP
+ 1100  91  94       SW        SOLID   -0.6452   0.0000     .
+ ...  sixteen consecutive ticks at P(move) 0.0000, never moves again ...
+```
+
+`dead-ends.md:1009` is the closest prior art and is **the reason this input
+exists**: the Jones/Physarum lateral pair was killed because *"both lateral
+sensors sit in open air while the trail is in the walker's own row"*, and the
+along-heading scalar replaced it. **It inherited the same geometry on the
+vertical headings and nobody looked for a year of commits.**
+
+### Why no fixed geometry works, which is the owner's constraint
+
+The lab bed is flat; this has to work on slopes and where food is up a tree.
+**The current geometry is right exactly when the heading follows the surface.**
+An ant on a trunk with heading "up" samples six cells up the bark — correct, and
+how a colony would follow a trail up a tree. The same heading on flat ground
+samples sky. No fixed rule is right in both, because one heading means "along my
+ground" here and "off into space" there.
+
+### What shipped: the sample says *nothing* rather than *no*
+
+When the sampled cell is not somewhere a creature could stand — the walkability
+test `step_chain` already uses — `along` reports **0**, the neutral case the
+brain already handles. Guarded to run only when both planes read zero there, so
+its nine cell reads are skipped on any lit sample.
+
+**The predicate is walkability, not emptiness, and that distinction is the
+whole of it**: on a flat bed the three air headings sample `Empty`, which no
+material test catches, and they are the worst three.
+
+It is also the half that keeps the **tree** working — on bark, the sample is on
+the bark, the test passes, and the correct vertical reading survives.
+
+### What did not ship: projecting the sample onto the walker's own row
+
+Argued from the movement rule and *not wrong*: `step_chain` only offers a
+forward cone of three, and that cone's mean horizontal displacement is exactly
+`DIRS[h].0` for every heading, including zero at N and S. It recovers a correct,
+correctly-signed reading on the four diagonals, and where the sample lands
+somewhere readable it roughly **doubles** how usable the reading is.
+
+**It costs the thing it was built to buy.** 36 seeds, gap 90, `arms=hand`,
+paired within seed against the engine with **neither** half — a third ablation
+value added for exactly this, because `off` disables only the projection and a
+two-value switch would have compared "both" against "one of them" and called the
+difference the repair:
+
+| | round trips | ants reaching food | colony alive |
+|---|---|---|---|
+| **readability test alone** | 11/10/15, 16/9/11 | 23/12/1, 24/9/3 | 22/8/6, 23/8/5 |
+| **...plus the projection** | **7/17/12, 9/17/10** | 31/4/1, 26/10/0 | **34/2/0**, 27/8/1 |
+
+*(two figures per cell: bed A `refill=400`, bed B `refill=2000`)*
+
+The projection is the **best arm on this line for colony survival** — 34 seeds
+better and 2 worse is the strongest single sign test in this report — and the
+**worst for round trips, on both beds**.
+
+**The mechanism is the terrain argument arriving as data.** Six cells along the
+walker's own row is air whenever the ground dips, and the lab bed is not flat:
+an ant roams eight rows and changes level on ~17% of its ticks. The projection
+trades *"looking six rows up at the sky"* for *"looking six cells along at the
+sky over a hollow"*. The readability test catches both, so neither lies — the
+projection simply does not put the nose on the ground more often on real ground.
+
+***Re-test when:*** the sample **follows the surface** rather than the row —
+walking out from the head along the substrate, which is right on flat ground,
+slopes, trunks and tunnels alike. Priced as a bounded search per sample per
+creature per tick and not yet measured.
+
+### What the repair bought, and what it did not
+
+| | bed A | bed B |
+|---|---|---|
+| freeze run, median / p90 | 9 → 6 / 117 → 70 | 12 → 6 / 61 → 44 |
+| ants reaching food, paired | **23/12/1** | **24/9/3** |
+| colony alive, paired | **22/8/6** | **23/8/5** |
+| **round trips, paired** | **11/10/15** | **16/9/11** |
+
+**Freeze runs roughly halve and the colony is materially better off — and round
+trips do not move.** That is the predicted result, not a surprise: unfreezing an
+ant makes it *move*, it does not *aim* it. An ant told nothing walks at the
+"no readable gradient" rate and explores; it finds food and survives, which is
+what `reached` and `alive` say. Aiming is the next mechanism, and the one this
+section does not contain.
+
+### Two instrument findings worth more than the arms
+
+**A measurement that keeps its own copy of the thing it measures will eventually
+measure the copy.** `trailfollow`'s heading census restated
+`(x + dx*so, y + dy*so)` from `DIRS`. The moment `sense` stopped sampling there,
+the census went on labelling every tick by a cell nothing reads — and reported
+the repair as inert. Caught only because the numbers barely moved. The helper is
+now `pub` and the harness calls it.
+
+**And `a_speculated_read_phase_reproduces_the_serial_world_exactly` is blind to
+a `sense` / `sense_read_rects` divergence.** Measured by injecting exactly that
+omission and watching it stay green. It compares two world hashes over a 40-ant
+bed, so it fires only if a neighbour happens to dirty the divergent cell inside
+the speculation window. Replaced for this fault by
+`the_declared_footprint_contains_the_trail_sensor_cell`, which asserts the
+contract structurally over every heading — and which had to be **tightened to
+the sensor rects**, because over all rects it passes on a coincidence: the head
+rect happens to be wide enough for this species today, which is no promise about
+where the nose is.
+
+**A third thing I was wrong about, stated because I flagged it as the highest
+risk.** Leaving `sense_read_rects` on the old geometry is structurally harmless:
+a diagonal's projected point **is** its horizontal cone-neighbour's sample
+point, so the projection can never leave the three cells already declared. The
+same structural fact that makes the projection principled, arriving as a safety
+property.
+
+**Data:** `Reports/data/nose-geometry-36seed-2026-09-19.log`.
+
+## §7.48 The ant smells over time, and it does not move the outcome
+
+**2026-09-19, after §7.47.** §7.47 stopped the nose lying and the result was
+exactly as predicted: freeze runs halved, the colony got materially better off,
+and **round trips did not move** — unfreezing an ant makes it walk, it does not
+aim it. This is the aiming, and it is a null.
+
+### The mechanism, and why it was the right thing to try
+
+Every other pheromone input reads a cell `sensor_offset` away along the heading,
+which §7.47 found pointing at sky or rock six times in eight. **An animal's own
+cell is somewhere a creature can be by construction** — flat ground, a slope,
+bark, a tunnel roof. So a reading taken *there*, differenced against a fading
+memory of itself, needs no geometry and is right on every terrain. It is also
+what the animal being simulated does, for our reason exactly: too small to span
+a gradient with your body, so use time (Segall/Block/Berg 1986).
+
+`BrainInput::PheroAHere` was appended for it — lawful and cheap on the input
+axis, but **not free**: an input column is 24 live slots, `live_slots` 894 → 918,
+and every species' `mutation_rate` re-derived to `3.18 / 918 = 0.0034641`, which
+moves every breeding scene from birth 1. **Only channel A got one.** The obvious
+symmetric `PheroBHere` would cost the same 24 slots and move every scene again
+for a slot no measurement wants.
+
+### The fit, and the two things it caught that argument would not
+
+`brain.rs`'s ignored `what_a_temporal_comparator_sees` drives the wiring through
+`eval_brain` — not beside it, for §Z5's reason.
+
+**First catch: the textbook gain is wrong here.** A unit-gain exponential
+average wants `w_in = 1 − w_rec`. Measured, that settles the unit at **0.036
+when its input is 0.100**, because `eval_brain` computes
+`h = squash(w_rec·h + w_in·live)` and the fixed point solves
+`h(1+h) = w_rec·h + w_in·live`. So `live − lagged` carries a level term **2.8x**
+the thing being measured, and the readout came out a level detector wearing a
+comparator's wiring: UP/DOWN/STILL **+0.66 / +0.62 / +0.67**.
+
+**Second catch: the value that cancels it is not derivable**, since it depends
+on the level itself (`w_in = 1 + live − w_rec`). Swept:
+
+| `w_rec` | `w_in` | `a` | UP−DOWN (signal) | STILL (offset) |
+|---|---|---|---|---|
+| 0.98 | 0.020 | 32 | +0.0448 | +0.6742 |
+| 0.98 | 0.120 | 32 | +0.1072 | +0.1252 |
+| **0.995** | **0.120** | **32** | **+0.0968** | **−0.0490** |
+| 0.995 | 0.120 | 8 | +0.0429 | −0.0127 |
+
+`w_in = 0.12` is where the level term cancels, at every `w_rec`. The best
+signal-to-offset is about **two to one**.
+
+**And the fit already says the size of the problem.** +0.097 on `Move` is
+modest next to the homing pair, which moves `P(move)` from **0.03 to 0.75**.
+Roughly sevenfold too small before a single world was run.
+
+### The outcome
+
+36 seeds, gap 90, `arms=hand`, paired within seed, two beds:
+
+| bed | arm | homing rate | sign b/w/t | median Δ |
+|---|---|---|---|---|
+| A (`refill=400`) | `a` = 8 | 6.68% | 14/15/7 | +0.00 |
+| A | `a` = 32 | 2.93% | 11/20/5 | −0.89 |
+| B (`refill=2000`) | `a` = 8 | 2.13% | 13/21/2 | −1.93 |
+| B | `a` = 32 | 7.71% | 15/16/5 | +0.00 |
+
+**Every sign test is a coin flip and no arm is consistent across beds** — `a`=8
+has the better pooled rate on A and the worse sign test on B, `a`=32 the
+reverse. The pooled rates bounce 2.13–7.71% with no pattern, which is what that
+statistic does here when nothing is happening.
+
+**It is a null, not a non-event.** The wiring fires: the readout produces a
+correctly-signed signal through the real evaluator, the rider asserts every
+weight clears `W_EPS`, and the arms differ from the baseline in `reach` and
+`alive`. It changes the world and does not change the outcome.
+
+### Why, and what it would take
+
+The signal is about a seventh of what the spatial homing pair delivers when
+that pair gets a reading. §7.47 established the pair is *starved*, not broken —
+it works beautifully on the ~10% of ticks where it has something to read. **A
+term seven times weaker than the one that already works, added on every tick,
+is not the missing piece.** What a temporal read buys is that it works on
+terrain where the spatial one cannot; on this flat bed it is competing with the
+spatial read rather than covering for it.
+
+**SUPERSEDED 2026-09-20 — the owner reopened this and the mechanism was
+right; two things about the *build* were not.** Full account in
+[`ant-return-leg-result-2026-09-20.md`](ant-return-leg-result-2026-09-20.md);
+in one paragraph:
+
+- **The signal is real and is the best one in the engine.** Read off the plane
+  with no wiring, normalised, and bucketed by distance — because heading and
+  distance are correlated and an unbucketed raw-unit split reads **backwards**
+  — it separates pointed-home from pointed-away by **+0.05 to +0.19**, positive
+  in 7 of 8 cells, against the shipped spatial read's +0.0396. Strongest 45+
+  cells from home, where the spatial read has nothing.
+- **The level term is not cancellable by a constant, which this section
+  half-saw.** It records that the cancelling `w_in` "is not derivable, since it
+  depends on the level itself", and then picks one. Channel A's level runs
+  **3,283 on the nest doorstep against 493 at the larder — 6.7x across one
+  journey** — so that fit is correct at exactly one distance from home. `sense`
+  now does the subtraction and normalises it (`BrainInput::PheroARise`), which
+  is scale-free and leaves nothing to tune.
+- **`Move` was the wrong output.** Ungated it is a *nest tether*: channel A is
+  brightest at the nest, so an empty ant walking out reads a falling scent and
+  `Move` suppresses its step — ants reaching food **199 → 156**, p 0.0072
+  (`dead-ends.md` `other:135`). Gated on carrying food, as `HomeAligned` is,
+  that harm goes away.
+
+This section's re-test condition — *terrain the spatial read cannot handle* —
+was never met and was never what was wrong.
+
+***Re-test when:*** the bed has terrain the spatial read genuinely cannot
+handle — a route up a trunk, or through a tunnel — which is where this
+mechanism's whole advantage lies and which no bed in this repo currently has.
+Not by raising `a`: the offset scales with it, and the sweep above already
+shows the signal peaking at `w_in` 0.12 and falling either side.
+
+**Data:** `Reports/data/temporal-comparator-36seed-2026-09-19.log`.
+
+**A baseline note, so a reader comparing §7.47 and §7.48 is not confused:**
+their baselines differ (§7.47's bed A honesty arm reads 4.16%, this section's
+2.38%) and both are correct. Appending `PheroAHere` moved `live_slots` and
+therefore `mutation_rate`, which moves every breeding scene from birth 1 — as
+`the_live_slot_count_is_pinned_because_mutation_rate_is_derived_from_it` says in
+as many words. Each sweep is paired within itself; across sections they are
+different worlds.
 
 ## Appendix A. Raw per-seed data
 
@@ -4757,3 +5889,108 @@ The `hand` arm at gap 90 carries larder for 1.28 million ant-ticks and brings it
 inside the nest band for 1,796 of them. That is the provisioning claim, measured
 on a counter nest-local handling cannot fake, and it is essentially zero in the
 one arm where foraging plainly works.
+
+## §7.49 The nose's sensor-level win was a colony-size artefact, and pairing removes it
+
+**2026-09-19, and it corrects §7.47.** `trailfollow` prints its `TRACE` block
+**once per seed**, and every figure quoted for the nose arms was read from the
+*pooled* footer instead. Pooling is the wrong reduction here for a reason this
+file has already written down twice: the arms run **55,322, 69,875 and 87,369**
+laden ticks over the same 36 seeds, because their colonies are **1.0, 2.5 and
+11.0 ants** at the median. A share taken over pooled ticks is therefore
+dominated by whichever arm founded, and it is a measurement of the colony
+rather than of the sensor.
+
+The pairing was available all along and simply was not taken.
+
+### What the two reductions say, on the same six logs
+
+Bed A, 36 seeds, gap 90, `arms=hand`, against the engine with **neither** half:
+
+| | pooled | paired within seed |
+|---|---|---|
+| laden ticks facing **up**-gradient | 3.2% → 6.2% (*"doubled"*) | 4.12% → 4.27%, sign **19/17** |
+| laden ticks facing **down**-gradient | 88.8% → 68.9% | 72.12% → 69.64%, sign **20/16** |
+| laden ticks reading **nothing** | 7.9% → 24.9% | 21.69% → 25.04%, sign **15/21** |
+
+Three sign tests, three coin flips. **Paired, the readability test does not
+measurably change a single sensor-level share.** Bed B agrees: 18/18, 15/21,
+21/15 — the largest of them (`silent`, +8.7 points) still short of the 24/12 a
+36-seed sign test needs.
+
+The projection, by contrast, moves all three and is significant on both beds —
+down-gradient **+18.3 points (32/4)**, silence **−18.5 (2/34)** on bed A; **+15.5
+(29/7)** and **−12.3 (6/30)** on bed B. It is the arm that does the sensor-level
+work, and §7.47's outcome table already has it as the worst arm for round trips
+and — now measured paired — worse for the homing drive itself: up-gradient
+homeward yield **13/23 and 8/28**, `P(move)` **8/28 and 13/23**, both directions
+against it.
+
+**So the one arm that demonstrably changes what the ant reads is the arm that
+makes its homing worse, and the arm that shipped changes nothing measurable.**
+That is a stronger statement of §7.47's own conclusion than §7.47 made: it is
+not that aiming is the missing mechanism *in addition* to unfreezing — it is
+that on this bed the reading is not what sets the homeward drift at all.
+
+### Two numbers in §7.47 to strike
+
+**"Where the sample lands somewhere readable it roughly doubles how usable the
+reading is"** is unsupported on either denominator. Route-wide, paired: the
+projection moves `along >= 0.02` from **55.15% to 62.65%** (30/6, +7.35 points)
+on bed A and 55.50% → 61.75% (30/6) on bed B — a seventh of a doubling, though
+a real effect. Scoped the way the sentence reads, to samples that landed on a
+cell where a trail could be, it moves **nothing in the right direction**:
+8.30% → 6.50% (16/18) on bed A, 8.35% → 5.55% (13/22) on bed B. The readability
+test is null on both (20/15, 20/16 route-wide; 17/18, 14/22 scoped).
+
+**"Freeze runs roughly halve and the colony is materially better off"** stands
+— those came from the outcome table, which was paired.
+
+### And the deferred saturation risk is closed, by the same logs
+
+`TRAIL_A_RHO = 0` raised a real hazard: at rho 0 removal is exactly `v − 1` per
+pass, `Scent::MAX` → 0 is **786,420 frames**, and a route measured at 82.9% of
+the ceiling under the *old* decay would plateau permanently — on which `along`
+is 0 for every heading under any geometry, and the whole nose question is moot.
+
+Measured, median of 36 seeds: the route peaks at **15,428 of 65,535 — 23.5% of
+the ceiling** on the shipped arm, 17,709 and 15,799 on the other two. The plane
+is lit on 76–84% of route cells and is **not** plateaued. The 82.9% figure was
+`DEPOSIT`-relative on a `u8` plane and does not carry to `u16`. **Trigger
+discharged**; the hazard returns only if `DEPOSIT` rises or the route shortens.
+
+### The rule this is an instance of
+
+`CLAUDE.md` already says *a mean over events is not a mean over the thing you
+care about*, and *compare two runs, not one run against a remembered number*.
+Neither caught this, because the pooled footer **is** a paired run's output —
+the failure was reading the wrong line of a correct instrument. The tell was
+available and was not read: the three arms' `n` differ by 58%, printed on the
+same line as the mean.
+
+**So: before quoting any per-run aggregate across arms, read its `n` across
+arms first.** If the denominators differ, the aggregate is a weighted average
+whose weights are the thing you are trying to measure.
+
+`scripts/tracepair.py` does the pairing and refuses to run when the seed counts
+disagree; `--selftest` is its positive control.
+
+### The nulls are real nulls — the control this section left owed, paid
+
+§7.47 read "round trips do not move" off a table whose `came back` has a
+per-seed median of **one**, and a rate built on one event per seed is
+consistent with *no effect* **and** with *an effect this bed cannot resolve*.
+Those are different findings and nothing here separated them.
+
+**Paid 2026-09-20, on the same bed, same harness, same 36 seeds, and on this
+very column** (`ant-navigation-plan-2026-09-20.md` §4b): switching on
+`CreatureDef::home_bias` moves `came back` from a per-seed median of **1 to
+2**, sign **21/9/6** and **22/7/7**, totals 58 → 80 → 95, with `carry->nest`
+— signed cells homeward — doubling at **34/2/0**. **So the bed can resolve a
+real effect on round trips**, and the nulls in §7.47 and above are about the
+change rather than about the bar. Read the outcome columns with `scripts/trailpair.py`, which is this
+script's sibling for the far side of the call.
+
+**Data:** the same `Reports/data/nose-geometry-36seed-2026-09-19.log` and the
+six per-arm logs behind it; the control's own numbers in
+`Reports/data/homebias-36seed-2026-09-20.log`.

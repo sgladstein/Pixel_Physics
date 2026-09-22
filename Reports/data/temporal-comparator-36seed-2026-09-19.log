@@ -1,0 +1,16 @@
+# The temporal comparator: two gains, two beds, 36 seeds, gap 90, arms=hand, 2026-09-19.
+# Behind pheromone-trail-direction-2026-09-16.md 7.48.
+
+## bed A, refill=400
+baseline: A_none
+arm              seeds  reach/seed  back/seed  HOMING RATE  sign b/w/t    med d  alive med  born med
+A_none              36        12.5        1.0      2.38%     0/ 0/36   +0.00        2.5       3.5
+A_tc32              36        13.0        0.0      2.93%    11/20/ 5   -0.89        2.0       3.5
+A_tc8               36        12.0        1.0      6.68%    14/15/ 7   +0.00        2.0       3.0
+
+## bed B, refill=2000
+baseline: B_none
+arm              seeds  reach/seed  back/seed  HOMING RATE  sign b/w/t    med d  alive med  born med
+B_none              36        20.5        1.0      2.01%     0/ 0/36   +0.00        7.5      11.5
+B_tc32              36        17.0        1.0      7.71%    15/16/ 5   +0.00        3.5       9.0
+B_tc8               36        17.0        1.0      2.13%    13/21/ 2   -1.93        7.5       7.0

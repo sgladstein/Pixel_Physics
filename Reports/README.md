@@ -3034,6 +3034,196 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   `forage_anchor` the engine already keeps** — with the `DIFFUSE`-on-A dial
   (§5.3's 3-of-3 result) taken first because it needs no code. Read this before
   any other report on this line.
+- [ant-return-leg-plan-2026-09-20.md](ant-return-leg-plan-2026-09-20.md)
+  — **plan, 2026-09-20. `engine`.** **A laden ant cannot read its own trail, by
+  construction** — measured, 8 seeds, ~500,000 decisions, binning every laden
+  decision by the angle between heading and the exact home vector: pointed at
+  home reads `along` **−0.20**, pointed away **−0.24**, negative in *every* bin.
+  `here` is the ant's own freshest deposit and `ahead` is six cells out, 70% of
+  the time in sky or rock reading zero, so the numerator is `(≈0 − own deposit)`.
+  The ant is a moving point source on a plane where it is the brightest object.
+  §Z29's own remedy (`DEPOSIT_AT=vacated`) is partial — 5.3% → 7.0% positive,
+  still 93% wrong-signed. **This reconciles the whole line:** trail-reading is
+  the *follower's* mechanism and path integration the *layer's* (Beckers 1992,
+  discoverers lay and recruits follow), and a laden ant walking home **is the
+  discoverer** — which is why `TRAIL_A_RHO = 0`, the nose honesty gate and the
+  temporal comparator all improved the reading and none moved the outcome. Plan:
+  give the home vector authority over `Move` via a new `HomeAligned` input,
+  keep `vacated` as a component, re-measure at a run length that can hold a leg
+  (one leg is 73–79% of an ant's life today), and move the fold-change /
+  adaptive-guard work to **recruitment**, where a second ant reads a trail it
+  did not lay — no normalisation fixes a sign. Names the three traps already
+  paid for: only **one** free hidden unit, `DELIVERED` is not provisioning, and
+  pair within seed rather than pooling. Data
+  `Reports/data/align-census-8seed-2026-09-20.log`; handoff in
+  `Reports/lanes/homing-return-arm.md`.
+  **BUILT AND MEASURED 2026-09-20 — Steps 1, 2 and 3 are done, Step 5 is ruled
+  out, and this plan's Step 1 WIRING IS WRONG (box at that section's head).**
+  Results, and the correction of this plan's own framing, are in
+  [ant-return-leg-result-2026-09-20.md](ant-return-leg-result-2026-09-20.md);
+  read that rather than this plan's predictions.
+- [ant-return-leg-result-2026-09-20.md](ant-return-leg-result-2026-09-20.md)
+  — **result, 2026-09-20. `engine`.** Executes Steps 1, 2 and 3 of the plan
+  above and carries three things. **The plan's wiring was unsound and one run of
+  `eval_brain` catches it**: a single gated hidden unit is not neutral when shut
+  (`squash(-45) = -0.978`, not 0 — the gated pair's mirror is the neutraliser,
+  not decoration), so the specified circuit puts **-2.439 on every empty ant's
+  `Move`** against a walking sum of +0.25, a colony that never forages. What
+  shipped gates in the sensor and is a direct `(HomeAligned, Move, 3.0)`
+  instinct spending **no hidden unit**, which frees unit 7. **Judged on the
+  loop** — owner's ruling that starvation is not the axis — completed laden
+  returns as a share of ants that reached food go **6.8% → 28.1%**, better in
+  **8 seeds of 8**, colonies where nobody ever completes a lap **4 of 8 → 0 of
+  8**, and the laden leg **2,671 → 1,924 ticks** (which closes the plan's own
+  branch: `P(move)` rose *and* the leg shortened, so Step 5 / §R4 is not
+  needed). **And the loop still does not repeat**: across four arms and 733
+  ants **one ant completed it twice**, because the homeward half alone is
+  longer than an ant's whole life (1,924 ticks against 1,491) — a second lap is
+  arithmetically unavailable and that, not this wire's gain, is the next
+  problem. **Step 2 is negative**: `DEPOSIT_AT=vacated` crossed with the wire
+  moves 28.1% → 28.8%, and alone is a 3/4/1 coin flip, so it is not a
+  component. **And the ant eats its cargo en route** — `digest_rate` applies to
+  the crop every tick it is held, so the crop is the forager's own supply and
+  delivering it is giving it up: gut absorption 187,200 → 83,520 J against
+  drops at the nest 209 → 1,944, with mid-digestion chew-parks 7.5x higher.
+  That makes the recorded cost *be* the mechanism rather than a side effect,
+  and closes the lifespan loop: deliver → lose your supply → shorter life → no
+  second lap. Recorded and not gating: intake 12,699 → 2,280 J and colonies die
+  sooner, because nothing banks a delivered cell (§7.28). Rejected wiring in
+  `dead-ends.md` (`other:133`); data
+  `Reports/data/homewire-loop-2x2-8seed-*-2026-09-20.log`,
+  `home-wire-response-curve-2026-09-20.log` and
+  `homewire-{24k,100k}-8seed-*-2026-09-20.log`.
+  **ALSO CLOSES §Z29's LAST REPAIR CANDIDATE, added 2026-09-20.** The
+  two-forward-sample comparator — read `PheroAAlong` as `(far - near)` at
+  `so`/`2·so`, channel A only, so neither term is the animal's own mark — is
+  built behind `PIXEL_PHYSICS_TRAIL_READ=fwd` and is a **dead end**
+  (`other:134`). It moves the reading exactly as designed (`MEAN |PheroAAlong|`
+  0.3603 → 0.3230, 18 of 23 seeds, p 0.011) and moves nothing downstream (laps
+  91 → 88, 10 up / 11 down over 24 paired seeds). **Because it erodes the ramp
+  it was sized on**: the 6/12 reading separates **+0.0617 on the shipped world
+  and −0.0160 on its own** (4 up / 20, p 0.0015). The candidate mechanism — the
+  arm spending less ant-time in the nest band, which holds channel A's only
+  writer — is consistent (124,560 → 86,252) but **not established**: paired it
+  is 9 seeds up against 15 down. Generalises past ants — **any repair to how a population reads a
+  field that same population writes is sized against a field it will then
+  change**. Two live findings survive it: the two-sample blindness fear is
+  wrong (11.8%, not ~70%) and scoping to channel A is load-bearing (both planes
+  → 0 ants reach food in all 24 seeds). Data
+  `Reports/data/trail-comparator-24seed-2026-09-20-{shipped,fwd}.log`.
+- [what-controls-creature-movement-2026-09-22.md](what-controls-creature-movement-2026-09-22.md)
+  — **reference, 2026-09-22. `engine`.** The walking path end to end, written
+  from the source with every link read rather than recalled, because three wrong
+  diagnoses in two days came from assembling this chain from memory. **Six stages
+  and a decision can die at any of them**: whose turn it is (`tick_interval`,
+  scaled by `TRAIT_PACE` — the denominator of every movement rate, and quoting a
+  per-frame figure against an implied ceiling of 100% instead of **1 in 6** is
+  how one headline went wrong); whether to step (`p_move`, one draw, **the clamp
+  manufactures exact zeros** so a negative sum forbids rather than discourages);
+  fly instead; **which of three cells**; whether the landing is legal; and the
+  blocked path. **The move and the tumble are the two arms of one `if`**, so a
+  creature that steps does not re-roll its heading and one that cannot step gets
+  a chance to turn. **The pheromone reaches stage 2 and nothing else**: both
+  planes enter as `Along` through hidden units 0–3 which output to `Move`, while
+  the forward cone is scored `[turn, persist, -turn]` plus a footing bonus with
+  no pheromone term anywhere — and `Turn` on the shipped ant carries one wire,
+  `(TempAboveAmb, Turn, -0.8)`. **The laterals, the only part of a pheromone
+  reading that carries *which way*, are wired to nothing**, while the comment
+  above the `Turn` wire claims they are "now via hidden units 0–3"; those units
+  read `Along`. A creature can turn only 45° per step. `home_weighted_pick` is
+  the single mechanism that can aim a walker, and it is gated to laden animals
+  off their anchor at probability `home_bias × fill` — **and its printed rate has
+  a denominator problem**: `tumbles N (homeward M, x%)` divides by *all* tumbles,
+  most of them by empty animals that structurally cannot qualify, so 0.51% is not
+  evidence the lever is inert.
+- [ant-forage-bed-and-gates-2026-09-21.md](ant-forage-bed-and-gates-2026-09-21.md)
+  — **result, 2026-09-21. `engine`.** Follows the result above. **Two red gates
+  repaired, and neither was the code's fault.** The trail-sensor geometry test
+  asserted that every off-row heading reads exactly 0 and said *"Off by
+  default"* in its own comment — it was guarding the bug the projection fixed;
+  rewritten to the shipped contract and injected one half at a time, which land
+  on **different assertions** (projection → NE reads 0.0 against E's 0.0667;
+  readability → N reads −0.909). It also corrects a quoted figure: reverting the
+  projection **alone** gives 0.0, not the −0.48 attributed to it, which is both
+  halves off. The per-colony books bar barred a colony at `world_drift + 1e-3`,
+  but **the world's drift is the colonies' signed SUM**, so opposite-signed
+  drifts cancel and the whole reads tighter than either part; measured,
+  `sum_of_colony_d == world_d` to every digit, and at 12,000 frames the signs
+  differ. **It is rounding, not a leak, and the sign settles it** — colony 1
+  runs +0.0122, +0.0229, +0.0116, **−0.0119**, a walk that changes sign. New bar
+  scales to throughput and goes red **1,234x** for a mislabelled account while
+  the sum test stays green. **The bed was measuring birth position wearing a
+  navigation label**: the founding band spans `x 12..88` while the hand-laid
+  ramp starts at 48, so **11 of 20 founders are off the nest** and read the food
+  trail as exactly 0.00000 — 40% of them reach food against 98%. Two independent
+  fixes, both selectors: `PIXEL_PHYSICS_COLONY_SPACING=2` (the corridor is
+  `body_span * 2` and one body width works — full colony, band 76 → 38 cells,
+  **20 of 20** on the comb) and `layfrom=founders`. **Stacking does NOT narrow a
+  founding band** — `spacing=1` founds 10 at `STACK_DEPTH` 1 and 4 alike,
+  because `stack_cap` gates the *step* and the founding walk never consults it.
+  Five arms, 24 seeds paired, and the two headline figures are **different
+  arms**: larder intake **+42%** with all three levers (20 seeds up / 4 down),
+  and starvation median **16.5 → 5.0** with narrow+stacking, **down in 22 seeds
+  and up in none** (all three gives 6.0, 3/20). **Stacking halves blocked moves
+  (12,454 → 6,555) and on its own is a 12/12 coin flip on whether the colony
+  eats** — the counter rule paying out exactly as written; it is the levers'
+  *interaction* that carries it. **And `DELIVERED` said 4.04x**, which
+  `instruments.md` already records as inflated by construction. **A peak cannot
+  see a hole**: the ant-laid trail was first quoted as 18/27/32/78% of the
+  hand-laid peak and the owner rejected it on the picture — on longest-dark-run
+  against the ant's own reach, seed 4's 78% is a **43-cell gap in a 91-cell
+  route** and all four seeds are identical at **8% connected against the
+  hand-laid ramp's 100%**, so no colony builds a nest-to-food trail in any seed.
+  Three instruments, each with a positive control: `funnelpair.py`,
+  `btrailchart.py`, `loopchart.py`.
+  **AND TWO RESULTS THAT CHANGE THE PICTURE, §7.** **The colony's own trail is
+  not weak, it is harmful**: silencing `EmitB` and changing nothing else
+  (`hmute`) takes second laps **87 → 182**, better in 19 seeds of 24, with every
+  stage improving. So the repeat rate happens *despite* channel B. The mechanism
+  is the **leg, not the strength or the lifetime** — `(CarryingFood, EmitB, 2.5)`
+  is the only writer, so an outbound ant lays none of it and channel B is a
+  record of where *laden* ants have been. Its duty cycle is **weakest exactly
+  where a recruit reads it**: 7.8% lit at the nest against 72% twenty cells out.
+  **And the levers do not extend range** — at gap 140 they *hurt* (reached food
+  down in 18 seeds of 24) and second laps are **zero in both arms at 140 and
+  200**, so §3's +42% improves the one distance the colony already survived and
+  buys nothing where recruitment would show. One confound declared: muting
+  zeroes a weight and `active_synapses` counts non-zero weights, so a muted ant
+  has one synapse less of tax.
+- [ant-navigation-plan-2026-09-20.md](ant-navigation-plan-2026-09-20.md)
+  — **plan, 2026-09-20. `engine`.** The return arm does not work because the
+  trail is wired to the wrong decision. An ant makes two separate choices per
+  tick — *whether* to step and *which of three cells* — and the pheromone
+  reaches only the first: `Move`'s four hidden units carry the whole homing
+  circuit, while direction is `persist + footing` with `TempAboveAmb −0.8` as
+  the only steering wire in any ant-family genome. So the shipped animal is a
+  **run-and-tumble bacterium**: the trail sets the duration of runs, never
+  their heading. The survey and this repo's own design of record both call
+  that the wrong primitive, and **the right one was already in the tree and
+  switched off** — `home_weighted_pick` reads an exact `forage_anchor` inside
+  `tumble`, gated on `CreatureDef::home_bias`, which no species authors.
+  **Measured 2026-09-20, 36 seeds, paired within seed: `carry->nest` (signed
+  cells homeward) 123 → 254.5 at **34/2/0**, and round trips — the exact column
+  §7.47 was null on — median 1 → 2 at 21/9/6.** **Larder intake falls with it** —
+  `ate J` 8,367 → 7,098, worse in 21 of 36 — and that is **the bill the
+  record predicted**: *"trips up, intake down on a hungry bed, until a granary
+  makes a delivery worth something"*. An ant carrying food into a nest measured
+  at *ten cells in transit, resident 0* must show intake down. So the granary
+  is the stage **after**, on this repo's own writer/reader rule: built before
+  the carrier it is a reader with no writer, which `dead-ends.md` records this
+  project hitting three times. (A first version of this report led on
+  `DELIVERED` and was corrected within the hour: that counter increments on
+  any drop at the nest, so a change driving laden ants there inflates it by
+  construction — `CLAUDE.md`'s worst-recurring failure, in a plan citing it.)
+  It **composes with** rather than substitutes for `TRAIL_A_RHO = 0`: the
+  baseline doubled when the plane was fixed and the compass still doubled it
+  again. Also pays the positive control §7.47's nulls were owed, on the same
+  bed, so those nulls are real. Five staged steps: ship it on at the value a
+  fine grid picks, weight by vector length as well as crop fill, soften its
+  argmax into `choose_weighted` (the noise is load-bearing, and an exact
+  compass is a binary where the ethos asks for a distribution), size §R4's
+  dead `Turn`, and make the per-tick decision trace the standing readout of
+  this line. Data `Reports/data/homebias-36seed-2026-09-20.log`.
 - [pheromone-trail-direction-2026-09-16.md](pheromone-trail-direction-2026-09-16.md)
   — **investigation, 2026-09-16. `engine`.** Started from *"do pheromone
   trails work at all?"* and ended somewhere else. They do: a laden ant walks a
