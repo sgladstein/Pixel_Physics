@@ -1963,6 +1963,27 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // **The laden census** -- see the push site. Needs `trace`, because the
     // brain evaluation it reads is gated on it.
     let laden_csv = flag("ladencsv");
+    // **A GIF of this bed, because for creatures it is the only instrument.**
+    // Owner-verified 2026-08-30 on a contact sheet of a colony: *"visually, I
+    // cannot tell anything from these. ants are mostly visible with their
+    // motion"* -- an ant is two dark cells at play zoom and is picked out of
+    // dark soil by MOVING, so no grid of stills can answer a question about
+    // what a colony is doing. `instruments.md` records it as a rule.
+    //
+    // Rendered here rather than through `labshot`/`labgif` because those build
+    // the lab's own `LabBox` and this bed is not that bed -- a picture of a
+    // different scene is the failure `CLAUDE.md` names as *a scene that
+    // contradicts the code will look like a bug in the code*.
+    //
+    // `gifat=x,y` aims it and `gifzoom=` magnifies, because the box is up to
+    // 400 cells wide and an ant is two: a full-frame tile is a picture in which
+    // the subject is invisible.
+    let gif_out: Option<String> = arg_str("gif");
+    let gif_every: u64 = arg("gifevery").unwrap_or(120);
+    let gif_zoom: u32 = arg("gifzoom").unwrap_or(4);
+    let gif_at: Option<String> = arg_str("gifat");
+    let gif_w: u32 = arg("gifw").unwrap_or(160);
+    let gif_h: u32 = arg("gifh").unwrap_or(100);
     assert!(!laden_csv || tracing, "ladencsv needs `trace`: the brain evaluation it records is gated on it, so without it every row would be missing");
     // **Asserted rather than documented, because the failure is silent.** The
     // emit site sits inside the existing every-100-frames sample block, so a
@@ -2251,6 +2272,9 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let mut cohort_next_x = i32::MIN;
     let mut focal_rows: Vec<String> = Vec::new();
     let mut laden_rows: Vec<String> = Vec::new();
+    let mut gif_frames: Vec<Vec<u8>> = Vec::new();
+    let mut renderer = pixel_physics::render::Renderer::new();
+    let mut blockers: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
     let nest_cells = {
         let nest = w.materials.id_of("nest");
         match nest {
@@ -2591,6 +2615,37 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         if past_our_trail && f.is_multiple_of(100) {
             let live = (nest_x..=target_x).filter(|&x| w.pheromone_at(Channel::B, x, surface) > 0).count();
             peak_cells = peak_cells.max(live);
+        }
+        if gif_out.is_some() && (f == 1 || f.is_multiple_of(gif_every)) {
+            // The camera: `gifat=` or, by default, centred on the nest cursor
+            // at the surface -- which is where every question this harness has
+            // about dropping and congregation actually lives.
+            let (cx, cy) = match gif_at.as_deref() {
+                Some(v) => {
+                    let mut it = v.split(',').map(|t| t.trim().parse::<i32>().expect("gifat=x,y"));
+                    (it.next().expect("gifat x"), it.next().expect("gifat y"))
+                }
+                None => (nest_x, surface),
+            };
+            let (vw, vh) = (gif_w as i32, gif_h as i32);
+            let mut full = vec![0u8; (vw * vh * 4) as usize];
+            let touched = w.take_touched_chunks();
+            renderer.camera_x = cx - vw / 2;
+            renderer.camera_y = cy - vh / 2;
+            renderer.draw(&w, &particles, &touched, &mut full, (vw as u32, vh as u32), true);
+            // Nearest-neighbour magnify, the same rule `filmstrip`'s tiles use:
+            // an ant must be several screen pixels or the GIF answers nothing.
+            let (zw, zh) = (vw as u32 * gif_zoom, vh as u32 * gif_zoom);
+            let mut tile = vec![0u8; (zw * zh * 4) as usize];
+            for ty in 0..zh {
+                for tx in 0..zw {
+                    let (sx, sy) = ((tx / gif_zoom) as i32, (ty / gif_zoom) as i32);
+                    let si = ((sy * vw + sx) * 4) as usize;
+                    let di = ((ty * zw + tx) * 4) as usize;
+                    tile[di..di + 4].copy_from_slice(&full[si..si + 4]);
+                }
+            }
+            gif_frames.push(tile);
         }
         for id in w.live_organism_ids() {
             let Some(s) = w.organism(id) else { continue };
@@ -3089,10 +3144,29 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     // `Crowding` reads 0.75, that is exactly the condition to
                     // suspect. The column is here because nothing in the engine
                     // records a drop that was *chosen* and could not land.
-                    let free8 = [(-1i32, -1i32), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)]
-                        .iter()
-                        .filter(|&&(dx, dy)| w.is_empty(hx + dx, hy + dy))
-                        .count();
+                    let ring = [(-1i32, -1i32), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
+                    let free8 = ring.iter().filter(|&&(dx, dy)| w.is_empty(hx + dx, hy + dy)).count();
+                    // **WHAT IS IN THE WAY**, owner's question 2026-09-22. A
+                    // count of blocked neighbours says a drop cannot land; it
+                    // does not say what is standing there, and the two want
+                    // different repairs -- a nest packed with its own ants is a
+                    // crowding problem, a nest of solid comb is a geometry one.
+                    // Accumulated as a histogram over the run rather than a
+                    // per-row column: 400k rows x 8 names is a log nobody can
+                    // read, and the question is about the distribution.
+                    if free8 == 0 {
+                        for &(dx, dy) in ring.iter() {
+                            let (cx, cy) = (hx + dx, hy + dy);
+                            let cell = w.get(cx, cy);
+                            let occupant = w.organism(cell.organism_id());
+                            let key = match occupant {
+                                Some(o) if Some(o.colony) == w.organism(id).map(|m| m.colony) => "a nestmate".to_string(),
+                                Some(_) => "another creature".to_string(),
+                                None => w.materials.get(cell.material).name.to_string(),
+                            };
+                            *blockers.entry(key).or_insert(0u64) += 1;
+                        }
+                    }
                     let emit_b = tout[O::EmitB as usize].clamp(0.0, 1.0);
                     let emit_a_o = tout[O::EmitA as usize].clamp(0.0, 1.0);
                     laden_rows.push(format!(
@@ -3807,6 +3881,15 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 Err(e) => println!("    LADEN CENSUS: could not write {path}: {e}"),
             }
         }
+        if !blockers.is_empty() {
+            let mut v: Vec<_> = blockers.iter().collect();
+            v.sort_by(|a, b| b.1.cmp(a.1));
+            let total: u64 = blockers.values().sum();
+            println!("    WHAT IS IN THE WAY on ticks with nowhere to drop ({total} blocked neighbour cells):");
+            for (name, n) in v.iter().take(8) {
+                println!("        {:>28}  {:>9}  {:>5.1}%", name, n, 100.0 * **n as f64 / total as f64);
+            }
+        }
         if !focal_rows.is_empty() {
             let path = format!("/tmp/trailfollow-focal-seed{seed}-gap{gap}.csv");
             let mut out = String::from(
@@ -3839,6 +3922,33 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         reach[b] += 1;
     }
     let st = w.creature_stats;
+    // **Written outside `if tracing`**: the GIF is not a trace artifact and
+    // gating it on that flag made it silently produce nothing.
+    if let Some(path) = gif_out.as_ref() {
+        if gif_frames.is_empty() {
+            println!("    GIF: no frames captured -- gifevery={gif_every} against frames={frames}");
+        } else {
+            let (zw, zh) = (gif_w * gif_zoom, gif_h * gif_zoom);
+            let delay_ms = (gif_every * 1000 / 60).max(16);
+            let delay = image::Delay::from_saturating_duration(std::time::Duration::from_millis(delay_ms));
+            let n = gif_frames.len();
+            match std::fs::File::create(path) {
+                Ok(file) => {
+                    let mut enc = image::codecs::gif::GifEncoder::new(file);
+                    let _ = enc.set_repeat(image::codecs::gif::Repeat::Infinite);
+                    for tile in gif_frames.drain(..) {
+                        if let Some(buf) = image::RgbaImage::from_raw(zw, zh, tile) {
+                            let _ = enc.encode_frame(image::Frame::from_parts(buf, 0, 0, delay));
+                        }
+                    }
+                    drop(enc);
+                    println!("    GIF: {zw}x{zh}, {n} frames, every {gif_every} frames -> {path}");
+                }
+                Err(e) => println!("    GIF: could not create {path}: {e}"),
+            }
+        }
+    }
+
     Arm {
         near_ticks,
         ant_ticks,

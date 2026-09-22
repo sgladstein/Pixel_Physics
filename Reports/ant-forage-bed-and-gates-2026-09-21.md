@@ -926,3 +926,58 @@ already on the record (`lanes/evolution-lab-pheromones.md`, *"four of seven
 reader slots are read by no species: the laterals deliberately"*); what is new
 is that this comment asserts a rerouting that did not happen, and it sits three
 lines from the one wire that does steer.
+
+---
+
+## 12. What is in the way, and the bed as video
+
+Owner, 2026-09-22: *"I think I need to see a video of this entire test, but
+especially we need to understand why these ants have nowhere to drop it. What is
+in the way?"*
+
+### 12a. It is the ground, not the crowd
+
+The blocked-neighbour census names the occupant of every one of the eight cells
+on a tick where `free8 == 0`. Two seeds, gap 90, shipped `STACK_DEPTH`:
+
+| what is standing there | seed 1 | seed 2 |
+|---|---|---|
+| **packedsoil** | **55.7%** | 24.0% |
+| **a nestmate** | 26.3% | **38.4%** |
+| soil | 11.2% | 13.7% |
+| nest material | 5.4% | 9.9% |
+| spoil (dig tailings) | 0.8% | 9.9% |
+| fruit | 0.6% | 4.2% |
+
+**Two-thirds of it is ground.** For *all eight* neighbours to be occupied an
+animal cannot be standing on a surface — three of its eight would be sky. It is
+**underground**, inside a burrow it or its nestmates dug, and `spoil` in the
+table is the tailings that proves the digging.
+
+So the shape of the failure is: an ant carries food into the nest, goes below,
+and there is nowhere in the soil to put it down. The drop rolls, wins, finds no
+empty cell, and evaporates (§10a) — and with the graded crop the animal then
+digests the cargo it could not deliver.
+
+**This is a different repair from the one a crowding reading would suggest.**
+More room between ants does not help; the ant needs a *chamber* — standing void
+— or a drop that can reach further than one ring. It also explains why
+`PIXEL_PHYSICS_COLONY_SPACING` (a surface spacing) moved delivery so little.
+
+### 12b. The harness can now render itself
+
+`gif=`, with `gifat=x,y`, `gifzoom=`, `gifevery=`, `gifw=`/`gifh=`. Rendered
+through the shipped `Renderer` on **this** bed rather than by rebuilding it in
+`labshot`/`labgif`, whose `LabBox` is the lab's and not this one — photographing
+a different scene is `CLAUDE.md`'s *a scene that contradicts the code will look
+like a bug in the code*.
+
+**A GIF rather than stills is not a preference here.** `instruments.md` records
+the owner's verdict on a creature contact sheet: *"visually, I cannot tell
+anything from these. ants are mostly visible with their motion."* An ant is two
+cells; it is picked out of dark soil by moving.
+
+**One trap paid for on the way**: the write was first placed inside the
+harness's `if tracing` block, so a run without `trace` produced no file and no
+error — the silent-null shape this file keeps recording. It is outside that
+block now.
