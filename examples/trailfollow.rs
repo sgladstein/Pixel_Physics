@@ -3076,6 +3076,23 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 // tick that lays nothing because the animal did not move looks
                 // identical, in any aggregate, to one that chose not to lay.
                 if laden_csv && carrying_larder {
+                    // **How many of the eight neighbours a drop could land in.**
+                    // `creature.rs`' drop spends its coin flip and THEN looks for
+                    // somewhere to put the cell:
+                    //
+                    //     if draw.unit_f32() < drop_urge {
+                    //         if let Some((dx, dy)) = NEIGHBOURS_8 ... .find(is_empty) {
+                    //
+                    // so an animal with no free neighbour rolls the dice, wins,
+                    // and puts nothing down -- silently, with no counter and no
+                    // retry. At the nest, where 55% of stuck laden ticks are and
+                    // `Crowding` reads 0.75, that is exactly the condition to
+                    // suspect. The column is here because nothing in the engine
+                    // records a drop that was *chosen* and could not land.
+                    let free8 = [(-1i32, -1i32), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)]
+                        .iter()
+                        .filter(|&&(dx, dy)| w.is_empty(hx + dx, hy + dy))
+                        .count();
                     let emit_b = tout[O::EmitB as usize].clamp(0.0, 1.0);
                     let emit_a_o = tout[O::EmitA as usize].clamp(0.0, 1.0);
                     laden_rows.push(format!(
@@ -3091,6 +3108,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                         p_move,
                         tout[O::Drop as usize].clamp(0.0, 1.0),
                     ));
+                    laden_rows.last_mut().expect("just pushed").push_str(&format!(",{free8}"));
                 }
                 if focal == Some(id) || in_cohort {
                     focal_rows.push(format!(
@@ -3780,7 +3798,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             // the nest this tick, positive homeward -- because "dx" on its own
             // has been read with the wrong sign in this file before.
             let mut out = String::from(
-                "seed,gap,arm,id,frame,stage,x,y,dx_home,dist_nest,emit_b,deposit_b,here_b,ahead_b,emit_a,here_a,HomeAligned,PheroBAlong,PheroBFront,PheroAAlong,p_move,drop_urge\n",
+                "seed,gap,arm,id,frame,stage,x,y,dx_home,dist_nest,emit_b,deposit_b,here_b,ahead_b,emit_a,here_a,HomeAligned,PheroBAlong,PheroBFront,PheroAAlong,p_move,drop_urge,free8\n",
             );
             out.push_str(&laden_rows.join("\n"));
             out.push('\n');

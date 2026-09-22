@@ -765,3 +765,82 @@ call.
 `drop_urge` 0.50 and food still in the crop. Those animals are home. Why the
 drop does not complete is a separate question, and `b15d08b2` (*"AtNest is not a
 drop gate"*) is where it was last looked at.
+
+---
+
+## 10. The other half: a drop that is chosen and cannot land
+
+§9 explained the ants stuck **out on the route** (45% of stuck laden ticks) and
+explicitly did not explain the other **55%**, standing at the nest with
+`drop_urge` 0.50 and food still in the crop. This is them.
+
+### 10a. The drop spends its coin flip before it looks for anywhere to put the cell
+
+`creature.rs`:
+
+```rust
+let p = drop_urge;
+if draw.unit_f32() < p {
+    if let Some((dx, dy)) = NEIGHBOURS_8.iter().map(...).find(|&(px, py)| world.is_empty(px, py)) {
+        // ...put the cell down...
+```
+
+An animal with **no empty neighbour** rolls the dice, wins, and puts nothing
+down. Silently: no counter, no retry, no record anywhere in the engine that a
+delivery was *chosen* and could not happen. At `drop_urge` 0.50 a drop should
+land within about two ticks; laden episodes run to a median of 234 and a p75 of
+1,296.
+
+### 10b. Measured: on 60.8% of the ticks an ant wants to deliver, it cannot
+
+`free8` added to the laden census — how many of the eight neighbours are empty.
+412,788 laden ticks, 4 seeds:
+
+| | |
+|---|---|
+| ticks wanting to drop (`drop_urge > 0.3`) | 206,046 |
+| **of those, `free8 == 0` — nowhere to put it** | **60.8%** |
+| median `free8` for that group | **0** |
+| median `drop_urge` for that group | 0.5049 |
+
+Within the nest band, `free8 == 0` on **47.1%** of all laden ticks.
+
+### 10c. Stacking aggravates it and does not cause it
+
+| | drop wanted, nowhere to put it | median `free8` |
+|---|---|---|
+| `STACK_DEPTH=4` | **60.8%** | 0 |
+| `STACK_DEPTH=1` (shipped default) | **47.6%** | 1 |
+
+**Nearly half of delivery attempts fail geometrically in the shipped
+configuration**, and co-occupancy takes it to three in five. The mechanism is
+that the nest comb is *material* — an animal standing in it is surrounded by
+cells that are not empty — so a granary needs gaps, and an ant has to be beside
+one at the moment its drop fires.
+
+**And this retrospectively explains §3b**, which was left as an unexplained
+interaction: stacking halves blocked moves (12,454 → 6,555) and is a **12/12
+coin flip** on whether the colony eats. It helps movement and hurts delivery,
+and the two roughly cancel. That is a mechanism for a null this report
+previously could only describe.
+
+### 10d. What this is and is not
+
+**It is not a tuning problem.** No value of `drop_urge` fixes a drop with
+nowhere to land; raising it only burns the roll sooner.
+
+**It compounds with the graded crop.** An ant that cannot deliver goes on
+digesting what it is holding — the 2026-09-20 trace's *"34% absorb the whole
+load one cell short of the nest"* — so a failed delivery is not merely delayed,
+it is **converted into the forager's own supper**.
+
+**Causality is only partly established.** `free8 == 0` and being stuck plausibly
+feed each other: a pile makes neighbours non-empty, and animals that cannot
+deliver stay to form the pile. The `STACK_DEPTH=1` arm rules out co-occupancy as
+the *cause* (47.6% without it) but does not separate the remaining two
+directions. The clean test is a bed whose nest has a known free-cell budget.
+
+**The cheapest honest repair is a counter, not a behaviour change**: the engine
+cannot currently distinguish "chose not to drop" from "chose to and could not",
+and neither can any harness. Everything above had to be reconstructed from
+outside the engine. That counter is worth having before anything is tuned.
