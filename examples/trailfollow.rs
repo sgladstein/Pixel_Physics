@@ -1862,11 +1862,24 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // refill overwrites coordinates that may still hold larder from last time,
     // and counting the request would book those twice and make `taken` read
     // high for ever.
+    // **The pile's own slots, exactly the positions `place_food` writes.** A
+    // food budget must use these rather than a bounding box: the box's top
+    // row reaches past the last slot, and a cell there is not pile.
+    let pile_slots: std::collections::HashSet<(i32, i32)> = (0..food.max(0)).map(|i| (target_x + (i % 12) - 6, surface - (i / 12))).collect();
+    // `refill_overwrote`: pile slots the refill found holding something other
+    // than air or larder (an ant standing there, say) and wrote over. Each
+    // one is counted in `placed` as if food had been taken from it, so the
+    // food budget carries it as a residual in whole cells.
+    let refill_overwrote = std::cell::Cell::new(0u64);
     let place_food = |w: &mut pixel_physics::sim::world::World, n: i32, placed: &mut u64| {
         for i in 0..n {
             let (fx, fy) = (target_x + (i % 12) - 6, surface - (i / 12));
-            if w.get(fx, fy).material != larder {
+            let m = w.get(fx, fy).material;
+            if m != larder {
                 *placed += 1;
+                if m != pixel_physics::sim::material::EMPTY {
+                    refill_overwrote.set(refill_overwrote.get() + 1);
+                }
             }
             w.set(fx, fy, Cell::new(larder, 0));
         }
@@ -2351,6 +2364,17 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // in a crop feeds its carrier and, through sharing, its neighbours, while
     // a cell on the ground feeds only whoever stands beside it.
     let mut store_series: Vec<String> = Vec::new();
+    // A larder cell's face value, read off any crop holding one: `Crop::unit`
+    // is the per-cell worth the crop was filled at, the same figure
+    // `digested_face` is summed in.
+    let mut larder_unit = 0.0f32;
+    // **`foodwatch`: find where a food cell goes missing, one event at a
+    // time.** Every 10 frames the food budget is recomputed; when it loses a
+    // cell the budget cannot explain, the fruit cells that vanished since the
+    // last sample are printed with what now stands where they were.
+    let food_watch = flag("foodwatch");
+    let mut watch_prev: Option<(f64, std::collections::HashSet<(i32, i32)>)> = None;
+    let mut watch_lines: Vec<String> = Vec::new();
     let mut renderer = pixel_physics::render::Renderer::new();
     let mut blockers: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
     let nest_cells = {
@@ -2780,6 +2804,50 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             let live = (nest_x..=target_x).filter(|&x| w.pheromone_at(Channel::B, x, surface) > 0).count();
             peak_cells = peak_cells.max(live);
         }
+        if food_watch && larder_unit == 0.0 {
+            for id in w.live_organism_ids() {
+                if let Some(c) = w.organism(id).and_then(|st| st.crop).filter(|c| c.material == larder) {
+                    larder_unit = larder_unit.max(c.unit);
+                }
+            }
+        }
+        if food_watch && f.is_multiple_of(10) && larder_unit > 0.0 {
+            let face = larder_unit as f64;
+            let mut cells: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+            for y in 0..spec.height {
+                for x in 0..width {
+                    if w.get(x, y).material == larder && !pile_slots.contains(&(x, y)) {
+                        cells.insert((x, y));
+                    }
+                }
+            }
+            // Taken so far: what the refill has replaced, plus the slots empty
+            // right now that it has not reached yet.
+            let pile_missing = pile_slots.iter().filter(|&&(x, y)| w.get(x, y).material != larder).count() as f64;
+            let mut crop_face = 0.0f64;
+            for id in w.live_organism_ids() {
+                if let Some(c) = w.organism(id).and_then(|st| st.crop).filter(|c| c.material == larder) {
+                    crop_face += c.worth() as f64;
+                }
+            }
+            let st = &w.creature_stats;
+            let taken = larder_placed.saturating_sub(food.max(0) as u64) as f64 + pile_missing;
+            let residual = taken * face + st.drop_worth_restored - st.digested_face - cells.len() as f64 * face - crop_face
+                - st.crop_cells_lost_at_death as f64 * face;
+            if let Some((prev, prev_cells)) = watch_prev.as_ref() {
+                if residual - prev > face * 0.5 {
+                    let gone: Vec<String> = prev_cells
+                        .difference(&cells)
+                        .map(|&(x, y)| {
+                            let c = w.get(x, y);
+                            format!("({x},{y}) now {} org {}", w.materials.get(c.material).name, c.organism_id())
+                        })
+                        .collect();
+                    watch_lines.push(format!("frame {f}: residual +{:.0}; fruit cells gone since frame {}: [{}]", residual - prev, f - 10, gone.join("; ")));
+                }
+            }
+            watch_prev = Some((residual, cells));
+        }
         if f.is_multiple_of(3000) {
             let (mut at_nest, mut elsewhere) = (0u32, 0u32);
             for y in 0..spec.height {
@@ -2802,6 +2870,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 live += 1;
                 if let Some(c) = st.crop.filter(|c| c.material == larder) {
                     in_crops += c.cells as u32;
+                    larder_unit = larder_unit.max(c.unit);
                 }
             }
             store_series.push(format!("{f}: nest ground {at_nest}, crops {in_crops}, elsewhere {elsewhere}, ants {live}"));
@@ -4207,6 +4276,68 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // **Written outside `if tracing`**: the GIF is not a trace artifact and
     // gating it on that flag made it silently produce nothing.
     println!("    FOOD STORE (larder cells) -- {}", store_series.join(" | "));
+    if food_watch {
+        println!("    FOODWATCH: {} unexplained losses", watch_lines.len());
+        for l in &watch_lines {
+            println!("      {l}");
+        }
+    }
+    // **The food budget: every larder cell that left the pile, accounted
+    // for.** The refill counts each pile cell it replaces, so `taken` is what
+    // the colony removed; against it, what was chewed (face value over the
+    // cell's face value), what lies on the ground away from the pile, what
+    // sits in live crops, and what is held as a dug pellet. `unaccounted` is
+    // food that left by some route none of these see.
+    {
+        let pile = |x: i32, y: i32| pile_slots.contains(&(x, y));
+        let pile_missing = pile_slots.iter().filter(|&&(x, y)| w.get(x, y).material != larder).count() as u64;
+        let (mut ground, mut in_crops, mut as_spoil) = (0u64, 0u64, 0u64);
+        let mut crop_face = 0.0f64;
+        for y in 0..spec.height {
+            for x in 0..width {
+                if w.get(x, y).material == larder && !pile(x, y) {
+                    ground += 1;
+                }
+            }
+        }
+        for id in w.live_organism_ids() {
+            let Some(st) = w.organism(id) else { continue };
+            if let Some(c) = st.crop.filter(|c| c.material == larder) {
+                in_crops += c.cells as u64;
+                crop_face += c.worth() as f64;
+            }
+            if st.spoil.is_some_and(|sp| sp.cell.material == larder) {
+                as_spoil += 1;
+            }
+        }
+        let face = larder_unit.max(f32::EPSILON) as f64;
+        let taken = larder_placed.saturating_sub(food.max(0) as u64) + pile_missing;
+        let chewed = w.creature_stats.digested_face / face;
+        let standing = (ground + in_crops + as_spoil) as f64;
+        println!(
+            "    FOOD BUDGET (cells, one cell = {face:.0} face): taken from the pile {taken}; chewed {chewed:.1}; on the ground off the pile {ground}; in crops {in_crops}; held as spoil {as_spoil}; unaccounted {:.1}",
+            taken as f64 - chewed - standing
+        );
+        // **The same budget closed exactly, in face value.** Taken from the
+        // pile, plus what the ground forgot at every drop (§Z33), must equal
+        // what was chewed plus what still stands (ground and spoil at full
+        // face, crops net of their chewing). Anything left over is a sink or
+        // a source this line does not name -- decay, a crop lost at death.
+        let restored = w.creature_stats.drop_worth_restored;
+        let lost = w.creature_stats.crop_cells_lost_at_death as f64 * face;
+        let residual = taken as f64 * face + restored - w.creature_stats.digested_face - (ground + as_spoil) as f64 * face - crop_face - lost;
+        println!(
+            "    FOOD BUDGET closed (face): taken {:.0} + forgotten at drops {:.0} = chewed {:.0} + standing {:.0} + lost in crops at death {:.0}; residual {:.0} ({:.2} cells; the refill wrote over {} non-food cells)",
+            taken as f64 * face,
+            restored,
+            w.creature_stats.digested_face,
+            (ground + as_spoil) as f64 * face + crop_face,
+            lost,
+            residual,
+            residual / face,
+            refill_overwrote.get()
+        );
+    }
     if let Some(dir) = frames_dir.as_ref() {
         let (zw, zh) = (gif_w * gif_zoom, gif_h * gif_zoom);
         let _ = std::fs::create_dir_all(dir);

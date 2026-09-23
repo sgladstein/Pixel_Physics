@@ -1613,8 +1613,19 @@ pub struct CreatureStats {
     /// the nearest empty cell (`creature::food_drop_site`, the owner's stopgap
     /// of 2026-09-23). A subset of `drop_census`'s placed and delivered slots:
     /// every one of these would have been `no_room` without it. Zero unless
-    /// `PIXEL_PHYSICS_DROP_REACH=bodies`, because the rule ships off.
+    /// `PIXEL_PHYSICS_DROP_REACH=bodies`, because the rule ships off until
+    /// open bug §Z33 is fixed.
     pub drops_passed_on: u64,
+    /// **Face value the ground forgets at a food drop** -- the part of a
+    /// cell already chewed, which a material that cannot carry a worth in
+    /// `aux` puts back whole (open bug §Z33). It is created again as food
+    /// when the cell is picked up.
+    pub drop_worth_restored: f64,
+    /// **Crop cells that vanished with a dead animal**: its crop spills into
+    /// empty cells beside the body, and a cell with none to go to is gone.
+    /// Meat is also booked in `EnergyLedger::meat_lost`; plant food is booked
+    /// only here.
+    pub crop_cells_lost_at_death: u64,
     /// **C3: which of the forward cone's candidates each step took**, left /
     /// straight / right (`creature::CONE_PICK_NAMES`). Always on; sums to the
     /// steps `step_chain` chose, which is `moves` less the kin swaps.

@@ -9079,14 +9079,13 @@ fn food_drop_site(world: &World, x: i32, y: i32, through_bodies: bool) -> Option
 /// `PIXEL_PHYSICS_DROP_REACH=bodies` turns it on; unset is the eight-neighbour
 /// drop exactly.
 ///
-/// **Off by default, pending the owner's choice, because on the forage bed it
-/// starves the colony.** Measured 2026-09-23, 24 seeds at gap 90
-/// (`Reports/ant-decision-census-2026-09-22.md` §11): the loop improves
-/// (second trips 87 -> 112, 14 seeds better / 5 worse) and starvation rises
-/// 172 -> 249, with colonies nearly wiped out in 11 seeds against 3. Blocked
-/// laden ants were the colony's pantry -- a crop is also a stomach, and an
-/// animal stuck holding food stays fed and shares -- and where the food goes
-/// once it is put down is not yet traced.
+/// **Off by default until open bug §Z33 is fixed.** Measured 2026-09-23, 24
+/// seeds at gap 90 (`Reports/ant-decision-census-2026-09-22.md` §11): the
+/// loop improves (second trips 87 -> 112, 14 seeds better / 5 worse) and
+/// starvation rises 172 -> 249. §12 found why: a part-eaten fruit put down
+/// comes back whole, so the nest's put-down-and-pick-up churn creates about
+/// half of what a colony eats, and this rule cuts the churn while bringing
+/// home the same food. It cannot be judged until that leak is closed.
 fn drop_through_bodies() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DROP_REACH").as_deref() == Ok("bodies"))
@@ -10284,6 +10283,14 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             if roll >= p {
                 note_drop(world, DropWhy::RollLost);
             } else if let Some(((dx, dy), reach)) = food_drop_site(world, x, y, drop_through_bodies()) {
+                // **What the ground forgets** (open bug §Z33): a cell whose
+                // material cannot carry a worth goes down priced at its full
+                // material value, so the part already chewed and paid for is
+                // created again when it is picked up. Counted so a food
+                // budget can close exactly rather than leave it as a residual.
+                if !organism::digest_is_lumpy() && !world.materials.get(held.material).worth_in_aux {
+                    world.creature_stats.drop_worth_restored += f64::from(held.digesting);
+                }
                 // Handed on past the eight neighbours: see `food_drop_site`.
                 if reach > 1 {
                     world.creature_stats.drops_passed_on += 1;
@@ -10317,7 +10324,13 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     // **The chewing leaves WITH the cell — 2026-09-20.**
                     // `unit_cell` hands the ground `unit - digesting`,
                     // because the rest is already in this animal's energy
-                    // bank under the continuous payout. Carrying
+                    // bank under the continuous payout. **But the ground
+                    // only keeps that figure for a `worth_in_aux` material
+                    // (`Carried::into_cell`), which is `corpse` alone**: a
+                    // part-eaten fruit goes down as a plain fruit cell, is
+                    // priced by its material when picked up, and the chewed
+                    // part comes back. Open bug `open-bugs-handoff.md` §Z33,
+                    // reproduced by `a_part_eaten_fruit_put_down_and_picked_up_holds_only_what_was_left`. Carrying
                     // `digesting` forward across the drop, as `..c` used
                     // to, would let the next cell inherit progress that
                     // physically left with this one and the animal would
@@ -16274,6 +16287,9 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
         if left > 0 && world.materials.get(held.material).worth_in_aux {
             world.energy_ledger.meat_lost += (unit.worth as f64) * left as f64;
         }
+        // Plant food with nowhere to go is gone too, and booked nowhere else:
+        // counted so a food budget can close (`trailfollow`'s FOOD BUDGET).
+        world.creature_stats.crop_cells_lost_at_death += u64::from(left);
     }
     world.creature_stats.deaths += 1;
     world.free_organism(organism);
@@ -23169,6 +23185,60 @@ mod tests {
         let (w, _, mate) = build(true);
         assert_eq!(w.organism(mate.expect("placed")).expect("live").chain, vec![(30, 40), (29, 40)], "the nestmate should stand right behind the tail");
         assert_eq!(food_drop_site(&w, 32, 40, true), Some(((28, 40), 4)), "handed through its own tail and the nestmate");
+    }
+
+    /// **A part-eaten fruit put down and picked up again holds only what was
+    /// left of it** -- the conservation property, and today it fails.
+    ///
+    /// Found 2026-09-23 by the forage bed's food budget
+    /// (`Reports/ant-decision-census-2026-09-22.md` §12): colonies chewed
+    /// 12-37 more fruit cells than they ever took from the pile. An ant holds
+    /// one fruit cell with half of it already chewed (and paid for); it puts
+    /// it down at the nest; a nestmate picks it up. The second crop must hold
+    /// the half that is left.
+    ///
+    /// **It reads 960, and that is the bug** (`open-bugs-handoff.md` §Z33).
+    /// `Crop::unit_cell` hands the ground `unit - digesting`, but
+    /// `Carried::into_cell` writes a worth into the cell only for a
+    /// `worth_in_aux` material, which is `corpse` alone; a fruit cell on the
+    /// ground is priced by its material, so the chewed half comes back.
+    /// Ignored as the reproduction until the owner picks a fix.
+    #[test]
+    #[ignore = "reproduces open-bugs-handoff.md §Z33: a part-eaten fruit is restored whole when put down"]
+    fn a_part_eaten_fruit_put_down_and_picked_up_holds_only_what_was_left() {
+        let stone = Cell::new(material::STONE, 0).with_attached(true);
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        let nest = Cell::new(w.materials.id_of("nest").expect("nest material"), 0).with_attached(true);
+        let fruit = w.materials.id_of("fruit").expect("fruit material");
+        for x in 0..64 {
+            for y in 41..64 {
+                w.set(x, y, if (20..=44).contains(&x) && y == 41 { nest } else { stone });
+            }
+        }
+        let a = spawn(&mut w, "ant", 32, 40);
+        w.organism_mut(a).expect("live").crop = Some(Crop { material: fruit, cells: 1, digesting: 480.0, unit: 960.0, shade: 0, passenger: None });
+        let before = w.organism(a).and_then(|s| s.crop).map(|c| c.worth()).expect("laden");
+        let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+        let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        outputs[brain::BrainOutput::Drop as usize] = 1.0;
+        let mut draw = rng::stream(1, a as u64, 0, RNG_SLOT_MOVE);
+        act(&mut w, 32, 40, a, &def, &outputs, &mut draw);
+        assert!(w.organism(a).expect("live").crop.is_none(), "the one cell should have been put down");
+        let (fx, _) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (32 + dx, 40 + dy)).find(|&(x, y)| w.get(x, y).material == fruit).expect("the fruit lies beside the ant");
+
+        // A nestmate beside the fruit, with an empty crop, set to feed.
+        let b = spawn(&mut w, "ant", fx - 1, 40);
+        assert!(w.organism(b).expect("live").crop.is_none());
+        let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        outputs[brain::BrainOutput::Feed as usize] = 1.0;
+        let (bx, by) = w.organism(b).expect("live").chain[0];
+        let mut draw = rng::stream(2, b as u64, 0, RNG_SLOT_MOVE);
+        act(&mut w, bx, by, b, &def, &outputs, &mut draw);
+        let after = w.organism(b).and_then(|s| s.crop).map(|c| c.worth()).expect("the nestmate should have picked the fruit up");
+        assert!(
+            after <= before + 1.0,
+            "the fruit held {before} when it was put down and {after} when it was picked up again: food was created"
+        );
     }
 
     /// **The cone discards a turn it has nowhere to put, and follows one it

@@ -3171,11 +3171,15 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     through bodies to the nearest empty cell improves the loop at gap 90
     (second trips 87 → 112), and **starves the colony**: starvation
     172 → 249, colonies nearly wiped out in 11 of 24 seeds against 3.
-    Blocked laden ants were the colony's pantry. It ships off
-    (`PIXEL_PHYSICS_DROP_REACH=bodies`) pending the owner.
+    It ships off (`PIXEL_PHYSICS_DROP_REACH=bodies`).
+  - **§12 (2026-09-23): the food is created, not lost.** A part-eaten fruit
+    put down comes back whole (open bug §Z33), and about half of everything
+    a gap-90 colony eats is food created that way (median 53%, in 24 of 24
+    runs). §11's starvation is the stopgap cutting that churn; it must be
+    re-run once §Z33 is fixed.
   - Data: `Reports/data/decision-census-*-2026-09-22.log`,
-    `decision-census-step2-*-2026-09-23.*`, `drop-stopgap-*-2026-09-23.*`
-    and `decisions-seed1-gap90-2026-09-22.csv.gz`.
+    `decision-census-step2-*-2026-09-23.*`, `drop-stopgap-*-2026-09-23.*`,
+    `food-budget-*-2026-09-23.log` and `decisions-seed1-gap90-2026-09-22.csv.gz`.
 - [ant-movement-plan-2026-09-22.md](ant-movement-plan-2026-09-22.md)
   — **plan of record, 2026-09-22, agreed with the owner. Steps 1 and 2
   built (see `ant-decision-census-2026-09-22.md`); nothing after them.

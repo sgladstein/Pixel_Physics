@@ -9,7 +9,8 @@ will be.
   §15 re-checked the same day against the decision-trace change
   (`usable_headings`, `home_weighted_pick_why`); §5, §6b, §6c, §13, §14 and
   §15 re-checked 2026-09-23 against the drop, cone and homeward counters;
-  §5, §12 and §15 again the same day for the drop through bodies.
+  §5, §12 and §15 again the same day for the drop through bodies, and §9
+  for what a part-eaten cell is worth once put down.
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -345,6 +346,11 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   pays into energy continuously. **A laden ant eats its cargo while carrying
   it**, so fill falls on the way home and with it the homeward re-roll's
   chance. `digest_hunger_weight: 0.0`: digestion does not wait for hunger.
+- **A part-eaten fruit put down comes back whole.** The drop hands over the
+  worth left (`unit - digesting`), but only `corpse` stores a worth in the
+  cell; any plant food goes down as a plain cell of its material and is
+  priced at its full worth when picked up. So putting food down and picking
+  it up again creates food (open bug §Z33).
 - **Energy costs:**
   - per tick: idle 0.05 × body cells, plus the synapse, sight, curvature,
     force and armour taxes;

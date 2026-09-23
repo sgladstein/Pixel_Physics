@@ -4,7 +4,8 @@
 [`ant-movement-plan-2026-09-22.md`](ant-movement-plan-2026-09-22.md), and, in
 §10 (2026-09-23), step 2: the drop, cone and homeward counters. Both trace
 today's code and change no behaviour. §11 measures the drop stopgap, which
-does change behaviour and ships off. The mechanism it measures is described in
+does change behaviour and ships off, and §12 finds the food leak (§Z33) that
+§11's result turns out to rest on. The mechanism it measures is described in
 [`how-the-ant-works.md`](how-the-ant-works.md).*
 
 ## 0. The answer, stated once
@@ -404,7 +405,7 @@ The chooser should be judged in absolute directions (up, level, down), since
 left and right mean different things at different headings. Its
 per-usable-heading design already scores that way.
 
-## 11. The drop stopgap, measured: the loop improves, and the colony starves
+## 11. The drop stopgap, measured: the loop improves, and the colony starves (because of §12)
 
 *2026-09-23. The owner's ruling after §10: let a blocked drop go to the
 nearest free cell, as a stopgap. Built as `food_drop_site`: the first empty
@@ -447,11 +448,13 @@ in starvation, re-run with every decision traced:
 - **The colony eats less in total.** On seed 11 it ate 16,623 J with the
   rule off and 10,425 J with it on.
 
-**Reading:** blocked laden ants were the colony's pantry. A crop is also a
-stomach, so an animal stuck holding food stays fed and shares energy with
-the nestmates around it. Put on the ground, the food leaves the colony
-faster than it is eaten. **Where it goes has not been traced**; that is the
-next question if the rule is to ship.
+**Reading, withdrawn the same day.** This section first said blocked laden
+ants were the colony's pantry, and that food put on the ground leaves the
+colony faster than it is eaten. **§12 overturns that.** The food does not
+leave; it is created, by a part-eaten fruit coming back whole every time it
+is put down and picked up. The stopgap brings home the same food and cuts
+that churn, so the colony loses food that never existed. §11's comparison
+cannot be read until §Z33 is fixed.
 
 **How it was checked.**
 
@@ -464,7 +467,8 @@ next question if the rule is to ship.
   watched red on both named faults. It is blind to plant tissue, since no
   plant grows in its scene; this was checked by planting exactly that.
 - **Not done: the look.** A first render of the nest was too wide to show
-  anything, and no card was posted.
+  anything, and no card was posted. It waits on §Z33, since the colony it
+  would show is living on food that does not exist.
 
 **Data:**
 - `Reports/data/drop-stopgap-{bodies,adjacent}-2026-09-23.log`: the 72 runs
@@ -475,6 +479,95 @@ next question if the rule is to ship.
   and 11;
 - `drop-stopgap-starvers-2026-09-23.txt`: every ant that died on those
   seeds, from its last delivery to its death.
+
+## 12. Where the food goes: it does not go, it is created
+
+*2026-09-23. The owner asked, after §11, where food put down at the nest
+goes.*
+
+**The answer.** It does not go anywhere. **A part-eaten fruit put down comes
+back whole**, so every put-down-and-pick-up at the nest creates food. On the
+gap-90 bed, **about half of everything a colony eats is food created this
+way**. Filed as `open-bugs-handoff.md` §Z33.
+
+**The budget.** `trailfollow` now prints a `FOOD BUDGET` line. It counts
+every food cell taken from the pile, against what was chewed, what lies on
+the ground, what is in crops, and what is held as dug soil. Over 24 seeds at
+gap 90:
+
+| | Taken from the pile | Chewed | Created |
+|---|---|---|---|
+| shipped | median 31 cells | median 57 | median 31: **53% of all eaten** (15–69%), in 24 of 24 runs |
+| stopgap on | median 30 | median 44 | median 15: 40% |
+
+The stopgap takes the same food from the pile (median −1 cell) and creates
+less (fewer in 21 of 24 seeds). That is the whole of §11's starvation.
+
+**The mechanism**, from the code and then reproduced:
+
+- The crop pays energy as it chews (the continuous payout of 2026-09-20).
+- When a cell is put down, `Crop::unit_cell` hands the ground what is left
+  of it.
+- `Carried::into_cell` stores that worth in the cell only for a
+  `worth_in_aux` material, and `corpse` is the only one.
+- So a fruit goes down as a plain fruit cell, and the next ant to pick it up
+  is paid the full 960.
+
+**The reproduction** is
+`a_part_eaten_fruit_put_down_and_picked_up_holds_only_what_was_left`: 480
+when put down, 960 when picked up. It is `#[ignore]`d until the owner picks
+a fix.
+
+**Nothing decays and nothing disappears: the budget closes exactly.** The
+owner asked next whether the food was decaying, since the colony with the
+stopgap eats less and no food lies about. Fruit has no decay rule, and the
+closed budget, in face value, is:
+
+> taken from the pile + what the ground forgot at drops (§Z33)
+> = chewed + standing (ground, crops, dug soil) + food paid into births
+
+- **"Forgotten at drops"** is counted at every drop by a new counter,
+  `drop_worth_restored`. It is 15–37 cells' worth per run, which is the
+  created food.
+- **Births are the only other term.** A `foodwatch` pass recomputes the
+  budget every 10 frames and prints every loss it cannot explain, with the
+  cells that vanished. In each run the events match the births exactly:
+
+  | Run (gap 90) | Births | Events | Leftover |
+  |---|---|---|---|
+  | seed 1, stopgap on | 1 | 1 | 4 cells |
+  | seed 11, stopgap on | 1 | 1 | 4 cells |
+  | seed 1, off | 0 | 0 | 0 cells |
+  | seed 11, off | 2 | 2 | 3 cells |
+
+  At each event, fruit cells beside the parent vanish in one tick and a new
+  ant appears. `try_bud` pays for a child partly from food within reach,
+  which is by design.
+- **Two guesses were checked and ruled out on the way:**
+  - food lost in the crops of ants that die: 0 cells, now counted as
+    `crop_cells_lost_at_death`;
+  - the refill writing over non-food cells: 0.
+
+So the stopgap colony eating less is not food going missing. Both arms
+bring home the same real food; the shipped arm eats more because more is
+created for it.
+
+**How the question got answered.** The traces of §11 showed the ants starving
+without food nearby, and the store series showed no food piling up. So the
+budget was the next instrument, and the first reading was *negative*: more
+eaten than taken, on all four runs. A negative residual is creation, and the
+code named the one place worth could be lost across a drop.
+
+**What it means for the line:**
+- Every survival and loop figure measured on this bed so far is on a colony
+  living half on created food. That includes step 1's census and the
+  2026-09-21 bed report.
+- §11 must be re-run once §Z33 is fixed, and the stopgap judged then.
+- The register entry that said a part-chewed cell "leaves at what it is
+  actually worth" is corrected, and so is the source comment at the drop.
+
+**Data:** `Reports/data/food-budget-{shipped,bodies}-2026-09-23.log`, 24 runs
+each, with a `FOOD BUDGET` line per run.
 
 ## Data
 
