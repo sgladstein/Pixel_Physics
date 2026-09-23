@@ -1,0 +1,12 @@
+=== adjacent-seed1.log
+FOOD STORE (larder cells) -- 3000: nest ground 2, crops 12, elsewhere 395, ants 20 | 6000: nest ground 4, crops 18, elsewhere 400, ants 20 | 9000: nest ground 5, crops 8, elsewhere 400, ants 18 | 12000: nest ground 3, crops 6, elsewhere 400, ants 18 | 15000: nest ground 3, crops 4, elsewhere 400, ants 18 | 18000: nest ground 4, crops 2, elsewhere 400, ants 18 | 21000: nest ground 4, crops 1, elsewhere 400, ants 13 | 24000: nest ground 2, crops 2, elsewhere 400, ants 13
+   90    1  hand   13/13       12273     1320        0    93860    52862   17/20       13         2 1 0 17 0
+=== adjacent-seed11.log
+FOOD STORE (larder cells) -- 3000: nest ground 0, crops 11, elsewhere 398, ants 20 | 6000: nest ground 6, crops 21, elsewhere 400, ants 20 | 9000: nest ground 3, crops 20, elsewhere 397, ants 19 | 12000: nest ground 1, crops 11, elsewhere 400, ants 19 | 15000: nest ground 2, crops 6, elsewhere 400, ants 17 | 18000: nest ground 1, crops 6, elsewhere 400, ants 18 | 21000: nest ground 0, crops 6, elsewhere 400, ants 18 | 24000: nest ground 0, crops 4, elsewhere 400, ants 18
+   90   11  hand   18/17       16623      900        0   121094    86294   18/22       22         2 1 0 19 0
+=== bodies-seed1.log
+FOOD STORE (larder cells) -- 3000: nest ground 2, crops 12, elsewhere 395, ants 20 | 6000: nest ground 3, crops 14, elsewhere 400, ants 21 | 9000: nest ground 5, crops 4, elsewhere 400, ants 19 | 12000: nest ground 4, crops 8, elsewhere 400, ants 19 | 15000: nest ground 3, crops 6, elsewhere 400, ants 19 | 18000: nest ground 6, crops 1, elsewhere 400, ants 19 | 21000: nest ground 7, crops 0, elsewhere 400, ants 5 | 24000: nest ground 7, crops 0, elsewhere 400, ants 1
+   90    1  hand    1/1        10121     1320        0    71000    29756   17/21       18         2 2 0 17 0
+=== bodies-seed11.log
+FOOD STORE (larder cells) -- 3000: nest ground 0, crops 11, elsewhere 398, ants 20 | 6000: nest ground 6, crops 17, elsewhere 400, ants 21 | 9000: nest ground 5, crops 12, elsewhere 400, ants 18 | 12000: nest ground 5, crops 2, elsewhere 400, ants 15 | 15000: nest ground 5, crops 0, elsewhere 400, ants 14 | 18000: nest ground 4, crops 0, elsewhere 400, ants 14 | 21000: nest ground 3, crops 1, elsewhere 400, ants 14 | 24000: nest ground 2, crops 1, elsewhere 400, ants 1
+   90   11  hand    1/1        10425      900        0    72601    41755   18/21       25         1 1 1 18 0

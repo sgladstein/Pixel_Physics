@@ -3,7 +3,8 @@
 *2026-09-22. Result: step 1 of
 [`ant-movement-plan-2026-09-22.md`](ant-movement-plan-2026-09-22.md), and, in
 §10 (2026-09-23), step 2: the drop, cone and homeward counters. Both trace
-today's code and change no behaviour. The mechanism it measures is described in
+today's code and change no behaviour. §11 measures the drop stopgap, which
+does change behaviour and ships off. The mechanism it measures is described in
 [`how-the-ant-works.md`](how-the-ant-works.md).*
 
 ## 0. The answer, stated once
@@ -402,6 +403,78 @@ trap: at most 2 of 48,172 could be a tiny positive rounded down.
 The chooser should be judged in absolute directions (up, level, down), since
 left and right mean different things at different headings. Its
 per-usable-heading design already scores that way.
+
+## 11. The drop stopgap, measured: the loop improves, and the colony starves
+
+*2026-09-23. The owner's ruling after §10: let a blocked drop go to the
+nearest free cell, as a stopgap. Built as `food_drop_site`: the first empty
+neighbour as before, else the nearest empty cell reached by handing the food
+through bodies (the ant's own, and any other creature's), never through
+ground, nest material or food. It ships **off**;
+`PIXEL_PHYSICS_DROP_REACH=bodies` turns it on.*
+
+**The answer.**
+
+- **It does what was asked.** Blocked drops fall from 52% of won drops at
+  the nest (median run, gap 90) to almost none. The food goes about 2 cells,
+  back along the ant's body or through the crowd.
+- **The loop improves at gap 90**, paired within seed over 24 seeds:
+
+  | Loop stage | Off | On | Seeds better / worse / tied |
+  |---|---|---|---|
+  | put the food down at the nest | 333 | 356 | 13 / 5 / 6 |
+  | went back out again | 210 | 244 | 14 / 7 / 3 |
+  | reached the food a second time | 87 | 112 | 14 / 5 / 5 |
+
+  Gaps 140 and 200 barely forage, and nothing there moves.
+- **And the colony starves.**
+  - Deaths at gap 90 rise from 244 to 326, and starvation from 172 to 249:
+    more deaths in 15 seeds, fewer in 6.
+  - Colonies are nearly wiped out (17 or more of about 20 ants dead) in
+    **11 of 24 seeds** with it on, against 3 of 24 with it off.
+
+**Why, as far as it has been traced.** Seeds 11 and 1, the two largest rises
+in starvation, re-run with every decision traced:
+
+- **The dead are mostly ants that delivered and then starved near the
+  nest**: 11 on each seed. They stand at the nest's east edge. `FoodAdjacent`
+  reads 0 on nearly every decision, and their energy drains from about 0.7 to
+  0 over roughly 1,200 decisions after their last delivery.
+- **The food does not pile up uneaten at the nest.** It holds 0–7 cells on
+  the nest ground at every 3,000-frame sample, with the rule on or off.
+- **What differs is the crops.** With it on, the food held in crops is gone
+  by about frame 15,000; with it off, 4–6 cells stay in crops to the end.
+- **The colony eats less in total.** On seed 11 it ate 16,623 J with the
+  rule off and 10,425 J with it on.
+
+**Reading:** blocked laden ants were the colony's pantry. A crop is also a
+stomach, so an animal stuck holding food stays fed and shares energy with
+the nestmates around it. Put on the ground, the food leaves the colony
+faster than it is eaten. **Where it goes has not been traced**; that is the
+next question if the rule is to ship.
+
+**How it was checked.**
+
+- **The switch restores the old drop exactly.** With the rule off, every
+  run's drop line matches §10's runs of the same seeds.
+- **All 144 runs** (both arms × 24 seeds × three gaps) passed the end-of-run
+  reconciliation, including the new `drops_passed_on` against the rows.
+- **The rule has a known-answer test**,
+  `a_blocked_drop_passes_the_food_through_bodies_to_the_nearest_empty_cell`,
+  watched red on both named faults. It is blind to plant tissue, since no
+  plant grows in its scene; this was checked by planting exactly that.
+- **Not done: the look.** A first render of the nest was too wide to show
+  anything, and no card was posted.
+
+**Data:**
+- `Reports/data/drop-stopgap-{bodies,adjacent}-2026-09-23.log`: the 72 runs
+  of each arm. They were run while the rule was still on by default, so the
+  "adjacent" arm set `PIXEL_PHYSICS_DROP_REACH=adjacent` and the "bodies"
+  arm set nothing; the logs' headers do not name the rule (they do now);
+- `drop-stopgap-store-2026-09-23.txt`: the food-store series for seeds 1
+  and 11;
+- `drop-stopgap-starvers-2026-09-23.txt`: every ant that died on those
+  seeds, from its last delivery to its death.
 
 ## Data
 

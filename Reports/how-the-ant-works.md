@@ -8,7 +8,8 @@ will be.
 - **Verified against:** `main` at `bb65d507`, 2026-09-22. §2, §6c, §13 and
   §15 re-checked the same day against the decision-trace change
   (`usable_headings`, `home_weighted_pick_why`); §5, §6b, §6c, §13, §14 and
-  §15 re-checked 2026-09-23 against the drop, cone and homeward counters.
+  §15 re-checked 2026-09-23 against the drop, cone and homeward counters;
+  §5, §12 and §15 again the same day for the drop through bodies.
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -192,13 +193,20 @@ the tick: the ant still gets its move roll (§6) afterwards.
    stomach** (§9). `crop_capacity: 2880` worth units is three fruit cells
    (960 each) at the neutral gut.
 4. **Drop food**, whenever the crop holds anything, then **return**. The roll
-   against `Drop` is taken **first**. Only on a win does it look for the
-   first empty cell among the 8 neighbours, in fixed order, and place one
-   food cell there. **If there is no empty neighbour, nothing happens**: the
-   roll is spent and the tick did nothing. The drop is not gated on being at
-   the nest, but `Drop` is 0 elsewhere. `deliveries` counts any drop made
-   while `AtNest`, and `drop_census` counts every roll by outcome
-   (`DropWhy`: lost, placed, delivered, no room).
+   against `Drop` is taken **first**. Only on a win does it look for a place
+   (`food_drop_site`), and put one food cell there:
+   - the first empty cell among the 8 neighbours, in fixed order;
+   - **only with `PIXEL_PHYSICS_DROP_REACH=bodies`**: if there is none, the
+     nearest empty cell reachable by handing the food through bodies, the
+     ant's own and any other creature's, never through ground, nest material
+     or food already put down;
+   - otherwise nothing happens: the roll is spent and the tick did nothing.
+
+   The drop is
+   not gated on being at the nest, but `Drop` is 0 elsewhere. `deliveries`
+   counts any drop made while `AtNest`; `drop_census` counts every roll by
+   outcome (`DropWhy`: lost, placed, delivered, no room), and
+   `drops_passed_on` the drops that went past the neighbours.
 5. **Drop spoil**, if holding a dig pellet, then **return**. The target must
    be empty, sit on at least two filled cells of the three below it, and have
    clear headroom above. It may lift up the shaft (`lift_reach`).
@@ -394,6 +402,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_NEST_REACH` | r1 | `rN`: nest contact within radius N; `body`: any body cell |
 | `PIXEL_PHYSICS_LAB_ROOM` | on | `off`: at-nest `Crowding` falls back to local density |
 | `PIXEL_PHYSICS_TROPHALLAXIS` | on | `off` |
+| `PIXEL_PHYSICS_DROP_REACH` | 8 neighbours | `bodies`: a blocked food drop is handed through bodies to the nearest empty cell |
 | `SPOIL_IS_CARGO` | on | `0`: spoil no longer counts toward `Carrying` |
 | `PIXEL_PHYSICS_DIG_SPOIL` | kept | `destroy`: dug cells vanish |
 | `PIXEL_PHYSICS_BURROW_LINING` | on | `off`: no `packedsoil` lining |
@@ -405,7 +414,7 @@ Read once per process from the environment. The default is what ships.
 
 - `creature.rs`: `creature_tick`, `sense`, `act`, `step_chain`, `tumble`,
   `usable_headings`, `home_weighted_pick_why`, `trail_sample_point`,
-  `adjacent_nest`, `line_burrow`, `choose_weighted`, and the decision trace's
+  `adjacent_nest`, `line_burrow`, `food_drop_site`, `choose_weighted`, and the decision trace's
   types (`DecisionRow`, `DecisionOutcome`, `HomewardWhy`, `DropWhy`).
 - `brain.rs`: `eval_brain`, the `BrainInput` / `BrainOutput` enums.
 - `pheromone.rs`: the planes and the constants in §7.
@@ -434,7 +443,8 @@ is on, every walking decision, the move stage of `creature_tick`, pushes one
 - the drop in `act` that same tick (`DropWhy`), its roll and probability,
   and the head's eight neighbours at the roll: how many were empty
   (`free8`), their materials, and which were the ant's own body or another
-  organism;
+  organism; and how far the food went (`drop_reach`: 1 for a neighbour,
+  more when handed on through bodies under `DROP_REACH=bodies`);
 - the cone's three scores after the zeroing and the candidate taken.
 
 `CreatureStats::decision_census` counts the same decisions by leg × setting
@@ -455,8 +465,9 @@ are always on.
     checks rows against the census, against every counter above and the
     per-verb counters (`moves`, `drops`, `deliveries`, `tumbles_homeward`),
     and against where the head went;
-  - three scenes with known answers: `the_homeward_re_roll_aims_along_a_known_floor_at_the_rate_its_fill_sets`,
+  - four scenes with known answers: `the_homeward_re_roll_aims_along_a_known_floor_at_the_rate_its_fill_sets`,
     `a_drop_with_nowhere_to_go_is_counted_and_one_with_room_is_delivered`,
+    `a_blocked_drop_passes_the_food_through_bodies_to_the_nearest_empty_cell`,
     and `the_cone_discards_a_turn_with_nowhere_to_go_and_follows_one_with_somewhere`,
     which feeds `Turn` directly because the shipped ant's is near 0 at
     ordinary temperatures.

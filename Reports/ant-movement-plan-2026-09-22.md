@@ -62,7 +62,7 @@ drop census starts at the anchor (§8).*
 | Brain outputs for the chooser's weights from the start | agreed; re-deriving every species' `mutation_rate` is accepted, since most creatures will be updated after the ants anyway |
 | Food memory for empty ants | **no, for now** |
 | Counters reconciled against per-tick traces | at first implementation, and whenever results are confusing, unexpected, or an issue has dragged on; not on every run |
-| Letting a drop reach past the eight neighbours | **deferred**: first understand why ants are blocked (§8) |
+| Letting a drop reach past the eight neighbours | **deferred** on 2026-09-22: first understand why ants are blocked (§8). **Reversed 2026-09-23, as a stopgap**, once step 2 showed the blocking: *"let them drop it even if they're blocked and it just moves to the nearest free cell. We could always try and improve it once the full foraging loop is complete."* Built as the food handed through bodies to the nearest empty cell (§8c). **Measured, it starves the colony, so it ships off (`PIXEL_PHYSICS_DROP_REACH=bodies`) until the owner chooses** |
 | Traces | per-tick brain, decision, position and environment traces have been more informative on this line than counters, so both are used, with the trace primary |
 | Revisions after the living reference was written | agreed, and folded in: exploration first (§0, §6 S0); the chooser in two stages (§4i); the home pull set by distance, not crop fill (§4a); falling independent of the step roll (§4e); the drop treated as possibly a nest-digging problem (§8); the trail-B experiment narrowed to its one essential arm (§7) |
 | Digesting the crop while carrying it | **not changed.** A test of `digest_hunger_weight` waits for the owner's go-ahead (§8b) |
@@ -586,6 +586,29 @@ exists: `digest_hunger_weight`, which makes digestion wait for hunger, is
 authored at 0.0 for the ant. It is a colony-economy change rather than a
 movement one, so **it is not tested without the owner's go-ahead.**
 
+### 8c. The stopgap, 2026-09-23
+
+Step 2's census (census report §10) found 52% of the drops won at the nest
+finding no room at gap 90. On the owner's ruling (§1), a blocked drop can
+hand the food through bodies (the ant's own, and nestmates') to the nearest
+empty cell, never through ground (`food_drop_site`, `how-the-ant-works.md`
+§5).
+
+**Measured (census report §11), it works and it starves the colony.** At
+gap 90 the loop improves (second trips 87 → 112, 14 seeds better, 5 worse),
+and starvation rises 172 → 249, with colonies nearly wiped out in 11 of 24
+seeds against 3. Blocked laden ants were the colony's pantry. So it ships
+**off**, and `PIXEL_PHYSICS_DROP_REACH=bodies` turns it on, until the owner
+chooses among:
+1. keep it off and trace where the food goes once it is put down (it does
+   not pile up at the nest);
+2. turn it on as it is;
+3. pair it with the digestion switch (§8b).
+
+**What this does to §8.** The census of *why* the cells are full is
+deferred, as the owner said, until the loop works. Whichever way the choice
+goes, any later measurement on the colony bed states which drop rule it ran.
+
 ## 9. Order of work
 
 1. **C4 and the full trace, on today's code, today's beds.** Trace only; no
@@ -600,9 +623,14 @@ movement one, so **it is not tested without the owner's go-ahead.**
    wins at the nest find no room, mostly because of nestmates and burrow
    lining. The four comments are fixed, and a fifth of the same kind was
    found and fixed.
+2b. **The drop stopgap (§8c)**, on the owner's ruling of 2026-09-23:
+   built and measured on the colony bed (census report §11). It ships off,
+   because it starves the colony, until the owner chooses.
 3. **Scenes S0–S5 on today's code**, **S0 first**, with the predictions
-   above, as the baseline.
-4. **The drop census (§8)**, in parallel with step 3.
+   above, as the baseline. S0–S3 have no nest, so the stopgap cannot reach
+   them.
+4. **The drop's side effects (§8c)**, in parallel with step 3. The full
+   census of §8 waits until the loop works.
 5. **Chooser stage 1** (§4i), behind its switch: turning preference, home
    term, falling every tick. Judged on S0–S3.
 6. **Chooser stage 2**: the trail terms. Judged on S4–S5, then one paired

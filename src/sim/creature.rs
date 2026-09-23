@@ -567,8 +567,9 @@ pub enum DropWhy {
     Placed = 2,
     /// The roll won and the cell went down at the nest: a delivery.
     Delivered = 3,
-    /// The roll won and none of the eight neighbours was empty. The roll is
-    /// spent before the search, so this tick did nothing.
+    /// The roll won and there was nowhere to put it: no empty neighbour, and
+    /// none reachable through bodies (`food_drop_site`). The roll is spent
+    /// before the search, so this tick did nothing.
     NoRoom = 4,
 }
 pub const DROP_WHYS: usize = 5;
@@ -636,6 +637,10 @@ pub struct DecisionScratch {
     /// of another organism (a nestmate, a plant).
     pub nbr_self: u8,
     pub nbr_other: u8,
+    /// How far the food went when it was put down: 1 for a neighbour, more
+    /// when it was handed on through bodies (`food_drop_site`), 0 if nothing
+    /// was put down.
+    pub drop_reach: u8,
     /// The forward cone's three scores after the zeroing, left / straight /
     /// right. `NaN` unless the cone chose.
     pub cone: [f32; 3],
@@ -656,6 +661,7 @@ impl Default for DecisionScratch {
             nbr: [0; 8],
             nbr_self: 0,
             nbr_other: 0,
+            drop_reach: 0,
             cone: [f32::NAN; 3],
             pick: NO_PICK,
         }
@@ -741,6 +747,7 @@ pub struct DecisionRow {
     pub nbr: [u16; 8],
     pub nbr_self: u8,
     pub nbr_other: u8,
+    pub drop_reach: u8,
     /// The forward cone: see `DecisionScratch`.
     pub cone: [f32; 3],
     pub pick: u8,
@@ -5319,6 +5326,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             nbr: sc.nbr,
             nbr_self: sc.nbr_self,
             nbr_other: sc.nbr_other,
+            drop_reach: sc.drop_reach,
             cone: sc.cone,
             pick: sc.pick,
         };
@@ -8992,6 +9000,98 @@ fn trail_read_is_forward() -> bool {
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_TRAIL_READ").as_deref() == Ok("fwd"))
 }
 
+/// **Where a dropped food cell goes: the first empty neighbour, or, when
+/// there is none, the nearest empty cell reached by handing it through
+/// bodies.** Returns the cell and how many steps away it is (1 for a
+/// neighbour).
+///
+/// **The owner's stopgap, 2026-09-23, off by default** (`drop_through_bodies`
+/// says why). Step 2's drop census
+/// (`Reports/ant-decision-census-2026-09-22.md` §10) found that at the gap-90
+/// forage bed **52% of the drops a laden ant wins at the nest find no empty
+/// neighbour** (median run), with nestmates the largest share of what fills
+/// them. The roll is spent before the search, so each of those ticks did
+/// nothing. The owner's ruling: *"let them drop it even if they're blocked and
+/// it just moves to the nearest free cell. We could always try and improve it
+/// once the full foraging loop is complete."*
+///
+/// **Through bodies only, never through ground.** The search walks from the
+/// head across cells of creatures (this animal's own body and anyone else's),
+/// and takes the first empty cell it finds beside one. Rock, soil, nest
+/// material and food already put down stop it. So the food stays in the space
+/// the animal is standing in, handed back along its body or through the crowd,
+/// and never appears in another tunnel or on the surface; and an animal truly
+/// sealed in still has nowhere to put it.
+///
+/// **Nothing changes when a neighbour is free**: that case is the old search
+/// exactly, same cells, same order. With `through_bodies` false the function
+/// is the old search and nothing else.
+///
+/// **No cap, and none is needed.** The search only ever steps onto creature
+/// cells and stops at the first empty one, so the work is bounded by the size
+/// of the crowd it is standing in. `seen` is only ever asked for membership,
+/// never iterated, so its hash order cannot reach a result.
+fn food_drop_site(world: &World, x: i32, y: i32, through_bodies: bool) -> Option<((i32, i32), u8)> {
+    if let Some(p) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| world.is_empty(px, py)) {
+        return Some((p, 1));
+    }
+    if !through_bodies {
+        return None;
+    }
+    let is_body = |(px, py): (i32, i32)| {
+        let c = world.get(px, py);
+        c.organism_id() != 0 && world.materials.kind(c.material) == MaterialKind::Creature
+    };
+    let mut seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+    seen.insert((x, y));
+    let mut frontier: Vec<(i32, i32)> = Vec::new();
+    for &(dx, dy) in NEIGHBOURS_8.iter() {
+        let p = (x + dx, y + dy);
+        if is_body(p) && seen.insert(p) {
+            frontier.push(p);
+        }
+    }
+    let mut depth: u8 = 1;
+    while !frontier.is_empty() {
+        depth = depth.saturating_add(1);
+        let mut next = Vec::new();
+        for &(bx, by) in &frontier {
+            for &(dx, dy) in NEIGHBOURS_8.iter() {
+                let p = (bx + dx, by + dy);
+                if seen.contains(&p) {
+                    continue;
+                }
+                if world.is_empty(p.0, p.1) {
+                    return Some((p, depth));
+                }
+                if is_body(p) {
+                    seen.insert(p);
+                    next.push(p);
+                }
+            }
+        }
+        frontier = next;
+    }
+    None
+}
+
+/// Whether a blocked food drop is handed through bodies (`food_drop_site`).
+/// `PIXEL_PHYSICS_DROP_REACH=bodies` turns it on; unset is the eight-neighbour
+/// drop exactly.
+///
+/// **Off by default, pending the owner's choice, because on the forage bed it
+/// starves the colony.** Measured 2026-09-23, 24 seeds at gap 90
+/// (`Reports/ant-decision-census-2026-09-22.md` §11): the loop improves
+/// (second trips 87 -> 112, 14 seeds better / 5 worse) and starvation rises
+/// 172 -> 249, with colonies nearly wiped out in 11 seeds against 3. Blocked
+/// laden ants were the colony's pantry -- a crop is also a stomach, and an
+/// animal stuck holding food stays fed and shares -- and where the food goes
+/// once it is put down is not yet traced.
+fn drop_through_bodies() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DROP_REACH").as_deref() == Ok("bodies"))
+}
+
 fn deposit_at_vacated() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DEPOSIT_AT").as_deref() == Ok("vacated"))
@@ -10183,7 +10283,14 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             }
             if roll >= p {
                 note_drop(world, DropWhy::RollLost);
-            } else if let Some((dx, dy)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| world.is_empty(px, py)) {
+            } else if let Some(((dx, dy), reach)) = food_drop_site(world, x, y, drop_through_bodies()) {
+                // Handed on past the eight neighbours: see `food_drop_site`.
+                if reach > 1 {
+                    world.creature_stats.drops_passed_on += 1;
+                }
+                if world.decision_log.is_some() {
+                    world.decision_scratch.drop_reach = reach;
+                }
                 // **A2 -- popped by the first cell dropped, uneaten.** A
                 // passenger rides *in place of* this one flesh cell,
                 // not beside it -- see `Crop::passenger`'s own doc for
@@ -22759,6 +22866,7 @@ mod tests {
         }
         assert_eq!(count(&|r| matches!(r.drop, DropWhy::Placed | DropWhy::Delivered)), after.drops - before.drops, "placed+delivered rows against `drops`");
         assert_eq!(count(&|r| r.drop == DropWhy::Delivered), after.deliveries - before.deliveries, "delivered rows against `deliveries`");
+        assert_eq!(count(&|r| r.drop_reach >= 2), after.drops_passed_on - before.drops_passed_on, "handed-on rows against `drops_passed_on`");
         for (i, name) in CONE_PICK_NAMES.iter().enumerate() {
             assert_eq!(count(&|r| r.pick as usize == i), after.cone_picks[i] - before.cone_picks[i], "cone `{name}` rows against `cone_picks`");
         }
@@ -22780,8 +22888,18 @@ mod tests {
                 DropWhy::NotAsked => {}
                 DropWhy::RollLost => assert!(r.drop_roll >= r.drop_p, "a lost roll that beat its probability: {r:?}"),
                 DropWhy::NoRoom => assert!(r.drop_roll < r.drop_p && r.free8 == 0, "no room, yet the roll lost or a neighbour was free: {r:?}"),
-                DropWhy::Placed | DropWhy::Delivered => assert!(r.drop_roll < r.drop_p && (1..=8).contains(&r.free8), "placed with a lost roll or no free neighbour: {r:?}"),
+                DropWhy::Placed | DropWhy::Delivered => {
+                    assert!(r.drop_roll < r.drop_p, "placed with a lost roll: {r:?}");
+                    // Beside the ant exactly when a neighbour was free;
+                    // handed on through bodies (`food_drop_site`) otherwise.
+                    if r.free8 >= 1 {
+                        assert_eq!(r.drop_reach, 1, "a free neighbour, yet the food went further: {r:?}");
+                    } else {
+                        assert!(r.drop_reach >= 2, "no free neighbour, yet the food went beside the ant: {r:?}");
+                    }
+                }
             }
+            assert_eq!(r.drop_reach != 0, matches!(r.drop, DropWhy::Placed | DropWhy::Delivered), "a reach is recorded exactly when food went down: {r:?}");
             // The cone chose exactly when a step was taken, and the step went
             // where the pick says: the heading it names, and the head moved
             // one cell along it.
@@ -22968,6 +23086,89 @@ mod tests {
             assert!(r.free8 >= 1, "open air above, yet no free neighbour: {r:?}");
         }
         assert_eq!(after.deliveries - before.deliveries, won.len() as u64, "delivered rows against `deliveries`");
+    }
+
+    /// **A blocked drop hands the food through bodies to the nearest empty
+    /// cell, and never through ground** -- the owner's stopgap of 2026-09-23
+    /// (`food_drop_site`), off by default (`drop_through_bodies`).
+    ///
+    /// A laden ant at the blind east end of a one-wide tunnel lined with nest
+    /// material, so every one of its eight neighbours is wall or its own tail.
+    /// The answers are fixed by the geometry:
+    ///
+    /// - handed back along its own body, the food goes to the first tunnel
+    ///   cell behind the tail, two steps away;
+    /// - once food lies there, nothing is reachable, because the search does
+    ///   not pass through food;
+    /// - with a nestmate standing behind it, the food passes through the
+    ///   nestmate too and goes behind that, four steps away;
+    /// - with the rule off it is the eight-neighbour search: no room, and
+    ///   `act` at the shipped default puts nothing down and books `NoRoom`.
+    ///
+    /// The rule is asked directly because its switch is read once per
+    /// process; the bed runs with it on reconcile the counter against the
+    /// rows. **Watched red** by letting the search pass through any non-empty
+    /// cell (the food goes through the wall) and by restricting it to the
+    /// animal's own body (the nestmate scene fails). **Blind to plant tissue**:
+    /// nothing grows here, so a search that also passed through roots or
+    /// leaves stays green (checked by planting exactly that).
+    #[test]
+    fn a_blocked_drop_passes_the_food_through_bodies_to_the_nearest_empty_cell() {
+        let stone = Cell::new(material::STONE, 0).with_attached(true);
+        let build = |nestmate: bool| {
+            let mut w = World::new(Rect::new(0, 0, 63, 63));
+            let nest = Cell::new(w.materials.id_of("nest").expect("nest material"), 0).with_attached(true);
+            for x in 0..64 {
+                for y in 0..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            // The tunnel, x 20..=32 on row 40, walled in nest above and below
+            // and at its east end.
+            for x in 19..=33 {
+                w.set(x, 39, nest);
+                w.set(x, 41, nest);
+            }
+            w.set(33, 40, nest);
+            for x in 20..=32 {
+                w.set(x, 40, Cell::EMPTY);
+            }
+            let ant = spawn(&mut w, "ant", 32, 40);
+            let mate = nestmate.then(|| spawn(&mut w, "ant", 30, 40));
+            fill_crop(&mut w, ant);
+            (w, ant, mate)
+        };
+
+        // Its own tail behind it.
+        let (mut w, ant, _) = build(false);
+        assert_eq!(w.organism(ant).expect("live").chain, vec![(32, 40), (31, 40)], "the scene needs the ant head-east at the blind end");
+        assert_eq!(food_drop_site(&w, 32, 40, false), None, "the eight-neighbour drop must have no room here, or the scene is not the case");
+        assert_eq!(food_drop_site(&w, 32, 40, true), Some(((30, 40), 2)), "handed back along its own body");
+
+        // Food lying in that cell plugs the tunnel.
+        let leaf = w.materials.id_of("leaf").expect("leaf");
+        w.set(30, 40, Cell::new(leaf, 0));
+        assert_eq!(food_drop_site(&w, 32, 40, true), None, "the search must not pass through food already put down");
+        w.set(30, 40, Cell::EMPTY);
+
+        // `act` at the shipped default: the roll wins (`Drop` at 1) and there
+        // is no room, so nothing is put down.
+        let def = w.species.get(w.organism(ant).expect("live").species).creature.clone().expect("a creature");
+        let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        outputs[brain::BrainOutput::Drop as usize] = 1.0;
+        w.decision_log = Some(Vec::new());
+        w.decision_scratch = DecisionScratch::default();
+        let mut draw = rng::stream(1, ant as u64, 0, RNG_SLOT_MOVE);
+        act(&mut w, 32, 40, ant, &def, &outputs, &mut draw);
+        if !drop_through_bodies() {
+            assert_eq!(w.decision_scratch.drop, DropWhy::NoRoom, "at the default the blocked drop books no room");
+            assert_eq!((w.creature_stats.drops, w.creature_stats.drops_passed_on), (0, 0), "at the default nothing is put down");
+        }
+
+        // A nestmate standing behind it.
+        let (w, _, mate) = build(true);
+        assert_eq!(w.organism(mate.expect("placed")).expect("live").chain, vec![(30, 40), (29, 40)], "the nestmate should stand right behind the tail");
+        assert_eq!(food_drop_site(&w, 32, 40, true), Some(((28, 40), 4)), "handed through its own tail and the nestmate");
     }
 
     /// **The cone discards a turn it has nowhere to put, and follows one it

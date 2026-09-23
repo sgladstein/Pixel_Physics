@@ -2019,6 +2019,14 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let gif_at: Option<String> = arg_str("gifat");
     let gif_w: u32 = arg("gifw").unwrap_or(160);
     let gif_h: u32 = arg("gifh").unwrap_or(100);
+    // `gifstart=F`: capture from frame F rather than frame 1, so a sequence
+    // can cover the part of the run a question is about. `framesdir=DIR`:
+    // also write every captured frame as `DIR/frame-NNN.png`, for the review
+    // queue's frame sequences, which play where a GIF sometimes does not.
+    let gif_start: u64 = arg("gifstart").unwrap_or(1);
+    let frames_dir: Option<String> = arg_str("framesdir");
+    // `gifcount=N`: stop capturing after N frames.
+    let gif_count: usize = arg("gifcount").unwrap_or(usize::MAX);
     assert!(!laden_csv || tracing, "ladencsv needs `trace`: the brain evaluation it records is gated on it, so without it every row would be missing");
     // **Asserted rather than documented, because the failure is silent.** The
     // emit site sits inside the existing every-100-frames sample block, so a
@@ -2316,6 +2324,9 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let mut drop_recount = [0u64; creature::DROP_WHYS];
     let mut pick_recount = [0u64; 3];
     let mut turn_recount = (0u64, 0u64);
+    // Drops handed on past the eight neighbours (`food_drop_site`), and the
+    // sum of how far, so the summary can say how far a handed-on drop goes.
+    let mut passed_recount = (0u64, 0u64);
     // The largest `Turn` among the requests, because "nonzero" alone reads as
     // steering: on the shipped gap bed the largest over 72 runs is 0.031, a
     // raise that barely moves a pick weighted at (0.1 + s)^2.
@@ -2334,6 +2345,12 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         (_, _, PaintA::FlatFood) => "flatF",
     };
     let mut gif_frames: Vec<Vec<u8>> = Vec::new();
+    // **Where the food is**, every 3,000 frames: larder on the ground at the
+    // nest (within 10 columns of its material), on the ground elsewhere, and
+    // in live ants' crops -- the question a drop rule changes, because a cell
+    // in a crop feeds its carrier and, through sharing, its neighbours, while
+    // a cell on the ground feeds only whoever stands beside it.
+    let mut store_series: Vec<String> = Vec::new();
     let mut renderer = pixel_physics::render::Renderer::new();
     let mut blockers: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
     let nest_cells = {
@@ -2445,6 +2462,10 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     aim_recount[creature::aim_class(r.home_cos)] += 1;
                 }
                 drop_recount[r.drop as usize] += 1;
+                if r.drop_reach >= 2 {
+                    passed_recount.0 += 1;
+                    passed_recount.1 += r.drop_reach as u64;
+                }
                 if r.pick != creature::NO_PICK {
                     pick_recount[r.pick as usize] += 1;
                     if r.turn != 0.0 {
@@ -2469,7 +2490,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 // 0.0000 on every row of a run where it was nonzero, and a
                 // parse of that column called it exactly zero.
                 decision_rows.push(format!(
-                    "{seed},{gap},{arm_name},{},{},{},{},{:.4},{},{},{},{},{},{},{},{},{},{:.4},{:.4},{},{:.4},{:.4},{:.5},{:.5},{},{:.4},{},{},{:.4},{:.4},{:e},{:.4},{:.4},{},{},{:.4},{},{},{:.4},{:.4},{},{},{},{},{:.4},{:.4},{:.4},{}",
+                    "{seed},{gap},{arm_name},{},{},{},{},{:.4},{},{},{},{},{},{},{},{},{},{:.4},{:.4},{},{:.4},{:.4},{:.5},{:.5},{},{:.4},{},{},{:.4},{:.4},{:e},{:.4},{:.4},{},{},{:.4},{},{},{:.4},{:.4},{},{},{},{},{:.4},{:.4},{:.4},{},{}",
                     decision_tag,
                     r.frame,
                     r.id,
@@ -2515,6 +2536,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     r.cone[1],
                     r.cone[2],
                     if r.pick == creature::NO_PICK { "-" } else { creature::CONE_PICK_NAMES[r.pick as usize] },
+                    r.drop_reach,
                 ));
             }
         }
@@ -2758,7 +2780,33 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             let live = (nest_x..=target_x).filter(|&x| w.pheromone_at(Channel::B, x, surface) > 0).count();
             peak_cells = peak_cells.max(live);
         }
-        if gif_out.is_some() && (f == 1 || f.is_multiple_of(gif_every)) {
+        if f.is_multiple_of(3000) {
+            let (mut at_nest, mut elsewhere) = (0u32, 0u32);
+            for y in 0..spec.height {
+                for x in 0..width {
+                    if w.get(x, y).material == larder {
+                        if x >= nest_lo - 10 && x <= nest_hi + 10 {
+                            at_nest += 1;
+                        } else {
+                            elsewhere += 1;
+                        }
+                    }
+                }
+            }
+            let (mut in_crops, mut live) = (0u32, 0u32);
+            for id in w.live_organism_ids() {
+                let Some(st) = w.organism(id) else { continue };
+                if st.species != species_id {
+                    continue;
+                }
+                live += 1;
+                if let Some(c) = st.crop.filter(|c| c.material == larder) {
+                    in_crops += c.cells as u32;
+                }
+            }
+            store_series.push(format!("{f}: nest ground {at_nest}, crops {in_crops}, elsewhere {elsewhere}, ants {live}"));
+        }
+        if (gif_out.is_some() || frames_dir.is_some()) && gif_frames.len() < gif_count && f >= gif_start && (f == gif_start || f.is_multiple_of(gif_every)) {
             // The camera: `gifat=` or, by default, centred on the nest cursor
             // at the surface -- which is where every question this harness has
             // about dropping and congregation actually lives.
@@ -4075,6 +4123,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         assert_eq!(homeward_recount[H::Fired as usize] + homeward_recount[H::FiredHaul as usize], s1.tumbles_homeward - s0.tumbles_homeward, "fired rows against `tumbles_homeward`");
         assert_eq!(drop_recount[P::Placed as usize] + drop_recount[P::Delivered as usize], s1.drops - s0.drops, "placed rows against `drops`");
         assert_eq!(drop_recount[P::Delivered as usize], s1.deliveries - s0.deliveries, "delivered rows against `deliveries`");
+        assert_eq!(passed_recount.0, s1.drops_passed_on - s0.drops_passed_on, "handed-on rows against `drops_passed_on`");
         assert_eq!(pick_recount.iter().sum::<u64>(), by(D::Stepped), "cone picks against stepped rows");
         let total: u64 = decision_recount.iter().flatten().flatten().sum();
         println!("    DECISION CENSUS: {total} decisions, reconciled against the rows and the engine's counters");
@@ -4085,9 +4134,11 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         println!("      C1 fired, aimed: {}", named(&creature::HOMEWARD_AIM_NAMES, &aim_recount, 0));
         let won = drop_recount[P::Placed as usize] + drop_recount[P::Delivered as usize] + drop_recount[P::NoRoom as usize];
         println!(
-            "      C2 drop: {} -- no room on {:.1}% of won rolls",
+            "      C2 drop: {} -- no room on {:.1}% of won rolls; handed on through bodies {} (mean {:.1} steps)",
             named(&creature::DROP_WHY_NAMES, &drop_recount, 1),
-            if won > 0 { 100.0 * drop_recount[P::NoRoom as usize] as f64 / won as f64 } else { 0.0 }
+            if won > 0 { 100.0 * drop_recount[P::NoRoom as usize] as f64 / won as f64 } else { 0.0 },
+            passed_recount.0,
+            if passed_recount.0 > 0 { passed_recount.1 as f64 / passed_recount.0 as f64 } else { 0.0 }
         );
         println!(
             "      C3 cone: {}; Turn nonzero on {} picks (largest |Turn| {:.2e}), discarded on {}",
@@ -4122,7 +4173,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             let suffix = if decision_tag.is_empty() { String::new() } else { format!("-{decision_tag}") };
             let path = format!("{decision_dir}/trailfollow-decisions-seed{seed}-gap{gap}-{arm_name}{suffix}.csv");
             let mut out = String::from(
-                "seed,gap,arm,tag,frame,id,leg,fill,x,y,x2,y2,heading,heading2,usable,setting,ax,ay,energy,home_aligned,at_nest,crowding,stillness,along_a,along_b,food_adjacent,kin_need,nest_x,move_out,p_move,turn,roll_move,roll_tumble,outcome,homeward,home_cos,moved,drop,drop_roll,drop_p,free8,n_nw,n_n,n_ne,n_w,n_e,n_sw,n_s,n_se,nbr_self,nbr_other,cone_l,cone_s,cone_r,pick\n",
+                "seed,gap,arm,tag,frame,id,leg,fill,x,y,x2,y2,heading,heading2,usable,setting,ax,ay,energy,home_aligned,at_nest,crowding,stillness,along_a,along_b,food_adjacent,kin_need,nest_x,move_out,p_move,turn,roll_move,roll_tumble,outcome,homeward,home_cos,moved,drop,drop_roll,drop_p,free8,n_nw,n_n,n_ne,n_w,n_e,n_sw,n_s,n_se,nbr_self,nbr_other,cone_l,cone_s,cone_r,pick,drop_reach\n",
             );
             out.push_str(&decision_rows.join("\n"));
             out.push('\n');
@@ -4155,6 +4206,18 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let st = w.creature_stats;
     // **Written outside `if tracing`**: the GIF is not a trace artifact and
     // gating it on that flag made it silently produce nothing.
+    println!("    FOOD STORE (larder cells) -- {}", store_series.join(" | "));
+    if let Some(dir) = frames_dir.as_ref() {
+        let (zw, zh) = (gif_w * gif_zoom, gif_h * gif_zoom);
+        let _ = std::fs::create_dir_all(dir);
+        for (i, tile) in gif_frames.iter().enumerate() {
+            let path = format!("{dir}/frame-{i:03}.png");
+            if let Err(e) = image::save_buffer(&path, tile, zw, zh, image::ColorType::Rgba8) {
+                println!("    FRAMES: could not write {path}: {e}");
+            }
+        }
+        println!("    FRAMES: {} PNGs of {zw}x{zh}, every {gif_every} frames from {gif_start} -> {dir}", gif_frames.len());
+    }
     if let Some(path) = gif_out.as_ref() {
         if gif_frames.is_empty() {
             println!("    GIF: no frames captured -- gifevery={gif_every} against frames={frames}");
@@ -4392,12 +4455,13 @@ fn main() {
     // `ant-forage-bed-and-gates-2026-09-21.md` is run with, echoed so a log
     // that does not name them was written by a binary that never had them.
     println!(
-        "  breadoff={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} layfrom={}",
+        "  breadoff={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} layfrom={}",
         flag("breadoff"),
         flag("decisioncsv"),
         arg_str("dtag").unwrap_or_default(),
         std::env::var("PIXEL_PHYSICS_COLONY_SPACING").unwrap_or_else(|_| "shipped".into()),
         std::env::var("PIXEL_PHYSICS_STACK_DEPTH").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_DROP_REACH").unwrap_or_else(|_| "shipped".into()),
         arg_str("layfrom").unwrap_or_else(|| "nest".into())
     );
     println!("  {LANDED_NOTE}\n");

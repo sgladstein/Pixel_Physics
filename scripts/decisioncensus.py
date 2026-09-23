@@ -150,6 +150,7 @@ class Census:
         self.drop_free8 = defaultdict(Counter)  # outcome -> free8
         self.drop_nbr = defaultdict(Counter)  # outcome -> neighbour kind/material -> cells
         self.drop_where = defaultdict(Counter)  # outcome -> "on anchor"/"off anchor"
+        self.drop_reach = defaultdict(Counter)  # outcome -> steps the food went (1 = a neighbour)
         self.picks = defaultdict(lambda: defaultdict(Counter))  # leg -> setting -> pick
         self.side_open = defaultdict(lambda: defaultdict(Counter))  # leg -> setting -> number of open sides (0/1/2)
         self.turns = defaultdict(Counter)  # leg -> "requests"/"discarded"
@@ -221,6 +222,8 @@ class Census:
             self.drop_free8[why][int(r["free8"])] += 1
             on_anchor = (r["x"], r["y"]) == (r["ax"], r["ay"])
             self.drop_where[why]["on the anchor" if on_anchor else "off the anchor"] += 1
+            if why in ("placed", "delivered") and "drop_reach" in r:
+                self.drop_reach[why][int(r["drop_reach"])] += 1
             mine, other = int(r["nbr_self"]), int(r["nbr_other"])
             for i, col in enumerate(NBR_COLS):
                 if mine >> i & 1:
@@ -360,6 +363,10 @@ class Census:
             p(f"\n   {why}: {rolls} rolls; " + ", ".join(f"{k} {100*v/rolls:.1f}%" for k, v in where.most_common()))
             p("     free neighbours: " + ", ".join(f"{k}: {100*v/rolls:.1f}%" for k, v in sorted(f8.items())))
             p("     the eight neighbours: " + ", ".join(f"{k} {100*v/cells:.1f}%" for k, v in nb.most_common(8)))
+            dr = self.drop_reach[why]
+            if dr:
+                p("     steps the food went (1 = beside the ant; more = handed on through bodies): "
+                  + ", ".join(f"{k}: {100*v/rolls:.1f}%" for k, v in sorted(dr.items())))
 
         p("\n6. THE CONE (C3: which forward candidate each step took; how many sides were open)")
         for leg in LEGS:
@@ -387,7 +394,7 @@ DIRS = [(1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1), (0, 1), (1, 1)]
 NBR_COLS = ["n_nw", "n_n", "n_ne", "n_w", "n_e", "n_sw", "n_s", "n_se"]
 HEADER = ("seed,gap,arm,tag,frame,id,leg,fill,x,y,x2,y2,heading,heading2,usable,setting,ax,ay,energy,home_aligned,at_nest,crowding,"
           "stillness,along_a,along_b,food_adjacent,kin_need,nest_x,move_out,p_move,turn,roll_move,roll_tumble,outcome,homeward,home_cos,moved,"
-          "drop,drop_roll,drop_p,free8," + ",".join(NBR_COLS) + ",nbr_self,nbr_other,cone_l,cone_s,cone_r,pick")
+          "drop,drop_roll,drop_p,free8," + ",".join(NBR_COLS) + ",nbr_self,nbr_other,cone_l,cone_s,cone_r,pick,drop_reach")
 
 
 def selftest():
@@ -416,7 +423,9 @@ def selftest():
     walled = {c: "packedsoil" for c in NBR_COLS}
     for f in (40, 41):
         lines.append(row(f, 3, "laden", "pocket", "roll_failed_idle", x=5, drop="no_room", free8="0", nbr_self=str(1 << 3), **walled))
-    lines.append(row(42, 3, "laden", "pocket", "roll_failed_idle", x=5, drop="placed", free8="1", **dict(walled, n_e="empty")))
+    lines.append(row(42, 3, "laden", "pocket", "roll_failed_idle", x=5, drop="placed", free8="1", drop_reach="1", **dict(walled, n_e="empty")))
+    # ...and one handed on through bodies, three steps.
+    lines.append(row(43, 3, "laden", "pocket", "roll_failed_idle", x=5, drop="placed", free8="0", drop_reach="3", nbr_self=str(1 << 3), **walled))
     # Ant 4, empty, a junction step to the left with Turn nonzero, both sides open,
     # and one to the right with Turn asking left and left zeroed (discarded).
     # Facing west (4): left is SW (down), right is NW (up).
@@ -432,15 +441,16 @@ def selftest():
             nonlocal ok
             print(("  ok    " if cond else "  FAIL  ") + what)
             ok &= cond
-        check(c.rows == 39, f"39 rows read (got {c.rows})")
-        check(c.drops["laden"]["no_room"] == 2 and c.drops["laden"]["placed"] == 1, "two no-room rolls and one placement")
+        check(c.rows == 40, f"40 rows read (got {c.rows})")
+        check(c.drops["laden"]["no_room"] == 2 and c.drops["laden"]["placed"] == 2, "two no-room rolls and two placements")
+        check(c.drop_reach["placed"] == Counter({1: 1, 3: 1}), f"one placement beside the ant, one handed on three steps (got {dict(c.drop_reach['placed'])})")
         check(c.drop_nbr["no_room"]["(own body)"] == 2 and c.drop_nbr["no_room"]["packedsoil"] == 14, "the no-room neighbours: own tail twice, packedsoil 14")
         check(c.drop_nbr["placed"]["empty"] == 1 and c.drop_where["no_room"]["on the anchor"] == 0, "the placement's free cell is seen; x=5 is not the anchor (0,0)")
         check(c.picks["empty"]["junction"]["left"] == 1 and c.picks["empty"]["junction"]["right"] == 1, "one left and one right pick")
         check(c.turns["empty"]["requests"] == 2 and c.turns["empty"]["discarded"] == 1, "two Turn requests, one discarded")
         check(c.side_open["empty"]["junction"][2] == 1 and c.side_open["empty"]["junction"][1] == 1, "sides open: 2 on the first step, 1 on the second")
         check(c.side_dir["empty"]["junction"]["down"] == 1 and c.side_dir["empty"]["junction"]["up"] == 1, "facing west, the left step went down and the right one up")
-        check(c.leg_decisions[("1", "90", "hand", "")]["laden"] == 17, "17 laden decisions (ant 1: 14, ant 3: 3)")
+        check(c.leg_decisions[("1", "90", "hand", "")]["laden"] == 18, "18 laden decisions (ant 1: 14, ant 3: 4)")
         check(any(x[0] == "laden" and x[3] == 12 and x[4] == 12 for x in c.long_stalls), "one laden long stall of 12, all at p_move 0")
         check(not any(x[0] == "empty" for x in c.long_stalls), "no empty long stall (it relocates every other decision)")
         check(c.homeward["empty"]["no_crop"] == 10, "10 empty tumbles refused for no_crop")

@@ -3167,9 +3167,15 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     The cone goes straight on 75–97% of steps, and its side-steps are mostly
     climbs. **A correction**: `Turn` is small but not zero on the bed (at
     most 0.031); a four-decimal CSV column had read it as exactly 0.
+  - **§11 (2026-09-23): the drop stopgap, measured.** A blocked drop handed
+    through bodies to the nearest empty cell improves the loop at gap 90
+    (second trips 87 → 112), and **starves the colony**: starvation
+    172 → 249, colonies nearly wiped out in 11 of 24 seeds against 3.
+    Blocked laden ants were the colony's pantry. It ships off
+    (`PIXEL_PHYSICS_DROP_REACH=bodies`) pending the owner.
   - Data: `Reports/data/decision-census-*-2026-09-22.log`,
-    `decision-census-step2-*-2026-09-23.*` and
-    `decisions-seed1-gap90-2026-09-22.csv.gz`.
+    `decision-census-step2-*-2026-09-23.*`, `drop-stopgap-*-2026-09-23.*`
+    and `decisions-seed1-gap90-2026-09-22.csv.gz`.
 - [ant-movement-plan-2026-09-22.md](ant-movement-plan-2026-09-22.md)
   — **plan of record, 2026-09-22, agreed with the owner. Steps 1 and 2
   built (see `ant-decision-census-2026-09-22.md`); nothing after them.

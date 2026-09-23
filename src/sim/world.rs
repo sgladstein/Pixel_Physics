@@ -1609,6 +1609,12 @@ pub struct CreatureStats {
     /// neither of those could say is `no_room`, a won roll with no empty
     /// neighbour, which did nothing and was counted nowhere.
     pub drop_census: [u64; crate::sim::creature::DROP_WHYS],
+    /// **Drops put down past the eight neighbours**, handed through bodies to
+    /// the nearest empty cell (`creature::food_drop_site`, the owner's stopgap
+    /// of 2026-09-23). A subset of `drop_census`'s placed and delivered slots:
+    /// every one of these would have been `no_room` without it. Zero unless
+    /// `PIXEL_PHYSICS_DROP_REACH=bodies`, because the rule ships off.
+    pub drops_passed_on: u64,
     /// **C3: which of the forward cone's candidates each step took**, left /
     /// straight / right (`creature::CONE_PICK_NAMES`). Always on; sums to the
     /// steps `step_chain` chose, which is `moves` less the kin swaps.
