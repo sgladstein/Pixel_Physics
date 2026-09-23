@@ -2945,6 +2945,18 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             renderer.camera_x = cx - vw / 2;
             renderer.camera_y = cy - vh / 2;
             renderer.draw(&w, &particles, &touched, &mut full, (vw as u32, vh as u32), true);
+            // **Which cells in view are crumbs, per captured frame**, so a card
+            // can carry the count under the picture and a crumb can be found in
+            // it: a few brown cells on brown soil are easy to miss by eye.
+            if frames_dir.is_some() {
+                let (x0, y0) = (renderer.camera_x, renderer.camera_y);
+                let at: Vec<String> = (y0..y0 + vh)
+                    .flat_map(|y| (x0..x0 + vw).map(move |x| (x, y)))
+                    .filter(|&(x, y)| Some(w.get(x, y).material) == crumbs)
+                    .map(|(x, y)| format!("({},{}) {:.0}J", x - x0, y - y0, creature::food_value(&w, w.get(x, y))))
+                    .collect();
+                println!("    CAPTURE frame {} ({f}): {} crumbs in view at view cells [{}]", gif_frames.len(), at.len(), at.join(" "));
+            }
             // Nearest-neighbour magnify, the same rule `filmstrip`'s tiles use:
             // an ant must be several screen pixels or the GIF answers nothing.
             let (zw, zh) = (vw as u32 * gif_zoom, vh as u32 * gif_zoom);
