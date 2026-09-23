@@ -241,7 +241,9 @@ pub struct Cell {
     /// - Any material flagged `worth_in_aux` — today `corpse`, and nothing
     ///   else → **what this cell is worth to eat**, in energy units, 1:1
     ///   (M18/S3). A corpse is worth what the animal was made of, so it is
-    ///   the one food whose value cannot live on the material.
+    ///   the one food whose value cannot live on the material. The same
+    ///   for `carries_worth` (today `crumbs`, what is left of a part-eaten
+    ///   piece of plant food), which is a worth and not meat.
     /// - `Gas`, and any `Powder` that is neither of the two above → unused,
     ///   always 0.
     /// - `Liquid` → compressible-volume fill amount, on the

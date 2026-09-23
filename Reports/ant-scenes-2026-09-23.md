@@ -362,9 +362,12 @@ row), so fewer of them may be less churn rather than less food. But eight
 deaths against one is not explained by that. Stage 1 was not built to be
 judged on a colony (plan §4i: until stage 2, trail B still throttles every
 empty ant), and it does not ship. **So it stays behind its switch until a
-colony-bed run says what those deaths are.** The first suspect is open bug
+colony-bed run says what those deaths are.** The first suspect was open bug
 §Z33: the shipped walk's put-down-and-pick-up churn at the door creates
-food, and the chooser churns less (drops 1,310 against 506).
+food, and the chooser churns less (drops 1,310 against 506). **The
+colony-bed run, with §Z33 fixed, says stage 1 alone is much worse on the
+colony** (ants reaching food: median 17 -> 3 at gap 90; second trips 127 ->
+18). Census report §13 has the rows and the hypothesis to trace.
 
 **Data:** `Reports/data/scene-chooser-{s0,s1,s2,s3}-2026-09-23.log` and
 `scene-nopatience-{s2,s3}-2026-09-23.log`: every run's row and the

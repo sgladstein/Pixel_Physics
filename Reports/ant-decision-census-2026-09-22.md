@@ -515,8 +515,9 @@ less (fewer in 21 of 24 seeds). That is the whole of §11's starvation.
 
 **The reproduction** is
 `a_part_eaten_fruit_put_down_and_picked_up_holds_only_what_was_left`: 480
-when put down, 960 when picked up. It is `#[ignore]`d until the owner picks
-a fix.
+when put down, 960 when picked up. **Fixed the same day** (`open-bugs-handoff.md`
+§Z33): a part-eaten piece of plant food now goes down as `crumbs` holding
+what is left, and the test guards it.
 
 **Nothing decays and nothing disappears: the budget closes exactly.** The
 owner asked next whether the food was decaying, since the colony with the
@@ -568,6 +569,75 @@ code named the one place worth could be lost across a drop.
 
 **Data:** `Reports/data/food-budget-{shipped,bodies}-2026-09-23.log`, 24 runs
 each, with a `FOOD BUDGET` line per run.
+
+## 13. The bed with §Z33 fixed: the loop does not feed the colony
+
+*2026-09-23. §12 said §11 must be re-run once §Z33 was fixed. Fixed the same
+day (`open-bugs-handoff.md` §Z33): a part-eaten piece of plant food goes
+down as `crumbs` holding what is left.*
+
+**The answer.** With no food created at drops, **the gap-90 colony starves.**
+Starvation rose from 249 to **433** (more in 22 of 24 seeds), and **23 of 24
+colonies** lost 17 or more of their ~20 ants, against 10 of 24. The budget
+now closes to within 0.04 of a cell, so this is the real state of the loop:
+a colony brings home a median of **32 fruit cells** a run and eats about 31.
+Before the fix it ate about twice what it brought home.
+
+**Paired within seed**, arm `hand`, 24 seeds per gap, the drop through
+bodies on in both (§11's "on" arm against the same bed after the fix):
+
+| Gap 90 | Before the fix | Fixed | Seeds higher / lower |
+|---|---|---|---|
+| reached the food | 418 | 412 | 6 / 7 |
+| reached it a second time | 112 | 127 | 11 / 8 |
+| went back out again | 244 | **322** | 20 / 3 |
+| cells put down at the nest | 32,254 | **12,383** | 1 / 23 |
+| starved | 249 | **433** | 22 / 1 |
+| colonies with 17+ dead | 10 of 24 | **23 of 24** | |
+| forgotten at drops (cells) | 15–37 a run | **0** | |
+
+- **The loop's own steps did not get worse.** As many ants reach the food,
+  and more go back out again. What fell is food: the nest's
+  put-down-and-pick-up churn no longer creates it, so the cells put down at
+  the nest fell by more than half, and the colony runs out.
+- **Gaps 140 and 200 were already almost entirely starved** before the fix
+  (22 and 24 of 24 colonies with 17+ dead), and are after it.
+
+**The same bed with stage 1's chooser on** (`PIXEL_PHYSICS_CHOOSER=on`,
+`ant-scenes-2026-09-23.md` §3), paired against the fixed shipped walk:
+
+| Gap 90 | Shipped walk | Chooser | Seeds higher / lower |
+|---|---|---|---|
+| reached the food, median per run | 17 | **3** | 6 / 18 |
+| reached it a second time | 127 | **18** | 1 / 23 |
+| went back out again | 322 | **31** | 0 / 24 |
+| starved | 433 | 477 | 11 / 9 |
+
+**Stage 1 on its own is much worse on the colony**, whatever it does in the
+scenes. Two things show in the rows. They are not yet traced:
+- in most seeds far fewer ants reach the food at all;
+- in four seeds the colony booms instead (553–917 births in a run, nearly
+  every ant reaching the food), which looks like a colony living and
+  breeding at the pile rather than commuting.
+
+**The likeliest cause, stated as a hypothesis to trace, not a finding.**
+Stage 1 turned a lost step roll into a pause, where the shipped walk re-aims.
+On this bed trail B still throttles an empty ant's steps (§4: `p_move` is 0
+on 70% of empty decisions), and the plan retires that throttle only in
+stage 2. So an ant throttled facing the wrong way along the trail may now
+stand still instead of turning. The shipped walk's run-and-tumble turned it.
+
+**What it means for the line:**
+- The chooser stays off. Stage 2 (the trail terms, plan §4b–§4c) is what
+  gives it a trail to follow. Stage 1 without it removes the only way the
+  shipped ant follows one.
+- Every earlier survival figure on this bed was measured on phantom food.
+  The loop's weakness is now visible as starvation, and that is the number
+  the rest of the plan has to move.
+
+**Data:** `Reports/data/bed-z33-fixed-{shipped,chooser}-2026-09-23.log.gz`,
+72 runs each (24 seeds × gaps 90, 140, 200), paired by (gap, seed) against
+`drop-stopgap-bodies-2026-09-23.log`.
 
 ## Data
 

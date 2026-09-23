@@ -1615,10 +1615,12 @@ pub struct CreatureStats {
     /// every one of these would have been `no_room` without it. Zero under
     /// `PIXEL_PHYSICS_DROP_REACH=adjacent`, which turns the rule off.
     pub drops_passed_on: u64,
-    /// **Face value the ground forgets at a food drop** -- the part of a
-    /// cell already chewed, which a material that cannot carry a worth in
-    /// `aux` puts back whole (open bug §Z33). It is created again as food
-    /// when the cell is picked up.
+    /// **Face value the ground forgets at a food drop**: what the cell put
+    /// down is worth to the next eater beyond what was carried, which is
+    /// created again as food when it is picked up (open bug §Z33). Since the
+    /// crumbs fix a part-eaten piece of plant food restores nothing; what is
+    /// left is flesh bitten off a living animal and a fruit put down with a
+    /// seed riding in it.
     pub drop_worth_restored: f64,
     /// **Crop cells that vanished with a dead animal**: its crop spills into
     /// empty cells beside the body, and a cell with none to go to is gone.

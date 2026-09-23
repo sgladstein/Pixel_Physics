@@ -1,0 +1,56 @@
+// What is left of a piece of plant food an animal had started eating, put
+// back down. Open bug §Z33 (`Reports/open-bugs-handoff.md`): a forager chews
+// its load on the way home, is paid for every bite as it goes, and used to
+// put the half-eaten fruit down as a whole fruit -- so the next animal to pick
+// it up was paid for the eaten half again. About half of what a forage colony
+// ate was food that had already been eaten once.
+//
+// **Why a material of its own, rather than the fruit keeping a smaller
+// worth.** A loose fruit, leaf or flower is `Plant`-kind, and a loose
+// plant-kind cell is structural: `structural.rs` writes its support distance
+// into `Cell::aux`, the one slot a cell could keep a worth in. A windfall is a
+// powder but carries a seed organism, whose cell type lives there too. So the
+// remainder goes down as this, a powder no organism ever owns, which keeps
+// exactly what was left in `aux` (`carries_worth`) and is priced from it by
+// `creature::food_value`. A whole cell still goes down as itself.
+//
+// **Not meat, whatever it was cut from.** `carries_worth` is the half of
+// `worth_in_aux` that says "my worth is in `aux`" without the half that every
+// meat census and the energy ledger read as "I am meat". Only plant food
+// (`food_class` below 0) is put down as crumbs; flesh still goes down as its
+// own material.
+//
+// **It does not rot**, because the fruit it replaces does not: a half-eaten
+// fruit in a nest must not be a new way for food to vanish that a whole one is
+// not. Crumbs are eaten or they stay.
+(
+    name: "crumbs",
+    display: "Crumbs",
+    kind: Powder,
+    density: 0.8,
+    friction_angle: 40.0,
+    // Chewed pulp: duller and browner than `fruit` or `windfall`, so a nest
+    // floor shows where food was part-eaten and put back.
+    colors: [
+        (150, 96, 60),
+        (128, 80, 50),
+        (170, 118, 72),
+        (110, 70, 48),
+    ],
+    flammability: 0.3,
+    burn_temperature: 480.0,
+    burn_duration: 30,
+    burns_into: "ash",
+    heat_conductivity: 0.2,
+    insubstantial: true,
+    falls_through_organisms: true,
+    // **The fallback, never the price.** A crumbs cell is always written with
+    // a worth of at least 1 in `aux` (`Carried::into_cell`), and
+    // `food_value` reads that first; this is what one would be worth if
+    // something ever wrote one bare. A pip's worth, so a bare one is a morsel
+    // rather than a feast.
+    food_energy: 40.0,
+    carries_worth: true,
+    penetration_resistance: 0.2,
+    food_class: -1.0,
+)

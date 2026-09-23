@@ -1015,9 +1015,14 @@ impl Diet {
 /// `harvested_plant` 59,003 J against 200 placed cells worth 48,000 J.
 fn diet_by_material(w: &pixel_physics::sim::world::World, larder: MaterialId) -> (f64, f64) {
     let (mut mine, mut other) = (0.0, 0.0);
+    // **Crumbs are the larder too.** A part-eaten larder cell is put down as
+    // `crumbs` holding what is left of it (open bug §Z33's fix), and under
+    // `onlyfood` the larder is the only food there is, so every crumb was cut
+    // from it.
+    let crumbs = w.materials.id_of("crumbs");
     for books in w.all_colony_books() {
         for (m, j) in books.diet() {
-            if m == larder {
+            if m == larder || Some(m) == crumbs {
                 mine += j;
             } else {
                 other += j;
@@ -1776,6 +1781,11 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         .id_of(diet.larder)
         .unwrap_or_else(|| panic!("larder material {:?} is not compiled in", diet.larder));
     diet.isolate(&mut w, larder);
+    // **What counts as larder food: the larder, and the `crumbs` cut from it**
+    // (open bug §Z33's fix puts a part-eaten cell down as crumbs holding what
+    // is left). A crumb is priced by what it holds, `creature::food_value`.
+    let crumbs = w.materials.id_of("crumbs");
+    let is_larder_food = move |m: MaterialId| m == larder || Some(m) == crumbs;
     // **`kinpass=on` lets a blocked ant trade places with a nestmate.** A
     // whole-run switch rather than a fourth arm: it is a question about the
     // engine's traffic rule, so it wants the same three arms run twice, not a
@@ -2340,6 +2350,10 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // Drops handed on past the eight neighbours (`food_drop_site`), and the
     // sum of how far, so the summary can say how far a handed-on drop goes.
     let mut passed_recount = (0u64, 0u64);
+    // Stepped rows by who chose the step: the three-cell cone (a `pick`), or
+    // stage 1's chooser (a `patience`, `PIXEL_PHYSICS_CHOOSER`). Every step
+    // has exactly one.
+    let mut stepped_by = (0u64, 0u64, 0u64);
     // The largest `Turn` among the requests, because "nonzero" alone reads as
     // steering: on the shipped gap bed the largest over 72 runs is 0.031, a
     // raise that barely moves a pick weighted at (0.1 + s)^2.
@@ -2373,7 +2387,9 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // cell the budget cannot explain, the fruit cells that vanished since the
     // last sample are printed with what now stands where they were.
     let food_watch = flag("foodwatch");
-    let mut watch_prev: Option<(f64, std::collections::HashSet<(i32, i32)>)> = None;
+    // The last food-watch sample: its residual, where food stood, and births.
+    type WatchSample = (f64, std::collections::HashSet<(i32, i32)>, u64);
+    let mut watch_prev: Option<WatchSample> = None;
     let mut watch_lines: Vec<String> = Vec::new();
     let mut renderer = pixel_physics::render::Renderer::new();
     let mut blockers: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
@@ -2489,6 +2505,13 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 if r.drop_reach >= 2 {
                     passed_recount.0 += 1;
                     passed_recount.1 += r.drop_reach as u64;
+                }
+                if r.outcome == creature::DecisionOutcome::Stepped {
+                    match (r.pick != creature::NO_PICK, !r.patience.is_nan()) {
+                        (true, false) => stepped_by.0 += 1,
+                        (false, true) => stepped_by.1 += 1,
+                        _ => stepped_by.2 += 1,
+                    }
                 }
                 if r.pick != creature::NO_PICK {
                     pick_recount[r.pick as usize] += 1;
@@ -2814,10 +2837,18 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         if food_watch && f.is_multiple_of(10) && larder_unit > 0.0 {
             let face = larder_unit as f64;
             let mut cells: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+            // Where food stands, larder and crumbs both, for naming what
+            // vanished; `cells` alone is priced at face below.
+            let mut seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
             for y in 0..spec.height {
                 for x in 0..width {
-                    if w.get(x, y).material == larder && !pile_slots.contains(&(x, y)) {
+                    let m = w.get(x, y).material;
+                    if m == larder && !pile_slots.contains(&(x, y)) {
                         cells.insert((x, y));
+                        seen.insert((x, y));
+                    }
+                    if Some(m) == crumbs {
+                        seen.insert((x, y));
                     }
                 }
             }
@@ -2826,33 +2857,53 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             let pile_missing = pile_slots.iter().filter(|&&(x, y)| w.get(x, y).material != larder).count() as f64;
             let mut crop_face = 0.0f64;
             for id in w.live_organism_ids() {
-                if let Some(c) = w.organism(id).and_then(|st| st.crop).filter(|c| c.material == larder) {
+                if let Some(c) = w.organism(id).and_then(|st| st.crop).filter(|c| is_larder_food(c.material)) {
                     crop_face += c.worth() as f64;
+                }
+            }
+            let mut crumb_face = 0.0f64;
+            for y in 0..spec.height {
+                for x in 0..width {
+                    let c = w.get(x, y);
+                    if Some(c.material) == crumbs {
+                        crumb_face += creature::food_value(&w, c) as f64;
+                    }
                 }
             }
             let st = &w.creature_stats;
             let taken = larder_placed.saturating_sub(food.max(0) as u64) as f64 + pile_missing;
-            let residual = taken * face + st.drop_worth_restored - st.digested_face - cells.len() as f64 * face - crop_face
+            let residual = taken * face + st.drop_worth_restored - st.digested_face - cells.len() as f64 * face - crumb_face - crop_face
                 - st.crop_cells_lost_at_death as f64 * face;
-            if let Some((prev, prev_cells)) = watch_prev.as_ref() {
+            let births = w.creature_stats.births;
+            if let Some((prev, prev_cells, prev_births)) = watch_prev.as_ref() {
                 if residual - prev > face * 0.5 {
                     let gone: Vec<String> = prev_cells
-                        .difference(&cells)
+                        .difference(&seen)
                         .map(|&(x, y)| {
                             let c = w.get(x, y);
                             format!("({x},{y}) now {} org {}", w.materials.get(c.material).name, c.organism_id())
                         })
                         .collect();
-                    watch_lines.push(format!("frame {f}: residual +{:.0}; fruit cells gone since frame {}: [{}]", residual - prev, f - 10, gone.join("; ")));
+                    watch_lines.push(format!(
+                        "frame {f}: residual +{:.0}; births in the window {}; food cells gone since frame {}: [{}]",
+                        residual - prev,
+                        births - prev_births,
+                        f - 10,
+                        gone.join("; ")
+                    ));
                 }
             }
-            watch_prev = Some((residual, cells));
+            watch_prev = Some((residual, seen, births));
         }
         if f.is_multiple_of(3000) {
-            let (mut at_nest, mut elsewhere) = (0u32, 0u32);
+            let (mut at_nest, mut elsewhere, mut crumb_cells) = (0u32, 0u32, 0u32);
             for y in 0..spec.height {
                 for x in 0..width {
-                    if w.get(x, y).material == larder {
+                    let m = w.get(x, y).material;
+                    if Some(m) == crumbs {
+                        crumb_cells += 1;
+                    }
+                    if m == larder {
                         if x >= nest_lo - 10 && x <= nest_hi + 10 {
                             at_nest += 1;
                         } else {
@@ -2868,12 +2919,14 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     continue;
                 }
                 live += 1;
-                if let Some(c) = st.crop.filter(|c| c.material == larder) {
+                if let Some(c) = st.crop.filter(|c| is_larder_food(c.material)) {
                     in_crops += c.cells as u32;
+                }
+                if let Some(c) = st.crop.filter(|c| c.material == larder) {
                     larder_unit = larder_unit.max(c.unit);
                 }
             }
-            store_series.push(format!("{f}: nest ground {at_nest}, crops {in_crops}, elsewhere {elsewhere}, ants {live}"));
+            store_series.push(format!("{f}: nest ground {at_nest}, crops {in_crops}, elsewhere {elsewhere}, crumbs {crumb_cells}, ants {live}"));
         }
         if (gif_out.is_some() || frames_dir.is_some()) && gif_frames.len() < gif_count && f >= gif_start && (f == gif_start || f.is_multiple_of(gif_every)) {
             // The camera: `gifat=` or, by default, centred on the nest cursor
@@ -2913,7 +2966,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             }
             let Some(&(hx, hy)) = s.chain.first() else { continue };
             ant_ticks += 1;
-            let carrying_larder = s.crop.is_some_and(|c| c.material == larder);
+            let carrying_larder = s.crop.is_some_and(|c| is_larder_food(c.material));
             // **`focalany` traces an ant that never finds food, and without it
             // the failing case is invisible.** The focal ant was chosen from
             // larder-carriers only, so in a seed where nobody reaches the food
@@ -4193,7 +4246,9 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         assert_eq!(drop_recount[P::Placed as usize] + drop_recount[P::Delivered as usize], s1.drops - s0.drops, "placed rows against `drops`");
         assert_eq!(drop_recount[P::Delivered as usize], s1.deliveries - s0.deliveries, "delivered rows against `deliveries`");
         assert_eq!(passed_recount.0, s1.drops_passed_on - s0.drops_passed_on, "handed-on rows against `drops_passed_on`");
-        assert_eq!(pick_recount.iter().sum::<u64>(), by(D::Stepped), "cone picks against stepped rows");
+        assert_eq!(pick_recount.iter().sum::<u64>(), stepped_by.0, "cone picks against cone-stepped rows");
+        assert_eq!(stepped_by.0 + stepped_by.1, by(D::Stepped), "every stepped row was chosen by the cone or the chooser");
+        assert_eq!(stepped_by.2, 0, "a stepped row with both a cone pick and a chooser patience, or neither");
         let total: u64 = decision_recount.iter().flatten().flatten().sum();
         println!("    DECISION CENSUS: {total} decisions, reconciled against the rows and the engine's counters");
         let named = |names: &[&str], counts: &[u64], skip: usize| {
@@ -4293,29 +4348,38 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         let pile_missing = pile_slots.iter().filter(|&&(x, y)| w.get(x, y).material != larder).count() as u64;
         let (mut ground, mut in_crops, mut as_spoil) = (0u64, 0u64, 0u64);
         let mut crop_face = 0.0f64;
+        // Crumbs are counted at what they hold, in face value, and shown as
+        // cells of the larder's face.
+        let (mut crumb_cells, mut crumb_face) = (0u64, 0.0f64);
         for y in 0..spec.height {
             for x in 0..width {
-                if w.get(x, y).material == larder && !pile(x, y) {
+                let c = w.get(x, y);
+                if c.material == larder && !pile(x, y) {
                     ground += 1;
+                }
+                if Some(c.material) == crumbs {
+                    crumb_cells += 1;
+                    crumb_face += creature::food_value(&w, c) as f64;
                 }
             }
         }
         for id in w.live_organism_ids() {
             let Some(st) = w.organism(id) else { continue };
-            if let Some(c) = st.crop.filter(|c| c.material == larder) {
+            if let Some(c) = st.crop.filter(|c| is_larder_food(c.material)) {
                 in_crops += c.cells as u64;
                 crop_face += c.worth() as f64;
             }
-            if st.spoil.is_some_and(|sp| sp.cell.material == larder) {
+            if st.spoil.is_some_and(|sp| is_larder_food(sp.cell.material)) {
                 as_spoil += 1;
             }
         }
         let face = larder_unit.max(f32::EPSILON) as f64;
         let taken = larder_placed.saturating_sub(food.max(0) as u64) + pile_missing;
         let chewed = w.creature_stats.digested_face / face;
-        let standing = (ground + in_crops + as_spoil) as f64;
+        let standing = (ground + in_crops + as_spoil) as f64 + crumb_face / face;
         println!(
-            "    FOOD BUDGET (cells, one cell = {face:.0} face): taken from the pile {taken}; chewed {chewed:.1}; on the ground off the pile {ground}; in crops {in_crops}; held as spoil {as_spoil}; unaccounted {:.1}",
+            "    FOOD BUDGET (cells, one cell = {face:.0} face): taken from the pile {taken}; chewed {chewed:.1}; on the ground off the pile {ground}, and {crumb_cells} crumbs worth {:.1}; in crops {in_crops}; held as spoil {as_spoil}; unaccounted {:.1}",
+            crumb_face / face,
             taken as f64 - chewed - standing
         );
         // **The same budget closed exactly, in face value.** Taken from the
@@ -4325,13 +4389,13 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         // a source this line does not name -- decay, a crop lost at death.
         let restored = w.creature_stats.drop_worth_restored;
         let lost = w.creature_stats.crop_cells_lost_at_death as f64 * face;
-        let residual = taken as f64 * face + restored - w.creature_stats.digested_face - (ground + as_spoil) as f64 * face - crop_face - lost;
+        let residual = taken as f64 * face + restored - w.creature_stats.digested_face - (ground + as_spoil) as f64 * face - crumb_face - crop_face - lost;
         println!(
             "    FOOD BUDGET closed (face): taken {:.0} + forgotten at drops {:.0} = chewed {:.0} + standing {:.0} + lost in crops at death {:.0}; residual {:.0} ({:.2} cells; the refill wrote over {} non-food cells)",
             taken as f64 * face,
             restored,
             w.creature_stats.digested_face,
-            (ground + as_spoil) as f64 * face + crop_face,
+            (ground + as_spoil) as f64 * face + crumb_face + crop_face,
             lost,
             residual,
             residual / face,

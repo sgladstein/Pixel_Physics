@@ -9134,10 +9134,11 @@ fn food_drop_site(world: &World, x: i32, y: i32, through_bodies: bool) -> Option
 /// 24 seeds at gap 90 (`Reports/ant-decision-census-2026-09-22.md` §11):
 /// second trips 87 -> 112 (14 seeds better / 5 worse), and starvation rises
 /// 172 -> 249. §12 found the starvation is not this rule's: a part-eaten
-/// fruit put down comes back whole (open bug §Z33), so the nest's
-/// put-down-and-pick-up churn creates about half of what a colony eats, and
-/// this rule brings home the same food while cutting the churn that created
-/// it. The colony loses food that should never have existed.
+/// fruit put down came back whole (open bug §Z33, since fixed by `crumbs`),
+/// so the nest's put-down-and-pick-up churn created about half of what a
+/// colony ate, and this rule brings home the same food while cutting the
+/// churn that created it. The colony loses food that should never have
+/// existed.
 fn drop_through_bodies() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DROP_REACH").as_deref() != Ok("adjacent"))
@@ -10198,8 +10199,22 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // continuous payout the animal has already been credited every
                 // joule of `digesting`, so a new cell starts from 0 and
                 // `OrganismState::digest_carry` retired with the mechanism.
+                // **Crumbs merge at the mean, which keeps the crop's worth
+                // exactly.** Every crumb holds a different remainder, so the
+                // min below would destroy food on every mixed pickup: 400
+                // and 79 would become two at 79, and 321 would be gone.
+                // Measured as a leak on the forage bed's food budget the day
+                // crumbs landed (open bug §Z33's fix). The mean cannot pump:
+                // what the crop holds in total is what went in.
+                let merge_at_mean = world.materials.get(food).carries_worth;
                 if let Some(state) = world.organism_mut(organism) {
                     state.crop = Some(match state.crop {
+                        Some(c) if merge_at_mean => Crop {
+                            cells: c.cells.saturating_add(1),
+                            unit: (c.unit * f32::from(c.cells) + worth) / (f32::from(c.cells) + 1.0),
+                            passenger: c.passenger.or(passenger),
+                            ..c
+                        },
                         // **`unit` takes the min, not the last.** Corpses
                         // carry per-cell worth in `aux`, so a crop filled
                         // from a rich corpse and a poor one could otherwise
@@ -10335,14 +10350,21 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             if roll >= p {
                 note_drop(world, DropWhy::RollLost);
             } else if let Some(((dx, dy), reach)) = food_drop_site(world, x, y, drop_through_bodies()) {
-                // **What the ground forgets** (open bug §Z33): a cell whose
-                // material cannot carry a worth goes down priced at its full
-                // material value, so the part already chewed and paid for is
-                // created again when it is picked up. Counted so a food
-                // budget can close exactly rather than leave it as a residual.
-                if !organism::digest_is_lumpy() && !world.materials.get(held.material).worth_in_aux {
-                    world.creature_stats.drop_worth_restored += f64::from(held.digesting);
-                }
+                // **What the ground forgets** (open bug §Z33): whatever the
+                // cell put down is worth to the next eater beyond what this
+                // one carried. A part-eaten piece of plant food goes down as
+                // `crumbs` holding what is left, so for it this is 0; what
+                // remains is flesh bitten off a living animal, which goes
+                // down as its own material at full price, and a fruit put
+                // down with a seed riding in it (`deliver_seed_passenger_
+                // uneaten`), which goes down whole. Read off the cell itself,
+                // so the count cannot disagree with what the pickup will pay.
+                let restored = if held.passenger.is_some() {
+                    if organism::digest_is_lumpy() { 0.0 } else { held.digesting }
+                } else {
+                    (food_value(world, unit.into_cell(world)) - f32::from(unit.worth)).max(0.0)
+                };
+                world.creature_stats.drop_worth_restored += f64::from(restored);
                 // Handed on past the eight neighbours: see `food_drop_site`.
                 if reach > 1 {
                     world.creature_stats.drops_passed_on += 1;
@@ -10376,13 +10398,12 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     // **The chewing leaves WITH the cell — 2026-09-20.**
                     // `unit_cell` hands the ground `unit - digesting`,
                     // because the rest is already in this animal's energy
-                    // bank under the continuous payout. **But the ground
-                    // only keeps that figure for a `worth_in_aux` material
-                    // (`Carried::into_cell`), which is `corpse` alone**: a
-                    // part-eaten fruit goes down as a plain fruit cell, is
-                    // priced by its material when picked up, and the chewed
-                    // part comes back. Open bug `open-bugs-handoff.md` §Z33,
-                    // reproduced by `a_part_eaten_fruit_put_down_and_picked_up_holds_only_what_was_left`. Carrying
+                    // bank under the continuous payout, and the ground keeps
+                    // exactly that: a part-eaten piece of plant food goes down
+                    // as `crumbs` holding it (`Carried::into_cell`; open bug
+                    // `open-bugs-handoff.md` §Z33, where a fruit went down
+                    // whole and the chewed part came back, guarded by
+                    // `a_part_eaten_fruit_put_down_and_picked_up_holds_only_what_was_left`). Carrying
                     // `digesting` forward across the drop, as `..c` used
                     // to, would let the next cell inherit progress that
                     // physically left with this one and the animal would
@@ -16203,8 +16224,8 @@ pub const REFERENCE_MOUTHFUL: f32 = 1200.0;
 /// describes is a readout that can be wrong on its own.
 ///
 /// Zero means "not food". A material whose worth varies per cell says so
-/// with `worth_in_aux` and carries it there; everything else is worth what
-/// its `.ron` says.
+/// with `worth_in_aux` (meat) or `carries_worth` (`crumbs`) and carries it
+/// there; everything else is worth what its `.ron` says.
 pub fn food_value(world: &World, cell: Cell) -> f32 {
     let m = world.materials.get(cell.material);
     // **`worth_in_aux` means "prefer the stamp", not "ignore the material".**
@@ -16217,7 +16238,7 @@ pub fn food_value(world: &World, cell: Cell) -> f32 {
     // about creatures. So an ant that burned to death left meat worth
     // exactly nothing -- while `wiki/ants.md` promises in as many words that
     // "ants that die in a fire become the next colony's dinner".
-    if m.worth_in_aux && cell.aux() != 0 {
+    if m.aux_is_worth() && cell.aux() != 0 {
         cell.aux() as f32
     } else {
         m.food_energy
@@ -16342,12 +16363,31 @@ impl Carried {
     /// `Powder` reads as soil water — manufacturing water out of food, the
     /// exact shape of the mistake `Cell::aux`'s own doc comment warns
     /// about twice.
+    ///
+    /// **A part-eaten piece of plant food goes down as `crumbs`** (open bug
+    /// §Z33). The animal has already been paid for what it chewed, so the
+    /// ground must hold only what is left; a fruit or leaf cannot hold a worth
+    /// of its own (`crumbs.ron` says why), so the remainder goes down as the
+    /// one plant food that can, at no less than 1 so an `aux` of 0 never reads
+    /// as the material's full fallback price. A whole cell goes down as
+    /// itself, exactly as before. Flesh (`food_class` above 0) is left alone:
+    /// crumbs are plant food, and a bitten-off piece of an animal is not.
     fn into_cell(self, world: &World) -> Cell {
+        let m = world.materials.get(self.material);
         let cell = Cell::new(self.material, self.shade);
-        if world.materials.get(self.material).worth_in_aux {
-            cell.with_aux(self.worth)
-        } else {
-            cell
+        if m.worth_in_aux {
+            return cell.with_aux(self.worth);
+        }
+        if m.carries_worth {
+            return cell.with_aux(self.worth.max(1));
+        }
+        let part_eaten = m.food_energy > 0.0 && m.food_class < 0.0 && f32::from(self.worth) < m.food_energy.round();
+        match world.materials.id_of("crumbs").filter(|_| part_eaten) {
+            Some(crumbs) => {
+                let shades = world.materials.get(crumbs).palette.len().clamp(1, 255) as u8;
+                Cell::new(crumbs, self.shade % shades).with_aux(self.worth.max(1))
+            }
+            None => cell,
         }
     }
 }
@@ -23712,7 +23752,7 @@ mod tests {
     }
 
     /// **A part-eaten fruit put down and picked up again holds only what was
-    /// left of it** -- the conservation property, and today it fails.
+    /// left of it** -- the conservation property behind open bug §Z33.
     ///
     /// Found 2026-09-23 by the forage bed's food budget
     /// (`Reports/ant-decision-census-2026-09-22.md` §12): colonies chewed
@@ -23721,48 +23761,100 @@ mod tests {
     /// it down at the nest; a nestmate picks it up. The second crop must hold
     /// the half that is left.
     ///
-    /// **It reads 960, and that is the bug** (`open-bugs-handoff.md` §Z33).
-    /// `Crop::unit_cell` hands the ground `unit - digesting`, but
-    /// `Carried::into_cell` writes a worth into the cell only for a
-    /// `worth_in_aux` material, which is `corpse` alone; a fruit cell on the
-    /// ground is priced by its material, so the chewed half comes back.
-    /// Ignored as the reproduction until the owner picks a fix.
+    /// **It read 960 until the fix, and that was the bug**: `Crop::unit_cell`
+    /// hands the ground `unit - digesting`, but a fruit cell on the ground
+    /// was priced by its material, so the chewed half came back. Now the
+    /// remainder goes down as `crumbs` holding 480 (`Carried::into_cell`),
+    /// and a whole fruit still goes down as a fruit, which is the second
+    /// half of this test: the fix must not turn every delivery into crumbs.
     #[test]
-    #[ignore = "reproduces open-bugs-handoff.md §Z33: a part-eaten fruit is restored whole when put down"]
     fn a_part_eaten_fruit_put_down_and_picked_up_holds_only_what_was_left() {
-        let stone = Cell::new(material::STONE, 0).with_attached(true);
-        let mut w = World::new(Rect::new(0, 0, 63, 63));
-        let nest = Cell::new(w.materials.id_of("nest").expect("nest material"), 0).with_attached(true);
-        let fruit = w.materials.id_of("fruit").expect("fruit material");
-        for x in 0..64 {
-            for y in 41..64 {
-                w.set(x, y, if (20..=44).contains(&x) && y == 41 { nest } else { stone });
+        let put_down = |digesting: f32| -> (World, OrganismId, Cell, (i32, i32), f32) {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 63, 63));
+            let nest = Cell::new(w.materials.id_of("nest").expect("nest material"), 0).with_attached(true);
+            let fruit = w.materials.id_of("fruit").expect("fruit material");
+            for x in 0..64 {
+                for y in 41..64 {
+                    w.set(x, y, if (20..=44).contains(&x) && y == 41 { nest } else { stone });
+                }
             }
-        }
-        let a = spawn(&mut w, "ant", 32, 40);
-        w.organism_mut(a).expect("live").crop = Some(Crop { material: fruit, cells: 1, digesting: 480.0, unit: 960.0, shade: 0, passenger: None });
-        let before = w.organism(a).and_then(|s| s.crop).map(|c| c.worth()).expect("laden");
-        let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
-        let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
-        outputs[brain::BrainOutput::Drop as usize] = 1.0;
-        let mut draw = rng::stream(1, a as u64, 0, RNG_SLOT_MOVE);
-        act(&mut w, 32, 40, a, &def, &outputs, &mut draw);
-        assert!(w.organism(a).expect("live").crop.is_none(), "the one cell should have been put down");
-        let (fx, _) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (32 + dx, 40 + dy)).find(|&(x, y)| w.get(x, y).material == fruit).expect("the fruit lies beside the ant");
+            let a = spawn(&mut w, "ant", 32, 40);
+            w.organism_mut(a).expect("live").crop = Some(Crop { material: fruit, cells: 1, digesting, unit: 960.0, shade: 0, passenger: None });
+            let before = w.organism(a).and_then(|s| s.crop).map(|c| c.worth()).expect("laden");
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+            outputs[brain::BrainOutput::Drop as usize] = 1.0;
+            let mut draw = rng::stream(1, a as u64, 0, RNG_SLOT_MOVE);
+            act(&mut w, 32, 40, a, &def, &outputs, &mut draw);
+            assert!(w.organism(a).expect("live").crop.is_none(), "the one cell should have been put down");
+            let at = NEIGHBOURS_8
+                .iter()
+                .map(|&(dx, dy)| (32 + dx, 40 + dy))
+                .find(|&(x, y)| food_value(&w, w.get(x, y)) > 0.0 && w.get(x, y).organism_id() == 0)
+                .expect("the food lies beside the ant");
+            let cell = w.get(at.0, at.1);
+            (w, a, cell, at, before)
+        };
 
-        // A nestmate beside the fruit, with an empty crop, set to feed.
+        // Half-eaten: down as crumbs holding what is left, and exactly that
+        // comes back up.
+        let (mut w, _, cell, (fx, _), before) = put_down(480.0);
+        let crumbs = w.materials.id_of("crumbs").expect("crumbs.ron must be registered");
+        assert_eq!(cell.material, crumbs, "a part-eaten fruit goes down as crumbs");
+        assert_eq!(food_value(&w, cell), 480.0, "the crumbs hold what was left");
+        assert_eq!(w.creature_stats.drop_worth_restored, 0.0, "nothing the ground holds was already eaten");
         let b = spawn(&mut w, "ant", fx - 1, 40);
         assert!(w.organism(b).expect("live").crop.is_none());
+        let def = w.species.get(w.organism(b).expect("live").species).creature.clone().expect("a creature");
         let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
         outputs[brain::BrainOutput::Feed as usize] = 1.0;
         let (bx, by) = w.organism(b).expect("live").chain[0];
         let mut draw = rng::stream(2, b as u64, 0, RNG_SLOT_MOVE);
         act(&mut w, bx, by, b, &def, &outputs, &mut draw);
-        let after = w.organism(b).and_then(|s| s.crop).map(|c| c.worth()).expect("the nestmate should have picked the fruit up");
+        let after = w.organism(b).and_then(|s| s.crop).map(|c| c.worth()).expect("the nestmate should have picked the crumbs up");
         assert!(
             after <= before + 1.0,
             "the fruit held {before} when it was put down and {after} when it was picked up again: food was created"
         );
+        assert!(after >= before - 1.0, "the nestmate got {after} of the {before} that was put down: food was lost");
+
+        // Whole: down as a fruit, unchanged.
+        let (w, _, cell, _, _) = put_down(0.0);
+        assert_eq!(cell.material, w.materials.id_of("fruit").expect("fruit"), "a whole fruit still goes down as a fruit");
+        assert_eq!(cell.aux(), 0, "and carries nothing in aux");
+    }
+
+    /// **Crumbs of different worth merge into one crop without losing any of
+    /// it.** Each crumb holds a different remainder, and the crop's shared
+    /// per-cell worth used to take the min of what went in: a crop holding a
+    /// 400 crumb that picked up a 79 one held two at 79, and 321 was gone.
+    /// Found as a leak in the forage bed's food budget the day crumbs landed.
+    /// **Watched red** with the merge put back to the min: the crop then holds
+    /// 158 against 479.
+    #[test]
+    fn crumbs_of_different_worth_merge_into_a_crop_without_losing_any() {
+        let stone = Cell::new(material::STONE, 0).with_attached(true);
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        for x in 0..64 {
+            for y in 41..64 {
+                w.set(x, y, stone);
+            }
+        }
+        let crumbs = w.materials.id_of("crumbs").expect("crumbs.ron must be registered");
+        let a = spawn(&mut w, "ant", 32, 40);
+        w.organism_mut(a).expect("live").crop = Some(Crop { material: crumbs, cells: 1, digesting: 0.0, unit: 400.0, shade: 0, passenger: None });
+        let (hx, hy) = w.organism(a).expect("live").chain[0];
+        let spot = NEIGHBOURS_8.iter().map(|&(dx, dy)| (hx + dx, hy + dy)).find(|&(x, y)| w.get(x, y).is_empty() && w.get(x, y + 1).material == material::STONE).expect("an empty cell on the floor beside the head");
+        w.set(spot.0, spot.1, Cell::new(crumbs, 0).with_aux(79));
+        let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+        let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        outputs[brain::BrainOutput::Feed as usize] = 1.0;
+        let mut draw = rng::stream(3, a as u64, 0, RNG_SLOT_MOVE);
+        act(&mut w, hx, hy, a, &def, &outputs, &mut draw);
+        let crop = w.organism(a).and_then(|s| s.crop).expect("still carrying");
+        assert_eq!(crop.cells, 2, "the crumb should have been picked up into the crop");
+        assert!((crop.worth() - 479.0).abs() < 0.5, "the crop holds {} after taking a 79 crumb onto a 400 one", crop.worth());
     }
 
     /// **The cone discards a turn it has nowhere to put, and follows one it
@@ -28156,6 +28248,14 @@ mod tests {
     /// J crossed the line -- which is the quantity `the_books_close_for_
     /// every_colony` would be short by if `Account::SharedOut` did not
     /// exist.
+    ///
+    /// **Twenty apart since 2026-09-23 (90 and 110).** The crumbs fix
+    /// (open bug §Z33) stopped a crop destroying food when it merged two
+    /// cells of unequal worth, so ants on this bed stayed fed, sharing
+    /// stopped at 379.7 J by frame 48,000, and all of it stayed inside one
+    /// colony: `a_share_is_booked_on_both_sides`'s control went red at every
+    /// budget up to 108,000 frames. At 20 apart the colonies mingle again;
+    /// 16 and 24 apart do too.
     fn two_colony_bed() -> (World, u32, u32) {
         let mut w = test_world();
         // **`home_bias` held at 0.0 for this bed, and that is not a
@@ -28185,8 +28285,8 @@ mod tests {
         for x in 10..190 {
             w.set(x, 101, Cell::new(material::STONE, 0));
         }
-        assert!(w.found_colony_of(85, 100, "ant", 6) >= 2, "test setup: the left colony must stand");
-        assert!(w.found_colony_of(115, 100, "ant", 6) >= 2, "test setup: the right colony must stand");
+        assert!(w.found_colony_of(90, 100, "ant", 6) >= 2, "test setup: the left colony must stand");
+        assert!(w.found_colony_of(110, 100, "ant", 6) >= 2, "test setup: the right colony must stand");
         let groups = w.live_creature_groups();
         assert_eq!(groups.len(), 2, "the bed must hold two colonies: {groups:?}");
         let (a, b) = (groups[0].colony, groups[1].colony);

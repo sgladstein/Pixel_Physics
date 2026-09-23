@@ -11,7 +11,7 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 <!-- BEGIN GENERATED INDEX -- regenerate with scripts/bugindex.py -->
 
-**66 open, 128 bugs** (plus 20 landing-note items,
+**65 open, 128 bugs** (plus 20 landing-note items,
 marked `note`). Generated from the headings by
 `scripts/bugindex.py` -- a bug's verdict is written into its own heading, so
 this is derived, never maintained by hand. Entries are never moved when they
@@ -173,7 +173,7 @@ point.
 | Z32 | closed | 13460 | An empty ant reads the food trail as exactly zero, tick after tick, so half the colony ne... |
 | Z30 | **OPEN** | 13576 | filmstrip never steps the pheromone planes, so every scene it runs ants in shows a trail ... |
 | Z31 | **OPEN** | 13667 | field::step carries derived arrays forward over a settled chunk that still holds an un-ta... |
-| Z33 | **OPEN** | 13747 | A part-eaten fruit put down comes back whole, so putting food down and picking it up crea... |
+| Z33 | closed | 13747 | A part-eaten fruit put down comes back whole, so putting food down and picking it up crea... |
 
 <!-- END GENERATED INDEX -->
 
@@ -13744,7 +13744,7 @@ promotion, or `parallel.rs`'s remote-write replay. The switch stays in
 `field::step` as the reproduction, and `carry_stale_rescan`'s doc carries the
 mechanism.
 
-### Z33. A part-eaten fruit put down comes back whole, so putting food down and picking it up creates food: about half of what a forage colony eats (engine/creatures) — **OPEN, found 2026-09-23**
+### Z33. A part-eaten fruit put down comes back whole, so putting food down and picking it up creates food: about half of what a forage colony eats (engine/creatures) — **FIXED 2026-09-23, found the same day**
 
 **What is wrong.** Under the continuous payout (2026-09-20) a crop cell is paid
 into the animal's energy as it is chewed, and `Crop::unit_cell` hands the ground
@@ -13797,6 +13797,43 @@ carries its worth in the cell, so it cannot see plant food at all.
   trips would walk in circles delivering nothing;
 - the chewed remainder goes down as something worth less.
 
-***Re-test when:*** the drop path, `Carried::into_cell`, `Crop::unit_cell` or
-the digestion payout changes; then re-run the §11 comparison, because its
-verdict depends on this.
+**Fixed 2026-09-23: a part-eaten piece of plant food goes down as `crumbs`.**
+The owner chose "the ground keeps the remaining worth". A fruit, leaf or
+flower cannot keep one in `Cell::aux`: a loose plant-kind cell is structural,
+and `structural.rs` writes its support distance there; a windfall carries a
+seed organism whose cell type lives there. So the remainder goes down as
+`crumbs`, a new powder food that no organism owns. It holds what is left in
+`aux` under a new material flag, `carries_worth`: the half of `worth_in_aux`
+that says "my worth is in `aux`", without the half every meat census and the
+energy ledger read as "I am meat". A whole cell still goes down as itself.
+Crumbs do not rot, because the fruit they replace does not.
+
+**A second leak, made by the fix and closed in the same change.** A crop
+keeps one per-cell worth, and a pickup took the minimum of the crop's and the
+new cell's. That was harmless while every fruit was worth 960; crumbs vary,
+so a crop holding a 400 crumb that took a 79 one held two at 79, and 321 was
+destroyed. It showed as a positive residual in the food budget (6.7 and 26
+cells on the first two seeds). Crumbs now merge at the mean, which keeps the
+crop's worth exactly; corpses keep the minimum.
+
+**Measured**, the gap-90 bed's food budget (`trailfollow`, arm `hand`):
+"forgotten at drops" reads **0** (15–37 cells' worth per run before), and the
+budget closes to within **0.04 of a cell** with nothing named but what was
+taken, chewed and still standing. **With the phantom food gone the gap-90
+colony starves**: starvation 249 -> 433, colonies with 17+ of ~20 dead 10 ->
+23 of 24 (`Reports/ant-decision-census-2026-09-22.md` §13).
+
+**Guards:** `a_part_eaten_fruit_put_down_and_picked_up_holds_only_what_was_left`
+(was the `#[ignore]`d reproduction; watched red with the crumbs branch off:
+a fruit goes down, not crumbs) and
+`crumbs_of_different_worth_merge_into_a_crop_without_losing_any` (watched red
+with the minimum merge: 158 against 479).
+
+**Still open, and counted:** flesh bitten off a living animal still goes down
+as its own material at full price, and so does a fruit carrying a seed
+passenger. `drop_worth_restored` now counts exactly what those two restore,
+read off the cell put down.
+
+***Re-test when:*** the drop path, `Carried::into_cell`, `Crop::unit_cell`,
+the pickup's crop merge or the digestion payout changes; or when a plant
+food becomes non-structural, which would let it hold its own worth.

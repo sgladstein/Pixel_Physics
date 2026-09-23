@@ -10,7 +10,8 @@ will be.
   (`usable_headings`, `home_weighted_pick_why`); §5, §6b, §6c, §13, §14 and
   §15 re-checked 2026-09-23 against the drop, cone and homeward counters;
   §5, §12 and §15 again the same day for the drop through bodies, and §9
-  for what a part-eaten cell is worth once put down. §6d and §12 written
+  for what a part-eaten cell is worth once put down (re-checked the same
+  day against the crumbs fix in `Carried::into_cell`). §6d and §12 written
   2026-09-23 from `chooser_step`, `fall_if_unsupported` and `commit_step`.
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
@@ -385,11 +386,15 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   pays into energy continuously. **A laden ant eats its cargo while carrying
   it**, so fill falls on the way home and with it the homeward re-roll's
   chance. `digest_hunger_weight: 0.0`: digestion does not wait for hunger.
-- **A part-eaten fruit put down comes back whole.** The drop hands over the
-  worth left (`unit - digesting`), but only `corpse` stores a worth in the
-  cell; any plant food goes down as a plain cell of its material and is
-  priced at its full worth when picked up. So putting food down and picking
-  it up again creates food (open bug §Z33).
+- **A part-eaten piece of plant food goes down as `crumbs`.** The drop hands
+  over the worth left (`unit - digesting`). A whole cell goes down as its
+  own material. A part-eaten one (plant food, `food_class` below 0) goes
+  down as `crumbs`, a powder holding exactly what is left in `aux`
+  (`carries_worth`), at least 1. It is priced from that when picked up, so
+  putting food down and picking it up again neither creates nor loses food.
+  Crumbs do not rot. Two cases still go down at full price, and
+  `drop_worth_restored` counts what they restore: flesh bitten off a living
+  animal, and a fruit carrying a seed passenger, which goes down whole.
 - **Energy costs:**
   - per tick: idle 0.05 × body cells, plus the synapse, sight, curvature,
     force and armour taxes;

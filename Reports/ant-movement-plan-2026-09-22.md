@@ -634,7 +634,9 @@ goes, any later measurement on the colony bed states which drop rule it ran.
    built and measured (census report §11), and on by default on the owner's
    ruling. Tracing where the food goes found open bug §Z33: putting food down
    creates food. **§Z33 is fixed before the next colony-bed comparison**
-   (stage 2's), keeping every drop possible (§8c).
+   (stage 2's), keeping every drop possible (§8c). **Fixed 2026-09-23**: a
+   part-eaten piece of plant food goes down as `crumbs` holding what is
+   left, and the food budget closes to within 0.04 of a cell.
 3. **Scenes S0–S5 on today's code**, **S0 first**, with the predictions
    above, as the baseline. S0–S3 have no nest, so the stopgap cannot reach
    them. **S0 done 2026-09-23:
@@ -664,11 +666,13 @@ goes, any later measurement on the colony bed states which drop rule it ran.
      `home_bias`. The leg-switched gains of §4d, and so the new outputs,
      arrive with the trail terms in stage 2.
 
-   **It does not ship yet.** On `ascii`'s 15-ant foraging loop it cut
-   deliveries and raised deaths. The likeliest cause is §Z33's phantom
-   food, which the shipped walk's door churn creates and the chooser's
-   does not. So §Z33 is fixed first, then a colony-bed comparison with the
-   chooser on and off, before it is switched on.
+   **It does not ship.** With §Z33 fixed, the colony bed says stage 1 on
+   its own is much worse on a colony: at gap 90 the median run has 3 ants
+   reach the food against 17, and second trips fall 127 → 18 (census report
+   §13). The hypothesis, untraced: stage 1 turned a lost step roll into a
+   pause, while trail B still throttles steps until stage 2 retires the
+   throttle, so a throttled ant no longer re-aims. **Stage 2 is what makes
+   the chooser usable on a colony.**
 6. **Chooser stage 2**: the trail terms. Judged on S4–S5, then one paired
    run on the colony bed.
 

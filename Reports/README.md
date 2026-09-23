@@ -3178,9 +3178,17 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     a gap-90 colony eats is food created that way (median 53%, in 24 of 24
     runs). §11's starvation is the stopgap cutting that churn; it must be
     re-run once §Z33 is fixed.
+  - **§13 (2026-09-23): §Z33 fixed, and the loop does not feed the
+    colony.** A part-eaten fruit now goes down as `crumbs` holding what is
+    left, and the food budget closes to 0.04 of a cell. With no food
+    created, gap-90 starvation rises 249 → 433 and 23 of 24 colonies lose
+    17+ of ~20 ants (10 before): a colony brings home about 32 fruit cells a
+    run. Stage 1's chooser on the same bed is much worse (ants reaching
+    food, median 17 → 3), so it stays off until stage 2.
   - Data: `Reports/data/decision-census-*-2026-09-22.log`,
     `decision-census-step2-*-2026-09-23.*`, `drop-stopgap-*-2026-09-23.*`,
-    `food-budget-*-2026-09-23.log` and `decisions-seed1-gap90-2026-09-22.csv.gz`.
+    `food-budget-*-2026-09-23.log`, `bed-z33-fixed-*-2026-09-23.log.gz` and
+    `decisions-seed1-gap90-2026-09-22.csv.gz`.
 - [ant-scenes-2026-09-23.md](ant-scenes-2026-09-23.md)
   — **result, 2026-09-23. `engine`. Step 3 of the movement plan: the ant's
   walk in controlled scenes, the baseline the chooser must beat.** S0–S3

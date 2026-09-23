@@ -570,6 +570,18 @@ pub struct MaterialDef {
     /// the dispatch site a `Vec` index rather than a string hash.
     #[serde(default)]
     pub worth_in_aux: bool,
+    /// **A cell of this material carries its own worth in `Cell::aux` -- and
+    /// it is not meat.** `worth_in_aux` means both of those at once, and every
+    /// meat census and the energy ledger read it as "this is meat". This flag
+    /// is the first half alone: `creature::food_value` reads the stamp, a
+    /// landing particle keeps it, and nothing counts the cell as meat.
+    ///
+    /// Today only `crumbs`, what a part-eaten piece of plant food is put down
+    /// as (open bug §Z33): a fruit or a leaf cannot keep a worth in `aux`,
+    /// because a loose plant cell is structural and the structural pass
+    /// writes its support distance there.
+    #[serde(default)]
+    pub carries_worth: bool,
     /// Chance that a cell formed by this material's decay reseeds a plant in
     /// the empty cell above it, rolled once at the moment of decay.
     ///
@@ -1841,6 +1853,8 @@ pub struct Material {
     pub food_class: f32,
     /// See `MaterialDef::worth_in_aux`.
     pub worth_in_aux: bool,
+    /// See `MaterialDef::carries_worth`.
+    pub carries_worth: bool,
     /// See `MaterialDef::reinforces_powder`.
     pub reinforces_powder: bool,
     /// See `MaterialDef::self_supporting`.
@@ -2001,6 +2015,15 @@ pub struct Reaction {
 }
 
 impl Material {
+    /// **Whether `Cell::aux` holds what a cell of this is worth to eat**:
+    /// meat (`worth_in_aux`) or a carried remainder (`carries_worth`). The
+    /// question `food_value`, the drop and a landing particle ask. Ask
+    /// `worth_in_aux` alone for "is this meat".
+    #[inline]
+    pub fn aux_is_worth(&self) -> bool {
+        self.worth_in_aux || self.carries_worth
+    }
+
     /// **Whether a cell of this material contributes nothing that
     /// `field::rebuild_blocked` derives** -- the per-cell half of
     /// `MaterialRegistry::field_relevant_write`, and through it of
@@ -2256,6 +2279,7 @@ impl From<MaterialDef> for Material {
             food_energy: def.food_energy,
             food_class: def.food_class,
             worth_in_aux: def.worth_in_aux,
+            carries_worth: def.carries_worth,
             reinforces_powder: def.reinforces_powder,
             self_supporting: def.self_supporting,
             needs_footing: def.needs_footing,
@@ -2649,6 +2673,11 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/materials/reedstem.ron"),
     include_str!("../../assets/materials/reedroot.ron"),
     include_str!("../../assets/materials/reedseed.ron"),
+    // Appended at the end, the only place a new material may go. What a
+    // part-eaten piece of plant food is put down as, carrying what is left
+    // of it in `aux` (`MaterialDef::carries_worth`, open bug §Z33).
+    // Addressed by name, never by number.
+    include_str!("../../assets/materials/crumbs.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.
@@ -2707,6 +2736,7 @@ impl MaterialRegistry {
             food_energy: 0.0,
             food_class: 0.0,
             worth_in_aux: false,
+            carries_worth: false,
             reinforces_powder: false,
             self_supporting: false,
             needs_footing: false,
@@ -2790,6 +2820,7 @@ impl MaterialRegistry {
             food_energy: 0.0,
             food_class: 0.0,
             worth_in_aux: false,
+            carries_worth: false,
             reinforces_powder: false,
             self_supporting: false,
             needs_footing: false,
