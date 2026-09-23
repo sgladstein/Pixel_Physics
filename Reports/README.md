@@ -3181,6 +3181,17 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   - Data: `Reports/data/decision-census-*-2026-09-22.log`,
     `decision-census-step2-*-2026-09-23.*`, `drop-stopgap-*-2026-09-23.*`,
     `food-budget-*-2026-09-23.log` and `decisions-seed1-gap90-2026-09-22.csv.gz`.
+- [ant-scenes-2026-09-23.md](ant-scenes-2026-09-23.md)
+  — **result, 2026-09-23. `engine`. Step 3 of the movement plan: the ant's
+  walk in controlled scenes, the baseline the chooser must beat.** S0 done.
+  - **A fed explorer jitters.** At full energy an empty ant steps 20% and
+    reverses 20% of its decisions. In a bed-length run the median ant gets
+    50 cells from its start, and it found food 90 cells away in 2 of 24 runs.
+    Hungry (energy 0.5), it found the food in 19 of 24.
+  - The per-decision mix matched the formula within a point at both
+    energies. The reach predictions were low; the report says why.
+  - The scene's own checks caught rain pooling on the slab and an ant dying
+    of old age, and both are pinned out. Harness: `examples/scenes.rs`.
 - [ant-movement-plan-2026-09-22.md](ant-movement-plan-2026-09-22.md)
   — **plan of record, 2026-09-22, agreed with the owner. Steps 1 and 2
   built (see `ant-decision-census-2026-09-22.md`); nothing after them.

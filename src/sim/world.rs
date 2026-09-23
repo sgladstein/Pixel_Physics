@@ -6790,6 +6790,21 @@ impl World {
         }
     }
 
+    /// **Pin an animal's energy bank**, for a scene that must hold `Energy`
+    /// fixed (`examples/scenes.rs`, plan §6's setup checklist). A harness
+    /// tool, not a game rule: the change is booked nowhere, so the energy
+    /// ledger's live identity does not close across it. Returns `false` if
+    /// the organism is gone.
+    pub fn set_organism_energy(&mut self, organism_id: OrganismId, energy: f32) -> bool {
+        match self.organism_mut(organism_id) {
+            Some(state) => {
+                state.energy = energy;
+                true
+            }
+            None => false,
+        }
+    }
+
     /// **Push `organism_id` onto `colony`'s candidate breeder list, pruning
     /// that same list of anyone who has died since it was last touched.**
     ///

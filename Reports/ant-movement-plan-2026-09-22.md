@@ -637,7 +637,10 @@ goes, any later measurement on the colony bed states which drop rule it ran.
    (stage 2's), keeping every drop possible (§8c).
 3. **Scenes S0–S5 on today's code**, **S0 first**, with the predictions
    above, as the baseline. S0–S3 have no nest, so the stopgap cannot reach
-   them.
+   them. **S0 done 2026-09-23:
+   [`ant-scenes-2026-09-23.md`](ant-scenes-2026-09-23.md).** A fed explorer
+   reverses as often as it steps and found food 90 cells away in 2 of 24
+   runs; a hungry one in 19 of 24.
 4. **The drop's side effects (§8c)**, in parallel with step 3. The full
    census of §8 waits until the loop works.
 5. **Chooser stage 1** (§4i), behind its switch: turning preference, home
