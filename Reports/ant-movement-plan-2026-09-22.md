@@ -269,7 +269,12 @@ gated hidden units: a shut hidden unit is not neutral (`squash(−45) =
 - **Trail presence gives a modest speed increase**, and the gradient
   throttle on `Move` (hidden units 0–3) is retired.
 - **`(HomeAligned, Move, 3.0)` becomes a speed adjustment with a floor**, so
-  an ant can walk around an obstacle.
+  an ant can walk around an obstacle. *Built first as `(1 + cos) / 2`, then
+  (2026-09-23) as a constant 1 while carrying: the floor was an empty ant's
+  pace, which is 0 for a fed ant beside food, and the chooser never re-aims
+  on a lost roll, so ants froze at the pile and bred there (scenes report
+  §8). The facing no longer reaches `Move` at all, which is the next bullet
+  arriving early for this one input.*
 - **Falling stops depending on the brain.** Today the support check runs
   only inside `step_chain`, after a successful step roll. So an ant whose
   footing is dug away with `P(move) = 0` hangs in the air, and a fall counts
@@ -686,7 +691,14 @@ goes, any later measurement on the colony bed states which drop rule it ran.
    but at 1,189 decisions against the shipped 702 and on the row 23.5% of
    the time, because presence says "route" and not "which way". That is
    §4c's running average, not yet built, and neither are §4d's away-from-home
-   gain or new brain outputs. Colony bed: scenes report §8.
+   gain or new brain outputs. **Colony bed** (scenes report §8): at 140 and
+   200 cells founders complete round trips for the first time (1 → 5 and
+   0 → 4, higher on 21 and 24 of 24 seeds). At 90 cells they do worse
+   (14 → 8.5) and the colony breeds at the food pile instead (median 909
+   births a run). One cause, a laden ant frozen beside the pile facing
+   away from home, is fixed (`HomeAligned` reads 1 while carrying, under
+   the chooser). The breeding is not. **Not shipped; the open question is
+   whether an ant may breed away from the nest.**
 
 Each of steps 5 and 6 updates `how-the-ant-works.md` in the same change.
 

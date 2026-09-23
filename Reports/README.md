@@ -3225,6 +3225,11 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     slid down tunnels like sand and soil closed over them, 93 of 157 at the
     end of a run. Crumbs no longer slide: 10 of 142. The colony still
     starves.
+  - **Stage 2 on the colony bed** (§8): at 140 and 200 cells the founders
+    complete round trips for the first time (1 → 5 and 0 → 4 a run). At 90
+    cells they do worse, and the colony breeds at the food pile instead
+    (median 909 births a run against 0). A freeze beside the pile was one
+    cause and is fixed; the breeding is not. Not shipped.
   - The per-decision mix matched the formula within a point at both
     energies. The reach predictions were low; the report says why.
   - The scene's own checks caught rain pooling on the slab and an ant dying

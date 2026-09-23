@@ -396,7 +396,7 @@ struct LadenRun {
     /// Decisions facing home (cosine to home > 0.5) and away (< -0.5), and
     /// the mean `p_move` in each. The cosine is computed here from the head,
     /// the anchor and the heading, not read from `HomeAligned`: the chooser
-    /// feeds the brain `(1 + cos) / 2` there.
+    /// feeds the brain a constant 1 there while the ant carries food.
     facing_home: u64,
     facing_away: u64,
     pmove_home: f64,

@@ -6265,18 +6265,27 @@ fn sense(
                 const DIR_LEN: [f32; 2] = [1.0, std::f32::consts::SQRT_2];
                 let dlen = DIR_LEN[(heading as usize % 8) & 1];
                 let cos = ((hdx as f32 * vx + hdy as f32 * vy) / (len * dlen)).clamp(-1.0, 1.0);
-                // **Under the chooser, a speed adjustment with a floor** (plan
-                // §4e): `(1 + cos) / 2`, so facing home still reads 1 and
-                // walks at the shipped pace, and facing away reads 0, which is
-                // an empty ant's pace rather than the shipped wire's full stop.
+                // **Under the chooser, 1: there is a home to head for.** The
+                // chooser picks the heading *after* the step roll, among all
+                // the usable ones, and its home term is what aims it home; so
+                // whether to step must not depend on which way the ant happens
+                // to face, and it reads the shipped facing-home pace always.
                 // The shipped walk reads the raw cosine, and at `(HomeAligned,
                 // Move, 3.0)` that is `P(move) = 0` facing away -- which is why
                 // a laden ant can take no step that points away from home
                 // (`Reports/ant-scenes-2026-09-23.md` §2).
+                //
+                // **It was `(1 + cos) / 2` (plan §4e), and that froze ants on
+                // the colony bed** (scenes report §8): facing away read 0, an
+                // empty ant's pace, and an empty ant's pace is itself 0 beside
+                // food when fed (`Energy` -1.75, `FoodAdjacent` -1.16 against
+                // `Bias` 2). The chooser does not re-aim on a lost roll, so a
+                // laden ant that climbed to the pile facing away stood there
+                // eating until it bred: median 1,311 births a run at gap 90.
                 if chooser_of(world) == Chooser::Off {
                     cos
                 } else {
-                    (1.0 + cos) * 0.5
+                    1.0
                 }
             }
         } else {
@@ -23668,6 +23677,75 @@ mod tests {
         // ant's energy is not pinned, so the bar sits under the hungry case.
         assert!(shipped_rev * 6 >= shipped_steps, "the shipped walk turned round {shipped_rev} times in {shipped_steps} steps: the count is blind");
         assert!(rev * 20 <= steps, "the chooser turned round {rev} times in {steps} steps");
+    }
+
+    /// **A fed, laden ant beside food and facing away from home still walks
+    /// under the chooser** -- the freeze the colony bed found
+    /// (`Reports/ant-scenes-2026-09-23.md` §8).
+    ///
+    /// Traced on the bed: an ant picked food up at the pile, climbed a shaft
+    /// facing away from home, and stood at the top beside the pile with
+    /// `P(move)` exactly 0 for 1,200 frames, eating until it could breed
+    /// there. The `Move` sum was `Bias` 2 + `Energy` -1.75 + `FoodAdjacent`
+    /// -1.16 + `HomeAligned` 3 x (1 + cos) / 2 at cos -1, about -0.9. The
+    /// shipped walk re-aims on a lost roll; the chooser pauses, and the facing
+    /// only changes on a step, so 0 stays 0. The scene is that spot on a bare
+    /// floor: a fruit beside the head, a full crop and full energy held every
+    /// frame, home 60 cells the other way. Its first decision is checked to
+    /// be the frozen one (laden, food beside it, facing away, fed), so the
+    /// scene cannot drift away from the case it names. **Watched red** with
+    /// `HomeAligned` back at `(1 + cos) / 2`: 0 steps in both chooser arms.
+    #[test]
+    fn a_fed_laden_ant_beside_food_facing_away_from_home_still_walks_under_the_chooser() {
+        let walk = |mode: Chooser| -> (usize, i32) {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            for x in 0..160 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            for y in 0..41 {
+                for x in [0, 159] {
+                    w.set(x, y, stone);
+                }
+            }
+            w.chooser = Some(mode);
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let head = w.organism(ant).expect("live").chain[0];
+            let full = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy;
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.heading = 0;
+                st.forage_anchor = (head.0 - 60, 40);
+            }
+            let fruit = Cell::new(w.materials.id_of("fruit").expect("fruit material"), 0);
+            let food_at = (head.0 + 1, head.1 - 1);
+            w.decision_log = Some(Vec::new());
+            for _ in 0..600 {
+                fill_crop(&mut w, ant);
+                w.organism_mut(ant).expect("live").energy = full;
+                if w.get(food_at.0, food_at.1).material == material::EMPTY {
+                    w.set(food_at.0, food_at.1, fruit);
+                }
+                run(&mut w, 1);
+            }
+            let rows: Vec<DecisionRow> = w.decision_log.take().expect("the log was on").into_iter().filter(|r| r.id == ant).collect();
+            let first = rows.first().expect("the ant decided at least once");
+            assert!(first.leg == 1 && first.food_adjacent == 1.0 && first.energy == 1.0, "the first decision is not the frozen case: {first:?}");
+            // Facing east with home far west, read off the geometry: `home_cos`
+            // is the re-roll's aim (NaN when not asked), and `home_aligned` is
+            // the input this test is about, so neither can state the setup.
+            assert!(first.heading == 0 && first.anchor.0 <= first.head.0 - 50, "the ant does not start facing away from home: {first:?}");
+            let steps = rows.iter().filter(|r| r.outcome == DecisionOutcome::Stepped).count();
+            let west = rows.iter().map(|r| head.0 - r.head_after.0).max().unwrap_or(0);
+            (steps, west)
+        };
+        for mode in [Chooser::On, Chooser::Trail] {
+            let (steps, west) = walk(mode);
+            assert!(steps >= 20, "{mode:?}: the fed, laden ant beside food took {steps} steps in 600 frames");
+            assert!(west >= 10, "{mode:?}: it stepped but got only {west} cells toward home");
+        }
     }
 
     /// **A drop with nowhere to go is counted as such, and one with room is

@@ -2394,6 +2394,9 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // moves or has its surroundings closed over -- with what closed them.
     // Built to answer whether a crumb underground slid there or was buried.
     let crumb_watch = flag("crumbwatch");
+    // Deaths by cause at frame 6,000, inside the founders' die-off and before
+    // a colony that breeds swamps the count; printed beside the run's total.
+    let mut deaths_at_6000: Option<[u64; pixel_physics::sim::organism::DEATH_CAUSES]> = None;
     let mut crumb_prev: std::collections::BTreeMap<(i32, i32), (usize, Vec<String>)> = std::collections::BTreeMap::new();
     // The last food-watch sample: its residual, where food stood, and births.
     type WatchSample = (f64, std::collections::HashSet<(i32, i32)>, u64);
@@ -2930,6 +2933,9 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 }
             }
             crumb_prev = now;
+        }
+        if f == 6000 {
+            deaths_at_6000 = Some(w.deaths_by_cause);
         }
         if f.is_multiple_of(3000) {
             let (mut at_nest, mut elsewhere, mut crumb_cells) = (0u32, 0u32, 0u32);
@@ -4432,6 +4438,14 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             }
         }
         println!("    CRUMBS BURIED (no open neighbour): {buried} of {crumb_cells} crumbs, worth {:.0} J", buried_face);
+        let causes = |d: &[u64; pixel_physics::sim::organism::DEATH_CAUSES]| {
+            pixel_physics::sim::organism::DEATH_CAUSE_LIST.iter().zip(d).filter(|(_, n)| **n > 0).map(|(c, n)| format!("{} {n}", c.label())).collect::<Vec<_>>().join(", ")
+        };
+        println!(
+            "    DEATHS BY CAUSE -- by frame 6000: [{}] | whole run: [{}]",
+            deaths_at_6000.as_ref().map_or_else(|| "not reached".to_string(), causes),
+            causes(&w.deaths_by_cause)
+        );
         for id in w.live_organism_ids() {
             let Some(st) = w.organism(id) else { continue };
             if let Some(c) = st.crop.filter(|c| is_larder_food(c.material)) {
@@ -4442,7 +4456,11 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 as_spoil += 1;
             }
         }
-        let face = larder_unit.max(f32::EPSILON) as f64;
+        // **What a larder cell is worth, from a crop if one ever held one,
+        // else from a fresh cell.** Until 2026-09-23 a run where no crop was
+        // ever filled priced a cell at `EPSILON`, and every figure below was a
+        // division by it: `chewed 8053084044.0` in runs that took one cell.
+        let face = if larder_unit > 0.0 { larder_unit as f64 } else { creature::food_value(&w, Cell::new(larder, 0)) as f64 };
         let taken = larder_placed.saturating_sub(food.max(0) as u64) + pile_missing;
         let chewed = w.creature_stats.digested_face / face;
         let standing = (ground + in_crops + as_spoil) as f64 + crumb_face / face;

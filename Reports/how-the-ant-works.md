@@ -306,9 +306,12 @@ same, plus the trail terms at the end of this section.
 
 1. **Every decision, before any roll:** the support check and possible fall
    (§2). A fall is not a move: it lays no trail and costs no step.
-2. `p_move` as in §6a, except that `HomeAligned` reaches the brain as
-   `(1 + cos) / 2`: facing home reads 1 (the shipped 0.76 pace), facing
-   away reads 0 (an empty ant's pace, not a stop).
+2. `p_move` as in §6a, except that `HomeAligned` reads **1 whenever the
+   ant carries food and is off its anchor**, whichever way it faces: the
+   shipped facing-home pace (0.76). The heading is picked after the roll, so
+   the roll does not depend on the facing. (A facing-dependent pace let a fed
+   ant beside food, facing away, reach `p_move` 0, and with no re-aim on a
+   lost roll that is permanent.)
 3. **A lost roll is a pause.** No tumble, no re-roll.
 4. **A won roll picks one heading from all the usable ones** (§2's
    predicate) with `choose_weighted`, at `k = 0.1 × unit_scale(Tumble, 2)`

@@ -581,3 +581,87 @@ at gap 90 line for line, so the only difference between the columns is the
 one flag.
 
 **Data:** `Reports/data/bed-crumbs-{slide,stay}-2026-09-23.log.gz`.
+
+## 8. The colony bed: stage 2 against the shipped walk
+
+**Setup:** the §Z33 bed (gaps 90, 140 and 200 cells, 24 seeds each, arm
+`hand`, 24,000 frames, `RAYON_NUM_THREADS=2`), both arms on one binary. The
+shipped arm came out byte-identical across the two runs below, so everything
+that moved is stage 2.
+
+**First run, stage 2 as in §6: the colony changed kind, so the paired
+totals mean nothing.** At gap 90, 21 of 24 stage-2 colonies bred, a median of
+**1,311 births a run against 0**, nearly all off the comb, at the food pile.
+The two arms' totals are over populations 70 times apart (the pooled-`n`
+rule). Tracing every decision of every ant on seed 1, frames 0–12,000, found
+the first route to the pile:
+- **A frozen ant at the pile.** Ant 17 picked food up 7 cells short of the
+  pile and climbed a shaft facing away from home. Its patience fell ×0.9 a
+  step, 1.0 to 0.08 in 25 steps, because climbing gets no nearer home. At
+  the top, beside the pile, its `Move` sum was `Bias` 2 + `Energy` −1.75 ×
+  0.6 + `FoodAdjacent` −1.16 + `HomeAligned` 3 × 0.06 ≈ 0, and `p_move` was
+  **exactly 0 for 1,200 frames** while it ate and topped up its crop. The
+  shipped walk re-aims on a lost roll; the chooser pauses, and the facing
+  changes only on a step, so a 0 stays 0. It is S4's deadlock through a
+  different input. S0–S3 could not show it: no food beside the ant, and
+  energy pinned.
+- **Fix:** under the chooser, `HomeAligned` reads 1 while the ant carries
+  food, whichever way it faces (how-the-ant-works §6d). Guard:
+  `a_fed_laden_ant_beside_food_facing_away_from_home_still_walks_under_the_chooser`,
+  **watched red first: 0 steps in 600 frames**.
+- **Every laden scene got faster and none slower**, 24 of 24 arriving
+  throughout; the empty-ant scenes (S0, S4, S5 with trail) are
+  byte-identical:
+
+| Laden scene, median decisions to arrive | Stage 2 as in §6 | With the fix |
+|---|---|---|
+| S1 facing away from home | 55 | 51 |
+| S2 wall of 12 | 98 | 90 |
+| S3 U-bend | 849 | **371** |
+| S5 lattice | 92 | 86 |
+| longest stand-still, any laden scene | 32 | 7 |
+
+**Second run, with the fix: the breeding did not stop.** I predicted births
+near 0; the median at gap 90 is **909** (23 of 24 runs), and at gap 140 now
+35 (21 of 24). So the freeze was one route to a fed ant at the pile, not the
+cause. The rest is untraced. The likely reading: stage 2 gets ants to the
+food (reached 17 → 915 at gap 90, counting newborns), any fed ant breeds
+where it stands, and the bed refills the pile to 400 cells every 400 frames.
+
+**Comparable ants only: those born on the comb**, the 20 founders plus any
+born at the nest. The loop counts are round trips, nest to food and back:
+
+| Born on the comb | Shipped | **Stage 2** | Stage 2 higher / lower, of 24 seeds |
+|---|---|---|---|
+| gap 90: reached the food | 17 | 9.5 | 0 / 24 |
+| gap 90: round trips | 14 | 8.5 | 1 / 21 |
+| gap 140: reached the food | 5 | 6.5 | 13 / 8 |
+| gap 140: round trips | 1 | **5** | 21 / 2 |
+| gap 200: reached the food | 0 | 4 | 22 / 1 |
+| gap 200: round trips | 0 | **4** | 24 / 0 |
+
+- **At 140 and 200 cells, stage 2 is the first change on this line that
+  makes founders complete round trips**: higher on 21 and 24 of 24 seeds,
+  where the shipped walk manages 1 and 0.
+- **At 90 cells it is worse for the founders.** Fewer reach the food, and
+  more die early: by frame 6,000 a median of 11.5 are alive against 19
+  (fewer on 18 of 24 seeds). Deaths by then, all ants: **394 against 33**,
+  of which 255 against 20 starved and 130 against 8 were killed. Untraced.
+
+**Stage 2 does not ship.** The question it leaves is not about walking:
+whether an ant should be able to breed away from the nest. While any fed ant
+can, a colony whose ants reach the food breeds there, and this bed stops
+measuring the loop.
+
+**Two instruments were wrong along the way, both fixed:**
+- **The paired parser filed every run's food budget under the previous
+  seed.** trailfollow prints a run's budget lines *before* its summary row
+  and its loop funnel after. The loop figures were filed correctly, so no
+  number in §Z33 or census report §13 moves. The shipped budget still
+  closes to 17 cells over 24 runs.
+- **A run where no crop ever held food priced a cell at ε**, so its
+  "chewed" read 8 × 10⁹. It now falls back to a fresh cell's worth.
+
+**Data:** `Reports/data/bed-stage2-{shipped,trail,v1-trail}-2026-09-23.log.gz`,
+`bed-stage2-deaths-{shipped,trail}-2026-09-23.log.gz` (gap 90, 9,000 frames,
+with deaths by cause), and `scene-stage2-fixed-{s1,s2,s3,s5}-2026-09-23.log`.
