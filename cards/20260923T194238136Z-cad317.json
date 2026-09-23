@@ -1,0 +1,64 @@
+{
+  "id": "20260923T194238136Z-cad317",
+  "created": "2026-09-23T19:42:38Z",
+  "board": "ants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/upbeat-gates-u90pys",
+    "commit": "f3fde439",
+    "agent": null,
+    "session_id": "377a1a74-10ea-588e-aa72-28c0126d3167",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Crumbs: what a half-eaten fruit is put down as",
+  "question": "Do the orange-brown specks read as bits of half-eaten fruit, and can you pick them out without the cyan markers?",
+  "context_md": "An ant eats a little of what it carries on the way home. A half-eaten fruit used to be put down as a whole fruit, so the next ant got the eaten half again: about half of what a colony ate was food eaten twice. Now a piece it has started on goes down as **crumbs**, worth exactly what is left. A whole fruit still goes down as a fruit.\n\nThe forage bed, gap 90, seed 2, frame 9,120, with night lighting. The nest is the pale strip on the surface. The crumbs are the orange-brown specks: four at the surface, and a line of five down a tunnel the ants dug.\n\n- **1** is the nest area at the zoom I normally post at.\n- **2** is a close-up of the same frame.\n- **3** is the close-up with every crumb cell outlined in cyan, so you can check what you spotted in 2.\n\nWhat I already know: these nine crumbs hold 20–937 J each (a whole fruit is 960), about two fruits in all, and they sit untouched for at least 3,000 frames. No ant goes back for them, which is a question about foraging, not about how they look. Please ignore the ants and the dark tunnel; the question is only the specks.\n\nWhere this sits: making the foraging loop honest. With the eaten-twice food gone, colonies starve on what they really bring home, and that is the number the next steps on the ants' walking have to move.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "1 — the nest area",
+      "files": [
+        "20260923T194238136Z-cad317/000-nest-wide.png"
+      ],
+      "caption": "120 x 60 cells, magnified 6x",
+      "meta": {
+        "crumbs in view": 9,
+        "whole fruit lying at the nest": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "2 — close-up",
+      "files": [
+        "20260923T194238136Z-cad317/001-close-plain.png"
+      ],
+      "caption": "64 x 36 cells, magnified 12x",
+      "meta": {
+        "crumbs in view": 9,
+        "what each crumb is worth (J)": "20 to 937",
+        "a whole fruit (J)": 960
+      },
+      "focus": null
+    },
+    {
+      "label": "3 — close-up, crumbs outlined",
+      "files": [
+        "20260923T194238136Z-cad317/002-close-marked.png"
+      ],
+      "caption": "cyan box = one crumb cell",
+      "meta": {
+        "crumbs outlined": 9
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
