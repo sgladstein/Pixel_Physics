@@ -3209,6 +3209,11 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     U-bend escaped in 24 of 24, no ant frozen, about +2% frame cost. Its
     home term relaxes while the ant gets no nearer home ("patience");
     without that, the U-bend is 0 of 24.
+  - **S4–S5, stage 2's baseline**: the shipped trail reading never changes
+    which branch an empty ant takes, only where it stays; a trail up a
+    climbing branch freezes every ant at its mouth; and under stage 1's
+    chooser a trail freezes the ant almost everywhere (24 of 24 in the
+    lattice), which is the colony collapse of census report §13.
   - The per-decision mix matched the formula within a point at both
     energies. The reach predictions were low; the report says why.
   - The scene's own checks caught rain pooling on the slab and an ant dying

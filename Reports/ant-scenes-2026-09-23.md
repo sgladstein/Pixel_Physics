@@ -5,8 +5,8 @@
 plan's scenes, run on today's code, each with its prediction written before
 the run. The mechanism is described in [`how-the-ant-works.md`](how-the-ant-works.md).
 Harness: `examples/scenes.rs`. S0–S3 are done, on today's code (§1, §2) and
-under stage 1's chooser (§3); S4–S5 run just before stage 2 and will follow
-in this report.*
+under stage 1's chooser (§3). S4 and S5 are done (§4, §5): the baseline
+stage 2 is judged on.*
 
 ## 0. The answer so far
 
@@ -372,3 +372,96 @@ colony** (ants reaching food: median 17 -> 3 at gap 90; second trips 127 ->
 **Data:** `Reports/data/scene-chooser-{s0,s1,s2,s3}-2026-09-23.log` and
 `scene-nopatience-{s2,s3}-2026-09-23.log`: every run's row and the
 summaries, on the final code.
+
+## 4. S4: an empty ant at a fork, with trail B down one branch
+
+**Setup** (asserted from the trace and the world):
+- a one-high tunnel in solid stone, with a fork 12 cells ahead of the ant;
+- a **level** branch runs 50 cells on, an **up** branch climbs diagonally
+  for 25, and both end blind;
+- trail B is laid down one branch (`trail=level` or `up`), rising from 30% to
+  100% of a full deposit towards the blind end and topped up every 30 frames,
+  or down neither (`trail=none`);
+- the ant is empty, lays nothing, energy pinned at 0.5, clear sky, no food;
+- 24 seeds per arm, 2,000 decisions each.
+
+The predictions are in the harness header, written before the first run.
+
+| | Shipped walk | Chooser (stage 1) |
+|---|---|---|
+| no trail: first branch level / up | 16 / 7 | 17 / 7 |
+| level trail: first branch level / up | 18 / 6 | 10 / 11 |
+| level trail: time on the level branch | **73%** (control 34%) | 41% |
+| level trail: runs frozen 100+ decisions on a branch | 0 | **21 of 24** |
+| up trail: runs that ever left the main tunnel | **0 of 24** | **0 of 24** |
+| up trail: longest stand-still, median | **1,904 decisions** | 1,915 |
+
+**Three findings**, the last one new:
+
+- **The trail never changes which branch the shipped ant takes first**, as
+  predicted: its walk has no trail term. It changes only where the ant
+  stays. A trailed level branch holds it 73% of the time against 34% without.
+- **Under the chooser the trail freezes the ant** (21 of 24 runs, a median
+  1,750 decisions). Traced on seed 1: the ant walks up the trailed branch
+  well (reading +0.02 to +0.9, `p_move` about 0.7). Five cells from the blind
+  end, the sensor's sample point, 6 cells ahead on the ant's own row, falls
+  past the end. The reading drops to −0.48 in one step and `p_move` goes to
+  0. The chooser does not re-aim on a lost roll, so it faces the wall for
+  good. The shipped walk escapes the same spot by tumbling. **This is the
+  hypothesis of census report §13 for stage 1's collapse on the colony bed,
+  now shown in a scene with a known answer.**
+- **A trail on the up branch freezes every ant at the fork, on both walks**
+  (predicted: no effect). The trail spreads into the fork cell (677 under the
+  head), but the sensor reads the walker's row 6 cells ahead, where there is
+  little or none. So the reading is negative whichever way the ant faces
+  (−0.43 east and up, −0.73 west), and `p_move` is exactly 0 even at full
+  `Stillness`. It is the census's frozen-on-a-local-peak case (79% of long
+  stalls on the bed, census report §4), at the mouth of the branch that
+  carries the trail.
+
+**What stage 2 must do here**, and the bars it is judged on:
+- read the trail at the cells a step would enter, not 6 cells ahead on the
+  ant's row;
+- retire the throttle, so a reading can turn the ant but never freeze it;
+- **the first branch follows the trail** in both placements (at least 18 of
+  24 into the trailed branch, against about 7 up and 17 level without a
+  trail);
+- **no run frozen 100+ decisions**, in any arm.
+
+**Data:** `Reports/data/scene-s4-{shipped,chooser}-2026-09-23.log`.
+
+## 5. S5: an open stone lattice, where every cell gives footing
+
+**Setup:** stone pegs one cell wide at every third cell across and down, so
+every empty cell has a peg beside it and an ant can step in all eight
+directions: the nearest thing to a canopy that nothing grows in.
+- **Laden** (`scene=s5`): a full crop, home 60 cells east inside the lattice,
+  otherwise as S1.
+- **Empty with trail B** (`scene=s5trail`): trail B along one row of the
+  lattice, rising eastward and topped up, against a no-trail control. The
+  ant starts on the row; 4,000 decisions.
+
+24 seeds per arm; predictions in the harness header, written before the run.
+
+| | Predicted | Shipped walk | Chooser (stage 1) |
+|---|---|---|---|
+| laden: got home | most, 80–120 decisions | **24 of 24**, median 103 | **24 of 24**, median 92 |
+| empty, no trail: got 60 cells east | | 12 of 24 | 16 of 24 |
+| empty, trail: got 60 cells east | further than the control | **21 of 24**, median decision 702 | **0 of 24** |
+| empty, trail: furthest east, median | | 144 cells (control 65) | **3 cells** |
+| empty, trail: decisions within a row of the trail | as often off it as the control | **13%** (control 1.5%) | 54% |
+| empty, trail: longest stand-still, median | | 25 | **3,994 (every run)** |
+
+- **Laden ants get home through open footing on both walks**, as predicted.
+- **On the shipped walk the trail pulls an empty ant along**, through the
+  throttle: it keeps stepping while it faces up the gradient and turns when
+  it faces down. That is a crude run-and-tumble, and it keeps the ant on the
+  row nine times as often as without the trail, which I did not predict.
+- **Under stage 1's chooser the same ant freezes where it starts**, in every
+  run, as S4 showed and as predicted: a downhill reading throttles `p_move`
+  to 0 and the chooser never re-aims.
+
+**What stage 2 must do here:** follow the row at least as well as the shipped
+walk (21 of 24 reaching 60 cells east, 13% on the row), with no frozen runs.
+
+**Data:** `Reports/data/scene-s5-{laden,trail}-{shipped,chooser}-2026-09-23.log`.

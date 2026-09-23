@@ -91,12 +91,66 @@
 //! which faces away from home, where `p_move` is 0 even at full `Stillness`
 //! (`squash(0.25 - 3.0 + 1.5) < 0`). Run it again with
 //! `PIXEL_PHYSICS_REVERSE=off`, so the reversal rule cannot take the credit.
+//!
+//! # S4: an empty ant at a fork, with trail B down one branch
+//!
+//! A one-high tunnel in solid stone runs east from the ant to a fork 12
+//! cells on (and 48 cells west behind it, blind): a **level** branch carries straight on for 50 cells, an **up**
+//! branch climbs diagonally for 25; both end blind. Trail B is laid down one
+//! branch (`trail=level|up`), rising from 30% to 100% of a full deposit
+//! towards its blind end and topped up every 30 frames so it cannot fade,
+//! or on neither (`trail=none`, the control). The ant is empty, lays nothing,
+//! its energy is pinned at 0.5 so it walks (S0), the sky is clear, and there
+//! is no food anywhere. 12,000 frames.
+//!
+//! **Prediction, written 2026-09-23 before the first run**, from
+//! `how-the-ant-works.md` §4, §6 and §7:
+//! - **Shipped walk: the first branch taken ignores the trail.** The cone has
+//!   no trail term. Arriving facing east, it scores straight on 1.6 against
+//!   the climb 0.6, so **about 85% level in every arm**.
+//! - **The trail changes only where the ant stays**, through the throttle:
+//!   on the trailed branch, walking up the gradient keeps it stepping and
+//!   turning back reads downhill and stops it. At the blind end, the peak,
+//!   every way reads downhill, the census's frozen-on-a-peak case. **More
+//!   time on the trailed level branch than in the control, and long stands
+//!   at its end.**
+//! - **The up branch's trail may read as nothing**: the sensor samples the
+//!   walker's own row 6 cells ahead, and in a diagonal tunnel that is rock.
+//!   So `trail=up` may match the control.
+//! - **Under the chooser: first branch about 57% level** (going on weighs
+//!   1.21 against the 45-degree climb's 0.91), again ignoring the trail. It
+//!   also freezes at the trailed branch's peak, with no re-aim to leave it.
+//!
+//! # S5: an open stone lattice, where every cell gives footing
+//!
+//! Stone pegs one cell wide, every third cell across and down, so every empty
+//! cell has a peg beside it and an ant can step in all eight directions: the
+//! nearest thing to a canopy that nothing grows in. Two parts:
+//! - **laden** (`scene=s5`): a full crop, home 60 cells east inside the
+//!   lattice, as in S1;
+//! - **empty, with trail B** (`scene=s5trail`): trail B laid along one row of
+//!   the lattice, rising eastward and topped up, against a no-trail control.
+//!
+//! **Prediction, written 2026-09-23 before the first run** (plan §6):
+//! - **Laden, shipped walk: gets home in most runs.** The homeward re-roll
+//!   picks the usable heading nearest home, and facing home it steps at 0.76.
+//!   The cone's diagonal side-steps are footed here, so it wanders a little.
+//!   About 24 of 24, median 80–120 decisions.
+//! - **Laden, chooser: the same or faster**, since every step is scored
+//!   towards home.
+//! - **Empty with trail, shipped walk: no steering along the row**, but the
+//!   throttle keeps it stepping while it faces up the gradient, so it drifts
+//!   east further than the control. Its path strays off the row as often as
+//!   the control's.
+//! - **Empty with trail, chooser: freezes** where the reading turns downhill
+//!   in its facing, as in S4.
 use pixel_physics::sim::brain::{self, BrainOutput as O};
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::creature::{self, DecisionOutcome as D, DecisionRow, DropWhy as D2};
 use pixel_physics::sim::explosion::Blasts;
 use pixel_physics::sim::material;
 use pixel_physics::sim::particle::ParticleSystem;
+use pixel_physics::sim::pheromone::{self, Channel};
 use pixel_physics::sim::{frame, player, Cell, World};
 
 fn arg<T: std::str::FromStr>(name: &str, default: T) -> T {
@@ -326,6 +380,8 @@ enum Ground {
     Wall { height: i32 },
     /// S3: the U-bend.
     UBend,
+    /// S5: the open lattice, home 60 cells east.
+    Lattice,
 }
 
 /// One laden run's result.
@@ -422,6 +478,10 @@ fn laden(seed: u64, ground: Ground, frames: u64) -> LadenRun {
                 world.set(150, y, Cell::EMPTY);
             }
             ((220, 80), (262, 70))
+        }
+        Ground::Lattice => {
+            lattice(&mut world, 120, 280, 30, floor - 4);
+            ((170, 58), (230, 58))
         }
     };
     let species = world.species.id_of("ant").expect("the ant species is compiled in");
@@ -587,6 +647,7 @@ fn laden(seed: u64, ground: Ground, frames: u64) -> LadenRun {
                 }
             }
             Ground::UBend => run.peak = run.peak.max(start.0 - r.head_after.0),
+            Ground::Lattice => run.peak = run.peak.max((r.head_after.1 - start.1).abs()),
             Ground::Flat { .. } => {}
         }
     }
@@ -630,6 +691,324 @@ fn report_laden(label: &str, runs: &[LadenRun]) {
     );
 }
 
+/// **S5's lattice**: attached stone pegs at every third cell across and down,
+/// over `x0..=x1`, `y0..=y1`. Every empty cell in it has a peg among its
+/// eight neighbours, so every cell gives footing.
+fn lattice(world: &mut World, x0: i32, x1: i32, y0: i32, y1: i32) {
+    let stone = Cell::new(material::STONE, 0).with_attached(true);
+    for x in x0..=x1 {
+        for y in y0..=y1 {
+            if x % 3 == 0 && y % 3 == 0 {
+                world.set(x, y, stone);
+            }
+        }
+    }
+}
+
+/// One S5 empty-ant run.
+struct S5Run {
+    seed: u64,
+    decisions: u64,
+    /// The furthest east the head got past the start, and the decision it
+    /// first got 60 cells east.
+    reach: i32,
+    reached_60: Option<u64>,
+    /// Decisions with the head within one row of the trail row.
+    on_row: u64,
+    longest_still: u64,
+}
+
+const S5_ROW: i32 = 50;
+const S5_START: i32 = 40;
+
+fn s5trail(seed: u64, trail: bool, frames: u64) -> S5Run {
+    let (w_cells, h) = (220i32, 100i32);
+    let mut world = World::new(Rect::new(0, 0, w_cells - 1, h - 1));
+    world.seed = seed;
+    lattice(&mut world, 20, 200, 20, 80);
+    let species = world.species.id_of("ant").expect("the ant species is compiled in");
+    {
+        let mut def = world.species.get(species).creature.clone().expect("ant is a creature");
+        def.reproduce_threshold = 1.0e30;
+        def.life_half_life = 0;
+        world.species.set_creature(species, def);
+    }
+    let def = world.species.get(species).creature.clone().expect("ant is a creature");
+    let mut genome = world.species.get(species).genome.clone();
+    assert!(silence_emission(&mut genome) > 0, "no EmitA/EmitB weight was zeroed, so the ant is still laying trail");
+    world.species.set_genome(species, genome);
+    world.set_weather_pin(pixel_physics::sim::weather::Pin::Clear);
+    world.plant_ant(S5_START, S5_ROW);
+    let ant = world.live_organism_ids().into_iter().find(|&id| world.organism(id).is_some_and(|s| s.species == species)).expect("the ant was placed");
+    let (x_lo, x_hi) = (S5_START, 190);
+    let target: Vec<((i32, i32), pheromone::Scent)> = if trail {
+        (x_lo..=x_hi)
+            .filter(|&x| world.get(x, S5_ROW).material == material::EMPTY || world.get(x, S5_ROW).organism_id() == ant)
+            .map(|x| ((x, S5_ROW), ((0.3 + 0.7 * (x - x_lo) as f32 / (x_hi - x_lo) as f32) * pheromone::DEPOSIT as f32) as pheromone::Scent))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let top_up = |w: &mut World| {
+        for &((x, y), amount) in &target {
+            let have = w.pheromone_at(Channel::B, x, y);
+            if have < amount {
+                w.deposit_pheromone(Channel::B, x, y, amount - have);
+            }
+        }
+    };
+    top_up(&mut world);
+    let pin = |w: &mut World| {
+        w.set_organism_energy(ant, 0.5 * def.start_energy);
+    };
+    pin(&mut world);
+    world.decision_log = Some(Vec::new());
+    let (mut particles, mut blasts, tuning) = (ParticleSystem::default(), Blasts::default(), player::Tuning::default());
+    let mut rows: Vec<DecisionRow> = Vec::new();
+    for f in 0..frames {
+        frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
+        if let Some(log) = world.decision_log.as_mut() {
+            rows.append(log);
+        }
+        pin(&mut world);
+        if f % 30 == 0 {
+            top_up(&mut world);
+        }
+    }
+    assert!(rows.len() > 100, "the ant made only {} decisions", rows.len());
+    for r in &rows {
+        assert_eq!(r.id, ant, "another creature made decisions in a one-ant scene");
+        assert_eq!(r.leg, 0, "the ant became laden: {r:?}");
+    }
+    for x in 20..=200 {
+        for y in 20..=80 {
+            let peg = x % 3 == 0 && y % 3 == 0;
+            assert_eq!(world.get(x, y).material == material::STONE, peg, "the lattice changed at ({x}, {y})");
+        }
+    }
+    let mut run = S5Run { seed, decisions: rows.len() as u64, reach: 0, reached_60: None, on_row: 0, longest_still: 0 };
+    let mut still = 0u64;
+    for (i, r) in rows.iter().enumerate() {
+        let east = r.head_after.0 - S5_START;
+        run.reach = run.reach.max(east);
+        if run.reached_60.is_none() && east >= 60 {
+            run.reached_60 = Some(i as u64);
+        }
+        if (r.head_after.1 - S5_ROW).abs() <= 1 {
+            run.on_row += 1;
+        }
+        still = if r.head_after == r.head { still + 1 } else { 0 };
+        run.longest_still = run.longest_still.max(still);
+    }
+    run
+}
+
+/// Which part of S4's tunnel the head is in.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Part {
+    Main,
+    Level,
+    Up,
+}
+
+/// One S4 run.
+struct S4Run {
+    seed: u64,
+    decisions: u64,
+    /// The first branch the head got 5 cells into, and the decision it did.
+    first: Option<(Part, u64)>,
+    /// Decisions ending in each part, by `Part` order.
+    in_part: [u64; 3],
+    /// Mean trail-B reading (`PheroBAlong`) while the head was on the
+    /// trailed branch, and how many decisions that mean is over.
+    along_on_trail: (f64, u64),
+    /// The longest run of decisions in which the head did not move, and the
+    /// part it stood in.
+    longest_still: (u64, Part),
+}
+
+const S4_Y: i32 = 60;
+const S4_FORK: i32 = 100;
+const S4_LEVEL_LEN: i32 = 50;
+const S4_UP_LEN: i32 = 25;
+
+fn s4_part(x: i32, y: i32) -> Part {
+    let k = x - S4_FORK;
+    if k >= 3 && y == S4_Y {
+        Part::Level
+    } else if k >= 3 && S4_Y - y == k {
+        Part::Up
+    } else {
+        Part::Main
+    }
+}
+
+fn s4(seed: u64, trail: &str, frames: u64) -> S4Run {
+    let (w_cells, h) = (200i32, 100i32);
+    let mut world = World::new(Rect::new(0, 0, w_cells - 1, h - 1));
+    world.seed = seed;
+    let stone = Cell::new(material::STONE, 0).with_attached(true);
+    for x in 0..w_cells {
+        for y in 20..h {
+            world.set(x, y, stone);
+        }
+    }
+    let mut tunnel: Vec<(i32, i32)> = (40..=S4_FORK).map(|x| (x, S4_Y)).collect();
+    let level: Vec<(i32, i32)> = (1..=S4_LEVEL_LEN).map(|k| (S4_FORK + k, S4_Y)).collect();
+    let up: Vec<(i32, i32)> = (1..=S4_UP_LEN).map(|k| (S4_FORK + k, S4_Y - k)).collect();
+    tunnel.extend(&level);
+    tunnel.extend(&up);
+    for &(x, y) in &tunnel {
+        world.set(x, y, Cell::EMPTY);
+    }
+    let species = world.species.id_of("ant").expect("the ant species is compiled in");
+    {
+        let mut def = world.species.get(species).creature.clone().expect("ant is a creature");
+        def.reproduce_threshold = 1.0e30;
+        def.life_half_life = 0;
+        world.species.set_creature(species, def);
+    }
+    let def = world.species.get(species).creature.clone().expect("ant is a creature");
+    let mut genome = world.species.get(species).genome.clone();
+    assert!(silence_emission(&mut genome) > 0, "no EmitA/EmitB weight was zeroed, so the ant is still laying trail");
+    world.species.set_genome(species, genome);
+    world.set_weather_pin(pixel_physics::sim::weather::Pin::Clear);
+    world.plant_ant(S4_FORK - 12, S4_Y);
+    let ant = world.live_organism_ids().into_iter().find(|&id| world.organism(id).is_some_and(|s| s.species == species)).expect("the ant was placed");
+    let chain = world.organism(ant).expect("live").chain.clone();
+    assert!(chain.iter().all(|&(_, y)| y == S4_Y), "the ant must start lying along the main tunnel: {chain:?}");
+
+    // The trail, as target amounts per cell, rising towards the blind end.
+    let trailed: Vec<(i32, i32)> = match trail {
+        "none" => Vec::new(),
+        "level" => level.clone(),
+        "up" => up.clone(),
+        other => panic!("trail={other:?}; expected none, level or up"),
+    };
+    let n = trailed.len().max(1) as f32;
+    let target: Vec<((i32, i32), pheromone::Scent)> = trailed
+        .iter()
+        .enumerate()
+        .map(|(i, &p)| (p, ((0.3 + 0.7 * (i as f32 + 1.0) / n) * pheromone::DEPOSIT as f32) as pheromone::Scent))
+        .collect();
+    let top_up = |w: &mut World| {
+        for &((x, y), amount) in &target {
+            let have = w.pheromone_at(Channel::B, x, y);
+            if have < amount {
+                w.deposit_pheromone(Channel::B, x, y, amount - have);
+            }
+        }
+    };
+    top_up(&mut world);
+    let pin = |w: &mut World| {
+        w.set_organism_energy(ant, 0.5 * def.start_energy);
+    };
+    pin(&mut world);
+    world.decision_log = Some(Vec::new());
+
+    let (mut particles, mut blasts, tuning) = (ParticleSystem::default(), Blasts::default(), player::Tuning::default());
+    let mut rows: Vec<DecisionRow> = Vec::new();
+    for f in 0..frames {
+        frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
+        if let Some(log) = world.decision_log.as_mut() {
+            rows.append(log);
+        }
+        pin(&mut world);
+        if f % 30 == 0 {
+            top_up(&mut world);
+        }
+    }
+
+    // The setup checklist, from the trace and the world.
+    for x in 0..w_cells {
+        for y in 20..h {
+            let open = tunnel.contains(&(x, y));
+            let c = world.get(x, y);
+            assert!(open || c.material == material::STONE, "the rock changed at ({x}, {y})");
+            assert!(!open || c.material == material::EMPTY || c.organism_id() == ant, "something other than the ant is in the tunnel at ({x}, {y})");
+        }
+    }
+    assert!(rows.len() > 100, "the ant made only {} decisions", rows.len());
+    for r in &rows {
+        assert_eq!(r.id, ant, "another creature made decisions in a one-ant scene");
+        assert_eq!(r.leg, 0, "the ant became laden: {r:?}");
+        assert!((r.energy - 0.5).abs() < 1e-3, "energy drifted to {}: {r:?}", r.energy);
+    }
+
+    // `dump=FIRST,COUNT`, as in S1-S3, with the trail readings added.
+    if let Some((first, count)) = arg_str("dump", "").split_once(',').map(|(a, b)| (a.parse::<usize>().expect("dump=first,count"), b.parse::<usize>().expect("dump=first,count"))) {
+        const NAMES: [&str; 8] = ["E", "NE", "N", "NW", "W", "SW", "S", "SE"];
+        let mask = |m: u8| (0..8).filter(|i| m >> i & 1 == 1).map(|i| NAMES[i]).collect::<Vec<_>>().join("|");
+        println!("    dump, seed {seed}, trail={trail}: decision frame head -> head_after heading -> after | usable | along_b B-under-head p_move stillness | outcome");
+        for (i, r) in rows.iter().enumerate().skip(first).take(count) {
+            println!(
+                "    {i:>5} {:>6} {:?} -> {:?} {} -> {} | {} | {:+.4} {:>5} {:.3} {:.3} | {:?}",
+                r.frame,
+                r.head,
+                r.head_after,
+                NAMES[r.heading as usize],
+                NAMES[r.heading_after as usize],
+                mask(r.usable),
+                r.along_b,
+                world.pheromone_at(Channel::B, r.head.0, r.head.1),
+                r.p_move,
+                r.stillness,
+                r.outcome
+            );
+        }
+    }
+    let mut run = S4Run { seed, decisions: rows.len() as u64, first: None, in_part: [0; 3], along_on_trail: (0.0, 0), longest_still: (0, Part::Main) };
+    let trailed_part = match trail {
+        "level" => Some(Part::Level),
+        "up" => Some(Part::Up),
+        _ => None,
+    };
+    let mut still = 0u64;
+    for (i, r) in rows.iter().enumerate() {
+        let part = s4_part(r.head_after.0, r.head_after.1);
+        run.in_part[part as usize] += 1;
+        if run.first.is_none() && part != Part::Main && r.head_after.0 - S4_FORK >= 5 {
+            run.first = Some((part, i as u64));
+        }
+        if Some(s4_part(r.head.0, r.head.1)) == trailed_part {
+            run.along_on_trail.0 += r.along_b as f64;
+            run.along_on_trail.1 += 1;
+        }
+        still = if r.head_after == r.head { still + 1 } else { 0 };
+        if still > run.longest_still.0 {
+            run.longest_still = (still, part);
+        }
+    }
+    if run.along_on_trail.1 > 0 {
+        run.along_on_trail.0 /= run.along_on_trail.1 as f64;
+    }
+    run
+}
+
+fn report_s4(trail: &str, runs: &[S4Run]) {
+    let n: u64 = runs.iter().map(|r| r.decisions).sum();
+    let firsts = |p: Part| runs.iter().filter(|r| r.first.is_some_and(|(q, _)| q == p)).count();
+    let first_at: Vec<f64> = runs.iter().filter_map(|r| r.first.map(|(_, d)| d as f64)).collect();
+    let share = |p: Part| 100.0 * runs.iter().map(|r| r.in_part[p as usize]).sum::<u64>() as f64 / n.max(1) as f64;
+    let (along, along_n) = runs.iter().fold((0.0, 0u64), |(a, c), r| (a + r.along_on_trail.0 * r.along_on_trail.1 as f64, c + r.along_on_trail.1));
+    let longest: Vec<f64> = runs.iter().map(|r| r.longest_still.0 as f64).collect();
+    let stuck_end = runs.iter().filter(|r| r.longest_still.0 >= 100 && r.longest_still.1 != Part::Main).count();
+    println!(
+        "  S4 trail={trail}: first branch level {} / up {} / neither {} (median decision {}) | time main {:.1}%  level {:.1}%  up {:.1}% | trail-B reading on the trailed branch {} | longest stand-still median {:.0}, max {:.0}; runs standing 100+ decisions on a branch {}",
+        firsts(Part::Level),
+        firsts(Part::Up),
+        runs.len() - firsts(Part::Level) - firsts(Part::Up),
+        if first_at.is_empty() { "-".to_string() } else { format!("{:.0}", median(first_at)) },
+        share(Part::Main),
+        share(Part::Level),
+        share(Part::Up),
+        if along_n == 0 { "-".to_string() } else { format!("{:+.4} over {along_n} decisions", along / along_n as f64) },
+        median(longest.clone()),
+        longest.iter().cloned().fold(0.0, f64::max),
+        stuck_end
+    );
+}
+
 fn median(mut v: Vec<f64>) -> f64 {
     if v.is_empty() {
         return f64::NAN;
@@ -654,6 +1033,69 @@ fn main() {
         std::env::var("PIXEL_PHYSICS_REVERSE").unwrap_or_else(|_| "shipped".into()),
         std::env::var("PIXEL_PHYSICS_CHOOSER").unwrap_or_else(|_| "off".into())
     );
+    if scene == "s5trail" {
+        println!("\nS5 (empty): an empty ant in an open lattice, trail B along one row ({frames} frames; prediction in this file's header)");
+        for trail in [false, true] {
+            let mut runs = Vec::new();
+            println!("  {:>4} {:>9} {:>6} {:>10} {:>7} {:>14}", "seed", "decisions", "reach", "60 east @", "on row", "longest still");
+            for s in seed0..seed0 + seeds {
+                let r = s5trail(s, trail, frames);
+                println!(
+                    "  {:>4} {:>9} {:>6} {:>10} {:>6.1}% {:>14}",
+                    r.seed,
+                    r.decisions,
+                    r.reach,
+                    r.reached_60.map_or("-".into(), |d| d.to_string()),
+                    100.0 * r.on_row as f64 / r.decisions as f64,
+                    r.longest_still
+                );
+                runs.push(r);
+            }
+            let reached: Vec<f64> = runs.iter().filter_map(|r| r.reached_60.map(|d| d as f64)).collect();
+            let n: u64 = runs.iter().map(|r| r.decisions).sum();
+            let longest: Vec<f64> = runs.iter().map(|r| r.longest_still as f64).collect();
+            println!(
+                "  S5 trail={}: got 60 cells east in {} of {} (median decision {}) | furthest east, median {:.0} | within a row of the trail row {:.1}% of decisions | longest stand-still median {:.0}, max {:.0}; runs standing 100+ {}",
+                if trail { "row" } else { "none" },
+                reached.len(),
+                runs.len(),
+                if reached.is_empty() { "-".to_string() } else { format!("{:.0}", median(reached)) },
+                median(runs.iter().map(|r| r.reach as f64).collect()),
+                100.0 * runs.iter().map(|r| r.on_row).sum::<u64>() as f64 / n.max(1) as f64,
+                median(longest.clone()),
+                longest.iter().cloned().fold(0.0, f64::max),
+                runs.iter().filter(|r| r.longest_still >= 100).count()
+            );
+        }
+        return;
+    }
+    if scene == "s4" {
+        let s4_frames: u64 = arg("s4frames", 12_000);
+        println!("\nS4: an empty ant at a fork, trail B down one branch ({s4_frames} frames; prediction in this file's header)");
+        for trail in arg_str("trails", "none,level,up").split(',') {
+            let mut runs = Vec::new();
+            println!("  {:>4} {:>9} {:>12} {:>7} {:>7} {:>7} {:>10} {:>14}", "seed", "decisions", "first", "main", "level", "up", "along B", "longest still");
+            for s in seed0..seed0 + seeds {
+                let r = s4(s, trail, s4_frames);
+                let n = r.decisions as f64;
+                println!(
+                    "  {:>4} {:>9} {:>12} {:>6.1}% {:>6.1}% {:>6.1}% {:>10} {:>9} {:?}",
+                    r.seed,
+                    r.decisions,
+                    r.first.map_or("-".into(), |(p, d)| format!("{p:?}@{d}")),
+                    100.0 * r.in_part[0] as f64 / n,
+                    100.0 * r.in_part[1] as f64 / n,
+                    100.0 * r.in_part[2] as f64 / n,
+                    if r.along_on_trail.1 == 0 { "-".into() } else { format!("{:+.4}", r.along_on_trail.0) },
+                    r.longest_still.0,
+                    r.longest_still.1
+                );
+                runs.push(r);
+            }
+            report_s4(trail, &runs);
+        }
+        return;
+    }
     if scene != "s0" {
         let arms: Vec<(String, Ground)> = match scene.as_str() {
             "s1" => vec![("S1 home 40 east (facing home)".into(), Ground::Flat { dx: 40 }), ("S1 home 40 west (facing away)".into(), Ground::Flat { dx: -40 })],
@@ -663,6 +1105,7 @@ fn main() {
                 .map(|hgt| (format!("S2 wall of height {hgt}"), Ground::Wall { height: hgt }))
                 .collect(),
             "s3" => vec![("S3 U-bend".into(), Ground::UBend)],
+            "s5" => vec![("S5 lattice, home 60 east".into(), Ground::Lattice)],
             other => panic!("unknown scene {other}"),
         };
         for (label, ground) in arms {

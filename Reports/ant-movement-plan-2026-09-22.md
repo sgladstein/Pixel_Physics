@@ -645,8 +645,11 @@ goes, any later measurement on the colony bed states which drop rule it ran.
    runs; a hungry one in 19 of 24. **S1–S3 done the same day:** a laden
    ant gets home over open ground in 24 of 24 runs and over walls of 1–3
    cells, and in 0 of 24 over walls of 6 and 12 or out of the U-bend. Every
-   failure is facing away from home with `p_move` at 0 or near it. S4–S5
-   run just before stage 2, on the owner's ruling.
+   failure is facing away from home with `p_move` at 0 or near it. **S4–S5
+   done 2026-09-23** (scenes report §4–§5): the shipped trail reading
+   changes where an empty ant stays but never which way it goes, and it
+   freezes ants at the mouth of a trailed branch; under stage 1's chooser it
+   freezes them almost everywhere, which explains §13's colony collapse.
 4. **The drop's side effects (§8c)**, in parallel with step 3. The full
    census of §8 waits until the loop works.
 5. **Chooser stage 1** (§4i), behind its switch: turning preference, home
