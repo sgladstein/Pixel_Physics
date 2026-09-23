@@ -1,9 +1,10 @@
 # The ant's walk: what is built, what the research says it should be, and the plan
 
-*2026-09-22. Plan of record, agreed with the owner the same day. **Step 1
-(the decision trace and census) is built; results in
-[`ant-decision-census-2026-09-22.md`](ant-decision-census-2026-09-22.md).
-Nothing after it is.** The mechanism it builds on is described in
+*2026-09-22. Plan of record, agreed with the owner the same day. **Steps 1
+and 2 (the decision trace, and the drop, cone and homeward counters) are
+built; results in
+[`ant-decision-census-2026-09-22.md`](ant-decision-census-2026-09-22.md),
+step 2 in its §10. Nothing after them is.** The mechanism it builds on is described in
 [`how-the-ant-works.md`](how-the-ant-works.md), the living reference, which
 is read instead of re-deriving the ant from reports. This report is the plan
 and the reasoning; that document is the ant.*
@@ -12,6 +13,11 @@ and the reasoning; that document is the ant.*
 `how-the-ant-works.md` from the source turned up five things that change the
 order and some details. The revisions are folded in, not appended; §1 lists
 them.*
+
+*Revised again 2026-09-23, after step 1's results. The changes are to the
+instruments and scenes, not the design: C1–C3 are re-scoped (§5), S0's
+setting is stated (§6), stage 1's limits on the bed are stated (§4i), and the
+drop census starts at the anchor (§8).*
 
 ## 0. The answer, stated once
 
@@ -320,6 +326,12 @@ which change did what, and would re-derive the stepping constants twice at
 once. Stage 1 still has to keep laden ants aimed, so the home term cannot
 wait for stage 2.
 
+**What stage 1 cannot show on the colony bed.** Step 1 found empty ants
+frozen by trail B's throttle on most of their decisions (census report §4).
+Stage 1 leaves that throttle in place, so on the bed the colony will still
+look frozen after stage 1, and a bed run then would say nothing about stage
+1 itself. Stage 1 is judged on the scenes only.
+
 ## 5. Measuring: traces first, counters reconciled against them
 
 **The rule.** Every counter below gets two checks at first build, and again
@@ -345,12 +357,34 @@ harness.**
 | | Counts | Trace columns that must reconcile with it |
 |---|---|---|
 | **C4** (first) | each decision's outcome (stepped / tumbled / nothing / blocked / reversed / fell), by **leg** and by **setting** (the number of usable headings: 2 corridor, 3–5 junction, 6–8 open, 0–1 pocket) | leg, setting mask, roll results, branch taken |
-| **C1** | homeward re-roll: calls; exits by gate (no usable heading, not carrying, fill 0, on the anchor, roll failed); firings; **whether the chosen heading's cosine was > 0** | the same, per tumble |
-| **C2** | drop: rolled and won; placed, or nowhere to put it; `free8` | the same, plus the eight neighbours' materials |
-| **C3** | §R4: `Turn` requests discarded because the side asked for scored 0 | `Turn`, the three scores |
+| **C1** | homeward re-roll: calls; exits by gate (no usable heading, not carrying, fill 0, on the anchor, roll failed); firings; **whether the chosen heading pointed toward home, across, or away** | the same, per tumble; and the firings must equal the old `tumbles_homeward` |
+| **C2** | drop: rolled and lost; rolled, won and placed (at the nest or not); won with nowhere to put it | the same, plus the roll, `free8` and the eight neighbours' materials; placed must equal `drops`, placed at the nest must equal `deliveries` |
+| **C3** | the forward cone: which candidate was taken (left, straight, right), and **`Turn` requests discarded because the side asked for scored 0** | `Turn`, the three final scores, the pick; the picks must equal `stepped` |
 
 C4 answers the owner's point directly: **where laden and empty ants actually
 spend their decisions, and where each one stalls.**
+
+**Re-scoped after step 1**, because the trace showed three things:
+
+- **C1 is mostly built already.** The trace carries every homeward reason
+  and the chosen heading's cosine. What is left is a counter to reconcile
+  against it, and the old `tumbles_homeward`, which the counter must match.
+- **The drop is decided in `act`, before the move, so the move trace cannot
+  see it.** C2 extends the same row with the drop's result, rather than
+  adding a second trace.
+- **`Turn` is far too small on the bed to steer anything.** Its only wire
+  is temperature, which stays near ambient. Over 72 runs its largest value
+  is 0.031, and it reaches 0.001 on 0.38% of gap-90 decisions and almost
+  never at the other gaps. That raises a side candidate from 0.6 to at most
+  0.63. So a count of "Turn requests discarded" on the bed would count
+  requests that could not have turned anything, and C3 as first written
+  could not have told us much. C3 now records the cone's three scores and
+  which one was taken, which explains the direction of every step in
+  S0–S3. The discarded-Turn count stays, beside the largest `Turn` seen,
+  with a positive control that feeds `Turn` in directly.
+  *(This bullet first said `Turn` was exactly 0 on all 69,836 decisions of
+  one run. That was the CSV printing it to four decimals: nonzero values
+  below 0.00005 read as 0.0000. The CSV now prints it in full.)*
 
 ## 6. Scenes, each with a written prediction
 
@@ -390,6 +424,14 @@ reverses 0.12. Research expects long runs. This is the baseline the turning
 preference must change. **Run first.** Measure distance covered per decision,
 and, on a flat slab with food 90 cells out, time to first find it. This is
 the first thing stage 1 is judged on.
+
+**S0 tests a corridor, not the bed's usual setting.** A bare slab gives two
+usable headings, east and west. On the bed, 55% of decisions are at
+junctions, and most junctions there offer an upward move: a wall, a burrow
+mouth, or a nestmate to climb. The cone behaves differently there. With
+`Turn` near 0, a footed side candidate scores 0.6 against straight's 1.6, so
+straight is taken about 75% of the time and each side about 13%. S2's wall
+base is the nearest single-ant scene to that.
 
 **S1. Flat slab, laden ant, home 40 cells away** (no nest material, so no
 trail A is laid and the trail throttle reads 0).
@@ -511,7 +553,9 @@ the eight cells around the ant, and when"*:
 | H4 | Nestmates | creature cells |
 | H5 | The home fix leads laden ants underground | the last nest cell touched is below the surface |
 
-**The census.** Trace every laden ant from pickup to drop or loss. At each
+**The census.** Start at the anchor: 52.5% of laden tumbles happen there
+(census report §6), and the bed report already puts failed drops there.
+Trace every laden ant from pickup to drop or loss. At each
 failed drop, classify every neighbour by comparing it against the world at
 frame 0 and the dig/drop event log, and record the same for successful
 drops. Then run one controlled scene: a nest with a known empty chamber,
@@ -549,9 +593,13 @@ movement one, so **it is not tested without the owner's go-ahead.**
    [`ant-decision-census-2026-09-22.md`](ant-decision-census-2026-09-22.md).**
    Empty ants are frozen on trail-B peaks, and the reader-off arm is
    confounded on the ramp bed (that report's §7a).
-2. **C1–C3**, each reconciled against the trace and given a positive
-   control. At the same time, fix the four contradicting source comments
-   listed in `how-the-ant-works.md` §14.
+2. **C1–C3**, as re-scoped in §5, each reconciled against the trace and
+   given a positive control. At the same time, fix the four contradicting
+   source comments listed in `how-the-ant-works.md` §14. **Done
+   2026-09-23: census report §10.** At gap 90, 52% of the drops a laden ant
+   wins at the nest find no room, mostly because of nestmates and burrow
+   lining. The four comments are fixed, and a fifth of the same kind was
+   found and fixed.
 3. **Scenes S0–S5 on today's code**, **S0 first**, with the predictions
    above, as the baseline.
 4. **The drop census (§8)**, in parallel with step 3.

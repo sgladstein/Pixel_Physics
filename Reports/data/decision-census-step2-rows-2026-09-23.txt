@@ -1,0 +1,527 @@
+decisioncensus: 24 runs (distinct seed/gap/arm/tag keys), 1559448 decisions
+  gaps ['90']  arms [('hand', '')]  seeds 24
+
+1. WHERE DECISIONS ARE SPENT (share of the leg's decisions; outcome mix within the setting)
+   pooled over all decisions  |  [median over runs]
+
+   empty: 1084598 decisions
+     setting              share             stepped             fell          tumbled             idle          blocked            other
+     pocket       7.6% [  7.3%]       3.6% [  4.2%]    5.5% [  7.7%]   44.5% [ 43.2%]   44.6% [ 43.0%]    1.9% [  2.0%]    0.0% [  0.0%]
+     corridor    12.3% [ 11.4%]      17.2% [ 19.6%]    1.2% [  1.3%]   40.5% [ 39.5%]   40.7% [ 40.3%]    0.4% [  0.3%]    0.0% [  0.0%]
+     junction    54.0% [ 54.7%]      13.2% [ 12.8%]    1.9% [  1.9%]   42.3% [ 42.5%]   42.3% [ 42.6%]    0.2% [  0.2%]    0.0% [  0.0%]
+     open        26.1% [ 24.3%]      10.3% [ 10.1%]    2.4% [  2.3%]   43.6% [ 43.4%]   43.7% [ 44.0%]    0.0% [  0.0%]    0.0% [  0.0%]
+
+   laden: 410021 decisions
+     setting              share             stepped             fell          tumbled             idle          blocked            other
+     pocket       9.7% [  9.0%]       0.8% [  1.0%]    4.4% [  4.9%]   47.2% [ 46.5%]   47.4% [ 47.2%]    0.1% [  0.1%]    0.0% [  0.0%]
+     corridor    20.7% [ 19.3%]       7.5% [  8.2%]    0.5% [  0.5%]   45.7% [ 45.6%]   46.2% [ 45.9%]    0.1% [  0.1%]    0.0% [  0.0%]
+     junction    57.4% [ 57.8%]       8.6% [  9.3%]    0.9% [  1.0%]   45.4% [ 45.3%]   45.0% [ 44.7%]    0.2% [  0.2%]    0.0% [  0.0%]
+     open        12.2% [ 11.0%]      12.7% [ 14.0%]    2.2% [  2.1%]   42.6% [ 41.8%]   42.4% [ 41.9%]    0.0% [  0.0%]    0.0% [  0.0%]
+
+   spoil: 64829 decisions
+     setting              share             stepped             fell          tumbled             idle          blocked            other
+     pocket      39.7% [ 41.2%]       8.1% [  8.7%]    0.7% [  0.7%]   42.2% [ 40.2%]   42.5% [ 41.4%]    6.5% [  8.4%]    0.0% [  0.0%]
+     corridor    20.3% [ 16.3%]      26.2% [ 34.5%]    0.3% [  0.5%]   35.5% [ 29.9%]   35.8% [ 31.2%]    2.2% [  2.3%]    0.0% [  0.0%]
+     junction    30.7% [ 32.3%]      26.4% [ 31.8%]    1.0% [  0.9%]   35.1% [ 33.2%]   35.1% [ 32.1%]    2.4% [  2.3%]    0.0% [  0.0%]
+     open         9.3% [  7.3%]      23.3% [ 27.5%]    1.5% [  1.7%]   37.1% [ 34.9%]   38.2% [ 35.4%]    0.0% [  0.0%]    0.0% [  0.0%]
+
+2. STALLS (a run of an ant's consecutive decisions with no relocation; long = 10+ decisions)
+
+   empty: 95904 stalls, median 2.0 decisions, p90 10, max 2384
+     time in long stalls: 66.5% of the leg's decisions pooled [67.6% median over runs]
+     where the long-stall decisions start (setting, cells from nest):
+       junction   10-29    43.4%
+       open       10-29    25.2%
+       corridor   10-29     9.6%
+       pocket     10-29     8.2%
+       open         60+     3.5%
+       junction     60+     3.4%
+       junction   30-59     2.5%
+       open       30-59     1.4%
+     inside long stalls: p_move exactly 0 on 91.0%, idle 50.1%, tumbled 49.9%
+
+   laden: 34662 stalls, median 2.0 decisions, p90 19, max 2114
+     time in long stalls: 72.6% of the leg's decisions pooled [71.7% median over runs]
+     where the long-stall decisions start (setting, cells from nest):
+       junction   10-29    50.7%
+       corridor   10-29    14.9%
+       open       10-29    11.4%
+       pocket     10-29     5.6%
+       junction     60+     5.1%
+       junction   30-59     3.3%
+       corridor   30-59     2.8%
+       corridor     60+     2.6%
+     inside long stalls: p_move exactly 0 on 94.3%, idle 50.0%, tumbled 50.0%
+
+   spoil: 10642 stalls, median 2.0 decisions, p90 6, max 1196
+     time in long stalls: 46.7% of the leg's decisions pooled [40.8% median over runs]
+     where the long-stall decisions start (setting, cells from nest):
+       pocket     10-29    49.6%
+       junction   10-29    15.5%
+       corridor   10-29    11.8%
+       pocket       0-9     9.5%
+       open       10-29     5.7%
+       corridor     0-9     1.9%
+       pocket     30-59     1.4%
+       junction     60+     1.2%
+     inside long stalls: p_move exactly 0 on 86.0%, idle 49.9%, tumbled 50.1%
+
+4. WHAT SETS p_move: Move's pre-squash sum by term, mean over decisions at p_move exactly 0 against the rest
+
+   empty: p_move exactly 0 on 740224 of 1084598 decisions (68.2%)
+     term                    at p_move 0     moving  difference
+     bias                         +2.000     +2.000      +0.000
+     energy                       -1.517     -1.107      -0.410
+     home_aligned                 +0.000     +0.000      +0.000
+     stillness                    +0.757     +0.040      +0.716
+     kin_need                     +0.155     +0.297      -0.142
+     food_adjacent                -0.054     -0.004      -0.049
+     crowding                     -0.210     -0.108      -0.102
+     trail_A (units 0-1)          -0.002     -0.003      +0.001
+     trail_B (units 2-3)          -3.130     +0.103      -3.233
+     residual                     -0.000     -0.000      +0.000
+     = Move sum                   -2.000     +1.218      -3.219
+
+   laden: p_move exactly 0 on 339017 of 410021 decisions (82.7%)
+     term                    at p_move 0     moving  difference
+     bias                         +2.000     +2.000      +0.000
+     energy                       -1.633     -1.237      -0.396
+     home_aligned                 -0.205     +2.078      -2.283
+     stillness                    +0.448     +0.117      +0.332
+     kin_need                     +0.079     +0.226      -0.147
+     food_adjacent                -0.342     -0.025      -0.318
+     crowding                     -0.196     -0.108      -0.088
+     trail_A (units 0-1)          -2.124     -0.628      -1.496
+     trail_B (units 2-3)          -0.006     -0.005      -0.002
+     residual                     +0.000     +0.000      +0.000
+     = Move sum                   -1.979     +2.418      -4.397
+
+   spoil: p_move exactly 0 on 32088 of 64829 decisions (49.5%)
+     term                    at p_move 0     moving  difference
+     bias                         +2.000     +2.000      +0.000
+     energy                       -1.266     -0.913      -0.353
+     home_aligned                 +0.000     +0.000      +0.000
+     stillness                    +0.443     +0.031      +0.413
+     kin_need                     +0.195     +0.321      -0.126
+     food_adjacent                -0.039     -0.001      -0.039
+     crowding                     -0.134     -0.075      -0.060
+     trail_A (units 0-1)          -0.003     -0.004      +0.001
+     trail_B (units 2-3)          -2.437     -0.126      -2.311
+     residual                     -0.000     -0.001      +0.001
+     = Move sum                   -1.241     +1.233      -2.474
+
+3. THE HOMEWARD RE-ROLL (every tumble, by leg: which gate decided)
+
+   empty: 465439 tumbles
+     no_crop         453966   97.5%
+     on_anchor         8984    1.9%
+     no_usable         2036    0.4%
+     roll_failed        288    0.1%
+     fired              165    0.0%
+     of those that fired, the chosen heading points: toward (>0.01) 98.8%, away (<-0.01) 1.2%
+
+   laden: 186285 tumbles
+     on_anchor        97746   52.5%
+     roll_failed      44774   24.0%
+     fired            33337   17.9%
+     no_crop           9686    5.2%
+     no_usable          742    0.4%
+     of those that fired, the chosen heading points: toward (>0.01) 75.2%, perpendicular 15.7%, away (<-0.01) 9.1%
+
+   spoil: 27187 tumbles
+     no_crop          26814   98.6%
+     on_anchor          276    1.0%
+     no_usable           75    0.3%
+     roll_failed         15    0.1%
+     fired                7    0.0%
+     of those that fired, the chosen heading points: toward (>0.01) 100.0%
+
+5. THE DROP (C2: every drop roll, by leg; then the neighbours when it was rolled)
+
+   laden: 389410 drop rolls, 92544 won
+     roll_lost     296866   76.2%
+     no_room        52763   13.5%
+     delivered      39781   10.2%
+     no room on 57.0% of won rolls
+
+   no_room: 52763 rolls; on the anchor 99.6%, off the anchor 0.4%
+     free neighbours: 0: 100.0%
+     the eight neighbours: (organism) ant 41.3%, packedsoil 22.8%, nest 13.7%, soil 7.9%, fruit 7.7%, (own body) 5.4%, spoil 1.1%, corpse 0.1%
+
+   delivered: 39781 rolls; on the anchor 99.4%, off the anchor 0.6%
+     free neighbours: 1: 60.6%, 2: 25.9%, 3: 9.6%, 4: 3.5%, 5: 0.5%, 6: 0.0%
+     the eight neighbours: (organism) ant 28.1%, empty 19.7%, packedsoil 17.4%, nest 14.8%, soil 6.7%, (own body) 6.6%, fruit 5.0%, spoil 1.5%
+
+   roll_lost: 296866 rolls; off the anchor 64.8%, on the anchor 35.2%
+     free neighbours: 0: 27.2%, 1: 18.6%, 2: 13.2%, 3: 11.0%, 4: 12.0%, 5: 6.8%, 6: 5.1%, 7: 6.0%, 8: 0.0%
+     the eight neighbours: empty 29.1%, (organism) ant 26.2%, packedsoil 20.0%, (own body) 7.7%, soil 7.5%, nest 4.4%, fruit 2.7%, spoil 2.4%
+
+6. THE CONE (C3: which forward candidate each step took; how many sides were open)
+
+   empty: Turn nonzero on 437 steps, discarded on 297
+     setting      steps      left  straight     right   sides open 0 / 1 / 2     side steps up / level / down
+     pocket        2942      0.3%     99.6%      0.1%   99.1% / 0.9% / 0.0%      4 / 2 / 5
+     corridor     22914      1.4%     97.6%      0.9%   93.8% / 6.2% / 0.1%      109 / 351 / 80
+     junction     77591     12.0%     78.9%      9.0%   20.0% / 67.6% / 12.4%    7213 / 6306 / 2822
+     open         29263     12.8%     74.6%     12.5%   0.7% / 29.2% / 70.0%     2946 / 2724 / 1749
+
+   laden: Turn nonzero on 42 steps, discarded on 14
+     setting      steps      left  straight     right   sides open 0 / 1 / 2     side steps up / level / down
+     pocket         327      0.3%     99.4%      0.3%   99.4% / 0.6% / 0.0%      2 / 0 / 0
+     corridor      6344      0.5%     96.8%      2.7%   94.0% / 6.0% / 0.0%      29 / 160 / 14
+     junction     20157      6.8%     77.3%     15.9%   21.6% / 70.3% / 8.1%     2131 / 1689 / 753
+     open          6354     11.7%     75.7%     12.6%   1.8% / 37.6% / 60.6%     532 / 593 / 416
+
+   spoil: Turn nonzero on 81 steps, discarded on 61
+     setting      steps      left  straight     right   sides open 0 / 1 / 2     side steps up / level / down
+     pocket        2071      0.0%     99.8%      0.2%   99.8% / 0.2% / 0.0%      5 / 0 / 0
+     corridor      3444      1.2%     97.6%      1.2%   93.6% / 6.2% / 0.2%      56 / 16 / 10
+     junction      5261     13.8%     74.6%     11.5%   21.3% / 62.4% / 16.3%    742 / 397 / 195
+     open          1402     13.3%     74.0%     12.6%   0.7% / 33.2% / 66.1%     167 / 146 / 51
+decisioncensus: 24 runs (distinct seed/gap/arm/tag keys), 571096 decisions
+  gaps ['140']  arms [('hand', '')]  seeds 24
+
+1. WHERE DECISIONS ARE SPENT (share of the leg's decisions; outcome mix within the setting)
+   pooled over all decisions  |  [median over runs]
+
+   empty: 441865 decisions
+     setting              share             stepped             fell          tumbled             idle          blocked            other
+     pocket       9.3% [  8.1%]       6.4% [  6.5%]   14.2% [ 16.0%]   38.0% [ 36.3%]   38.2% [ 38.0%]    3.2% [  3.0%]    0.0% [  0.0%]
+     corridor    19.4% [ 20.1%]      41.5% [ 41.7%]    2.3% [  2.3%]   27.9% [ 27.4%]   27.9% [ 27.5%]    0.4% [  0.4%]    0.0% [  0.0%]
+     junction    54.0% [ 54.6%]      35.1% [ 39.4%]    4.9% [  5.4%]   29.9% [ 27.4%]   29.6% [ 27.2%]    0.5% [  0.6%]    0.0% [  0.0%]
+     open        17.3% [ 16.3%]      29.8% [ 35.5%]    7.4% [  8.1%]   31.4% [ 28.0%]   31.4% [ 28.3%]    0.0% [  0.0%]    0.0% [  0.0%]
+
+   laden: 82460 decisions
+     setting              share             stepped             fell          tumbled             idle          blocked            other
+     pocket      14.3% [  6.6%]       1.2% [  1.4%]    8.0% [ 17.1%]   45.2% [ 42.0%]   45.3% [ 38.9%]    0.2% [  0.0%]    0.0% [  0.0%]
+     corridor    24.8% [ 25.7%]      16.8% [ 21.5%]    0.9% [  0.8%]   40.9% [ 38.4%]   41.3% [ 37.7%]    0.2% [  0.2%]    0.0% [  0.0%]
+     junction    51.8% [ 53.3%]      16.5% [ 22.1%]    1.8% [  2.6%]   40.4% [ 37.9%]   40.9% [ 37.4%]    0.3% [  0.4%]    0.0% [  0.0%]
+     open         9.1% [  7.2%]      19.7% [ 39.1%]    3.4% [  5.2%]   39.0% [ 28.0%]   37.8% [ 25.3%]    0.0% [  0.0%]    0.0% [  0.0%]
+
+   spoil: 46771 decisions
+     setting              share             stepped             fell          tumbled             idle          blocked            other
+     pocket      44.0% [ 40.6%]      10.4% [  9.4%]    1.5% [  1.4%]   39.5% [ 39.9%]   40.3% [ 39.8%]    8.4% [  8.2%]    0.0% [  0.0%]
+     corridor    22.3% [ 22.2%]      37.1% [ 38.9%]    0.4% [  0.4%]   30.5% [ 28.7%]   30.1% [ 29.1%]    1.9% [  1.6%]    0.0% [  0.0%]
+     junction    28.2% [ 25.2%]      37.7% [ 40.7%]    1.4% [  1.4%]   28.5% [ 26.5%]   28.8% [ 27.3%]    3.7% [  3.9%]    0.0% [  0.0%]
+     open         5.5% [  5.8%]      42.0% [ 43.4%]    3.0% [  2.3%]   28.6% [ 27.4%]   26.3% [ 26.0%]    0.0% [  0.0%]    0.0% [  0.0%]
+
+2. STALLS (a run of an ant's consecutive decisions with no relocation; long = 10+ decisions)
+
+   empty: 80170 stalls, median 2.0 decisions, p90 6, max 1143
+     time in long stalls: 23.3% of the leg's decisions pooled [21.4% median over runs]
+     where the long-stall decisions start (setting, cells from nest):
+       junction   10-29    26.1%
+       pocket     10-29    17.7%
+       open       10-29    16.1%
+       junction   30-59     8.3%
+       corridor   10-29     7.6%
+       junction     60+     7.2%
+       open       30-59     3.1%
+       pocket       0-9     2.9%
+     inside long stalls: p_move exactly 0 on 76.6%, idle 50.6%, tumbled 49.4%
+
+   laden: 11066 stalls, median 2.0 decisions, p90 9, max 839
+     time in long stalls: 54.1% of the leg's decisions pooled [51.9% median over runs]
+     where the long-stall decisions start (setting, cells from nest):
+       junction   10-29    26.6%
+       junction     60+    14.9%
+       corridor   10-29    14.1%
+       pocket       60+     9.5%
+       corridor     60+     8.3%
+       pocket     10-29     8.3%
+       open       10-29     6.5%
+       junction   30-59     6.2%
+     inside long stalls: p_move exactly 0 on 94.8%, idle 50.1%, tumbled 49.9%
+
+   spoil: 9377 stalls, median 2 decisions, p90 5, max 1088
+     time in long stalls: 33.8% of the leg's decisions pooled [28.8% median over runs]
+     where the long-stall decisions start (setting, cells from nest):
+       pocket     10-29    60.4%
+       pocket       0-9    21.7%
+       corridor   10-29     6.6%
+       junction   10-29     4.8%
+       corridor     0-9     2.6%
+       junction     60+     0.9%
+       pocket     30-59     0.9%
+       corridor   30-59     0.5%
+     inside long stalls: p_move exactly 0 on 78.9%, idle 50.2%, tumbled 49.8%
+
+4. WHAT SETS p_move: Move's pre-squash sum by term, mean over decisions at p_move exactly 0 against the rest
+
+   empty: p_move exactly 0 on 127994 of 441865 decisions (29.0%)
+     term                    at p_move 0     moving  difference
+     bias                         +2.000     +2.000      +0.000
+     energy                       -1.295     -0.867      -0.429
+     home_aligned                 +0.000     +0.000      +0.000
+     stillness                    +0.279     +0.007      +0.272
+     kin_need                     +0.198     +0.331      -0.134
+     food_adjacent                -0.105     -0.002      -0.104
+     crowding                     -0.116     -0.071      -0.045
+     trail_A (units 0-1)          -0.004     -0.003      -0.001
+     trail_B (units 2-3)          -2.913     +0.136      -3.050
+     residual                     +0.000     +0.000      +0.000
+     = Move sum                   -1.958     +1.532      -3.489
+
+   laden: p_move exactly 0 on 60683 of 82460 decisions (73.6%)
+     term                    at p_move 0     moving  difference
+     bias                         +2.000     +2.000      +0.000
+     energy                       -1.427     -0.800      -0.627
+     home_aligned                 -0.512     +2.234      -2.745
+     stillness                    +0.412     +0.081      +0.330
+     kin_need                     +0.123     +0.340      -0.217
+     food_adjacent                -0.233     -0.007      -0.226
+     crowding                     -0.098     -0.050      -0.048
+     trail_A (units 0-1)          -2.049     -0.451      -1.598
+     trail_B (units 2-3)          -0.006     -0.003      -0.003
+     residual                     -0.001     -0.000      -0.000
+     = Move sum                   -1.790     +3.344      -5.134
+
+   spoil: p_move exactly 0 on 16546 of 46771 decisions (35.4%)
+     term                    at p_move 0     moving  difference
+     bias                         +2.000     +2.000      +0.000
+     energy                       -1.268     -0.777      -0.491
+     home_aligned                 +0.000     +0.000      +0.000
+     stillness                    +0.206     +0.021      +0.185
+     kin_need                     +0.163     +0.354      -0.191
+     food_adjacent                -0.047     -0.001      -0.046
+     crowding                     -0.099     -0.057      -0.042
+     trail_A (units 0-1)          -0.003     -0.004      +0.001
+     trail_B (units 2-3)          -1.930     -0.131      -1.798
+     residual                     +0.000     -0.000      +0.000
+     = Move sum                   -0.978     +1.405      -2.383
+
+3. THE HOMEWARD RE-ROLL (every tumble, by leg: which gate decided)
+
+   empty: 137679 tumbles
+     no_crop         132305   96.1%
+     on_anchor         3100    2.3%
+     no_usable         2168    1.6%
+     roll_failed         71    0.1%
+     fired               35    0.0%
+     of those that fired, the chosen heading points: toward (>0.01) 100.0%
+
+   laden: 34095 tumbles
+     on_anchor        13074   38.3%
+     roll_failed      11690   34.3%
+     fired             5596   16.4%
+     no_crop           3379    9.9%
+     no_usable          356    1.0%
+     of those that fired, the chosen heading points: toward (>0.01) 64.7%, perpendicular 19.4%, away (<-0.01) 15.8%
+
+   spoil: 18204 tumbles
+     no_crop          17886   98.3%
+     on_anchor          199    1.1%
+     no_usable          118    0.6%
+     roll_failed          1    0.0%
+
+5. THE DROP (C2: every drop roll, by leg; then the neighbours when it was rolled)
+
+   laden: 79521 drop rolls, 13889 won
+     roll_lost      65632   82.5%
+     delivered       9709   12.2%
+     no_room         4180    5.3%
+     no room on 30.1% of won rolls
+
+   no_room: 4180 rolls; on the anchor 100.0%, off the anchor 0.0%
+     free neighbours: 0: 100.0%
+     the eight neighbours: packedsoil 28.9%, (organism) ant 17.6%, soil 16.1%, nest 13.5%, spoil 9.8%, fruit 7.6%, (own body) 6.5%, corpse 0.1%
+
+   delivered: 9709 rolls; on the anchor 99.8%, off the anchor 0.2%
+     free neighbours: 1: 34.4%, 2: 30.1%, 3: 20.8%, 4: 12.5%, 5: 2.1%, 6: 0.1%
+     the eight neighbours: empty 27.3%, packedsoil 18.2%, nest 14.4%, (organism) ant 14.1%, soil 11.3%, (own body) 8.7%, spoil 3.2%, fruit 2.8%
+
+   roll_lost: 65632 rolls; off the anchor 74.6%, on the anchor 25.4%
+     free neighbours: 0: 11.3%, 1: 9.4%, 2: 16.1%, 3: 13.5%, 4: 18.1%, 5: 8.4%, 6: 8.5%, 7: 14.7%
+     the eight neighbours: empty 43.8%, packedsoil 18.9%, (own body) 10.3%, (organism) ant 9.3%, soil 8.8%, spoil 4.4%, nest 3.0%, fruit 1.4%
+
+6. THE CONE (C3: which forward candidate each step took; how many sides were open)
+
+   empty: Turn nonzero on 38 steps, discarded on 19
+     setting      steps      left  straight     right   sides open 0 / 1 / 2     side steps up / level / down
+     pocket        2618      0.2%     99.6%      0.2%   98.9% / 1.1% / 0.0%      6 / 0 / 5
+     corridor     35588      1.2%     98.1%      0.7%   95.7% / 4.2% / 0.1%      91 / 513 / 73
+     junction     83883     11.8%     79.2%      9.0%   21.3% / 68.4% / 10.4%    7706 / 6853 / 2856
+     open         22736     13.3%     74.3%     12.4%   0.5% / 27.7% / 71.8%     2425 / 2242 / 1173
+
+   laden: Turn nonzero on 0 steps, discarded on 0
+     setting      steps      left  straight     right   sides open 0 / 1 / 2     side steps up / level / down
+     pocket         146      2.1%     97.9%      0.0%   97.3% / 2.7% / 0.0%      3 / 0 / 0
+     corridor      3427      0.2%     97.4%      2.5%   95.5% / 4.5% / 0.0%      9 / 77 / 4
+     junction      7043      7.3%     77.0%     15.7%   25.0% / 68.2% / 6.7%     763 / 579 / 277
+     open          1478     11.2%     74.8%     14.0%   0.4% / 34.6% / 65.0%     143 / 147 / 83
+
+   spoil: Turn nonzero on 2 steps, discarded on 1
+     setting      steps      left  straight     right   sides open 0 / 1 / 2     side steps up / level / down
+     pocket        2134      0.0%    100.0%      0.0%   99.9% / 0.1% / 0.0%      1 / 0 / 0
+     corridor      3879      0.9%     98.0%      1.1%   95.2% / 4.5% / 0.3%      49 / 24 / 4
+     junction      4962     12.6%     75.7%     11.7%   21.7% / 63.3% / 15.0%    663 / 378 / 164
+     open          1075     13.8%     74.6%     11.6%   1.2% / 36.7% / 62.1%     130 / 102 / 41
+decisioncensus: 24 runs (distinct seed/gap/arm/tag keys), 375191 decisions
+  gaps ['200']  arms [('hand', '')]  seeds 24
+
+1. WHERE DECISIONS ARE SPENT (share of the leg's decisions; outcome mix within the setting)
+   pooled over all decisions  |  [median over runs]
+
+   empty: 329251 decisions
+     setting              share             stepped             fell          tumbled             idle          blocked            other
+     pocket      10.2% [  9.9%]       6.2% [  6.1%]   13.2% [ 12.6%]   38.5% [ 36.3%]   38.6% [ 36.4%]    3.5% [  3.3%]    0.0% [  0.0%]
+     corridor    22.9% [ 23.5%]      46.7% [ 47.2%]    2.1% [  2.1%]   25.5% [ 24.9%]   25.4% [ 25.2%]    0.3% [  0.2%]    0.0% [  0.0%]
+     junction    50.5% [ 49.7%]      40.0% [ 40.3%]    6.1% [  6.0%]   26.6% [ 26.4%]   26.8% [ 26.8%]    0.5% [  0.4%]    0.0% [  0.0%]
+     open        16.5% [ 14.6%]      36.5% [ 37.0%]    9.3% [  9.4%]   27.3% [ 27.1%]   26.9% [ 26.9%]    0.0% [  0.0%]    0.0% [  0.0%]
+
+   laden: 6039 decisions
+     setting              share             stepped             fell          tumbled             idle          blocked            other
+     pocket       4.0% [  2.9%]       3.7% [  3.6%]   42.0% [ 59.0%]   28.0% [ 26.2%]   25.9% [ 21.8%]    0.4% [  0.0%]    0.0% [  0.0%]
+     corridor    39.6% [ 46.2%]      31.6% [ 41.8%]    0.7% [  0.9%]   33.8% [ 29.3%]   33.8% [ 28.3%]    0.0% [  0.0%]    0.0% [  0.0%]
+     junction    55.1% [ 41.7%]      15.4% [ 33.3%]    0.8% [  2.8%]   41.5% [ 32.1%]   42.1% [ 34.8%]    0.1% [  0.0%]    0.0% [  0.0%]
+     open         1.3% [  1.7%]      51.9% [ 51.7%]   10.4% [  0.0%]   18.2% [ 16.8%]   19.5% [ 21.7%]    0.0% [  0.0%]    0.0% [  0.0%]
+
+   spoil: 39901 decisions
+     setting              share             stepped             fell          tumbled             idle          blocked            other
+     pocket      43.6% [ 41.2%]      11.8% [ 11.7%]    0.9% [  0.9%]   38.8% [ 38.5%]   39.1% [ 39.1%]    9.4% [  9.5%]    0.0% [  0.0%]
+     corridor    28.7% [ 24.7%]      41.3% [ 42.6%]    0.3% [  0.4%]   28.7% [ 27.4%]   28.3% [ 27.8%]    1.3% [  1.6%]    0.0% [  0.0%]
+     junction    22.1% [ 24.5%]      41.3% [ 41.5%]    1.9% [  1.9%]   26.8% [ 27.0%]   25.8% [ 25.4%]    4.3% [  4.3%]    0.0% [  0.0%]
+     open         5.6% [  5.8%]      43.7% [ 43.7%]    3.2% [  2.9%]   25.7% [ 24.3%]   27.3% [ 27.3%]    0.0% [  0.0%]    0.0% [  0.0%]
+
+2. STALLS (a run of an ant's consecutive decisions with no relocation; long = 10+ decisions)
+
+   empty: 61807 stalls, median 1 decisions, p90 6, max 1022
+     time in long stalls: 17.3% of the leg's decisions pooled [15.8% median over runs]
+     where the long-stall decisions start (setting, cells from nest):
+       pocket     10-29    30.2%
+       junction   10-29    15.6%
+       junction   30-59    11.0%
+       corridor   10-29     8.8%
+       junction     60+     6.6%
+       open       10-29     5.6%
+       junction     0-9     4.7%
+       open       30-59     4.4%
+     inside long stalls: p_move exactly 0 on 76.9%, idle 51.0%, tumbled 49.0%
+
+   laden: 1668 stalls, median 2.0 decisions, p90 5, max 182
+     time in long stalls: 19.6% of the leg's decisions pooled [15.9% median over runs]
+     where the long-stall decisions start (setting, cells from nest):
+       junction   10-29    31.2%
+       corridor     60+    23.7%
+       junction     60+    18.8%
+       junction   30-59    18.1%
+       pocket       60+     7.2%
+       open         60+     1.0%
+     inside long stalls: p_move exactly 0 on 89.3%, idle 49.1%, tumbled 50.9%
+
+   spoil: 8056 stalls, median 2.0 decisions, p90 5, max 1043
+     time in long stalls: 29.5% of the leg's decisions pooled [26.4% median over runs]
+     where the long-stall decisions start (setting, cells from nest):
+       pocket     10-29    58.1%
+       pocket       0-9    27.1%
+       corridor   10-29    11.1%
+       pocket     30-59     1.3%
+       junction   10-29     0.7%
+       junction     60+     0.5%
+       corridor     0-9     0.4%
+       junction   30-59     0.4%
+     inside long stalls: p_move exactly 0 on 78.3%, idle 49.5%, tumbled 50.5%
+
+4. WHAT SETS p_move: Move's pre-squash sum by term, mean over decisions at p_move exactly 0 against the rest
+
+   empty: p_move exactly 0 on 76211 of 329251 decisions (23.1%)
+     term                    at p_move 0     moving  difference
+     bias                         +2.000     +2.000      +0.000
+     energy                       -1.200     -0.826      -0.374
+     home_aligned                 +0.000     +0.000      +0.000
+     stillness                    +0.076     +0.006      +0.070
+     kin_need                     +0.258     +0.352      -0.094
+     food_adjacent                -0.032     -0.000      -0.032
+     crowding                     -0.114     -0.075      -0.039
+     trail_A (units 0-1)          -0.006     -0.004      -0.002
+     trail_B (units 2-3)          -2.700     +0.178      -2.878
+     residual                     -0.000     -0.000      +0.000
+     = Move sum                   -1.719     +1.631      -3.350
+
+   laden: p_move exactly 0 on 3676 of 6039 decisions (60.9%)
+     term                    at p_move 0     moving  difference
+     bias                         +2.000     +2.000      +0.000
+     energy                       -1.450     -0.709      -0.741
+     home_aligned                 -0.471     +2.442      -2.913
+     stillness                    +0.212     +0.067      +0.146
+     kin_need                     +0.043     +0.142      -0.099
+     food_adjacent                -0.001     -0.001      -0.000
+     crowding                     -0.112     -0.025      -0.087
+     trail_A (units 0-1)          -1.908     -1.282      -0.625
+     trail_B (units 2-3)          -0.005     -0.002      -0.003
+     residual                     +0.000     -0.000      +0.000
+     = Move sum                   -1.690     +2.632      -4.322
+
+   spoil: p_move exactly 0 on 12457 of 39901 decisions (31.2%)
+     term                    at p_move 0     moving  difference
+     bias                         +2.000     +2.000      +0.000
+     energy                       -1.256     -0.779      -0.476
+     home_aligned                 +0.000     +0.000      +0.000
+     stillness                    +0.223     +0.016      +0.206
+     kin_need                     +0.197     +0.385      -0.188
+     food_adjacent                -0.000     +0.000      -0.000
+     crowding                     -0.124     -0.066      -0.058
+     trail_A (units 0-1)          -0.004     -0.005      +0.001
+     trail_B (units 2-3)          -1.820     -0.129      -1.691
+     residual                     +0.000     -0.000      +0.000
+     = Move sum                   -0.783     +1.422      -2.206
+
+3. THE HOMEWARD RE-ROLL (every tumble, by leg: which gate decided)
+
+   empty: 93317 tumbles
+     no_crop          91142   97.7%
+     no_usable         1560    1.7%
+     on_anchor          607    0.7%
+     roll_failed          4    0.0%
+     fired                4    0.0%
+     of those that fired, the chosen heading points: toward (>0.01) 100.0%
+
+   laden: 2279 tumbles
+     roll_failed        765   33.6%
+     on_anchor          620   27.2%
+     no_crop            594   26.1%
+     fired              251   11.0%
+     no_usable           49    2.2%
+     of those that fired, the chosen heading points: toward (>0.01) 92.8%, perpendicular 6.8%, away (<-0.01) 0.4%
+
+   spoil: 15145 tumbles
+     no_crop          15088   99.6%
+     no_usable           57    0.4%
+
+5. THE DROP (C2: every drop roll, by leg; then the neighbours when it was rolled)
+
+   laden: 6037 drop rolls, 1218 won
+     roll_lost       4819   79.8%
+     delivered       1218   20.2%
+     no room on 0.0% of won rolls
+
+   delivered: 1218 rolls; on the anchor 100.0%
+     free neighbours: 1: 0.2%, 2: 63.1%, 4: 11.3%, 5: 25.5%
+     the eight neighbours: empty 37.4%, packedsoil 19.8%, nest 12.6%, (own body) 12.5%, spoil 10.4%, soil 7.3%, water 0.0%
+
+   roll_lost: 4819 rolls; off the anchor 73.2%, on the anchor 26.8%
+     free neighbours: 0: 0.7%, 1: 3.5%, 2: 18.8%, 3: 6.7%, 4: 33.8%, 5: 15.3%, 6: 7.0%, 7: 14.2%
+     the eight neighbours: empty 51.8%, soil 13.6%, packedsoil 13.1%, (own body) 12.4%, spoil 4.0%, nest 3.4%, (organism) ant 1.2%, corpse 0.5%
+
+6. THE CONE (C3: which forward candidate each step took; how many sides were open)
+
+   empty: Turn nonzero on 0 steps, discarded on 0
+     setting      steps      left  straight     right   sides open 0 / 1 / 2     side steps up / level / down
+     pocket        2081      0.1%     99.9%      0.0%   99.6% / 0.4% / 0.0%      0 / 0 / 2
+     corridor     35234      0.9%     98.5%      0.6%   97.1% / 2.8% / 0.0%      62 / 445 / 39
+     junction     66456     11.6%     79.8%      8.6%   21.5% / 68.4% / 10.1%    6211 / 5406 / 1822
+     open         19820     12.7%     74.7%     12.6%   0.4% / 28.1% / 71.5%     2089 / 1954 / 981
+
+   laden: Turn nonzero on 0 steps, discarded on 0
+     setting      steps      left  straight     right   sides open 0 / 1 / 2     side steps up / level / down
+     pocket           9      0.0%    100.0%      0.0%   100.0% / 0.0% / 0.0%     -
+     corridor       755      0.0%     98.3%      1.7%   97.9% / 2.1% / 0.0%      4 / 9 / 0
+     junction       512      7.6%     79.3%     13.1%   29.5% / 65.0% / 5.5%     47 / 38 / 21
+     open            40     10.0%     75.0%     15.0%   0.0% / 30.0% / 70.0%     3 / 5 / 2
+
+   spoil: Turn nonzero on 0 steps, discarded on 0
+     setting      steps      left  straight     right   sides open 0 / 1 / 2     side steps up / level / down
+     pocket        2052      0.0%    100.0%      0.0%   100.0% / 0.0% / 0.0%     -
+     corridor      4739      0.6%     98.8%      0.6%   97.4% / 2.3% / 0.2%      44 / 11 / 1
+     junction      3634     12.8%     77.5%      9.7%   22.1% / 64.0% / 14.0%    467 / 264 / 86
+     open           971     13.3%     72.1%     14.6%   0.5% / 33.2% / 66.3%     128 / 110 / 33

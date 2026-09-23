@@ -1,8 +1,9 @@
 # Where the ants' decisions go, and what freezes them
 
 *2026-09-22. Result: step 1 of
-[`ant-movement-plan-2026-09-22.md`](ant-movement-plan-2026-09-22.md). It traces
-today's code and changes no behaviour. The mechanism it measures is described in
+[`ant-movement-plan-2026-09-22.md`](ant-movement-plan-2026-09-22.md), and, in
+§10 (2026-09-23), step 2: the drop, cone and homeward counters. Both trace
+today's code and change no behaviour. The mechanism it measures is described in
 [`how-the-ant-works.md`](how-the-ant-works.md).*
 
 ## 0. The answer, stated once
@@ -296,8 +297,111 @@ way it is read today" is answered by A against C: yes.
   the shipped stack depth or a real canopy (S5).
 - **Muting and `breadoff` remove weights, and so synapse tax.** It is one or
   two synapses per ant, too small to move a loop count, but not zero.
-- **The trace covers the move stage only.** A drop that rolled and found no
-  space (C2) is not in it; that is step 2.
+- **The trace covered the move stage only.** A drop that rolled and found no
+  space (C2) was not in it. Step 2 added it; see §10.
+
+## 10. Step 2: the drop, the cone and the homeward re-roll, counted
+
+*2026-09-23.*
+
+**The answer.**
+
+- **Half the drops a laden ant wins at the nest go nowhere.** At gap 90 the
+  median run has **52%** of its won drop rolls find no empty neighbour
+  (p10 33%, p90 72%; 57% pooled). The roll is spent and the tick does
+  nothing. The cells in the way:
+
+  | Filling the eight neighbours | Share |
+  |---|---|
+  | nestmates | 41% |
+  | `packedsoil` (burrow lining) | 23% |
+  | nest material | 14% |
+  | loose soil | 8% |
+  | food already put down | 8% |
+  | the ant's own body | 5% |
+  | spoil | 1% |
+
+- **It is a crowding effect where the colony is busiest.** At gap 140 only
+  15 of 24 runs deliver anything and the median no-room share is 0% (30%
+  pooled, from a few crowded runs). At gap 200 two runs deliver at all.
+- **The cone mostly goes straight.** Straight is taken on 97% of corridor
+  steps and 75–79% at junctions and in the open. At junctions usually only
+  one side is open (68% of steps). **In side view its turns are mostly
+  climbs.** At junctions, side-steps go up, level and down:
+
+  | Leg | Up | Level | Down |
+  |---|---|---|---|
+  | empty | 7,213 | 6,306 | 2,822 |
+  | laden | 2,131 | 1,689 | 753 |
+
+  Laden ants also turn right twice as often as left (15.9% against 6.8%).
+  They mostly face west, toward home, where right is up.
+- **`Turn` is too small to steer anything on this bed.** Over the 72 runs its
+  largest value is 0.031, and it reaches 0.001 on 0.38% of gap-90 decisions
+  and almost never at the other gaps.
+
+**What was built.** Three counters, always on, and the same facts in the
+trace row:
+
+- **C1**: `homeward_why` counts every call to the homeward re-roll by the
+  gate that decided it, and `homeward_aim` every firing by where it pointed.
+- **C2**: `drop_census` counts every drop roll: lost, placed, delivered, or
+  no room. The row adds the roll, its probability, `free8`, and the eight
+  neighbours by material, own body or other organism.
+- **C3**: `cone_picks` counts which forward candidate each step took;
+  `turn_requests` and `turn_discarded` count steps with nonzero `Turn`, and
+  those whose requested side had been zeroed. The row adds the three scores
+  and the pick.
+
+`how-the-ant-works.md` §5, §6 and §15 describe them.
+
+**How it was checked.** Each test was watched going red on its planted fault.
+
+| Test | Known answer | Fault planted |
+|---|---|---|
+| `every_traced_decision_agrees_with_the_counters_and_the_positions`, extended | counters = rows = `drops`, `deliveries`, `tumbles_homeward`; every pick is the heading the head moved along | delivered and placed swapped; the pick off by one |
+| `the_homeward_re_roll_aims_along_a_known_floor_at_the_rate_its_fill_sets` | a laden ant on a bare floor, anchor 40 cells west: every firing at cosine exactly 1, firings = the sum of fill within binomial noise | argmax turned into argmin |
+| `a_drop_with_nowhere_to_go_is_counted_and_one_with_room_is_delivered` | a pocket sealed by nest material: every won roll no room, nothing dropped; an open nest floor: every won roll delivered | no room booked as placed |
+| `the_cone_discards_a_turn_with_nowhere_to_go_and_follows_one_with_somewhere` | bare floor facing east: scores 0 / 1.6 / 0 and a small `Turn` either way discarded; inside a stone ring: 1.4 / 1.6 / 0.6, none discarded, the side asked for wins | the side candidates' footing bonus removed |
+
+**On the bed**, arm A of §2 (24 seeds × gaps 90, 140, 200):
+
+- **All 72 runs passed** the end-of-run reconciliation.
+- **The step-1 columns of seed 1 at gap 90 are byte-identical** to the step-1
+  trace, 69,837 lines. So step 2 changed no behaviour on the bed.
+- **The homeward counter reproduces §6 exactly** on the same runs, as it
+  must.
+
+**Reading the drop numbers.**
+
+- **Nothing is ever "placed" away from the nest.** `Drop` reads exactly 0
+  off the nest for a full crop (`how-the-ant-works.md` §5), so every won roll
+  is at the nest.
+- **"On the anchor" (99.6% of no-room rolls) says nothing new.** A drop can
+  only win at the nest, and at the nest the anchor is re-set to the head.
+- **Against plan §8's hypotheses**, at gap 90:
+  - nestmates (H4) are the largest share;
+  - burrow lining (H1) is second;
+  - nest material (H2) is third;
+  - earlier drops (H3) are fourth.
+
+  None is the whole story. Step 4 still has to say when each blocking cell
+  got there, and whether the blocking nestmates are themselves laden and
+  waiting.
+
+**A correction, and how it happened.** The plan's first step-1 revision said
+`Turn` was exactly 0 on all 69,836 decisions of one run. The CSV printed it to
+four decimals, so a nonzero value below 0.00005 read as 0.0000, and a parse
+called it zero. Printed in full, that run's `Turn` is nonzero on 8,196
+decisions, with a largest value of 0.00000008. The conclusion stands (`Turn`
+cannot steer on this bed); the claim did not. The CSV now prints `Turn` in
+full. Step 1's exact-zero `p_move` figures were checked against the same
+trap: at most 2 of 48,172 could be a tiny positive rounded down.
+
+**For the plan.** Step 4 has its instrument, and gap 90 is where to use it.
+The chooser should be judged in absolute directions (up, level, down), since
+left and right mean different things at different headings. Its
+per-usable-heading design already scores that way.
 
 ## Data
 
@@ -305,7 +409,12 @@ In `Reports/data/`:
 
 - `decisions-seed1-gap90-2026-09-22.csv.gz` — every decision of one run of
   arm A (69,836 rows). Read it with `python3 scripts/decisioncensus.py`
-  after gunzipping.
+  after gunzipping. **Replaced 2026-09-23** by the same run with step 2's
+  columns. Every step-1 column is unchanged except `Turn`, which is now
+  printed in full.
+- `decision-census-step2-A-levers-hand-2026-09-23.log` — step 2's 72 runs,
+  with the C1–C3 lines per run, and `decision-census-step2-rows-2026-09-23.txt`,
+  `decisioncensus.py` read over all 72 runs' rows, one block per gap.
 - `decision-census-{A-levers-hand,B-levers-hand-breadoff,C-levers-hmute,D-shipped-hand,E-levers-self,F-levers-self-breadoff,G-levers-mute}-2026-09-22.log`
   — each arm's 72 runs, with a census block and a loop funnel per run.
   `python3 scripts/funnelpair.py <a> <b>` pairs the funnels.

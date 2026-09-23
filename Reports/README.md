@@ -3159,11 +3159,22 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     headings, not in corridors.
   - **A setup confound is declared**: the reader-off arm on the hand-ramp
     bed also hides the ramp, so the no-ramp arms carry that question.
-  - Data: `Reports/data/decision-census-*-2026-09-22.log` and
+  - **Step 2, §10 (2026-09-23): the drop, cone and homeward counters**,
+    always on and in the trace row, each with a known-answer scene watched
+    red, and all 72 bed runs reconciled. At gap 90, **52% of the drops a
+    laden ant wins at the nest find no empty neighbour** (median run), the
+    cells filled by nestmates 41%, burrow lining 23% and nest material 14%.
+    The cone goes straight on 75–97% of steps, and its side-steps are mostly
+    climbs. **A correction**: `Turn` is small but not zero on the bed (at
+    most 0.031); a four-decimal CSV column had read it as exactly 0.
+  - Data: `Reports/data/decision-census-*-2026-09-22.log`,
+    `decision-census-step2-*-2026-09-23.*` and
     `decisions-seed1-gap90-2026-09-22.csv.gz`.
 - [ant-movement-plan-2026-09-22.md](ant-movement-plan-2026-09-22.md)
-  — **plan of record, 2026-09-22, agreed with the owner. Step 1 built
-  (see `ant-decision-census-2026-09-22.md`); nothing after it. `engine`.**
+  — **plan of record, 2026-09-22, agreed with the owner. Steps 1 and 2
+  built (see `ant-decision-census-2026-09-22.md`); nothing after them.
+  Revised 2026-09-23 after step 1: C1–C3 re-scoped, S0's setting stated.
+  `engine`.**
   - **Four corrections:**
     - *"`home_bias` does not visibly bias the re-roll"* is a measuring
       artifact. Its test cannot see a re-pick of the current heading, its

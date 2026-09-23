@@ -38,6 +38,18 @@ Sections:
    for the ones that fired, the sign of the cosine between the chosen heading
    and home. A re-roll that fires but can only choose a heading pointing away
    is what `ant-movement-plan-2026-09-22.md` §2a predicts for the long tail.
+4. **What sets `p_move`** -- `Move`'s pre-squash sum by term.
+5. **The drop (C2)** -- per leg, every drop roll by outcome; how many won rolls
+   found no room; and for the rolls that found none and the ones that placed,
+   what the eight neighbours were: the ant's own body, another organism, or
+   the material by name.
+6. **The cone (C3)** -- per leg and setting, which of the three forward
+   candidates each step took, how often a side candidate was open at all,
+   whether the side steps went up, level or down (left and right are
+   relative to the heading, so they mix the two), and how many `Turn`
+   requests there were and how many were discarded.
+
+Sections 5 and 6 need the columns step 2 added; older files skip them.
 """
 import argparse
 import csv
@@ -133,6 +145,15 @@ class Census:
         self.fired_cos = defaultdict(Counter)  # leg -> sign
         # leg -> "zero"/"live" -> term -> [sum, n]
         self.terms = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: [0.0, 0])))
+        self.has_step2 = False
+        self.drops = defaultdict(Counter)  # leg -> drop outcome
+        self.drop_free8 = defaultdict(Counter)  # outcome -> free8
+        self.drop_nbr = defaultdict(Counter)  # outcome -> neighbour kind/material -> cells
+        self.drop_where = defaultdict(Counter)  # outcome -> "on anchor"/"off anchor"
+        self.picks = defaultdict(lambda: defaultdict(Counter))  # leg -> setting -> pick
+        self.side_open = defaultdict(lambda: defaultdict(Counter))  # leg -> setting -> number of open sides (0/1/2)
+        self.turns = defaultdict(Counter)  # leg -> "requests"/"discarded"
+        self.side_dir = defaultdict(lambda: defaultdict(Counter))  # leg -> setting -> up/level/down, side picks only
 
     def add_file(self, path):
         with open(path, newline="") as fh:
@@ -159,6 +180,9 @@ class Census:
                 acc = self.terms[leg][bucket][name]
                 acc[0] += v
                 acc[1] += 1
+            if "drop" in r:
+                self.has_step2 = True
+                self.add_step2(r)
             if outcome in ("roll_failed_tumbled", "blocked_tumbled"):
                 self.homeward[leg][r["homeward"]] += 1
                 if r["homeward"] in ("fired", "fired_haul"):
@@ -189,6 +213,38 @@ class Census:
                     run = []
                 if r is not None and r["outcome"] not in RELOCATING:
                     run.append(r)
+
+    def add_step2(self, r):
+        leg, why = r["leg"], r["drop"]
+        if why != "not_asked":
+            self.drops[leg][why] += 1
+            self.drop_free8[why][int(r["free8"])] += 1
+            on_anchor = (r["x"], r["y"]) == (r["ax"], r["ay"])
+            self.drop_where[why]["on the anchor" if on_anchor else "off the anchor"] += 1
+            mine, other = int(r["nbr_self"]), int(r["nbr_other"])
+            for i, col in enumerate(NBR_COLS):
+                if mine >> i & 1:
+                    kind = "(own body)"
+                elif other >> i & 1:
+                    kind = f"(organism) {r[col]}"
+                else:
+                    kind = r[col]
+                self.drop_nbr[why][kind] += 1
+        if r["pick"] != "-":
+            setting = r["setting"]
+            self.picks[leg][setting][r["pick"]] += 1
+            sides = sum(1 for c in ("cone_l", "cone_r") if float(r[c]) > 0.0)
+            self.side_open[leg][setting][sides] += 1
+            if r["pick"] != "straight":
+                # Left and right are relative to the heading; in side view
+                # the question is whether the step went up or down.
+                dy = DIRS[int(r["heading2"])][1]
+                self.side_dir[leg][setting]["up" if dy < 0 else "down" if dy > 0 else "level"] += 1
+            t = float(r["turn"])
+            if t != 0.0:
+                self.turns[leg]["requests"] += 1
+                if float(r["cone_l" if t > 0 else "cone_r"]) == 0.0:
+                    self.turns[leg]["discarded"] += 1
 
     def report(self, out=sys.stdout):
         p = lambda *a: print(*a, file=out)
@@ -278,16 +334,71 @@ class Census:
             if nf:
                 p("     of those that fired, the chosen heading points: " + ", ".join(f"{k} {100*v/nf:.1f}%" for k, v in f.most_common()))
 
+        if not self.has_step2:
+            p("\n5-6. (no drop or cone columns: these files predate step 2)")
+            return
+        p("\n5. THE DROP (C2: every drop roll, by leg; then the neighbours when it was rolled)")
+        for leg in LEGS:
+            d = self.drops[leg]
+            n = sum(d.values())
+            if n == 0:
+                continue
+            won = d["placed"] + d["delivered"] + d["no_room"]
+            p(f"\n   {leg}: {n} drop rolls, {won} won")
+            for why, c in d.most_common():
+                p(f"     {why:<10} {c:>9}  {100*c/n:5.1f}%")
+            if won:
+                p(f"     no room on {100*d['no_room']/won:.1f}% of won rolls")
+        for why in ("no_room", "placed", "delivered", "roll_lost"):
+            nb = self.drop_nbr[why]
+            cells = sum(nb.values())
+            if cells == 0:
+                continue
+            rolls = cells // 8
+            f8 = self.drop_free8[why]
+            where = self.drop_where[why]
+            p(f"\n   {why}: {rolls} rolls; " + ", ".join(f"{k} {100*v/rolls:.1f}%" for k, v in where.most_common()))
+            p("     free neighbours: " + ", ".join(f"{k}: {100*v/rolls:.1f}%" for k, v in sorted(f8.items())))
+            p("     the eight neighbours: " + ", ".join(f"{k} {100*v/cells:.1f}%" for k, v in nb.most_common(8)))
 
-HEADER = "seed,gap,arm,tag,frame,id,leg,fill,x,y,x2,y2,heading,heading2,usable,setting,ax,ay,energy,home_aligned,at_nest,crowding,stillness,along_a,along_b,food_adjacent,kin_need,nest_x,move_out,p_move,turn,roll_move,roll_tumble,outcome,homeward,home_cos,moved"
+        p("\n6. THE CONE (C3: which forward candidate each step took; how many sides were open)")
+        for leg in LEGS:
+            if not self.picks[leg]:
+                continue
+            t = self.turns[leg]
+            p(f"\n   {leg}: Turn nonzero on {t['requests']} steps, discarded on {t['discarded']}")
+            p("     {:<9} {:>8} {:>9} {:>9} {:>9}   {:<24} {}".format("setting", "steps", "left", "straight", "right", "sides open 0 / 1 / 2", "side steps up / level / down"))
+            for s_ in SETTINGS:
+                pk = self.picks[leg][s_]
+                n = sum(pk.values())
+                if n == 0:
+                    continue
+                so = self.side_open[leg][s_]
+                sd = self.side_dir[leg][s_]
+                ns = sum(sd.values())
+                p("     {:<9} {:>8} {:>8.1f}% {:>8.1f}% {:>8.1f}%   {:<24} {}".format(
+                    s_, n, 100*pk["left"]/n, 100*pk["straight"]/n, 100*pk["right"]/n,
+                    " / ".join(f"{100*so[k]/n:.1f}%" for k in (0, 1, 2)),
+                    " / ".join(f"{sd[k]}" for k in ("up", "level", "down")) if ns else "-"))
+
+
+# `creature::DIRS`: E, NE, N, NW, W, SW, S, SE, with y growing downward.
+DIRS = [(1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1), (0, 1), (1, 1)]
+NBR_COLS = ["n_nw", "n_n", "n_ne", "n_w", "n_e", "n_sw", "n_s", "n_se"]
+HEADER = ("seed,gap,arm,tag,frame,id,leg,fill,x,y,x2,y2,heading,heading2,usable,setting,ax,ay,energy,home_aligned,at_nest,crowding,"
+          "stillness,along_a,along_b,food_adjacent,kin_need,nest_x,move_out,p_move,turn,roll_move,roll_tumble,outcome,homeward,home_cos,moved,"
+          "drop,drop_roll,drop_p,free8," + ",".join(NBR_COLS) + ",nbr_self,nbr_other,cone_l,cone_s,cone_r,pick")
 
 
 def selftest():
     """Positive controls: a synthetic run whose every answer is known."""
-    def row(frame, aid, leg, setting, outcome, p_move=0.5, homeward="not_asked", cos="nan", x=10):
+    def row(frame, aid, leg, setting, outcome, p_move=0.5, homeward="not_asked", cos="nan", x=10, **extra):
         vals = dict.fromkeys(HEADER.split(","), "0")
         vals.update(seed="1", gap="90", arm="hand", tag="", frame=str(frame), id=str(aid), leg=leg, setting=setting,
-                    outcome=outcome, p_move=str(p_move), homeward=homeward, home_cos=cos, x=str(x), nest_x="0")
+                    outcome=outcome, p_move=str(p_move), homeward=homeward, home_cos=cos, x=str(x), nest_x="0",
+                    drop="not_asked", free8="-", pick="stepped" == outcome and "straight" or "-", cone_s="1.6")
+        vals.update({c: "-" for c in NBR_COLS})
+        vals.update(extra)
         return ",".join(vals[k] for k in HEADER.split(","))
     lines = [HEADER]
     # Ant 1, laden: 12 idle decisions at p_move 0 in a corridor 10 cells out (a long stall), then a step.
@@ -300,6 +411,17 @@ def selftest():
         lines.append(row(f + 1, 2, "empty", "junction", "roll_failed_tumbled", homeward="no_crop", x=40))
     # Ant 1 again later: a laden tumble that fired and chose a heading pointing away.
     lines.append(row(30, 1, "laden", "pocket", "roll_failed_tumbled", homeward="fired", cos="-0.7", x=10))
+    # Ant 3, laden, on its anchor: two drop rolls with no room (own tail west,
+    # seven packedsoil) and one placed with the east cell free.
+    walled = {c: "packedsoil" for c in NBR_COLS}
+    for f in (40, 41):
+        lines.append(row(f, 3, "laden", "pocket", "roll_failed_idle", x=5, drop="no_room", free8="0", nbr_self=str(1 << 3), **walled))
+    lines.append(row(42, 3, "laden", "pocket", "roll_failed_idle", x=5, drop="placed", free8="1", **dict(walled, n_e="empty")))
+    # Ant 4, empty, a junction step to the left with Turn nonzero, both sides open,
+    # and one to the right with Turn asking left and left zeroed (discarded).
+    # Facing west (4): left is SW (down), right is NW (up).
+    lines.append(row(50, 4, "empty", "junction", "stepped", x=60, pick="left", cone_l="0.6", cone_r="0.6", turn="0.2", heading="4", heading2="5"))
+    lines.append(row(51, 4, "empty", "junction", "stepped", x=61, pick="right", cone_l="0", cone_r="0.6", turn="0.2", heading="4", heading2="3"))
     with tempfile.TemporaryDirectory() as d:
         path = Path(d) / "trailfollow-decisions-seed1-gap90-hand.csv"
         path.write_text("\n".join(lines) + "\n")
@@ -310,8 +432,15 @@ def selftest():
             nonlocal ok
             print(("  ok    " if cond else "  FAIL  ") + what)
             ok &= cond
-        check(c.rows == 34, f"34 rows read (got {c.rows})")
-        check(c.leg_decisions[("1", "90", "hand", "")]["laden"] == 14, "14 laden decisions")
+        check(c.rows == 39, f"39 rows read (got {c.rows})")
+        check(c.drops["laden"]["no_room"] == 2 and c.drops["laden"]["placed"] == 1, "two no-room rolls and one placement")
+        check(c.drop_nbr["no_room"]["(own body)"] == 2 and c.drop_nbr["no_room"]["packedsoil"] == 14, "the no-room neighbours: own tail twice, packedsoil 14")
+        check(c.drop_nbr["placed"]["empty"] == 1 and c.drop_where["no_room"]["on the anchor"] == 0, "the placement's free cell is seen; x=5 is not the anchor (0,0)")
+        check(c.picks["empty"]["junction"]["left"] == 1 and c.picks["empty"]["junction"]["right"] == 1, "one left and one right pick")
+        check(c.turns["empty"]["requests"] == 2 and c.turns["empty"]["discarded"] == 1, "two Turn requests, one discarded")
+        check(c.side_open["empty"]["junction"][2] == 1 and c.side_open["empty"]["junction"][1] == 1, "sides open: 2 on the first step, 1 on the second")
+        check(c.side_dir["empty"]["junction"]["down"] == 1 and c.side_dir["empty"]["junction"]["up"] == 1, "facing west, the left step went down and the right one up")
+        check(c.leg_decisions[("1", "90", "hand", "")]["laden"] == 17, "17 laden decisions (ant 1: 14, ant 3: 3)")
         check(any(x[0] == "laden" and x[3] == 12 and x[4] == 12 for x in c.long_stalls), "one laden long stall of 12, all at p_move 0")
         check(not any(x[0] == "empty" for x in c.long_stalls), "no empty long stall (it relocates every other decision)")
         check(c.homeward["empty"]["no_crop"] == 10, "10 empty tumbles refused for no_crop")

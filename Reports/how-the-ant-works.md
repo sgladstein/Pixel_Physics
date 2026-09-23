@@ -7,8 +7,9 @@ will be.
 
 - **Verified against:** `main` at `bb65d507`, 2026-09-22. §2, §6c, §13 and
   §15 re-checked the same day against the decision-trace change
-  (`usable_headings`, `home_weighted_pick_why`). Update this line whenever a
-  section is re-checked against the code.
+  (`usable_headings`, `home_weighted_pick_why`); §5, §6b, §6c, §13, §14 and
+  §15 re-checked 2026-09-23 against the drop, cone and homeward counters.
+  Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
   document was wrong, fix the text and say so in the commit message. It
@@ -144,7 +145,7 @@ squash(0.5 − 6a))` for a forward difference `a`. That is ±1.5 at a = ±0.1,
 | Output | Direct wires (plus the hidden units above) | Read by |
 |---|---|---|
 | `Move` | `Bias +2.0, Energy −1.75, HomeAligned +3.0, Stillness +1.5, KinNeed +1.25, FoodAdjacent −1.16, Alarm −1.0, Crowding −0.3` | the step roll (§6) |
-| `Turn` | `TempAboveAmb −0.8`, so it lies within ±0.44 and is ~0 at ambient | the forward cone (§6) |
+| `Turn` | `TempAboveAmb −0.8`, so it lies within ±0.44, is exactly 0 at ambient (no bias), and stays near 0 wherever the temperature does | the forward cone (§6) |
 | `Persist`, `Caution`, `Tumble` | **none**: `squash(0) = 0`, which `unit_scale` maps to the midpoint. **Persist 1.0, footing 0.6, tumble chance 0.5** | cone and tumble (§6) |
 | `EmitA` | unit 4 only | trail A (§7) |
 | `EmitB` | `CarryingFood +2.5`, so **0.714 while laden, 0 while empty** | trail B (§7) |
@@ -193,9 +194,11 @@ the tick: the ant still gets its move roll (§6) afterwards.
 4. **Drop food**, whenever the crop holds anything, then **return**. The roll
    against `Drop` is taken **first**. Only on a win does it look for the
    first empty cell among the 8 neighbours, in fixed order, and place one
-   food cell there. **If there is no empty neighbour, nothing happens and
-   nothing records it.** The drop is not gated on being at the nest, but
-   `Drop` is 0 elsewhere. `deliveries` counts any drop made while `AtNest`.
+   food cell there. **If there is no empty neighbour, nothing happens**: the
+   roll is spent and the tick did nothing. The drop is not gated on being at
+   the nest, but `Drop` is 0 elsewhere. `deliveries` counts any drop made
+   while `AtNest`, and `drop_census` counts every roll by outcome
+   (`DropWhy`: lost, placed, delivered, no room).
 5. **Drop spoil**, if holding a dig pellet, then **return**. The target must
    be empty, sit on at least two filled cells of the three below it, and have
    clear headroom above. It may lift up the shaft (`lift_reach`).
@@ -236,6 +239,9 @@ roll fails does nothing.
 5. The pick is `choose_weighted(scores, k = 0.1)`: probability ∝ (0.1 + s)².
    With three footed candidates at `Turn` 0, that is 12.7% / 74.6% / 12.7%.
    Its randomness is intended; never replace it with an argmax.
+   `cone_picks` counts which candidate each step took. `turn_requests`
+   counts steps chosen with a nonzero `Turn`, and `turn_discarded` those
+   whose requested side had been zeroed, so the turn could not happen.
 6. **The blocked path**, when nothing survives: try a trunk crossing (a woody
    cell ahead puts the ant in a `Crossing` for thickness × interval frames).
    Then a **reversal**, if the ant is **boxed**: refused in all eight
@@ -266,9 +272,12 @@ the last. It fires only if all of these hold:
 
 It aims at `forage_anchor` **even when `PIXEL_PHYSICS_HOME_TARGET=nest`**
 moves `HomeAligned`'s target, so under that switch the throttle and the
-re-roll aim at different places. `creature_stats.tumbles_homeward` counts its
-firings. Its refusals are recorded, by the gate that refused, only in the
-decision trace (§15).
+re-roll aim at different places. `creature_stats.homeward_why` counts every
+call by the gate that decided it (its two firing slots sum to
+`tumbles_homeward`), and `homeward_aim` counts every firing by where the
+chosen heading pointed: toward the anchor, across, or away (cosine above
+0.01, between, below −0.01). "Away" is possible because the pick is the best
+*usable* heading.
 
 **This re-roll is the only place in the engine where anything aims a walking
 ant.** `HomeAligned` only grants or withholds permission to step.
@@ -397,7 +406,7 @@ Read once per process from the environment. The default is what ships.
 - `creature.rs`: `creature_tick`, `sense`, `act`, `step_chain`, `tumble`,
   `usable_headings`, `home_weighted_pick_why`, `trail_sample_point`,
   `adjacent_nest`, `line_burrow`, `choose_weighted`, and the decision trace's
-  types (`DecisionRow`, `DecisionOutcome`, `HomewardWhy`).
+  types (`DecisionRow`, `DecisionOutcome`, `HomewardWhy`, `DropWhy`).
 - `brain.rs`: `eval_brain`, the `BrainInput` / `BrainOutput` enums.
 - `pheromone.rs`: the planes and the constants in §7.
 - `organism.rs`: `OrganismState` (`forage_anchor`, `crop`, `still_ticks`,
@@ -406,19 +415,7 @@ Read once per process from the environment. The default is what ships.
 
 ## 14. Source comments that currently contradict the code
 
-Delete each line when the comment is fixed.
-
-- `ant.ron`, above `(TempAboveAmb, Turn, -0.8)`: says the lateral pheromone
-  readings reach `Turn` "via hidden units 0–3". Those units read `Along` and
-  output to `Move`, and the laterals are wired to nothing.
-- `organism.rs`, `OrganismState::forage_anchor`: says *"Measurement only —
-  no creature ever reads this"*. `HomeAligned` and the homeward re-roll
-  both read it.
-- `creature.rs`, the `--- move ---` block in `creature_tick`: says *"there is
-  no steering toward the nest anywhere"*. The homeward re-roll steers.
-- `creature.rs`, `home_weighted_pick`'s doc and the test
-  `a_laden_ant_walks_to_the_door_and_an_empty_one_takes_no_draw`: speak of
-  "the shipped `home_bias: 0.0`". `ant.ron` ships 1.0.
+Delete each line when the comment is fixed. None are known.
 
 ## 15. The decision trace, built into the ant
 
@@ -433,22 +430,38 @@ is on, every walking decision, the move stage of `creature_tick`, pushes one
 - both rolls;
 - the branch taken (`DecisionOutcome`);
 - the homeward re-roll's gate (`HomewardWhy`) and, if it fired, the true
-  cosine of the chosen heading.
+  cosine of the chosen heading;
+- the drop in `act` that same tick (`DropWhy`), its roll and probability,
+  and the head's eight neighbours at the roll: how many were empty
+  (`free8`), their materials, and which were the ant's own body or another
+  organism;
+- the cone's three scores after the zeroing and the candidate taken.
 
 `CreatureStats::decision_census` counts the same decisions by leg × setting
-× outcome.
+× outcome, and only while the trace is on, because the setting needs all
+eight headings tested. The drop, cone and homeward counters (§5, §6b, §6c)
+are always on.
 
-- **It takes no RNG draw and changes no branch.** `step_chain` and `tumble`
-  write a scratch value (`World::decision_scratch`) only while it is on.
+- **It takes no RNG draw and changes no branch.** `act`, `step_chain` and
+  `tumble` write a scratch value (`World::decision_scratch`) only while it is
+  on. The scratch is reset before `act`, so a row's drop and move are the
+  same tick.
 - **Guards:**
   - `the_decision_trace_changes_nothing_it_watches` compares a whole bed
     with it on and off;
   - `the_setting_class_reads_the_ground_the_ant_stands_on` checks the
     classifier on three known terrains;
   - `every_traced_decision_agrees_with_the_counters_and_the_positions`
-    checks rows against the census, against the per-verb counters, and
-    against where the head went.
+    checks rows against the census, against every counter above and the
+    per-verb counters (`moves`, `drops`, `deliveries`, `tumbles_homeward`),
+    and against where the head went;
+  - three scenes with known answers: `the_homeward_re_roll_aims_along_a_known_floor_at_the_rate_its_fill_sets`,
+    `a_drop_with_nowhere_to_go_is_counted_and_one_with_room_is_delivered`,
+    and `the_cone_discards_a_turn_with_nowhere_to_go_and_follows_one_with_somewhere`,
+    which feeds `Turn` directly because the shipped ant's is near 0 at
+    ordinary temperatures.
 - **In the harness:** `trailfollow decisioncsv` writes the rows and repeats
   those reconciliations at the end of every run; `decisionnorows` keeps only
-  the census. `scripts/decisioncensus.py` reads the rows.
+  the census. `scripts/decisioncensus.py` reads the rows, including the drop
+  and cone columns.
 

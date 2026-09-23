@@ -2309,6 +2309,17 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let mut laden_rows: Vec<String> = Vec::new();
     let mut decision_rows: Vec<String> = Vec::new();
     let mut decision_recount = [[[0u64; creature::DECISION_OUTCOMES]; creature::DECISION_SETTINGS]; creature::DECISION_LEGS];
+    // C1-C3's recounts from the same rows (plan §5, step 2), each checked
+    // against the engine's always-on counter at the end of the run.
+    let mut homeward_recount = [0u64; 10];
+    let mut aim_recount = [0u64; 3];
+    let mut drop_recount = [0u64; creature::DROP_WHYS];
+    let mut pick_recount = [0u64; 3];
+    let mut turn_recount = (0u64, 0u64);
+    // The largest `Turn` among the requests, because "nonzero" alone reads as
+    // steering: on the shipped gap bed the largest over 72 runs is 0.031, a
+    // raise that barely moves a pick weighted at (0.1 + s)^2.
+    let mut turn_max_abs = 0.0f32;
     let stats_at_trace_start = w.creature_stats;
     if decision_csv {
         w.decision_log = Some(Vec::new());
@@ -2429,11 +2440,36 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         if let Some(log) = w.decision_log.as_mut() {
             for r in log.drain(..) {
                 decision_recount[r.leg as usize][creature::setting_class(r.usable)][r.outcome as usize] += 1;
+                homeward_recount[r.homeward as usize] += 1;
+                if matches!(r.homeward, creature::HomewardWhy::Fired | creature::HomewardWhy::FiredHaul) {
+                    aim_recount[creature::aim_class(r.home_cos)] += 1;
+                }
+                drop_recount[r.drop as usize] += 1;
+                if r.pick != creature::NO_PICK {
+                    pick_recount[r.pick as usize] += 1;
+                    if r.turn != 0.0 {
+                        turn_recount.0 += 1;
+                        turn_max_abs = turn_max_abs.max(r.turn.abs());
+                        if r.cone[if r.turn > 0.0 { 0 } else { 2 }] == 0.0 {
+                            turn_recount.1 += 1;
+                        }
+                    }
+                }
                 if !decision_write_rows {
                     continue;
                 }
+                // The eight neighbours by name, NW N NE W E SW S SE, and only
+                // on a row where the drop was asked; `-` elsewhere.
+                let nbr = if r.drop == creature::DropWhy::NotAsked {
+                    ["-"; 8].join(",")
+                } else {
+                    r.nbr.iter().map(|&m| w.materials.get(pixel_physics::sim::material::MaterialId(m)).name.as_str()).collect::<Vec<_>>().join(",")
+                };
+                // `Turn` is printed in full (`{:e}`). At four decimals it read
+                // 0.0000 on every row of a run where it was nonzero, and a
+                // parse of that column called it exactly zero.
                 decision_rows.push(format!(
-                    "{seed},{gap},{arm_name},{},{},{},{},{:.4},{},{},{},{},{},{},{},{},{},{:.4},{:.4},{},{:.4},{:.4},{:.5},{:.5},{},{:.4},{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{},{},{:.4},{}",
+                    "{seed},{gap},{arm_name},{},{},{},{},{:.4},{},{},{},{},{},{},{},{},{},{:.4},{:.4},{},{:.4},{:.4},{:.5},{:.5},{},{:.4},{},{},{:.4},{:.4},{:e},{:.4},{:.4},{},{},{:.4},{},{},{:.4},{:.4},{},{},{},{},{:.4},{:.4},{:.4},{}",
                     decision_tag,
                     r.frame,
                     r.id,
@@ -2468,6 +2504,17 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     creature::HOMEWARD_WHY_NAMES[r.homeward as usize],
                     r.home_cos,
                     u8::from(r.moved),
+                    creature::DROP_WHY_NAMES[r.drop as usize],
+                    r.drop_roll,
+                    r.drop_p,
+                    if r.free8 == u8::MAX { "-".to_string() } else { r.free8.to_string() },
+                    nbr,
+                    r.nbr_self,
+                    r.nbr_other,
+                    r.cone[0],
+                    r.cone[1],
+                    r.cone[2],
+                    if r.pick == creature::NO_PICK { "-" } else { creature::CONE_PICK_NAMES[r.pick as usize] },
                 ));
             }
         }
@@ -4015,8 +4062,40 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         assert_eq!(by(D::Fell), s1.falls - s0.falls, "fell rows against `falls`");
         assert_eq!(by(D::Reversed), s1.reversals - s0.reversals, "reversed rows against `reversals`");
         assert_eq!(by(D::RollFailedTumbled) + by(D::BlockedTumbled), s1.tumbles - s0.tumbles, "tumbled rows against `tumbles`");
+        // C1-C3: the recounts against the engine's own counters, and those
+        // against the older per-verb counters they must add up to.
+        let delta = |a: &[u64], b: &[u64]| a.iter().zip(b).map(|(x, y)| x - y).collect::<Vec<u64>>();
+        assert_eq!(homeward_recount[1..], delta(&s1.homeward_why, &s0.homeward_why)[1..], "homeward reasons: rows against `homeward_why`");
+        assert_eq!(aim_recount[..], delta(&s1.homeward_aim, &s0.homeward_aim)[..], "homeward aim: rows against `homeward_aim`");
+        assert_eq!(drop_recount[1..], delta(&s1.drop_census, &s0.drop_census)[1..], "drops: rows against `drop_census`");
+        assert_eq!(pick_recount[..], delta(&s1.cone_picks, &s0.cone_picks)[..], "cone picks: rows against `cone_picks`");
+        assert_eq!(turn_recount, (s1.turn_requests - s0.turn_requests, s1.turn_discarded - s0.turn_discarded), "turn requests: rows against the counters");
+        use creature::DropWhy as P;
+        use creature::HomewardWhy as H;
+        assert_eq!(homeward_recount[H::Fired as usize] + homeward_recount[H::FiredHaul as usize], s1.tumbles_homeward - s0.tumbles_homeward, "fired rows against `tumbles_homeward`");
+        assert_eq!(drop_recount[P::Placed as usize] + drop_recount[P::Delivered as usize], s1.drops - s0.drops, "placed rows against `drops`");
+        assert_eq!(drop_recount[P::Delivered as usize], s1.deliveries - s0.deliveries, "delivered rows against `deliveries`");
+        assert_eq!(pick_recount.iter().sum::<u64>(), by(D::Stepped), "cone picks against stepped rows");
         let total: u64 = decision_recount.iter().flatten().flatten().sum();
         println!("    DECISION CENSUS: {total} decisions, reconciled against the rows and the engine's counters");
+        let named = |names: &[&str], counts: &[u64], skip: usize| {
+            names.iter().zip(counts).skip(skip).map(|(n, c)| format!("{n} {c}")).collect::<Vec<_>>().join(", ")
+        };
+        println!("      C1 homeward re-roll: {}", named(&creature::HOMEWARD_WHY_NAMES, &homeward_recount, 1));
+        println!("      C1 fired, aimed: {}", named(&creature::HOMEWARD_AIM_NAMES, &aim_recount, 0));
+        let won = drop_recount[P::Placed as usize] + drop_recount[P::Delivered as usize] + drop_recount[P::NoRoom as usize];
+        println!(
+            "      C2 drop: {} -- no room on {:.1}% of won rolls",
+            named(&creature::DROP_WHY_NAMES, &drop_recount, 1),
+            if won > 0 { 100.0 * drop_recount[P::NoRoom as usize] as f64 / won as f64 } else { 0.0 }
+        );
+        println!(
+            "      C3 cone: {}; Turn nonzero on {} picks (largest |Turn| {:.2e}), discarded on {}",
+            named(&creature::CONE_PICK_NAMES, &pick_recount, 0),
+            turn_recount.0,
+            turn_max_abs,
+            turn_recount.1
+        );
         println!(
             "      {:<7} {:<9} {:>8} {}",
             "leg",
@@ -4043,7 +4122,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             let suffix = if decision_tag.is_empty() { String::new() } else { format!("-{decision_tag}") };
             let path = format!("{decision_dir}/trailfollow-decisions-seed{seed}-gap{gap}-{arm_name}{suffix}.csv");
             let mut out = String::from(
-                "seed,gap,arm,tag,frame,id,leg,fill,x,y,x2,y2,heading,heading2,usable,setting,ax,ay,energy,home_aligned,at_nest,crowding,stillness,along_a,along_b,food_adjacent,kin_need,nest_x,move_out,p_move,turn,roll_move,roll_tumble,outcome,homeward,home_cos,moved\n",
+                "seed,gap,arm,tag,frame,id,leg,fill,x,y,x2,y2,heading,heading2,usable,setting,ax,ay,energy,home_aligned,at_nest,crowding,stillness,along_a,along_b,food_adjacent,kin_need,nest_x,move_out,p_move,turn,roll_move,roll_tumble,outcome,homeward,home_cos,moved,drop,drop_roll,drop_p,free8,n_nw,n_n,n_ne,n_w,n_e,n_sw,n_s,n_se,nbr_self,nbr_other,cone_l,cone_s,cone_r,pick\n",
             );
             out.push_str(&decision_rows.join("\n"));
             out.push('\n');

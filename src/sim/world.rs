@@ -1595,6 +1595,28 @@ pub struct CreatureStats {
     /// work the untraced engine does not do. Must equal a count over the
     /// trace's own rows exactly; `scripts/decisioncensus.py` checks it.
     pub decision_census: [[[u64; crate::sim::creature::DECISION_OUTCOMES]; crate::sim::creature::DECISION_SETTINGS]; crate::sim::creature::DECISION_LEGS],
+    /// **C1: every call to the homeward re-roll, by the gate that decided
+    /// it**, indexed by `creature::HOMEWARD_WHY_NAMES`; slot 0 (`not_asked`)
+    /// is never written. Always on. Its `fired` and `fired_haul` slots sum to
+    /// `tumbles_homeward`.
+    pub homeward_why: [u64; 10],
+    /// **...and every firing by where it pointed**, `creature::
+    /// HOMEWARD_AIM_NAMES`: toward the target, across it, or away.
+    pub homeward_aim: [u64; 3],
+    /// **C2: every drop the crop reached, by what came of it**, indexed by
+    /// `creature::DROP_WHY_NAMES`; slot 0 is never written. Always on.
+    /// `placed + delivered` is `drops` and `delivered` is `deliveries`; what
+    /// neither of those could say is `no_room`, a won roll with no empty
+    /// neighbour, which did nothing and was counted nowhere.
+    pub drop_census: [u64; crate::sim::creature::DROP_WHYS],
+    /// **C3: which of the forward cone's candidates each step took**, left /
+    /// straight / right (`creature::CONE_PICK_NAMES`). Always on; sums to the
+    /// steps `step_chain` chose, which is `moves` less the kin swaps.
+    pub cone_picks: [u64; 3],
+    /// Cone choices made with a nonzero `Turn`, and those whose requested side
+    /// had scored 0, so the turn could not happen.
+    pub turn_requests: u64,
+    pub turn_discarded: u64,
     /// **How long each rest actually lasted**, in creature decision ticks,
     /// bucketed by power of two: `bucket = floor(log2(ticks)) + 1`, so index
     /// 1 is a one-tick pause, index 2 is 2-3 ticks, index 3 is 4-7, and index

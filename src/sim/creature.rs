@@ -535,6 +535,52 @@ pub enum HomewardWhy {
 pub const HOMEWARD_WHY_NAMES: [&str; 10] =
     ["not_asked", "no_usable", "bias_off", "no_crop", "empty_crop", "no_site", "on_anchor", "roll_failed", "fired", "fired_haul"];
 
+/// Where a fired homeward re-roll pointed the ant, by the cosine between the
+/// chosen heading and its target: toward (> 0.01), across, or away (< -0.01).
+/// "Away" is possible because the pick is the best *usable* heading, not the
+/// best of all eight. The index into `CreatureStats::homeward_aim`.
+pub const HOMEWARD_AIM_NAMES: [&str; 3] = ["toward", "across", "away"];
+
+pub fn aim_class(cos: f32) -> usize {
+    if cos > 0.01 {
+        0
+    } else if cos < -0.01 {
+        2
+    } else {
+        1
+    }
+}
+
+/// What the drop in `act` did this tick -- C2 of
+/// `Reports/ant-movement-plan-2026-09-22.md` §5. The index into
+/// `CreatureStats::drop_census`, whose slot 0 is never written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[repr(u8)]
+pub enum DropWhy {
+    /// The drop was not reached with a cell in the crop: nothing to put down,
+    /// or an earlier verb (fighting, sharing, eating) took the tick.
+    #[default]
+    NotAsked = 0,
+    /// The roll against `Drop` failed.
+    RollLost = 1,
+    /// The roll won and the cell went down away from the nest.
+    Placed = 2,
+    /// The roll won and the cell went down at the nest: a delivery.
+    Delivered = 3,
+    /// The roll won and none of the eight neighbours was empty. The roll is
+    /// spent before the search, so this tick did nothing.
+    NoRoom = 4,
+}
+pub const DROP_WHYS: usize = 5;
+pub const DROP_WHY_NAMES: [&str; DROP_WHYS] = ["not_asked", "roll_lost", "placed", "delivered", "no_room"];
+
+/// Which of the forward cone's three candidates a step took -- C3. The index
+/// into `CreatureStats::cone_picks`: heading + `AHEAD_LEFT`, the heading,
+/// heading + `AHEAD_RIGHT`.
+pub const CONE_PICK_NAMES: [&str; 3] = ["left", "straight", "right"];
+/// `DecisionScratch::pick` when the cone did not choose.
+pub const NO_PICK: u8 = u8::MAX;
+
 /// The ant's leg as its brain saw it this tick (`CarryingFood`, then
 /// `Carrying`), not as `act` left it: the decision being traced was made from
 /// these inputs.
@@ -564,15 +610,90 @@ fn note_outcome(world: &mut World, outcome: DecisionOutcome) {
     }
 }
 
-/// Written by `step_chain` and `tumble` while a decision is being traced, and
-/// read back by `creature_tick` when it writes the row.
-#[derive(Clone, Copy, Debug, Default)]
+/// Written by `act`, `step_chain` and `tumble` while a decision is being
+/// traced, and read back by `creature_tick` when it writes the row. Reset
+/// before `act`, so the drop and the move land in the same row.
+#[derive(Clone, Copy, Debug)]
 pub struct DecisionScratch {
     pub outcome: DecisionOutcome,
     pub homeward: HomewardWhy,
     /// Cosine between the heading the homeward re-roll chose and its target.
     /// `NaN` unless it fired.
     pub home_cos: f32,
+    pub drop: DropWhy,
+    /// The drop's roll and the probability it was rolled against. `NaN`
+    /// unless the drop was asked.
+    pub drop_roll: f32,
+    pub drop_p: f32,
+    /// How many of the head's eight neighbours were empty when the drop was
+    /// rolled, by `World::is_empty`, the test the drop's own search uses.
+    /// `u8::MAX` unless the drop was asked.
+    pub free8: u8,
+    /// The eight neighbours' material ids, in `NEIGHBOURS_8` order (NW, N,
+    /// NE, W, E, SW, S, SE), when the drop was rolled.
+    pub nbr: [u16; 8],
+    /// Bit `i` set if neighbour `i` is a cell of this animal's own body, or
+    /// of another organism (a nestmate, a plant).
+    pub nbr_self: u8,
+    pub nbr_other: u8,
+    /// The forward cone's three scores after the zeroing, left / straight /
+    /// right. `NaN` unless the cone chose.
+    pub cone: [f32; 3],
+    /// Which of them it took, or `NO_PICK`.
+    pub pick: u8,
+}
+
+impl Default for DecisionScratch {
+    fn default() -> Self {
+        DecisionScratch {
+            outcome: DecisionOutcome::default(),
+            homeward: HomewardWhy::default(),
+            home_cos: f32::NAN,
+            drop: DropWhy::default(),
+            drop_roll: f32::NAN,
+            drop_p: f32::NAN,
+            free8: u8::MAX,
+            nbr: [0; 8],
+            nbr_self: 0,
+            nbr_other: 0,
+            cone: [f32::NAN; 3],
+            pick: NO_PICK,
+        }
+    }
+}
+
+/// Book the drop's outcome in `CreatureStats::drop_census`, always, and in the
+/// trace while one is running.
+fn note_drop(world: &mut World, why: DropWhy) {
+    world.creature_stats.drop_census[why as usize] += 1;
+    if world.decision_log.is_some() {
+        world.decision_scratch.drop = why;
+    }
+}
+
+/// The drop's surroundings for the trace, taken at the roll and before any
+/// placement. Trace-only: it reads eight cells the untraced engine does not.
+fn note_drop_surroundings(world: &mut World, organism: OrganismId, x: i32, y: i32, roll: f32, p: f32) {
+    let mut s = world.decision_scratch;
+    s.drop_roll = roll;
+    s.drop_p = p;
+    s.free8 = 0;
+    s.nbr_self = 0;
+    s.nbr_other = 0;
+    for (i, &(dx, dy)) in NEIGHBOURS_8.iter().enumerate() {
+        let (px, py) = (x + dx, y + dy);
+        let c = world.get(px, py);
+        s.nbr[i] = c.material.0;
+        if world.is_empty(px, py) {
+            s.free8 += 1;
+        }
+        match c.organism_id() {
+            0 => {}
+            id if id == organism => s.nbr_self |= 1 << i,
+            _ => s.nbr_other |= 1 << i,
+        }
+    }
+    world.decision_scratch = s;
 }
 
 /// One row of the decision trace. Positions are the head's.
@@ -612,6 +733,17 @@ pub struct DecisionRow {
     pub home_cos: f32,
     /// Whether this decision laid trail (`moved` in `creature_tick`).
     pub moved: bool,
+    /// The drop in `act`, this same tick: see `DecisionScratch`.
+    pub drop: DropWhy,
+    pub drop_roll: f32,
+    pub drop_p: f32,
+    pub free8: u8,
+    pub nbr: [u16; 8],
+    pub nbr_self: u8,
+    pub nbr_other: u8,
+    /// The forward cone: see `DecisionScratch`.
+    pub cone: [f32; 3],
+    pub pick: u8,
 }
 
 fn worm_tick(world: &mut World, x: i32, y: i32, organism: OrganismId) -> Vec<ActiveSite> {
@@ -4878,6 +5010,11 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // **Gnawing comes back as work for the caller to charge, exactly as
     // `dug` does.** `act` decides what an animal did; `creature_tick` owns
     // the ledger. One place where work becomes energy.
+    // **The trace's scratch is reset here, before `act`**, because the drop is
+    // decided in `act` and belongs in the same row as the move after it.
+    if world.decision_log.is_some() {
+        world.decision_scratch = DecisionScratch::default();
+    }
     let Did { dug, gnaws, shares } = act(world, x, y, organism, def, &outputs, &mut draw);
     // **Working the jaw costs, and leaving it free was a real defect.**
     // Measured the moment the beetle was armoured for play: an ant beat a
@@ -4923,11 +5060,14 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
 
     // --- move -----------------------------------------------------------
     // **Run, or tumble.** `Move` is the run probability, and the brain
-    // drives it from the along-heading gradient: a laden ant walking away
-    // from the nest scent computes a low `Move`, fails the roll, and
-    // re-orients. That is the whole of the homing mechanism — there is no
-    // steering toward the nest anywhere, because on a surface there is
-    // nothing to steer on (`brain::BrainInput::PheroAAlong`).
+    // drives it from the along-heading gradient and `HomeAligned`: a laden
+    // ant facing away from home computes a low `Move`, fails the roll, and
+    // may tumble. **The tumble is where a new direction comes from, and for
+    // a laden ant it is aimed**: the homeward re-roll (`home_weighted_pick_why`)
+    // takes the usable heading nearest `forage_anchor`. This comment said
+    // *"there is no steering toward the nest anywhere"* until 2026-09-23,
+    // which stopped being true when `ant.ron` shipped `home_bias: 1.0`. See
+    // `Reports/how-the-ant-works.md` §6.
     let p_move = outputs[brain::BrainOutput::Move as usize].clamp(0.0, 1.0);
     // Set by either arm that actually puts the body somewhere else -- the
     // walk and the launch. `moved` cannot serve: it gates the pheromone
@@ -4943,7 +5083,6 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // world `act` left, which is the world this move is decided in. Nothing
     // here draws or writes anything the untraced engine reads.
     let trace_pre = if world.decision_log.is_some() {
-        world.decision_scratch = DecisionScratch { home_cos: f32::NAN, ..DecisionScratch::default() };
         let usable = usable_headings(world, organism, def).iter().fold(0u8, |m, &d| m | (1 << d));
         let st = world.organism(organism);
         let head = st.and_then(|s| s.chain.first().copied()).unwrap_or((x, y));
@@ -5173,6 +5312,15 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             homeward: sc.homeward,
             home_cos: sc.home_cos,
             moved,
+            drop: sc.drop,
+            drop_roll: sc.drop_roll,
+            drop_p: sc.drop_p,
+            free8: sc.free8,
+            nbr: sc.nbr,
+            nbr_self: sc.nbr_self,
+            nbr_other: sc.nbr_other,
+            cone: sc.cone,
+            pick: sc.pick,
         };
         if let Some(log) = world.decision_log.as_mut() {
             log.push(row);
@@ -10025,67 +10173,78 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // than no counter.
             let at_nest = nest_within_reach(world, organism, x, y, def);
             let p = drop_urge;
-            if draw.unit_f32() < p {
-                if let Some((dx, dy)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| world.is_empty(px, py)) {
-                    // **A2 -- popped by the first cell dropped, uneaten.** A
-                    // passenger rides *in place of* this one flesh cell,
-                    // not beside it -- see `Crop::passenger`'s own doc for
-                    // why that is a priced substitution rather than a
-                    // conservation gap. Wherever the ant happens to be, not
-                    // only at the nest: "put down" is one verb.
+            // The same single draw as before, bound to a name so the trace can
+            // report it. **The roll is spent before the search for an empty
+            // neighbour**, so a won roll with nowhere to go is a tick that did
+            // nothing, and until C2 (`DropWhy::NoRoom`) nothing counted it.
+            let roll = draw.unit_f32();
+            if world.decision_log.is_some() {
+                note_drop_surroundings(world, organism, x, y, roll, p);
+            }
+            if roll >= p {
+                note_drop(world, DropWhy::RollLost);
+            } else if let Some((dx, dy)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| world.is_empty(px, py)) {
+                // **A2 -- popped by the first cell dropped, uneaten.** A
+                // passenger rides *in place of* this one flesh cell,
+                // not beside it -- see `Crop::passenger`'s own doc for
+                // why that is a priced substitution rather than a
+                // conservation gap. Wherever the ant happens to be, not
+                // only at the nest: "put down" is one verb.
+                //
+                // **`_uneaten`, not the bare pip.** The owner's rule,
+                // 2026-09-11: a drop is not an eating, so the seed must
+                // not come out here the way it does at the digestion
+                // exit -- the fruit is put down whole, seed and all, and
+                // whoever finds it bites through `seed_survives_bite`
+                // like any other fallen fruit. See `plant::deliver_
+                // seed_passenger_uneaten`'s own doc.
+                if let Some(passenger) = held.passenger {
+                    plant::deliver_seed_passenger_uneaten(world, dx, dy, passenger);
+                } else {
+                    world.set(dx, dy, unit.into_cell(world));
+                }
+                if let Some(state) = world.organism_mut(organism) {
+                    // `passenger: None` unconditionally: either it was
+                    // already empty, or it was just delivered above and
+                    // must not be popped a second time by a later drop.
+                    // **The chewing leaves WITH the cell — 2026-09-20.**
+                    // `unit_cell` hands the ground `unit - digesting`,
+                    // because the rest is already in this animal's energy
+                    // bank under the continuous payout. Carrying
+                    // `digesting` forward across the drop, as `..c` used
+                    // to, would let the next cell inherit progress that
+                    // physically left with this one and the animal would
+                    // be paid for it twice. So it resets to 0, and there
+                    // is nothing left to park: `OrganismState::
+                    // digest_carry` retired in the same change.
                     //
-                    // **`_uneaten`, not the bare pip.** The owner's rule,
-                    // 2026-09-11: a drop is not an eating, so the seed must
-                    // not come out here the way it does at the digestion
-                    // exit -- the fruit is put down whole, seed and all, and
-                    // whoever finds it bites through `seed_survives_bite`
-                    // like any other fallen fruit. See `plant::deliver_
-                    // seed_passenger_uneaten`'s own doc.
-                    if let Some(passenger) = held.passenger {
-                        plant::deliver_seed_passenger_uneaten(world, dx, dy, passenger);
-                    } else {
-                        world.set(dx, dy, unit.into_cell(world));
-                    }
+                    // What the old note here was protecting -- "putting the
+                    // last cell down no longer forfeits the chewing", worth
+                    // 17 pickups and 2 meals on one forager (§7.34) -- is
+                    // no longer a loss to protect against. Under a lump
+                    // payout, unspent progress was real value; under this
+                    // one it has already been paid.
+                    let keep_chewing = organism::digest_is_lumpy();
+                    state.crop = state.crop.and_then(|c| {
+                        let left = c.cells.saturating_sub(1);
+                        // Under the lump arm the cell leaves whole and the
+                        // chewing stays, because none of it has been paid
+                        // for yet. Under the continuous one it leaves at
+                        // `unit - digesting` and the progress goes with it.
+                        let digesting = if keep_chewing { c.digesting } else { 0.0 };
+                        (left > 0).then_some(Crop { cells: left, digesting, passenger: None, ..c })
+                    });
+                }
+                world.creature_stats.drops += 1;
+                if at_nest {
+                    world.creature_stats.deliveries += 1;
                     if let Some(state) = world.organism_mut(organism) {
-                        // `passenger: None` unconditionally: either it was
-                        // already empty, or it was just delivered above and
-                        // must not be popped a second time by a later drop.
-                        // **The chewing leaves WITH the cell — 2026-09-20.**
-                        // `unit_cell` hands the ground `unit - digesting`,
-                        // because the rest is already in this animal's energy
-                        // bank under the continuous payout. Carrying
-                        // `digesting` forward across the drop, as `..c` used
-                        // to, would let the next cell inherit progress that
-                        // physically left with this one and the animal would
-                        // be paid for it twice. So it resets to 0, and there
-                        // is nothing left to park: `OrganismState::
-                        // digest_carry` retired in the same change.
-                        //
-                        // What the old note here was protecting -- "putting the
-                        // last cell down no longer forfeits the chewing", worth
-                        // 17 pickups and 2 meals on one forager (§7.34) -- is
-                        // no longer a loss to protect against. Under a lump
-                        // payout, unspent progress was real value; under this
-                        // one it has already been paid.
-                        let keep_chewing = organism::digest_is_lumpy();
-                        state.crop = state.crop.and_then(|c| {
-                            let left = c.cells.saturating_sub(1);
-                            // Under the lump arm the cell leaves whole and the
-                            // chewing stays, because none of it has been paid
-                            // for yet. Under the continuous one it leaves at
-                            // `unit - digesting` and the progress goes with it.
-                            let digesting = if keep_chewing { c.digesting } else { 0.0 };
-                            (left > 0).then_some(Crop { cells: left, digesting, passenger: None, ..c })
-                        });
-                    }
-                    world.creature_stats.drops += 1;
-                    if at_nest {
-                        world.creature_stats.deliveries += 1;
-                        if let Some(state) = world.organism_mut(organism) {
-                            state.life.deliveries += 1;
-                        }
+                        state.life.deliveries += 1;
                     }
                 }
+                note_drop(world, if at_nest { DropWhy::Delivered } else { DropWhy::Placed });
+            } else {
+                note_drop(world, DropWhy::NoRoom);
             }
             return did;
         }
@@ -11572,6 +11731,22 @@ fn step_chain(
     }
     let pick = choose_weighted(&scores, CHOICE_EXPLORATION_K, draw.unit_f32());
     let pick = if scores[pick] > 0.0 { pick } else { scores.iter().position(|&s| s > 0.0).expect("footing_ahead guarantees one") };
+    // **C3: which candidate the cone took, and whether a `Turn` request was
+    // thrown away.** A request is discarded when the side it raises ended at
+    // 0 -- no room there, or no footing and a raise too small to clear the
+    // zeroing above -- and then the turn it asked for cannot happen. Counted
+    // only here, where the cone chooses: on a blocked tick nothing is chosen.
+    world.creature_stats.cone_picks[pick] += 1;
+    if turn != 0.0 {
+        world.creature_stats.turn_requests += 1;
+        if scores[if turn > 0.0 { 0 } else { 2 }] == 0.0 {
+            world.creature_stats.turn_discarded += 1;
+        }
+    }
+    if world.decision_log.is_some() {
+        world.decision_scratch.cone = scores;
+        world.decision_scratch.pick = pick as u8;
+    }
     let new_heading = dirs[pick];
     let (dx, dy) = DIRS[new_heading as usize];
     let (tx, ty) = (hx + dx, hy + dy);
@@ -13181,10 +13356,17 @@ fn tumble(world: &mut World, organism: OrganismId, def: &CreatureDef, draw: &mut
     };
     let viable = usable_headings(world, organism, def);
     // **The fill-weighted homeward re-roll** -- `CreatureDef::home_bias`, 0.0
-    // by default and therefore byte-identical to the uniform tumble above.
+    // by default and there byte-identical to the uniform tumble above. The
+    // ant authors 1.0.
     // See `home_weighted_pick`: at 0 it takes **no RNG draw at all**, which is
     // what makes the default arm a true control rather than a re-seeding.
     let (homeward, why, home_cos) = home_weighted_pick_why(world, organism, def, (hx, hy), &viable, draw, spoil_haul());
+    // C1: every call by the gate that decided it, and every firing by where
+    // it pointed. Always on; the trace below carries the same per tumble.
+    world.creature_stats.homeward_why[why as usize] += 1;
+    if homeward.is_some() {
+        world.creature_stats.homeward_aim[aim_class(home_cos)] += 1;
+    }
     if world.decision_log.is_some() {
         world.decision_scratch.homeward = why;
         world.decision_scratch.home_cos = home_cos;
@@ -13211,7 +13393,9 @@ fn tumble(world: &mut World, organism: OrganismId, def: &CreatureDef, draw: &mut
 /// half of the forage loop, and the only one there is.
 ///
 /// Returns `None` to mean "re-roll uniformly, exactly as before", which is
-/// every case at the shipped `home_bias: 0.0`.
+/// every case at `home_bias: 0.0`, the field's default. **The shipped ant
+/// authors 1.0** (`ant.ron`), so for it this does fire; this line said "the
+/// shipped `home_bias: 0.0`" until 2026-09-23.
 ///
 /// **It takes no RNG draw unless it can act.** The gate on `home_bias` and on
 /// a non-empty crop is checked *before* `draw` is touched, so a species that
@@ -22561,8 +22745,54 @@ mod tests {
             "fired rows against `tumbles_homeward`"
         );
 
+        // C1-C3's counters against the rows (plan §5, step 2). Slot 0 of the
+        // two reason arrays is "not asked" and the counters never write it.
+        for (i, name) in HOMEWARD_WHY_NAMES.iter().enumerate().skip(1) {
+            assert_eq!(count(&|r| r.homeward as usize == i), after.homeward_why[i] - before.homeward_why[i], "homeward `{name}` rows against `homeward_why`");
+        }
+        let fired = |r: &DecisionRow| matches!(r.homeward, HomewardWhy::Fired | HomewardWhy::FiredHaul);
+        for (i, name) in HOMEWARD_AIM_NAMES.iter().enumerate() {
+            assert_eq!(count(&|r| fired(r) && aim_class(r.home_cos) == i), after.homeward_aim[i] - before.homeward_aim[i], "fired `{name}` rows against `homeward_aim`");
+        }
+        for (i, name) in DROP_WHY_NAMES.iter().enumerate().skip(1) {
+            assert_eq!(count(&|r| r.drop as usize == i), after.drop_census[i] - before.drop_census[i], "drop `{name}` rows against `drop_census`");
+        }
+        assert_eq!(count(&|r| matches!(r.drop, DropWhy::Placed | DropWhy::Delivered)), after.drops - before.drops, "placed+delivered rows against `drops`");
+        assert_eq!(count(&|r| r.drop == DropWhy::Delivered), after.deliveries - before.deliveries, "delivered rows against `deliveries`");
+        for (i, name) in CONE_PICK_NAMES.iter().enumerate() {
+            assert_eq!(count(&|r| r.pick as usize == i), after.cone_picks[i] - before.cone_picks[i], "cone `{name}` rows against `cone_picks`");
+        }
+        let asked_side = |r: &DecisionRow| if r.turn > 0.0 { 0 } else { 2 };
+        assert_eq!(count(&|r| r.pick != NO_PICK && r.turn != 0.0), after.turn_requests - before.turn_requests, "turn requests");
+        assert_eq!(
+            count(&|r| r.pick != NO_PICK && r.turn != 0.0 && r.cone[asked_side(r)] == 0.0),
+            after.turn_discarded - before.turn_discarded,
+            "discarded turn requests"
+        );
+
         // Rows against positions, and the flags that follow from the outcome.
         for r in &rows {
+            // The drop's row fields agree with its outcome. `free8` is counted
+            // by the trace on its own, so a no-room drop with an empty
+            // neighbour would mean the two disagree about the same eight cells.
+            assert_eq!(r.drop == DropWhy::NotAsked, r.drop_roll.is_nan(), "a drop roll is recorded exactly when the drop was asked: {r:?}");
+            match r.drop {
+                DropWhy::NotAsked => {}
+                DropWhy::RollLost => assert!(r.drop_roll >= r.drop_p, "a lost roll that beat its probability: {r:?}"),
+                DropWhy::NoRoom => assert!(r.drop_roll < r.drop_p && r.free8 == 0, "no room, yet the roll lost or a neighbour was free: {r:?}"),
+                DropWhy::Placed | DropWhy::Delivered => assert!(r.drop_roll < r.drop_p && (1..=8).contains(&r.free8), "placed with a lost roll or no free neighbour: {r:?}"),
+            }
+            // The cone chose exactly when a step was taken, and the step went
+            // where the pick says: the heading it names, and the head moved
+            // one cell along it.
+            assert_eq!(r.pick != NO_PICK, r.outcome == D::Stepped, "the cone picks exactly on a step: {r:?}");
+            assert_eq!(r.pick == NO_PICK, r.cone[0].is_nan(), "cone scores are recorded exactly when it picks: {r:?}");
+            if r.pick != NO_PICK {
+                let d = (r.heading + [AHEAD_LEFT, 0, AHEAD_RIGHT][r.pick as usize]) % 8;
+                assert_eq!(r.heading_after, d, "the step's heading is not the one its pick names: {r:?}");
+                assert_eq!((r.head_after.0 - r.head.0, r.head_after.1 - r.head.1), DIRS[d as usize], "the head did not move along the picked heading: {r:?}");
+                assert!(r.cone[r.pick as usize] > 0.0, "the cone took a candidate it had zeroed: {r:?}");
+            }
             let (dx, dy) = (r.head_after.0 - r.head.0, r.head_after.1 - r.head.1);
             match r.outcome {
                 D::Stepped => assert!(DIRS.contains(&(dx, dy)), "a step moved the head by ({dx}, {dy}): {r:?}"),
@@ -22587,9 +22817,240 @@ mod tests {
             ("tumbled after a failed roll", count(&|r| r.outcome == D::RollFailedTumbled)),
             ("idle", count(&|r| r.outcome == D::RollFailedIdle)),
             ("laden", count(&|r| r.leg == 1)),
+            ("with a drop rolled", count(&|r| r.drop != DropWhy::NotAsked)),
+            ("with the homeward re-roll fired", count(&|r| fired(r))),
+            ("stepped to a side", count(&|r| r.pick == 0 || r.pick == 2)),
         ] {
             assert!(n > 0, "no decision {what} on this bed, so the checks on it are vacuous");
         }
+    }
+
+    /// A full crop of leaf for `ant`, three cells whose worth is exactly its
+    /// capacity, so the homeward re-roll and `Carrying` both read 1.
+    fn fill_crop(w: &mut World, ant: OrganismId) {
+        let def = w.species.get(w.organism(ant).expect("live").species).creature.clone().expect("a creature");
+        let cap = organism_crop_capacity(w, ant, &def);
+        let leaf = w.materials.id_of("leaf").expect("leaf material");
+        w.organism_mut(ant).expect("live").crop = Some(Crop { material: leaf, cells: 3, digesting: 0.0, unit: cap / 3.0, shade: 0, passenger: None });
+    }
+
+    /// Run a scene with the decision trace on; the rows for one animal, and
+    /// the counters before and after.
+    fn traced(w: &mut World, id: OrganismId, frames: usize) -> (Vec<DecisionRow>, crate::sim::world::CreatureStats, crate::sim::world::CreatureStats) {
+        let before = w.creature_stats;
+        w.decision_log = Some(Vec::new());
+        run(w, frames);
+        let rows = w.decision_log.take().expect("the log was on").into_iter().filter(|r| r.id == id).collect();
+        (rows, before, w.creature_stats)
+    }
+
+    /// **The homeward re-roll aims where the arithmetic says** -- C1's
+    /// positive control (`Reports/ant-movement-plan-2026-09-22.md` §5).
+    ///
+    /// A laden ant alone on a bare stone floor, its anchor set 40 cells west
+    /// on the same row, with no nest material anywhere so nothing re-anchors
+    /// it. The answer is known before the run: flat ground leaves east and
+    /// west usable, so every firing must pick the one toward the anchor, at a
+    /// cosine of exactly 1; every refusal off the anchor with food in the crop
+    /// must be the roll; and the roll wins at `home_bias x fill`, so the
+    /// firings must match the sum of `fill` over those tumbles within binomial
+    /// noise. **Watched red** by turning the argmax in `home_weighted_pick_why`
+    /// into an argmin: the firings then point away at a cosine of -1.
+    #[test]
+    fn the_homeward_re_roll_aims_along_a_known_floor_at_the_rate_its_fill_sets() {
+        let stone = Cell::new(material::STONE, 0).with_attached(true);
+        let mut w = World::new(Rect::new(0, 0, 159, 63));
+        for x in 0..160 {
+            for y in 41..64 {
+                w.set(x, y, stone);
+            }
+        }
+        let ant = spawn(&mut w, "ant", 80, 40);
+        let def = w.species.get(w.organism(ant).expect("live").species).creature.clone().expect("a creature");
+        assert!(def.home_bias > 0.0, "the shipped ant must author `home_bias`, or this scene tests a switched-off rule");
+        fill_crop(&mut w, ant);
+        w.organism_mut(ant).expect("live").forage_anchor = (40, 40);
+        let (rows, before, after) = traced(&mut w, ant, 1200);
+
+        let tumbles: Vec<&DecisionRow> = rows.iter().filter(|r| r.homeward != HomewardWhy::NotAsked).collect();
+        let mut expected = 0.0f64;
+        let mut asked = 0usize;
+        for r in &tumbles {
+            assert_eq!(r.head.1, 40, "the ant left the floor row, so the known answer no longer applies: {r:?}");
+            if r.head == r.anchor {
+                assert_eq!(r.homeward, HomewardWhy::OnAnchor, "a tumble on the anchor: {r:?}");
+                continue;
+            }
+            if r.fill <= 0.0 {
+                continue;
+            }
+            asked += 1;
+            expected += (def.home_bias * r.fill).min(1.0) as f64;
+            match r.homeward {
+                HomewardWhy::Fired => {
+                    assert!((r.home_cos - 1.0).abs() < 1e-6, "a firing on flat ground must point straight at the anchor: {r:?}");
+                    let (dx, _) = DIRS[r.heading_after as usize];
+                    assert_eq!(dx.signum(), (r.anchor.0 - r.head.0).signum(), "the new heading does not face the anchor: {r:?}");
+                }
+                HomewardWhy::RollFailed => {}
+                other => panic!("with food in the crop and off the anchor, only the roll may refuse; got {other:?}: {r:?}"),
+            }
+        }
+        let fired = tumbles.iter().filter(|r| r.homeward == HomewardWhy::Fired).count();
+        assert!(asked >= 20 && fired > 0, "{asked} tumbles asked and {fired} fired: too few for the known answer to mean anything");
+        let sd = (asked as f64 * 0.25).sqrt();
+        assert!((fired as f64 - expected).abs() <= 4.0 * sd + 2.0, "fired {fired} of {asked}, expected {expected:.1} from the crop fill");
+        assert_eq!(after.homeward_aim[0] - before.homeward_aim[0], fired as u64, "every firing counted as toward");
+        assert_eq!(after.homeward_aim[1] + after.homeward_aim[2], before.homeward_aim[1] + before.homeward_aim[2], "nothing counted across or away");
+    }
+
+    /// **A drop with nowhere to go is counted as such, and one with room is
+    /// delivered** -- C2's positive control (plan §5).
+    ///
+    /// Both scenes put a laden ant against nest material, because that is the
+    /// only place the shipped `Drop` wiring rolls above zero: away from the
+    /// nest a full crop reads exactly 0 and no roll could ever win, which
+    /// would make both scenes vacuous. In a pocket sealed by nest material
+    /// every neighbour is wall or the ant's own body, so every won roll must
+    /// come out `NoRoom` and nothing may be dropped. On an open nest floor
+    /// every won roll must come out `Delivered`. **Watched red** by booking
+    /// `NoRoom` as `Placed`: the pocket then reports drops that never happened.
+    #[test]
+    fn a_drop_with_nowhere_to_go_is_counted_and_one_with_room_is_delivered() {
+        let stone = Cell::new(material::STONE, 0).with_attached(true);
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        let nest = Cell::new(w.materials.id_of("nest").expect("nest material"), 0).with_attached(true);
+
+        // The sealed pocket: stone, a one-cell lining of nest round the body.
+        for x in 0..64 {
+            for y in 0..64 {
+                w.set(x, y, stone);
+            }
+        }
+        for x in 30..=33 {
+            for y in 39..=41 {
+                w.set(x, y, nest);
+            }
+        }
+        w.set(32, 40, Cell::EMPTY);
+        w.set(31, 40, Cell::EMPTY);
+        let ant = spawn(&mut w, "ant", 32, 40);
+        fill_crop(&mut w, ant);
+        let (rows, before, after) = traced(&mut w, ant, 1200);
+        let asked: Vec<&DecisionRow> = rows.iter().filter(|r| r.drop != DropWhy::NotAsked).collect();
+        let won = asked.iter().filter(|r| r.drop_roll < r.drop_p).count();
+        assert!(won >= 5, "only {won} of {} drop rolls won in the pocket: the scene cannot show a refusal", asked.len());
+        for r in &asked {
+            assert_eq!(r.free8, 0, "a sealed pocket had a free neighbour: {r:?}");
+            assert_eq!(r.nbr_other, 0, "something else is in the pocket: {r:?}");
+            assert!(r.nbr_self != 0, "the ant's own tail is a neighbour and was not seen: {r:?}");
+            if r.drop_roll < r.drop_p {
+                assert_eq!(r.drop, DropWhy::NoRoom, "a won roll in a sealed pocket: {r:?}");
+            }
+        }
+        assert_eq!(after.drops, before.drops, "the ant dropped something with nowhere to put it");
+        assert_eq!(after.drop_census[DropWhy::NoRoom as usize] - before.drop_census[DropWhy::NoRoom as usize], won as u64, "no-room counter against the rows");
+
+        // The open nest floor: stone below, a strip of nest on top, air above.
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        for x in 0..64 {
+            for y in 41..64 {
+                w.set(x, y, if (26..=38).contains(&x) && y == 41 { nest } else { stone });
+            }
+        }
+        let ant = spawn(&mut w, "ant", 32, 40);
+        fill_crop(&mut w, ant);
+        let (rows, before, after) = traced(&mut w, ant, 1200);
+        let won: Vec<&DecisionRow> = rows.iter().filter(|r| r.drop != DropWhy::NotAsked && r.drop_roll < r.drop_p).collect();
+        assert!(!won.is_empty(), "no drop roll won on the nest floor: the scene cannot show a delivery");
+        for r in &won {
+            assert_eq!(r.drop, DropWhy::Delivered, "a won roll on an open nest floor: {r:?}");
+            assert!(r.free8 >= 1, "open air above, yet no free neighbour: {r:?}");
+        }
+        assert_eq!(after.deliveries - before.deliveries, won.len() as u64, "delivered rows against `deliveries`");
+    }
+
+    /// **The cone discards a turn it has nowhere to put, and follows one it
+    /// has** -- C3's positive control (plan §5).
+    ///
+    /// `Turn` is far too small on the shipped bed to turn anything (its one
+    /// wire is temperature, and over 72 runs of the gap bed it never exceeds
+    /// 0.031), so the bed cannot show a real request being discarded. This
+    /// feeds `Turn` straight into `step_chain`, with every other output at 0
+    /// so `Persist` and `Caution` take their unwired values (1.0, 0.6), and
+    /// checks the three scores against the arithmetic in
+    /// `Reports/how-the-ant-works.md` §6. On a bare floor facing east a small
+    /// turn either way is discarded: up-and-ahead has no footing and cannot
+    /// clear the zeroing, down-and-ahead is rock. Inside a stone ring every
+    /// neighbour is footed, so nothing is discarded and the side asked for is
+    /// taken far more often than the other. **Watched red** by dropping the
+    /// footing bonus from the side candidates: the ring's scores then fail.
+    #[test]
+    fn the_cone_discards_a_turn_with_nowhere_to_go_and_follows_one_with_somewhere() {
+        let stone = Cell::new(material::STONE, 0).with_attached(true);
+        let def_of = |w: &World, id: OrganismId| w.species.get(w.organism(id).expect("live").species).creature.clone().expect("a creature");
+        let outputs_with = |turn: f32| {
+            let mut o = [0.0f32; brain::BRAIN_OUTPUTS];
+            o[brain::BrainOutput::Turn as usize] = turn;
+            o
+        };
+
+        // Bare floor, facing east: every request discarded, straight every time.
+        let mut w = World::new(Rect::new(0, 0, 159, 63));
+        for x in 0..160 {
+            for y in 41..64 {
+                w.set(x, y, stone);
+            }
+        }
+        let ant = spawn(&mut w, "ant", 40, 40);
+        let def = def_of(&w, ant);
+        w.decision_log = Some(Vec::new());
+        let before = w.creature_stats;
+        for i in 0..40u64 {
+            let turn = if i % 2 == 0 { 0.2 } else { -0.2 };
+            w.organism_mut(ant).expect("live").heading = 0;
+            w.decision_scratch = DecisionScratch::default();
+            let mut draw = rng::stream(i, ant as u64, 0, RNG_SLOT_MOVE);
+            assert!(step_chain(&mut w, ant, 0, &outputs_with(turn), &def, &mut draw), "the floor step was refused");
+            assert_eq!(w.decision_scratch.cone, [0.0, 1.6, 0.0], "a bare floor facing east, turn {turn}");
+            assert_eq!(w.decision_scratch.pick, 1, "a bare floor must go straight");
+        }
+        let after = w.creature_stats;
+        assert_eq!(after.turn_requests - before.turn_requests, 40);
+        assert_eq!(after.turn_discarded - before.turn_discarded, 40, "every request on a bare floor has nowhere to go");
+        assert_eq!(after.cone_picks[1] - before.cone_picks[1], 40);
+
+        // A hollow ring of stone, the ant at its centre: every candidate footed.
+        let mut picks = [0u32; 3];
+        let mut discarded = 0;
+        for i in 0..300u64 {
+            let mut w = World::new(Rect::new(0, 0, 63, 63));
+            for x in 30..=34 {
+                for y in 38..=42 {
+                    if x == 30 || x == 34 || y == 38 || y == 42 {
+                        w.set(x, y, stone);
+                    }
+                }
+            }
+            let ant = spawn(&mut w, "ant", 32, 40);
+            let def = def_of(&w, ant);
+            // Facing north, so the cone is NW / N / NE and the tail, lying
+            // west, is in none of the three.
+            w.organism_mut(ant).expect("live").heading = 2;
+            w.decision_log = Some(Vec::new());
+            let mut draw = rng::stream(i, ant as u64, 0, RNG_SLOT_MOVE);
+            assert!(step_chain(&mut w, ant, 2, &outputs_with(0.8), &def, &mut draw), "the ring step was refused");
+            let sc = w.decision_scratch;
+            for (got, want) in sc.cone.iter().zip([0.8 + 0.6, 1.6, 0.6]) {
+                assert!((got - want).abs() < 1e-5, "ring scores {:?}, expected left 1.4 / straight 1.6 / right 0.6", sc.cone);
+            }
+            picks[sc.pick as usize] += 1;
+            discarded += w.creature_stats.turn_discarded;
+        }
+        assert_eq!(discarded, 0, "a footed side was discarded");
+        // Weights (k + s)^2 at k = 0.1: 2.25 / 2.89 / 0.49, so left ~40%,
+        // straight ~51%, right ~9%.
+        assert!(picks[0] > 3 * picks[2] && picks[2] > 0, "the requested side should win clearly and the other stay reachable, picks {picks:?}");
     }
 
     fn spawn(w: &mut World, species: &str, x: i32, y: i32) -> OrganismId {
@@ -22689,7 +23150,7 @@ mod tests {
         let mut b = a.clone();
         assert!(
             home_weighted_pick(&w, ant, &def, head, &viable, &mut a, None).is_none(),
-            "unset must not steer -- `ant.ron` ships `home_bias: 0.0` and this ant has no crop"
+            "unset must not steer -- this ant has no crop, so the crop gate refuses (`ant.ron` ships `home_bias: 1.0`, so the bias gate is open)"
         );
         assert_eq!(
             a.unit_f32(),

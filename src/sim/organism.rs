@@ -4103,8 +4103,9 @@ pub struct CreatureDef {
     #[serde(default)]
     pub kin_crosses_kinds: bool,
     /// **How strongly a full crop steers the tumble toward home.** `0.0`, the
-    /// default, is the shipped animal exactly: the re-roll stays uniform and
-    /// not one RNG draw changes.
+    /// default, is the uniform re-roll exactly: not one RNG draw changes.
+    /// **The shipped ant authors 1.0**; until 2026-09-23 this line called 0.0
+    /// "the shipped animal", which it has not been since the ant opted in.
     ///
     /// At `w`, a tumbling body picks the viable direction nearest its
     /// `forage_anchor` with probability `w * crop_fill`, and re-rolls
@@ -6064,8 +6065,16 @@ pub struct OrganismState {
     /// A `u16` and not a `bool` because the question is *how long*, and a
     /// tick is the animal's own tick, not a frame.
     pub traffic_deferred: u16,
-    /// **Measurement only — no creature ever reads this, and the moment one
-    /// does, the homing model has changed and this doc is a lie.**
+    /// **Read by the ant's homing, though it was written as measurement.**
+    /// Until 2026-09-23 this doc opened *"Measurement only — no creature ever
+    /// reads this, and the moment one does, the homing model has changed and
+    /// this doc is a lie"*, and that moment had come. It has two readers:
+    /// `sense` aims `BrainInput::HomeAligned` at it (unless
+    /// `PIXEL_PHYSICS_HOME_TARGET=nest`), and the homeward re-roll
+    /// (`creature::home_weighted_pick_why`) always aims at it. So the
+    /// re-anchor on every nest contact described below, which is right for a
+    /// range measurement, also moves where a laden animal thinks home is. See
+    /// `creature::home_target` and `Reports/how-the-ant-works.md` §8.
     ///
     /// Where this creature last touched nest material, and the furthest it
     /// has been from that point since. Together they are a *foraging range*:
