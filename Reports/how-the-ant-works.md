@@ -12,7 +12,9 @@ will be.
   §5, §12 and §15 again the same day for the drop through bodies, and §9
   for what a part-eaten cell is worth once put down (re-checked the same
   day against the crumbs fix in `Carried::into_cell`). §6d and §12 written
-  2026-09-23 from `chooser_step`, `fall_if_unsupported` and `commit_step`.
+  2026-09-23 from `chooser_step`, `fall_if_unsupported` and `commit_step`;
+  §6d, §12 and §15 again for stage 2 (`trail_presence`, `brain_inputs`),
+  and §9 for crumbs not sliding (`update_powder`'s `rolls` gate).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -299,7 +301,8 @@ ant.** `HomeAligned` only grants or withholds permission to step.
 
 `PIXEL_PHYSICS_CHOOSER=on` (or `World::chooser`) replaces §6a–§6c for every
 walking creature. It is stage 1 of the movement plan and **does not ship**;
-with it off, every species walks exactly as above.
+with it off, every species walks exactly as above. `=trail` is stage 2: the
+same, plus the trail terms at the end of this section.
 
 1. **Every decision, before any roll:** the support check and possible fall
    (§2). A fall is not a move: it lays no trail and costs no step.
@@ -328,8 +331,24 @@ with it off, every species walks exactly as above.
    nothing to take home or the target moves.
    `PIXEL_PHYSICS_CHOOSER=nopatience` holds it at 1.
 
-The decision trace records the patience each choice scored with and the
-home cosine of the heading picked (`patience`, `chosen_cos`).
+**Stage 2 (`PIXEL_PHYSICS_CHOOSER=trail`) adds two things:**
+- **The trail where a step would go.** For each heading, `trail_presence`
+  reads the scent in the cell the head would enter and the one beyond it,
+  takes the larger, and saturates it as `x / (1 + x)` over `TRAIL_HALF` (a
+  tenth of one full deposit). Trail B for an ant carrying no food, trail A
+  for one that is. The heading's turn score is multiplied by
+  `1 + TRAIL_GAIN × presence` (`TRAIL_GAIN` 3), so a heading onto a full
+  route scores up to 4 times its turn alone, and turning round still scores
+  0. Presence has no direction: both ways along a route score the same.
+- **The throttle retires.** `brain_inputs` hands the brain `PheroAAlong`
+  and `PheroBAlong` as 0, for every walking creature. The ant's mirrored
+  hidden-unit pairs on those inputs cancel exactly at 0, so the trail no
+  longer changes `p_move`. The sensed values are still what the trace
+  records.
+
+The decision trace records the patience each choice scored with, the home
+cosine of the heading picked, and under stage 2 its trail presence
+(`patience`, `chosen_cos`, `chosen_route`).
 
 ## 7. The trail planes
 
@@ -392,7 +411,9 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   down as `crumbs`, a powder holding exactly what is left in `aux`
   (`carries_worth`), at least 1. It is priced from that when picked up, so
   putting food down and picking it up again neither creates nor loses food.
-  Crumbs do not rot. Two cases still go down at full price, and
+  Crumbs do not rot, and **do not slide** (`rolls: false`,
+  `Material::rolls`): they drop straight down through open air and
+  otherwise stay where they are put, as the fruit they replace would. Two cases still go down at full price, and
   `drop_worth_restored` counts what they restore: flesh bitten off a living
   animal, and a fruit carrying a seed passenger, which goes down whole.
 - **Energy costs:**
@@ -453,7 +474,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_LAB_ROOM` | on | `off`: at-nest `Crowding` falls back to local density |
 | `PIXEL_PHYSICS_TROPHALLAXIS` | on | `off` |
 | `PIXEL_PHYSICS_DROP_REACH` | through bodies | `adjacent`: a food drop looks only at the 8 neighbours |
-| `PIXEL_PHYSICS_CHOOSER` | off | `on`: the stage-1 chooser (§6d); `nopatience`: the same with patience held at 1 |
+| `PIXEL_PHYSICS_CHOOSER` | off | `on`: the stage-1 chooser (§6d); `nopatience`: the same with patience held at 1; `trail`: stage 2, the chooser reading the trail where it would step, with the throttle retired |
 | `SPOIL_IS_CARGO` | on | `0`: spoil no longer counts toward `Carrying` |
 | `PIXEL_PHYSICS_DIG_SPOIL` | kept | `destroy`: dug cells vanish |
 | `PIXEL_PHYSICS_BURROW_LINING` | on | `off`: no `packedsoil` lining |
@@ -466,10 +487,11 @@ Read once per process from the environment. The default is what ships.
 - `creature.rs`: `creature_tick`, `sense`, `act`, `step_chain`, `tumble`,
   `usable_headings`, `home_weighted_pick_why`, `trail_sample_point`,
   `fall_if_unsupported`, `commit_step`, `chooser_step`, `home_pull`,
-  `adjacent_nest`, `line_burrow`, `food_drop_site`, `choose_weighted`, and the decision trace's
+  `trail_presence`, `brain_inputs`, `adjacent_nest`, `line_burrow`, `food_drop_site`, `choose_weighted`, and the decision trace's
   types (`DecisionRow`, `DecisionOutcome`, `HomewardWhy`, `DropWhy`).
 - `brain.rs`: `eval_brain`, the `BrainInput` / `BrainOutput` enums.
 - `pheromone.rs`: the planes and the constants in §7.
+- `update.rs`: `update_powder`, where crumbs' `rolls: false` stops the slide.
 - `organism.rs`: `OrganismState` (`forage_anchor`, `crop`, `still_ticks`,
   `brain_state`, and the chooser's `home_best`, `home_best_for`,
   `home_patience`) and `Crop`.
@@ -500,7 +522,8 @@ is on, every walking decision, the move stage of `creature_tick`, pushes one
   more when handed on through bodies);
 - the cone's three scores after the zeroing and the candidate taken;
 - under the chooser (§6d), the patience it scored with and the home cosine
-  of the heading it picked.
+  of the heading it picked, and under stage 2 that heading's trail presence
+  (`chosen_route`).
 
 `CreatureStats::decision_census` counts the same decisions by leg × setting
 × outcome, and only while the trace is on, because the setting needs all

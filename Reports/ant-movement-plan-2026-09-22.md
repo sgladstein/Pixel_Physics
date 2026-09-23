@@ -677,7 +677,16 @@ goes, any later measurement on the colony bed states which drop rule it ran.
    throttle, so a throttled ant no longer re-aims. **Stage 2 is what makes
    the chooser usable on a colony.**
 6. **Chooser stage 2**: the trail terms. Judged on S4–S5, then one paired
-   run on the colony bed.
+   run on the colony bed. **First form built 2026-09-23 behind
+   `PIXEL_PHYSICS_CHOOSER=trail`** (scenes report §6): the trail read at
+   the cells a step would enter, as a presence that multiplies going on,
+   and the throttle retired (§4b, §4e). **Both S4 bars are met**: the first
+   branch follows the trail both ways round (22 of 24 level, 18 of 24 up),
+   and no run freezes. **S5 half-met**: 21 of 24 get along the trailed row,
+   but at 1,189 decisions against the shipped 702 and on the row 23.5% of
+   the time, because presence says "route" and not "which way". That is
+   §4c's running average, not yet built, and neither are §4d's away-from-home
+   gain or new brain outputs. Colony bed: scenes report §8.
 
 Each of steps 5 and 6 updates `how-the-ant-works.md` in the same change.
 

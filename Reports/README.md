@@ -3191,8 +3191,9 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     `decisions-seed1-gap90-2026-09-22.csv.gz`.
 - [ant-scenes-2026-09-23.md](ant-scenes-2026-09-23.md)
   — **result, 2026-09-23. `engine`. Step 3 of the movement plan: the ant's
-  walk in controlled scenes, the baseline the chooser must beat.** S0–S3
-  done; S4–S5 run before stage 2.
+  walk in controlled scenes, the baseline the chooser must beat.** S0–S5
+  done, and stage 2's first form judged on them (§6); crumbs (§7); the
+  colony bed for stage 2 (§8).
   - **A fed explorer jitters.** At full energy an empty ant steps 20% and
     reverses 20% of its decisions. In a bed-length run the median ant gets
     50 cells from its start, and it found food 90 cells away in 2 of 24 runs.
@@ -3214,6 +3215,16 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     climbing branch freezes every ant at its mouth; and under stage 1's
     chooser a trail freezes the ant almost everywhere (24 of 24 in the
     lattice), which is the colony collapse of census report §13.
+  - **Stage 2's first form** (`PIXEL_PHYSICS_CHOOSER=trail`, not shipped):
+    the chooser reads the trail at the cells a step would enter, and the
+    throttle is retired. The first branch now follows the trail both ways
+    round (22 of 24 level, 18 of 24 up) and no run freezes. The lattice row
+    is followed, but slower than the shipped walk (1,189 decisions against
+    702), because presence says "route" and not "which way".
+  - **Crumbs were being sealed underground** (owner, from a card): they
+    slid down tunnels like sand and soil closed over them, 93 of 157 at the
+    end of a run. Crumbs no longer slide: 10 of 142. The colony still
+    starves.
   - The per-decision mix matched the formula within a point at both
     energies. The reach predictions were low; the report says why.
   - The scene's own checks caught rain pooling on the slab and an ant dying

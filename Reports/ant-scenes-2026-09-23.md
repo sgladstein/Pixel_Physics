@@ -465,3 +465,119 @@ directions: the nearest thing to a canopy that nothing grows in.
 walk (21 of 24 reaching 60 cells east, 13% on the row), with no frozen runs.
 
 **Data:** `Reports/data/scene-s5-{laden,trail}-{shipped,chooser}-2026-09-23.log`.
+
+## 6. Stage 2, first form: the chooser reads the trail where it would step
+
+**What it adds** (`PIXEL_PHYSICS_CHOOSER=trail`; `creature::trail_presence`,
+`brain_inputs`), on top of stage 1:
+- **The trail is read where a step would go**: the scent in the cell the
+  head would enter and the one beyond, the larger of the two, as a presence
+  from 0 to 1 (half at a tenth of a full deposit). Trail B for an empty ant,
+  trail A for a laden one.
+- **Presence multiplies going on**: a heading onto a full route scores up to
+  4 times what its turn alone would. Turning round still scores 0, so a
+  route that runs both ways does not make the ant reverse more.
+- **The throttle retires**: the brain gets the two trail-gradient readings
+  as 0, where its mirrored hidden-unit pairs cancel exactly.
+- Not yet: the running averages of plan §4c, the away-from-home gain for
+  empty ants of §4d, and new brain outputs for the gains.
+
+**Predictions, written 2026-09-23 before the first run:**
+- **S4, trail up the climbing branch: at least 18 of 24 take it first**, from
+  the arithmetic at the fork (about 80%). **Trail on the level branch: at
+  least 20 of 24.** No trail: as stage 1 (17 and 7).
+- **No run frozen 100+ decisions, in any arm of S4 or S5.** Nothing reads
+  the gradient any more, so nothing can set `P(move)` to 0.
+- **S5 with trail: the ant stays on the row far more than the shipped walk's
+  13%**, at least half its decisions, and at least 21 of 24 get 60 cells
+  east.
+- **S0–S3 unchanged from stage 1**, since those scenes lay no trail.
+
+**Results, 24 seeds per arm, as S4 and S5 above:**
+
+| | Predicted | Shipped walk | Stage 1 | **Stage 2** |
+|---|---|---|---|---|
+| S4 no trail: first branch level / up | as stage 1 | 16 / 7 | 17 / 7 | **17 / 7** |
+| S4 level trail: first branch level / up | 20+ level | 18 / 6 | 10 / 11 | **22 / 2** |
+| S4 up trail: first branch level / up | 18+ up | never left the tunnel | never left | **6 / 18** |
+| S4 time on the trailed branch, level / up | | 73% / 0% | 41% / 0% | **40% / 22%** |
+| S4 runs frozen 100+ decisions, any arm | 0 | 0 level, 24 up | 21 level, 24 up | **0** (longest 17) |
+| S5 empty, trail: got 60 cells east | 21+ | 21, median decision 702 | 0 | **21, median 1,189** |
+| S5 empty, trail: furthest east, median | | 144 cells | 3 | **97** |
+| S5 empty, trail: within a row of the trail | half or more | 13% | 54% (frozen on it) | **23.5%** |
+| S5 no trail: got 60 cells east | | 12 | 16 | **16** |
+| S5 laden: got home | as stage 1 | 24, median 103 | 24, median 92 | **24, median 92** |
+| S0–S3 | unchanged | | | **unchanged, line for line** |
+
+- **The trail now chooses the branch, both ways round, and nothing freezes.**
+  Both S4 bars are met: 22 of 24 take a trailed level branch first, and 18
+  of 24 take a trailed climbing branch that no ant on either earlier walk
+  ever left the main tunnel for. No run stands still for more than 17
+  decisions in any arm of S4 or S5, where stage 1 froze 21 and 24 of 24.
+- **S0–S3 are the same to the line**, because they lay no trail (the run
+  echoes `CHOOSER=trail`, so this is not a stale binary).
+- **Time on the trailed level branch fell from the shipped 73% to 40%, and
+  that is not a regression.** The shipped ant climbed the rising trail and
+  stood at the blind end, held there by the throttle reading uphill. The
+  stage-2 ant walks to the end, turns round, and walks back out, because a
+  route draws it on in both directions. Here there is nothing at the end; in
+  the colony the end is food.
+- **S5 missed half its bar, and for a reason in the design, not the tuning.**
+  21 of 24 get 60 cells east, as the shipped walk does, but at a median of
+  1,189 decisions against 702, and on the row 23.5% of the time against a
+  predicted half. **Presence says "this is a route"; it does not say which
+  way along it is home or food.** On the row both directions score the same,
+  so the ant goes along it both ways at random. The shipped walk had a
+  direction, crudely: its throttle stopped it when it faced down the rising
+  trail. Which way along the route is better is what plan §4c's running
+  average is for (is the scent getting stronger as I go?), and S5 is the
+  scene that will show whether it works.
+
+**What this does not yet say** is whether the colony eats more. S4 and S5 are
+one ant and a trail laid by hand. That is the bed (§8).
+
+**Data:** `Reports/data/scene-stage2-{s0,s1,s2,s3,s4,s5,s5trail}-2026-09-23.log`.
+
+## 7. Crumbs were ending up sealed underground
+
+**Found by the owner from a review card** (2026-09-23: *"Some of your crumbs
+are being placed underground..."*, then *"they look buried under soil, not
+down a tunnel"*). Both were right, in order. `crumbwatch` (every crumb, every
+frame, with its eight neighbours) traced one seed cell by cell:
+- ants dig a narrow diagonal tunnel down from the nest;
+- crumbs went down it, some carried and put down inside, most put down at
+  the mouth and **sliding** down it: `crumbs` was an ordinary powder, and
+  `update_powder`'s diagonal move is unconditional (it does not read
+  `friction_angle`);
+- loose soil then came down the same tunnel after them and closed it, and
+  each crumb ended with none of its eight neighbours open. No ant digs
+  there again, so that food is gone from the colony for good.
+
+**The fix is `Material::rolls`**, `false` for `crumbs` only: a crumb still
+drops straight down through open air (and through an organism), and
+otherwise stays where it was put. That is how the fruit it replaces behaves:
+a plant cell never moved. Guarded by
+`update::tests::crumbs_stay_where_they_are_put_and_sand_in_the_same_place_slides`
+on both drivers, with sand at the same tunnel mouth as the arm that must
+slide, and a crumb in open air that must still land.
+
+**Measured on the bed**, gap 90, 24 seeds, frame 24,000, the same seeds on
+both sides, counting crumbs with no open neighbour (`CRUMBS BURIED`):
+
+| | Crumbs slide | **Crumbs stay put** |
+|---|---|---|
+| crumbs sealed in, of all crumbs | 93 of 157 | **10 of 142** |
+| runs with any sealed in | 22 of 24 | **8 of 24** |
+| food sealed in | 10,612 J (about 11 fruits) | **277 J** |
+| food delivered to the nest, sum | 12,383 | 13,237 (higher on 14 of 24 seeds) |
+| starved, sum / colonies wiped out | 433 / 23 | 434 / 24 |
+
+The ten left are crumbs put down *inside* a tunnel that later filled; this
+does not stop soil falling on food, and nothing needs it to. **It does not
+move the loop**: the colony starves as before. It stops the loop's own food
+being lost where nobody can reach it, which would otherwise be a leak under
+every later measurement. The sliding arm reproduces §Z33's fixed shipped bed
+at gap 90 line for line, so the only difference between the columns is the
+one flag.
+
+**Data:** `Reports/data/bed-crumbs-{slide,stay}-2026-09-23.log.gz`.

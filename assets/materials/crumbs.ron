@@ -23,6 +23,12 @@
 // **It does not rot**, because the fruit it replaces does not: a half-eaten
 // fruit in a nest must not be a new way for food to vanish that a whole one is
 // not. Crumbs are eaten or they stay.
+//
+// **And it does not roll** (`rolls: false`), for the same reason: the fruit
+// never moved. As an ordinary powder a crumb put down at a tunnel mouth slid
+// down the tunnel and packed it from the bottom, sealed in the lining where
+// no ant goes -- the owner spotted it from the first picture. It still drops
+// straight down through open air.
 (
     name: "crumbs",
     display: "Crumbs",
@@ -51,6 +57,7 @@
     // rather than a feast.
     food_energy: 40.0,
     carries_worth: true,
+    rolls: false,
     penetration_resistance: 0.2,
     food_class: -1.0,
 )

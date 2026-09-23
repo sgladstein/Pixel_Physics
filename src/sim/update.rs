@@ -1020,6 +1020,8 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
     // because `def` borrows the registry and the crumb branch writes through
     // `surface`. One `bool` off a cache line already loaded.
     let needs_footing = def.needs_footing;
+    // `false` only for `crumbs`: it drops straight down and never slides.
+    let rolls = def.rolls;
     // **Only in the control arm.** With the phase on, moisture is
     // `World::step_soil_water`'s business and running it here as well would
     // both double the transport rate and put every wetness change back on the
@@ -1342,23 +1344,29 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
     // air, or resting on ground, is unaffected.
     let sinking = !below.is_empty() && surface.materials().kind(below.material) == MaterialKind::Liquid;
     let (first, second) = if surface.rng().flip() { (-1, 1) } else { (1, -1) };
-    if sinking && surface.rng().chance(SINK_SPREAD) && (try_move(surface, x, y, x + first, y + 1) || try_move(surface, x, y, x + second, y + 1)) {
+    if rolls && sinking && surface.rng().chance(SINK_SPREAD) && (try_move(surface, x, y, x + first, y + 1) || try_move(surface, x, y, x + second, y + 1)) {
         return true;
     }
 
     if !hole_from_a_sideways_escape && try_move(surface, x, y, x, y + 1) {
         return true;
     }
-    if try_move(surface, x, y, x + first, y + 1) || try_move(surface, x, y, x + second, y + 1) {
+    // **A material that does not roll stops here unless it can drop straight
+    // down** (`Material::rolls`; `crumbs` only). Every powder slides
+    // diagonally whatever its angle of repose -- the diagonal move below is
+    // unconditional -- and a part-eaten piece of fruit that slid was found
+    // packed 9-16 cells down an ant tunnel it had rolled into, sealed in the
+    // lining where no ant goes (`Reports/ant-scenes-2026-09-23.md` §7).
+    if rolls && (try_move(surface, x, y, x + first, y + 1) || try_move(surface, x, y, x + second, y + 1)) {
         return true;
     }
     if fall_through_organism(surface, x, y, cell, below) {
         return true;
     }
-    if roll_along_slope(surface, x, y, rightward) {
+    if rolls && roll_along_slope(surface, x, y, rightward) {
         return true;
     }
-    if slide_past_organism(surface, x, y, cell, rightward) {
+    if rolls && slide_past_organism(surface, x, y, cell, rightward) {
         return true;
     }
 
@@ -2996,6 +3004,61 @@ const SPLASH_MIN_FILL: u16 = material::LIQUID_FULL;
 #[cfg(test)]
 mod tests {
     use super::super::cell::OrganismId;
+
+    /// **Crumbs stay where they are put; sand in the same place slides.**
+    ///
+    /// Owner, 2026-09-23, from a review card: *"Some of your crumbs are being
+    /// placed underground..."*. A part-eaten fruit goes down as `crumbs`, a
+    /// powder, and a powder slides diagonally whatever its angle of repose, so
+    /// crumbs put down at a tunnel mouth rolled down the tunnel and packed it.
+    /// `Material::rolls` turns that off for crumbs. One stone block, one
+    /// diagonal tunnel, one cell at its mouth, run on both drivers:
+    /// - crumbs at the mouth must still be there;
+    /// - sand at the mouth must have left it, or this scene cannot slide
+    ///   anything and the first half proves nothing;
+    /// - crumbs in open air must still drop straight down, or `rolls: false`
+    ///   has become "never moves", which would leave food floating.
+    #[test]
+    fn crumbs_stay_where_they_are_put_and_sand_in_the_same_place_slides() {
+        use super::super::chunk::Rect;
+        use super::super::world::World;
+        fn at_mouth(material: &str, parallel: bool) -> (bool, (i32, i32)) {
+            let mut w = World::new(Rect::new(0, 0, 63, 63));
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            for x in 0..64 {
+                for y in 20..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            // A diagonal tunnel running down and to the right from (20, 20).
+            for k in 0..15 {
+                w.set(20 + k, 20 + k, Cell::EMPTY);
+            }
+            let m = w.materials.id_of(material).expect("material compiled in");
+            // The cell at the mouth, resting on the stone beside the tunnel's
+            // first cell -- the place a crumb is put down at a tunnel mouth.
+            w.set(19, 19, Cell::new(m, 0).with_aux(400));
+            // And one in open air, well above the ground.
+            w.set(40, 5, Cell::new(m, 0).with_aux(400));
+            for _ in 0..300 {
+                if parallel {
+                    super::super::parallel::step(&mut w);
+                } else {
+                    step(&mut w);
+                }
+            }
+            let stayed = w.get(19, 19).material == m;
+            let fell_to = (0..20).rev().find(|&y| w.get(40, y).material == m).map_or((40, -1), |y| (40, y));
+            (stayed, fell_to)
+        }
+        for parallel in [false, true] {
+            let (crumbs_stayed, crumbs_fell) = at_mouth("crumbs", parallel);
+            let (sand_stayed, _) = at_mouth("sand", parallel);
+            assert!(!sand_stayed, "sand at the tunnel mouth did not slide (parallel {parallel}): the scene cannot show a slide");
+            assert!(crumbs_stayed, "crumbs at the tunnel mouth slid away (parallel {parallel})");
+            assert_eq!(crumbs_fell, (40, 19), "crumbs in open air must drop straight down onto the stone (parallel {parallel})");
+        }
+    }
 
     /// **A tunnel with a lining keeps its roof; the same tunnel without one
     /// does not.** Both halves are asserted in one test on purpose.

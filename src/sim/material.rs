@@ -582,6 +582,21 @@ pub struct MaterialDef {
     /// writes its support distance there.
     #[serde(default)]
     pub carries_worth: bool,
+    /// **Whether a powder of this material slides**: diagonally down, along a
+    /// slope, or sideways past an organism. `true` for every powder but one.
+    /// A powder that does not roll still drops straight down through open air
+    /// (and through an organism), and otherwise stays where it is put.
+    ///
+    /// **`false` for `crumbs`, and found by the owner from a picture**
+    /// (2026-09-23: *"Some of your crumbs are being placed underground..."*).
+    /// A part-eaten fruit put down at a tunnel mouth rolled down the tunnel
+    /// like sand and packed it from the bottom: five crumbs in a line 9-16
+    /// cells deep, each with none of its eight neighbours open, sealed in
+    /// the lining where no ant goes. The fruit a crumb replaces is a plant
+    /// cell and never moved; `friction_angle` cannot stop it, because
+    /// `update_powder`'s diagonal move does not read it.
+    #[serde(default = "default_rolls")]
+    pub rolls: bool,
     /// Chance that a cell formed by this material's decay reseeds a plant in
     /// the empty cell above it, rolled once at the moment of decay.
     ///
@@ -1696,6 +1711,10 @@ fn default_fill_dimming() -> f32 {
     0.65
 }
 
+fn default_rolls() -> bool {
+    true
+}
+
 fn default_friction_angle() -> f32 {
     45.0
 }
@@ -1855,6 +1874,8 @@ pub struct Material {
     pub worth_in_aux: bool,
     /// See `MaterialDef::carries_worth`.
     pub carries_worth: bool,
+    /// See `MaterialDef::rolls`.
+    pub rolls: bool,
     /// See `MaterialDef::reinforces_powder`.
     pub reinforces_powder: bool,
     /// See `MaterialDef::self_supporting`.
@@ -2280,6 +2301,7 @@ impl From<MaterialDef> for Material {
             food_class: def.food_class,
             worth_in_aux: def.worth_in_aux,
             carries_worth: def.carries_worth,
+            rolls: def.rolls,
             reinforces_powder: def.reinforces_powder,
             self_supporting: def.self_supporting,
             needs_footing: def.needs_footing,
@@ -2737,6 +2759,7 @@ impl MaterialRegistry {
             food_class: 0.0,
             worth_in_aux: false,
             carries_worth: false,
+            rolls: true,
             reinforces_powder: false,
             self_supporting: false,
             needs_footing: false,
@@ -2821,6 +2844,7 @@ impl MaterialRegistry {
             food_class: 0.0,
             worth_in_aux: false,
             carries_worth: false,
+            rolls: true,
             reinforces_powder: false,
             self_supporting: false,
             needs_footing: false,

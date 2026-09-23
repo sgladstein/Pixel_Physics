@@ -652,6 +652,9 @@ pub struct DecisionScratch {
     /// The cosine between the heading the chooser picked and home; NaN when
     /// it did not choose or had no home pull.
     pub chosen_cos: f32,
+    /// Stage 2: the trail presence (`trail_presence`, 0..1) of the heading
+    /// the chooser picked; NaN otherwise.
+    pub chosen_route: f32,
 }
 
 impl Default for DecisionScratch {
@@ -672,6 +675,7 @@ impl Default for DecisionScratch {
             pick: NO_PICK,
             patience: f32::NAN,
             chosen_cos: f32::NAN,
+            chosen_route: f32::NAN,
         }
     }
 }
@@ -763,6 +767,8 @@ pub struct DecisionRow {
     /// the home cosine of the heading it picked. NaN on the shipped walk.
     pub patience: f32,
     pub chosen_cos: f32,
+    /// Stage 2: the trail presence of the heading picked (`trail_presence`).
+    pub chosen_route: f32,
 }
 
 fn worm_tick(world: &mut World, x: i32, y: i32, organism: OrganismId) -> Vec<ActiveSite> {
@@ -4911,7 +4917,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             };
             let genome = std::mem::take(&mut state.genome);
             let mut brain_state = state.brain_state;
-            let result = brain::eval_brain(&genome, &inputs, &mut brain_state);
+            let result = brain::eval_brain(&genome, &brain_inputs(world, &inputs), &mut brain_state);
             let state = world.organism_mut(organism).expect("still live");
             state.genome = genome;
             state.brain_state = brain_state;
@@ -5175,7 +5181,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             moved = if chooser == Chooser::Off {
                 step_chain(world, organism, heading, &outputs, def, &mut draw)
             } else {
-                chooser_step(world, organism, heading, &outputs, def, &mut draw, chooser == Chooser::On)
+                chooser_step(world, organism, heading, &outputs, def, &mut draw, chooser)
             };
             if moved {
                 // Read after the step for the reason the launch arm above
@@ -5367,6 +5373,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             pick: sc.pick,
             patience: sc.patience,
             chosen_cos: sc.chosen_cos,
+            chosen_route: sc.chosen_route,
         };
         if let Some(log) = world.decision_log.as_mut() {
             log.push(row);
@@ -7100,7 +7107,7 @@ fn sense_ahead(world: &World, site: &ActiveSite) -> Option<SensedAhead> {
     let read = sense_read_rects(world, x, y, organism, def, state);
     let (inputs, seen, sight_reads, curvature_reads) = sense(world, x, y, organism, heading, def, false);
     let mut brain_state = state.brain_state;
-    let (outputs, active_synapses) = brain::eval_brain(&state.genome, &inputs, &mut brain_state);
+    let (outputs, active_synapses) = brain::eval_brain(&state.genome, &brain_inputs(world, &inputs), &mut brain_state);
     Some(SensedAhead { organism, x, y, heading, read, inputs, seen, sight_reads, curvature_reads, outputs, active_synapses, brain_state })
 }
 
@@ -12140,6 +12147,10 @@ pub enum Chooser {
     /// `On` with `home_patience` held at 1, so the home term is always at full
     /// strength. The ablation that says what the patience memory is for.
     NoPatience,
+    /// **Stage 2**: `On`, plus the trail read where a step would go
+    /// (`trail_presence`) and the trail-gradient throttle retired
+    /// (`brain_inputs`). Plan §4b, §4e.
+    Trail,
 }
 
 /// The environment's setting, read once per process.
@@ -12148,6 +12159,7 @@ pub fn chooser_from_env() -> Chooser {
     *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_CHOOSER").as_deref() {
         Ok("on") => Chooser::On,
         Ok("nopatience") => Chooser::NoPatience,
+        Ok("trail") => Chooser::Trail,
         _ => Chooser::Off,
     })
 }
@@ -12204,6 +12216,59 @@ pub const EXCURSION_CELLS: u16 = 6;
 /// `|d|` for `DIRS[d]`, by parity: 1 on the four straight headings, `sqrt 2`
 /// on the diagonals. Divided out so a home cosine is a cosine.
 const DIR_LEN: [f32; 2] = [1.0, std::f32::consts::SQRT_2];
+
+/// **What the brain is handed, as against what was sensed.** Identical, except
+/// under stage 2 (`Chooser::Trail`), where the two trail-gradient readings
+/// (`PheroAAlong`, `PheroBAlong`) reach it as 0: **the throttle retires**
+/// (plan §4e). The ant's wiring reads each of them through a mirrored pair of
+/// hidden units whose two halves cancel exactly when the reading is 0, so this
+/// removes the throttle and nothing else. The trace keeps the true reading,
+/// because it is taken from the sensed inputs, not these.
+///
+/// Why the throttle has to go rather than stay beside the trail term:
+/// `Reports/ant-scenes-2026-09-23.md` §4–§5. It reads the trail 6 cells ahead
+/// on the ant's own row, which in a tunnel's last few cells or at the mouth of
+/// a climbing branch lands in rock, and there it sets `P(move)` to 0; under
+/// the chooser, which does not re-aim on a lost roll, that is a freeze for
+/// good (21 of 24 runs at a fork, 24 of 24 in the lattice).
+fn brain_inputs(world: &World, inputs: &[f32; brain::BRAIN_INPUTS]) -> [f32; brain::BRAIN_INPUTS] {
+    let mut out = *inputs;
+    if chooser_of(world) == Chooser::Trail {
+        out[brain::BrainInput::PheroAAlong as usize] = 0.0;
+        out[brain::BrainInput::PheroBAlong as usize] = 0.0;
+    }
+    out
+}
+
+/// **How much trail makes a step a route**: the scent level at which the
+/// trail term reaches half its gain (`trail_presence`). A tenth of one full
+/// deposit, so a trail an ant laid a while ago and a fresh one both read as
+/// "a route", which is the saturating presence plan §4d asks for.
+const TRAIL_HALF: f32 = pheromone::DEPOSIT as f32 / 10.0;
+
+/// **How strongly a route draws the step**, as a multiplier on going on:
+/// a heading onto a full route scores up to `1 + TRAIL_GAIN` times what its
+/// turn alone would. Multiplied, not added, and that is the design: a route
+/// runs both ways, so an added term would lift going back as much as going
+/// on and, through `choose_weighted`'s squares, turn one reversal in 120 into
+/// about one in four. Multiplied, turning round still scores 0. At 3, a trail
+/// down the 45-degree branch of a fork takes about 80% of arrivals against
+/// straight on untrailed (`ant-scenes-2026-09-23.md` §4's bar is 75%).
+const TRAIL_GAIN: f32 = 3.0;
+
+/// **Is the step along `d` onto a route?** The scent where the head would go
+/// and one cell beyond, the larger of the two (plan §4b: about an antenna's
+/// reach for a two-cell ant), saturated as `x / (1 + x)` over `TRAIL_HALF`.
+/// Trail B for an ant carrying no food, trail A for one that is (plan §4d:
+/// the laden ant reads the nest's trail, never its own).
+fn trail_presence(world: &World, head: (i32, i32), d: u8, laden: bool) -> f32 {
+    let channel = if laden { Channel::A } else { Channel::B };
+    let (dx, dy) = DIRS[d as usize];
+    let near = world.pheromone_at(channel, head.0 + dx, head.1 + dy);
+    let far = world.pheromone_at(channel, head.0 + 2 * dx, head.1 + 2 * dy);
+    let x = f32::from(near.max(far)) / TRAIL_HALF;
+    x / (1.0 + x)
+}
 
 /// **Where home is for the chooser, and how hard it pulls**: `(target, gain)`
 /// while carrying food (`home_target`, at `home_bias`), or while hauling spoil
@@ -12275,8 +12340,10 @@ fn chooser_step(
     outputs: &[f32; brain::BRAIN_OUTPUTS],
     def: &CreatureDef,
     draw: &mut rng::Rng,
-    patience_on: bool,
+    mode: Chooser,
 ) -> bool {
+    let patience_on = mode != Chooser::NoPatience;
+    let reads_trail = mode == Chooser::Trail;
     let Some((chain, groups, fates)) = world.organism(organism).map(|s| (s.chain.clone(), s.segment_groups.clone(), s.fates)) else {
         note_outcome(world, DecisionOutcome::NoBody);
         return false;
@@ -12334,6 +12401,8 @@ fn chooser_step(
     let turn = outputs[brain::BrainOutput::Turn as usize];
     let k = CHOICE_EXPLORATION_K * brain::unit_scale(outputs[brain::BrainOutput::Tumble as usize], 2.0);
     let gain = pull.map_or(0.0, |(_, g)| HOME_GAIN * g * patience);
+    let laden = world.organism(organism).and_then(|s| s.crop).is_some_and(|c| c.worth() > 0.0);
+    let route = |d: u8| if reads_trail { trail_presence(world, (hx, hy), d, laden) } else { 0.0 };
     let score = |d: u8| -> f32 {
         let rel = (d + 8 - heading) % 8;
         let side = match rel {
@@ -12341,16 +12410,19 @@ fn chooser_step(
             5..=7 => (-turn).max(0.0),
             _ => 0.0,
         };
-        persist * TURN_PREF[rel.min(8 - rel) as usize] + side + home_cos(d).map_or(0.0, |c| gain * c)
+        persist * TURN_PREF[rel.min(8 - rel) as usize] * (1.0 + TRAIL_GAIN * route(d)) + side + home_cos(d).map_or(0.0, |c| gain * c)
     };
     // Usable headings in `DIRS` order, then the crossing, so the draw maps to
     // the same option every run.
     let options: Vec<u8> = usable.iter().copied().chain(crossing.map(|_| heading)).collect();
     let scores: Vec<f32> = options.iter().map(|&d| score(d)).collect();
     let pick = choose_weighted(&scores, k, draw.unit_f32());
+    let picked_route = if reads_trail { route(options[pick]) } else { f32::NAN };
+    let picked_cos = home_cos(options[pick]).unwrap_or(f32::NAN);
     if world.decision_log.is_some() {
         world.decision_scratch.patience = patience;
-        world.decision_scratch.chosen_cos = home_cos(options[pick]).unwrap_or(f32::NAN);
+        world.decision_scratch.chosen_cos = picked_cos;
+        world.decision_scratch.chosen_route = picked_route;
     }
 
     if pick == usable.len() {

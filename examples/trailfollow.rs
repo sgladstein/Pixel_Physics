@@ -1004,6 +1004,9 @@ impl Diet {
     }
 }
 
+/// The eight cells around one, for asking whether a crumb has any open side.
+const NEIGH8: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
+
 /// **What the colony ate, split into the larder and everything else.**
 ///
 /// Summed over every colony's books rather than read off `EnergyLedger`,
@@ -2387,6 +2390,11 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // cell the budget cannot explain, the fruit cells that vanished since the
     // last sample are printed with what now stands where they were.
     let food_watch = flag("foodwatch");
+    // `crumbwatch`: every frame, where each crumb is, and when one appears,
+    // moves or has its surroundings closed over -- with what closed them.
+    // Built to answer whether a crumb underground slid there or was buried.
+    let crumb_watch = flag("crumbwatch");
+    let mut crumb_prev: std::collections::BTreeMap<(i32, i32), (usize, Vec<String>)> = std::collections::BTreeMap::new();
     // The last food-watch sample: its residual, where food stood, and births.
     type WatchSample = (f64, std::collections::HashSet<(i32, i32)>, u64);
     let mut watch_prev: Option<WatchSample> = None;
@@ -2537,7 +2545,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 // 0.0000 on every row of a run where it was nonzero, and a
                 // parse of that column called it exactly zero.
                 decision_rows.push(format!(
-                    "{seed},{gap},{arm_name},{},{},{},{},{:.4},{},{},{},{},{},{},{},{},{},{:.4},{:.4},{},{:.4},{:.4},{:.5},{:.5},{},{:.4},{},{},{:.4},{:.4},{:e},{:.4},{:.4},{},{},{:.4},{},{},{:.4},{:.4},{},{},{},{},{:.4},{:.4},{:.4},{},{}",
+                    "{seed},{gap},{arm_name},{},{},{},{},{:.4},{},{},{},{},{},{},{},{},{},{:.4},{:.4},{},{:.4},{:.4},{:.5},{:.5},{},{:.4},{},{},{:.4},{:.4},{:e},{:.4},{:.4},{},{},{:.4},{},{},{:.4},{:.4},{},{},{},{},{:.4},{:.4},{:.4},{},{},{:.4},{:.4},{:.4}",
                     decision_tag,
                     r.frame,
                     r.id,
@@ -2584,6 +2592,9 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     r.cone[2],
                     if r.pick == creature::NO_PICK { "-" } else { creature::CONE_PICK_NAMES[r.pick as usize] },
                     r.drop_reach,
+                    r.patience,
+                    r.chosen_cos,
+                    r.chosen_route,
                 ));
             }
         }
@@ -2895,6 +2906,31 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             }
             watch_prev = Some((residual, seen, births));
         }
+        if crumb_watch {
+            let mut now: std::collections::BTreeMap<(i32, i32), (usize, Vec<String>)> = std::collections::BTreeMap::new();
+            for y in 0..spec.height {
+                for x in 0..width {
+                    if Some(w.get(x, y).material) == crumbs {
+                        let names: Vec<String> = NEIGH8.iter().map(|&(dx, dy)| w.materials.get(w.get(x + dx, y + dy).material).name.clone()).collect();
+                        let open = NEIGH8.iter().filter(|&&(dx, dy)| w.get(x + dx, y + dy).material == pixel_physics::sim::material::EMPTY).count();
+                        now.insert((x, y), (open, names));
+                    }
+                }
+            }
+            for (p, (open, names)) in &now {
+                match crumb_prev.get(p) {
+                    None => println!("    CRUMB frame {f}: appears at {p:?}, {open} of 8 neighbours open {names:?}"),
+                    Some((was, was_names)) if was != open => println!("    CRUMB frame {f}: at {p:?} open neighbours {was} -> {open}; {was_names:?} -> {names:?}"),
+                    _ => {}
+                }
+            }
+            for p in crumb_prev.keys() {
+                if !now.contains_key(p) {
+                    println!("    CRUMB frame {f}: gone from {p:?}, now {}", w.materials.get(w.get(p.0, p.1).material).name);
+                }
+            }
+            crumb_prev = now;
+        }
         if f.is_multiple_of(3000) {
             let (mut at_nest, mut elsewhere, mut crumb_cells) = (0u32, 0u32, 0u32);
             for y in 0..spec.height {
@@ -2955,7 +2991,20 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     .filter(|&(x, y)| Some(w.get(x, y).material) == crumbs)
                     .map(|(x, y)| format!("({},{}) {:.0}J", x - x0, y - y0, creature::food_value(&w, w.get(x, y))))
                     .collect();
-                println!("    CAPTURE frame {} ({f}): {} crumbs in view at view cells [{}]", gif_frames.len(), at.len(), at.join(" "));
+                println!("    CAPTURE frame {} ({f}): camera at world ({x0},{y0}), world height {}; {} crumbs in view at view cells [{}]", gif_frames.len(), spec.height, at.len(), at.join(" "));
+                // What surrounds each crumb: empty neighbours (a tunnel or open
+                // air) against soil, and the ground above it.
+                for y in y0..y0 + vh {
+                    for x in x0..x0 + vw {
+                        if Some(w.get(x, y).material) != crumbs {
+                            continue;
+                        }
+                        let empty = NEIGH8.iter().filter(|&&(dx, dy)| w.get(x + dx, y + dy).material == pixel_physics::sim::material::EMPTY).count();
+                        let depth = (1..40).take_while(|&k| w.get(x, y - k).material != pixel_physics::sim::material::EMPTY).count();
+                        let names: Vec<&str> = NEIGH8.iter().map(|&(dx, dy)| w.materials.get(w.get(x + dx, y + dy).material).name.as_str()).collect();
+                        println!("      crumb view ({},{}) = world ({x},{y}): {} of 8 neighbours empty; {} solid cells straight above before open air; neighbours {:?}", x - x0, y - y0, empty, depth, names);
+                    }
+                }
             }
             // Nearest-neighbour magnify, the same rule `filmstrip`'s tiles use:
             // an ant must be several screen pixels or the GIF answers nothing.
@@ -4309,7 +4358,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             let suffix = if decision_tag.is_empty() { String::new() } else { format!("-{decision_tag}") };
             let path = format!("{decision_dir}/trailfollow-decisions-seed{seed}-gap{gap}-{arm_name}{suffix}.csv");
             let mut out = String::from(
-                "seed,gap,arm,tag,frame,id,leg,fill,x,y,x2,y2,heading,heading2,usable,setting,ax,ay,energy,home_aligned,at_nest,crowding,stillness,along_a,along_b,food_adjacent,kin_need,nest_x,move_out,p_move,turn,roll_move,roll_tumble,outcome,homeward,home_cos,moved,drop,drop_roll,drop_p,free8,n_nw,n_n,n_ne,n_w,n_e,n_sw,n_s,n_se,nbr_self,nbr_other,cone_l,cone_s,cone_r,pick,drop_reach\n",
+                "seed,gap,arm,tag,frame,id,leg,fill,x,y,x2,y2,heading,heading2,usable,setting,ax,ay,energy,home_aligned,at_nest,crowding,stillness,along_a,along_b,food_adjacent,kin_need,nest_x,move_out,p_move,turn,roll_move,roll_tumble,outcome,homeward,home_cos,moved,drop,drop_roll,drop_p,free8,n_nw,n_n,n_ne,n_w,n_e,n_sw,n_s,n_se,nbr_self,nbr_other,cone_l,cone_s,cone_r,pick,drop_reach,patience,chosen_cos,chosen_route\n",
             );
             out.push_str(&decision_rows.join("\n"));
             out.push('\n');
@@ -4363,6 +4412,9 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         // Crumbs are counted at what they hold, in face value, and shown as
         // cells of the larder's face.
         let (mut crumb_cells, mut crumb_face) = (0u64, 0.0f64);
+        // Crumbs with not one open cell among their eight neighbours: sealed
+        // in, where no ant can reach them. The owner's "buried under soil".
+        let (mut buried, mut buried_face) = (0u64, 0.0f64);
         for y in 0..spec.height {
             for x in 0..width {
                 let c = w.get(x, y);
@@ -4372,9 +4424,14 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 if Some(c.material) == crumbs {
                     crumb_cells += 1;
                     crumb_face += creature::food_value(&w, c) as f64;
+                    if !NEIGH8.iter().any(|&(dx, dy)| w.get(x + dx, y + dy).material == pixel_physics::sim::material::EMPTY) {
+                        buried += 1;
+                        buried_face += creature::food_value(&w, c) as f64;
+                    }
                 }
             }
         }
+        println!("    CRUMBS BURIED (no open neighbour): {buried} of {crumb_cells} crumbs, worth {:.0} J", buried_face);
         for id in w.live_organism_ids() {
             let Some(st) = w.organism(id) else { continue };
             if let Some(c) = st.crop.filter(|c| is_larder_food(c.material)) {
