@@ -3183,11 +3183,18 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     `food-budget-*-2026-09-23.log` and `decisions-seed1-gap90-2026-09-22.csv.gz`.
 - [ant-scenes-2026-09-23.md](ant-scenes-2026-09-23.md)
   — **result, 2026-09-23. `engine`. Step 3 of the movement plan: the ant's
-  walk in controlled scenes, the baseline the chooser must beat.** S0 done.
+  walk in controlled scenes, the baseline the chooser must beat.** S0–S3
+  done; S4–S5 run before stage 2.
   - **A fed explorer jitters.** At full energy an empty ant steps 20% and
     reverses 20% of its decisions. In a bed-length run the median ant gets
     50 cells from its start, and it found food 90 cells away in 2 of 24 runs.
     Hungry (energy 0.5), it found the food in 19 of 24.
+  - **A laden ant gets home over open ground** (24 of 24, median 51
+    decisions), **and cannot take any detour.** Facing away from home
+    throttles its step to zero, and the homeward re-roll only picks headings
+    usable now. Walls of 6 and 12 cells: 0 of 24, never more than 2 cells up
+    the face. A U-bend: 0 of 24, not one step. Walls of 1–3 cross, because
+    the step over the top points home.
   - The per-decision mix matched the formula within a point at both
     energies. The reach predictions were low; the report says why.
   - The scene's own checks caught rain pooling on the slab and an ant dying

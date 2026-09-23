@@ -640,7 +640,11 @@ goes, any later measurement on the colony bed states which drop rule it ran.
    them. **S0 done 2026-09-23:
    [`ant-scenes-2026-09-23.md`](ant-scenes-2026-09-23.md).** A fed explorer
    reverses as often as it steps and found food 90 cells away in 2 of 24
-   runs; a hungry one in 19 of 24.
+   runs; a hungry one in 19 of 24. **S1–S3 done the same day:** a laden
+   ant gets home over open ground in 24 of 24 runs and over walls of 1–3
+   cells, and in 0 of 24 over walls of 6 and 12 or out of the U-bend. Every
+   failure is facing away from home with `p_move` at 0 or near it. S4–S5
+   run just before stage 2, on the owner's ruling.
 4. **The drop's side effects (§8c)**, in parallel with step 3. The full
    census of §8 waits until the loop works.
 5. **Chooser stage 1** (§4i), behind its switch: turning preference, home

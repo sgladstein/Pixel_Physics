@@ -6805,6 +6805,34 @@ impl World {
         }
     }
 
+    /// **Pin what an animal is carrying**, for a scene that must hold the
+    /// laden leg fixed while digestion would otherwise empty the crop
+    /// (`examples/scenes.rs`). A harness tool like `set_organism_energy`:
+    /// the food it conjures is booked nowhere. Returns `false` if the
+    /// organism is gone.
+    pub fn set_organism_crop(&mut self, organism_id: OrganismId, crop: Option<crate::sim::organism::Crop>) -> bool {
+        match self.organism_mut(organism_id) {
+            Some(state) => {
+                state.crop = crop;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// **Pin where an animal thinks home is** (`OrganismState::
+    /// forage_anchor`), for a scene with no nest material to re-anchor it.
+    /// Returns `false` if the organism is gone.
+    pub fn set_organism_forage_anchor(&mut self, organism_id: OrganismId, anchor: (i32, i32)) -> bool {
+        match self.organism_mut(organism_id) {
+            Some(state) => {
+                state.forage_anchor = anchor;
+                true
+            }
+            None => false,
+        }
+    }
+
     /// **Push `organism_id` onto `colony`'s candidate breeder list, pruning
     /// that same list of anyone who has died since it was last touched.**
     ///

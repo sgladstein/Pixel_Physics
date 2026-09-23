@@ -1,0 +1,84 @@
+# S2 per-decision dumps, 2026-09-23: the stuck runs, read decision by decision
+
+## wall height 12, seed 1, decisions 3000-3023
+    dump, seed 1: decision frame head -> head_after heading -> after | usable | home_aligned p_move stillness | outcome homeward home_cos
+     3000  18006 (181, 86) -> (181, 86) S -> S | N|S|SE | +0.048 0.282 0.000 | RollFailedTumbled Fired +0.048
+     3001  18012 (181, 86) -> (181, 87) S -> S | N|S|SE | +0.048 0.282 0.000 | Stepped NotAsked NaN
+     3002  18018 (181, 87) -> (181, 87) S -> N | E|N | +0.000 0.200 0.000 | BlockedTumbled Fired -0.000
+     3003  18024 (181, 87) -> (181, 87) N -> N | E|N | -0.000 0.200 0.000 | RollFailedIdle NotAsked NaN
+     3004  18030 (181, 87) -> (181, 87) N -> N | E|N | -0.000 0.200 0.000 | RollFailedTumbled Fired -0.000
+     3005  18036 (181, 87) -> (181, 86) N -> N | E|N | -0.000 0.200 0.000 | Stepped NotAsked NaN
+     3006  18042 (181, 86) -> (181, 86) N -> N | N|S|SE | -0.048 0.097 0.000 | RollFailedIdle NotAsked NaN
+     3007  18048 (181, 86) -> (181, 86) N -> N | N|S|SE | -0.048 0.097 0.000 | RollFailedIdle NotAsked NaN
+     3008  18054 (181, 86) -> (181, 86) N -> S | N|S|SE | -0.048 0.097 0.000 | RollFailedTumbled Fired +0.048
+     3009  18060 (181, 86) -> (181, 86) S -> S | N|S|SE | +0.048 0.282 0.000 | RollFailedIdle NotAsked NaN
+     3010  18066 (181, 86) -> (181, 86) S -> S | N|S|SE | +0.048 0.282 0.000 | RollFailedIdle NotAsked NaN
+     3011  18072 (181, 86) -> (181, 86) S -> S | N|S|SE | +0.048 0.282 0.001 | RollFailedIdle NotAsked NaN
+     3012  18078 (181, 86) -> (182, 87) S -> SE | N|S|SE | +0.048 0.283 0.001 | Stepped NotAsked NaN
+     3013  18084 (182, 87) -> (182, 87) SE -> W | E|NW|W | -0.707 0.000 0.000 | RollFailedTumbled Fired +1.000
+     3014  18090 (182, 87) -> (181, 87) W -> W | E|NW|W | +1.000 0.765 0.000 | Stepped NotAsked NaN
+     3015  18096 (181, 87) -> (181, 87) W -> N | E|N | +1.000 0.765 0.000 | BlockedTumbled Fired -0.000
+     3016  18102 (181, 87) -> (181, 87) N -> N | E|N | -0.000 0.200 0.000 | RollFailedIdle NotAsked NaN
+     3017  18108 (181, 87) -> (181, 87) N -> N | E|N | -0.000 0.200 0.000 | RollFailedIdle NotAsked NaN
+     3018  18114 (181, 87) -> (181, 86) N -> N | E|N | -0.000 0.200 0.000 | Stepped NotAsked NaN
+     3019  18120 (181, 86) -> (181, 86) N -> N | N|S|SE | -0.048 0.097 0.000 | RollFailedIdle NotAsked NaN
+     3020  18126 (181, 86) -> (181, 86) N -> N | N|S|SE | -0.048 0.097 0.000 | RollFailedIdle NotAsked NaN
+     3021  18132 (181, 86) -> (181, 86) N -> N | N|S|SE | -0.048 0.097 0.000 | RollFailedIdle NotAsked NaN
+     3022  18138 (181, 86) -> (181, 86) N -> S | N|S|SE | -0.048 0.097 0.000 | RollFailedTumbled Fired +0.048
+     3023  18144 (181, 86) -> (181, 86) S -> S | N|S|SE | +0.048 0.282 0.000 | RollFailedIdle NotAsked NaN
+     1      4000        -   19.8%   37.1%   39.8%    3.2%      2   3979         -
+
+## wall height 1, seed 11, decisions 3000-3023
+    dump, seed 11: decision frame head -> head_after heading -> after | usable | home_aligned p_move stillness | outcome homeward home_cos
+     3000  18006 (178, 85) -> (178, 85) SE -> SE | SE | -0.625 0.000 1.000 | RollFailedTumbled Fired -0.625
+     3001  18012 (178, 85) -> (178, 85) SE -> SE | SE | -0.625 0.000 1.000 | RollFailedTumbled Fired -0.625
+     3002  18018 (178, 85) -> (178, 85) SE -> SE | SE | -0.625 0.000 1.000 | RollFailedTumbled Fired -0.625
+     3003  18024 (178, 85) -> (178, 85) SE -> SE | SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3004  18030 (178, 85) -> (178, 85) SE -> SE | SE | -0.625 0.000 1.000 | RollFailedTumbled Fired -0.625
+     3005  18036 (178, 85) -> (178, 85) SE -> SE | SE | -0.625 0.000 1.000 | RollFailedTumbled Fired -0.625
+     3006  18042 (178, 85) -> (178, 85) SE -> SE | SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3007  18048 (178, 85) -> (178, 85) SE -> SE | SE | -0.625 0.000 1.000 | RollFailedTumbled Fired -0.625
+     3008  18054 (178, 85) -> (178, 85) SE -> SE | SE | -0.625 0.000 1.000 | RollFailedTumbled Fired -0.625
+     3009  18060 (178, 85) -> (178, 85) SE -> SE | SE | -0.625 0.000 1.000 | RollFailedTumbled Fired -0.625
+     3010  18066 (178, 85) -> (178, 85) SE -> SE | SE | -0.625 0.000 1.000 | RollFailedTumbled Fired -0.625
+     3011  18072 (178, 85) -> (178, 85) SE -> SE | SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3012  18078 (178, 85) -> (178, 85) SE -> SE | SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3013  18084 (178, 85) -> (178, 85) SE -> SE | SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3014  18090 (178, 85) -> (178, 85) SE -> SE | SE | -0.625 0.000 1.000 | RollFailedTumbled Fired -0.625
+     3015  18096 (178, 85) -> (178, 85) SE -> SE | SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3016  18102 (178, 85) -> (178, 85) SE -> SE | SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3017  18108 (178, 85) -> (178, 85) SE -> SE | SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3018  18114 (178, 85) -> (178, 85) SE -> SE | SE | -0.625 0.000 1.000 | RollFailedTumbled Fired -0.625
+     3019  18120 (178, 85) -> (178, 85) SE -> SE | SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3020  18126 (178, 85) -> (178, 85) SE -> SE | SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3021  18132 (178, 85) -> (178, 85) SE -> SE | SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3022  18138 (178, 85) -> (178, 85) SE -> SE | SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3023  18144 (178, 85) -> (178, 85) SE -> SE | SE | -0.625 0.000 1.000 | RollFailedTumbled Fired -0.625
+
+## wall height 2, seed 8, decisions 3000-3023
+    dump, seed 8: decision frame head -> head_after heading -> after | usable | home_aligned p_move stillness | outcome homeward home_cos
+     3000  18006 (178, 85) -> (178, 85) SE -> SE | E|SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3001  18012 (178, 85) -> (178, 85) SE -> SE | E|SE | -0.625 0.000 1.000 | RollFailedTumbled Fired -0.625
+     3002  18018 (178, 85) -> (178, 85) SE -> SE | E|SE | -0.625 0.000 1.000 | RollFailedTumbled Fired -0.625
+     3003  18024 (178, 85) -> (178, 85) SE -> SE | E|SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3004  18030 (178, 85) -> (178, 85) SE -> SE | E|SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3005  18036 (178, 85) -> (178, 85) SE -> SE | E|SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3006  18042 (178, 85) -> (178, 85) SE -> SE | E|SE | -0.625 0.000 1.000 | RollFailedTumbled Fired -0.625
+     3007  18048 (178, 85) -> (178, 85) SE -> SE | E|SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3008  18054 (178, 85) -> (178, 85) SE -> SE | E|SE | -0.625 0.000 1.000 | RollFailedTumbled Fired -0.625
+     3009  18060 (178, 85) -> (178, 85) SE -> SE | E|SE | -0.625 0.000 1.000 | RollFailedTumbled Fired -0.625
+     3010  18066 (178, 85) -> (178, 85) SE -> SE | E|SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3011  18072 (178, 85) -> (178, 85) SE -> SE | E|SE | -0.625 0.000 1.000 | RollFailedTumbled Fired -0.625
+     3012  18078 (178, 85) -> (178, 85) SE -> SE | E|SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3013  18084 (178, 85) -> (178, 85) SE -> SE | E|SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3014  18090 (178, 85) -> (178, 85) SE -> SE | E|SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3015  18096 (178, 85) -> (178, 85) SE -> SE | E|SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3016  18102 (178, 85) -> (178, 85) SE -> SE | E|SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3017  18108 (178, 85) -> (178, 85) SE -> SE | E|SE | -0.625 0.000 1.000 | RollFailedTumbled Fired -0.625
+     3018  18114 (178, 85) -> (178, 85) SE -> SE | E|SE | -0.625 0.000 1.000 | RollFailedTumbled Fired -0.625
+     3019  18120 (178, 85) -> (178, 85) SE -> SE | E|SE | -0.625 0.000 1.000 | RollFailedTumbled Fired -0.625
+     3020  18126 (178, 85) -> (178, 85) SE -> SE | E|SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3021  18132 (178, 85) -> (178, 85) SE -> SE | E|SE | -0.625 0.000 1.000 | RollFailedTumbled Fired -0.625
+     3022  18138 (178, 85) -> (178, 85) SE -> SE | E|SE | -0.625 0.000 1.000 | RollFailedIdle NotAsked NaN
+     3023  18144 (178, 85) -> (178, 85) SE -> SE | E|SE | -0.625 0.000 1.000 | RollFailedTumbled Fired -0.625
+     8      4000        -    0.6%   49.5%   49.8%    0.0%      2   3978      0.00

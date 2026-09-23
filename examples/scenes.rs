@@ -53,9 +53,42 @@
 //!
 //! Research expects long straight runs from an explorer; this is the
 //! baseline the chooser's turning preference must change (plan §4e, §4i).
+//!
+//! # S1–S3: a laden ant getting home
+//!
+//! One ant carrying a full crop of fruit, its home point set explicitly
+//! (`forage_anchor`), no nest material anywhere so nothing re-anchors it and
+//! no trail A is laid. Energy is pinned at 1.0 and **the crop is pinned full
+//! every frame**, because digestion would otherwise empty it over a long
+//! scene and turn the ant into an empty one that no longer homes. The run
+//! ends when the head is within one cell of home, or at `frames=`.
+//!
+//! **S1: flat slab, home 40 cells away**, two arms: home to the east (the ant
+//! spawns facing east, so facing home) and to the west (facing away).
+//! **Prediction, from the plan's §6** (written 2026-09-22, before any run):
+//! facing home, `p_move = squash(2.0 - 1.75 + 3.0) = 0.76`, and a failed roll
+//! re-picks the same homeward heading; facing away, `p_move` is 0 and the
+//! homeward re-roll turns it round at about 0.5 per decision. **It arrives in
+//! about 50–60 decisions, the facing-away start about two decisions slower.**
+//!
+//! **S2: the same, home 40 cells west, with a one-cell-wide stone wall of
+//! height 1, 2, 3, 6 or 12 halfway.** Prediction (plan §6): climbing points the
+//! ant away from a home on its own level, so `(HomeAligned, Move, 3.0)` cuts
+//! its stepping up the face -- about 0.15, 0.09, 0.02 and then 0 at heights 1
+//! to 4 -- and each failed roll risks the re-roll pointing it back down. **Each
+//! extra cell of height makes the crossing much less likely; from height 4
+//! only `Stillness` (up to +1.5 after 192 still decisions) gets it over.**
+//!
+//! **S3: a U-bend.** The ant starts at the blind east end of a one-high
+//! tunnel; the only way out runs 70 cells west, up a shaft and back east
+//! along a second tunnel to home, which lies east of the start. Prediction
+//! (plan §6): **trapped.** At the blind end the only usable heading is west,
+//! which faces away from home, where `p_move` is 0 even at full `Stillness`
+//! (`squash(0.25 - 3.0 + 1.5) < 0`). Run it again with
+//! `PIXEL_PHYSICS_REVERSE=off`, so the reversal rule cannot take the credit.
 use pixel_physics::sim::brain::{self, BrainOutput as O};
 use pixel_physics::sim::chunk::Rect;
-use pixel_physics::sim::creature::{self, DecisionOutcome as D, DecisionRow};
+use pixel_physics::sim::creature::{self, DecisionOutcome as D, DecisionRow, DropWhy as D2};
 use pixel_physics::sim::explosion::Blasts;
 use pixel_physics::sim::material;
 use pixel_physics::sim::particle::ParticleSystem;
@@ -264,6 +297,271 @@ fn s0(seed: u64, energy: f32, frames: u64, gap: i32) -> S0Run {
     run
 }
 
+/// A laden scene's geometry.
+#[derive(Clone, Copy, PartialEq)]
+enum Ground {
+    /// S1: a bare slab, home `dx` cells from the start (negative is west).
+    Flat { dx: i32 },
+    /// S2: a bare slab, home 40 cells west, a wall of this height halfway.
+    Wall { height: i32 },
+    /// S3: the U-bend.
+    UBend,
+}
+
+/// One laden run's result.
+struct LadenRun {
+    seed: u64,
+    decisions: u64,
+    arrived_at: Option<u64>,
+    stepped: u64,
+    tumbled: u64,
+    idle: u64,
+    blocked: u64,
+    /// Decisions facing home (`HomeAligned` > 0.5) and away (< -0.5), and the
+    /// mean `p_move` in each.
+    facing_home: u64,
+    facing_away: u64,
+    pmove_home: f64,
+    pmove_away: f64,
+    /// Homeward re-roll firings, and those that pointed away from home.
+    fired: u64,
+    fired_away: u64,
+    /// S2: the highest the head got above the floor, and decisions spent at
+    /// the wall (head within two columns of it). S3: the furthest west.
+    peak: i32,
+    at_wall: u64,
+    /// S2: `Stillness` at the decision the head first got past the wall.
+    stillness_at_cross: Option<f32>,
+}
+
+fn laden(seed: u64, ground: Ground, frames: u64) -> LadenRun {
+    let (w_cells, h) = (400i32, 96i32);
+    let mut world = World::new(Rect::new(0, 0, w_cells - 1, h - 1));
+    world.seed = seed;
+    let floor = h - 8;
+    let head_y = floor - 1;
+    let stone = Cell::new(material::STONE, 0).with_attached(true);
+    for x in 0..w_cells {
+        for y in floor..h {
+            world.set(x, y, stone);
+        }
+    }
+    for x in [0, 1, w_cells - 2, w_cells - 1] {
+        for y in 0..floor {
+            world.set(x, y, stone);
+        }
+    }
+    let start_x = w_cells / 2;
+    let wall_x = start_x - 20;
+    let (start, home) = match ground {
+        Ground::Flat { dx } => ((start_x, head_y), (start_x + dx, head_y)),
+        Ground::Wall { height } => {
+            for y in (head_y - height + 1)..=head_y {
+                world.set(wall_x, y, stone);
+            }
+            ((start_x, head_y), (start_x - 40, head_y))
+        }
+        Ground::UBend => {
+            // A solid block with two one-high tunnels joined by a shaft at
+            // the west end: lower row 80 (the ant starts at its blind east
+            // end), upper row 70 (home at its east end).
+            for x in 100..=300 {
+                for y in 60..floor {
+                    world.set(x, y, stone);
+                }
+            }
+            for x in 150..=220 {
+                world.set(x, 80, Cell::EMPTY);
+            }
+            for x in 150..=270 {
+                world.set(x, 70, Cell::EMPTY);
+            }
+            for y in 70..=80 {
+                world.set(150, y, Cell::EMPTY);
+            }
+            ((220, 80), (262, 70))
+        }
+    };
+    let species = world.species.id_of("ant").expect("the ant species is compiled in");
+    {
+        let mut def = world.species.get(species).creature.clone().expect("ant is a creature");
+        def.reproduce_threshold = 1.0e30;
+        def.life_half_life = 0;
+        world.species.set_creature(species, def);
+    }
+    let def = world.species.get(species).creature.clone().expect("ant is a creature");
+    let mut genome = world.species.get(species).genome.clone();
+    assert!(silence_emission(&mut genome) > 0, "no EmitA/EmitB weight was zeroed, so the ant is still laying trail");
+    world.species.set_genome(species, genome);
+    world.set_weather_pin(pixel_physics::sim::weather::Pin::Clear);
+    world.plant_ant(start.0, start.1);
+    let ant = world.live_organism_ids().into_iter().find(|&id| world.organism(id).is_some_and(|s| s.species == species)).expect("the ant was placed");
+    let fruit = world.materials.id_of("fruit").expect("fruit material");
+    // Three whole cells at the capacity's per-cell worth: a full crop.
+    let unit = pixel_physics::sim::creature::organism_crop_capacity(&world, ant, &def) / 3.0;
+    let full = pixel_physics::sim::organism::Crop { material: fruit, cells: 3, digesting: 0.0, unit, shade: 0, passenger: None };
+    let pin = |w: &mut World| {
+        w.set_organism_energy(ant, def.start_energy);
+        w.set_organism_crop(ant, Some(full));
+    };
+    pin(&mut world);
+    world.set_organism_forage_anchor(ant, home);
+    world.decision_log = Some(Vec::new());
+
+    let (mut particles, mut blasts, tuning) = (ParticleSystem::default(), Blasts::default(), player::Tuning::default());
+    let mut rows: Vec<DecisionRow> = Vec::new();
+    let mut arrived_at = None;
+    for _ in 0..frames {
+        frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
+        if let Some(log) = world.decision_log.as_mut() {
+            rows.append(log);
+        }
+        pin(&mut world);
+        let head = world.organism(ant).and_then(|s| s.chain.first().copied()).expect("the ant is alive");
+        if (head.0 - home.0).abs() <= 1 && (head.1 - home.1).abs() <= 1 {
+            arrived_at = Some(rows.len() as u64);
+            break;
+        }
+    }
+
+    // `dump=FIRST,COUNT`: print those decisions of every run, one row each --
+    // position, heading, what was usable, what the home fix read, the step
+    // chance, the branch taken and why the re-roll did what it did.
+    if let Some((first, count)) = arg_str("dump", "").split_once(',').map(|(a, b)| (a.parse::<usize>().expect("dump=first,count"), b.parse::<usize>().expect("dump=first,count"))) {
+        const NAMES: [&str; 8] = ["E", "NE", "N", "NW", "W", "SW", "S", "SE"];
+        let heading = |d: u8| NAMES[d as usize];
+        let mask = |m: u8| (0..8).filter(|i| m >> i & 1 == 1).map(|i| NAMES[i]).collect::<Vec<_>>().join("|");
+        println!("    dump, seed {seed}: decision frame head -> head_after heading -> after | usable | home_aligned p_move stillness | outcome homeward home_cos");
+        for (i, r) in rows.iter().enumerate().skip(first).take(count) {
+            println!(
+                "    {i:>5} {:>6} {:?} -> {:?} {} -> {} | {} | {:+.3} {:.3} {:.3} | {:?} {:?} {:+.3}",
+                r.frame,
+                r.head,
+                r.head_after,
+                heading(r.heading),
+                heading(r.heading_after),
+                mask(r.usable),
+                r.home_aligned,
+                r.p_move,
+                r.stillness,
+                r.outcome,
+                r.homeward,
+                r.home_cos
+            );
+        }
+    }
+
+    // The setup checklist, asserted from the trace and the world.
+    assert!(rows.len() > 5, "the ant made only {} decisions", rows.len());
+    for r in &rows {
+        assert_eq!(r.id, ant, "another creature made decisions in a one-ant scene");
+        assert!((r.energy - 1.0).abs() < 1e-3, "energy drifted to {}: {r:?}", r.energy);
+        assert_eq!(r.leg, 1, "the ant was not laden: {r:?}");
+        assert!(r.fill > 0.99, "the crop was not full: {r:?}");
+        assert_eq!(r.anchor, home, "home moved: {r:?}");
+        assert!(!matches!(r.drop, D2::Placed | D2::Delivered), "food was put down: {r:?}");
+    }
+    let paced = rows.windows(2).filter(|p| p[1].frame - p[0].frame == 6).count();
+    assert!(paced + 1 >= rows.len(), "decisions are not one in six frames ({paced} of {})", rows.len() - 1);
+    for y in 0..floor {
+        for x in 2..w_cells - 2 {
+            let c = world.get(x, y);
+            assert!(
+                c.material == material::EMPTY || c.material == material::STONE || c.organism_id() == ant,
+                "the scene is no longer what it was built as: {} at ({x}, {y})",
+                world.materials.get(c.material).name
+            );
+        }
+    }
+
+    let mut run = LadenRun {
+        seed,
+        decisions: rows.len() as u64,
+        arrived_at,
+        stepped: 0,
+        tumbled: 0,
+        idle: 0,
+        blocked: 0,
+        facing_home: 0,
+        facing_away: 0,
+        pmove_home: 0.0,
+        pmove_away: 0.0,
+        fired: 0,
+        fired_away: 0,
+        peak: 0,
+        at_wall: 0,
+        stillness_at_cross: None,
+    };
+    for r in &rows {
+        match r.outcome {
+            D::Stepped | D::Fell => run.stepped += 1,
+            D::RollFailedTumbled => run.tumbled += 1,
+            D::RollFailedIdle => run.idle += 1,
+            _ => run.blocked += 1,
+        }
+        if r.home_aligned > 0.5 {
+            run.facing_home += 1;
+            run.pmove_home += r.p_move as f64;
+        } else if r.home_aligned < -0.5 {
+            run.facing_away += 1;
+            run.pmove_away += r.p_move as f64;
+        }
+        if matches!(r.homeward, creature::HomewardWhy::Fired) {
+            run.fired += 1;
+            if r.home_cos < -0.01 {
+                run.fired_away += 1;
+            }
+        }
+        match ground {
+            Ground::Wall { .. } => {
+                run.peak = run.peak.max(head_y - r.head_after.1);
+                if (r.head_after.0 - wall_x).abs() <= 2 {
+                    run.at_wall += 1;
+                }
+                if run.stillness_at_cross.is_none() && r.head_after.0 < wall_x {
+                    run.stillness_at_cross = Some(r.stillness);
+                }
+            }
+            Ground::UBend => run.peak = run.peak.max(start.0 - r.head_after.0),
+            Ground::Flat { .. } => {}
+        }
+    }
+    run.pmove_home /= run.facing_home.max(1) as f64;
+    run.pmove_away /= run.facing_away.max(1) as f64;
+    run
+}
+
+fn report_laden(label: &str, runs: &[LadenRun]) {
+    let n: u64 = runs.iter().map(|r| r.decisions).sum();
+    let share = |f: &dyn Fn(&LadenRun) -> u64| 100.0 * runs.iter().map(f).sum::<u64>() as f64 / n.max(1) as f64;
+    let arrived: Vec<f64> = runs.iter().filter_map(|r| r.arrived_at.map(|d| d as f64)).collect();
+    let fired: u64 = runs.iter().map(|r| r.fired).sum();
+    let fired_away: u64 = runs.iter().map(|r| r.fired_away).sum();
+    let home_n: u64 = runs.iter().map(|r| r.facing_home).sum();
+    let away_n: u64 = runs.iter().map(|r| r.facing_away).sum();
+    let pm = |sel: &dyn Fn(&LadenRun) -> (f64, u64)| {
+        let (s, c) = runs.iter().fold((0.0, 0u64), |(s, c), r| {
+            let (m, k) = sel(r);
+            (s + m * k as f64, c + k)
+        });
+        if c == 0 { f64::NAN } else { s / c as f64 }
+    };
+    println!(
+        "  {label}: arrived {} of {} (median {} decisions) | step {:.1}%  tumble {:.1}%  idle {:.1}%  blocked {:.1}% | facing home {:.1}% (p_move {:.2}), away {:.1}% (p_move {:.2}) | re-roll fired {fired}, {fired_away} of them pointing away",
+        arrived.len(),
+        runs.len(),
+        if arrived.is_empty() { "-".to_string() } else { format!("{:.0}", median(arrived)) },
+        share(&|r| r.stepped),
+        share(&|r| r.tumbled),
+        share(&|r| r.idle),
+        share(&|r| r.blocked),
+        100.0 * home_n as f64 / n.max(1) as f64,
+        pm(&|r| (r.pmove_home, r.facing_home)),
+        100.0 * away_n as f64 / n.max(1) as f64,
+        pm(&|r| (r.pmove_away, r.facing_away)),
+    );
+}
+
 fn median(mut v: Vec<f64>) -> f64 {
     if v.is_empty() {
         return f64::NAN;
@@ -283,8 +581,44 @@ fn main() {
         "scenes: scene={scene} seeds={seeds} seed0={seed0} frames={frames} gap={gap} energies={energies:?} DROP_REACH={}",
         std::env::var("PIXEL_PHYSICS_DROP_REACH").unwrap_or_else(|_| "shipped".into())
     );
-    assert_eq!(scene, "s0", "only scene=s0 is built so far");
-    let _ = creature::DECISION_OUTCOME_NAMES;
+    println!("  REVERSE={}", std::env::var("PIXEL_PHYSICS_REVERSE").unwrap_or_else(|_| "shipped".into()));
+    if scene != "s0" {
+        let arms: Vec<(String, Ground)> = match scene.as_str() {
+            "s1" => vec![("S1 home 40 east (facing home)".into(), Ground::Flat { dx: 40 }), ("S1 home 40 west (facing away)".into(), Ground::Flat { dx: -40 })],
+            "s2" => arg_str("heights", "1,2,3,6,12")
+                .split(',')
+                .map(|v| v.parse::<i32>().expect("heights=a,b"))
+                .map(|hgt| (format!("S2 wall of height {hgt}"), Ground::Wall { height: hgt }))
+                .collect(),
+            "s3" => vec![("S3 U-bend".into(), Ground::UBend)],
+            other => panic!("unknown scene {other}"),
+        };
+        for (label, ground) in arms {
+            println!("\n{label}");
+            println!("  {:>4} {:>9} {:>8} {:>7} {:>7} {:>7} {:>7} {:>6} {:>6} {:>9}", "seed", "decisions", "arrived", "step", "tumble", "idle", "blocked", "peak", "atwall", "still@x");
+            let mut runs = Vec::new();
+            for s in seed0..seed0 + seeds {
+                let r = laden(s, ground, frames);
+                let n = r.decisions as f64;
+                println!(
+                    "  {:>4} {:>9} {:>8} {:>6.1}% {:>6.1}% {:>6.1}% {:>6.1}% {:>6} {:>6} {:>9}",
+                    r.seed,
+                    r.decisions,
+                    r.arrived_at.map_or("-".into(), |d| d.to_string()),
+                    100.0 * r.stepped as f64 / n,
+                    100.0 * r.tumbled as f64 / n,
+                    100.0 * r.idle as f64 / n,
+                    100.0 * r.blocked as f64 / n,
+                    r.peak,
+                    r.at_wall,
+                    r.stillness_at_cross.map_or("-".into(), |v| format!("{v:.2}"))
+                );
+                runs.push(r);
+            }
+            report_laden(&label, &runs);
+        }
+        return;
+    }
 
     println!("\nS0: an empty ant on a bare slab, no trail, food {gap} cells away (prediction in this file's header)");
     println!(
