@@ -1,0 +1,54 @@
+{
+  "id": "20260923T201705877Z-b9c688",
+  "created": "2026-09-23T20:17:05Z",
+  "board": "ants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/upbeat-gates-u90pys",
+    "commit": "7c52ca90",
+    "agent": null,
+    "session_id": "377a1a74-10ea-588e-aa72-28c0126d3167",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Crumbs no longer end up buried",
+  "question": "With the fix (B), do the crumbs now stay where ants can get at them, and does anything about where they sit still look wrong?",
+  "context_md": "You spotted crumbs buried underground on the last card. Traced cell by cell, they had been buried: the ants dug a narrow tunnel down from the nest, crumbs went down it (carried in, then sliding like sand, because a crumb was an ordinary powder), and then loose soil slid down the same tunnel after them and sealed them in.\n\n**The fix:** crumbs no longer slide. They still drop straight down through open air, but otherwise stay where they are put, like the whole fruit they replace, which never moved.\n\nSame bed, same seed, same frame (gap 90, seed 2, frame 9,120). The only difference is that one rule. Cyan boxes mark every crumb.\n\nOver 24 seeds, at the end of each run: crumbs sealed in with no open cell beside them went from **93 of 157 (22 of 24 runs, about 11 fruits of food)** to **10 of 142 (8 of 24 runs, about a third of a fruit)**. The few left are ones an ant put down inside a tunnel that later filled.\n\nWhere this sits: making the foraging loop honest, so food the colony brings home stays food it can eat.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A: before (crumbs slide)",
+      "files": [
+        "20260923T201705877Z-b9c688/000-before-marked.png"
+      ],
+      "caption": "five crumbs sealed 9-16 cells down",
+      "meta": {
+        "crumbs in view": 9,
+        "sealed in underground": 5,
+        "sealed in, 24 seeds": "93 of 157"
+      },
+      "focus": null
+    },
+    {
+      "label": "B: after (crumbs stay put)",
+      "files": [
+        "20260923T201705877Z-b9c688/001-after-marked.png"
+      ],
+      "caption": "every crumb at the surface or on the spoil heap",
+      "meta": {
+        "crumbs in view": 8,
+        "sealed in underground": 0,
+        "sealed in, 24 seeds": "10 of 142"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
