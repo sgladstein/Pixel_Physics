@@ -3297,6 +3297,12 @@ pub struct World {
     /// Scratch that `step_chain` and `tumble` write while a decision is being
     /// traced; meaningless otherwise.
     pub decision_scratch: crate::sim::creature::DecisionScratch,
+    /// **Stage 1's heading chooser, overriding `PIXEL_PHYSICS_CHOOSER` for
+    /// this world** (`creature::Chooser`). `None` follows the environment,
+    /// which is off unless set. A field rather than only the variable because
+    /// the variable is read once per process, and a guard has to run both
+    /// arms in one.
+    pub chooser: Option<crate::sim::creature::Chooser>,
     /// **Which material stopped a creature**, counted per blocked tick and
     /// indexed by `MaterialId` — the breakdown `CreatureStats::
     /// blocked_by_plant` deliberately does not carry, because that struct is
@@ -5632,6 +5638,7 @@ impl World {
             creature_stats: CreatureStats::default(),
             decision_log: None,
             decision_scratch: crate::sim::creature::DecisionScratch::default(),
+            chooser: None,
             blocked_tissue_by_material: Vec::new(),
             energy_ledger: EnergyLedger::default(),
             colony_books: Vec::new(),
@@ -6636,6 +6643,11 @@ impl World {
             traffic_deferred: 0,
             forage_anchor: (0, 0),
             forage_max: 0,
+            home_best: f32::INFINITY,
+            home_best_for: (i32::MIN, i32::MIN),
+            home_best_at: (0, 0),
+            home_away: 0,
+            home_patience: 1.0,
             // Zero is "no memory yet"; the first tick's read sees `live - 0`,
             // which normalises to +1 and decays to the true reading within a
             // few ticks. See `OrganismState::phero_a_mem`.

@@ -6,6 +6,11 @@
 //! cargo run --release --example scenes -- scene=s0 seeds=4 frames=6000
 //! ```
 //!
+//! **Every scene also runs under stage 1's chooser**
+//! (`PIXEL_PHYSICS_CHOOSER=on`, or `nopatience` for its ablation); the header
+//! echoes which. Its predictions, written before its first run, and its
+//! results are in `Reports/ant-scenes-2026-09-23.md` §3.
+//!
 //! Every scene is read from the engine's own decision trace
 //! (`creature::DecisionRow`), so an outcome is the branch the decision took,
 //! not one inferred from how the head moved. Each scene asserts its setup
@@ -238,8 +243,16 @@ fn s0(seed: u64, energy: f32, frames: u64, gap: i32) -> S0Run {
         assert_eq!(r.leg, 0, "the ant became laden before the food was reached: {r:?}");
         assert_eq!(r.along_b, 0.0, "a trail-B reading on a scene with no trail: {r:?}");
     }
-    let corridor = mine.iter().filter(|r| r.usable == (1 << 0) | (1 << 4)).count();
-    if (corridor as f64) < 0.99 * mine.len() as f64 {
+    // **Away from the piles.** A pile is three cells of fruit, and within a
+    // few cells of it the fruit is footing, so a diagonal opens: that is the
+    // scene, not drift. The shipped walk rarely got there; the chooser gets
+    // there in a few hundred decisions and then waits beside it on the 0.2
+    // step roll, so the piles' neighbourhood is excluded rather than
+    // tolerated in the 1%.
+    let near_food = |r: &&&DecisionRow| (r.head.0 - (start_x + gap)).abs() <= 3 || (r.head.0 - (start_x - gap)).abs() <= 3;
+    let open: Vec<&&DecisionRow> = mine.iter().filter(|r| !near_food(r)).collect();
+    let corridor = open.iter().filter(|r| r.usable == (1 << 0) | (1 << 4)).count();
+    if (corridor as f64) < 0.99 * open.len() as f64 {
         let mut masks: std::collections::BTreeMap<(u8, i32), u64> = std::collections::BTreeMap::new();
         for r in &mine {
             *masks.entry((r.usable, r.head.1)).or_default() += 1;
@@ -255,8 +268,8 @@ fn s0(seed: u64, energy: f32, frames: u64, gap: i32) -> S0Run {
             .map(|r| format!("frame {} head {:?} heading {} usable {} outcome {:?}", r.frame, r.head, r.heading, r.usable, r.outcome))
             .collect();
         panic!(
-            "only {corridor} of {} decisions saw a bare-slab corridor; (usable mask, head row) -> {masks:?}; (usable, heading) -> {by_heading:?}; first odd: {odd:?}",
-            mine.len()
+            "only {corridor} of {} decisions away from the piles saw a bare-slab corridor; (usable mask, head row) -> {masks:?}; (usable, heading) -> {by_heading:?}; first odd: {odd:?}",
+            open.len()
         );
     }
     let paced = mine.windows(2).filter(|p| p[1].frame - p[0].frame == 6).count();
@@ -279,7 +292,14 @@ fn s0(seed: u64, energy: f32, frames: u64, gap: i32) -> S0Run {
     };
     for r in &mine {
         match r.outcome {
-            D::Stepped => run.stepped += 1,
+            D::Stepped => {
+                run.stepped += 1;
+                // The shipped cone only steps forward, so this is the
+                // chooser's reversal: a step that turned the ant round.
+                if r.heading_after == (r.heading + 4) % 8 {
+                    run.reversed += 1;
+                }
+            }
             D::RollFailedTumbled | D::BlockedTumbled => {
                 if r.heading_after == (r.heading + 4) % 8 {
                     run.reversed += 1;
@@ -317,8 +337,10 @@ struct LadenRun {
     tumbled: u64,
     idle: u64,
     blocked: u64,
-    /// Decisions facing home (`HomeAligned` > 0.5) and away (< -0.5), and the
-    /// mean `p_move` in each.
+    /// Decisions facing home (cosine to home > 0.5) and away (< -0.5), and
+    /// the mean `p_move` in each. The cosine is computed here from the head,
+    /// the anchor and the heading, not read from `HomeAligned`: the chooser
+    /// feeds the brain `(1 + cos) / 2` there.
     facing_home: u64,
     facing_away: u64,
     pmove_home: f64,
@@ -326,12 +348,32 @@ struct LadenRun {
     /// Homeward re-roll firings, and those that pointed away from home.
     fired: u64,
     fired_away: u64,
+    /// Steps the chooser picked, those whose heading pointed away from home,
+    /// and the lowest patience it scored with.
+    chose: u64,
+    chose_away: u64,
+    min_patience: f32,
+    /// The longest run of consecutive decisions in which the head did not
+    /// move: the frozen runs of `ant-scenes-2026-09-23.md` §2 read ~3,980.
+    longest_still: u64,
     /// S2: the highest the head got above the floor, and decisions spent at
     /// the wall (head within two columns of it). S3: the furthest west.
     peak: i32,
     at_wall: u64,
     /// S2: `Stillness` at the decision the head first got past the wall.
     stillness_at_cross: Option<f32>,
+}
+
+/// The cosine between a decision's heading and home, from the head and the
+/// anchor; NaN on the anchor. What `HomeAligned` reads on the shipped walk.
+fn true_home_cos(r: &DecisionRow) -> f32 {
+    let (vx, vy) = ((r.anchor.0 - r.head.0) as f32, (r.anchor.1 - r.head.1) as f32);
+    let len = (vx * vx + vy * vy).sqrt();
+    if len < 1.0 {
+        return f32::NAN;
+    }
+    let (dx, dy) = creature::DIRS[r.heading as usize];
+    (dx as f32 * vx + dy as f32 * vy) / (len * ((dx * dx + dy * dy) as f32).sqrt())
 }
 
 fn laden(seed: u64, ground: Ground, frames: u64) -> LadenRun {
@@ -431,10 +473,10 @@ fn laden(seed: u64, ground: Ground, frames: u64) -> LadenRun {
         const NAMES: [&str; 8] = ["E", "NE", "N", "NW", "W", "SW", "S", "SE"];
         let heading = |d: u8| NAMES[d as usize];
         let mask = |m: u8| (0..8).filter(|i| m >> i & 1 == 1).map(|i| NAMES[i]).collect::<Vec<_>>().join("|");
-        println!("    dump, seed {seed}: decision frame head -> head_after heading -> after | usable | home_aligned p_move stillness | outcome homeward home_cos");
+        println!("    dump, seed {seed}: decision frame head -> head_after heading -> after | usable | home_aligned p_move stillness | outcome homeward home_cos | patience chosen_cos");
         for (i, r) in rows.iter().enumerate().skip(first).take(count) {
             println!(
-                "    {i:>5} {:>6} {:?} -> {:?} {} -> {} | {} | {:+.3} {:.3} {:.3} | {:?} {:?} {:+.3}",
+                "    {i:>5} {:>6} {:?} -> {:?} {} -> {} | {} | {:+.3} {:.3} {:.3} | {:?} {:?} {:+.3} | {:.3} {:+.3}",
                 r.frame,
                 r.head,
                 r.head_after,
@@ -446,9 +488,14 @@ fn laden(seed: u64, ground: Ground, frames: u64) -> LadenRun {
                 r.stillness,
                 r.outcome,
                 r.homeward,
-                r.home_cos
+                r.home_cos,
+                r.patience,
+                r.chosen_cos
             );
         }
+        // The whole body at the end, head first: the trace carries only the
+        // head, and whether a stopped ant is hanging or held needs the rest.
+        println!("    final body, seed {seed}: {:?}", world.organism(ant).map(|s| s.chain.clone()).unwrap_or_default());
     }
 
     // The setup checklist, asserted from the trace and the world.
@@ -488,21 +535,29 @@ fn laden(seed: u64, ground: Ground, frames: u64) -> LadenRun {
         pmove_away: 0.0,
         fired: 0,
         fired_away: 0,
+        chose: 0,
+        chose_away: 0,
+        min_patience: f32::NAN,
+        longest_still: 0,
         peak: 0,
         at_wall: 0,
         stillness_at_cross: None,
     };
+    let mut still = 0u64;
     for r in &rows {
+        still = if r.head_after == r.head { still + 1 } else { 0 };
+        run.longest_still = run.longest_still.max(still);
         match r.outcome {
             D::Stepped | D::Fell => run.stepped += 1,
             D::RollFailedTumbled => run.tumbled += 1,
             D::RollFailedIdle => run.idle += 1,
             _ => run.blocked += 1,
         }
-        if r.home_aligned > 0.5 {
+        let cos = true_home_cos(r);
+        if cos > 0.5 {
             run.facing_home += 1;
             run.pmove_home += r.p_move as f64;
-        } else if r.home_aligned < -0.5 {
+        } else if cos < -0.5 {
             run.facing_away += 1;
             run.pmove_away += r.p_move as f64;
         }
@@ -511,6 +566,15 @@ fn laden(seed: u64, ground: Ground, frames: u64) -> LadenRun {
             if r.home_cos < -0.01 {
                 run.fired_away += 1;
             }
+        }
+        if !r.chosen_cos.is_nan() && r.outcome == D::Stepped {
+            run.chose += 1;
+            if r.chosen_cos < -0.01 {
+                run.chose_away += 1;
+            }
+        }
+        if !r.patience.is_nan() {
+            run.min_patience = if run.min_patience.is_nan() { r.patience } else { run.min_patience.min(r.patience) };
         }
         match ground {
             Ground::Wall { .. } => {
@@ -539,6 +603,10 @@ fn report_laden(label: &str, runs: &[LadenRun]) {
     let fired_away: u64 = runs.iter().map(|r| r.fired_away).sum();
     let home_n: u64 = runs.iter().map(|r| r.facing_home).sum();
     let away_n: u64 = runs.iter().map(|r| r.facing_away).sum();
+    let frozen = runs.iter().map(|r| r.longest_still).max().unwrap_or(0);
+    let chose: u64 = runs.iter().map(|r| r.chose).sum();
+    let chose_away: u64 = runs.iter().map(|r| r.chose_away).sum();
+    let min_pat = runs.iter().map(|r| r.min_patience).filter(|p| !p.is_nan()).reduce(f32::min).map_or("-".to_string(), |p| format!("{p:.3}"));
     let pm = |sel: &dyn Fn(&LadenRun) -> (f64, u64)| {
         let (s, c) = runs.iter().fold((0.0, 0u64), |(s, c), r| {
             let (m, k) = sel(r);
@@ -547,7 +615,7 @@ fn report_laden(label: &str, runs: &[LadenRun]) {
         if c == 0 { f64::NAN } else { s / c as f64 }
     };
     println!(
-        "  {label}: arrived {} of {} (median {} decisions) | step {:.1}%  tumble {:.1}%  idle {:.1}%  blocked {:.1}% | facing home {:.1}% (p_move {:.2}), away {:.1}% (p_move {:.2}) | re-roll fired {fired}, {fired_away} of them pointing away",
+        "  {label}: arrived {} of {} (median {} decisions) | step {:.1}%  tumble {:.1}%  idle {:.1}%  blocked {:.1}% | facing home {:.1}% (p_move {:.2}), away {:.1}% (p_move {:.2}) | re-roll fired {fired}, {fired_away} of them pointing away | longest stand-still {frozen} decisions | chooser stepped {chose}, {chose_away} of them pointing away, patience fell to {min_pat}",
         arrived.len(),
         runs.len(),
         if arrived.is_empty() { "-".to_string() } else { format!("{:.0}", median(arrived)) },
@@ -581,7 +649,11 @@ fn main() {
         "scenes: scene={scene} seeds={seeds} seed0={seed0} frames={frames} gap={gap} energies={energies:?} DROP_REACH={}",
         std::env::var("PIXEL_PHYSICS_DROP_REACH").unwrap_or_else(|_| "shipped".into())
     );
-    println!("  REVERSE={}", std::env::var("PIXEL_PHYSICS_REVERSE").unwrap_or_else(|_| "shipped".into()));
+    println!(
+        "  REVERSE={} CHOOSER={}",
+        std::env::var("PIXEL_PHYSICS_REVERSE").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_CHOOSER").unwrap_or_else(|_| "off".into())
+    );
     if scene != "s0" {
         let arms: Vec<(String, Ground)> = match scene.as_str() {
             "s1" => vec![("S1 home 40 east (facing home)".into(), Ground::Flat { dx: 40 }), ("S1 home 40 west (facing away)".into(), Ground::Flat { dx: -40 })],
@@ -595,13 +667,13 @@ fn main() {
         };
         for (label, ground) in arms {
             println!("\n{label}");
-            println!("  {:>4} {:>9} {:>8} {:>7} {:>7} {:>7} {:>7} {:>6} {:>6} {:>9}", "seed", "decisions", "arrived", "step", "tumble", "idle", "blocked", "peak", "atwall", "still@x");
+            println!("  {:>4} {:>9} {:>8} {:>7} {:>7} {:>7} {:>7} {:>6} {:>6} {:>9} {:>7}", "seed", "decisions", "arrived", "step", "tumble", "idle", "blocked", "peak", "atwall", "still@x", "frozen");
             let mut runs = Vec::new();
             for s in seed0..seed0 + seeds {
                 let r = laden(s, ground, frames);
                 let n = r.decisions as f64;
                 println!(
-                    "  {:>4} {:>9} {:>8} {:>6.1}% {:>6.1}% {:>6.1}% {:>6.1}% {:>6} {:>6} {:>9}",
+                    "  {:>4} {:>9} {:>8} {:>6.1}% {:>6.1}% {:>6.1}% {:>6.1}% {:>6} {:>6} {:>9} {:>7}",
                     r.seed,
                     r.decisions,
                     r.arrived_at.map_or("-".into(), |d| d.to_string()),
@@ -611,7 +683,8 @@ fn main() {
                     100.0 * r.blocked as f64 / n,
                     r.peak,
                     r.at_wall,
-                    r.stillness_at_cross.map_or("-".into(), |v| format!("{v:.2}"))
+                    r.stillness_at_cross.map_or("-".into(), |v| format!("{v:.2}")),
+                    r.longest_still
                 );
                 runs.push(r);
             }

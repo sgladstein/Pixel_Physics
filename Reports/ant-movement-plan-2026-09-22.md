@@ -648,7 +648,27 @@ goes, any later measurement on the colony bed states which drop rule it ran.
 4. **The drop's side effects (§8c)**, in parallel with step 3. The full
    census of §8 waits until the loop works.
 5. **Chooser stage 1** (§4i), behind its switch: turning preference, home
-   term, falling every tick. Judged on S0–S3.
+   term, falling every tick. Judged on S0–S3. **Built 2026-09-23 behind
+   `PIXEL_PHYSICS_CHOOSER=on`, and every S0–S3 bar is met**
+   ([`ant-scenes-2026-09-23.md`](ant-scenes-2026-09-23.md) §3): food found
+   in 24 of 24 at both energies, every wall height crossed, the U-bend
+   escaped, no ant frozen, about +2% frame cost. Three departures from §4:
+   - **patience**, which the plan did not have: the home term relaxes while
+     the ant gets no nearer home, and comes back when it does, or when a way
+     round returns to where it started. No rule that reads only the cells
+     around the ant can tell a U-bend from open ground;
+   - **no length weighting on the home term yet**: nothing in S0–S3 needs
+     it, and its job is to leave room for the trail near the nest, which
+     is stage 2's;
+   - **no new brain outputs yet**: the home gain is the species'
+     `home_bias`. The leg-switched gains of §4d, and so the new outputs,
+     arrive with the trail terms in stage 2.
+
+   **It does not ship yet.** On `ascii`'s 15-ant foraging loop it cut
+   deliveries and raised deaths. The likeliest cause is §Z33's phantom
+   food, which the shipped walk's door churn creates and the chooser's
+   does not. So §Z33 is fixed first, then a colony-bed comparison with the
+   chooser on and off, before it is switched on.
 6. **Chooser stage 2**: the trail terms. Judged on S4–S5, then one paired
    run on the colony bed.
 

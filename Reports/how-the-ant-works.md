@@ -10,7 +10,8 @@ will be.
   (`usable_headings`, `home_weighted_pick_why`); §5, §6b, §6c, §13, §14 and
   §15 re-checked 2026-09-23 against the drop, cone and homeward counters;
   §5, §12 and §15 again the same day for the drop through bodies, and §9
-  for what a part-eaten cell is worth once put down.
+  for what a part-eaten cell is worth once put down. §6d and §12 written
+  2026-09-23 from `chooser_step`, `fall_if_unsupported` and `commit_step`.
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -293,6 +294,42 @@ chosen heading pointed: toward the anchor, across, or away (cosine above
 **This re-roll is the only place in the engine where anything aims a walking
 ant.** `HomeAligned` only grants or withholds permission to step.
 
+### 6d. The chooser (`chooser_step`), off unless switched on
+
+`PIXEL_PHYSICS_CHOOSER=on` (or `World::chooser`) replaces §6a–§6c for every
+walking creature. It is stage 1 of the movement plan and **does not ship**;
+with it off, every species walks exactly as above.
+
+1. **Every decision, before any roll:** the support check and possible fall
+   (§2). A fall is not a move: it lays no trail and costs no step.
+2. `p_move` as in §6a, except that `HomeAligned` reaches the brain as
+   `(1 + cos) / 2`: facing home reads 1 (the shipped 0.76 pace), facing
+   away reads 0 (an empty ant's pace, not a stop).
+3. **A lost roll is a pause.** No tumble, no re-roll.
+4. **A won roll picks one heading from all the usable ones** (§2's
+   predicate) with `choose_weighted`, at `k = 0.1 × unit_scale(Tumble, 2)`
+   (0.1 unwired). Each scores:
+   - `Persist × (1 + cos turn) / 2`: going on 1, turning round 0;
+   - `Turn`'s left/right bias, as in §6b;
+   - while carrying food: `home_bias × patience × cos(heading, home)`, aimed
+     at `home_target` (so it follows `PIXEL_PHYSICS_HOME_TARGET`), not
+     scaled by fill.
+
+   If the facing itself is not usable and a trunk crossing is available, the
+   crossing is one more option at the straight-ahead score. With no usable
+   heading and no crossing, the decision goes to `step_chain` unchanged
+   (reversal, kin swap, blocked tumble).
+5. **Patience** (`home_patience`, 1 at rest): times 0.9 on every step that
+   gets no nearer home than `home_best` (by 0.25 cells), plus 0.25 on every
+   step that does. **Back to 1 when a way round fails**: once the head has
+   been 6 or more cells (`EXCURSION_CELLS`) from where it set its best, and
+   comes back to within a cell of that spot. It resets when the ant has
+   nothing to take home or the target moves.
+   `PIXEL_PHYSICS_CHOOSER=nopatience` holds it at 1.
+
+The decision trace records the patience each choice scored with and the
+home cosine of the heading picked (`patience`, `chosen_cos`).
+
 ## 7. The trail planes
 
 `pheromone.rs`: two world-sized `u16` planes, A and B, plus an alarm plane.
@@ -411,6 +448,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_LAB_ROOM` | on | `off`: at-nest `Crowding` falls back to local density |
 | `PIXEL_PHYSICS_TROPHALLAXIS` | on | `off` |
 | `PIXEL_PHYSICS_DROP_REACH` | through bodies | `adjacent`: a food drop looks only at the 8 neighbours |
+| `PIXEL_PHYSICS_CHOOSER` | off | `on`: the stage-1 chooser (§6d); `nopatience`: the same with patience held at 1 |
 | `SPOIL_IS_CARGO` | on | `0`: spoil no longer counts toward `Carrying` |
 | `PIXEL_PHYSICS_DIG_SPOIL` | kept | `destroy`: dug cells vanish |
 | `PIXEL_PHYSICS_BURROW_LINING` | on | `off`: no `packedsoil` lining |
@@ -422,12 +460,14 @@ Read once per process from the environment. The default is what ships.
 
 - `creature.rs`: `creature_tick`, `sense`, `act`, `step_chain`, `tumble`,
   `usable_headings`, `home_weighted_pick_why`, `trail_sample_point`,
+  `fall_if_unsupported`, `commit_step`, `chooser_step`, `home_pull`,
   `adjacent_nest`, `line_burrow`, `food_drop_site`, `choose_weighted`, and the decision trace's
   types (`DecisionRow`, `DecisionOutcome`, `HomewardWhy`, `DropWhy`).
 - `brain.rs`: `eval_brain`, the `BrainInput` / `BrainOutput` enums.
 - `pheromone.rs`: the planes and the constants in §7.
 - `organism.rs`: `OrganismState` (`forage_anchor`, `crop`, `still_ticks`,
-  `brain_state`) and `Crop`.
+  `brain_state`, and the chooser's `home_best`, `home_best_for`,
+  `home_patience`) and `Crop`.
 - `assets/species/ant.ron`: every weight and constant quoted here.
 
 ## 14. Source comments that currently contradict the code
@@ -453,7 +493,9 @@ is on, every walking decision, the move stage of `creature_tick`, pushes one
   (`free8`), their materials, and which were the ant's own body or another
   organism; and how far the food went (`drop_reach`: 1 for a neighbour,
   more when handed on through bodies);
-- the cone's three scores after the zeroing and the candidate taken.
+- the cone's three scores after the zeroing and the candidate taken;
+- under the chooser (§6d), the patience it scored with and the home cosine
+  of the heading it picked.
 
 `CreatureStats::decision_census` counts the same decisions by leg × setting
 × outcome, and only while the trace is on, because the setting needs all
@@ -478,7 +520,11 @@ are always on.
     `a_blocked_drop_passes_the_food_through_bodies_to_the_nearest_empty_cell`,
     and `the_cone_discards_a_turn_with_nowhere_to_go_and_follows_one_with_somewhere`,
     which feeds `Turn` directly because the shipped ant's is near 0 at
-    ordinary temperatures.
+    ordinary temperatures;
+  - three chooser scenes, each against the shipped walk as its control:
+    `the_chooser_walks_a_laden_ant_out_of_a_dead_end_and_patience_is_what_lets_it`,
+    `under_the_chooser_an_unsupported_ant_falls_whatever_the_step_roll` and
+    `an_empty_ant_keeps_going_under_the_chooser_and_turns_round_under_the_shipped_walk`.
 - **In the harness:** `trailfollow decisioncsv` writes the rows and repeats
   those reconciliations at the end of every run; `decisionnorows` keeps only
   the census. `scripts/decisioncensus.py` reads the rows, including the drop

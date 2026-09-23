@@ -646,6 +646,12 @@ pub struct DecisionScratch {
     pub cone: [f32; 3],
     /// Which of them it took, or `NO_PICK`.
     pub pick: u8,
+    /// The chooser's `home_patience` as it scored this decision; NaN when the
+    /// chooser did not choose.
+    pub patience: f32,
+    /// The cosine between the heading the chooser picked and home; NaN when
+    /// it did not choose or had no home pull.
+    pub chosen_cos: f32,
 }
 
 impl Default for DecisionScratch {
@@ -664,6 +670,8 @@ impl Default for DecisionScratch {
             drop_reach: 0,
             cone: [f32::NAN; 3],
             pick: NO_PICK,
+            patience: f32::NAN,
+            chosen_cos: f32::NAN,
         }
     }
 }
@@ -751,6 +759,10 @@ pub struct DecisionRow {
     /// The forward cone: see `DecisionScratch`.
     pub cone: [f32; 3],
     pub pick: u8,
+    /// **Stage 1's chooser** (`chooser_step`): the patience it scored with and
+    /// the home cosine of the heading it picked. NaN on the shipped walk.
+    pub patience: f32,
+    pub chosen_cos: f32,
 }
 
 fn worm_tick(world: &mut World, x: i32, y: i32, organism: OrganismId) -> Vec<ActiveSite> {
@@ -5108,8 +5120,22 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         None
     };
     let mut roll_tumble = f32::NAN;
-    let roll_move = draw.unit_f32();
-    if roll_move < p_move {
+    // **Stage 1's chooser** (`Chooser`, `chooser_step`), off unless switched
+    // on. **Falling stops depending on the brain** under it (plan §4e): the
+    // support check runs every decision, before the step roll, and a fall is
+    // not a move -- it lays no trail and costs no step. The shipped walk
+    // below checks support only inside `step_chain`, after the step roll won,
+    // so an animal whose `P(move)` is 0 hangs wherever it stopped.
+    let chooser = chooser_of(world);
+    let fell = chooser != Chooser::Off && fall_now_if_unsupported(world, organism, def);
+    if fell {
+        left_the_spot = true;
+    }
+    // No roll on a fall, so the trace reads NaN for it.
+    let roll_move = if fell { f32::NAN } else { draw.unit_f32() };
+    if fell {
+        // The fall was this decision; `fall_if_unsupported` noted it.
+    } else if roll_move < p_move {
         // **Hop, or walk.** `Impulse` is read raw and gated on strictly
         // positive, which is the whole of the "byte-identical for species
         // that do not use the verb" guard (`creature-motion-design.md` §7):
@@ -5146,7 +5172,11 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             // `CreatureStats::moves` meaning exactly one walking step, which
             // is what §7's falls-per-move bar was baselined against.
         } else {
-            moved = step_chain(world, organism, heading, &outputs, def, &mut draw);
+            moved = if chooser == Chooser::Off {
+                step_chain(world, organism, heading, &outputs, def, &mut draw)
+            } else {
+                chooser_step(world, organism, heading, &outputs, def, &mut draw, chooser == Chooser::On)
+            };
             if moved {
                 // Read after the step for the reason the launch arm above
                 // gives: `act` is what changes a load, and it has already run.
@@ -5155,6 +5185,12 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
                 world.book(colony, Account::Moved, step as f64);
             }
         }
+    } else if chooser != Chooser::Off {
+        // **`Move` is an activity level only** under the chooser (plan §4e):
+        // a lost roll is a pause, and where to go next is decided when it
+        // next steps. The tumble's re-roll is gone; `Tumble` sets how loosely
+        // the chooser picks instead.
+        note_outcome(world, DecisionOutcome::RollFailedIdle);
     } else {
         // The same draw the old `else if` took, bound to a name so the trace
         // can report it.
@@ -5329,6 +5365,8 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             drop_reach: sc.drop_reach,
             cone: sc.cone,
             pick: sc.pick,
+            patience: sc.patience,
+            chosen_cos: sc.chosen_cos,
         };
         if let Some(log) = world.decision_log.as_mut() {
             log.push(row);
@@ -6219,7 +6257,20 @@ fn sense(
                 // are exact and the parity picks between them.
                 const DIR_LEN: [f32; 2] = [1.0, std::f32::consts::SQRT_2];
                 let dlen = DIR_LEN[(heading as usize % 8) & 1];
-                ((hdx as f32 * vx + hdy as f32 * vy) / (len * dlen)).clamp(-1.0, 1.0)
+                let cos = ((hdx as f32 * vx + hdy as f32 * vy) / (len * dlen)).clamp(-1.0, 1.0);
+                // **Under the chooser, a speed adjustment with a floor** (plan
+                // §4e): `(1 + cos) / 2`, so facing home still reads 1 and
+                // walks at the shipped pace, and facing away reads 0, which is
+                // an empty ant's pace rather than the shipped wire's full stop.
+                // The shipped walk reads the raw cosine, and at `(HomeAligned,
+                // Move, 3.0)` that is `P(move) = 0` facing away -- which is why
+                // a laden ant can take no step that points away from home
+                // (`Reports/ant-scenes-2026-09-23.md` §2).
+                if chooser_of(world) == Chooser::Off {
+                    cos
+                } else {
+                    (1.0 + cos) * 0.5
+                }
             }
         } else {
             0.0
@@ -11414,6 +11465,38 @@ fn lining_enabled() -> bool {
 }
 
 /// Move the whole chain one cell, snake-fashion. Returns whether it moved.
+/// **The whole-chain support rule, and the fall it triggers** -- one cell
+/// straight down, if the body touches nothing solid, powdery or living
+/// anywhere and the cell below is free. Returns whether it fell.
+///
+/// Extracted from `step_chain` unchanged, so the chooser (`chooser_step`) can
+/// ask it every decision rather than only after a step roll won. The shipped
+/// walk still asks it only there, and still counts the fall as a move.
+fn fall_if_unsupported(world: &mut World, organism: OrganismId, def: &CreatureDef, chain: &[(i32, i32)], groups: &[u8], stacker: Option<Stacker>) -> bool {
+    let supported = chain.iter().any(|&(cx, cy)| {
+        NEIGHBOURS_8.iter().any(|&(dx, dy)| {
+            matches!(world.materials.kind(world.get(cx + dx, cy + dy).material), MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant)
+        })
+    });
+    if !supported {
+        let fallen: Vec<(i32, i32)> = chain.iter().map(|&(cx, cy)| (cx, cy + 1)).collect();
+        // Tissue-aware for the same reason the step below is: an animal
+        // that walked into a crown must be able to fall out of it, and a
+        // fall refused because a leaf is in the way is the frozen-on-water
+        // failure `colony_ant_site` records, wearing foliage.
+        if landing_is_placeable_through_tissue(world, chain, &fallen, parting_enabled(), stacker) {
+            // A fall is a pure translation -- every cell shifts by the same
+            // (0, 1), so grouping cannot change and `groups` on both sides
+            // is exact, not an approximation.
+            relocate_chain(world, organism, def, &[], BodySide { cells: chain, groups }, BodySide { cells: &fallen, groups });
+            world.creature_stats.falls += 1;
+            note_outcome(world, DecisionOutcome::Fell);
+            return true;
+        }
+    }
+    false
+}
+
 fn step_chain(
     world: &mut World,
     organism: OrganismId,
@@ -11455,26 +11538,8 @@ fn step_chain(
     //
     // 8-neighbour, so ants climb walls and ceilings. That is correct (real
     // ones do) and it is what makes a side-view world traversable at all.
-    let supported = chain.iter().any(|&(cx, cy)| {
-        NEIGHBOURS_8.iter().any(|&(dx, dy)| {
-            matches!(world.materials.kind(world.get(cx + dx, cy + dy).material), MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant)
-        })
-    });
-    if !supported {
-        let fallen: Vec<(i32, i32)> = chain.iter().map(|&(cx, cy)| (cx, cy + 1)).collect();
-        // Tissue-aware for the same reason the step below is: an animal
-        // that walked into a crown must be able to fall out of it, and a
-        // fall refused because a leaf is in the way is the frozen-on-water
-        // failure `colony_ant_site` records, wearing foliage.
-        if landing_is_placeable_through_tissue(world, &chain, &fallen, parting_enabled(), stacker) {
-            // A fall is a pure translation -- every cell shifts by the same
-            // (0, 1), so grouping cannot change and `&groups` on both sides
-            // is exact, not an approximation.
-            relocate_chain(world, organism, def, &[], BodySide { cells: &chain, groups: &groups }, BodySide { cells: &fallen, groups: &groups });
-            world.creature_stats.falls += 1;
-            note_outcome(world, DecisionOutcome::Fell);
-            return true;
-        }
+    if fall_if_unsupported(world, organism, def, &chain, &groups, stacker) {
+        return true;
     }
 
     // --- choose among the three forward candidates ----------------------
@@ -11869,6 +11934,32 @@ fn step_chain(
         world.decision_scratch.pick = pick as u8;
     }
     let new_heading = dirs[pick];
+    commit_step(world, organism, def, body, &authored, &authored_widths, heading, new_heading, push);
+    true
+}
+
+/// **Commit one walking step to `new_heading`** -- the body moved, the
+/// facing and the move counters updated, the excursion depth and the nest
+/// re-anchor booked, and the decision noted `Stepped`.
+///
+/// Extracted unchanged from the tail of `step_chain`, where the three-cell
+/// cone calls it; the chooser (`chooser_step`) calls it for whichever usable
+/// heading it picked. `heading` is the facing before the step, which the
+/// body's new shape is computed from.
+#[allow(clippy::too_many_arguments)]
+fn commit_step(
+    world: &mut World,
+    organism: OrganismId,
+    def: &CreatureDef,
+    body: BodyShape,
+    authored: &[organism::Segment],
+    authored_widths: &[u8],
+    heading: u8,
+    new_heading: u8,
+    push: bool,
+) {
+    let BodyShape { chain, groups, .. } = body;
+    let (hx, hy) = chain[0];
     let (dx, dy) = DIRS[new_heading as usize];
     let (tx, ty) = (hx + dx, hy + dy);
 
@@ -11883,7 +11974,7 @@ fn step_chain(
         world.creature_stats.width_changes += groups.iter().zip(&next_groups).filter(|(a, b)| a != b).count() as u64;
         world.creature_stats.tucked_segment_steps += authored_widths.iter().zip(&next_groups).filter(|&(&a, &g)| a == 2 && g == 1).count() as u64;
     }
-    relocate_chain(world, organism, def, &authored, BodySide { cells: &chain, groups: &groups }, BodySide { cells: &next, groups: &next_groups });
+    relocate_chain(world, organism, def, authored, BodySide { cells: chain, groups }, BodySide { cells: &next, groups: &next_groups });
     if let Some(state) = world.organism_mut(organism) {
         state.heading = new_heading;
         state.life.moves += 1;
@@ -11998,6 +12089,283 @@ fn step_chain(
         }
     }
     note_outcome(world, DecisionOutcome::Stepped);
+}
+
+// --- stage 1: the heading chooser -------------------------------------------
+//
+// `Reports/ant-movement-plan-2026-09-22.md` §4a and §4e, stage 1 of §4i. The
+// shipped walk decides *whether* to step from the brain's `Move` -- which the
+// `(HomeAligned, Move, 3.0)` wire sets to zero whenever a laden ant faces away
+// from home -- and *where* from a three-cell cone ahead plus a re-roll on a
+// lost roll. `Reports/ant-scenes-2026-09-23.md` measured what that costs: a
+// laden ant cannot take any step that points away from home, so a wall higher
+// than three cells or a U-bend stops it for good, and an empty one reverses as
+// often as it steps.
+//
+// The chooser splits the two. `Move` is only how active the animal is; every
+// step picks one heading from all the usable ones, scored by how little it
+// turns and, while carrying, by how well it points home.
+
+/// **Which walk a creature runs.** `PIXEL_PHYSICS_CHOOSER=on|nopatience`, or
+/// `World::chooser` for one world; off unless set.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Chooser {
+    /// The shipped walk: the step roll, the three-cell cone, the tumble and
+    /// its homeward re-roll.
+    Off,
+    /// Stage 1: one weighted choice over every usable heading, falling checked
+    /// every decision, `HomeAligned` a speed adjustment with a floor.
+    On,
+    /// `On` with `home_patience` held at 1, so the home term is always at full
+    /// strength. The ablation that says what the patience memory is for.
+    NoPatience,
+}
+
+/// The environment's setting, read once per process.
+pub fn chooser_from_env() -> Chooser {
+    static V: std::sync::OnceLock<Chooser> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_CHOOSER").as_deref() {
+        Ok("on") => Chooser::On,
+        Ok("nopatience") => Chooser::NoPatience,
+        _ => Chooser::Off,
+    })
+}
+
+/// This world's setting: `World::chooser` if set, else the environment's.
+pub fn chooser_of(world: &World) -> Chooser {
+    world.chooser.unwrap_or_else(chooser_from_env)
+}
+
+/// **The turning preference**, by how far a heading turns from the current
+/// one in 45-degree steps: `(1 + cos) / 2`, so straight on scores 1 and
+/// turning round scores 0. A table because both ends are exact and no
+/// transcendental belongs near a decision (P-19). Scaled by `Persist`.
+///
+/// Through `choose_weighted`'s `(k + s)^2` at the shipped `Persist` (1.0) and
+/// `k` (0.1), a corridor's two options weigh 1.21 against 0.01: an empty ant
+/// on open ground turns round about once in 120 steps, where the shipped walk
+/// turned round about once per step (`ant-scenes-2026-09-23.md` §1).
+const TURN_PREF: [f32; 5] = [1.0, 0.853_553_4, 0.5, 0.146_446_6, 0.0];
+
+/// **The home term's gain**, times the species' `home_bias` (the ant's 1.0).
+/// At 1.0 a laden ant facing directly away on open ground scores turning
+/// round at 1 and going on at 0, so it turns round on its first step.
+const HOME_GAIN: f32 = 1.0;
+
+/// **How fast patience goes, per step that gets no nearer home.** At 0.9 it
+/// is under a tenth after 22 such steps: long enough that a laden ant does
+/// not give up on home over a few cells of rough ground, short enough that
+/// one pressed into a dead end is following the passage within a few dozen.
+const PATIENCE_DECAY: f32 = 0.9;
+
+/// **How fast it comes back, per step that does** -- full again within four
+/// steps of closing on home.
+const PATIENCE_RECOVER: f32 = 0.25;
+
+/// How much nearer than its best a step has to get, in cells, to count as
+/// closing on home. Below a diagonal step's worst case, above the rounding
+/// a sideways step along a wall makes.
+const PATIENCE_PROGRESS: f32 = 0.25;
+
+/// **A way round that came back where it started has failed.** Once the head
+/// has been this many cells (Chebyshev) from where it set its best distance,
+/// coming back to within a cell of that spot restores patience to 1.
+///
+/// Found by tracing, not by design: on a 12-cell wall (`ant-scenes-2026-09-23.md`
+/// §3) one ant in six drew the unlikely turn back down at the top of the
+/// face, persistence carried it to the foot, and there, with patience spent
+/// on the climb, it turned away from home and walked 150 cells the wrong way
+/// with nothing pulling it back. Six is more than the two or three cells an
+/// ant shuttles at a dead end while its patience runs out, so that shuttle
+/// never resets it; a climb that returns to its foot does.
+pub const EXCURSION_CELLS: u16 = 6;
+
+/// `|d|` for `DIRS[d]`, by parity: 1 on the four straight headings, `sqrt 2`
+/// on the diagonals. Divided out so a home cosine is a cosine.
+const DIR_LEN: [f32; 2] = [1.0, std::f32::consts::SQRT_2];
+
+/// **Where home is for the chooser, and how hard it pulls**: `(target, gain)`
+/// while carrying food (`home_target`, at `home_bias`), or while hauling spoil
+/// with `spoil_haul` on (the nest door, at the haul weight) -- the same two
+/// cases the shipped re-roll steers in. `None` otherwise.
+///
+/// **Any food, not scaled by how full the crop is** (plan §4a). The re-roll
+/// scaled by fill, and an ant digests its cargo on the way home, so the
+/// longer it had been lost the less it was steered home.
+fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32, i32)) -> Option<((i32, i32), f32)> {
+    let state = world.organism(organism)?;
+    match spoil_haul().filter(|_| state.spoil.is_some()) {
+        Some(w) => {
+            let site = world.nearest_nest_site(head.0, head.1).and_then(|i| world.nest_sites.get(i))?;
+            Some(((site.x, site.surface), w))
+        }
+        None => {
+            if def.home_bias <= 0.0 || state.crop.is_none_or(|c| c.worth() <= 0.0) {
+                return None;
+            }
+            Some((home_target(world, state), def.home_bias))
+        }
+    }
+}
+
+/// The support check and fall of `fall_if_unsupported`, for a caller that
+/// has not already read the body.
+fn fall_now_if_unsupported(world: &mut World, organism: OrganismId, def: &CreatureDef) -> bool {
+    let Some((chain, groups)) = world.organism(organism).map(|s| (s.chain.clone(), s.segment_groups.clone())) else {
+        return false;
+    };
+    let stacker = stacker_of(world, organism);
+    fall_if_unsupported(world, organism, def, &chain, &groups, stacker)
+}
+
+/// **One step, to a heading chosen from every usable one** -- the chooser's
+/// replacement for `step_chain`'s three-cell cone. Returns whether the body
+/// walked.
+///
+/// Each usable heading scores `Persist x TURN_PREF[turn]`, plus `Turn`'s
+/// left/right bias exactly as the cone adds it, plus -- while `home_pull` has
+/// a target -- `HOME_GAIN x gain x home_patience x cos(heading, home)`, and
+/// one is drawn by `choose_weighted` at `k = CHOICE_EXPLORATION_K x
+/// unit_scale(Tumble, 2)`: the shipped 0.1 at an unwired `Tumble`, and
+/// `Tumble` is the looseness of the choice now rather than a re-roll.
+///
+/// **A trunk straight ahead is still gone through, not turned from**: when
+/// the facing itself is not usable and `trunk_crossing` finds a way, the
+/// crossing is offered as one more option at the straight-ahead score.
+///
+/// **With no usable heading and no crossing it hands the decision to
+/// `step_chain` unchanged**, which is where the reversal, the kin swap and
+/// the blocked tumble live.
+///
+/// **`home_patience` is the one thing here the plan did not have.** No rule
+/// that reads only the cells around the ant can tell a U-bend from open
+/// ground: facing away from home in a passage that turns back later, and
+/// facing away on an open slab, look the same. So the home term relaxes
+/// while the ant gets no nearer home than it has already been on this carry
+/// (`PATIENCE_DECAY` per step), and returns once it does
+/// (`PATIENCE_RECOVER`), and in full when a way round of `EXCURSION_CELLS`
+/// or more comes back to where it started. `Chooser::NoPatience` holds it
+/// at 1.
+#[allow(clippy::too_many_arguments)]
+fn chooser_step(
+    world: &mut World,
+    organism: OrganismId,
+    heading: u8,
+    outputs: &[f32; brain::BRAIN_OUTPUTS],
+    def: &CreatureDef,
+    draw: &mut rng::Rng,
+    patience_on: bool,
+) -> bool {
+    let Some((chain, groups, fates)) = world.organism(organism).map(|s| (s.chain.clone(), s.segment_groups.clone(), s.fates)) else {
+        note_outcome(world, DecisionOutcome::NoBody);
+        return false;
+    };
+    let Some(&(hx, hy)) = chain.first() else {
+        note_outcome(world, DecisionOutcome::NoBody);
+        return false;
+    };
+    let usable = usable_headings(world, organism, def);
+    let authored = segment_authored(def, fates);
+    let authored_widths: Vec<u8> = authored.iter().map(|s| if s.lateral.is_some() { 2 } else { 1 }).collect();
+    let body = BodyShape { chain: &chain, groups: &groups, authored: &authored_widths };
+    let push = parting_enabled();
+    let stacker = stacker_of(world, organism);
+    let crossing = if crossing_enabled() && !usable.contains(&heading) { trunk_crossing(world, def, body, heading, push, stacker) } else { None };
+    if usable.is_empty() && crossing.is_none() {
+        return step_chain(world, organism, heading, outputs, def, draw);
+    }
+
+    // The home memory, started again whenever the target is new, and cleared
+    // whenever there is nothing to take home.
+    let pull = home_pull(world, organism, def, (hx, hy));
+    let patience = {
+        let state = world.organism_mut(organism).expect("live: its chain was just read");
+        match pull {
+            Some((target, _)) if state.home_best_for != target => {
+                state.home_best_for = target;
+                state.home_best = f32::INFINITY;
+                state.home_away = 0;
+                state.home_patience = 1.0;
+            }
+            Some(_) => {}
+            None => {
+                state.home_best = f32::INFINITY;
+                state.home_away = 0;
+                state.home_patience = 1.0;
+            }
+        }
+        if patience_on { state.home_patience } else { 1.0 }
+    };
+    let home_cos = |d: u8| -> Option<f32> {
+        let ((ax, ay), _) = pull?;
+        let (vx, vy) = ((ax - hx) as f32, (ay - hy) as f32);
+        let len = (vx * vx + vy * vy).sqrt();
+        // Standing on the target is not a direction -- the guard
+        // `home_weighted_pick_why` and `HomeAligned` both take.
+        if len < 1.0 {
+            return None;
+        }
+        let (dx, dy) = DIRS[d as usize];
+        Some((dx as f32 * vx + dy as f32 * vy) / (len * DIR_LEN[(d & 1) as usize]))
+    };
+
+    let persist = brain::unit_scale(outputs[brain::BrainOutput::Persist as usize], PERSIST_MAX);
+    let turn = outputs[brain::BrainOutput::Turn as usize];
+    let k = CHOICE_EXPLORATION_K * brain::unit_scale(outputs[brain::BrainOutput::Tumble as usize], 2.0);
+    let gain = pull.map_or(0.0, |(_, g)| HOME_GAIN * g * patience);
+    let score = |d: u8| -> f32 {
+        let rel = (d + 8 - heading) % 8;
+        let side = match rel {
+            1..=3 => turn.max(0.0),
+            5..=7 => (-turn).max(0.0),
+            _ => 0.0,
+        };
+        persist * TURN_PREF[rel.min(8 - rel) as usize] + side + home_cos(d).map_or(0.0, |c| gain * c)
+    };
+    // Usable headings in `DIRS` order, then the crossing, so the draw maps to
+    // the same option every run.
+    let options: Vec<u8> = usable.iter().copied().chain(crossing.map(|_| heading)).collect();
+    let scores: Vec<f32> = options.iter().map(|&d| score(d)).collect();
+    let pick = choose_weighted(&scores, k, draw.unit_f32());
+    if world.decision_log.is_some() {
+        world.decision_scratch.patience = patience;
+        world.decision_scratch.chosen_cos = home_cos(options[pick]).unwrap_or(f32::NAN);
+    }
+
+    if pick == usable.len() {
+        let (to, thickness) = crossing.expect("the last option is the crossing only when there is one");
+        let due = world.frame + u64::from(thickness) * organism_tick_interval(world, organism, def);
+        if let Some(state) = world.organism_mut(organism) {
+            state.crossing = Some(organism::Crossing { to, heading, due, thickness });
+        }
+        world.creature_stats.crossings += 1;
+        note_outcome(world, DecisionOutcome::Crossing);
+        return false;
+    }
+    commit_step(world, organism, def, body, &authored, &authored_widths, heading, options[pick], push);
+
+    // Did that step close on home?
+    if let Some(((ax, ay), _)) = pull {
+        let state = world.organism_mut(organism).expect("live: it just stepped");
+        let (nx, ny) = state.chain.first().copied().unwrap_or((hx, hy));
+        let (vx, vy) = ((ax - nx) as f32, (ay - ny) as f32);
+        let dist = (vx * vx + vy * vy).sqrt();
+        if dist < state.home_best - PATIENCE_PROGRESS {
+            state.home_best = dist;
+            state.home_best_at = (nx, ny);
+            state.home_away = 0;
+            state.home_patience = (state.home_patience + PATIENCE_RECOVER).min(1.0);
+        } else {
+            state.home_patience *= PATIENCE_DECAY;
+            let (bx, by) = state.home_best_at;
+            let away = (nx - bx).abs().max((ny - by).abs()).clamp(0, u16::MAX as i32) as u16;
+            state.home_away = state.home_away.max(away);
+            if state.home_away >= EXCURSION_CELLS && away <= 1 {
+                state.home_patience = 1.0;
+                state.home_away = 0;
+            }
+        }
+    }
     true
 }
 
@@ -23037,6 +23405,157 @@ mod tests {
         assert!((fired as f64 - expected).abs() <= 4.0 * sd + 2.0, "fired {fired} of {asked}, expected {expected:.1} from the crop fill");
         assert_eq!(after.homeward_aim[0] - before.homeward_aim[0], fired as u64, "every firing counted as toward");
         assert_eq!(after.homeward_aim[1] + after.homeward_aim[2], before.homeward_aim[1] + before.homeward_aim[2], "nothing counted across or away");
+    }
+
+    /// Run `frames` with the trace on, re-filling the crop every frame so
+    /// digestion cannot turn a laden scene into an empty one mid-run.
+    fn traced_laden(w: &mut World, id: OrganismId, frames: usize) -> Vec<DecisionRow> {
+        w.decision_log = Some(Vec::new());
+        for _ in 0..frames {
+            fill_crop(w, id);
+            run(w, 1);
+        }
+        w.decision_log.take().expect("the log was on").into_iter().filter(|r| r.id == id).collect()
+    }
+
+    /// **The chooser walks a laden ant out of a dead end, and patience is what
+    /// lets it** -- stage 1's S3 in miniature (`Reports/ant-scenes-2026-09-23.md`
+    /// §2, §3).
+    ///
+    /// A one-high tunnel sealed in stone, with the ant at its blind east end
+    /// and home 30 cells further east, through rock. The only way on is west,
+    /// away from home. Three arms from one scene:
+    /// - **shipped walk**: facing away, `P(move)` is 0, so it never takes the
+    ///   step west (the S3 result);
+    /// - **chooser without patience**: it steps, but the home term turns it
+    ///   straight back, so it never gets more than a few cells from the end;
+    /// - **chooser**: patience runs out and it follows the tunnel.
+    ///
+    /// The no-patience arm is this test's negative control for the patience
+    /// memory, and the shipped arm for the chooser as a whole.
+    #[test]
+    fn the_chooser_walks_a_laden_ant_out_of_a_dead_end_and_patience_is_what_lets_it() {
+        let reach = |mode: Chooser| -> (i32, usize) {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            for x in 0..160 {
+                for y in 0..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            for x in 20..=100 {
+                w.set(x, 30, Cell::EMPTY);
+            }
+            w.chooser = Some(mode);
+            let ant = spawn(&mut w, "ant", 100, 30);
+            let head = w.organism(ant).expect("live").chain[0];
+            w.organism_mut(ant).expect("live").forage_anchor = (130, 30);
+            let rows = traced_laden(&mut w, ant, 3600);
+            assert!(rows.iter().all(|r| r.leg == 1 && r.fill > 0.99), "the ant must stay laden for the whole run");
+            let west = rows.iter().map(|r| head.0 - r.head_after.0).max().unwrap_or(0);
+            (west, rows.iter().filter(|r| r.outcome == DecisionOutcome::Stepped).count())
+        };
+        let (shipped, _) = reach(Chooser::Off);
+        let (impatient, impatient_steps) = reach(Chooser::NoPatience);
+        let (chooser, _) = reach(Chooser::On);
+        assert!(shipped <= 1, "the shipped walk left the dead end ({shipped} cells): the S3 scene no longer reproduces");
+        assert!(impatient_steps >= 20, "without patience the chooser took {impatient_steps} steps, so the control is not stepping at all");
+        assert!(impatient <= 4, "without patience it got {impatient} cells from the dead end: the home term is not turning it back");
+        assert!(chooser >= 40, "with patience it got only {chooser} cells from the dead end in 600 decisions");
+    }
+
+    /// **Under the chooser, falling does not wait for the step roll** (plan
+    /// §4e), and a fall is not a move.
+    ///
+    /// A laden ant on a floor that is then cut away under its whole body, with
+    /// a cell of floor left two columns out from its head: close enough that
+    /// the one step outward is footed, too far to hold the body up. Home is
+    /// far the other way. So the only usable headings point away from home,
+    /// where the shipped walk's `P(move)` is 0: its tumble can only re-aim
+    /// among them, `step_chain` never runs, and the support check inside it
+    /// never asks. The ant hangs in the air for good. Under the chooser it
+    /// falls to the floor below at once, and no fall lays trail or takes a
+    /// step roll. **Watched red** by setting the chooser's `fell` to `false`:
+    /// the chooser arm then hangs too.
+    #[test]
+    fn under_the_chooser_an_unsupported_ant_falls_whatever_the_step_roll() {
+        let fall = |mode: Chooser| -> (i32, Vec<DecisionRow>) {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            for x in 0..160 {
+                for y in 51..64 {
+                    w.set(x, y, stone);
+                }
+                w.set(x, 31, stone);
+            }
+            w.chooser = Some(mode);
+            let ant = spawn(&mut w, "ant", 80, 30);
+            let chain = w.organism(ant).expect("live").chain.clone();
+            let (head, tail) = (chain[0], chain[chain.len() - 1]);
+            assert_eq!(head.1, tail.1, "the scene assumes a body lying along the floor");
+            let out = (head.0 - tail.0).signum();
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.heading = if out < 0 { 4 } else { 0 };
+                st.forage_anchor = (head.0 - out * 70, 30);
+            }
+            let (lo, hi) = (chain.iter().map(|c| c.0).min().unwrap(), chain.iter().map(|c| c.0).max().unwrap());
+            for x in lo - 1..=hi + 1 {
+                w.set(x, 31, Cell::EMPTY);
+            }
+            let rows = traced_laden(&mut w, ant, 180);
+            (w.organism(ant).expect("live").chain[0].1, rows)
+        };
+        let (shipped_y, shipped_rows) = fall(Chooser::Off);
+        assert!(!shipped_rows.is_empty() && shipped_rows.iter().all(|r| r.p_move == 0.0 && r.usable != 0), "the shipped control must see a usable heading and P(move) 0 at every decision");
+        assert_eq!(shipped_y, 30, "the shipped walk moved its head, so it is not the frozen control this test needs");
+        let (y, rows) = fall(Chooser::On);
+        assert_eq!(y, 50, "under the chooser the ant should have fallen to the floor at row 51");
+        let falls: Vec<&DecisionRow> = rows.iter().filter(|r| r.outcome == DecisionOutcome::Fell).collect();
+        assert!(falls.len() >= 19, "{} falls for a 20-row drop", falls.len());
+        assert!(falls.iter().all(|r| !r.moved && r.roll_move.is_nan()), "a fall is not a move and takes no step roll");
+    }
+
+    /// **An empty explorer keeps going under the chooser** -- S0's finding
+    /// (`ant-scenes-2026-09-23.md` §1) and its fix, on one bare floor.
+    ///
+    /// On open flat ground the only usable headings are the two along the
+    /// floor. The shipped walk re-rolls between them after every lost step
+    /// roll, so it turns round about once per step. The chooser turns round
+    /// only when its draw lands on the zero-scored reversal, about once in 120
+    /// steps. The shipped arm is the instrument's positive control: if it
+    /// does not read many reversals, the count below is not seeing them.
+    #[test]
+    fn an_empty_ant_keeps_going_under_the_chooser_and_turns_round_under_the_shipped_walk() {
+        let turns = |mode: Chooser| -> (usize, usize) {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 399, 63));
+            for x in 0..400 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            for y in 0..41 {
+                for x in [0, 399] {
+                    w.set(x, y, stone);
+                }
+            }
+            w.chooser = Some(mode);
+            let ant = spawn(&mut w, "ant", 200, 40);
+            let (rows, _, _) = traced(&mut w, ant, 3600);
+            assert!(rows.iter().all(|r| r.leg == 0), "the ant must stay empty");
+            let steps = rows.iter().filter(|r| r.outcome == DecisionOutcome::Stepped).count();
+            let reversals = rows.iter().filter(|r| r.heading_after == (r.heading + 4) % 8).count();
+            (steps, reversals)
+        };
+        let (shipped_steps, shipped_rev) = turns(Chooser::Off);
+        let (steps, rev) = turns(Chooser::On);
+        assert!(shipped_steps >= 30 && steps >= 30, "too few steps to compare: {shipped_steps} shipped, {steps} chooser");
+        // At `Energy` 1 the shipped walk reverses about once per step, and
+        // about once in four at 0.5 (`ant-scenes-2026-09-23.md` §1); this
+        // ant's energy is not pinned, so the bar sits under the hungry case.
+        assert!(shipped_rev * 6 >= shipped_steps, "the shipped walk turned round {shipped_rev} times in {shipped_steps} steps: the count is blind");
+        assert!(rev * 20 <= steps, "the chooser turned round {rev} times in {steps} steps");
     }
 
     /// **A drop with nowhere to go is counted as such, and one with room is

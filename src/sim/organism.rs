@@ -6105,6 +6105,28 @@ pub struct OrganismState {
     /// See `forage_anchor`. Chebyshev cells, saturating; reset to 0 at every
     /// nest contact.
     pub forage_max: u16,
+    /// **The chooser's memory of getting nearer home** (`creature::chooser_step`,
+    /// `Reports/ant-movement-plan-2026-09-22.md` §4a): the closest this animal
+    /// has come to `home_best_for` on the current carry, in cells.
+    /// `f32::INFINITY` when it is not carrying, or has not stepped since it
+    /// started. Read and written only when the chooser is on.
+    pub home_best: f32,
+    /// The home point `home_best` was measured against. A different target
+    /// (re-anchored, or the nest-centre switch) starts the memory again.
+    pub home_best_for: (i32, i32),
+    /// Where the head stood when it set `home_best`, and the furthest it has
+    /// been from there since (Chebyshev cells). An excursion of at least
+    /// `creature::EXCURSION_CELLS` that comes back to within a cell of that
+    /// spot has failed to find a way round, and restores `home_patience`.
+    pub home_best_at: (i32, i32),
+    pub home_away: u16,
+    /// **How much the chooser still trusts the straight line home**, in
+    /// `[0, 1]`. Multiplies the home term. It decays on every step that gets
+    /// the animal no nearer than `home_best`, and recovers on every step that
+    /// does. So an ant pressed against a dead end stops insisting on the
+    /// direct line and follows the passage, and an ant that is closing on home
+    /// trusts it again within a few steps. 1.0 at rest.
+    pub home_patience: f32,
     /// **A fading memory of the trail strength under this animal's own feet**,
     /// in the same normalised units `sense` reads the plane in.
     ///

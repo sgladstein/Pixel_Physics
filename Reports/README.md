@@ -3195,6 +3195,12 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     usable now. Walls of 6 and 12 cells: 0 of 24, never more than 2 cells up
     the face. A U-bend: 0 of 24, not one step. Walls of 1–3 cross, because
     the step over the top points home.
+  - **Stage 1's chooser** (behind `PIXEL_PHYSICS_CHOOSER=on`, not shipped)
+    **meets every bar on the same scenes**: food found in 24 of 24 at both
+    energies, every wall crossed (median 98 decisions at 12 cells), the
+    U-bend escaped in 24 of 24, no ant frozen, about +2% frame cost. Its
+    home term relaxes while the ant gets no nearer home ("patience");
+    without that, the U-bend is 0 of 24.
   - The per-decision mix matched the formula within a point at both
     energies. The reach predictions were low; the report says why.
   - The scene's own checks caught rain pooling on the slab and an ant dying
