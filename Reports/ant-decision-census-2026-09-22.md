@@ -4,8 +4,8 @@
 [`ant-movement-plan-2026-09-22.md`](ant-movement-plan-2026-09-22.md), and, in
 §10 (2026-09-23), step 2: the drop, cone and homeward counters. Both trace
 today's code and change no behaviour. §11 measures the drop stopgap, which
-does change behaviour and ships off, and §12 finds the food leak (§Z33) that
-§11's result turns out to rest on. The mechanism it measures is described in
+does change behaviour and now ships on, and §12 finds the food leak (§Z33)
+that §11's result turns out to rest on. The mechanism it measures is described in
 [`how-the-ant-works.md`](how-the-ant-works.md).*
 
 ## 0. The answer, stated once
@@ -411,8 +411,8 @@ per-usable-heading design already scores that way.
 nearest free cell, as a stopgap. Built as `food_drop_site`: the first empty
 neighbour as before, else the nearest empty cell reached by handing the food
 through bodies (the ant's own, and any other creature's), never through
-ground, nest material or food. It ships **off**;
-`PIXEL_PHYSICS_DROP_REACH=bodies` turns it on.*
+ground, nest material or food. It shipped off at first; after §12, the
+owner ruled it **on**, and `PIXEL_PHYSICS_DROP_REACH=adjacent` turns it off.*
 
 **The answer.**
 

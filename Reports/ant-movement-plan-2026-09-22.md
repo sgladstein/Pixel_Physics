@@ -62,7 +62,7 @@ drop census starts at the anchor (§8).*
 | Brain outputs for the chooser's weights from the start | agreed; re-deriving every species' `mutation_rate` is accepted, since most creatures will be updated after the ants anyway |
 | Food memory for empty ants | **no, for now** |
 | Counters reconciled against per-tick traces | at first implementation, and whenever results are confusing, unexpected, or an issue has dragged on; not on every run |
-| Letting a drop reach past the eight neighbours | **deferred** on 2026-09-22: first understand why ants are blocked (§8). **Reversed 2026-09-23, as a stopgap**, once step 2 showed the blocking: *"let them drop it even if they're blocked and it just moves to the nearest free cell. We could always try and improve it once the full foraging loop is complete."* Built as the food handed through bodies to the nearest empty cell (§8c). **Measured, starvation rose; traced, that was open bug §Z33 (putting food down creates food), so it ships off (`PIXEL_PHYSICS_DROP_REACH=bodies`) until §Z33 is fixed.** The owner chose to trace where the food goes (2026-09-23) |
+| Letting a drop reach past the eight neighbours | **deferred** on 2026-09-22: first understand why ants are blocked (§8). **Reversed 2026-09-23, as a stopgap**, once step 2 showed the blocking: *"let them drop it even if they're blocked and it just moves to the nearest free cell. We could always try and improve it once the full foraging loop is complete."* Built as the food handed through bodies to the nearest empty cell (§8c). **Measured, starvation rose; traced, that was open bug §Z33 (putting food down creates food).** On that finding the owner ruled it **on** (2026-09-23): *"All we care about is the loop is improving."* `PIXEL_PHYSICS_DROP_REACH=adjacent` turns it off |
 | Traces | per-tick brain, decision, position and environment traces have been more informative on this line than counters, so both are used, with the trace primary |
 | Revisions after the living reference was written | agreed, and folded in: exploration first (§0, §6 S0); the chooser in two stages (§4i); the home pull set by distance, not crop fill (§4a); falling independent of the step roll (§4e); the drop treated as possibly a nest-digging problem (§8); the trail-B experiment narrowed to its one essential arm (§7) |
 | Digesting the crop while carrying it | **not changed.** A test of `digest_hunger_weight` waits for the owner's go-ahead (§8b) |
@@ -603,8 +603,14 @@ is created** (census report §12, open bug §Z33). A part-eaten fruit put down
 comes back whole, so the nest's put-down-and-pick-up churn creates about
 half of everything a colony eats. The stopgap brings home the same food and
 cuts that churn. So its "starvation" is the colony losing food that never
-existed, and it cannot be judged until §Z33 is fixed. It stays off
-(`PIXEL_PHYSICS_DROP_REACH=bodies` turns it on) until then.
+existed. **It ships on**, on the owner's ruling, because the loop improves;
+`PIXEL_PHYSICS_DROP_REACH=adjacent` turns it off.
+
+**§Z33's fix must keep every drop possible.** The owner rejected making a
+part-eaten cell undroppable: an ant that nibbled its only cell on the way
+home could never unload, and a colony on single-cell trips would walk in
+circles. The fix proposed instead is that the ground keeps the remaining
+worth, so a part-eaten fruit goes down, and is picked up, at what is left.
 
 **What this does to §8.** The census of *why* the cells are full is
 deferred, as the owner said, until the loop works. Whichever way the choice
@@ -625,10 +631,10 @@ goes, any later measurement on the colony bed states which drop rule it ran.
    lining. The four comments are fixed, and a fifth of the same kind was
    found and fixed.
 2b. **The drop stopgap (§8c)**, on the owner's ruling of 2026-09-23:
-   built and measured (census report §11). Tracing where the food goes found
-   open bug §Z33: putting food down creates food. **Fixing §Z33 comes next,
-   on the owner's choice of fix**, and then §11 is re-run and the stopgap
-   judged.
+   built and measured (census report §11), and on by default on the owner's
+   ruling. Tracing where the food goes found open bug §Z33: putting food down
+   creates food. **§Z33 is fixed before the next colony-bed comparison**
+   (stage 2's), keeping every drop possible (§8c).
 3. **Scenes S0–S5 on today's code**, **S0 first**, with the predictions
    above, as the baseline. S0–S3 have no nest, so the stopgap cannot reach
    them.

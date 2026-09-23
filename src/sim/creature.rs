@@ -9005,8 +9005,8 @@ fn trail_read_is_forward() -> bool {
 /// bodies.** Returns the cell and how many steps away it is (1 for a
 /// neighbour).
 ///
-/// **The owner's stopgap, 2026-09-23, off by default** (`drop_through_bodies`
-/// says why). Step 2's drop census
+/// **The owner's stopgap, 2026-09-23, on by default** (`drop_through_bodies`).
+/// Step 2's drop census
 /// (`Reports/ant-decision-census-2026-09-22.md` §10) found that at the gap-90
 /// forage bed **52% of the drops a laden ant wins at the nest find no empty
 /// neighbour** (median run), with nestmates the largest share of what fills
@@ -9076,19 +9076,20 @@ fn food_drop_site(world: &World, x: i32, y: i32, through_bodies: bool) -> Option
 }
 
 /// Whether a blocked food drop is handed through bodies (`food_drop_site`).
-/// `PIXEL_PHYSICS_DROP_REACH=bodies` turns it on; unset is the eight-neighbour
-/// drop exactly.
+/// **On by default**; `PIXEL_PHYSICS_DROP_REACH=adjacent` restores the
+/// eight-neighbour drop exactly, for paired measurement.
 ///
-/// **Off by default until open bug §Z33 is fixed.** Measured 2026-09-23, 24
-/// seeds at gap 90 (`Reports/ant-decision-census-2026-09-22.md` §11): the
-/// loop improves (second trips 87 -> 112, 14 seeds better / 5 worse) and
-/// starvation rises 172 -> 249. §12 found why: a part-eaten fruit put down
-/// comes back whole, so the nest's put-down-and-pick-up churn creates about
-/// half of what a colony eats, and this rule cuts the churn while bringing
-/// home the same food. It cannot be judged until that leak is closed.
+/// **Owner's ruling, 2026-09-23: on, because the loop improves.** Measured,
+/// 24 seeds at gap 90 (`Reports/ant-decision-census-2026-09-22.md` §11):
+/// second trips 87 -> 112 (14 seeds better / 5 worse), and starvation rises
+/// 172 -> 249. §12 found the starvation is not this rule's: a part-eaten
+/// fruit put down comes back whole (open bug §Z33), so the nest's
+/// put-down-and-pick-up churn creates about half of what a colony eats, and
+/// this rule brings home the same food while cutting the churn that created
+/// it. The colony loses food that should never have existed.
 fn drop_through_bodies() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DROP_REACH").as_deref() == Ok("bodies"))
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DROP_REACH").as_deref() != Ok("adjacent"))
 }
 
 fn deposit_at_vacated() -> bool {
@@ -23106,7 +23107,7 @@ mod tests {
 
     /// **A blocked drop hands the food through bodies to the nearest empty
     /// cell, and never through ground** -- the owner's stopgap of 2026-09-23
-    /// (`food_drop_site`), off by default (`drop_through_bodies`).
+    /// (`food_drop_site`), on by default (`drop_through_bodies`).
     ///
     /// A laden ant at the blind east end of a one-wide tunnel lined with nest
     /// material, so every one of its eight neighbours is wall or its own tail.
@@ -23118,8 +23119,8 @@ mod tests {
     ///   not pass through food;
     /// - with a nestmate standing behind it, the food passes through the
     ///   nestmate too and goes behind that, four steps away;
-    /// - with the rule off it is the eight-neighbour search: no room, and
-    ///   `act` at the shipped default puts nothing down and books `NoRoom`.
+    /// - with the rule off it is the eight-neighbour search: no room;
+    /// - `act` at the shipped default (on) hands the food back two steps.
     ///
     /// The rule is asked directly because its switch is read once per
     /// process; the bed runs with it on reconcile the counter against the
@@ -23176,9 +23177,13 @@ mod tests {
         w.decision_scratch = DecisionScratch::default();
         let mut draw = rng::stream(1, ant as u64, 0, RNG_SLOT_MOVE);
         act(&mut w, 32, 40, ant, &def, &outputs, &mut draw);
-        if !drop_through_bodies() {
-            assert_eq!(w.decision_scratch.drop, DropWhy::NoRoom, "at the default the blocked drop books no room");
-            assert_eq!((w.creature_stats.drops, w.creature_stats.drops_passed_on), (0, 0), "at the default nothing is put down");
+        if drop_through_bodies() {
+            assert_eq!((w.decision_scratch.drop, w.decision_scratch.drop_reach), (DropWhy::Delivered, 2), "at the default the blocked drop is handed back along the body");
+            assert_eq!((w.creature_stats.drops, w.creature_stats.drops_passed_on), (1, 1));
+            assert!(w.get(30, 40).material == leaf, "the food should be behind the tail");
+        } else {
+            assert_eq!(w.decision_scratch.drop, DropWhy::NoRoom, "with the rule off the blocked drop books no room");
+            assert_eq!((w.creature_stats.drops, w.creature_stats.drops_passed_on), (0, 0), "with the rule off nothing is put down");
         }
 
         // A nestmate standing behind it.

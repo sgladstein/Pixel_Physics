@@ -197,11 +197,13 @@ the tick: the ant still gets its move roll (§6) afterwards.
    against `Drop` is taken **first**. Only on a win does it look for a place
    (`food_drop_site`), and put one food cell there:
    - the first empty cell among the 8 neighbours, in fixed order;
-   - **only with `PIXEL_PHYSICS_DROP_REACH=bodies`**: if there is none, the
-     nearest empty cell reachable by handing the food through bodies, the
-     ant's own and any other creature's, never through ground, nest material
-     or food already put down;
-   - otherwise nothing happens: the roll is spent and the tick did nothing.
+   - if there is none, **the nearest empty cell reachable by handing the food
+     through bodies**, the ant's own and any other creature's, never through
+     ground, nest material or food already put down. So a blocked ant passes
+     its food back along its body or through the crowd;
+   - if even that finds nothing, nothing happens: the roll is spent.
+
+   `PIXEL_PHYSICS_DROP_REACH=adjacent` turns the second rule off.
 
    The drop is
    not gated on being at the nest, but `Drop` is 0 elsewhere. `deliveries`
@@ -408,7 +410,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_NEST_REACH` | r1 | `rN`: nest contact within radius N; `body`: any body cell |
 | `PIXEL_PHYSICS_LAB_ROOM` | on | `off`: at-nest `Crowding` falls back to local density |
 | `PIXEL_PHYSICS_TROPHALLAXIS` | on | `off` |
-| `PIXEL_PHYSICS_DROP_REACH` | 8 neighbours | `bodies`: a blocked food drop is handed through bodies to the nearest empty cell |
+| `PIXEL_PHYSICS_DROP_REACH` | through bodies | `adjacent`: a food drop looks only at the 8 neighbours |
 | `SPOIL_IS_CARGO` | on | `0`: spoil no longer counts toward `Carrying` |
 | `PIXEL_PHYSICS_DIG_SPOIL` | kept | `destroy`: dug cells vanish |
 | `PIXEL_PHYSICS_BURROW_LINING` | on | `off`: no `packedsoil` lining |
@@ -450,7 +452,7 @@ is on, every walking decision, the move stage of `creature_tick`, pushes one
   and the head's eight neighbours at the roll: how many were empty
   (`free8`), their materials, and which were the ant's own body or another
   organism; and how far the food went (`drop_reach`: 1 for a neighbour,
-  more when handed on through bodies under `DROP_REACH=bodies`);
+  more when handed on through bodies);
 - the cone's three scores after the zeroing and the candidate taken.
 
 `CreatureStats::decision_census` counts the same decisions by leg × setting

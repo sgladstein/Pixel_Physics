@@ -3171,7 +3171,8 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     through bodies to the nearest empty cell improves the loop at gap 90
     (second trips 87 → 112), and **starves the colony**: starvation
     172 → 249, colonies nearly wiped out in 11 of 24 seeds against 3.
-    It ships off (`PIXEL_PHYSICS_DROP_REACH=bodies`).
+    It ships on, on the owner's ruling after §12
+    (`PIXEL_PHYSICS_DROP_REACH=adjacent` turns it off).
   - **§12 (2026-09-23): the food is created, not lost.** A part-eaten fruit
     put down comes back whole (open bug §Z33), and about half of everything
     a gap-90 colony eats is food created that way (median 53%, in 24 of 24

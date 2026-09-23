@@ -1612,9 +1612,8 @@ pub struct CreatureStats {
     /// **Drops put down past the eight neighbours**, handed through bodies to
     /// the nearest empty cell (`creature::food_drop_site`, the owner's stopgap
     /// of 2026-09-23). A subset of `drop_census`'s placed and delivered slots:
-    /// every one of these would have been `no_room` without it. Zero unless
-    /// `PIXEL_PHYSICS_DROP_REACH=bodies`, because the rule ships off until
-    /// open bug §Z33 is fixed.
+    /// every one of these would have been `no_room` without it. Zero under
+    /// `PIXEL_PHYSICS_DROP_REACH=adjacent`, which turns the rule off.
     pub drops_passed_on: u64,
     /// **Face value the ground forgets at a food drop** -- the part of a
     /// cell already chewed, which a material that cannot carry a worth in

@@ -13790,9 +13790,11 @@ carries its worth in the cell, so it cannot see plant food at all.
 - the ground keeps the remaining worth for plant food as well (a worth in
   `aux` for a loose food cell, which needs the pickup to read it and a check of
   what `aux` means on a loose plant cell);
-- a part-eaten cell cannot be put down: the drop hands over a whole cell and
-  keeps the chewed one, and a last part-eaten cell is finished rather than
-  delivered;
+- ~~a part-eaten cell cannot be put down: the drop hands over a whole cell
+  and keeps the chewed one, and a last part-eaten cell is finished rather than
+  delivered~~ -- **rejected by the owner, 2026-09-23**: an ant that nibbled its
+  only cell on the way home could never unload, and a colony on single-cell
+  trips would walk in circles delivering nothing;
 - the chewed remainder goes down as something worth less.
 
 ***Re-test when:*** the drop path, `Carried::into_cell`, `Crop::unit_cell` or
