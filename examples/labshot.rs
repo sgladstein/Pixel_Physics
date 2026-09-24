@@ -93,6 +93,7 @@ fn main() {
     let stops: String = arg("frames").unwrap_or_else(|| "0,600,3000,9000".to_string());
     let stops: Vec<u64> = stops.split(',').map(|s| s.parse().expect("a frame number")).collect();
     let zoom: i32 = arg("zoom").unwrap_or(1);
+    let mark_ants = arg::<String>("mark").as_deref() == Some("ants");
     // **`marks=off|halo|tick` -- the game's mark over every living animal
     // (`ui::draw_life_marks`/`ui::LifeMarks`), the one piece of it this
     // harness renders no `Ui` to draw itself.** Unknown values are ignored
@@ -431,6 +432,60 @@ fn main() {
             renderer.draw(&world, &particles, &touched, &mut buf, (vw, vh), true);
             // A no-op under `Off`, which `draw_life_marks` itself checks.
             pixel_physics::lab::ui::draw_life_marks(&mut buf, &world, &renderer, renderer.creature_colour, marks);
+            // **`mark=ants`: every nesting animal painted over in a colour the
+            // bed does not have, and the nest outlined.** Owner, 2026-09-24:
+            // at play zoom an ant blends into the soil, and the colony colour
+            // sits too near crumbs and packed soil to judge a crowd by. Magenta
+            // for an ant, cyan for one that could bud now (`creature::
+            // bud_readiness`), and a white edge wherever nest material meets
+            // anything else, since "at the nest" is being beside it. Harness
+            // only: the game's own draw is untouched.
+            if mark_ants {
+                let z = renderer.zoom.max(1);
+                let paint = |buf: &mut [u8], sx: i32, sy: i32, w: i32, h: i32, rgb: [u8; 3]| {
+                    for py in sy.max(0)..(sy + h).min(vh as i32) {
+                        for px in sx.max(0)..(sx + w).min(vw as i32) {
+                            let i = ((py as u32 * vw + px as u32) * 4) as usize;
+                            buf[i..i + 3].copy_from_slice(&rgb);
+                        }
+                    }
+                };
+                let mut nest_ids = Vec::new();
+                for id in world.live_organism_ids() {
+                    let Some(st) = world.organism(id) else { continue };
+                    if let Some(m) = world.species.get(st.species).creature.as_ref().and_then(|d| world.materials.id_of(&d.nest)) {
+                        if !nest_ids.contains(&m) {
+                            nest_ids.push(m);
+                        }
+                    }
+                }
+                for y in 0..spec.height {
+                    for x in 0..spec.width {
+                        let m = world.get(x, y).material;
+                        if !nest_ids.contains(&m) {
+                            continue;
+                        }
+                        let Some((sx, sy)) = renderer.world_to_screen(x, y) else { continue };
+                        for (dx, dy, ex, ey, ew, eh) in [(0, -1, 0, 0, z, 1), (0, 1, 0, z - 1, z, 1), (-1, 0, 0, 0, 1, z), (1, 0, z - 1, 0, 1, z)] {
+                            if !nest_ids.contains(&world.get(x + dx, y + dy).material) {
+                                paint(&mut buf, sx + ex, sy + ey, ew, eh, [255, 255, 255]);
+                            }
+                        }
+                    }
+                }
+                for id in world.live_organism_ids() {
+                    let Some(r) = pixel_physics::sim::creature::bud_readiness(&world, id) else { continue };
+                    if !r.has_nest {
+                        continue;
+                    }
+                    let rgb = if r.bank + r.reachable >= r.bar { [0, 255, 255] } else { [255, 0, 255] };
+                    for &(cx, cy) in &world.organism(id).expect("live").chain {
+                        if let Some((sx, sy)) = renderer.world_to_screen(cx, cy) {
+                            paint(&mut buf, sx, sy, z, z, rgb);
+                        }
+                    }
+                }
+            }
             // **How many animals are actually holding something**, printed
             // beside the picture it is a census of. `CLAUDE.md`: an image
             // says *what* and *where* and only a count says *whether it
