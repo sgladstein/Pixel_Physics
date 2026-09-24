@@ -1,5 +1,13 @@
 # What controls creature movement, in detail
 
+> **Superseded 2026-09-22 by [`how-the-ant-works.md`](how-the-ant-works.md)**,
+> the living reference, which is kept current with the code. Read that
+> instead of this. **This report's §7 measurement, *"does not visibly bias the
+> re-roll"*, is withdrawn:** its tumble signature cannot see a re-pick of
+> the current heading, and its baseline assumed 8 headings where the re-roll
+> draws from the usable ones. See
+> [`ant-movement-plan-2026-09-22.md`](ant-movement-plan-2026-09-22.md) §2a.
+
 *2026-09-22. Written from the source on `claude/upbeat-shannon-cez0w4`, every
 link read rather than recalled. Owner's ask: a report on exactly what controls
 movement.*
@@ -204,6 +212,8 @@ probability `home_bias × fill`** — and it steers toward `forage_anchor`, whic
 re-anchors to whichever nest cell was last touched (`ant-forage-bed-and-gates-2026-09-21.md` §8c).
 
 ### Measured: it does not visibly bias the re-roll
+
+> **Withdrawn 2026-09-22**; see the note at the head of this report.
 
 `home_bias: 1.0` ships on, so the question is not whether the lever exists but
 whether it acts. Isolating tumbles directly — a heading change with **no**

@@ -4103,8 +4103,9 @@ pub struct CreatureDef {
     #[serde(default)]
     pub kin_crosses_kinds: bool,
     /// **How strongly a full crop steers the tumble toward home.** `0.0`, the
-    /// default, is the shipped animal exactly: the re-roll stays uniform and
-    /// not one RNG draw changes.
+    /// default, is the uniform re-roll exactly: not one RNG draw changes.
+    /// **The shipped ant authors 1.0**; until 2026-09-23 this line called 0.0
+    /// "the shipped animal", which it has not been since the ant opted in.
     ///
     /// At `w`, a tumbling body picks the viable direction nearest its
     /// `forage_anchor` with probability `w * crop_fill`, and re-rolls
@@ -6064,8 +6065,16 @@ pub struct OrganismState {
     /// A `u16` and not a `bool` because the question is *how long*, and a
     /// tick is the animal's own tick, not a frame.
     pub traffic_deferred: u16,
-    /// **Measurement only — no creature ever reads this, and the moment one
-    /// does, the homing model has changed and this doc is a lie.**
+    /// **Read by the ant's homing, though it was written as measurement.**
+    /// Until 2026-09-23 this doc opened *"Measurement only — no creature ever
+    /// reads this, and the moment one does, the homing model has changed and
+    /// this doc is a lie"*, and that moment had come. It has two readers:
+    /// `sense` aims `BrainInput::HomeAligned` at it (unless
+    /// `PIXEL_PHYSICS_HOME_TARGET=nest`), and the homeward re-roll
+    /// (`creature::home_weighted_pick_why`) always aims at it. So the
+    /// re-anchor on every nest contact described below, which is right for a
+    /// range measurement, also moves where a laden animal thinks home is. See
+    /// `creature::home_target` and `Reports/how-the-ant-works.md` §8.
     ///
     /// Where this creature last touched nest material, and the furthest it
     /// has been from that point since. Together they are a *foraging range*:
@@ -6096,6 +6105,28 @@ pub struct OrganismState {
     /// See `forage_anchor`. Chebyshev cells, saturating; reset to 0 at every
     /// nest contact.
     pub forage_max: u16,
+    /// **The chooser's memory of getting nearer home** (`creature::chooser_step`,
+    /// `Reports/ant-movement-plan-2026-09-22.md` §4a): the closest this animal
+    /// has come to `home_best_for` on the current carry, in cells.
+    /// `f32::INFINITY` when it is not carrying, or has not stepped since it
+    /// started. Read and written only when the chooser is on.
+    pub home_best: f32,
+    /// The home point `home_best` was measured against. A different target
+    /// (re-anchored, or the nest-centre switch) starts the memory again.
+    pub home_best_for: (i32, i32),
+    /// Where the head stood when it set `home_best`, and the furthest it has
+    /// been from there since (Chebyshev cells). An excursion of at least
+    /// `creature::EXCURSION_CELLS` that comes back to within a cell of that
+    /// spot has failed to find a way round, and restores `home_patience`.
+    pub home_best_at: (i32, i32),
+    pub home_away: u16,
+    /// **How much the chooser still trusts the straight line home**, in
+    /// `[0, 1]`. Multiplies the home term. It decays on every step that gets
+    /// the animal no nearer than `home_best`, and recovers on every step that
+    /// does. So an ant pressed against a dead end stops insisting on the
+    /// direct line and follows the passage, and an ant that is closing on home
+    /// trusts it again within a few steps. 1.0 at rest.
+    pub home_patience: f32,
     /// **A fading memory of the trail strength under this animal's own feet**,
     /// in the same normalised units `sense` reads the plane in.
     ///

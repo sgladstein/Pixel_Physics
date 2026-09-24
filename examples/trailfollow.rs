@@ -1004,6 +1004,9 @@ impl Diet {
     }
 }
 
+/// The eight cells around one, for asking whether a crumb has any open side.
+const NEIGH8: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
+
 /// **What the colony ate, split into the larder and everything else.**
 ///
 /// Summed over every colony's books rather than read off `EnergyLedger`,
@@ -1015,9 +1018,14 @@ impl Diet {
 /// `harvested_plant` 59,003 J against 200 placed cells worth 48,000 J.
 fn diet_by_material(w: &pixel_physics::sim::world::World, larder: MaterialId) -> (f64, f64) {
     let (mut mine, mut other) = (0.0, 0.0);
+    // **Crumbs are the larder too.** A part-eaten larder cell is put down as
+    // `crumbs` holding what is left of it (open bug §Z33's fix), and under
+    // `onlyfood` the larder is the only food there is, so every crumb was cut
+    // from it.
+    let crumbs = w.materials.id_of("crumbs");
     for books in w.all_colony_books() {
         for (m, j) in books.diet() {
-            if m == larder {
+            if m == larder || Some(m) == crumbs {
                 mine += j;
             } else {
                 other += j;
@@ -1368,6 +1376,26 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     if mute {
         let silenced = mute_channel_b(&mut genome);
         assert!(silenced > 0, "no EmitB weight was zeroed, so the muted arm still lays the plane it is meant to be without");
+    }
+    // **`breadoff` -- trail B read by nobody, still laid by everybody.** The
+    // one arm `Reports/ant-movement-plan-2026-09-22.md` §7 says still matters:
+    // muting B (`hmute`, `mute`) removes the laying *and* the reading, so it
+    // cannot say which of the two did the harm when muting helped. This zeroes
+    // only the empty ant's reader, `(PheroBAlong, 2/3, +-6)`, and leaves
+    // `(CarryingFood, EmitB, 2.5)` alone. The pair of hidden units stays in
+    // place with its bias and gate, so a shut unit still cancels its mirror
+    // exactly as it did -- the reading, and nothing else, is gone.
+    if flag("breadoff") {
+        let mut zeroed = 0;
+        for h in [2usize, 3] {
+            let slot = brain::ih_slot(brain::BrainInput::PheroBAlong, h);
+            if genome[slot].abs() >= brain::W_EPS {
+                genome[slot] = 0.0;
+                zeroed += 1;
+            }
+        }
+        assert_eq!(zeroed, 2, "breadoff zeroed {zeroed} of the two PheroBAlong reader wires, so it is not the arm it is named for");
+        assert!(!mute, "breadoff on a muted arm reads a plane nobody lays -- it is the muted arm again");
     }
     // **The two weights that shape the homing ramp, as runtime riders.**
     //
@@ -1756,6 +1784,11 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         .id_of(diet.larder)
         .unwrap_or_else(|| panic!("larder material {:?} is not compiled in", diet.larder));
     diet.isolate(&mut w, larder);
+    // **What counts as larder food: the larder, and the `crumbs` cut from it**
+    // (open bug §Z33's fix puts a part-eaten cell down as crumbs holding what
+    // is left). A crumb is priced by what it holds, `creature::food_value`.
+    let crumbs = w.materials.id_of("crumbs");
+    let is_larder_food = move |m: MaterialId| m == larder || Some(m) == crumbs;
     // **`kinpass=on` lets a blocked ant trade places with a nestmate.** A
     // whole-run switch rather than a fourth arm: it is a question about the
     // engine's traffic rule, so it wants the same three arms run twice, not a
@@ -1842,12 +1875,38 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // refill overwrites coordinates that may still hold larder from last time,
     // and counting the request would book those twice and make `taken` read
     // high for ever.
+    // **The pile's own slots, exactly the positions `place_food` writes.** A
+    // food budget must use these rather than a bounding box: the box's top
+    // row reaches past the last slot, and a cell there is not pile.
+    let pile_slots: std::collections::HashSet<(i32, i32)> = (0..food.max(0)).map(|i| (target_x + (i % 12) - 6, surface - (i / 12))).collect();
+    // `refill_skipped`: pile slots the refill found holding something other
+    // than air or larder, and left alone.
+    //
+    // **It used to write over them**, and that was a bed artifact that fell
+    // almost entirely on one arm. An ant standing on the pile lost the cell
+    // under the write, and a head cell lost is a death booked as `Killed`;
+    // crumbs there became fresh larder; and each one was counted in `placed`
+    // as food taken, so the budget carried it as an unexplained residual.
+    // Measured 2026-09-23 on the gap bed: the shipped walk had 15 such
+    // writes over 24 runs at gap 90, and stage 2's chooser, whose ants crowd
+    // the pile, a median of **744 a run** (`ant-scenes-2026-09-23.md` §9).
+    let refill_skipped = std::cell::Cell::new(0u64);
     let place_food = |w: &mut pixel_physics::sim::world::World, n: i32, placed: &mut u64| {
         for i in 0..n {
             let (fx, fy) = (target_x + (i % 12) - 6, surface - (i / 12));
-            if w.get(fx, fy).material != larder {
-                *placed += 1;
+            let m = w.get(fx, fy).material;
+            // A slot still holding larder is rewritten, as it always was (it
+            // resets what the structural pass keeps in the cell), and is not
+            // counted: nothing was introduced.
+            if m == larder {
+                w.set(fx, fy, Cell::new(larder, 0));
+                continue;
             }
+            if m != pixel_physics::sim::material::EMPTY {
+                refill_skipped.set(refill_skipped.get() + 1);
+                continue;
+            }
+            *placed += 1;
             w.set(fx, fy, Cell::new(larder, 0));
         }
     };
@@ -1963,6 +2022,21 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // **The laden census** -- see the push site. Needs `trace`, because the
     // brain evaluation it reads is gated on it.
     let laden_csv = flag("ladencsv");
+    // **`decisioncsv` -- every walking decision of every creature, as the
+    // engine made it** (`creature::DecisionRow`): the roll, the branch taken,
+    // why the homeward re-roll did or did not fire, and the setting it was
+    // decided in. Unlike `ladencsv` and the focal trace, nothing here is
+    // re-derived by probing the brain from outside, so it can say *why* an
+    // ant stood still rather than only that it did. `dtag=` suffixes the file
+    // name so two arms of one seed cannot overwrite each other, and
+    // `decisiondir=` says where the files go (default `/tmp`).
+    let decision_csv = flag("decisioncsv");
+    let decision_dir: String = arg_str("decisiondir").unwrap_or_else(|| "/tmp".into());
+    let decision_tag: String = arg_str("dtag").unwrap_or_default();
+    // `decisionnorows`: keep the census and its reconciliation, skip the file.
+    // For comparison arms, where the table is the result and 14 MB of rows per
+    // seed is not.
+    let decision_write_rows = !flag("decisionnorows");
     // **A GIF of this bed, because for creatures it is the only instrument.**
     // Owner-verified 2026-08-30 on a contact sheet of a colony: *"visually, I
     // cannot tell anything from these. ants are mostly visible with their
@@ -1984,6 +2058,15 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let gif_at: Option<String> = arg_str("gifat");
     let gif_w: u32 = arg("gifw").unwrap_or(160);
     let gif_h: u32 = arg("gifh").unwrap_or(100);
+    // `gifstart=F`: capture from frame F rather than frame 1, so a sequence
+    // can cover the part of the run a question is about. `framesdir=DIR`:
+    // also write every captured frame as `DIR/frame-NNN.png`, for the review
+    // queue's frame sequences, which play where a GIF sometimes does not.
+    let gif_start: u64 = arg("gifstart").unwrap_or(1);
+    let frames_dir: Option<String> = arg_str("framesdir");
+    // `gifcount=N`: stop capturing after N frames.
+    let gif_count: usize = arg("gifcount").unwrap_or(usize::MAX);
+    let gif_ants = flag("gifants");
     assert!(!laden_csv || tracing, "ladencsv needs `trace`: the brain evaluation it records is gated on it, so without it every row would be missing");
     // **Asserted rather than documented, because the failure is silent.** The
     // emit site sits inside the existing every-100-frames sample block, so a
@@ -2272,7 +2355,67 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let mut cohort_next_x = i32::MIN;
     let mut focal_rows: Vec<String> = Vec::new();
     let mut laden_rows: Vec<String> = Vec::new();
+    let mut decision_rows: Vec<String> = Vec::new();
+    let mut decision_recount = [[[0u64; creature::DECISION_OUTCOMES]; creature::DECISION_SETTINGS]; creature::DECISION_LEGS];
+    // C1-C3's recounts from the same rows (plan §5, step 2), each checked
+    // against the engine's always-on counter at the end of the run.
+    let mut homeward_recount = [0u64; 10];
+    let mut aim_recount = [0u64; 3];
+    let mut drop_recount = [0u64; creature::DROP_WHYS];
+    let mut pick_recount = [0u64; 3];
+    let mut turn_recount = (0u64, 0u64);
+    // Drops handed on past the eight neighbours (`food_drop_site`), and the
+    // sum of how far, so the summary can say how far a handed-on drop goes.
+    let mut passed_recount = (0u64, 0u64);
+    // Stepped rows by who chose the step: the three-cell cone (a `pick`), or
+    // stage 1's chooser (a `patience`, `PIXEL_PHYSICS_CHOOSER`). Every step
+    // has exactly one.
+    let mut stepped_by = (0u64, 0u64, 0u64);
+    // The largest `Turn` among the requests, because "nonzero" alone reads as
+    // steering: on the shipped gap bed the largest over 72 runs is 0.031, a
+    // raise that barely moves a pick weighted at (0.1 + s)^2.
+    let mut turn_max_abs = 0.0f32;
+    let stats_at_trace_start = w.creature_stats;
+    if decision_csv {
+        w.decision_log = Some(Vec::new());
+    }
+    let arm_name = match (trail, mute, paint) {
+        (true, false, PaintA::None) => "hand",
+        (true, true, PaintA::None) => "hmute",
+        (false, false, PaintA::None) => "self",
+        (false, true, PaintA::None) => "mute",
+        (_, _, PaintA::Ramp) => "homeA",
+        (_, _, PaintA::FlatNest) => "flatN",
+        (_, _, PaintA::FlatFood) => "flatF",
+    };
     let mut gif_frames: Vec<Vec<u8>> = Vec::new();
+    // **Where the food is**, every 3,000 frames: larder on the ground at the
+    // nest (within 10 columns of its material), on the ground elsewhere, and
+    // in live ants' crops -- the question a drop rule changes, because a cell
+    // in a crop feeds its carrier and, through sharing, its neighbours, while
+    // a cell on the ground feeds only whoever stands beside it.
+    let mut store_series: Vec<String> = Vec::new();
+    // A larder cell's face value, read off any crop holding one: `Crop::unit`
+    // is the per-cell worth the crop was filled at, the same figure
+    // `digested_face` is summed in.
+    let mut larder_unit = 0.0f32;
+    // **`foodwatch`: find where a food cell goes missing, one event at a
+    // time.** Every 10 frames the food budget is recomputed; when it loses a
+    // cell the budget cannot explain, the fruit cells that vanished since the
+    // last sample are printed with what now stands where they were.
+    let food_watch = flag("foodwatch");
+    // `crumbwatch`: every frame, where each crumb is, and when one appears,
+    // moves or has its surroundings closed over -- with what closed them.
+    // Built to answer whether a crumb underground slid there or was buried.
+    let crumb_watch = flag("crumbwatch");
+    // Deaths by cause at frame 6,000, inside the founders' die-off and before
+    // a colony that breeds swamps the count; printed beside the run's total.
+    let mut deaths_at_6000: Option<[u64; pixel_physics::sim::organism::DEATH_CAUSES]> = None;
+    let mut crumb_prev: std::collections::BTreeMap<(i32, i32), (usize, Vec<String>)> = std::collections::BTreeMap::new();
+    // The last food-watch sample: its residual, where food stood, and births.
+    type WatchSample = (f64, std::collections::HashSet<(i32, i32)>, u64);
+    let mut watch_prev: Option<WatchSample> = None;
+    let mut watch_lines: Vec<String> = Vec::new();
     let mut renderer = pixel_physics::render::Renderer::new();
     let mut blockers: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
     let nest_cells = {
@@ -2376,6 +2519,102 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             }
         }
         frame::step(&mut w, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
+        if let Some(log) = w.decision_log.as_mut() {
+            for r in log.drain(..) {
+                decision_recount[r.leg as usize][creature::setting_class(r.usable)][r.outcome as usize] += 1;
+                homeward_recount[r.homeward as usize] += 1;
+                if matches!(r.homeward, creature::HomewardWhy::Fired | creature::HomewardWhy::FiredHaul) {
+                    aim_recount[creature::aim_class(r.home_cos)] += 1;
+                }
+                drop_recount[r.drop as usize] += 1;
+                if r.drop_reach >= 2 {
+                    passed_recount.0 += 1;
+                    passed_recount.1 += r.drop_reach as u64;
+                }
+                if r.outcome == creature::DecisionOutcome::Stepped {
+                    match (r.pick != creature::NO_PICK, !r.patience.is_nan()) {
+                        (true, false) => stepped_by.0 += 1,
+                        (false, true) => stepped_by.1 += 1,
+                        _ => stepped_by.2 += 1,
+                    }
+                }
+                if r.pick != creature::NO_PICK {
+                    pick_recount[r.pick as usize] += 1;
+                    if r.turn != 0.0 {
+                        turn_recount.0 += 1;
+                        turn_max_abs = turn_max_abs.max(r.turn.abs());
+                        if r.cone[if r.turn > 0.0 { 0 } else { 2 }] == 0.0 {
+                            turn_recount.1 += 1;
+                        }
+                    }
+                }
+                if !decision_write_rows {
+                    continue;
+                }
+                // The eight neighbours by name, NW N NE W E SW S SE, and only
+                // on a row where the drop was asked; `-` elsewhere.
+                let nbr = if r.drop == creature::DropWhy::NotAsked {
+                    ["-"; 8].join(",")
+                } else {
+                    r.nbr.iter().map(|&m| w.materials.get(pixel_physics::sim::material::MaterialId(m)).name.as_str()).collect::<Vec<_>>().join(",")
+                };
+                // `Turn` is printed in full (`{:e}`). At four decimals it read
+                // 0.0000 on every row of a run where it was nonzero, and a
+                // parse of that column called it exactly zero.
+                decision_rows.push(format!(
+                    "{seed},{gap},{arm_name},{},{},{},{},{:.4},{},{},{},{},{},{},{},{},{},{:.4},{:.4},{},{:.4},{:.4},{:.5},{:.5},{},{:.4},{},{},{:.4},{:.4},{:e},{:.4},{:.4},{},{},{:.4},{},{},{:.4},{:.4},{},{},{},{},{:.4},{:.4},{:.4},{},{},{:.4},{:.4},{:.4}",
+                    decision_tag,
+                    r.frame,
+                    r.id,
+                    creature::DECISION_LEG_NAMES[r.leg as usize],
+                    r.fill,
+                    r.head.0,
+                    r.head.1,
+                    r.head_after.0,
+                    r.head_after.1,
+                    r.heading,
+                    r.heading_after,
+                    r.usable,
+                    creature::DECISION_SETTING_NAMES[creature::setting_class(r.usable)],
+                    r.anchor.0,
+                    r.anchor.1,
+                    r.energy,
+                    r.home_aligned,
+                    r.at_nest,
+                    r.crowding,
+                    r.stillness,
+                    r.along_a,
+                    r.along_b,
+                    r.food_adjacent,
+                    r.kin_need,
+                    nest_x,
+                    r.move_out,
+                    r.p_move,
+                    r.turn,
+                    r.roll_move,
+                    r.roll_tumble,
+                    creature::DECISION_OUTCOME_NAMES[r.outcome as usize],
+                    creature::HOMEWARD_WHY_NAMES[r.homeward as usize],
+                    r.home_cos,
+                    u8::from(r.moved),
+                    creature::DROP_WHY_NAMES[r.drop as usize],
+                    r.drop_roll,
+                    r.drop_p,
+                    if r.free8 == u8::MAX { "-".to_string() } else { r.free8.to_string() },
+                    nbr,
+                    r.nbr_self,
+                    r.nbr_other,
+                    r.cone[0],
+                    r.cone[1],
+                    r.cone[2],
+                    if r.pick == creature::NO_PICK { "-" } else { creature::CONE_PICK_NAMES[r.pick as usize] },
+                    r.drop_reach,
+                    r.patience,
+                    r.chosen_cos,
+                    r.chosen_route,
+                ));
+            }
+        }
         if food > 0 && refill > 0 && f.is_multiple_of(refill) {
             place_food(&mut w, food, &mut larder_placed);
         }
@@ -2616,7 +2855,136 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             let live = (nest_x..=target_x).filter(|&x| w.pheromone_at(Channel::B, x, surface) > 0).count();
             peak_cells = peak_cells.max(live);
         }
-        if gif_out.is_some() && (f == 1 || f.is_multiple_of(gif_every)) {
+        if food_watch && larder_unit == 0.0 {
+            for id in w.live_organism_ids() {
+                if let Some(c) = w.organism(id).and_then(|st| st.crop).filter(|c| c.material == larder) {
+                    larder_unit = larder_unit.max(c.unit);
+                }
+            }
+        }
+        if food_watch && f.is_multiple_of(10) && larder_unit > 0.0 {
+            let face = larder_unit as f64;
+            let mut cells: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+            // Where food stands, larder and crumbs both, for naming what
+            // vanished; `cells` alone is priced at face below.
+            let mut seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+            for y in 0..spec.height {
+                for x in 0..width {
+                    let m = w.get(x, y).material;
+                    if m == larder && !pile_slots.contains(&(x, y)) {
+                        cells.insert((x, y));
+                        seen.insert((x, y));
+                    }
+                    if Some(m) == crumbs {
+                        seen.insert((x, y));
+                    }
+                }
+            }
+            // Taken so far: what the refill has replaced, plus the slots empty
+            // right now that it has not reached yet.
+            let pile_missing = pile_slots.iter().filter(|&&(x, y)| w.get(x, y).material != larder).count() as f64;
+            let mut crop_face = 0.0f64;
+            for id in w.live_organism_ids() {
+                if let Some(c) = w.organism(id).and_then(|st| st.crop).filter(|c| is_larder_food(c.material)) {
+                    crop_face += c.worth() as f64;
+                }
+            }
+            let mut crumb_face = 0.0f64;
+            for y in 0..spec.height {
+                for x in 0..width {
+                    let c = w.get(x, y);
+                    if Some(c.material) == crumbs {
+                        crumb_face += creature::food_value(&w, c) as f64;
+                    }
+                }
+            }
+            let st = &w.creature_stats;
+            let taken = larder_placed.saturating_sub(food.max(0) as u64) as f64 + pile_missing;
+            let residual = taken * face + st.drop_worth_restored - st.digested_face - cells.len() as f64 * face - crumb_face - crop_face
+                - st.crop_cells_lost_at_death as f64 * face;
+            let births = w.creature_stats.births;
+            if let Some((prev, prev_cells, prev_births)) = watch_prev.as_ref() {
+                if residual - prev > face * 0.5 {
+                    let gone: Vec<String> = prev_cells
+                        .difference(&seen)
+                        .map(|&(x, y)| {
+                            let c = w.get(x, y);
+                            format!("({x},{y}) now {} org {}", w.materials.get(c.material).name, c.organism_id())
+                        })
+                        .collect();
+                    watch_lines.push(format!(
+                        "frame {f}: residual +{:.0}; births in the window {}; food cells gone since frame {}: [{}]",
+                        residual - prev,
+                        births - prev_births,
+                        f - 10,
+                        gone.join("; ")
+                    ));
+                }
+            }
+            watch_prev = Some((residual, seen, births));
+        }
+        if crumb_watch {
+            let mut now: std::collections::BTreeMap<(i32, i32), (usize, Vec<String>)> = std::collections::BTreeMap::new();
+            for y in 0..spec.height {
+                for x in 0..width {
+                    if Some(w.get(x, y).material) == crumbs {
+                        let names: Vec<String> = NEIGH8.iter().map(|&(dx, dy)| w.materials.get(w.get(x + dx, y + dy).material).name.clone()).collect();
+                        let open = NEIGH8.iter().filter(|&&(dx, dy)| w.get(x + dx, y + dy).material == pixel_physics::sim::material::EMPTY).count();
+                        now.insert((x, y), (open, names));
+                    }
+                }
+            }
+            for (p, (open, names)) in &now {
+                match crumb_prev.get(p) {
+                    None => println!("    CRUMB frame {f}: appears at {p:?}, {open} of 8 neighbours open {names:?}"),
+                    Some((was, was_names)) if was != open => println!("    CRUMB frame {f}: at {p:?} open neighbours {was} -> {open}; {was_names:?} -> {names:?}"),
+                    _ => {}
+                }
+            }
+            for p in crumb_prev.keys() {
+                if !now.contains_key(p) {
+                    println!("    CRUMB frame {f}: gone from {p:?}, now {}", w.materials.get(w.get(p.0, p.1).material).name);
+                }
+            }
+            crumb_prev = now;
+        }
+        if f == 6000 {
+            deaths_at_6000 = Some(w.deaths_by_cause);
+        }
+        if f.is_multiple_of(3000) {
+            let (mut at_nest, mut elsewhere, mut crumb_cells) = (0u32, 0u32, 0u32);
+            for y in 0..spec.height {
+                for x in 0..width {
+                    let m = w.get(x, y).material;
+                    if Some(m) == crumbs {
+                        crumb_cells += 1;
+                    }
+                    if m == larder {
+                        if x >= nest_lo - 10 && x <= nest_hi + 10 {
+                            at_nest += 1;
+                        } else {
+                            elsewhere += 1;
+                        }
+                    }
+                }
+            }
+            let (mut in_crops, mut live) = (0u32, 0u32);
+            for id in w.live_organism_ids() {
+                let Some(st) = w.organism(id) else { continue };
+                if st.species != species_id {
+                    continue;
+                }
+                live += 1;
+                if let Some(c) = st.crop.filter(|c| is_larder_food(c.material)) {
+                    in_crops += c.cells as u32;
+                }
+                if let Some(c) = st.crop.filter(|c| c.material == larder) {
+                    larder_unit = larder_unit.max(c.unit);
+                }
+            }
+            store_series.push(format!("{f}: nest ground {at_nest}, crops {in_crops}, elsewhere {elsewhere}, crumbs {crumb_cells}, ants {live}"));
+        }
+        if (gif_out.is_some() || frames_dir.is_some()) && gif_frames.len() < gif_count && f >= gif_start && (f == gif_start || f.is_multiple_of(gif_every)) {
             // The camera: `gifat=` or, by default, centred on the nest cursor
             // at the surface -- which is where every question this harness has
             // about dropping and congregation actually lives.
@@ -2633,6 +3001,52 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             renderer.camera_x = cx - vw / 2;
             renderer.camera_y = cy - vh / 2;
             renderer.draw(&w, &particles, &touched, &mut full, (vw as u32, vh as u32), true);
+            // **`gifants=1`: every ant painted over the frame, magenta while
+            // empty and cyan while carrying food**, so the loop reads as colour
+            // going out and coming back. Owner, 2026-09-24: an ant blends into
+            // the soil. The same palette as `labshot mark=ants`.
+            if gif_ants {
+                let (x0, y0) = (renderer.camera_x, renderer.camera_y);
+                for id in w.live_organism_ids() {
+                    let Some(st) = w.organism(id) else { continue };
+                    if st.species != species_id {
+                        continue;
+                    }
+                    let rgb: [u8; 3] = if st.crop.is_some_and(|c| c.worth() > 0.0) { [0, 255, 255] } else { [255, 0, 255] };
+                    for &(x, y) in &st.chain {
+                        let (px, py) = (x - x0, y - y0);
+                        if (0..vw).contains(&px) && (0..vh).contains(&py) {
+                            let i = ((py * vw + px) * 4) as usize;
+                            full[i..i + 3].copy_from_slice(&rgb);
+                        }
+                    }
+                }
+            }
+            // **Which cells in view are crumbs, per captured frame**, so a card
+            // can carry the count under the picture and a crumb can be found in
+            // it: a few brown cells on brown soil are easy to miss by eye.
+            if frames_dir.is_some() {
+                let (x0, y0) = (renderer.camera_x, renderer.camera_y);
+                let at: Vec<String> = (y0..y0 + vh)
+                    .flat_map(|y| (x0..x0 + vw).map(move |x| (x, y)))
+                    .filter(|&(x, y)| Some(w.get(x, y).material) == crumbs)
+                    .map(|(x, y)| format!("({},{}) {:.0}J", x - x0, y - y0, creature::food_value(&w, w.get(x, y))))
+                    .collect();
+                println!("    CAPTURE frame {} ({f}): camera at world ({x0},{y0}), world height {}; {} crumbs in view at view cells [{}]", gif_frames.len(), spec.height, at.len(), at.join(" "));
+                // What surrounds each crumb: empty neighbours (a tunnel or open
+                // air) against soil, and the ground above it.
+                for y in y0..y0 + vh {
+                    for x in x0..x0 + vw {
+                        if Some(w.get(x, y).material) != crumbs {
+                            continue;
+                        }
+                        let empty = NEIGH8.iter().filter(|&&(dx, dy)| w.get(x + dx, y + dy).material == pixel_physics::sim::material::EMPTY).count();
+                        let depth = (1..40).take_while(|&k| w.get(x, y - k).material != pixel_physics::sim::material::EMPTY).count();
+                        let names: Vec<&str> = NEIGH8.iter().map(|&(dx, dy)| w.materials.get(w.get(x + dx, y + dy).material).name.as_str()).collect();
+                        println!("      crumb view ({},{}) = world ({x},{y}): {} of 8 neighbours empty; {} solid cells straight above before open air; neighbours {:?}", x - x0, y - y0, empty, depth, names);
+                    }
+                }
+            }
             // Nearest-neighbour magnify, the same rule `filmstrip`'s tiles use:
             // an ant must be several screen pixels or the GIF answers nothing.
             let (zw, zh) = (vw as u32 * gif_zoom, vh as u32 * gif_zoom);
@@ -2654,7 +3068,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             }
             let Some(&(hx, hy)) = s.chain.first() else { continue };
             ant_ticks += 1;
-            let carrying_larder = s.crop.is_some_and(|c| c.material == larder);
+            let carrying_larder = s.crop.is_some_and(|c| is_larder_food(c.material));
             // **`focalany` traces an ant that never finds food, and without it
             // the failing case is invisible.** The focal ant was chosen from
             // larder-carriers only, so in a seed where nobody reaches the food
@@ -3903,6 +4317,100 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             }
         }
     }
+    if decision_csv {
+        // **The run checks its own trace before anyone reads it.** Three
+        // counts of the same decisions, made at three different sites, must
+        // agree exactly: the engine's census, this harness's recount of the
+        // rows it drained, and the engine's older per-verb counters, which
+        // `step_chain` and `tumble` increment themselves. A disagreement is
+        // a broken instrument, so it stops the run rather than printing.
+        let census = w.creature_stats.decision_census;
+        assert_eq!(census, decision_recount, "decision census and the drained rows disagree -- the trace is not the census");
+        let s0 = stats_at_trace_start;
+        let s1 = w.creature_stats;
+        let by = |o: creature::DecisionOutcome| -> u64 { decision_recount.iter().flatten().map(|row| row[o as usize]).sum() };
+        use creature::DecisionOutcome as D;
+        assert_eq!(by(D::Stepped) + by(D::SwappedKin), s1.moves - s0.moves, "stepped+swapped rows against `moves`");
+        assert_eq!(by(D::Fell), s1.falls - s0.falls, "fell rows against `falls`");
+        assert_eq!(by(D::Reversed), s1.reversals - s0.reversals, "reversed rows against `reversals`");
+        assert_eq!(by(D::RollFailedTumbled) + by(D::BlockedTumbled), s1.tumbles - s0.tumbles, "tumbled rows against `tumbles`");
+        // C1-C3: the recounts against the engine's own counters, and those
+        // against the older per-verb counters they must add up to.
+        let delta = |a: &[u64], b: &[u64]| a.iter().zip(b).map(|(x, y)| x - y).collect::<Vec<u64>>();
+        assert_eq!(homeward_recount[1..], delta(&s1.homeward_why, &s0.homeward_why)[1..], "homeward reasons: rows against `homeward_why`");
+        assert_eq!(aim_recount[..], delta(&s1.homeward_aim, &s0.homeward_aim)[..], "homeward aim: rows against `homeward_aim`");
+        assert_eq!(drop_recount[1..], delta(&s1.drop_census, &s0.drop_census)[1..], "drops: rows against `drop_census`");
+        assert_eq!(pick_recount[..], delta(&s1.cone_picks, &s0.cone_picks)[..], "cone picks: rows against `cone_picks`");
+        assert_eq!(turn_recount, (s1.turn_requests - s0.turn_requests, s1.turn_discarded - s0.turn_discarded), "turn requests: rows against the counters");
+        use creature::DropWhy as P;
+        use creature::HomewardWhy as H;
+        assert_eq!(homeward_recount[H::Fired as usize] + homeward_recount[H::FiredHaul as usize], s1.tumbles_homeward - s0.tumbles_homeward, "fired rows against `tumbles_homeward`");
+        assert_eq!(drop_recount[P::Placed as usize] + drop_recount[P::Delivered as usize], s1.drops - s0.drops, "placed rows against `drops`");
+        assert_eq!(drop_recount[P::Delivered as usize], s1.deliveries - s0.deliveries, "delivered rows against `deliveries`");
+        assert_eq!(passed_recount.0, s1.drops_passed_on - s0.drops_passed_on, "handed-on rows against `drops_passed_on`");
+        assert_eq!(pick_recount.iter().sum::<u64>(), stepped_by.0, "cone picks against cone-stepped rows");
+        assert_eq!(stepped_by.0 + stepped_by.1, by(D::Stepped), "every stepped row was chosen by the cone or the chooser");
+        assert_eq!(stepped_by.2, 0, "a stepped row with both a cone pick and a chooser patience, or neither");
+        let total: u64 = decision_recount.iter().flatten().flatten().sum();
+        println!("    DECISION CENSUS: {total} decisions, reconciled against the rows and the engine's counters");
+        let named = |names: &[&str], counts: &[u64], skip: usize| {
+            names.iter().zip(counts).skip(skip).map(|(n, c)| format!("{n} {c}")).collect::<Vec<_>>().join(", ")
+        };
+        println!("      C1 homeward re-roll: {}", named(&creature::HOMEWARD_WHY_NAMES, &homeward_recount, 1));
+        println!("      C1 fired, aimed: {}", named(&creature::HOMEWARD_AIM_NAMES, &aim_recount, 0));
+        let won = drop_recount[P::Placed as usize] + drop_recount[P::Delivered as usize] + drop_recount[P::NoRoom as usize];
+        println!(
+            "      C2 drop: {} -- no room on {:.1}% of won rolls; handed on through bodies {} (mean {:.1} steps)",
+            named(&creature::DROP_WHY_NAMES, &drop_recount, 1),
+            if won > 0 { 100.0 * drop_recount[P::NoRoom as usize] as f64 / won as f64 } else { 0.0 },
+            passed_recount.0,
+            if passed_recount.0 > 0 { passed_recount.1 as f64 / passed_recount.0 as f64 } else { 0.0 }
+        );
+        println!(
+            "      C3 cone: {}; Turn nonzero on {} picks (largest |Turn| {:.2e}), discarded on {}",
+            named(&creature::CONE_PICK_NAMES, &pick_recount, 0),
+            turn_recount.0,
+            turn_max_abs,
+            turn_recount.1
+        );
+        println!(
+            "      {:<7} {:<9} {:>8} {}",
+            "leg",
+            "setting",
+            "n",
+            creature::DECISION_OUTCOME_NAMES.iter().map(|n| format!("{:>8}", &n[..n.len().min(8)])).collect::<Vec<_>>().join("")
+        );
+        for (li, leg) in decision_recount.iter().enumerate() {
+            for (si, row) in leg.iter().enumerate() {
+                let n: u64 = row.iter().sum();
+                if n == 0 {
+                    continue;
+                }
+                println!(
+                    "      {:<7} {:<9} {:>8} {}",
+                    creature::DECISION_LEG_NAMES[li],
+                    creature::DECISION_SETTING_NAMES[si],
+                    n,
+                    row.iter().map(|&c| format!("{:>7.1}%", 100.0 * c as f64 / n as f64)).collect::<Vec<_>>().join("")
+                );
+            }
+        }
+        if decision_write_rows {
+            let suffix = if decision_tag.is_empty() { String::new() } else { format!("-{decision_tag}") };
+            let path = format!("{decision_dir}/trailfollow-decisions-seed{seed}-gap{gap}-{arm_name}{suffix}.csv");
+            let mut out = String::from(
+                "seed,gap,arm,tag,frame,id,leg,fill,x,y,x2,y2,heading,heading2,usable,setting,ax,ay,energy,home_aligned,at_nest,crowding,stillness,along_a,along_b,food_adjacent,kin_need,nest_x,move_out,p_move,turn,roll_move,roll_tumble,outcome,homeward,home_cos,moved,drop,drop_roll,drop_p,free8,n_nw,n_n,n_ne,n_w,n_e,n_sw,n_s,n_se,nbr_self,nbr_other,cone_l,cone_s,cone_r,pick,drop_reach,patience,chosen_cos,chosen_route\n",
+            );
+            out.push_str(&decision_rows.join("\n"));
+            out.push('\n');
+            match std::fs::write(&path, out) {
+                Ok(()) => println!("    DECISIONS: {} rows written to {path}", decision_rows.len()),
+                Err(e) => println!("    DECISIONS: could not write {path}: {e}"),
+            }
+        } else {
+            println!("    DECISIONS: rows not written (decisionnorows)");
+        }
+    }
 
     // `dietdump` names every material the colony actually booked intake
     // against, which is the only thing that can say *what* an unexpected
@@ -3924,6 +4432,115 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let st = w.creature_stats;
     // **Written outside `if tracing`**: the GIF is not a trace artifact and
     // gating it on that flag made it silently produce nothing.
+    println!("    FOOD STORE (larder cells) -- {}", store_series.join(" | "));
+    if food_watch {
+        println!("    FOODWATCH: {} unexplained losses", watch_lines.len());
+        for l in &watch_lines {
+            println!("      {l}");
+        }
+    }
+    // **The food budget: every larder cell that left the pile, accounted
+    // for.** The refill counts each pile cell it replaces, so `taken` is what
+    // the colony removed; against it, what was chewed (face value over the
+    // cell's face value), what lies on the ground away from the pile, what
+    // sits in live crops, and what is held as a dug pellet. `unaccounted` is
+    // food that left by some route none of these see.
+    {
+        let pile = |x: i32, y: i32| pile_slots.contains(&(x, y));
+        let pile_missing = pile_slots.iter().filter(|&&(x, y)| w.get(x, y).material != larder).count() as u64;
+        let (mut ground, mut in_crops, mut as_spoil) = (0u64, 0u64, 0u64);
+        let mut crop_face = 0.0f64;
+        // Crumbs are counted at what they hold, in face value, and shown as
+        // cells of the larder's face.
+        let (mut crumb_cells, mut crumb_face) = (0u64, 0.0f64);
+        // Crumbs with not one open cell among their eight neighbours: sealed
+        // in, where no ant can reach them. The owner's "buried under soil".
+        let (mut buried, mut buried_face) = (0u64, 0.0f64);
+        for y in 0..spec.height {
+            for x in 0..width {
+                let c = w.get(x, y);
+                if c.material == larder && !pile(x, y) {
+                    ground += 1;
+                }
+                if Some(c.material) == crumbs {
+                    crumb_cells += 1;
+                    crumb_face += creature::food_value(&w, c) as f64;
+                    if !NEIGH8.iter().any(|&(dx, dy)| w.get(x + dx, y + dy).material == pixel_physics::sim::material::EMPTY) {
+                        buried += 1;
+                        buried_face += creature::food_value(&w, c) as f64;
+                    }
+                }
+            }
+        }
+        println!("    CRUMBS BURIED (no open neighbour): {buried} of {crumb_cells} crumbs, worth {:.0} J", buried_face);
+        let causes = |d: &[u64; pixel_physics::sim::organism::DEATH_CAUSES]| {
+            pixel_physics::sim::organism::DEATH_CAUSE_LIST.iter().zip(d).filter(|(_, n)| **n > 0).map(|(c, n)| format!("{} {n}", c.label())).collect::<Vec<_>>().join(", ")
+        };
+        println!(
+            "    BIRTHS {} | buds held for the nest {} (PIXEL_PHYSICS_BUD_SITE={})",
+            w.creature_stats.births,
+            w.creature_stats.buds_held_for_nest,
+            if creature::bud_at_nest(&w) { "nest" } else { "anywhere" }
+        );
+        println!(
+            "    DEATHS BY CAUSE -- by frame 6000: [{}] | whole run: [{}]",
+            deaths_at_6000.as_ref().map_or_else(|| "not reached".to_string(), causes),
+            causes(&w.deaths_by_cause)
+        );
+        for id in w.live_organism_ids() {
+            let Some(st) = w.organism(id) else { continue };
+            if let Some(c) = st.crop.filter(|c| is_larder_food(c.material)) {
+                in_crops += c.cells as u64;
+                crop_face += c.worth() as f64;
+            }
+            if st.spoil.is_some_and(|sp| is_larder_food(sp.cell.material)) {
+                as_spoil += 1;
+            }
+        }
+        // **What a larder cell is worth, from a crop if one ever held one,
+        // else from a fresh cell.** Until 2026-09-23 a run where no crop was
+        // ever filled priced a cell at `EPSILON`, and every figure below was a
+        // division by it: `chewed 8053084044.0` in runs that took one cell.
+        let face = if larder_unit > 0.0 { larder_unit as f64 } else { creature::food_value(&w, Cell::new(larder, 0)) as f64 };
+        let taken = larder_placed.saturating_sub(food.max(0) as u64) + pile_missing;
+        let chewed = w.creature_stats.digested_face / face;
+        let standing = (ground + in_crops + as_spoil) as f64 + crumb_face / face;
+        println!(
+            "    FOOD BUDGET (cells, one cell = {face:.0} face): taken from the pile {taken}; chewed {chewed:.1}; on the ground off the pile {ground}, and {crumb_cells} crumbs worth {:.1}; in crops {in_crops}; held as spoil {as_spoil}; unaccounted {:.1}",
+            crumb_face / face,
+            taken as f64 - chewed - standing
+        );
+        // **The same budget closed exactly, in face value.** Taken from the
+        // pile, plus what the ground forgot at every drop (§Z33), must equal
+        // what was chewed plus what still stands (ground and spoil at full
+        // face, crops net of their chewing). Anything left over is a sink or
+        // a source this line does not name -- decay, a crop lost at death.
+        let restored = w.creature_stats.drop_worth_restored;
+        let lost = w.creature_stats.crop_cells_lost_at_death as f64 * face;
+        let residual = taken as f64 * face + restored - w.creature_stats.digested_face - (ground + as_spoil) as f64 * face - crumb_face - crop_face - lost;
+        println!(
+            "    FOOD BUDGET closed (face): taken {:.0} + forgotten at drops {:.0} = chewed {:.0} + standing {:.0} + lost in crops at death {:.0}; residual {:.0} ({:.2} cells; the refill skipped {} occupied slots)",
+            taken as f64 * face,
+            restored,
+            w.creature_stats.digested_face,
+            (ground + as_spoil) as f64 * face + crumb_face + crop_face,
+            lost,
+            residual,
+            residual / face,
+            refill_skipped.get()
+        );
+    }
+    if let Some(dir) = frames_dir.as_ref() {
+        let (zw, zh) = (gif_w * gif_zoom, gif_h * gif_zoom);
+        let _ = std::fs::create_dir_all(dir);
+        for (i, tile) in gif_frames.iter().enumerate() {
+            let path = format!("{dir}/frame-{i:03}.png");
+            if let Err(e) = image::save_buffer(&path, tile, zw, zh, image::ColorType::Rgba8) {
+                println!("    FRAMES: could not write {path}: {e}");
+            }
+        }
+        println!("    FRAMES: {} PNGs of {zw}x{zh}, every {gif_every} frames from {gif_start} -> {dir}", gif_frames.len());
+    }
     if let Some(path) = gif_out.as_ref() {
         if gif_frames.is_empty() {
             println!("    GIF: no frames captured -- gifevery={gif_every} against frames={frames}");
@@ -4157,6 +4774,19 @@ fn main() {
     // archived log failing to reproduce against a binary that was correct.
     println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill} stop={stop} homebias={} cropcap={} hungergate={} arho={} brho={} adiffuse={} arise={}/{} tumble={} persist={} tumblegrad={} homewire={}", gate.name, arg::<f32>("homebias").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("cropcap").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("hungergate").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("arho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("brho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("adiffuse").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("arise").map_or("off".to_string(), |v| format!("{v}")), arg::<f32>("arisetumble").map_or("off".to_string(), |v| format!("{v}")), arg::<f32>("tumble").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("persist").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tumblegrad").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("homewire").map_or("shipped".to_string(), |v| format!("{v}")));
     println!("  gate {}: off {:+.1}  on {:+.1}  along ±{:.1}", gate.name, gate.off, gate.on, gate.along);
+    // The trace and trail-B switches, and the environment levers every bed in
+    // `ant-forage-bed-and-gates-2026-09-21.md` is run with, echoed so a log
+    // that does not name them was written by a binary that never had them.
+    println!(
+        "  breadoff={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} layfrom={}",
+        flag("breadoff"),
+        flag("decisioncsv"),
+        arg_str("dtag").unwrap_or_default(),
+        std::env::var("PIXEL_PHYSICS_COLONY_SPACING").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_STACK_DEPTH").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_DROP_REACH").unwrap_or_else(|_| "shipped".into()),
+        arg_str("layfrom").unwrap_or_else(|| "nest".into())
+    );
     println!("  {LANDED_NOTE}\n");
 
     let spec = LabBox { width: 256, height: 192, ground_y: 96, soil_depth: 48, founders: 0, colonies: 0, seed: seed0, ..LabBox::default() };

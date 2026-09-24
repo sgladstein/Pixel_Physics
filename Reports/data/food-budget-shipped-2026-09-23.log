@@ -1,0 +1,995 @@
+  diet: larder=fruit onlyfood=on
+  odometer A: recur=shipped emita=shipped biasa=shipped   odometer B: charb=shipped recurb=shipped emitb=shipped biasb=shipped carryb=shipped
+trailfollow: mode=gap gate=shipped frames=24000 seeds=24 seed0=1 ants=20 relay=60 near=10 food=400 refill=400 stop=6000 homebias=shipped cropcap=shipped hungergate=shipped arho=shipped brho=shipped adiffuse=shipped arise=off/off tumble=shipped persist=shipped tumblegrad=shipped homewire=shipped
+  gate shipped: off -45.0  on +0.5  along ±6.0
+  breadoff=false decisioncsv=true dtag= COLONY_SPACING=2 STACK_DEPTH=4 DROP_REACH=shipped layfrom=founders
+  landed 2026-09-09: units 0/1 = b2 (off -45, on +0.5, along 6); units 2/3 = saturated (off -45, on +30, along 6). See open-bugs-handoff.md Z7.
+
+  gap seed   arm     alive     ate J  arrive@    dead@    carry    @nest  visitors  trips reach 0-25-50-75-100
+----- ---- ----- --------- --------- -------- -------- -------- -------- --------- ------ ------------------
+    DECISION CENSUS: 69836 decisions, reconciled against the rows and the engine's counters
+      C1 homeward re-roll: no_usable 120, bias_off 0, no_crop 23412, empty_crop 0, no_site 0, on_anchor 3322, roll_failed 2545, fired 1253, fired_haul 0
+      C1 fired, aimed: toward 638, across 368, away 247
+      C2 drop: roll_lost 11940, placed 0, delivered 1466, no_room 1652 -- no room on 53.0% of won rolls; handed on through bodies 0 (mean 0.0 steps)
+      C3 cone: left 562, straight 6553, right 575; Turn nonzero on 1317 picks (largest |Turn| 7.63e-8), discarded on 887
+      leg     setting          n  stepped    felllaunched swappedcrossingreversedblocked_roll_fairoll_fai no_body
+      empty   pocket        2535     5.4%    4.9%    0.0%    0.0%    0.0%    0.0%    3.0%   43.7%   43.0%    0.0%
+      empty   corridor     14734    12.2%    0.3%    0.0%    0.0%    0.0%    0.0%    0.1%   44.3%   43.0%    0.0%
+      empty   junction     22309    13.1%    1.8%    0.0%    0.0%    0.0%    0.0%    0.2%   42.1%   42.8%    0.0%
+      empty   open         10474     9.4%    2.2%    0.0%    0.0%    0.0%    0.0%    0.0%   43.4%   45.0%    0.0%
+      laden   pocket         323     1.5%   15.8%    0.0%    0.0%    0.0%    0.0%    0.0%   41.5%   41.2%    0.0%
+      laden   corridor      3187     9.9%    0.4%    0.0%    0.0%    0.0%    0.0%    0.3%   45.9%   43.5%    0.0%
+      laden   junction     10997     6.8%    0.5%    0.0%    0.0%    0.0%    0.0%    0.2%   45.9%   46.6%    0.0%
+      laden   open          1136    18.9%    2.4%    0.0%    0.0%    0.0%    0.0%    0.0%   39.7%   39.0%    0.0%
+      spoil   pocket        2807     2.9%    0.3%    0.0%    0.0%    0.0%    0.0%    2.2%   47.9%   46.7%    0.0%
+      spoil   corridor       612    40.0%    0.2%    0.0%    0.0%    0.0%    0.0%    1.6%   27.5%   30.7%    0.0%
+      spoil   junction       548    33.2%    1.1%    0.0%    0.0%    0.0%    0.0%    3.1%   31.9%   30.7%    0.0%
+      spoil   open           174    33.3%    2.3%    0.0%    0.0%    0.0%    0.0%    0.0%   30.5%   33.9%    0.0%
+    DECISIONS: rows not written (decisionnorows)
+    FOOD STORE (larder cells) -- 3000: nest ground 2, crops 12, elsewhere 395, ants 20 | 6000: nest ground 4, crops 18, elsewhere 400, ants 20 | 9000: nest ground 5, crops 8, elsewhere 400, ants 18 | 12000: nest ground 3, crops 6, elsewhere 400, ants 18 | 15000: nest ground 3, crops 4, elsewhere 400, ants 18 | 18000: nest ground 4, crops 2, elsewhere 400, ants 18 | 21000: nest ground 4, crops 1, elsewhere 400, ants 13 | 24000: nest ground 2, crops 2, elsewhere 400, ants 13
+    FOOD BUDGET (cells, one cell = 960 face): taken from the pile 33; chewed 53.8; on the ground off the pile 2; in crops 2; held as spoil 0; unaccounted -24.8
+   90    1  hand   13/13       12273     1320        0    93860    52862   17/20       13         2 1 0 17 0
+                A READ  ant-readable homeward along >= 0.02 on  54.9% of route-cell samples | FOODWARD  28.5% | plane lit on  96.5% | peak amt  39454 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     20    100.0% of prev    100.0% of all
+                  1. reached the food                          17     85.0% of prev     85.0% of all
+                  2. picked food up out there                  17    100.0% of prev     85.0% of all
+                  3. turned for home with it                   12     70.6% of prev     60.0% of all
+                  4. got back to the nest still holding it     11     91.7% of prev     55.0% of all
+                  5. PUT IT DOWN there                         11    100.0% of prev     55.0% of all
+                  6. went back out again                        6     54.5% of prev     30.0% of all
+                  7. reached the food a SECOND time             1     16.7% of prev      5.0% of all
+                RETURN LEDGER reached food   17 of   20 ants | came back   13 | trips laden   11 empty    2 | LOOPERS   11 of   20 ants (64.7% of those that reached food), repeat    0, most loops by one ant   1
+                BY ANCHOR AT PICKUP  anchor ON nest material:   11 loops /   24 pickups ( 45.8%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  11 of  17 that reached food looped ( 64.7%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[757,649,445,997,481,733,1123,1495,547,781,10153,637,12835] laden[757,649,445,997,481,733,1123,1495,547,781,637]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 20 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [5 23 216 15 14 111 22 9]  carry->nest    1028  born    0 died    7 (starved    7)
+                own trail: route pk   69 end    2 along +0.0000  B nest->food [2106,5298,7641,10584,8308]  blocked      253  kin swaps       0  ticks     69836  tumbles     30652 (homeward     1253, 4.09%)  drops    1466  DELIVERED  1466  leg home n   13 med   757 p90 10153 (laden n   11 med   733 p90  1123)  appetite held         0 J of     51676  trips born-on-comb   13 (20 ants) / born-off    0 (0 ants)
+                channel A: PEAK amt  39454 cells   91 (of 91 route)  POLARITY|| +0.07441 && +0.06942 SPAN -0.00579 edge   1.3  end nest->food [624,3614,1408,502,0]  nest   25  AtNest 25.24%
+                Carrying: laden    118706  of which SPOIL     24990 ( 21.1%)
+    DECISION CENSUS: 67333 decisions, reconciled against the rows and the engine's counters
+      C1 homeward re-roll: no_usable 216, bias_off 0, no_crop 22395, empty_crop 0, no_site 0, on_anchor 3502, roll_failed 2438, fired 869, fired_haul 0
+      C1 fired, aimed: toward 511, across 280, away 78
+      C2 drop: roll_lost 10940, placed 0, delivered 1561, no_room 1678 -- no room on 51.8% of won rolls; handed on through bodies 0 (mean 0.0 steps)
+      C3 cone: left 727, straight 6560, right 723; Turn nonzero on 1206 picks (largest |Turn| 7.63e-8), discarded on 648
+      leg     setting          n  stepped    felllaunched swappedcrossingreversedblocked_roll_fairoll_fai no_body
+      empty   pocket        3773     7.5%    6.1%    0.0%    0.0%    0.0%    0.0%    3.9%   43.4%   38.9%    0.0%
+      empty   corridor      4881    17.1%    1.3%    0.0%    0.0%    0.0%    0.0%    0.8%   39.8%   40.9%    0.0%
+      empty   junction     28534    12.5%    1.6%    0.0%    0.0%    0.0%    0.0%    0.3%   42.9%   42.7%    0.0%
+      empty   open         10236    12.9%    2.5%    0.0%    0.0%    0.0%    0.0%    0.0%   42.1%   42.5%    0.0%
+      laden   pocket        1545     0.3%    3.5%    0.0%    0.0%    0.0%    0.0%    0.3%   46.7%   49.3%    0.0%
+      laden   corridor      5099     1.7%    0.3%    0.0%    0.0%    0.0%    0.0%    0.2%   48.7%   49.1%    0.0%
+      laden   junction      7373     9.2%    1.2%    0.0%    0.0%    0.0%    0.0%    0.2%   45.7%   43.7%    0.0%
+      laden   open           750    33.7%    4.4%    0.0%    0.0%    0.0%    0.0%    0.0%   28.1%   33.7%    0.0%
+      spoil   pocket        2325    12.3%    0.7%    0.0%    0.0%    0.0%    0.0%    8.6%   39.5%   38.8%    0.0%
+      spoil   corridor       842    37.4%    0.5%    0.0%    0.0%    0.0%    0.0%    1.9%   31.1%   29.1%    0.0%
+      spoil   junction      1678    19.1%    0.8%    0.0%    0.0%    0.0%    0.0%    1.4%   38.7%   39.9%    0.0%
+      spoil   open           297    24.6%    1.7%    0.0%    0.0%    0.0%    0.0%    0.0%   38.7%   35.0%    0.0%
+    DECISIONS: rows not written (decisionnorows)
+    FOOD STORE (larder cells) -- 3000: nest ground 2, crops 10, elsewhere 397, ants 20 | 6000: nest ground 3, crops 7, elsewhere 400, ants 17 | 9000: nest ground 2, crops 6, elsewhere 397, ants 17 | 12000: nest ground 2, crops 7, elsewhere 400, ants 18 | 15000: nest ground 1, crops 6, elsewhere 400, ants 18 | 18000: nest ground 1, crops 5, elsewhere 400, ants 15 | 21000: nest ground 1, crops 2, elsewhere 400, ants 14 | 24000: nest ground 0, crops 2, elsewhere 400, ants 13
+    FOOD BUDGET (cells, one cell = 960 face): taken from the pile 31; chewed 50.8; on the ground off the pile 0; in crops 2; held as spoil 0; unaccounted -21.8
+   90    2  hand   13/13       12764     1266        0    88604    51440   16/21       14         0 4 0 17 0
+                A READ  ant-readable homeward along >= 0.02 on  60.8% of route-cell samples | FOODWARD  23.8% | plane lit on  96.6% | peak amt  40045 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     21    100.0% of prev    100.0% of all
+                  1. reached the food                          16     76.2% of prev     76.2% of all
+                  2. picked food up out there                  15     93.8% of prev     71.4% of all
+                  3. turned for home with it                   11     73.3% of prev     52.4% of all
+                  4. got back to the nest still holding it     10     90.9% of prev     47.6% of all
+                  5. PUT IT DOWN there                         10    100.0% of prev     47.6% of all
+                  6. went back out again                        4     40.0% of prev     19.0% of all
+                  7. reached the food a SECOND time             2     50.0% of prev      9.5% of all
+                RETURN LEDGER reached food   16 of   21 ants | came back   13 | trips laden    7 empty    7 | LOOPERS    6 of   21 ants (37.5% of those that reached food), repeat    1, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:    7 loops /   20 pickups ( 35.0%) | anchor OFF it:    0 /    1 (  0.0%)
+                BY BIRTH SITE  born ON comb:   6 of  15 that reached food looped ( 40.0%) | born OFF comb:   0 of   1 (  0.0%)
+                LEGS legs[763,1345,1567,1105,1633,619,1777,5113,4831,7441,6619,3607,3253,3187] laden[763,1345,1567,1105,1633,619,1777]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 21 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [3 110 134 14 29 40 54 15]  carry->nest     746  born    1 died    8 (starved    6)
+                own trail: route pk   71 end   14 along -0.0002  B nest->food [2106,5449,7641,10418,8308]  blocked      542  kin swaps       0  ticks     67335  tumbles     29420 (homeward      869, 2.95%)  drops    1561  DELIVERED  1561  leg home n   14 med  3187 p90  6619 (laden n    7 med  1345 p90  1633)  appetite held         0 J of     48724  trips born-on-comb   14 (20 ants) / born-off    0 (1 ants)
+                channel A: PEAK amt  40045 cells   91 (of 91 route)  POLARITY|| +0.09371 && +0.08823 SPAN -0.00538 edge   1.4  end nest->food [1839,8870,2547,959,0]  nest   25  AtNest 24.80%
+                Carrying: laden    119457  of which SPOIL     34999 ( 29.3%)
+    DECISION CENSUS: 75138 decisions, reconciled against the rows and the engine's counters
+      C1 homeward re-roll: no_usable 108, bias_off 0, no_crop 22965, empty_crop 0, no_site 0, on_anchor 5368, roll_failed 2452, fired 2132, fired_haul 0
+      C1 fired, aimed: toward 1747, across 355, away 30
+      C2 drop: roll_lost 15645, placed 0, delivered 1930, no_room 2971 -- no room on 60.6% of won rolls; handed on through bodies 0 (mean 0.0 steps)
+      C3 cone: left 689, straight 6313, right 734; Turn nonzero on 1381 picks (largest |Turn| 7.63e-8), discarded on 689
+      leg     setting          n  stepped    felllaunched swappedcrossingreversedblocked_roll_fairoll_fai no_body
+      empty   pocket        1226     6.2%   13.2%    0.0%    0.0%    0.0%    0.0%    2.4%   37.8%   40.4%    0.0%
+      empty   corridor      6568    12.3%    1.3%    0.0%    0.0%    0.0%    0.0%    0.2%   42.8%   43.4%    0.0%
+      empty   junction     32177    10.6%    1.7%    0.0%    0.0%    0.0%    0.0%    0.2%   43.6%   43.9%    0.0%
+      empty   open         10640    13.6%    3.2%    0.0%    0.0%    0.0%    0.0%    0.0%   41.3%   41.9%    0.0%
+      laden   pocket        3333     1.0%    2.0%    0.0%    0.0%    0.0%    0.0%    0.0%   49.7%   47.3%    0.0%
+      laden   corridor      3980     8.4%    0.4%    0.0%    0.0%    0.0%    0.0%    0.1%   44.0%   47.1%    0.0%
+      laden   junction     12489     7.3%    0.6%    0.0%    0.0%    0.0%    0.0%    0.1%   46.5%   45.4%    0.0%
+      laden   open          1916    18.2%    1.8%    0.0%    0.0%    0.0%    0.0%    0.0%   39.9%   40.1%    0.0%
+      spoil   pocket        1810     2.7%    0.2%    0.0%    0.0%    0.0%    0.0%    2.4%   47.0%   47.6%    0.0%
+      spoil   corridor       325    20.3%    0.9%    0.0%    0.0%    0.0%    0.0%    4.0%   39.1%   35.7%    0.0%
+      spoil   junction       512    35.0%    2.9%    0.0%    0.0%    0.0%    0.0%    2.1%   27.5%   32.4%    0.0%
+      spoil   open           162    42.6%    3.1%    0.0%    0.0%    0.0%    0.0%    0.0%   25.3%   29.0%    0.0%
+    DECISIONS: rows not written (decisionnorows)
+    FOOD STORE (larder cells) -- 3000: nest ground 5, crops 1, elsewhere 399, ants 19 | 6000: nest ground 2, crops 24, elsewhere 400, ants 19 | 9000: nest ground 4, crops 17, elsewhere 400, ants 19 | 12000: nest ground 4, crops 11, elsewhere 400, ants 18 | 15000: nest ground 5, crops 8, elsewhere 400, ants 19 | 18000: nest ground 4, crops 7, elsewhere 400, ants 19 | 21000: nest ground 4, crops 6, elsewhere 400, ants 19 | 24000: nest ground 4, crops 5, elsewhere 400, ants 18
+    FOOD BUDGET (cells, one cell = 960 face): taken from the pile 33; chewed 75.2; on the ground off the pile 4; in crops 5; held as spoil 0; unaccounted -51.2
+   90    3  hand   18/17       17550      978        0   131203    94363   16/22       22         2 4 0 16 0
+                A READ  ant-readable homeward along >= 0.02 on  56.1% of route-cell samples | FOODWARD  27.6% | plane lit on  98.3% | peak amt  34070 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     22    100.0% of prev    100.0% of all
+                  1. reached the food                          16     72.7% of prev     72.7% of all
+                  2. picked food up out there                  16    100.0% of prev     72.7% of all
+                  3. turned for home with it                   15     93.8% of prev     68.2% of all
+                  4. got back to the nest still holding it     15    100.0% of prev     68.2% of all
+                  5. PUT IT DOWN there                         15    100.0% of prev     68.2% of all
+                  6. went back out again                       12     80.0% of prev     54.5% of all
+                  7. reached the food a SECOND time             6     50.0% of prev     27.3% of all
+                RETURN LEDGER reached food   16 of   22 ants | came back   16 | trips laden   16 empty    6 | LOOPERS   13 of   22 ants (81.2% of those that reached food), repeat    3, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   16 loops /   25 pickups ( 64.0%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  13 of  16 that reached food looped ( 81.2%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[553,625,607,949,859,649,529,739,655,601,1021,655,763,625,547,1729,7825,7705,6637,9391,1339,8821] laden[553,625,607,949,859,649,529,739,655,601,1021,655,763,625,547,1339]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 22 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [5 90 207 11 25 49 55 7]  carry->nest    1169  born    2 died    4 (starved    1)
+                own trail: route pk   72 end   12 along -0.0099  B nest->food [2106,6116,7814,10608,8308]  blocked      195  kin swaps       0  ticks     75141  tumbles     33025 (homeward     2132, 6.46%)  drops    1930  DELIVERED  1930  leg home n   22 med   763 p90  7825 (laden n   16 med   655 p90  1021)  appetite held         0 J of     72149  trips born-on-comb   22 (20 ants) / born-off    0 (2 ants)
+                channel A: PEAK amt  34070 cells   91 (of 91 route)  POLARITY|| +0.05735 && +0.05464 SPAN -0.00696 edge   0.4  end nest->food [895,4602,2419,1308,3]  nest   25  AtNest 29.58%
+                Carrying: laden    148060  of which SPOIL     38137 ( 25.8%)
+    DECISION CENSUS: 59308 decisions, reconciled against the rows and the engine's counters
+      C1 homeward re-roll: no_usable 99, bias_off 0, no_crop 18573, empty_crop 0, no_site 0, on_anchor 4741, roll_failed 1223, fired 1523, fired_haul 0
+      C1 fired, aimed: toward 1006, across 454, away 63
+      C2 drop: roll_lost 11342, placed 0, delivered 1392, no_room 2890 -- no room on 67.5% of won rolls; handed on through bodies 0 (mean 0.0 steps)
+      C3 cone: left 624, straight 5016, right 574; Turn nonzero on 794 picks (largest |Turn| 3.08e-2), discarded on 413
+      leg     setting          n  stepped    felllaunched swappedcrossingreversedblocked_roll_fairoll_fai no_body
+      empty   pocket        5614     1.7%    2.5%    0.0%    0.0%    0.0%    0.0%    0.9%   47.3%   47.5%    0.0%
+      empty   corridor      2602    26.3%    2.5%    0.0%    0.0%    0.0%    0.0%    0.3%   34.5%   36.4%    0.0%
+      empty   junction     19593    14.1%    1.8%    0.0%    0.0%    0.0%    0.0%    0.2%   42.1%   41.8%    0.0%
+      empty   open         13526     7.2%    1.6%    0.0%    0.0%    0.0%    0.0%    0.0%   45.7%   45.4%    0.0%
+      laden   pocket        2330     0.8%    4.4%    0.0%    0.0%    0.0%    0.0%    0.0%   47.3%   47.5%    0.0%
+      laden   corridor      2818     7.9%    0.6%    0.0%    0.0%    0.0%    0.0%    0.0%   45.1%   46.4%    0.0%
+      laden   junction      9109     9.2%    0.8%    0.0%    0.0%    0.0%    0.0%    0.2%   45.2%   44.6%    0.0%
+      laden   open          2262    10.7%    1.2%    0.0%    0.0%    0.0%    0.0%    0.0%   44.6%   43.5%    0.0%
+      spoil   pocket         467     7.7%    1.1%    0.0%    0.0%    0.0%    0.0%    7.5%   42.6%   41.1%    0.0%
+      spoil   corridor       292    41.1%    0.7%    0.0%    0.0%    0.0%    0.0%    2.1%   25.3%   30.8%    0.0%
+      spoil   junction       573    30.9%    0.9%    0.0%    0.0%    0.0%    0.0%    1.9%   34.6%   31.8%    0.0%
+      spoil   open           122    27.9%    1.6%    0.0%    0.0%    0.0%    0.0%    0.0%   29.5%   41.0%    0.0%
+    DECISIONS: rows not written (decisionnorows)
+    FOOD STORE (larder cells) -- 3000: nest ground 2, crops 10, elsewhere 398, ants 19 | 6000: nest ground 4, crops 19, elsewhere 400, ants 18 | 9000: nest ground 6, crops 14, elsewhere 400, ants 13 | 12000: nest ground 3, crops 10, elsewhere 400, ants 13 | 15000: nest ground 4, crops 4, elsewhere 400, ants 13 | 18000: nest ground 3, crops 3, elsewhere 400, ants 13 | 21000: nest ground 3, crops 0, elsewhere 400, ants 13 | 24000: nest ground 2, crops 1, elsewhere 400, ants 12
+    FOOD BUDGET (cells, one cell = 960 face): taken from the pile 28; chewed 56.8; on the ground off the pile 2; in crops 1; held as spoil 0; unaccounted -31.8
+   90    4  hand   12/12       12952      996        0    99121    83245   16/21       17         1 4 0 16 0
+                A READ  ant-readable homeward along >= 0.02 on  63.6% of route-cell samples | FOODWARD  24.8% | plane lit on  98.0% | peak amt  36410 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     21    100.0% of prev    100.0% of all
+                  1. reached the food                          16     76.2% of prev     76.2% of all
+                  2. picked food up out there                  15     93.8% of prev     71.4% of all
+                  3. turned for home with it                   14     93.3% of prev     66.7% of all
+                  4. got back to the nest still holding it     14    100.0% of prev     66.7% of all
+                  5. PUT IT DOWN there                         14    100.0% of prev     66.7% of all
+                  6. went back out again                        9     64.3% of prev     42.9% of all
+                  7. reached the food a SECOND time             4     44.4% of prev     19.0% of all
+                RETURN LEDGER reached food   16 of   21 ants | came back   14 | trips laden   17 empty    0 | LOOPERS   14 of   21 ants (87.5% of those that reached food), repeat    3, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   17 loops /   18 pickups ( 94.4%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  14 of  16 that reached food looped ( 87.5%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[637,649,637,739,937,559,511,643,721,541,679,1561,469,2335,823,775,1423] laden[637,649,637,739,937,559,511,643,721,541,679,1561,469,2335,823,775,1423]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 21 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [3 107 168 15 15 20 21 4]  carry->nest    1052  born    1 died    9 (starved    6)
+                own trail: route pk   49 end   10 along -0.0002  B nest->food [2106,5771,7779,10469,8308]  blocked      168  kin swaps       0  ticks     59311  tumbles     26159 (homeward     1523, 5.82%)  drops    1392  DELIVERED  1392  leg home n   17 med   679 p90  1423 (laden n   17 med   679 p90  1423)  appetite held         0 J of     54542  trips born-on-comb   17 (20 ants) / born-off    0 (1 ants)
+                channel A: PEAK amt  36410 cells   91 (of 91 route)  POLARITY|| +0.07857 && +0.07502 SPAN -0.00434 edge   0.8  end nest->food [1123,4709,2343,853,0]  nest   25  AtNest 37.93%
+                Carrying: laden    107845  of which SPOIL      9798 (  9.1%)
+    DECISION CENSUS: 52409 decisions, reconciled against the rows and the engine's counters
+      C1 homeward re-roll: no_usable 127, bias_off 0, no_crop 17398, empty_crop 0, no_site 0, on_anchor 885, roll_failed 2468, fired 757, fired_haul 0
+      C1 fired, aimed: toward 280, across 297, away 180
+      C2 drop: roll_lost 8711, placed 0, delivered 525, no_room 347 -- no room on 39.8% of won rolls; handed on through bodies 0 (mean 0.0 steps)
+      C3 cone: left 755, straight 6537, right 721; Turn nonzero on 1168 picks (largest |Turn| 7.63e-8), discarded on 732
+      leg     setting          n  stepped    felllaunched swappedcrossingreversedblocked_roll_fairoll_fai no_body
+      empty   pocket        3080     4.2%    7.7%    0.0%    0.0%    0.0%    0.0%    2.2%   41.8%   44.1%    0.0%
+      empty   corridor      3995    23.7%    1.7%    0.0%    0.0%    0.0%    0.0%    0.6%   36.9%   37.1%    0.0%
+      empty   junction     21614    16.2%    2.4%    0.0%    0.0%    0.0%    0.0%    0.3%   40.3%   40.8%    0.0%
+      empty   open         10761    12.7%    3.0%    0.0%    0.0%    0.0%    0.0%    0.0%   42.1%   42.2%    0.0%
+      laden   pocket        1134     0.9%    4.3%    0.0%    0.0%    0.0%    0.0%    0.4%   49.3%   45.1%    0.0%
+      laden   corridor      2737    11.5%    0.5%    0.0%    0.0%    0.0%    0.0%    0.3%   42.4%   45.3%    0.0%
+      laden   junction      5006    15.3%    1.4%    0.0%    0.0%    0.0%    0.0%    0.3%   42.3%   40.6%    0.0%
+      laden   open           785    28.8%    4.3%    0.0%    0.0%    0.0%    0.0%    0.0%   33.0%   33.9%    0.0%
+      spoil   pocket        1424    16.3%    0.4%    0.0%    0.0%    0.0%    0.0%   11.3%   35.5%   36.5%    0.0%
+      spoil   corridor       498    45.6%    0.2%    0.0%    0.0%    0.0%    0.0%    2.2%   25.5%   26.5%    0.0%
+      spoil   junction      1138    20.4%    0.4%    0.0%    0.0%    0.0%    0.0%    2.2%   38.1%   38.8%    0.0%
+      spoil   open           237    24.9%    0.8%    0.0%    0.0%    0.0%    0.0%    0.0%   35.0%   39.2%    0.0%
+    DECISIONS: rows not written (decisionnorows)
+    FOOD STORE (larder cells) -- 3000: nest ground 1, crops 8, elsewhere 400, ants 19 | 6000: nest ground 3, crops 13, elsewhere 400, ants 17 | 9000: nest ground 1, crops 3, elsewhere 400, ants 18 | 12000: nest ground 2, crops 0, elsewhere 400, ants 17 | 15000: nest ground 0, crops 2, elsewhere 400, ants 14 | 18000: nest ground 1, crops 0, elsewhere 400, ants 7 | 21000: nest ground 1, crops 0, elsewhere 400, ants 0 | 24000: nest ground 1, crops 0, elsewhere 400, ants 0
+    FOOD BUDGET (cells, one cell = 960 face): taken from the pile 28; chewed 33.3; on the ground off the pile 1; in crops 0; held as spoil 0; unaccounted -6.3
+   90    5  hand    0/0         8259      990    20682    57972    21408   17/21       22         0 2 2 17 0
+                A READ  ant-readable homeward along >= 0.02 on  61.2% of route-cell samples | FOODWARD  25.7% | plane lit on  97.7% | peak amt  45088 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     21    100.0% of prev    100.0% of all
+                  1. reached the food                          17     81.0% of prev     81.0% of all
+                  2. picked food up out there                  16     94.1% of prev     76.2% of all
+                  3. turned for home with it                   16    100.0% of prev     76.2% of all
+                  4. got back to the nest still holding it     16    100.0% of prev     76.2% of all
+                  5. PUT IT DOWN there                         16    100.0% of prev     76.2% of all
+                  6. went back out again                       11     68.8% of prev     52.4% of all
+                  7. reached the food a SECOND time             7     63.6% of prev     33.3% of all
+                RETURN LEDGER reached food   17 of   21 ants | came back   17 | trips laden   11 empty   11 | LOOPERS   10 of   21 ants (58.8% of those that reached food), repeat    1, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   11 loops /   24 pickups ( 45.8%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  10 of  17 that reached food looped ( 58.8%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[883,595,649,595,577,661,499,961,1621,775,1717,2401,2065,6847,4693,5809,3253,4993,5143,4333,5815,6013] laden[883,595,649,595,577,661,499,961,1621,775,2065]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 21 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [7 100 88 15 43 19 31 7]  carry->nest    1122  born    1 died   21 (starved   16)
+                own trail: route pk   69 end    0 along +0.0000  B nest->food [2106,5136,7778,10704,8308]  blocked      377  kin swaps       0  ticks     52414  tumbles     21635 (homeward      757, 3.50%)  drops     525  DELIVERED   525  leg home n   22 med  2065 p90  5815 (laden n   11 med   661 p90  1621)  appetite held         0 J of     32001  trips born-on-comb   22 (21 ants) / born-off    0 (0 ants)
+                channel A: PEAK amt  45088 cells   91 (of 91 route)  POLARITY|| +0.07653 && +0.07277 SPAN -0.00405 edge   1.1  end nest->food [1266,8383,2534,590,0]  nest   25  AtNest 22.39%
+                Carrying: laden     77754  of which SPOIL     20304 ( 26.1%)
+    DECISION CENSUS: 58452 decisions, reconciled against the rows and the engine's counters
+      C1 homeward re-roll: no_usable 140, bias_off 0, no_crop 18573, empty_crop 0, no_site 0, on_anchor 2826, roll_failed 1596, fired 998, fired_haul 0
+      C1 fired, aimed: toward 552, across 220, away 226
+      C2 drop: roll_lost 9639, placed 0, delivered 1335, no_room 792 -- no room on 37.2% of won rolls; handed on through bodies 0 (mean 0.0 steps)
+      C3 cone: left 750, straight 7800, right 690; Turn nonzero on 1287 picks (largest |Turn| 7.63e-8), discarded on 1002
+      leg     setting          n  stepped    felllaunched swappedcrossingreversedblocked_roll_fairoll_fai no_body
+      empty   pocket        3347     7.2%    7.8%    0.0%    0.0%    0.0%    0.0%    4.7%   39.6%   40.8%    0.0%
+      empty   corridor      6533    28.0%    1.3%    0.0%    0.0%    0.0%    0.0%    0.5%   35.0%   35.2%    0.0%
+      empty   junction     23750    15.8%    2.5%    0.0%    0.0%    0.0%    0.0%    0.3%   40.7%   40.7%    0.0%
+      empty   open          8626    15.0%    2.3%    0.0%    0.0%    0.0%    0.0%    0.0%   41.4%   41.3%    0.0%
+      laden   pocket        1231     1.5%    7.5%    0.0%    0.0%    0.0%    0.0%    0.0%   42.1%   48.9%    0.0%
+      laden   corridor      4060     4.4%    0.4%    0.0%    0.0%    0.0%    0.0%    0.2%   47.8%   47.2%    0.0%
+      laden   junction      5785    14.4%    1.5%    0.0%    0.0%    0.0%    0.0%    0.2%   42.2%   41.6%    0.0%
+      laden   open          1315    16.7%    1.8%    0.0%    0.0%    0.0%    0.0%    0.0%   42.1%   39.4%    0.0%
+      spoil   pocket        1639    12.7%    0.8%    0.0%    0.0%    0.0%    0.0%   10.4%   37.5%   38.6%    0.0%
+      spoil   corridor      1224    29.3%    0.2%    0.0%    0.0%    0.0%    0.0%    1.4%   34.1%   35.0%    0.0%
+      spoil   junction       734    34.3%    1.4%    0.0%    0.0%    0.0%    0.0%    4.5%   29.4%   30.4%    0.0%
+      spoil   open           208    26.9%    2.4%    0.0%    0.0%    0.0%    0.0%    0.0%   36.1%   34.6%    0.0%
+    DECISIONS: rows not written (decisionnorows)
+    FOOD STORE (larder cells) -- 3000: nest ground 0, crops 9, elsewhere 399, ants 20 | 6000: nest ground 5, crops 10, elsewhere 400, ants 16 | 9000: nest ground 3, crops 7, elsewhere 400, ants 15 | 12000: nest ground 2, crops 6, elsewhere 400, ants 12 | 15000: nest ground 0, crops 5, elsewhere 400, ants 13 | 18000: nest ground 0, crops 2, elsewhere 400, ants 13 | 21000: nest ground 0, crops 0, elsewhere 400, ants 12 | 24000: nest ground 0, crops 0, elsewhere 400, ants 1
+    FOOD BUDGET (cells, one cell = 960 face): taken from the pile 24; chewed 43.3; on the ground off the pile 0; in crops 0; held as spoil 0; unaccounted -19.3
+   90    6  hand    1/1        10648      936        0    74346    48126   14/22       15         0 6 1 15 0
+                A READ  ant-readable homeward along >= 0.02 on  64.8% of route-cell samples | FOODWARD  22.7% | plane lit on  96.5% | peak amt  60790 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     22    100.0% of prev    100.0% of all
+                  1. reached the food                          14     63.6% of prev     63.6% of all
+                  2. picked food up out there                  14    100.0% of prev     63.6% of all
+                  3. turned for home with it                   14    100.0% of prev     63.6% of all
+                  4. got back to the nest still holding it     11     78.6% of prev     50.0% of all
+                  5. PUT IT DOWN there                         11    100.0% of prev     50.0% of all
+                  6. went back out again                       11    100.0% of prev     50.0% of all
+                  7. reached the food a SECOND time             4     36.4% of prev     18.2% of all
+                RETURN LEDGER reached food   14 of   22 ants | came back   13 | trips laden   13 empty    2 | LOOPERS   11 of   22 ants (78.6% of those that reached food), repeat    2, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   13 loops /   17 pickups ( 76.5%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  11 of  14 that reached food looped ( 78.6%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[739,781,835,559,1285,829,865,775,925,631,2269,823,3139,5569,6175] laden[739,781,835,559,1285,829,865,775,925,631,2269,823,3139]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 22 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [6 193 61 37 18 16 14 4]  carry->nest    1014  born    2 died   21 (starved   20)
+                own trail: route pk   30 end    0 along +0.0000  B nest->food [2106,5145,7827,10497,8308]  blocked      510  kin swaps       0  ticks     58453  tumbles     24133 (homeward      998, 4.14%)  drops    1335  DELIVERED  1335  leg home n   15 med   835 p90  5569 (laden n   13 med   829 p90  2269)  appetite held         0 J of     41599  trips born-on-comb   15 (20 ants) / born-off    0 (2 ants)
+                channel A: PEAK amt  60790 cells   91 (of 91 route)  POLARITY|| +0.08518 && +0.08081 SPAN -0.00116 edge   1.6  end nest->food [3298,35759,5033,490,0]  nest   25  AtNest 32.08%
+                Carrying: laden     97176  of which SPOIL     23298 ( 24.0%)
+    DECISION CENSUS: 65022 decisions, reconciled against the rows and the engine's counters
+      C1 homeward re-roll: no_usable 86, bias_off 0, no_crop 20184, empty_crop 0, no_site 0, on_anchor 6367, roll_failed 1340, fired 1336, fired_haul 0
+      C1 fired, aimed: toward 986, across 320, away 30
+      C2 drop: roll_lost 12599, placed 0, delivered 1429, no_room 4506 -- no room on 75.9% of won rolls; handed on through bodies 0 (mean 0.0 steps)
+      C3 cone: left 484, straight 4715, right 459; Turn nonzero on 1003 picks (largest |Turn| 7.63e-8), discarded on 625
+      leg     setting          n  stepped    felllaunched swappedcrossingreversedblocked_roll_fairoll_fai no_body
+      empty   pocket        7341     1.4%    1.2%    0.0%    0.0%    0.0%    0.0%    0.9%   48.4%   48.1%    0.0%
+      empty   corridor      7378     9.4%    0.7%    0.0%    0.0%    0.0%    0.0%    0.1%   44.8%   45.0%    0.0%
+      empty   junction     22549    10.7%    1.5%    0.0%    0.0%    0.0%    0.0%    0.2%   43.2%   44.5%    0.0%
+      empty   open          6624    11.6%    2.6%    0.0%    0.0%    0.0%    0.0%    0.0%   43.3%   42.5%    0.0%
+      laden   pocket        3415     0.6%    2.2%    0.0%    0.0%    0.0%    0.0%    0.1%   49.2%   48.0%    0.0%
+      laden   corridor      4900     7.5%    0.3%    0.0%    0.0%    0.0%    0.0%    0.1%   46.4%   45.7%    0.0%
+      laden   junction      9358     8.5%    0.8%    0.0%    0.0%    0.0%    0.0%    0.1%   45.4%   45.2%    0.0%
+      laden   open          1864    11.7%    1.8%    0.0%    0.0%    0.0%    0.0%    0.0%   45.5%   40.9%    0.0%
+      spoil   pocket         269     7.8%    0.4%    0.0%    0.0%    0.0%    0.0%    9.3%   40.9%   41.6%    0.0%
+      spoil   corridor       431    23.4%    0.0%    0.0%    0.0%    0.0%    0.0%    0.0%   39.2%   37.4%    0.0%
+      spoil   junction       770    17.1%    0.6%    0.0%    0.0%    0.0%    0.0%    0.9%   39.1%   42.2%    0.0%
+      spoil   open           123    30.1%    0.8%    0.0%    0.0%    0.0%    0.0%    0.0%   35.8%   33.3%    0.0%
+    DECISIONS: rows not written (decisionnorows)
+    FOOD STORE (larder cells) -- 3000: nest ground 3, crops 10, elsewhere 398, ants 20 | 6000: nest ground 1, crops 28, elsewhere 400, ants 20 | 9000: nest ground 1, crops 18, elsewhere 400, ants 16 | 12000: nest ground 2, crops 7, elsewhere 400, ants 16 | 15000: nest ground 2, crops 1, elsewhere 400, ants 14 | 18000: nest ground 2, crops 1, elsewhere 400, ants 14 | 21000: nest ground 1, crops 2, elsewhere 400, ants 13 | 24000: nest ground 0, crops 2, elsewhere 400, ants 14
+    FOOD BUDGET (cells, one cell = 960 face): taken from the pile 32; chewed 67.2; on the ground off the pile 0; in crops 2; held as spoil 0; unaccounted -37.2
+   90    7  hand   14/13       15322     1146        0   117230   103598   16/21       19         4 1 0 16 0
+                A READ  ant-readable homeward along >= 0.02 on  59.5% of route-cell samples | FOODWARD  23.8% | plane lit on  97.7% | peak amt  31614 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     21    100.0% of prev    100.0% of all
+                  1. reached the food                          16     76.2% of prev     76.2% of all
+                  2. picked food up out there                  16    100.0% of prev     76.2% of all
+                  3. turned for home with it                   16    100.0% of prev     76.2% of all
+                  4. got back to the nest still holding it     16    100.0% of prev     76.2% of all
+                  5. PUT IT DOWN there                         16    100.0% of prev     76.2% of all
+                  6. went back out again                        5     31.2% of prev     23.8% of all
+                  7. reached the food a SECOND time             5    100.0% of prev     23.8% of all
+                RETURN LEDGER reached food   16 of   21 ants | came back   16 | trips laden   19 empty    0 | LOOPERS   16 of   21 ants (100.0% of those that reached food), repeat    3, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   19 loops /   19 pickups (100.0%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  16 of  16 that reached food looped (100.0%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[679,661,1003,715,703,745,475,481,787,529,709,511,739,607,517,391,559,547,853] laden[679,661,1003,715,703,745,475,481,787,529,709,511,739,607,517,391,559,547,853]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 21 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [3 214 114 7 13 17 14 5]  carry->nest    1155  born    1 died    7 (starved    4)
+                own trail: route pk   53 end   13 along -0.0010  B nest->food [2106,5481,7827,10451,8309]  blocked      167  kin swaps       0  ticks     65025  tumbles     29313 (homeward     1336, 4.56%)  drops    1429  DELIVERED  1429  leg home n   19 med   661 p90   787 (laden n   19 med   661 p90   787)  appetite held         0 J of     64513  trips born-on-comb   19 (20 ants) / born-off    0 (1 ants)
+                channel A: PEAK amt  31614 cells   91 (of 91 route)  POLARITY|| +0.07642 && +0.07268 SPAN -0.00418 edge   1.0  end nest->food [1057,8307,1569,613,0]  nest   25  AtNest 42.48%
+                Carrying: laden    126788  of which SPOIL     10680 (  8.4%)
+    DECISION CENSUS: 58226 decisions, reconciled against the rows and the engine's counters
+      C1 homeward re-roll: no_usable 108, bias_off 0, no_crop 18973, empty_crop 0, no_site 0, on_anchor 2466, roll_failed 2344, fired 1041, fired_haul 0
+      C1 fired, aimed: toward 834, across 107, away 100
+      C2 drop: roll_lost 10976, placed 0, delivered 929, no_room 1452 -- no room on 61.0% of won rolls; handed on through bodies 0 (mean 0.0 steps)
+      C3 cone: left 726, straight 5900, right 695; Turn nonzero on 754 picks (largest |Turn| 7.63e-8), discarded on 440
+      leg     setting          n  stepped    felllaunched swappedcrossingreversedblocked_roll_fairoll_fai no_body
+      empty   pocket        2199     4.6%    7.7%    0.0%    0.0%    0.0%    0.0%    1.8%   42.9%   43.0%    0.0%
+      empty   corridor      2496    24.6%    2.9%    0.0%    0.0%    0.0%    0.0%    0.3%   35.9%   36.3%    0.0%
+      empty   junction     25296    13.8%    1.8%    0.0%    0.0%    0.0%    0.0%    0.2%   42.0%   42.2%    0.0%
+      empty   open         12471     8.6%    2.0%    0.0%    0.0%    0.0%    0.0%    0.0%   44.7%   44.7%    0.0%
+      laden   pocket        1609     0.9%    4.5%    0.0%    0.0%    0.0%    0.0%    0.1%   48.2%   46.2%    0.0%
+      laden   corridor      1643    14.7%    2.1%    0.0%    0.0%    0.0%    0.0%    0.1%   42.2%   40.9%    0.0%
+      laden   junction      8441    11.9%    1.1%    0.0%    0.0%    0.0%    0.0%    0.1%   43.7%   43.1%    0.0%
+      laden   open          1898    14.2%    2.1%    0.0%    0.0%    0.0%    0.0%    0.0%   37.8%   45.9%    0.0%
+      spoil   pocket         551    17.8%    3.1%    0.0%    0.0%    0.0%    0.0%   12.5%   36.1%   30.5%    0.0%
+      spoil   corridor       292    41.8%    0.7%    0.0%    0.0%    0.0%    0.0%    5.1%   27.1%   25.3%    0.0%
+      spoil   junction      1085    20.9%    1.3%    0.0%    0.0%    0.0%    0.0%    2.1%   40.2%   35.5%    0.0%
+      spoil   open           245    24.9%    0.4%    0.0%    0.0%    0.0%    0.0%    0.0%   35.5%   39.2%    0.0%
+    DECISIONS: rows not written (decisionnorows)
+    FOOD STORE (larder cells) -- 3000: nest ground 3, crops 13, elsewhere 397, ants 20 | 6000: nest ground 2, crops 14, elsewhere 400, ants 18 | 9000: nest ground 0, crops 5, elsewhere 400, ants 15 | 12000: nest ground 2, crops 0, elsewhere 400, ants 13 | 15000: nest ground 1, crops 1, elsewhere 400, ants 12 | 18000: nest ground 1, crops 1, elsewhere 400, ants 11 | 21000: nest ground 0, crops 2, elsewhere 400, ants 11 | 24000: nest ground 1, crops 1, elsewhere 400, ants 10
+    FOOD BUDGET (cells, one cell = 960 face): taken from the pile 31; chewed 46.8; on the ground off the pile 1; in crops 1; held as spoil 0; unaccounted -17.8
+   90    8  hand   10/10       11142     1158        0    81553    53281   18/21       17         1 2 0 18 0
+                A READ  ant-readable homeward along >= 0.02 on  62.6% of route-cell samples | FOODWARD  24.3% | plane lit on  97.8% | peak amt  43398 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     21    100.0% of prev    100.0% of all
+                  1. reached the food                          18     85.7% of prev     85.7% of all
+                  2. picked food up out there                  18    100.0% of prev     85.7% of all
+                  3. turned for home with it                   18    100.0% of prev     85.7% of all
+                  4. got back to the nest still holding it     15     83.3% of prev     71.4% of all
+                  5. PUT IT DOWN there                         15    100.0% of prev     71.4% of all
+                  6. went back out again                        8     53.3% of prev     38.1% of all
+                  7. reached the food a SECOND time             3     37.5% of prev     14.3% of all
+                RETURN LEDGER reached food   18 of   21 ants | came back   15 | trips laden   15 empty    2 | LOOPERS   13 of   21 ants (72.2% of those that reached food), repeat    2, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   15 loops /   22 pickups ( 68.2%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  13 of  18 that reached food looped ( 72.2%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[595,673,709,619,763,853,739,805,2023,1861,481,595,685,1261,727,6925,6907] laden[595,673,709,619,763,853,739,805,2023,1861,481,595,685,1261,727]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 21 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [6 120 133 21 23 18 19 6]  carry->nest    1237  born    1 died   11 (starved    6)
+                own trail: route pk   41 end   41 along +0.0016  B nest->food [2106,5458,7940,10643,8308]  blocked      219  kin swaps       0  ticks     58231  tumbles     24932 (homeward     1041, 4.18%)  drops     929  DELIVERED   929  leg home n   17 med   739 p90  2023 (laden n   15 med   727 p90  1861)  appetite held         0 J of     44914  trips born-on-comb   17 (20 ants) / born-off    0 (1 ants)
+                channel A: PEAK amt  43398 cells   91 (of 91 route)  POLARITY|| +0.06865 && +0.06444 SPAN -0.00581 edge   0.6  end nest->food [906,10296,2537,1111,0]  nest   25  AtNest 36.10%
+                Carrying: laden     94592  of which SPOIL     18115 ( 19.2%)
+    DECISION CENSUS: 48254 decisions, reconciled against the rows and the engine's counters
+      C1 homeward re-roll: no_usable 161, bias_off 0, no_crop 14522, empty_crop 0, no_site 0, on_anchor 1952, roll_failed 1035, fired 739, fired_haul 0
+      C1 fired, aimed: toward 609, across 59, away 71
+      C2 drop: roll_lost 6358, placed 0, delivered 1085, no_room 526 -- no room on 32.7% of won rolls; handed on through bodies 0 (mean 0.0 steps)
+      C3 cone: left 970, straight 8459, right 925; Turn nonzero on 1777 picks (largest |Turn| 1.76e-2), discarded on 1130
+      leg     setting          n  stepped    felllaunched swappedcrossingreversedblocked_roll_fairoll_fai no_body
+      empty   pocket        2687     9.5%   14.1%    0.0%    0.0%    0.0%    0.0%    5.2%   34.5%   36.7%    0.0%
+      empty   corridor      4031    32.7%    2.8%    0.0%    0.0%    0.0%    0.0%    1.1%   32.0%   31.5%    0.0%
+      empty   junction     18798    26.5%    3.5%    0.0%    0.0%    0.0%    0.0%    0.5%   35.0%   34.5%    0.0%
+      empty   open          8931    18.9%    3.8%    0.0%    0.0%    0.0%    0.0%    0.0%   38.3%   39.0%    0.0%
+      laden   pocket         793     0.5%    6.4%    0.0%    0.0%    0.0%    0.0%    0.3%   45.4%   47.4%    0.0%
+      laden   corridor      1116    18.1%    1.6%    0.0%    0.0%    0.0%    0.0%    0.1%   41.6%   38.6%    0.0%
+      laden   junction      5374    10.5%    1.2%    0.0%    0.0%    0.0%    0.0%    0.1%   43.4%   44.7%    0.0%
+      laden   open          1316     9.8%    2.4%    0.0%    0.0%    0.0%    0.0%    0.0%   44.1%   43.8%    0.0%
+      spoil   pocket        2481    12.5%    0.7%    0.0%    0.0%    0.0%    0.0%    9.4%   38.7%   38.8%    0.0%
+      spoil   corridor      1079    29.9%    0.6%    0.0%    0.0%    0.0%    0.0%    1.7%   37.6%   30.2%    0.0%
+      spoil   junction      1312    37.3%    1.3%    0.0%    0.0%    0.0%    0.0%    3.2%   29.6%   28.7%    0.0%
+      spoil   open           336    28.3%    1.2%    0.0%    0.0%    0.0%    0.0%    0.0%   34.8%   35.7%    0.0%
+    DECISIONS: rows not written (decisionnorows)
+    FOOD STORE (larder cells) -- 3000: nest ground 2, crops 8, elsewhere 399, ants 20 | 6000: nest ground 4, crops 9, elsewhere 400, ants 17 | 9000: nest ground 1, crops 7, elsewhere 400, ants 14 | 12000: nest ground 0, crops 2, elsewhere 400, ants 11 | 15000: nest ground 0, crops 0, elsewhere 400, ants 11 | 18000: nest ground 0, crops 0, elsewhere 400, ants 11 | 21000: nest ground 0, crops 0, elsewhere 400, ants 1 | 24000: nest ground 0, crops 0, elsewhere 400, ants 0
+    FOOD BUDGET (cells, one cell = 960 face): taken from the pile 17; chewed 29.6; on the ground off the pile 0; in crops 0; held as spoil 0; unaccounted -12.6
+   90    9  hand    0/0         9946      984    21006    51594    33972   15/23       11         2 5 0 16 0
+                A READ  ant-readable homeward along >= 0.02 on  59.8% of route-cell samples | FOODWARD  24.7% | plane lit on  98.2% | peak amt  65093 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     23    100.0% of prev    100.0% of all
+                  1. reached the food                          15     65.2% of prev     65.2% of all
+                  2. picked food up out there                  13     86.7% of prev     56.5% of all
+                  3. turned for home with it                   13    100.0% of prev     56.5% of all
+                  4. got back to the nest still holding it     11     84.6% of prev     47.8% of all
+                  5. PUT IT DOWN there                         11    100.0% of prev     47.8% of all
+                  6. went back out again                       11    100.0% of prev     47.8% of all
+                  7. reached the food a SECOND time             4     36.4% of prev     17.4% of all
+                RETURN LEDGER reached food   15 of   23 ants | came back   11 | trips laden   10 empty    1 | LOOPERS   10 of   23 ants (66.7% of those that reached food), repeat    0, most loops by one ant   1
+                BY ANCHOR AT PICKUP  anchor ON nest material:   10 loops /   14 pickups ( 71.4%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  10 of  15 that reached food looped ( 66.7%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[619,1207,739,529,763,541,1225,859,775,979,4861] laden[619,1207,739,529,763,541,1225,859,775,979]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 23 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [24 104 60 22 26 24 22 5]  carry->nest     760  born    3 died   23 (starved   23)
+                own trail: route pk   51 end    0 along +0.0000  B nest->food [2106,5098,7691,10372,8308]  blocked      583  kin swaps       0  ticks     48254  tumbles     18409 (homeward      739, 4.01%)  drops    1085  DELIVERED  1085  leg home n   11 med   775 p90  1225 (laden n   10 med   775 p90  1207)  appetite held         0 J of     28413  trips born-on-comb   11 (21 ants) / born-off    0 (2 ants)
+                channel A: PEAK amt  65093 cells   91 (of 91 route)  POLARITY|| +0.08886 && +0.08552 SPAN -0.00126 edge   0.6  end nest->food [6516,24578,5008,1016,0]  nest   25  AtNest 28.38%
+                Carrying: laden     82842  of which SPOIL     32394 ( 39.1%)
+    DECISION CENSUS: 64328 decisions, reconciled against the rows and the engine's counters
+      C1 homeward re-roll: no_usable 144, bias_off 0, no_crop 21084, empty_crop 0, no_site 0, on_anchor 3175, roll_failed 2362, fired 1244, fired_haul 0
+      C1 fired, aimed: toward 626, across 528, away 90
+      C2 drop: roll_lost 11409, placed 0, delivered 1307, no_room 1405 -- no room on 51.8% of won rolls; handed on through bodies 0 (mean 0.0 steps)
+      C3 cone: left 609, straight 5937, right 598; Turn nonzero on 1139 picks (largest |Turn| 7.63e-8), discarded on 718
+      leg     setting          n  stepped    felllaunched swappedcrossingreversedblocked_roll_fairoll_fai no_body
+      empty   pocket        2416     6.6%    8.3%    0.0%    0.0%    0.0%    0.0%    3.9%   41.6%   39.6%    0.0%
+      empty   corridor      7676    16.5%    0.8%    0.0%    0.0%    0.0%    0.0%    0.3%   40.8%   41.5%    0.0%
+      empty   junction     30088    10.6%    1.5%    0.0%    0.0%    0.0%    0.0%    0.3%   43.5%   44.1%    0.0%
+      empty   open          7734    13.6%    2.9%    0.0%    0.0%    0.0%    0.0%    0.0%   41.6%   42.0%    0.0%
+      laden   pocket        3221     0.7%    2.5%    0.0%    0.0%    0.0%    0.0%    0.0%   49.2%   47.6%    0.0%
+      laden   corridor      4437     5.9%    0.4%    0.0%    0.0%    0.0%    0.0%    0.2%   45.5%   48.0%    0.0%
+      laden   junction      6629     9.5%    1.1%    0.0%    0.0%    0.0%    0.0%    0.4%   44.7%   44.2%    0.0%
+      laden   open           696    30.9%    7.5%    0.0%    0.0%    0.0%    0.0%    0.0%   30.3%   31.3%    0.0%
+      spoil   pocket         378    13.5%    1.3%    0.0%    0.0%    0.0%    0.0%   14.6%   35.7%   34.9%    0.0%
+      spoil   corridor       318    35.8%    0.0%    0.0%    0.0%    0.0%    0.0%    4.1%   26.1%   34.0%    0.0%
+      spoil   junction       591    27.4%    1.0%    0.0%    0.0%    0.0%    0.0%    2.2%   32.8%   36.5%    0.0%
+      spoil   open           144    25.0%    0.7%    0.0%    0.0%    0.0%    0.0%    0.0%   38.2%   36.1%    0.0%
+    DECISIONS: rows not written (decisionnorows)
+    FOOD STORE (larder cells) -- 3000: nest ground 0, crops 9, elsewhere 400, ants 20 | 6000: nest ground 0, crops 13, elsewhere 400, ants 20 | 9000: nest ground 3, crops 6, elsewhere 399, ants 17 | 12000: nest ground 4, crops 5, elsewhere 400, ants 16 | 15000: nest ground 4, crops 4, elsewhere 400, ants 15 | 18000: nest ground 4, crops 4, elsewhere 400, ants 13 | 21000: nest ground 4, crops 4, elsewhere 400, ants 13 | 24000: nest ground 3, crops 3, elsewhere 400, ants 11
+    FOOD BUDGET (cells, one cell = 960 face): taken from the pile 32; chewed 51.6; on the ground off the pile 3; in crops 3; held as spoil 0; unaccounted -25.6
+   90   10  hand   11/11       11754     1026        0    89905    43879   17/20       14         0 3 0 17 0
+                A READ  ant-readable homeward along >= 0.02 on  58.5% of route-cell samples | FOODWARD  26.5% | plane lit on  97.0% | peak amt  33389 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     20    100.0% of prev    100.0% of all
+                  1. reached the food                          17     85.0% of prev     85.0% of all
+                  2. picked food up out there                  17    100.0% of prev     85.0% of all
+                  3. turned for home with it                   14     82.4% of prev     70.0% of all
+                  4. got back to the nest still holding it      8     57.1% of prev     40.0% of all
+                  5. PUT IT DOWN there                          8    100.0% of prev     40.0% of all
+                  6. went back out again                        5     62.5% of prev     25.0% of all
+                  7. reached the food a SECOND time             0      0.0% of prev      0.0% of all
+                RETURN LEDGER reached food   17 of   20 ants | came back   14 | trips laden    8 empty    6 | LOOPERS    8 of   20 ants (47.1% of those that reached food), repeat    0, most loops by one ant   1
+                BY ANCHOR AT PICKUP  anchor ON nest material:    8 loops /   21 pickups ( 38.1%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:   8 of  17 that reached food looped ( 47.1%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[571,1231,823,697,685,1201,4471,5059,5533,8239,6943,2665,10069,12025] laden[571,1231,823,697,685,1201,4471,2665]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 20 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [4 25 221 17 55 31 22 6]  carry->nest     972  born    0 died    9 (starved    5)
+                own trail: route pk   55 end   10 along -0.0012  B nest->food [2106,5093,7713,10633,8308]  blocked      318  kin swaps       0  ticks     64332  tumbles     28009 (homeward     1244, 4.44%)  drops    1307  DELIVERED  1307  leg home n   14 med  4471 p90 10069 (laden n    8 med  1201 p90  2665)  appetite held         0 J of     49490  trips born-on-comb   14 (20 ants) / born-off    0 (0 ants)
+                channel A: PEAK amt  33389 cells   91 (of 91 route)  POLARITY|| +0.07492 && +0.07044 SPAN -0.00463 edge   1.4  end nest->food [694,3030,1674,498,0]  nest   25  AtNest 14.68%
+                Carrying: laden     98497  of which SPOIL     10416 ( 10.6%)
+    DECISION CENSUS: 74925 decisions, reconciled against the rows and the engine's counters
+      C1 homeward re-roll: no_usable 135, bias_off 0, no_crop 24487, empty_crop 0, no_site 0, on_anchor 5322, roll_failed 2154, fired 1688, fired_haul 0
+      C1 fired, aimed: toward 1286, across 93, away 309
+      C2 drop: roll_lost 14607, placed 0, delivered 1341, no_room 3088 -- no room on 69.7% of won rolls; handed on through bodies 0 (mean 0.0 steps)
+      C3 cone: left 626, straight 5308, right 645; Turn nonzero on 1132 picks (largest |Turn| 7.63e-8), discarded on 551
+      leg     setting          n  stepped    felllaunched swappedcrossingreversedblocked_roll_fairoll_fai no_body
+      empty   pocket        2526     2.8%    7.3%    0.0%    0.0%    0.0%    0.0%    1.4%   44.1%   44.4%    0.0%
+      empty   corridor      6838    11.5%    0.7%    0.0%    0.0%    0.0%    0.0%    0.4%   43.5%   43.9%    0.0%
+      empty   junction     31932     9.1%    1.1%    0.0%    0.0%    0.0%    0.0%    0.1%   45.0%   44.7%    0.0%
+      empty   open         11702     8.6%    2.1%    0.0%    0.0%    0.0%    0.0%    0.0%   44.6%   44.7%    0.0%
+      laden   pocket         441     2.3%   11.8%    0.0%    0.0%    0.0%    0.0%    1.1%   40.4%   44.4%    0.0%
+      laden   corridor      6551     5.4%    0.3%    0.0%    0.0%    0.0%    0.0%    0.1%   47.1%   47.1%    0.0%
+      laden   junction     10770     8.0%    1.0%    0.0%    0.0%    0.0%    0.0%    0.2%   46.0%   44.8%    0.0%
+      laden   open          2260    13.8%    2.2%    0.0%    0.0%    0.0%    0.0%    0.0%   41.5%   42.5%    0.0%
+      spoil   pocket         575     3.5%    1.9%    0.0%    0.0%    0.0%    0.0%    3.1%   45.7%   45.7%    0.0%
+      spoil   corridor       629     5.4%    0.5%    0.0%    0.0%    0.0%    0.0%    2.4%   44.8%   46.9%    0.0%
+      spoil   junction       562    31.3%    1.1%    0.0%    0.0%    0.0%    0.0%    3.2%   33.6%   30.8%    0.0%
+      spoil   open           139    34.5%    3.6%    0.0%    0.0%    0.0%    0.0%    0.0%   24.5%   37.4%    0.0%
+    DECISIONS: rows not written (decisionnorows)
+    FOOD STORE (larder cells) -- 3000: nest ground 0, crops 11, elsewhere 398, ants 20 | 6000: nest ground 6, crops 21, elsewhere 400, ants 20 | 9000: nest ground 3, crops 20, elsewhere 397, ants 19 | 12000: nest ground 1, crops 11, elsewhere 400, ants 19 | 15000: nest ground 2, crops 6, elsewhere 400, ants 17 | 18000: nest ground 1, crops 6, elsewhere 400, ants 18 | 21000: nest ground 0, crops 6, elsewhere 400, ants 18 | 24000: nest ground 0, crops 4, elsewhere 400, ants 18
+    FOOD BUDGET (cells, one cell = 960 face): taken from the pile 36; chewed 68.8; on the ground off the pile 0; in crops 4; held as spoil 0; unaccounted -36.8
+   90   11  hand   18/17       16623      900        0   121094    86294   18/22       22         2 1 0 19 0
+                A READ  ant-readable homeward along >= 0.02 on  58.3% of route-cell samples | FOODWARD  26.1% | plane lit on  98.4% | peak amt  41955 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     22    100.0% of prev    100.0% of all
+                  1. reached the food                          18     81.8% of prev     81.8% of all
+                  2. picked food up out there                  17     94.4% of prev     77.3% of all
+                  3. turned for home with it                   15     88.2% of prev     68.2% of all
+                  4. got back to the nest still holding it     14     93.3% of prev     63.6% of all
+                  5. PUT IT DOWN there                         14    100.0% of prev     63.6% of all
+                  6. went back out again                        8     57.1% of prev     36.4% of all
+                  7. reached the food a SECOND time             5     62.5% of prev     22.7% of all
+                RETURN LEDGER reached food   18 of   22 ants | came back   17 | trips laden   19 empty    3 | LOOPERS   14 of   22 ants (77.8% of those that reached food), repeat    5, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   19 loops /   23 pickups ( 82.6%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  14 of  18 that reached food looped ( 77.8%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[697,601,775,739,733,793,1357,1429,1159,883,1177,601,655,3049,2155,1615,1885,3373,811,3841,5611,6157] laden[697,601,775,739,733,793,1357,1429,1159,883,1177,601,655,3049,2155,1615,1885,3373,811]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 22 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [6 85 239 10 29 27 42 9]  carry->nest    1222  born    2 died    4 (starved    2)
+                own trail: route pk   73 end    0 along +0.0000  B nest->food [2106,5941,7859,10520,8308]  blocked      181  kin swaps       0  ticks     74927  tumbles     33786 (homeward     1688, 5.00%)  drops    1341  DELIVERED  1341  leg home n   22 med  1177 p90  3841 (laden n   19 med   883 p90  2155)  appetite held         0 J of     66082  trips born-on-comb   22 (20 ants) / born-off    0 (2 ants)
+                channel A: PEAK amt  41955 cells   91 (of 91 route)  POLARITY|| +0.05701 && +0.05392 SPAN -0.00764 edge   0.4  end nest->food [856,5058,2189,1244,5]  nest   25  AtNest 32.09%
+                Carrying: laden    132525  of which SPOIL     16657 ( 12.6%)
+    DECISION CENSUS: 74377 decisions, reconciled against the rows and the engine's counters
+      C1 homeward re-roll: no_usable 91, bias_off 0, no_crop 24959, empty_crop 0, no_site 0, on_anchor 4165, roll_failed 1722, fired 1598, fired_haul 0
+      C1 fired, aimed: toward 1244, across 253, away 101
+      C2 drop: roll_lost 11888, placed 0, delivered 2532, no_room 1230 -- no room on 32.7% of won rolls; handed on through bodies 0 (mean 0.0 steps)
+      C3 cone: left 797, straight 6521, right 749; Turn nonzero on 1114 picks (largest |Turn| 2.48e-2), discarded on 474
+      leg     setting          n  stepped    felllaunched swappedcrossingreversedblocked_roll_fairoll_fai no_body
+      empty   pocket        2400     4.5%    8.2%    0.0%    0.0%    0.0%    0.0%    2.3%   41.8%   43.2%    0.0%
+      empty   corridor      3572    23.4%    2.2%    0.0%    0.0%    0.0%    0.0%    0.7%   36.8%   36.9%    0.0%
+      empty   junction     30157    11.8%    1.9%    0.0%    0.0%    0.0%    0.0%    0.3%   43.1%   42.8%    0.0%
+      empty   open         19457     8.6%    1.9%    0.0%    0.0%    0.0%    0.0%    0.0%   45.3%   44.3%    0.0%
+      laden   pocket         401     2.7%   19.7%    0.0%    0.0%    0.0%    0.0%    0.0%   36.7%   40.9%    0.0%
+      laden   corridor      3279     9.2%    0.9%    0.0%    0.0%    0.0%    0.0%    0.2%   43.7%   46.0%    0.0%
+      laden   junction     11017     7.1%    0.9%    0.0%    0.0%    0.0%    0.0%    0.2%   45.3%   46.5%    0.0%
+      laden   open          2150    15.8%    2.8%    0.0%    0.0%    0.0%    0.0%    0.0%   40.1%   41.3%    0.0%
+      spoil   pocket         765     4.8%    0.4%    0.0%    0.0%    0.0%    0.0%    4.8%   45.5%   44.4%    0.0%
+      spoil   corridor       342    36.3%    0.6%    0.0%    0.0%    0.0%    0.0%    5.3%   27.8%   30.1%    0.0%
+      spoil   junction       570    35.3%    1.2%    0.0%    0.0%    0.0%    0.0%    2.3%   31.1%   30.2%    0.0%
+      spoil   open           267    35.2%    2.6%    0.0%    0.0%    0.0%    0.0%    0.0%   34.8%   27.3%    0.0%
+    DECISIONS: rows not written (decisionnorows)
+    FOOD STORE (larder cells) -- 3000: nest ground 2, crops 10, elsewhere 400, ants 20 | 6000: nest ground 3, crops 9, elsewhere 400, ants 22 | 9000: nest ground 2, crops 6, elsewhere 400, ants 22 | 12000: nest ground 3, crops 6, elsewhere 400, ants 18 | 15000: nest ground 3, crops 5, elsewhere 400, ants 17 | 18000: nest ground 2, crops 5, elsewhere 400, ants 17 | 21000: nest ground 2, crops 5, elsewhere 400, ants 16 | 24000: nest ground 0, crops 6, elsewhere 400, ants 15
+    FOOD BUDGET (cells, one cell = 960 face): taken from the pile 33; chewed 57.8; on the ground off the pile 0; in crops 6; held as spoil 0; unaccounted -30.8
+   90   12  hand   15/15       15483      810        0   101099    69155   18/23       19         0 3 2 18 0
+                A READ  ant-readable homeward along >= 0.02 on  55.9% of route-cell samples | FOODWARD  29.2% | plane lit on  98.4% | peak amt  35172 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     23    100.0% of prev    100.0% of all
+                  1. reached the food                          18     78.3% of prev     78.3% of all
+                  2. picked food up out there                  17     94.4% of prev     73.9% of all
+                  3. turned for home with it                   16     94.1% of prev     69.6% of all
+                  4. got back to the nest still holding it     16    100.0% of prev     69.6% of all
+                  5. PUT IT DOWN there                         15     93.8% of prev     65.2% of all
+                  6. went back out again                       10     66.7% of prev     43.5% of all
+                  7. reached the food a SECOND time             3     30.0% of prev     13.0% of all
+                RETURN LEDGER reached food   18 of   23 ants | came back   18 | trips laden   16 empty    3 | LOOPERS   15 of   23 ants (83.3% of those that reached food), repeat    1, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   16 loops /   19 pickups ( 84.2%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  15 of  18 that reached food looped ( 83.3%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[577,1075,661,763,661,907,709,745,1003,649,2359,421,799,2707,3937,2947,6175,6823,2695] laden[577,1075,661,763,661,907,709,745,1003,649,2359,421,799,2707,3937,2695]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 23 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [4 63 228 12 25 71 28 11]  carry->nest    1064  born    3 died    8 (starved    3)
+                own trail: route pk   65 end   15 along -0.0144  B nest->food [2106,6284,7754,10644,8308]  blocked      262  kin swaps       0  ticks     74382  tumbles     32535 (homeward     1598, 4.91%)  drops    2532  DELIVERED  2532  leg home n   19 med   907 p90  3937 (laden n   16 med   799 p90  2707)  appetite held         0 J of     55521  trips born-on-comb   19 (21 ants) / born-off    0 (2 ants)
+                channel A: PEAK amt  35172 cells   91 (of 91 route)  POLARITY|| +0.05629 && +0.05289 SPAN -0.00779 edge   0.4  end nest->food [802,6451,2462,1476,9]  nest   25  AtNest 24.80%
+                Carrying: laden    112763  of which SPOIL     11718 ( 10.4%)
+    DECISION CENSUS: 63172 decisions, reconciled against the rows and the engine's counters
+      C1 homeward re-roll: no_usable 118, bias_off 0, no_crop 17302, empty_crop 0, no_site 0, on_anchor 5845, roll_failed 2158, fired 2310, fired_haul 0
+      C1 fired, aimed: toward 1904, across 387, away 19
+      C2 drop: roll_lost 15845, placed 0, delivered 3526, no_room 1702 -- no room on 32.6% of won rolls; handed on through bodies 0 (mean 0.0 steps)
+      C3 cone: left 582, straight 5531, right 592; Turn nonzero on 1343 picks (largest |Turn| 1.14e-7), discarded on 847
+      leg     setting          n  stepped    felllaunched swappedcrossingreversedblocked_roll_fairoll_fai no_body
+      empty   pocket        1913     4.8%    8.8%    0.0%    0.0%    0.0%    0.0%    2.6%   43.6%   40.1%    0.0%
+      empty   corridor      4294    20.1%    1.2%    0.0%    0.0%    0.0%    0.0%    0.2%   39.2%   39.3%    0.0%
+      empty   junction     23236    12.2%    1.9%    0.0%    0.0%    0.0%    0.0%    0.3%   43.2%   42.5%    0.0%
+      empty   open          9167    11.0%    3.5%    0.0%    0.0%    0.0%    0.0%    0.0%   42.9%   42.6%    0.0%
+      laden   pocket        1149     1.0%    8.6%    0.0%    0.0%    0.0%    0.0%    0.0%   43.3%   47.0%    0.0%
+      laden   corridor      4639     5.5%    0.3%    0.0%    0.0%    0.0%    0.0%    0.0%   45.7%   48.5%    0.0%
+      laden   junction     14179     6.3%    0.7%    0.0%    0.0%    0.0%    0.0%    0.1%   46.5%   46.5%    0.0%
+      laden   open          2684    10.1%    1.7%    0.0%    0.0%    0.0%    0.0%    0.0%   42.8%   45.4%    0.0%
+      spoil   pocket         959     8.7%    1.0%    0.0%    0.0%    0.0%    0.0%    7.9%   42.4%   39.9%    0.0%
+      spoil   corridor       427    46.8%    0.2%    0.0%    0.0%    0.0%    0.0%    1.4%   24.6%   26.9%    0.0%
+      spoil   junction       404    39.6%    2.2%    0.0%    0.0%    0.0%    0.0%    3.5%   28.2%   26.5%    0.0%
+      spoil   open           121    29.8%    1.7%    0.0%    0.0%    0.0%    0.0%    0.0%   33.9%   34.7%    0.0%
+    DECISIONS: rows not written (decisionnorows)
+    FOOD STORE (larder cells) -- 3000: nest ground 0, crops 13, elsewhere 399, ants 20 | 6000: nest ground 1, crops 23, elsewhere 400, ants 19 | 9000: nest ground 2, crops 17, elsewhere 400, ants 16 | 12000: nest ground 3, crops 13, elsewhere 400, ants 15 | 15000: nest ground 2, crops 10, elsewhere 400, ants 14 | 18000: nest ground 3, crops 4, elsewhere 400, ants 13 | 21000: nest ground 3, crops 3, elsewhere 400, ants 13 | 24000: nest ground 2, crops 3, elsewhere 400, ants 14
+    FOOD BUDGET (cells, one cell = 960 face): taken from the pile 30; chewed 78.3; on the ground off the pile 2; in crops 3; held as spoil 0; unaccounted -53.3
+   90   13  hand   14/13       19019     1044        0   135315   116955   17/23       19         3 3 0 17 0
+                A READ  ant-readable homeward along >= 0.02 on  55.6% of route-cell samples | FOODWARD  28.5% | plane lit on  98.0% | peak amt  37480 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     23    100.0% of prev    100.0% of all
+                  1. reached the food                          17     73.9% of prev     73.9% of all
+                  2. picked food up out there                  16     94.1% of prev     69.6% of all
+                  3. turned for home with it                   16    100.0% of prev     69.6% of all
+                  4. got back to the nest still holding it     16    100.0% of prev     69.6% of all
+                  5. PUT IT DOWN there                         16    100.0% of prev     69.6% of all
+                  6. went back out again                        8     50.0% of prev     34.8% of all
+                  7. reached the food a SECOND time             3     37.5% of prev     13.0% of all
+                RETURN LEDGER reached food   17 of   23 ants | came back   16 | trips laden   18 empty    1 | LOOPERS   16 of   23 ants (94.1% of those that reached food), repeat    2, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   18 loops /   20 pickups ( 90.0%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  16 of  17 that reached food looped ( 94.1%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[541,637,511,847,445,811,793,901,1231,937,697,517,565,709,649,1153,559,2335,1249] laden[541,637,511,847,445,811,793,901,1231,937,697,517,565,709,649,1153,559,1249]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 23 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [17 67 217 9 15 20 23 7]  carry->nest    1160  born    3 died    9 (starved    5)
+                own trail: route pk   70 end   11 along +0.0027  B nest->food [2106,5672,7937,10595,8308]  blocked      230  kin swaps       0  ticks     63176  tumbles     27733 (homeward     2310, 8.33%)  drops    3526  DELIVERED  3526  leg home n   19 med   709 p90  1231 (laden n   18 med   709 p90  1153)  appetite held         0 J of     75195  trips born-on-comb   19 (22 ants) / born-off    0 (1 ants)
+                channel A: PEAK amt  37480 cells   91 (of 91 route)  POLARITY|| +0.06496 && +0.06177 SPAN -0.00531 edge   0.5  end nest->food [948,4263,1891,1013,0]  nest   25  AtNest 34.93%
+                Carrying: laden    146779  of which SPOIL     11510 (  7.8%)
+    DECISION CENSUS: 67506 decisions, reconciled against the rows and the engine's counters
+      C1 homeward re-roll: no_usable 117, bias_off 0, no_crop 22599, empty_crop 0, no_site 0, on_anchor 4884, roll_failed 1123, fired 1351, fired_haul 0
+      C1 fired, aimed: toward 841, across 347, away 163
+      C2 drop: roll_lost 10878, placed 0, delivered 2177, no_room 1971 -- no room on 47.5% of won rolls; handed on through bodies 0 (mean 0.0 steps)
+      C3 cone: left 389, straight 6221, right 381; Turn nonzero on 831 picks (largest |Turn| 7.63e-8), discarded on 623
+      leg     setting          n  stepped    felllaunched swappedcrossingreversedblocked_roll_fairoll_fai no_body
+      empty   pocket       11873     1.7%    1.3%    0.0%    0.0%    0.0%    0.0%    1.2%   47.7%   48.0%    0.0%
+      empty   corridor     12597    19.2%    0.3%    0.0%    0.0%    0.0%    0.0%    0.1%   40.1%   40.3%    0.0%
+      empty   junction     17023    12.4%    1.4%    0.0%    0.0%    0.0%    0.0%    0.1%   43.3%   42.8%    0.0%
+      empty   open          6479     7.5%    1.5%    0.0%    0.0%    0.0%    0.0%    0.0%   45.7%   45.3%    0.0%
+      laden   pocket        1043     1.6%    6.4%    0.0%    0.0%    0.0%    0.0%    0.0%   45.8%   46.1%    0.0%
+      laden   corridor      3089    10.3%    0.4%    0.0%    0.0%    0.0%    0.0%    0.0%   44.8%   44.6%    0.0%
+      laden   junction     10802     7.4%    0.5%    0.0%    0.0%    0.0%    0.0%    0.1%   46.0%   46.0%    0.0%
+      laden   open          1206    10.4%    1.3%    0.0%    0.0%    0.0%    0.0%    0.0%   43.9%   44.3%    0.0%
+      spoil   pocket        1581     5.4%    0.6%    0.0%    0.0%    0.0%    0.0%    4.7%   45.4%   44.0%    0.0%
+      spoil   corridor       744    33.3%    0.4%    0.0%    0.0%    0.0%    0.0%    0.4%   30.9%   34.9%    0.0%
+      spoil   junction       909    17.3%    0.4%    0.0%    0.0%    0.0%    0.0%    1.3%   40.4%   40.6%    0.0%
+      spoil   open           160    13.8%    1.2%    0.0%    0.0%    0.0%    0.0%    0.0%   40.6%   44.4%    0.0%
+    DECISIONS: rows not written (decisionnorows)
+    FOOD STORE (larder cells) -- 3000: nest ground 5, crops 7, elsewhere 399, ants 20 | 6000: nest ground 1, crops 16, elsewhere 400, ants 20 | 9000: nest ground 2, crops 13, elsewhere 400, ants 17 | 12000: nest ground 2, crops 13, elsewhere 400, ants 15 | 15000: nest ground 2, crops 6, elsewhere 400, ants 15 | 18000: nest ground 3, crops 1, elsewhere 400, ants 15 | 21000: nest ground 0, crops 3, elsewhere 400, ants 15 | 24000: nest ground 0, crops 3, elsewhere 400, ants 13
+    FOOD BUDGET (cells, one cell = 960 face): taken from the pile 20; chewed 55.6; on the ground off the pile 0; in crops 3; held as spoil 0; unaccounted -38.6
+   90   14  hand   13/13       13005      942        0    95577    84117   12/21       15         2 6 1 12 0
+                A READ  ant-readable homeward along >= 0.02 on  64.6% of route-cell samples | FOODWARD  23.2% | plane lit on  96.0% | peak amt  36390 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     21    100.0% of prev    100.0% of all
+                  1. reached the food                          12     57.1% of prev     57.1% of all
+                  2. picked food up out there                  11     91.7% of prev     52.4% of all
+                  3. turned for home with it                   11    100.0% of prev     52.4% of all
+                  4. got back to the nest still holding it     11    100.0% of prev     52.4% of all
+                  5. PUT IT DOWN there                         11    100.0% of prev     52.4% of all
+                  6. went back out again                       10     90.9% of prev     47.6% of all
+                  7. reached the food a SECOND time             4     40.0% of prev     19.0% of all
+                RETURN LEDGER reached food   12 of   21 ants | came back   11 | trips laden   15 empty    0 | LOOPERS   11 of   21 ants (91.7% of those that reached food), repeat    3, most loops by one ant   3
+                BY ANCHOR AT PICKUP  anchor ON nest material:   15 loops /   15 pickups (100.0%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  11 of  12 that reached food looped ( 91.7%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[469,667,475,667,451,535,757,943,697,487,1261,553,673,649,607] laden[469,667,475,667,451,535,757,943,697,487,1261,553,673,649,607]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 21 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [3 228 113 17 13 9 11 4]  carry->nest     915  born    1 died    8 (starved    6)
+                own trail: route pk   21 end   10 along -0.0000  B nest->food [2106,5720,7790,10329,8308]  blocked      290  kin swaps       0  ticks     67508  tumbles     30074 (homeward     1351, 4.49%)  drops    2177  DELIVERED  2177  leg home n   15 med   649 p90   943 (laden n   15 med   649 p90   943)  appetite held         0 J of     53418  trips born-on-comb   15 (20 ants) / born-off    0 (1 ants)
+                channel A: PEAK amt  36390 cells   91 (of 91 route)  POLARITY|| +0.08870 && +0.08381 SPAN -0.00365 edge   1.9  end nest->food [1178,11974,2460,411,0]  nest   25  AtNest 44.78%
+                Carrying: laden    115937  of which SPOIL     23054 ( 19.9%)
+    DECISION CENSUS: 60719 decisions, reconciled against the rows and the engine's counters
+      C1 homeward re-roll: no_usable 68, bias_off 0, no_crop 18310, empty_crop 0, no_site 0, on_anchor 6866, roll_failed 1156, fired 786, fired_haul 0
+      C1 fired, aimed: toward 522, across 116, away 148
+      C2 drop: roll_lost 11673, placed 0, delivered 2131, no_room 4321 -- no room on 67.0% of won rolls; handed on through bodies 0 (mean 0.0 steps)
+      C3 cone: left 513, straight 4460, right 484; Turn nonzero on 1040 picks (largest |Turn| 7.63e-8), discarded on 574
+      leg     setting          n  stepped    felllaunched swappedcrossingreversedblocked_roll_fairoll_fai no_body
+      empty   pocket        2547     4.2%    5.1%    0.0%    0.0%    0.0%    0.0%    2.4%   44.8%   43.5%    0.0%
+      empty   corridor      3203    21.3%    1.1%    0.0%    0.0%    0.0%    0.0%    0.6%   36.6%   40.4%    0.0%
+      empty   junction     21609    10.9%    1.6%    0.0%    0.0%    0.0%    0.0%    0.2%   43.6%   43.8%    0.0%
+      empty   open          9710     8.9%    2.2%    0.0%    0.0%    0.0%    0.0%    0.0%   44.2%   44.7%    0.0%
+      laden   pocket        1119     1.1%    6.4%    0.0%    0.0%    0.0%    0.0%    0.4%   45.5%   46.6%    0.0%
+      laden   corridor      3299     7.6%    0.2%    0.0%    0.0%    0.0%    0.0%    0.3%   45.8%   46.1%    0.0%
+      laden   junction     12238     5.4%    0.4%    0.0%    0.0%    0.0%    0.0%    0.1%   47.2%   46.9%    0.0%
+      laden   open          2279     6.9%    1.0%    0.0%    0.0%    0.0%    0.0%    0.0%   46.6%   45.5%    0.0%
+      spoil   pocket        1228     3.8%    0.8%    0.0%    0.0%    0.0%    0.0%    3.7%   45.4%   46.3%    0.0%
+      spoil   corridor       340    33.5%    0.6%    0.0%    0.0%    0.0%    0.0%    3.2%   29.7%   32.9%    0.0%
+      spoil   junction      1639     9.2%    0.5%    0.0%    0.0%    0.0%    0.0%    1.1%   44.0%   45.2%    0.0%
+      spoil   open          1508     4.6%    0.1%    0.0%    0.0%    0.0%    0.0%    0.0%   47.1%   48.2%    0.0%
+    DECISIONS: rows not written (decisionnorows)
+    FOOD STORE (larder cells) -- 3000: nest ground 1, crops 16, elsewhere 396, ants 19 | 6000: nest ground 0, crops 19, elsewhere 401, ants 17 | 9000: nest ground 2, crops 13, elsewhere 401, ants 16 | 12000: nest ground 3, crops 8, elsewhere 401, ants 14 | 15000: nest ground 3, crops 4, elsewhere 401, ants 14 | 18000: nest ground 1, crops 3, elsewhere 401, ants 15 | 21000: nest ground 2, crops 1, elsewhere 401, ants 12 | 24000: nest ground 1, crops 2, elsewhere 401, ants 11
+    FOOD BUDGET (cells, one cell = 960 face): taken from the pile 27; chewed 65.5; on the ground off the pile 2; in crops 2; held as spoil 0; unaccounted -42.5
+   90   15  hand   11/11       15324     1014        0   113624    99068   18/21       14         1 1 0 19 0
+                A READ  ant-readable homeward along >= 0.02 on  56.9% of route-cell samples | FOODWARD  27.3% | plane lit on  97.3% | peak amt  35227 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     21    100.0% of prev    100.0% of all
+                  1. reached the food                          18     85.7% of prev     85.7% of all
+                  2. picked food up out there                  17     94.4% of prev     81.0% of all
+                  3. turned for home with it                   14     82.4% of prev     66.7% of all
+                  4. got back to the nest still holding it     14    100.0% of prev     66.7% of all
+                  5. PUT IT DOWN there                         14    100.0% of prev     66.7% of all
+                  6. went back out again                        3     21.4% of prev     14.3% of all
+                  7. reached the food a SECOND time             0      0.0% of prev      0.0% of all
+                RETURN LEDGER reached food   18 of   21 ants | came back   14 | trips laden   14 empty    0 | LOOPERS   14 of   21 ants (77.8% of those that reached food), repeat    0, most loops by one ant   1
+                BY ANCHOR AT PICKUP  anchor ON nest material:   14 loops /   17 pickups ( 82.4%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  14 of  18 that reached food looped ( 77.8%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[607,919,1357,637,1165,979,775,697,547,1087,553,1279,757,463] laden[607,919,1357,637,1165,979,775,697,547,1087,553,1279,757,463]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 21 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [5 183 110 7 11 15 23 5]  carry->nest     886  born    1 died   10 (starved    3)
+                own trail: route pk   71 end   10 along +0.0000  B nest->food [2106,5612,7756,10348,8307]  blocked      217  kin swaps       0  ticks     60726  tumbles     27186 (homeward      786, 2.89%)  drops    2131  DELIVERED  2131  leg home n   14 med   775 p90  1279 (laden n   14 med   775 p90  1279)  appetite held         0 J of     62877  trips born-on-comb   14 (20 ants) / born-off    0 (1 ants)
+                channel A: PEAK amt  35227 cells   91 (of 91 route)  POLARITY|| +0.07303 && +0.06874 SPAN -0.00687 edge   1.1  end nest->food [947,6862,1298,448,0]  nest   25  AtNest 56.14%
+                Carrying: laden    141920  of which SPOIL     36270 ( 25.6%)
+    DECISION CENSUS: 58084 decisions, reconciled against the rows and the engine's counters
+      C1 homeward re-roll: no_usable 152, bias_off 0, no_crop 16084, empty_crop 0, no_site 0, on_anchor 4976, roll_failed 2063, fired 1191, fired_haul 0
+      C1 fired, aimed: toward 783, across 122, away 286
+      C2 drop: roll_lost 13155, placed 0, delivered 2128, no_room 1554 -- no room on 42.2% of won rolls; handed on through bodies 0 (mean 0.0 steps)
+      C3 cone: left 776, straight 6341, right 759; Turn nonzero on 1134 picks (largest |Turn| 7.63e-8), discarded on 742
+      leg     setting          n  stepped    felllaunched swappedcrossingreversedblocked_roll_fairoll_fai no_body
+      empty   pocket        3356     5.0%    8.3%    0.0%    0.0%    0.0%    0.0%    2.6%   42.6%   41.5%    0.0%
+      empty   corridor      4348    20.5%    2.1%    0.0%    0.0%    0.0%    0.0%    0.9%   38.5%   38.0%    0.0%
+      empty   junction     20413    17.8%    2.5%    0.0%    0.0%    0.0%    0.0%    0.5%   39.6%   39.6%    0.0%
+      empty   open          9283    13.7%    3.0%    0.0%    0.0%    0.0%    0.0%    0.0%   40.4%   42.8%    0.0%
+      laden   pocket        1562     1.0%    5.1%    0.0%    0.0%    0.0%    0.0%    0.3%   43.6%   49.9%    0.0%
+      laden   corridor      2090     7.9%    0.7%    0.0%    0.0%    0.0%    0.0%    0.2%   46.2%   45.0%    0.0%
+      laden   junction     12742     6.7%    0.7%    0.0%    0.0%    0.0%    0.0%    0.1%   46.4%   46.1%    0.0%
+      laden   open          1576    13.6%    2.2%    0.0%    0.0%    0.0%    0.0%    0.0%   40.5%   43.7%    0.0%
+      spoil   pocket        1229     9.6%    0.3%    0.0%    0.0%    0.0%    0.0%    8.2%   37.9%   43.9%    0.0%
+      spoil   corridor       441    35.1%    0.0%    0.0%    0.0%    0.0%    0.0%    5.4%   29.5%   29.9%    0.0%
+      spoil   junction       868    37.2%    0.7%    0.0%    0.0%    0.0%    0.0%    4.1%   30.0%   28.0%    0.0%
+      spoil   open           176    35.8%    2.8%    0.0%    0.0%    0.0%    0.0%    0.0%   31.2%   30.1%    0.0%
+    DECISIONS: rows not written (decisionnorows)
+    FOOD STORE (larder cells) -- 3000: nest ground 3, crops 13, elsewhere 396, ants 20 | 6000: nest ground 2, crops 20, elsewhere 400, ants 20 | 9000: nest ground 6, crops 7, elsewhere 400, ants 18 | 12000: nest ground 2, crops 8, elsewhere 400, ants 19 | 15000: nest ground 2, crops 6, elsewhere 400, ants 9 | 18000: nest ground 3, crops 3, elsewhere 400, ants 8 | 21000: nest ground 3, crops 1, elsewhere 400, ants 8 | 24000: nest ground 2, crops 0, elsewhere 400, ants 9
+    FOOD BUDGET (cells, one cell = 960 face): taken from the pile 31; chewed 61.3; on the ground off the pile 2; in crops 0; held as spoil 0; unaccounted -32.3
+   90   16  hand    9/8        14982      888        0   106479    71949   16/23       11         4 3 0 16 0
+                A READ  ant-readable homeward along >= 0.02 on  58.7% of route-cell samples | FOODWARD  23.6% | plane lit on  98.2% | peak amt  43144 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     23    100.0% of prev    100.0% of all
+                  1. reached the food                          16     69.6% of prev     69.6% of all
+                  2. picked food up out there                  16    100.0% of prev     69.6% of all
+                  3. turned for home with it                   11     68.8% of prev     47.8% of all
+                  4. got back to the nest still holding it      9     81.8% of prev     39.1% of all
+                  5. PUT IT DOWN there                          9    100.0% of prev     39.1% of all
+                  6. went back out again                        5     55.6% of prev     21.7% of all
+                  7. reached the food a SECOND time             5    100.0% of prev     21.7% of all
+                RETURN LEDGER reached food   16 of   23 ants | came back    9 | trips laden   11 empty    0 | LOOPERS    9 of   23 ants (56.2% of those that reached food), repeat    2, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   11 loops /   23 pickups ( 47.8%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:   9 of  16 that reached food looped ( 56.2%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[589,871,559,1009,715,475,571,619,661,955,937] laden[589,871,559,1009,715,475,571,619,661,955,937]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 23 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [4 52 137 14 19 81 28 5]  carry->nest     977  born    3 died   14 (starved   12)
+                own trail: route pk   72 end    3 along +0.0000  B nest->food [2106,5748,7736,10697,8308]  blocked      415  kin swaps       0  ticks     58086  tumbles     24466 (homeward     1191, 4.87%)  drops    2128  DELIVERED  2128  leg home n   11 med   661 p90   955 (laden n   11 med   661 p90   955)  appetite held         0 J of     58807  trips born-on-comb   11 (22 ants) / born-off    0 (1 ants)
+                channel A: PEAK amt  43144 cells   91 (of 91 route)  POLARITY|| +0.07556 && +0.07257 SPAN -0.00586 edge   0.5  end nest->food [1380,5624,1925,1051,0]  nest   25  AtNest 34.03%
+                Carrying: laden    122733  of which SPOIL     18175 ( 14.8%)
+    DECISION CENSUS: 67397 decisions, reconciled against the rows and the engine's counters
+      C1 homeward re-roll: no_usable 110, bias_off 0, no_crop 23212, empty_crop 0, no_site 0, on_anchor 2274, roll_failed 1968, fired 1778, fired_haul 0
+      C1 fired, aimed: toward 1697, across 45, away 36
+      C2 drop: roll_lost 11558, placed 0, delivered 462, no_room 1509 -- no room on 76.6% of won rolls; handed on through bodies 0 (mean 0.0 steps)
+      C3 cone: left 807, straight 6272, right 775; Turn nonzero on 969 picks (largest |Turn| 7.63e-8), discarded on 478
+      leg     setting          n  stepped    felllaunched swappedcrossingreversedblocked_roll_fairoll_fai no_body
+      empty   pocket        4556     2.8%    4.4%    0.0%    0.0%    0.0%    0.0%    1.0%   45.8%   46.0%    0.0%
+      empty   corridor      5214    11.2%    1.4%    0.0%    0.0%    0.0%    0.0%    0.5%   43.0%   43.8%    0.0%
+      empty   junction     24935    13.9%    2.0%    0.0%    0.0%    0.0%    0.0%    0.2%   42.2%   41.7%    0.0%
+      empty   open         16932     9.8%    2.2%    0.0%    0.0%    0.0%    0.0%    0.0%   44.5%   43.4%    0.0%
+      laden   pocket         432     1.6%   15.7%    0.0%    0.0%    0.0%    0.0%    0.0%   40.7%   41.9%    0.0%
+      laden   corridor      1416    17.4%    1.9%    0.0%    0.0%    0.0%    0.0%    0.4%   40.0%   40.3%    0.0%
+      laden   junction      8114    10.8%    1.4%    0.0%    0.0%    0.0%    0.0%    0.2%   44.2%   43.5%    0.0%
+      laden   open          3857     9.9%    1.4%    0.0%    0.0%    0.0%    0.0%    0.0%   44.6%   44.1%    0.0%
+      spoil   pocket         440    12.7%    2.0%    0.0%    0.0%    0.0%    0.0%    9.1%   37.0%   39.1%    0.0%
+      spoil   corridor       382    20.4%    1.3%    0.0%    0.0%    0.0%    0.0%    5.2%   34.0%   39.0%    0.0%
+      spoil   junction       846    35.2%    0.8%    0.0%    0.0%    0.0%    0.0%    2.2%   34.8%   27.0%    0.0%
+      spoil   open           273    27.1%    1.5%    0.0%    0.0%    0.0%    0.0%    0.0%   38.5%   33.0%    0.0%
+    DECISIONS: rows not written (decisionnorows)
+    FOOD STORE (larder cells) -- 3000: nest ground 1, crops 16, elsewhere 398, ants 20 | 6000: nest ground 5, crops 23, elsewhere 400, ants 21 | 9000: nest ground 1, crops 13, elsewhere 400, ants 16 | 12000: nest ground 1, crops 4, elsewhere 400, ants 15 | 15000: nest ground 1, crops 0, elsewhere 400, ants 15 | 18000: nest ground 0, crops 1, elsewhere 400, ants 15 | 21000: nest ground 0, crops 0, elsewhere 400, ants 15 | 24000: nest ground 0, crops 0, elsewhere 400, ants 14
+    FOOD BUDGET (cells, one cell = 960 face): taken from the pile 36; chewed 48.6; on the ground off the pile 0; in crops 0; held as spoil 0; unaccounted -12.6
+   90   17  hand   14/14       13029      762        0    82914    62964   18/22       20         2 1 1 18 0
+                A READ  ant-readable homeward along >= 0.02 on  60.1% of route-cell samples | FOODWARD  25.6% | plane lit on  98.5% | peak amt  65535 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     22    100.0% of prev    100.0% of all
+                  1. reached the food                          18     81.8% of prev     81.8% of all
+                  2. picked food up out there                  17     94.4% of prev     77.3% of all
+                  3. turned for home with it                   17    100.0% of prev     77.3% of all
+                  4. got back to the nest still holding it     16     94.1% of prev     72.7% of all
+                  5. PUT IT DOWN there                         16    100.0% of prev     72.7% of all
+                  6. went back out again                       14     87.5% of prev     63.6% of all
+                  7. reached the food a SECOND time             5     35.7% of prev     22.7% of all
+                RETURN LEDGER reached food   18 of   22 ants | came back   17 | trips laden   19 empty    1 | LOOPERS   16 of   22 ants (88.9% of those that reached food), repeat    3, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   19 loops /   20 pickups ( 95.0%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  16 of  18 that reached food looped ( 88.9%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[991,493,1261,715,1015,1273,667,949,607,583,901,967,739,649,871,529,601,1123,1195,3073] laden[991,493,1261,715,1015,1273,667,949,607,583,901,967,739,649,871,529,601,1123,1195]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 22 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [13 165 139 20 18 21 20 6]  carry->nest    1192  born    2 died    8 (starved    7)
+                own trail: route pk   18 end    0 along +0.0000  B nest->food [2106,6056,7850,10522,8308]  blocked      214  kin swaps       0  ticks     67398  tumbles     29342 (homeward     1778, 6.06%)  drops     462  DELIVERED   462  leg home n   20 med   901 p90  1261 (laden n   19 med   871 p90  1195)  appetite held         0 J of     46626  trips born-on-comb   20 (20 ants) / born-off    0 (2 ants)
+                channel A: PEAK amt  65535 cells   91 (of 91 route)  POLARITY|| +0.06036 && +0.05760 SPAN -0.00351 edge   0.5  end nest->food [876,59531,3137,881,0]  nest   25  AtNest 23.82%
+                Carrying: laden     94561  of which SPOIL     12061 ( 12.8%)
+    DECISION CENSUS: 72663 decisions, reconciled against the rows and the engine's counters
+      C1 homeward re-roll: no_usable 99, bias_off 0, no_crop 25000, empty_crop 0, no_site 0, on_anchor 2470, roll_failed 2300, fired 2043, fired_haul 0
+      C1 fired, aimed: toward 1865, across 122, away 56
+      C2 drop: roll_lost 13493, placed 0, delivered 955, no_room 686 -- no room on 41.8% of won rolls; handed on through bodies 0 (mean 0.0 steps)
+      C3 cone: left 820, straight 5895, right 755; Turn nonzero on 1409 picks (largest |Turn| 1.14e-7), discarded on 743
+      leg     setting          n  stepped    felllaunched swappedcrossingreversedblocked_roll_fairoll_fai no_body
+      empty   pocket        1504     3.7%   10.5%    0.0%    0.0%    0.0%    0.0%    1.6%   42.8%   41.5%    0.0%
+      empty   corridor      2306    26.6%    3.1%    0.0%    0.0%    0.0%    0.0%    0.3%   35.0%   35.0%    0.0%
+      empty   junction     28225    12.1%    2.1%    0.0%    0.0%    0.0%    0.0%    0.2%   42.7%   43.0%    0.0%
+      empty   open         23147     6.2%    1.7%    0.0%    0.0%    0.0%    0.0%    0.0%   45.8%   46.3%    0.0%
+      laden   pocket         332     4.5%   20.5%    0.0%    0.0%    0.0%    0.0%    0.6%   39.2%   35.2%    0.0%
+      laden   corridor      1625    13.8%    0.8%    0.0%    0.0%    0.0%    0.0%    0.6%   43.1%   41.6%    0.0%
+      laden   junction      7962    12.2%    1.4%    0.0%    0.0%    0.0%    0.0%    0.3%   43.4%   42.7%    0.0%
+      laden   open          5573     8.2%    1.6%    0.0%    0.0%    0.0%    0.0%    0.0%   45.5%   44.7%    0.0%
+      spoil   pocket        1185     1.6%    0.0%    0.0%    0.0%    0.0%    0.0%    1.4%   48.5%   48.4%    0.0%
+      spoil   corridor       113    38.1%    1.8%    0.0%    0.0%    0.0%    0.0%    7.1%   30.1%   23.0%    0.0%
+      spoil   junction       491    35.6%    2.0%    0.0%    0.0%    0.0%    0.0%    3.5%   29.7%   29.1%    0.0%
+      spoil   open           200    27.0%    2.0%    0.0%    0.0%    0.0%    0.0%    0.0%   34.0%   37.0%    0.0%
+    DECISIONS: rows not written (decisionnorows)
+    FOOD STORE (larder cells) -- 3000: nest ground 0, crops 12, elsewhere 397, ants 19 | 6000: nest ground 2, crops 15, elsewhere 400, ants 20 | 9000: nest ground 1, crops 12, elsewhere 400, ants 19 | 12000: nest ground 0, crops 6, elsewhere 400, ants 18 | 15000: nest ground 0, crops 3, elsewhere 400, ants 17 | 18000: nest ground 0, crops 2, elsewhere 400, ants 17 | 21000: nest ground 0, crops 1, elsewhere 400, ants 17 | 24000: nest ground 0, crops 0, elsewhere 400, ants 12
+    FOOD BUDGET (cells, one cell = 960 face): taken from the pile 28; chewed 53.0; on the ground off the pile 0; in crops 0; held as spoil 0; unaccounted -25.0
+   90   18  hand   12/12       13596     1182        0    89669    61415   19/22       22         1 0 2 19 0
+                A READ  ant-readable homeward along >= 0.02 on  61.7% of route-cell samples | FOODWARD  25.9% | plane lit on  97.4% | peak amt  48647 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     22    100.0% of prev    100.0% of all
+                  1. reached the food                          19     86.4% of prev     86.4% of all
+                  2. picked food up out there                  19    100.0% of prev     86.4% of all
+                  3. turned for home with it                   18     94.7% of prev     81.8% of all
+                  4. got back to the nest still holding it     16     88.9% of prev     72.7% of all
+                  5. PUT IT DOWN there                         15     93.8% of prev     68.2% of all
+                  6. went back out again                       15    100.0% of prev     68.2% of all
+                  7. reached the food a SECOND time             4     26.7% of prev     18.2% of all
+                RETURN LEDGER reached food   19 of   22 ants | came back   18 | trips laden   18 empty    4 | LOOPERS   15 of   22 ants (78.9% of those that reached food), repeat    3, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   18 loops /   23 pickups ( 78.3%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  15 of  19 that reached food looped ( 78.9%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[787,847,751,1123,835,1183,1525,1447,961,1465,1087,1021,1255,835,691,2695,1045,2167,529,901,6661,1285] laden[787,847,751,1123,835,1183,1525,1447,961,1465,1087,1021,1255,835,691,2695,1045,529]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 22 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [4 66 263 16 32 22 17 5]  carry->nest    1247  born    2 died   10 (starved    4)
+                own trail: route pk   72 end    0 along +0.0000  B nest->food [2106,6061,7936,10502,8308]  blocked      160  kin swaps       0  ticks     72669  tumbles     31912 (homeward     2043, 6.40%)  drops     955  DELIVERED   955  leg home n   22 med  1087 p90  2167 (laden n   18 med  1045 p90  1465)  appetite held         0 J of     50863  trips born-on-comb   22 (20 ants) / born-off    0 (2 ants)
+                channel A: PEAK amt  48647 cells   91 (of 91 route)  POLARITY|| +0.06941 && +0.06500 SPAN -0.00665 edge   0.7  end nest->food [771,31535,3084,879,0]  nest   25  AtNest 19.24%
+                Carrying: laden    101601  of which SPOIL     11932 ( 11.7%)
+    DECISION CENSUS: 67764 decisions, reconciled against the rows and the engine's counters
+      C1 homeward re-roll: no_usable 110, bias_off 0, no_crop 20324, empty_crop 0, no_site 0, on_anchor 4863, roll_failed 2420, fired 1963, fired_haul 0
+      C1 fired, aimed: toward 1543, across 166, away 254
+      C2 drop: roll_lost 15641, placed 0, delivered 1192, no_room 3068 -- no room on 72.0% of won rolls; handed on through bodies 0 (mean 0.0 steps)
+      C3 cone: left 738, straight 5475, right 711; Turn nonzero on 1196 picks (largest |Turn| 7.63e-8), discarded on 555
+      leg     setting          n  stepped    felllaunched swappedcrossingreversedblocked_roll_fairoll_fai no_body
+      empty   pocket        1204     2.7%   15.2%    0.0%    0.0%    0.0%    0.0%    0.5%   40.1%   41.5%    0.0%
+      empty   corridor      6108     7.3%    0.9%    0.0%    0.0%    0.0%    0.0%    0.1%   46.1%   45.4%    0.0%
+      empty   junction     21364    14.8%    2.0%    0.0%    0.0%    0.0%    0.0%    0.2%   41.1%   42.0%    0.0%
+      empty   open         17451     7.7%    2.4%    0.0%    0.0%    0.0%    0.0%    0.0%   45.5%   44.5%    0.0%
+      laden   pocket        1466     1.0%    6.8%    0.0%    0.0%    0.0%    0.0%    0.1%   46.2%   45.8%    0.0%
+      laden   corridor      3925     4.8%    0.6%    0.0%    0.0%    0.0%    0.0%    0.0%   46.1%   48.5%    0.0%
+      laden   junction     12030     9.3%    1.1%    0.0%    0.0%    0.0%    0.0%    0.2%   44.2%   45.1%    0.0%
+      laden   open          3277    10.4%    2.4%    0.0%    0.0%    0.0%    0.0%    0.0%   44.0%   43.2%    0.0%
+      spoil   pocket          65    15.4%    6.2%    0.0%    0.0%    0.0%    0.0%   13.8%   30.8%   33.8%    0.0%
+      spoil   corridor       123    26.8%    0.8%    0.0%    0.0%    0.0%    0.0%    7.3%   23.6%   41.5%    0.0%
+      spoil   junction       553    36.3%    0.5%    0.0%    0.0%    0.0%    0.0%    3.6%   29.3%   30.2%    0.0%
+      spoil   open           198    23.2%    1.5%    0.0%    0.0%    0.0%    0.0%    0.0%   37.4%   37.9%    0.0%
+    DECISIONS: rows not written (decisionnorows)
+    FOOD STORE (larder cells) -- 3000: nest ground 2, crops 14, elsewhere 396, ants 20 | 6000: nest ground 3, crops 28, elsewhere 400, ants 20 | 9000: nest ground 2, crops 19, elsewhere 400, ants 15 | 12000: nest ground 2, crops 7, elsewhere 400, ants 15 | 15000: nest ground 0, crops 4, elsewhere 400, ants 16 | 18000: nest ground 0, crops 2, elsewhere 400, ants 16 | 21000: nest ground 0, crops 0, elsewhere 400, ants 15 | 24000: nest ground 0, crops 0, elsewhere 400, ants 13
+    FOOD BUDGET (cells, one cell = 960 face): taken from the pile 41; chewed 71.0; on the ground off the pile 0; in crops 0; held as spoil 0; unaccounted -30.0
+   90   19  hand   13/13       17145     1272        0   123689    98201   20/22       24         0 2 0 20 0
+                A READ  ant-readable homeward along >= 0.02 on  59.4% of route-cell samples | FOODWARD  27.1% | plane lit on  97.9% | peak amt  47727 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     22    100.0% of prev    100.0% of all
+                  1. reached the food                          20     90.9% of prev     90.9% of all
+                  2. picked food up out there                  20    100.0% of prev     90.9% of all
+                  3. turned for home with it                   20    100.0% of prev     90.9% of all
+                  4. got back to the nest still holding it     20    100.0% of prev     90.9% of all
+                  5. PUT IT DOWN there                         20    100.0% of prev     90.9% of all
+                  6. went back out again                       12     60.0% of prev     54.5% of all
+                  7. reached the food a SECOND time             5     41.7% of prev     22.7% of all
+                RETURN LEDGER reached food   20 of   22 ants | came back   20 | trips laden   24 empty    0 | LOOPERS   20 of   22 ants (100.0% of those that reached food), repeat    4, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   24 loops /   25 pickups ( 96.0%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  20 of  20 that reached food looped (100.0%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[883,667,895,889,649,775,913,523,961,1411,667,625,991,661,673,1069,1405,787,499,577,565,571,535,535] laden[883,667,895,889,649,775,913,523,961,1411,667,625,991,661,673,1069,1405,787,499,577,565,571,535,535]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 22 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [3 83 218 16 18 20 34 6]  carry->nest    1458  born    2 died    9 (starved    5)
+                own trail: route pk   71 end    0 along +0.0000  B nest->food [2106,5591,8329,10720,8309]  blocked      130  kin swaps       0  ticks     67768  tumbles     29680 (homeward     1963, 6.61%)  drops    1192  DELIVERED  1192  leg home n   24 med   673 p90  1069 (laden n   24 med   673 p90  1069)  appetite held         0 J of     68131  trips born-on-comb   24 (20 ants) / born-off    0 (2 ants)
+                channel A: PEAK amt  47727 cells   91 (of 91 route)  POLARITY|| +0.05518 && +0.05215 SPAN -0.00754 edge   0.4  end nest->food [668,9647,2232,1173,1]  nest   25  AtNest 26.42%
+                Carrying: laden    129322  of which SPOIL      7421 (  5.7%)
+    DECISION CENSUS: 65854 decisions, reconciled against the rows and the engine's counters
+      C1 homeward re-roll: no_usable 101, bias_off 0, no_crop 21379, empty_crop 0, no_site 0, on_anchor 6045, roll_failed 1326, fired 969, fired_haul 0
+      C1 fired, aimed: toward 472, across 414, away 83
+      C2 drop: roll_lost 11332, placed 0, delivered 1700, no_room 4120 -- no room on 70.8% of won rolls; handed on through bodies 0 (mean 0.0 steps)
+      C3 cone: left 507, straight 4839, right 498; Turn nonzero on 928 picks (largest |Turn| 7.63e-8), discarded on 587
+      leg     setting          n  stepped    felllaunched swappedcrossingreversedblocked_roll_fairoll_fai no_body
+      empty   pocket        5214     2.2%    2.1%    0.0%    0.0%    0.0%    0.0%    1.3%   45.6%   48.7%    0.0%
+      empty   corridor      3823    25.6%    1.0%    0.0%    0.0%    0.0%    0.0%    0.2%   37.9%   35.4%    0.0%
+      empty   junction     26078     8.9%    1.2%    0.0%    0.0%    0.0%    0.0%    0.2%   45.5%   44.3%    0.0%
+      empty   open          9927     8.9%    1.9%    0.0%    0.0%    0.0%    0.0%    0.0%   44.6%   44.7%    0.0%
+      laden   pocket        4362     0.2%    2.1%    0.0%    0.0%    0.0%    0.0%    0.0%   48.9%   48.8%    0.0%
+      laden   corridor      4660     4.4%    0.5%    0.0%    0.0%    0.0%    0.0%    0.0%   47.6%   47.5%    0.0%
+      laden   junction      7928    10.6%    0.9%    0.0%    0.0%    0.0%    0.0%    0.2%   44.9%   43.4%    0.0%
+      laden   open          1145    16.9%    4.2%    0.0%    0.0%    0.0%    0.0%    0.0%   38.9%   40.0%    0.0%
+      spoil   pocket        1220     3.0%    0.1%    0.0%    0.0%    0.0%    0.0%    2.8%   46.5%   47.7%    0.0%
+      spoil   corridor       362    35.1%    0.0%    0.0%    0.0%    0.0%    0.0%    1.9%   31.5%   31.5%    0.0%
+      spoil   junction       934    12.2%    0.4%    0.0%    0.0%    0.0%    0.0%    1.2%   41.9%   44.3%    0.0%
+      spoil   open           201    16.9%    1.5%    0.0%    0.0%    0.0%    0.0%    0.0%   40.3%   41.3%    0.0%
+    DECISIONS: rows not written (decisionnorows)
+    FOOD STORE (larder cells) -- 3000: nest ground 1, crops 12, elsewhere 400, ants 20 | 6000: nest ground 1, crops 27, elsewhere 400, ants 19 | 9000: nest ground 1, crops 12, elsewhere 400, ants 15 | 12000: nest ground 1, crops 6, elsewhere 400, ants 15 | 15000: nest ground 0, crops 4, elsewhere 400, ants 15 | 18000: nest ground 0, crops 4, elsewhere 400, ants 15 | 21000: nest ground 0, crops 2, elsewhere 400, ants 16 | 24000: nest ground 0, crops 0, elsewhere 400, ants 16
+    FOOD BUDGET (cells, one cell = 960 face): taken from the pile 29; chewed 62.2; on the ground off the pile 0; in crops 0; held as spoil 0; unaccounted -33.2
+   90   20  hand   16/15       14432      984        0   108570    91902   15/21       18         1 5 0 15 0
+                A READ  ant-readable homeward along >= 0.02 on  57.5% of route-cell samples | FOODWARD  26.6% | plane lit on  97.3% | peak amt  32330 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     21    100.0% of prev    100.0% of all
+                  1. reached the food                          15     71.4% of prev     71.4% of all
+                  2. picked food up out there                  14     93.3% of prev     66.7% of all
+                  3. turned for home with it                   14    100.0% of prev     66.7% of all
+                  4. got back to the nest still holding it     14    100.0% of prev     66.7% of all
+                  5. PUT IT DOWN there                         14    100.0% of prev     66.7% of all
+                  6. went back out again                        7     50.0% of prev     33.3% of all
+                  7. reached the food a SECOND time             4     57.1% of prev     19.0% of all
+                RETURN LEDGER reached food   15 of   21 ants | came back   14 | trips laden   18 empty    0 | LOOPERS   14 of   21 ants (93.3% of those that reached food), repeat    4, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   18 loops /   18 pickups (100.0%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  14 of  15 that reached food looped ( 93.3%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[673,967,679,709,871,661,877,649,817,661,781,511,865,985,1651,727,1639,625] laden[673,967,679,709,871,661,877,649,817,661,781,511,865,985,1651,727,1639,625]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 21 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [4 130 205 8 8 13 18 5]  carry->nest    1091  born    1 died    5 (starved    5)
+                own trail: route pk   70 end    0 along +0.0000  B nest->food [2106,5134,7911,10525,8308]  blocked      193  kin swaps       0  ticks     65854  tumbles     29820 (homeward      969, 3.25%)  drops    1700  DELIVERED  1700  leg home n   18 med   781 p90   985 (laden n   18 med   781 p90   985)  appetite held         0 J of     59755  trips born-on-comb   18 (21 ants) / born-off    0 (0 ants)
+                channel A: PEAK amt  32330 cells   91 (of 91 route)  POLARITY|| +0.07696 && +0.07287 SPAN -0.00497 edge   1.1  end nest->food [1171,13209,1443,454,0]  nest   25  AtNest 37.24%
+                Carrying: laden    124872  of which SPOIL     22338 ( 17.9%)
+    DECISION CENSUS: 63936 decisions, reconciled against the rows and the engine's counters
+      C1 homeward re-roll: no_usable 106, bias_off 0, no_crop 18269, empty_crop 0, no_site 0, on_anchor 5717, roll_failed 1472, fired 1982, fired_haul 0
+      C1 fired, aimed: toward 1885, across 2, away 95
+      C2 drop: roll_lost 15180, placed 0, delivered 1135, no_room 2956 -- no room on 72.3% of won rolls; handed on through bodies 0 (mean 0.0 steps)
+      C3 cone: left 842, straight 6061, right 724; Turn nonzero on 1215 picks (largest |Turn| 7.63e-8), discarded on 607
+      leg     setting          n  stepped    felllaunched swappedcrossingreversedblocked_roll_fairoll_fai no_body
+      empty   pocket         607     2.6%   30.1%    0.0%    0.0%    0.0%    0.0%    0.0%   33.6%   33.6%    0.0%
+      empty   corridor      3631    16.9%    2.2%    0.0%    0.0%    0.0%    0.0%    0.1%   39.7%   41.0%    0.0%
+      empty   junction     25811    14.1%    2.6%    0.0%    0.0%    0.0%    0.0%    0.2%   42.2%   40.9%    0.0%
+      empty   open         13128    11.2%    2.8%    0.0%    0.0%    0.0%    0.0%    0.0%   42.1%   43.9%    0.0%
+      laden   pocket        2323     1.0%    3.6%    0.0%    0.0%    0.0%    0.0%    0.1%   48.1%   47.2%    0.0%
+      laden   corridor      3609     8.9%    0.9%    0.0%    0.0%    0.0%    0.0%    0.0%   46.1%   44.2%    0.0%
+      laden   junction      9379    10.2%    1.1%    0.0%    0.0%    0.0%    0.0%    0.1%   44.4%   44.2%    0.0%
+      laden   open          4709     6.2%    1.0%    0.0%    0.0%    0.0%    0.0%    0.0%   47.4%   45.4%    0.0%
+      spoil   pocket         104     8.7%   12.5%    0.0%    0.0%    0.0%    0.0%    8.7%   37.5%   32.7%    0.0%
+      spoil   corridor        56    33.9%    1.8%    0.0%    0.0%    0.0%    0.0%   10.7%   23.2%   30.4%    0.0%
+      spoil   junction       439    45.6%    1.8%    0.0%    0.0%    0.0%    0.0%    3.6%   27.1%   21.9%    0.0%
+      spoil   open           140    50.0%    4.3%    0.0%    0.0%    0.0%    0.0%    0.0%   22.9%   22.9%    0.0%
+    DECISIONS: rows not written (decisionnorows)
+    FOOD STORE (larder cells) -- 3000: nest ground 1, crops 10, elsewhere 397, ants 20 | 6000: nest ground 3, crops 20, elsewhere 400, ants 20 | 9000: nest ground 2, crops 20, elsewhere 400, ants 14 | 12000: nest ground 3, crops 11, elsewhere 400, ants 14 | 15000: nest ground 3, crops 7, elsewhere 400, ants 14 | 18000: nest ground 3, crops 4, elsewhere 400, ants 13 | 21000: nest ground 2, crops 2, elsewhere 400, ants 14 | 24000: nest ground 2, crops 0, elsewhere 400, ants 14
+    FOOD BUDGET (cells, one cell = 960 face): taken from the pile 32; chewed 68.4; on the ground off the pile 2; in crops 0; held as spoil 0; unaccounted -38.4
+   90   21  hand   14/13       15850     1092        0   116821    97777   20/22       22         0 2 0 20 0
+                A READ  ant-readable homeward along >= 0.02 on  52.6% of route-cell samples | FOODWARD  27.6% | plane lit on  97.9% | peak amt  37519 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     22    100.0% of prev    100.0% of all
+                  1. reached the food                          20     90.9% of prev     90.9% of all
+                  2. picked food up out there                  20    100.0% of prev     90.9% of all
+                  3. turned for home with it                   20    100.0% of prev     90.9% of all
+                  4. got back to the nest still holding it     20    100.0% of prev     90.9% of all
+                  5. PUT IT DOWN there                         20    100.0% of prev     90.9% of all
+                  6. went back out again                       11     55.0% of prev     50.0% of all
+                  7. reached the food a SECOND time             1      9.1% of prev      4.5% of all
+                RETURN LEDGER reached food   20 of   22 ants | came back   20 | trips laden   22 empty    0 | LOOPERS   20 of   22 ants (100.0% of those that reached food), repeat    1, most loops by one ant   3
+                BY ANCHOR AT PICKUP  anchor ON nest material:   22 loops /   22 pickups (100.0%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  20 of  20 that reached food looped (100.0%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[775,535,559,589,559,481,601,583,457,685,697,619,733,745,781,781,733,1609,2017,613,583,2071] laden[775,535,559,589,559,481,601,583,457,685,697,619,733,745,781,781,733,1609,2017,613,583,2071]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 22 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [3 36 241 14 23 28 24 6]  carry->nest    1329  born    2 died    8 (starved    7)
+                own trail: route pk   73 end   11 along -0.0000  B nest->food [2106,5717,8082,10627,8308]  blocked       89  kin swaps       0  ticks     63937  tumbles     27546 (homeward     1982, 7.20%)  drops    1135  DELIVERED  1135  leg home n   22 med   685 p90  1609 (laden n   22 med   685 p90  1609)  appetite held         0 J of     65629  trips born-on-comb   22 (20 ants) / born-off    0 (2 ants)
+                channel A: PEAK amt  37519 cells   91 (of 91 route)  POLARITY|| +0.05250 && +0.04853 SPAN -0.00998 edge   0.4  end nest->food [760,3773,3156,1958,50]  nest   25  AtNest 31.25%
+                Carrying: laden    121255  of which SPOIL      4434 (  3.7%)
+    DECISION CENSUS: 76460 decisions, reconciled against the rows and the engine's counters
+      C1 homeward re-roll: no_usable 70, bias_off 0, no_crop 22862, empty_crop 0, no_site 0, on_anchor 8848, roll_failed 1888, fired 1361, fired_haul 0
+      C1 fired, aimed: toward 1151, across 77, away 133
+      C2 drop: roll_lost 16042, placed 0, delivered 2815, no_room 5194 -- no room on 64.9% of won rolls; handed on through bodies 0 (mean 0.0 steps)
+      C3 cone: left 485, straight 5079, right 481; Turn nonzero on 1080 picks (largest |Turn| 7.63e-8), discarded on 681
+      leg     setting          n  stepped    felllaunched swappedcrossingreversedblocked_roll_fairoll_fai no_body
+      empty   pocket        5033     0.9%    2.4%    0.0%    0.0%    0.0%    0.0%    0.3%   48.5%   48.0%    0.0%
+      empty   corridor      7090    13.4%    0.6%    0.0%    0.0%    0.0%    0.0%    0.1%   42.8%   43.2%    0.0%
+      empty   junction     25987    10.0%    1.2%    0.0%    0.0%    0.0%    0.0%    0.1%   44.5%   44.2%    0.0%
+      empty   open         10177     6.4%    1.5%    0.0%    0.0%    0.0%    0.0%    0.0%   46.7%   45.4%    0.0%
+      laden   pocket        1644     0.3%    4.0%    0.0%    0.0%    0.0%    0.0%    0.2%   47.6%   48.0%    0.0%
+      laden   corridor      5044     8.5%    0.4%    0.0%    0.0%    0.0%    0.0%    0.1%   45.2%   45.8%    0.0%
+      laden   junction     18175     5.1%    0.4%    0.0%    0.0%    0.0%    0.0%    0.1%   47.5%   46.9%    0.0%
+      laden   open           993    15.2%    2.1%    0.0%    0.0%    0.0%    0.0%    0.0%   44.2%   38.5%    0.0%
+      spoil   pocket        1368     4.0%    0.1%    0.0%    0.0%    0.0%    0.0%    3.7%   44.4%   47.8%    0.0%
+      spoil   corridor       303    26.1%    0.3%    0.0%    0.0%    0.0%    0.0%    2.3%   38.0%   33.3%    0.0%
+      spoil   junction       555    26.7%    0.2%    0.0%    0.0%    0.0%    0.0%    3.2%   35.5%   34.4%    0.0%
+      spoil   open            91    26.4%    2.2%    0.0%    0.0%    0.0%    0.0%    0.0%   40.7%   30.8%    0.0%
+    DECISIONS: rows not written (decisionnorows)
+    FOOD STORE (larder cells) -- 3000: nest ground 1, crops 14, elsewhere 397, ants 20 | 6000: nest ground 4, crops 21, elsewhere 400, ants 20 | 9000: nest ground 0, crops 16, elsewhere 400, ants 18 | 12000: nest ground 1, crops 16, elsewhere 400, ants 18 | 15000: nest ground 2, crops 14, elsewhere 400, ants 18 | 18000: nest ground 0, crops 11, elsewhere 400, ants 20 | 21000: nest ground 1, crops 2, elsewhere 400, ants 19 | 24000: nest ground 0, crops 1, elsewhere 400, ants 19
+    FOOD BUDGET (cells, one cell = 960 face): taken from the pile 35; chewed 88.5; on the ground off the pile 0; in crops 1; held as spoil 0; unaccounted -54.5
+   90   22  hand   19/18       20334      948        0   153857   126377   17/23       21         2 4 0 17 0
+                A READ  ant-readable homeward along >= 0.02 on  56.4% of route-cell samples | FOODWARD  28.6% | plane lit on  98.4% | peak amt  33784 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     23    100.0% of prev    100.0% of all
+                  1. reached the food                          17     73.9% of prev     73.9% of all
+                  2. picked food up out there                  17    100.0% of prev     73.9% of all
+                  3. turned for home with it                   17    100.0% of prev     73.9% of all
+                  4. got back to the nest still holding it     17    100.0% of prev     73.9% of all
+                  5. PUT IT DOWN there                         17    100.0% of prev     73.9% of all
+                  6. went back out again                        8     47.1% of prev     34.8% of all
+                  7. reached the food a SECOND time             5     62.5% of prev     21.7% of all
+                RETURN LEDGER reached food   17 of   23 ants | came back   17 | trips laden   20 empty    1 | LOOPERS   17 of   23 ants (100.0% of those that reached food), repeat    3, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   20 loops /   25 pickups ( 80.0%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  17 of  17 that reached food looped (100.0%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[649,523,823,799,709,769,715,673,463,547,715,511,733,715,523,439,1441,775,601,2893,1303] laden[649,523,823,799,709,769,715,673,463,547,715,511,733,715,523,439,1441,775,601,1303]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 23 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [13 49 310 10 13 22 29 8]  carry->nest    1316  born    3 died    4 (starved    2)
+                own trail: route pk   66 end    9 along +0.0000  B nest->food [2106,5230,7927,10534,8308]  blocked      146  kin swaps       0  ticks     76462  tumbles     35029 (homeward     1361, 3.89%)  drops    2815  DELIVERED  2815  leg home n   21 med   715 p90  1303 (laden n   20 med   715 p90   823)  appetite held         0 J of     84975  trips born-on-comb   21 (21 ants) / born-off    0 (2 ants)
+                channel A: PEAK amt  33784 cells   91 (of 91 route)  POLARITY|| +0.06456 && +0.06183 SPAN -0.00629 edge   0.4  end nest->food [773,5599,1636,952,0]  nest   25  AtNest 38.45%
+                Carrying: laden    167760  of which SPOIL     15763 (  9.4%)
+    DECISION CENSUS: 72096 decisions, reconciled against the rows and the engine's counters
+      C1 homeward re-roll: no_usable 195, bias_off 0, no_crop 22473, empty_crop 0, no_site 0, on_anchor 2616, roll_failed 2458, fired 2095, fired_haul 0
+      C1 fired, aimed: toward 1760, across 108, away 227
+      C2 drop: roll_lost 14147, placed 0, delivered 996, no_room 560 -- no room on 36.0% of won rolls; handed on through bodies 0 (mean 0.0 steps)
+      C3 cone: left 1084, straight 8651, right 1030; Turn nonzero on 1676 picks (largest |Turn| 1.14e-7), discarded on 721
+      leg     setting          n  stepped    felllaunched swappedcrossingreversedblocked_roll_fairoll_fai no_body
+      empty   pocket        1632     9.3%   19.2%    0.0%    0.0%    0.0%    0.0%    3.7%   34.7%   33.1%    0.0%
+      empty   corridor      3281    25.6%    3.6%    0.0%    0.0%    0.0%    0.0%    1.5%   34.3%   35.0%    0.0%
+      empty   junction     25545    18.9%    3.0%    0.0%    0.0%    0.0%    0.0%    0.5%   39.1%   38.5%    0.0%
+      empty   open         23012    10.4%    2.4%    0.0%    0.0%    0.0%    0.0%    0.0%   43.2%   44.1%    0.0%
+      laden   pocket        1308     0.8%    4.7%    0.0%    0.0%    0.0%    0.0%    0.2%   47.1%   47.2%    0.0%
+      laden   corridor      1941    18.1%    1.3%    0.0%    0.0%    0.0%    0.0%    0.4%   41.5%   38.7%    0.0%
+      laden   junction      9514     9.8%    1.6%    0.0%    0.0%    0.0%    0.0%    0.2%   44.9%   43.5%    0.0%
+      laden   open          3599    15.8%    4.8%    0.0%    0.0%    0.0%    0.0%    0.0%   40.5%   38.9%    0.0%
+      spoil   pocket         386    20.2%    1.6%    0.0%    0.0%    0.0%    0.0%   16.6%   31.9%   29.8%    0.0%
+      spoil   corridor       268    36.6%    0.7%    0.0%    0.0%    0.0%    0.0%    7.8%   25.4%   29.5%    0.0%
+      spoil   junction      1266    32.3%    0.9%    0.0%    0.0%    0.0%    0.0%    3.1%   30.6%   33.1%    0.0%
+      spoil   open           344    35.8%    2.6%    0.0%    0.0%    0.0%    0.0%    0.0%   29.4%   32.3%    0.0%
+    DECISIONS: rows not written (decisionnorows)
+    FOOD STORE (larder cells) -- 3000: nest ground 1, crops 15, elsewhere 397, ants 19 | 6000: nest ground 1, crops 23, elsewhere 400, ants 19 | 9000: nest ground 1, crops 12, elsewhere 400, ants 20 | 12000: nest ground 0, crops 4, elsewhere 400, ants 21 | 15000: nest ground 0, crops 2, elsewhere 400, ants 22 | 18000: nest ground 0, crops 3, elsewhere 400, ants 15 | 21000: nest ground 0, crops 2, elsewhere 400, ants 13 | 24000: nest ground 0, crops 1, elsewhere 400, ants 11
+    FOOD BUDGET (cells, one cell = 960 face): taken from the pile 48; chewed 55.5; on the ground off the pile 0; in crops 1; held as spoil 0; unaccounted -8.5
+   90   23  hand   11/11       15773     1494        0    98179    51840   21/24       12         0 3 0 21 0
+                A READ  ant-readable homeward along >= 0.02 on  54.7% of route-cell samples | FOODWARD  27.3% | plane lit on  97.6% | peak amt  65145 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     24    100.0% of prev    100.0% of all
+                  1. reached the food                          21     87.5% of prev     87.5% of all
+                  2. picked food up out there                  20     95.2% of prev     83.3% of all
+                  3. turned for home with it                   15     75.0% of prev     62.5% of all
+                  4. got back to the nest still holding it     12     80.0% of prev     50.0% of all
+                  5. PUT IT DOWN there                         12    100.0% of prev     50.0% of all
+                  6. went back out again                       11     91.7% of prev     45.8% of all
+                  7. reached the food a SECOND time             4     36.4% of prev     16.7% of all
+                RETURN LEDGER reached food   21 of   24 ants | came back   12 | trips laden   12 empty    0 | LOOPERS   12 of   24 ants (57.1% of those that reached food), repeat    0, most loops by one ant   1
+                BY ANCHOR AT PICKUP  anchor ON nest material:   12 loops /   22 pickups ( 54.5%) | anchor OFF it:    0 /    3 (  0.0%)
+                BY BIRTH SITE  born ON comb:  12 of  20 that reached food looped ( 60.0%) | born OFF comb:   0 of   1 (  0.0%)
+                LEGS legs[439,529,487,487,997,619,565,595,649,1417,625,1681] laden[439,529,487,487,997,619,565,595,649,1417,625,1681]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 24 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [11 55 134 17 27 70 83 33]  carry->nest    1059  born    4 died   13 (starved    9)
+                own trail: route pk   62 end   24 along +0.0162  B nest->food [2106,5529,7727,10629,8310]  blocked      387  kin swaps       0  ticks     72100  tumbles     29837 (homeward     2095, 7.02%)  drops     996  DELIVERED   996  leg home n   12 med   619 p90  1417 (laden n   12 med   619 p90  1417)  appetite held         0 J of     53246  trips born-on-comb   12 (20 ants) / born-off    0 (4 ants)
+                channel A: PEAK amt  65145 cells   91 (of 91 route)  POLARITY|| +0.06787 && +0.06390 SPAN -0.00485 edge   0.6  end nest->food [17376,57297,6375,1042,0]  nest   25  AtNest 18.60%
+                Carrying: laden    111763  of which SPOIL     19032 ( 17.0%)
+    DECISION CENSUS: 56189 decisions, reconciled against the rows and the engine's counters
+      C1 homeward re-roll: no_usable 72, bias_off 0, no_crop 15127, empty_crop 0, no_site 0, on_anchor 7511, roll_failed 1066, fired 502, fired_haul 0
+      C1 fired, aimed: toward 485, across 8, away 9
+      C2 drop: roll_lost 11868, placed 0, delivered 3732, no_room 2585 -- no room on 40.9% of won rolls; handed on through bodies 0 (mean 0.0 steps)
+      C3 cone: left 668, straight 5211, right 607; Turn nonzero on 1350 picks (largest |Turn| 7.63e-8), discarded on 747
+      leg     setting          n  stepped    felllaunched swappedcrossingreversedblocked_roll_fairoll_fai no_body
+      empty   pocket        4000     1.9%    3.4%    0.0%    0.0%    0.0%    0.0%    1.0%   46.2%   47.4%    0.0%
+      empty   corridor      5721    10.9%    1.0%    0.0%    0.0%    0.0%    0.0%    0.2%   43.8%   44.1%    0.0%
+      empty   junction     19037    15.1%    2.4%    0.0%    0.0%    0.0%    0.0%    0.3%   40.7%   41.5%    0.0%
+      empty   open          3440    33.1%    8.2%    0.0%    0.0%    0.0%    0.0%    0.0%   29.7%   29.0%    0.0%
+      laden   pocket        3294     0.4%    2.8%    0.0%    0.0%    0.0%    0.0%    0.1%   47.9%   48.8%    0.0%
+      laden   corridor      5931     3.5%    0.3%    0.0%    0.0%    0.0%    0.0%    0.1%   47.5%   48.6%    0.0%
+      laden   junction      9748     9.6%    1.0%    0.0%    0.0%    0.0%    0.0%    0.3%   45.5%   43.6%    0.0%
+      laden   open           731    29.3%    5.1%    0.0%    0.0%    0.0%    0.0%    0.0%   32.6%   33.1%    0.0%
+      spoil   pocket         462     9.7%    0.6%    0.0%    0.0%    0.0%    0.0%    9.1%   35.9%   44.6%    0.0%
+      spoil   corridor      2710     3.7%    0.0%    0.0%    0.0%    0.0%    0.0%    0.4%   48.3%   47.6%    0.0%
+      spoil   junction       954    20.5%    0.9%    0.0%    0.0%    0.0%    0.0%    1.8%   36.4%   40.4%    0.0%
+      spoil   open           161    41.6%    3.1%    0.0%    0.0%    0.0%    0.0%    0.0%   19.3%   36.0%    0.0%
+    DECISIONS: rows not written (decisionnorows)
+    FOOD STORE (larder cells) -- 3000: nest ground 0, crops 8, elsewhere 400, ants 19 | 6000: nest ground 3, crops 17, elsewhere 400, ants 17 | 9000: nest ground 2, crops 13, elsewhere 400, ants 10 | 12000: nest ground 6, crops 6, elsewhere 400, ants 11 | 15000: nest ground 3, crops 6, elsewhere 400, ants 12 | 18000: nest ground 3, crops 5, elsewhere 400, ants 13 | 21000: nest ground 1, crops 5, elsewhere 400, ants 13 | 24000: nest ground 2, crops 2, elsewhere 400, ants 11
+    FOOD BUDGET (cells, one cell = 960 face): taken from the pile 27; chewed 67.4; on the ground off the pile 2; in crops 2; held as spoil 0; unaccounted -44.4
+   90   24  hand   11/10       17925     1320        0   117345    99345   16/25       15         8 1 0 16 0
+                A READ  ant-readable homeward along >= 0.02 on  57.1% of route-cell samples | FOODWARD  24.8% | plane lit on  97.5% | peak amt  35157 cells  91
+                THE LOOP, ANT BY ANT:
+                  0. lived                                     25    100.0% of prev    100.0% of all
+                  1. reached the food                          16     64.0% of prev     64.0% of all
+                  2. picked food up out there                  16    100.0% of prev     64.0% of all
+                  3. turned for home with it                   16    100.0% of prev     64.0% of all
+                  4. got back to the nest still holding it     14     87.5% of prev     56.0% of all
+                  5. PUT IT DOWN there                         13     92.9% of prev     52.0% of all
+                  6. went back out again                        6     46.2% of prev     24.0% of all
+                  7. reached the food a SECOND time             3     50.0% of prev     12.0% of all
+                RETURN LEDGER reached food   16 of   25 ants | came back   14 | trips laden   15 empty    0 | LOOPERS   14 of   25 ants (87.5% of those that reached food), repeat    1, most loops by one ant   2
+                BY ANCHOR AT PICKUP  anchor ON nest material:   15 loops /   19 pickups ( 78.9%) | anchor OFF it:    0 /    0 (  0.0%)
+                BY BIRTH SITE  born ON comb:  14 of  16 that reached food looped ( 87.5%) | born OFF comb:   0 of   0 (  0.0%)
+                LEGS legs[535,985,733,733,643,661,529,751,439,733,763,745,547,793,619] laden[535,985,733,733,643,661,529,751,439,733,763,745,547,793,619]
+                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 20 of 25 founders born on it; food 138; nearest founder 70 cells out, farthest 108, nominal gap 90)  occupancy/1k [4 209 38 11 21 20 22 5]  carry->nest    1094  born    5 died   14 (starved    8)
+                own trail: route pk   29 end   17 along -0.0004  B nest->food [2106,5478,7871,10498,8308]  blocked      220  kin swaps       0  ticks     56195  tumbles     24278 (homeward      502, 2.07%)  drops    3732  DELIVERED  3732  leg home n   15 med   733 p90   793 (laden n   15 med   733 p90   793)  appetite held         0 J of     64704  trips born-on-comb   15 (21 ants) / born-off    0 (4 ants)
+                channel A: PEAK amt  35157 cells   91 (of 91 route)  POLARITY|| +0.07365 && +0.07013 SPAN -0.00503 edge   0.6  end nest->food [1104,4103,1668,890,0]  nest   25  AtNest 51.65%
+                Carrying: laden    143069  of which SPOIL     29647 ( 20.7%)
+
+  larder put out, over the whole sweep: 100080-107520 J, against a need near 46,800 J
+    for 52 ants over 24,000 frames -- so these colonies are provisioned, not starved.
+  intake off anything that is not the larder is ASSERTED to be 0 in every row, not printed.
+
+  `self` vs `mute` is the real question: do the ants' OWN trails do anything?
+  `visitors` is DISTINCT ants that reached the food over distinct ants that ever lived --
+    recruitment, which `near` ant-ticks cannot see: 50 visitors and 1 resident read alike.
+  `trips` is nest -> food -> nest, closed on the RETURN. `reach` buckets every ant by how
+  `occupancy` is ant-ticks in 8 equal bands, NEST END FIRST, food end last -- a commuting
+    colony is bimodal, a dispersing one slides its mass right, a homebody is a spike at 0.
+  `carry->nest` is signed cells moved while holding larder, POSITIVE = homeward. Near zero
+    means food is picked up and wandered with, which is a different fault from not finding it.
+    far it ever got, as a share of the gap, so a commuting population is visible as a shape.
+  `hand` vs `self` only says whether a laid ramp beats what they bootstrap.
+  `hmute` is the DECAY BASELINE for `route pk`: our ramp laid, the ants silenced.
+  `flatN`/`flatF` are the POLARITY metric's negative controls: a FLAT channel A blob over
+    the nest half / the food half, ants' EmitA silenced. A field with no ramp in it at all.
+    A correct metric reads 0 on both. POLARITY|| is predicted to read ~+0.12 and ~-0.12,
+    which brackets every polarity figure in the report -- see `lay_flat`.
+  `homeA` lays a channel A HOMING ramp and no food trail -- if laden ants only fail
+    to route because they cannot find their way home, this is where their own B appears.
+  `carry` is ant-ticks holding larder in the crop; `carry@nest` is those inside the +-26 nest band --
+    that pair is the answer to "is food being carried back", which a cell census cannot give.
+  `other J` must read 0 in every row: it is the check that `onlyfood` held.
+  A gap where `alive` reaches 0 in every arm is measuring a dead colony, not a deaf one.

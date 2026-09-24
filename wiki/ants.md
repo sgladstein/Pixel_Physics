@@ -1,6 +1,16 @@
 # Ants
 
-*Current as of: 2026-09-20, when **an ant's nose came down onto the ground it
+*Current as of: 2026-09-23, when **a half-eaten piece of food stopped coming
+back whole.** An ant nibbles what it carries on the way home, and when it put
+a half-eaten fruit down the fruit went back to being a whole one, so the next
+ant to pick it up got the eaten half again: about half of what a colony ate
+was food that had already been eaten once. What an ant puts down now is
+exactly what it has left, and a piece it has started on goes down as crumbs,
+which stay where they are put rather than sliding down tunnels out of reach.
+The same day, **an ant with nowhere to put its load down hands it back** --
+through its own body, or through the crowd around it, to the nearest free
+spot -- instead of standing at the nest holding it. Before that, on
+2026-09-20, **an ant's nose came down onto the ground it
 walks on.** A trail is a mark a few rows thick lying on the surface, and an ant
 facing any of the four slanted directions used to sniff six rows off it --
 above the trail if it faced upward, below the trail if it faced downward --
@@ -497,6 +507,25 @@ leaves close up behind it undamaged — nothing is eaten, trampled or knocked
 off by the passage. A bush is drawn as a solid block of green because the
 grid has no way to draw the air between the leaves, and an animal small
 enough to use that air now behaves as though it is there.
+
+**What an ant puts down is what it has left.** A foraging ant eats a little
+of what it carries as it goes, so a load that travels a long way arrives
+smaller. A piece still whole goes down as itself. A piece it has started on
+goes down as **crumbs**, a drab brown heap worth exactly what was not eaten,
+which the next ant can pick up and carry on with. So a nest floor shows where
+food was part-eaten and put back, and passing food from ant to ant never makes
+more of it. Crumbs do not rot, and they do not slide the way sand does: a
+crumb with nothing under it drops straight down, and otherwise it stays
+exactly where the ant put it, as the fruit would have. They are eaten or they
+stay. (Until the same evening they slid, and a crumb put down at the top of a
+tunnel ran down it and was sealed in when the soil came down after it, where
+no ant would ever reach it again.)
+
+**And it can always put it down.** An ant at a crowded nest used to stand
+holding its load when every cell around it was taken, by nestmates or by
+the nest itself. Now the load is handed back along its own body, or through
+the ants around it, to the nearest free spot. It never passes through ground,
+nest wall or other food.
 
 **And they get round a trunk, by going round it.** Wood is not soft and an
 animal never walks into it — but an ant that meets a bole no longer turns

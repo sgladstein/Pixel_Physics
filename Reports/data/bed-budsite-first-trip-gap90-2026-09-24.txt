@@ -1,0 +1,7 @@
+off: 80 founders over 4 seeds; reached the food on the first trip out: 64; died before frame 6000: 2
+   of those that reached it: frame median 2478.0, steps median 119.0, cells gained toward food per step 0.70, turn-backs median 12.0
+   of the 16 that never got there: steps median 101.0, net cells toward food median 32.5, turn-backs median 36.5, died 2
+trail: 80 founders over 4 seeds; reached the food on the first trip out: 34; died before frame 6000: 46
+   of those that reached it: frame median 2790.0, steps median 152.0, cells gained toward food per step 0.53, turn-backs median 8.0
+   of the 46 that never got there: steps median 245.0, net cells toward food median -2.5, turn-backs median 21.5, died 41
+   share of chosen steps onto a route (presence > 0.5), median per ant: 0.98

@@ -410,7 +410,10 @@ survey's §13 supercolony biology than to its §10.
   (`weather.md`). Note `CLAUDE.md`'s divide-the-oscillator-out rule: a trail
   that fades faster at noon is a designed cycle reaching a decision, fine on
   screen, and every measurement taken across it must remove the phase.
-- **Correlated random walk**: on a one-dimensional floor a turning-angle
+- *(Corrected 2026-09-22: on a flat floor only straight ahead survives
+  `step_chain`'s cone (§R4), so `Persist` does nothing there; the reversal
+  rate is (1 − p_move) × 0.5 × ½. See `ant-movement-plan-2026-09-22.md` §2c.)*
+  **Correlated random walk**: on a one-dimensional floor a turning-angle
   distribution collapses to one number, the reversal rate, and that is
   `BrainOutput::Persist` — *"this engine's own milling-versus-commuting
   number"*. `Tumble` re-rolls uniformly among viable headings, and on a flat

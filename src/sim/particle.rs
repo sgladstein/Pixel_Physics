@@ -77,8 +77,9 @@ pub struct Particle {
     pub shade: u8,
     /// The source cell's `Cell::aux`, carried so a thrown cell lands worth
     /// what it was worth. Written back by `land` **only when the landing
-    /// material declares `Material::worth_in_aux`** — see there for why the
-    /// gate is on the flag and not on the value.
+    /// material's `aux` is a worth** (`Material::aux_is_worth`: meat, or a
+    /// `crumbs` remainder) — see there for why the gate is on the flag and
+    /// not on the value.
     ///
     /// Before this field existed, `land` wrote `Cell::new(material, shade)`
     /// and the stamp was simply dropped. Since S3 a `corpse` cell carries
@@ -408,7 +409,9 @@ fn advance_and_check_landing(world: &mut World, particle: &mut Particle) -> Opti
 /// and it should keep being the only place that decides that.
 fn landed_cell(world: &World, particle: &Particle) -> super::cell::Cell {
     let cell = super::cell::Cell::new(particle.material, particle.shade);
-    if world.materials.get(particle.material).worth_in_aux {
+    // `aux_is_worth`: meat, and `crumbs` (`MaterialDef::carries_worth`), whose
+    // stamp is what is left of a part-eaten piece of food.
+    if world.materials.get(particle.material).aux_is_worth() {
         return cell.with_aux(particle.aux);
     }
     // **The structural `aux` is decided by `place_landed` below, not here.**

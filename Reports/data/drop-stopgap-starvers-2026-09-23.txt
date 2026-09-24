@@ -1,0 +1,59 @@
+
+== trailfollow-decisions-seed1-gap90-hand-adjacent.csv: 20 ants, 7 stop before the end
+  ant 9: last delivery frame 5442 energy 1.000 fill after 0.00; 2156 decisions to death at frame 18378; farthest 82 cells from nest; laden again False; food adjacent on 0; at nest on 1; last energy 0.002 x 105
+    4  never delivered (was laden)
+    2  never delivered (never laden)
+    1  delivered, then died out on the way (max 60+ cells out)
+
+== trailfollow-decisions-seed1-gap90-hand-bodies.csv: 21 ants, 20 stop before the end
+  ant 2: last delivery frame 19848 energy 0.104 fill after 0.00; 245 decisions to death at frame 21318; farthest 23 cells from nest; laden again False; food adjacent on 0; at nest on 245; last energy 0.000 x 71
+  ant 3: last delivery frame 5562 energy 0.943 fill after 0.00; 2141 decisions to death at frame 18408; farthest 78 cells from nest; laden again False; food adjacent on 0; at nest on 4; last energy 0.000 x 71
+  ant 4: last delivery frame 21360 energy 0.077 fill after 0.00; 113 decisions to death at frame 22038; farthest 24 cells from nest; laden again False; food adjacent on 0; at nest on 100; last energy 0.000 x 72
+  ant 5: last delivery frame 19068 energy 0.063 fill after 0.00; 93 decisions to death at frame 19626; farthest 23 cells from nest; laden again False; food adjacent on 0; at nest on 93; last energy 0.001 x 71
+  ant 6: last delivery frame 19338 energy 0.090 fill after 0.00; 227 decisions to death at frame 20700; farthest 23 cells from nest; laden again False; food adjacent on 0; at nest on 169; last energy 0.000 x 71
+  ant 7: last delivery frame 5778 energy 0.859 fill after 0.00; 2158 decisions to death at frame 18726; farthest 36 cells from nest; laden again False; food adjacent on 2; at nest on 4; last energy 0.001 x 71
+  ant 8: last delivery frame 12156 energy 0.480 fill after 0.00; 1188 decisions to death at frame 19284; farthest 28 cells from nest; laden again False; food adjacent on 3; at nest on 471; last energy 0.001 x 72
+  ant 9: last delivery frame 5268 energy 1.000 fill after 0.00; 2247 decisions to death at frame 18750; farthest 69 cells from nest; laden again False; food adjacent on 3; at nest on 3; last energy 0.000 x 72
+  ant 10: last delivery frame 17580 energy 0.283 fill after 0.00; 409 decisions to death at frame 20034; farthest 24 cells from nest; laden again False; food adjacent on 0; at nest on 238; last energy 0.000 x 71
+  ant 11: last delivery frame 16872 energy 0.245 fill after 0.00; 477 decisions to death at frame 19734; farthest 24 cells from nest; laden again False; food adjacent on 0; at nest on 318; last energy 0.001 x 71
+  ant 14: last delivery frame 8760 energy 0.772 fill after 0.00; 1770 decisions to death at frame 19380; farthest 24 cells from nest; laden again False; food adjacent on 0; at nest on 0; last energy 0.001 x 71
+  ant 16: last delivery frame 21366 energy 0.123 fill after 0.00; 146 decisions to death at frame 22242; farthest 30 cells from nest; laden again False; food adjacent on 0; at nest on 103; last energy 0.001 x 78
+  ant 17: last delivery frame 3306 energy 0.932 fill after 0.00; 2652 decisions to death at frame 19218; farthest 37 cells from nest; laden again False; food adjacent on 2; at nest on 684; last energy 0.000 x 72
+  ant 18: last delivery frame 19110 energy 0.092 fill after 0.00; 137 decisions to death at frame 19932; farthest 23 cells from nest; laden again False; food adjacent on 0; at nest on 137; last energy 0.000 x 71
+  ant 19: last delivery frame 19494 energy 0.107 fill after 0.00; 157 decisions to death at frame 20436; farthest 24 cells from nest; laden again False; food adjacent on 0; at nest on 150; last energy 0.001 x 72
+  ant 21: last delivery frame 19035 energy 0.226 fill after 0.00; 329 decisions to death at frame 21338; farthest 24 cells from nest; laden again False; food adjacent on 1; at nest on 83; last energy 0.000 x 70
+   11  delivered, then died near the nest
+    3  delivered, then died out on the way (max 30+ cells out)
+    2  delivered, then died out on the way (max 60+ cells out)
+    2  never delivered (was laden)
+    2  never delivered (never laden)
+
+== trailfollow-decisions-seed11-gap90-hand-adjacent.csv: 22 ants, 4 stop before the end
+  ant 2: last delivery frame 4326 energy 0.918 fill after 0.00; 1745 decisions to death at frame 14796; farthest 81 cells from nest; laden again False; food adjacent on 0; at nest on 2; last energy 1.000 x 73
+    2  never delivered (was laden)
+    1  delivered, then died out on the way (max 60+ cells out)
+    1  never delivered (never laden)
+
+== trailfollow-decisions-seed11-gap90-hand-bodies.csv: 21 ants, 20 stop before the end
+  ant 1: last delivery frame 15894 energy 0.737 fill after 0.00; 1067 decisions to death at frame 22296; farthest 26 cells from nest; laden again False; food adjacent on 0; at nest on 0; last energy 0.001 x 72
+  ant 3: last delivery frame 14568 energy 0.803 fill after 0.00; 1256 decisions to death at frame 22104; farthest 29 cells from nest; laden again False; food adjacent on 0; at nest on 593; last energy 0.002 x 74
+  ant 4: last delivery frame 14598 energy 0.748 fill after 0.00; 1286 decisions to death at frame 22314; farthest 28 cells from nest; laden again False; food adjacent on 1; at nest on 604; last energy 0.000 x 72
+  ant 5: last delivery frame 14580 energy 0.764 fill after 0.00; 1278 decisions to death at frame 22248; farthest 29 cells from nest; laden again False; food adjacent on 0; at nest on 618; last energy 0.000 x 72
+  ant 6: last delivery frame 19380 energy 0.349 fill after 0.00; 473 decisions to death at frame 22218; farthest 33 cells from nest; laden again False; food adjacent on 0; at nest on 187; last energy 0.002 x 81
+  ant 8: last delivery frame 19362 energy 0.440 fill after 0.00; 635 decisions to death at frame 23172; farthest 25 cells from nest; laden again False; food adjacent on 1; at nest on 428; last energy 0.001 x 70
+  ant 9: last delivery frame 23022 energy 0.040 fill after 0.00; 59 decisions to death at frame 23376; farthest 23 cells from nest; laden again False; food adjacent on 3; at nest on 59; last energy 0.000 x 71
+  ant 10: last delivery frame 3846 energy 0.850 fill after 0.00; 844 decisions to death at frame 8910; farthest 83 cells from nest; laden again False; food adjacent on 0; at nest on 3; last energy 0.000 x 109
+  ant 11: last delivery frame 22170 energy 0.099 fill after 0.00; 146 decisions to death at frame 23046; farthest 23 cells from nest; laden again False; food adjacent on 5; at nest on 101; last energy 0.000 x 71
+  ant 12: last delivery frame 22242 energy 0.028 fill after 0.00; 41 decisions to death at frame 22488; farthest 23 cells from nest; laden again False; food adjacent on 0; at nest on 41; last energy 0.001 x 71
+  ant 13: last delivery frame 14616 energy 0.741 fill after 0.00; 1217 decisions to death at frame 21918; farthest 25 cells from nest; laden again False; food adjacent on 0; at nest on 899; last energy 0.001 x 72
+  ant 14: last delivery frame 5328 energy 0.995 fill after 0.00; 667 decisions to death at frame 9330; farthest 70 cells from nest; laden again False; food adjacent on 4; at nest on 11; last energy 0.001 x 87
+  ant 15: last delivery frame 3996 energy 0.816 fill after 0.00; 824 decisions to death at frame 8940; farthest 82 cells from nest; laden again False; food adjacent on 0; at nest on 1; last energy 0.001 x 110
+  ant 16: last delivery frame 14628 energy 0.705 fill after 0.00; 1281 decisions to death at frame 22314; farthest 27 cells from nest; laden again False; food adjacent on 0; at nest on 635; last energy 0.000 x 72
+  ant 17: last delivery frame 6042 energy 0.940 fill after 0.00; 926 decisions to death at frame 11598; farthest 44 cells from nest; laden again False; food adjacent on 1; at nest on 5; last energy 0.922 x 74
+  ant 19: last delivery frame 14592 energy 0.714 fill after 0.00; 1282 decisions to death at frame 22284; farthest 26 cells from nest; laden again False; food adjacent on 0; at nest on 601; last energy 0.000 x 73
+  ant 20: last delivery frame 4326 energy 0.914 fill after 0.00; 830 decisions to death at frame 9306; farthest 75 cells from nest; laden again False; food adjacent on 1; at nest on 3; last energy 0.002 x 109
+   11  delivered, then died near the nest
+    4  delivered, then died out on the way (max 60+ cells out)
+    2  never delivered (was laden)
+    2  delivered, then died out on the way (max 30+ cells out)
+    1  never delivered (never laden)

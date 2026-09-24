@@ -3111,8 +3111,189 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   wrong (11.8%, not ~70%) and scoping to channel A is load-bearing (both planes
   → 0 ants reach food in all 24 seeds). Data
   `Reports/data/trail-comparator-24seed-2026-09-20-{shipped,fwd}.log`.
+- [how-the-ant-works.md](how-the-ant-works.md)
+  — **LIVING REFERENCE, edited in place. `engine`. Read this before any other
+  report on the ant line.** What the shipped ant does on every tick and how
+  each mechanism is implemented, written from the source. It covers:
+  - the tick order;
+  - every wired sense and how it is computed;
+  - the founder brain's hidden units and outputs, with `P(move)` in common
+    states;
+  - `act`'s order and its early returns;
+  - the step, the cone, the blocked path, the tumble and the homeward
+    re-roll;
+  - the trail planes, the anchor, the crop and digestion;
+  - a laden-versus-empty table;
+  - the other species sharing the wiring, the behaviour switches with their
+    defaults, and source comments that currently contradict the code.
+
+  **Unlike every dated report, it describes the ant as it is now**: a change
+  to a mechanism it describes updates it in the same commit, and a
+  correction is made in place. It carries no measurements, history or open
+  questions (owner, 2026-09-22). Supersedes
+  `what-controls-creature-movement-2026-09-22.md` as the description of the
+  mechanism.
+- [ant-decision-census-2026-09-22.md](ant-decision-census-2026-09-22.md)
+  — **result, 2026-09-22. `engine`. Step 1 of the movement plan: where the
+  ants' decisions go, and what freezes them.**
+  - **What was built.** The engine records every walking decision itself
+    (`creature::DecisionRow`, off by default): the roll, the branch taken,
+    the setting, and why the homeward re-roll did or did not fire. It is
+    reconciled against the census, the per-verb counters and the head's
+    positions, in three guard tests watched red and inside every
+    `trailfollow decisioncsv` run (all 504 passed).
+  - **On the gap-90 bed the ants are mostly frozen.** Their chance of
+    stepping is exactly zero on **70% of empty-ant and 83% of laden
+    decisions**.
+  - **Empty ants are frozen by trail B**: −3.13 on the stepping sum when
+    frozen, against +0.10 when moving. 79% of their long-stall time is spent
+    on local peaks where every heading they tried read downhill.
+  - **The reading causes the freeze and also gets them to food.** Empty-ant
+    stepping is 11.5% shipped, 19.1% with their own trail muted, and 38.1%
+    with the reader off. But the reader off collapses the loop (second trips
+    87 → 0), while muting their own trail doubles second trips (87 → 183).
+  - **Laden tumbles:** the homeward re-roll is refused 52% of the time on
+    the anchor, and fires 18%; 9% of the firings point away from home.
+  - **Corrections:** "open" on this bed is crowds of ants (2.8% at the
+    shipped stack depth), and most decisions are made at 3–5 usable
+    headings, not in corridors.
+  - **A setup confound is declared**: the reader-off arm on the hand-ramp
+    bed also hides the ramp, so the no-ramp arms carry that question.
+  - **Step 2, §10 (2026-09-23): the drop, cone and homeward counters**,
+    always on and in the trace row, each with a known-answer scene watched
+    red, and all 72 bed runs reconciled. At gap 90, **52% of the drops a
+    laden ant wins at the nest find no empty neighbour** (median run), the
+    cells filled by nestmates 41%, burrow lining 23% and nest material 14%.
+    The cone goes straight on 75–97% of steps, and its side-steps are mostly
+    climbs. **A correction**: `Turn` is small but not zero on the bed (at
+    most 0.031); a four-decimal CSV column had read it as exactly 0.
+  - **§11 (2026-09-23): the drop stopgap, measured.** A blocked drop handed
+    through bodies to the nearest empty cell improves the loop at gap 90
+    (second trips 87 → 112), and **starves the colony**: starvation
+    172 → 249, colonies nearly wiped out in 11 of 24 seeds against 3.
+    It ships on, on the owner's ruling after §12
+    (`PIXEL_PHYSICS_DROP_REACH=adjacent` turns it off).
+  - **§12 (2026-09-23): the food is created, not lost.** A part-eaten fruit
+    put down comes back whole (open bug §Z33), and about half of everything
+    a gap-90 colony eats is food created that way (median 53%, in 24 of 24
+    runs). §11's starvation is the stopgap cutting that churn; it must be
+    re-run once §Z33 is fixed.
+  - **§13 (2026-09-23): §Z33 fixed, and the loop does not feed the
+    colony.** A part-eaten fruit now goes down as `crumbs` holding what is
+    left, and the food budget closes to 0.04 of a cell. With no food
+    created, gap-90 starvation rises 249 → 433 and 23 of 24 colonies lose
+    17+ of ~20 ants (10 before): a colony brings home about 32 fruit cells a
+    run. Stage 1's chooser on the same bed is much worse (ants reaching
+    food, median 17 → 3), so it stays off until stage 2.
+  - Data: `Reports/data/decision-census-*-2026-09-22.log`,
+    `decision-census-step2-*-2026-09-23.*`, `drop-stopgap-*-2026-09-23.*`,
+    `food-budget-*-2026-09-23.log`, `bed-z33-fixed-*-2026-09-23.log.gz` and
+    `decisions-seed1-gap90-2026-09-22.csv.gz`.
+- [ant-scenes-2026-09-23.md](ant-scenes-2026-09-23.md)
+  — **result, 2026-09-23. `engine`. Step 3 of the movement plan: the ant's
+  walk in controlled scenes, the baseline the chooser must beat.** S0–S5
+  done, and stage 2's first form judged on them (§6); crumbs (§7); the
+  colony bed for stage 2 (§8).
+  - **A fed explorer jitters.** At full energy an empty ant steps 20% and
+    reverses 20% of its decisions. In a bed-length run the median ant gets
+    50 cells from its start, and it found food 90 cells away in 2 of 24 runs.
+    Hungry (energy 0.5), it found the food in 19 of 24.
+  - **A laden ant gets home over open ground** (24 of 24, median 51
+    decisions), **and cannot take any detour.** Facing away from home
+    throttles its step to zero, and the homeward re-roll only picks headings
+    usable now. Walls of 6 and 12 cells: 0 of 24, never more than 2 cells up
+    the face. A U-bend: 0 of 24, not one step. Walls of 1–3 cross, because
+    the step over the top points home.
+  - **Stage 1's chooser** (behind `PIXEL_PHYSICS_CHOOSER=on`, not shipped)
+    **meets every bar on the same scenes**: food found in 24 of 24 at both
+    energies, every wall crossed (median 98 decisions at 12 cells), the
+    U-bend escaped in 24 of 24, no ant frozen, about +2% frame cost. Its
+    home term relaxes while the ant gets no nearer home ("patience");
+    without that, the U-bend is 0 of 24.
+  - **S4–S5, stage 2's baseline**: the shipped trail reading never changes
+    which branch an empty ant takes, only where it stays; a trail up a
+    climbing branch freezes every ant at its mouth; and under stage 1's
+    chooser a trail freezes the ant almost everywhere (24 of 24 in the
+    lattice), which is the colony collapse of census report §13.
+  - **Stage 2's first form** (`PIXEL_PHYSICS_CHOOSER=trail`, not shipped):
+    the chooser reads the trail at the cells a step would enter, and the
+    throttle is retired. The first branch now follows the trail both ways
+    round (22 of 24 level, 18 of 24 up) and no run freezes. The lattice row
+    is followed, but slower than the shipped walk (1,189 decisions against
+    702), because presence says "route" and not "which way".
+  - **Crumbs were being sealed underground** (owner, from a card): they
+    slid down tunnels like sand and soil closed over them, 93 of 157 at the
+    end of a run. Crumbs no longer slide: 10 of 142. The colony still
+    starves.
+  - **Stage 2 on the colony bed** (§8): at 140 and 200 cells the founders
+    complete round trips for the first time (1 → 5 and 0 → 4 a run). At 90
+    cells they do worse, and the colony breeds at the food pile instead
+    (median 909 births a run against 0). A freeze beside the pile was one
+    cause and is fixed; the breeding is not. Not shipped.
+  - **Breeding only at the nest** (§9, owner ruling), behind
+    `PIXEL_PHYSICS_BUD_SITE=nest`: it ends the boom (births 1,592 → 0 a
+    run) and barely touches the shipped walk. With it on both walks, stage
+    2 brings home more food at every distance and makes more round trips at
+    140 and 200 cells, but fewer at 90, where its founders walk the laid
+    trail both ways and starve on it. The bed's pile refill had been
+    writing over ants; fixed. **On the lab's breeding clock the rule is as
+    bad as queen-only** (median generation 13 → 1). Off by default.
+    **Traced** (§10): ready ants are 89–98% of the time away from the nest
+    (only carrying sends one home), and at the nest the child never fits,
+    because a birth lays an adult-length body in a straight line and the
+    tunnels are full. Even breeding anywhere, no ant breeds at the nest.
+  - **Stage 2 with a direction** (§11, `PIXEL_PHYSICS_CHOOSER=trailaway`):
+    an empty ant on a route is pulled away from home, not up the trail's
+    scent, which points home. **The loop works at every distance on the
+    bed**: founders make a median of 14, 14 and 11 round trips at 90, 140
+    and 200 cells, against today's 13.5, 1 and 0. Not yet seen by eye.
+  - The per-decision mix matched the formula within a point at both
+    energies. The reach predictions were low; the report says why.
+  - The scene's own checks caught rain pooling on the slab and an ant dying
+    of old age, and both are pinned out. Harness: `examples/scenes.rs`.
+- [ant-movement-plan-2026-09-22.md](ant-movement-plan-2026-09-22.md)
+  — **plan of record, 2026-09-22, agreed with the owner. Steps 1 and 2
+  built (see `ant-decision-census-2026-09-22.md`); nothing after them.
+  Revised 2026-09-23 after step 1: C1–C3 re-scoped, S0's setting stated.
+  `engine`.**
+  - **Four corrections:**
+    - *"`home_bias` does not visibly bias the re-roll"* is a measuring
+      artifact. Its test cannot see a re-pick of the current heading, its
+      baseline assumed 8 headings, and the per-ant trace shows the median
+      facing-away episode ending in 3 decisions, with 50 of 659 long
+      episodes holding 56% of the time.
+    - The bed report's `HOME_TARGET=nest` arm moved the sensor but not the
+      re-roll.
+    - `Persist` is not the reversal rate on flat ground.
+    - Laden ants never dig; the `packedsoil` around blocked drops is burrow
+      lining from empty diggers.
+  - **The mechanism against the research, by setting** (corridor, junction,
+    canopy, nest) **and by leg** (laden, empty). The empty ant has nothing
+    that aims it, and on flat ground reverses as often as it steps.
+  - **The design:** one chooser over the usable moves, scored by turning
+    preference, a home term and a trail term. The trail is read where the
+    ant would step and integrated over time with engine-side running
+    averages, and the weights are new brain outputs. It is **built in two
+    stages**: turning preference plus home term first, judged on exploring
+    and getting home; the trail terms second. The home pull is set by
+    distance, not crop fill, and falling stops depending on the step roll.
+    Rejected alternatives and costs are included.
+  - **Measurement:** traces first, counters reconciled against them.
+  - **Six scenes, S0–S5, with predictions written before any is run.**
+    Today's ant should pass a flat walk home and be trapped by a wall of
+    height 4 or more, or by a U-bend.
+  - **Experiments:** the trail-B three-arm experiment, and five drop-blockage
+    hypotheses with the census that separates them.
+  - **Owner rulings:** brain outputs yes, food memory no, drop reach
+    deferred. Revised the same day to put exploration first (a fed empty
+    ant is predicted to reverse as often as it steps), to treat the
+    blocked drop as possibly a nest-digging problem, and to leave
+    digesting the crop in transit as an open question for the owner.
 - [what-controls-creature-movement-2026-09-22.md](what-controls-creature-movement-2026-09-22.md)
-  — **reference, 2026-09-22. `engine`.** The walking path end to end, written
+  — **reference, 2026-09-22. `engine`. SUPERSEDED the same day by
+  [`how-the-ant-works.md`](how-the-ant-works.md)**, the living reference,
+  for the mechanism. **Its §7 measurement, *"does not visibly bias the
+  re-roll"*, is withdrawn**: see `ant-movement-plan-2026-09-22.md` §2a. The walking path end to end, written
   from the source with every link read rather than recalled, because three wrong
   diagnoses in two days came from assembling this chain from memory. **Six stages
   and a decision can die at any of them**: whose turn it is (`tick_interval`,

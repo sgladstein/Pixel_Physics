@@ -1587,6 +1587,54 @@ pub struct CreatureStats {
     /// Paired with `ticks` the way `CLAUDE.md` requires: `ticks` is "was it
     /// asked", this is "what did it decide", `moves` is "what came of it".
     pub p_move_hist: [u64; 11],
+    /// **Every traced decision, by leg x setting x outcome** -- C4 of
+    /// `Reports/ant-movement-plan-2026-09-22.md` §5. Indexed by
+    /// `creature::DECISION_LEG_NAMES`, `DECISION_SETTING_NAMES` and
+    /// `DECISION_OUTCOME_NAMES`. **Filled only while `World::decision_log` is
+    /// on**, because the setting needs all eight headings tested, which is
+    /// work the untraced engine does not do. Must equal a count over the
+    /// trace's own rows exactly; `scripts/decisioncensus.py` checks it.
+    pub decision_census: [[[u64; crate::sim::creature::DECISION_OUTCOMES]; crate::sim::creature::DECISION_SETTINGS]; crate::sim::creature::DECISION_LEGS],
+    /// **C1: every call to the homeward re-roll, by the gate that decided
+    /// it**, indexed by `creature::HOMEWARD_WHY_NAMES`; slot 0 (`not_asked`)
+    /// is never written. Always on. Its `fired` and `fired_haul` slots sum to
+    /// `tumbles_homeward`.
+    pub homeward_why: [u64; 10],
+    /// **...and every firing by where it pointed**, `creature::
+    /// HOMEWARD_AIM_NAMES`: toward the target, across it, or away.
+    pub homeward_aim: [u64; 3],
+    /// **C2: every drop the crop reached, by what came of it**, indexed by
+    /// `creature::DROP_WHY_NAMES`; slot 0 is never written. Always on.
+    /// `placed + delivered` is `drops` and `delivered` is `deliveries`; what
+    /// neither of those could say is `no_room`, a won roll with no empty
+    /// neighbour, which did nothing and was counted nowhere.
+    pub drop_census: [u64; crate::sim::creature::DROP_WHYS],
+    /// **Drops put down past the eight neighbours**, handed through bodies to
+    /// the nearest empty cell (`creature::food_drop_site`, the owner's stopgap
+    /// of 2026-09-23). A subset of `drop_census`'s placed and delivered slots:
+    /// every one of these would have been `no_room` without it. Zero under
+    /// `PIXEL_PHYSICS_DROP_REACH=adjacent`, which turns the rule off.
+    pub drops_passed_on: u64,
+    /// **Face value the ground forgets at a food drop**: what the cell put
+    /// down is worth to the next eater beyond what was carried, which is
+    /// created again as food when it is picked up (open bug §Z33). Since the
+    /// crumbs fix a part-eaten piece of plant food restores nothing; what is
+    /// left is flesh bitten off a living animal and a fruit put down with a
+    /// seed riding in it.
+    pub drop_worth_restored: f64,
+    /// **Crop cells that vanished with a dead animal**: its crop spills into
+    /// empty cells beside the body, and a cell with none to go to is gone.
+    /// Meat is also booked in `EnergyLedger::meat_lost`; plant food is booked
+    /// only here.
+    pub crop_cells_lost_at_death: u64,
+    /// **C3: which of the forward cone's candidates each step took**, left /
+    /// straight / right (`creature::CONE_PICK_NAMES`). Always on; sums to the
+    /// steps `step_chain` chose, which is `moves` less the kin swaps.
+    pub cone_picks: [u64; 3],
+    /// Cone choices made with a nonzero `Turn`, and those whose requested side
+    /// had scored 0, so the turn could not happen.
+    pub turn_requests: u64,
+    pub turn_discarded: u64,
     /// **How long each rest actually lasted**, in creature decision ticks,
     /// bucketed by power of two: `bucket = floor(log2(ticks)) + 1`, so index
     /// 1 is a one-tick pause, index 2 is 2-3 ticks, index 3 is 4-7, and index
@@ -2077,6 +2125,11 @@ pub struct CreatureStats {
     /// identical answer — proof the lookup got cheaper, not that it
     /// stopped happening.
     pub breeder_scan_visits: u64,
+    /// **Buds a nesting animal could afford and did not take, because it was
+    /// away from its nest** with `creature::bud_at_nest` on: one per tick
+    /// held back. 0 whenever the switch is off, which is the control that
+    /// says the gate is what moved a birth count.
+    pub buds_held_for_nest: u64,
     /// **The biggest single mouthful any creature in this world ever
     /// swallowed**, in the units the eater received — `diet_yield`, after
     /// the gut's matched filter, not the cell's face value.
@@ -3241,6 +3294,27 @@ pub struct World {
     /// convincingly for a whole run while its body count said the feature
     /// had never once executed).
     pub creature_stats: CreatureStats,
+    /// **The per-decision trace**, off (`None`) unless a harness turns it on
+    /// by setting `Some(Vec::new())`. Every walking creature decision pushes
+    /// one `creature::DecisionRow`, and `CreatureStats::decision_census`
+    /// counts the same decisions by leg, setting and outcome. The harness
+    /// drains it. Recording draws nothing and changes nothing -- see
+    /// `creature::DecisionRow`.
+    pub decision_log: Option<Vec<crate::sim::creature::DecisionRow>>,
+    /// Scratch that `step_chain` and `tumble` write while a decision is being
+    /// traced; meaningless otherwise.
+    pub decision_scratch: crate::sim::creature::DecisionScratch,
+    /// **Stage 1's heading chooser, overriding `PIXEL_PHYSICS_CHOOSER` for
+    /// this world** (`creature::Chooser`). `None` follows the environment,
+    /// which is off unless set. A field rather than only the variable because
+    /// the variable is read once per process, and a guard has to run both
+    /// arms in one.
+    pub chooser: Option<crate::sim::creature::Chooser>,
+    /// **Whether a nesting species may bud only at its nest, overriding
+    /// `PIXEL_PHYSICS_BUD_SITE` for this world** (`creature::bud_at_nest`).
+    /// `None` follows the environment, which is off unless set; a field for
+    /// the reason `chooser` is one.
+    pub bud_at_nest: Option<bool>,
     /// **Which material stopped a creature**, counted per blocked tick and
     /// indexed by `MaterialId` — the breakdown `CreatureStats::
     /// blocked_by_plant` deliberately does not carry, because that struct is
@@ -5574,6 +5648,10 @@ impl World {
             field_stats: field::FieldStats::default(),
             soil_water_stats: SoilWaterStats::default(),
             creature_stats: CreatureStats::default(),
+            decision_log: None,
+            decision_scratch: crate::sim::creature::DecisionScratch::default(),
+            chooser: None,
+            bud_at_nest: None,
             blocked_tissue_by_material: Vec::new(),
             energy_ledger: EnergyLedger::default(),
             colony_books: Vec::new(),
@@ -6578,6 +6656,11 @@ impl World {
             traffic_deferred: 0,
             forage_anchor: (0, 0),
             forage_max: 0,
+            home_best: f32::INFINITY,
+            home_best_for: (i32::MIN, i32::MIN),
+            home_best_at: (0, 0),
+            home_away: 0,
+            home_patience: 1.0,
             // Zero is "no memory yet"; the first tick's read sees `live - 0`,
             // which normalises to +1 and decays to the true reading within a
             // few ticks. See `OrganismState::phero_a_mem`.
@@ -6726,6 +6809,49 @@ impl World {
         match self.organism_mut(organism_id) {
             Some(state) => {
                 state.traits[slot] = value;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// **Pin an animal's energy bank**, for a scene that must hold `Energy`
+    /// fixed (`examples/scenes.rs`, plan §6's setup checklist). A harness
+    /// tool, not a game rule: the change is booked nowhere, so the energy
+    /// ledger's live identity does not close across it. Returns `false` if
+    /// the organism is gone.
+    pub fn set_organism_energy(&mut self, organism_id: OrganismId, energy: f32) -> bool {
+        match self.organism_mut(organism_id) {
+            Some(state) => {
+                state.energy = energy;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// **Pin what an animal is carrying**, for a scene that must hold the
+    /// laden leg fixed while digestion would otherwise empty the crop
+    /// (`examples/scenes.rs`). A harness tool like `set_organism_energy`:
+    /// the food it conjures is booked nowhere. Returns `false` if the
+    /// organism is gone.
+    pub fn set_organism_crop(&mut self, organism_id: OrganismId, crop: Option<crate::sim::organism::Crop>) -> bool {
+        match self.organism_mut(organism_id) {
+            Some(state) => {
+                state.crop = crop;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// **Pin where an animal thinks home is** (`OrganismState::
+    /// forage_anchor`), for a scene with no nest material to re-anchor it.
+    /// Returns `false` if the organism is gone.
+    pub fn set_organism_forage_anchor(&mut self, organism_id: OrganismId, anchor: (i32, i32)) -> bool {
+        match self.organism_mut(organism_id) {
+            Some(state) => {
+                state.forage_anchor = anchor;
                 true
             }
             None => false,

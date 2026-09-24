@@ -1,0 +1,56 @@
+scenes: scene=s5trail seeds=24 seed0=1 frames=24000 gap=90 energies=[1.0, 0.5] DROP_REACH=shipped
+  REVERSE=shipped CHOOSER=trailaway
+
+S5 (empty): an empty ant in an open lattice, trail B along one row (24000 frames; prediction in this file's header)
+  seed decisions  reach  60 east @  on row  longest still
+     1      4000     99       3338    5.8%             11
+     2      4000     57          -    7.6%             10
+     3      4000     64       1547    4.5%             17
+     4      4000    121       2593    2.5%             10
+     5      4000     37          -    4.8%             10
+     6      4000     58          -   13.5%             12
+     7      4000     46          -    3.5%             10
+     8      4000    118       1838    7.8%             10
+     9      4000     76       3725    3.3%             10
+    10      4000    124       3408    6.5%              9
+    11      4000     95       2183    8.2%             11
+    12      4000     75        588    3.5%             11
+    13      4000    142       3265    4.2%             13
+    14      4000     37          -    4.8%             16
+    15      4000     49          -    3.7%              9
+    16      4000    139        693    4.7%             12
+    17      4000     39          -    5.3%              9
+    18      4000     55          -    3.3%             11
+    19      4000    100       3416   11.1%              9
+    20      4000    144       1032    5.2%              9
+    21      4000     72        207    3.0%              9
+    22      4000     92       3581    7.8%             10
+    23      4000     66        844    3.6%             11
+    24      4000     76       1615    3.5%             10
+  S5 trail=none: got 60 cells east in 16 of 24 (median decision 2183) | furthest east, median 76 | within a row of the trail row 5.5% of decisions | longest stand-still median 10, max 17; runs standing 100+ 0
+  seed decisions  reach  60 east @  on row  longest still
+     1      4000    159       1813   12.7%             11
+     2      4000    159        319   15.4%             10
+     3      4000    159        260   20.3%             17
+     4      4000    159        137   23.4%             10
+     5      4000    159        235   14.1%             10
+     6      4000    159        180   16.3%             12
+     7      4000    159        297   15.3%             10
+     8      4000    159        230   21.5%             10
+     9      4000    159        152   17.8%             10
+    10      4000    159        208   15.9%              9
+    11      4000    159        180   16.9%             11
+    12      4000    159        338   13.6%             11
+    13      4000    159        412   17.9%             13
+    14      4000    159        439   18.1%             16
+    15      4000    159       1118   16.9%              9
+    16      4000    159        330   14.5%             12
+    17      4000    159       1047   17.9%              9
+    18      4000    159       2310   12.7%             11
+    19      4000    159        121   18.4%              9
+    20      4000    159       1387   10.2%              9
+    21      4000    159        385   14.5%              9
+    22      4000    159        182   17.3%             10
+    23      4000    159        272   16.8%             11
+    24      4000    159        204   18.4%             10
+  S5 trail=row: got 60 cells east in 24 of 24 (median decision 297) | furthest east, median 159 | within a row of the trail row 16.5% of decisions | longest stand-still median 10, max 17; runs standing 100+ 0
