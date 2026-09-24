@@ -1,0 +1,56 @@
+{
+  "id": "20260924T064546699Z-98e7d7",
+  "created": "2026-09-24T06:45:46Z",
+  "board": "ants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/upbeat-gates-u90pys",
+    "commit": "86b17897",
+    "agent": null,
+    "session_id": "377a1a74-10ea-588e-aa72-28c0126d3167",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The new walk in the lab: it eats the box bare",
+  "question": "The new walk forages the whole lab box. Its colonies carry home far more food and evolve twice as fast, and by frame 90,000 they have eaten nearly every plant (right). Is that a lab you want? Should the new walk become the default?",
+  "context_md": "Lab box, seed 4, frames 30,000 / 60,000 / 90,000 / 120,000 top to bottom. Ants in **magenta**, cyan if ready to breed; nest outlined in white.\n\n- **Left, today's walk:** the colony stays near the nest and the plants thrive.\n- **Right, the new walk** (the one that makes the foraging loop work with no trail laid): the ants range the whole box, dig 13x as much, and strip the plants.\n\nOver 12 seeds: food carried home **3.7x** (better in 12 of 12), deepest breeding generation **10 -> 22**; with the drop wires from last night's section 13 it is 26, and colonies end twice today's size. The cost: **1-2 of 12 boxes are eaten bare and go extinct** (0 today), and the ant scene's frame is about 9% slower. It is still behind a switch; nothing in the game changes until you say so.\n\nReport: Reports/ant-scenes-2026-09-23.md section 14.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - today's walk",
+      "files": [
+        "20260924T064546699Z-98e7d7/000-off-4.png"
+      ],
+      "caption": "seed 4",
+      "meta": {
+        "plants standing at the end": 654,
+        "ants at the end": 97,
+        "food carried home": 4336,
+        "deepest breeding generation": 12
+      },
+      "focus": null
+    },
+    {
+      "label": "B - new walk",
+      "files": [
+        "20260924T064546699Z-98e7d7/001-away-4.png"
+      ],
+      "caption": "seed 4",
+      "meta": {
+        "plants standing at the end": 15,
+        "ants at the end": 140,
+        "food carried home": 11985,
+        "deepest breeding generation": 28
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
