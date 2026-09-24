@@ -1,0 +1,108 @@
+{
+  "id": "20260924T044330463Z-cf549d",
+  "created": "2026-09-24T04:43:30Z",
+  "board": "ants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/upbeat-gates-u90pys",
+    "commit": "d235bc42",
+    "agent": null,
+    "session_id": "377a1a74-10ea-588e-aa72-28c0126d3167",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Which colony is foraging?",
+  "question": "Which colony looks like it is foraging: ants heading out to the food on the right and coming back to the nest on the left carrying it?",
+  "context_md": "Two walks on the same colony test, same seed, same frames (3,000 to 7,350, every 150). The nest is the thin strip on the left; the food pile is the red block on the right, 140 cells away.\n\n**Magenta** is an ant with nothing in its crop, **cyan** is an ant carrying food. Both colonies are 20 ants and neither breeds.\n\nOne of the two is today's walk and one is the new walk with a pull away from home along a trail. The round-trip counts are held back so the choice is by eye; I'll give them after.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - today's walk",
+      "files": [
+        "20260924T044330463Z-cf549d/000-frame-000.png",
+        "20260924T044330463Z-cf549d/001-frame-001.png",
+        "20260924T044330463Z-cf549d/002-frame-002.png",
+        "20260924T044330463Z-cf549d/003-frame-003.png",
+        "20260924T044330463Z-cf549d/004-frame-004.png",
+        "20260924T044330463Z-cf549d/005-frame-005.png",
+        "20260924T044330463Z-cf549d/006-frame-006.png",
+        "20260924T044330463Z-cf549d/007-frame-007.png",
+        "20260924T044330463Z-cf549d/008-frame-008.png",
+        "20260924T044330463Z-cf549d/009-frame-009.png",
+        "20260924T044330463Z-cf549d/010-frame-010.png",
+        "20260924T044330463Z-cf549d/011-frame-011.png",
+        "20260924T044330463Z-cf549d/012-frame-012.png",
+        "20260924T044330463Z-cf549d/013-frame-013.png",
+        "20260924T044330463Z-cf549d/014-frame-014.png",
+        "20260924T044330463Z-cf549d/015-frame-015.png",
+        "20260924T044330463Z-cf549d/016-frame-016.png",
+        "20260924T044330463Z-cf549d/017-frame-017.png",
+        "20260924T044330463Z-cf549d/018-frame-018.png",
+        "20260924T044330463Z-cf549d/019-frame-019.png",
+        "20260924T044330463Z-cf549d/020-frame-020.png",
+        "20260924T044330463Z-cf549d/021-frame-021.png",
+        "20260924T044330463Z-cf549d/022-frame-022.png",
+        "20260924T044330463Z-cf549d/023-frame-023.png",
+        "20260924T044330463Z-cf549d/024-frame-024.png",
+        "20260924T044330463Z-cf549d/025-frame-025.png",
+        "20260924T044330463Z-cf549d/026-frame-026.png",
+        "20260924T044330463Z-cf549d/027-frame-027.png",
+        "20260924T044330463Z-cf549d/028-frame-028.png",
+        "20260924T044330463Z-cf549d/029-frame-029.png"
+      ],
+      "caption": "same seed, same frames",
+      "meta": {
+        "ants in the colony": 20
+      },
+      "focus": null
+    },
+    {
+      "label": "B - new walk, away from home along a trail",
+      "files": [
+        "20260924T044330463Z-cf549d/030-frame-000.png",
+        "20260924T044330463Z-cf549d/031-frame-001.png",
+        "20260924T044330463Z-cf549d/032-frame-002.png",
+        "20260924T044330463Z-cf549d/033-frame-003.png",
+        "20260924T044330463Z-cf549d/034-frame-004.png",
+        "20260924T044330463Z-cf549d/035-frame-005.png",
+        "20260924T044330463Z-cf549d/036-frame-006.png",
+        "20260924T044330463Z-cf549d/037-frame-007.png",
+        "20260924T044330463Z-cf549d/038-frame-008.png",
+        "20260924T044330463Z-cf549d/039-frame-009.png",
+        "20260924T044330463Z-cf549d/040-frame-010.png",
+        "20260924T044330463Z-cf549d/041-frame-011.png",
+        "20260924T044330463Z-cf549d/042-frame-012.png",
+        "20260924T044330463Z-cf549d/043-frame-013.png",
+        "20260924T044330463Z-cf549d/044-frame-014.png",
+        "20260924T044330463Z-cf549d/045-frame-015.png",
+        "20260924T044330463Z-cf549d/046-frame-016.png",
+        "20260924T044330463Z-cf549d/047-frame-017.png",
+        "20260924T044330463Z-cf549d/048-frame-018.png",
+        "20260924T044330463Z-cf549d/049-frame-019.png",
+        "20260924T044330463Z-cf549d/050-frame-020.png",
+        "20260924T044330463Z-cf549d/051-frame-021.png",
+        "20260924T044330463Z-cf549d/052-frame-022.png",
+        "20260924T044330463Z-cf549d/053-frame-023.png",
+        "20260924T044330463Z-cf549d/054-frame-024.png",
+        "20260924T044330463Z-cf549d/055-frame-025.png",
+        "20260924T044330463Z-cf549d/056-frame-026.png",
+        "20260924T044330463Z-cf549d/057-frame-027.png",
+        "20260924T044330463Z-cf549d/058-frame-028.png",
+        "20260924T044330463Z-cf549d/059-frame-029.png"
+      ],
+      "caption": "same seed, same frames",
+      "meta": {
+        "ants in the colony": 20
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
