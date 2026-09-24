@@ -808,3 +808,73 @@ tunnel rather than in a straight line, or born small (an egg or brood) and
 grown.
 
 **Data:** `Reports/data/lab-budtrace-{any-1,nest-1b,nest-4b}-2026-09-24.csv.gz`.
+
+## 11. Stage 2 with a direction: away from home along a route
+
+§9 traced stage 2's loss at 90 cells to empty founders walking the laid
+trail both ways. The plan's §4c proposed a "scent getting stronger" sense.
+**Its §4d says why that is wrong for the empty leg**: the trail an empty ant
+reads is B, laid at a constant rate by laden ants, so the most lies where
+they stall near the nest, and its gradient points home. A rising-scent sense
+would lead empty ants back to the nest. The bed's hand-laid B ramp rises
+toward the food, so that mistake would have measured well here and failed
+in the game. §4d's answer is what recruited ants do: a weak pull **away from
+home**, from the home vector.
+
+**Built as `PIXEL_PHYSICS_CHOOSER=trailaway`**: stage 2, plus, for an empty
+ant, `AWAY_GAIN × presence × cos(heading, away from home)` on each heading
+(`AWAY_GAIN` 1). **Scaled by presence**, so it acts only on a route: off a
+trail an empty ant explores as before, and cannot be pinned against a wall
+that lies away from home the way a laden ant was in a U-bend. Guard
+`on_a_route_an_empty_ant_turns_away_from_home_under_trailaway_and_not_under_trail`,
+on an evenly laid trail so no gradient can supply the direction; watched red
+with the gain at 0 (the ant walked 84 cells toward home). S4 and S5 now set
+the ant's start as home (it was the world's corner); the other arms are
+byte-identical with or without that.
+
+**Predictions, written before the runs:** S0–S3 byte-identical to stage 2;
+S5 trailed row 21+ of 24 at a median well under 1,189, near or below 702;
+bed, nest rule on every arm, gap-90 round trips from 9 toward 13.5, first
+trips from 34 of 80 toward 64, 140 and 200 no worse than 5.5 and 4.
+
+**Scenes:** S0–S3 and S5 laden byte-identical to stage 2, as predicted.
+
+| | Shipped | Stage 2 | **Away from home** |
+|---|---|---|---|
+| S5 trailed row: got 60 cells east | 21, median 702 | 21, median 1,189 | **24 of 24, median 297** |
+| S5: furthest east, median | 144 | 97 | **159** |
+| S4: first branch follows the trail, level / up | 18 / never | 22 / 18 | 22 / 17 |
+| S4: time on the trailed branch, level / up | 73% / 0% | 40% / 22% | **96.5% / 60%** |
+
+In S4 the ant now goes out the trailed branch and stays near its blind end,
+which is what a trail's far end is for; in the game it is the food.
+
+**The colony bed, nest rule on every arm** (20 founders, no births in any
+arm; today's walk and stage 2 reproduce §9's runs byte for byte). Medians a
+run; higher / lower of 24 seeds against stage 2 in brackets:
+
+| Founders | gap 90 | gap 140 | gap 200 |
+|---|---|---|---|
+| round trips: shipped → stage 2 → **away** | 13.5 → 9 → **14** (23 / 1) | 1 → 5.5 → **14** (23 / 0) | 0 → 4 → **11** (23 / 0) |
+| reached the food | 17 → 10.5 → **15** | 5 → 7 → **15** | 0 → 4.5 → **13** |
+| cells taken from the pile | 31 → 45 → **85** | 7 → 22.5 → **67.5** | 0 → 11 → **39** |
+| starved by frame 6,000, all seeds | 19 → 249 → **95** | 331 → 356 → **150** | 452 → 397 → **219** |
+
+**The food budget closes** (residual −11, 3 and 27 cells over 24 runs, against
+2,130, 1,698 and 977 taken), so the extra food is food.
+
+**Traced, every founder's first trip out** (gap 90, 4 seeds, the §9 seeds):
+54 of 80 reach the food, against 34 on stage 2 and 64 on the shipped walk.
+Those that make it are faster and straighter than the shipped walk (median
+frame 1,893 against 2,478; 97.5 steps against 119; 4 turn-backs against
+12). **What is left:** 26 still never get there (16 on the shipped walk),
+and early starvation at 90 cells stays above the shipped walk's.
+
+**So the loop now works at every distance on this bed**: founders make a
+median of 11–14 round trips at 90, 140 and 200 cells, where the shipped walk
+makes 13.5, 1 and 0. Still behind a switch, and not yet seen by eye.
+
+**Data:** `Reports/data/bed-trailaway-2026-09-24.log.gz`,
+`bed-trailaway-first-trip-gap90-2026-09-24.txt`,
+`scene-trailaway-{s4,s5trail}-2026-09-24.log`; the shipped and stage-2 arms
+are §9's `bed-budsite-{offnest,trailnest}`.

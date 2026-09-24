@@ -1,0 +1,82 @@
+scenes: scene=s4 seeds=24 seed0=1 frames=24000 gap=90 energies=[1.0, 0.5] DROP_REACH=shipped
+  REVERSE=shipped CHOOSER=trailaway
+
+S4: an empty ant at a fork, trail B down one branch (12000 frames; prediction in this file's header)
+  seed decisions        first    main   level      up    along B  longest still
+     1      2000     Level@35   66.5%   26.7%    6.8%          -         9 Main
+     2      2000       Up@137   65.8%   19.2%   15.1%          -         9 Main
+     3      2000        Up@28   50.5%   18.9%   30.6%          -        17 Level
+     4      2000     Level@28   64.7%   17.9%   17.4%          -        10 Main
+     5      2000     Level@25   72.5%   11.9%   15.6%          -         8 Level
+     6      2000     Level@25   56.6%   22.0%   21.4%          -        12 Main
+     7      2000        Up@41   63.1%   25.6%   11.2%          -        10 Main
+     8      2000     Level@30   53.0%   40.5%    6.5%          -        10 Level
+     9      2000     Level@31   49.2%   29.4%   21.4%          -         8 Main
+    10      2000     Level@39   61.8%   33.2%    5.0%          -         8 Main
+    11      2000     Level@31   77.8%   11.9%   10.3%          -        11 Main
+    12      2000     Level@32   44.2%   52.1%    3.6%          -        10 Level
+    13      2000     Level@34   41.5%   44.0%   14.4%          -        10 Main
+    14      2000     Level@26   41.4%   40.9%   17.8%          -         8 Main
+    15      2000     Level@38   44.2%   40.7%   15.1%          -         8 Main
+    16      2000        Up@39   77.3%    0.0%   22.7%          -        12 Up
+    17      2000        Up@35   48.5%   42.4%    9.2%          -         9 Level
+    18      2000     Level@41   61.5%   27.4%   11.2%          -        11 Main
+    19      2000        Up@30   69.5%   18.3%   12.2%          -         9 Main
+    20      2000    Level@213   45.7%   40.8%   13.6%          -         8 Main
+    21      2000     Level@36   44.1%   40.3%   15.6%          -         9 Level
+    22      2000        Up@37   51.1%   25.9%   22.9%          -        10 Main
+    23      2000     Level@35   72.9%    8.4%   18.7%          -        11 Main
+    24      2000     Level@38   59.3%   30.6%   10.1%          -         9 Main
+  S4 trail=none: first branch level 17 / up 7 / neither 0 (median decision 35) | time main 57.6%  level 27.9%  up 14.5% | trail-B reading on the trailed branch - | longest stand-still median 10, max 17; runs standing 100+ decisions on a branch 0
+  seed decisions        first    main   level      up    along B  longest still
+     1      2000     Level@35    2.2%   93.6%    4.2%    -0.2451         9 Level
+     2      2000       Up@137    7.0%   83.5%    9.4%    -0.1933         9 Level
+     3      2000     Level@28    1.2%   98.8%    0.0%    -0.2276        17 Level
+     4      2000     Level@28    1.9%   93.8%    4.2%    -0.2063        10 Level
+     5      2000     Level@25    1.1%   98.9%    0.0%    -0.2045         8 Level
+     6      2000     Level@25    1.8%   94.3%    3.9%    -0.2206        12 Level
+     7      2000     Level@41    1.9%   98.0%    0.0%    -0.2263        10 Level
+     8      2000     Level@30    1.3%   98.7%    0.0%    -0.2233        10 Level
+     9      2000     Level@31    1.5%   98.5%    0.0%    -0.1546         8 Level
+    10      2000     Level@39    2.4%   97.6%    0.0%    -0.2164         8 Level
+    11      2000     Level@31    1.3%   98.7%    0.0%    -0.2692        11 Level
+    12      2000     Level@32    1.5%   98.5%    0.0%    -0.2560        10 Level
+    13      2000     Level@34    2.4%   95.1%    2.5%    -0.1745        10 Level
+    14      2000     Level@26    1.1%   98.9%    0.0%    -0.2171         8 Level
+    15      2000     Level@38    1.7%   98.3%    0.0%    -0.2152         8 Level
+    16      2000     Level@39    1.8%   98.2%    0.0%    -0.2167        12 Level
+    17      2000        Up@35    1.9%   93.5%    4.6%    -0.2382         9 Level
+    18      2000     Level@41    1.8%   98.2%    0.0%    -0.1969        11 Level
+    19      2000     Level@29    1.6%   98.5%    0.0%    -0.1820         9 Level
+    20      2000    Level@213   10.4%   89.6%    0.0%    -0.2160         8 Level
+    21      2000     Level@36    1.6%   98.4%    0.0%    -0.2299         9 Level
+    22      2000     Level@34    1.6%   98.5%    0.0%    -0.2051        10 Level
+    23      2000     Level@35    1.6%   98.3%    0.0%    -0.2317        11 Level
+    24      2000     Level@38    1.8%   98.2%    0.0%    -0.2400         9 Level
+  S4 trail=level: first branch level 22 / up 2 / neither 0 (median decision 35) | time main 2.3%  level 96.5%  up 1.2% | trail-B reading on the trailed branch -0.2170 over 46312 decisions | longest stand-still median 10, max 17; runs standing 100+ decisions on a branch 0
+  seed decisions        first    main   level      up    along B  longest still
+     1      2000     Level@35   36.3%   33.0%   30.7%    -0.8673         9 Main
+     2      2000       Up@137   30.4%   25.1%   44.5%    -0.8665         9 Main
+     3      2000        Up@28   14.2%   18.3%   67.5%    -0.8749        17 Up
+     4      2000     Level@28   14.4%   41.5%   44.1%    -0.8652        10 Level
+     5      2000        Up@25   16.1%   19.0%   65.0%    -0.8737         8 Up
+     6      2000        Up@25   13.9%   14.0%   72.0%    -0.8732        12 Up
+     7      2000        Up@41    4.8%   22.9%   72.3%    -0.8683        10 Up
+     8      2000        Up@30    2.2%   18.6%   79.2%    -0.8784        10 Up
+     9      2000     Level@31   11.7%   48.0%   40.3%    -0.8650         8 Level
+    10      2000     Level@39   20.8%   16.4%   62.9%    -0.8763         8 Level
+    11      2000        Up@31    3.6%   35.0%   61.3%    -0.8756        11 Up
+    12      2000        Up@32    5.2%   21.4%   73.4%    -0.8750        10 Up
+    13      2000     Level@34    5.2%   41.9%   53.0%    -0.8618        10 Up
+    14      2000        Up@26    3.5%   23.6%   72.9%    -0.8758         8 Up
+    15      2000        Up@38   13.9%   18.1%   68.0%    -0.8711         8 Up
+    16      2000        Up@39   23.1%   15.9%   61.0%    -0.8764        12 Up
+    17      2000        Up@35   18.1%    8.6%   73.3%    -0.8734         9 Up
+    18      2000        Up@41    4.8%   27.1%   68.0%    -0.8712        11 Up
+    19      2000        Up@29    5.0%   40.3%   54.8%    -0.8751         9 Level
+    20      2000    Level@213   18.6%   35.5%   45.9%    -0.8685         8 Up
+    21      2000        Up@36   26.5%   10.1%   63.5%    -0.8731         9 Level
+    22      2000        Up@37   15.9%   29.1%   55.0%    -0.8773        10 Up
+    23      2000        Up@35   14.7%   37.4%   48.0%    -0.8725        11 Level
+    24      2000     Level@38   16.1%   11.6%   72.3%    -0.8733         9 Up
+  S4 trail=up: first branch level 7 / up 17 / neither 0 (median decision 35) | time main 14.1%  level 25.5%  up 60.4% | trail-B reading on the trailed branch -0.8726 over 28962 decisions | longest stand-still median 10, max 17; runs standing 100+ decisions on a branch 0

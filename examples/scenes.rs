@@ -740,6 +740,8 @@ fn s5trail(seed: u64, trail: bool, frames: u64) -> S5Run {
     world.set_weather_pin(pixel_physics::sim::weather::Pin::Clear);
     world.plant_ant(S5_START, S5_ROW);
     let ant = world.live_organism_ids().into_iter().find(|&id| world.organism(id).is_some_and(|s| s.species == species)).expect("the ant was placed");
+    // Home is where it starts; see the same line in `s4`.
+    world.set_organism_forage_anchor(ant, (S5_START, S5_ROW));
     let (x_lo, x_hi) = (S5_START, 190);
     let target: Vec<((i32, i32), pheromone::Scent)> = if trail {
         (x_lo..=x_hi)
@@ -875,6 +877,12 @@ fn s4(seed: u64, trail: &str, frames: u64) -> S4Run {
     world.set_weather_pin(pixel_physics::sim::weather::Pin::Clear);
     world.plant_ant(S4_FORK - 12, S4_Y);
     let ant = world.live_organism_ids().into_iter().find(|&id| world.organism(id).is_some_and(|s| s.species == species)).expect("the ant was placed");
+    // **Home is where it starts**, as a nest contact would have set it. Only
+    // an empty ant under `PIXEL_PHYSICS_CHOOSER=trailaway` reads home (every
+    // other walk reads it only while carrying), so the other arms are
+    // byte-identical with or without this line; without it home is the
+    // world's corner, (0, 0).
+    world.set_organism_forage_anchor(ant, (S4_FORK - 12, S4_Y));
     let chain = world.organism(ant).expect("live").chain.clone();
     assert!(chain.iter().all(|&(_, y)| y == S4_Y), "the ant must start lying along the main tunnel: {chain:?}");
 

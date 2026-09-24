@@ -3242,6 +3242,11 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     (only carrying sends one home), and at the nest the child never fits,
     because a birth lays an adult-length body in a straight line and the
     tunnels are full. Even breeding anywhere, no ant breeds at the nest.
+  - **Stage 2 with a direction** (§11, `PIXEL_PHYSICS_CHOOSER=trailaway`):
+    an empty ant on a route is pulled away from home, not up the trail's
+    scent, which points home. **The loop works at every distance on the
+    bed**: founders make a median of 14, 14 and 11 round trips at 90, 140
+    and 200 cells, against today's 13.5, 1 and 0. Not yet seen by eye.
   - The per-decision mix matched the formula within a point at both
     energies. The reach predictions were low; the report says why.
   - The scene's own checks caught rain pooling on the slab and an ant dying

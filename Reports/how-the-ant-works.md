@@ -15,7 +15,8 @@ will be.
   2026-09-23 from `chooser_step`, `fall_if_unsupported` and `commit_step`;
   §6d, §12 and §15 again for stage 2 (`trail_presence`, `brain_inputs`),
   and §9 for crumbs not sliding (`update_powder`'s `rolls` gate); §9 and
-  §12 for the bud-at-nest switch (`try_bud`, `bud_at_nest`).
+  §12 for the bud-at-nest switch (`try_bud`, `bud_at_nest`); §6d and §12
+  for `trailaway` (`chooser_step`'s `away_home_cos`, `AWAY_GAIN`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -350,9 +351,17 @@ same, plus the trail terms at the end of this section.
   longer changes `p_move`. The sensed values are still what the trace
   records.
 
+**`PIXEL_PHYSICS_CHOOSER=trailaway` adds a direction along a route**, for an
+empty ant only (one not carrying food or spoil): each heading also scores
+`AWAY_GAIN × presence × cos(heading, away from home)`, with home from
+`home_target` as the laden ant uses it (`AWAY_GAIN` 1). Scaled by presence,
+it acts only on a route; off a trail an empty ant scores exactly as under
+`trail`. On a route an ant facing home can turn round (turning round now
+scores `AWAY_GAIN × presence`), and one facing away almost never does.
+
 The decision trace records the patience each choice scored with, the home
-cosine of the heading picked, and under stage 2 its trail presence
-(`patience`, `chosen_cos`, `chosen_route`).
+cosine of the heading picked (for an empty ant too, under `trailaway`), and
+under stage 2 its trail presence (`patience`, `chosen_cos`, `chosen_route`).
 
 ## 7. The trail planes
 
@@ -483,7 +492,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_TROPHALLAXIS` | on | `off` |
 | `PIXEL_PHYSICS_DROP_REACH` | through bodies | `adjacent`: a food drop looks only at the 8 neighbours |
 | `PIXEL_PHYSICS_BUD_SITE` | anywhere | `nest`: a species with a nest material buds only at its nest (§9) |
-| `PIXEL_PHYSICS_CHOOSER` | off | `on`: the stage-1 chooser (§6d); `nopatience`: the same with patience held at 1; `trail`: stage 2, the chooser reading the trail where it would step, with the throttle retired |
+| `PIXEL_PHYSICS_CHOOSER` | off | `on`: the stage-1 chooser (§6d); `nopatience`: the same with patience held at 1; `trail`: stage 2, the chooser reading the trail where it would step, with the throttle retired; `trailaway`: stage 2 plus an empty ant's pull away from home along a route |
 | `SPOIL_IS_CARGO` | on | `0`: spoil no longer counts toward `Carrying` |
 | `PIXEL_PHYSICS_DIG_SPOIL` | kept | `destroy`: dug cells vanish |
 | `PIXEL_PHYSICS_BURROW_LINING` | on | `off`: no `packedsoil` lining |

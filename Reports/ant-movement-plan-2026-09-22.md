@@ -700,6 +700,17 @@ goes, any later measurement on the colony bed states which drop rule it ran.
    the chooser). The breeding is not. **Not shipped; the open question is
    whether an ant may breed away from the nest.**
 
+   **Stage 2's direction, built 2026-09-24** (scenes report §11): not §4c's
+   rising-scent sense, which on trail B would point empty ants home, but
+   §4d's pull away from home along a route, `PIXEL_PHYSICS_CHOOSER=
+   trailaway`. With the nest rule on every arm, founders make a median of
+   14, 14 and 11 round trips at 90, 140 and 200 cells, against the shipped
+   walk's 13.5, 1 and 0 and stage 2's 9, 5.5 and 4; S5's trailed row is
+   crossed in 297 decisions against the shipped 702. Still behind the
+   switch; 26 of 80 founders still miss the food on their first trip at 90
+   cells (16 shipped). §4c stays unbuilt: its one live use is the laden ant
+   on A, which the home term already aims.
+
 7. **Breeding only at the nest** (owner ruling 2026-09-23; in the end,
    *where* is a trait a lineage evolves). First as a switch,
    `PIXEL_PHYSICS_BUD_SITE=nest`, measured on the colony bed and on the

@@ -2066,6 +2066,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let frames_dir: Option<String> = arg_str("framesdir");
     // `gifcount=N`: stop capturing after N frames.
     let gif_count: usize = arg("gifcount").unwrap_or(usize::MAX);
+    let gif_ants = flag("gifants");
     assert!(!laden_csv || tracing, "ladencsv needs `trace`: the brain evaluation it records is gated on it, so without it every row would be missing");
     // **Asserted rather than documented, because the failure is silent.** The
     // emit site sits inside the existing every-100-frames sample block, so a
@@ -3000,6 +3001,27 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             renderer.camera_x = cx - vw / 2;
             renderer.camera_y = cy - vh / 2;
             renderer.draw(&w, &particles, &touched, &mut full, (vw as u32, vh as u32), true);
+            // **`gifants=1`: every ant painted over the frame, magenta while
+            // empty and cyan while carrying food**, so the loop reads as colour
+            // going out and coming back. Owner, 2026-09-24: an ant blends into
+            // the soil. The same palette as `labshot mark=ants`.
+            if gif_ants {
+                let (x0, y0) = (renderer.camera_x, renderer.camera_y);
+                for id in w.live_organism_ids() {
+                    let Some(st) = w.organism(id) else { continue };
+                    if st.species != species_id {
+                        continue;
+                    }
+                    let rgb: [u8; 3] = if st.crop.is_some_and(|c| c.worth() > 0.0) { [0, 255, 255] } else { [255, 0, 255] };
+                    for &(x, y) in &st.chain {
+                        let (px, py) = (x - x0, y - y0);
+                        if (0..vw).contains(&px) && (0..vh).contains(&py) {
+                            let i = ((py * vw + px) * 4) as usize;
+                            full[i..i + 3].copy_from_slice(&rgb);
+                        }
+                    }
+                }
+            }
             // **Which cells in view are crumbs, per captured frame**, so a card
             // can carry the count under the picture and a crumb can be found in
             // it: a few brown cells on brown soil are easy to miss by eye.

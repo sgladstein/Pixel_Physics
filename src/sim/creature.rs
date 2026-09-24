@@ -12205,6 +12205,11 @@ pub enum Chooser {
     /// (`trail_presence`) and the trail-gradient throttle retired
     /// (`brain_inputs`). Plan §4b, §4e.
     Trail,
+    /// **Stage 2 with a direction along the route** (plan §4d): `Trail`, plus
+    /// an empty ant's pull *away* from home, scaled by the trail presence of
+    /// each heading (`AWAY_GAIN`). A route says "go this way or that"; home
+    /// says which.
+    TrailAway,
 }
 
 /// The environment's setting, read once per process.
@@ -12214,6 +12219,7 @@ pub fn chooser_from_env() -> Chooser {
         Ok("on") => Chooser::On,
         Ok("nopatience") => Chooser::NoPatience,
         Ok("trail") => Chooser::Trail,
+        Ok("trailaway") => Chooser::TrailAway,
         _ => Chooser::Off,
     })
 }
@@ -12305,7 +12311,7 @@ const DIR_LEN: [f32; 2] = [1.0, std::f32::consts::SQRT_2];
 /// good (21 of 24 runs at a fork, 24 of 24 in the lattice).
 fn brain_inputs(world: &World, inputs: &[f32; brain::BRAIN_INPUTS]) -> [f32; brain::BRAIN_INPUTS] {
     let mut out = *inputs;
-    if chooser_of(world) == Chooser::Trail {
+    if matches!(chooser_of(world), Chooser::Trail | Chooser::TrailAway) {
         out[brain::BrainInput::PheroAAlong as usize] = 0.0;
         out[brain::BrainInput::PheroBAlong as usize] = 0.0;
     }
@@ -12327,6 +12333,31 @@ const TRAIL_HALF: f32 = pheromone::DEPOSIT as f32 / 10.0;
 /// down the 45-degree branch of a fork takes about 80% of arrivals against
 /// straight on untrailed (`ant-scenes-2026-09-23.md` §4's bar is 75%).
 const TRAIL_GAIN: f32 = 3.0;
+
+/// **How hard an empty ant on a route is drawn away from home**
+/// (`Chooser::TrailAway`, plan §4d): a heading scores `AWAY_GAIN x presence x
+/// cos(heading, away from home)` on top of `TRAIL_GAIN`'s pull onward.
+///
+/// **Why away from home and not "the scent is rising"**: the trail an empty
+/// ant reads is B, laid at a constant rate by laden ants, so the most lies
+/// where they stall, near the nest -- its gradient points home (plan §2).
+/// A rising-scent sense on it would lead empty ants back to the nest. The
+/// colony bed's hand-laid B ramp rises toward the food, so that mistake
+/// would have measured well there and failed in the game. Recruited ants
+/// get the direction from path integration, walking away from home.
+///
+/// **Scaled by presence, so it acts only on a route**: off a trail an empty
+/// ant explores exactly as under `Trail` (S0 does not move), and an explorer
+/// cannot be pinned against a wall that lies away from home the way a laden
+/// ant was in a U-bend before patience.
+///
+/// **At 1**, on a full route (presence ~0.9) with `Persist` 1: facing home,
+/// going on scores 2.8 and turning round 0.9, about a 10% chance a decision
+/// of turning round; facing away, going on scores 4.6 and turning round 0.
+/// Measured against the traced failure it exists for: 46 of 80 stage-2
+/// founders walked the laid trail both ways and ended 2.5 cells behind where
+/// they started (`Reports/ant-scenes-2026-09-23.md` §9).
+const AWAY_GAIN: f32 = 1.0;
 
 /// **Is the step along `d` onto a route?** The scent where the head would go
 /// and one cell beyond, the larger of the two (plan §4b: about an antenna's
@@ -12415,7 +12446,7 @@ fn chooser_step(
     mode: Chooser,
 ) -> bool {
     let patience_on = mode != Chooser::NoPatience;
-    let reads_trail = mode == Chooser::Trail;
+    let reads_trail = matches!(mode, Chooser::Trail | Chooser::TrailAway);
     let Some((chain, groups, fates)) = world.organism(organism).map(|s| (s.chain.clone(), s.segment_groups.clone(), s.fates)) else {
         note_outcome(world, DecisionOutcome::NoBody);
         return false;
@@ -12475,6 +12506,25 @@ fn chooser_step(
     let gain = pull.map_or(0.0, |(_, g)| HOME_GAIN * g * patience);
     let laden = world.organism(organism).and_then(|s| s.crop).is_some_and(|c| c.worth() > 0.0);
     let route = |d: u8| if reads_trail { trail_presence(world, (hx, hy), d, laden) } else { 0.0 };
+    // **Which way along a route, for an empty ant** (`AWAY_GAIN`): the
+    // cosine of each heading with home, from `home_target` as the laden ant
+    // uses it. `None` for a laden ant, one hauling spoil, or one standing on
+    // its target.
+    let away_from = if mode == Chooser::TrailAway && pull.is_none() && !laden {
+        world.organism(organism).filter(|s| s.spoil.is_none()).map(|s| home_target(world, s))
+    } else {
+        None
+    };
+    let away_home_cos = |d: u8| -> Option<f32> {
+        let (ax, ay) = away_from?;
+        let (vx, vy) = ((ax - hx) as f32, (ay - hy) as f32);
+        let len = (vx * vx + vy * vy).sqrt();
+        if len < 1.0 {
+            return None;
+        }
+        let (dx, dy) = DIRS[d as usize];
+        Some((dx as f32 * vx + dy as f32 * vy) / (len * DIR_LEN[(d & 1) as usize]))
+    };
     let score = |d: u8| -> f32 {
         let rel = (d + 8 - heading) % 8;
         let side = match rel {
@@ -12482,7 +12532,10 @@ fn chooser_step(
             5..=7 => (-turn).max(0.0),
             _ => 0.0,
         };
-        persist * TURN_PREF[rel.min(8 - rel) as usize] * (1.0 + TRAIL_GAIN * route(d)) + side + home_cos(d).map_or(0.0, |c| gain * c)
+        persist * TURN_PREF[rel.min(8 - rel) as usize] * (1.0 + TRAIL_GAIN * route(d))
+            + side
+            + home_cos(d).map_or(0.0, |c| gain * c)
+            + away_home_cos(d).map_or(0.0, |c| -AWAY_GAIN * route(d) * c)
     };
     // Usable headings in `DIRS` order, then the crossing, so the draw maps to
     // the same option every run.
@@ -12490,7 +12543,9 @@ fn chooser_step(
     let scores: Vec<f32> = options.iter().map(|&d| score(d)).collect();
     let pick = choose_weighted(&scores, k, draw.unit_f32());
     let picked_route = if reads_trail { route(options[pick]) } else { f32::NAN };
-    let picked_cos = home_cos(options[pick]).unwrap_or(f32::NAN);
+    // The home cosine of the heading picked, for an empty ant under
+    // `TrailAway` too (negative: outward).
+    let picked_cos = home_cos(options[pick]).or_else(|| away_home_cos(options[pick])).unwrap_or(f32::NAN);
     if world.decision_log.is_some() {
         world.decision_scratch.patience = patience;
         world.decision_scratch.chosen_cos = picked_cos;
@@ -23740,6 +23795,62 @@ mod tests {
         // ant's energy is not pinned, so the bar sits under the hungry case.
         assert!(shipped_rev * 6 >= shipped_steps, "the shipped walk turned round {shipped_rev} times in {shipped_steps} steps: the count is blind");
         assert!(rev * 20 <= steps, "the chooser turned round {rev} times in {steps} steps");
+    }
+
+    /// **On a route, an empty ant under `TrailAway` turns round and walks away
+    /// from home; under `Trail` it keeps going the way it faces** -- stage 2's
+    /// missing direction (`Reports/ant-scenes-2026-09-23.md` §9), on an evenly
+    /// laid trail so no gradient can supply it. The ant starts facing home,
+    /// 80 cells out along a flat trail B. `Trail` is the control: presence
+    /// alone says "route" and nothing about which way, so the ant walks on
+    /// toward home. **Watched red** with `AWAY_GAIN` at 0: the `TrailAway` arm
+    /// then walks home too.
+    #[test]
+    fn on_a_route_an_empty_ant_turns_away_from_home_under_trailaway_and_not_under_trail() {
+        let walk = |mode: Chooser| -> (i32, i32) {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            for x in 0..160 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            for y in 0..41 {
+                for x in [0, 159] {
+                    w.set(x, y, stone);
+                }
+            }
+            w.chooser = Some(mode);
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let head = w.organism(ant).expect("live").chain[0];
+            let half = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy * 0.5;
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.heading = 4;
+                st.forage_anchor = (20, 40);
+            }
+            let top_up = |w: &mut World| {
+                for x in 10..150 {
+                    let have = w.pheromone_at(Channel::B, x, 40);
+                    if have < pheromone::DEPOSIT {
+                        w.deposit_pheromone(Channel::B, x, 40, pheromone::DEPOSIT - have);
+                    }
+                }
+            };
+            let mut far_east = head.0;
+            for _ in 0..900 {
+                top_up(&mut w);
+                w.organism_mut(ant).expect("live").energy = half;
+                run(&mut w, 1);
+                far_east = far_east.max(w.organism(ant).expect("live").chain[0].0);
+            }
+            assert!(w.organism(ant).is_some_and(|s| s.crop.is_none()), "the ant must stay empty");
+            (w.organism(ant).expect("live").chain[0].0 - head.0, far_east - head.0)
+        };
+        let (trail_net, _) = walk(Chooser::Trail);
+        let (away_net, away_far) = walk(Chooser::TrailAway);
+        assert!(trail_net <= -20, "under Trail the ant should walk on toward home, and it moved {trail_net} cells: the scene cannot show a direction");
+        assert!(away_net >= 20 && away_far >= 20, "under TrailAway the ant should turn and walk away from home: net {away_net}, furthest east {away_far}");
     }
 
     /// **A fed, laden ant beside food and facing away from home still walks
