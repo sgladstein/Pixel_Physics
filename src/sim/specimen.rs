@@ -1233,6 +1233,12 @@ mod tests {
     #[test]
     fn a_released_animal_falls_like_a_founder_does() {
         let mut w = floored_world();
+        // Today's walk, pinned: the released ant and the control founder are
+        // different colonies ten cells apart, and under the chooser (the ant's
+        // default since 2026-09-24) they meet within 400 frames and the founder
+        // bites the stranger's head off -- one attack, one cell, booked
+        // `KILLED`. The question here is whether a release takes ticks.
+        w.chooser = Some(crate::sim::creature::Chooser::Off);
         let id = distinctive_ant(&mut w);
         let spec = capture(&w, id, "keeper").expect("keepable");
 

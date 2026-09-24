@@ -16,7 +16,10 @@ will be.
   §6d, §12 and §15 again for stage 2 (`trail_presence`, `brain_inputs`),
   and §9 for crumbs not sliding (`update_powder`'s `rolls` gate); §9 and
   §12 for the bud-at-nest switch (`try_bud`, `bud_at_nest`); §6d and §12
-  for `trailaway` (`chooser_step`'s `away_home_cos`, `AWAY_GAIN`).
+  for `trailaway` (`chooser_step`'s `away_home_cos`, `AWAY_GAIN`). §1, §4,
+  §5, §6, §10, §11 and §12 rewritten 2026-09-24 when `trailaway` and the
+  `Drop` hunger wires became the default (`chooser_from_env`, `chooser_for`,
+  `ant.ron`'s `Drop` row).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -52,8 +55,10 @@ can end the tick early.
 4. **Standing costs** are charged: idle, synapse, force and armour taxes.
 5. **Act.** `act`: attack, share, feed, drop, dig, at most one of each and in
    that order, with early returns (§5).
-6. **Move or tumble** (§6). One draw against `P(move)`: on success, step;
-   on failure, maybe tumble.
+6. **Move** (§6). The ant walks the chooser (§6d): the support check and
+   any fall first, then one draw against `P(move)`: on success, a heading
+   picked from every usable one; on failure, a pause. A species with no nest
+   walks §6a–§6c instead: on success, step; on failure, maybe tumble.
 7. **Lay trail**, only if the step succeeded (§7).
 8. **Memory upkeep.** `phero_a_mem`, `since_nest += 1`, `still_ticks` (reset
    by a move, otherwise incremented).
@@ -158,7 +163,7 @@ squash(0.5 − 6a))` for a forward difference `a`. That is ±1.5 at a = ±0.1,
 | `EmitA` | unit 4 only | trail A (§7) |
 | `EmitB` | `CarryingFood +2.5`, so **0.714 while laden, 0 while empty** | trail B (§7) |
 | `Feed` | `Bias +0.4, FoodAdjacent +0.8`: 0.29, or 0.55 with food in reach | §5 |
-| `Drop` | `Bias −0.2, AtNest +1.0889, Carrying +0.2`: **0 away from the nest, ~0.5 at it** | §5 |
+| `Drop` | `Bias −2.0, Energy +1.8, AtNest +1.0889, Carrying +0.2`: **0 away from the nest; at it, 0.52 when fed and 0 below about 40% of `start_energy`** | §5 |
 | `DropSpoil` | `AtNest +0.9, Carrying +0.2, SurfaceCurvature +0.169` | §5 |
 | `Dig` | `Bias +0.15, FoodAdjacent +0.8, MoistureGrad −0.55` | §5 |
 | `Share` | `Energy +2.5, KinNeed +1.9, Bias −2.5` | §5 |
@@ -178,9 +183,13 @@ nothing adjacent:
 | Laden, facing away | −2.75 | **0, exactly** (the clamp) |
 | Any, food in reach | 0.25 − 1.16 | 0 |
 
-The trail throttle adds to these sums and can outweigh any of them. Stillness
-adds up to +1.5 after 192 still ticks, which is what eventually frees a stuck
-ant.
+**Under the chooser, which is how the ant walks, two of these do not
+apply:** `HomeAligned` reads 1 whenever the ant carries food off its anchor,
+so every laden row is 0.76 whichever way it faces; and the trail throttle
+(units 0–3) is fed `PheroAAlong` and `PheroBAlong` as 0, so it adds nothing
+(§6d). For a species walking §6a–§6c, the throttle adds to these sums and can
+outweigh any of them. Stillness adds up to +1.5 after 192 still ticks, which
+is what eventually frees a stuck ant.
 
 ## 5. Acting: feed, drop, dig, share, attack
 
@@ -212,7 +221,10 @@ the tick: the ant still gets its move roll (§6) afterwards.
    `PIXEL_PHYSICS_DROP_REACH=adjacent` turns the second rule off.
 
    The drop is
-   not gated on being at the nest, but `Drop` is 0 elsewhere. `deliveries`
+   not gated on being at the nest, but `Drop` is 0 elsewhere, and **at the
+   nest it rises with `Energy`**: a fed ant puts food down at about 0.25 a
+   tick, and one below about 40% of `start_energy` never does, so it keeps
+   what it holds and eats it (§4). `deliveries`
    counts any drop made while `AtNest`; `drop_census` counts every roll by
    outcome (`DropWhy`: lost, placed, delivered, no room), and
    `drops_passed_on` the drops that went past the neighbours.
@@ -296,15 +308,19 @@ chosen heading pointed: toward the anchor, across, or away (cosine above
 0.01, between, below −0.01). "Away" is possible because the pick is the best
 *usable* heading.
 
-**This re-roll is the only place in the engine where anything aims a walking
-ant.** `HomeAligned` only grants or withholds permission to step.
+**Under this walk, the re-roll is the only thing that aims a walking
+animal.** `HomeAligned` only grants or withholds permission to step. Under
+the chooser, which the ant walks, the home and away terms of §6d aim it.
 
-### 6d. The chooser (`chooser_step`), off unless switched on
+### 6d. The chooser (`chooser_step`): how the ant walks
 
-`PIXEL_PHYSICS_CHOOSER=on` (or `World::chooser`) replaces §6a–§6c for every
-walking creature. It is stage 1 of the movement plan and **does not ship**;
-with it off, every species walks exactly as above. `=trail` is stage 2: the
-same, plus the trail terms at the end of this section.
+**The ant walks this, not §6a–§6c.** `chooser_for` gives every species that
+names a nest (the ant and its variants, the beetle, the hopper) the walk set
+by `PIXEL_PHYSICS_CHOOSER` or `World::chooser`, **`trailaway` unless set**. A
+species with no nest (the flitter, the worm) walks §6a–§6c whatever the
+switch says, and so does the ant under `PIXEL_PHYSICS_CHOOSER=off`. The walk
+is built in layers, and the ant walks all of them: items 1–5 below (`on`),
+plus the trail terms (`trail`), plus the away term (`trailaway`).
 
 1. **Every decision, before any roll:** the support check and possible fall
    (§2). A fall is not a move: it lays no trail and costs no step.
@@ -346,12 +362,12 @@ same, plus the trail terms at the end of this section.
   route scores up to 4 times its turn alone, and turning round still scores
   0. Presence has no direction: both ways along a route score the same.
 - **The throttle retires.** `brain_inputs` hands the brain `PheroAAlong`
-  and `PheroBAlong` as 0, for every walking creature. The ant's mirrored
+  and `PheroBAlong` as 0, for every creature walking the chooser. The ant's mirrored
   hidden-unit pairs on those inputs cancel exactly at 0, so the trail no
   longer changes `p_move`. The sensed values are still what the trace
   records.
 
-**`PIXEL_PHYSICS_CHOOSER=trailaway` adds a direction along a route**, for an
+**`trailaway`, the ant's walk, adds a direction along a route**, for an
 empty ant only (one not carrying food or spoil): each heading also scores
 `AWAY_GAIN × presence × cos(heading, away from home)`, with home from
 `home_target` as the laden ant uses it (`AWAY_GAIN` 1). Scaled by presence,
@@ -447,17 +463,17 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
 
 | | Laden (crop holds food) | Empty |
 |---|---|---|
-| Throttle on stepping | trail A's forward difference (units 0–1) | trail B's forward difference (units 2–3) |
-| `HomeAligned` → `Move +3.0` | yes | 0 |
-| Homeward re-roll when tumbling | yes, at chance `fill` | no, uniform only |
+| Throttle on stepping | none under the chooser (§6d); under §6a–§6c, trail A's forward difference (units 0–1) | none under the chooser; under §6a–§6c, trail B's forward difference (units 2–3) |
+| `HomeAligned` → `Move +3.0` | 1 whenever off the anchor, whichever way it faces | 0 |
+| What picks the heading | every usable heading, scored by going on, trail A where it would step, and home at `patience` | every usable heading, scored by going on, trail B where it would step, and away from home on a route |
 | Reversal when boxed in | yes, but a jam of creatures is waited out first | yes, at once |
 | Lays trail B | 0.714 on every step | no |
 | Lays trail A | at the odometer's (by then faded) level | at the odometer's level, strongest just out of the nest |
 | Digs | never (`act` returns first) | when the dig roll wins |
-| Drops | food, ~0.5 at the nest | spoil, if holding it |
+| Drops | food at the nest, about 0.25 a tick when fed, never below ~40% energy | spoil, if holding it |
 | Cost per step | higher (the load) | base |
 | Digests | continuously, the cargo | nothing (the crop is empty) |
-| **Anything that aims it** | the homeward re-roll | **nothing** |
+| **Anything that aims it** | the home term (the homeward re-roll under §6a–§6c) | the away term, on a trail only; nothing off one |
 
 ## 11. Other species sharing this machinery
 
@@ -471,8 +487,10 @@ hidden-unit layout, with two differences that matter:
 - **They lay B on `Carrying`, which includes spoil**, so their diggers lay
   "food trail".
 
-Everything in §2 and §6 is shared engine code, so it applies to every
-walking creature.
+Everything in §2 and §6 is shared engine code. The chooser (§6d) reaches
+every species that names a nest: these, the hopper and the beetle. The
+flitter and the worm name none and walk §6a–§6c. The `Drop` hunger wires
+(§4) are in `ant.ron` only.
 
 ## 12. Switches that change ant behaviour
 
@@ -492,7 +510,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_TROPHALLAXIS` | on | `off` |
 | `PIXEL_PHYSICS_DROP_REACH` | through bodies | `adjacent`: a food drop looks only at the 8 neighbours |
 | `PIXEL_PHYSICS_BUD_SITE` | anywhere | `nest`: a species with a nest material buds only at its nest (§9) |
-| `PIXEL_PHYSICS_CHOOSER` | off | `on`: the stage-1 chooser (§6d); `nopatience`: the same with patience held at 1; `trail`: stage 2, the chooser reading the trail where it would step, with the throttle retired; `trailaway`: stage 2 plus an empty ant's pull away from home along a route |
+| `PIXEL_PHYSICS_CHOOSER` | trailaway | For species with a nest. `off`: the walk of §6a–§6c; `on`: the chooser's first layer only (§6d items 1–5); `nopatience`: the same with patience held at 1; `trail`: the chooser reading the trail where it would step, with the throttle retired, and no away term |
 | `SPOIL_IS_CARGO` | on | `0`: spoil no longer counts toward `Carrying` |
 | `PIXEL_PHYSICS_DIG_SPOIL` | kept | `destroy`: dug cells vanish |
 | `PIXEL_PHYSICS_BURROW_LINING` | on | `off`: no `packedsoil` lining |

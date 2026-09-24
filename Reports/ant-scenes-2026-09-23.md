@@ -1174,3 +1174,45 @@ card with this section's numbers.
 **Data:** `Reports/data/lab-walk-2026-09-24.txt.gz` (every `SUMMARY` line),
 `lab-walk-summary-2026-09-24.txt` (the paired table and the timing pairs),
 `lab-walk-seed5-series-2026-09-24.txt`; the seed-4 sheets are review card `20260924T064546699Z-98e7d7`.
+
+## 15. Made the default
+
+*2026-09-24, the owner's ruling* ("go ahead with option 1, make it the
+default"). An ant now walks `trailaway` with the §13d drop wires; `off`
+restores the walk before it.
+
+**What changed:**
+- `chooser_from_env` defaults to `TrailAway`, and `PIXEL_PHYSICS_CHOOSER=off`
+  is the way back.
+- **Scoped to species that name a nest** (`chooser_for`): the ant and its
+  variants, the beetle and the hopper. The flitter and the worm walk as
+  before, whatever the switch says. This fixes the flitter of §14, and guard
+  `a_species_with_no_nest_walks_the_same_whatever_the_chooser_says` holds it
+  (every decision row equal for the flitter, unequal for the ant; watched red
+  with the scope removed).
+- `ant.ron`'s `Drop` row is `Bias −2.0, Energy +1.8, AtNest +1.0889,
+  Carrying +0.2`. `ant.ron` only; the variants were never measured with it.
+
+**The shipped default is the measured arm, digit for digit.** The default
+build with no switch and no rider reproduces §13d's "drop hunger" arm on the
+colony bed (seeds 1 and 2 at 90 cells, every column), and §14's "new walk +
+drop wires" arm in the lab (seeds 1 and 2, identical `SUMMARY` lines). So
+every number in those sections describes the game as it now ships.
+
+**The suite.** With the default switched, 7 of 1,896 library tests failed,
+and each tests something other than the default walk:
+- Four assert rules of the old walk (tumbles, blocked moves, the homeward
+  re-roll), and now pin `Chooser::Off` with the reason written at the pin.
+- Three are scenes that assume two ants do not meet: the lone grazer, the
+  armoured-ant reach arm, and the released specimen, which under the chooser
+  meets a foreign founder that bites its head off (one attack, one cell,
+  booked `KILLED`, found by probe). All pinned the same way.
+- `the_decision_trace_changes_nothing_it_watches` is **extended rather than
+  pinned**, because the walk the ant runs is the one whose trace matters most.
+  It runs both walks, and the chooser arm for 9,000 frames, since in 3,000 none
+  of its ants had eaten, so the laden half of the trace went untested. The new
+  arm was watched red with a trace-only draw planted inside `chooser_step`.
+
+**Costs, restated:** about 9% of the ant scene's frame (`ascii`'s foraging
+scene, mean 0.722 ms with the default); 2 of 12 lab boxes eaten bare and
+extinct over 120,000 frames, against 0 before (§14).

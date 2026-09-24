@@ -1,7 +1,21 @@
 # Ants
 
-*Current as of: 2026-09-23, when **a half-eaten piece of food stopped coming
-back whole.** An ant nibbles what it carries on the way home, and when it put
+*Current as of: 2026-09-24, when **ants started walking with a purpose.**
+An ant used to shuffle: a step, a stop, a turn back the way it came, so a fed
+one hardly left the nest and a colony found food only if a trail was already
+drawn for it. Now an ant picks its next step from every way it can go,
+preferring to keep going, so an explorer runs in long straight lines. One
+carrying food heads for home and will walk round an obstacle to get there. An
+empty one that crosses a food trail follows it **away from home**, out to
+where the food is. Put a colony down with food somewhere in reach and no trail
+at all, and the first ant to stumble on it walks home laying a trail, and the
+others find that trail and follow it out: a road the colony builds for itself.
+In the lab box this carries home nearly four times the food and the
+generations turn over twice as fast, and a colony can now eat its box bare and
+starve. The same day, **a hungry ant stopped putting food down**: one well fed
+still leaves what it carries at the nest, but a hungry one keeps it and eats
+it. Flying and burrowing animals walk as before. The day before, **a half-eaten
+piece of food stopped coming back whole.** An ant nibbles what it carries on the way home, and when it put
 a half-eaten fruit down the fruit went back to being a whole one, so the next
 ant to pick it up got the eaten half again: about half of what a colony ate
 was food that had already been eaten once. What an ant puts down now is
@@ -493,6 +507,16 @@ way ants organise themselves needs a crowd, and a handful of them milling
 about is what *correct* ant behaviour looks like when there are too few.
 
 ## What they do
+
+**They walk with somewhere to go.** An ant chooses each step from every
+direction it can put its feet, and it would rather keep going than turn, so
+an explorer covers ground in long runs instead of jittering on the spot. When
+it is carrying food, home pulls on every choice, and if the way home is
+blocked it gets less insistent the longer it makes no progress, which is what
+lets it back out of a dead end and go round. An empty ant that finds itself on
+a food trail leans away from home along it, which is out towards the food.
+Off a trail it just explores. It pauses now and then rather than turning on
+the spot, and a pause is a pause: it does not re-aim until it next moves.
 
 **They walk on things.** Ants need something under their feet, but "under"
 is generous: they will walk up a wall and along a ceiling, and they take

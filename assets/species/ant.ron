@@ -1482,7 +1482,24 @@
             // Drop what you are carrying only when you have arrived; an
             // ant that drops at random is an ant that builds walls in the
             // middle of nowhere. Carrying alone must not be enough.
-            (Bias, Drop, -0.2),
+            //
+            // **And only when you are fed: a hungry ant keeps what it holds
+            // and eats it** (2026-09-24, `Reports/ant-scenes-2026-09-23.md`
+            // §13d, made default by the owner the same day). `Bias` was -0.2
+            // with no `Energy` term, so `Drop` sat at +1.09 at the nest for
+            // EVERY ant and a hungry one put its food back within about 4
+            // ticks of picking it up (the "4 ticks held" of
+            // `pheromone-trail-direction` §7.29). Bias -2.0 plus `Energy`
+            // +1.8 leaves a full ant exactly where it was (sum 1.0889 at the
+            // nest) and takes a hungry one to 0. Per-tick P(drop) at the nest
+            // by energy 0 / 0.25 / 0.5 / 0.75 / 1, through `eval_brain`
+            // (`trailfollow mode=feedgate`): 0 / 0 / 0.022 / 0.14 / 0.25,
+            // against 0.25 at every energy before; 0 away from the nest, as
+            // before. Measured with the chooser: food eaten +16% at 90 cells
+            // and +46% at 140 on the colony bed, and in the lab colonies
+            // ended at a median 96 animals against 20 without it (12 seeds).
+            (Bias, Drop, -2.0),
+            (Energy, Drop, 1.8),
             (AtNest, Drop, 1.0889),
             (Carrying, Drop, 0.2),
             // **`(MoistureGrad, Drop, 0.169)` REMOVED 2026-09-18, with the

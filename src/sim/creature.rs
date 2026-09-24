@@ -4962,7 +4962,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             };
             let genome = std::mem::take(&mut state.genome);
             let mut brain_state = state.brain_state;
-            let result = brain::eval_brain(&genome, &brain_inputs(world, &inputs), &mut brain_state);
+            let result = brain::eval_brain(&genome, &brain_inputs(world, def, &inputs), &mut brain_state);
             let state = world.organism_mut(organism).expect("still live");
             state.genome = genome;
             state.brain_state = brain_state;
@@ -5177,7 +5177,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // not a move -- it lays no trail and costs no step. The shipped walk
     // below checks support only inside `step_chain`, after the step roll won,
     // so an animal whose `P(move)` is 0 hangs wherever it stopped.
-    let chooser = chooser_of(world);
+    let chooser = chooser_for(world, def);
     let fell = chooser != Chooser::Off && fall_now_if_unsupported(world, organism, def);
     if fell {
         left_the_spot = true;
@@ -6327,7 +6327,7 @@ fn sense(
                 // `Bias` 2). The chooser does not re-aim on a lost roll, so a
                 // laden ant that climbed to the pile facing away stood there
                 // eating until it bred: median 1,311 births a run at gap 90.
-                if chooser_of(world) == Chooser::Off {
+                if chooser_for(world, def) == Chooser::Off {
                     cos
                 } else {
                     1.0
@@ -7161,7 +7161,7 @@ fn sense_ahead(world: &World, site: &ActiveSite) -> Option<SensedAhead> {
     let read = sense_read_rects(world, x, y, organism, def, state);
     let (inputs, seen, sight_reads, curvature_reads) = sense(world, x, y, organism, heading, def, false);
     let mut brain_state = state.brain_state;
-    let (outputs, active_synapses) = brain::eval_brain(&state.genome, &brain_inputs(world, &inputs), &mut brain_state);
+    let (outputs, active_synapses) = brain::eval_brain(&state.genome, &brain_inputs(world, def, &inputs), &mut brain_state);
     Some(SensedAhead { organism, x, y, heading, read, inputs, seen, sight_reads, curvature_reads, outputs, active_synapses, brain_state })
 }
 
@@ -12188,12 +12188,15 @@ fn commit_step(
 // step picks one heading from all the usable ones, scored by how little it
 // turns and, while carrying, by how well it points home.
 
-/// **Which walk a creature runs.** `PIXEL_PHYSICS_CHOOSER=on|nopatience`, or
-/// `World::chooser` for one world; off unless set.
+/// **Which walk a creature runs.** `PIXEL_PHYSICS_CHOOSER=off|on|nopatience|trail|trailaway`,
+/// or `World::chooser` for one world. **`TrailAway` unless set** (since
+/// 2026-09-24, the owner's ruling), and only for a species that names a nest
+/// (`chooser_for`); every other species walks `Off`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Chooser {
-    /// The shipped walk: the step roll, the three-cell cone, the tumble and
-    /// its homeward re-roll.
+    /// The walk before the chooser: the step roll, the three-cell cone, the
+    /// tumble and its homeward re-roll. `PIXEL_PHYSICS_CHOOSER=off`, and what
+    /// every species without a nest walks.
     Off,
     /// Stage 1: one weighted choice over every usable heading, falling checked
     /// every decision, `HomeAligned` a speed adjustment with a floor.
@@ -12213,20 +12216,49 @@ pub enum Chooser {
 }
 
 /// The environment's setting, read once per process.
+///
+/// **`TrailAway` is the default since 2026-09-24, the owner's ruling**: with
+/// no trail laid it makes the colony bed's founders complete 10.5 / 4.5 / 2
+/// round trips at 90 / 140 / 200 cells where the walk before it made 0, and in
+/// the lab it carries home 3.7x the food and doubles the deepest breeding
+/// generation (`Reports/ant-scenes-2026-09-23.md` §12, §14). It costs about
+/// 9% of the ant scene's frame and lets a colony eat a lab box bare on some
+/// seeds. `off` is the way back.
 pub fn chooser_from_env() -> Chooser {
     static V: std::sync::OnceLock<Chooser> = std::sync::OnceLock::new();
     *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_CHOOSER").as_deref() {
+        Ok("off") => Chooser::Off,
         Ok("on") => Chooser::On,
         Ok("nopatience") => Chooser::NoPatience,
         Ok("trail") => Chooser::Trail,
-        Ok("trailaway") => Chooser::TrailAway,
-        _ => Chooser::Off,
+        _ => Chooser::TrailAway,
     })
 }
 
 /// This world's setting: `World::chooser` if set, else the environment's.
 pub fn chooser_of(world: &World) -> Chooser {
     world.chooser.unwrap_or_else(chooser_from_env)
+}
+
+/// **The walk this creature runs**: the world's setting for a species that
+/// names a nest (`CreatureDef::nest`), today's walk for one that does not.
+///
+/// The chooser was built and measured on colony animals: a laden ant's way
+/// home, an empty one's way out along a trail. A species with no nest has
+/// neither, and the world-wide switch reached it anyway -- measured
+/// 2026-09-24, with `trailaway` set for the whole suite, a floating flitter
+/// stopped 2 cells short of the flower its test requires it to reach
+/// (`Reports/ant-scenes-2026-09-23.md` §14). So the scope is the nest, which
+/// is the thing the chooser's home and away terms are about. `is_empty` and
+/// not `materials.id_of`: this runs every decision of every creature, and a
+/// string hash there is the hot-path cost `CLAUDE.md` warns about; a nest
+/// named but never registered is a species-file error the budding gate
+/// already treats as "no nest".
+pub fn chooser_for(world: &World, def: &CreatureDef) -> Chooser {
+    if def.nest.is_empty() {
+        return Chooser::Off;
+    }
+    chooser_of(world)
 }
 
 /// **Whether a nesting species buds only at its nest**:
@@ -12309,9 +12341,9 @@ const DIR_LEN: [f32; 2] = [1.0, std::f32::consts::SQRT_2];
 /// a climbing branch lands in rock, and there it sets `P(move)` to 0; under
 /// the chooser, which does not re-aim on a lost roll, that is a freeze for
 /// good (21 of 24 runs at a fork, 24 of 24 in the lattice).
-fn brain_inputs(world: &World, inputs: &[f32; brain::BRAIN_INPUTS]) -> [f32; brain::BRAIN_INPUTS] {
+fn brain_inputs(world: &World, def: &CreatureDef, inputs: &[f32; brain::BRAIN_INPUTS]) -> [f32; brain::BRAIN_INPUTS] {
     let mut out = *inputs;
-    if matches!(chooser_of(world), Chooser::Trail | Chooser::TrailAway) {
+    if matches!(chooser_for(world, def), Chooser::Trail | Chooser::TrailAway) {
         out[brain::BrainInput::PheroAAlong as usize] = 0.0;
         out[brain::BrainInput::PheroBAlong as usize] = 0.0;
     }
@@ -17198,6 +17230,9 @@ mod tests {
     #[test]
     fn every_lifetime_counter_closes_against_its_world_total() {
         let (mut w, low) = colony_bed();
+        // Today's walk, pinned: the identity needs a blocked move, and the chooser
+        // only ever picks a usable heading, so it counts none.
+        w.chooser = Some(Chooser::Off);
         let placed = w.found_colony(200, low - 32);
         assert!(placed > 0, "the bed placed no ants -- the scene is wrong, not the rule");
         // `run` is this module's own way to advance a world -- a second one
@@ -20618,6 +20653,9 @@ mod tests {
             let mut survived = 0usize;
             for seed in 0..6u64 {
                 let mut w = test_world();
+                // Today's walk, pinned: at reach 1 the arm needs the ants to meet at once,
+                // and under the chooser they took a median 528 frames. The question is armour.
+                w.chooser = Some(Chooser::Off);
                 w.seed = 1234 + seed * 7919;
                 w.trait_reach = reach;
                 // **Clone children**, for the reason `the_jaw_allele_decides_
@@ -23350,25 +23388,36 @@ mod tests {
     /// "before" block: the bodies diverge within the run and this fails.
     /// The vacuity checks come first, because a bed where nothing moved, got
     /// laden or tumbled would pass whatever the trace did.
+    ///
+    /// **Both walks**, since the chooser became the ant's default
+    /// (2026-09-24): the walk the ant actually runs is the one whose trace
+    /// matters most, and `Off` is kept because species without a nest still
+    /// walk it. The chooser never tumbles, so its vacuity check is on steps.
     #[test]
     fn the_decision_trace_changes_nothing_it_watches() {
-        let run_bed = |traced: bool| {
+        // The chooser's ants reach the canopy later: in 3,000 frames none had
+        // eaten, so its laden half would go untested. 9,000 it is.
+        let run_bed = |traced: bool, mode: Chooser| {
             let (mut w, low) = colony_bed();
+            w.chooser = Some(mode);
             assert!(w.found_colony(200, low - 32) > 0, "the bed placed no ants -- the scene is wrong, not the rule");
             if traced {
                 w.decision_log = Some(Vec::new());
             }
-            run(&mut w, 3000);
+            run(&mut w, if mode == Chooser::Off { 3000 } else { 9000 });
             let rows = w.decision_log.take().unwrap_or_default();
             (creature_world_state(&w), rows, w.creature_stats)
         };
-        let (off, off_rows, off_stats) = run_bed(false);
-        let (on, on_rows, _) = run_bed(true);
-        assert!(off_rows.is_empty(), "the untraced run recorded {} decisions", off_rows.len());
-        assert!(off_stats.moves > 100 && off_stats.tumbles > 100, "moves {} tumbles {}: the bed barely moved, so equality proves nothing", off_stats.moves, off_stats.tumbles);
-        assert!(on_rows.len() > 1000, "only {} decisions traced", on_rows.len());
-        assert!(on_rows.iter().any(|r| r.leg == 1), "no laden decision was traced, so the laden half of the trace is untested here");
-        assert_eq!(off, on, "turning the decision trace on changed the world it records");
+        for mode in [Chooser::Off, Chooser::TrailAway] {
+            let (off, off_rows, off_stats) = run_bed(false, mode);
+            let (on, on_rows, _) = run_bed(true, mode);
+            assert!(off_rows.is_empty(), "{mode:?}: the untraced run recorded {} decisions", off_rows.len());
+            let turned = if mode == Chooser::Off { off_stats.tumbles } else { off_stats.moves };
+            assert!(off_stats.moves > 100 && turned > 100, "{mode:?}: moves {} tumbles {}: the bed barely moved, so equality proves nothing", off_stats.moves, off_stats.tumbles);
+            assert!(on_rows.len() > 1000, "{mode:?}: only {} decisions traced", on_rows.len());
+            assert!(on_rows.iter().any(|r| r.leg == 1), "{mode:?}: no laden decision was traced, so the laden half of the trace is untested here");
+            assert_eq!(off, on, "{mode:?}: turning the decision trace on changed the world it records");
+        }
     }
 
     /// **The setting class reads the ground the ant stands on.**
@@ -23448,6 +23497,9 @@ mod tests {
     #[test]
     fn every_traced_decision_agrees_with_the_counters_and_the_positions() {
         let (mut w, low) = colony_bed();
+        // Today's walk, pinned: these are that walk's rules (a tumble roll after every
+        // lost move roll). The chooser's rows reconcile in `trailfollow decisioncsv`.
+        w.chooser = Some(Chooser::Off);
         assert!(w.found_colony(200, low - 32) > 0, "the bed placed no ants -- the scene is wrong, not the rule");
         let before = w.creature_stats;
         w.decision_log = Some(Vec::new());
@@ -23602,6 +23654,8 @@ mod tests {
     fn the_homeward_re_roll_aims_along_a_known_floor_at_the_rate_its_fill_sets() {
         let stone = Cell::new(material::STONE, 0).with_attached(true);
         let mut w = World::new(Rect::new(0, 0, 159, 63));
+        // The re-roll is part of today's walk only; the chooser has no tumble.
+        w.chooser = Some(Chooser::Off);
         for x in 0..160 {
             for y in 41..64 {
                 w.set(x, y, stone);
@@ -23795,6 +23849,35 @@ mod tests {
         // ant's energy is not pinned, so the bar sits under the hungry case.
         assert!(shipped_rev * 6 >= shipped_steps, "the shipped walk turned round {shipped_rev} times in {shipped_steps} steps: the count is blind");
         assert!(rev * 20 <= steps, "the chooser turned round {rev} times in {steps} steps");
+    }
+
+    /// **A species with no nest walks today's walk whatever the switch says**
+    /// (`chooser_for`). The chooser's home and away terms are about a nest; a
+    /// flitter has none, and with the switch world-wide it stopped 2 cells
+    /// short of the flower its own guard needs it to reach. Every decision
+    /// row must match between `Off` and `TrailAway`; the ant on the same
+    /// floor is the positive control, whose rows must differ, or this
+    /// comparison could not see a walk changing at all.
+    #[test]
+    fn a_species_with_no_nest_walks_the_same_whatever_the_chooser_says() {
+        let rows = |species: &str, mode: Chooser| -> Vec<(u64, (i32, i32), u8, DecisionOutcome)> {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 399, 63));
+            for x in 0..400 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            w.chooser = Some(mode);
+            let id = spawn(&mut w, species, 200, 40);
+            let (rows, _, _) = traced(&mut w, id, 1800);
+            rows.iter().map(|r| (r.frame, r.head_after, r.heading_after, r.outcome)).collect()
+        };
+        let (off, on) = (rows("flitter", Chooser::Off), rows("flitter", Chooser::TrailAway));
+        assert!(off.len() >= 30, "the flitter made {} decisions, too few for equality to mean anything", off.len());
+        assert_eq!(off, on, "a species with no nest walked differently under the chooser");
+        let (ant_off, ant_on) = (rows("ant", Chooser::Off), rows("ant", Chooser::TrailAway));
+        assert_ne!(ant_off, ant_on, "the ant's walk did not change either, so this comparison is blind");
     }
 
     /// **On a route, an empty ant under `TrailAway` turns round and walks away
@@ -29165,6 +29248,10 @@ mod tests {
 
     fn grazer_scene(larder: Larder, frames: usize) -> World {
         let mut w = test_world();
+        // Today's walk, pinned: the scene's own sanity check is about a grazer that
+        // stands at its larder, and the chooser (the ant's default since 2026-09-24)
+        // walks it off. The question here is moss, not the walk.
+        w.chooser = Some(Chooser::Off);
         let soil = w.materials.id_of("soil").expect("soil");
         for x in 70..150 {
             for y in 111..120 {
