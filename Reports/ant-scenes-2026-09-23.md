@@ -1093,3 +1093,61 @@ brings a hungry ant past the nest's mouth.
 `bed-selfarm-nestpickup-trace-2026-09-24.txt`,
 `bed-selfarm-drophunger-2026-09-24.log.gz` (D and DF),
 `bed-selfarm-westhalf-gap90-2026-09-24.txt`.
+
+## 14. The new walk in the lab box
+
+*2026-09-24.* Everything above is the colony bed. The lab
+(`labforage scenario=played_bed`, 120,000 frames, colonies arriving on the
+scenario's timeline, plants regrowing, budding anywhere, which is the lab's
+default) is where the ants actually live, and nothing had measured the
+chooser there. Three arms, 12 seeds, paired within seed: today's walk,
+`PIXEL_PHYSICS_CHOOSER=trailaway`, and trailaway with §13d's drop wires.
+Today's walk on seed 1 reproduces §10's `any` arm digit for digit (born 239,
+alive 108, deliveries 749).
+
+**Predicted:** deliveries up; births and the deepest breeding generation
+within today's spread (a big fall would mean the walk costs the lab's clock);
+the drop wires deliver a little less.
+
+| Lab, 12 seeds, median a run | today | new walk | new walk + drop wires |
+|---|---|---|---|
+| deliveries (food carried home) | 1,398 | **5,164** (12 / 0) | 4,815 (11 / 1) |
+| food intake, J | 371k | 961k (11 / 1) | 836k (11 / 1) |
+| births | 146 | 420 (8 / 2) | 450 (11 / 1) |
+| **deepest generation that itself bred** | 10 | 22 (10 / 2) | **26** (11 / 1) |
+| columns of the box ever visited | 218 | 504, all of it | 504 |
+| alive at 120,000 frames | 50 | 20 (4 / 8) | **96** (7 / 4) |
+| went extinct | 0 of 12 | 1 | 2 |
+
+(Better / worse than today in brackets.) **The clock was the wrong
+prediction, in the good direction**: the lab evolves more than twice as
+fast. On its own the new walk leaves colonies smaller at the end because they
+boom and bust; with the drop wires they end twice today's size.
+
+**The extinctions are overgrazing, not the walk failing.** Seed 5, every
+9,000 frames: under today's walk the colony holds near 100 ants and the plants
+between 650 and 1,250 standing; under the new walk with the drop wires the
+colony grows to 334 and then 379 ants, the plants go from 1,247 standing to
+54 by frame 72,000, and the colony starves out by 108,000. Today's walk
+cannot reach enough of the box to do that. So the lab becomes a world that can
+be eaten bare on some seeds, which is the owner's call rather than a bug.
+
+**Frame cost** (`ascii scene=foraging`, 15 ants, four alternating pairs,
+`RAYON_NUM_THREADS=2`): mean **0.658 → 0.717 ms** a frame, slower in 4 of 4,
+with the ants taking **4.2× the steps** (2,742 → 11,615) and delivering
+1,306 against 729. Worst frames ran 6–25 ms in both arms with no pattern and
+are not pinned by the mean, so they say nothing. Per ant that is roughly
+0.004 ms, on the order of a millisecond at the lab's peak of 300+ ants; not
+measured there.
+
+**Where this leaves the walk:** on the bed it makes the loop work with no
+trail laid (§12), and in the lab it nearly quadruples what the colonies carry
+home and doubles the evolution clock. It is still behind
+`PIXEL_PHYSICS_CHOOSER=trailaway`, off by default, because turning it on
+changes every game's ants, costs about 9% of the ant scene's frame, and makes
+some lab boxes go extinct; that is a ruling for the owner, put to them as a
+card with this section's numbers.
+
+**Data:** `Reports/data/lab-walk-2026-09-24.txt.gz` (every `SUMMARY` line),
+`lab-walk-summary-2026-09-24.txt` (the paired table and the timing pairs),
+`lab-walk-seed5-series-2026-09-24.txt`.
