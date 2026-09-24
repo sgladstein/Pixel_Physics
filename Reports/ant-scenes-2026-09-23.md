@@ -665,3 +665,95 @@ measuring the loop.
 **Data:** `Reports/data/bed-stage2-{shipped,trail,v1-trail}-2026-09-23.log.gz`,
 `bed-stage2-deaths-{shipped,trail}-2026-09-23.log.gz` (gap 90, 9,000 frames,
 with deaths by cause), and `scene-stage2-fixed-{s1,s2,s3,s5}-2026-09-23.log`.
+
+## 9. Breeding only at the nest, and a bed that was killing ants
+
+**The owner's ruling, 2026-09-23:** an ant should breed only at the nest,
+and in the end *where* should be something a lineage evolves. First as a
+switch, measured before anything is made heritable:
+`PIXEL_PHYSICS_BUD_SITE=nest` (or `World::bud_at_nest`). A species that
+names a nest material buds only while at it (the same read as `AtNest`);
+a species with none is untouched. `CreatureStats::buds_held_for_nest`
+counts the ticks an animal could have budded and was held. Guard
+`a_nesting_ant_buds_only_at_its_nest_when_the_switch_is_on`, watched red:
+with the gate's `return None` removed, all six founders budded, four of them
+40+ cells from any nest.
+
+**The bed's pile refill wrote over whatever stood on the pile**, ants and
+crumbs included (`trailfollow`'s `place_food`). A head cell written over is
+a death booked as `Killed`, crumbs became fresh fruit, and each write was
+booked as food taken. The shipped walk had 15 such writes over 24 runs at
+gap 90; stage 2's ants crowd the pile, and it had a **median of 744 a run**.
+The refill now skips an occupied slot. On the shipped walk every run that
+never wrote over anything is identical to before, and the 8 `Killed` deaths
+it had by frame 6,000 at gap 90 are gone. **It was not what made stage 2's
+colonies breed at the pile**: with the refill fixed and no nest rule, they
+still do (median 1,592 births a run at gap 90).
+
+**Four arms, 3 gaps × 24 seeds, the refill fixed in all of them.** Medians
+a run; "higher / lower" is per seed.
+
+The nest rule, each walk against itself:
+- **Shipped walk: almost nothing changes, as predicted.** It held the 4
+  births at gap 90 that happened away from the nest; gaps 140 and 200 are
+  identical.
+- **Stage 2: the boom is gone.** Births at gap 90 **1,592 → 0** (23 of 23
+  seeds that had any), ants alive at the end 1,612 → 20; breeding at the
+  pile is gone at every gap. Founders' round trips 8 → 9 at gap 90 (12 /
+  5), unchanged at 140 and 200.
+
+The two walks against each other, **both with the nest rule**, so the
+colonies are the same size (20 founders, no births) and the numbers finally
+compare like for like:
+
+| Founders, stage 2 against shipped | gap 90 | gap 140 | gap 200 |
+|---|---|---|---|
+| round trips | 13.5 → **9** (3 / 20) | 1 → **5.5** (21 / 1) | 0 → **4** (24 / 0) |
+| reached the food | 17 → 10.5 (0 / 24) | 5 → 7 (13 / 8) | 0 → 4.5 (22 / 1) |
+| food delivered to the nest | 525 → 1,412 (23 / 1) | 9.5 → 472 (23 / 1) | 0 → 127 (23 / 1) |
+| starved by frame 6,000, all seeds | 19 → **249** | 331 → 356 | 452 → 397 |
+
+**Stage 2 brings more food home at every distance and makes more round
+trips at 140 and 200 cells. At 90 cells it makes fewer, because half its
+founders starve in the first 6,000 frames.** Traced: every founder's first
+trip out, 4 seeds, gap 90 (`bed-budsite-first-trip-gap90`):
+
+| First trip out, 80 founders | Shipped | Stage 2 |
+|---|---|---|
+| reached the food | **64** | **34** |
+| never got there, and died | 16, 2 died | 46, **41 died** |
+| progress toward the food per step, for those that got there | 0.70 cells | 0.53 cells |
+
+The 46 that never got there took a median of 245 steps, **98% of them onto
+the trail**, and ended **2.5 cells behind where they started**. They walk
+the route faithfully, both ways, and starve on it. For those first 6,000
+frames the bed lays a trail from nest to food, and the shipped walk follows
+it one way through the throttle. Presence has no direction. This is S5's
+miss (§6) on the colony, and it is what plan §4c's running average is for:
+is the scent getting stronger as I go.
+
+**And the lab's evolutionary clock says the rule cannot ship as it stands.**
+`labforage scenario=played_bed`, 6 seeds × 120,000 frames, the shipped walk,
+the measurement the queen rule was rejected on
+(`evolution-lab-breeding-clock-2026-09-10.md`):
+
+| Lab played bed | Breed anywhere | **Only at the nest** |
+|---|---|---|
+| deepest generation, median (per seed) | 13 (14 13 11 13 14 6) | **1** (0 4 0 2 5 0) |
+| deepest generation that itself bred, median | 12 | **0.5** |
+| seeds where no animal was ever born | 0 | **3 of 6** |
+| ticks an animal could have budded and was held, median | 0 | 114,040 |
+| deliveries to the nest, median | 2,278 | 2,491 |
+
+The breed-anywhere arm reproduces the clock report's 13.5. The nest arm is
+as bad as queen-only was. **Not traced yet, and the likely reason:** ants do
+reach the nest (deliveries unchanged), but the ones that get rich are the
+ones that gorge at the food, and only a *carrying* ant heads home. A rich
+ant with an empty crop has no reason to go back, so it is held for tens of
+thousands of ticks and never breeds. So the switch stays off by default,
+and the next experiment is its companion: **an ant ready to bud heads home**
+the way a carrying one does.
+
+**Data:** `Reports/data/bed-budsite-{off,offnest,trail,trailnest}-2026-09-24.log.gz`,
+`bed-budsite-first-trip-gap90-2026-09-24.txt`, `lab-clock-budsite-2026-09-24.txt`
+(each run's `SUMMARY` line).

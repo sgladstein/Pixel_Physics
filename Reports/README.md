@@ -3230,6 +3230,15 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     cells they do worse, and the colony breeds at the food pile instead
     (median 909 births a run against 0). A freeze beside the pile was one
     cause and is fixed; the breeding is not. Not shipped.
+  - **Breeding only at the nest** (§9, owner ruling), behind
+    `PIXEL_PHYSICS_BUD_SITE=nest`: it ends the boom (births 1,592 → 0 a
+    run) and barely touches the shipped walk. With it on both walks, stage
+    2 brings home more food at every distance and makes more round trips at
+    140 and 200 cells, but fewer at 90, where its founders walk the laid
+    trail both ways and starve on it. The bed's pile refill had been
+    writing over ants; fixed. **On the lab's breeding clock the rule is as
+    bad as queen-only** (median generation 13 → 1): a rich ant with nothing
+    to carry never goes home. Off by default.
   - The per-decision mix matched the formula within a point at both
     energies. The reach predictions were low; the report says why.
   - The scene's own checks caught rain pooling on the slab and an ant dying

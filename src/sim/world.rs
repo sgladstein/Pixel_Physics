@@ -2125,6 +2125,11 @@ pub struct CreatureStats {
     /// identical answer — proof the lookup got cheaper, not that it
     /// stopped happening.
     pub breeder_scan_visits: u64,
+    /// **Buds a nesting animal could afford and did not take, because it was
+    /// away from its nest** with `creature::bud_at_nest` on: one per tick
+    /// held back. 0 whenever the switch is off, which is the control that
+    /// says the gate is what moved a birth count.
+    pub buds_held_for_nest: u64,
     /// **The biggest single mouthful any creature in this world ever
     /// swallowed**, in the units the eater received — `diet_yield`, after
     /// the gut's matched filter, not the cell's face value.
@@ -3305,6 +3310,11 @@ pub struct World {
     /// the variable is read once per process, and a guard has to run both
     /// arms in one.
     pub chooser: Option<crate::sim::creature::Chooser>,
+    /// **Whether a nesting species may bud only at its nest, overriding
+    /// `PIXEL_PHYSICS_BUD_SITE` for this world** (`creature::bud_at_nest`).
+    /// `None` follows the environment, which is off unless set; a field for
+    /// the reason `chooser` is one.
+    pub bud_at_nest: Option<bool>,
     /// **Which material stopped a creature**, counted per blocked tick and
     /// indexed by `MaterialId` — the breakdown `CreatureStats::
     /// blocked_by_plant` deliberately does not carry, because that struct is
@@ -5641,6 +5651,7 @@ impl World {
             decision_log: None,
             decision_scratch: crate::sim::creature::DecisionScratch::default(),
             chooser: None,
+            bud_at_nest: None,
             blocked_tissue_by_material: Vec::new(),
             energy_ledger: EnergyLedger::default(),
             colony_books: Vec::new(),

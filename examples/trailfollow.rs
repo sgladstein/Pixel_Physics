@@ -1879,21 +1879,34 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // food budget must use these rather than a bounding box: the box's top
     // row reaches past the last slot, and a cell there is not pile.
     let pile_slots: std::collections::HashSet<(i32, i32)> = (0..food.max(0)).map(|i| (target_x + (i % 12) - 6, surface - (i / 12))).collect();
-    // `refill_overwrote`: pile slots the refill found holding something other
-    // than air or larder (an ant standing there, say) and wrote over. Each
-    // one is counted in `placed` as if food had been taken from it, so the
-    // food budget carries it as a residual in whole cells.
-    let refill_overwrote = std::cell::Cell::new(0u64);
+    // `refill_skipped`: pile slots the refill found holding something other
+    // than air or larder, and left alone.
+    //
+    // **It used to write over them**, and that was a bed artifact that fell
+    // almost entirely on one arm. An ant standing on the pile lost the cell
+    // under the write, and a head cell lost is a death booked as `Killed`;
+    // crumbs there became fresh larder; and each one was counted in `placed`
+    // as food taken, so the budget carried it as an unexplained residual.
+    // Measured 2026-09-23 on the gap bed: the shipped walk had 15 such
+    // writes over 24 runs at gap 90, and stage 2's chooser, whose ants crowd
+    // the pile, a median of **744 a run** (`ant-scenes-2026-09-23.md` §9).
+    let refill_skipped = std::cell::Cell::new(0u64);
     let place_food = |w: &mut pixel_physics::sim::world::World, n: i32, placed: &mut u64| {
         for i in 0..n {
             let (fx, fy) = (target_x + (i % 12) - 6, surface - (i / 12));
             let m = w.get(fx, fy).material;
-            if m != larder {
-                *placed += 1;
-                if m != pixel_physics::sim::material::EMPTY {
-                    refill_overwrote.set(refill_overwrote.get() + 1);
-                }
+            // A slot still holding larder is rewritten, as it always was (it
+            // resets what the structural pass keeps in the cell), and is not
+            // counted: nothing was introduced.
+            if m == larder {
+                w.set(fx, fy, Cell::new(larder, 0));
+                continue;
             }
+            if m != pixel_physics::sim::material::EMPTY {
+                refill_skipped.set(refill_skipped.get() + 1);
+                continue;
+            }
+            *placed += 1;
             w.set(fx, fy, Cell::new(larder, 0));
         }
     };
@@ -4442,6 +4455,12 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             pixel_physics::sim::organism::DEATH_CAUSE_LIST.iter().zip(d).filter(|(_, n)| **n > 0).map(|(c, n)| format!("{} {n}", c.label())).collect::<Vec<_>>().join(", ")
         };
         println!(
+            "    BIRTHS {} | buds held for the nest {} (PIXEL_PHYSICS_BUD_SITE={})",
+            w.creature_stats.births,
+            w.creature_stats.buds_held_for_nest,
+            if creature::bud_at_nest(&w) { "nest" } else { "anywhere" }
+        );
+        println!(
             "    DEATHS BY CAUSE -- by frame 6000: [{}] | whole run: [{}]",
             deaths_at_6000.as_ref().map_or_else(|| "not reached".to_string(), causes),
             causes(&w.deaths_by_cause)
@@ -4478,7 +4497,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         let lost = w.creature_stats.crop_cells_lost_at_death as f64 * face;
         let residual = taken as f64 * face + restored - w.creature_stats.digested_face - (ground + as_spoil) as f64 * face - crumb_face - crop_face - lost;
         println!(
-            "    FOOD BUDGET closed (face): taken {:.0} + forgotten at drops {:.0} = chewed {:.0} + standing {:.0} + lost in crops at death {:.0}; residual {:.0} ({:.2} cells; the refill wrote over {} non-food cells)",
+            "    FOOD BUDGET closed (face): taken {:.0} + forgotten at drops {:.0} = chewed {:.0} + standing {:.0} + lost in crops at death {:.0}; residual {:.0} ({:.2} cells; the refill skipped {} occupied slots)",
             taken as f64 * face,
             restored,
             w.creature_stats.digested_face,
@@ -4486,7 +4505,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             lost,
             residual,
             residual / face,
-            refill_overwrote.get()
+            refill_skipped.get()
         );
     }
     if let Some(dir) = frames_dir.as_ref() {

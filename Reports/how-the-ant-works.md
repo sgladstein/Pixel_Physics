@@ -14,7 +14,8 @@ will be.
   day against the crumbs fix in `Carried::into_cell`). §6d and §12 written
   2026-09-23 from `chooser_step`, `fall_if_unsupported` and `commit_step`;
   §6d, §12 and §15 again for stage 2 (`trail_presence`, `brain_inputs`),
-  and §9 for crumbs not sliding (`update_powder`'s `rolls` gate).
+  and §9 for crumbs not sliding (`update_powder`'s `rolls` gate); §9 and
+  §12 for the bud-at-nest switch (`try_bud`, `bud_at_nest`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -427,7 +428,11 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   - per dig: 6 × a step;
   - per laying tick: 0.0625 × a step × (emit A + emit B).
 - **Death:** starved at energy ≤ 0; old age by half-life. **Budding:**
-  `try_bud` above `reproduce_threshold: 1100`.
+  `try_bud` above `reproduce_threshold: 1100`, wherever the ant stands.
+  With `PIXEL_PHYSICS_BUD_SITE=nest` (or `World::bud_at_nest`) a species
+  that names a nest material buds only while at its nest (the `AtNest`
+  read); `CreatureStats::buds_held_for_nest` counts the ticks it could have
+  budded and did not.
 
 ## 10. Laden versus empty, every difference in one place
 
@@ -477,6 +482,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_LAB_ROOM` | on | `off`: at-nest `Crowding` falls back to local density |
 | `PIXEL_PHYSICS_TROPHALLAXIS` | on | `off` |
 | `PIXEL_PHYSICS_DROP_REACH` | through bodies | `adjacent`: a food drop looks only at the 8 neighbours |
+| `PIXEL_PHYSICS_BUD_SITE` | anywhere | `nest`: a species with a nest material buds only at its nest (§9) |
 | `PIXEL_PHYSICS_CHOOSER` | off | `on`: the stage-1 chooser (§6d); `nopatience`: the same with patience held at 1; `trail`: stage 2, the chooser reading the trail where it would step, with the throttle retired |
 | `SPOIL_IS_CARGO` | on | `0`: spoil no longer counts toward `Carrying` |
 | `PIXEL_PHYSICS_DIG_SPOIL` | kept | `destroy`: dug cells vanish |

@@ -2172,7 +2172,7 @@ fn main() {
     println!(
         "SUMMARY seed={} founders={} colonies={} frames={frames} handout={handout} cols={cols} plants={} windfall={} fruit_dropped={} edible={} unvisited={} floor={} aloft={} \
          peak_edible={peak_edible} eats={} born={} died={} alive={} intake={:.0} burn={:.0} shares={} shared_j={:.0} moves={} deliveries={} nest_visits={} \
-         regime={} breeders={} gen={} bgen={} windfall_bitten={} seeds_spilled={} plants_from_pip={} pips_rotted={} pips_eaten={} \
+         regime={} bud_site={} buds_held_for_nest={} breeders={} gen={} bgen={} windfall_bitten={} seeds_spilled={} plants_from_pip={} pips_rotted={} pips_eaten={} \
          windfall_bitten_ownerless={} seeds_carried={} seeds_delivered={} plants_from_pip_near_nest={} seed_transit_median={} lookup={} visits={} \
          flower_visits={} nectar_paid={:.0} nectar_j_per_1000f={:.2} organs_built={} bloom_seen={} \
          standing_flowers={} standing_fruit={} flowers_rebloomed={} organ_ripening_blocked={} organ_ripening_paid={} \
@@ -2201,6 +2201,10 @@ fn main() {
         st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves,
         st.deliveries, st.nest_visits,
         std::env::var("PIXEL_PHYSICS_BREEDING").unwrap_or_else(|_| "individual".to_string()),
+        // Where an animal may bud (`creature::bud_at_nest`), and how many buds
+        // the nest rule held back: the "did it fire" counter for that arm.
+        if pixel_physics::sim::creature::bud_at_nest(&world) { "nest" } else { "anywhere" },
+        st.buds_held_for_nest,
         last.breeders, world.deepest_animal_generation, world.deepest_breeder_generation,
         // **M2's own counter** -- every bite that reached an owned windfall
         // cell and was about to roll for survival, counted *before* the

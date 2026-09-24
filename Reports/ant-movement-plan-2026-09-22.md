@@ -700,7 +700,25 @@ goes, any later measurement on the colony bed states which drop rule it ran.
    the chooser). The breeding is not. **Not shipped; the open question is
    whether an ant may breed away from the nest.**
 
-Each of steps 5 and 6 updates `how-the-ant-works.md` in the same change.
+7. **Breeding only at the nest** (owner ruling 2026-09-23; in the end,
+   *where* is a trait a lineage evolves). First as a switch,
+   `PIXEL_PHYSICS_BUD_SITE=nest`, measured on the colony bed and on the
+   lab's breeding clock before the heritable form (a `Bud` brain output, the
+   ant wired to ask at the nest) pays for a wider genome. **Colony bed done
+   2026-09-24** (scenes report §9): it ends stage 2's boom at the pile
+   (births 1,592 → 0 a run at gap 90) and changes almost nothing on the
+   shipped walk. With it on both sides, stage 2 brings home more food at
+   every gap and makes more round trips at 140 and 200 cells, but fewer at
+   90: its founders walk the laid trail both ways and starve on it. **So
+   §4c, which way along a route, is next.** **But the lab's breeding clock
+   rules the switch out as it stands**: median deepest generation 13 → 1,
+   and 3 of 6 seeds with no birth at all, as bad as queen-only. A rich ant
+   with an empty crop has no reason to go home, so the switch stays off and
+   its companion comes first: an ant ready to bud heads home. Eggs or brood
+   fed from a nest store need a standing store first, and the bed's nest
+   floor holds none.
+
+Each of steps 5, 6 and 7 updates `how-the-ant-works.md` in the same change.
 
 ## 10. What this rests on
 

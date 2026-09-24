@@ -3374,6 +3374,18 @@ fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision
     if bank + reachable < bar {
         return None;
     }
+    // **Only at the nest, for a species that has one, when switched on**
+    // (`bud_at_nest`). The paragraph above is why this is not the default
+    // and why it asks whether the species names a nest before anything
+    // else: a solitary species has no nest and must still breed. After the
+    // affordability check, so the ring read runs only on the rare tick an
+    // animal could otherwise already bud.
+    if bud_at_nest(world) && world.materials.id_of(&def.nest).is_some() && !nest_within_reach(world, organism, hx, hy, def) {
+        world.creature_stats.buds_held_for_nest += 1;
+        return None;
+    }
+    // Re-borrowed: the counter above needed `world` mutably.
+    let state = world.organism(organism)?;
     // **Fertility suppression**, applied to the composed `bar` above and
     // only now that the affordability precheck just above has already
     // passed against the UNSUPPRESSED bar -- never before it, and never
@@ -12176,6 +12188,24 @@ pub fn chooser_from_env() -> Chooser {
 /// This world's setting: `World::chooser` if set, else the environment's.
 pub fn chooser_of(world: &World) -> Chooser {
     world.chooser.unwrap_or_else(chooser_from_env)
+}
+
+/// **Whether a nesting species buds only at its nest**:
+/// `PIXEL_PHYSICS_BUD_SITE=nest`, or `World::bud_at_nest` for one world. Off
+/// by default, where an animal buds wherever it can afford to.
+///
+/// The owner's ruling, 2026-09-23: an ant should only be able to breed at
+/// the nest, and in the end *where* should be something a lineage evolves.
+/// This switch is the measurement before that is built: the colony bed
+/// found stage 2's colonies budding at the food pile (median 909 births a
+/// run at gap 90, against 0; `Reports/ant-scenes-2026-09-23.md` §8), which
+/// is the shipped rule doing what it says once ants reach the food. A
+/// species that names no nest material is untouched either way (`try_bud`).
+pub fn bud_at_nest(world: &World) -> bool {
+    world.bud_at_nest.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_BUD_SITE").as_deref() == Ok("nest"))
+    })
 }
 
 /// **The turning preference**, by how far a heading turns from the current
@@ -30998,6 +31028,42 @@ mod tests {
                 "nearest_breeder (use_index={use_index}) did not find the breeder living in a's recycled slot"
             );
         }
+    }
+
+    /// **A nesting ant buds only at its nest with the switch on; off, it buds
+    /// wherever it can afford to** (`bud_at_nest`, owner ruling 2026-09-23).
+    /// The switch-off arm is the positive control: if the founders away from
+    /// the nest do not bud there, the scene cannot show the gate at all.
+    /// **Watched red** with the gate's `return None` removed: a founder away
+    /// from the nest budded.
+    #[test]
+    fn a_nesting_ant_buds_only_at_its_nest_when_the_switch_is_on() {
+        // Six funded founders on a stone floor; nest material under the
+        // first two only, so the other four stand 40+ cells from any nest.
+        // 120 frames: long enough for every founder's first ticks, too short
+        // for an ant 40 cells off to walk onto the nest.
+        let children = |at_nest: bool| -> (Vec<u16>, u64) {
+            let (mut w, founders) = breeding_colony(6, 2000.0, 0.0);
+            let ant = w.species.id_of("ant").expect("ant species");
+            let nest_name = w.species.get(ant).creature.as_ref().expect("a creature").nest.clone();
+            let nest = w.materials.id_of(&nest_name).expect("the ant names a real nest material");
+            for i in 0..2 {
+                for x in 10 + i * 16 - 7..=10 + i * 16 + 2 {
+                    w.set(x, 101, Cell::new(nest, 0));
+                }
+            }
+            w.bud_at_nest = Some(at_nest);
+            run(&mut w, 120);
+            let kids = founders.iter().map(|&id| w.organism(id).map_or(0, |s| s.children)).collect();
+            (kids, w.creature_stats.buds_held_for_nest)
+        };
+        let (off, held_off) = children(false);
+        let (on, held_on) = children(true);
+        assert_eq!(held_off, 0, "the switch is off and a bud was still held back");
+        assert!(off[2..].iter().any(|&c| c > 0), "with the switch off no founder away from the nest budded ({off:?}), so the scene cannot show the gate");
+        assert!(on[..2].iter().any(|&c| c > 0), "with the switch on, the founders standing on the nest did not bud ({on:?})");
+        assert!(on[2..].iter().all(|&c| c == 0), "with the switch on, a founder away from the nest budded ({on:?})");
+        assert!(held_on > 0, "no bud was counted as held for the nest, so the counter is not wired to the gate");
     }
 
     /// **Integration guard for `queen`, run solo** -- not part of the
