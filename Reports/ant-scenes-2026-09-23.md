@@ -1132,6 +1132,15 @@ colony grows to 334 and then 379 ants, the plants go from 1,247 standing to
 cannot reach enough of the box to do that. So the lab becomes a world that can
 be eaten bare on some seeds, which is the owner's call rather than a bug.
 
+**Seen by eye, one seed** (`labshot mark=ants`, seed 4, frames 30,000 to
+120,000; posted as a card): under today's walk the colony stays near its nest
+and the plants thrive (654 standing at the end); under the new walk the ants
+range the whole box up to the ceiling, the ground is bare by 90,000 and 15
+plants are left. The same seed also shows the colony **digging 13× as much**
+(9,663 digs against 711) and a nest room of 514 roofed cells against 45.
+That is one seed and nothing here measured digging across seeds; recorded
+because the nest-digging line will want to know.
+
 **Frame cost** (`ascii scene=foraging`, 15 ants, four alternating pairs,
 `RAYON_NUM_THREADS=2`): mean **0.658 → 0.717 ms** a frame, slower in 4 of 4,
 with the ants taking **4.2× the steps** (2,742 → 11,615) and delivering
@@ -1139,6 +1148,20 @@ with the ants taking **4.2× the steps** (2,742 → 11,615) and delivering
 are not pinned by the mean, so they say nothing. Per ant that is roughly
 0.004 ms, on the order of a millisecond at the lab's peak of 300+ ants; not
 measured there.
+
+**What a default flip would touch.** The whole suite run with
+`PIXEL_PHYSICS_CHOOSER=trailaway` set (the flip, approximated without a code
+change): worldgen, determinism, the druid and app tests all pass; **8 of
+1,895 library tests fail**. Four pin today's walk and would set it explicitly
+(the decision-trace identity and reconciliation, the homeward re-roll, the
+lifetime counters: each needs tumbles or blocked moves, which the chooser
+does not make). Two are scenes that depend on how ants meet (a lone grazer
+on a moss lawn; armoured ants taking a median 528 frames to meet at reach 1).
+**Two are real questions before any flip:** a floating flitter under the
+chooser gets within 2 cells of the flower it must reach, so the chooser
+reaches flyers and changes them; and in `a_released_animal_falls_like_a_founder_does`
+the released ant is **killed** within 400 frames (one death booked `KILLED`)
+where today it falls and lives.
 
 **Where this leaves the walk:** on the bed it makes the loop work with no
 trail laid (§12), and in the lab it nearly quadruples what the colonies carry
@@ -1150,4 +1173,4 @@ card with this section's numbers.
 
 **Data:** `Reports/data/lab-walk-2026-09-24.txt.gz` (every `SUMMARY` line),
 `lab-walk-summary-2026-09-24.txt` (the paired table and the timing pairs),
-`lab-walk-seed5-series-2026-09-24.txt`.
+`lab-walk-seed5-series-2026-09-24.txt`; the seed-4 sheets are review card `20260924T064546699Z-98e7d7`.
