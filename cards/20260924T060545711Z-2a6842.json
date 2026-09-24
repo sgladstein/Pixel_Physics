@@ -1,0 +1,113 @@
+{
+  "id": "20260924T060545711Z-2a6842",
+  "created": "2026-09-24T06:05:45Z",
+  "board": "ants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/upbeat-gates-u90pys",
+    "commit": "605001f4",
+    "agent": null,
+    "session_id": "377a1a74-10ea-588e-aa72-28c0126d3167",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "No trail laid: do the ants find the food themselves?",
+  "question": "Nobody laid a trail in either colony. Does the new walk (B) read as ants finding the food on the right and making a road to it on their own?",
+  "context_md": "Same colony test, same seed, 140 cells from nest (thin strip, left) to food (red, right). **No hand-laid trail at any point**, which answers your question from last night: every earlier result had one for the first 6,000 frames.\n\n**Magenta** = ant with an empty crop, **cyan** = carrying food. Frames 1 to 6,961, every 240. 20 ants in each, nest-only breeding on so neither colony grows.\n\n- **A, today's walk:** nobody reaches the food; all 20 starve by frame 4,290.\n- **B, the new walk:** first ant reaches the food at frame 2,412; 7 of 20 reach it and carry food back.\n\nOver 24 seeds the new walk makes a median 10.5 / 4.5 / 2 round trips at 90 / 140 / 200 cells with no trail (today's walk 0 at every distance). Most of B's colony still starves; the report's section 13 traces why (the dying sit on the far side of the nest from where food arrives).",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - today's walk",
+      "files": [
+        "20260924T060545711Z-2a6842/000-frame-000.png",
+        "20260924T060545711Z-2a6842/001-frame-001.png",
+        "20260924T060545711Z-2a6842/002-frame-002.png",
+        "20260924T060545711Z-2a6842/003-frame-003.png",
+        "20260924T060545711Z-2a6842/004-frame-004.png",
+        "20260924T060545711Z-2a6842/005-frame-005.png",
+        "20260924T060545711Z-2a6842/006-frame-006.png",
+        "20260924T060545711Z-2a6842/007-frame-007.png",
+        "20260924T060545711Z-2a6842/008-frame-008.png",
+        "20260924T060545711Z-2a6842/009-frame-009.png",
+        "20260924T060545711Z-2a6842/010-frame-010.png",
+        "20260924T060545711Z-2a6842/011-frame-011.png",
+        "20260924T060545711Z-2a6842/012-frame-012.png",
+        "20260924T060545711Z-2a6842/013-frame-013.png",
+        "20260924T060545711Z-2a6842/014-frame-014.png",
+        "20260924T060545711Z-2a6842/015-frame-015.png",
+        "20260924T060545711Z-2a6842/016-frame-016.png",
+        "20260924T060545711Z-2a6842/017-frame-017.png",
+        "20260924T060545711Z-2a6842/018-frame-018.png",
+        "20260924T060545711Z-2a6842/019-frame-019.png",
+        "20260924T060545711Z-2a6842/020-frame-020.png",
+        "20260924T060545711Z-2a6842/021-frame-021.png",
+        "20260924T060545711Z-2a6842/022-frame-022.png",
+        "20260924T060545711Z-2a6842/023-frame-023.png",
+        "20260924T060545711Z-2a6842/024-frame-024.png",
+        "20260924T060545711Z-2a6842/025-frame-025.png",
+        "20260924T060545711Z-2a6842/026-frame-026.png",
+        "20260924T060545711Z-2a6842/027-frame-027.png",
+        "20260924T060545711Z-2a6842/028-frame-028.png",
+        "20260924T060545711Z-2a6842/029-frame-029.png"
+      ],
+      "caption": "no trail laid",
+      "meta": {
+        "ants that reached the food": 0,
+        "came back with it": 0,
+        "alive at the last frame": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "B - new walk (away from home on a trail)",
+      "files": [
+        "20260924T060545711Z-2a6842/030-frame-000.png",
+        "20260924T060545711Z-2a6842/031-frame-001.png",
+        "20260924T060545711Z-2a6842/032-frame-002.png",
+        "20260924T060545711Z-2a6842/033-frame-003.png",
+        "20260924T060545711Z-2a6842/034-frame-004.png",
+        "20260924T060545711Z-2a6842/035-frame-005.png",
+        "20260924T060545711Z-2a6842/036-frame-006.png",
+        "20260924T060545711Z-2a6842/037-frame-007.png",
+        "20260924T060545711Z-2a6842/038-frame-008.png",
+        "20260924T060545711Z-2a6842/039-frame-009.png",
+        "20260924T060545711Z-2a6842/040-frame-010.png",
+        "20260924T060545711Z-2a6842/041-frame-011.png",
+        "20260924T060545711Z-2a6842/042-frame-012.png",
+        "20260924T060545711Z-2a6842/043-frame-013.png",
+        "20260924T060545711Z-2a6842/044-frame-014.png",
+        "20260924T060545711Z-2a6842/045-frame-015.png",
+        "20260924T060545711Z-2a6842/046-frame-016.png",
+        "20260924T060545711Z-2a6842/047-frame-017.png",
+        "20260924T060545711Z-2a6842/048-frame-018.png",
+        "20260924T060545711Z-2a6842/049-frame-019.png",
+        "20260924T060545711Z-2a6842/050-frame-020.png",
+        "20260924T060545711Z-2a6842/051-frame-021.png",
+        "20260924T060545711Z-2a6842/052-frame-022.png",
+        "20260924T060545711Z-2a6842/053-frame-023.png",
+        "20260924T060545711Z-2a6842/054-frame-024.png",
+        "20260924T060545711Z-2a6842/055-frame-025.png",
+        "20260924T060545711Z-2a6842/056-frame-026.png",
+        "20260924T060545711Z-2a6842/057-frame-027.png",
+        "20260924T060545711Z-2a6842/058-frame-028.png",
+        "20260924T060545711Z-2a6842/059-frame-029.png"
+      ],
+      "caption": "no trail laid",
+      "meta": {
+        "ants that reached the food": 7,
+        "came back with it": 7,
+        "first arrival, frame": 2412,
+        "alive at the last frame": 5
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
