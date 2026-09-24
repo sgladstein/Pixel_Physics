@@ -1324,6 +1324,13 @@ fn main() {
     let control: String = arg("control").unwrap_or_else(|| "run".to_string());
     let frames: u64 = arg("frames").unwrap_or(300_000);
     let sample_every: u64 = arg("sample").unwrap_or(900);
+    let budtrace_every: u64 = arg("budtrace_every").unwrap_or(30);
+    let mut budtrace = arg::<String>("budtrace").map(|p| {
+        use std::io::Write;
+        let mut w = std::io::BufWriter::new(std::fs::File::create(&p).expect("create budtrace file"));
+        writeln!(w, "frame,id,x,y,bank,reachable,bar,at_nest,nest_d,crop,generation,children,child_lines").expect("write budtrace header");
+        w
+    });
     let handout: u64 = arg("handout").unwrap_or(0);
     // **`no_colony=1` -- the colony-removed control, on a scenario or off
     // one alike.** See `strip_colony`'s own doc for why this is a
@@ -1886,6 +1893,53 @@ fn main() {
                 }
             }
         }
+        // **`budtrace=FILE`: what `try_bud` would weigh, for every animal
+        // with a nest, every `budtrace_every=` frames (default 30).** One row
+        // per animal: its bank, the food within reach a birth may also draw
+        // on, its bar, whether it is at its nest, how far the nearest nest
+        // site is, and what it carries. Built to answer why breeding only at
+        // the nest stalled the clock (`ant-scenes-2026-09-23.md` §10):
+        // whether an animal that could bud is rich in its own body or only
+        // beside a pile, and where it is when it is.
+        if let Some(out) = budtrace.as_mut() {
+            if f % budtrace_every == 0 {
+                use std::io::Write;
+                for id in world.live_organism_ids() {
+                    let Some(r) = pixel_physics::sim::creature::bud_readiness(&world, id) else { continue };
+                    if !r.has_nest {
+                        continue;
+                    }
+                    let st = world.organism(id).expect("live");
+                    let (hx, hy) = st.chain[0];
+                    let nest_d = world.nearest_nest_site(hx, hy).map_or(-1, |i| {
+                        let n = world.nest_sites[i];
+                        (n.x - hx).abs().max((n.surface - hy).abs())
+                    });
+                    let crop = st.crop.map_or(0.0, |c| c.worth());
+                    // **What stands where a child would go**, only for an animal
+                    // that could bud: the first thing met along each of the
+                    // three lines `try_bud` can place a child on (east,
+                    // north-east, north of the head), within the body's own
+                    // length. `air` means that line was clear the whole way.
+                    let lines = if r.bank + r.reachable >= r.bar {
+                        let span = st.chain.len() as i32;
+                        [(1, 0), (1, -1), (0, -1)]
+                            .iter()
+                            .map(|&(dx, dy)| {
+                                (1..=span)
+                                    .map(|k| world.get(hx + dx * k, hy + dy * k))
+                                    .find(|c| c.material != pixel_physics::sim::material::EMPTY)
+                                    .map_or("air".to_string(), |c| if c.organism_id() != 0 { format!("animal:{}", world.materials.get(c.material).name) } else { world.materials.get(c.material).name.clone() })
+                            })
+                            .collect::<Vec<_>>()
+                            .join("|")
+                    } else {
+                        String::new()
+                    };
+                    writeln!(out, "{f},{id},{hx},{hy},{:.1},{:.1},{:.1},{},{nest_d},{crop:.1},{},{},{lines}", r.bank, r.reachable, r.bar, u8::from(r.at_nest), st.generation, st.children).expect("write budtrace");
+                }
+            }
+        }
         if f < frames {
             frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
         }
@@ -2172,7 +2226,7 @@ fn main() {
     println!(
         "SUMMARY seed={} founders={} colonies={} frames={frames} handout={handout} cols={cols} plants={} windfall={} fruit_dropped={} edible={} unvisited={} floor={} aloft={} \
          peak_edible={peak_edible} eats={} born={} died={} alive={} intake={:.0} burn={:.0} shares={} shared_j={:.0} moves={} deliveries={} nest_visits={} \
-         regime={} bud_site={} buds_held_for_nest={} breeders={} gen={} bgen={} windfall_bitten={} seeds_spilled={} plants_from_pip={} pips_rotted={} pips_eaten={} \
+         regime={} bud_site={} buds_held_for_nest={} births_denied_no_space={} breeders={} gen={} bgen={} windfall_bitten={} seeds_spilled={} plants_from_pip={} pips_rotted={} pips_eaten={} \
          windfall_bitten_ownerless={} seeds_carried={} seeds_delivered={} plants_from_pip_near_nest={} seed_transit_median={} lookup={} visits={} \
          flower_visits={} nectar_paid={:.0} nectar_j_per_1000f={:.2} organs_built={} bloom_seen={} \
          standing_flowers={} standing_fruit={} flowers_rebloomed={} organ_ripening_blocked={} organ_ripening_paid={} \
@@ -2205,6 +2259,7 @@ fn main() {
         // the nest rule held back: the "did it fire" counter for that arm.
         if pixel_physics::sim::creature::bud_at_nest(&world) { "nest" } else { "anywhere" },
         st.buds_held_for_nest,
+        st.births_denied_no_space,
         last.breeders, world.deepest_animal_generation, world.deepest_breeder_generation,
         // **M2's own counter** -- every bite that reached an owned windfall
         // cell and was about to roll for survival, counted *before* the

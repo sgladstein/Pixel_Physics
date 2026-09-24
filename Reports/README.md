@@ -3237,8 +3237,11 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     140 and 200 cells, but fewer at 90, where its founders walk the laid
     trail both ways and starve on it. The bed's pile refill had been
     writing over ants; fixed. **On the lab's breeding clock the rule is as
-    bad as queen-only** (median generation 13 → 1): a rich ant with nothing
-    to carry never goes home. Off by default.
+    bad as queen-only** (median generation 13 → 1). Off by default.
+    **Traced** (§10): ready ants are 89–98% of the time away from the nest
+    (only carrying sends one home), and at the nest the child never fits,
+    because a birth lays an adult-length body in a straight line and the
+    tunnels are full. Even breeding anywhere, no ant breeds at the nest.
   - The per-decision mix matched the formula within a point at both
     energies. The reach predictions were low; the report says why.
   - The scene's own checks caught rain pooling on the slab and an ant dying

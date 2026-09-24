@@ -713,8 +713,14 @@ goes, any later measurement on the colony bed states which drop rule it ran.
    §4c, which way along a route, is next.** **But the lab's breeding clock
    rules the switch out as it stands**: median deepest generation 13 → 1,
    and 3 of 6 seeds with no birth at all, as bad as queen-only. A rich ant
-   with an empty crop has no reason to go home, so the switch stays off and
-   its companion comes first: an ant ready to bud heads home. Eggs or brood
+   with an empty crop has no reason to go home, so the switch stays off.
+   **Traced 2026-09-24** (scenes report §10): two causes together. Ants
+   ready to bud spend 89–98% of that time away from the nest, since only
+   carrying sends an ant home; and at the nest a child never fits, because
+   `try_bud` lays an adult-length body in a straight line and nest tunnels
+   are full of water, nestmates, crumbs and wall. So the fix is a drive
+   home when ready *and* a birth that fits a tunnel: folded along free
+   cells, or born small as an egg or brood. Eggs or brood
    fed from a nest store need a standing store first, and the bed's nest
    floor holds none.
 

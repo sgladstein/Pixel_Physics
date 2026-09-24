@@ -3316,6 +3316,39 @@ pub fn organism_tick_interval(world: &World, organism: OrganismId, def: &Creatur
     ((base as f32 / mix).round() as u64).max(1)
 }
 
+/// **What `try_bud` would weigh for this animal right now**, without budding:
+/// its bank, the food within reach that a birth may also draw on, its bar,
+/// and whether it is at its nest (`bud_at_nest`'s read). Read-only, built from
+/// the same calls `try_bud` makes, so a trace of it cannot disagree with the
+/// rule it traces. `None` for anything that is not a live creature with a bar.
+///
+/// For the trace of why breeding only at the nest stalled the lab's clock
+/// (`Reports/ant-scenes-2026-09-23.md` §9): whether an animal that could bud
+/// is rich in its own body or only beside a pile, and where it is when it is.
+pub struct BudReadiness {
+    pub bank: f32,
+    pub reachable: f32,
+    pub bar: f32,
+    pub at_nest: bool,
+    pub has_nest: bool,
+}
+
+pub fn bud_readiness(world: &World, organism: OrganismId) -> Option<BudReadiness> {
+    let state = world.organism(organism)?;
+    let def = world.species.get(state.species).creature.as_ref()?;
+    let threshold = reproduce_at_of(def, &state.traits)?;
+    let cost = birth_cost_of(def, birth_grant(def, &state.traits));
+    let (hx, hy) = *state.chain.first()?;
+    let gut = gut_of(world, organism, def);
+    Some(BudReadiness {
+        bank: state.energy,
+        reachable: reachable_provision(world, hx, hy, gut),
+        bar: threshold.max(cost + 1.0),
+        at_nest: nest_within_reach(world, organism, hx, hy, def),
+        has_nest: world.materials.id_of(&def.nest).is_some(),
+    })
+}
+
 /// Bud a child off `organism` if it can afford one and there is room.
 ///
 /// Returns the child's site, to be handed back to the scheduler by the
@@ -31053,6 +31086,14 @@ mod tests {
                 }
             }
             w.bud_at_nest = Some(at_nest);
+            // `bud_readiness`, the trace's probe, must say what the gate is
+            // about to decide: every founder ready, the two on the nest at it
+            // and the four away not.
+            for (i, &id) in founders.iter().enumerate() {
+                let r = bud_readiness(&w, id).expect("a live creature with a bar");
+                assert!(r.has_nest && r.bank + r.reachable >= r.bar, "founder {i} is not ready to bud by the probe");
+                assert_eq!(r.at_nest, i < 2, "founder {i}: the probe's at-nest read disagrees with the scene");
+            }
             run(&mut w, 120);
             let kids = founders.iter().map(|&id| w.organism(id).map_or(0, |s| s.children)).collect();
             (kids, w.creature_stats.buds_held_for_nest)

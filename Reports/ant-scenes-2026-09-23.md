@@ -757,3 +757,54 @@ the way a carrying one does.
 **Data:** `Reports/data/bed-budsite-{off,offnest,trail,trailnest}-2026-09-24.log.gz`,
 `bed-budsite-first-trip-gap90-2026-09-24.txt`, `lab-clock-budsite-2026-09-24.txt`
 (each run's `SUMMARY` line).
+
+## 10. Why breeding only at the nest stalls the clock: traced
+
+§9's clock result came with an untraced guess, and four other explanations
+fit the same two counters. Each would need a different fix, so they were
+traced before anything was built. `labforage budtrace=FILE` writes what
+`try_bud` would weigh for every animal every 30 frames:
+`creature::bud_readiness`, a read-only probe built from `try_bud`'s own
+calls and checked against the gate in its guard. It records bank, food in
+reach, bar, whether the ant is at the nest, the distance to the nest site,
+and, for an animal that could bud, what stands on each of the three lines a
+child can be placed on. Lab played bed, the shipped walk, 60,000 frames.
+
+| Ready to bud (bank + food in reach ≥ bar) | seed 1, nest rule | seed 4, nest rule | seed 1, breed anywhere |
+|---|---|---|---|
+| samples, ants | 18,657, 18 | 24,678, 38 | 8,199, 33 |
+| rich in the body alone (bank ≥ bar) | 17,917 | 23,339 | 7,218 |
+| food in reach, median | 0 J | 0 J | 0 J |
+| distance to the nest site, median (all samples) | 83 (55) | 64 (23) | 26 (73) |
+| at the nest | **2,008 (11%)** | **565 (2%)** | 1,408 (17%) |
+| of those at the nest, with any line clear for a child | **0** | **7%** | |
+| away, with any line clear | 36% | 57% | |
+| buds refused for lack of room (`births_denied_no_space`) | 9,983 | 2,808 | 40,218 |
+| births seen | 0 | | 58, **none at the nest** (median 88 cells from it) |
+
+- **Not the pile.** A ready ant is rich in its own body; there is no food in
+  reach at all.
+- **Not drained at the nest.** Ready ants stay ready there, tick after
+  tick.
+- **Mostly away from home, because nothing sends them there.** Only
+  carrying does, so 89–98% of the time an ant could bud it is away from the
+  nest.
+- **And at the nest, the child does not fit.** `try_bud` places a whole
+  adult-length body in a straight line east, north-east or north of the
+  head. At the nest those lines meet, most often, water (seed 1's nest holds
+  it), other ants, delivered crumbs, nest wall and packed soil. The count
+  agrees: 2,008 samples, each about 5 ant-ticks, is about 10,000 ticks at
+  the nest ready, against 9,983 refusals for no room. **Every tick a rich
+  ant spent at the nest was a refused bud.**
+
+**Even breeding anywhere, no ant bred at the nest.** The shipped colony's
+births all happen out in the open, and 40,218 buds were refused for room on
+that seed alone. Room is a birth bottleneck everywhere, not just under the
+rule.
+
+**So a fix needs both halves:** a reason for a ready ant to go home, and a
+way for a child to fit where ants live: placed along the free cells of a
+tunnel rather than in a straight line, or born small (an egg or brood) and
+grown.
+
+**Data:** `Reports/data/lab-budtrace-{any-1,nest-1b,nest-4b}-2026-09-24.csv.gz`.
