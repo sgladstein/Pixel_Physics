@@ -217,6 +217,9 @@ TOPICS = {
         # one is about whether the ant can *read* a trail, this one about
         # whether the trail is still there when it looks.
         "Trail lifetime status — the way home keeps, the food trail still fades",
+        # What reads the two trails above and turns them into steps: the
+        # chooser the ant walks since 2026-09-24.
+        "Walk status — the ant chooses where to step, and a colony builds its own road",
         "Lifespan status — an ant gets old, and the colony's fall becomes a slope",
         # The books under the two lines above: hunger and trophallaxis are
         # both *mechanisms*, and this is the reading that says what either

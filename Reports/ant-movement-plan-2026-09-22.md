@@ -706,10 +706,17 @@ goes, any later measurement on the colony bed states which drop rule it ran.
    trailaway`. With the nest rule on every arm, founders make a median of
    14, 14 and 11 round trips at 90, 140 and 200 cells, against the shipped
    walk's 13.5, 1 and 0 and stage 2's 9, 5.5 and 4; S5's trailed row is
-   crossed in 297 decisions against the shipped 702. Still behind the
-   switch; 26 of 80 founders still miss the food on their first trip at 90
-   cells (16 shipped). §4c stays unbuilt: its one live use is the laden ant
-   on A, which the home term already aims.
+   crossed in 297 decisions against the shipped 702. 26 of 80 founders
+   still miss the food on their first trip at 90 cells (16 shipped). §4c
+   stays unbuilt: its one live use is the laden ant on A, which the home
+   term already aims.
+
+   **Shipped as the default 2026-09-24, the owner's ruling** (scenes report
+   §15), with the drop-hunger wires of §13d, scoped to species that name a
+   nest. With no trail laid it makes 10.5 / 4.5 / 2 round trips at 90 / 140
+   / 200 cells where the walk before it made 0 (§12), and in the lab 3.7x
+   the food carried home and a deepest breeding generation of 26 against 10
+   (§14). `PIXEL_PHYSICS_CHOOSER=off` is the way back.
 
 7. **Breeding only at the nest** (owner ruling 2026-09-23; in the end,
    *where* is a trait a lineage evolves). First as a switch,
