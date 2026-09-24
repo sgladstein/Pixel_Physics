@@ -1,0 +1,74 @@
+{
+  "id": "20260924T030204076Z-f0ebdd",
+  "created": "2026-09-24T03:02:04Z",
+  "board": "ants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/upbeat-gates-u90pys",
+    "commit": "252fb059",
+    "agent": null,
+    "session_id": "377a1a74-10ea-588e-aa72-28c0126d3167",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The nest, with the ants coloured",
+  "question": "Now that the ants stand out: is the nest too crowded with ants, or is the problem the nest itself -- a thin strip at the surface with water, grass and crumbs on it?",
+  "context_md": "You asked for the ants in a colour that doesn't blend into the soil. **Magenta** is an ant, **cyan** is an ant rich enough to breed right now, and the **white outline** is the nest: 'at the nest' in the game means standing next to it. Lab bed, seed 1, frame 48,750, the moment in the trace with the most ants ready to breed at the nest.\n\n**What the trace found:** at the nest, a newborn is laid as a full-length ant in a straight line from the parent's head, and at this nest those lines were blocked every time, mostly by water, then other ants, crumbs, the nest itself and soil. Away from the nest, a line was clear 36-57% of the time.\n\n**What I did not expect to see:** the nest is not a chamber. It is a strip painted along the surface, partly broken into single cells, with a pool of water sitting on it. And it is not packed with ants: 4 or 5 at it, in both versions.\n\nTop row close up, bottom row wide. Left: breeding only at the nest (the switch). Right: breeding anywhere (today's game).",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "Only at the nest, close",
+      "files": [
+        "20260924T030204076Z-f0ebdd/000-nest-marked.png"
+      ],
+      "caption": "12 of 13 ants are ready to breed and can't",
+      "meta": {
+        "ants alive": 13,
+        "at the nest": 5,
+        "ready to breed at the nest": 4,
+        "ready ones with room for a child": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "Breed anywhere, close",
+      "files": [
+        "20260924T030204076Z-f0ebdd/001-any-marked.png"
+      ],
+      "caption": "today's game at the same moment",
+      "meta": {
+        "ants alive": 47,
+        "at the nest": 4,
+        "ready to breed at the nest": 2,
+        "births by now": 49
+      },
+      "focus": null
+    },
+    {
+      "label": "Only at the nest, wide",
+      "files": [
+        "20260924T030204076Z-f0ebdd/002-nest-wide.png"
+      ],
+      "caption": "the colony strung out along the surface",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "Breed anywhere, wide",
+      "files": [
+        "20260924T030204076Z-f0ebdd/003-any-wide.png"
+      ],
+      "caption": "same frame, same seed",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
