@@ -1292,6 +1292,30 @@ fn set_via_bias(g: &mut [f32], out: O, value: f32, scale: f32, name: &str) {
     g[slot] = w;
 }
 
+/// `wire=` parsed -- see its use in `run`. Same syntax and the same refusals
+/// as `labforage::wire_rider`, so an arm is spelled once for both harnesses.
+fn wire_rider() -> Vec<(brain::BrainInput, brain::BrainOutput, f32)> {
+    let Some(spec) = arg_str("wire") else { return Vec::new() };
+    spec.split(',')
+        .map(|entry| {
+            let bits: Vec<&str> = entry.split(':').collect();
+            assert_eq!(bits.len(), 3, "wire entry {entry:?} wants Input:Output:weight, e.g. wire=AtNest:Feed:-0.7");
+            let input = brain::INPUTS
+                .iter()
+                .copied()
+                .find(|i| brain::INPUT_NAMES[*i as usize].eq_ignore_ascii_case(bits[0]))
+                .unwrap_or_else(|| panic!("unknown input {:?}; known: {:?}", bits[0], brain::INPUT_NAMES));
+            let output = brain::OUTPUTS
+                .iter()
+                .copied()
+                .find(|o| brain::OUTPUT_NAMES[*o as usize].eq_ignore_ascii_case(bits[1]))
+                .unwrap_or_else(|| panic!("unknown output {:?}; known: {:?}", bits[1], brain::OUTPUT_NAMES));
+            let w: f32 = bits[2].parse().unwrap_or_else(|_| panic!("wire weight {:?} does not parse", bits[2]));
+            (input, output, w)
+        })
+        .collect()
+}
+
 fn mute_channel(g: &mut [f32], out: O) -> usize {
     let mut moved = 0;
     for i in 0..brain::BRAIN_INPUTS {
@@ -1703,6 +1727,23 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             "carryb={c} is already what the Carrying->EmitB slot holds, so this arm is the shipped one wearing a different name"
         );
         genome[slot] = c;
+    }
+    // **`wire=<Input>:<Output>:<weight>[,...]` -- any input-to-output weight**,
+    // `labforage`'s, `labstats`' and `creature_arena`'s own spelling, so one set
+    // of arms races on the colony bed and in the lab box without a species-file
+    // copy (the `include_str!` trap: a file copy is a different build). Added
+    // 2026-09-24 for the nest-pickup AND (`AtNest:Feed` with `Energy:Feed`,
+    // `ant-scenes-2026-09-23.md` §13). Refuses an entry that moves nothing,
+    // because an arm that matched no slot is the control wearing a label.
+    for (input, output, w) in wire_rider() {
+        let slot = brain::io_slot(input, output);
+        assert!(
+            (genome[slot] - w).abs() > f32::EPSILON,
+            "wire={}:{}:{w} is already what the slot holds, so this arm is the shipped one wearing a different name",
+            brain::INPUT_NAMES[input as usize],
+            brain::OUTPUT_NAMES[output as usize]
+        );
+        genome[slot] = w;
     }
 
     let surface = spec.ground_y - 2;
@@ -4482,6 +4523,15 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             w.creature_stats.buds_held_for_nest,
             if creature::bud_at_nest(&w) { "nest" } else { "anywhere" }
         );
+        // **Trophallaxis, the pair `CLAUDE.md` asks for**: `shares` fired,
+        // `shared_j` moved. Added 2026-09-24 when breaking the carriers'
+        // pick-up/put-down cycle at the nest made the colony starve MORE
+        // (`ant-scenes-2026-09-23.md` §13) and energy passed ant to ant was
+        // the unmeasured route the cycle might have been feeding.
+        println!(
+            "    SHARES {} | joules moved {:.0} | handling cost {:.0}",
+            w.creature_stats.shares, w.creature_stats.shared_j, w.creature_stats.share_energy
+        );
         println!(
             "    DEATHS BY CAUSE -- by frame 6000: [{}] | whole run: [{}]",
             deaths_at_6000.as_ref().map_or_else(|| "not reached".to_string(), causes),
@@ -4778,8 +4828,9 @@ fn main() {
     // `ant-forage-bed-and-gates-2026-09-21.md` is run with, echoed so a log
     // that does not name them was written by a binary that never had them.
     println!(
-        "  breadoff={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} layfrom={}",
+        "  breadoff={} wire={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} layfrom={}",
         flag("breadoff"),
+        arg_str("wire").unwrap_or_else(|| "shipped".into()),
         flag("decisioncsv"),
         arg_str("dtag").unwrap_or_default(),
         std::env::var("PIXEL_PHYSICS_COLONY_SPACING").unwrap_or_else(|_| "shipped".into()),
@@ -4794,7 +4845,23 @@ fn main() {
     let base = w.species.get(w.species.id_of("ant").expect("the ant species is compiled in")).genome.clone();
 
     if mode == "feedgate" {
-        feed_gate(&base, &[0.0, 0.5, 1.0, 1.5, 2.0, 3.0]);
+        // `wire=` applies here too, so a candidate is checked through
+        // `eval_brain` in exactly the spelling the bed will run it in. With
+        // wires given, one row is printed, at `w = -(Energy->Feed)`: the
+        // table writes `-w` into that slot, so this keeps whatever the wires
+        // put there rather than sweeping over it.
+        let wires = wire_rider();
+        if wires.is_empty() {
+            feed_gate(&base, &[0.0, 0.5, 1.0, 1.5, 2.0, 3.0]);
+        } else {
+            let mut g = base.clone();
+            for (i, o, wt) in wires {
+                g[brain::io_slot(i, o)] = wt;
+            }
+            let fed = g[brain::io_slot(I::Energy, O::Feed)];
+            println!("wire= applied (Energy->Feed = {fed}, printed as w = {})\n", -fed);
+            feed_gate(&g, &[-fed]);
+        }
         return;
     }
 
