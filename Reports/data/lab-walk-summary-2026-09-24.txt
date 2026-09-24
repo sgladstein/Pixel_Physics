@@ -1,0 +1,30 @@
+seeds with all three arms: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+deliveries   off med       1398  away med       5164  awayd med       4815   away vs off 12/0   awayd vs off 11/1
+born         off med        146  away med        420  awayd med        450   away vs off 8/2   awayd vs off 11/1
+alive        off med         50  away med         20  awayd med         96   away vs off 4/8   awayd vs off 7/4
+bgen         off med         10  away med         22  awayd med         26   away vs off 10/2   awayd vs off 11/1
+intake       off med     370878  away med     960682  awayd med     836343   away vs off 11/1   awayd vs off 11/1
+eats         off med      22632  away med      33580  awayd med      32463   away vs off 10/2   awayd vs off 11/1
+shares       off med       2977  away med       5032  awayd med       5218   away vs off 7/5   awayd vs off 9/3
+nest_visits  off med       1387  away med       6764  awayd med       7853   away vs off 12/0   awayd vs off 12/0
+cols         off med        218  away med        504  awayd med        504   away vs off 12/0   awayd vs off 12/0
+starved      off med         37  away med        227  awayd med        244   away vs off 10/2   awayd vs off 11/1
+per seed alive (off/away/awayd): [(1, 108, 1, 172), (2, 97, 25, 157), (3, 17, 12, 173), (4, 97, 140, 106), (5, 117, 0, 0), (6, 24, 16, 87), (7, 46, 6, 33), (8, 55, 4, 0), (9, 22, 455, 227), (10, 16, 91, 16), (11, 106, 72, 443), (12, 20, 380, 18)]
+
+# ascii scene=foraging, RAYON_NUM_THREADS=2, alternating pairs
+off 1: worst 24.842 ms, mean 0.653 ms | after 12000 frames: 394 live organisms (15 creatures) | moves 2742 blocked 70 falls 189 | eats 1002 pickups 880 digs 37 drops 729 deliveries 729 nest-visits 568 deaths 1
+after 12000 frames: forage trips 12 (bar 8) mean depth 10.2 deepest 14 | reach [568, 105, 32, 12, 0, 0, 0, 0]
+trailaway 1: worst 6.102 ms, mean 0.721 ms | after 12000 frames: 387 live organisms (14 creatures) | moves 11615 blocked 0 falls 161 | eats 2026 pickups 1746 digs 91 drops 1306 deliveries 1306 nest-visits 932 deaths 3
+after 12000 frames: forage trips 37 (bar 8) mean depth 10.5 deepest 19 | reach [932, 173, 85, 37, 4, 0, 0, 0]
+off 2: worst 6.635 ms, mean 0.652 ms | after 12000 frames: 394 live organisms (15 creatures) | moves 2742 blocked 70 falls 189 | eats 1002 pickups 880 digs 37 drops 729 deliveries 729 nest-visits 568 deaths 1
+after 12000 frames: forage trips 12 (bar 8) mean depth 10.2 deepest 14 | reach [568, 105, 32, 12, 0, 0, 0, 0]
+trailaway 2: worst 9.913 ms, mean 0.717 ms | after 12000 frames: 387 live organisms (14 creatures) | moves 11615 blocked 0 falls 161 | eats 2026 pickups 1746 digs 91 drops 1306 deliveries 1306 nest-visits 932 deaths 3
+after 12000 frames: forage trips 37 (bar 8) mean depth 10.5 deepest 19 | reach [932, 173, 85, 37, 4, 0, 0, 0]
+off 3: worst 8.136 ms, mean 0.663 ms | after 12000 frames: 394 live organisms (15 creatures) | moves 2742 blocked 70 falls 189 | eats 1002 pickups 880 digs 37 drops 729 deliveries 729 nest-visits 568 deaths 1
+after 12000 frames: forage trips 12 (bar 8) mean depth 10.2 deepest 14 | reach [568, 105, 32, 12, 0, 0, 0, 0]
+trailaway 3: worst 12.269 ms, mean 0.691 ms | after 12000 frames: 387 live organisms (14 creatures) | moves 11615 blocked 0 falls 161 | eats 2026 pickups 1746 digs 91 drops 1306 deliveries 1306 nest-visits 932 deaths 3
+after 12000 frames: forage trips 37 (bar 8) mean depth 10.5 deepest 19 | reach [932, 173, 85, 37, 4, 0, 0, 0]
+off 4: worst 6.314 ms, mean 0.679 ms | after 12000 frames: 394 live organisms (15 creatures) | moves 2742 blocked 70 falls 189 | eats 1002 pickups 880 digs 37 drops 729 deliveries 729 nest-visits 568 deaths 1
+after 12000 frames: forage trips 12 (bar 8) mean depth 10.2 deepest 14 | reach [568, 105, 32, 12, 0, 0, 0, 0]
+trailaway 4: worst 8.786 ms, mean 0.717 ms | after 12000 frames: 387 live organisms (14 creatures) | moves 11615 blocked 0 falls 161 | eats 2026 pickups 1746 digs 91 drops 1306 deliveries 1306 nest-visits 932 deaths 3
+after 12000 frames: forage trips 37 (bar 8) mean depth 10.5 deepest 19 | reach [932, 173, 85, 37, 4, 0, 0, 0]

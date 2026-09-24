@@ -878,3 +878,299 @@ makes 13.5, 1 and 0. Still behind a switch, and not yet seen by eye.
 `bed-trailaway-first-trip-gap90-2026-09-24.txt`,
 `scene-trailaway-{s4,s5trail}-2026-09-24.log`; the shipped and stage-2 arms
 are §9's `bed-budsite-{offnest,trailnest}`.
+
+## 12. Without the hand-laid trail: the colony finds the food and builds the road
+
+*2026-09-24.* Owner: *"This is still starting with the hand laid trail or are
+they finding the food themselves?"* Every bed result in §8–§11 started from
+it: `arms=hand` lays trail B from nest to food every 60 frames until frame
+6,000 of 24,000. **`arms=self` lays nothing**, so the colony has to find the
+pile by wandering and lay its own trail home. Same bed otherwise (20
+founders, nest rule on, 24 seeds a gap).
+
+**Predictions, written before the run:** discovery about equal in all three
+walks (the away term is scaled by B presence, and before anyone finds food
+there is none); any gain from trailaway only after a first finder walks home;
+140 and 200 near zero round trips; at 90, trailaway > trail ≥ shipped in a
+minority of seeds.
+
+**Wrong on the first and third.** Founders' round trips, median a run
+(ants that ever reached the food in brackets; colonies with 17+ of 20 dead):
+
+| No hand trail | gap 90 | gap 140 | gap 200 |
+|---|---|---|---|
+| today's walk | 0 (0), 24 of 24 dead | 0 (0), 24 | 0 (0), 24 |
+| stage 2 | 7 (8.5), 21 | 4 (4.5), 24 | 2 (2), 24 |
+| **away from home** | **10.5 (12)**, 9 | **4.5 (6)**, 23 | **2 (2)**, 24 |
+
+Against the same walk *with* the hand trail (§11), paired within seed:
+
+| Away from home, round trips | gap 90 | gap 140 | gap 200 |
+|---|---|---|---|
+| hand-laid trail | 14 | 14 | 11 |
+| **no trail** | **10.5** (lower on 22 of 24) | **4.5** (23) | **2** (24) |
+
+So close in, the ants mostly do it themselves; further out the hand trail was
+doing most of the work. Today's walk depends on it entirely: 13.5 round trips
+at 90 cells with it, 0 without.
+
+**Traced, every ant, 6 seeds** (`decisioncsv`; the trace's arrival count
+matches the harness on every seed):
+
+- **Finding it alone.** With the new walk some ant finds the pile **in every
+  seed at both 90 and 140 cells**, at a median frame of 972 and 1,551. With
+  today's walk one ant does, in 3 of 6 seeds at 90 and 1 of 6 at 140; its
+  other ants never get more than 20 cells from the nest (median). So the
+  chooser's straighter walk is what finds food; it is not the trail term.
+- **Recruitment after the first find.** At 90 cells, 61 of the 63 later
+  arrivals were on another ant's trail for at least part of the way out (33
+  for most of it). At 140, 22 of 25, but 20 of them only partway: they wander
+  out and meet the trail somewhere along it.
+- **The self-laid trail does reach the nest.** Sampled cell by cell every 500
+  frames (`btrail`, 140 cells, seed 1): nothing until frame 2,500, then
+  continuous from x = 50 (inside the nest strip, 26–70) to the food by 3,500.
+  The run summary's `B nest->food [8, 1088, …]` reads low at the nest only
+  because its first probe sits at the nest's centre, past where laden ants
+  stop laying. Not a finding; recorded so nobody chases it.
+
+**At larger gaps** (same arms, 24 seeds; today's walk 0 everywhere):
+
+| Away from home, no trail | 260 | 320 | 400 |
+|---|---|---|---|
+| ants that ever reached the food, all seeds | 25 | 7 | 0 |
+| seeds with any arrival | 14 of 24 | 7 of 24 | 0 of 24 |
+| round trips, all seeds | 13 | 2 | 0 |
+
+Predicted 1 / 0–1 / 0 arrivals a run and 16 / 10 / under 6 seeds: close, a
+little low. **400 cells is out of a founder's range**: searching, an ant
+covers about a cell per 11 frames (first finds above), and it lives about
+3,300 frames on its starting energy. Stage 2 (no away term) is the same as
+trailaway at every one of these gaps, as predicted: with so little trail there
+is nothing for the term to act on.
+
+**What the misses were doing** (the ants that never reached the food).
+Almost none died before a trail existed: **80 of 90** at 140 cells and **50 of
+50** at 90 were alive when the first finder got home. Most then died **on
+the nest** (33 of 50 at 90, 50 of 90 at 140; 30 more at 140 on the ground
+just east of it). Being underground does not separate them (26% of their
+decisions against 23% for ants that made it); hauling spoil a little (19%
+against 10%). One traced end to end, seed 1, ant 7: it dug and idled on the
+nest until frame 1,400, drifted west to the box wall, climbed it and walked the
+ceiling until it starved at 3,282, having never touched the trail, which
+reached the nest at 2,268. That kind is 11 of 50 at 90 cells. **The common
+kind died beside a working loop**: seed 3's ant 1 had 94% of its starting
+energy when the first food came home and starved on the nest 3,500 frames
+later. Why is §13.
+
+**Data:** `Reports/data/bed-selfarm-2026-09-24.log.gz` (the three walks),
+`bed-selfarm-wide-2026-09-24.log.gz` (260/320/400),
+`bed-selfarm-trace-2026-09-24.txt` (the per-ant traces),
+`bed-selfarm-btrail-140-s1-2026-09-24.log.gz`.
+
+## 13. Why the ants at the nest starve beside a working loop
+
+*2026-09-24, continuing §12 on the no-trail bed (trailaway, `arms=self`, nest
+rule on, 3 gaps × 24 seeds, paired within seed against §12's trailaway arm).*
+
+**The food is there and it does not reach them.** At 90 cells, seed 1, the
+colony takes 57 cells from the pile over the run and 54.6 of them are eaten;
+what reaches the nest is crumbs worth 2 cells in all, and **food on the nest
+ground reads 0 at every 3,000-frame sample in every run**. The pile never
+runs short (400 cells standing throughout). Taken at 90 cells is about 58
+cells, ~55,000 J a run, against roughly 34,000 J that 20 ants burn over the
+run at the traced rate, so this is distribution, not supply.
+
+### 13a. The hunger gate, re-tested: fires, changes nothing
+
+`dead-ends.md` holds `digest_hunger_weight` (digestion slows once an ant is
+well fed, so a carrier keeps its load) at 0.0, measured twice as bad under
+today's walk, with *re-test when colonies get rich*. Under the chooser the
+foragers do get rich, so: `hungergate=1`. **Predicted** food on the nest
+ground off 0 and fewer starved at 90. **Measured:** it fires (a median 1,564
+J held in carriers' crops a run at 90 cells, 22 of 24 seeds; exactly 0 in the
+base) and moves nothing: nest ground still 0, starved 14 → 14, wiped 9 → 11,
+round trips 10.5 → 10.5. Why it cannot help is §13b: the carrier eats what it
+delivers, whether or not its gut waited.
+
+### 13b. The carrier eats its own delivery (traced)
+
+At 90 cells a colony logs **about 2,260 drops a run for about 58 cells
+taken**, so each cell is put down about 40 times. One carrier, seed 1 ant 12
+(503 drops): it stands at x = 65 on the nest at full energy, never moves,
+and for hundreds of decisions picks up, puts down and picks up the same
+scrap, nibbling it the whole time (fill 0.079 → 0.074). The wiring does this
+by itself: `Feed` is `squash(0.4 + 0.8 × FoodAdjacent)` = 0.55 next to food
+for **every** ant, `Drop` is +1.09 at the nest for **every** ant, and being
+next to food cuts `Move` (`FoodAdjacent −1.16`). A delivery puts the food
+next to the carrier, so it stops and eats it. This is the thrash
+`pheromone-trail-direction` §7.28 predicted for the granary, now measured on a
+bed where the loop runs.
+
+### 13c. Stopping the re-grab leaves the food uneaten
+
+`(AtNest, Feed, −0.7)` + `(Energy, Feed, −0.7)`: in a linear sum that is an
+AND, so a **full ant at the nest** cannot pick up (0), everyone else can
+(hungry at the nest 0.33, full at the pile 0.33, hungry at the pile 0.55).
+Control: `(AtNest, Feed, −1.2)`, nobody picks up at the nest. Harness rider
+`wire=` (new, `labforage`'s spelling). **Predicted** fewer drops, food
+standing at the nest, fewer starved. Gap 90, medians a run:
+
+| | base | AND | block everyone |
+|---|---|---|---|
+| drops | 2,260 | 772 | 164 |
+| cells taken from the pile | 58 | 54 | 43.5 |
+| **cells eaten** | **52.5** | **39** | **27** |
+| starved (of 20) | 14 | 17.5 | 19 |
+| colonies with 17+ dead | 9 of 24 | 15 | 23 |
+
+**Wrong where it mattered.** The cycle breaks and the food then sits as
+crumbs at the nest, eaten by nobody. Traced (4 seeds): hungry ants on the
+nest *are* next to food, 72% of their decisions below half energy, and pick
+it up on 19% of those (41% in the base, where they were next to food on only
+2.6–12%). The Energy term is too blunt, and **`Drop` puts back what a hungry
+ant does pick up**: +1.09 at the nest for every ant, the "4 ticks held" of
+§7.29, which applies to the hungry as much as the full. Sharing is not the
+route either: `SHARES` (new) moves about 2,000 J a run (1,400 with the AND)
+against ~50,000 J eaten.
+
+### 13d. A hungry ant keeps what it holds: hunger on `Drop`
+
+The division of labour §7.28 wanted, *a full ant carries and drops; a hungry
+ant eats*, belongs on `Drop`: `(Bias, Drop)` −0.2 → **−2.0** and a new
+`(Energy, Drop, +1.8)`, `AtNest` unchanged. Through `eval_brain`
+(`mode=feedgate wire=…`, new), per-tick P(drop) at the nest next to food, by
+energy 0 / 0.25 / 0.5 / 0.75 / 1: **0 / 0 / 0.022 / 0.14 / 0.25**, against 0.25
+at every energy today; away from the nest still 0. A full carrier delivers
+exactly as before and a hungry one eats until it is nearly full, since
+digestion pays out as it chews. Graded, not a switch. Arm DF adds a milder
+pick-up AND (`AtNest:Feed −0.4`, `Energy:Feed −0.8`).
+
+**Predicted** at 90: starved 14 → ≤ 11, wiped down from 9, eaten > 55, drops
+down, round trips ≥ base. Medians a run; seeds better / worse against base:
+
+| Drop hunger (D) | gap 90 | gap 140 | gap 200 |
+|---|---|---|---|
+| cells eaten | 52.5 → **58** (12 / 11; sum +16%) | 14.2 → **21.2** (15 / 8; +46%) | 2.6 → 3.2 |
+| cells taken from the pile | 58 → 64 | 19.5 → 24 | 5.5 → 4.5 |
+| drops | 2,260 → 1,305 | 438 → 237 | 33 → 12 |
+| reached the food | 12 → 13 (16 / 6) | 6 → 5.5 | 2 → 2 |
+| reached it a second time | 6 → 7 (13 / 7) | 1 → 2 | 0 → 0 |
+| round trips | 10.5 → 10.5 (11 / 8) | 4.5 → 5 | 2 → 2 |
+| **starved** | **14 → 14.5** (9 / 7) | 20 → 19 | 20 → 20 |
+| colonies with 17+ dead | 9 → 11 | 23 → 22 | 24 → 24 |
+
+DF is no better than D anywhere (eaten 54.1 at 90, starved 15, wiped 12).
+**So D feeds the colony more and does not feed the dying**: the extra food
+goes to ants that already had some. Not adopted; the wires are a rider, not
+in `ant.ron`.
+
+### 13e. The dying are on the far side of the nest
+
+Where the ants that never reach the food step, on and near the nest after the
+first forager is home (6 seeds, 90 cells; x from the nest's centre, the strip
+is −22..+22; share of steps landing on trail B):
+
+| surface steps | −30 | −20 | −10 | 0 | +10 | +20 |
+|---|---|---|---|---|---|---|
+| misses | 502, 0% | 878, 8% | 715, 7% | 446, 24% | 282, 62% | 91, 89% |
+| reachers | 407, 0% | 713, 6% | 896, 10% | 960, 23% | 1,407, 64% | 1,239, 63% |
+
+**About 70% of the misses' surface steps are on the west half, where the
+trail is not**: carriers come in from the east and put their load down at the
+east edge, so the trail ends there, and an ant on the far side of a 44-cell
+painted strip never crosses it. Part of this is the bed: founders are laid in
+a band `ants × 4` wide centred on the nest, and a dug nest with one entrance
+would have no far side. **Nest digging is its own open track** (the owner,
+2026-09-24), so no mechanism is built around the strip here.
+
+**What this leaves for the loop:** discovery works (§12), recruitment works
+where ants can meet the trail, and the food exists. The next link is getting
+nest ants to the trail's start: a nest shaped like a nest, or a search that
+brings a hungry ant past the nest's mouth.
+
+**Data:** `Reports/data/bed-selfarm-hungergate-2026-09-24.log.gz`,
+`bed-selfarm-nestpickup-2026-09-24.log.gz` (AND and control),
+`bed-selfarm-nestpickup-trace-2026-09-24.txt`,
+`bed-selfarm-drophunger-2026-09-24.log.gz` (D and DF),
+`bed-selfarm-westhalf-gap90-2026-09-24.txt`.
+
+## 14. The new walk in the lab box
+
+*2026-09-24.* Everything above is the colony bed. The lab
+(`labforage scenario=played_bed`, 120,000 frames, colonies arriving on the
+scenario's timeline, plants regrowing, budding anywhere, which is the lab's
+default) is where the ants actually live, and nothing had measured the
+chooser there. Three arms, 12 seeds, paired within seed: today's walk,
+`PIXEL_PHYSICS_CHOOSER=trailaway`, and trailaway with §13d's drop wires.
+Today's walk on seed 1 reproduces §10's `any` arm digit for digit (born 239,
+alive 108, deliveries 749).
+
+**Predicted:** deliveries up; births and the deepest breeding generation
+within today's spread (a big fall would mean the walk costs the lab's clock);
+the drop wires deliver a little less.
+
+| Lab, 12 seeds, median a run | today | new walk | new walk + drop wires |
+|---|---|---|---|
+| deliveries (food carried home) | 1,398 | **5,164** (12 / 0) | 4,815 (11 / 1) |
+| food intake, J | 371k | 961k (11 / 1) | 836k (11 / 1) |
+| births | 146 | 420 (8 / 2) | 450 (11 / 1) |
+| **deepest generation that itself bred** | 10 | 22 (10 / 2) | **26** (11 / 1) |
+| columns of the box ever visited | 218 | 504, all of it | 504 |
+| alive at 120,000 frames | 50 | 20 (4 / 8) | **96** (7 / 4) |
+| went extinct | 0 of 12 | 1 | 2 |
+
+(Better / worse than today in brackets.) **The clock was the wrong
+prediction, in the good direction**: the lab evolves more than twice as
+fast. On its own the new walk leaves colonies smaller at the end because they
+boom and bust; with the drop wires they end twice today's size.
+
+**The extinctions are overgrazing, not the walk failing.** Seed 5, every
+9,000 frames: under today's walk the colony holds near 100 ants and the plants
+between 650 and 1,250 standing; under the new walk with the drop wires the
+colony grows to 334 and then 379 ants, the plants go from 1,247 standing to
+54 by frame 72,000, and the colony starves out by 108,000. Today's walk
+cannot reach enough of the box to do that. So the lab becomes a world that can
+be eaten bare on some seeds, which is the owner's call rather than a bug.
+
+**Seen by eye, one seed** (`labshot mark=ants`, seed 4, frames 30,000 to
+120,000; posted as a card): under today's walk the colony stays near its nest
+and the plants thrive (654 standing at the end); under the new walk the ants
+range the whole box up to the ceiling, the ground is bare by 90,000 and 15
+plants are left. The same seed also shows the colony **digging 13× as much**
+(9,663 digs against 711) and a nest room of 514 roofed cells against 45.
+That is one seed and nothing here measured digging across seeds; recorded
+because the nest-digging line will want to know.
+
+**Frame cost** (`ascii scene=foraging`, 15 ants, four alternating pairs,
+`RAYON_NUM_THREADS=2`): mean **0.658 → 0.717 ms** a frame, slower in 4 of 4,
+with the ants taking **4.2× the steps** (2,742 → 11,615) and delivering
+1,306 against 729. Worst frames ran 6–25 ms in both arms with no pattern and
+are not pinned by the mean, so they say nothing. Per ant that is roughly
+0.004 ms, on the order of a millisecond at the lab's peak of 300+ ants; not
+measured there.
+
+**What a default flip would touch.** The whole suite run with
+`PIXEL_PHYSICS_CHOOSER=trailaway` set (the flip, approximated without a code
+change): worldgen, determinism, the druid and app tests all pass; **8 of
+1,895 library tests fail**. Four pin today's walk and would set it explicitly
+(the decision-trace identity and reconciliation, the homeward re-roll, the
+lifetime counters: each needs tumbles or blocked moves, which the chooser
+does not make). Two are scenes that depend on how ants meet (a lone grazer
+on a moss lawn; armoured ants taking a median 528 frames to meet at reach 1).
+**Two are real questions before any flip:** a floating flitter under the
+chooser gets within 2 cells of the flower it must reach, so the chooser
+reaches flyers and changes them; and in `a_released_animal_falls_like_a_founder_does`
+the released ant is **killed** within 400 frames (one death booked `KILLED`)
+where today it falls and lives.
+
+**Where this leaves the walk:** on the bed it makes the loop work with no
+trail laid (§12), and in the lab it nearly quadruples what the colonies carry
+home and doubles the evolution clock. It is still behind
+`PIXEL_PHYSICS_CHOOSER=trailaway`, off by default, because turning it on
+changes every game's ants, costs about 9% of the ant scene's frame, and makes
+some lab boxes go extinct; that is a ruling for the owner, put to them as a
+card with this section's numbers.
+
+**Data:** `Reports/data/lab-walk-2026-09-24.txt.gz` (every `SUMMARY` line),
+`lab-walk-summary-2026-09-24.txt` (the paired table and the timing pairs),
+`lab-walk-seed5-series-2026-09-24.txt`; the seed-4 sheets are review card `20260924T064546699Z-98e7d7`.

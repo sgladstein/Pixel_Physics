@@ -3247,6 +3247,24 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     scent, which points home. **The loop works at every distance on the
     bed**: founders make a median of 14, 14 and 11 round trips at 90, 140
     and 200 cells, against today's 13.5, 1 and 0. Not yet seen by eye.
+  - **Without the hand-laid trail** (§12, `arms=self`): the colony finds
+    the food and builds its own road. Some ant finds the pile in every seed
+    at 90 and 140 cells, and later arrivals mostly come by a nestmate's
+    trail; round trips 10.5, 4.5 and 2 a run at 90, 140 and 200 (0 on
+    today's walk at every distance). 400 cells is out of a founder's range.
+  - **Why nest ants starve beside that loop** (§13): the food exists, and
+    a full carrier at the nest eats its own delivery, picking the same scrap
+    up and down ~40 times. The hunger gate, re-tested, fires and changes
+    nothing; stopping the re-grab leaves food uneaten (starved 14 → 17.5);
+    making a hungry ant keep what it holds raises food eaten 16–46% and not
+    starvation, because the dying are on the far half of the painted nest
+    strip from where food arrives. Next link: a nest with a mouth.
+  - **In the lab box** (§14, 12 seeds): the new walk carries home 3.7×
+    as much food (deliveries 1,398 → 5,164, better in 12 of 12) and the
+    deepest breeding generation goes 10 → 22 (26 with the drop wires, which
+    also end with twice today's colony). Costs: 1–2 of 12 boxes are eaten
+    bare and go extinct (0 today), and +9% on the ant scene's frame. Still
+    off by default, pending the owner's ruling.
   - The per-decision mix matched the formula within a point at both
     energies. The reach predictions were low; the report says why.
   - The scene's own checks caught rain pooling on the slab and an ant dying

@@ -1,0 +1,64 @@
+# trailfollow arm=self, 6 seeds, gaps 90/140, decisioncsv -- per-ant traces (scratchpad selftrace/trace.py, misses.py, where.py, depth.py)
+## how each ant first reached the food
+
+== off gap 90: per seed (seed, reached by trace, reached by harness, first-find frame)
+    [(1, 0, 0, None), (2, 0, 0, None), (3, 1, 1, 2052), (4, 1, 1, 3198), (5, 1, 1, 3120), (6, 0, 0, None)]
+   first finder                                3   first-arrival frame median    3120
+   never reached: 117 ants; furthest east of nest, median 20, p90 46, of a 90-cell gap
+
+== off gap 140: per seed (seed, reached by trace, reached by harness, first-find frame)
+    [(1, 0, 0, None), (2, 0, 0, None), (3, 1, 1, 3432), (4, 0, 0, None), (5, 0, 0, None), (6, 0, 0, None)]
+   first finder                                1   first-arrival frame median    3432
+   never reached: 119 ants; furthest east of nest, median 19, p90 52, of a 140-cell gap
+
+== away gap 90: per seed (seed, reached by trace, reached by harness, first-find frame)
+    [(1, 9, 9, 1830), (2, 14, 14, 1122), (3, 10, 10, 672), (4, 13, 13, 960), (5, 12, 12, 984), (6, 12, 12, 714)]
+   walked a trail (>=50% of steps on B)       33   first-arrival frame median    3420
+   partly on a trail                          28   first-arrival frame median    2043
+   first finder                                6   first-arrival frame median     972
+   wandered (0 steps on B)                     2   first-arrival frame median   12432
+   no chooser (shipped)                        1   first-arrival frame median    5586
+   never reached: 50 ants; furthest east of nest, median 10.0, p90 26, of a 90-cell gap
+
+== away gap 140: per seed (seed, reached by trace, reached by harness, first-find frame)
+    [(1, 7, 7, 2412), (2, 3, 3, 2610), (3, 4, 4, 1182), (4, 5, 5, 1512), (5, 6, 6, 1590), (6, 6, 6, 1308)]
+   partly on a trail                          20   first-arrival frame median    3066
+   first finder                                6   first-arrival frame median    1551
+   wandered (0 steps on B)                     3   first-arrival frame median    2280
+   walked a trail (>=50% of steps on B)        2   first-arrival frame median    3825
+   never reached: 90 ants; furthest east of nest, median 24.0, p90 96, of a 140-cell gap
+
+## where the ants that missed spent their last 500 frames
+away gap 90 -- misses, where they spent their last 500 frames:
+   on nest, ground                  33
+   west of nest, wall/ceiling       11
+   west of nest, ground             3
+   on nest, wall/ceiling            2
+   east of nest, ground             1
+   by frame 600, each founder had: {('missed', 'stayed'): 24, ('missed', 'went east'): 8, ('missed', 'went west'): 18, ('reached', 'stayed'): 28, ('reached', 'went east'): 38, ('reached', 'went west'): 4}
+away gap 140 -- misses, where they spent their last 500 frames:
+   on nest, ground                  50
+   east of nest, ground             30
+   west of nest, wall/ceiling       6
+   on nest, wall/ceiling            1
+   west of nest, ground             1
+   east of nest, wall/ceiling       1
+   by frame 600, each founder had: {('missed', 'stayed'): 41, ('missed', 'went east'): 27, ('missed', 'went west'): 21, ('reached', 'stayed'): 11, ('reached', 'went east'): 19, ('reached', 'went west'): 1}
+off gap 90 -- misses, where they spent their last 500 frames:
+   on nest, ground                  88
+   east of nest, ground             16
+   west of nest, ground             12
+   west of nest, wall/ceiling       1
+   by frame 600, each founder had: {('missed', 'stayed'): 69, ('missed', 'went east'): 26, ('missed', 'went west'): 22, ('reached', 'went east'): 3}
+
+## height of the misses' heads after the first return
+gap 140: decisions after the first return, by where the head is
+  non-reachers: 11147 decisions  above (dy < -2) 18%  below surface (dug in) 26%  surface (dy -2..0) 56%
+      legs: empty 77%  laden 5%  spoil 19%
+  reachers: 44660 decisions  above (dy < -2) 12%  below surface (dug in) 23%  surface (dy -2..0) 65%
+      legs: empty 34%  laden 56%  spoil 10%
+gap 90: decisions after the first return, by where the head is
+  non-reachers: 27619 decisions  above (dy < -2) 23%  below surface (dug in) 32%  surface (dy -2..0) 45%
+      legs: empty 60%  laden 16%  spoil 24%
+  reachers: 199586 decisions  above (dy < -2) 21%  below surface (dug in) 27%  surface (dy -2..0) 52%
+      legs: empty 37%  laden 49%  spoil 14%
