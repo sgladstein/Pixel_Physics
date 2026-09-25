@@ -1216,3 +1216,89 @@ and each tests something other than the default walk:
 **Costs, restated:** about 9% of the ant scene's frame (`ascii`'s foraging
 scene, mean 0.722 ms with the default); 2 of 12 lab boxes eaten bare and
 extinct over 120,000 frames, against 0 before (§14).
+
+## 16. The loop counted ant by ant, and where the food goes
+
+The owner asked three things of the shipped default (§15), with no hand-laid
+trail, at 90 cells: what share of ants get through each step of the loop; does
+food pile up at the nest, i.e. is the economy too hard or is the loop too weak
+or do ants fail to eat what is there; and are the ants that are not looping
+exploring, or stuck. Every number below is from one command, now
+`scripts/antloop.py`, over 24 seeds × 20 founders (`arms=self gaps=90
+frames=24000 food=400 refill=400`, the bed of §12–§15), and its starved count
+matches the harness's `DEATHS BY CAUSE` on every run (342 = 342).
+
+**The funnel.** Each ant is booked at the furthest point it reached; a loop
+counts only if the ant went back to the food before the next one.
+
+| | ants | of prev | of all |
+|---|---:|---:|---:|
+| reached the food | 287 | 59.8% | 59.8% |
+| picked food up there | 276 | 96.2% | 57.5% |
+| got home still holding it | 255 | 92.4% | 53.1% |
+| put it down at the nest: 1 loop | 237 | 92.9% | 49.4% |
+| reached the food a 2nd time | 161 | 67.9% | 33.5% |
+| 2+ loops | 121 | 75.2% | 25.2% |
+| 3+ loops | 55 | 45.5% | 11.5% |
+| 4+ loops | 12 | 21.8% | 2.5% |
+| 5+ loops | 0 | 0% | 0% |
+
+**The loop itself is not where the colony is lost.** Once an ant reaches the
+food, 83% of them finish a loop (237 of 287). Over the whole run 425 loops
+were completed and 118 broken (83 loads eaten on the way, 35 brought home
+and eaten there).
+**The loss is the first step**: 40% of ants never reach the food at all. No
+ant makes five loops because a loop takes about 4,840 frames, so five is
+most of a 24,000-frame run.
+
+**Who starved** (342 of 480, 71%):
+
+| how far it got | ants | starved | share of the dead | median frame of death |
+|---|---:|---:|---:|---:|
+| never reached the food | 193 | 188 (97%) | 55% | 3,792 |
+| reached it, no loop | 50 | 45 (90%) | 13% | 9,276 |
+| exactly 1 loop | 116 | 82 (71%) | 24% | 13,488 |
+| 2–3 loops | 109 | 25 (23%) | 7% | 18,612 |
+| 4+ loops | 12 | 2 (17%) | 1% | 21,798 |
+
+**Food does not pile up at the nest, and the ones who die first die before
+there is any.** Food standing on the nest, as joules an ant would absorb, at
+the median run: **0 J at frame 3,000, 152 J at 6,000**, then about 600 J from
+frame 12,000 to the end (the best run peaks at 2,212 J). A never-looper dies at
+a median of frame **3,792**. That is its starting grant (200 J at 0.0688 J a
+frame is about 2,900 frames, staggered per founder) and nothing more. When
+it dies the nest holds almost nothing to eat. Later, 600 J is about a third
+of one ant's need for the whole run (1,652 J).
+
+**The colony absorbs 42% of what it burns**, a median of 13,230 J a run
+against a need of 33,034 J. **The food goes to the ants that fetch it**:
+ants with a loop made up 49% of the colony and ate 88% of the food, 960 to
+1,460 J each. That is close to one ant's own need, so a forager
+mostly feeds itself. Each loop takes 3.8 cells from the pile. That is 905 J
+to an ant at the shipped gut, where plant food is worth 0.25 of its face
+value, and a loop's 4,840 frames burn about 333 J.
+
+**Ants not on the loop are idle, not stuck.** Where a never-looper's decisions
+go, for the typical ant: 32% standing on the nest, 20% moving about on it, 16%
+digging or hauling dirt, **3% out exploring**, 2% standing off the nest. Only
+2.8% of their decisions are ones where they physically could not move. So
+they are free to move and choose not to leave the nest. Ants that loop
+spend 48% of their time carrying food and 5% exploring.
+
+**So, of the three explanations the owner offered:**
+- *Food builds up but ants don't eat it:* **no.** The stock is small, and the
+  largest group of the dead died before it existed.
+- *The loop is too weak:* **the loop is fine once found.** Finding the food
+  is the weak step: 40% of ants never go 90 cells out, and they die on the
+  nest when their starting grant runs out.
+- *The economy is too hard:* **partly.** Food eaten comes to 42% of food
+  burned. Even a forager making 2–3 loops eats only about its own need, so
+  the colony cannot keep non-foragers alive. Three levers would change
+  that: the gut's 0.25 yield on plant food, the 200 J starting grant, and
+  the 3.8 cells a loop carries. Each is a design choice, not a bug.
+
+The owner's view, recorded here because it sets the bar: **not every ant has
+to follow the same loop, and some should be out exploring; standing idle on
+the nest is the defect.** On these numbers the fix is to send the idle ants
+out, not to make every ant forage. A 3% exploring share is far too low for
+a colony whose food is 90 cells away.

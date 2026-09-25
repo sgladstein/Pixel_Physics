@@ -3269,6 +3269,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     way back. The default build reproduces the measured arm digit for digit
     on the bed and in the lab. Seven tests that assume the old walk now pin
     it; the decision-trace identity runs both walks.
+  - **The loop counted ant by ant** (§16, `scripts/antloop.py`, 24 seeds at
+    90 cells, no trail): 60% of ants reach the food, 49% finish a loop, 25%
+    finish two, none five. Once at the food, 83% finish a loop, so the loss is
+    finding it. 71% starve. 55% of the dead never reached the food, and they
+    die around frame 3,800, when the nest holds almost no food yet. The
+    colony eats 42% of what it burns, and a forager mostly feeds itself.
+    Ants off the loop are idle on the nest, not stuck: they explore 3% of
+    the time and are blocked 2.8%.
   - The per-decision mix matched the formula within a point at both
     energies. The reach predictions were low; the report says why.
   - The scene's own checks caught rain pooling on the slab and an ant dying

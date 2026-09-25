@@ -57,6 +57,20 @@ Four rules, each from a failure already paid for here:
 `examples/trailfollow.rs` has a worked one: `FUNNEL`, `Track::stage`, and the
 `THE LOOP, ANT BY ANT` block. Copy its shape rather than its stages.
 
+**For the ant's foraging loop it is one command.** Run the colony bed with
+`decisioncsv dtag=<tag>` and keep the log, then
+`python3 scripts/antloop.py <dir of CSVs> --tag <tag> --log <run.log>`. It prints
+the funnel (reach -> pick up -> home holding it -> put down, then the 2nd..10th
+loop), loops per ant, broken loops (ate it on the way / ate it at home), **who
+starved** bucketed by how far they got and where they died, a **time budget**
+(on the nest standing, exploring, up a wall, digging, carrying), and the
+**economy** (burn against intake, who ate the food, how much stands on the
+nest). It reconciles its starved count with the harness's `DEATHS BY CAUSE`
+per run and prints any run that disagrees. Owner, 2026-09-25, of the first
+hand-built version: *"a great analysis. We should do this more often."* So run
+it on every bed change to the ant, before and after, not only when something
+looks wrong.
+
 ## 2. The individuals
 
 **Once the funnel names the stage where they are lost, trace every individual
