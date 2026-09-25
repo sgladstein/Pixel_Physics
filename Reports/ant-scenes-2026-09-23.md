@@ -1302,3 +1302,307 @@ to follow the same loop, and some should be out exploring; standing idle on
 the nest is the defect.** On these numbers the fix is to send the idle ants
 out, not to make every ant forage. A 3% exploring share is far too low for
 a colony whose food is 90 cells away.
+
+## 17. Three levers read with the funnel: a nest pickup rule, where the road starts, and what a load weighs
+
+All on §16's bed (shipped default, no trail, 90 cells, the same 24 seeds),
+each read with `scripts/antloop.py` and paired seed by seed against §16.
+Logs and the command's output for every arm, and for §16 itself, are in
+`Reports/data/bed-default-*2026-09-25.*`.
+
+### 17a. A full ant at the nest cannot re-take its delivery: worse again
+
+The pickup AND of §13 (`wire=AtNest:Feed:-0.7,Energy:Feed:-0.7`), now on top
+of the shipped drop wires, which is half of the condition `dead-ends.md` set
+for re-testing it. **Not adopted.** Ants that complete a loop **237 → 201**
+(lower on 17 of 24 seeds), loops **425 → 360** (lower on 15), food absorbed
+median **13,230 → 10,872 J** a run (−18%), starved 342 → 363 (12 seeds up,
+10 down: no change). Predicted: no change up to the first loop. Wrong: the
+funnel fell about 7 points from the first step on.
+
+### 17b. The ants that never find the food never meet the road
+
+§16's largest group of the dead is the 193 ants that never reach the food.
+Traced one by one:
+
+- **The trail is how most ants find the food.** 214 of the 287 that
+  reached it got there after frame 2,000, and in their last 60 decisions
+  before arriving the median one stepped onto a trail every time. Only the
+  first 73 found it mostly by chance.
+- **Half the never-reachers (48%) never once step onto a trail.** The
+  median one gets no further than 17 cells east of the nest centre, inside
+  the nest's own ±26-cell band. It spends 95% of its life on that band, and
+  23% of its decisions in the 48-cell dead end between the nest and the
+  box's west wall, 12% of them against the wall itself.
+- **They are not starved of energy early or stuck.** At frame 1,500 they
+  hold the same energy as the reachers (0.63 against 0.64 of the grant),
+  their median `P(move)` is 0.54, and 2.8% of their decisions are blocked.
+- **Birth position predicts it.** Born on the far side of the nest from the
+  food (−20 to −11 cells): 37.5% reach it and 85% starve. Born on the food
+  side (+10 to +29): 75–79% reach it and 59–63% starve.
+
+The road starts at the east edge of a 53-column painted nest, and an empty
+ant off the road walks without direction (§6d of `how-the-ant-works.md`:
+the away-from-home term is scaled by the trail under it). A real nest has
+one mouth every ant comes out of, so the road starts where everyone is.
+That is the nest line's work (`Reports/lanes/nest-entrance-handoff-2026-09-20.md`,
+`PIXEL_PHYSICS_NEST_SHAFT`, which cuts a shaft but leaves the painted strip).
+**The ceiling it could reach on this bed is the food-side row:** everyone
+reaching the food as often as the best-placed founders do. That still
+leaves about 60% starving, so the road is one lever of two.
+
+### 17c. A bigger crop starves the carriers: food weighs its joules
+
+`cropcap=5760`, twice the crop, predicted to help a little. **It is a
+disaster, and it names the second lever.** Starved **342 → 461 of 480**
+(worse on 21 of 24 seeds, better on none), loops 425 → 135, and the median
+colony is extinct by frame 18,000.
+
+Traced: **the carriers starve with food in their crops.** Ant 12 of seed 1
+loads at frame 3,366 (crop 99% full, energy 0.34 of its grant) and is dead
+by frame 4,200 with the crop still 91% full. At death, 34% of all the
+starved hold a crop over three-quarters full, against 2% on the default.
+
+The arithmetic, from `carried_cells` and the digest block:
+- A load weighs its **worth ÷ `body_energy` (480)**, so a fruit cell (960)
+  weighs two body cells. A full shipped crop (2,880) weighs **6 cells on a
+  body of 2**, and a step costs 0.125 × 8 = **1.0 J** against 0.25 J empty.
+  A full doubled crop weighs 12 cells, and a step costs 1.75 J.
+- **Digestion pays at most 3.3 × 0.25 = 0.825 J a tick**, before its
+  overhead, whatever the crop holds.
+- So on the shipped crop, walking home with a full load costs about what it
+  feeds the carrier. On the doubled one it runs at a loss.
+
+That is why §16 found a forager mostly feeds only itself. `carried_cells`'
+own doc says *"one cell of food weighs one cell of body"*; that holds only
+for food worth 480 a cell (flesh). Fruit weighs double, a flower (1,440)
+triple, a leaf (40) a twelfth.
+
+### 17d. Weighing a load by its cells: the foragers live
+
+`PIXEL_PHYSICS_LOAD_BY=cells` (new, off by default, bit-exact unset: seeds
+1–8 identical on every per-run, food-store, death and budget line) weighs a
+crop by the cells in it, the part-chewed one by what is left of it. A full
+crop of fruit then weighs 3 body cells instead of 6.
+
+| arm | starved of 480 | seeds better / worse | loopers who starved | never reached the food, starved | loops | food absorbed (median a run) | burn a frame |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| default (joules) | 342 | – | 109 | 188 | 425 | 13,230 J | 0.0688 J |
+| by cells | 296 | 16 / 8 (p 0.15) | 66 | 203 | 438 | 12,826 J | 0.0557 J |
+| by cells, crop doubled | **263** | **20 / 3 (p 0.0005)** | **38** | 192 | 353 | **15,956 J** | 0.0631 J |
+| joules, crop doubled (§17c) | 461 | 0 / 21 | – | 226 | 135 | 4,470 J | 0.0723 J |
+
+- **It saves the foragers and nobody else.** Deaths among ants that made a
+  loop fall from 109 to 66, and to 38 with the doubled crop (better on 18
+  seeds, worse on 4). Deaths among ants that never reached the food do not
+  move (188 against 203 and 192), which is §17b's lever, not this one.
+- **Alone it is suggestive, with the bigger crop it is clear.** By cells at
+  the shipped crop is 16 seeds better and 8 worse (p 0.15). With the
+  doubled crop it is 20 and 3 (p 0.0005). A loop then brings home 5.3 cells
+  (1,275 J to an ant) against 3.8 (905 J), and the colony absorbs 51% of
+  what it burns against 42%.
+- **Predictions, recorded before the runs:** starved about 310 by cells
+  (296, close); loops up to 460–520 (438, wrong, no change); never-reachers
+  unchanged (right); by cells with the doubled crop within 10% of the
+  default (263, wrong: 23% fewer deaths).
+
+**Not made the default, and why.** The stated design (*one cell of food
+weighs one cell of body*) is what by-cells implements. But crop capacity is
+counted in joules, so under by-cells a crop of cheap food is heavy: 72 cells
+of 40-J leaf would weigh 72 body cells. No shipped creature carries food that
+cheap (a 40-J cell yields 10 J at a neutral gut, under the 12-J floor below
+which a mouthful is not food), but a plant gut evolved in the lab could. The
+two consistent rules are "weigh by cells, and count capacity in cells" or
+"weigh by joules, at a lighter density than flesh". Which one is a design
+call for the owner.
+
+**Where this leaves the colony's starvation:** about 190 deaths a run of 24
+(the never-reachers) belong to the road and the nest's mouth. About 110
+(the loopers) belong to what a load weighs, and two thirds of those can go
+with a lighter load and a bigger crop.
+
+### 17e. In the lab box, weighing by cells kills the colonies
+
+The owner's rule is that the lab is where the ants actually live, so before
+proposing §17d it was run there: §14's setup (`labforage
+scenario=played_bed`, 120,000 frames, 12 seeds), `RAYON_NUM_THREADS=1`, the
+default and `PIXEL_PHYSICS_LOAD_BY=cells` from one binary. The default
+reproduces §14's `awayd` arm on all 12 seeds (born, died, alive, deliveries
+and intake identical).
+
+| Lab, 12 seeds, median a run | default | by cells |
+|---|---:|---:|
+| food intake, J | 836,343 | **97,330** (lower on 12 of 12) |
+| births | 450 | **25** (lower on 11) |
+| deepest generation that itself bred | 26 | **3** (lower on 11) |
+| alive at 120,000 frames | 96 | 0 |
+| went extinct | 2 of 12 | **10 of 12** |
+| plants standing | 88 | 1,027 |
+
+**The reason is what the lab ants eat.** On the default, intake per bite
+is 19–50 J. At the 0.25 gut that is food worth roughly 80–200 J a cell,
+well under the 480 at which the two rules agree. So by cells makes the
+lab's loads 2.5–5 times heavier, where on the bed it made fruit half as
+heavy. Energy burned per move rises from 1.0 to 1.3–2.0 J on three of the
+first four seeds, and the founders starve before the colony grows.
+
+**So by cells is rejected as built.** What helped on the bed was a lighter
+load, and fruit is simply the richest food per cell there is. The bed's
+number is still real: carrying a full crop costs about what it pays, and
+the colony's foragers die of it. But the lever to try next is **a load that
+is lighter per joule for every food**, not one that re-prices foods against
+each other. That is a new constant, which `carried_cells`' doc argues
+against inventing, so it is a design call for the owner. Data:
+`Reports/data/lab-loadby-2026-09-25.txt.gz` (every `SUMMARY` line, both arms).
+
+### 17f. A forager has to earn more than it eats, and today it barely does
+
+The owner's ruling, 2026-09-25: *"I cannot see any other way this works than
+foragers getting enough food to feed themselves and extra to feed the
+colony. Otherwise what is the point of the foraging loop?"* So surplus is
+the loop's purpose, not a separate design step, and the bar is a number.
+
+**What a loop pays today**, traced over §16's 425 completed loops (medians,
+joules an ant absorbs): about **716 J** picked up at the food, **236 J**
+digested by the carrier on the walk home, **440 J** put down at the nest.
+The whole loop costs the forager about 333 J (4,840 frames at 0.0688 J a
+frame). So a loop puts down **1.3 times** what it costs: enough for the
+forager and a third of another ant. The proposed bar is **3 times**, so a
+forager feeds itself and two nestmates, and a colony where a third of the
+ants forage breaks even.
+
+**A fed forager keeping its cargo (the shared stomach) cannot help yet.**
+`hungergate=1`, on the same 24 seeds: the carrier still digests a median
+236 J on the walk home, it held back 1–3% of all digestion, and loops
+425 → 402, starved 342 → 353 (8 seeds up, 4 down). The gate keeps cargo
+only for an ant above its starting energy, and the median carrier holds
+**0.61** of it; 17% of laden decisions are at or above. A shared stomach
+can only protect food the forager does not need, and on this bed it needs
+all of it. **So the trip has to pay more first.** The shared stomach is
+the second step, once there is a surplus for it to protect.
+
+### 17g. A lighter load for every food: the foragers live, and the lab holds
+
+`PIXEL_PHYSICS_LOAD_SCALE=<f>` (new, off by default, bit-exact unset: bed
+seeds 1–8 and lab seed 1 identical) multiplies every food load's weight by
+`f`, keeping foods in proportion to their joules. So it does not re-price
+foods against each other, which is what broke the lab in §17e. At `f = 0.5`
+a full shipped crop of fruit weighs 3 body cells instead of 6.
+
+**On the colony bed** (24 seeds, paired against §16):
+
+| arm | starved of 480 | seeds better / worse | loopers who starved | never reached the food, starved | put down per loop | ≈ × the loop's cost |
+|---|---:|---:|---:|---:|---:|---:|
+| default | 342 | – | 109 | 188 | 440 J | 1.3 |
+| half weight | 293 | 16 / 8 (p 0.15) | 81 | 189 | 523 J | 2.0 |
+| half weight, crop doubled | **277** | **16 / 5 (p 0.027)** | **50 (18 / 2, p 0.0004)** | 200 | **868 J** | **2.7** |
+
+(The multiple charges each arm its own colony burn rate over the default's
+4,840-frame loop, so it is approximate. With the doubled crop, the
+command's own starved count misses the harness's by 2, 277 against 279,
+on seeds 14 and 22.)
+
+**In the lab box** (§14's setup, 12 seeds, one binary):
+
+| lab, median a run | default | half weight | half weight, crop doubled |
+|---|---:|---:|---:|
+| food intake | 836k J | 1,362k J (9 / 3) | 1,158k J (8 / 4) |
+| births | 450 | 716 (9 / 3) | 590 (7 / 5) |
+| deepest generation that itself bred | 26 | 31 | 28 |
+| went extinct | 2 of 12 | 3 | **1** |
+| plants standing | 88 | 20 (lower on 11) | 28 (lower on 8) |
+
+- **Both games move the same way.** The foragers eat more and die less,
+  unlike §17e.
+- **Half weight alone grazes the lab down hardest** (plants 88 → 20, lower
+  on 11 of 12, p 0.006). That is §14's overgrazing again, now stronger.
+- **With the doubled crop the lab is steadier:** fewest extinctions (1),
+  more food and births than the default. None of the lab differences from
+  the default is significant at 12 seeds (p 0.39–0.77).
+- **Predictions, recorded before the runs:** on the bed, right to within a
+  few ants. In the lab with the doubled crop, all wrong in one direction: I
+  expected it to amplify grazing (plants ≤ 20, 3–5 extinct), and it
+  moderated it.
+
+**Where this leaves the owner's bar** (§17f: a loop should put down 3× what
+it costs): the default is at 1.3×, and half weight with a doubled crop
+reaches about 2.7×. **It does nothing for the ants that never find the
+food** (188 → 200 deaths), which is §17b's lever, the nest's mouth. **What
+it would take to ship:** `ant.ron`'s `crop_capacity` 2880 → 5760, and a load
+density of half for food, the new constant. Both are the owner's call.
+Data: `Reports/data/bed-default-loadscale-*-2026-09-25.*`,
+`Reports/data/lab-loadscale-2026-09-25.txt.gz`.
+
+### 17h. What is realistic: pay the trip, not the floor
+
+Asked by the owner after §17g: *"debate and think deeper on this. What is
+most realistic?"* The question is which economy is most like a real colony
+and consistent with the rulings already made. What real colonies do, stated
+as the literature has it and hedged where the figure is from memory:
+
+- **A foraging trip pays many times its cost.** In the harvester-ant
+  measurements energy is not what limits foraging (time, water and risk
+  are), and a trip returns tens to hundreds of times what it costs.
+- **Carrying costs roughly in proportion to the mass moved** (leafcutter
+  measurements). Loads are commonly around the ant's own mass.
+- **Solid food travels in the mandibles and is not eaten on the way.**
+  Liquid goes into the crop, a shared stomach, where a valve passes only
+  what the forager needs to its own gut.
+- **Only a minority of workers forage.** Many are inactive in the nest at
+  any time, fed by nestmates and burning little. A founding colony starts
+  from stored reserves, not empty.
+- **A worker survives far longer without food than a trip takes.**
+
+**Measured against that, the ant's load cost is already realistic.** Over
+the default's laden decisions the average crop is 47% full: 337 J carried,
+weighing **1.4 times the ant**. A laden tick costs 0.45 J against 0.20 J
+empty, **2.25 times**. That is the mass-proportional law at a
+body-mass-sized load. §17c's "a full crop weighs three times the ant" is the
+full-crop extreme, not the typical load.
+
+**What is not realistic, ranked by what it costs the colony:**
+1. **The trip pays too little.** Per loop the forager carries 716 J against
+   its own ~333 J of living, 2.15 times in all, against a real forager's
+   many times.
+2. **Every ant lives like a forager.** All 20 founders search, mill and dig,
+   and none rests. The ones who never find the food die of it by frame
+   3,800, with nothing stored at home to be fed from.
+3. **Cargo is digested in transit.** That is realistic for liquid food and
+   not for a fruit in the mandibles. But moving where the forager eats its
+   trip's cost creates no surplus, so it matters only for how food is
+   shared out.
+4. **A crop holds 2,880 J of anything**: three fruits or seventy-two leaves.
+   A real ant carries one item sized to itself. That is why weighing by
+   cells broke the lab (§17e).
+
+**The rulings rule out paying the floor.** *"An omnivore should be viable"*
+keeps the gut neutral (`hopper.ron`, card `20260823T104411499Z-963f8d`).
+*"I don't want ants sitting in one spot eating fallen leaves"* is why food
+value was restored to 4× and no higher, because a richer floor is the
+sit-still attractor. E14 (*"let them starve"*) sized the grant so an idle
+ant lives one scene. A richer gut, richer food or cheaper living all pay an
+ant for sitting as much as for working, and cut against those rulings.
+**Realism agrees: a real forager is paid by the trip.**
+
+**So the lever is what one load is worth.** Half the weight per joule with a
+doubled crop is that lever. Averaged over laden decisions it carries
+**577 J at 1.2 times the ant's weight**, against today's **337 J at 1.4
+times**. Only an ant that carries food home gains anything from it. Read
+this way it is not "loads are lighter" but "harvested food is about twice as
+energy-dense as the ant's own flesh". That is plausible for seeds, and fruit
+is already authored at twice flesh per cell. It measured 342 → 277 starved
+and looper deaths 109 → 50 on the bed, and 1 extinct of 12 in the lab.
+
+**Not chosen, and why:**
+- *One item per trip, weighed by size.* The most physical rule, but it
+  needs the crop redesigned around items and ants able to choose rich ones.
+  Later, if ever.
+- *Cheaper living.* It would lengthen a lost scout's search, but it pays
+  idling too and undoes E14.
+- *Not digesting cargo in transit.* No surplus, as argued above.
+
+**The second realistic fix is the colony's other half.** Most ants should
+rest at home and be fed, not search and starve. That needs food and the
+hungry to meet, which is the nest's mouth (§17b), and a colony that does
+not start with an empty store. Idle at home is realistic; starving at home
+is the defect.

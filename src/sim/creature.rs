@@ -2388,6 +2388,65 @@ fn body_mix(world: &World, organism: OrganismId) -> BodyMix {
     BodyMix { head: head as f32 / n, leg: leg as f32 / n, gut: gut as f32 / n, armour: armour as f32 / n }
 }
 
+/// **`PIXEL_PHYSICS_LOAD_BY=cells`: weigh a load by the cells in it, not by
+/// its joules.** Unset is the shipped rule and bit-exact.
+///
+/// **Why it exists: [`carried_cells`]' own doc says "one cell of food weighs
+/// one cell of body", and that holds only for food worth `body_energy` (480) a
+/// cell.** It divides a load's *worth* by 480, which is a cell count for flesh
+/// -- the invariant it cites -- and for nothing else. A fruit cell (960) weighs
+/// two body cells, a flower (1,440) three, a leaf (40) a twelfth. Found
+/// 2026-09-25 on the colony bed (`Reports/ant-scenes-2026-09-23.md` §17): a
+/// full crop of fruit weighs **three times the ant** (6 cells on a body of
+/// 2), so a step costs 1.0 J against 0.25 J empty, about what the gut pays
+/// back a tick (3.3 x 0.25), and at `cropcap=5760` carriers starved with their
+/// crops 86% full.
+///
+/// **Measured and rejected the same day -- do not ship this form.** On the
+/// fruit bed it saved the foragers (with the doubled crop, starved 342 -> 263
+/// of 480, 20 seeds better and 3 worse). In the lab box it killed the colonies:
+/// intake 836k -> 97k J, extinct 2 -> 10 of 12. Lab food is cheap per cell (a
+/// bite pays 19-50 J), so counting cells makes its loads 2.5-5x *heavier*
+/// where it made fruit half as heavy. What the bed showed is that a lighter
+/// load saves foragers; re-pricing foods against each other is the wrong way
+/// to get one. Kept, off, so the pair can be re-run (`Reports/dead-ends.md`).
+///
+/// Read once through a `OnceLock`, like the other experiment switches here.
+fn load_by_cells() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_LOAD_BY").as_deref() == Ok("cells"))
+}
+
+/// **`PIXEL_PHYSICS_LOAD_SCALE=<f>`: every food load weighs `f` times what it
+/// does today**, whatever the food. Unset is 1.0 and bit-exact; a parse
+/// failure or a negative value falls back to 1.0 rather than to 0, so a typo
+/// cannot put a weightless arm in a sweep wearing another label.
+///
+/// **Why this and not [`load_by_cells`].** The colony bed showed that a
+/// lighter load saves foragers (`ant-scenes-2026-09-23.md` §17d); counting
+/// cells got one by re-pricing foods against each other, which made the lab's
+/// cheap food heavier and killed its colonies (§17e). A uniform factor keeps
+/// every food's weight in proportion to its joules and only moves how dense
+/// food is against flesh -- the one thing the bed says is wrong: a full crop
+/// weighs three times the ant, and carrying it costs about what it pays.
+/// It is a new constant, which `carried_cells`' doc argues against, so it is
+/// an experiment switch until the owner rules on a value.
+fn load_scale() -> f32 {
+    static V: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_LOAD_SCALE").ok().and_then(|v| v.parse::<f32>().ok()).filter(|f| *f >= 0.0).unwrap_or(1.0)
+    })
+}
+
+/// A crop's weight in body cells: its worth over `body_energy` (shipped), or
+/// with `by_cells` the cells still in it, the part-chewed one counted by what
+/// is left of it; times `scale` either way. Pure, so the rules can be tested
+/// without the switches.
+fn crop_load_cells(crop: &Crop, body_energy: f32, by_cells: bool, scale: f32) -> f32 {
+    let cells = if by_cells && crop.unit > 0.0 { crop.worth() / crop.unit } else { crop.worth() / body_energy };
+    cells * scale
+}
+
 /// **The mass this animal is hauling, in body-cell equivalents**, so a step
 /// costs what it moves rather than only what the animal is.
 ///
@@ -2426,7 +2485,7 @@ fn carried_cells(world: &World, organism: OrganismId, def: &CreatureDef) -> f32 
     let Some(state) = world.organism(organism) else {
         return 0.0;
     };
-    let food = state.crop.map_or(0.0, |c| c.worth() / def.body_energy);
+    let food = state.crop.map_or(0.0, |c| crop_load_cells(&c, def.body_energy, load_by_cells(), load_scale()));
     let ground = if state.spoil.is_some() { def.spoil_weight_cells } else { 0.0 };
     food + ground
 }
@@ -24174,6 +24233,27 @@ mod tests {
     /// remainder goes down as `crumbs` holding 480 (`Carried::into_cell`),
     /// and a whole fruit still goes down as a fruit, which is the second
     /// half of this test: the fix must not turn every delivery into crumbs.
+    /// **`PIXEL_PHYSICS_LOAD_BY=cells` weighs a load by the cells in it**, and
+    /// the shipped rule by its joules. The two agree for food worth
+    /// `body_energy` a cell (flesh) and for nothing else, which is the whole
+    /// point of the switch: two fruit cells, a third of one chewed, weigh
+    /// 1.67 cells by count and 3.33 by joules.
+    #[test]
+    fn a_load_weighs_its_cells_under_the_switch_and_its_joules_without_it() {
+        let fruit = Crop { material: material::EMPTY, cells: 2, digesting: 320.0, unit: 960.0, shade: 0, passenger: None };
+        let flesh = Crop { material: material::EMPTY, cells: 2, digesting: 160.0, unit: 480.0, shade: 0, passenger: None };
+        let body = 480.0;
+        assert!((crop_load_cells(&fruit, body, false, 1.0) - 1600.0 / 480.0).abs() < 1e-4, "shipped: worth over body_energy");
+        assert!((crop_load_cells(&fruit, body, true, 1.0) - 1600.0 / 960.0).abs() < 1e-4, "by cells: what is left of two cells");
+        assert!(
+            (crop_load_cells(&flesh, body, true, 1.0) - crop_load_cells(&flesh, body, false, 1.0)).abs() < 1e-4,
+            "for flesh the two rules are the same rule"
+        );
+        // `PIXEL_PHYSICS_LOAD_SCALE`: the same proportions, lighter.
+        assert!((crop_load_cells(&fruit, body, false, 0.5) - 0.5 * 1600.0 / 480.0).abs() < 1e-4, "scale halves the shipped weight");
+        assert!((crop_load_cells(&flesh, body, false, 0.5) - 0.5 * crop_load_cells(&flesh, body, false, 1.0)).abs() < 1e-4, "and halves flesh alike");
+    }
+
     #[test]
     fn a_part_eaten_fruit_put_down_and_picked_up_holds_only_what_was_left() {
         let put_down = |digesting: f32| -> (World, OrganismId, Cell, (i32, i32), f32) {

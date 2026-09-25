@@ -1513,6 +1513,31 @@ fn main() {
         spec.colony_species,
         world.species.id_of(&spec.colony_species).and_then(|id| world.species.get(id).creature.as_ref().map(|d| d.life_half_life)).unwrap_or(0)
     );
+    // **`cropcap=<face J>` -- the colony species' crop, in the same block for
+    // the same reason**, and `trailfollow`'s rider of the same name, so one
+    // arm runs on both beds. Added 2026-09-25: the colony bed's best arm for
+    // forager surplus was a lighter load (`PIXEL_PHYSICS_LOAD_SCALE=0.5`) with
+    // a doubled crop (`Reports/ant-scenes-2026-09-23.md` §17g), and species
+    // reach the binary through `include_str!`, so editing `ant.ron` would
+    // have run the shipped crop under a new label. Refuses a value the
+    // species already holds, for `wire=`'s reason.
+    if let Some(cc) = arg::<f32>("cropcap") {
+        let sid = world.species.id_of(&spec.colony_species).expect("the colony species is compiled in");
+        let mut def = world.species.get(sid).creature.clone().expect("the colony species is a creature");
+        assert!(
+            (def.crop_capacity - cc).abs() > f32::EPSILON,
+            "cropcap={cc} is already what the species holds, so this arm is the shipped one wearing a different name"
+        );
+        def.crop_capacity = cc;
+        world.species.set_creature(sid, def);
+    }
+    println!(
+        "  {} crop_capacity = {} face J; LOAD_SCALE={} LOAD_BY={}",
+        spec.colony_species,
+        world.species.id_of(&spec.colony_species).and_then(|id| world.species.get(id).creature.as_ref().map(|d| d.crop_capacity)).unwrap_or(0.0),
+        std::env::var("PIXEL_PHYSICS_LOAD_SCALE").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_LOAD_BY").unwrap_or_else(|_| "shipped".into())
+    );
     // **Same block, same reason, same refusal.** See `wire_rider`'s own doc:
     // before founding, because `place_creature` copies the genome at
     // placement -- and it asserts that the write actually moved a slot,

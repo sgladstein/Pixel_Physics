@@ -3277,6 +3277,27 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     colony eats 42% of what it burns, and a forager mostly feeds itself.
     Ants off the loop are idle on the nest, not stuck: they explore 3% of
     the time and are blocked 2.8%.
+  - **Three levers read with it** (§17). A full ant at the nest barred
+    from re-taking its delivery: worse again (loops 425 → 360). The ants
+    that never find the food never meet the road: half never step on a
+    trail, because it starts at one edge of a 53-column nest, and born on
+    the far side 37.5% reach the food against 79% on the near side. A
+    doubled crop starves the carriers (starved 342 → 461), because a load
+    weighs its joules and a full crop weighs three times the ant.
+    Weighing it by cells instead (`PIXEL_PHYSICS_LOAD_BY=cells`, off by
+    default) saves the bed's foragers (with the doubled crop, starved
+    342 → 263, 20 seeds better and 3 worse) and **kills the lab**: extinct
+    2 → 10 of 12, because lab food is cheap per cell and gets heavier.
+    Rejected as built; the next lever is a load lighter per joule for every
+    food, which is the owner's call.
+  - **Foragers must earn a surplus** (§17f–g, owner's ruling): a loop puts
+    down about 1.3× what it costs, and the proposed bar is 3×. A fed
+    carrier keeping its cargo is inert, because the carriers are hungry.
+    A load half as heavy for every food (`PIXEL_PHYSICS_LOAD_SCALE=0.5`,
+    off by default) with a doubled crop reaches about 2.7×. On the bed,
+    starved 342 → 277 (16 seeds better, 5 worse) and looper deaths
+    109 → 50. In the lab: more food, more births, 1 extinct of 12 against
+    2. Awaiting the owner.
   - The per-decision mix matched the formula within a point at both
     energies. The reach predictions were low; the report says why.
   - The scene's own checks caught rain pooling on the slab and an ant dying

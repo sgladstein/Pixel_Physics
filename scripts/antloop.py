@@ -47,7 +47,7 @@ import tempfile
 BAND = 26          # trailfollow's nest band, +/- cells around nest_x
 UP = 10            # rows above the walking surface that count as "up a wall or ceiling"
 PLANT_Q = 0.25     # diet quality of plant food at the ant's neutral gut
-CAP = 2880.0       # crop capacity, face J (fill = worth / CAP)
+CAP = 2880.0       # ant.ron `crop_capacity`, face J (fill = worth / CAP); a run's `cropcap=` overrides it, read from --log
 START_J = 200.0    # ant.ron `start_energy`; `founder_reserve` staggers it per founder but the cohort sums to exactly this x n
 BUCKETS = ['carrying food', 'digging / hauling dirt', 'up a wall or ceiling',
            'off the nest, moving (exploring)', 'off the nest, standing',
@@ -113,6 +113,7 @@ def walk(rs, gap, near):
     last = rs[-1]
     a['last'] = int(last['frame'])
     a['energy_last'] = float(last['energy'])
+    a['fill_last'] = float(last['fill'])
     tail = rs[-167:]   # ~1,000 frames at the ant's 6-frame decision
     ex = st.median(int(r['x2']) - nest_x for r in tail)
     a['died_where'] = ('west of the nest' if ex < -BAND else 'on the nest' if ex <= BAND
@@ -155,6 +156,14 @@ def harness(logs):
             m = re.search(r'frames=(\d+) .*near=(\d+)', line)
             if m and 'trailfollow: mode=' in line:
                 params['frames'], params['near'] = int(m.group(1)), int(m.group(2))
+                # **The crop size is read, never assumed.** Fill is worth over
+                # capacity, so a run at `cropcap=5760` read at the shipped 2880
+                # halves every joule the "who ate it" table books -- found the
+                # first time it was run on one (54,746 J against the harness's
+                # 113,508 J, exactly half).
+                c = re.search(r' cropcap=([0-9.]+)', line)
+                if c:
+                    params['cropcap'] = float(c.group(1))
             m = re.search(r'DEATHS BY CAUSE -- by frame 6000: \[[^\]]*\] \| whole run: \[([^\]]*)\]', line)
             if m:
                 mm = re.search(r'STARVED (\d+)', m.group(1))
@@ -230,6 +239,12 @@ def report(ants, runs, gap):
         if sv:
             print("      died: " + ", ".join(f"{k} {v}" for k, v in where.most_common()) + f"; up a wall or ceiling {up}")
     print(f"  all starved: {sv_all} of {n} ({pct(sv_all, n).strip()})")
+    # **Starving with food in the crop is an economy defect, not a loop one**:
+    # the carrier cannot digest as fast as carrying the load costs. 2% of the
+    # dead on the shipped default; 34% at `cropcap=5760`, which is how it was
+    # found (`ant-scenes-2026-09-23.md` §17).
+    fed = [a for a in f if a['starved'] and a['fill_last'] > 0.25]
+    print(f"  starved with the crop over a quarter full: {len(fed)} ({pct(len(fed), max(1, sv_all)).strip()} of the starved)")
 
     print("\nTIME BUDGET: where each group's decisions went (pooled; typical ant in brackets)")
     for name, test in (("never looped", lambda a: a['loops'] == 0), ("looped at least once", lambda a: a['loops'] >= 1)):
@@ -339,13 +354,16 @@ def main():
     ap.add_argument('--gap', type=int, default=None, help="only this food distance")
     ap.add_argument('--log', nargs='*', default=[], help="the trailfollow run log(s), for the economy and the death reconciliation")
     ap.add_argument('--near', type=int, default=None, help="cells from the food that count as at it (default: from --log, else 10)")
+    ap.add_argument('--cropcap', type=float, default=None, help="crop capacity in face J (default: from --log, else ant.ron's 2880)")
     ap.add_argument('--selftest', action='store_true')
     args = ap.parse_args()
     if args.selftest:
         sys.exit(selftest())
     if not args.csv_dir:
         ap.error("give the directory of decision CSVs, or --selftest")
+    global CAP
     runs, params = harness(args.log)
+    CAP = args.cropcap or params.get('cropcap', CAP)
     near = args.near or params.get('near', 10)
     end = params.get('frames', 24000) - 10
     paths = sorted(glob.glob(os.path.join(args.csv_dir, 'trailfollow-decisions-*.csv')))
@@ -361,7 +379,7 @@ def main():
     by_gap = C.Counter(k[0] for k in keys)
     print(f"antloop: {len(paths)} files, {len(keys)} runs keyed (gap, seed, arm, tag): "
           + ", ".join(f"gap {g} x {n} runs" for g, n in sorted(by_gap.items()))
-          + f"; arms {sorted({k[2] for k in keys})}; near={near}")
+          + f"; arms {sorted({k[2] for k in keys})}; near={near}; crop {CAP:.0f} face J")
     if len({k[2] for k in keys}) > 1 or len({k[3] for k in keys}) > 1:
         print("antloop: WARNING -- more than one arm or tag in these files; they are pooled below. Pass --tag.")
     for g in sorted(by_gap):
