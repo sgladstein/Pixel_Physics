@@ -3290,6 +3290,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     2 → 10 of 12, because lab food is cheap per cell and gets heavier.
     Rejected as built; the next lever is a load lighter per joule for every
     food, which is the owner's call.
+  - **Foragers must earn a surplus** (§17f–g, owner's ruling): a loop puts
+    down about 1.3× what it costs, and the proposed bar is 3×. A fed
+    carrier keeping its cargo is inert, because the carriers are hungry.
+    A load half as heavy for every food (`PIXEL_PHYSICS_LOAD_SCALE=0.5`,
+    off by default) with a doubled crop reaches about 2.7×. On the bed,
+    starved 342 → 277 (16 seeds better, 5 worse) and looper deaths
+    109 → 50. In the lab: more food, more births, 1 extinct of 12 against
+    2. Awaiting the owner.
   - The per-decision mix matched the formula within a point at both
     energies. The reach predictions were low; the report says why.
   - The scene's own checks caught rain pooling on the slab and an ant dying

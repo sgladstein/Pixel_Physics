@@ -1480,3 +1480,55 @@ only for an ant above its starting energy, and the median carrier holds
 can only protect food the forager does not need, and on this bed it needs
 all of it. **So the trip has to pay more first.** The shared stomach is
 the second step, once there is a surplus for it to protect.
+
+### 17g. A lighter load for every food: the foragers live, and the lab holds
+
+`PIXEL_PHYSICS_LOAD_SCALE=<f>` (new, off by default, bit-exact unset: bed
+seeds 1–8 and lab seed 1 identical) multiplies every food load's weight by
+`f`, keeping foods in proportion to their joules. So it does not re-price
+foods against each other, which is what broke the lab in §17e. At `f = 0.5`
+a full shipped crop of fruit weighs 3 body cells instead of 6.
+
+**On the colony bed** (24 seeds, paired against §16):
+
+| arm | starved of 480 | seeds better / worse | loopers who starved | never reached the food, starved | put down per loop | ≈ × the loop's cost |
+|---|---:|---:|---:|---:|---:|---:|
+| default | 342 | – | 109 | 188 | 440 J | 1.3 |
+| half weight | 293 | 16 / 8 (p 0.15) | 81 | 189 | 523 J | 2.0 |
+| half weight, crop doubled | **277** | **16 / 5 (p 0.027)** | **50 (18 / 2, p 0.0004)** | 200 | **868 J** | **2.7** |
+
+(The multiple charges each arm its own colony burn rate over the default's
+4,840-frame loop, so it is approximate. With the doubled crop, the
+command's own starved count misses the harness's by 2, 277 against 279,
+on seeds 14 and 22.)
+
+**In the lab box** (§14's setup, 12 seeds, one binary):
+
+| lab, median a run | default | half weight | half weight, crop doubled |
+|---|---:|---:|---:|
+| food intake | 836k J | 1,362k J (9 / 3) | 1,158k J (8 / 4) |
+| births | 450 | 716 (9 / 3) | 590 (7 / 5) |
+| deepest generation that itself bred | 26 | 31 | 28 |
+| went extinct | 2 of 12 | 3 | **1** |
+| plants standing | 88 | 20 (lower on 11) | 28 (lower on 8) |
+
+- **Both games move the same way.** The foragers eat more and die less,
+  unlike §17e.
+- **Half weight alone grazes the lab down hardest** (plants 88 → 20, lower
+  on 11 of 12, p 0.006). That is §14's overgrazing again, now stronger.
+- **With the doubled crop the lab is steadier:** fewest extinctions (1),
+  more food and births than the default. None of the lab differences from
+  the default is significant at 12 seeds (p 0.39–0.77).
+- **Predictions, recorded before the runs:** on the bed, right to within a
+  few ants. In the lab with the doubled crop, all wrong in one direction: I
+  expected it to amplify grazing (plants ≤ 20, 3–5 extinct), and it
+  moderated it.
+
+**Where this leaves the owner's bar** (§17f: a loop should put down 3× what
+it costs): the default is at 1.3×, and half weight with a doubled crop
+reaches about 2.7×. **It does nothing for the ants that never find the
+food** (188 → 200 deaths), which is §17b's lever, the nest's mouth. **What
+it would take to ship:** `ant.ron`'s `crop_capacity` 2880 → 5760, and a load
+density of half for food, the new constant. Both are the owner's call.
+Data: `Reports/data/bed-default-loadscale-*-2026-09-25.*`,
+`Reports/data/lab-loadscale-2026-09-25.txt.gz`.
