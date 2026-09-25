@@ -1454,3 +1454,29 @@ is lighter per joule for every food**, not one that re-prices foods against
 each other. That is a new constant, which `carried_cells`' doc argues
 against inventing, so it is a design call for the owner. Data:
 `Reports/data/lab-loadby-2026-09-25.txt.gz` (every `SUMMARY` line, both arms).
+
+### 17f. A forager has to earn more than it eats, and today it barely does
+
+The owner's ruling, 2026-09-25: *"I cannot see any other way this works than
+foragers getting enough food to feed themselves and extra to feed the
+colony. Otherwise what is the point of the foraging loop?"* So surplus is
+the loop's purpose, not a separate design step, and the bar is a number.
+
+**What a loop pays today**, traced over §16's 425 completed loops (medians,
+joules an ant absorbs): about **716 J** picked up at the food, **236 J**
+digested by the carrier on the walk home, **440 J** put down at the nest.
+The whole loop costs the forager about 333 J (4,840 frames at 0.0688 J a
+frame). So a loop puts down **1.3 times** what it costs: enough for the
+forager and a third of another ant. The proposed bar is **3 times**, so a
+forager feeds itself and two nestmates, and a colony where a third of the
+ants forage breaks even.
+
+**A fed forager keeping its cargo (the shared stomach) cannot help yet.**
+`hungergate=1`, on the same 24 seeds: the carrier still digests a median
+236 J on the walk home, it held back 1–3% of all digestion, and loops
+425 → 402, starved 342 → 353 (8 seeds up, 4 down). The gate keeps cargo
+only for an ant above its starting energy, and the median carrier holds
+**0.61** of it; 17% of laden decisions are at or above. A shared stomach
+can only protect food the forager does not need, and on this bed it needs
+all of it. **So the trip has to pay more first.** The shared stomach is
+the second step, once there is a surplus for it to protect.

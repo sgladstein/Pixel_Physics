@@ -2417,15 +2417,34 @@ fn load_by_cells() -> bool {
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_LOAD_BY").as_deref() == Ok("cells"))
 }
 
+/// **`PIXEL_PHYSICS_LOAD_SCALE=<f>`: every food load weighs `f` times what it
+/// does today**, whatever the food. Unset is 1.0 and bit-exact; a parse
+/// failure or a negative value falls back to 1.0 rather than to 0, so a typo
+/// cannot put a weightless arm in a sweep wearing another label.
+///
+/// **Why this and not [`load_by_cells`].** The colony bed showed that a
+/// lighter load saves foragers (`ant-scenes-2026-09-23.md` §17d); counting
+/// cells got one by re-pricing foods against each other, which made the lab's
+/// cheap food heavier and killed its colonies (§17e). A uniform factor keeps
+/// every food's weight in proportion to its joules and only moves how dense
+/// food is against flesh -- the one thing the bed says is wrong: a full crop
+/// weighs three times the ant, and carrying it costs about what it pays.
+/// It is a new constant, which `carried_cells`' doc argues against, so it is
+/// an experiment switch until the owner rules on a value.
+fn load_scale() -> f32 {
+    static V: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_LOAD_SCALE").ok().and_then(|v| v.parse::<f32>().ok()).filter(|f| *f >= 0.0).unwrap_or(1.0)
+    })
+}
+
 /// A crop's weight in body cells: its worth over `body_energy` (shipped), or
 /// with `by_cells` the cells still in it, the part-chewed one counted by what
-/// is left of it. Pure, so the two rules can be tested without the switch.
-fn crop_load_cells(crop: &Crop, body_energy: f32, by_cells: bool) -> f32 {
-    if by_cells && crop.unit > 0.0 {
-        crop.worth() / crop.unit
-    } else {
-        crop.worth() / body_energy
-    }
+/// is left of it; times `scale` either way. Pure, so the rules can be tested
+/// without the switches.
+fn crop_load_cells(crop: &Crop, body_energy: f32, by_cells: bool, scale: f32) -> f32 {
+    let cells = if by_cells && crop.unit > 0.0 { crop.worth() / crop.unit } else { crop.worth() / body_energy };
+    cells * scale
 }
 
 /// **The mass this animal is hauling, in body-cell equivalents**, so a step
@@ -2466,7 +2485,7 @@ fn carried_cells(world: &World, organism: OrganismId, def: &CreatureDef) -> f32 
     let Some(state) = world.organism(organism) else {
         return 0.0;
     };
-    let food = state.crop.map_or(0.0, |c| crop_load_cells(&c, def.body_energy, load_by_cells()));
+    let food = state.crop.map_or(0.0, |c| crop_load_cells(&c, def.body_energy, load_by_cells(), load_scale()));
     let ground = if state.spoil.is_some() { def.spoil_weight_cells } else { 0.0 };
     food + ground
 }
@@ -24224,12 +24243,15 @@ mod tests {
         let fruit = Crop { material: material::EMPTY, cells: 2, digesting: 320.0, unit: 960.0, shade: 0, passenger: None };
         let flesh = Crop { material: material::EMPTY, cells: 2, digesting: 160.0, unit: 480.0, shade: 0, passenger: None };
         let body = 480.0;
-        assert!((crop_load_cells(&fruit, body, false) - 1600.0 / 480.0).abs() < 1e-4, "shipped: worth over body_energy");
-        assert!((crop_load_cells(&fruit, body, true) - 1600.0 / 960.0).abs() < 1e-4, "by cells: what is left of two cells");
+        assert!((crop_load_cells(&fruit, body, false, 1.0) - 1600.0 / 480.0).abs() < 1e-4, "shipped: worth over body_energy");
+        assert!((crop_load_cells(&fruit, body, true, 1.0) - 1600.0 / 960.0).abs() < 1e-4, "by cells: what is left of two cells");
         assert!(
-            (crop_load_cells(&flesh, body, true) - crop_load_cells(&flesh, body, false)).abs() < 1e-4,
+            (crop_load_cells(&flesh, body, true, 1.0) - crop_load_cells(&flesh, body, false, 1.0)).abs() < 1e-4,
             "for flesh the two rules are the same rule"
         );
+        // `PIXEL_PHYSICS_LOAD_SCALE`: the same proportions, lighter.
+        assert!((crop_load_cells(&fruit, body, false, 0.5) - 0.5 * 1600.0 / 480.0).abs() < 1e-4, "scale halves the shipped weight");
+        assert!((crop_load_cells(&flesh, body, false, 0.5) - 0.5 * crop_load_cells(&flesh, body, false, 1.0)).abs() < 1e-4, "and halves flesh alike");
     }
 
     #[test]

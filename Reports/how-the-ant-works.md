@@ -20,7 +20,7 @@ will be.
   §5, §6, §10, §11 and §12 rewritten 2026-09-24 when `trailaway` and the
   `Drop` hunger wires became the default (`chooser_from_env`, `chooser_for`,
   `ant.ron`'s `Drop` row). §9 and §12 2026-09-25 for what a load weighs
-  (`carried_cells`, `crop_load_cells`, the digest block).
+  (`carried_cells`, `crop_load_cells`, `load_scale`, the digest block).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -456,7 +456,8 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
     fruit (2,880) six, three times the ant. A full crop's step costs 1.0 J
     against 0.25 J empty, and digestion pays at most 3.3 × 0.25 = 0.825 J a
     tick. Spoil weighs `spoil_weight_cells`. `PIXEL_PHYSICS_LOAD_BY=cells`
-    weighs the crop by its cells instead (§12);
+    weighs the crop by its cells instead, and `PIXEL_PHYSICS_LOAD_SCALE`
+    scales every food load's weight (§12);
   - per dig: 6 × a step;
   - per laying tick: 0.0625 × a step × (emit A + emit B).
 - **Death:** starved at energy ≤ 0; old age by half-life. **Budding:**
@@ -524,6 +525,7 @@ Read once per process from the environment. The default is what ships.
 | `CROSS_TRUNK`, `TISSUE_PARTING` | on | `0` |
 | `PIXEL_PHYSICS_DIGEST` | continuous | `lump`: pays out per whole cell |
 | `PIXEL_PHYSICS_LOAD_BY` | joules | `cells`: a load weighs the cells in the crop, not its worth ÷ 480 (§9) |
+| `PIXEL_PHYSICS_LOAD_SCALE` | 1.0 | `<f>`: every food load weighs `f` times as much, whatever the food (§9) |
 | `PIXEL_PHYSICS_SPOIL_HAUL`, `_DIG_DOWN`, `_SPOIL_DROP_COVER`, `_TRAFFIC_DEFER`, `_COLONY_SPACING` | unset | haulage re-roll to the nest door, downward dig bias, spoil held under cover, jam deferral length, founder spacing |
 
 ## 13. Where the implementation lives
