@@ -1,0 +1,74 @@
+antloop: 24 files, 24 runs keyed (gap, seed, arm, tag): gap 90 x 24 runs; arms ['self']; near=10; crop 2880 face J
+
+######## gap 90: 24 runs, 480 founders (20.0 a run), 0 born
+starved by this trace 353, by the harness 353; runs that differ: none
+
+THE LOOP, ANT BY ANT (booked at the furthest point each ant reached)
+                                              ants   of prev   of all
+  reached the food                             287     59.8%    59.8%
+  picked food up there                         276     96.2%    57.5%
+  got back to the nest still holding it        254     92.0%    52.9%
+  put it down at the nest = 1 full loop        235     92.5%    49.0%
+  reached the food a 2nd time                  151     64.3%    31.5%
+  2+ full loops                                115     76.2%    24.0%
+  3+ full loops                                 42     36.5%     8.8%
+  4+ full loops                                  9     21.4%     1.9%
+  5+ full loops                                  1     11.1%     0.2%
+  10+ full loops                                 0      0.0%     0.0%
+  loops per ant: 0: 245  1: 120  2: 73  3: 33  4: 8  5: 1
+  402 full loops; the busiest 10% of ants made 148 (36.8%)
+  broken loops: ate the load on the way home 74; brought it home and ate it there 34
+
+WHO STARVED, by how far they got (and where they spent their last ~1,000 frames)
+  never reached the food                193 ants, starved  186 (96.4%), 52.7% of all the starved; median frame of death 3786
+      died: on the nest 137, west of the nest 46, between the nest and the food 3; up a wall or ceiling 41
+  reached it, never completed a loop     52 ants, starved   46 (88.5%), 13.0% of all the starved; median frame of death 9546
+      died: beyond the food 20, between the nest and the food 14, on the nest 6, west of the nest 4, at the food 2; up a wall or ceiling 30
+  exactly 1 full loop                   120 ants, starved   87 (72.5%), 24.6% of all the starved; median frame of death 13782
+      died: on the nest 42, west of the nest 21, beyond the food 16, between the nest and the food 8; up a wall or ceiling 37
+  2-3 full loops                        106 ants, starved   32 (30.2%), 9.1% of all the starved; median frame of death 18456
+      died: on the nest 19, west of the nest 5, between the nest and the food 4, beyond the food 4; up a wall or ceiling 7
+  4+ full loops                           9 ants, starved    2 (22.2%), 0.6% of all the starved; median frame of death 23343
+      died: on the nest 2; up a wall or ceiling 0
+  all starved: 353 of 480 (73.5%)
+  starved with the crop over a quarter full: 11 (3.1% of the starved)
+
+TIME BUDGET: where each group's decisions went (pooled; typical ant in brackets)
+  never looped: 245 ants
+      carrying food                         21.4%  (  0%)
+      digging / hauling dirt                15.4%  ( 16%)
+      up a wall or ceiling                  16.0%  (  0%)
+      off the nest, moving (exploring)       4.5%  (  4%)
+      off the nest, standing                 4.6%  (  3%)
+      on the nest, moving                   14.6%  ( 20%)
+      on the nest, standing still           23.4%  ( 32%)
+      could not move (P(move) exactly 0) 3.0% of decisions; paused (lost the roll) 47.8%
+  looped at least once: 235 ants
+      carrying food                         51.3%  ( 49%)
+      digging / hauling dirt                12.0%  ( 10%)
+      up a wall or ceiling                   4.3%  (  0%)
+      off the nest, moving (exploring)       5.3%  (  5%)
+      off the nest, standing                 5.6%  (  5%)
+      on the nest, moving                    6.9%  (  7%)
+      on the nest, standing still           14.6%  ( 14%)
+      could not move (P(move) exactly 0) 9.8% of decisions; paused (lost the roll) 41.5%
+
+ECONOMY (J an ant absorbs; plant food at diet quality 0.25)
+  an ant burns 0.0694 J a frame: 1665 J over the whole run; the colony would need 33309 J a run
+  the colony absorbed a median 12698 J a run: 40.7% of that need
+  taken from the pile per full loop: 3.9 cells (924 J to an ant)
+  who ate it (crop digestion in the trace, 305806 J against the harness's 325486 J):
+      ants with  0 full loops:  245 ants (51.0%) ate 13.2% of the food, 165 J each
+      ants with  1 full loops:  120 ants (25.0%) ate 35.9% of the food, 914 J each
+      ants with  2 full loops:   73 ants (15.2%) ate 31.0% of the food, 1298 J each
+      ants with  3 full loops:   33 ants (6.9%) ate 15.7% of the food, 1451 J each
+      ants with 4+ full loops:    9 ants (1.9%) ate 4.3% of the food, 1446 J each
+  food standing ON THE NEST (fruit + crumbs), median over runs:
+      frame   3000:    0 crumbs,     0 J to an ant (max 537); ants alive 20.0; in their bodies 1308 J
+      frame   6000:    2 crumbs,   165 J to an ant (max 842); ants alive 10.5; in their bodies 920 J
+      frame   9000:   10 crumbs,   421 J to an ant (max 1223); ants alive 10.0; in their bodies 1462 J
+      frame  12000:   12 crumbs,   598 J to an ant (max 2119); ants alive 9.5; in their bodies 1476 J
+      frame  15000:   15 crumbs,   563 J to an ant (max 2038); ants alive 8.0; in their bodies 1332 J
+      frame  18000:   17 crumbs,   442 J to an ant (max 1328); ants alive 7.0; in their bodies 930 J
+      frame  21000:   19 crumbs,   450 J to an ant (max 1188); ants alive 5.0; in their bodies 863 J
+      frame  24000:   20 crumbs,   443 J to an ant (max 1376); ants alive 3.5; in their bodies 846 J
