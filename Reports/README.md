@@ -3285,8 +3285,11 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     doubled crop starves the carriers (starved 342 → 461), because a load
     weighs its joules and a full crop weighs three times the ant.
     Weighing it by cells instead (`PIXEL_PHYSICS_LOAD_BY=cells`, off by
-    default) saves the foragers: looper deaths 109 → 66, and with the
-    doubled crop starved 342 → 263 (20 seeds better, 3 worse).
+    default) saves the bed's foragers (with the doubled crop, starved
+    342 → 263, 20 seeds better and 3 worse) and **kills the lab**: extinct
+    2 → 10 of 12, because lab food is cheap per cell and gets heavier.
+    Rejected as built; the next lever is a load lighter per joule for every
+    food, which is the owner's call.
   - The per-decision mix matched the formula within a point at both
     energies. The reach predictions were low; the report says why.
   - The scene's own checks caught rain pooling on the slab and an ant dying

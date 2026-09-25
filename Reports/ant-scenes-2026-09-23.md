@@ -1420,3 +1420,37 @@ call for the owner.
 (the never-reachers) belong to the road and the nest's mouth. About 110
 (the loopers) belong to what a load weighs, and two thirds of those can go
 with a lighter load and a bigger crop.
+
+### 17e. In the lab box, weighing by cells kills the colonies
+
+The owner's rule is that the lab is where the ants actually live, so before
+proposing §17d it was run there: §14's setup (`labforage
+scenario=played_bed`, 120,000 frames, 12 seeds), `RAYON_NUM_THREADS=1`, the
+default and `PIXEL_PHYSICS_LOAD_BY=cells` from one binary. The default
+reproduces §14's `awayd` arm on all 12 seeds (born, died, alive, deliveries
+and intake identical).
+
+| Lab, 12 seeds, median a run | default | by cells |
+|---|---:|---:|
+| food intake, J | 836,343 | **97,330** (lower on 12 of 12) |
+| births | 450 | **25** (lower on 11) |
+| deepest generation that itself bred | 26 | **3** (lower on 11) |
+| alive at 120,000 frames | 96 | 0 |
+| went extinct | 2 of 12 | **10 of 12** |
+| plants standing | 88 | 1,027 |
+
+**The reason is what the lab ants eat.** On the default, intake per bite
+is 19–50 J. At the 0.25 gut that is food worth roughly 80–200 J a cell,
+well under the 480 at which the two rules agree. So by cells makes the
+lab's loads 2.5–5 times heavier, where on the bed it made fruit half as
+heavy. Energy burned per move rises from 1.0 to 1.3–2.0 J on three of the
+first four seeds, and the founders starve before the colony grows.
+
+**So by cells is rejected as built.** What helped on the bed was a lighter
+load, and fruit is simply the richest food per cell there is. The bed's
+number is still real: carrying a full crop costs about what it pays, and
+the colony's foragers die of it. But the lever to try next is **a load that
+is lighter per joule for every food**, not one that re-prices foods against
+each other. That is a new constant, which `carried_cells`' doc argues
+against inventing, so it is a design call for the owner. Data:
+`Reports/data/lab-loadby-2026-09-25.txt.gz` (every `SUMMARY` line, both arms).

@@ -2402,6 +2402,15 @@ fn body_mix(world: &World, organism: OrganismId) -> BodyMix {
 /// back a tick (3.3 x 0.25), and at `cropcap=5760` carriers starved with their
 /// crops 86% full.
 ///
+/// **Measured and rejected the same day -- do not ship this form.** On the
+/// fruit bed it saved the foragers (with the doubled crop, starved 342 -> 263
+/// of 480, 20 seeds better and 3 worse). In the lab box it killed the colonies:
+/// intake 836k -> 97k J, extinct 2 -> 10 of 12. Lab food is cheap per cell (a
+/// bite pays 19-50 J), so counting cells makes its loads 2.5-5x *heavier*
+/// where it made fruit half as heavy. What the bed showed is that a lighter
+/// load saves foragers; re-pricing foods against each other is the wrong way
+/// to get one. Kept, off, so the pair can be re-run (`Reports/dead-ends.md`).
+///
 /// Read once through a `OnceLock`, like the other experiment switches here.
 fn load_by_cells() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
