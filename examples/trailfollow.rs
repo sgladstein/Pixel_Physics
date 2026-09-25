@@ -2994,11 +2994,26 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         }
         if f.is_multiple_of(3000) {
             let (mut at_nest, mut elsewhere, mut crumb_cells) = (0u32, 0u32, 0u32);
+            // **What is standing ON the nest, in joules** -- whole fruit and
+            // crumbs alike, priced by `food_value` as an ant's mouth prices
+            // them. Added 2026-09-25 for the owner's "does food build up at
+            // the nest?": `nest ground` counts whole fruit only, and a
+            // part-eaten delivery goes down as crumbs, so it could not say.
+            let (mut crumb_nest, mut nest_food_j) = (0u32, 0.0f64);
             for y in 0..spec.height {
                 for x in 0..width {
-                    let m = w.get(x, y).material;
+                    let c = w.get(x, y);
+                    let m = c.material;
+                    let on_nest = x >= nest_lo - 10 && x <= nest_hi + 10;
                     if Some(m) == crumbs {
                         crumb_cells += 1;
+                        if on_nest {
+                            crumb_nest += 1;
+                            nest_food_j += creature::food_value(&w, c) as f64;
+                        }
+                    }
+                    if m == larder && on_nest {
+                        nest_food_j += creature::food_value(&w, c) as f64;
                     }
                     if m == larder {
                         if x >= nest_lo - 10 && x <= nest_hi + 10 {
@@ -3009,13 +3024,14 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     }
                 }
             }
-            let (mut in_crops, mut live) = (0u32, 0u32);
+            let (mut in_crops, mut live, mut body_j) = (0u32, 0u32, 0.0f64);
             for id in w.live_organism_ids() {
                 let Some(st) = w.organism(id) else { continue };
                 if st.species != species_id {
                     continue;
                 }
                 live += 1;
+                body_j += st.energy as f64;
                 if let Some(c) = st.crop.filter(|c| is_larder_food(c.material)) {
                     in_crops += c.cells as u32;
                 }
@@ -3023,7 +3039,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     larder_unit = larder_unit.max(c.unit);
                 }
             }
-            store_series.push(format!("{f}: nest ground {at_nest}, crops {in_crops}, elsewhere {elsewhere}, crumbs {crumb_cells}, ants {live}"));
+            store_series.push(format!("{f}: nest ground {at_nest}, crops {in_crops}, elsewhere {elsewhere}, crumbs {crumb_cells}, ants {live}, nest food {nest_food_j:.0} J ({crumb_nest} crumbs), ant bodies {body_j:.0} J"));
         }
         if (gif_out.is_some() || frames_dir.is_some()) && gif_frames.len() < gif_count && f >= gif_start && (f == gif_start || f.is_multiple_of(gif_every)) {
             // The camera: `gifat=` or, by default, centred on the nest cursor
