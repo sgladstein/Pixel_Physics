@@ -4844,7 +4844,7 @@ fn main() {
     // `ant-forage-bed-and-gates-2026-09-21.md` is run with, echoed so a log
     // that does not name them was written by a binary that never had them.
     println!(
-        "  breadoff={} wire={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} layfrom={}",
+        "  breadoff={} wire={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} LOAD_BY={} layfrom={}",
         flag("breadoff"),
         arg_str("wire").unwrap_or_else(|| "shipped".into()),
         flag("decisioncsv"),
@@ -4852,6 +4852,7 @@ fn main() {
         std::env::var("PIXEL_PHYSICS_COLONY_SPACING").unwrap_or_else(|_| "shipped".into()),
         std::env::var("PIXEL_PHYSICS_STACK_DEPTH").unwrap_or_else(|_| "shipped".into()),
         std::env::var("PIXEL_PHYSICS_DROP_REACH").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_LOAD_BY").unwrap_or_else(|_| "shipped".into()),
         arg_str("layfrom").unwrap_or_else(|| "nest".into())
     );
     println!("  {LANDED_NOTE}\n");

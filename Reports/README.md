@@ -3277,6 +3277,16 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     colony eats 42% of what it burns, and a forager mostly feeds itself.
     Ants off the loop are idle on the nest, not stuck: they explore 3% of
     the time and are blocked 2.8%.
+  - **Three levers read with it** (§17). A full ant at the nest barred
+    from re-taking its delivery: worse again (loops 425 → 360). The ants
+    that never find the food never meet the road: half never step on a
+    trail, because it starts at one edge of a 53-column nest, and born on
+    the far side 37.5% reach the food against 79% on the near side. A
+    doubled crop starves the carriers (starved 342 → 461), because a load
+    weighs its joules and a full crop weighs three times the ant.
+    Weighing it by cells instead (`PIXEL_PHYSICS_LOAD_BY=cells`, off by
+    default) saves the foragers: looper deaths 109 → 66, and with the
+    doubled crop starved 342 → 263 (20 seeds better, 3 worse).
   - The per-decision mix matched the formula within a point at both
     energies. The reach predictions were low; the report says why.
   - The scene's own checks caught rain pooling on the slab and an ant dying
