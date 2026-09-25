@@ -1532,3 +1532,77 @@ it would take to ship:** `ant.ron`'s `crop_capacity` 2880 → 5760, and a load
 density of half for food, the new constant. Both are the owner's call.
 Data: `Reports/data/bed-default-loadscale-*-2026-09-25.*`,
 `Reports/data/lab-loadscale-2026-09-25.txt.gz`.
+
+### 17h. What is realistic: pay the trip, not the floor
+
+Asked by the owner after §17g: *"debate and think deeper on this. What is
+most realistic?"* The question is which economy is most like a real colony
+and consistent with the rulings already made. What real colonies do, stated
+as the literature has it and hedged where the figure is from memory:
+
+- **A foraging trip pays many times its cost.** In the harvester-ant
+  measurements energy is not what limits foraging (time, water and risk
+  are), and a trip returns tens to hundreds of times what it costs.
+- **Carrying costs roughly in proportion to the mass moved** (leafcutter
+  measurements). Loads are commonly around the ant's own mass.
+- **Solid food travels in the mandibles and is not eaten on the way.**
+  Liquid goes into the crop, a shared stomach, where a valve passes only
+  what the forager needs to its own gut.
+- **Only a minority of workers forage.** Many are inactive in the nest at
+  any time, fed by nestmates and burning little. A founding colony starts
+  from stored reserves, not empty.
+- **A worker survives far longer without food than a trip takes.**
+
+**Measured against that, the ant's load cost is already realistic.** Over
+the default's laden decisions the average crop is 47% full: 337 J carried,
+weighing **1.4 times the ant**. A laden tick costs 0.45 J against 0.20 J
+empty, **2.25 times**. That is the mass-proportional law at a
+body-mass-sized load. §17c's "a full crop weighs three times the ant" is the
+full-crop extreme, not the typical load.
+
+**What is not realistic, ranked by what it costs the colony:**
+1. **The trip pays too little.** Per loop the forager carries 716 J against
+   its own ~333 J of living, 2.15 times in all, against a real forager's
+   many times.
+2. **Every ant lives like a forager.** All 20 founders search, mill and dig,
+   and none rests. The ones who never find the food die of it by frame
+   3,800, with nothing stored at home to be fed from.
+3. **Cargo is digested in transit.** That is realistic for liquid food and
+   not for a fruit in the mandibles. But moving where the forager eats its
+   trip's cost creates no surplus, so it matters only for how food is
+   shared out.
+4. **A crop holds 2,880 J of anything**: three fruits or seventy-two leaves.
+   A real ant carries one item sized to itself. That is why weighing by
+   cells broke the lab (§17e).
+
+**The rulings rule out paying the floor.** *"An omnivore should be viable"*
+keeps the gut neutral (`hopper.ron`, card `20260823T104411499Z-963f8d`).
+*"I don't want ants sitting in one spot eating fallen leaves"* is why food
+value was restored to 4× and no higher, because a richer floor is the
+sit-still attractor. E14 (*"let them starve"*) sized the grant so an idle
+ant lives one scene. A richer gut, richer food or cheaper living all pay an
+ant for sitting as much as for working, and cut against those rulings.
+**Realism agrees: a real forager is paid by the trip.**
+
+**So the lever is what one load is worth.** Half the weight per joule with a
+doubled crop is that lever. Averaged over laden decisions it carries
+**577 J at 1.2 times the ant's weight**, against today's **337 J at 1.4
+times**. Only an ant that carries food home gains anything from it. Read
+this way it is not "loads are lighter" but "harvested food is about twice as
+energy-dense as the ant's own flesh". That is plausible for seeds, and fruit
+is already authored at twice flesh per cell. It measured 342 → 277 starved
+and looper deaths 109 → 50 on the bed, and 1 extinct of 12 in the lab.
+
+**Not chosen, and why:**
+- *One item per trip, weighed by size.* The most physical rule, but it
+  needs the crop redesigned around items and ants able to choose rich ones.
+  Later, if ever.
+- *Cheaper living.* It would lengthen a lost scout's search, but it pays
+  idling too and undoes E14.
+- *Not digesting cargo in transit.* No surplus, as argued above.
+
+**The second realistic fix is the colony's other half.** Most ants should
+rest at home and be fed, not search and starve. That needs food and the
+hungry to meet, which is the nest's mouth (§17b), and a colony that does
+not start with an empty store. Idle at home is realistic; starving at home
+is the defect.
