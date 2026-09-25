@@ -4861,6 +4861,13 @@ fn main() {
     let spec = LabBox { width: 256, height: 192, ground_y: 96, soil_depth: 48, founders: 0, colonies: 0, seed: seed0, ..LabBox::default() };
     let w = spec.build();
     let base = w.species.get(w.species.id_of("ant").expect("the ant species is compiled in")).genome.clone();
+    // **The crop and load weight the species actually ships**, before any
+    // rider. `scripts/antloop.py` turns crop fill into joules with this, and
+    // it read a hard-coded 2,880 until the crop doubled (2026-09-25): a run
+    // at the new default read at the old size books half the food eaten.
+    if let Some(cdef) = w.species.get(w.species.id_of("ant").expect("the ant species is compiled in")).creature.as_ref() {
+        println!("  ant.ron: crop_capacity={} food_weight={}", cdef.crop_capacity, cdef.food_weight);
+    }
 
     if mode == "feedgate" {
         // `wire=` applies here too, so a candidate is checked through

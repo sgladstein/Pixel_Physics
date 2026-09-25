@@ -47,7 +47,7 @@ import tempfile
 BAND = 26          # trailfollow's nest band, +/- cells around nest_x
 UP = 10            # rows above the walking surface that count as "up a wall or ceiling"
 PLANT_Q = 0.25     # diet quality of plant food at the ant's neutral gut
-CAP = 2880.0       # ant.ron `crop_capacity`, face J (fill = worth / CAP); a run's `cropcap=` overrides it, read from --log
+CAP = 5760.0       # ant.ron `crop_capacity` since 2026-09-25 (2880 before), face J (fill = worth / CAP); read from --log
 START_J = 200.0    # ant.ron `start_energy`; `founder_reserve` staggers it per founder but the cohort sums to exactly this x n
 BUCKETS = ['carrying food', 'digging / hauling dirt', 'up a wall or ceiling',
            'off the nest, moving (exploring)', 'off the nest, standing',
@@ -164,6 +164,13 @@ def harness(logs):
                 c = re.search(r' cropcap=([0-9.]+)', line)
                 if c:
                     params['cropcap'] = float(c.group(1))
+            # The species' own crop, echoed by `trailfollow` since the crop
+            # doubled. A `cropcap=` rider, parsed above, overrides it. A log
+            # older than that echo holds neither, and its crop was 2,880:
+            # pass `--cropcap 2880`.
+            m = re.search(r'ant\.ron: crop_capacity=([0-9.]+)', line)
+            if m and 'cropcap' not in params:
+                params['shipped_cropcap'] = float(m.group(1))
             m = re.search(r'DEATHS BY CAUSE -- by frame 6000: \[[^\]]*\] \| whole run: \[([^\]]*)\]', line)
             if m:
                 mm = re.search(r'STARVED (\d+)', m.group(1))
@@ -354,7 +361,7 @@ def main():
     ap.add_argument('--gap', type=int, default=None, help="only this food distance")
     ap.add_argument('--log', nargs='*', default=[], help="the trailfollow run log(s), for the economy and the death reconciliation")
     ap.add_argument('--near', type=int, default=None, help="cells from the food that count as at it (default: from --log, else 10)")
-    ap.add_argument('--cropcap', type=float, default=None, help="crop capacity in face J (default: from --log, else ant.ron's 2880)")
+    ap.add_argument('--cropcap', type=float, default=None, help="crop capacity in face J (default: from --log, else ant.ron's 5760; a log from before 2026-09-25 needs --cropcap 2880)")
     ap.add_argument('--selftest', action='store_true')
     args = ap.parse_args()
     if args.selftest:
@@ -363,7 +370,7 @@ def main():
         ap.error("give the directory of decision CSVs, or --selftest")
     global CAP
     runs, params = harness(args.log)
-    CAP = args.cropcap or params.get('cropcap', CAP)
+    CAP = args.cropcap or params.get('cropcap', params.get('shipped_cropcap', CAP))
     near = args.near or params.get('near', 10)
     end = params.get('frames', 24000) - 10
     paths = sorted(glob.glob(os.path.join(args.csv_dir, 'trailfollow-decisions-*.csv')))

@@ -2485,7 +2485,7 @@ fn carried_cells(world: &World, organism: OrganismId, def: &CreatureDef) -> f32 
     let Some(state) = world.organism(organism) else {
         return 0.0;
     };
-    let food = state.crop.map_or(0.0, |c| crop_load_cells(&c, def.body_energy, load_by_cells(), load_scale()));
+    let food = state.crop.map_or(0.0, |c| crop_load_cells(&c, def.body_energy, load_by_cells(), load_scale() * def.food_weight));
     let ground = if state.spoil.is_some() { def.spoil_weight_cells } else { 0.0 };
     food + ground
 }
