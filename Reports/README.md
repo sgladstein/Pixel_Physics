@@ -3297,7 +3297,12 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     off by default) with a doubled crop reaches about 2.7×. On the bed,
     starved 342 → 277 (16 seeds better, 5 worse) and looper deaths
     109 → 50. In the lab: more food, more births, 1 extinct of 12 against
-    2. Awaiting the owner.
+    2.
+  - **Shipped** (§18, owner's ruling 2026-09-25): the ant's crop holds
+    5,760 J (was 2,880), and food weighs half what the same joules of flesh
+    would (`CreatureDef::food_weight`, 1.0 for every other species).
+    Foragers still eat from their load on the way home. The default build
+    reproduces the measured arm digit for digit, on the bed and in the lab.
   - The per-decision mix matched the formula within a point at both
     energies. The reach predictions were low; the report says why.
   - The scene's own checks caught rain pooling on the slab and an ant dying

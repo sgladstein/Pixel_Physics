@@ -1622,12 +1622,12 @@ Digestion is untouched, and a laden ant eats from its load exactly as
 before. What changed is what the load weighs and how much of it there is.
 §17f argued that stopping foragers eating in transit creates no surplus: the
 forager has to pay its trip's cost somewhere. And §17f measured that the
-carriers are too hungry for a hold to act on. Measured the other way round,
-fewer foragers starve on the new default: 109 → 50 of the ants that made a
-loop. Of all the starved, 4% die with more than a quarter of a crop, against
+carriers are too hungry for a hold to act on. And on the new default fewer
+foragers starve, not more: 109 → 50 of the ants that made a loop. Of all the starved, 4% die with more than a quarter of a crop, against
 2% before and 38% for the doubled crop at the old weight.
 
 **The default is the measured arm, digit for digit.** The default build with
 no switch and no rider reproduces §17g's `LOAD_SCALE=0.5 + cropcap=5760` arm
 on the colony bed (seeds 1–8, all 40 per-run, food-store, death and budget
-lines identical).
+lines identical), and in the lab box (seed 1, every `SUMMARY` line identical).
+So every number in §17g describes the game as it now ships.
