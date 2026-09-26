@@ -50,6 +50,16 @@ that stop piling in the mouth. Changing the default is the owner's ruling.
 - **L1185 and L1186** (`AtNest:Feed`, the `Drop` wiring) name "the nest has one
   mouth" as their re-test condition; §19's door and the dug mouth both meet
   it on the bed, behind switches. Written back to both entries; not re-tested.
+- **Your §19 re-test condition is not met**: a dug mouth does not stay open
+  in the lab. It is buried by frame 30,600 on 11-12 of 12 seeds under the
+  colony's own delivered food and the roots growing in it. Written back to
+  your dead-ends entry; numbers in the report's §5.
+- **Echo request, your file**: `trailfollow`'s header does not name
+  `PIXEL_PHYSICS_NEST_DOOR` / `_SHAFT` / `_HOME`, so a bed log does not say
+  which nest it ran. Not touched here.
+- **How this reached you**: the trigger poke the brief prescribed failed.
+  `session_01AFH5xR442VuoZsXm7VzJmx` is "not found" from this session's
+  account, so this note is the channel. PR #493 carries all of it.
 
 ## Predictions (written before each run)
 
