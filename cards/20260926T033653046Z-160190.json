@@ -1,0 +1,120 @@
+{
+  "id": "20260926T033653046Z-160190",
+  "created": "2026-09-26T03:36:53Z",
+  "board": "ants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/upbeat-gates-u90pys",
+    "commit": "01b4dba1",
+    "agent": null,
+    "session_id": "377a1a74-10ea-588e-aa72-28c0126d3167",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The nest as one small door: it works on open ground and gets buried in the lab",
+  "question": "In the lab stills (bottom pair), does the colony's home read as buried under the plant litter, which is why a small door gets lost there while the long strip does not?",
+  "context_md": "Test switch only; nothing in the game changed.\n\n**Top pair, the colony test bed**, seed 4 (the typical seed). Today the nest is painted as a 45-cell strip; with the switch it is a 5-cell door and every ant's home is that door. Magenta = empty ant, cyan = carrying food, red block = the food. Over 24 seeds the door cuts starvation 277 -> 209 and deaths among ants that never find the food 200 -> 125.\n\n**Bottom pair, the lab box**, seed 3, frames 6k/12k/20k/30k around the nest. The painted nest (white) sits about 10 cells under the litter mat. With the door, food carried home drops 5,396 -> 1,279 on every one of 12 seeds.\n\nSo the door is not shipping. The nest session is to build a real mouth that stays open to the surface.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "Test bed, today (strip)",
+      "files": [
+        "20260926T033653046Z-160190/000-frame-000.png",
+        "20260926T033653046Z-160190/001-frame-001.png",
+        "20260926T033653046Z-160190/002-frame-002.png",
+        "20260926T033653046Z-160190/003-frame-003.png",
+        "20260926T033653046Z-160190/004-frame-004.png",
+        "20260926T033653046Z-160190/005-frame-005.png",
+        "20260926T033653046Z-160190/006-frame-006.png",
+        "20260926T033653046Z-160190/007-frame-007.png",
+        "20260926T033653046Z-160190/008-frame-008.png",
+        "20260926T033653046Z-160190/009-frame-009.png",
+        "20260926T033653046Z-160190/010-frame-010.png",
+        "20260926T033653046Z-160190/011-frame-011.png",
+        "20260926T033653046Z-160190/012-frame-012.png",
+        "20260926T033653046Z-160190/013-frame-013.png",
+        "20260926T033653046Z-160190/014-frame-014.png",
+        "20260926T033653046Z-160190/015-frame-015.png",
+        "20260926T033653046Z-160190/016-frame-016.png",
+        "20260926T033653046Z-160190/017-frame-017.png",
+        "20260926T033653046Z-160190/018-frame-018.png",
+        "20260926T033653046Z-160190/019-frame-019.png"
+      ],
+      "caption": "frames 600 to 12,000, every 600",
+      "meta": {
+        "starved, 24 seeds (of 480)": 277,
+        "never found food, starved": 200,
+        "round trips": 366,
+        "this seed: starved": 10
+      },
+      "focus": null
+    },
+    {
+      "label": "Test bed, door",
+      "files": [
+        "20260926T033653046Z-160190/020-frame-000.png",
+        "20260926T033653046Z-160190/021-frame-001.png",
+        "20260926T033653046Z-160190/022-frame-002.png",
+        "20260926T033653046Z-160190/023-frame-003.png",
+        "20260926T033653046Z-160190/024-frame-004.png",
+        "20260926T033653046Z-160190/025-frame-005.png",
+        "20260926T033653046Z-160190/026-frame-006.png",
+        "20260926T033653046Z-160190/027-frame-007.png",
+        "20260926T033653046Z-160190/028-frame-008.png",
+        "20260926T033653046Z-160190/029-frame-009.png",
+        "20260926T033653046Z-160190/030-frame-010.png",
+        "20260926T033653046Z-160190/031-frame-011.png",
+        "20260926T033653046Z-160190/032-frame-012.png",
+        "20260926T033653046Z-160190/033-frame-013.png",
+        "20260926T033653046Z-160190/034-frame-014.png",
+        "20260926T033653046Z-160190/035-frame-015.png",
+        "20260926T033653046Z-160190/036-frame-016.png",
+        "20260926T033653046Z-160190/037-frame-017.png",
+        "20260926T033653046Z-160190/038-frame-018.png",
+        "20260926T033653046Z-160190/039-frame-019.png"
+      ],
+      "caption": "same seed, same frames",
+      "meta": {
+        "starved, 24 seeds (of 480)": 209,
+        "never found food, starved": 125,
+        "round trips": 465,
+        "this seed: starved": 6
+      },
+      "focus": null
+    },
+    {
+      "label": "Lab box, today (strip)",
+      "files": [
+        "20260926T033653046Z-160190/040-def.png"
+      ],
+      "caption": "seed 3, frames 6k / 12k / 20k / 30k, top to bottom",
+      "meta": {
+        "food carried home, 12 seeds (median)": 5396,
+        "nest visits (median)": 8948,
+        "boxes died out (of 12)": 1
+      },
+      "focus": null
+    },
+    {
+      "label": "Lab box, door",
+      "files": [
+        "20260926T033653046Z-160190/041-door.png"
+      ],
+      "caption": "same seed and frames",
+      "meta": {
+        "food carried home, 12 seeds (median)": 1279,
+        "nest visits (median)": 1105,
+        "boxes died out (of 12)": 4
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
