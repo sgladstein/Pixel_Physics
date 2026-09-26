@@ -195,6 +195,22 @@ fn build_graded(b: &Box2, wet: u16, grad: Option<(u16, u16)>) -> World {
 /// to the aggregation** and one that is a uniform rise everywhere can be
 /// told apart, which is Stage 2's own check that can fail.
 fn census(world: &World, b: &Box2) -> (usize, usize, usize, usize, i32, i32, i32, i32) {
+    census_masked(world, b, &|_, _| false)
+}
+
+/// [`census`], with the cells `skip` names left out of every room count
+/// (the ground in them still roofs what is below, as ground does).
+///
+/// **For the founding cut, which the colony did not dig.** Measured
+/// 2026-09-26 over twelve seeds: every arm with a shaft read the room's
+/// middle half **narrower on 12 of 12** and deeper on 11-12 -- but the cut's
+/// own chamber is ~40 roofed cells at the centre and its floor sits 22 rows
+/// down, so part of that is the census counting what founding handed the
+/// colony. `CLAUDE.md`'s question -- *what does this number count when
+/// nothing is wrong?* -- answered: a shaft arm with no ants reads a room by
+/// construction. Scoring the room with the cut masked out is what separates
+/// "the colony dug a deeper, narrower nest" from "the census found the hole".
+fn census_masked(world: &World, b: &Box2, skip: &dyn Fn(i32, i32) -> bool) -> (usize, usize, usize, usize, i32, i32, i32, i32) {
     let (mut roofed, mut open) = (0, 0);
     // **Cells below the old surface that hold an animal.**
     //
@@ -238,6 +254,8 @@ fn census(world: &World, b: &Box2) -> (usize, usize, usize, usize, i32, i32, i32
                 && cell.organism_id() == 0;
             if is_ground {
                 covered = true;
+            } else if skip(x, y) {
+                continue;
             } else if cell.material == material::EMPTY {
                 if covered {
                     roofed += 1;
@@ -265,7 +283,7 @@ fn census(world: &World, b: &Box2) -> (usize, usize, usize, usize, i32, i32, i32
                 continue;
             }
             let is_room = cell.material == material::EMPTY || kind == MaterialKind::Creature;
-            if is_room && covered {
+            if is_room && covered && !skip(x, y) {
                 x0 = x0.min(x);
                 x1 = x1.max(x);
                 y0 = y0.min(y);
@@ -291,7 +309,7 @@ fn census(world: &World, b: &Box2) -> (usize, usize, usize, usize, i32, i32, i32
                 covered = true;
                 continue;
             }
-            if covered && (cell.material == material::EMPTY || kind == MaterialKind::Creature) {
+            if covered && !skip(x, y) && (cell.material == material::EMPTY || kind == MaterialKind::Creature) {
                 per_col[x as usize] += 1;
             }
         }
@@ -1027,6 +1045,9 @@ fn main() {
         ),
         None => println!("  founding: painted strip only, nothing dug (PIXEL_PHYSICS_NEST_SHAFT unset)"),
     }
+    if pixel_physics::sim::creature::shaft_is_home(&world) {
+        println!("  home: the painted nest AND the founding cut (PIXEL_PHYSICS_NEST_HOME=shaft) -- in the shaft, the chamber or on the mouth's rim an ant is AtNest");
+    }
     println!();
     println!(
         "  soil wetness {wet} of {} saturated ({}); the column the dig decision actually reads is `wet grad`",
@@ -1136,6 +1157,17 @@ fn main() {
     );
     if let Some(line) = cut_census(&world) {
         println!("SUMMARY {}", line.trim());
+    }
+    {
+        // Printed for every arm, so an arm with no cut reads the plain census
+        // again and the two lines compare like for like across arms.
+        let cut = world.nest_sites.iter().find_map(|s| s.shaft);
+        let (r, o, _, bd, w, h, iq, _) = census_masked(&world, &b, &|x, y| cut.is_some_and(|c| c.contains(x, y)));
+        println!(
+            "SUMMARY dug by the colony, outside the founding cut: room_total={} room={w}w x{h}h vert={:.2} iqr={iq}",
+            r + o + bd,
+            if w > 0 { h as f64 / w as f64 } else { 0.0 }
+        );
     }
     // **Can the one remaining candidate demonstrate itself?**
     //

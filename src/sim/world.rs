@@ -1198,6 +1198,15 @@ impl ShaftFootprint {
             || ((self.chamber_x0..=self.chamber_x1).contains(&x) && (self.chamber_top..=self.chamber_bottom).contains(&y))
     }
 
+    /// Whether `(x, y)` is **within one cell** of the cut, diagonals
+    /// included: inside it, on its walls, or on the rim of the mouth. The
+    /// same 8-neighbour contact `creature::adjacent_nest` asks of a nest
+    /// cell, applied to the hole instead of to paint.
+    pub fn touches(&self, x: i32, y: i32) -> bool {
+        ((self.x0 - 1..=self.x1 + 1).contains(&x) && (self.top - 1..=self.bottom + 1).contains(&y))
+            || ((self.chamber_x0 - 1..=self.chamber_x1 + 1).contains(&x) && (self.chamber_top - 1..=self.chamber_bottom + 1).contains(&y))
+    }
+
     /// Every cell of the cut, each once: the shaft row by row, then the
     /// chamber row by row with the shaft's own columns left out where the
     /// two rectangles overlap.
@@ -3371,6 +3380,11 @@ pub struct World {
     /// `None` follows the environment, which is off unless set; a field for
     /// the reason `chooser` is one.
     pub bud_at_nest: Option<bool>,
+    /// **Whether the founding cut counts as home, overriding
+    /// `PIXEL_PHYSICS_NEST_HOME` for this world** (`creature::shaft_is_home`).
+    /// `None` follows the environment, which is off unless set; a field for
+    /// the reason `chooser` is one.
+    pub nest_home_shaft: Option<bool>,
     /// **Which material stopped a creature**, counted per blocked tick and
     /// indexed by `MaterialId` — the breakdown `CreatureStats::
     /// blocked_by_plant` deliberately does not carry, because that struct is
@@ -5708,6 +5722,7 @@ impl World {
             decision_scratch: crate::sim::creature::DecisionScratch::default(),
             chooser: None,
             bud_at_nest: None,
+            nest_home_shaft: None,
             blocked_tissue_by_material: Vec::new(),
             energy_ledger: EnergyLedger::default(),
             colony_books: Vec::new(),

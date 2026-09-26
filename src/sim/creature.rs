@@ -2829,6 +2829,41 @@ pub fn nest_shaft_width() -> i32 {
     *W.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SHAFT_WIDTH").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v > 0).unwrap_or(2))
 }
 
+/// **Whether the founding cut is home** -- `PIXEL_PHYSICS_NEST_HOME=shaft`,
+/// or [`World::nest_home_shaft`] for one world. Off unless set; unset,
+/// [`adjacent_nest`] asks nothing it did not ask before.
+///
+/// **What it is for.** A dug shaft that is not home is only a hole beside
+/// the door. `AtNest` reads nest *material*, and the cut is lined soil, so an
+/// ant standing in its own nest's shaft counts as away -- and everything
+/// `AtNest` gates happens only on the painted surface: putting food down,
+/// the homeward pull, the chamber dig gate (hidden units 5/6), budding under
+/// `PIXEL_PHYSICS_BUD_SITE=nest`, and the home trail's only writer. Under
+/// this switch a head within one cell of the recorded cut
+/// ([`crate::sim::world::ShaftFootprint::touches`]) is at home: in the
+/// shaft, in the chamber, or on the rim of the mouth.
+///
+/// **The hole the queen dug, not every hole since.** The footprint is fixed
+/// at founding. Were home the dug void as it grows, it would spread over
+/// the whole scratched floor, which is where the 53-column strip already
+/// was. And it is a region test rather than paint down the shaft: the owner
+/// has ruled out paint (`Reports/nest-design-2026-09-14.md` §13), and
+/// `nest` is a `Solid` at 6.0 that no jaw cuts and no water soaks into --
+/// a shaft walled in it could not be widened and would hold rain.
+///
+/// **Why it should shape the nest as well as the loop**, stated before
+/// anyone measures it: `PIXEL_PHYSICS_NEST_SITE_ROWS=40`, the one lever that
+/// ever moved the nest's shape, is the same kind of change -- where the dig
+/// gate fires, applied over a region, and the region's shape is inherited
+/// (`Reports/nest-rejections-rescored-2026-09-19.md`). This region is a
+/// shaft.
+pub fn shaft_is_home(world: &World) -> bool {
+    world.nest_home_shaft.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_HOME").as_deref() == Ok("shaft"))
+    })
+}
+
 /// **The site reach in COLUMNS, half-width, or `None` for
 /// [`COLONY_HALF_WIDTH`].**
 ///
@@ -9236,6 +9271,15 @@ fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
     let Some(nest) = world.materials.id_of(&def.nest) else {
         return false;
     };
+    // **The founding cut is home, under `PIXEL_PHYSICS_NEST_HOME=shaft`** --
+    // see [`shaft_is_home`]. Before both branches below, so it composes with
+    // either: it adds the hole to whatever else counts as home and takes
+    // nothing away. Behind the switch's own bool first, so unset reads no
+    // site and costs one branch; set, one scan over one to a handful of
+    // sites, and no `World::get` at all.
+    if shaft_is_home(world) && world.nest_sites.iter().filter_map(|s| s.shaft).any(|cut| cut.touches(x, y)) {
+        return true;
+    }
     // **The site branch: home is a place, not a cell.** No `World::get` at
     // all -- one linear scan over a list that holds one to a handful of
     // sites, against eight neighbour reads today, so this is cheaper rather
@@ -18668,6 +18712,44 @@ mod tests {
             );
             let (lined, n) = open_after(true, parallel);
             assert!(lined * 10 >= n * 9, "a lined founding cut must stand (parallel={parallel}): only {lined} of {n} cells are open after 120 frames");
+        }
+    }
+
+    /// **Under `PIXEL_PHYSICS_NEST_HOME=shaft` the founding cut is home, and
+    /// nowhere else new is** ([`shaft_is_home`]): in the shaft, in the
+    /// chamber and on the rim of the mouth an ant reads `AtNest`; two columns
+    /// off the mouth, or down in the soil beside the chamber, it does not.
+    /// With the switch off, the same cells read exactly what they read before
+    /// -- nothing, because there is no nest material in the scene at all.
+    #[test]
+    fn a_founding_cut_is_home_only_under_its_switch() {
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        let soil = w.materials.id_of("soil").expect("soil material");
+        for x in 0..=119 {
+            for y in 40..=99 {
+                let stone = y >= 92 || x == 0 || x == 119;
+                w.set(x, y, if stone { Cell::new(material::STONE, 0) } else { Cell::new(soil, 0) });
+            }
+        }
+        w.register_nest_site(60, 38, 2);
+        // A 16-row, 2-wide shaft at x 60..61 from the surface at row 40,
+        // and a two-row chamber at rows 56..57 over x 52..68.
+        assert!(w.cut_founding_shaft(60, 38, 16, 2, true) > 0, "the cut removed nothing");
+        let ant = w.species.id_of("ant").expect("ant species");
+        let def = w.species.get(ant).creature.clone().expect("ant is a creature");
+        let home: [(i32, i32, &str); 4] = [(60, 48, "halfway down the shaft"), (54, 57, "in the chamber"), (59, 39, "on the rim of the mouth"), (62, 39, "on the rim's other side")];
+        let away: [(i32, i32, &str); 3] = [(57, 39, "two columns off the mouth"), (70, 57, "in the soil beside the chamber"), (60, 70, "in the soil below the chamber")];
+
+        w.nest_home_shaft = Some(false);
+        for (x, y, what) in home.iter().chain(away.iter()) {
+            assert!(!adjacent_nest(&w, *x, *y, &def), "with the switch off, {what} ({x},{y}) must read what it always did: not home");
+        }
+        w.nest_home_shaft = Some(true);
+        for (x, y, what) in home {
+            assert!(adjacent_nest(&w, x, y, &def), "under NEST_HOME=shaft, {what} ({x},{y}) is home");
+        }
+        for (x, y, what) in away {
+            assert!(!adjacent_nest(&w, x, y, &def), "under NEST_HOME=shaft, {what} ({x},{y}) is still away");
         }
     }
 

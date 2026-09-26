@@ -40,6 +40,9 @@ seeds, default / lined shaft / lined shaft with home reaching down it, widths
 | 1 | `digbox NEST_SHAFT=20`, census at frames 0/1/5/30/300 | frame 0 reads open = 2·20+4 = 44 and roofed = 4·10−2 = 38 (the positive control); by frame 5 most of the cut has refilled, because the cut is not lined | **Right on both, but the census hid the second half** (below) |
 | 2 | lined cut, same run | ≥ 90% of the cut open through frame 300 | **Right**: 82 of 82 |
 | 3 | `digbox` 300 ants, what floats (made while planning, before the code survey quoted `update.rs`'s 76-of-76-lining note) | mostly spoil pellets resting on ants | **Wrong**: the floating is lining; the spoil is up in the arch, standing on lining |
+| 4 | A5, `digbox` 12 seeds: lined shaft (w2, not home) vs default | the room is taller-for-its-width (`vert`) and its middle half narrower (`iqr`) on ≥ 8 of 12 seeds | **Right**: 11/0 and 12/0, and it survives masking the cut out |
+| 5 | A5: shaft home (`NEST_HOME=shaft`, w2) vs lined shaft not home | deeper again (`vert` up on ≥ 8 of 12); and the cut holds **more ground** (spoil + lining + soil) at 6,000 frames on ≥ 8 of 12, because ants at home dig inside it and the foot of an open shaft is a legal spoil drop | **Wrong on both**: `vert` 6/2; the cut holds **less** ground, 1 up / 11 down |
+| 6 | A5: width 4 vs width 2, both home | more of the cut still open at 6,000 frames on ≥ 8 of 12 | **Right**, 12/0 (partly by construction: 122 cells against 82) |
 
 ## §19 (the loop session's door)
 
@@ -90,6 +93,25 @@ and its middle half is 29 columns wide against 56.
 
 **Bed baseline, reference binary:** 24 seeds reproduce the stored §18
 default funnel line for line (starved 277, loops 366).
+
+**A5, does a colony keep the hole** (`digbox`, 300 ants, 6,000 frames, seeds
+1–12, one binary; scored on the colony's own digging, i.e. with the founding
+cut masked out of the census, because a shaft arm with no ants at all reads a
+13-column room by construction). Seed by seed against the default:
+
+| arm | own room | depth | height/width | middle-half width | chambers (owner's metric) |
+|---|---|---|---|---|---|
+| lined shaft, w2 | 10 up / 2 | 11 / 0 | 11 / 0 | **narrower 12 / 0** | 3 / 1 |
+| lined shaft, w4 | 9 / 3 | 12 / 0 | 12 / 0 | **narrower 12 / 0** | 5 / 1 |
+| shaft is home, w2 | 10 / 2 | 12 / 0 | 12 / 0 | **narrower 12 / 0** | 8 / 1 |
+| shaft is home, w4 | 10 / 2 | 12 / 0 | 12 / 0 | **narrower 12 / 0** | **10 / 0** |
+
+Medians: middle half 45 → 27–30 columns, depth 23 → 28–32 rows, chambers
+0 → 1.5 in the home arms (rooms ~8–10 tall, 8–12 wide, passages still 2). **A
+founding hole concentrates the whole nest, on every seed.** Home against not
+home changes little in shape and keeps the hole clearer: ground in the cut
+lower on 11 of 12 (w2) and 9 of 12 (w4). What fills the cut is ants (median 52–70
+cells), in a box that grows past 800 of them.
 
 ## Head SHAs
 
