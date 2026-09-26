@@ -98,3 +98,7 @@ that stop piling in the mouth. Changing the default is the owner's ruling.
   the cut; `PIXEL_PHYSICS_NEST_HOME=mouth`.
 - `97c491e1` — both beds measured on the final binary; `labshot`'s cut
   census; dead-end write-backs.
+- `9d1c93ac` — the write-up: stop rule applied, new dead-ends entry, §19's
+  entry written back.
+- `6ef76d7f` — `main` merged in again (#492, scouting); bed default and
+  door + mouth re-checked identical; 1,962 tests pass.
