@@ -1,0 +1,54 @@
+{
+  "id": "20260926T061431136Z-a29145",
+  "created": "2026-09-26T06:14:31Z",
+  "board": "nest",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/ant-nest-mouth-4f6s79",
+    "commit": "97c491e1",
+    "agent": null,
+    "session_id": "02cfa3f7-cc46-597e-8f90-5488d21d3601",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Ants coming home: a painted door or a dug mouth?",
+  "question": "Which one reads as the colony's front door?",
+  "context_md": "**Where this is going:** one mouth that every ant goes in and out of, so the road to food starts where everyone is.\n\nSame colony bed, same seed, frames 1 to 4,800, one frame in every 80. **Magenta ants are empty; cyan ones are carrying food home.** The food is off to the right.\n\nOne pane is a small painted door (5 cells of nest ground on the surface). The other is a hole dug when the colony is founded, lined like a tunnel, with no paint at all; its mouth is home. Which is which is hidden until you choose.\n\nPick by eye. The counts under each pane are from this one run.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "Painted door",
+      "files": [
+        "20260926T061431136Z-a29145/000-door2-s1.gif"
+      ],
+      "caption": "frames 1 to 4,800",
+      "meta": {
+        "round trips to the food and back, this run": 10,
+        "food taken from the pile (cells)": 33
+      },
+      "focus": null,
+      "gif_frames": 61
+    },
+    {
+      "label": "Dug mouth, no paint",
+      "files": [
+        "20260926T061431136Z-a29145/001-mouth0-s1.gif"
+      ],
+      "caption": "frames 1 to 4,800",
+      "meta": {
+        "round trips to the food and back, this run": 13,
+        "food taken from the pile (cells)": 55
+      },
+      "focus": null,
+      "gif_frames": 61
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": false,
+    "comment": true,
+    "annotations": false
+  }
+}
