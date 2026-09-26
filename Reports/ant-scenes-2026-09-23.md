@@ -1631,3 +1631,55 @@ no switch and no rider reproduces §17g's `LOAD_SCALE=0.5 + cropcap=5760` arm
 on the colony bed (seeds 1–8, all 40 per-run, food-store, death and budget
 lines identical), and in the lab box (seed 1, every `SUMMARY` line identical).
 So every number in §17g describes the game as it now ships.
+
+## 19. The nest as a door: does one mouth stop the starving?
+
+*2026-09-26.* §17b found that the largest group of the dead are ants that
+never reach the food, and that where an ant is born on the 45-column painted
+nest decides it. This asks, before anyone builds a dug nest, whether giving the
+colony one small home pays. The nest session (`Reports/lanes/nest-mouth.md`
+once it exists) builds the real, dug version on this switch.
+
+**The switch.** `PIXEL_PHYSICS_NEST_DOOR=<d>` makes founding paint a door of
+`2d + 1` columns, unbroken, instead of the strip, and sets every founder's
+home (`forage_anchor`) to the cell above the door's centre. Without that, a
+founder standing off the door would carry its birth cell as home for life, and
+a laden ant would walk home to a spot where it cannot put food down.
+`PIXEL_PHYSICS_NEST_DOOR_FOUNDERS=pile` also starts every founder heaped on the
+door instead of spread along the ground. The two arms separate "home is one
+point" from "everyone comes out of one point". Unset is bit-exact: the new
+binary reproduces the shipped default on seeds 1–8, all 40 lines. Guard:
+`a_nest_door_paints_its_width_and_anchors_every_founder_at_it`, watched red
+with the anchor write removed.
+
+**Positive control, frame 0, seed 1.** Default: nest ground x 26–70, founders
+x 30–68, 20 of 20 born beside it. Door, `d = 2`: nest ground x 46–50, founders
+x 30–68, 3 of 20 beside it and all 20 homed at x 48. Piled: founders x 46–50.
+The pile lands as a heap by frame 60 and spreads out by frame 360; there is no
+gridlock (a packed colony once logged 27,386 blocked ticks, before ants could
+climb over each other).
+
+**On the colony bed** (shipped default, no trail, 90 cells, 24 seeds, paired
+against the default):
+
+| | default | door, homed (`d=2`) | door, piled (`d=2`) | wider door, piled (`d=6`) |
+|---|---:|---:|---:|---:|
+| starved, of 480 | 277 | **209** (18 better / 4 worse, p 0.004) | 214 (17/4, p 0.007) | 210 (17/7, p 0.064) |
+| never reached the food, starved | 200 | **125** (18/5) | 141 (18/2) | 122 (16/5) |
+| reached the food | 271 | 344 (16/5) | 328 (16/3) | 339 (15/5) |
+| completed a loop | 229 | 308 (18/4) | 266 (15/5) | 290 (15/7) |
+| loops | 366 | **465** (19/4, p 0.003) | 392 (13/9) | 410 (15/9) |
+| foragers who starved | 50 | 61 (12/10) | 42 (7/9) | 53 (13/8) |
+
+- **One home point is what pays; starting everyone there adds nothing.** The
+  homed arm, with founders still spread, is as good as either pile on
+  starvation and best on loops.
+- **The mechanism is the one §17b named.** Founders born 11–20 cells on the
+  far side of the nest from the food reach it **51%** of the time against
+  **30%**, and starve **58%** against **76%**. By birth position, starvation
+  goes 76/54/55/52/46% → 58/43/33/41/52%.
+- **It does not touch the foragers** (50 → 61 starved, 12/10: no change),
+  which is the load's job (§17g–18).
+- **Predictions, written before:** 170 never-reached deaths and 255 starved
+  for the homed arm, loops within ±10%. Too cautious on all three: 125, 209,
+  and loops **+27%**.
