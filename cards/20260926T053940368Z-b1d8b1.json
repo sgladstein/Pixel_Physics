@@ -1,0 +1,94 @@
+{
+  "id": "20260926T053940368Z-b1d8b1",
+  "created": "2026-09-26T05:39:40Z",
+  "board": "ants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/upbeat-gates-u90pys",
+    "commit": "d64f084a",
+    "agent": null,
+    "session_id": "377a1a74-10ea-588e-aa72-28c0126d3167",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Hungry ants go out to look for food, and come back when a way fails",
+  "question": "On the right, do the ants read as scouts searching the ground and coming home, rather than ants milling about? Would you want this in the game?",
+  "context_md": "Test switch only (`PIXEL_PHYSICS_SCOUT`); nothing in the game changed.\n\nColony test bed, seed 1 (the typical seed), frames 300 to 6,000. Magenta = empty ant, cyan = carrying food, red block = the food, grey wall on the left.\n\n**Left, today:** a hungry empty ant off a trail has no reason to go anywhere, so the colony waits at home until someone stumbles on the food. An ant that found the food had spent a median 1,932 frames at home first, for a 648-frame walk.\n\n**Right, scouting:** a hungry empty ant heads out along the ground. If the way stops getting it further (a wall), it gives up, walks home, and tries again. That is how desert ants search.\n\nOver 24 seeds: fewer ants starve (279 -> 201; 19 seeds better, 4 worse) and 65% more food reaches the nest. The first version without the give-up pinned ants against the left wall (169-180 died up a wall); this one has fewer than today. The cost: ants that pick the empty west side waste their reserve there. This seed is typical on starvation and carried a little less food home (789 against 876). In the lab box it costs nothing, and none of the 12 colonies died out.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "Today",
+      "files": [
+        "20260926T053940368Z-b1d8b1/000-frame-000.png",
+        "20260926T053940368Z-b1d8b1/001-frame-001.png",
+        "20260926T053940368Z-b1d8b1/002-frame-002.png",
+        "20260926T053940368Z-b1d8b1/003-frame-003.png",
+        "20260926T053940368Z-b1d8b1/004-frame-004.png",
+        "20260926T053940368Z-b1d8b1/005-frame-005.png",
+        "20260926T053940368Z-b1d8b1/006-frame-006.png",
+        "20260926T053940368Z-b1d8b1/007-frame-007.png",
+        "20260926T053940368Z-b1d8b1/008-frame-008.png",
+        "20260926T053940368Z-b1d8b1/009-frame-009.png",
+        "20260926T053940368Z-b1d8b1/010-frame-010.png",
+        "20260926T053940368Z-b1d8b1/011-frame-011.png",
+        "20260926T053940368Z-b1d8b1/012-frame-012.png",
+        "20260926T053940368Z-b1d8b1/013-frame-013.png",
+        "20260926T053940368Z-b1d8b1/014-frame-014.png",
+        "20260926T053940368Z-b1d8b1/015-frame-015.png",
+        "20260926T053940368Z-b1d8b1/016-frame-016.png",
+        "20260926T053940368Z-b1d8b1/017-frame-017.png",
+        "20260926T053940368Z-b1d8b1/018-frame-018.png",
+        "20260926T053940368Z-b1d8b1/019-frame-019.png"
+      ],
+      "caption": "no scouting",
+      "meta": {
+        "starved, 24 seeds (of 480)": 279,
+        "food carried home, 24 seeds (J)": 16014,
+        "died up a wall, 24 seeds": 85,
+        "this seed: starved": 12
+      },
+      "focus": null
+    },
+    {
+      "label": "Scouting (out and back)",
+      "files": [
+        "20260926T053940368Z-b1d8b1/020-frame-000.png",
+        "20260926T053940368Z-b1d8b1/021-frame-001.png",
+        "20260926T053940368Z-b1d8b1/022-frame-002.png",
+        "20260926T053940368Z-b1d8b1/023-frame-003.png",
+        "20260926T053940368Z-b1d8b1/024-frame-004.png",
+        "20260926T053940368Z-b1d8b1/025-frame-005.png",
+        "20260926T053940368Z-b1d8b1/026-frame-006.png",
+        "20260926T053940368Z-b1d8b1/027-frame-007.png",
+        "20260926T053940368Z-b1d8b1/028-frame-008.png",
+        "20260926T053940368Z-b1d8b1/029-frame-009.png",
+        "20260926T053940368Z-b1d8b1/030-frame-010.png",
+        "20260926T053940368Z-b1d8b1/031-frame-011.png",
+        "20260926T053940368Z-b1d8b1/032-frame-012.png",
+        "20260926T053940368Z-b1d8b1/033-frame-013.png",
+        "20260926T053940368Z-b1d8b1/034-frame-014.png",
+        "20260926T053940368Z-b1d8b1/035-frame-015.png",
+        "20260926T053940368Z-b1d8b1/036-frame-016.png",
+        "20260926T053940368Z-b1d8b1/037-frame-017.png",
+        "20260926T053940368Z-b1d8b1/038-frame-018.png",
+        "20260926T053940368Z-b1d8b1/039-frame-019.png"
+      ],
+      "caption": "gain 2",
+      "meta": {
+        "starved, 24 seeds (of 480)": 201,
+        "food carried home, 24 seeds (J)": 26438,
+        "died up a wall, 24 seeds": 13,
+        "this seed: starved": 10
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
