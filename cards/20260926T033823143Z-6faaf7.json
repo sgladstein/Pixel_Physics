@@ -1,0 +1,56 @@
+{
+  "id": "20260926T033823143Z-6faaf7",
+  "created": "2026-09-26T03:38:23Z",
+  "board": "nest",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/ant-nest-mouth-4f6s79",
+    "commit": "133c6b73",
+    "agent": null,
+    "session_id": "02cfa3f7-cc46-597e-8f90-5488d21d3601",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The gray pixels: tunnel lining and ants (your question on the 'one giant hole' card)",
+  "question": "Now that every kind of ground has its own colour: which part is the 'floating spoil' you mean? The cyan-and-orange arch hanging from the top of the sky, the magenta crowd standing on the surface, or the cyan speckle around the tunnels? Circling it on the right-hand picture is enough.",
+  "context_md": "You asked **\"what are all the gray pixels in the image?\"** on the 'one giant hole' card. The same box, same settings (300 ants, 6,000 frames, no food), one frame, drawn twice from **one run**: as the game draws it, and with each kind of ground painted flat.\n\n- **Cyan: tunnel lining.** Every cell an ant digs turns the soil around it into lining, so a tunnel stays open. Lining has its own greyer brown palette, and lit by daylight it reads as grey grit. It is the commonest thing on screen after plain soil.\n- **Magenta: ants.** Nearly black in the game. Hundreds of them stand on each other above the ground.\n- **Orange: dumped spoil.** Almost all of it is up in the arch.\n- **Yellow: loose soil above the old ground line.** A little.\n- **White: the painted nest strip.**\n- Grey at the edges is the box's stone.\n\n**The arch across the top of the sky is the heap.** It is lining and spoil, stood up on thin pillars. 82% of all the spoil an ant puts down is lifted straight up the column it was dug in, instead of being put down beside the ant. That lift, plus lining that never needs anything under it, is how it grows. 362 of its cells have no path down to the floor at all.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "As the game draws it",
+      "files": [
+        "20260926T033823143Z-6faaf7/000-plain-6000.png"
+      ],
+      "caption": "frame 6,000, seed 0",
+      "meta": {
+        "tunnel lining on screen (cells)": 1396,
+        "...of it above the old ground line": 421,
+        "ant cells on screen": 1234,
+        "spoil on screen (cells)": 269,
+        "loose soil above the old ground line": 89,
+        "ground with no path down to the floor": 362
+      },
+      "focus": null
+    },
+    {
+      "label": "Each kind of ground in its own colour",
+      "files": [
+        "20260926T033823143Z-6faaf7/001-tint-6000.png"
+      ],
+      "caption": "cyan lining, magenta ants, orange spoil, yellow loose soil above ground, white nest strip",
+      "meta": {
+        "spoil lifted up its own column instead of put down beside the ant": "5,292 of 6,434 (82%)",
+        "lining cells standing on nothing": 102
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": false,
+    "comment": true,
+    "annotations": true
+  }
+}
