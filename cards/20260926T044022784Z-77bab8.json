@@ -1,0 +1,51 @@
+{
+  "id": "20260926T044022784Z-77bab8",
+  "created": "2026-09-26T04:40:22Z",
+  "board": "nest",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/ant-nest-mouth-4f6s79",
+    "commit": "90625d42",
+    "agent": null,
+    "session_id": "02cfa3f7-cc46-597e-8f90-5488d21d3601",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The gray pixels are tunnel lining (replaces the 300-ant, one-frame card)",
+  "question": "With every kind of ground in its own colour, over time: is the cyan -- the lining of every tunnel -- the grey you were asking about?",
+  "context_md": "You asked **\"what are all the gray pixels in the image?\"** on the 'one giant hole' card. **Replaces card 20260926T033823143Z-6faaf7**, which answered it at 300 ants on one frame. Per your note, this is **40 ants** that cannot breed, at **frames 0, 3,000, 6,000 and 12,000**, drawn twice from one run: as the game draws it, and with each kind of ground painted flat.\n\n- **Cyan: tunnel lining.** Every cell an ant digs turns the soil around it into lining, so the tunnel stays open. Lining has its own greyer brown, so every tunnel reads as a line of grey grit. It is almost all of what is not plain soil.\n- **Magenta: ants** (nearly black in the game).\n- **Orange: dumped spoil.**\n- **Yellow: loose soil above the old ground line.**\n- **White: the painted nest strip.**\n\nAt this colony size almost nothing floats in the sky: 1 to 28 cells of dirt with no path to the floor across four seeds. The arch you saw hanging over the 300-ant nest grows with the crowd.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "As the game draws it",
+      "files": [
+        "20260926T044022784Z-77bab8/000-default.png"
+      ],
+      "caption": "40 ants, frames 0 / 3,000 / 6,000 / 12,000",
+      "meta": {
+        "ants": 40,
+        "dirt with no path to the floor at 12,000 (4 seeds)": "1-28 cells"
+      },
+      "focus": null
+    },
+    {
+      "label": "Each kind of ground in its own colour",
+      "files": [
+        "20260926T044022784Z-77bab8/001-default-tint.png"
+      ],
+      "caption": "cyan lining, magenta ants, orange spoil, yellow loose soil above ground, white nest strip",
+      "meta": {
+        "ants": 40
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": false,
+    "comment": true,
+    "annotations": true
+  }
+}
