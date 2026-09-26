@@ -1,0 +1,58 @@
+{
+  "id": "20260926T033855114Z-af67e6",
+  "created": "2026-09-26T03:38:55Z",
+  "board": "nest",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/ant-nest-mouth-4f6s79",
+    "commit": "133c6b73",
+    "agent": null,
+    "session_id": "02cfa3f7-cc46-597e-8f90-5488d21d3601",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "A colony founded with one hole, against today's painted strip",
+  "question": "Reading down the right-hand column: does it read as a nest starting from one hole, first on its own and then as the colony works it? Or does the crowd on top swallow it?",
+  "context_md": "**Where this is going:** one mouth that every ant goes in and out of, so that the road to food starts where everyone is. Today, founding paints a strip about 53 cells wide and digs nothing. Ants on the far half of it rarely find the road, and most of the dead never reach the food. This is the first step: making the hole exist at all.\n\n**Right:** founding digs a shaft 20 cells deep with a small room at its foot, and lines its walls the way an ant lines a tunnel. It used to be dug unlined, and it fell in by frame 5 without anyone noticing. The census counted the same empty space, just moved up into a dip in the surface.\n\n**Left:** today's founding, the painted strip.\n\nSame box, same 300 ants, same seed, one binary. Frames 0, 300, 1,500 and 6,000, top to bottom. No food and no weather. This is the digging test box, not the game.\n\n**What I measured and do not trust yet:** the shaft side ends deeper and narrower (below). That is **one seed**. Outcomes here spread widely, and a 12-seed paired run is next. The ants are not yet told the shaft is home; they fall into it and dig from there.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "Today: the painted strip",
+      "files": [
+        "20260926T033855114Z-af67e6/000-default-plain.png"
+      ],
+      "caption": "frames 0 / 300 / 1,500 / 6,000",
+      "meta": {
+        "cells dug at founding": 0,
+        "how deep the dug room reaches (rows)": 21,
+        "width of the middle half of the room (columns)": 56,
+        "ground hanging with no path to the floor": 362
+      },
+      "focus": null
+    },
+    {
+      "label": "Founded with a lined shaft",
+      "files": [
+        "20260926T033855114Z-af67e6/001-shaft-plain.png"
+      ],
+      "caption": "frames 0 / 300 / 1,500 / 6,000",
+      "meta": {
+        "cells dug at founding": 82,
+        "still open at frame 5 (was 6 of 82 unlined)": "82 of 82",
+        "the hole at frame 6,000: ants / ground / open": "58 / 16 / 8 of 82",
+        "how deep the dug room reaches (rows)": 28,
+        "width of the middle half of the room (columns)": 29,
+        "ground hanging with no path to the floor": 924
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
