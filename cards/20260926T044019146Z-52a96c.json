@@ -1,0 +1,72 @@
+{
+  "id": "20260926T044019146Z-52a96c",
+  "created": "2026-09-26T04:40:19Z",
+  "board": "nest",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/ant-nest-mouth-4f6s79",
+    "commit": "90625d42",
+    "agent": null,
+    "session_id": "02cfa3f7-cc46-597e-8f90-5488d21d3601",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "A colony of 40 founded with one hole, against today's painted strip (replaces the 300-ant card)",
+  "question": "Reading down each column: which one reads as a nest -- the strip, the hole on its own, or the hole the colony treats as home?",
+  "context_md": "**Where this is going:** one mouth that every ant goes in and out of, so the road to food starts where everyone is. Today founding paints a strip about 53 cells wide and digs nothing.\n\n**Replaces card 20260926T033855114Z-af67e6**, which used 300 ants that bred past 800. Per your note, this is **40 ants** that cannot breed, with **four snapshots**: frames 0, 3,000, 6,000 and 12,000, top to bottom. Same box, same seed, one binary, no food, no weather.\n\n- **Left, today:** the painted strip, nothing dug.\n- **Middle:** founding digs a shaft 20 cells deep with a small room at its foot, lined the way an ant lines a tunnel.\n- **Right:** the same hole, and an ant inside it counts as **at home**, so the colony digs there the way it digs at the strip.\n\n**Over 12 seeds** (meta, from the colony's own digging with the founding hole masked out): with the hole as home, the dug nest is narrower in its middle half on 11 of 12 seeds, deeper on 10 of 12 and bigger on 11 of 12. The hole also silts up: by frame 12,000 less than half of it is still open (a median 35 of 82 cells). What fills it is worked ground, mostly packed tunnel wall.\n\n**Not yet in the game, and not yet the whole story:** on the foraging test bed a hole that counts as home swallows ants. They go down, dig, and starve underground. So this card is about the look only.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "Today: the painted strip",
+      "files": [
+        "20260926T044019146Z-52a96c/000-default.png"
+      ],
+      "caption": "frames 0 / 3,000 / 6,000 / 12,000",
+      "meta": {
+        "ants": 40,
+        "cells dug at founding": 0,
+        "middle half of the dug nest, 12 seeds (median columns)": 39.5
+      },
+      "focus": null
+    },
+    {
+      "label": "A lined hole",
+      "files": [
+        "20260926T044019146Z-52a96c/001-shaft20.png"
+      ],
+      "caption": "frames 0 / 3,000 / 6,000 / 12,000",
+      "meta": {
+        "ants": 40,
+        "cells dug at founding": 82,
+        "middle half of the dug nest, 12 seeds (median columns)": 21.5,
+        "narrower than today on": "11 of 12 seeds",
+        "hole still open at 12,000 (median)": "35 of 82"
+      },
+      "focus": null
+    },
+    {
+      "label": "The hole is home",
+      "files": [
+        "20260926T044019146Z-52a96c/002-home20.png"
+      ],
+      "caption": "frames 0 / 3,000 / 6,000 / 12,000",
+      "meta": {
+        "ants": 40,
+        "cells dug at founding": 82,
+        "middle half of the dug nest, 12 seeds (median columns)": 17,
+        "narrower than today on": "11 of 12 seeds",
+        "deeper than today on": "10 of 12 seeds",
+        "hole still open at 12,000 (median)": "35 of 82"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
