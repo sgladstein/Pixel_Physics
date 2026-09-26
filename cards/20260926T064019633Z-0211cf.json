@@ -1,0 +1,88 @@
+{
+  "id": "20260926T064019633Z-0211cf",
+  "created": "2026-09-26T06:40:19Z",
+  "board": "nest",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/ant-nest-mouth-4f6s79",
+    "commit": "9d1c93ac",
+    "agent": null,
+    "session_id": "02cfa3f7-cc46-597e-8f90-5488d21d3601",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "One mouth for the colony: four ways to found a nest, on open ground",
+  "question": "Reading down each column: which founding reads as a nest -- one place the colony comes and goes from?",
+  "context_md": "**Where this is going:** one mouth that every ant goes in and out of, so the road to food starts where everyone is. Today founding paints a strip of nest ground about 53 cells wide and digs nothing.\n\nEach column is the colony bed (food off to the right) at frames 1, 1,500, 3,000, 4,500 and 6,000, same seed. **Magenta ants are empty; cyan ones are carrying food.**\n\n1. **Today:** the painted strip.\n2. **The painted door** (the foraging session's §19): 5 cells of nest ground instead of the strip.\n3. **The door with a mouth dug under it:** a 6-row hole cut when the colony is founded, lined like a tunnel, and its mouth counts as home.\n4. **The dug mouth with no paint at all.**\n\n**What it does, measured** (meta; the bed over 24 seeds, the lab box over 12):\n\n- **On open ground every one-point home starves fewer ants than the strip.** The painted door is best (209 of ~480 against 277). The door with a dug mouth is as good as the door (221; 10 seeds better, 9 worse). Without paint more ants make a full loop, but more of the food they bring falls into the hole and gets buried.\n- **In the lab box every narrow home brings less food home than the strip**, lower on 11 or 12 of 12 seeds, **and the dug mouth gets buried**: by frame 30,600 it lies under the colony's own dropped food and the roots growing in it on 11 or 12 of 12 seeds (the next card shows it). A dug mouth that is home loses fewer colonies than the painted door (2 of 12 against 4; the strip loses 1), but 12 seeds cannot tell those apart.\n\n**Nothing in the game changed.** All of this is behind switches that are off; whether any of it becomes the default is yours to decide.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "Today: the painted strip",
+      "files": [
+        "20260926T064019633Z-0211cf/000-bed-default.png"
+      ],
+      "caption": "frames 1 / 1,500 / 3,000 / 4,500 / 6,000",
+      "meta": {
+        "cells dug at founding": 0,
+        "ants starved on the bed (of ~480, 24 seeds)": 277,
+        "full loops to the food and back (24 seeds)": 366,
+        "lab: food carried home (median of 12)": 5396,
+        "lab: colonies lost (of 12)": 1
+      },
+      "focus": null
+    },
+    {
+      "label": "The painted door",
+      "files": [
+        "20260926T064019633Z-0211cf/001-bed-door2.png"
+      ],
+      "caption": "frames 1 / 1,500 / 3,000 / 4,500 / 6,000",
+      "meta": {
+        "cells dug at founding": 0,
+        "ants starved on the bed (of ~480, 24 seeds)": "209 (fewer than today on 18 seeds, more on 4)",
+        "full loops to the food and back (24 seeds)": 465,
+        "lab: food carried home (median of 12)": "1,279 (less than today on 12 of 12)",
+        "lab: colonies lost (of 12)": 4
+      },
+      "focus": null
+    },
+    {
+      "label": "The door with a dug mouth",
+      "files": [
+        "20260926T064019633Z-0211cf/002-bed-mouth2.png"
+      ],
+      "caption": "frames 1 / 1,500 / 3,000 / 4,500 / 6,000",
+      "meta": {
+        "cells dug at founding": 26,
+        "ants starved on the bed (of ~480, 24 seeds)": "221 (fewer than today on 18 seeds, more on 4)",
+        "full loops to the food and back (24 seeds)": 395,
+        "lab: food carried home (median of 12)": "3,204 (less than today on 12 of 12)",
+        "lab: colonies lost (of 12)": 2
+      },
+      "focus": null
+    },
+    {
+      "label": "A dug mouth, no paint",
+      "files": [
+        "20260926T064019633Z-0211cf/003-bed-mouth0.png"
+      ],
+      "caption": "frames 1 / 1,500 / 3,000 / 4,500 / 6,000",
+      "meta": {
+        "cells dug at founding": 26,
+        "ants starved on the bed (of ~480, 24 seeds)": "256 (fewer than today on 15 seeds, more on 9)",
+        "full loops to the food and back (24 seeds)": 445,
+        "lab: food carried home (median of 12)": "2,257 (less than today on 11 of 12)",
+        "lab: colonies lost (of 12)": 2
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
