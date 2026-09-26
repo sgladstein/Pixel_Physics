@@ -22,7 +22,9 @@ will be.
   `ant.ron`'s `Drop` row). §9 and §12 2026-09-25 for what a load weighs
   (`carried_cells`, `crop_load_cells`, `load_scale`, the digest block), and
   §5 and §9 again when `crop_capacity` 5760 and `food_weight` 0.5 became the
-  ant's default (`ant.ron`, `CreatureDef::food_weight`).
+  ant's default (`ant.ron`, `CreatureDef::food_weight`). §8 and §12
+  2026-09-26 for the founding cut as home (`adjacent_nest`,
+  `shaft_is_home`, `NestSite::shaft`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -426,6 +428,11 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   stood on*.
 - `since_nest` counts ticks since the last such step. `forage_max` records
   excursion depth, for measurement only.
+- **Under `PIXEL_PHYSICS_NEST_HOME=shaft`** (§12), a cell within one cell of
+  the founding cut (the shaft, its chamber, and the rim of its mouth, as
+  recorded in `NestSite::shaft` when `PIXEL_PHYSICS_NEST_SHAFT` dug it) also
+  counts as next to the nest. `AtNest` and the re-anchoring both ask
+  `adjacent_nest`, so both follow it. Unset, nothing here changes.
 
 ## 9. The crop, digestion and energy
 
@@ -520,6 +527,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_SENSOR_PROJECT` | on | `off`: no row projection; `none`: also no honesty gate |
 | `PIXEL_PHYSICS_A_RHO` | 0.0 | trail A's fade rate |
 | `PIXEL_PHYSICS_NEST_REACH` | r1 | `rN`: nest contact within radius N; `body`: any body cell |
+| `PIXEL_PHYSICS_NEST_HOME` | material only | `shaft`: a head within one cell of the founding cut (dug by `PIXEL_PHYSICS_NEST_SHAFT=<rows>`, `_NEST_SHAFT_WIDTH=<cells>`, lined) also reads `AtNest` (§8) |
 | `PIXEL_PHYSICS_LAB_ROOM` | on | `off`: at-nest `Crowding` falls back to local density |
 | `PIXEL_PHYSICS_TROPHALLAXIS` | on | `off` |
 | `PIXEL_PHYSICS_DROP_REACH` | through bodies | `adjacent`: a food drop looks only at the 8 neighbours |

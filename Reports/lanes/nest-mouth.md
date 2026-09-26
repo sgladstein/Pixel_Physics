@@ -45,6 +45,10 @@ seeds, default / lined shaft / lined shaft with home reaching down it, widths
 | 6 | A5: width 4 vs width 2, both home | more of the cut still open at 6,000 frames on ≥ 8 of 12 | **Right**, 12/0 (partly by construction: 122 cells against 82) |
 | 7 | bed, default arm on this branch vs the reference binary | identical, every line of all three logs | |
 | 8 | bed, strip kept + shaft 20 home (w2, w4) vs default | starved within ±15 of 277 and loops within ±10% of 366: the strip still decides where the road starts, so a home shaft beside it neither helps nor hurts much | **Wrong**: w2 309 (8 fewer / 15 more), w4 **376 (4 / 18, p 0.004)** |
+| 9 | §19's door (`NEST_DOOR=2`) on a scratch merge of §19 + this branch | reproduces §19's bed number exactly (starved 209) | **Right**: 209, loops 465 |
+| 10 | door + shaft 6, not home, bed | within ±15 of the door alone: the hole neither helps nor hurts on open ground | **Right**: 195 (13 fewer / 10 more than the door; 19 / 4 against the default) |
+| 11 | door + shaft 6, home, bed | worse than the door alone by > 15 starved: the home cavity swallows ants, as beside the strip | **Right**: 254 (8 / 14 against the door) |
+| 12 | door + shaft 6 (home or not), lab 12 seeds | deliveries recover from the door's 1,279 toward the default's 5,396, because a hole stays open to the surface where paint is buried | |
 
 ## §19 (the loop session's door)
 
