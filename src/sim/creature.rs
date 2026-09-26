@@ -2857,6 +2857,52 @@ pub enum NestHome {
     /// `mouth`: within one cell of the cut's top rows only -- the rim and the
     /// first body length down ([`crate::sim::world::ShaftFootprint::touches_mouth`]).
     Mouth,
+    /// `mound`: the mouth, and what the colony has piled on it -- a head
+    /// standing on an unbroken pile over the mouth's own columns is home
+    /// ([`on_mound`]). Spoil is not part of the pile.
+    Mound,
+}
+
+/// **How tall a pile over the mouth still counts as home**, in rows above the
+/// founding surface. A bound on work, not a rule about the pile: the walk
+/// down the pile is the only cost [`NestHome::Mound`] adds, and only a head
+/// standing in the mouth's own columns pays it. The cover the lab box piles
+/// on a dug mouth reached 16 rows at the most
+/// (`Reports/nest-mouth-2026-09-26.md` §5).
+pub const NEST_MOUND_REACH: i32 = 32;
+
+/// **Whether `(x, y)` stands on what the colony has piled over the mouth.**
+/// True when the head is within one column of a shaft column and every cell
+/// of that column, from just below the head down to the row above the mouth,
+/// is cover -- anything but open air, gas or spoil. So home rises with the
+/// food the colony drops on its doorstep and the plants that root in it, and
+/// a head beside the pile, or on a pile with a gap in it, is not home.
+///
+/// **What it is for.** In the lab box a dug mouth is buried within ~25,000
+/// frames under the colony's own delivered food and the roots growing in it,
+/// and a laden ant standing on that heap is above home rather than at it --
+/// the failure `NEST_HOME=mouth` was measured to have (`Reports/nest-mouth-
+/// 2026-09-26.md` §5, `dead-ends.md`'s entry for the dug mouth, whose re-test
+/// condition this is).
+///
+/// **Spoil is left out on purpose, and [`World::register_nest_site`] says
+/// why**: *"a reach re-measured each frame would climb with the heap and call
+/// the top of a tailings pile home."* A home on the colony's own tailings
+/// would fire the dig gate on them and re-dig the heap it just dumped. The
+/// lab census found almost no spoil over a dug mouth (0-1 cells in 60 stops
+/// per arm, against 120-153 of dropped food and 54-79 of plants), so leaving
+/// it out costs the case this mode exists for nothing.
+fn on_mound(world: &World, cut: &crate::sim::world::ShaftFootprint, x: i32, y: i32) -> bool {
+    let rim = cut.top - 1;
+    if y >= rim || y < rim - NEST_MOUND_REACH || !(cut.x0 - 1..=cut.x1 + 1).contains(&x) {
+        return false;
+    }
+    let spoil = world.materials.id_of("spoil");
+    let cover = |cx: i32, cy: i32| {
+        let c = world.get(cx, cy);
+        !matches!(world.materials.kind(c.material), MaterialKind::Empty | MaterialKind::Gas) && Some(c.material) != spoil
+    };
+    (cut.x0..=cut.x1).filter(|c| (c - x).abs() <= 1).any(|c| ((y + 1)..=rim).all(|cy| cover(c, cy)))
 }
 
 /// **How much of the founding cut is home** -- `PIXEL_PHYSICS_NEST_HOME=shaft`
@@ -2883,6 +2929,11 @@ pub enum NestHome {
 /// digging *at the mouth*, which this keeps, rather than the digging in the
 /// cavity, which is what the bed pays for.
 ///
+/// **`mound`: the mouth, and what the colony piles on it.** In the lab box the
+/// mouth is buried under the colony's own delivered food and the roots that
+/// grow in it, and a laden ant on that heap is above home. This lets home
+/// rise with the pile ([`on_mound`]), spoil excepted.
+///
 /// **The hole the queen dug, not every hole since.** The footprint is fixed
 /// at founding. Were home the dug void as it grows, it would spread over
 /// the whole scratched floor, which is where the 53-column strip already
@@ -2903,6 +2954,7 @@ pub fn nest_home(world: &World) -> NestHome {
         *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_NEST_HOME").as_deref() {
             Ok("shaft") => NestHome::Shaft,
             Ok("mouth") => NestHome::Mouth,
+            Ok("mound") => NestHome::Mound,
             _ => NestHome::Material,
         })
     })
@@ -9459,6 +9511,7 @@ fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
         NestHome::Material => false,
         NestHome::Shaft => world.nest_sites.iter().filter_map(|s| s.shaft).any(|cut| cut.touches(x, y)),
         NestHome::Mouth => world.nest_sites.iter().filter_map(|s| s.shaft).any(|cut| cut.touches_mouth(x, y)),
+        NestHome::Mound => world.nest_sites.iter().filter_map(|s| s.shaft).any(|cut| cut.touches_mouth(x, y) || on_mound(world, &cut, x, y)),
     };
     if in_cut {
         return true;
@@ -19164,6 +19217,59 @@ mod tests {
         assert_eq!(homed.len(), door_only.len(), "the shaft changed how many founders fit");
         for a in homed {
             assert_eq!(a, (200, low - 1), "a founder's home is {a:?}: the door over a shaft homes at the mouth, not down the hole");
+        }
+    }
+
+    /// **Under `PIXEL_PHYSICS_NEST_HOME=mound` a head on the colony's pile
+    /// over the mouth is home, and nothing else new is** ([`on_mound`]): an
+    /// unbroken pile of food counts, the same pile with a gap in it does not,
+    /// a pile of spoil does not, and under `=mouth` none of them do.
+    #[test]
+    fn a_pile_over_the_mouth_is_home_only_under_mound() {
+        let scene = || {
+            let mut w = World::new(Rect::new(0, 0, 119, 99));
+            let soil = w.materials.id_of("soil").expect("soil material");
+            for x in 0..=119 {
+                for y in 40..=99 {
+                    let stone = y >= 92 || x == 0 || x == 119;
+                    w.set(x, y, if stone { Cell::new(material::STONE, 0) } else { Cell::new(soil, 0) });
+                }
+            }
+            w.register_nest_site(60, 38, 2);
+            // A 16-row, 2-wide shaft at x 60..61 from the surface at row 40;
+            // the rim row is 39 and the mouth is rows 40..41.
+            assert!(w.cut_founding_shaft(60, 38, 16, 2, true) > 0, "the cut removed nothing");
+            w
+        };
+        let probe = World::new(Rect::new(0, 0, 1, 1));
+        let ant = probe.species.id_of("ant").expect("ant species");
+        let def = probe.species.get(ant).creature.clone().expect("ant is a creature");
+        let pile = |w: &mut World, name: &str, column: i32, rows: std::ops::RangeInclusive<i32>| {
+            let m = w.materials.id_of(name).expect("pile material");
+            for y in rows {
+                w.set(column, y, Cell::new(m, 0));
+            }
+        };
+        // Food piled three high over column 60 (rows 37..39); a head at row 36 stands on it.
+        let mut food = scene();
+        pile(&mut food, "crumbs", 60, 37..=39);
+        // The same pile with its middle cell gone.
+        let mut gap = scene();
+        pile(&mut gap, "crumbs", 60, 37..=39);
+        gap.set(60, 38, Cell::EMPTY);
+        // Spoil piled the same way.
+        let mut tailings = scene();
+        pile(&mut tailings, "spoil", 60, 37..=39);
+
+        for (w, what, home_under_mound) in [(&mut food, "on a pile of food over the mouth", true), (&mut gap, "on a pile with a gap in it", false), (&mut tailings, "on a pile of spoil", false)] {
+            w.nest_home = Some(NestHome::Mouth);
+            assert!(!adjacent_nest(w, 60, 36, &def), "under NEST_HOME=mouth, a head {what} is not home");
+            w.nest_home = Some(NestHome::Mound);
+            assert_eq!(adjacent_nest(w, 60, 36, &def), home_under_mound, "under NEST_HOME=mound, a head {what}: home should be {home_under_mound}");
+            // The mouth itself stays home, and so does its rim.
+            assert!(adjacent_nest(w, 60, 40, &def) && adjacent_nest(w, 59, 39, &def), "under NEST_HOME=mound the mouth and rim are still home");
+            // Off the mouth's columns, a pile is never home.
+            assert!(!adjacent_nest(w, 64, 36, &def), "under NEST_HOME=mound a head beside the mouth's columns is not home");
         }
     }
 
