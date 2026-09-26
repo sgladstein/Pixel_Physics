@@ -3938,6 +3938,29 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   from theirs), **contents exist without eggs** via the `live_seed` guard, the
   brain-input pricing as the argument *for* their call-site route, and the
   landing discipline. **Treat their plan as the plan.**
+- [nest-mouth-2026-09-26.md](nest-mouth-2026-09-26.md) — **measurement,
+  2026-09-26. `lab`/`engine`. Switches only; nothing in either game
+  changed.** The dug entrance, measured for the first time, on top of
+  `ant-scenes-2026-09-23.md` §19's painted door. Lane note:
+  [lanes/nest-mouth.md](lanes/nest-mouth.md).
+  - **The founding shaft (`PIXEL_PHYSICS_NEST_SHAFT`) fell in by frame 5,
+    and the census could not see it.** The void moved up into a dip in the
+    surface and still counted as open room. Lined as an ant lines a tunnel,
+    it stands (82 of 82 cells open at frame 300). It also freezes the world's
+    genesis before cutting, so it draws as a hole rather than as sky.
+  - **A founding hole concentrates the whole nest, on every seed.** In
+    `digbox`, with the hole masked out of the census, the middle half of the
+    room is narrower on 12 of 12 seeds (45 → 27–30 columns) and deeper on
+    11–12. When the hole is also home (`PIXEL_PHYSICS_NEST_HOME=shaft`),
+    rooms that meet the owner's chamber measure appear on 8–10 of 12 seeds.
+  - **On the colony bed a home shaft swallows ants.** Traced: the ants that
+    never find food spend 67% of their decisions underground and die there.
+    A hole that is not home is neutral on open ground (door + 6-row shaft:
+    195 starved against the door's 209).
+  - **The floating dirt over the nest is tunnel lining**; the arch across
+    the sky is built by the spoil lift (82% of drops go up the column).
+  - Instruments: `digbox` gains a `cut:` line, `tintout=`, and a census with
+    the founding cut masked out; its void census counts a collapse as room.
 - [evolution-lab-round-37-brief-2026-09-15.md](evolution-lab-round-37-brief-2026-09-15.md)
   — **brief, 2026-09-15. `lab`/`engine`/`held`.** Opens with **two retracted
   numbers** a reader may have inherited (29.4 is per-bed, not per-ant; the
