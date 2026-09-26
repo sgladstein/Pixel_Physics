@@ -2806,6 +2806,29 @@ pub fn nest_shaft_rows() -> Option<i32> {
     *ROWS.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SHAFT").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v > 0))
 }
 
+/// **How many columns wide the founding shaft is** --
+/// `PIXEL_PHYSICS_NEST_SHAFT_WIDTH=<cells>`, **2** when unset, which is the
+/// shaft as [`World::dig_founding_shaft`] was first built. Read only when
+/// [`nest_shaft_rows`] is set, so it cannot move a world without a shaft.
+///
+/// **The two ends of the dial are two different authorities, and they
+/// disagree.** 2 is the biology: a tunnel is about one body length across
+/// (Gravish et al., *PNAS* 2013) and `ant.ron` authors `body: Chain(2)`. 4 is
+/// the owner's ruling on what reads on screen, 2026-09-20 (quoted in
+/// `examples/digbox.rs`'s `Chambers` doc): *"passage ~4"*. Traffic points
+/// the same way as the ruling -- a two-cell body can pass another in a
+/// four-wide shaft and cannot in a two-wide one, so every ant a colony sends
+/// out through one mouth queues behind the one in front at 2. A dial rather
+/// than a choice because which one the colony bed prefers is a measurement.
+///
+/// **A parse failure falls back to the default, never to 0** -- the rule
+/// [`nest_core`] states: a typo that silently changed the arm would put a
+/// control in a sweep wearing another point's label.
+pub fn nest_shaft_width() -> i32 {
+    static W: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    *W.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SHAFT_WIDTH").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v > 0).unwrap_or(2))
+}
+
 /// **The site reach in COLUMNS, half-width, or `None` for
 /// [`COLONY_HALF_WIDTH`].**
 ///
@@ -4151,10 +4174,12 @@ impl World {
     /// - **Width.** A tunnel is about one body length across (Gravish et al.,
     ///   *PNAS* 2013) -- that is what lets an ant brace against both walls
     ///   and arrest a fall. `ant.ron` authors `body: Chain(2)`, so the shaft
-    ///   is **2 cells**, and the conclusion survives
+    ///   is **2 cells** by default, and the conclusion survives
     ///   `Reports/nest-biology-2026-09-19.md` §2.5's open question about
     ///   whether `Chain(2)` is two ant-lengths or a head-plus-body
-    ///   abstraction, because it is single-digit either way.
+    ///   abstraction, because it is single-digit either way. The owner's
+    ///   ruling on what *reads* puts a passage at about 4, so the width is a
+    ///   dial ([`nest_shaft_width`]) rather than this paper's number alone.
     /// - **The chamber under it.** Harvester nests put an entrance chamber
     ///   about 5 cm long, 2-3 cm below the surface, with the tunnels from
     ///   every opening converging on it. At §2.5's **2-5 mm per cell** that
@@ -4183,27 +4208,67 @@ impl World {
     /// concentrates digging, so the shaft may simply erode while the ants
     /// scratch around it -- and that is worth knowing before anything
     /// dearer is built on top of it.
+    ///
+    /// **The cut is lined, as an ant's is, and that is a founding fact too.**
+    /// A queen tamps the walls of the hole she digs. The first version of
+    /// this cut set cells empty and nothing else, which is a *hand-carved*
+    /// void, and [`line_burrow`]'s own doc records what the powder sweep does
+    /// to one in `soil`: the roof falls in and the gallery is gone by frame 5.
+    /// So the cut runs the ant's own lining over every cell it removes,
+    /// through the same `packs_into` data and the same
+    /// `PIXEL_PHYSICS_BURROW_LINING=off` ablation. Lined ground is still
+    /// diggable (`packedsoil` 0.95 against a jaw of 1.0) and still drinks.
+    ///
+    /// **And the world's genesis is frozen before the cut, not after it.**
+    /// `World::begin_step` freezes the sky surface, the underground map, the
+    /// ground datum and the room census's datum on the first simulated
+    /// frame, on the stated grounds that nothing has dug into the world yet.
+    /// Every harness that founds before its first step -- `digbox`,
+    /// `trailfollow`, `labforage`, `labnest` -- would otherwise freeze this
+    /// shaft in as *terrain*: the room census walks each column down to its
+    /// first ground, which in a shaft column is the chamber floor, and the
+    /// renderer's underground map calls a shaft the sky can see into sky. A
+    /// founding in the running game, after frame 1, always cut into frozen
+    /// ground; freezing first makes the harness's shaft the game's shaft.
+    /// Every freeze is idempotent, so a world already stepped is untouched.
     fn dig_founding_shaft(&mut self, x: i32, y: i32) {
         let Some(rows) = nest_shaft_rows() else { return };
-        if rows <= 0 {
-            return;
-        }
-        // **Two cells wide, and it is the ant's own body that says so** --
-        // the centre column plus one beside it. Written as a span rather
-        // than a radius because a radius of 1 is three cells, which is
-        // already half again the width the tunnelling paper gives.
-        const SHAFT_SPAN: i32 = 2;
-        let Some(top) = colony_surface(self, x, y) else { return };
-        let depth = scaled_cells(self, rows).max(1);
+        self.cut_founding_shaft(x, y, rows, nest_shaft_width(), lining_enabled());
+    }
 
-        // **The shaft.** Cut from the surface down, leaving the painted door
-        // above it alone -- the door is a threshold and this is the hole
-        // through it.
+    /// [`World::dig_founding_shaft`] with its dials passed in, so a test can
+    /// take both arms in one process -- the switches are `OnceLock` reads
+    /// and cannot be toggled. Returns how many cells it removed.
+    fn cut_founding_shaft(&mut self, x: i32, y: i32, rows: i32, width: i32, lined: bool) -> usize {
+        if rows <= 0 || width <= 0 {
+            return 0;
+        }
+        let Some(top) = colony_surface(self, x, y) else { return 0 };
+        let depth = scaled_cells(self, rows).max(1);
+        // **The width is a span, not a radius**, centred on the founding
+        // column and leaning right when even: a radius of 1 is already three
+        // cells, half again what the tunnelling paper gives. At the default
+        // of 2 this is `x` and `x + 1`, the shaft as first built.
+        let span = scaled_cells(self, width).max(1);
+        let x0 = x - (span - 1) / 2;
+
+        self.freeze_sky_surface();
+        self.freeze_underground_map();
+        self.freeze_ground_datum();
+        self.freeze_room_datum();
+
+        let mut cut: Vec<(i32, i32)> = Vec::new();
+        // **The shaft.** Cut from the surface down, **through** the painted
+        // door rather than under it: `colony_surface` returns the painted
+        // row, so the shaft's first row is the door's own cells over it. That
+        // is the mouth. Cutting from the row below would leave a `nest` cap
+        // (a `Solid` at 6.0 against a jaw of 1.0) sealing the shaft shut.
         for dy in 0..depth {
-            for dx in 0..SHAFT_SPAN {
-                let (cx, cy) = (x + dx, top + dy);
+            for dx in 0..span {
+                let (cx, cy) = (x0 + dx, top + dy);
                 if self.in_bounds(cx, cy) && self.is_diggable_ground(cx, cy) {
                     self.set(cx, cy, Cell::EMPTY);
+                    cut.push((cx, cy));
                 }
             }
         }
@@ -4212,7 +4277,10 @@ impl World {
         // of measured architecture in the whole entrance literature. Sized
         // from the shaft rather than from a constant of its own -- see the
         // doc above for why 10-25 cells long is the target and how it is
-        // derived.
+        // derived. **Two rows, and kept under `SPOIL_HEADROOM`**: `act`'s
+        // spoil drop accepts any empty cell with two of three filled below
+        // and three clear rows above, so a chamber taller than that is a
+        // place to dump tailings everywhere on its floor.
         let chamber_half = (depth / 2).clamp(3, 12);
         let floor = top + depth;
         for dy in 0..2 {
@@ -4220,9 +4288,38 @@ impl World {
                 let (cx, cy) = (x + dx, floor + dy);
                 if self.in_bounds(cx, cy) && self.is_diggable_ground(cx, cy) {
                     self.set(cx, cy, Cell::EMPTY);
+                    cut.push((cx, cy));
                 }
             }
         }
+        // **Recorded on the site it was cut under**, because after the cut
+        // nothing can re-derive it: `colony_surface` in a shaft column now
+        // finds the chamber floor. The site was registered by
+        // `paint_nest_patch` before this ran, at this same `(x, y)`.
+        if let Some(i) = self.nearest_nest_site(x, y) {
+            self.nest_sites[i].shaft = Some(crate::sim::world::ShaftFootprint {
+                x0,
+                x1: x0 + span - 1,
+                top,
+                bottom: top + depth - 1,
+                chamber_x0: x - chamber_half,
+                chamber_x1: x + chamber_half,
+                chamber_top: floor,
+                chamber_bottom: floor + 1,
+            });
+        }
+
+        // **Lined after the whole cut, never cell by cell**: lining a cell's
+        // neighbours before the next cell is cut would pack ground that is
+        // about to be removed, and the order of the two loops would decide
+        // which walls end up worked. Removed cells are empty and carry no
+        // `packs_into`, so the pass cannot touch the void itself.
+        if lined {
+            for &(cx, cy) in &cut {
+                pack_neighbours(self, cx, cy);
+            }
+        }
+        cut.len()
     }
 
     /// Ground a founding cut may remove: solid or powder, and nobody's body.
@@ -11562,6 +11659,20 @@ fn line_burrow(world: &mut World, x: i32, y: i32) {
     if !lining_enabled() {
         return;
     }
+    world.creature_stats.packed += pack_neighbours(world, x, y);
+}
+
+/// **The lining itself**, without the ant's counter: every neighbour of
+/// `(x, y)` that has a packed form takes it. Returns how many did.
+///
+/// Split out of [`line_burrow`] so the founding cut
+/// ([`World::dig_founding_shaft`]) lines its walls by the same rule rather
+/// than a second copy of it, while `CreatureStats::packed` stays what every
+/// harness reads it as -- wall an *ant* tamped. A queen's founding lining
+/// booked there would move `packed` on every shaft arm by a constant that no
+/// ant earned. The order of the writes is the loop's, exactly as before.
+fn pack_neighbours(world: &mut World, x: i32, y: i32) -> u64 {
+    let mut packed_here = 0;
     for (dx, dy) in NEIGHBOURS_8 {
         let (nx, ny) = (x + dx, y + dy);
         let cell = world.get(nx, ny);
@@ -11576,8 +11687,9 @@ fn line_burrow(world: &mut World, x: i32, y: i32) {
         let mut lined = cell;
         lined.material = packed;
         world.set(nx, ny, lined);
-        world.creature_stats.packed += 1;
+        packed_here += 1;
     }
+    packed_here
 }
 
 /// The ablation switch for the lining, off by default.
@@ -18502,6 +18614,61 @@ mod tests {
             prev = Some(x);
         }
         best
+    }
+
+    /// **A founding shaft stands because it is lined, and falls in without
+    /// it** -- both arms of [`World::cut_founding_shaft`] on one bed, under
+    /// both drivers.
+    ///
+    /// Measured before this guard existed (`examples/digbox`,
+    /// `PIXEL_PHYSICS_NEST_SHAFT=20`, no ants, 2026-09-26): the cut as first
+    /// built -- cells set empty and nothing else -- read open 44 / roofed 38
+    /// at frame 0, lost its chamber roof by frame 1 and was a dip in the
+    /// surface by frame 5. **The unlined arm is the control**: it says this
+    /// bed can collapse a cut at all, without which a green lined arm would
+    /// say nothing about the lining.
+    ///
+    /// Counted over the footprint the cut records on its site, never over
+    /// "empty cells below the ground line" -- that count held at 82 through
+    /// the whole collapse above, because the void moved up into a dip in the
+    /// surface rather than disappearing.
+    #[test]
+    fn the_founding_shaft_stands() {
+        let open_after = |lined: bool, parallel: bool| -> (usize, usize) {
+            let mut w = World::new(Rect::new(0, 0, 119, 99));
+            let soil = w.materials.id_of("soil").expect("soil material");
+            for x in 0..=119 {
+                for y in 40..=99 {
+                    let stone = y >= 92 || x == 0 || x == 119;
+                    let cell = if stone { Cell::new(material::STONE, 0) } else { Cell::new(soil, 0) };
+                    w.set(x, y, cell.with_attached(true));
+                }
+            }
+            w.register_nest_site(60, 38, 2);
+            let removed = w.cut_founding_shaft(60, 38, 16, 2, lined);
+            let fp = w.nest_sites[0].shaft.expect("the cut records its footprint on the site");
+            let cells = fp.cells();
+            assert_eq!(removed, cells.len(), "the cut removed {removed} cells but its footprint holds {}", cells.len());
+            for _ in 0..120 {
+                if parallel {
+                    crate::sim::parallel::step(&mut w);
+                } else {
+                    crate::sim::update::step(&mut w);
+                }
+            }
+            let open = cells.iter().filter(|&&(x, y)| w.get(x, y).material == material::EMPTY).count();
+            (open, cells.len())
+        };
+        for parallel in [false, true] {
+            let (bare, n) = open_after(false, parallel);
+            assert!(
+                bare * 2 < n,
+                "control (parallel={parallel}): an unlined cut in soil must fall in, yet {bare} of {n} cells are open after 120 frames -- \
+                 this bed cannot tell a lined shaft from any other"
+            );
+            let (lined, n) = open_after(true, parallel);
+            assert!(lined * 10 >= n * 9, "a lined founding cut must stand (parallel={parallel}): only {lined} of {n} cells are open after 120 frames");
+        }
     }
 
     fn run(w: &mut World, frames: usize) {

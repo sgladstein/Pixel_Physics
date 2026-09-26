@@ -1161,6 +1161,62 @@ pub struct NestSite {
     /// advanced to, so the walk is taken exactly once per interval however
     /// many ants touch it.
     pub drift_epoch: u64,
+    /// **The founding cut under this site**, when one was dug
+    /// (`PIXEL_PHYSICS_NEST_SHAFT`), else `None`. Written once, by
+    /// `creature::World::dig_founding_shaft`, at the moment of the cut.
+    ///
+    /// Recorded rather than re-derived because the cut moves the very
+    /// quantity it would be derived from: after it, `colony_surface` in a
+    /// shaft column finds the **chamber floor**, not the ground the shaft
+    /// was sunk from. A reader that wants to know where the mouth is -- a
+    /// census, or a home that reaches down the shaft -- asks this.
+    pub shaft: Option<ShaftFootprint>,
+}
+
+/// **Where a founding cut went**, as two inclusive rectangles: the shaft,
+/// from its mouth on the founding surface down, and the entrance chamber
+/// at its foot. See [`NestSite::shaft`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ShaftFootprint {
+    /// The shaft's first and last column.
+    pub x0: i32,
+    pub x1: i32,
+    /// The mouth's row (the founding surface) and the shaft's last row.
+    pub top: i32,
+    pub bottom: i32,
+    /// The chamber's columns and rows.
+    pub chamber_x0: i32,
+    pub chamber_x1: i32,
+    pub chamber_top: i32,
+    pub chamber_bottom: i32,
+}
+
+impl ShaftFootprint {
+    /// Whether `(x, y)` lies inside the cut -- shaft or chamber.
+    pub fn contains(&self, x: i32, y: i32) -> bool {
+        ((self.x0..=self.x1).contains(&x) && (self.top..=self.bottom).contains(&y))
+            || ((self.chamber_x0..=self.chamber_x1).contains(&x) && (self.chamber_top..=self.chamber_bottom).contains(&y))
+    }
+
+    /// Every cell of the cut, each once: the shaft row by row, then the
+    /// chamber row by row with the shaft's own columns left out where the
+    /// two rectangles overlap.
+    pub fn cells(&self) -> Vec<(i32, i32)> {
+        let mut out = Vec::new();
+        for y in self.top..=self.bottom {
+            for x in self.x0..=self.x1 {
+                out.push((x, y));
+            }
+        }
+        for y in self.chamber_top..=self.chamber_bottom {
+            for x in self.chamber_x0..=self.chamber_x1 {
+                if !((self.x0..=self.x1).contains(&x) && (self.top..=self.bottom).contains(&y)) {
+                    out.push((x, y));
+                }
+            }
+        }
+        out
+    }
 }
 
 /// **How often the nest-room census runs**, in frames.
@@ -7383,7 +7439,7 @@ impl World {
         // the top of a tailings pile home. The founding row is the fixed
         // datum `step_nest_room` already freezes for the same reason.
         let surface = crate::sim::creature::colony_surface(self, x, y).unwrap_or(y);
-        self.nest_sites.push(NestSite { x, y, surface, scent: [0.0; 3], seeded: false, drift_epoch: epoch });
+        self.nest_sites.push(NestSite { x, y, surface, scent: [0.0; 3], seeded: false, drift_epoch: epoch, shaft: None });
     }
 
     /// Index of the nest site nearest `(x, y)`, or `None` when the box holds

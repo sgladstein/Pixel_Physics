@@ -29,20 +29,67 @@ predictions below it; head SHAs at the bottom.*
 
 ## Live question
 
-**Does the founding shaft exist at frame 0, and does it stand?**
-`PIXEL_PHYSICS_NEST_SHAFT=<rows>` has never been censused at frame 0, and it
-cuts without lining — `line_burrow`'s own doc says an unlined cut in soil is
-gone by frame 5.
+**Does a colony keep the hole when it works inside it?** (A5: `digbox`, 12
+seeds, default / lined shaft / lined shaft with home reaching down it, widths
+2 and 4.) Answered already: the shaft exists at frame 0 and, lined, stands.
 
 ## Predictions (written before each run; marked after)
 
 | # | run | prediction | right? |
 |---|---|---|---|
-| 1 | `digbox NEST_SHAFT=20`, census at frames 0/1/5/30/300 | frame 0 reads open = 2·20+4 = 44 and roofed = 4·10−2 = 38 (the positive control); by frame 5 most of the cut has refilled, because the cut is not lined | |
+| 1 | `digbox NEST_SHAFT=20`, census at frames 0/1/5/30/300 | frame 0 reads open = 2·20+4 = 44 and roofed = 4·10−2 = 38 (the positive control); by frame 5 most of the cut has refilled, because the cut is not lined | **Right on both, but the census hid the second half** (below) |
+| 2 | lined cut, same run | ≥ 90% of the cut open through frame 300 | **Right**: 82 of 82 |
+| 3 | `digbox` 300 ants, what floats (made while planning, before the code survey quoted `update.rs`'s 76-of-76-lining note) | mostly spoil pellets resting on ants | **Wrong**: the floating is lining; the spoil is up in the arch, standing on lining |
+
+## §19 (the loop session's door)
+
+On its branch, not landed (`01b4dba1`, 2026-09-26): `PIXEL_PHYSICS_NEST_DOOR=<d>`
+paints a door of 2d+1 columns and homes every founder there; `…_FOUNDERS=pile`
+heaps them on it. Colony bed: starved 277 → 209 (18 better / 4 worse). This lane
+builds the "shaft is home" arm on it once it lands. Note for then: its founder
+anchor is taken from `colony_surface` *after* the cut, which in a shaft column is
+the chamber floor.
 
 ## Results
 
-(none yet)
+**A1, the unlined shaft (2026-09-26, `main` binary, `digbox ants=0`).**
+Frame 0 reads open 44, roofed 38: the cut exists, exactly as drawn. By
+frame 1 the chamber roof has dropped; by frame 5 the shaft and the chamber
+are gone and a 1–2 row dip stands in the surface over where the chamber was.
+**`digbox`'s `roofed + open` read 82 at every stop through it**: the void
+does not vanish, it moves up into the dip, which the census counts as open
+room. So a collapse reads as nothing happening. `digbox` now carries a
+`cut:` line counting the cut's own cells from the footprint the cut records
+on its site. The frame-0 render also shows the harness-founded shaft drawn as
+**sky blue**: the underground map is frozen on frame 1, after the cut.
+
+**A1, the repair.** The cut now lines its walls with the ant's own lining
+(`pack_neighbours`, split out of `line_burrow` so the ants' `packed` counter
+stays theirs), freezes the world's genesis before it cuts, takes a width dial
+(`PIXEL_PHYSICS_NEST_SHAFT_WIDTH`, default 2) and records its footprint on
+the nest site (`NestSite::shaft`). Same run: **82 of 82 cells open at frames
+0/1/5/30/300**; the unlined control (`BURROW_LINING=off`) reads 42 at frame 1
+and 6 at frame 5. It now draws as a dark hole with daylight fading down it.
+Guard `the_founding_shaft_stands` (both drivers, unlined control inside it)
+watched red with the lining disabled: *"only 6 of 66 cells are open"*.
+
+**A2, what the floating is** (300 ants, 6,000 frames, seed 0, the settings
+the owner judged). Tinted from one run: the grey grit is **tunnel lining**
+(1,396 cells on screen, 421 above the old ground line) and **ants** (1,234
+cells); the heap's arch hanging from the top of the sky is lining and spoil
+(266 of 269 spoil cells are above ground). **82% of spoil drops (5,292 of
+6,434) went up the digger's own column** rather than beside it; 362 cells of
+ground have no path to the floor, and all 102 cells standing on nothing are
+lining. So the lever for the look is what lifts pellets and what makes a heap
+self-supporting, not where an ant puts one down beside itself.
+
+**First look at a shaft with ants** (same settings, one seed, not a result).
+At 6,000 frames the cut is 58 cells of ants, 16 of ground, 8 open: it stays a
+space and fills with animals, not dirt. The room ends 28 rows deep against 21,
+and its middle half is 29 columns wide against 56.
+
+**Bed baseline, reference binary:** 24 seeds reproduce the stored §18
+default funnel line for line (starved 277, loops 366).
 
 ## Head SHAs
 
