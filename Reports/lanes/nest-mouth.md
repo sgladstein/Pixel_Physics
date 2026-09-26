@@ -43,6 +43,8 @@ seeds, default / lined shaft / lined shaft with home reaching down it, widths
 | 4 | A5, `digbox` 12 seeds: lined shaft (w2, not home) vs default | the room is taller-for-its-width (`vert`) and its middle half narrower (`iqr`) on ≥ 8 of 12 seeds | **Right**: 11/0 and 12/0, and it survives masking the cut out |
 | 5 | A5: shaft home (`NEST_HOME=shaft`, w2) vs lined shaft not home | deeper again (`vert` up on ≥ 8 of 12); and the cut holds **more ground** (spoil + lining + soil) at 6,000 frames on ≥ 8 of 12, because ants at home dig inside it and the foot of an open shaft is a legal spoil drop | **Wrong on both**: `vert` 6/2; the cut holds **less** ground, 1 up / 11 down |
 | 6 | A5: width 4 vs width 2, both home | more of the cut still open at 6,000 frames on ≥ 8 of 12 | **Right**, 12/0 (partly by construction: 122 cells against 82) |
+| 7 | bed, default arm on this branch vs the reference binary | identical, every line of all three logs | |
+| 8 | bed, strip kept + shaft 20 home (w2, w4) vs default | starved within ±15 of 277 and loops within ±10% of 366: the strip still decides where the road starts, so a home shaft beside it neither helps nor hurts much | **Wrong**: w2 309 (8 fewer / 15 more), w4 **376 (4 / 18, p 0.004)** |
 
 ## §19 (the loop session's door)
 
@@ -112,6 +114,29 @@ founding hole concentrates the whole nest, on every seed.** Home against not
 home changes little in shape and keeps the hole clearer: ground in the cut
 lower on 11 of 12 (w2) and 9 of 12 (w4). What fills the cut is ants (median 52–70
 cells), in a box that grows past 800 of them.
+
+**Bed, the shaft beside today's strip** (24 seeds paired against the
+default, which starves 279 by the harness's count; not the mouth arm — §19's
+door is not in yet). Bit-exact first: the default arm on this branch
+reproduces the reference binary's three logs line for line.
+
+| shaft rows | not home: starved (fewer / more) | home, w2: starved (fewer / more) |
+|---|---|---|
+| 6 | 270 (13 / 7) | 303 (10 / 12) |
+| 10 | 265 (14 / 7) | 315 (8 / 14) |
+| 20 | 293 (11 / 12) | 309 (8 / 15); w4 **376 (4 / 18)** |
+
+A shaft that is not home is neutral to slightly better; **making it home is
+worse at every depth**, and the funnel says where: fewer ants ever reach the
+food (271 → 145 at 20 rows, w4), while those that do still close a loop at
+the same rate. Traced, every never-reacher: at 20 rows w4, 67% of their
+decisions are underground at a median depth of 17 rows, a third of them
+holding a pellet, and 277 of 343 die down there. One ant's life: born on
+the far end of the strip, down the shaft by frame 800, then 2,300 frames
+digging and hauling 8–22 rows down with `AtNest` on, energy 0.7 → 0, never
+back up. **The home cavity swallows ants**: underground there is no food
+trail, an empty ant off a trail walks without direction, and home digging
+(the gate fires ~5x more at the nest) keeps enlarging the cavity.
 
 ## Head SHAs
 
