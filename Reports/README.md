@@ -3303,6 +3303,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     would (`CreatureDef::food_weight`, 1.0 for every other species).
     Foragers still eat from their load on the way home. The default build
     reproduces the measured arm digit for digit, on the bed and in the lab.
+  - **The nest as a door** (§19, `PIXEL_PHYSICS_NEST_DOOR`, off): a 5-column
+    painted door with every founder homed at it. On the colony bed it is the
+    best loop lever yet (starved 277 → 209, 18 seeds better and 4 worse;
+    never-reached deaths 200 → 125). In the lab box it loses the colony its
+    front door on 12 of 12 seeds (deliveries 5,396 → 1,279), because the
+    painted nest is buried under the litter mat. Not shipped. The mouth has
+    to stay open to the surface, which is the nest session's dug entrance.
   - The per-decision mix matched the formula within a point at both
     energies. The reach predictions were low; the report says why.
   - The scene's own checks caught rain pooling on the slab and an ant dying

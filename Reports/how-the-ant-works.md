@@ -22,9 +22,11 @@ will be.
   `ant.ron`'s `Drop` row). §9 and §12 2026-09-25 for what a load weighs
   (`carried_cells`, `crop_load_cells`, `load_scale`, the digest block), and
   §5 and §9 again when `crop_capacity` 5760 and `food_weight` 0.5 became the
-  ant's default (`ant.ron`, `CreatureDef::food_weight`). §8 and §12
-  2026-09-26 for the founding cut as home (`adjacent_nest`,
-  `shaft_is_home`, `NestSite::shaft`).
+  ant's default (`ant.ron`, `CreatureDef::food_weight`). §8 and §12 on
+  2026-09-26 for the nest-door switch (`nest_door`, `paint_nest_patch_with`,
+  `found_colony_with`, `colony_stations_with`), and again that day for the
+  founding cut as home (`adjacent_nest`, `nest_home`, `NestSite::shaft`) and
+  the door's anchor over a shaft (`found_colony_with`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -416,9 +418,15 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
 ## 8. Home: the nest, the anchor, and "at nest"
 
 - **Nest material** is the species' `nest: "nest"` material. Being next to it
-  drives `AtNest`, which is the only way the ant knows it is home.
+  drives `AtNest`, which is the only way the ant knows it is home. Founding
+  paints it on the surface as a strip of up to 53 columns (±26, a masked
+  comb with an unbroken core) and digs nothing. Under
+  `PIXEL_PHYSICS_NEST_DOOR=<d>` it paints `2d + 1` columns, unbroken, instead:
+  a door (§12).
 - **`forage_anchor`** is a world coordinate. It is set to the spawn cell at
-  birth, and **reset to the new head cell on every step that lands next to
+  birth (for a founder under `PIXEL_PHYSICS_NEST_DOOR`, to the cell above the
+  door's centre instead, read from the surface the founding started on, so a
+  founding shaft through the door leaves it at the mouth), and **reset to the new head cell on every step that lands next to
   nest material** (in `step_chain`, not after falls, swaps or reversals).
   So the anchor is the last cell the ant stood on **beside** the nest, and
   leaving a wide nest anchors it at the edge it left from, not at the
@@ -431,8 +439,10 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
 - **Under `PIXEL_PHYSICS_NEST_HOME=shaft`** (§12), a cell within one cell of
   the founding cut (the shaft, its chamber, and the rim of its mouth, as
   recorded in `NestSite::shaft` when `PIXEL_PHYSICS_NEST_SHAFT` dug it) also
-  counts as next to the nest. `AtNest` and the re-anchoring both ask
-  `adjacent_nest`, so both follow it. Unset, nothing here changes.
+  counts as next to the nest. **Under `=mouth`**, only a cell within one cell
+  of the shaft's top `NEST_MOUTH_ROWS` (2) rows does: the rim and the first
+  body length down. `AtNest` and the re-anchoring both ask `adjacent_nest`,
+  so both follow it. Unset, nothing here changes.
 
 ## 9. The crop, digestion and energy
 
@@ -527,7 +537,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_SENSOR_PROJECT` | on | `off`: no row projection; `none`: also no honesty gate |
 | `PIXEL_PHYSICS_A_RHO` | 0.0 | trail A's fade rate |
 | `PIXEL_PHYSICS_NEST_REACH` | r1 | `rN`: nest contact within radius N; `body`: any body cell |
-| `PIXEL_PHYSICS_NEST_HOME` | material only | `shaft`: a head within one cell of the founding cut (dug by `PIXEL_PHYSICS_NEST_SHAFT=<rows>`, `_NEST_SHAFT_WIDTH=<cells>`, lined) also reads `AtNest` (§8) |
+| `PIXEL_PHYSICS_NEST_HOME` | material only | `shaft`: a head within one cell of the founding cut (dug by `PIXEL_PHYSICS_NEST_SHAFT=<rows>`, `_NEST_SHAFT_WIDTH=<cells>`, lined) also reads `AtNest`; `mouth`: only within one cell of its top two rows (§8) |
 | `PIXEL_PHYSICS_LAB_ROOM` | on | `off`: at-nest `Crowding` falls back to local density |
 | `PIXEL_PHYSICS_TROPHALLAXIS` | on | `off` |
 | `PIXEL_PHYSICS_DROP_REACH` | through bodies | `adjacent`: a food drop looks only at the 8 neighbours |
@@ -539,6 +549,8 @@ Read once per process from the environment. The default is what ships.
 | `CROSS_TRUNK`, `TISSUE_PARTING` | on | `0` |
 | `PIXEL_PHYSICS_DIGEST` | continuous | `lump`: pays out per whole cell |
 | `PIXEL_PHYSICS_LOAD_BY` | joules | `cells`: a load weighs the cells in the crop, not its worth ÷ 480 (§9) |
+| `PIXEL_PHYSICS_NEST_DOOR` | strip | `<d>`: founding paints a door of `2d + 1` columns instead of the strip, and every founder's home is the door (§8) |
+| `PIXEL_PHYSICS_NEST_DOOR_FOUNDERS` | spread | `pile`: under the door, founders start heaped on it instead of spread along the ground (§8) |
 | `PIXEL_PHYSICS_LOAD_SCALE` | 1.0 | `<f>`: every food load weighs `f` times as much again, on top of the species' `food_weight` (§9) |
 | `PIXEL_PHYSICS_SPOIL_HAUL`, `_DIG_DOWN`, `_SPOIL_DROP_COVER`, `_TRAFFIC_DEFER`, `_COLONY_SPACING` | unset | haulage re-roll to the nest door, downward dig bias, spoil held under cover, jam deferral length, founder spacing |
 

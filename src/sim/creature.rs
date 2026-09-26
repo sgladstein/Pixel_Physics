@@ -2829,19 +2829,52 @@ pub fn nest_shaft_width() -> i32 {
     *W.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SHAFT_WIDTH").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v > 0).unwrap_or(2))
 }
 
-/// **Whether the founding cut is home** -- `PIXEL_PHYSICS_NEST_HOME=shaft`,
-/// or [`World::nest_home_shaft`] for one world. Off unless set; unset,
-/// [`adjacent_nest`] asks nothing it did not ask before.
+/// **How deep the mouth reaches, in rows** -- the part of the founding shaft
+/// [`NestHome::Mouth`] counts as home. One body length: `ant.ron` authors
+/// `body: Chain(2)`, so an ant whose head is at the bottom of the mouth has
+/// its tail at the surface. Scaled like every length, and never deeper than
+/// the shaft.
+pub const NEST_MOUTH_ROWS: i32 = 2;
+
+/// **How much of the founding cut is home** -- `PIXEL_PHYSICS_NEST_HOME`,
+/// read by [`nest_home`]. See there for what each is for and what each
+/// measured.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NestHome {
+    /// Unset, or anything unrecognised: none of it. Home is nest material
+    /// (or the site test), as shipped.
+    Material,
+    /// `shaft`: within one cell of the whole cut -- shaft, chamber and rim
+    /// ([`crate::sim::world::ShaftFootprint::touches`]).
+    Shaft,
+    /// `mouth`: within one cell of the cut's top rows only -- the rim and the
+    /// first body length down ([`crate::sim::world::ShaftFootprint::touches_mouth`]).
+    Mouth,
+}
+
+/// **How much of the founding cut is home** -- `PIXEL_PHYSICS_NEST_HOME=shaft`
+/// or `=mouth`, or [`World::nest_home`] for one world. [`NestHome::Material`]
+/// unless set; then [`adjacent_nest`] asks nothing it did not ask before.
 ///
 /// **What it is for.** A dug shaft that is not home is only a hole beside
 /// the door. `AtNest` reads nest *material*, and the cut is lined soil, so an
 /// ant standing in its own nest's shaft counts as away -- and everything
 /// `AtNest` gates happens only on the painted surface: putting food down,
 /// the homeward pull, the chamber dig gate (hidden units 5/6), budding under
-/// `PIXEL_PHYSICS_BUD_SITE=nest`, and the home trail's only writer. Under
-/// this switch a head within one cell of the recorded cut
-/// ([`crate::sim::world::ShaftFootprint::touches`]) is at home: in the
-/// shaft, in the chamber, or on the rim of the mouth.
+/// `PIXEL_PHYSICS_BUD_SITE=nest`, and the home trail's only writer.
+///
+/// **`shaft`: the whole cut, and on the colony bed it swallows ants.** Home
+/// is where the dig gate fires about five times as often, so ants that go
+/// down a home shaft dig and haul there, enlarge it, and starve underground
+/// with no food trail to follow up: beside §19's door a 6-row home shaft
+/// starved 254 of 480 against the door's 209 (`Reports/nest-mouth-2026-09-26.md`
+/// §4). In the lab box it is the other way round: the painted door is buried
+/// under plant litter and a home shaft is dug open through it.
+///
+/// **`mouth`: the rim and the first body length down, and nothing below.**
+/// The question it asks is whether what keeps the lab's mouth open is the
+/// digging *at the mouth*, which this keeps, rather than the digging in the
+/// cavity, which is what the bed pays for.
 ///
 /// **The hole the queen dug, not every hole since.** The footprint is fixed
 /// at founding. Were home the dug void as it grows, it would spread over
@@ -2852,16 +2885,52 @@ pub fn nest_shaft_width() -> i32 {
 /// a shaft walled in it could not be widened and would hold rain.
 ///
 /// **Why it should shape the nest as well as the loop**, stated before
-/// anyone measures it: `PIXEL_PHYSICS_NEST_SITE_ROWS=40`, the one lever that
+/// anyone measured it: `PIXEL_PHYSICS_NEST_SITE_ROWS=40`, the one lever that
 /// ever moved the nest's shape, is the same kind of change -- where the dig
 /// gate fires, applied over a region, and the region's shape is inherited
-/// (`Reports/nest-rejections-rescored-2026-09-19.md`). This region is a
-/// shaft.
-pub fn shaft_is_home(world: &World) -> bool {
-    world.nest_home_shaft.unwrap_or_else(|| {
-        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_HOME").as_deref() == Ok("shaft"))
+/// (`Reports/nest-rejections-rescored-2026-09-19.md`). A home shaft
+/// narrowed the dug nest on 11 of 12 seeds of `examples/digbox`.
+pub fn nest_home(world: &World) -> NestHome {
+    world.nest_home.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<NestHome> = std::sync::OnceLock::new();
+        *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_NEST_HOME").as_deref() {
+            Ok("shaft") => NestHome::Shaft,
+            Ok("mouth") => NestHome::Mouth,
+            _ => NestHome::Material,
+        })
     })
+}
+
+/// **`PIXEL_PHYSICS_NEST_DOOR=<half-width>`: the nest as a door, not a strip.**
+/// Founding paints `2 * half-width + 1` columns of nest, unbroken, instead of
+/// the 53-column masked strip, and anchors every founder's home at its centre
+/// ([`World::found_colony_of`]). Unset is the shipped strip, bit-exact.
+///
+/// **What it is for** (`Reports/ant-scenes-2026-09-23.md` §17b, §19). The
+/// colony's road starts where the first laden ant reaches nest ground: the
+/// food-side end of the strip. Ants on the far half rarely meet it. Born on
+/// the far side, 37.5% reach food and 85% starve; born on the food side, 79%
+/// and 59%. A real nest has one mouth, so the road starts where everyone is.
+/// This asks whether a single door pays before anyone builds how a dug nest
+/// looks. **It paints; it digs nothing** -- `PIXEL_PHYSICS_NEST_SHAFT` is the
+/// dug entrance and composes with it.
+///
+/// **Not [`nest_site_cols`]**, which narrows the region an ant *feels* at home
+/// in through the site test and measured deliveries 743 -> 11 because that
+/// test reads rows from the centre column only. This narrows the nest
+/// *material*, so `AtNest` stays the shipped 8-neighbour contact test.
+pub fn nest_door() -> Option<i32> {
+    static D: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *D.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_DOOR").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v >= 0))
+}
+
+/// **`PIXEL_PHYSICS_NEST_DOOR_FOUNDERS=pile`**: under [`nest_door`], founders
+/// start heaped on the door instead of spread along the ground with their
+/// home set to it. The two arms separate "home is one point" from "everyone
+/// comes out of one point". Anything else, or unset, is the spread layout.
+fn nest_door_pile() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_DOOR_FOUNDERS").as_deref() == Ok("pile"))
 }
 
 /// **The site reach in COLUMNS, half-width, or `None` for
@@ -3864,6 +3933,14 @@ impl World {
     /// derived from the body plan's own width, floored at the shipped value
     /// so the ant is byte-identical.
     pub fn found_colony_of(&mut self, x: i32, y: i32, species: &str, ants: i32) -> usize {
+        self.found_colony_with(x, y, species, ants, nest_door(), nest_door_pile())
+    }
+
+    /// [`World::found_colony_of`] with the nest-door switches passed in rather
+    /// than read from the environment, so a test can set them: `door` is
+    /// [`nest_door`]'s half-width, `pile` is [`nest_door_pile`]. `(None, _)`
+    /// is the shipped founding.
+    fn found_colony_with(&mut self, x: i32, y: i32, species: &str, ants: i32, door: Option<i32>, pile: bool) -> usize {
         // **A species nobody loaded places nobody, and says so by returning
         // 0** -- the same contract as no ground and no nest material. A
         // silent no-op is indistinguishable from a broken feature, which is
@@ -3895,7 +3972,7 @@ impl World {
             // The two halves, each with exactly one definition of its own
             // rule: where home is, and where the animals stand. See
             // `colony_stations` for why they are separate verbs.
-            self.paint_nest_patch(x, y);
+            self.paint_nest_patch_with(x, y, door);
         }
         let mut placed = 0;
         // **Staggered founder reserves** — every founder used to be stamped
@@ -3909,8 +3986,28 @@ impl World {
         let spread = def.as_ref().map_or(0.0, |d| d.founder_reserve_spread);
         let start_energy = def.as_ref().map_or(0.0, |d| d.start_energy);
         let seed = self.seed;
-        let stations = self.colony_stations(x, y, species_id, ants);
+        let stations = self.colony_stations_with(x, y, species_id, ants, door, pile);
         let total = stations.len() as i32;
+        // **Under a door, every founder's home is the door** -- the cell
+        // above its centre, which is where `step_chain`'s re-anchoring would
+        // put it on the first contact anyway. Without this a founder standing
+        // off the door would carry its birth cell as home for life (the
+        // wrong-home trap `forage_anchor`'s doc and the colony bed's
+        // `on_nest` count both describe), and a laden ant would walk home to
+        // a spot where it cannot put food down. Unset: `None`, nothing written.
+        //
+        // **Read from the surface the founding started on, which a founding
+        // shaft has since cut away.** `colony_surface` walks the centre column
+        // down to its first ground, and under `PIXEL_PHYSICS_NEST_SHAFT` that
+        // column is the shaft's, so it finds the chamber floor and every
+        // founder's home lands at the bottom of the hole -- beside no nest
+        // material, where the laden ant this anchor exists for cannot put
+        // food down. The cut recorded the surface it was sunk from
+        // (`NestSite::shaft`), so read that. No shaft, no footprint, and this
+        // is `colony_surface` exactly as before.
+        let door_anchor = door
+            .and_then(|_| self.nearest_nest_site(x, y).and_then(|i| self.nest_sites[i].shaft).map(|cut| cut.top).or_else(|| colony_surface(self, x, y)))
+            .map(|sy| (x, sy - 1));
         // **One colony per founding.** The first animal that fits founds it
         // and every later station joins; a founding in which nothing fits
         // claims nothing. See `OrganismState::colony`.
@@ -3939,6 +4036,11 @@ impl World {
                         }
                     }
                 }
+                if let (Some(anchor), ActiveKind::Creature { organism }) = (door_anchor, site.kind) {
+                    if let Some(state) = self.organism_mut(organism) {
+                        state.forage_anchor = anchor;
+                    }
+                }
                 self.schedule_active_site(site);
             }
             if self.get(cx, cy).organism_id() != before {
@@ -3965,6 +4067,12 @@ impl World {
     /// opens with -- `open-bugs-handoff.md` §R2 is what a second copy of a
     /// placement rule cost last time.
     pub fn colony_stations(&self, x: i32, y: i32, species_id: SpeciesId, ants: i32) -> Vec<(i32, i32)> {
+        self.colony_stations_with(x, y, species_id, ants, nest_door(), nest_door_pile())
+    }
+
+    /// [`World::colony_stations`] with the nest-door switches passed in; see
+    /// [`World::found_colony_with`].
+    fn colony_stations_with(&self, x: i32, y: i32, species_id: SpeciesId, ants: i32, door: Option<i32>, pile: bool) -> Vec<(i32, i32)> {
         // How wide the body actually is, east-facing; the mirror is the same
         // width. `Chain(n)` is a following chain rather than a rigid row, so
         // its offsets are the worst case it can occupy, which is what a
@@ -3996,6 +4104,36 @@ impl World {
         let want = ants.max(0) as usize;
         if want == 0 || spacing <= 0 {
             return Vec::new();
+        }
+        // **`PIXEL_PHYSICS_NEST_DOOR_FOUNDERS=pile`: every founder starts at the
+        // door**, stacked a body's width apart across its columns and a row
+        // apart upward, so the colony comes out of one mouth rather than
+        // standing along a strip. They fall and settle as a heap on the door;
+        // an ant walks over a nestmate (`climbs_over_kin`), which is the change
+        // since the 27,386-blocked-tick gridlock above that makes a heap worth
+        // trying. The colony bed's blocked counts are the check. Only under
+        // `PIXEL_PHYSICS_NEST_DOOR`; otherwise the shipped layout.
+        if let (Some(d), true) = (door, pile) {
+            let d = scaled_cells(self, d);
+            let cols: Vec<(i32, i32)> = ((x - d)..=(x + d))
+                .step_by(body_span.max(1) as usize)
+                .filter_map(|cx| colony_ant_site(self, cx, y).map(|sy| (cx, sy - 1)))
+                .collect();
+            if cols.is_empty() {
+                return Vec::new();
+            }
+            let mut out: Vec<(i32, i32)> = Vec::with_capacity(want);
+            let mut layer = 0;
+            while out.len() < want && layer < want as i32 {
+                for &(cx, cy) in &cols {
+                    if out.len() >= want {
+                        break;
+                    }
+                    out.push((cx, cy - layer));
+                }
+                layer += 1;
+            }
+            return out;
         }
         // **Searched outward from the cursor, not stamped as a fixed band**,
         // and that is owner playtest item 2 of 2026-09-14: *"when founding
@@ -4135,10 +4273,20 @@ impl World {
     /// the bottom of a nest wall (`a_nest_still_stops_him`). This loop is the
     /// one place the repair costs nothing anywhere else.
     pub fn paint_nest_patch(&mut self, x: i32, y: i32) -> usize {
+        self.paint_nest_patch_with(x, y, nest_door())
+    }
+
+    /// [`World::paint_nest_patch`] with [`nest_door`]'s half-width passed in;
+    /// `None` is the shipped strip.
+    fn paint_nest_patch_with(&mut self, x: i32, y: i32, door: Option<i32>) -> usize {
         let Some(nest) = self.materials.id_of("nest") else {
             return 0;
         };
-        let half_width = scaled_cells(self, COLONY_HALF_WIDTH);
+        // **`PIXEL_PHYSICS_NEST_DOOR=<half-width>` paints a door instead of the
+        // strip** -- see [`nest_door`]. Unset takes the shipped width and the
+        // shipped mask, bit-exact.
+        let door = door.map(|d| scaled_cells(self, d));
+        let half_width = door.unwrap_or_else(|| scaled_cells(self, COLONY_HALF_WIDTH));
         // **The patch is a place that holds an odour, and this is where it
         // becomes one.** Registered before the ground is converted so that a
         // patch which turns out to have no paintable ground under it still
@@ -4151,7 +4299,13 @@ impl World {
         // the threshold is the same threshold wherever on the map the colony
         // is founded and is symmetric about the gnome -- the reason the
         // shipped comb was indexed off the loop rather than off `cx`, kept.
-        let mask = nest_mask(half_width, scaled_cells(self, nest_core()), nest_drain_period());
+        // A door is painted unbroken: at a few columns the drain comb would
+        // leave holes in the only way home.
+        let mask = if door.is_some() {
+            vec![true; (2 * half_width + 1) as usize]
+        } else {
+            nest_mask(half_width, scaled_cells(self, nest_core()), nest_drain_period())
+        };
         let mut painted = 0;
         for (i, cx) in ((x - half_width)..=(x + half_width)).enumerate() {
             if !mask.get(i).copied().unwrap_or(false) {
@@ -4267,7 +4421,7 @@ impl World {
     /// ground; freezing first makes the harness's shaft the game's shaft.
     /// Every freeze is idempotent, so a world already stepped is untouched.
     fn dig_founding_shaft(&mut self, x: i32, y: i32) {
-        let Some(rows) = nest_shaft_rows() else { return };
+        let Some(rows) = self.nest_shaft.or_else(nest_shaft_rows) else { return };
         self.cut_founding_shaft(x, y, rows, nest_shaft_width(), lining_enabled());
     }
 
@@ -4337,6 +4491,7 @@ impl World {
                 x1: x0 + span - 1,
                 top,
                 bottom: top + depth - 1,
+                mouth_bottom: top + scaled_cells(self, NEST_MOUTH_ROWS).clamp(1, depth) - 1,
                 chamber_x0: x - chamber_half,
                 chamber_x1: x + chamber_half,
                 chamber_top: floor,
@@ -9271,13 +9426,18 @@ fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
     let Some(nest) = world.materials.id_of(&def.nest) else {
         return false;
     };
-    // **The founding cut is home, under `PIXEL_PHYSICS_NEST_HOME=shaft`** --
-    // see [`shaft_is_home`]. Before both branches below, so it composes with
-    // either: it adds the hole to whatever else counts as home and takes
-    // nothing away. Behind the switch's own bool first, so unset reads no
-    // site and costs one branch; set, one scan over one to a handful of
-    // sites, and no `World::get` at all.
-    if shaft_is_home(world) && world.nest_sites.iter().filter_map(|s| s.shaft).any(|cut| cut.touches(x, y)) {
+    // **The founding cut is home, under `PIXEL_PHYSICS_NEST_HOME`** -- the
+    // whole of it or only its mouth; see [`nest_home`]. Before both branches
+    // below, so it composes with either: it adds the hole to whatever else
+    // counts as home and takes nothing away. Behind the switch's own read
+    // first, so unset reads no site and costs one branch; set, one scan over
+    // one to a handful of sites, and no `World::get` at all.
+    let in_cut = match nest_home(world) {
+        NestHome::Material => false,
+        NestHome::Shaft => world.nest_sites.iter().filter_map(|s| s.shaft).any(|cut| cut.touches(x, y)),
+        NestHome::Mouth => world.nest_sites.iter().filter_map(|s| s.shaft).any(|cut| cut.touches_mouth(x, y)),
+    };
+    if in_cut {
         return true;
     }
     // **The site branch: home is a place, not a cell.** No `World::get` at
@@ -17442,6 +17602,58 @@ mod tests {
     /// default state* blindness exactly. So the test asserts that something
     /// died, and that each counter actually moved, before it asserts anything
     /// about the sums.
+    /// **`PIXEL_PHYSICS_NEST_DOOR` paints a door and nothing else, and every
+    /// founder's home is that door** -- the positive control for the colony
+    /// bed's §19 arms (`Reports/ant-scenes-2026-09-23.md`). Counted as nest
+    /// columns on the ground and read off each founder's own anchor, against
+    /// the shipped founding in the same scene.
+    #[test]
+    fn a_nest_door_paints_its_width_and_anchors_every_founder_at_it() {
+        let nest_cols = |w: &World| {
+            let nest = w.materials.id_of("nest").expect("nest material");
+            (0..=255).filter(|&x| (0..=199).any(|y| w.get(x, y).material == nest)).collect::<Vec<i32>>()
+        };
+        let ants = |w: &World| {
+            let ant = w.species.id_of("ant").expect("ant species");
+            w.live_organism_ids()
+                .into_iter()
+                .filter_map(|id| w.organism(id))
+                .filter(|s| s.species == ant)
+                .map(|s| (s.forage_anchor, *s.chain.first().expect("a body")))
+                .collect::<Vec<_>>()
+        };
+
+        // Shipped: a strip, and each founder anchored where it was placed.
+        let (mut w, low) = colony_bed();
+        assert!(w.found_colony_with(200, low - 32, "ant", COLONY_ANTS, None, false) > 0, "the bed placed no ants");
+        let strip = nest_cols(&w);
+        assert!(strip.len() > 20, "the shipped patch is a strip, not {} columns", strip.len());
+
+        // A door of half-width 2, founders spread: five columns, every home at the door.
+        let (mut w, low) = colony_bed();
+        assert!(w.found_colony_with(200, low - 32, "ant", COLONY_ANTS, Some(2), false) > 0, "the bed placed no ants");
+        let door = nest_cols(&w);
+        assert_eq!(door.len(), 5, "a door of half-width 2 is five columns: {door:?}");
+        let (lo, hi) = (door[0], door[door.len() - 1]);
+        let spread = ants(&w);
+        assert!(
+            spread.iter().any(|&(_, head)| head.0 < lo - 1 || head.0 > hi + 1),
+            "every founder stood on the door, so the anchor is not what this arm tests"
+        );
+        for &(anchor, head) in &spread {
+            assert_eq!(anchor.0, 200, "a founder placed at {head:?} has its home at {anchor:?}, not the door");
+        }
+
+        // Piled: every founder starts on the door's columns.
+        let (mut w, low) = colony_bed();
+        assert!(w.found_colony_with(200, low - 32, "ant", COLONY_ANTS, Some(2), true) > 0, "the bed placed no ants");
+        let piled = ants(&w);
+        assert!(piled.len() > 1, "the pile placed {} founders", piled.len());
+        for &(_, head) in &piled {
+            assert!((lo - 1..=hi + 1).contains(&head.0), "a piled founder starts at {head:?}, off the door {lo}..{hi}");
+        }
+    }
+
     #[test]
     fn every_lifetime_counter_closes_against_its_world_total() {
         let (mut w, low) = colony_bed();
@@ -18716,11 +18928,13 @@ mod tests {
     }
 
     /// **Under `PIXEL_PHYSICS_NEST_HOME=shaft` the founding cut is home, and
-    /// nowhere else new is** ([`shaft_is_home`]): in the shaft, in the
-    /// chamber and on the rim of the mouth an ant reads `AtNest`; two columns
-    /// off the mouth, or down in the soil beside the chamber, it does not.
-    /// With the switch off, the same cells read exactly what they read before
-    /// -- nothing, because there is no nest material in the scene at all.
+    /// nowhere else new is** ([`nest_home`]): in the shaft, in the chamber and
+    /// on the rim of the mouth an ant reads `AtNest`; two columns off the
+    /// mouth, or down in the soil beside the chamber, it does not. **Under
+    /// `=mouth` only the rim and the first body length down are**: halfway
+    /// down the shaft and in the chamber are away again. With the switch off,
+    /// the same cells read exactly what they read before -- nothing, because
+    /// there is no nest material in the scene at all.
     #[test]
     fn a_founding_cut_is_home_only_under_its_switch() {
         let mut w = World::new(Rect::new(0, 0, 119, 99));
@@ -18740,16 +18954,59 @@ mod tests {
         let home: [(i32, i32, &str); 4] = [(60, 48, "halfway down the shaft"), (54, 57, "in the chamber"), (59, 39, "on the rim of the mouth"), (62, 39, "on the rim's other side")];
         let away: [(i32, i32, &str); 3] = [(57, 39, "two columns off the mouth"), (70, 57, "in the soil beside the chamber"), (60, 70, "in the soil below the chamber")];
 
-        w.nest_home_shaft = Some(false);
-        for (x, y, what) in home.iter().chain(away.iter()) {
+        // The mouth is rows 40..41; within one cell of it is rows 39..42.
+        let mouth: [(i32, i32, &str); 4] = [(59, 39, "on the rim of the mouth"), (62, 39, "on the rim's other side"), (60, 40, "in the mouth"), (61, 42, "a cell under the mouth")];
+        let below_mouth: [(i32, i32, &str); 3] = [(60, 43, "two cells under the mouth"), (60, 48, "halfway down the shaft"), (54, 57, "in the chamber")];
+
+        w.nest_home = Some(NestHome::Material);
+        for (x, y, what) in home.iter().chain(away.iter()).chain(mouth.iter()) {
             assert!(!adjacent_nest(&w, *x, *y, &def), "with the switch off, {what} ({x},{y}) must read what it always did: not home");
         }
-        w.nest_home_shaft = Some(true);
-        for (x, y, what) in home {
-            assert!(adjacent_nest(&w, x, y, &def), "under NEST_HOME=shaft, {what} ({x},{y}) is home");
+        w.nest_home = Some(NestHome::Shaft);
+        for (x, y, what) in home.iter().chain(mouth.iter()).chain(below_mouth.iter()) {
+            assert!(adjacent_nest(&w, *x, *y, &def), "under NEST_HOME=shaft, {what} ({x},{y}) is home");
         }
         for (x, y, what) in away {
             assert!(!adjacent_nest(&w, x, y, &def), "under NEST_HOME=shaft, {what} ({x},{y}) is still away");
+        }
+        w.nest_home = Some(NestHome::Mouth);
+        for (x, y, what) in mouth {
+            assert!(adjacent_nest(&w, x, y, &def), "under NEST_HOME=mouth, {what} ({x},{y}) is home");
+        }
+        for (x, y, what) in below_mouth.iter().chain(away.iter()) {
+            assert!(!adjacent_nest(&w, *x, *y, &def), "under NEST_HOME=mouth, {what} ({x},{y}) is away: only the mouth is home");
+        }
+    }
+
+    /// **A door over a founding shaft homes every founder at the mouth, not
+    /// at the bottom of the hole.** §19's door anchors each founder's home at
+    /// the cell above the door's centre, read off `colony_surface`; under a
+    /// founding shaft that column is the shaft's, so the same read finds the
+    /// chamber floor. The anchor now comes from the surface the cut recorded.
+    /// Against the door alone in the same scene, whose anchor the shaft must
+    /// not move.
+    #[test]
+    fn a_door_over_a_founding_shaft_homes_every_founder_at_the_mouth() {
+        let anchors = |w: &World| {
+            let ant = w.species.id_of("ant").expect("ant species");
+            w.live_organism_ids().into_iter().filter_map(|id| w.organism(id)).filter(|s| s.species == ant).map(|s| s.forage_anchor).collect::<Vec<_>>()
+        };
+        let (mut w, low) = colony_bed();
+        assert!(w.found_colony_with(200, low - 32, "ant", COLONY_ANTS, Some(2), false) > 0, "the bed placed no ants");
+        let door_only = anchors(&w);
+        assert!(!door_only.is_empty(), "no founders to read");
+        assert!(door_only.iter().all(|&a| a == (200, low - 1)), "the door alone homes at the cell above its centre: {door_only:?}");
+
+        let (mut w, low) = colony_bed();
+        w.nest_shaft = Some(6);
+        assert!(w.found_colony_with(200, low - 32, "ant", COLONY_ANTS, Some(2), false) > 0, "the bed placed no ants");
+        let cut = w.nest_sites.iter().find_map(|s| s.shaft).expect("the founding cut a shaft");
+        assert_eq!(cut.top, low, "the shaft is sunk from the bed's surface");
+        assert_eq!(w.get(200, low + 3).material, material::EMPTY, "the shaft is open");
+        let homed = anchors(&w);
+        assert_eq!(homed.len(), door_only.len(), "the shaft changed how many founders fit");
+        for a in homed {
+            assert_eq!(a, (200, low - 1), "a founder's home is {a:?}: the door over a shaft homes at the mouth, not down the hole");
         }
     }
 

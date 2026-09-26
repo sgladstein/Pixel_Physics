@@ -1631,3 +1631,93 @@ no switch and no rider reproduces §17g's `LOAD_SCALE=0.5 + cropcap=5760` arm
 on the colony bed (seeds 1–8, all 40 per-run, food-store, death and budget
 lines identical), and in the lab box (seed 1, every `SUMMARY` line identical).
 So every number in §17g describes the game as it now ships.
+
+## 19. The nest as a door: does one mouth stop the starving?
+
+*2026-09-26.* §17b found that the largest group of the dead are ants that
+never reach the food, and that where an ant is born on the 45-column painted
+nest decides it. This asks, before anyone builds a dug nest, whether giving the
+colony one small home pays. The nest session (`Reports/lanes/nest-mouth.md`
+once it exists) builds the real, dug version on this switch.
+
+**The switch.** `PIXEL_PHYSICS_NEST_DOOR=<d>` makes founding paint a door of
+`2d + 1` columns, unbroken, instead of the strip, and sets every founder's
+home (`forage_anchor`) to the cell above the door's centre. Without that, a
+founder standing off the door would carry its birth cell as home for life, and
+a laden ant would walk home to a spot where it cannot put food down.
+`PIXEL_PHYSICS_NEST_DOOR_FOUNDERS=pile` also starts every founder heaped on the
+door instead of spread along the ground. The two arms separate "home is one
+point" from "everyone comes out of one point". Unset is bit-exact: the new
+binary reproduces the shipped default on seeds 1–8, all 40 lines. Guard:
+`a_nest_door_paints_its_width_and_anchors_every_founder_at_it`, watched red
+with the anchor write removed.
+
+**Positive control, frame 0, seed 1.** Default: nest ground x 26–70, founders
+x 30–68, 20 of 20 born beside it. Door, `d = 2`: nest ground x 46–50, founders
+x 30–68, 3 of 20 beside it and all 20 homed at x 48. Piled: founders x 46–50.
+The pile lands as a heap by frame 60 and spreads out by frame 360; there is no
+gridlock (a packed colony once logged 27,386 blocked ticks, before ants could
+climb over each other).
+
+**On the colony bed** (shipped default, no trail, 90 cells, 24 seeds, paired
+against the default):
+
+| | default | door, homed (`d=2`) | door, piled (`d=2`) | wider door, piled (`d=6`) |
+|---|---:|---:|---:|---:|
+| starved, of 480 | 277 | **209** (18 better / 4 worse, p 0.004) | 214 (17/4, p 0.007) | 210 (17/7, p 0.064) |
+| never reached the food, starved | 200 | **125** (18/5) | 141 (18/2) | 122 (16/5) |
+| reached the food | 271 | 344 (16/5) | 328 (16/3) | 339 (15/5) |
+| completed a loop | 229 | 308 (18/4) | 266 (15/5) | 290 (15/7) |
+| loops | 366 | **465** (19/4, p 0.003) | 392 (13/9) | 410 (15/9) |
+| foragers who starved | 50 | 61 (12/10) | 42 (7/9) | 53 (13/8) |
+
+- **One home point is what pays; starting everyone there adds nothing.** The
+  homed arm, with founders still spread, is as good as either pile on
+  starvation and best on loops.
+- **The mechanism is the one §17b named.** Founders born 11–20 cells on the
+  far side of the nest from the food reach it **51%** of the time against
+  **30%**, and starve **58%** against **76%**. By birth position, starvation
+  goes 76/54/55/52/46% → 58/43/33/41/52%.
+- **It does not touch the foragers** (50 → 61 starved, 12/10: no change),
+  which is the load's job (§17g–18).
+- **Predictions, written before:** 170 never-reached deaths and 255 starved
+  for the homed arm, loops within ±10%. Too cautious on all three: 125, 209,
+  and loops **+27%**.
+
+**In the lab box the painted door fails, on every seed.** §14's setup, 12
+seeds, one binary, against the shipped default (which reproduces the stored
+arm on seed 1):
+
+| lab, 12 seeds, median | default | door, homed (`d=2`) |
+|---|---:|---:|
+| food carried home (deliveries) | 5,396 | **1,279** (lower on 12 of 12) |
+| visits to the nest | 8,948 | **1,105** (lower on 12 of 12) |
+| food eaten | 1,158k J | 1,151k J (3 / 9) |
+| births | 590 | 523 (4 / 8) |
+| went extinct | 1 of 12 | **4** of 12 |
+
+Predicted "within today's spread": wrong. On seed 3 the door's founding colony
+dies young (5 births, 16 deaths, 13 deliveries), and a carrier takes a median
+**2,676 frames** to deliver against **763**.
+
+- **Not newborns' homes.** The lab lets ants bud anywhere, and a newborn's
+  home is its birth cell, which the switch does not move. Run with births
+  only at the nest in both arms, the door still collapses deliveries,
+  2,968 → 832 (lower on 12 of 12), and nest visits 4,466 → 798. That
+  hypothesis is wrong.
+- **The nest is buried** (seen in seed 3's pictures, not yet counted). In
+  the lab a mat of plant litter builds up over the ground. The painted nest
+  lies about 10 cells under it: a long line in the default, a 5-cell spot
+  with the door. Ants moving through the litter still brush a 45-column
+  strip; they almost never touch a 5-cell spot under the mat. On the colony
+  bed there is no litter, and the door is in the open.
+
+**Verdict: a painted door is not shippable**, and the switch stays off. It
+proves on open ground that **one home point is what pays** (starved
+277 → 209, never-reached deaths 200 → 125). And the lab shows the condition
+any real mouth must meet: **it has to stay open to the surface**, not be
+painted under whatever grows over it. That is the dug entrance, and the nest
+session's to build on this switch (`Reports/lanes/nest-mouth.md`). Its
+founder rule carries over: home every founder at the mouth, and spread
+founders do as well as piled ones. Pictures of both beds, paired, are on review card
+`20260926T033653046Z-160190`.

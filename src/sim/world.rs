@@ -1184,6 +1184,9 @@ pub struct ShaftFootprint {
     /// The mouth's row (the founding surface) and the shaft's last row.
     pub top: i32,
     pub bottom: i32,
+    /// The last row of the **mouth**: the shaft's first body length down
+    /// (`creature::NEST_MOUTH_ROWS`), never past `bottom`.
+    pub mouth_bottom: i32,
     /// The chamber's columns and rows.
     pub chamber_x0: i32,
     pub chamber_x1: i32,
@@ -1205,6 +1208,14 @@ impl ShaftFootprint {
     pub fn touches(&self, x: i32, y: i32) -> bool {
         ((self.x0 - 1..=self.x1 + 1).contains(&x) && (self.top - 1..=self.bottom + 1).contains(&y))
             || ((self.chamber_x0 - 1..=self.chamber_x1 + 1).contains(&x) && (self.chamber_top - 1..=self.chamber_bottom + 1).contains(&y))
+    }
+
+    /// Whether `(x, y)` is **within one cell of the mouth**: the shaft's rows
+    /// from `top` to `mouth_bottom`, so the rim on the surface and the first
+    /// body length down, and nothing deeper. [`ShaftFootprint::touches`]
+    /// restricted to the top of the shaft.
+    pub fn touches_mouth(&self, x: i32, y: i32) -> bool {
+        (self.x0 - 1..=self.x1 + 1).contains(&x) && (self.top - 1..=self.mouth_bottom + 1).contains(&y)
     }
 
     /// Every cell of the cut, each once: the shaft row by row, then the
@@ -3380,11 +3391,17 @@ pub struct World {
     /// `None` follows the environment, which is off unless set; a field for
     /// the reason `chooser` is one.
     pub bud_at_nest: Option<bool>,
-    /// **Whether the founding cut counts as home, overriding
-    /// `PIXEL_PHYSICS_NEST_HOME` for this world** (`creature::shaft_is_home`).
-    /// `None` follows the environment, which is off unless set; a field for
-    /// the reason `chooser` is one.
-    pub nest_home_shaft: Option<bool>,
+    /// **How much of the founding cut counts as home, overriding
+    /// `PIXEL_PHYSICS_NEST_HOME` for this world** (`creature::nest_home`).
+    /// `None` follows the environment, which is none of it unless set; a
+    /// field for the reason `chooser` is one.
+    pub nest_home: Option<crate::sim::creature::NestHome>,
+    /// **The founding shaft's depth in rows, overriding
+    /// `PIXEL_PHYSICS_NEST_SHAFT` for this world**
+    /// (`creature::World::dig_founding_shaft`). `None` follows the
+    /// environment, which cuts nothing unless set; a field so a guard can
+    /// found a colony over a shaft without the variable.
+    pub nest_shaft: Option<i32>,
     /// **Which material stopped a creature**, counted per blocked tick and
     /// indexed by `MaterialId` — the breakdown `CreatureStats::
     /// blocked_by_plant` deliberately does not carry, because that struct is
@@ -5722,7 +5739,8 @@ impl World {
             decision_scratch: crate::sim::creature::DecisionScratch::default(),
             chooser: None,
             bud_at_nest: None,
-            nest_home_shaft: None,
+            nest_home: None,
+            nest_shaft: None,
             blocked_tissue_by_material: Vec::new(),
             energy_ledger: EnergyLedger::default(),
             colony_books: Vec::new(),
