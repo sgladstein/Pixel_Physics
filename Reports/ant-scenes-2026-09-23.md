@@ -1606,3 +1606,28 @@ rest at home and be fed, not search and starve. That needs food and the
 hungry to meet, which is the nest's mouth (§17b), and a colony that does
 not start with an empty store. Idle at home is realistic; starving at home
 is the defect.
+
+## 18. Shipped: the bigger crop and lighter food
+
+*2026-09-25, the owner's ruling: "Let's test it out."* The ant now ships
+`crop_capacity: 5760` (was 2,880) and `food_weight: 0.5`, a new
+`CreatureDef` field. A load of food weighs half what the same joules of the
+ant's own flesh would. The field defaults to 1.0, so every other species is
+unchanged. `PIXEL_PHYSICS_LOAD_SCALE` still multiplies on top of it for
+experiments, and `PIXEL_PHYSICS_LOAD_BY=cells` stays off (§17e).
+
+**Foragers still eat on the way home.** The owner asked whether this stops
+them eating what they carry, and was worried they would starve. It does not.
+Digestion is untouched, and a laden ant eats from its load exactly as
+before. What changed is what the load weighs and how much of it there is.
+§17f argued that stopping foragers eating in transit creates no surplus: the
+forager has to pay its trip's cost somewhere. And §17f measured that the
+carriers are too hungry for a hold to act on. And on the new default fewer
+foragers starve, not more: 109 → 50 of the ants that made a loop. Of all the starved, 4% die with more than a quarter of a crop, against
+2% before and 38% for the doubled crop at the old weight.
+
+**The default is the measured arm, digit for digit.** The default build with
+no switch and no rider reproduces §17g's `LOAD_SCALE=0.5 + cropcap=5760` arm
+on the colony bed (seeds 1–8, all 40 per-run, food-store, death and budget
+lines identical), and in the lab box (seed 1, every `SUMMARY` line identical).
+So every number in §17g describes the game as it now ships.

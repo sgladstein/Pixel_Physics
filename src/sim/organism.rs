@@ -3560,6 +3560,29 @@ pub struct CreatureDef {
     /// of you"*.
     #[serde(default)]
     pub spoil_weight_cells: f32,
+    /// **How heavy a load of food is against the same joules of this
+    /// animal's own flesh.** `creature::carried_cells` multiplies the crop's
+    /// weight (its worth over `body_energy`) by it, so it prices carrying
+    /// without re-pricing foods against each other.
+    ///
+    /// **1.0 by default, so nothing that has not opted in changes.** It reads
+    /// as *"food is exactly as energy-dense as I am"*, which is what every
+    /// animal assumed until 2026-09-25. 0.5 reads as *"what I harvest carries
+    /// twice the energy per unit weight of my own body"* -- plausible for
+    /// seeds, and fruit is already authored at twice flesh per cell.
+    ///
+    /// **Why it is a field and not a derived quantity.** `carried_cells`'
+    /// doc argues a food cell should weigh a body cell, and dividing worth by
+    /// `body_energy` does that only for flesh. Weighing by cells instead
+    /// (`PIXEL_PHYSICS_LOAD_BY=cells`) was measured and killed the lab,
+    /// because the lab's food is cheap per cell and got heavier
+    /// (`Reports/ant-scenes-2026-09-23.md` §17e). A uniform density keeps
+    /// every food in proportion and moves only how dense food is against
+    /// flesh, which the colony bed says is the wrong number: a trip put down
+    /// 1.3x what it cost (§17f). `PIXEL_PHYSICS_LOAD_SCALE` multiplies on top
+    /// of it, for experiments.
+    #[serde(default = "one")]
+    pub food_weight: f32,
     /// **What it costs to stand in the open, per body cell per tick** — the
     /// hazard a burrow shelters against, and the reason nest architecture
     /// could not be selected for before it existed.
@@ -4424,6 +4447,7 @@ impl CreatureDef {
             cruise_lift,
             emit_cost_in_moves,
             spoil_weight_cells,
+            food_weight,
             exposure_cost_per_cell,
             synapse_fraction,
             sight_fraction,
@@ -4619,6 +4643,10 @@ impl CreatureDef {
             cruise_lift: *cruise_lift,
             emit_cost_in_moves: *emit_cost_in_moves,
             spoil_weight_cells: *spoil_weight_cells,
+            // **A ratio of two quantities that scale together** -- a load's
+            // weight against the same joules of the animal's own flesh, both
+            // priced by `body_energy` -- so x 1, like the verb prices above.
+            food_weight: *food_weight,
             // A per-cell-per-decision rate exactly like `idle_cost_per_cell`,
             // and scaled by the same divisor for the same reason: what has to
             // stay invariant is joules per frame, not joules per tick.

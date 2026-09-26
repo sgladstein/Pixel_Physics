@@ -402,7 +402,29 @@
         // produced the 52% sideways miss in the drop census, and the two
         // halves were always meant to run together.
         home_bias: 1.0,
-        crop_capacity: 2880.0,
+        // **5,760 and food at half the weight of flesh, shipped together
+        // 2026-09-25 on the owner's ruling** (*"Let's test it out"*, after
+        // `Reports/ant-scenes-2026-09-23.md` §17f-h). The ruling before it:
+        // a forager has to earn enough to feed itself and extra for the
+        // colony, or the loop has no point. At 2,880 with food as heavy as
+        // flesh, a trip put down about 1.3x what it cost the forager.
+        //
+        // **Neither half works alone, and that is measured.** The doubled
+        // crop at the old weight starved the carriers: a full crop weighed 12
+        // body cells, a step cost 1.75 J against a gut paying 0.825 J a tick,
+        // and starvation went 342 -> 461 of 480 (worse on 21 of 24 seeds). Half
+        // weight at the old crop helped (342 -> 293, 16/8). Together, on the
+        // colony bed: starved 342 -> 277 (16/5, p 0.027), foragers starved
+        // 109 -> 50 (18/2), about 2.7x put down per trip, and the average load
+        // carries 577 J at 1.2x the ant's weight against 337 J at 1.4x. In the
+        // lab box: intake 836k -> 1,158k J, births 450 -> 590, 1 extinct of
+        // 12 against 2, and plants standing 88 -> 28 (none of it significant
+        // at 12 seeds).
+        //
+        // **Foragers still eat on the way home.** Nothing here changes
+        // digestion; only what a load weighs and how much one holds.
+        crop_capacity: 5760.0,
+        food_weight: 0.5,
         // **Derived from two brackets, not chosen**, and to be swept before
         // it is trusted (`CreatureDef::digest_rate`):
         //

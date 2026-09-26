@@ -1,6 +1,17 @@
 # Ants
 
-*Current as of: 2026-09-24, when **ants started walking with a purpose.**
+*Current as of: 2026-09-25, when **a forager started bringing home enough to share.**
+An ant carries food in its stomach, and what it carries weighs it down. A full
+load used to weigh three times the ant, and walking it home cost about what the
+food was worth, so a forager barely fed itself and little was left over for the
+nest. Its stomach now holds twice as much, and what it harvests weighs half as
+much for the same nourishment. A typical load now weighs a little less than
+before and carries about 70% more food. Foragers still eat from what they carry
+on the way home. In a test colony half as many foragers starve, and a trip
+brings home nearly three times what it costs. In the lab box colonies eat and
+breed more, and one box in twelve died out against two before. Ants that never
+find the food are no better off: that is down to the shape of the nest, not the
+load. The day before, **ants started walking with a purpose.**
 An ant used to shuffle: a step, a stop, a turn back the way it came, so a fed
 one hardly left the nest and a colony found food only if a trail was already
 drawn for it. Now an ant picks its next step from every way it can go,

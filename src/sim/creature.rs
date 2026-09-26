@@ -2485,7 +2485,7 @@ fn carried_cells(world: &World, organism: OrganismId, def: &CreatureDef) -> f32 
     let Some(state) = world.organism(organism) else {
         return 0.0;
     };
-    let food = state.crop.map_or(0.0, |c| crop_load_cells(&c, def.body_energy, load_by_cells(), load_scale()));
+    let food = state.crop.map_or(0.0, |c| crop_load_cells(&c, def.body_energy, load_by_cells(), load_scale() * def.food_weight));
     let ground = if state.spoil.is_some() { def.spoil_weight_cells } else { 0.0 };
     food + ground
 }
@@ -23562,7 +23562,13 @@ mod tests {
         assert!(w.found_colony(200, low - 32) > 0, "the bed placed no ants -- the scene is wrong, not the rule");
         let before = w.creature_stats;
         w.decision_log = Some(Vec::new());
-        run(&mut w, 3000);
+        // **6,000 frames, was 3,000 until the crop doubled (2026-09-25).** The
+        // homeward re-roll's chance follows crop fill, which is worth over
+        // capacity, so the same food reads half as full in a 5,760 crop, and in
+        // 3,000 frames not one re-roll fired: the vacuity check below went red.
+        // Doubling the scene restores it without pinning the old crop, since
+        // what this test guards is the reconciliation, not the crop's size.
+        run(&mut w, 6000);
         let rows = w.decision_log.take().expect("the log was on");
         let after = w.creature_stats;
         let count = |f: &dyn Fn(&DecisionRow) -> bool| rows.iter().filter(|r| f(r)).count() as u64;
@@ -29224,9 +29230,13 @@ mod tests {
     /// greenness is evidence about *them*.
     ///
     /// So this asserts the arithmetic directly, paired, on one deterministic
-    /// step. A load worth exactly `body_energy` is one cell of mass on a
-    /// two-cell animal, so a step must cost exactly 1.5x the empty one --
-    /// not "more", which a rounding error also satisfies.
+    /// step. A load worth exactly `body_energy` is `food_weight` cells of mass
+    /// on a two-cell animal, so a step must cost exactly `(2 + food_weight) /
+    /// 2` times the empty one -- not "more", which a rounding error also
+    /// satisfies. 1.5x while food weighed what flesh does; **1.25x since the
+    /// ant's `food_weight` became 0.5 (2026-09-25)**, and the expectation is
+    /// read from the species rather than written in, so a `food_weight` the
+    /// movement charge ignored would read 1.5 against 1.25 and go red.
     #[test]
     fn a_laden_animal_pays_more_to_move_than_an_empty_one() {
         let step_cost = |load: Option<u16>| -> f64 {
@@ -29264,11 +29274,16 @@ mod tests {
         let laden = step_cost(Some(480));
         assert!(empty > 0.0, "the empty arm never moved, so this measures nothing");
 
-        // 2 body cells empty, 3 cell-equivalents laden: exactly 1.5x.
+        // 2 body cells empty, 2 + food_weight cell-equivalents laden.
+        let fw = {
+            let w = test_world();
+            w.species.get(w.species.id_of("ant").expect("ant")).creature.as_ref().expect("creature").food_weight as f64
+        };
+        let expected = (2.0 + fw) / 2.0;
         let ratio = laden / empty;
         assert!(
-            (ratio - 1.5).abs() < 0.02,
-            "a load of one body-cell's worth must make a step cost exactly 1.5x on a two-cell animal: {laden:.4} against {empty:.4} is {ratio:.3}x"
+            (ratio - expected).abs() < 0.02,
+            "a load of one body-cell's worth must make a step cost exactly {expected:.3}x on a two-cell animal at food_weight {fw}: {laden:.4} against {empty:.4} is {ratio:.3}x"
         );
     }
 
