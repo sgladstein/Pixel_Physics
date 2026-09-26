@@ -1,0 +1,64 @@
+{
+  "id": "20260926T160641891Z-86d16b",
+  "created": "2026-09-26T16:06:41Z",
+  "board": "ants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/ant-nest-mouth-4f6s79",
+    "commit": "6281f729",
+    "agent": null,
+    "session_id": "02cfa3f7-cc46-597e-8f90-5488d21d3601",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Home that climbs the pile: the colony builds a food tower over its door",
+  "question": "I tried making home follow whatever piles up on the nest mouth (so the colony's own food cannot bury it). Every lab colony stacked crumbs into a tower instead. I am reverting it and keeping the plain mouth. Anything here you want kept?",
+  "context_md": "Lab box, same seeds and stops for both. **Left**: home is the dug mouth (door + 6-row shaft). **Right**: home is the mouth *and* any unbroken pile over it (`NEST_HOME=mound`). Crumbs do not slide, and ants put food down only at home, so every delivery raises home by up to a cell.\n\nThe first image is seed 7 at five stops (6,300 / 12,600 / 30,600 / 60,300 / 119,700). The sheets are all 12 seeds at 12,600 / 30,600 / 60,300. Nothing here ships: both switches are off by default.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "seed 7, mouth (left) vs mound (right)",
+      "files": [
+        "20260926T160641891Z-86d16b/000-mouth-vs-mound-s7.png"
+      ],
+      "caption": "the tower is ~47 rows at frame 30,600",
+      "meta": {
+        "pile over the door at 30,600, median of 12 seeds": "3 rows vs 34.5",
+        "seeds with a pile over 15 rows by 60,300": "0 vs 12",
+        "lab 'deliveries' (inflated: food put on the tower)": "3,204 vs 8,015",
+        "births / food eaten / colony-frames vs the mouth": "6 up, 6 down each"
+      },
+      "focus": null
+    },
+    {
+      "label": "all 12 seeds, mound",
+      "files": [
+        "20260926T160641891Z-86d16b/001-sheet-mound2.png"
+      ],
+      "caption": "rows = seeds; columns = frames 12,600 / 30,600 / 60,300",
+      "meta": {
+        "seeds with a tower over 15 rows": "7 / 9 / 12 of 12"
+      },
+      "focus": null
+    },
+    {
+      "label": "all 12 seeds, fixed mouth (control)",
+      "files": [
+        "20260926T160641891Z-86d16b/002-sheet-mouth2.png"
+      ],
+      "caption": "same seeds and stops",
+      "meta": {
+        "seeds with a pile over 15 rows": "0 / 0 / 0 of 12"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
