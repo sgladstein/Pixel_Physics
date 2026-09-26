@@ -3975,18 +3975,27 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     gives back (the whole cut: 254), because ants that go down dig at the
     home rate and starve underground (traced: 67% of the never-reachers'
     decisions underground in a 20-row home shaft).
-  - **In the lab box every narrow home carries less food home than the
-    strip, and the dug mouth does not stay open**: `labshot`'s cut census
-    has it buried by frame 30,600 on 11-12 of 12 seeds, under the colony's
-    own delivered food and the roots that grow in it. No variant beats today
-    on both beds; the brief's stop rule ended the variants. Switches only,
-    off and bit-exact.
+  - **In the lab box the dug mouth does not stay open**: `labshot`'s cut
+    census has it buried by frame 30,600 on 11-12 of 12 seeds, under the
+    colony's own delivered food and the roots that grow in it. Every narrow
+    home records fewer deliveries than the strip, but a delivery is a drop
+    made at home, so a smaller home counts fewer by definition; births, food
+    eaten and colony-frames separate no arm from today at 12 seeds.
+  - **A home that follows the pile over the mouth builds a tower**
+    (`NEST_HOME=mound`, built and reverted): the colony stacks food over its
+    door, a median of 34.5 rows at frame 30,600 and over 15 rows on 12 of 12
+    seeds by 60,300 (the fixed mouth: 3, none). Its deliveries rose
+    3,204 → 8,015 and were first read as a success. No variant beats today
+    on both beds; the brief's stop rule ended the variants. The remaining
+    switches stay, off and bit-exact.
   - **The floating dirt over the nest is tunnel lining**; the arch across
     the sky is built by the spoil lift (82% of drops go up the column).
   - Instruments: `digbox` gains a `cut:` line, `tintout=`, and a census with
     the founding cut masked out; its void census counts a collapse as room.
     `labshot` gains the founding-cut census (what fills the cut, how much
-    covers its mouth).
+    covers its mouth). `CreatureStats::pickups_at_nest` is new: a delivery
+    counts any drop at home, and deliveries minus this is the food that came
+    home.
 - [evolution-lab-round-37-brief-2026-09-15.md](evolution-lab-round-37-brief-2026-09-15.md)
   — **brief, 2026-09-15. `lab`/`engine`/`held`.** Opens with **two retracted
   numbers** a reader may have inherited (29.4 is per-bed, not per-ant; the

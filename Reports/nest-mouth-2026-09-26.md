@@ -29,18 +29,30 @@ off; nothing in either game changed.*
   go down dig at the home rate and starve underground. With no paint at all
   more ants make a full loop (456 against 371, p 0.017), but the food they
   bring falls into the hole and is buried, and starvation barely moves (256).
-- **In the lab box every narrow home carries less food home than today's
-  strip**, the dug ones included (lower on 11 or 12 of 12 seeds), **and the
-  dug mouth does not stay open**: it is buried by frame 30,600 on 11 or 12 of
-  12 seeds in every dug arm, under the colony's own delivered food and the
-  roots that grow in it. (That the burial is what cuts the deliveries is
-  likely and not measured.) Colonies lost split by whether the hole is home
-  (2–3 of 12) or not (door 4, door over a plain shaft 5; today 1), but 12
-  seeds cannot separate those counts.
+- **In the lab box the dug mouth does not stay open.** It is buried by
+  frame 30,600 on 11 or 12 of 12 seeds in every dug arm, under the colony's
+  own delivered food and the roots that grow in it. Every narrow home records
+  fewer deliveries than today's strip (lower on 11 or 12 of 12 seeds). But a
+  delivery is a drop made at home, so **a smaller home counts fewer of them
+  by definition**, and a crumb picked up at home and put back counts twice.
+  A new counter measured that: 86% of the strip's deliveries are food picked
+  up at home first (median of 12 seeds). Net of it, **the dug mouth brings
+  home as much as the strip** (604 cells against 712, 6 seeds up and 6 down),
+  and the painted door about half (384, lower on 10 of 12). On the outcomes
+  that do not depend on where home is (births, food eaten, colony-frames and
+  starvation), no arm separates from today at 12 seeds.
+- **A home that follows the pile over the mouth builds a tower.** This was
+  tried once after the stop rule, aimed at the burial. The colony stacks its
+  food over its own door: a median of 34.5 rows high at frame 30,600, and over
+  15 rows on 12 of 12 seeds by 60,300. The fixed mouth's pile stays at a
+  median of 3 rows, with none over 15. Its lab deliveries rose 3,204 → 8,015
+  and were first read as a success. They included every drop on the tower,
+  and over 24 seeds its colony is smaller than today's (colony-frames lower
+  on 17 of 24). Reverted (§6).
 - **So no mouth tried is better than today on both beds, and the look and
   the loop want opposite homes.** The brief's stop rule applies: the variants
-  end here. The switches stay, off and bit-exact on all three harnesses, and
-  whether any becomes the default is the owner's ruling.
+  end here. The remaining switches stay, off and bit-exact on all three
+  harnesses, and whether any becomes the default is the owner's ruling.
 - **The floating dirt over the nest is tunnel lining**, and the arch it forms
   across the sky is built by the spoil lift. That is goal 2's lead, carried by
   review cards, not by this report.
@@ -242,40 +254,59 @@ as often (hidden units 5/6), so the ants in the cavity dig and enlarge it.
 **A home is where a colony spends its time, and this engine's colony spends it
 digging.**
 
-## 5. In the lab box every narrow home carries less food home, and the mouth is buried
+## 5. In the lab box a narrow home records fewer deliveries, and the mouth is buried
 
 §19's setup (`labforage scenario=played_bed frames=120000`, 12 seeds), every
 arm from one binary. That binary's default reproduces the `main` binary's
 seed-1 log in full, and its default and door arms reproduce §19's stored
 medians exactly. Paired against the default:
 
-| lab, 12 seeds, median | deliveries | nest visits | food eaten | births | colonies lost |
-|---|---:|---:|---:|---:|---:|
-| default | 5,396 | 8,948 | 1,158k | 590 | 1 |
-| door (`NEST_DOOR=2`) | 1,279 (0 up / 12 down) | 1,105 (0 / 12) | 1,151k (3 / 9) | 523 (4 / 8) | 4 |
-| door + 6-row shaft | 2,072 (1 / 11) | 1,626 (0 / 12) | 1,039k (5 / 7) | 552 (6 / 6) | 5 |
-| door + 6-row shaft, home = the whole cut | 3,696 (1 / 11) | 3,884 (0 / 12) | 826k (4 / 8) | 310 (5 / 7) | 3 |
-| door + 6-row shaft, home = the mouth | 3,204 (0 / 12) | 1,556 (0 / 12) | 1,060k (4 / 8) | 486 (4 / 8) | 2 |
-| **no paint** + 6-row shaft, home = the mouth | 2,257 (1 / 11) | 1,272 (0 / 12) | 1,062k (6 / 6) | 510 (6 / 6) | 2 |
+| lab, 12 seeds, median | deliveries | nest visits | food eaten | births | colony-frames | colonies lost |
+|---|---:|---:|---:|---:|---:|---:|
+| default | 5,396 | 8,948 | 1,158k | 590 | 10.7M | 1 |
+| door (`NEST_DOOR=2`) | 1,279 (0 up / 12 down) | 1,105 (0 / 12) | 1,151k (3 / 9) | 523 (4 / 8) | 10.6M (5 / 7) | 4 |
+| door + 6-row shaft | 2,072 (1 / 11) | 1,626 (0 / 12) | 1,039k (5 / 7) | 552 (6 / 6) | 8.7M (6 / 6) | 5 |
+| door + 6-row shaft, home = the whole cut | 3,696 (1 / 11) | 3,884 (0 / 12) | 826k (4 / 8) | 310 (5 / 7) | 7.1M (3 / 9) | 3 |
+| door + 6-row shaft, home = the mouth | 3,204 (0 / 12) | 1,556 (0 / 12) | 1,060k (4 / 8) | 486 (4 / 8) | 7.5M (4 / 8) | 2 |
+| **no paint** + 6-row shaft, home = the mouth | 2,257 (1 / 11) | 1,272 (0 / 12) | 1,062k (6 / 6) | 510 (6 / 6) | 9.3M (6 / 6) | 2 |
+
+*Colony-frames* is the number of ants alive summed over the run: `labforage`'s
+ants column, sampled every 900 frames. It is how much colony there was, and
+unlike deliveries it does not depend on where home is.
 
 *Colonies lost* counts a seed whose colony died young (fewer than 50 births
 in 120,000 frames) or was extinct at the end, once. The lab is far more
 chaotic per seed than the bed: on seed 4 the default colony has 60 births and
 the door's 1,615, and on seed 3 the reverse, 1,245 against 5.
 
-**Every narrow home carries less food home than the strip**, lower on 11 or
-12 of 12 seeds, and against the door the dug arms carry more (the home shaft
-12 of 12, the plain shaft 10 of 12, p 0.039, the mouth 9 of 12). **But
-deliveries is not what decides the colony here.** Food eaten, births and
-survivors are what do, and on those the arms split by whether the hole is
-home, not by whether there is paint: the painted door loses 4 colonies of 12
-and the door over a plain shaft 5, while every arm whose hole is home loses 2
-or 3, against the default's 1. Food eaten and births tie the default within
-the spread (4-6 up of 12). In this box ants bud anywhere and eat where they
-find food, so a small home costs the loop count far more than it costs the
-colony. **At 12 seeds, 1 against 2 against 4 lost colonies cannot be told
-apart by any test** (Fisher's exact, 4 of 12 against 2 of 12, p 0.64); the
-deliveries result is the only one here that is not in the noise.
+**Every narrow home records fewer deliveries than the strip**, lower on 11 or
+12 of 12 seeds, and against the door the dug arms record more (the home shaft
+12 of 12, the plain shaft 10 of 12, p 0.039, the mouth 9 of 12). **But a
+delivery is a drop made at home**, so a smaller home counts fewer of them by
+definition, and a crumb picked up at home and put back counts twice. The new
+counter (§7) measures that on the same 12 seeds; the 48 re-runs reproduce
+every other number in the stored logs:
+
+| lab, 12 seeds, median | deliveries | picked up at home | share | net into home |
+|---|---:|---:|---:|---:|
+| default | 5,396 | 4,578 | 86% | 712 |
+| door (`NEST_DOOR=2`) | 1,279 | 956 | 70% | 384 (2 up / 10 down, p 0.039) |
+| door + 6-row shaft, home = the mouth | 3,204 | 2,349 | 80% | 604 (6 / 6) |
+
+**Most of every arm's deliveries are the same food going round**, and the
+strip churns the most. Net of it, the dug mouth brings home as much as the
+strip, so its whole deficit in deliveries was the strip's churn. The painted
+door's loss is real, and about half the size deliveries said. **And deliveries
+is not what decides the colony here.** Food eaten, births, colony-frames and
+survivors are what do, and on those no arm separates from the default: 3 to 6
+of 12 up on every column (the whole cut's colony-frames, 3 / 9, p 0.15).
+Colonies lost split by whether the hole is home, not by whether there is
+paint: the painted door loses 4 colonies of 12 and the door over a plain shaft
+5, while every arm whose hole is home loses 2 or 3, against the default's 1.
+In this box ants bud anywhere and eat where they find food, so a small home
+costs the loop count far more than it costs the colony. **At 12 seeds, 1
+against 2 against 4 lost colonies cannot be told apart by any test** (Fisher's
+exact, 4 of 12 against 2 of 12, p 0.64).
 
 **Does the mouth stay open to the surface? No, and the colony's own food is
 what closes it.** `labshot`'s new census, run on the same 12 seeds (its ant
@@ -302,9 +333,81 @@ and the plants that root in them, and a laden ant on top of that heap is
 above home, not at it. That is §19's buried door again, with the colony
 doing the burying. The mouths reopen by the end (6-9 of 12) as the stand
 dies back. Whether the burial is what cuts deliveries was not measured
-directly: this harness counts no refused drops.
+directly: this harness counts no refused drops. §6 tested it the other way,
+by moving home up onto the pile, and the colony built a tower.
 
-## 6. Instruments this found or fixed
+## 6. A home that follows the pile builds a tower
+
+§5 named the lab's condition: a home fixed at the founding footprint ends up
+under the colony's own deliveries. So one more variant, aimed at that
+mechanism, with its predictions and a stop condition written before any code
+(lane note, predictions 19–22). `PIXEL_PHYSICS_NEST_HOME=mound` made home the
+mouth **and** any unbroken pile over the mouth's columns, of anything but open
+air, gas or spoil, up to 32 rows. Home would rise with whatever the colony
+piles on its doorstep. Spoil was left out because `world.rs`'s
+`register_nest_site` already warns that a re-measured surface "would climb with
+the heap and call the top of a tailings pile home". Food was not, and food is
+what climbed.
+
+**It builds a tower.** Ants put food down only at home, home is now the top
+of the pile, and crumbs do not slide, so every delivery can raise home by a
+cell. The height of the pile over the mouth's columns, above the ground either
+side, was read off `labshot`'s frames. Only brown pile cells count; plants and
+sky do not. Checked against a hand count of seed 7 at frame 30,600: 47 rows by
+hand, 49 by the script. The fixed mouth is the control: the same colony and
+food, with home held at the footprint.
+
+| frame | fixed mouth: median rows (max) | mound: median rows (max) | mound seeds over 15 rows |
+|---:|---:|---:|---:|
+| 12,600 | 5 (10) | 18 (53) | 7 of 12 |
+| 30,600 | 3 (15) | 34.5 (52) | 9 of 12 |
+| 60,300 | 1 (14) | 27.5 (54) | 12 of 12 |
+| 119,700 | 1.5 (8) | 8.5 (50) | 4 of 12 |
+
+No fixed-mouth seed passes 15 rows at any stop. The towers overshoot the
+switch's own reach (32 rows over the rim, so row 127): the highest top is row
+99, 28 rows past it, and 21 of the 32 sightings over 15 rows stand above row
+127. So something other than the home drop raises them further. That was not
+traced. A candidate: crumbs are diggable; a dug crumb is put down by the spoil
+rule, which is not gated on home; and the spoil lift carries pellets up a
+column.
+
+**The number that said it worked.** Prediction 20's stop condition was lab
+deliveries above the fixed mouth's on at least 9 of 12 seeds. They were higher
+on 12 of 12 (median 3,204 → 8,015), and that was reported as the variant
+working before anyone had looked at a frame. But a delivery is a drop made at
+home, and here home was the top of the tower, so the count included the tower
+being built. Most of it was churn, as in every arm: 77% of its deliveries are
+matched by a pickup made at home, against 80% for the fixed mouth. What is
+left, net, is higher than the fixed mouth's on 12 of 12 (2,063 cells against
+604), and that is the tower. Food stacked on it stays, or is taken off its
+flanks by ants that are not at home, which the counter cannot see; for a home
+whose shape separates where food lies from where a picker stands, even the net
+is not a measure of transport.
+
+On the lab's outcomes that do not depend on where home is, the mound and the
+fixed mouth tie on every one: births, food eaten, colony-frames and starvation
+each split 6 up, 6 down. Against the default the mound's colony is smaller:
+colony-frames lower on 9 of 12 seeds, and on 17 of 24 with seeds 13-24 added
+(7.7M against 10.7M, p 0.064), while its deliveries are higher on 19 of 24. On
+the colony bed it starved the fewest of any arm, 188 against the default's 279
+(22 fewer / 2 more). The bed's food is 90 cells out, and by the last stop only
+a few cells stood over the door.
+
+Predictions:
+- **19, wrong:** the bed did better than predicted.
+- **20, right on its letter and wrong on what it meant.**
+- **21, right:** the census's cover over the mouth, a median of 21 cells at
+  30,600 against 4. The census stops at the first gap, so it understates a
+  tower that has ants in it.
+- **22, right:** the digging box's dug nest stays within the mouth arm's
+  spread (a median of 126 cells dug against 141).
+
+**Reverted.** The switch lives in commit `6281f729` and is removed by
+`e6b3537b`; to run it, check out the first and use §8's command. What it leaves
+behind is `CreatureStats::pickups_at_nest` (§7).
+
+## 7. Instruments this found or fixed
 
 - **`digbox`'s void census counts a collapse as room.** Void conserved into
   a surface dip reads as open room, so `roofed + open` cannot see a hole fall
@@ -331,8 +434,22 @@ directly: this harness counts no refused drops.
   deliveries on 11 or 12 of 12 seeds while food eaten and births tie the
   default, because lab ants bud anywhere and eat where they find food. Read
   the colony columns before concluding a home failed there.
+- **A delivery is a drop made at home, so it moves with the size of home.**
+  It also counts a crumb picked up at home and put back again. New:
+  `CreatureStats::pickups_at_nest`, the pickups made on the same test and
+  read before the food leaves. `deliveries - pickups_at_nest` is the food
+  that came home. `labforage` prints both. Read the difference, and
+  colony-frames, whenever two arms define home differently. §6 is the case
+  where reading deliveries alone called a food tower a success.
+- **The height of a pile over the mouth, read off the frames.** `labshot`'s
+  census walks each column up from the mouth and stops at the first gap. A
+  tower with ants in it has gaps, so the census reads a lower bound: 21 cells
+  at 30,600 on a pile the frames put at 34.5 rows. §6's heights come from the
+  saved frames instead. The surface is the median top of the ground either
+  side of the mouth, and the pile is the brown cells over the mouth's columns
+  above it, allowing two-row gaps.
 
-## 7. Commands
+## 8. Commands
 
 ```
 # the shaft at frame 0 and after (A1)
@@ -353,4 +470,10 @@ RAYON_NUM_THREADS=1 PIXEL_PHYSICS_COLONY_SPACING=2 PIXEL_PHYSICS_STACK_DEPTH=4 P
 RAYON_NUM_THREADS=1 [switches] labforage scenario=played_bed frames=120000 seed=N
 # the lab mouth census and pictures
 [switches] labshot scenario=played_bed seed=N frames=6300,12600,30600,60300,119700 out=…
+# the mound (§6): at the commit that carries it, the lab box and labshot as above with
+PIXEL_PHYSICS_NEST_DOOR=2 PIXEL_PHYSICS_NEST_SHAFT=6 PIXEL_PHYSICS_NEST_HOME=mound
+# its pile height, off labshot's frames (512x320 a stop, the mouth at x 256..257, row 160):
+#   sky = blue above red by 6+; brown = red > 90, red > green + 15, green > blue;
+#   surface = median top of the ground at x 206..235 and 278..305;
+#   pile = walk up x 254..261 from the surface while a row holds a brown cell, gaps of 2 allowed
 ```

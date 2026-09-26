@@ -23,16 +23,28 @@ the live question, what is addressed to another lane, predictions and heads.*
 
 ## Live question
 
-**Answered, and the stop rule applied: no mouth tried is better than today on
-both beds.** Bed (24 seeds, starved against 277): door 209, door + mouth as
-home 221, door + whole cut as home 254, no paint + mouth 256. Lab (12 seeds):
-every narrow home carries less food home than the strip, and the dug mouth is
-buried by frame 30,600 on 11-12 of 12 seeds under the colony's own delivered
-food and the roots that grow in it. Two variants failing the lab the same way
-is the brief's stop; written up in the report and in `dead-ends.md`. The
-switches stay, off and bit-exact. What would reopen it: a home that follows
-the ground over the mouth (a site test, not a fixed footprint), or deliveries
-that stop piling in the mouth. Changing the default is the owner's ruling.
+**Answered, and the stop rule applied twice: no mouth tried is better than
+today on both beds.** Bed (24 seeds, starved against 277): door 209, door +
+mouth as home 221, door + whole cut as home 254, no paint + mouth 256. Lab (12
+seeds): the dug mouth is buried by frame 30,600 on 11-12 of 12 seeds under the
+colony's own delivered food and the roots that grow in it. Every narrow home
+records fewer deliveries than the strip, but a delivery is a drop made at home,
+so a smaller home counts fewer of them by definition. The lab's outcomes that
+do not depend on where home is (births, food eaten, colony-frames, starvation)
+separate no arm from the default at 12 seeds. A new counter says 86% of the
+strip's deliveries are food picked up at home first; net of that, the dug
+mouth brings home as much as the strip (604 against 712 cells, 6 / 6) and the
+painted door about half (384, lower on 10 of 12).
+
+**The one variant tried after the stop rule failed on sight.** A home that
+follows the pile over the mouth (`NEST_HOME=mound`, predictions 19-22) is what
+this note said would reopen it. In the lab it makes the colony stack its food
+into a tower over the door: a median of 34.5 rows at frame 30,600, and over 15
+rows on 12 of 12 seeds by 60,300. The fixed mouth stays at a median of 3 rows
+(0 of 12 over 15). Its 8,015 deliveries were read as a win before anyone looked
+at a frame. Reverted, report §6. What would reopen the line now: delivered
+food that slides, so a pile widens as it grows, or deliveries that stop piling
+in the mouth. Changing the default is the owner's ruling.
 
 ## For the loop session
 
@@ -57,6 +69,18 @@ that stop piling in the mouth. Changing the default is the owner's ruling.
 - **Echo request, your file**: `trailfollow`'s header does not name
   `PIXEL_PHYSICS_NEST_DOOR` / `_SHAFT` / `_HOME`, so a bed log does not say
   which nest it ran. Not touched here.
+- **`deliveries` depends on how big home is, and so does the funnel's
+  "looped".** A delivery is any drop made at home, so a crumb lifted off the
+  nest and put straight back counts twice, and a bigger home counts more
+  drops. New on this branch: `CreatureStats::pickups_at_nest`, the pickups
+  made on the same predicate, read before the mouthful leaves.
+  `deliveries - pickups_at_nest` is the net flow home. `labforage` prints it;
+  `trailfollow` (yours) does not yet. Starvation is the bed measure that does
+  not move with home's size. **Measured in the lab (12 seeds): 86% of the
+  default strip's deliveries are food picked up at home first**, so net,
+  §19's door is 712 -> 384 cells (lower on 10 of 12, p 0.039), not
+  5,396 -> 1,279. That is the cycle your L1185 entry was built to break, seen
+  in the lab; the §19 entry is written back.
 - **How this reached you**: the trigger poke the brief prescribed failed.
   `session_01AFH5xR442VuoZsXm7VzJmx` is "not found" from this session's
   account, so this note is the channel. PR #493 carries all of it.
@@ -83,6 +107,10 @@ that stop piling in the mouth. Changing the default is the owner's ruling.
 | 16 | both mouth arms, lab | near door + shaft 6 (2,072), well under the home shaft's 3,696; lower than the default on ≥ 10 of 12 | no paint: right (2,257; 1 / 11), and not what matters: births, food eaten and extinctions tie the default |
 | 17 | door 2 + mouth, lab: extinctions | as the door (4 of 12), because the paint is what gets buried | wrong: 2 of 12 failed (door 4, no-paint mouth 2, default 1); home, not paint, is what matters there |
 | 18 | lab census, 12 seeds: is the mouth open at frame 30,600? | buried on ≥ 9 of 12 in both mouth arms; the whole-cut home keeps it open on ≥ 4 of 12 | right on the mouth arms (11 and 12 of 12 buried); wrong on the whole cut (buried 12 of 12). The cover is the colony's own food and roots, not litter |
+| 19 | door 2 + shaft 6 + `NEST_HOME=mound`, bed | within ±20 of the mouth arm's 221: the bed mouth is not buried much | wrong, better: 188 (default 279: 22 fewer / 2 more; the mouth arm: 16 / 6) |
+| 20 | mound, lab | deliveries above the mouth arm on ≥ 9 of 12, median ≥ 4,000; STOP if not | right on its letter (12 of 12, 8,015) and wrong on what it meant: 77% of the deliveries were food picked up at home first, and the rest built a tower (report §6); births, food eaten, colony-frames and starvation split 6 / 6 against the mouth arm |
+| 21 | mound, lab census | the heap over the mouth taller than under the mouth arm (median cover at 30,600 > 4) | right: census cover 21 against 4; read off the frames, a tower of 34.5 rows (median) against 3 |
+| 22 | mound, `digbox` 40 ants | nest shape within the mouth arm's spread | right: 126 cells dug (median) against 141 |
 
 ## Cards with the owner
 
@@ -98,6 +126,10 @@ that stop piling in the mouth. Changing the default is the owner's ruling.
 - `20260926T064023411Z-ec6018` — the dug mouth in the lab box, buried by the
   colony's own food: should a lab nest keep its mouth open?
 
+- `20260926T160641891Z-86d16b` — home that climbs the pile: every lab colony
+  builds a food tower over its door; reverting (seed 7 at five stops, all 12
+  seeds at three, the fixed mouth as control).
+
 ## Head SHAs
 
 - `636612c6` — branch cut from `main`.
@@ -112,3 +144,10 @@ that stop piling in the mouth. Changing the default is the owner's ruling.
   entry written back.
 - `6ef76d7f` — `main` merged in again (#492, scouting); bed default and
   door + mouth re-checked identical; 1,962 tests pass.
+- `5ced0c9a` — review fixes: one founding cut per site; the door anchor
+  reads only its own cut.
+- `6281f729` — `NEST_HOME=mound`, the one variant after the stop rule.
+- `4d9262f4` — `CreatureStats::pickups_at_nest`, printed by `labforage`.
+- `e6b3537b` — the mound reverted: every lab colony built a food tower.
+- The commit after it — the verdict corrected: lab deliveries are 86% churn,
+  the dug mouth brings home as much as the strip, the tower in the report's §6.
