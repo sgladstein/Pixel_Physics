@@ -1868,7 +1868,24 @@ pub struct CreatureStats {
     pub drops: u64,
     /// Drops that happened at the nest — food actually delivered home.
     /// **The number that proves the loop rather than its parts.**
+    ///
+    /// **Except when home is what changed.** A drop at home counts whatever
+    /// the food's history, so a crumb lifted off the colony's own heap and
+    /// put straight back reads as a round trip. Read it against
+    /// `pickups_at_nest` below, and always when two arms define home
+    /// differently: a bigger home counts more drops by definition.
     pub deliveries: u64,
+    /// **Food picked up while at the nest**, on the predicate `deliveries`
+    /// counts drops on, and read before the mouthful leaves the world.
+    /// `deliveries - pickups_at_nest` is the net flow of food cells into
+    /// home, which is what `deliveries` is usually read as.
+    ///
+    /// Added 2026-09-26 (`Reports/nest-mouth-2026-09-26.md` §6-§7), when a
+    /// home that climbed the colony's own food heap raised deliveries
+    /// 3,204 -> 8,015 (median of 12 lab seeds, against the fixed mouth) while
+    /// births, food eaten and colony-frames split 6 / 6. The heap was a
+    /// tower, and every drop on its top counted as a delivery.
+    pub pickups_at_nest: u64,
     /// **Not a trip counter, and not a sessility guard — read
     /// `forage_trips` for either.** It increments on any move made while
     /// nest-adjacent, guarded on `OrganismState::since_nest > 0`; but

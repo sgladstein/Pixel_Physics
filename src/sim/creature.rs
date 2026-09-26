@@ -10491,6 +10491,13 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // call, so a picture of the food in a world cannot disagree
                 // with what an animal gets for biting it.
                 let bite = world.get(fxx, fyy);
+                // **Home is read before the mouthful leaves**, for
+                // `pickups_at_nest` below: under `PIXEL_PHYSICS_NEST_HOME=
+                // mound` the cell being bitten can be the pile that makes the
+                // head's cell home, and asking after it is gone would miss
+                // exactly the pickups the counter exists to see. The same
+                // predicate the drop's `deliveries` uses, so the two subtract.
+                let picked_at_home = nest_within_reach(world, organism, x, y, def);
                 // **A flower an animal can afford to feed at pays nectar and
                 // stays standing** -- the box's first renewable food, and the
                 // mechanism the pollinator design needs before an animal can
@@ -10735,6 +10742,9 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     });
                 }
                 world.creature_stats.pickups += 1;
+                if picked_at_home {
+                    world.creature_stats.pickups_at_nest += 1;
+                }
                 // `bites` mirrors `pickups` and never `eats` -- see
                 // `LifeCounters`. Its own lookup: the `organism_mut` above is
                 // inside the crop-update block and does not reach here.
@@ -19271,6 +19281,82 @@ mod tests {
             // Off the mouth's columns, a pile is never home.
             assert!(!adjacent_nest(w, 64, 36, &def), "under NEST_HOME=mound a head beside the mouth's columns is not home");
         }
+    }
+
+    /// **A pickup beside the nest is counted as one at home, and one away is
+    /// not** (`CreatureStats::pickups_at_nest`), on the shipped material
+    /// home. The counter is the far side of `deliveries`: a crumb picked up
+    /// here and dropped here again is two events and no food moved.
+    #[test]
+    fn a_pickup_on_the_nest_counts_at_home_and_one_away_does_not() {
+        let bite = |x: i32| {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 63, 63));
+            let nest = Cell::new(w.materials.id_of("nest").expect("nest material"), 0).with_attached(true);
+            let crumbs = w.materials.id_of("crumbs").expect("crumbs material");
+            for cx in 0..64 {
+                for cy in 41..64 {
+                    w.set(cx, cy, if (10..=24).contains(&cx) && cy == 41 { nest } else { stone });
+                }
+            }
+            let a = spawn(&mut w, "ant", x, 40);
+            let (hx, hy) = w.organism(a).expect("live").chain[0];
+            let spot = NEIGHBOURS_8
+                .iter()
+                .map(|&(dx, dy)| (hx + dx, hy + dy))
+                .find(|&(sx, sy)| w.get(sx, sy).is_empty() && !w.get(sx, sy + 1).is_empty())
+                .expect("an empty cell on the floor beside the head");
+            w.set(spot.0, spot.1, Cell::new(crumbs, 0).with_aux(480));
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+            outputs[brain::BrainOutput::Feed as usize] = 1.0;
+            let mut draw = rng::stream(1, a as u64, 0, RNG_SLOT_MOVE);
+            act(&mut w, hx, hy, a, &def, &outputs, &mut draw);
+            assert!(w.get(spot.0, spot.1).is_empty(), "the ant at x {x} should have eaten the crumb beside it");
+            (w.creature_stats.pickups, w.creature_stats.pickups_at_nest)
+        };
+        assert_eq!(bite(17), (1, 1), "a crumb eaten standing on the nest is picked up at home");
+        assert_eq!(bite(45), (1, 0), "a crumb eaten well away from the nest is not");
+    }
+
+    /// **A crumb eaten off the pile that makes the head's cell home is a
+    /// pickup at home** (`CreatureStats::pickups_at_nest`). Under `=mound`
+    /// the bite removes the very cell that held the head up, so home has to
+    /// be read before the mouthful leaves; read after, this pickup is lost,
+    /// and it is exactly the kind the counter exists to see. Under `=mouth`
+    /// the same bite is away from home.
+    #[test]
+    fn a_crumb_eaten_off_the_pile_over_the_mouth_is_picked_up_at_home_only_under_mound() {
+        let bite_off_the_pile = |home: NestHome| {
+            let mut w = World::new(Rect::new(0, 0, 119, 99));
+            let soil = w.materials.id_of("soil").expect("soil material");
+            let crumbs = w.materials.id_of("crumbs").expect("crumbs material");
+            for x in 0..=119 {
+                for y in 40..=99 {
+                    let stone = y >= 92 || x == 0 || x == 119;
+                    w.set(x, y, if stone { Cell::new(material::STONE, 0) } else { Cell::new(soil, 0) });
+                }
+            }
+            w.register_nest_site(60, 38, 2);
+            assert!(w.cut_founding_shaft(60, 38, 16, 2, true) > 0, "the cut removed nothing");
+            // Crumbs three high over column 60 (rows 37..39), each worth half a fruit.
+            for y in 37..=39 {
+                w.set(60, y, Cell::new(crumbs, 0).with_aux(480));
+            }
+            w.nest_home = Some(home);
+            let a = spawn(&mut w, "ant", 60, 36);
+            let (hx, hy) = w.organism(a).expect("live").chain[0];
+            assert_eq!((hx, hy), (60, 36), "the head should stand on the pile");
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+            outputs[brain::BrainOutput::Feed as usize] = 1.0;
+            let mut draw = rng::stream(1, a as u64, 0, RNG_SLOT_MOVE);
+            act(&mut w, hx, hy, a, &def, &outputs, &mut draw);
+            assert!(w.get(60, 37).is_empty(), "the ant should have eaten the crumb under its head");
+            (w.creature_stats.pickups, w.creature_stats.pickups_at_nest)
+        };
+        assert_eq!(bite_off_the_pile(NestHome::Mound), (1, 1), "under NEST_HOME=mound the bite is taken at home");
+        assert_eq!(bite_off_the_pile(NestHome::Mouth), (1, 0), "under NEST_HOME=mouth the same bite is away from home");
     }
 
     /// **A site gets one founding cut.** A second founding at a site that

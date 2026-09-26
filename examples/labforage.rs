@@ -2013,7 +2013,18 @@ fn main() {
     // that authors a `nest` -- `creature.rs`'s `adjacent_nest` returns
     // `false` for ever without one, so a run on `ancestor` reads 0 here by
     // construction rather than by failure.
-    println!("  round trips: deliveries {} nest visits {}", st.deliveries, st.nest_visits);
+    // **...and `pickups_at_nest`, because a delivery is a drop at home
+    // whatever the food's history.** A crumb lifted off the colony's own heap
+    // and put straight back is a second delivery of one cell; the difference
+    // is the net flow home, and the only one of the two that means the same
+    // thing in two arms whose home differs (`world.rs`'s doc on the field).
+    println!(
+        "  round trips: deliveries {} nest visits {} | picked up at home {} -> net into home {}",
+        st.deliveries,
+        st.nest_visits,
+        st.pickups_at_nest,
+        st.deliveries as i64 - st.pickups_at_nest as i64
+    );
     // **A2 -- the seed rides home.** `Reports/evolution-lab-ecology-design-
     // 2026-09-10.md` §2.6/§2.7, Brief A2. `nest_cols` is already computed
     // above (scenario `Colony` entries or `LabBox::colony_columns`) for the
@@ -2250,7 +2261,7 @@ fn main() {
 
     println!(
         "SUMMARY seed={} founders={} colonies={} frames={frames} handout={handout} cols={cols} plants={} windfall={} fruit_dropped={} edible={} unvisited={} floor={} aloft={} \
-         peak_edible={peak_edible} eats={} born={} died={} alive={} intake={:.0} burn={:.0} shares={} shared_j={:.0} moves={} deliveries={} nest_visits={} \
+         peak_edible={peak_edible} eats={} born={} died={} alive={} intake={:.0} burn={:.0} shares={} shared_j={:.0} moves={} deliveries={} pickups_at_nest={} nest_visits={} \
          regime={} bud_site={} buds_held_for_nest={} births_denied_no_space={} breeders={} gen={} bgen={} windfall_bitten={} seeds_spilled={} plants_from_pip={} pips_rotted={} pips_eaten={} \
          windfall_bitten_ownerless={} seeds_carried={} seeds_delivered={} plants_from_pip_near_nest={} seed_transit_median={} lookup={} visits={} \
          flower_visits={} nectar_paid={:.0} nectar_j_per_1000f={:.2} organs_built={} bloom_seen={} \
@@ -2278,7 +2289,7 @@ fn main() {
          idle_streaks_any={} idle_streak_max_any={} idle_streak_p90_any={}",
         spec.seed, spec.founders, spec.colonies, last.plants, last.windfall, world.fruit_dropped, last.edible, last.unvisited, last.floor, last.aloft,
         st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves,
-        st.deliveries, st.nest_visits,
+        st.deliveries, st.pickups_at_nest, st.nest_visits,
         std::env::var("PIXEL_PHYSICS_BREEDING").unwrap_or_else(|_| "individual".to_string()),
         // Where an animal may bud (`creature::bud_at_nest`), and how many buds
         // the nest rule held back: the "did it fire" counter for that arm.
