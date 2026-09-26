@@ -15,6 +15,15 @@ predictions below it; head SHAs at the bottom.*
   founder placement; this lane writes no door or founder-placement code until
   §19 lands, then builds on it.
 
+## Standing owner rulings for this lane
+
+- **2026-09-26: "Make sure you are not using too many ants in your tests and
+  always take snapshots at multiple times."** So `digbox` runs at 40 ants
+  with `energy=1000` (below the 1,100 budding threshold, and the box has no
+  food, so the count stays 40), and every picture is several stops, never
+  one frame. The 300-ant settings bred past 800 ants by frame 6,000; results
+  taken there (A2, A5 below) are marked as such.
+
 ## What this lane is for, in the world's words
 
 1. **First: one mouth every ant goes in and out of.** Today founding paints a
@@ -100,7 +109,17 @@ and its middle half is 29 columns wide against 56.
 **Bed baseline, reference binary:** 24 seeds reproduce the stored §18
 default funnel line for line (starved 277, loops 366).
 
-**A5, does a colony keep the hole** (`digbox`, 300 ants, 6,000 frames, seeds
+**A5 at 40 ants (the owner's ruling above), 12,000 frames, stops 0/3k/6k/12k,
+seeds 1–12:** a 20-row hole that is home: nest narrower in its middle half
+11 / 1 (39.5 → 17 columns), deeper 10 / 2, bigger 11 / 1; not home, narrower
+11 / 1 only; 10-row home, narrower 12 / 0. The hole silts to a median 35 of
+82 open by 12,000 (packed wall and loose soil). No chambers anywhere; almost
+nothing floats (1–28 stranded cells). Cards `…044019146Z-52a96c` (the shaft,
+four stops) and `…044022784Z-77bab8` (gray pixels, four stops) replace the
+300-ant ones, which are marked superseded; the `UNPACK` card is withdrawn
+(nothing for it to remove at 40 ants).
+
+**A5 at 300 ants, the crowded box** (`digbox`, 6,000 frames, seeds
 1–12, one binary; scored on the colony's own digging, i.e. with the founding
 cut masked out of the census, because a shaft arm with no ants at all reads a
 13-column room by construction). Seed by seed against the default:

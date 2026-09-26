@@ -14,12 +14,13 @@ off; nothing in either game changed.*
   census that should have caught it held steady throughout, because the void
   moved up into the dip. Lined the way an ant lines a tunnel, it stands: 82 of
   82 cells open at frame 300.
-- **A founding hole concentrates the whole nest, on every seed.** In the bare
-  digging box, with the hole masked out of the census so only the colony's own
-  digging counts, the room's middle half is narrower on 12 of 12 seeds (45 →
-  27–30 columns) and deeper on 11–12 of 12, in every shaft arm. When the hole
-  also counts as home, rooms that meet the owner's chamber measure appear on
-  8–10 of 12 seeds where the default has almost none.
+- **A founding hole concentrates the nest.** In the bare digging box at 40
+  ants, with the hole masked out of the census so only the colony's own
+  digging counts, a 20-row hole the colony treats as home gives a dug nest
+  narrower in its middle half on 11 of 12 seeds (39.5 → 17 columns), deeper on
+  10 of 12 and bigger on 11 of 12. The hole silts up to about half open by
+  frame 12,000. (In a crowded 300-ant box the effect is 12 of 12 in every
+  shaft arm.)
 - **Making the hole home costs the foraging loop.** On the colony bed, a
   home shaft swallows ants: they go down, dig and haul at the home dig rate,
   and starve underground. A hole that is *not* home is neutral on open
@@ -71,8 +72,12 @@ unlined cut as its control; watched red with the lining disabled.
 
 ## 2. What the floating dirt is
 
-`digbox` at the settings the owner judged (300 ants, 6,000 frames, seed 0),
-drawn plain and painted by class from one run (`tintout=`):
+`digbox` at the settings the owner judged (300 ants, 6,000 frames, seed 0;
+a crowd that breeds past 800, see §3), drawn plain and painted by class from
+one run (`tintout=`). **At 40 ants the arch does not form** — 1–28 stranded
+cells across four seeds, 0–2 with `UNPACK` on — so everything in this section
+is a big-colony effect, which is the regime the owner's own complaint came
+from:
 
 - The grey grit is **tunnel lining**, 1,396 cells in view (421 above the old
   ground line), and **ants**, 1,234 cells. Lining has its own greyer palette.
@@ -88,10 +93,31 @@ lining back to falling spoil. On this seed the arch goes: stranded ground
 
 ## 3. A founding hole concentrates the nest
 
-`digbox`, 300 ants, 6,000 frames, seeds 1–12, one binary. **Scored with the
-founding cut masked out of the census**: a shaft arm with no ants at all reads
-a 13-column room by construction, and the masked census reads 0 there. Seed
-by seed against the default:
+**Owner, 2026-09-26: "Make sure you are not using too many ants in your tests
+and always take snapshots at multiple times."** The 300-ant settings below
+breed past 800 ants by frame 6,000 (`digbox`'s endowment of 20,000 lets every
+ant bud), so the primary result is the modest one: **40 ants at `energy=1000`**
+(under the 1,100 budding threshold, in a box with no food, so the count stays
+40), 12,000 frames, census at frames 0/3,000/6,000/12,000, seeds 1–12, one
+binary, scored with the founding cut masked out. Against the default:
+
+| arm | own room bigger | deeper | middle-half narrower | median middle half |
+|---|---|---|---|---|
+| default | | | | 39.5 columns |
+| lined shaft, 10 rows | 7 / 5 | 3 / 7 | 5 / 7 | 31 |
+| shaft is home, 10 rows | 8 / 4 | 4 / 7 | **12 / 0** | 18 |
+| lined shaft, 20 rows | 5 / 7 | 6 / 6 | **11 / 1** | 21.5 |
+| shaft is home, 20 rows | **11 / 1** | **10 / 2** | **11 / 1** | 17 |
+
+At this size the hole silts up: by frame 12,000 a median 35 of the 20-row
+cut's 82 cells are still open (11–18 of 42 at 10 rows), filled mostly by
+packed tunnel wall and loose soil; home against not home barely changes that
+(more open on 6–7 of 12). No chamber reaches the owner's measure in any arm.
+Almost nothing floats: 1–28 cells of ground with no path to the floor across
+four seeds.
+
+**The crowded box, for the record** — 300 ants, 6,000 frames, same scoring.
+Here the effect is stronger and the cut is full of ants rather than dirt:
 
 | arm | own room | depth | height / width | middle-half width | chambers |
 |---|---|---|---|---|---|

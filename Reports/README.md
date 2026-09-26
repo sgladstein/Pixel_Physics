@@ -3948,11 +3948,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     surface and still counted as open room. Lined as an ant lines a tunnel,
     it stands (82 of 82 cells open at frame 300). It also freezes the world's
     genesis before cutting, so it draws as a hole rather than as sky.
-  - **A founding hole concentrates the whole nest, on every seed.** In
-    `digbox`, with the hole masked out of the census, the middle half of the
-    room is narrower on 12 of 12 seeds (45 → 27–30 columns) and deeper on
-    11–12. When the hole is also home (`PIXEL_PHYSICS_NEST_HOME=shaft`),
-    rooms that meet the owner's chamber measure appear on 8–10 of 12 seeds.
+  - **A founding hole concentrates the nest.** In `digbox` at 40 ants (the
+    owner's instruction: modest colonies, several snapshots), with the hole
+    masked out of the census, a 20-row hole that is home
+    (`PIXEL_PHYSICS_NEST_HOME=shaft`) gives a nest narrower in its middle half
+    on 11 of 12 seeds (39.5 → 17 columns) and deeper on 10 of 12; the hole
+    silts to about half open by frame 12,000. A crowded 300-ant box (which
+    breeds past 800) shows it on 12 of 12 in every arm.
   - **On the colony bed a home shaft swallows ants.** Traced: the ants that
     never find food spend 67% of their decisions underground and die there.
     A hole that is not home is neutral on open ground (door + 6-row shaft:
