@@ -1,0 +1,82 @@
+{
+  "id": "20260926T064023411Z-ec6018",
+  "created": "2026-09-26T06:40:23Z",
+  "board": "nest",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/ant-nest-mouth-4f6s79",
+    "commit": "9d1c93ac",
+    "agent": null,
+    "session_id": "02cfa3f7-cc46-597e-8f90-5488d21d3601",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The dug mouth in the lab box: the colony buries it with its own food",
+  "question": "Should a nest in the lab box keep its mouth open (a door that follows the ground up as things pile on it), even though the colony does about as well with it buried?",
+  "context_md": "**Where this is going:** one mouth every ant goes in and out of. On open ground a small home pays (previous card). In the lab box this is what happens to it.\n\nEach column is the lab box at frames 6,300, 12,600, 30,600, 60,300 and 119,700, same seed, zoomed on the nest. The colony arrives at frame 6,000. **Magenta marks the ants**; the white outline marks painted nest ground.\n\n1. **Today:** the painted strip.\n2. **The painted door.**\n3. **The door with a mouth dug under it**, the mouth as home.\n4. **The dug mouth, no paint.**\n\n**What happens to the hole, counted over 12 seeds:** 300 frames after founding the mouth is reachable from the surface on 5-7 of 12 seeds; by frame 30,600 on 0-1 of 12. What buries it is **the food the colony brings home** (it drops it at home, which is the mouth) and **roots**: the colony is founded into ground the plants already fill, the dig cannot cut living roots, and seeds in the dropped fruit grow there. A laden ant standing on that heap is above home, not at it. By the end, as the plants die back, most mouths are open again.\n\n**The trade:** every small home, painted or dug, brings less food home than today's strip (lower on 11-12 of 12 seeds). But in this box ants breed anywhere and eat where they find food, so the colony's food eaten and births come out about the same, and colonies lost are 1 (today), 4 (painted door), 2 (either dug mouth) of 12 -- too few seeds to separate.\n\nNothing in the game changed; it is all behind switches.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "Today: the painted strip",
+      "files": [
+        "20260926T064023411Z-ec6018/000-lab-default.png"
+      ],
+      "caption": "frames 6,300 / 12,600 / 30,600 / 60,300 / 119,700",
+      "meta": {
+        "food carried home (median of 12 seeds)": 5396,
+        "colonies lost (of 12)": 1,
+        "a dug mouth": "none"
+      },
+      "focus": null
+    },
+    {
+      "label": "The painted door",
+      "files": [
+        "20260926T064023411Z-ec6018/001-lab-door2.png"
+      ],
+      "caption": "frames 6,300 / 12,600 / 30,600 / 60,300 / 119,700",
+      "meta": {
+        "food carried home (median of 12 seeds)": "1,279 (less than today on 12 of 12)",
+        "colonies lost (of 12)": 4,
+        "a dug mouth": "none"
+      },
+      "focus": null
+    },
+    {
+      "label": "The door with a dug mouth",
+      "files": [
+        "20260926T064023411Z-ec6018/002-lab-mouth2.png"
+      ],
+      "caption": "frames 6,300 / 12,600 / 30,600 / 60,300 / 119,700",
+      "meta": {
+        "food carried home (median of 12 seeds)": "3,204 (less than today on 12 of 12)",
+        "colonies lost (of 12)": 2,
+        "mouth reachable from the surface at frame 30,600": "0 of 12 seeds",
+        "cells piled over the mouth at the five frames, this seed": "0 / 1 / 2 / 2 / 0"
+      },
+      "focus": null
+    },
+    {
+      "label": "A dug mouth, no paint",
+      "files": [
+        "20260926T064023411Z-ec6018/003-lab-mouth0.png"
+      ],
+      "caption": "frames 6,300 / 12,600 / 30,600 / 60,300 / 119,700",
+      "meta": {
+        "food carried home (median of 12 seeds)": "2,257 (less than today on 11 of 12)",
+        "colonies lost (of 12)": 2,
+        "mouth reachable from the surface at frame 30,600": "1 of 12 seeds",
+        "cells piled over the mouth at the five frames, this seed": "0 / 1 / 4 / 7 / 0"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": false,
+    "comment": true,
+    "annotations": true
+  }
+}
