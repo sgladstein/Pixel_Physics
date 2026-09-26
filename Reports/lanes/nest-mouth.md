@@ -24,21 +24,31 @@ the live question, what is addressed to another lane, predictions and heads.*
 ## Live question
 
 **Does a dug mouth keep what §19's door buys on the bed, and fix what it loses
-in the lab?** On a scratch merge of §19 (PR #491, not landed) and this branch:
-bed, door 209 starved / door + 6-row shaft 195 / + shaft as home 254; lab
-deliveries, door 1,279 (stored) / + shaft 2,072 (10 up of 12) / + shaft as home
-3,651 (11 of 11). The home shaft helps the lab and hurts the bed. My own
-default and door lab arms are running for one-binary pairing.
+in the lab?** §19 landed (PR #491) and is merged into this branch. Bed, 24
+seeds, starved against the default's 277: door 209, door + 6-row shaft 195,
+door + shaft with the mouth as home 221, door + shaft with the whole cut as
+home 254, no paint + shaft with the mouth as home 256. Every arm clears the
+bar against the default, and none beats the door. Lab deliveries against the
+default's 5,396: door 1,279, door + shaft 2,072, door + home shaft 3,696 (each
+lower on 11 or 12 of 12); the two mouth arms are running, with a census of
+what covers the mouth (`labshot`).
 
 ## For the loop session
 
-- §19's founder anchor is computed from `colony_surface` *after* founding,
-  and founding now can cut a shaft (`PIXEL_PHYSICS_NEST_SHAFT`), in which case
-  every founder's home lands on the chamber floor. The scratch merge takes it
-  from the site's recorded surface instead (`NestSite::surface`); identical
-  without a shaft. To be proposed with the PR that builds on §19.
+- §19's founder anchor was computed from `colony_surface` *after* founding,
+  and founding can now cut a shaft (`PIXEL_PHYSICS_NEST_SHAFT`), in which case
+  every founder's home landed on the chamber floor. Fixed on this branch in
+  `found_colony_with`: it reads the surface the cut recorded
+  (`NestSite::shaft`). The door arm reproduces §19's logs line for line, and
+  guard `a_door_over_a_founding_shaft_homes_every_founder_at_the_mouth` was
+  watched red.
+- §19's guard `a_nest_door_paints_its_width_and_anchors_every_founder_at_it`
+  was inserted between `every_lifetime_counter_closes_against_its_world_total`
+  and that test's doc comment, so the doc now sits over the door test. Left
+  alone here; it is yours.
 - **L1185 and L1186** (`AtNest:Feed`, the `Drop` wiring) name "the nest has one
-  mouth" as their re-test condition; §19's door meets it on the bed.
+  mouth" as their re-test condition; §19's door and the dug mouth both meet
+  it on the bed, behind switches. Written back to both entries; not re-tested.
 
 ## Predictions (written before each run)
 
@@ -55,7 +65,13 @@ default and door lab arms are running for one-binary pairing.
 | 9 | door on the scratch merge | reproduces 209 | right |
 | 10 | door + shaft 6, bed | within ±15 of the door | right (195) |
 | 11 | door + home shaft 6, bed | worse by > 15 | right (254) |
-| 12 | door + shaft 6 (home or not), lab | deliveries recover toward 5,396 | partly: 2,072 / 3,651 (default arm pending) |
+| 12 | door + shaft 6 (home or not), lab | deliveries recover toward 5,396 | partly: 2,072 / 3,696, both lower than the default on 11 of 12 |
+| 13 | final binary, bed default and door | every line of the reference and of the scratch-merge door | right (396 lines × 3 each) |
+| 14 | door 2 + shaft 6 + `NEST_HOME=mouth`, bed | within ±15 of door + shaft 6 (195): the door's own paint already makes the rim and first row home, so the mouth adds two cells | wrong: 221 (against the door 10 / 9) |
+| 15 | no paint (door 0) + shaft 6 + mouth, bed | within ±20 of the door's 209; loops within ±10% of 465 | wrong on starved (256; 7 fewer / 16 more against the door), right on loops (445) |
+| 16 | both mouth arms, lab | near door + shaft 6 (2,072), well under the home shaft's 3,696; lower than the default on ≥ 10 of 12 | no paint: right (2,257; 1 / 11), and not what matters: births, food eaten and extinctions tie the default |
+| 17 | door 2 + mouth, lab: extinctions | as the door (4 of 12), because the paint is what gets buried | wrong: 2 of 12 failed (door 4, no-paint mouth 2, default 1); home, not paint, is what matters there |
+| 18 | lab census, 12 seeds: is the mouth open at frame 30,600? | buried on ≥ 9 of 12 in both mouth arms; the whole-cut home keeps it open on ≥ 4 of 12 | |
 
 ## Cards with the owner
 

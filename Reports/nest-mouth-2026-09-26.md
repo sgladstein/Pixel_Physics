@@ -152,15 +152,40 @@ branch reproduces the reference binary's three logs line for line.
 | 10 | 265 (14 / 7) | 315 (8 / 14) |
 | 20 | 293 (11 / 12) | 309 (8 / 15); 4 wide **376 (4 / 18, p 0.004)** |
 
-**On §19's door** (a scratch merge of PR #491 and this branch, never pushed;
-the default is bit-exact there too, and the door reproduces §19's 209):
+**On §19's door**, with the mouth modes. The last two rows are from this
+branch after `main` was merged in; its default reproduces the reference logs
+line for line, and its door reproduces the scratch merge's door line for line
+(so the anchor fix moves nothing without a shaft). The rows above them come
+from a scratch merge of PR #491 and this branch, whose default and door were
+bit-exact the same way.
 
-| arm | starved | against the door | loops |
-|---|---:|---|---:|
-| default | 277 | | 366 |
-| door (`NEST_DOOR=2`) | 209 | | 465 |
-| door + 6-row shaft | 195 | 13 fewer / 10 more | 423 |
-| door + 6-row shaft, home | 254 | 8 fewer / 14 more | 377 |
+| arm | starved | against the default | against the door | loops |
+|---|---:|---|---|---:|
+| default | 277 | | | 366 |
+| door (`NEST_DOOR=2`) | 209 | 18 fewer / 4 more (p 0.004) | | 465 |
+| door + 6-row shaft | 195 | 19 / 4 (p 0.003) | 13 / 10 | 423 |
+| door + 6-row shaft, home = the mouth | 221 | 18 / 4 (p 0.004) | 10 / 9 | 395 |
+| door + 6-row shaft, home = the whole cut | 254 | 13 / 10 | 8 / 14 | 377 |
+| **no paint** + 6-row shaft, home = the mouth | 256 | 15 / 9 (p 0.31) | 7 / 16 (p 0.09) | 445 |
+
+**One home point is what pays, painted or dug; the deeper home reaches into
+the hole, the more of that it gives back** (the door 209, home to the mouth
+221, home to the whole cut 254). Every arm clears the bar against the
+default: no more starved, no fewer loops. None beats the painted door.
+
+Without paint, more ants make a loop (295 against 229) and fewer never reach
+the food (145 dead against 200), but ants that made exactly one loop starve
+at 44% against 32%. **Traced, every one-loop ant that starved** (77): 65 of
+them made their delivery inside the mouth rather than on the surface (26 of
+47 with the door and the shaft, 10 of 54 with the door alone), and one ant's
+life (seed 1, ant 4) shows the rest. After its loop at frame 5,436 it stayed
+in and around the mouth for about 13,000 frames at full energy, eating and
+re-dropping the food others brought, standing still most of the time. Then it
+walked west and up the box wall, and starved at frame 23,292 without going
+back to the food. That is the old never-reached failure arriving later rather
+than a new one. Food carried into the hole is also
+buried more often: 286 crumbs over the 24 runs have no open neighbour,
+against 96 on the default.
 
 The funnel puts the loss at the first stage: with the 20-row, 4-wide home
 shaft beside the strip, ants that ever reach the food fall **271 → 145**,
@@ -185,8 +210,38 @@ digging.**
 
 ## 5. The lab
 
-*(pending — the painted door fails there on 12 of 12 seeds because plant
-litter buries it; the question is whether a dug mouth stays open.)*
+§19's setup (`labforage scenario=played_bed frames=120000`, 12 seeds), every
+arm from one binary. That binary's default reproduces the `main` binary's
+seed-1 log in full, and its default and door arms reproduce §19's stored
+medians exactly. Paired against the default:
+
+| lab, 12 seeds, median | deliveries | nest visits | food eaten | births | colonies lost |
+|---|---:|---:|---:|---:|---:|
+| default | 5,396 | 8,948 | 1,158k | 590 | 1 |
+| door (`NEST_DOOR=2`) | 1,279 (0 up / 12 down) | 1,105 (0 / 12) | 1,151k (3 / 9) | 523 (4 / 8) | 4 |
+| door + 6-row shaft | 2,072 (1 / 11) | 1,626 (0 / 12) | 1,039k (5 / 7) | 552 (6 / 6) | 5 |
+| door + 6-row shaft, home = the whole cut | 3,696 (1 / 11) | 3,884 (0 / 12) | 826k (4 / 8) | 310 (5 / 7) | 3 |
+| door + 6-row shaft, home = the mouth | 3,204 (0 / 12) | 1,556 (0 / 12) | 1,060k (4 / 8) | 486 (4 / 8) | 2 |
+| **no paint** + 6-row shaft, home = the mouth | 2,257 (1 / 11) | 1,272 (0 / 12) | 1,062k (6 / 6) | 510 (6 / 6) | 2 |
+
+*Colonies lost* counts a seed whose colony died young (fewer than 50 births
+in 120,000 frames) or was extinct at the end, once. The lab is far more
+chaotic per seed than the bed: on seed 4 the default colony has 60 births and
+the door's 1,615, and on seed 3 the reverse, 1,245 against 5.
+
+**Every narrow home carries less food home than the strip**, lower on 11 or
+12 of 12 seeds, and against the door the dug arms carry more (the home shaft
+12 of 12, the plain shaft 10 of 12, p 0.039, the mouth 9 of 12). **But
+deliveries is not what decides the colony here.** Food eaten, births and
+survivors are what do, and on those the arms split by whether the hole is
+home, not by whether there is paint: the painted door loses 4 colonies of 12
+and the door over a plain shaft 5, while every arm whose hole is home loses 2
+or 3, against the default's 1. Food eaten and births tie the default within
+the spread (4-6 up of 12). In this box ants bud anywhere and eat where they
+find food, so a small home costs the loop count far more than it costs the
+colony. **At 12 seeds, 1 against 2 against 4 lost colonies cannot be told
+apart by any test** (Fisher's exact, 4 of 12 against 2 of 12, p 0.64); the
+deliveries result is the only one here that is not in the noise.
 
 ## 6. Instruments this found or fixed
 
