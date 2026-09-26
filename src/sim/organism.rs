@@ -6155,6 +6155,22 @@ pub struct OrganismState {
     /// direct line and follows the passage, and an ant that is closing on home
     /// trusts it again within a few steps. 1.0 at rest.
     pub home_patience: f32,
+    /// **The scout's memory of getting further from home** (`creature::
+    /// scout_of`), the mirror of `home_best`: the furthest this animal has
+    /// been, level distance in cells, from `scout_for` on this excursion.
+    /// Read and written only while scouting is on and the animal is hungry,
+    /// empty and has a home to scout from.
+    pub scout_best: f32,
+    /// The home point `scout_best` was measured from. A new one -- every nest
+    /// contact re-anchors -- starts a new excursion.
+    pub scout_for: (i32, i32),
+    /// **How much the scout still trusts going further**, in `[0, 1]`:
+    /// decays on every step that gets it no further than `scout_best`,
+    /// recovers on every step that does. 1.0 at rest.
+    pub scout_patience: f32,
+    /// **Given up and heading home.** Set when `scout_patience` runs out;
+    /// cleared by the next nest contact, which starts the next excursion.
+    pub scout_home: bool,
     /// **A fading memory of the trail strength under this animal's own feet**,
     /// in the same normalised units `sense` reads the plane in.
     ///

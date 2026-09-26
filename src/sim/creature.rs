@@ -12558,9 +12558,24 @@ const AWAY_GAIN: f32 = 1.0;
 /// **Scouting: how hard a hungry empty ant off a route is drawn away from
 /// home.** `PIXEL_PHYSICS_SCOUT=<gain>`, or `World::scout` for one world
 /// (`scout_of`). Under `Chooser::TrailAway` a heading scores `gain x hunger x
-/// (1 - presence) x cos(heading, away from home)` on top of `AWAY_GAIN`'s
-/// term, where hunger is `1 - energy / start_energy` -- the brain's `Energy`
-/// input turned over -- and home is `home_target`, the last nest contact.
+/// (1 - presence) x level cos(heading, away from home)` on top of
+/// `AWAY_GAIN`'s term, where hunger is `1 - energy / start_energy` -- the
+/// brain's `Energy` input turned over -- home is `home_target`, the last nest
+/// contact, and *level* means the cosine of the heading's sideways part alone.
+///
+/// **Level because radial pinned scouts to walls.** Measured first as a
+/// radial cosine, 24 seeds on the colony bed at gain 1: ants that died up a
+/// wall or ceiling went 85 -> 180, 77 of them on the west edge wall at a
+/// median 91 cells up -- once an ant stands above home, away from home
+/// includes *up*, and it keeps climbing.
+///
+/// **And out and back, because level alone pinned them harder.** Level with
+/// no memory: 165 died up a wall, 137 of them pressed into the west edge
+/// wall, moving a median 1 cell in their last 1,000 frames. So the outbound
+/// pull carries a patience, the mirror of the laden ant's (`SCOUT_GIVE_UP`),
+/// and a scout out of patience walks home at the same gain until a nest
+/// contact starts its next excursion -- the desert ant's search, a run out
+/// and a run back.
 /// So it is the complement of `AWAY_GAIN`: that one gives an empty ant a
 /// direction on a route, this one off it, and a well-fed ant has neither.
 ///
@@ -12588,6 +12603,13 @@ pub fn scout_from_env() -> f32 {
             .unwrap_or(0.0)
     })
 }
+
+/// **When a scout gives up and heads home**: its patience, which falls by
+/// `PATIENCE_DECAY` on every step that gets it no further out than it has
+/// been, under this -- 22 such steps from full, the laden ant's measure of a
+/// dead end. A scout pressed against a wall gets no further out, so it turns
+/// for home rather than pressing on; its next nest contact sends it out again.
+const SCOUT_GIVE_UP: f32 = 0.1;
 
 /// This world's scouting gain: `World::scout` if set, else the environment's.
 pub fn scout_of(world: &World) -> f32 {
@@ -12740,7 +12762,6 @@ fn chooser_step(
     let k = CHOICE_EXPLORATION_K * brain::unit_scale(outputs[brain::BrainOutput::Tumble as usize], 2.0);
     let gain = pull.map_or(0.0, |(_, g)| HOME_GAIN * g * patience);
     let laden = world.organism(organism).and_then(|s| s.crop).is_some_and(|c| c.worth() > 0.0);
-    let route = |d: u8| if reads_trail { trail_presence(world, (hx, hy), d, laden) } else { 0.0 };
     // **Which way along a route, for an empty ant** (`AWAY_GAIN`): the
     // cosine of each heading with home, from `home_target` as the laden ant
     // uses it. `None` for a laden ant, one hauling spoil, or one standing on
@@ -12774,6 +12795,37 @@ fn chooser_step(
         let (dx, dy) = DIRS[d as usize];
         Some((dx as f32 * vx + dy as f32 * vy) / (len * DIR_LEN[(d & 1) as usize]))
     };
+    // **The excursion** (`OrganismState::scout_best`): started again at every
+    // new home point, and read as the outbound pull's patience and whether
+    // the scout has given up and is heading home. Touched only while the
+    // term is on, so a fed ant's state is never written.
+    let (scout_patience, scout_home) = match away_from {
+        Some((ax, _)) if scout_w > 0.0 => {
+            let st = world.organism_mut(organism).expect("live: its chain was just read");
+            if st.scout_for != away_from.expect("matched Some") {
+                st.scout_for = away_from.expect("matched Some");
+                st.scout_best = (hx - ax).abs() as f32;
+                st.scout_patience = 1.0;
+                st.scout_home = false;
+            }
+            (st.scout_patience, st.scout_home)
+        }
+        _ => (1.0, false),
+    };
+    let route = |d: u8| if reads_trail { trail_presence(world, (hx, hy), d, laden) } else { 0.0 };
+    // **Level, not radial**: the home cosine of the heading's sideways part
+    // alone, so a heading straight up or down scores 0. Radial, an ant above
+    // home level is drawn upward, and on the colony bed that drove scouts 91
+    // cells up the world's edge walls (`scout_of`).
+    let scout_cos = |d: u8| -> Option<f32> {
+        let (ax, _) = away_from?;
+        let vx = ax - hx;
+        if vx == 0 {
+            return None;
+        }
+        let (dx, _) = DIRS[d as usize];
+        Some((dx * vx.signum()) as f32 / DIR_LEN[(d & 1) as usize])
+    };
     let score = |d: u8| -> f32 {
         let rel = (d + 8 - heading) % 8;
         let side = match rel {
@@ -12785,7 +12837,13 @@ fn chooser_step(
             + side
             + home_cos(d).map_or(0.0, |c| gain * c)
             + away_home_cos(d).map_or(0.0, |c| -AWAY_GAIN * route(d) * c)
-            + if scout_w > 0.0 { away_home_cos(d).map_or(0.0, |c| -scout_w * (1.0 - route(d)) * c) } else { 0.0 }
+            + if scout_w <= 0.0 {
+                0.0
+            } else if scout_home {
+                away_home_cos(d).map_or(0.0, |c| scout_w * (1.0 - route(d)) * c)
+            } else {
+                scout_cos(d).map_or(0.0, |c| -scout_w * scout_patience * (1.0 - route(d)) * c)
+            }
     };
     // Usable headings in `DIRS` order, then the crossing, so the draw maps to
     // the same option every run.
@@ -12813,6 +12871,24 @@ fn chooser_step(
         return false;
     }
     commit_step(world, organism, def, body, &authored, &authored_widths, heading, options[pick], push);
+
+    // Did that step take the scout further out? The mirror of the home
+    // memory below, level distance only, and a scout out of patience turns
+    // for home until its next nest contact.
+    if let (Some((ax, _)), true) = (away_from, scout_w > 0.0 && !scout_home) {
+        let state = world.organism_mut(organism).expect("live: it just stepped");
+        let nx = state.chain.first().map_or(hx, |c| c.0);
+        let level = (nx - ax).abs() as f32;
+        if level > state.scout_best + PATIENCE_PROGRESS {
+            state.scout_best = level;
+            state.scout_patience = (state.scout_patience + PATIENCE_RECOVER).min(1.0);
+        } else {
+            state.scout_patience *= PATIENCE_DECAY;
+            if state.scout_patience < SCOUT_GIVE_UP {
+                state.scout_home = true;
+            }
+        }
+    }
 
     // Did that step close on home?
     if let Some(((ax, ay), _)) = pull {
@@ -24212,19 +24288,23 @@ mod tests {
         assert!(away_net >= 20 && away_far >= 20, "under TrailAway the ant should turn and walk away from home: net {away_net}, furthest east {away_far}");
     }
 
-    /// **Scouting: off any route, a hungry empty ant is drawn away from home,
-    /// and a fed one is not touched** (`scout_of`). A bare floor with no
-    /// trail anywhere; the ant starts 80 cells east of its last nest contact,
-    /// facing home. With no scouting it walks on west toward home, which is
-    /// the control that the scene can show a direction at all. With the
-    /// gain on and energy held at a quarter, it turns and walks east. The fed
-    /// arm holds energy at `start_energy`, where hunger is 0 and the term is
-    /// never added, so its walk must match the no-scouting walk position for
-    /// position. **Watched red** with the scout term removed from the score:
-    /// the hungry arm walks west with the control.
+    /// **Scouting: off any route, a hungry empty ant runs out from home and,
+    /// pressed against a wall, gives up and runs back; a fed one is not
+    /// touched** (`scout_of`, `SCOUT_GIVE_UP`). A bare floor with no trail
+    /// anywhere, a wall at each end; the ant starts 80 cells east of its last
+    /// nest contact, facing home. With no scouting it walks on west toward
+    /// home, the control that the scene can show a direction at all. With
+    /// the gain on and energy held at a quarter, it turns and runs east to
+    /// the wall, gives up there (`scout_home`, the "it fired" count), and
+    /// comes back at least 20 cells (the effect, from the far side of the
+    /// call). The fed arm holds energy at `start_energy`, where hunger is 0
+    /// and the term is never added, so its walk must match the no-scouting
+    /// walk position for position. **Watched red** twice: with the scout
+    /// term removed from the score the hungry arm walks west with the
+    /// control, and with the give-up never set it stays at the wall.
     #[test]
-    fn off_a_route_a_hungry_empty_ant_scouts_away_from_home_and_a_fed_one_does_not() {
-        let walk = |scout: f32, fed: f32| -> Vec<(i32, i32)> {
+    fn off_a_route_a_hungry_empty_ant_scouts_out_and_back_and_a_fed_one_does_not() {
+        let walk = |scout: f32, fed: f32| -> (Vec<(i32, i32)>, bool) {
             let stone = Cell::new(material::STONE, 0).with_attached(true);
             let mut w = World::new(Rect::new(0, 0, 159, 63));
             for x in 0..160 {
@@ -24246,21 +24326,30 @@ mod tests {
                 st.heading = 4;
                 st.forage_anchor = (20, 40);
             }
-            let mut path = Vec::new();
-            for _ in 0..900 {
+            let (mut path, mut gave_up) = (Vec::new(), false);
+            for _ in 0..3000 {
                 w.organism_mut(ant).expect("live").energy = energy;
                 run(&mut w, 1);
                 let st = w.organism(ant).expect("live");
                 assert!(st.crop.is_none(), "the ant must stay empty");
+                assert_eq!(st.forage_anchor, (20, 40), "the ant touched a nest: the scene has lost its home point");
+                gave_up |= st.scout_home;
                 path.push(st.chain[0]);
             }
-            path
+            (path, gave_up)
         };
         let start = 100;
-        let net = |p: &[(i32, i32)]| p.last().expect("walked").0 - start;
-        let (control, hungry) = (walk(0.0, 0.25), walk(2.0, 0.25));
-        assert!(net(&control) <= -20, "with no scouting the ant should walk on toward home, and it moved {}: the scene cannot show a direction", net(&control));
-        assert!(net(&hungry) >= 20, "a hungry ant scouting should turn and walk away from home, and it moved {}", net(&hungry));
+        let (control, control_gave_up) = walk(0.0, 0.25);
+        let (hungry, gave_up) = walk(2.0, 0.25);
+        let furthest = |p: &[(i32, i32)]| p.iter().map(|c| c.0).max().expect("walked");
+        let control_far = furthest(&control);
+        assert!(control[899].0 - start <= -20 && !control_gave_up, "with no scouting the ant should walk on toward home: the scene cannot show a direction");
+        let far = furthest(&hungry);
+        assert!(far >= 150 && far > control_far, "a hungry scout should run east to the wall (x 158), and got no further than {far}");
+        let at = hungry.iter().position(|c| c.0 == far).expect("it was there");
+        let back = hungry[at..].iter().map(|c| c.0).min().expect("walked");
+        assert!(gave_up, "the scout never gave up at the wall");
+        assert!(far - back >= 20, "the scout gave up at the wall but came back only {} cells", far - back);
         assert_eq!(walk(0.0, 1.0), walk(2.0, 1.0), "a fed ant's walk changed with scouting on");
     }
 

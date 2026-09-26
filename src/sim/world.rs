@@ -6667,6 +6667,10 @@ impl World {
             home_best_at: (0, 0),
             home_away: 0,
             home_patience: 1.0,
+            scout_best: 0.0,
+            scout_for: (i32::MIN, i32::MIN),
+            scout_patience: 1.0,
+            scout_home: false,
             // Zero is "no memory yet"; the first tick's read sees `live - 0`,
             // which normalises to +1 and decays to the true reading within a
             // few ticks. See `OrganismState::phero_a_mem`.
