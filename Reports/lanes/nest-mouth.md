@@ -83,6 +83,10 @@ that stop piling in the mouth. Changing the default is the owner's ruling.
 - `…e86359` (`UNPACK`) withdrawn: at 40 ants there is nothing for it to remove.
 - `20260926T061431136Z-a29145` — blind: the painted door against the dug
   mouth with no paint, as GIFs of ants coming home (bed, seed 1).
+- `20260926T064019633Z-0211cf` — four foundings on the colony bed, five
+  stops, with both beds' counts in meta: which reads as a nest?
+- `20260926T064023411Z-ec6018` — the dug mouth in the lab box, buried by the
+  colony's own food: should a lab nest keep its mouth open?
 
 ## Head SHAs
 
