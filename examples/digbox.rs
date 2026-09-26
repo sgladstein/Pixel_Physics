@@ -195,6 +195,22 @@ fn build_graded(b: &Box2, wet: u16, grad: Option<(u16, u16)>) -> World {
 /// to the aggregation** and one that is a uniform rise everywhere can be
 /// told apart, which is Stage 2's own check that can fail.
 fn census(world: &World, b: &Box2) -> (usize, usize, usize, usize, i32, i32, i32, i32) {
+    census_masked(world, b, &|_, _| false)
+}
+
+/// [`census`], with the cells `skip` names left out of every room count
+/// (the ground in them still roofs what is below, as ground does).
+///
+/// **For the founding cut, which the colony did not dig.** Measured
+/// 2026-09-26 over twelve seeds: every arm with a shaft read the room's
+/// middle half **narrower on 12 of 12** and deeper on 11-12 -- but the cut's
+/// own chamber is ~40 roofed cells at the centre and its floor sits 22 rows
+/// down, so part of that is the census counting what founding handed the
+/// colony. `CLAUDE.md`'s question -- *what does this number count when
+/// nothing is wrong?* -- answered: a shaft arm with no ants reads a room by
+/// construction. Scoring the room with the cut masked out is what separates
+/// "the colony dug a deeper, narrower nest" from "the census found the hole".
+fn census_masked(world: &World, b: &Box2, skip: &dyn Fn(i32, i32) -> bool) -> (usize, usize, usize, usize, i32, i32, i32, i32) {
     let (mut roofed, mut open) = (0, 0);
     // **Cells below the old surface that hold an animal.**
     //
@@ -238,6 +254,8 @@ fn census(world: &World, b: &Box2) -> (usize, usize, usize, usize, i32, i32, i32
                 && cell.organism_id() == 0;
             if is_ground {
                 covered = true;
+            } else if skip(x, y) {
+                continue;
             } else if cell.material == material::EMPTY {
                 if covered {
                     roofed += 1;
@@ -265,7 +283,7 @@ fn census(world: &World, b: &Box2) -> (usize, usize, usize, usize, i32, i32, i32
                 continue;
             }
             let is_room = cell.material == material::EMPTY || kind == MaterialKind::Creature;
-            if is_room && covered {
+            if is_room && covered && !skip(x, y) {
                 x0 = x0.min(x);
                 x1 = x1.max(x);
                 y0 = y0.min(y);
@@ -291,7 +309,7 @@ fn census(world: &World, b: &Box2) -> (usize, usize, usize, usize, i32, i32, i32
                 covered = true;
                 continue;
             }
-            if covered && (cell.material == material::EMPTY || kind == MaterialKind::Creature) {
+            if covered && !skip(x, y) && (cell.material == material::EMPTY || kind == MaterialKind::Creature) {
                 per_col[x as usize] += 1;
             }
         }
@@ -862,6 +880,11 @@ fn main() {
 
     let frames: u64 = arg("frames").unwrap_or(12_000);
     let out: Option<String> = arg("out");
+    // **`tintout=` writes the same stops a second time with every class of
+    // ground painted flat**, from the same run -- so the plain sheet and the
+    // tinted one are the same instants, not two runs that happened to agree.
+    // See [`tint`] for the colours and why they are a full replace.
+    let tint_out: Option<String> = arg("tintout");
     let scale: u32 = arg("scale").unwrap_or(3);
 
     let wet: u16 = arg("wet").unwrap_or(material::SOIL_FIELD_CAPACITY);
@@ -1011,6 +1034,27 @@ fn main() {
         Some(r) => println!("  AtNest: SITE-based, reach {r} rows (PIXEL_PHYSICS_NEST_SITE_ROWS)"),
         None => println!("  AtNest: shipped material test (8-adjacency to a nest cell, ~1 row)"),
     }
+    // **Echoed because nothing did**: a log alone could not say whether the
+    // founding shaft was on, so an arm and its control were indistinguishable
+    // after the fact -- the stale-harness failure `CLAUDE.md` records.
+    match pixel_physics::sim::creature::nest_shaft_rows() {
+        Some(r) => println!(
+            "  founding: DUG shaft {r} rows x {} wide + entrance chamber (PIXEL_PHYSICS_NEST_SHAFT / _WIDTH), cut lined: {}",
+            pixel_physics::sim::creature::nest_shaft_width(),
+            std::env::var("PIXEL_PHYSICS_BURROW_LINING").as_deref() != Ok("off")
+        ),
+        None => println!("  founding: painted strip only, nothing dug (PIXEL_PHYSICS_NEST_SHAFT unset)"),
+    }
+    match pixel_physics::sim::creature::nest_home(&world) {
+        pixel_physics::sim::creature::NestHome::Material => {}
+        pixel_physics::sim::creature::NestHome::Shaft => {
+            println!("  home: the painted nest AND the founding cut (PIXEL_PHYSICS_NEST_HOME=shaft) -- in the shaft, the chamber or on the mouth's rim an ant is AtNest")
+        }
+        pixel_physics::sim::creature::NestHome::Mouth => println!(
+            "  home: the painted nest AND the founding cut's mouth (PIXEL_PHYSICS_NEST_HOME=mouth) -- on the rim or in the first {} rows down an ant is AtNest; deeper it is away",
+            pixel_physics::sim::creature::NEST_MOUTH_ROWS
+        ),
+    }
     println!();
     println!(
         "  soil wetness {wet} of {} saturated ({}); the column the dig decision actually reads is `wet grad`",
@@ -1036,6 +1080,10 @@ fn main() {
         None => (0..=frames).step_by((frames / 6).max(1) as usize).collect(),
     };
     let mut shots: Vec<Vec<u8>> = Vec::new();
+    let mut tinted_shots: Vec<Vec<u8>> = Vec::new();
+    if tint_out.is_some() {
+        println!("  tint: spoil ORANGE, tunnel lining (packedsoil) CYAN, nest WHITE, ants MAGENTA, loose soil above the old ground line YELLOW, stone left grey");
+    }
 
     for f in 0..=frames {
         if f > 0 {
@@ -1059,14 +1107,22 @@ fn main() {
                 st.digs,
                 roofed + open + bodies
             );
+            if let Some(line) = cut_census(&world) {
+                println!("{line}");
+            }
             if flag("trace") {
                 trace(&world);
             }
-            if out.is_some() {
+            if out.is_some() || tint_out.is_some() {
                 let (vw, vh) = (b.w as u32, b.h as u32);
                 let mut buf = vec![0u8; (vw * vh * 4) as usize];
                 let touched = world.take_touched_chunks();
                 renderer.draw(&world, &particles, &touched, &mut buf, (vw, vh), true);
+                if tint_out.is_some() {
+                    let mut tinted = buf.clone();
+                    tint(&world, &b, &mut tinted);
+                    tinted_shots.push(tinted);
+                }
                 shots.push(buf);
             }
         }
@@ -1106,6 +1162,20 @@ fn main() {
         "SUMMARY chambers={} median={}h x{}w widest={}w passage={} contrast={:.1}x   -- owner spec 2026-09-20: passage ~4, chamber 8-16 tall and wider than tall, 2-4x contrast",
         ch.count, ch.med_h, ch.med_w, ch.max_w, ch.passage, ch.contrast
     );
+    if let Some(line) = cut_census(&world) {
+        println!("SUMMARY {}", line.trim());
+    }
+    {
+        // Printed for every arm, so an arm with no cut reads the plain census
+        // again and the two lines compare like for like across arms.
+        let cut = world.nest_sites.iter().find_map(|s| s.shaft);
+        let (r, o, _, bd, w, h, iq, _) = census_masked(&world, &b, &|x, y| cut.is_some_and(|c| c.contains(x, y)));
+        println!(
+            "SUMMARY dug by the colony, outside the founding cut: room_total={} room={w}w x{h}h vert={:.2} iqr={iq}",
+            r + o + bd,
+            if w > 0 { h as f64 / w as f64 } else { 0.0 }
+        );
+    }
     // **Can the one remaining candidate demonstrate itself?**
     //
     // `CLAUDE.md`: *check that a planned step can demonstrate itself, before
@@ -1344,43 +1414,145 @@ fn main() {
     }
 
     if let Some(path) = out {
-        // **`crop=x,y,w,h` in world cells, because a 400-wide box drawn
-        // whole is 99% undisturbed dirt.** The nest is 50-odd columns of a
-        // 400-column world and the question is always what happened *at*
-        // it, so a sheet of the whole box puts the answer in a twentieth of
-        // its own picture -- which the owner reads on a phone. Same spelling
-        // as `examples/filmstrip`'s.
-        let (cx0, cy0, cw, ch) = match arg::<String>("crop") {
-            Some(v) => {
-                let n: Vec<i32> = v.split(',').map(|p| p.trim().parse().expect("crop=x,y,w,h")).collect();
-                assert_eq!(n.len(), 4, "crop= wants x,y,w,h in world cells, got `{v}`");
-                (n[0].clamp(0, b.w - 1), n[1].clamp(0, b.h - 1), n[2], n[3])
-            }
-            None => (0, 0, b.w, b.h),
-        };
-        let (cw, ch) = (cw.min(b.w - cx0).max(1), ch.min(b.h - cy0).max(1));
-        let (tw, th) = (cw as u32, ch as u32);
-        let (sw, sh) = (tw * scale, th * shots.len() as u32 * scale);
-        let mut sheet = vec![0u8; (sw * sh * 4) as usize];
-        for (i, tile) in shots.iter().enumerate() {
-            let y0 = i as u32 * th * scale;
-            for y in 0..th {
-                for ry in 0..scale {
-                    let dst_row = ((y0 + y * scale + ry) * sw * 4) as usize;
-                    for x in 0..tw {
-                        let src = (((y + cy0 as u32) * b.w as u32 + x + cx0 as u32) * 4) as usize;
-                        let px = &tile[src..src + 4];
-                        for rx in 0..scale {
-                            let dst = dst_row + ((x * scale + rx) * 4) as usize;
-                            sheet[dst..dst + 4].copy_from_slice(px);
-                        }
+        write_sheet(&path, &shots, &b, scale);
+    }
+    if let Some(path) = tint_out {
+        write_sheet(&path, &tinted_shots, &b, scale);
+    }
+}
+
+/// One column of stops, top to bottom, magnified by `scale` and cut to
+/// `crop=`.
+///
+/// **`crop=x,y,w,h` in world cells, because a 400-wide box drawn whole is
+/// 99% undisturbed dirt.** The nest is 50-odd columns of a 400-column world
+/// and the question is always what happened *at* it, so a sheet of the whole
+/// box puts the answer in a twentieth of its own picture -- which the owner
+/// reads on a phone. Same spelling as `examples/filmstrip`'s.
+fn write_sheet(path: &str, shots: &[Vec<u8>], b: &Box2, scale: u32) {
+    let (cx0, cy0, cw, ch) = match arg::<String>("crop") {
+        Some(v) => {
+            let n: Vec<i32> = v.split(',').map(|p| p.trim().parse().expect("crop=x,y,w,h")).collect();
+            assert_eq!(n.len(), 4, "crop= wants x,y,w,h in world cells, got `{v}`");
+            (n[0].clamp(0, b.w - 1), n[1].clamp(0, b.h - 1), n[2], n[3])
+        }
+        None => (0, 0, b.w, b.h),
+    };
+    let (cw, ch) = (cw.min(b.w - cx0).max(1), ch.min(b.h - cy0).max(1));
+    let (tw, th) = (cw as u32, ch as u32);
+    let (sw, sh) = (tw * scale, th * shots.len() as u32 * scale);
+    let mut sheet = vec![0u8; (sw * sh * 4) as usize];
+    for (i, tile) in shots.iter().enumerate() {
+        let y0 = i as u32 * th * scale;
+        for y in 0..th {
+            for ry in 0..scale {
+                let dst_row = ((y0 + y * scale + ry) * sw * 4) as usize;
+                for x in 0..tw {
+                    let src = (((y + cy0 as u32) * b.w as u32 + x + cx0 as u32) * 4) as usize;
+                    let px = &tile[src..src + 4];
+                    for rx in 0..scale {
+                        let dst = dst_row + ((x * scale + rx) * 4) as usize;
+                        sheet[dst..dst + 4].copy_from_slice(px);
                     }
                 }
             }
         }
-        image::save_buffer(&path, &sheet, sw, sh, image::ColorType::Rgba8).expect("writing the sheet");
-        println!("wrote {path} ({sw}x{sh}, {} stops top to bottom)", shots.len());
     }
+    image::save_buffer(path, &sheet, sw, sh, image::ColorType::Rgba8).expect("writing the sheet");
+    println!("wrote {path} ({sw}x{sh}, {} stops top to bottom)", shots.len());
+}
+
+/// **Every class of ground painted flat**, so a sheet says *what* each pixel
+/// is rather than leaving it to a brown against a slightly greyer brown.
+///
+/// Owner, on a sheet of this very box (card `20260920T052914002Z-a24f02`):
+/// *"what are all the gray pixels in the image?"* The worked soils carry
+/// their own palette -- `packedsoil.ron` and `spoil.ron` share one, a
+/// desaturated brown next to `soil`'s warmer one -- so at play zoom the
+/// lining of every tunnel and every dumped pellet reads as grey grit. A
+/// picture cannot say which is which; this can.
+///
+/// **A full replace on fixed colours, never a blend** (`CLAUDE.md`'s *a
+/// debug readout must not be a function of the thing it debugs*): a
+/// magnitude blend into the cell's own colour once made a working overlay
+/// read as blank. The precedents are `soilfork`'s and `hangcensus`'s orange.
+///
+/// - `spoil` (a dumped pellet): **orange**
+/// - `packedsoil` (tunnel lining, tamped ground): **cyan**
+/// - `nest` (the painted door or strip): **white**
+/// - an animal: **magenta**
+/// - loose `soil` standing above the old ground line (a heap that was
+///   spoil and slumped, or ground that fell): **yellow**
+///
+/// Stone, sky, water and dug void are left as the renderer drew them.
+fn tint(world: &World, b: &Box2, buf: &mut [u8]) {
+    let id = |n: &str| world.materials.id_of(n);
+    let (spoil, packed, nest, soil) = (id("spoil"), id("packedsoil"), id("nest"), id("soil"));
+    for y in 0..b.h {
+        for x in 0..b.w {
+            let cell = world.get(x, y);
+            let rgb: Option<[u8; 3]> = if cell.material == material::EMPTY {
+                None
+            } else if cell.organism_id() != 0 && world.materials.kind(cell.material) == MaterialKind::Creature {
+                Some([255, 0, 200])
+            } else if Some(cell.material) == spoil {
+                Some([255, 140, 0])
+            } else if Some(cell.material) == packed {
+                Some([0, 210, 255])
+            } else if Some(cell.material) == nest {
+                Some([255, 255, 255])
+            } else if Some(cell.material) == soil && y < b.surface {
+                Some([255, 230, 0])
+            } else {
+                None
+            };
+            if let Some(c) = rgb {
+                let i = ((y * b.w + x) * 4) as usize;
+                buf[i..i + 3].copy_from_slice(&c);
+                buf[i + 3] = 255;
+            }
+        }
+    }
+}
+
+/// **What is standing in the founding cut now**, one line, or `None` when no
+/// site carries a cut (`PIXEL_PHYSICS_NEST_SHAFT` unset).
+///
+/// **The census above cannot answer "is the shaft still there", and it is the
+/// trap this line exists for.** Its `open` column counts empty cells in the
+/// original soil block that the sky can see, so when an unlined cut collapses
+/// the void does not vanish -- the roof falls into the chamber and the soil
+/// column over it drops, and the same volume reappears as a dip in the
+/// surface. Measured 2026-09-26, `NEST_SHAFT=20`, no ants: `roofed + open`
+/// read **82 at every stop** while the shaft and chamber were gone by frame
+/// 5. This counts the cut's own cells, from the footprint the cut recorded on
+/// its site (`NestSite::shaft`), so a collapse reads as a collapse.
+fn cut_census(world: &World) -> Option<String> {
+    let fp = world.nest_sites.iter().find_map(|s| s.shaft)?;
+    let id = |n: &str| world.materials.id_of(n);
+    let (spoil, packed, soil) = (id("spoil"), id("packedsoil"), id("soil"));
+    let cells = fp.cells();
+    let (mut open, mut ants, mut soils, mut lining, mut pellets, mut other) = (0, 0, 0, 0, 0, 0);
+    for &(x, y) in &cells {
+        let c = world.get(x, y);
+        if c.material == material::EMPTY {
+            open += 1;
+        } else if c.organism_id() != 0 && world.materials.kind(c.material) == MaterialKind::Creature {
+            ants += 1;
+        } else if Some(c.material) == soil {
+            soils += 1;
+        } else if Some(c.material) == packed {
+            lining += 1;
+        } else if Some(c.material) == spoil {
+            pellets += 1;
+        } else {
+            other += 1;
+        }
+    }
+    Some(format!(
+        "          cut: {open} of {} cells still open | filled by ants {ants}, loose soil {soils}, lining {lining}, spoil {pellets}, other {other}",
+        cells.len()
+    ))
 }
 
 /// Two arms, because the two ways this harness can lie are opposite ones.

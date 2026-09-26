@@ -3952,6 +3952,50 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   from theirs), **contents exist without eggs** via the `live_seed` guard, the
   brain-input pricing as the argument *for* their call-site route, and the
   landing discipline. **Treat their plan as the plan.**
+- [nest-mouth-2026-09-26.md](nest-mouth-2026-09-26.md) — **measurement,
+  2026-09-26. `lab`/`engine`. Switches only; nothing in either game
+  changed.** The dug entrance, measured for the first time, on top of
+  `ant-scenes-2026-09-23.md` §19's painted door. Lane note:
+  [lanes/nest-mouth.md](lanes/nest-mouth.md).
+  - **The founding shaft (`PIXEL_PHYSICS_NEST_SHAFT`) fell in by frame 5,
+    and the census could not see it.** The void moved up into a dip in the
+    surface and still counted as open room. Lined as an ant lines a tunnel,
+    it stands (82 of 82 cells open at frame 300). It also freezes the world's
+    genesis before cutting, so it draws as a hole rather than as sky.
+  - **A founding hole concentrates the nest.** In `digbox` at 40 ants (the
+    owner's instruction: modest colonies, several snapshots), with the hole
+    masked out of the census, a 20-row hole that is home
+    (`PIXEL_PHYSICS_NEST_HOME=shaft`) gives a nest narrower in its middle half
+    on 11 of 12 seeds (39.5 → 17 columns) and deeper on 10 of 12; the hole
+    silts to about half open by frame 12,000. A crowded 300-ant box (which
+    breeds past 800) shows it on 12 of 12 in every arm.
+  - **On open ground one home point pays, and §19's painted door is the best
+    of them** (209 starved against 277). A dug mouth under the door that is
+    home matches it (221); the deeper home reaches into the hole, the more it
+    gives back (the whole cut: 254), because ants that go down dig at the
+    home rate and starve underground (traced: 67% of the never-reachers'
+    decisions underground in a 20-row home shaft).
+  - **In the lab box the dug mouth does not stay open**: `labshot`'s cut
+    census has it buried by frame 30,600 on 11-12 of 12 seeds, under the
+    colony's own delivered food and the roots that grow in it. Every narrow
+    home records fewer deliveries than the strip, but a delivery is a drop
+    made at home, so a smaller home counts fewer by definition; births, food
+    eaten and colony-frames separate no arm from today at 12 seeds.
+  - **A home that follows the pile over the mouth builds a tower**
+    (`NEST_HOME=mound`, built and reverted): the colony stacks food over its
+    door, a median of 34.5 rows at frame 30,600 and over 15 rows on 12 of 12
+    seeds by 60,300 (the fixed mouth: 3, none). Its deliveries rose
+    3,204 → 8,015 and were first read as a success. No variant beats today
+    on both beds; the brief's stop rule ended the variants. The remaining
+    switches stay, off and bit-exact.
+  - **The floating dirt over the nest is tunnel lining**; the arch across
+    the sky is built by the spoil lift (82% of drops go up the column).
+  - Instruments: `digbox` gains a `cut:` line, `tintout=`, and a census with
+    the founding cut masked out; its void census counts a collapse as room.
+    `labshot` gains the founding-cut census (what fills the cut, how much
+    covers its mouth). `CreatureStats::pickups_at_nest` is new: a delivery
+    counts any drop at home, and deliveries minus this is the food that came
+    home.
 - [evolution-lab-round-37-brief-2026-09-15.md](evolution-lab-round-37-brief-2026-09-15.md)
   — **brief, 2026-09-15. `lab`/`engine`/`held`.** Opens with **two retracted
   numbers** a reader may have inherited (29.4 is per-bed, not per-ant; the

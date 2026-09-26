@@ -82,6 +82,110 @@ fn census(world: &World, ground_y: i32) -> (usize, usize, i32) {
     (ungerminated, biggest, deepest)
 }
 
+/// **The founding cut at one stop: what fills it, and how deep its mouth is
+/// buried.** Two lines' worth in one, keyed off the footprint the cut recorded
+/// (`NestSite::shaft`), never off "empty cells below the ground": the digging
+/// box found that count holding steady through a whole collapse, because the
+/// void moved up into a dip rather than disappearing.
+///
+/// **Over the mouth** walks each shaft column up from the mouth's own row
+/// until it meets open air above the founding surface, counting what it
+/// crosses -- so a plug in the mouth counts as well as a mat laid over it.
+/// Zero in any column is a mouth open to the surface. Ants are counted apart
+/// from cover, since they move; a column blocked only by an ant is open.
+fn mouth_census(world: &World, fp: pixel_physics::sim::world::ShaftFootprint) -> String {
+    use pixel_physics::sim::material::{self, MaterialKind};
+    let id = |n: &str| world.materials.id_of(n);
+    let (litter, soil, packed, spoil) = (id("litter"), id("soil"), id("packedsoil"), id("spoil"));
+    // One class per cell: 0 open, 1 ant, 2 litter, 3 plant, 4 loose soil,
+    // 5 lining, 6 spoil, 7 anything else.
+    let class = |x: i32, y: i32| -> usize {
+        let c = world.get(x, y);
+        let kind = world.materials.kind(c.material);
+        if c.material == material::EMPTY || matches!(kind, MaterialKind::Gas) {
+            0
+        } else if kind == MaterialKind::Creature {
+            1
+        } else if Some(c.material) == litter {
+            2
+        } else if kind == MaterialKind::Plant {
+            3
+        } else if Some(c.material) == soil {
+            4
+        } else if Some(c.material) == packed {
+            5
+        } else if Some(c.material) == spoil {
+            6
+        } else {
+            7
+        }
+    };
+    let cells = fp.cells();
+    let mut fill = [0usize; 8];
+    // What "other" is, by name, in the cut and over the mouth together --
+    // a class that is not named cannot be told from a census bug.
+    let mut others: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    let mut note_other = |x: i32, y: i32| {
+        let name = world.materials.get(world.get(x, y).material).name.clone();
+        *others.entry(name).or_default() += 1;
+    };
+    for &(x, y) in &cells {
+        let k = class(x, y);
+        fill[k] += 1;
+        if k == 7 {
+            note_other(x, y);
+        }
+    }
+    // The shallowest column's cover, by class: the mouth is as open as its
+    // most open column.
+    let mut best: Option<(usize, [usize; 8])> = None;
+    for x in fp.x0..=fp.x1 {
+        let mut over = [0usize; 8];
+        let mut y = fp.top;
+        while world.in_bounds(x, y) {
+            let k = class(x, y);
+            if k == 0 && y < fp.top {
+                break;
+            }
+            if k != 0 {
+                over[k] += 1;
+            }
+            if k == 7 {
+                note_other(x, y);
+            }
+            y -= 1;
+        }
+        let depth = over.iter().sum::<usize>() - over[1];
+        if best.is_none_or(|(d, _)| depth < d) {
+            best = Some((depth, over));
+        }
+    }
+    let (depth, over) = best.unwrap_or((0, [0; 8]));
+    format!(
+        "            cut at x {}..{}, mouth row {}: {} of {} cells open | ants {}, litter {}, plants {}, loose soil {}, lining {}, spoil {}, other {} || over the mouth: {depth} cells of cover (litter {}, plants {}, soil {}, lining {}, spoil {}, other {}; ants {}){}",
+        fp.x0,
+        fp.x1,
+        fp.top,
+        fill[0],
+        cells.len(),
+        fill[1],
+        fill[2],
+        fill[3],
+        fill[4],
+        fill[5],
+        fill[6],
+        fill[7],
+        over[2],
+        over[3],
+        over[4],
+        over[5],
+        over[6],
+        over[7],
+        over[1],
+        if depth == 0 { " -- OPEN to the surface" } else { " -- BURIED" }
+    ) + &if others.is_empty() { String::new() } else { format!(" | other, by name, in the cut and in every column's walk = {}", others.iter().map(|(n, c)| format!("{n} {c}")).collect::<Vec<_>>().join(", ")) }
+}
+
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
     std::env::args()
         .skip(1)
@@ -547,6 +651,16 @@ fn main() {
                     "  frame {f}: {animals} animal(s), {food} carrying food, {dirt} carrying dirt | crop fill 0-25%:{} 25-50%:{} 50-75%:{} 75-100%:{} | animals span x {x0}..{x1} y {y0}..{y1}",
                     buckets[0], buckets[1], buckets[2], buckets[3]
                 );
+            }
+            // **What fills the founding cut, and what lies over its mouth**,
+            // when `PIXEL_PHYSICS_NEST_SHAFT` dug one (`NestSite::shaft`);
+            // silent otherwise. `Reports/ant-scenes-2026-09-23.md` §19 found
+            // the painted door buried under this bed's litter mat and named the
+            // condition any real mouth must meet -- *it stays open to the
+            // surface* -- from pictures, uncounted. This is that condition as
+            // a count, per stop.
+            for fp in world.nest_sites.iter().filter_map(|s| s.shaft) {
+                println!("{}", mouth_census(&world, fp));
             }
             let ids = world.live_organism_ids();
             let cells: usize =

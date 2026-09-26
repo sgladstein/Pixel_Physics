@@ -1161,6 +1161,90 @@ pub struct NestSite {
     /// advanced to, so the walk is taken exactly once per interval however
     /// many ants touch it.
     pub drift_epoch: u64,
+    /// **The founding cut under this site**, when one was dug
+    /// (`PIXEL_PHYSICS_NEST_SHAFT`), else `None`. Written once, by
+    /// `creature::World::dig_founding_shaft`, at the moment of the cut.
+    ///
+    /// Recorded rather than re-derived because the cut moves the very
+    /// quantity it would be derived from: after it, `colony_surface` in a
+    /// shaft column finds the **chamber floor**, not the ground the shaft
+    /// was sunk from. A reader that wants to know where the mouth is -- a
+    /// census, or a home that reaches down the shaft -- asks this.
+    pub shaft: Option<ShaftFootprint>,
+}
+
+/// **Where a founding cut went**, as two inclusive rectangles: the shaft,
+/// from its mouth on the founding surface down, and the entrance chamber
+/// at its foot. See [`NestSite::shaft`].
+///
+/// **The rectangles are what the cut was aimed at, not the cells it
+/// removed.** A cell the cut refuses -- a living root, a body, water, the
+/// world's edge -- stays inside them, and on uneven ground a column whose
+/// surface sits above the centre column's keeps its top cells, a painted
+/// door cell among them. A census of "open" cells over the footprint
+/// therefore cannot reach the full count there, and says nothing about
+/// whether a filled cell was ever open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ShaftFootprint {
+    /// The shaft's first and last column.
+    pub x0: i32,
+    pub x1: i32,
+    /// The mouth's row (the founding surface) and the shaft's last row.
+    pub top: i32,
+    pub bottom: i32,
+    /// The last row of the **mouth**: the shaft's first body length down
+    /// (`creature::NEST_MOUTH_ROWS`), never past `bottom`.
+    pub mouth_bottom: i32,
+    /// The chamber's columns and rows.
+    pub chamber_x0: i32,
+    pub chamber_x1: i32,
+    pub chamber_top: i32,
+    pub chamber_bottom: i32,
+}
+
+impl ShaftFootprint {
+    /// Whether `(x, y)` lies inside the cut -- shaft or chamber.
+    pub fn contains(&self, x: i32, y: i32) -> bool {
+        ((self.x0..=self.x1).contains(&x) && (self.top..=self.bottom).contains(&y))
+            || ((self.chamber_x0..=self.chamber_x1).contains(&x) && (self.chamber_top..=self.chamber_bottom).contains(&y))
+    }
+
+    /// Whether `(x, y)` is **within one cell** of the cut, diagonals
+    /// included: inside it, on its walls, or on the rim of the mouth. The
+    /// same 8-neighbour contact `creature::adjacent_nest` asks of a nest
+    /// cell, applied to the hole instead of to paint.
+    pub fn touches(&self, x: i32, y: i32) -> bool {
+        ((self.x0 - 1..=self.x1 + 1).contains(&x) && (self.top - 1..=self.bottom + 1).contains(&y))
+            || ((self.chamber_x0 - 1..=self.chamber_x1 + 1).contains(&x) && (self.chamber_top - 1..=self.chamber_bottom + 1).contains(&y))
+    }
+
+    /// Whether `(x, y)` is **within one cell of the mouth**: the shaft's rows
+    /// from `top` to `mouth_bottom`, so the rim on the surface and the first
+    /// body length down, and nothing deeper. [`ShaftFootprint::touches`]
+    /// restricted to the top of the shaft.
+    pub fn touches_mouth(&self, x: i32, y: i32) -> bool {
+        (self.x0 - 1..=self.x1 + 1).contains(&x) && (self.top - 1..=self.mouth_bottom + 1).contains(&y)
+    }
+
+    /// Every cell of the cut, each once: the shaft row by row, then the
+    /// chamber row by row with the shaft's own columns left out where the
+    /// two rectangles overlap.
+    pub fn cells(&self) -> Vec<(i32, i32)> {
+        let mut out = Vec::new();
+        for y in self.top..=self.bottom {
+            for x in self.x0..=self.x1 {
+                out.push((x, y));
+            }
+        }
+        for y in self.chamber_top..=self.chamber_bottom {
+            for x in self.chamber_x0..=self.chamber_x1 {
+                if !((self.x0..=self.x1).contains(&x) && (self.top..=self.bottom).contains(&y)) {
+                    out.push((x, y));
+                }
+            }
+        }
+        out
+    }
 }
 
 /// **How often the nest-room census runs**, in frames.
@@ -1784,7 +1868,24 @@ pub struct CreatureStats {
     pub drops: u64,
     /// Drops that happened at the nest — food actually delivered home.
     /// **The number that proves the loop rather than its parts.**
+    ///
+    /// **Except when home is what changed.** A drop at home counts whatever
+    /// the food's history, so a crumb lifted off the colony's own heap and
+    /// put straight back reads as a round trip. Read it against
+    /// `pickups_at_nest` below, and always when two arms define home
+    /// differently: a bigger home counts more drops by definition.
     pub deliveries: u64,
+    /// **Food picked up while at the nest**, on the predicate `deliveries`
+    /// counts drops on, and read before the mouthful leaves the world.
+    /// `deliveries - pickups_at_nest` is the net flow of food cells into
+    /// home, which is what `deliveries` is usually read as.
+    ///
+    /// Added 2026-09-26 (`Reports/nest-mouth-2026-09-26.md` §6-§7), when a
+    /// home that climbed the colony's own food heap raised deliveries
+    /// 3,204 -> 8,015 (median of 12 lab seeds, against the fixed mouth) while
+    /// births, food eaten and colony-frames split 6 / 6. The heap was a
+    /// tower, and every drop on its top counted as a delivery.
+    pub pickups_at_nest: u64,
     /// **Not a trip counter, and not a sessility guard — read
     /// `forage_trips` for either.** It increments on any move made while
     /// nest-adjacent, guarded on `OrganismState::since_nest > 0`; but
@@ -3315,6 +3416,17 @@ pub struct World {
     /// `None` follows the environment, which is off unless set; a field for
     /// the reason `chooser` is one.
     pub bud_at_nest: Option<bool>,
+    /// **How much of the founding cut counts as home, overriding
+    /// `PIXEL_PHYSICS_NEST_HOME` for this world** (`creature::nest_home`).
+    /// `None` follows the environment, which is none of it unless set; a
+    /// field for the reason `chooser` is one.
+    pub nest_home: Option<crate::sim::creature::NestHome>,
+    /// **The founding shaft's depth in rows, overriding
+    /// `PIXEL_PHYSICS_NEST_SHAFT` for this world**
+    /// (`creature::World::dig_founding_shaft`). `None` follows the
+    /// environment, which cuts nothing unless set; a field so a guard can
+    /// found a colony over a shaft without the variable.
+    pub nest_shaft: Option<i32>,
     /// **How hard a hungry empty ant off a route is drawn away from home,
     /// overriding `PIXEL_PHYSICS_SCOUT` for this world** (`creature::scout_of`).
     /// `None` follows the environment, which is 0 (no pull) unless set; a
@@ -5657,6 +5769,8 @@ impl World {
             decision_scratch: crate::sim::creature::DecisionScratch::default(),
             chooser: None,
             bud_at_nest: None,
+            nest_home: None,
+            nest_shaft: None,
             scout: None,
             blocked_tissue_by_material: Vec::new(),
             energy_ledger: EnergyLedger::default(),
@@ -7393,7 +7507,7 @@ impl World {
         // the top of a tailings pile home. The founding row is the fixed
         // datum `step_nest_room` already freezes for the same reason.
         let surface = crate::sim::creature::colony_surface(self, x, y).unwrap_or(y);
-        self.nest_sites.push(NestSite { x, y, surface, scent: [0.0; 3], seeded: false, drift_epoch: epoch });
+        self.nest_sites.push(NestSite { x, y, surface, scent: [0.0; 3], seeded: false, drift_epoch: epoch, shaft: None });
     }
 
     /// Index of the nest site nearest `(x, y)`, or `None` when the box holds

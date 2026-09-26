@@ -24,9 +24,12 @@ will be.
   §5 and §9 again when `crop_capacity` 5760 and `food_weight` 0.5 became the
   ant's default (`ant.ron`, `CreatureDef::food_weight`). §8 and §12 on
   2026-09-26 for the nest-door switch (`nest_door`, `paint_nest_patch_with`,
-  `found_colony_with`, `colony_stations_with`). §6d and §12 on 2026-09-26
-  for scouting (`chooser_step`'s `scout_w`, `scout_cos`, `SCOUT_GIVE_UP`,
-  `scout_of`).
+  `found_colony_with`, `colony_stations_with`), and again that day for the
+  founding cut as home (`adjacent_nest`, `nest_home`, `NestSite::shaft`) and
+  the door's anchor over a shaft (`found_colony_with`). §6d and §12 on
+  2026-09-26 for scouting (`chooser_step`'s `scout_w`, `scout_cos`,
+  `SCOUT_GIVE_UP`, `scout_of`). §5 on 2026-09-26 for what a delivery counts
+  and `pickups_at_nest` (`act`'s feed and drop branches).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -234,7 +237,11 @@ the tick: the ant still gets its move roll (§6) afterwards.
    what it holds and eats it (§4). `deliveries`
    counts any drop made while `AtNest`; `drop_census` counts every roll by
    outcome (`DropWhy`: lost, placed, delivered, no room), and
-   `drops_passed_on` the drops that went past the neighbours.
+   `drops_passed_on` the drops that went past the neighbours. **A delivery
+   is any drop at home, whatever the food's history**, so a crumb picked up
+   at the nest and put back counts again. `pickups_at_nest` counts step 3's
+   pickups made on the same test (read before the food leaves), so
+   `deliveries - pickups_at_nest` is the food that came home.
 5. **Drop spoil**, if holding a dig pellet, then **return**. The target must
    be empty, sit on at least two filled cells of the three below it, and have
    clear headroom above. It may lift up the shaft (`lift_reach`).
@@ -440,7 +447,8 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   a door (§12).
 - **`forage_anchor`** is a world coordinate. It is set to the spawn cell at
   birth (for a founder under `PIXEL_PHYSICS_NEST_DOOR`, to the cell above the
-  door's centre instead), and **reset to the new head cell on every step that lands next to
+  door's centre instead, read from the surface the founding started on, so a
+  founding shaft through the door leaves it at the mouth), and **reset to the new head cell on every step that lands next to
   nest material** (in `step_chain`, not after falls, swaps or reversals).
   So the anchor is the last cell the ant stood on **beside** the nest, and
   leaving a wide nest anchors it at the edge it left from, not at the
@@ -450,6 +458,13 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   stood on*.
 - `since_nest` counts ticks since the last such step. `forage_max` records
   excursion depth, for measurement only.
+- **Under `PIXEL_PHYSICS_NEST_HOME=shaft`** (§12), a cell within one cell of
+  the founding cut (the shaft, its chamber, and the rim of its mouth, as
+  recorded in `NestSite::shaft` when `PIXEL_PHYSICS_NEST_SHAFT` dug it) also
+  counts as next to the nest. **Under `=mouth`**, only a cell within one cell
+  of the shaft's top `NEST_MOUTH_ROWS` (2) rows does: the rim and the first
+  body length down. `AtNest` and the re-anchoring both ask `adjacent_nest`,
+  so both follow it. Unset, nothing here changes.
 
 ## 9. The crop, digestion and energy
 
@@ -544,6 +559,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_SENSOR_PROJECT` | on | `off`: no row projection; `none`: also no honesty gate |
 | `PIXEL_PHYSICS_A_RHO` | 0.0 | trail A's fade rate |
 | `PIXEL_PHYSICS_NEST_REACH` | r1 | `rN`: nest contact within radius N; `body`: any body cell |
+| `PIXEL_PHYSICS_NEST_HOME` | material only | `shaft`: a head within one cell of the founding cut (dug by `PIXEL_PHYSICS_NEST_SHAFT=<rows>`, `_NEST_SHAFT_WIDTH=<cells>`, lined) also reads `AtNest`; `mouth`: only within one cell of its top two rows (§8) |
 | `PIXEL_PHYSICS_LAB_ROOM` | on | `off`: at-nest `Crowding` falls back to local density |
 | `PIXEL_PHYSICS_TROPHALLAXIS` | on | `off` |
 | `PIXEL_PHYSICS_DROP_REACH` | through bodies | `adjacent`: a food drop looks only at the 8 neighbours |
