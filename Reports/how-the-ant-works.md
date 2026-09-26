@@ -22,7 +22,9 @@ will be.
   `ant.ron`'s `Drop` row). §9 and §12 2026-09-25 for what a load weighs
   (`carried_cells`, `crop_load_cells`, `load_scale`, the digest block), and
   §5 and §9 again when `crop_capacity` 5760 and `food_weight` 0.5 became the
-  ant's default (`ant.ron`, `CreatureDef::food_weight`).
+  ant's default (`ant.ron`, `CreatureDef::food_weight`). §8 and §12 on
+  2026-09-26 for the nest-door switch (`nest_door`, `paint_nest_patch_with`,
+  `found_colony_with`, `colony_stations_with`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -414,9 +416,14 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
 ## 8. Home: the nest, the anchor, and "at nest"
 
 - **Nest material** is the species' `nest: "nest"` material. Being next to it
-  drives `AtNest`, which is the only way the ant knows it is home.
+  drives `AtNest`, which is the only way the ant knows it is home. Founding
+  paints it on the surface as a strip of up to 53 columns (±26, a masked
+  comb with an unbroken core) and digs nothing. Under
+  `PIXEL_PHYSICS_NEST_DOOR=<d>` it paints `2d + 1` columns, unbroken, instead:
+  a door (§12).
 - **`forage_anchor`** is a world coordinate. It is set to the spawn cell at
-  birth, and **reset to the new head cell on every step that lands next to
+  birth (for a founder under `PIXEL_PHYSICS_NEST_DOOR`, to the cell above the
+  door's centre instead), and **reset to the new head cell on every step that lands next to
   nest material** (in `step_chain`, not after falls, swaps or reversals).
   So the anchor is the last cell the ant stood on **beside** the nest, and
   leaving a wide nest anchors it at the edge it left from, not at the
@@ -531,6 +538,8 @@ Read once per process from the environment. The default is what ships.
 | `CROSS_TRUNK`, `TISSUE_PARTING` | on | `0` |
 | `PIXEL_PHYSICS_DIGEST` | continuous | `lump`: pays out per whole cell |
 | `PIXEL_PHYSICS_LOAD_BY` | joules | `cells`: a load weighs the cells in the crop, not its worth ÷ 480 (§9) |
+| `PIXEL_PHYSICS_NEST_DOOR` | strip | `<d>`: founding paints a door of `2d + 1` columns instead of the strip, and every founder's home is the door (§8) |
+| `PIXEL_PHYSICS_NEST_DOOR_FOUNDERS` | spread | `pile`: under the door, founders start heaped on it instead of spread along the ground (§8) |
 | `PIXEL_PHYSICS_LOAD_SCALE` | 1.0 | `<f>`: every food load weighs `f` times as much again, on top of the species' `food_weight` (§9) |
 | `PIXEL_PHYSICS_SPOIL_HAUL`, `_DIG_DOWN`, `_SPOIL_DROP_COVER`, `_TRAFFIC_DEFER`, `_COLONY_SPACING` | unset | haulage re-roll to the nest door, downward dig bias, spoil held under cover, jam deferral length, founder spacing |
 

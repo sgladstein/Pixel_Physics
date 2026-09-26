@@ -2806,6 +2806,38 @@ pub fn nest_shaft_rows() -> Option<i32> {
     *ROWS.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SHAFT").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v > 0))
 }
 
+/// **`PIXEL_PHYSICS_NEST_DOOR=<half-width>`: the nest as a door, not a strip.**
+/// Founding paints `2 * half-width + 1` columns of nest, unbroken, instead of
+/// the 53-column masked strip, and anchors every founder's home at its centre
+/// ([`World::found_colony_of`]). Unset is the shipped strip, bit-exact.
+///
+/// **What it is for** (`Reports/ant-scenes-2026-09-23.md` §17b, §19). The
+/// colony's road starts where the first laden ant reaches nest ground: the
+/// food-side end of the strip. Ants on the far half rarely meet it. Born on
+/// the far side, 37.5% reach food and 85% starve; born on the food side, 79%
+/// and 59%. A real nest has one mouth, so the road starts where everyone is.
+/// This asks whether a single door pays before anyone builds how a dug nest
+/// looks. **It paints; it digs nothing** -- `PIXEL_PHYSICS_NEST_SHAFT` is the
+/// dug entrance and composes with it.
+///
+/// **Not [`nest_site_cols`]**, which narrows the region an ant *feels* at home
+/// in through the site test and measured deliveries 743 -> 11 because that
+/// test reads rows from the centre column only. This narrows the nest
+/// *material*, so `AtNest` stays the shipped 8-neighbour contact test.
+pub fn nest_door() -> Option<i32> {
+    static D: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *D.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_DOOR").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v >= 0))
+}
+
+/// **`PIXEL_PHYSICS_NEST_DOOR_FOUNDERS=pile`**: under [`nest_door`], founders
+/// start heaped on the door instead of spread along the ground with their
+/// home set to it. The two arms separate "home is one point" from "everyone
+/// comes out of one point". Anything else, or unset, is the spread layout.
+fn nest_door_pile() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_DOOR_FOUNDERS").as_deref() == Ok("pile"))
+}
+
 /// **The site reach in COLUMNS, half-width, or `None` for
 /// [`COLONY_HALF_WIDTH`].**
 ///
@@ -3806,6 +3838,14 @@ impl World {
     /// derived from the body plan's own width, floored at the shipped value
     /// so the ant is byte-identical.
     pub fn found_colony_of(&mut self, x: i32, y: i32, species: &str, ants: i32) -> usize {
+        self.found_colony_with(x, y, species, ants, nest_door(), nest_door_pile())
+    }
+
+    /// [`World::found_colony_of`] with the nest-door switches passed in rather
+    /// than read from the environment, so a test can set them: `door` is
+    /// [`nest_door`]'s half-width, `pile` is [`nest_door_pile`]. `(None, _)`
+    /// is the shipped founding.
+    fn found_colony_with(&mut self, x: i32, y: i32, species: &str, ants: i32, door: Option<i32>, pile: bool) -> usize {
         // **A species nobody loaded places nobody, and says so by returning
         // 0** -- the same contract as no ground and no nest material. A
         // silent no-op is indistinguishable from a broken feature, which is
@@ -3837,7 +3877,7 @@ impl World {
             // The two halves, each with exactly one definition of its own
             // rule: where home is, and where the animals stand. See
             // `colony_stations` for why they are separate verbs.
-            self.paint_nest_patch(x, y);
+            self.paint_nest_patch_with(x, y, door);
         }
         let mut placed = 0;
         // **Staggered founder reserves** — every founder used to be stamped
@@ -3851,8 +3891,16 @@ impl World {
         let spread = def.as_ref().map_or(0.0, |d| d.founder_reserve_spread);
         let start_energy = def.as_ref().map_or(0.0, |d| d.start_energy);
         let seed = self.seed;
-        let stations = self.colony_stations(x, y, species_id, ants);
+        let stations = self.colony_stations_with(x, y, species_id, ants, door, pile);
         let total = stations.len() as i32;
+        // **Under a door, every founder's home is the door** -- the cell
+        // above its centre, which is where `step_chain`'s re-anchoring would
+        // put it on the first contact anyway. Without this a founder standing
+        // off the door would carry its birth cell as home for life (the
+        // wrong-home trap `forage_anchor`'s doc and the colony bed's
+        // `on_nest` count both describe), and a laden ant would walk home to
+        // a spot where it cannot put food down. Unset: `None`, nothing written.
+        let door_anchor = door.and_then(|_| colony_surface(self, x, y)).map(|sy| (x, sy - 1));
         // **One colony per founding.** The first animal that fits founds it
         // and every later station joins; a founding in which nothing fits
         // claims nothing. See `OrganismState::colony`.
@@ -3881,6 +3929,11 @@ impl World {
                         }
                     }
                 }
+                if let (Some(anchor), ActiveKind::Creature { organism }) = (door_anchor, site.kind) {
+                    if let Some(state) = self.organism_mut(organism) {
+                        state.forage_anchor = anchor;
+                    }
+                }
                 self.schedule_active_site(site);
             }
             if self.get(cx, cy).organism_id() != before {
@@ -3907,6 +3960,12 @@ impl World {
     /// opens with -- `open-bugs-handoff.md` §R2 is what a second copy of a
     /// placement rule cost last time.
     pub fn colony_stations(&self, x: i32, y: i32, species_id: SpeciesId, ants: i32) -> Vec<(i32, i32)> {
+        self.colony_stations_with(x, y, species_id, ants, nest_door(), nest_door_pile())
+    }
+
+    /// [`World::colony_stations`] with the nest-door switches passed in; see
+    /// [`World::found_colony_with`].
+    fn colony_stations_with(&self, x: i32, y: i32, species_id: SpeciesId, ants: i32, door: Option<i32>, pile: bool) -> Vec<(i32, i32)> {
         // How wide the body actually is, east-facing; the mirror is the same
         // width. `Chain(n)` is a following chain rather than a rigid row, so
         // its offsets are the worst case it can occupy, which is what a
@@ -3938,6 +3997,36 @@ impl World {
         let want = ants.max(0) as usize;
         if want == 0 || spacing <= 0 {
             return Vec::new();
+        }
+        // **`PIXEL_PHYSICS_NEST_DOOR_FOUNDERS=pile`: every founder starts at the
+        // door**, stacked a body's width apart across its columns and a row
+        // apart upward, so the colony comes out of one mouth rather than
+        // standing along a strip. They fall and settle as a heap on the door;
+        // an ant walks over a nestmate (`climbs_over_kin`), which is the change
+        // since the 27,386-blocked-tick gridlock above that makes a heap worth
+        // trying. The colony bed's blocked counts are the check. Only under
+        // `PIXEL_PHYSICS_NEST_DOOR`; otherwise the shipped layout.
+        if let (Some(d), true) = (door, pile) {
+            let d = scaled_cells(self, d);
+            let cols: Vec<(i32, i32)> = ((x - d)..=(x + d))
+                .step_by(body_span.max(1) as usize)
+                .filter_map(|cx| colony_ant_site(self, cx, y).map(|sy| (cx, sy - 1)))
+                .collect();
+            if cols.is_empty() {
+                return Vec::new();
+            }
+            let mut out: Vec<(i32, i32)> = Vec::with_capacity(want);
+            let mut layer = 0;
+            while out.len() < want && layer < want as i32 {
+                for &(cx, cy) in &cols {
+                    if out.len() >= want {
+                        break;
+                    }
+                    out.push((cx, cy - layer));
+                }
+                layer += 1;
+            }
+            return out;
         }
         // **Searched outward from the cursor, not stamped as a fixed band**,
         // and that is owner playtest item 2 of 2026-09-14: *"when founding
@@ -4077,10 +4166,20 @@ impl World {
     /// the bottom of a nest wall (`a_nest_still_stops_him`). This loop is the
     /// one place the repair costs nothing anywhere else.
     pub fn paint_nest_patch(&mut self, x: i32, y: i32) -> usize {
+        self.paint_nest_patch_with(x, y, nest_door())
+    }
+
+    /// [`World::paint_nest_patch`] with [`nest_door`]'s half-width passed in;
+    /// `None` is the shipped strip.
+    fn paint_nest_patch_with(&mut self, x: i32, y: i32, door: Option<i32>) -> usize {
         let Some(nest) = self.materials.id_of("nest") else {
             return 0;
         };
-        let half_width = scaled_cells(self, COLONY_HALF_WIDTH);
+        // **`PIXEL_PHYSICS_NEST_DOOR=<half-width>` paints a door instead of the
+        // strip** -- see [`nest_door`]. Unset takes the shipped width and the
+        // shipped mask, bit-exact.
+        let door = door.map(|d| scaled_cells(self, d));
+        let half_width = door.unwrap_or_else(|| scaled_cells(self, COLONY_HALF_WIDTH));
         // **The patch is a place that holds an odour, and this is where it
         // becomes one.** Registered before the ground is converted so that a
         // patch which turns out to have no paintable ground under it still
@@ -4093,7 +4192,13 @@ impl World {
         // the threshold is the same threshold wherever on the map the colony
         // is founded and is symmetric about the gnome -- the reason the
         // shipped comb was indexed off the loop rather than off `cx`, kept.
-        let mask = nest_mask(half_width, scaled_cells(self, nest_core()), nest_drain_period());
+        // A door is painted unbroken: at a few columns the drain comb would
+        // leave holes in the only way home.
+        let mask = if door.is_some() {
+            vec![true; (2 * half_width + 1) as usize]
+        } else {
+            nest_mask(half_width, scaled_cells(self, nest_core()), nest_drain_period())
+        };
         let mut painted = 0;
         for (i, cx) in ((x - half_width)..=(x + half_width)).enumerate() {
             if !mask.get(i).copied().unwrap_or(false) {
@@ -17286,6 +17391,58 @@ mod tests {
     /// default state* blindness exactly. So the test asserts that something
     /// died, and that each counter actually moved, before it asserts anything
     /// about the sums.
+    /// **`PIXEL_PHYSICS_NEST_DOOR` paints a door and nothing else, and every
+    /// founder's home is that door** -- the positive control for the colony
+    /// bed's §19 arms (`Reports/ant-scenes-2026-09-23.md`). Counted as nest
+    /// columns on the ground and read off each founder's own anchor, against
+    /// the shipped founding in the same scene.
+    #[test]
+    fn a_nest_door_paints_its_width_and_anchors_every_founder_at_it() {
+        let nest_cols = |w: &World| {
+            let nest = w.materials.id_of("nest").expect("nest material");
+            (0..=255).filter(|&x| (0..=199).any(|y| w.get(x, y).material == nest)).collect::<Vec<i32>>()
+        };
+        let ants = |w: &World| {
+            let ant = w.species.id_of("ant").expect("ant species");
+            w.live_organism_ids()
+                .into_iter()
+                .filter_map(|id| w.organism(id))
+                .filter(|s| s.species == ant)
+                .map(|s| (s.forage_anchor, *s.chain.first().expect("a body")))
+                .collect::<Vec<_>>()
+        };
+
+        // Shipped: a strip, and each founder anchored where it was placed.
+        let (mut w, low) = colony_bed();
+        assert!(w.found_colony_with(200, low - 32, "ant", COLONY_ANTS, None, false) > 0, "the bed placed no ants");
+        let strip = nest_cols(&w);
+        assert!(strip.len() > 20, "the shipped patch is a strip, not {} columns", strip.len());
+
+        // A door of half-width 2, founders spread: five columns, every home at the door.
+        let (mut w, low) = colony_bed();
+        assert!(w.found_colony_with(200, low - 32, "ant", COLONY_ANTS, Some(2), false) > 0, "the bed placed no ants");
+        let door = nest_cols(&w);
+        assert_eq!(door.len(), 5, "a door of half-width 2 is five columns: {door:?}");
+        let (lo, hi) = (door[0], door[door.len() - 1]);
+        let spread = ants(&w);
+        assert!(
+            spread.iter().any(|&(_, head)| head.0 < lo - 1 || head.0 > hi + 1),
+            "every founder stood on the door, so the anchor is not what this arm tests"
+        );
+        for &(anchor, head) in &spread {
+            assert_eq!(anchor.0, 200, "a founder placed at {head:?} has its home at {anchor:?}, not the door");
+        }
+
+        // Piled: every founder starts on the door's columns.
+        let (mut w, low) = colony_bed();
+        assert!(w.found_colony_with(200, low - 32, "ant", COLONY_ANTS, Some(2), true) > 0, "the bed placed no ants");
+        let piled = ants(&w);
+        assert!(piled.len() > 1, "the pile placed {} founders", piled.len());
+        for &(_, head) in &piled {
+            assert!((lo - 1..=hi + 1).contains(&head.0), "a piled founder starts at {head:?}, off the door {lo}..{hi}");
+        }
+    }
+
     #[test]
     fn every_lifetime_counter_closes_against_its_world_total() {
         let (mut w, low) = colony_bed();
