@@ -3402,6 +3402,11 @@ pub struct World {
     /// environment, which cuts nothing unless set; a field so a guard can
     /// found a colony over a shaft without the variable.
     pub nest_shaft: Option<i32>,
+    /// **How hard a hungry empty ant off a route is drawn away from home,
+    /// overriding `PIXEL_PHYSICS_SCOUT` for this world** (`creature::scout_of`).
+    /// `None` follows the environment, which is 0 (no pull) unless set; a
+    /// field for the reason `chooser` is one.
+    pub scout: Option<f32>,
     /// **Which material stopped a creature**, counted per blocked tick and
     /// indexed by `MaterialId` — the breakdown `CreatureStats::
     /// blocked_by_plant` deliberately does not carry, because that struct is
@@ -5741,6 +5746,7 @@ impl World {
             bud_at_nest: None,
             nest_home: None,
             nest_shaft: None,
+            scout: None,
             blocked_tissue_by_material: Vec::new(),
             energy_ledger: EnergyLedger::default(),
             colony_books: Vec::new(),
@@ -6750,6 +6756,10 @@ impl World {
             home_best_at: (0, 0),
             home_away: 0,
             home_patience: 1.0,
+            scout_best: 0.0,
+            scout_for: (i32::MIN, i32::MIN),
+            scout_patience: 1.0,
+            scout_home: false,
             // Zero is "no memory yet"; the first tick's read sees `live - 0`,
             // which normalises to +1 and decays to the true reading within a
             // few ticks. See `OrganismState::phero_a_mem`.

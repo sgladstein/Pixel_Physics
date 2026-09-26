@@ -1721,3 +1721,102 @@ session's to build on this switch (`Reports/lanes/nest-mouth.md`). Its
 founder rule carries over: home every founder at the mouth, and spread
 founders do as well as piled ones. Pictures of both beds, paired, are on review card
 `20260926T033653046Z-160190`.
+
+## 20. Scouting: hungry ants go out and look, and come back when a way fails
+
+*2026-09-26.* The question: the colony bed's ants spend most of their early
+life waiting at home, so what sends them out before there is a road?
+
+**What the trace showed first** (the shipped default, no trail, 90 cells, 24
+seeds). An ant that reached the food spent a median **1,932 frames** at home
+before it last set out. The walk itself took **648**. It set out a median 18
+frames *before* the colony's first delivery (frame 1,926), and 138 of the
+reachers left before that delivery against 133 after it. So the colony waits
+for its first road, and nothing sends anyone to look for it: off a trail an
+empty ant has no direction at all. `AWAY_GAIN` is scaled by trail presence so
+that an explorer cannot be pinned against a wall that lies away from home.
+Of the 209 ants that never reached the food, **181 never went more than 26
+cells east of the nest**.
+
+**The switch.** `PIXEL_PHYSICS_SCOUT=<gain>`, or `World::scout`. It is unset
+by default, and unset is bit-exact: this binary reproduces the default on
+seeds 1–8 and lab seed 1. Under the chooser, an empty ant carrying no spoil
+scores each heading with an extra `gain × hunger × (1 − presence) × cos`.
+Hunger is `1 − energy / start_energy`, and the cosine is taken against the
+way away from its last nest contact. It is the off-route complement of
+`AWAY_GAIN`, scaled by hunger, so a fed ant is untouched. Three forms were
+built in turn, each after the one before failed on the named risk:
+
+| bed, 24 seeds, paired against the default | default | radial, 2 | level, 2 | **out and back, 2** |
+|---|---:|---:|---:|---:|
+| founders who ever went more than 26 cells toward the food | 299 (62%) | 353 (74%) | 295 (61%) | **346 (72%)** |
+| never reached the food and never left home | 181 | 127 | 185 | **134** |
+| reached the food | 271 | 322 | 277 | **322** (15 better / 5 worse) |
+| last set out from home, median frame | 1,938 | 1,296 | 1,248 | 1,596 |
+| colony's first delivery, median frame | 1,926 | 1,782 | 1,710 | 1,746 (12 / 9: no change) |
+| **died up a wall or ceiling** (the risk) | 85 | **169** | **170** | **13** |
+| starved, of 480 | 279 | 231 (17/5) | 248 (13/9) | **201** (19 / 4, sign p 0.003) |
+| food carried to the nest, J | 16,014 | 21,113 | 21,264 | **26,438** (19 / 5, p 0.007) |
+| full loops | 366 | 405 | 415 | **460** |
+| colony's need met by what it absorbed | 51% | 56% | 57% | **64%** |
+
+- **Radial** (the plain cosine with home) sends ants out and pins them.
+  At gain 1, **77** of the 180 ants that died up a wall were on the west edge
+  wall, 44 cells from the nest, at a median **91 cells up**. Once an ant stands above home,
+  "away" includes *up*, and it keeps climbing.
+- **Level** (the heading's sideways part only) pins them harder. At gain 1, of
+  165 dead up a wall, 137 were pressed into the west wall, having moved a median
+  **1 cell** in their last 1,000 frames, and no more ants reached the food
+  than under the default. It is the laden ant's U-bend again (§6d), met by a
+  scout: no rule that reads only the cells around it can tell a wall from
+  open ground.
+- **Out and back** gives the level pull the laden ant's patience in mirror.
+  A step that gets the scout no further out than it has been wears patience
+  down, and the pull fades with it. At `SCOUT_GIVE_UP` (0.1, 22 such steps)
+  the scout turns and walks home at the same gain. Its next nest contact
+  starts a new excursion. This is the desert ant's search, a run out and a
+  run back, and it takes wall deaths **below the default**: 85 → 13.
+  At gain 1 it is weaker on every line (starved 223, reached 276).
+- **The first road is not what it moves.** No form changes the first
+  delivery paired by seed. What it moves is *who goes*: after the road
+  exists, more of the colony has been out and finds it.
+
+**Predictions, written before.** Radial: never-left 181 → ~110 (right, 110 at
+gain 1); first delivery earlier on ≥ 16 seeds (wrong, 10/11). Level: wall
+deaths back to ~90 (wrong, 165). Out and back: wall deaths ~85–110 (wrong the
+good way, 13); starved ~220 (201); first delivery unchanged (right).
+
+**The individual ants.** Excursions were counted ant by ant, from leaving the
+home band to re-entering it. Under out and back, 507 of the eastward
+excursions that found food came home and 53 did not (default 460 / 85).
+Westward excursions came home 458 times in 542 (default 255 in 330). The cost is
+the dead-end side: **108** ants died having only ever gone west, against 97
+under the default. They chose the side with no food and ran their reserve down
+going back and forth. Overshoot is no cost: time spent more than 20 cells past
+the food fell from 11.1% to 6.7% of decisions.
+
+**In the lab box** (12 seeds, gain 2, out and back, against the default):
+
+| lab, median of 12 | default | scouting |
+|---|---:|---:|
+| food carried home | 5,396 | 7,053 (8 higher / 4 lower) |
+| visits to the nest | 8,948 | 8,753 (5 / 7) |
+| food eaten | 1,158k J | 1,151k J (6 / 6) |
+| births | 590 | 530 (6 / 6) |
+| deepest breeding generation | 28 | 30 (5 / 6) |
+| went extinct | 1 of 12 | **0** of 12 |
+
+Predicted: deliveries +10–30% (+31% at the median, not significant at
+8 / 4), everything else within spread (right), extinct 1–2 (0). The lab box's
+food grows everywhere, so scouting has less to find there. The point of the
+lab run is that the box's walls, on every side, do not trap scouts the way
+they trapped the radial and level forms on the bed.
+
+**Status: a switch, off.** On the bed it cuts starvation 279 → 201 and lifts
+food carried home 65%. In the lab it costs nothing and carries more. Guard:
+`off_a_route_a_hungry_empty_ant_scouts_out_and_back_and_a_fed_one_does_not`.
+Watched red twice: with the term removed, the hungry scout never reaches the
+wall; with the give-up never set, it never comes back. Making it the default
+is the owner's call. The data is in `Reports/data/scout-bed-*-2026-09-26.*`
+and `scout-lab-2026-09-26.txt.gz`. Seed 1, the typical seed, is shown against
+the default on review card `20260926T053940368Z-b1d8b1`, frames 300–6,000.

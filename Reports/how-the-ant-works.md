@@ -26,7 +26,9 @@ will be.
   2026-09-26 for the nest-door switch (`nest_door`, `paint_nest_patch_with`,
   `found_colony_with`, `colony_stations_with`), and again that day for the
   founding cut as home (`adjacent_nest`, `nest_home`, `NestSite::shaft`) and
-  the door's anchor over a shaft (`found_colony_with`).
+  the door's anchor over a shaft (`found_colony_with`). §6d and §12 on
+  2026-09-26 for scouting (`chooser_step`'s `scout_w`, `scout_cos`,
+  `SCOUT_GIVE_UP`, `scout_of`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -382,6 +384,21 @@ it acts only on a route; off a trail an empty ant scores exactly as under
 `trail`. On a route an ant facing home can turn round (turning round now
 scores `AWAY_GAIN × presence`), and one facing away almost never does.
 
+**Scouting (`PIXEL_PHYSICS_SCOUT=<gain>`, off unless set) gives the empty ant
+a direction off a route too, scaled by hunger.** Under `trailaway`, an empty
+ant carrying no spoil and not fed (`hunger = 1 − energy / start_energy`, so 0
+when fed and the term is never added) scores each heading with
+`gain × hunger × (1 − presence) × level cos(heading, away from home)`. Home is
+`home_target`, and *level* means the cosine of the heading's sideways part
+only, so a step straight up or down scores 0. The pull carries a patience,
+the mirror of the laden ant's (`scout_best`, `scout_patience`). A step that
+gets the scout no further out, level distance from home, than it has been on
+this excursion multiplies patience by `PATIENCE_DECAY`, and the outbound
+pull is scaled by patience. Below `SCOUT_GIVE_UP` (0.1) the scout has given up
+(`scout_home`) and the same term pulls it home, by the full home cosine, until
+a nest contact re-anchors it and starts the next excursion. Only the ant's
+state is written, and only while the term is on.
+
 The decision trace records the patience each choice scored with, the home
 cosine of the heading picked (for an empty ant too, under `trailaway`), and
 under stage 2 its trail presence (`patience`, `chosen_cos`, `chosen_route`).
@@ -551,6 +568,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_LOAD_BY` | joules | `cells`: a load weighs the cells in the crop, not its worth ÷ 480 (§9) |
 | `PIXEL_PHYSICS_NEST_DOOR` | strip | `<d>`: founding paints a door of `2d + 1` columns instead of the strip, and every founder's home is the door (§8) |
 | `PIXEL_PHYSICS_NEST_DOOR_FOUNDERS` | spread | `pile`: under the door, founders start heaped on it instead of spread along the ground (§8) |
+| `PIXEL_PHYSICS_SCOUT` | 0 | `<gain>`: under `trailaway`, a hungry empty ant off a route runs out from home and back (§6d); `World::scout` for one world |
 | `PIXEL_PHYSICS_LOAD_SCALE` | 1.0 | `<f>`: every food load weighs `f` times as much again, on top of the species' `food_weight` (§9) |
 | `PIXEL_PHYSICS_SPOIL_HAUL`, `_DIG_DOWN`, `_SPOIL_DROP_COVER`, `_TRAFFIC_DEFER`, `_COLONY_SPACING` | unset | haulage re-roll to the nest door, downward dig bias, spoil held under cover, jam deferral length, founder spacing |
 

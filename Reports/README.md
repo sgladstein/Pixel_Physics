@@ -3310,6 +3310,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     front door on 12 of 12 seeds (deliveries 5,396 → 1,279), because the
     painted nest is buried under the litter mat. Not shipped. The mouth has
     to stay open to the surface, which is the nest session's dug entrance.
+  - **Scouting** (§20, `PIXEL_PHYSICS_SCOUT`, off): a hungry empty ant off
+    a trail runs out from home and, when the way stops getting it further,
+    walks back and tries again. On the colony bed, starved 279 → 201 (19
+    seeds better, 4 worse) and food carried home up 65%, with fewer ants
+    dying up a wall than the default (85 → 13). The plain pull, with no
+    memory, pinned scouts against the edge wall (169–180). In the lab box it
+    costs nothing, and none of the 12 colonies went extinct. Not yet shipped.
   - The per-decision mix matched the formula within a point at both
     energies. The reach predictions were low; the report says why.
   - The scene's own checks caught rain pooling on the slab and an ant dying
