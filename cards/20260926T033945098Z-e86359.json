@@ -1,0 +1,54 @@
+{
+  "id": "20260926T033945098Z-e86359",
+  "created": "2026-09-26T03:39:45Z",
+  "board": "nest",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/ant-nest-mouth-4f6s79",
+    "commit": "133c6b73",
+    "agent": null,
+    "session_id": "02cfa3f7-cc46-597e-8f90-5488d21d3601",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Dirt in the sky over the nest: the same colony with and without a rule that drops it",
+  "question": "Which of the two has less dirt floating in the air?",
+  "context_md": "**Where this is going:** you have named floating dirt over the nest on several cards. This is the first repair aimed at the thing that is actually up there.\n\n**What is up there:** mostly tunnel lining, not spoil. An ant digging through its own heap turns the soil around each cut into lining, and lining holds itself up for ever. Whatever it was resting on later falls away or is dug out, and the lining stays in the air.\n\n**The rule:** every 60 frames, any worked ground with no path down to the floor through other ground goes back to loose spoil and falls. It was built on 2026-09-20 and has never been shown to you. A tunnel roof is untouched, because it reaches the floor through its own bank.\n\nSame box as the other nest cards: 300 ants, 6,000 frames, no food, one seed, one binary. Its author measured the dirt with no path to the floor falling **474 → 47 over 8 seeds, lower on 7**. It costs about **a fifth more frame time** in this box, because it checks the whole world each time it runs. It is off in the game today.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "Today",
+      "files": [
+        "20260926T033945098Z-e86359/000-plain-6000.png"
+      ],
+      "caption": "",
+      "meta": {
+        "dirt with no path down to the floor (cells)": 362,
+        "dirt standing on nothing (cells)": 102,
+        "heap above the old ground line (cells)": 830
+      },
+      "focus": null
+    },
+    {
+      "label": "Stranded dirt drops",
+      "files": [
+        "20260926T033945098Z-e86359/001-unpack-plain.png"
+      ],
+      "caption": "",
+      "meta": {
+        "dirt with no path down to the floor (cells)": 37,
+        "dirt standing on nothing (cells)": 49,
+        "heap above the old ground line (cells)": 767
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": false,
+    "comment": true,
+    "annotations": true
+  }
+}
