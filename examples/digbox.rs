@@ -1050,10 +1050,6 @@ fn main() {
         pixel_physics::sim::creature::NestHome::Shaft => {
             println!("  home: the painted nest AND the founding cut (PIXEL_PHYSICS_NEST_HOME=shaft) -- in the shaft, the chamber or on the mouth's rim an ant is AtNest")
         }
-        pixel_physics::sim::creature::NestHome::Mound => println!(
-            "  home: the painted nest AND the founding cut's mouth AND anything but spoil piled on it (PIXEL_PHYSICS_NEST_HOME=mound) -- up to {} rows over the mouth",
-            pixel_physics::sim::creature::NEST_MOUND_REACH
-        ),
         pixel_physics::sim::creature::NestHome::Mouth => println!(
             "  home: the painted nest AND the founding cut's mouth (PIXEL_PHYSICS_NEST_HOME=mouth) -- on the rim or in the first {} rows down an ant is AtNest; deeper it is away",
             pixel_physics::sim::creature::NEST_MOUTH_ROWS
