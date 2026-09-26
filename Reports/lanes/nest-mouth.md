@@ -23,15 +23,16 @@ the live question, what is addressed to another lane, predictions and heads.*
 
 ## Live question
 
-**Does a dug mouth keep what §19's door buys on the bed, and fix what it loses
-in the lab?** §19 landed (PR #491) and is merged into this branch. Bed, 24
-seeds, starved against the default's 277: door 209, door + 6-row shaft 195,
-door + shaft with the mouth as home 221, door + shaft with the whole cut as
-home 254, no paint + shaft with the mouth as home 256. Every arm clears the
-bar against the default, and none beats the door. Lab deliveries against the
-default's 5,396: door 1,279, door + shaft 2,072, door + home shaft 3,696 (each
-lower on 11 or 12 of 12); the two mouth arms are running, with a census of
-what covers the mouth (`labshot`).
+**Answered, and the stop rule applied: no mouth tried is better than today on
+both beds.** Bed (24 seeds, starved against 277): door 209, door + mouth as
+home 221, door + whole cut as home 254, no paint + mouth 256. Lab (12 seeds):
+every narrow home carries less food home than the strip, and the dug mouth is
+buried by frame 30,600 on 11-12 of 12 seeds under the colony's own delivered
+food and the roots that grow in it. Two variants failing the lab the same way
+is the brief's stop; written up in the report and in `dead-ends.md`. The
+switches stay, off and bit-exact. What would reopen it: a home that follows
+the ground over the mouth (a site test, not a fixed footprint), or deliveries
+that stop piling in the mouth. Changing the default is the owner's ruling.
 
 ## For the loop session
 
@@ -71,7 +72,7 @@ what covers the mouth (`labshot`).
 | 15 | no paint (door 0) + shaft 6 + mouth, bed | within ±20 of the door's 209; loops within ±10% of 465 | wrong on starved (256; 7 fewer / 16 more against the door), right on loops (445) |
 | 16 | both mouth arms, lab | near door + shaft 6 (2,072), well under the home shaft's 3,696; lower than the default on ≥ 10 of 12 | no paint: right (2,257; 1 / 11), and not what matters: births, food eaten and extinctions tie the default |
 | 17 | door 2 + mouth, lab: extinctions | as the door (4 of 12), because the paint is what gets buried | wrong: 2 of 12 failed (door 4, no-paint mouth 2, default 1); home, not paint, is what matters there |
-| 18 | lab census, 12 seeds: is the mouth open at frame 30,600? | buried on ≥ 9 of 12 in both mouth arms; the whole-cut home keeps it open on ≥ 4 of 12 | |
+| 18 | lab census, 12 seeds: is the mouth open at frame 30,600? | buried on ≥ 9 of 12 in both mouth arms; the whole-cut home keeps it open on ≥ 4 of 12 | right on the mouth arms (11 and 12 of 12 buried); wrong on the whole cut (buried 12 of 12). The cover is the colony's own food and roots, not litter |
 
 ## Cards with the owner
 
@@ -80,6 +81,8 @@ what covers the mouth (`labshot`).
 - `20260926T044022784Z-77bab8` — the gray pixels are tunnel lining, four stops
   (replaces `…6faaf7`).
 - `…e86359` (`UNPACK`) withdrawn: at 40 ants there is nothing for it to remove.
+- `20260926T061431136Z-a29145` — blind: the painted door against the dug
+  mouth with no paint, as GIFs of ants coming home (bed, seed 1).
 
 ## Head SHAs
 
@@ -87,3 +90,7 @@ what covers the mouth (`labshot`).
 - `133c6b73` — the founding shaft lined; genesis frozen before the cut.
 - `80065c60` — `PIXEL_PHYSICS_NEST_HOME=shaft`; the 300-ant shape sweep.
 - `9d73c684` — the 40-ant shape sweep; report and index.
+- `3809f434` — `main` merged in (§19's door); the door's anchor read from
+  the cut; `PIXEL_PHYSICS_NEST_HOME=mouth`.
+- `97c491e1` — both beds measured on the final binary; `labshot`'s cut
+  census; dead-end write-backs.

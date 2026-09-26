@@ -3962,14 +3962,24 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     on 11 of 12 seeds (39.5 → 17 columns) and deeper on 10 of 12; the hole
     silts to about half open by frame 12,000. A crowded 300-ant box (which
     breeds past 800) shows it on 12 of 12 in every arm.
-  - **On the colony bed a home shaft swallows ants.** Traced: the ants that
-    never find food spend 67% of their decisions underground and die there.
-    A hole that is not home is neutral on open ground (door + 6-row shaft:
-    195 starved against the door's 209).
+  - **On open ground one home point pays, and §19's painted door is the best
+    of them** (209 starved against 277). A dug mouth under the door that is
+    home matches it (221); the deeper home reaches into the hole, the more it
+    gives back (the whole cut: 254), because ants that go down dig at the
+    home rate and starve underground (traced: 67% of the never-reachers'
+    decisions underground in a 20-row home shaft).
+  - **In the lab box every narrow home carries less food home than the
+    strip, and the dug mouth does not stay open**: `labshot`'s cut census
+    has it buried by frame 30,600 on 11-12 of 12 seeds, under the colony's
+    own delivered food and the roots that grow in it. No variant beats today
+    on both beds; the brief's stop rule ended the variants. Switches only,
+    off and bit-exact.
   - **The floating dirt over the nest is tunnel lining**; the arch across
     the sky is built by the spoil lift (82% of drops go up the column).
   - Instruments: `digbox` gains a `cut:` line, `tintout=`, and a census with
     the founding cut masked out; its void census counts a collapse as room.
+    `labshot` gains the founding-cut census (what fills the cut, how much
+    covers its mouth).
 - [evolution-lab-round-37-brief-2026-09-15.md](evolution-lab-round-37-brief-2026-09-15.md)
   — **brief, 2026-09-15. `lab`/`engine`/`held`.** Opens with **two retracted
   numbers** a reader may have inherited (29.4 is per-bed, not per-ant; the

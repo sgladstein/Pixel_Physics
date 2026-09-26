@@ -6,7 +6,7 @@ painted door) and [`lanes/nest-entrance-handoff-2026-09-20.md`](lanes/nest-entra
 (the dug shaft, never censused). Everything here is behind switches that are
 off; nothing in either game changed.*
 
-## 0. The answer so far
+## 0. The answer
 
 - **The founding shaft was falling in by frame 5, and nobody could see it.**
   `PIXEL_PHYSICS_NEST_SHAFT` cut its hole without lining it; the chamber roof
@@ -14,17 +14,33 @@ off; nothing in either game changed.*
   census that should have caught it held steady throughout, because the void
   moved up into the dip. Lined the way an ant lines a tunnel, it stands: 82 of
   82 cells open at frame 300.
-- **A founding hole concentrates the nest.** In the bare digging box at 40
-  ants, with the hole masked out of the census so only the colony's own
-  digging counts, a 20-row hole the colony treats as home gives a dug nest
-  narrower in its middle half on 11 of 12 seeds (39.5 → 17 columns), deeper on
-  10 of 12 and bigger on 11 of 12. The hole silts up to about half open by
-  frame 12,000. (In a crowded 300-ant box the effect is 12 of 12 in every
-  shaft arm.)
-- **Making the hole home costs the foraging loop.** On the colony bed, a
-  home shaft swallows ants: they go down, dig and haul at the home dig rate,
-  and starve underground. A hole that is *not* home is neutral on open
-  ground, beside the strip and under §19's door alike.
+- **A founding hole concentrates the nest, when home reaches down it.** In
+  the bare digging box at 40 ants, with the hole masked out of the census so
+  only the colony's own digging counts, a 20-row hole the colony treats as
+  home gives a dug nest narrower in its middle half on 11 of 12 seeds
+  (39.5 → 17 columns), deeper on 10 and bigger on 11. A home only at the
+  mouth does not: the dig gate fires at home, so the colony digs at the
+  surface.
+- **On open ground one home point pays, and §19's painted door is the best
+  of them.** On the colony bed (24 seeds) the door starves 209 against 277.
+  The door with a dug mouth that is home is as good (221; 10 seeds better, 9
+  worse against the door). **The deeper home reaches into the hole, the more
+  of the gain it gives back** (the whole cut as home, 254), because ants that
+  go down dig at the home rate and starve underground. With no paint at all
+  more ants make a full loop (456 against 371, p 0.017), but the food they
+  bring falls into the hole and is buried, and starvation barely moves (256).
+- **In the lab box every narrow home carries less food home than today's
+  strip**, the dug ones included (lower on 11 or 12 of 12 seeds), **and the
+  dug mouth does not stay open**: it is buried by frame 30,600 on 11 or 12 of
+  12 seeds in every dug arm, under the colony's own delivered food and the
+  roots that grow in it. (That the burial is what cuts the deliveries is
+  likely and not measured.) Colonies lost split by whether the hole is home
+  (2–3 of 12) or not (door 4, door over a plain shaft 5; today 1), but 12
+  seeds cannot separate those counts.
+- **So no mouth tried is better than today on both beds, and the look and
+  the loop want opposite homes.** The brief's stop rule applies: the variants
+  end here. The switches stay, off and bit-exact on all three harnesses, and
+  whether any becomes the default is the owner's ruling.
 - **The floating dirt over the nest is tunnel lining**, and the arch it forms
   across the sky is built by the spoil lift. That is goal 2's lead, carried by
   review cards, not by this report.
@@ -116,6 +132,24 @@ packed tunnel wall and loose soil; home against not home barely changes that
 Almost nothing floats: 1–28 cells of ground with no path to the floor across
 four seeds.
 
+**With the 6-row shaft the bed arms use** (the final binary, same settings;
+its default reproduces the table's default on all 12 seeds), **only a home
+that reaches down the hole shapes the nest**:
+
+| arm, 6-row shaft | own room bigger | deeper | middle-half narrower | median middle half |
+|---|---|---|---|---|
+| no paint, the whole cut is home | **10 / 2** | 6 / 6 | 8 / 3 | 23.5 columns |
+| no paint, the mouth is home | 5 / 7 | 4 / 6 | 6 / 6 | 38.5 |
+| door, the mouth is home | 5 / 7 | 2 / **10** (shallower) | 8 / 4 | 30 |
+
+The dig gate fires at home, so a home at the surface digs at the surface:
+without paint the mouth leaves the nest as wide as it was, and with the door
+it comes out narrower on 8 of 12 but shallower on 10 of 12 (20 → 16.5 rows),
+a scrape rather than a shaft. The mouth arms also silt their cut harder (5–6
+of 26 cells open at frame 12,000, against 11.5 with the whole cut home).
+**So the look and the loop want opposite homes**: the shape wants home to
+reach down the hole, and the colony bed pays for every row it does (§4).
+
 **The crowded box, for the record** — 300 ants, 6,000 frames, same scoring.
 Here the effect is stronger and the cut is full of ants rather than dirt:
 
@@ -138,7 +172,7 @@ it, deepen it, or fill it in?*): it keeps it, and digs around it rather than
 across the floor. It is also the first lever in this line that moved the
 middle-half width at all, and it is a founding fact, not a behaviour.
 
-## 4. On the colony bed a home shaft swallows ants
+## 4. On the colony bed one home point pays, and a home down the hole gives it back
 
 The gap-90 bed (the brief's command), 24 seeds paired against the default,
 which starves 277 (279 by the harness's own count). The default arm on this
@@ -208,7 +242,7 @@ as often (hidden units 5/6), so the ants in the cavity dig and enlarge it.
 **A home is where a colony spends its time, and this engine's colony spends it
 digging.**
 
-## 5. The lab
+## 5. In the lab box every narrow home carries less food home, and the mouth is buried
 
 §19's setup (`labforage scenario=played_bed frames=120000`, 12 seeds), every
 arm from one binary. That binary's default reproduces the `main` binary's
@@ -243,6 +277,33 @@ colony. **At 12 seeds, 1 against 2 against 4 lost colonies cannot be told
 apart by any test** (Fisher's exact, 4 of 12 against 2 of 12, p 0.64); the
 deliveries result is the only one here that is not in the noise.
 
+**Does the mouth stay open to the surface? No, and the colony's own food is
+what closes it.** `labshot`'s new census, run on the same 12 seeds (its ant
+count equals `labforage`'s at all 180 stops checked), walks each shaft column
+up from the mouth until it meets open air. The colony is founded at frame
+6,000, so the first stop is 300 frames later:
+
+| frame | mouth reachable from the surface, no paint | door + mouth | door + whole cut as home | cells over the mouth (median, no paint) |
+|---:|---:|---:|---:|---:|
+| 6,300 | 7 of 12 | 5 of 12 | 6 of 12 | 0 |
+| 12,600 | 2 of 12 | 2 of 12 | 2 of 12 | 2 |
+| 30,600 | 1 of 12 | 0 of 12 | 0 of 12 | 5 |
+| 60,300 | 1 of 12 | 0 of 12 | 2 of 12 | 5.5 |
+| 119,700 | 9 of 12 | 6 of 12 | 8 of 12 | 0 |
+
+What fills the cut and covers the mouth, summed over the stops, is mostly
+**food the colony delivered** (crumbs: 715, 648 and 877 cell-observations in
+the three arms) and **roots**: the lab founds into ground the plants have
+already threaded, and the cut refuses living cells (`is_diggable_ground`), so
+roots stand in the shaft from the first frame (89-108 cells at frame 6,300).
+Seeds and fruit pips turn up in it too (58, 56 and 55). So a home fixed at
+the founding footprint ends up under a heap of the colony's own deliveries
+and the plants that root in them, and a laden ant on top of that heap is
+above home, not at it. That is §19's buried door again, with the colony
+doing the burying. The mouths reopen by the end (6-9 of 12) as the stand
+dies back. Whether the burial is what cuts deliveries was not measured
+directly: this harness counts no refused drops.
+
 ## 6. Instruments this found or fixed
 
 - **`digbox`'s void census counts a collapse as room.** Void conserved into
@@ -256,6 +317,15 @@ deliveries result is the only one here that is not in the noise.
   and `tintout=` paints every class of ground flat from the same run.
 - Harness order matters for the shaft: a harness that founds before frame 1
   froze the cut in as terrain until the cut froze genesis itself.
+- **`labshot` censuses the founding cut in the lab box**: per stop, what
+  fills the cut (ants, litter, plants, loose soil, lining, spoil, and anything
+  else by name) and how many cells lie over the mouth, `OPEN` when none do.
+  Silent without a cut. It exists because §19 named the lab's condition, *the
+  mouth stays open to the surface*, from pictures alone.
+- **Deliveries and colonies disagree in the lab.** A narrow home cuts
+  deliveries on 11 or 12 of 12 seeds while food eaten and births tie the
+  default, because lab ants bud anywhere and eat where they find food. Read
+  the colony columns before concluding a home failed there.
 
 ## 7. Commands
 
@@ -266,5 +336,16 @@ PIXEL_PHYSICS_NEST_SHAFT=20 digbox ants=0 frames=300 stops=0,1,5,30,300 out=… 
 digbox ants=300 rate=8 w=200 soil=60 frames=6000 stops=6000 out=plain.png tintout=tint.png crop=20,0,160,70 scale=4
 # the shape sweep (A5): seeds 1-12, arms default / NEST_SHAFT=20 [_WIDTH=4] [NEST_HOME=shaft]
 digbox ants=300 rate=8 w=200 soil=60 frames=6000 stops=0,6000 seed=N
-# the colony bed, 24 seeds: the brief's command, three batches, then scripts/antloop.py
+# the shape sweep with the bed's shaft: 40 ants, four stops, seeds 1-12
+digbox ants=40 energy=1000 w=200 soil=60 frames=12000 stops=0,3000,6000,12000 seed=N
+#   arms: default / NEST_DOOR=0|2 NEST_SHAFT=6 NEST_HOME=mouth / NEST_DOOR=0 NEST_SHAFT=6 NEST_HOME=shaft
+# the colony bed, 24 seeds: the brief's command in three batches (seed0=1,9,17), then scripts/antloop.py
+RAYON_NUM_THREADS=1 PIXEL_PHYSICS_COLONY_SPACING=2 PIXEL_PHYSICS_STACK_DEPTH=4 PIXEL_PHYSICS_BUD_SITE=nest \
+  [PIXEL_PHYSICS_NEST_DOOR=2|0] [PIXEL_PHYSICS_NEST_SHAFT=6] [PIXEL_PHYSICS_NEST_HOME=mouth|shaft] \
+  trailfollow mode=gap gate=shipped frames=24000 ants=20 relay=60 near=10 food=400 refill=400 stop=6000 \
+  layfrom=founders arms=self gaps=90 seeds=8 seed0=S decisioncsv decisiondir=DIR
+# the lab box, 12 seeds, from the repo root
+RAYON_NUM_THREADS=1 [switches] labforage scenario=played_bed frames=120000 seed=N
+# the lab mouth census and pictures
+[switches] labshot scenario=played_bed seed=N frames=6300,12600,30600,60300,119700 out=…
 ```
