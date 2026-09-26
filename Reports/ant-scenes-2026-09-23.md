@@ -1683,3 +1683,41 @@ against the default):
 - **Predictions, written before:** 170 never-reached deaths and 255 starved
   for the homed arm, loops within ±10%. Too cautious on all three: 125, 209,
   and loops **+27%**.
+
+**In the lab box the painted door fails, on every seed.** §14's setup, 12
+seeds, one binary, against the shipped default (which reproduces the stored
+arm on seed 1):
+
+| lab, 12 seeds, median | default | door, homed (`d=2`) |
+|---|---:|---:|
+| food carried home (deliveries) | 5,396 | **1,279** (lower on 12 of 12) |
+| visits to the nest | 8,948 | **1,105** (lower on 12 of 12) |
+| food eaten | 1,158k J | 1,151k J (3 / 9) |
+| births | 590 | 523 (4 / 8) |
+| went extinct | 1 of 12 | **4** of 12 |
+
+Predicted "within today's spread": wrong. On seed 3 the door's founding colony
+dies young (5 births, 16 deaths, 13 deliveries), and a carrier takes a median
+**2,676 frames** to deliver against **763**.
+
+- **Not newborns' homes.** The lab lets ants bud anywhere, and a newborn's
+  home is its birth cell, which the switch does not move. Run with births
+  only at the nest in both arms, the door still collapses deliveries,
+  2,968 → 832 (lower on 12 of 12), and nest visits 4,466 → 798. That
+  hypothesis is wrong.
+- **The nest is buried** (seen in seed 3's pictures, not yet counted). In
+  the lab a mat of plant litter builds up over the ground. The painted nest
+  lies about 10 cells under it: a long line in the default, a 5-cell spot
+  with the door. Ants moving through the litter still brush a 45-column
+  strip; they almost never touch a 5-cell spot under the mat. On the colony
+  bed there is no litter, and the door is in the open.
+
+**Verdict: a painted door is not shippable**, and the switch stays off. It
+proves on open ground that **one home point is what pays** (starved
+277 → 209, never-reached deaths 200 → 125). And the lab shows the condition
+any real mouth must meet: **it has to stay open to the surface**, not be
+painted under whatever grows over it. That is the dug entrance, and the nest
+session's to build on this switch (`Reports/lanes/nest-mouth.md`). Its
+founder rule carries over: home every founder at the mouth, and spread
+founders do as well as piled ones. Pictures of both beds, paired, are on review card
+`20260926T033653046Z-160190`.
