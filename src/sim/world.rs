@@ -1176,6 +1176,14 @@ pub struct NestSite {
 /// **Where a founding cut went**, as two inclusive rectangles: the shaft,
 /// from its mouth on the founding surface down, and the entrance chamber
 /// at its foot. See [`NestSite::shaft`].
+///
+/// **The rectangles are what the cut was aimed at, not the cells it
+/// removed.** A cell the cut refuses -- a living root, a body, water, the
+/// world's edge -- stays inside them, and on uneven ground a column whose
+/// surface sits above the centre column's keeps its top cells, a painted
+/// door cell among them. A census of "open" cells over the footprint
+/// therefore cannot reach the full count there, and says nothing about
+/// whether a filled cell was ever open.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ShaftFootprint {
     /// The shaft's first and last column.

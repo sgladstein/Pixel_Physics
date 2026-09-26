@@ -2824,6 +2824,13 @@ pub fn nest_shaft_rows() -> Option<i32> {
 /// **A parse failure falls back to the default, never to 0** -- the rule
 /// [`nest_core`] states: a typo that silently changed the arm would put a
 /// control in a sweep wearing another point's label.
+///
+/// **With [`nest_home`] unset, keep the shaft narrower than the door.** Home
+/// is then nest material only, and [`nest_door`]'s anchor is the cell above
+/// the founding column. A shaft three or more wide removes the door cells
+/// beside that column (a span of `2d + 1` removes the whole door), so every
+/// founder's home lands over the hole, beside no nest. Wide shafts want
+/// `PIXEL_PHYSICS_NEST_HOME=mouth` or `=shaft`. Every measured arm was 2 wide.
 pub fn nest_shaft_width() -> i32 {
     static W: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
     *W.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SHAFT_WIDTH").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v > 0).unwrap_or(2))
@@ -4004,9 +4011,14 @@ impl World {
         // material, where the laden ant this anchor exists for cannot put
         // food down. The cut recorded the surface it was sunk from
         // (`NestSite::shaft`), so read that. No shaft, no footprint, and this
-        // is `colony_surface` exactly as before.
+        // is `colony_surface` exactly as before. **Only for a species that
+        // declared a nest**: one that did not registered no site here, so the
+        // nearest site's cut would be a neighbour's.
         let door_anchor = door
-            .and_then(|_| self.nearest_nest_site(x, y).and_then(|i| self.nest_sites[i].shaft).map(|cut| cut.top).or_else(|| colony_surface(self, x, y)))
+            .and_then(|_| {
+                let cut_top = if nest.is_empty() { None } else { self.nearest_nest_site(x, y).and_then(|i| self.nest_sites[i].shaft).map(|cut| cut.top) };
+                cut_top.or_else(|| colony_surface(self, x, y))
+            })
             .map(|sy| (x, sy - 1));
         // **One colony per founding.** The first animal that fits founds it
         // and every later station joins; a founding in which nothing fits
@@ -4432,12 +4444,23 @@ impl World {
         if rows <= 0 || width <= 0 {
             return 0;
         }
+        // **One founding cut per site.** `register_nest_site` reuses a site
+        // within its half-width of an earlier one, so a second founding there
+        // would overwrite the first cut's footprint -- the first hole would
+        // stop being home and drop out of every census -- and a founding on
+        // the same spot would find the old chamber floor as its surface and
+        // sink a second shaft from inside the first. A colony founded at a
+        // site that already has its hole shares that hole.
+        if self.nearest_nest_site(x, y).is_some_and(|i| self.nest_sites[i].shaft.is_some()) {
+            return 0;
+        }
         let Some(top) = colony_surface(self, x, y) else { return 0 };
         let depth = scaled_cells(self, rows).max(1);
         // **The width is a span, not a radius**, centred on the founding
         // column and leaning right when even: a radius of 1 is already three
         // cells, half again what the tunnelling paper gives. At the default
-        // of 2 this is `x` and `x + 1`, the shaft as first built.
+        // of 2 and a cell scale of 1 this is `x` and `x + 1`, the shaft as
+        // first built.
         let span = scaled_cells(self, width).max(1);
         let x0 = x - (span - 1) / 2;
 
@@ -4499,11 +4522,11 @@ impl World {
             });
         }
 
-        // **Lined after the whole cut, never cell by cell**: lining a cell's
-        // neighbours before the next cell is cut would pack ground that is
-        // about to be removed, and the order of the two loops would decide
-        // which walls end up worked. Removed cells are empty and carry no
-        // `packs_into`, so the pass cannot touch the void itself.
+        // **Lined in one pass after the cut.** Packing is idempotent and
+        // packed ground is still cut, so lining cell by cell would give the
+        // same walls; one pass after is simply the version with no loop order
+        // to reason about. Removed cells are empty and carry no `packs_into`,
+        // so the pass cannot touch the void itself.
         if lined {
             for &(cx, cy) in &cut {
                 pack_neighbours(self, cx, cy);
@@ -19122,7 +19145,11 @@ mod tests {
             w.live_organism_ids().into_iter().filter_map(|id| w.organism(id)).filter(|s| s.species == ant).map(|s| s.forage_anchor).collect::<Vec<_>>()
         };
         let (mut w, low) = colony_bed();
+        // Pinned, so a runner with `PIXEL_PHYSICS_NEST_SHAFT` set cannot dig
+        // a shaft into the control arm.
+        w.nest_shaft = Some(0);
         assert!(w.found_colony_with(200, low - 32, "ant", COLONY_ANTS, Some(2), false) > 0, "the bed placed no ants");
+        assert!(w.nest_sites.iter().all(|s| s.shaft.is_none()), "the control arm cut a shaft");
         let door_only = anchors(&w);
         assert!(!door_only.is_empty(), "no founders to read");
         assert!(door_only.iter().all(|&a| a == (200, low - 1)), "the door alone homes at the cell above its centre: {door_only:?}");
@@ -19138,6 +19165,34 @@ mod tests {
         for a in homed {
             assert_eq!(a, (200, low - 1), "a founder's home is {a:?}: the door over a shaft homes at the mouth, not down the hole");
         }
+    }
+
+    /// **A site gets one founding cut.** A second founding at a site that
+    /// already has its hole shares it: nothing more is dug, and the first
+    /// footprint stands. Without the rule the second cut finds the first
+    /// chamber's floor as its surface, sinks a shaft from inside the first,
+    /// and overwrites the footprint that home and every census read.
+    #[test]
+    fn a_second_founding_at_a_site_keeps_the_first_cut() {
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        let soil = w.materials.id_of("soil").expect("soil material");
+        for x in 0..=119 {
+            for y in 40..=99 {
+                let stone = y >= 92 || x == 0 || x == 119;
+                w.set(x, y, if stone { Cell::new(material::STONE, 0) } else { Cell::new(soil, 0) });
+            }
+        }
+        w.register_nest_site(60, 38, 2);
+        assert!(w.cut_founding_shaft(60, 38, 16, 2, true) > 0, "the first cut removed nothing");
+        let first = w.nest_sites[0].shaft.expect("the first cut records its footprint");
+        let before: Vec<Cell> = (0..=119).flat_map(|x| (0..=99).map(move |y| (x, y))).map(|(x, y)| w.get(x, y)).collect();
+
+        w.register_nest_site(61, 38, 2);
+        assert_eq!(w.nest_sites.len(), 1, "a founding one column over reuses the site");
+        assert_eq!(w.cut_founding_shaft(61, 38, 16, 2, true), 0, "a second founding at the site dug again");
+        assert_eq!(w.nest_sites[0].shaft, Some(first), "the second founding replaced the first footprint");
+        let after: Vec<Cell> = (0..=119).flat_map(|x| (0..=99).map(move |y| (x, y))).map(|(x, y)| w.get(x, y)).collect();
+        assert!(before == after, "the second founding changed the ground");
     }
 
     fn run(w: &mut World, frames: usize) {

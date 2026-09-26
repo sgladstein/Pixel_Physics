@@ -183,7 +183,7 @@ fn mouth_census(world: &World, fp: pixel_physics::sim::world::ShaftFootprint) ->
         over[7],
         over[1],
         if depth == 0 { " -- OPEN to the surface" } else { " -- BURIED" }
-    ) + &if others.is_empty() { String::new() } else { format!(" | other = {}", others.iter().map(|(n, c)| format!("{n} {c}")).collect::<Vec<_>>().join(", ")) }
+    ) + &if others.is_empty() { String::new() } else { format!(" | other, by name, in the cut and in every column's walk = {}", others.iter().map(|(n, c)| format!("{n} {c}")).collect::<Vec<_>>().join(", ")) }
 }
 
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {

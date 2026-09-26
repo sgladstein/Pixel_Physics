@@ -317,6 +317,11 @@ directly: this harness counts no refused drops.
   and `tintout=` paints every class of ground flat from the same run.
 - Harness order matters for the shaft: a harness that founds before frame 1
   froze the cut in as terrain until the cut froze genesis itself.
+- **The recorded footprint is the rectangle the cut aimed at, not the cells
+  it removed.** Living roots, bodies, water and, on uneven ground, a painted
+  door cell above the centre column's surface stay inside it, so "N of M
+  open" cannot reach M where the cut was refused. In the lab the roots are
+  most of the "plants" counted in the cut at frame 6,300.
 - **`labshot` censuses the founding cut in the lab box**: per stop, what
   fills the cut (ants, litter, plants, loose soil, lining, spoil, and anything
   else by name) and how many cells lie over the mouth, `OPEN` when none do.
