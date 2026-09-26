@@ -3315,6 +3315,11 @@ pub struct World {
     /// `None` follows the environment, which is off unless set; a field for
     /// the reason `chooser` is one.
     pub bud_at_nest: Option<bool>,
+    /// **How hard a hungry empty ant off a route is drawn away from home,
+    /// overriding `PIXEL_PHYSICS_SCOUT` for this world** (`creature::scout_of`).
+    /// `None` follows the environment, which is 0 (no pull) unless set; a
+    /// field for the reason `chooser` is one.
+    pub scout: Option<f32>,
     /// **Which material stopped a creature**, counted per blocked tick and
     /// indexed by `MaterialId` — the breakdown `CreatureStats::
     /// blocked_by_plant` deliberately does not carry, because that struct is
@@ -5652,6 +5657,7 @@ impl World {
             decision_scratch: crate::sim::creature::DecisionScratch::default(),
             chooser: None,
             bud_at_nest: None,
+            scout: None,
             blocked_tissue_by_material: Vec::new(),
             energy_ledger: EnergyLedger::default(),
             colony_books: Vec::new(),
