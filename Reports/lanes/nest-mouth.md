@@ -1,166 +1,73 @@
 # Lane note — the nest's mouth
 
-*Kept current, edited in place. The live question is at the top; results and
-predictions below it; head SHAs at the bottom.*
+*Kept current, edited in place. Findings live in
+[`../nest-mouth-2026-09-26.md`](../nest-mouth-2026-09-26.md); this note keeps
+the live question, what is addressed to another lane, predictions and heads.*
 
 - **Session:** `session_01WF4wABj2ewSmzWVJTk6DsC` (the nest-mouth lane).
 - **Branch:** `claude/ant-nest-mouth-4f6s79`, off `main` at `636612c6`.
-- **Peer:** the foraging-loop session, `session_01AFH5xR442VuoZsXm7VzJmx`.
-  It owns the walk, feeding, the crop, dropping food, `trailfollow.rs`,
-  `scripts/antloop.py` and `Reports/ant-scenes-2026-09-23.md`. This lane owns
-  nest founding and shape (`paint_nest_patch`, `nest_mask`,
-  `dig_founding_shaft`, `colony_stations`, nest sites, `adjacent_nest` and
-  their switches), digging and spoil, the nest material and the nest/dig
-  examples. **Exception:** the loop session's §19 builds the narrow door and
-  founder placement; this lane writes no door or founder-placement code until
-  §19 lands, then builds on it.
+- **Peer:** the foraging-loop session, `session_01AFH5xR442VuoZsXm7VzJmx`
+  (the walk, feeding, the crop, dropping food, `trailfollow.rs`,
+  `scripts/antloop.py`, `Reports/ant-scenes-2026-09-23.md`). This lane owns
+  nest founding and shape, digging and spoil, the nest material and the
+  nest/dig examples. **Exception:** §19's door switch and founder placement
+  are the loop session's; this lane builds on them once they land.
 
 ## Standing owner rulings for this lane
 
 - **2026-09-26: "Make sure you are not using too many ants in your tests and
-  always take snapshots at multiple times."** So `digbox` runs at 40 ants
-  with `energy=1000` (below the 1,100 budding threshold, and the box has no
-  food, so the count stays 40), and every picture is several stops, never
-  one frame. The 300-ant settings bred past 800 ants by frame 6,000; results
-  taken there (A2, A5 below) are marked as such.
-
-## What this lane is for, in the world's words
-
-1. **First: one mouth every ant goes in and out of.** Today founding paints a
-   strip of nest ground ~53 cells wide along the surface and digs nothing, and
-   an ant is home anywhere beside it. The road to food starts at the strip's
-   food-side end, so ants born on the far half rarely meet it (ant-scenes
-   §17b): born far side, 37.5% reach food and 85% starve; food side, 79% and
-   59%. About 200 of the 277 dead on the colony bed never reach the food.
-2. **Second: the nest reads as a nest on screen.** Judged by eye, and it has
-   failed several times ("looks like nothing. a hole floating spoil"). It must
-   not block the first.
+  always take snapshots at multiple times."** `digbox` runs at 40 ants with
+  `energy=1000` (under the 1,100 budding threshold, no food, so the count
+  stays 40); every picture is several stops. Results taken at 300 ants (which
+  breed past 800) are marked as such in the report.
 
 ## Live question
 
-**Does a colony keep the hole when it works inside it?** (A5: `digbox`, 12
-seeds, default / lined shaft / lined shaft with home reaching down it, widths
-2 and 4.) Answered already: the shaft exists at frame 0 and, lined, stands.
+**Does a dug mouth keep what §19's door buys on the bed, and fix what it loses
+in the lab?** On a scratch merge of §19 (PR #491, not landed) and this branch:
+bed, door 209 starved / door + 6-row shaft 195 / + shaft as home 254; lab
+deliveries, door 1,279 (stored) / + shaft 2,072 (10 up of 12) / + shaft as home
+3,651 (11 of 11). The home shaft helps the lab and hurts the bed. My own
+default and door lab arms are running for one-binary pairing.
 
-## Predictions (written before each run; marked after)
+## For the loop session
+
+- §19's founder anchor is computed from `colony_surface` *after* founding,
+  and founding now can cut a shaft (`PIXEL_PHYSICS_NEST_SHAFT`), in which case
+  every founder's home lands on the chamber floor. The scratch merge takes it
+  from the site's recorded surface instead (`NestSite::surface`); identical
+  without a shaft. To be proposed with the PR that builds on §19.
+- **L1185 and L1186** (`AtNest:Feed`, the `Drop` wiring) name "the nest has one
+  mouth" as their re-test condition; §19's door meets it on the bed.
+
+## Predictions (written before each run)
 
 | # | run | prediction | right? |
 |---|---|---|---|
-| 1 | `digbox NEST_SHAFT=20`, census at frames 0/1/5/30/300 | frame 0 reads open = 2·20+4 = 44 and roofed = 4·10−2 = 38 (the positive control); by frame 5 most of the cut has refilled, because the cut is not lined | **Right on both, but the census hid the second half** (below) |
-| 2 | lined cut, same run | ≥ 90% of the cut open through frame 300 | **Right**: 82 of 82 |
-| 3 | `digbox` 300 ants, what floats (made while planning, before the code survey quoted `update.rs`'s 76-of-76-lining note) | mostly spoil pellets resting on ants | **Wrong**: the floating is lining; the spoil is up in the arch, standing on lining |
-| 4 | A5, `digbox` 12 seeds: lined shaft (w2, not home) vs default | the room is taller-for-its-width (`vert`) and its middle half narrower (`iqr`) on ≥ 8 of 12 seeds | **Right**: 11/0 and 12/0, and it survives masking the cut out |
-| 5 | A5: shaft home (`NEST_HOME=shaft`, w2) vs lined shaft not home | deeper again (`vert` up on ≥ 8 of 12); and the cut holds **more ground** (spoil + lining + soil) at 6,000 frames on ≥ 8 of 12, because ants at home dig inside it and the foot of an open shaft is a legal spoil drop | **Wrong on both**: `vert` 6/2; the cut holds **less** ground, 1 up / 11 down |
-| 6 | A5: width 4 vs width 2, both home | more of the cut still open at 6,000 frames on ≥ 8 of 12 | **Right**, 12/0 (partly by construction: 122 cells against 82) |
-| 7 | bed, default arm on this branch vs the reference binary | identical, every line of all three logs | |
-| 8 | bed, strip kept + shaft 20 home (w2, w4) vs default | starved within ±15 of 277 and loops within ±10% of 366: the strip still decides where the road starts, so a home shaft beside it neither helps nor hurts much | **Wrong**: w2 309 (8 fewer / 15 more), w4 **376 (4 / 18, p 0.004)** |
-| 9 | §19's door (`NEST_DOOR=2`) on a scratch merge of §19 + this branch | reproduces §19's bed number exactly (starved 209) | **Right**: 209, loops 465 |
-| 10 | door + shaft 6, not home, bed | within ±15 of the door alone: the hole neither helps nor hurts on open ground | **Right**: 195 (13 fewer / 10 more than the door; 19 / 4 against the default) |
-| 11 | door + shaft 6, home, bed | worse than the door alone by > 15 starved: the home cavity swallows ants, as beside the strip | **Right**: 254 (8 / 14 against the door) |
-| 12 | door + shaft 6 (home or not), lab 12 seeds | deliveries recover from the door's 1,279 toward the default's 5,396, because a hole stays open to the surface where paint is buried | |
+| 1 | shaft at frames 0/1/5/30/300, unlined | frame 0 = the positive control; mostly refilled by 5 | right on both; the census hid it |
+| 2 | lined cut | ≥ 90% open through 300 | right (82 of 82) |
+| 3 | what floats (300 ants) | spoil resting on ants | wrong: lining |
+| 4 | shaft vs default, shape (300 ants) | taller and narrower ≥ 8 / 12 | right (11–12 / 0) |
+| 5 | home vs not home (300 ants) | deeper, and more dirt in the cut | wrong on both |
+| 6 | w4 vs w2, home | more of the cut open | right (by construction) |
+| 7 | default on this branch vs reference | identical, every line | right |
+| 8 | strip + home shaft, bed | within ±15 starved | wrong: 309 / 376 |
+| 9 | door on the scratch merge | reproduces 209 | right |
+| 10 | door + shaft 6, bed | within ±15 of the door | right (195) |
+| 11 | door + home shaft 6, bed | worse by > 15 | right (254) |
+| 12 | door + shaft 6 (home or not), lab | deliveries recover toward 5,396 | partly: 2,072 / 3,651 (default arm pending) |
 
-## §19 (the loop session's door)
+## Cards with the owner
 
-On its branch, not landed (`01b4dba1`, 2026-09-26): `PIXEL_PHYSICS_NEST_DOOR=<d>`
-paints a door of 2d+1 columns and homes every founder there; `…_FOUNDERS=pile`
-heaps them on it. Colony bed: starved 277 → 209 (18 better / 4 worse). This lane
-builds the "shaft is home" arm on it once it lands. Note for then: its founder
-anchor is taken from `colony_surface` *after* the cut, which in a shaft column is
-the chamber floor.
-
-## Results
-
-**A1, the unlined shaft (2026-09-26, `main` binary, `digbox ants=0`).**
-Frame 0 reads open 44, roofed 38: the cut exists, exactly as drawn. By
-frame 1 the chamber roof has dropped; by frame 5 the shaft and the chamber
-are gone and a 1–2 row dip stands in the surface over where the chamber was.
-**`digbox`'s `roofed + open` read 82 at every stop through it**: the void
-does not vanish, it moves up into the dip, which the census counts as open
-room. So a collapse reads as nothing happening. `digbox` now carries a
-`cut:` line counting the cut's own cells from the footprint the cut records
-on its site. The frame-0 render also shows the harness-founded shaft drawn as
-**sky blue**: the underground map is frozen on frame 1, after the cut.
-
-**A1, the repair.** The cut now lines its walls with the ant's own lining
-(`pack_neighbours`, split out of `line_burrow` so the ants' `packed` counter
-stays theirs), freezes the world's genesis before it cuts, takes a width dial
-(`PIXEL_PHYSICS_NEST_SHAFT_WIDTH`, default 2) and records its footprint on
-the nest site (`NestSite::shaft`). Same run: **82 of 82 cells open at frames
-0/1/5/30/300**; the unlined control (`BURROW_LINING=off`) reads 42 at frame 1
-and 6 at frame 5. It now draws as a dark hole with daylight fading down it.
-Guard `the_founding_shaft_stands` (both drivers, unlined control inside it)
-watched red with the lining disabled: *"only 6 of 66 cells are open"*.
-
-**A2, what the floating is** (300 ants, 6,000 frames, seed 0, the settings
-the owner judged). Tinted from one run: the grey grit is **tunnel lining**
-(1,396 cells on screen, 421 above the old ground line) and **ants** (1,234
-cells); the heap's arch hanging from the top of the sky is lining and spoil
-(266 of 269 spoil cells are above ground). **82% of spoil drops (5,292 of
-6,434) went up the digger's own column** rather than beside it; 362 cells of
-ground have no path to the floor, and all 102 cells standing on nothing are
-lining. So the lever for the look is what lifts pellets and what makes a heap
-self-supporting, not where an ant puts one down beside itself.
-
-**First look at a shaft with ants** (same settings, one seed, not a result).
-At 6,000 frames the cut is 58 cells of ants, 16 of ground, 8 open: it stays a
-space and fills with animals, not dirt. The room ends 28 rows deep against 21,
-and its middle half is 29 columns wide against 56.
-
-**Bed baseline, reference binary:** 24 seeds reproduce the stored §18
-default funnel line for line (starved 277, loops 366).
-
-**A5 at 40 ants (the owner's ruling above), 12,000 frames, stops 0/3k/6k/12k,
-seeds 1–12:** a 20-row hole that is home: nest narrower in its middle half
-11 / 1 (39.5 → 17 columns), deeper 10 / 2, bigger 11 / 1; not home, narrower
-11 / 1 only; 10-row home, narrower 12 / 0. The hole silts to a median 35 of
-82 open by 12,000 (packed wall and loose soil). No chambers anywhere; almost
-nothing floats (1–28 stranded cells). Cards `…044019146Z-52a96c` (the shaft,
-four stops) and `…044022784Z-77bab8` (gray pixels, four stops) replace the
-300-ant ones, which are marked superseded; the `UNPACK` card is withdrawn
-(nothing for it to remove at 40 ants).
-
-**A5 at 300 ants, the crowded box** (`digbox`, 6,000 frames, seeds
-1–12, one binary; scored on the colony's own digging, i.e. with the founding
-cut masked out of the census, because a shaft arm with no ants at all reads a
-13-column room by construction). Seed by seed against the default:
-
-| arm | own room | depth | height/width | middle-half width | chambers (owner's metric) |
-|---|---|---|---|---|---|
-| lined shaft, w2 | 10 up / 2 | 11 / 0 | 11 / 0 | **narrower 12 / 0** | 3 / 1 |
-| lined shaft, w4 | 9 / 3 | 12 / 0 | 12 / 0 | **narrower 12 / 0** | 5 / 1 |
-| shaft is home, w2 | 10 / 2 | 12 / 0 | 12 / 0 | **narrower 12 / 0** | 8 / 1 |
-| shaft is home, w4 | 10 / 2 | 12 / 0 | 12 / 0 | **narrower 12 / 0** | **10 / 0** |
-
-Medians: middle half 45 → 27–30 columns, depth 23 → 28–32 rows, chambers
-0 → 1.5 in the home arms (rooms ~8–10 tall, 8–12 wide, passages still 2). **A
-founding hole concentrates the whole nest, on every seed.** Home against not
-home changes little in shape and keeps the hole clearer: ground in the cut
-lower on 11 of 12 (w2) and 9 of 12 (w4). What fills the cut is ants (median 52–70
-cells), in a box that grows past 800 of them.
-
-**Bed, the shaft beside today's strip** (24 seeds paired against the
-default, which starves 279 by the harness's count; not the mouth arm — §19's
-door is not in yet). Bit-exact first: the default arm on this branch
-reproduces the reference binary's three logs line for line.
-
-| shaft rows | not home: starved (fewer / more) | home, w2: starved (fewer / more) |
-|---|---|---|
-| 6 | 270 (13 / 7) | 303 (10 / 12) |
-| 10 | 265 (14 / 7) | 315 (8 / 14) |
-| 20 | 293 (11 / 12) | 309 (8 / 15); w4 **376 (4 / 18)** |
-
-A shaft that is not home is neutral to slightly better; **making it home is
-worse at every depth**, and the funnel says where: fewer ants ever reach the
-food (271 → 145 at 20 rows, w4), while those that do still close a loop at
-the same rate. Traced, every never-reacher: at 20 rows w4, 67% of their
-decisions are underground at a median depth of 17 rows, a third of them
-holding a pellet, and 277 of 343 die down there. One ant's life: born on
-the far end of the strip, down the shaft by frame 800, then 2,300 frames
-digging and hauling 8–22 rows down with `AtNest` on, energy 0.7 → 0, never
-back up. **The home cavity swallows ants**: underground there is no food
-trail, an empty ant off a trail walks without direction, and home digging
-(the gate fires ~5x more at the nest) keeps enlarging the cavity.
+- `20260926T044019146Z-52a96c` — a colony of 40 founded with one hole, four
+  stops (replaces `…af67e6`).
+- `20260926T044022784Z-77bab8` — the gray pixels are tunnel lining, four stops
+  (replaces `…6faaf7`).
+- `…e86359` (`UNPACK`) withdrawn: at 40 ants there is nothing for it to remove.
 
 ## Head SHAs
 
 - `636612c6` — branch cut from `main`.
+- `133c6b73` — the founding shaft lined; genesis frozen before the cut.
+- `80065c60` — `PIXEL_PHYSICS_NEST_HOME=shaft`; the 300-ant shape sweep.
+- `9d73c684` — the 40-ant shape sweep; report and index.
