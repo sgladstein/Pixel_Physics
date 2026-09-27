@@ -338,6 +338,15 @@ by somebody about to try it on creatures.
   workflows default to a **5-minute** prompt cache while the main session gets
   an hour. Recommends the ~67,000-token `open-bugs-handoff.md` split and says
   why it did not do it.
+- [agent-efficiency-2026-09-27.md](agent-efficiency-2026-09-27.md) — **draft,
+  2026-09-27; being combined with the nest lane's findings.** What a sub-agent
+  spends and on what, read off its transcript by the new
+  `scripts/agentmeter.py`. A workflow sub-agent starts at **~78k tokens**, not
+  the ~22k `agent-strategy.md` §1 priced, because it also carries every tool's
+  schema (~37k, of which a data agent uses ~4k); that prefix is 35-54% of its
+  cost. Agents re-read the same files before any data work (all 5 of a survey
+  read `creature.rs`), and an agent handed exact data paths and parsers cost
+  0.53M against 1.2-1.75M. Thinking stays in context and is not recorded.
 - [agent-documentation-audit-2026-08-24.md](agent-documentation-audit-2026-08-24.md)
   — **findings; the mechanical half executed (`fbc10e6`), §5 awaiting an owner
   call.** The companion to the three above, asking the other question: not *is
