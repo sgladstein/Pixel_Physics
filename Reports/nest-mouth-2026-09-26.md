@@ -36,11 +36,14 @@ off; nothing in either game changed.*
   delivery is a drop made at home, so **a smaller home counts fewer of them
   by definition**, and a crumb picked up at home and put back counts twice.
   A new counter measured that: 86% of the strip's deliveries are food picked
-  up at home first (median of 12 seeds). Net of it, **the dug mouth brings
-  home as much as the strip** (604 cells against 712, 6 seeds up and 6 down),
-  and the painted door about half (384, lower on 10 of 12). On the outcomes
-  that do not depend on where home is (births, food eaten, colony-frames and
-  starvation), no arm separates from today at 12 seeds.
+  up at home first (median of 12 seeds). ~~Net of it, the dug mouth brings
+  home as much as the strip (604 cells against 712), and the painted door
+  about half (384).~~ **Withdrawn 2026-09-27: deliveries minus pickups at
+  home is not a net flow.** Both are judged at the ant's head rather than at
+  the food, so a crumb just outside home is picked up with no debit and
+  delivered again (§7). On the outcomes that do not depend on where home is
+  (births, food eaten, colony-frames and starvation), no arm separates from
+  today at 12 seeds, and those carry the verdict.
 - **A home that follows the pile over the mouth builds a tower.** This was
   tried once after the stop rule, aimed at the burial. The colony stacks its
   food over its own door: a median of 34.5 rows high at frame 30,600, and over
@@ -288,16 +291,25 @@ definition, and a crumb picked up at home and put back counts twice. The new
 counter (§7) measures that on the same 12 seeds; the 48 re-runs reproduce
 every other number in the stored logs:
 
-| lab, 12 seeds, median | deliveries | picked up at home | share | net into home |
+| lab, 12 seeds, median | deliveries | picked up at home | share | deliveries − picked up (not a net flow; see below) |
 |---|---:|---:|---:|---:|
 | default | 5,396 | 4,578 | 86% | 712 |
 | door (`NEST_DOOR=2`) | 1,279 | 956 | 70% | 384 (2 up / 10 down, p 0.039) |
 | door + 6-row shaft, home = the mouth | 3,204 | 2,349 | 80% | 604 (6 / 6) |
 
 **Most of every arm's deliveries are the same food going round**, and the
-strip churns the most. Net of it, the dug mouth brings home as much as the
-strip, so its whole deficit in deliveries was the strip's churn. The painted
-door's loss is real, and about half the size deliveries said. **And deliveries
+strip churns the most. The share column is a lower bound on that churn.
+
+**Corrected 2026-09-27: the last column is not food into home.** This
+section first read it as a net flow, and on that reading found that the dug
+mouth brings home as much as the strip and that the painted door's loss is
+about half what deliveries said. Both conclusions are withdrawn. The two
+counters judge where the acting ant's head is, not where the food is. A
+crumb set down a cell beyond the head, fallen, or handed through bodies is
+picked up from outside home with no debit, then delivered again. The
+foraging lane traced it ant by ant on its 90-cell bed (24 seeds): the
+difference read 7,506 where 1,637 cells of pile food were ever delivered
+home. **And deliveries
 is not what decides the colony here.** Food eaten, births, colony-frames and
 survivors are what do, and on those no arm separates from the default: 3 to 6
 of 12 up on every column (the whole cut's colony-frames, 3 / 9, p 0.15).
@@ -384,7 +396,8 @@ left, net, is higher than the fixed mouth's on 12 of 12 (2,063 cells against
 604), and that is the tower. Food stacked on it stays, or is taken off its
 flanks by ants that are not at home, which the counter cannot see; for a home
 whose shape separates where food lies from where a picker stands, even the net
-is not a measure of transport.
+is not a measure of transport. (Since 2026-09-27 that holds for every home:
+the difference is not a net flow for any arm, §7.)
 
 On the lab's outcomes that do not depend on where home is, the mound and the
 fixed mouth tie on every one: births, food eaten, colony-frames and starvation
