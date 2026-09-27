@@ -1260,6 +1260,17 @@ struct NestFunnel {
     before: std::collections::BTreeMap<u32, AntBefore>,
     /// The box as it stood before the frame: `None` is an organism's cell.
     grid: Vec<Option<MaterialId>>,
+    /// ...and whose, where `grid` is `None` (0 elsewhere), so a pellet set
+    /// down on its own carrier can be told from one set on a nestmate.
+    grid_org: Vec<u32>,
+    /// Frame each cell was last cut (`u64::MAX`: never). A digger steps into
+    /// the cell it has just cut, so "an animal under it" a frame later is
+    /// most often the cut that took the footing; this is what separates them.
+    cut_frame: Vec<u64>,
+    /// Frame each cell last had a pellet put down in it (`u64::MAX`: never),
+    /// and by whom.
+    put_frame: Vec<u64>,
+    put_by: Vec<u32>,
     /// Cells dug, or filled by a pellet, since frame 0: re-cutting them is
     /// churn, not new ground.
     touched: Vec<bool>,
@@ -1290,6 +1301,30 @@ struct NestFunnel {
     /// **Worked ground turned loose where it stands**, the supply the passes
     /// above are drawn from: [lining, pellet][below the old surface, above].
     turned_loose: [[u64; 2]; 2],
+    /// **Why a pellet above the old surface turned loose**, read off the cell
+    /// straight beneath it, which is the one `update_powder`'s footing test
+    /// reads: [its carrier's own body, another animal, air, cut out from
+    /// under it in the last two frames, the ground under it fell away,
+    /// anything else]. 2026-09-27: the heaps are 78% of what turns loose,
+    /// and each cause wants a different lever.
+    loose_why: [u64; 6],
+    /// ...and how long it had stood since it was put down, in frames:
+    /// [<= 1, <= 10, <= 100, <= 1,000, longer, not put by a tracked ant].
+    loose_age: [u64; 6],
+    /// **Pellets put down with no footing**: what the cell straight beneath
+    /// held at the start of the frame -- [the carrier's own body, another
+    /// animal, air]. `act`'s drop site asks for two *filled* cells of the
+    /// three below, and an animal is filled; the footing rule asks for
+    /// *ground* straight below, and an animal is not.
+    put_unfooted: [u64; 3],
+    /// Of `put_unfooted`, the ones posted up the column rather than set
+    /// beside the head.
+    put_unfooted_lifted: [u64; 3],
+    /// Ant-frames with a pellet in the jaws, of all ant-frames: an ant
+    /// holding a pellet cannot dig, so a drop that finds nowhere to go is
+    /// paid for here.
+    held_frames: u64,
+    ant_frames: u64,
     /// **A refill that stays**: a dug cell still ground `REFILL_STANDING`
     /// frames after it filled. [by a fall, by a pellet put there].
     refill_standing: [u64; 2],
@@ -1388,12 +1423,17 @@ impl NestFunnel {
             self.touched = vec![false; n];
             self.dug = vec![false; n];
             self.refill_pending = vec![false; n];
+            self.cut_frame = vec![u64::MAX; n];
+            self.put_frame = vec![u64::MAX; n];
+            self.put_by = vec![0; n];
         }
         self.grid.clear();
+        self.grid_org.clear();
         for y in 0..b.h {
             for x in 0..b.w {
                 let c = world.get(x, y);
                 self.grid.push(if c.organism_id() != 0 { None } else { Some(c.material) });
+                self.grid_org.push(c.organism_id());
             }
         }
         for &id in ants.keys() {
@@ -1409,6 +1449,10 @@ impl NestFunnel {
         let ids: Vec<u32> = self.before.keys().copied().collect();
         for id in ids {
             let pre = self.before[&id];
+            self.ant_frames += 1;
+            if pre.holding {
+                self.held_frames += 1;
+            }
             let track = self.ants.get_mut(&id).expect("registered in before");
             let (dx, dy) = DIRS[pre.heading as usize % 8];
             let (tx, ty) = (pre.head.0 + dx, pre.head.1 + dy);
@@ -1486,6 +1530,7 @@ impl NestFunnel {
                         }
                     };
                     self.touched[at(tx, ty)] = true;
+                    self.cut_frame[at(tx, ty)] = frame;
                     if !self.dug[at(tx, ty)] {
                         self.dug_list.push(at(tx, ty));
                     }
@@ -1536,6 +1581,23 @@ impl NestFunnel {
                         }
                         self.touched[at(sx, sy)] = true;
                         self.put_sites.push(at(sx, sy));
+                        self.put_frame[at(sx, sy)] = frame;
+                        self.put_by[at(sx, sy)] = id;
+                        if inside(sx, sy + 1) {
+                            let j = at(sx, sy + 1);
+                            let k = match self.grid[j] {
+                                None if self.grid_org[j] == id => Some(0),
+                                None => Some(1),
+                                Some(m) if m == material::EMPTY => Some(2),
+                                Some(_) => None,
+                            };
+                            if let Some(k) = k {
+                                self.put_unfooted[k] += 1;
+                                if lifted {
+                                    self.put_unfooted_lifted[k] += 1;
+                                }
+                            }
+                        }
                         if let Some((cx, cy, reached)) = track.cut.take() {
                             if out && reached >= 4 {
                                 track.stage = track.stage.max(5);
@@ -1593,6 +1655,46 @@ impl NestFunnel {
                 let now = world.get(x, y);
                 if now.organism_id() == 0 && now.material == soil {
                     self.turned_loose[kind][usize::from(y < b.surface)] += 1;
+                    if kind == 1 && y < b.surface {
+                        // What the footing test saw beneath it. A cut in the
+                        // last two frames first: the digger stands in it now.
+                        let why = if y + 1 >= b.h {
+                            5
+                        } else {
+                            let j = at(x, y + 1);
+                            if self.cut_frame[j] != u64::MAX && frame.saturating_sub(self.cut_frame[j]) <= 2 {
+                                3
+                            } else {
+                                match self.grid[j] {
+                                    None if self.put_by[i] != 0 && self.grid_org[j] == self.put_by[i] => 0,
+                                    None => 1,
+                                    Some(m) if m == material::EMPTY => 2,
+                                    Some(m) if Self::is_ground(world, m) => {
+                                        let under = world.get(x, y + 1);
+                                        if under.material == material::EMPTY || under.organism_id() != 0 {
+                                            4
+                                        } else {
+                                            5
+                                        }
+                                    }
+                                    Some(_) => 5,
+                                }
+                            }
+                        };
+                        self.loose_why[why] += 1;
+                        let age = if self.put_frame[i] == u64::MAX {
+                            5
+                        } else {
+                            match frame.saturating_sub(self.put_frame[i]) {
+                                0..=1 => 0,
+                                2..=10 => 1,
+                                11..=100 => 2,
+                                101..=1000 => 3,
+                                _ => 4,
+                            }
+                        };
+                        self.loose_age[age] += 1;
+                    }
                 }
             }
         }
@@ -1704,6 +1806,24 @@ impl NestFunnel {
             self.turned_loose[0][1],
             self.turned_loose[1][0],
             self.turned_loose[1][1]
+        );
+        let [own, other, air, cut, fell, else_] = self.loose_why;
+        let [a1, a10, a100, a1000, older, unknown] = self.loose_age;
+        println!(
+            "LEDGER frame={frame} pellets above the old surface turned loose {}: on its carrier's own body {own}, on another animal {other}, over air {air}, cut out from under it {cut}, the ground under it fell {fell}, other {else_}; had stood <=1 frame {a1}, <=10 {a10}, <=100 {a100}, <=1000 {a1000}, longer {older}, unknown {unknown}; pellets put down with no footing: on the carrier's own body {}, on another animal {}, over air {} (of them posted up the column: {}, {}, {})",
+            self.turned_loose[1][1],
+            self.put_unfooted[0],
+            self.put_unfooted[1],
+            self.put_unfooted[2],
+            self.put_unfooted_lifted[0],
+            self.put_unfooted_lifted[1],
+            self.put_unfooted_lifted[2]
+        );
+        println!(
+            "LEDGER frame={frame} ant-frames holding a pellet {} of {} ({:.1}%)",
+            self.held_frames,
+            self.ant_frames,
+            if self.ant_frames > 0 { 100.0 * self.held_frames as f64 / self.ant_frames as f64 } else { 0.0 }
         );
         // Who to trace: a few ids stopped at each stage.
         for (i, name) in FUNNEL_STAGES.iter().enumerate().skip(1) {
@@ -1877,6 +1997,58 @@ fn funnel_selftest(b: &Box2) {
         fun.turned_loose[1][1]
     );
     assert_eq!((fun.refill_standing[0] - stand0[0], fun.turned_loose[0][0], fun.turned_loose[1][1]), (1, 1, 1), "a fill that stays and worked ground turned loose must each be booked once");
+
+    // 4c. Why a pellet on the surface turned loose, one case per cause, in a
+    //     fresh box: each pellet is put down by hand beside an ant standing on
+    //     the surface and turned to soil the frame after (the cut, in the same
+    //     frame) -- on its carrier's own body, on another animal, over air,
+    //     cut out from under it, and on ground that fell away beneath it.
+    {
+        let mut w = build(b);
+        let mut f = NestFunnel::default();
+        let rec = |head: (i32, i32), heading: u8, digs: u32, holding: bool| {
+            std::collections::BTreeMap::from([(id, AntBefore { head, heading, digs, holding, pellet: if holding { spoil } else { material::EMPTY }, crop_empty: true })])
+        };
+        let aft = |digs: u32, holding: bool| std::collections::BTreeMap::from([(id, AntAfter { digs, holding })]);
+        let hy = b.surface - 1;
+        let mut fr = 10u64;
+        // Put a pellet at (px, py) beside the head, then turn it loose, with
+        // `between` run on the world inside the second frame.
+        // `cuts` is the engine's dig count for the second frame: 1 only where
+        // `between` is the ant's own cut.
+        let mut case = |w: &mut World, f: &mut NestFunnel, head: (i32, i32), (px, py): (i32, i32), cuts: u32, between: &dyn Fn(&mut World)| {
+            fr += 1;
+            f.before_with(w, b, rec(head, 0, 0, true));
+            w.set(px, py, pellet);
+            f.after_with(w, b, fr, &aft(0, false));
+            fr += 1;
+            f.before_with(w, b, rec(head, 7, 0, false));
+            between(w);
+            w.set(px, py, Cell::new(soil, 0));
+            f.after_with(w, b, fr, &aft(cuts, false));
+        };
+        let x0 = b.w / 2 - 40;
+        // (a) On its own body: the carrier's cell straight beneath the put.
+        w.set(x0, hy, Cell::new(soil, 0).with_organism_id(id));
+        case(&mut w, &mut f, (x0 + 1, hy), (x0, hy - 1), 0, &|_| {});
+        // (b) On another animal.
+        w.set(x0 + 10, hy, Cell::new(soil, 0).with_organism_id(id + 1));
+        case(&mut w, &mut f, (x0 + 11, hy), (x0 + 10, hy - 1), 0, &|_| {});
+        // (c) Over air: a hole in the surface under the put.
+        w.set(x0 + 21, b.surface, Cell::EMPTY);
+        case(&mut w, &mut f, (x0 + 20, hy), (x0 + 21, hy), 0, &|_| {});
+        // (d) Cut out from under it: the ant, facing down-right, cuts the
+        //     ground the pellet stands on in the frame it turns loose.
+        case(&mut w, &mut f, (x0 + 30, hy), (x0 + 31, hy), 1, &|w| w.set(x0 + 31, b.surface, Cell::EMPTY));
+        // (e) The ground under it fell: emptied with no dig.
+        case(&mut w, &mut f, (x0 + 40, hy), (x0 + 41, hy), 0, &|w| w.set(x0 + 41, b.surface, Cell::EMPTY));
+        println!(
+            "  funnel: pellets on the surface turned loose -> own body, another animal, air, cut from under, ground fell, other {:?}; put down with no footing: own body, another animal, air {:?}; age <=1 frame {} (must be [1, 1, 1, 1, 1, 0], [1, 1, 1], 5)",
+            f.loose_why, f.put_unfooted, f.loose_age[0]
+        );
+        assert_eq!((f.loose_why, f.put_unfooted, f.loose_age), ([1, 1, 1, 1, 1, 0], [1, 1, 1], [5, 0, 0, 0, 0, 0]), "each cause of a pellet turning loose must be booked once, under its own name");
+        assert_eq!(f.cut_new_open + f.cut_above + f.cut_again + f.cut_new_roofed, 1, "case (d)'s cut, and only it, must be placed");
+    }
 
     // 5. The ledger's own control: a dig the world does not show must be
     //    booked as unplaceable, not quietly dropped or guessed.

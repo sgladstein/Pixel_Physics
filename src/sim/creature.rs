@@ -9336,6 +9336,62 @@ fn spoil_drop_cover() -> Option<f32> {
     })
 }
 
+/// **`PIXEL_PHYSICS_SPOIL_FOOTING=ground`: a pellet is set down only where it
+/// can stay.** The drop site's `open` asks for two *filled* cells of the three
+/// beneath it; the footing rule that turns a pellet loose (`update_powder`,
+/// §Z18) asks for *ground* straight beneath, and an animal is filled but not
+/// ground. Under this switch the drop site asks what the footing rule asks:
+/// the cell straight beneath, and two of the three, pass [`is_footing`].
+///
+/// **The gap, measured before it was built** (`examples/digbox`, 40 ants, 12
+/// seeds, frame 12,000; the funnel's `pellets above the old surface turned
+/// loose` line): about two pellets in three (1,216 of ~1,900 on seed 1) are
+/// put down with no footing -- on the carrier's own back (651), on a
+/// nestmate (314, two thirds of them posted up the column onto an ant in the
+/// shaft), or over air with both diagonals filled (251). Each turns to loose
+/// soil within about ten frames and falls, and they are 94% of the worked
+/// ground that turns loose above the surface. Ants digging out from under a
+/// heap, which the first write-up guessed, account for 0-4 a seed.
+///
+/// Still one predicate about the cell, not a policy about where a colony's
+/// tailings belong: which cell is chosen, and when, is untouched. Unset is
+/// bit-exact: the same reads in the same order, and no draw either way.
+fn spoil_footing_drop() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_SPOIL_FOOTING").as_deref(), Ok("ground")))
+}
+
+/// **Can a pellet be put down at `(px, py)`?** The cell is empty, it has a
+/// footing, and `SPOIL_HEADROOM` cells above it are empty -- `act`'s spoil
+/// branch carries the argument for each half. `footed` is
+/// [`spoil_footing_drop`]: whether "a footing" means ground, as the footing
+/// rule reads it, or merely a filled cell.
+fn spoil_site_open(world: &World, px: i32, py: i32, footed: bool) -> bool {
+    world.is_empty(px, py)
+        // **A footing, not a point.** One cell beneath is enough to stop a
+        // pellet hanging in the air and not enough to stop it being balanced
+        // on a pinnacle: with only the centre tested, a colony stacks tamped
+        // spoil single-file and the top of a worked bank grows thin vertical
+        // fingers, which a rendered sheet shows plainly. Two of the three
+        // cells under it means a pellet goes in a hollow or on a shoulder, so
+        // tailings spread instead of climbing.
+        && (if footed {
+            is_footing(world, px, py + 1) && [(-1, 1), (0, 1), (1, 1)].iter().filter(|(dx, dy)| is_footing(world, px + dx, py + dy)).count() >= 2
+        } else {
+            [(-1, 1), (0, 1), (1, 1)].iter().filter(|(dx, dy)| !world.is_empty(px + dx, py + dy)).count() >= 2
+        })
+        && (1..=SPOIL_HEADROOM).all(|dy| world.is_empty(px, py - dy))
+}
+
+/// **Ground a pellet can stand on, by the footing rule's own test**: not an
+/// animal, and a `Powder` or `Solid` (`update_powder`'s `no_footing`, which
+/// says why leaves and water are not a footing). Outside the world reads as
+/// bedrock, so the edge counts.
+fn is_footing(world: &World, x: i32, y: i32) -> bool {
+    let c = world.get(x, y);
+    c.material != material::EMPTY && c.organism_id() == 0 && matches!(world.materials.get(c.material).kind, MaterialKind::Powder | MaterialKind::Solid)
+}
+
 /// Straight down, as an index into [`DIRS`] -- `(0, 1)`, since `y` grows
 /// downward.
 const DOWN_DIR: u8 = 6;
@@ -11059,20 +11115,14 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // ruling and the reason two earlier placement rules are in
             // `dead-ends.md`. Which of those cells an animal is standing next
             // to, and when it lets go, is still entirely the `Drop` gene's.
-            let open = |px: i32, py: i32| {
-                world.is_empty(px, py)
-                    // **A footing, not a point.** One cell beneath is enough
-                    // to stop a pellet hanging in the air and not enough to
-                    // stop it being balanced on a pinnacle: with only the
-                    // centre tested, a colony stacks tamped spoil single-file
-                    // and the top of a worked bank grows thin vertical
-                    // fingers, which a rendered sheet shows plainly. Two of
-                    // the three cells under it means a pellet goes in a
-                    // hollow or on a shoulder, so tailings spread instead of
-                    // climbing.
-                    && [(-1, 1), (0, 1), (1, 1)].iter().filter(|(dx, dy)| !world.is_empty(px + dx, py + dy)).count() >= 2
-                    && (1..=SPOIL_HEADROOM).all(|dy| world.is_empty(px, py - dy))
-            };
+            //
+            // **"Filled" is not "ground", and under `PIXEL_PHYSICS_SPOIL_
+            // FOOTING=ground` the predicate asks for ground.** See
+            // [`spoil_footing_drop`]: an ant is a filled cell, so a pellet can
+            // be set on its carrier's own back, and the footing rule (§Z18)
+            // then turns it to loose soil within a few frames.
+            let footed = spoil_footing_drop();
+            let open = |px: i32, py: i32| spoil_site_open(world, px, py, footed);
             // **...and if there is no such cell beside it, up the shaft.**
             // An animal at the face has nowhere to lie a pellet down -- every
             // neighbour is either the gallery or the bank -- and the two
@@ -12007,6 +12057,12 @@ fn line_burrow(world: &mut World, x: i32, y: i32) {
 /// booked there would move `packed` on every shaft arm by a constant that no
 /// ant earned. The order of the writes is the loop's, exactly as before.
 fn pack_neighbours(world: &mut World, x: i32, y: i32) -> u64 {
+    pack_neighbours_with(world, x, y, !spoil_packs())
+}
+
+/// [`pack_neighbours`] with the switch passed in, so a test can hold both arms
+/// in one process: `keep_spoil` leaves a `needs_footing` cell unpacked.
+fn pack_neighbours_with(world: &mut World, x: i32, y: i32, keep_spoil: bool) -> u64 {
     let mut packed_here = 0;
     for (dx, dy) in NEIGHBOURS_8 {
         let (nx, ny) = (x + dx, y + dy);
@@ -12014,6 +12070,10 @@ fn pack_neighbours(world: &mut World, x: i32, y: i32) -> u64 {
         let Some(packed) = world.materials.get(cell.material).packs_into else {
             continue;
         };
+        // Placed ground stays placed ground: see [`spoil_packs`].
+        if keep_spoil && world.materials.get(cell.material).needs_footing {
+            continue;
+        }
         // Everything but the material rides across: the held water
         // (`aux`), the palette index, the attached flag, the temperature.
         // Writing a fresh `Cell` here would read as *dry* ground on a
@@ -12050,6 +12110,28 @@ fn pack_neighbours(world: &mut World, x: i32, y: i32) -> u64 {
 fn lining_enabled() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_BURROW_LINING").as_deref() != Ok("off"))
+}
+
+/// **`PIXEL_PHYSICS_SPOIL_PACKS=off`: the lining leaves a pellet a pellet.**
+/// `pack_neighbours` turns every neighbour with a `packs_into` form into
+/// lining, spoil included, and lining carries no `needs_footing`: so a spoil
+/// heap cut at its foot becomes lining standing on nothing, and a tower of
+/// pellets hangs over the gap on its one lined row. Under this switch a cell
+/// whose material `needs_footing` is skipped, so placed ground stays placed
+/// ground and a heap undermined slumps (§Z18's footing rule) instead of
+/// hanging.
+///
+/// **Why, measured** (`examples/digbox`, 40 ants, 12 seeds, frame 12,000):
+/// with the drop site asking for ground ([`spoil_footing_drop`]) the pellets
+/// stay where they are put, spoil standing goes ~40 -> ~160 cells, and ground
+/// with no path to the floor goes ~20 -> ~120 cells, which a tinted sheet
+/// shows as spoil blocks on one cyan row, two or three rows up in open sky.
+/// `dead-ends.md`'s Khuong entry names the same condition from the other
+/// side: *a pellet stays distinguishable from a wall ... a `spoil` that does
+/// not pack*. On by default (spoil packs); unset is bit-exact.
+fn spoil_packs() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_SPOIL_PACKS").as_deref() != Ok("off"))
 }
 
 /// Move the whole chain one cell, snake-fashion. Returns whether it moved.
@@ -33994,5 +34076,61 @@ mod tests {
             w3
         };
         assert_eq!(lift_reach(&walled, 100, 150, jaw, SpoilLift::Climb), 151, "the scan must stop at the top of the world, 151 rows above y=150");
+    }
+
+    /// **`PIXEL_PHYSICS_SPOIL_FOOTING=ground` refuses exactly the three
+    /// places a pellet cannot lie, and still takes ground.** Measured in
+    /// `digbox` before this was written: about two pellets in three were set
+    /// on the carrier's own back, on a nestmate, or over a hole with both
+    /// diagonals filled, and turned to loose soil within ten frames. Each of
+    /// those is an arm here, beside the control that both rules must accept,
+    /// so reverting `is_footing` to "any filled cell" turns the first three
+    /// red and a rule that refused everything turns the fourth red.
+    #[test]
+    fn a_pellet_is_set_down_only_on_ground_under_the_footing_switch() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let floor = 150;
+        for x in 80..120 {
+            w.set(x, floor + 1, Cell::new(soil, 0));
+        }
+        // An animal two cells long standing on the floor: head and tail.
+        let body = Cell::new(soil, 0).with_organism_id(7);
+        w.set(100, floor, body);
+        w.set(101, floor, body);
+        // A nestmate, one cell, further along.
+        w.set(110, floor, Cell::new(soil, 0).with_organism_id(8));
+        w.set(111, floor, Cell::new(soil, 0));
+        // A hole in the floor, the floor either side of it still there.
+        w.set(90, floor + 1, Cell::EMPTY);
+        let arms = [
+            ("on the carrier's own back", (100, floor - 1), true, false),
+            ("on a nestmate", (110, floor - 1), true, false),
+            ("over a hole, both diagonals filled", (90, floor), true, false),
+            ("on the floor", (95, floor), true, true),
+        ];
+        for (what, (x, y), shipped, footed) in arms {
+            assert_eq!(spoil_site_open(&w, x, y, false), shipped, "shipped rule, {what}");
+            assert_eq!(spoil_site_open(&w, x, y, true), footed, "footing rule, {what}");
+        }
+    }
+
+    /// **`PIXEL_PHYSICS_SPOIL_PACKS=off` leaves a pellet a pellet and still
+    /// lines soil.** Both halves, because a switch that stopped all lining
+    /// would pass the first alone (`PIXEL_PHYSICS_BURROW_LINING=off` is that
+    /// switch, and the nest does not survive it).
+    #[test]
+    fn the_lining_leaves_spoil_unpacked_under_the_switch() {
+        let arm = |keep_spoil: bool| {
+            let mut w = test_world();
+            let (soil, spoil, packed) = (w.materials.id_of("soil").unwrap(), w.materials.id_of("spoil").unwrap(), w.materials.id_of("packedsoil").unwrap());
+            assert!(w.materials.get(spoil).needs_footing && !w.materials.get(soil).needs_footing, "the switch keys on needs_footing; if spoil stops carrying it the arms below are vacuous");
+            w.set(100, 100, Cell::new(spoil, 0));
+            w.set(101, 100, Cell::new(soil, 0));
+            let n = pack_neighbours_with(&mut w, 100, 101, keep_spoil);
+            (n, w.get(100, 100).material == packed, w.get(101, 100).material == packed)
+        };
+        assert_eq!(arm(false), (2, true, true), "shipped: the lining packs spoil and soil alike");
+        assert_eq!(arm(true), (1, false, true), "switch on: the pellet stays spoil, the soil is still lined");
     }
 }

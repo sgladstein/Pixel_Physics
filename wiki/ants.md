@@ -1156,11 +1156,26 @@ part that was standing on nothing. And a passage driven through a heap stands,
 because an ant that works a pellet into the side of it has made a wall of
 it.
 
+**That is only half true, measured on 2026-09-27.** The same wall-making is
+how a heap still hangs. When an ant digs right beside a heap, the pellets
+next to the hole are pressed into wall, and wall needs nothing under it. A
+heap dug out from its foot can still leave a block of dirt hanging on one
+thin shelf, a few rows up in open air. A small test colony carries about
+sixteen cells of it. The two cannot be pulled apart cheaply: stop the ants
+pressing pellets into wall, and the hanging dirt disappears, but the heap
+slumps into its own passages instead. A colony living that way in the lab
+box raised fewer young, and some colonies died out.
+
 **An ant will not put a pellet down just anywhere**, and the two things it
 insists on are the two ways spoil otherwise goes wrong. It has to be able to
 *lie* there — something solid under it, and not a single cell it would be
 balanced on — because cemented dirt does not fall and a crumb left standing
-on nothing stays standing on nothing. And it has to be out in the open,
+on nothing stays standing on nothing. **But "something under it" includes
+another ant, and the ant's own back** (measured 2026-09-27). About two
+pellets in three are set down on an ant or over a hole, and each crumbles
+into loose dirt within moments and falls. That loose dirt is most of what
+fills a colony's holes back in, and it is why the digging near the nest keeps
+starting over. And it has to be out in the open,
 because everything else is the inside of the burrow, and a colony that tips
 its spoil back down its own corridors ends up with no corridors. When there
 is nowhere beside it that will do, the ant takes the pellet out of the burrow
