@@ -20,9 +20,11 @@ commands and the traps.*
   caught the painted door (§19) and the forage drive's early crashes (§22h).
 - **Lead with the specific quantity a change targets**; colony totals
   (starved, net food into home) are the check, not the headline (09-26).
-- **Never flip a default without the owner's explicit ruling.** Defaults on
-  the owner's word so far: the `trailaway` walk (09-24), crop 5,760 J with
-  food at half weight (09-25), scouting at gain 2 (09-26).
+- **Features default on unless there is a good reason not to** (09-27,
+  replacing "never flip a default without the owner's ruling"). A good reason
+  is a measured harm; neutral ships on. Defaults on the owner's word before
+  that: the `trailaway` walk (09-24), crop 5,760 J with food at half weight
+  (09-25), scouting at gain 2 (09-26).
 - **"Scout or any ant should come home when they get so hungry before they
   are going to starve to death"** (09-26). `PIXEL_PHYSICS_HUNGRY_HOME`, off:
   it helps at 90 cells and kills at 140 whatever home holds (§21, §22g).
