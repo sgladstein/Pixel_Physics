@@ -338,6 +338,19 @@ by somebody about to try it on creatures.
   workflows default to a **5-minute** prompt cache while the main session gets
   an hour. Recommends the ~67,000-token `open-bugs-handoff.md` split and says
   why it did not do it.
+- [agent-efficiency-2026-09-27.md](agent-efficiency-2026-09-27.md) — **the
+  combined findings of the foraging-loop and nest lanes, 2026-09-27; built into
+  `agent-strategy.md` §4, the `lab-coordinator` skill, `instruments.md` and
+  `CLAUDE.md`.** What 37 sub-agents spent and on what, read off their
+  transcripts by the new `scripts/agentmeter.py`. A default sub-agent starts at
+  **~78k tokens** (tool schemas ~37k, `CLAUDE.md` ~26k), an Explore agent at
+  ~27.5-30k; the start is 35-54% of a default agent's cost. Agents paid again for
+  what their spawner held (all 5 of one survey read `creature.rs`), and the
+  main thread was the biggest bill in both sessions. Checking paid. A
+  brief checklist, output discipline and checkpointing, and choosing the agent
+  type by the job are the recommendations. Tested afterwards on a new question,
+  one briefed agent of a tool-limited type cost 0.49M against 1.7-2.0M for
+  the unbriefed tracers before it.
 - [agent-efficiency-nest-2026-09-27.md](agent-efficiency-nest-2026-09-27.md)
   — **measurement, 2026-09-27; the nest lane's input to the combined
   `agent-efficiency-2026-09-27.md`.** What 19 sub-agents cost in one session
@@ -3327,7 +3340,8 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   - **Scouting** (§20, `PIXEL_PHYSICS_SCOUT`, off): a hungry empty ant off
     a trail runs out from home and, when the way stops getting it further,
     walks back and tries again. On the colony bed, starved 279 → 201 (19
-    seeds better, 4 worse) and net food into home up 62%, with fewer ants
+    seeds better, 4 worse) and "net food into home" up 62% (a counter that
+    overcounts, §22j), with fewer ants
     dying up a wall than the default (85 → 13). The plain pull, with no
     memory, pinned scouts against the edge wall (169–180). In the lab box it
     costs nothing, and none of the 12 colonies went extinct.
@@ -3345,10 +3359,15 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     traced ant by ant, a forager comes home hungry, eats back up off the
     nest's floor (a third of what the colony digests), and stays home until
     it is hungry again. A drive that sends fed foragers back out (`always`)
-    lifts loops per forager on every seed. At 90 cells net food into home is
-    2.3×, 45 fewer starve and births go 10 → 72; at 140 food is +59% and births
-    7 → 48. In the lab box it carries more home but grows no bigger colony,
-    and 2 of 12 colonies graze the box bare and die. The forms that read the
+    lifts loops per forager on 22 of 24 seeds. At 90 cells (rerun on `main`
+    after the first run proved to be an intermediate build) food taken from
+    the pile is 1.48×, 29 fewer starve and births go 10 → 67; at 140 food is
+    1.44× and births 7 → 48. In the lab box it carries more home but grows no
+    bigger colony, with no measurable harm ("2 of 12 die out" is crash
+    timing). §22j finds "net food into home" counts the same crumbs again;
+    §22k that ants past the pile are loaded foragers whose pull home ran out
+    (bug Z35, today's game too); §22l that driving only fed foragers removes
+    the drive's early deaths and most of its gain. The forms that read the
     colony's need (its hunger, its store) did worse in both games. Awaiting
     the owner's ruling; the next step is an off-switch that reads food out
     there, not need at home.
