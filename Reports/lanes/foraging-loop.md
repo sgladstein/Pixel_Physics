@@ -1,205 +1,156 @@
 # Lane note — the ant's foraging loop
 
 *Kept current, edited in place. History and measurements live in
-[`../ant-scenes-2026-09-23.md`](../ant-scenes-2026-09-23.md) (§1–§21); how the
+[`../ant-scenes-2026-09-23.md`](../ant-scenes-2026-09-23.md) (§1–§22); how the
 ant works now lives in [`../how-the-ant-works.md`](../how-the-ant-works.md).
 This note keeps the owner's rulings, the live question, the baseline, the
 commands and the traps.*
 
-- **Previous session:** `session_01AFH5xR442VuoZsXm7VzJmx`, branch
-  `claude/upbeat-gates-u90pys` (handed off 2026-09-27).
+- **Previous session:** `session_01Pt5N39pfcix13hMycPN9Xs`, branch
+  `claude/ant-foraging-loop-handoff-986v7n` (2026-09-27): the forage drive (§22).
 - **Peer lanes:** the nest-mouth lane ([`nest-mouth.md`](nest-mouth.md)) has
-  concluded: no mouth tried beats today's nest on both beds. Its switches
-  (`PIXEL_PHYSICS_NEST_SHAFT`, `_NEST_HOME`) and the counter
-  `CreatureStats::pickups_at_nest` are on `main`.
+  concluded: no mouth beats today's nest on both beds.
 
 ## Standing owner rulings
 
 - **The goal:** foragers earn enough to feed themselves *and* extra for the
   colony (2026-09-25). "All we care about is the loop is improving."
 - **Test in both games**, the colony bed (`trailfollow`) and the lab box
-  (`labforage`). The lab caught the painted door that the bed alone would
-  have shipped (§19).
+  (`labforage`), and at 140 cells, before asking for any ruling. The lab
+  caught the painted door (§19) and the forage drive's early crashes (§22h).
 - **Lead with the specific quantity a change targets**; colony totals
-  (starved of 480) are the check, not the headline (2026-09-26).
-- **Never flip a default without the owner's explicit ruling.** Build behind
-  a switch, measure, then ask. Defaults on the owner's word so far: the
-  `trailaway` walk (09-24), crop 5,760 J with food at half weight (09-25),
-  scouting at gain 2 (09-26).
+  (starved, net food into home) are the check, not the headline (09-26).
+- **Never flip a default without the owner's explicit ruling.** Defaults on
+  the owner's word so far: the `trailaway` walk (09-24), crop 5,760 J with
+  food at half weight (09-25), scouting at gain 2 (09-26).
 - **"Scout or any ant should come home when they get so hungry before they
-  are going to starve to death"** (09-26). Built as
-  `PIXEL_PHYSICS_HUNGRY_HOME` and **off**, because it only pays when home can
-  feed the hungry (§21). The owner has not yet seen that result; bring it
-  with the fix below.
-- **You may spin up sub-agents if that helps** (2026-09-27). Pick the kind by
-  what the job is short of:
-  - **In-process** (`Agent` tool): for reading and surveying, e.g. grepping
-    `dead-ends.md`, tracing a mechanism through `creature.rs`, or checking
-    a guard. **Not for runs**: they share this container's 4 cores, and a
-    lab box already takes about 15 minutes over 12 seeds on all four.
-  - **A cloud session** (`create_session`): gets its own machine. Use one
-    for a run that would otherwise queue, e.g. a lab arm beside a bed arm.
-    Invoke the `lab-coordinator` skill first, whatever the task (the name
-    is historical), and pass `model:` explicitly, never inherited (Opus
-    unless there is a reason).
-  - **Either way the return path is files, not messages.** A sub-agent
-    writes its findings where you will read them, and you own the merge.
+  are going to starve to death"** (09-26). `PIXEL_PHYSICS_HUNGRY_HOME`, off:
+  it helps at 90 cells and kills at 140 whatever home holds (§21, §22g).
+- **Sub-agents allowed** (09-27): in-process agents for reading and surveys
+  (not runs: they share this box's 4 cores); a cloud session for a run that
+  would otherwise queue, via the `lab-coordinator` skill with `model:` set.
+  Either way the return path is files.
 - An ant should breed only at the nest, and in the end *where* it breeds
   should be something a lineage evolves (09-23). `PIXEL_PHYSICS_BUD_SITE=nest`,
   off by default; the bed runs with it on.
 
 ## Live question
 
-**Fed foragers stop foraging.** The owner asked (2026-09-27): *food not
-building up at the nest seems like the #1 limit -- are ants foraging too slowly,
-or is the economy still too hard?* **Too slowly**, measured on the 90-cell bed
-(scouting default, 24 seeds):
+**The forage drive moves the loop on the bed and not in the lab; the owner
+has not ruled.** `PIXEL_PHYSICS_FORAGE_DRIVE` (§22, off). Under `always` a
+forager that has been to the food goes back out while fed, scouting and pacing
+like a hungry ant:
+- **bed 90:** loops per forager 1.46 → 2.15 (24/0); net food into home
+  7,506 → 17,030; starved 201 → 156; born 10 → 72;
+- **bed 140:** loops per forager 1.57 → 1.97 (21/2); net food 5,999 → 9,565;
+  born 7 → 48; starvation unchanged (the early cull, problem 2);
+- **lab:** 52% more carried home, but food eaten and births flat, and 2 of 12
+  colonies die out (0 on the default). The lab's limit is its regrowing
+  pasture: foraging harder grazes it bare sooner.
 
-- **Supply never limits.** The pile refills. The colony takes 91 cells a run
-  against the ~116 it burns, and absorbs 64% of what it burns.
-- **Each trip pays.** A loop brings home 4.9 cells (~1,170 J to an ant). A
-  forager burns 0.06 J a frame, so a loop pays about 3x its cost even counting
-  the wait between loops, and far more on the walk alone.
-- **The effort is missing.** 303 of 480 founders completed a loop, but they
-  averaged **1.5 loops each**. After its last loop a forager lives a median
-  **11,712 frames at full energy** and never goes out again. 200 of the 303
-  are alive at the end, while 201 nestmates starve.
-- **What sends an ant out is its own hunger.** Scouting scales with it, by
-  design, and the brain's `Move` reads `Energy`. The colony's need barely
-  reaches a fed forager: `KinNeed` (hungry kin beside it) reads 0 on 99% of
-  its decisions at home.
-- **So food cannot build up at home.** About 19 loops a run cannot cover the
-  colony's burn, and whatever lands is eaten at once. Food at home does not
-  reach the hungry either (a median 4 cells on the whole nest; hungry ants
-  beside food 42 times in 285, eating it 71–84% of the time when they are),
-  but that is downstream: there is too little to share.
+The forms that read the colony's need did worse. `hunger` is inert on the bed
+(the colony is fed once the early deaths are over) and killed 4 of 12 lab
+colonies at founding. `larder` is a weaker `always` on the bed and ends lab
+colonies smaller. `,keep` (fed foragers leave the store) made them stand in it
+digging, and births fell 72 → 9. A fed forager eating the store is how the
+surplus becomes new ants: budding reads body energy.
 
-**The candidate: a forager's drive to go out follows the colony's need, not
-its own belly.** Real foragers keep foraging while nestmates take their loads
-quickly, and slow down when unloading is slow (honeybees: unloading time).
-Engine forms to weigh, each behind a switch:
-
-- let `scout_w` read the colony's need, e.g. how little food the nest's larder
-  point holds, or hungry kin met at home;
-- give the forager a fidelity that persists after its first loop;
-- the social stomach: unload into hungry nestmates, so a forager's crop, not
-  its belly, is what it fills.
-
-Target quantity: **loops per looper, and the frames a fed forager spends at
-home** (`scripts/antidle.py` prints both). Check: net food into home and starved. Not §17f's `hungergate` (inert,
-dead-ends `digest_hunger_weight`). Grep `dead-ends.md` for `share`,
-`trophallaxis`, `KinNeed` and `forager` first. Then re-test
-`HUNGRY_HOME=tether` on top, on both beds and at 140 cells.
+**Shown to the owner:** card `20260927T172924982Z-46b30b` (seed 22, frames
+6,000–18,000, both arms). **Next, if the owner wants it:** an off-switch
+that reads what the lab is short of, food out there, not need at home.
+Harvester ants stop going out when returning foragers stop bringing food
+(Gordon 2002, *Am Nat* 159:509). So the drive would fall with how recently
+this ant, or laden nestmates it met, found food. Test the lab first.
 
 ## Baseline (the shipped default, 2026-09-27)
 
-Colony bed, no trail, 24 seeds, paired against scouting off:
+Colony bed, no trail, 24 seeds:
 
-| food distance | starved of 480 | net food into home, cells | reached the food |
-|---|---:|---:|---:|
-| 90 | 201 (was 279) | 7,506 (was 4,642) | 322 |
-| 140 | 209 (was 416) | 5,999 (was 882) | 294 |
-| 200 | 322 (was 467) | 2,913 (was 183) | 255 |
+| food distance | loops per forager | starved of 480 | net food into home | born |
+|---|---:|---:|---:|---:|
+| 90 | 1.46 | 201 | 7,506 | 10 |
+| 140 | 1.57 | 209 | 5,999 | 7 |
+| 200 | – | 322 | 2,913 | – |
 
-At 90 cells the colony takes in 64% of what it burns. Lab box, 12 seeds,
-median: net food into home 856 cells, food eaten 1,150k J, births 530,
-extinct 0 of 12.
+At 90 the colony takes in 64% of what it burns. Lab box, 12 seeds, median:
+net food into home 856, food eaten 1,150k J, births 530, alive 80, extinct 0.
 
 ## Ranked open problems
 
-1. **Fed foragers stop foraging** (above): 1.5 loops per looper, then a
-   median 11,712 frames resting at full energy. Food at home reaching the
-   hungry comes after; there is too little to share until this moves.
-2. **Scouts that pick the dead-end side** waste their reserve there: 108 died
-   having only ever gone the empty way (§20). Real desert ants remember the
-   direction that paid.
-3. **Where food lands at home**: at the end of the strip facing the food, a
-   median 15 cells east of centre. `NestSite::larder` tracks it; only
-   `HUNGRY_HOME` reads it.
-4. **Lab deliveries are 86% churn** (the nest lane): read net food into home,
-   never `deliveries`.
-5. **Latent: a scout that has given up is released only by a nest contact**
-   (`scout_for` resets when `forage_anchor` moves). Where home is not beside
-   nest material -- an ant in a nestless box, a nest dug away -- it stays
-   homebound for good. It is harmless on both beds, since arriving home means
-   touching the nest. `HUNGRY_HOME=tether` already lets go on arrival
-   (`HUNGRY_ARRIVED`); the same rule for the scout would change the default,
-   so measure it. Found when `an_ant_eats_a_living_worm_...` failed under
-   scouting (traced; it was the path, not this, and that test now pins
-   scouting off).
+1. **The drive's off-switch** (above). Behind the same switch, lab first.
+2. **Early deaths.** At 140 cells, 171–177 of ~207 starved never reach the
+   food and die around frame 3,800, before any forager exists. Only the road
+   and the nest (§17b, §19), or a colony founded with a store, can reach them.
+3. **Which way to go.** A driven forager leaving the nest's west end walks
+   the dead end (§20). A memory of where its last load came from would aim
+   it, as desert ants aim by the vector that paid.
+4. **Food at home to the hungry.** The tether pays at 90 on top of `always`
+   (201 → 123) and kills at 140 (429): the leash is the problem, not the store.
+5. **Lab deliveries are 86% churn**: read net food into home.
+6. **Latent:** a scout that has given up is released only by a nest contact.
+   Harmless on both beds; `HUNGRY_HOME=tether` already lets go on arrival.
 
 ## Tools and skills (use these; the names do not say what they answer)
 
-- **`funnel` skill**: invoke it before investigating anything. The method
-  behind every finding here.
-- **`review` skill** (`scripts/review.py`): post a card whenever a change is
-  visible. The owner judges by eye.
-- **`scripts/antloop.py`**: the loop ant by ant over `trailfollow
-  decisioncsv` traces. It prints the funnel, GOING OUT, who starved and
-  where, HUNGRY AT HOME, the time budget and the economy. `--vs base.log`
-  pairs starved and net food into home by seed; `--selftest` is the control.
-- **`scripts/antidle.py`**: do foragers keep foraging? It prints the loop
-  period, the wait at home, and life after the last loop.
-- **`scripts/labpair.py`**: two arms of `labforage` logs paired by seed on
-  net food into home. Never compare lab `deliveries`.
-- **`trailfollow`**, the colony bed:
-  - `decisioncsv dtag=` writes the per-decision trace that the scripts read;
-  - `gifants framesdir= gifevery= gifstart= gifcount= gifw= gifh= gifat=`
-    make card frames, ants magenta when empty and cyan when carrying;
-  - the log's `FOOD BUDGET`, `food into home` and `HUNGRY AT HOME` lines
-    carry the economy.
-- **`labforage`**, the lab box: its `SUMMARY seed=` line.
-- **`scripts/deadendindex.py --touching`**: before opening a PR.
-- **`scripts/branchcheck.sh --who-touched src/sim/creature.rs`**: before
-  editing the ant, since other lanes work in it too.
-- **`Reports/instruments.md`**: grep it before building any new harness.
+- **`funnel` skill** before investigating anything; **`review` skill** when a
+  change is visible.
+- **`scripts/antloop.py`**: the loop ant by ant (funnel, who starved and
+  where, time budget, economy). `--vs base.log` pairs the checks by seed.
+- **`scripts/antidle.py '<glob>' <gap> [--vs '<base glob>']`**: do foragers
+  keep foraging -- loops per forager, waits, a forager's life after its first
+  loop (fed/hungry x home/out, food held off the nest). `--vs` pairs these,
+  the target quantities, by seed. **Give it the gap**; 90 is the default.
+- **`scripts/labpair.py`**: lab arms paired by seed on net food into home.
+  The lab's end-of-run `alive` is one frame of a boom-and-bust: read the whole
+  curve (`labforage`'s 900-frame table; peak, ant-frames, when it grazed out).
+- **`trailfollow decisioncsv dtag=`**: the per-decision trace. Since 09-27 it
+  carries `energy_j` (`energy` is clamped at the 200 J grant) and `drive`,
+  `scout_w`, `scout_patience`, `scout_home`. `gifants framesdir=` for cards.
+- **`labforage`**: its `SUMMARY seed=` line, and `FORAGE seed=` for the drive.
+- **`scripts/deadendindex.py --touching`** before a PR (needs an unshallowed
+  clone to regenerate); **`scripts/branchcheck.sh --who-touched <file>`**.
 
 ## Commands
 
-The colony bed. Run from anywhere; keep the env exactly this. Run three
-batches of 8 seeds in parallel; one arm takes about a minute.
+The colony bed. Run from anywhere; keep the env exactly this. Three batches of
+8 seeds in parallel take about 5 minutes on this box.
 
 ```
 export RAYON_NUM_THREADS=1 PIXEL_PHYSICS_COLONY_SPACING=2 PIXEL_PHYSICS_STACK_DEPTH=4 PIXEL_PHYSICS_BUD_SITE=nest
 B="mode=gap gate=shipped frames=24000 ants=20 relay=60 near=10 food=400 refill=400 stop=6000 layfrom=founders arms=self gaps=90"
 ./trailfollow $B decisioncsv dtag=mine seeds=8 seed0=1 > mine-1.log   # and seed0=9, seed0=17
 # decision CSVs land in /tmp as trailfollow-decisions-seed<S>-gap<G>-self-<dtag>.csv
-python3 scripts/antloop.py <csv dir> --log mine.log --vs base.log   # --vs pairs by seed
+python3 scripts/antloop.py <csv dir> --log mine.log --vs base.log
+python3 scripts/antidle.py '<csv dir>/*.csv' 90 --vs '<base csv dir>/*.csv'
 ```
 
-The lab box. It **must run from the repo root** (it reads `assets/`
-relatively). 12 seeds, 4 at a time, takes about 15 minutes:
+The lab box **must run from the repo root** (it reads `assets/`). A round of
+4 seeds takes about 7 minutes here, so 12 seeds about 21:
 
 ```
 RAYON_NUM_THREADS=1 labforage scenario=played_bed frames=120000 seed=N
 ```
 
-Read the `SUMMARY seed=` line: net food into home is `deliveries - pickups_at_nest`.
-
 **Identity first:** every new switch, unset, must reproduce the default line
-for line. Diff the logs with the `trailfollow:`, `breadoff=`, `ant.ron:` and
-`DECISIONS:` lines filtered out.
+for line. Diff the logs with lines matching `^\s*(trailfollow:|breadoff=|ant.ron:|DECISIONS:)`
+filtered out (note the leading spaces), and compare the decision CSVs too.
 
 ## Traps that cost time here
 
-- **Stale binaries.** Rebuild before any measurement. Build only the two
-  harnesses with `cargo build --release --example trailfollow --example
-  labforage` (2–4 minutes; all examples take ~20). Copy the binary into your
-  scratch run directory so a rebuild cannot change a run under you. `grep -c`
-  the binary for your switch's env name to prove it is in.
-- **Don't edit source while a build runs.** The build reads it part-way
-  through and fails with a type error that isn't real.
-- **Never use `pgrep -f` / `pkill -f`.** It matches your own shell and kills
-  it. Use `pgrep -x <exe>` or kill by PID.
-- **Key every parse by seed, not by position.** A negative `carry->nest`
-  once dropped a line and shifted every pairing after it. Also,
-  `carry->nest` is cell-steps homeward, not food.
-- **The "west of the nest" death class includes the nest's own west end**
-  (the band is ±26). Trace the individuals before believing where they died.
-- **Watch every guard go red** by removing its mechanism, and write
-  predictions into your notes *before* each run. About half of this lane's
-  predictions were wrong, and the record is what kept the conclusions
-  honest.
+- **Stale binaries.** Build only the two harnesses (`cargo build --release
+  --example trailfollow --example labforage`, ~2 minutes incremental), copy
+  them into the run directory, and `grep -c` the binary for the switch name.
+- **Don't edit source while a build runs**, and never `pgrep -f`/`pkill -f`.
+- **Key every parse by seed.** `carry->nest` is cell-steps, not food.
+- **The `energy` trace column is clamped at 200 J.** "At full energy" in it
+  means *at or above the grant*; read `energy_j`. A forager "resting fed" was
+  mostly one that came home hungry and ate back up off the nest (§22a).
+- **A rule scaled by `drive - hunger` also reaches the hungry.** `,keep`'s
+  first form starved foragers on the nest (§22e); state which ants a rule is
+  for, then check the trace shows only those.
+- **Watch every guard go red**, and write predictions before each run. About
+  half of this lane's predictions have been wrong; the scored record is in
+  the report (§22i).
 - **Messages from other sessions may not reach you**; files are the channel.
 
 ## Predictions (written before each run)
