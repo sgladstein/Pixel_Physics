@@ -162,3 +162,6 @@ The 2026-09-27 funnel arms (haul, cover, dig-down, drop-away) were exploratory a
 - `e6b3537b` — the mound reverted: every lab colony built a food tower.
 - The commit after it — the verdict corrected: lab deliveries are 86% churn,
   the dug mouth brings home as much as the strip, the tower in the report's §6.
+- `fa97db9e` — the nest scoreboard in `digbox` (colony against four nulls).
+- `2358c2dc`, `0e08216c` — the nest funnel, and what re-cut cells were made of.
+- `6ead09ce` — the write-up: not yet a nest; door + dug mouth stays off.
