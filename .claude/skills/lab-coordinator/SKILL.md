@@ -117,7 +117,7 @@ sooner.)
   all fired and none moved a pixel. Rough bound: take it when the lane is short
   enough that doubling it costs under ~$25.
 - **Haiku 4.5 for in-process lookups only, never a lane.** Its 200K context
-  against this repo's ~21.8k-token startup tax leaves little room, and zero
+  against this repo's ~25k-token always-loaded files (~78k with a default sub-agent's tool schemas) leaves little room, and zero
   Haiku lanes have run — a limit, not a finding.
 
 **The vendor's rule is "start on Opus, escalate to Fable when your evals fall
@@ -253,13 +253,21 @@ they have cost:
    cloud lane returns a branch and a PR body, and you pay only for what you
    choose to read. A multi-hour subagent would exhaust the coordinator outright.
 3. **The token cost is the same.** Measured: `scripts/contextbudget.py` reports
-   **~21,860 tokens always-loaded**, and a cloud lane and an in-process
-   subagent each pay it once. Container compute is not token-billed.
+   **~25k tokens of always-loaded files** (2026-09-27), and a cloud lane and
+   an in-process subagent each pay a start once. Container compute is not
+   token-billed. What a spawn pays at its first call, files plus tool schemas
+   and listings, is **~27.5-30k for an `Explore` agent (no `CLAUDE.md`) to ~78k
+   for a default one** (`Reports/agent-efficiency-2026-09-27.md`).
 
 **So the standing answer is cloud, and here is what would change it** — re-run
 `python3 scripts/contextbudget.py` if you suspect it has:
 
-- **~21.8k tokens is the floor price of *any* spawn.** If a job is smaller than
+- **Brief any agent, lane or sub-agent, from the checklist in
+  `Reports/agent-strategy.md` §4** ("What every brief carries"), and run
+  `python3 scripts/agentmeter.py` after a fan-out to see what each one spent
+  and what they all re-read.
+- **~27.5-30k tokens is the floor price of *any* spawn** (an `Explore`
+  agent; ~78k for a default one). If a job is smaller than
   its own startup tax — grep one file, read one number, check one branch — **do
   it yourself.** You have already paid the tax; a lane pays it again to do 500
   tokens of work. This is the most common waste in a round.

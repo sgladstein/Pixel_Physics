@@ -5543,7 +5543,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     let sensed_empty = inputs[brain::BrainInput::CarryingFood as usize] <= 0.0;
     if drive_now.on() && sensed_empty && chooser_for(world, def) == Chooser::TrailAway {
         let felt = world.organism(organism).filter(|s| s.crop.is_none_or(|c| c.worth() <= 0.0) && s.spoil.is_none() && !s.hungry_home).map(|st| {
-            let d = forage_drive_level(world, st);
+            let d = forage_drive_level(world, st, def);
             let move_out = outputs[brain::BrainOutput::Move as usize];
             (d, if drive_now.pace { forage_pace(&st.genome, move_out, inputs[brain::BrainInput::Energy as usize], d) } else { None })
         });
@@ -10032,7 +10032,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
     // rose 156 -> 204 against `always` alone.
     let drive_now = forage_drive_of(world);
     if drive_now.on() && drive_now.keep {
-        let drive = world.organism(organism).filter(|st| st.energy >= def.start_energy).map_or(0.0, |st| forage_drive_level(world, st));
+        let drive = world.organism(organism).filter(|st| st.energy >= def.start_energy).map_or(0.0, |st| forage_drive_level(world, st, def));
         if drive > 0.0 && nest_within_reach(world, organism, x, y, def) {
             feed_urge *= 1.0 - drive;
             world.creature_stats.forage_kept += 1;
@@ -10516,7 +10516,12 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 let bite = world.get(fxx, fyy);
                 // **Home is read before the mouthful leaves**, for
                 // `pickups_at_nest` below, on the predicate the drop's
-                // `deliveries` uses, so the two subtract. No shipped home
+                // `deliveries` uses. **They do not subtract to food brought
+                // home**: both judge the acting ant's head, not the food
+                // cell, so a crumb at the nest's edge is picked up from
+                // outside uncounted and delivered again, 3.4-4.6x on the
+                // colony bed (`Reports/ant-scenes-2026-09-23.md` §22j,
+                // traced crumb by crumb 2026-09-27). No shipped home
                 // depends on the food cell, but one defined by what is piled
                 // on the mouth did (`PIXEL_PHYSICS_NEST_HOME=mound`, built
                 // and reverted 2026-09-26, `Reports/nest-mouth-2026-09-26.md`
@@ -13006,6 +13011,14 @@ pub fn scout_of(world: &World) -> f32 {
 /// the nest, at a step chance of exactly 0, and the drive could not reach
 /// them -- it acts on an empty ant.
 ///
+/// `,fed` adds: **only a fed forager is driven.** Below its `start_energy`
+/// the drive reads 0 and a forager goes out on its own hunger, as with the
+/// drive off. Added 2026-09-27 because, traced on the bed under `always`,
+/// the drive acted almost entirely on HUNGRY foragers before frame 6,000 (of
+/// 30,817 driven decisions, 29,459 were ants under the grant) and those
+/// early runs coincided with more founders starving at home: 125 -> 133 by
+/// frame 6,000 on `main`, 14 seeds worse and 8 better (p 0.29).
+///
 /// Read once per process. Unset, nothing is read or written and no draw is
 /// taken, so the default is bit-exact.
 pub fn forage_drive_from_env() -> ForageDrive {
@@ -13020,7 +13033,7 @@ pub fn forage_drive_from_env() -> ForageDrive {
             _ => ForageNeed::Off,
         };
         let mods: Vec<&str> = parts.collect();
-        ForageDrive { need, pace: !mods.contains(&"nopace"), keep: mods.contains(&"keep") }
+        ForageDrive { need, pace: !mods.contains(&"nopace"), keep: mods.contains(&"keep"), fed: mods.contains(&"fed") }
     })
 }
 
@@ -13040,18 +13053,20 @@ pub enum ForageNeed {
 
 /// **The forage drive's form** (`forage_drive_from_env`): whose need;
 /// whether it also lifts the step chance (`pace`, on unless `,nopace`) or
-/// only aims the walk; and whether a forager it drives leaves the store at
-/// home for the colony (`keep`, off unless `,keep`).
+/// only aims the walk; whether a forager it drives leaves the store at
+/// home for the colony (`keep`, off unless `,keep`); and whether it drives
+/// only foragers at or above their `start_energy` (`fed`, off unless `,fed`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ForageDrive {
     pub need: ForageNeed,
     pub pace: bool,
     pub keep: bool,
+    pub fed: bool,
 }
 
 impl ForageDrive {
     /// No drive: the shipped ant.
-    pub const OFF: ForageDrive = ForageDrive { need: ForageNeed::Off, pace: true, keep: false };
+    pub const OFF: ForageDrive = ForageDrive { need: ForageNeed::Off, pace: true, keep: false, fed: false };
 
     /// Whether any drive is on.
     pub fn on(self) -> bool {
@@ -13066,15 +13081,16 @@ pub fn forage_drive_of(world: &World) -> ForageDrive {
 }
 
 /// **How strongly the colony's need sends this animal out**, in `[0, 1]`:
-/// 0 unless the drive is on and the animal has foraged; else 1 under
+/// 0 unless the drive is on and the animal has foraged (and, under `,fed`,
+/// holds at least its `start_energy`); else 1 under
 /// `always`, and under `hunger` its nest's mean hunger, the nest found from
 /// home as `hungry_target` finds it (`World::nearest_nest_site` of
 /// `home_target`). A need sampled at home and held, not a field that fades
 /// on the way out: an ungated `(PheroARise, Move)` that fell along the
 /// outbound leg worked as a leash (`dead-ends.md`, reached food 199 -> 156).
-fn forage_drive_level(world: &World, state: &crate::sim::organism::OrganismState) -> f32 {
+fn forage_drive_level(world: &World, state: &crate::sim::organism::OrganismState, def: &CreatureDef) -> f32 {
     let drive = forage_drive_of(world);
-    if !drive.on() || !state.foraged {
+    if !drive.on() || !state.foraged || (drive.fed && state.energy < def.start_energy) {
         return 0.0;
     }
     match drive.need {
@@ -13500,7 +13516,7 @@ fn chooser_step(
                 let st = world.organism(organism);
                 let fed = st.map_or(1.0, |s| (s.energy / def.start_energy.max(1.0)).clamp(0.0, 1.0));
                 let hunger = 1.0 - fed;
-                let drive = if forage_drive_of(world).on() { st.map_or(0.0, |s| forage_drive_level(world, s)) } else { 0.0 };
+                let drive = if forage_drive_of(world).on() { st.map_or(0.0, |s| forage_drive_level(world, s, def)) } else { 0.0 };
                 if drive > hunger {
                     drove = true;
                     g * drive
@@ -25366,8 +25382,8 @@ mod tests {
             }
             Walk { path, gave_up, scouted: w.creature_stats.forage_scouted, paced: w.creature_stats.forage_paced }
         };
-        let hunger = ForageDrive { need: ForageNeed::Hunger, pace: true, keep: false };
-        let always = ForageDrive { need: ForageNeed::Always, pace: true, keep: false };
+        let hunger = ForageDrive { need: ForageNeed::Hunger, pace: true, keep: false, fed: false };
+        let always = ForageDrive { need: ForageNeed::Always, pace: true, keep: false, fed: false };
         let nopace = |d: ForageDrive| ForageDrive { pace: false, ..d };
         let furthest = |p: &[(i32, i32)]| p.iter().map(|c| c.0).max().expect("walked");
 
@@ -25383,7 +25399,12 @@ mod tests {
             assert_eq!(w.path, control.path, "{name}: the walk changed, so the drive acted where it must not");
             assert_eq!((w.scouted, w.paced), (0, 0), "{name}: the drive counted a decision it did not drive");
         }
-        for (name, w) in [("always", walk(always, true, 1.0)), ("a hungry colony (hunger at need 0.75)", walk(hunger, true, 0.75))] {
+        let fed_only = ForageDrive { fed: true, ..always };
+        for (name, w) in [
+            ("always", walk(always, true, 1.0)),
+            ("always,fed (this ant is at start_energy)", walk(fed_only, true, 1.0)),
+            ("a hungry colony (hunger at need 0.75)", walk(hunger, true, 0.75)),
+        ] {
             let far = furthest(&w.path);
             assert!(far >= 150, "{name}: a fed forager should run east to the wall (x 158), and got no further than {far}");
             assert!(w.gave_up, "{name}: the forager never gave up at the wall");
@@ -25397,6 +25418,39 @@ mod tests {
         let at_wall = |p: &[(i32, i32)]| p.iter().position(|c| c.0 >= 150).unwrap_or(usize::MAX);
         let paced = walk(always, true, 1.0);
         assert!(at_wall(&paced.path) < at_wall(&aimed.path), "the pace lifted nothing: paced reached the wall at frame {}, aimed alone at {}", at_wall(&paced.path), at_wall(&aimed.path));
+    }
+
+    /// **Under `,fed` only a fed forager is driven** (`forage_drive_level`).
+    /// A foraged ant below its `start_energy` reads 0 under `always,fed` and
+    /// 1 under `always`; at `start_energy` it reads 1 under both; an ant that
+    /// never foraged reads 0 either way. Every place the drive acts goes
+    /// through this level (`forage_pace` returns `None` at 0, scouting's pull
+    /// takes `max(hunger, 0)`), so a 0 here is a forager walking on its own
+    /// hunger. **Watched red** with the `fed` clause removed from the gate
+    /// (the hungry forager reads 1).
+    #[test]
+    fn a_hungry_forager_is_not_driven_under_fed_and_a_fed_one_is() {
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        let ant = spawn(&mut w, "ant", 20, 40);
+        let def = w.species.get(w.organism(ant).expect("live").species).creature.clone().expect("a creature");
+        let always = ForageDrive { need: ForageNeed::Always, pace: true, keep: false, fed: false };
+        let fed_only = ForageDrive { fed: true, ..always };
+        for (drive, foraged, energy, want) in [
+            (fed_only, true, 0.5, 0.0),
+            (always, true, 0.5, 1.0),
+            (fed_only, true, 1.0, 1.0),
+            (always, true, 1.0, 1.0),
+            (fed_only, false, 1.0, 0.0),
+        ] {
+            w.forage_drive = Some(drive);
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.foraged = foraged;
+                st.energy = def.start_energy * energy;
+            }
+            let got = forage_drive_level(&w, w.organism(ant).expect("live"), &def);
+            assert_eq!(got, want, "{drive:?}, foraged {foraged}, energy {energy} x start: drive level {got}, want {want}");
+        }
     }
 
     /// **A nest is as hungry as the mean of its animals, floored at 0 each,
@@ -25431,8 +25485,8 @@ mod tests {
         w.frame = crate::sim::world::ROOM_INTERVAL * 4;
         for (drive, want) in [
             (ForageDrive::OFF, vec![]),
-            (ForageDrive { need: ForageNeed::Always, pace: true, keep: false }, vec![]),
-            (ForageDrive { need: ForageNeed::Hunger, pace: true, keep: false }, vec![0.25, 0.45]),
+            (ForageDrive { need: ForageNeed::Always, pace: true, keep: false, fed: false }, vec![]),
+            (ForageDrive { need: ForageNeed::Hunger, pace: true, keep: false, fed: false }, vec![0.25, 0.45]),
         ] {
             w.forage_drive = Some(drive);
             w.nest_need = vec![9.0; 7];
@@ -25489,7 +25543,7 @@ mod tests {
             }
             w.creature_stats.pickups_at_nest
         };
-        let always = ForageDrive { need: ForageNeed::Always, pace: true, keep: false };
+        let always = ForageDrive { need: ForageNeed::Always, pace: true, keep: false, fed: false };
         let keep = ForageDrive { keep: true, ..always };
         assert!(pickups(always, 1.0) > 0, "a fed ant beside fruit at the nest with no ,keep never took any: the scene cannot show a pickup");
         assert_eq!(pickups(keep, 1.0), 0, "a fed forager under ,keep took food off the nest");

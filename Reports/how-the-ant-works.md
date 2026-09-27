@@ -263,8 +263,12 @@ the tick: the ant still gets its move roll (§6) afterwards.
    `drops_passed_on` the drops that went past the neighbours. **A delivery
    is any drop at home, whatever the food's history**, so a crumb picked up
    at the nest and put back counts again. `pickups_at_nest` counts step 3's
-   pickups made on the same test (read before the food leaves), so
-   `deliveries - pickups_at_nest` is the food that came home.
+   pickups made on the same test (read before the food leaves). **The
+   difference is not the food that came home** (measured 2026-09-27,
+   `ant-scenes-2026-09-23.md` §22j): both counters judge the acting ant's
+   head, not the food cell, so a crumb at the nest's edge is picked up from
+   outside, uncounted, and delivered again. On the colony bed it overcounts
+   3.4-4.6×; food taken from the pile is the honest flow.
 5. **Drop spoil**, if holding a dig pellet, then **return**, placed or not,
    so an ant holding a pellet never digs. The roll is against `DropSpoil`,
    its own output (§4), not the food drop's. On a win the pellet goes on the
@@ -472,8 +476,13 @@ The drive is the nest's need (`World::nest_need`, §8), found from
 - `larder`: `1 - store / (animals × start_energy × LARDER_GRANTS)`, clamped
   to 0..1, where the store is the loose food near the nest (§8);
 - `always`: 1, the control.
-`,keep` adds the store rule in §5. On the nest itself the anchor follows the
-ant, so the pull has no direction until the ant steps off an end.
+`,keep` adds the store rule in §5. `,fed` drives only an animal at or above
+its `start_energy`; below it the level reads 0 and the animal goes out on its
+own hunger. Without `,fed` the drive reaches hungry foragers too, and early in
+a run they are nearly all it reaches: on the bed before frame 6,000, 29,459 of
+30,817 driven decisions were ants under the grant. On the nest itself the
+anchor follows the ant, so the pull has no direction until the ant steps off
+an end.
 
 The decision trace records the patience each choice scored with, the home
 cosine of the heading picked (for an empty ant too, under `trailaway`), and
@@ -658,7 +667,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_NEST_DOOR_FOUNDERS` | spread | `pile`: under the door, founders start heaped on it instead of spread along the ground (§8) |
 | `PIXEL_PHYSICS_SCOUT` | 2 | `<gain>`: under `trailaway`, a hungry empty ant off a route runs out from home and back (§6d); `0` turns it off; `World::scout` for one world |
 | `PIXEL_PHYSICS_HUNGRY_HOME` | off | `on`/`refed` or `tether`: an empty ant too hungry to be out is pulled home to its nest's larder (§6d, §8); `World::hungry_home` for one world |
-| `PIXEL_PHYSICS_FORAGE_DRIVE` | off | `hunger`, `larder` or `always`, then optionally `,nopace` and `,keep`: a fed forager goes out when its nest needs food (§6d), and with `,keep` leaves the store at home (§5); `World::forage_drive` for one world |
+| `PIXEL_PHYSICS_FORAGE_DRIVE` | off | `hunger`, `larder` or `always`, then optionally `,nopace`, `,keep` and `,fed` (only foragers at or above `start_energy`): a fed forager goes out when its nest needs food (§6d), and with `,keep` leaves the store at home (§5); `World::forage_drive` for one world |
 | `PIXEL_PHYSICS_LOAD_SCALE` | 1.0 | `<f>`: every food load weighs `f` times as much again, on top of the species' `food_weight` (§9) |
 | `PIXEL_PHYSICS_SPOIL_HAUL`, `_DIG_DOWN`, `_SPOIL_DROP_COVER`, `_TRAFFIC_DEFER`, `_COLONY_SPACING` | unset | haulage re-roll to the nest door, downward dig bias, spoil held under cover, jam deferral length, founder spacing |
 
