@@ -1217,6 +1217,10 @@ const FUNNEL_STAGES: [&str; 7] = [
 /// How long a cut must stay open to count as built rather than scratched.
 const FUNNEL_LASTING: u64 = 1_500;
 
+/// How long a refilled dug cell must stay ground to count as filled rather
+/// than passed through: a falling grain crosses a cell in one frame.
+const REFILL_STANDING: u64 = 100;
+
 #[derive(Clone, Copy)]
 struct AntBefore {
     head: (i32, i32),
@@ -1266,14 +1270,31 @@ struct NestFunnel {
     /// This frame's put-down sites, which the refill scan leaves to the
     /// pellet ledger.
     put_sites: Vec<usize>,
-    /// **Where a refilled hole's fill came from.** A dug cell that was room
-    /// before the frame and is ground after it, with no pellet put there:
-    /// by what arrived (spoil, soil, anything else) and from where -- the
-    /// cell straight above emptied in the same frame (the roof or the bank
-    /// fell in), or not (it slid in from the side: a heap slumping).
+    /// **Every frame a dug cell went from room to ground**, with no pellet put
+    /// there: by what arrived (spoil, soil, anything else) and whether the
+    /// cell straight above emptied in the same frame. **These count passes,
+    /// not holes filled**: a grain falling down a dug shaft goes one cell a
+    /// frame and books one pass per cell, "from above" each time, and a
+    /// diagonal slide books "from the side" -- so the split is the grains'
+    /// path, not two ways of failing (`refill_standing` is the filled count).
+    /// **And the material cannot name the source**: worked ground never falls
+    /// as itself (`update_powder`'s `self_supporting` branch turns lining or a
+    /// pellet into `soil` where it stands, and the soil falls later), so what
+    /// arrives is `soil` whatever it was (`turned_loose` counts the
+    /// conversions). Both corrections are 2026-09-27's, found by reading
+    /// `update_powder` after the first reading of these numbers ("the bank,
+    /// not the heaps") had been written up.
     refill_fall: [u64; 3],
     refill_from_above: u64,
     refill_from_side: u64,
+    /// **Worked ground turned loose where it stands**, the supply the passes
+    /// above are drawn from: [lining, pellet][below the old surface, above].
+    turned_loose: [[u64; 2]; 2],
+    /// **A refill that stays**: a dug cell still ground `REFILL_STANDING`
+    /// frames after it filled. [by a fall, by a pellet put there].
+    refill_standing: [u64; 2],
+    refill_pending: Vec<bool>,
+    refill_queue: Vec<(u64, usize, usize)>,
     /// (frame due, cut x, cut y, ant) waiting on the lasting check.
     pending: Vec<(u64, i32, i32, u32)>,
     // The dig ledger: every cut in exactly one bucket.
@@ -1366,6 +1387,7 @@ impl NestFunnel {
         if self.touched.len() != n {
             self.touched = vec![false; n];
             self.dug = vec![false; n];
+            self.refill_pending = vec![false; n];
         }
         self.grid.clear();
         for y in 0..b.h {
@@ -1506,6 +1528,10 @@ impl NestFunnel {
                             self.put_below += 1;
                             if self.dug[at(sx, sy)] {
                                 self.put_refill += 1;
+                                if !self.refill_pending[at(sx, sy)] {
+                                    self.refill_pending[at(sx, sy)] = true;
+                                    self.refill_queue.push((frame + REFILL_STANDING, at(sx, sy), 1));
+                                }
                             }
                         }
                         self.touched[at(sx, sy)] = true;
@@ -1538,6 +1564,10 @@ impl NestFunnel {
                 _ => 2,
             };
             self.refill_fall[slot] += 1;
+            if !self.refill_pending[i] {
+                self.refill_pending[i] = true;
+                self.refill_queue.push((frame + REFILL_STANDING, i, 0));
+            }
             let above_fell = y > 0 && matches!(self.grid[at(x, y - 1)], Some(m) if Self::is_ground(world, m)) && {
                 let a = world.get(x, y - 1);
                 a.organism_id() != 0 || a.material == material::EMPTY
@@ -1549,6 +1579,34 @@ impl NestFunnel {
             }
         }
         self.put_sites.clear();
+        // Worked ground turned loose in place: lining or a pellet before the
+        // frame, `soil` at the same cell after it.
+        let (soil, lining, pellet) = (world.materials.id_of("soil"), world.materials.id_of("packedsoil"), world.materials.id_of("spoil"));
+        if let Some(soil) = soil {
+            for (i, was) in self.grid.iter().enumerate() {
+                let kind = match *was {
+                    Some(m) if Some(m) == lining => 0,
+                    Some(m) if Some(m) == pellet => 1,
+                    _ => continue,
+                };
+                let (x, y) = ((i as i32) % b.w, (i as i32) / b.w);
+                let now = world.get(x, y);
+                if now.organism_id() == 0 && now.material == soil {
+                    self.turned_loose[kind][usize::from(y < b.surface)] += 1;
+                }
+            }
+        }
+        // The standing check: still ground, so filled rather than passed.
+        let due: Vec<(u64, usize, usize)> = self.refill_queue.iter().copied().filter(|p| p.0 <= frame).collect();
+        self.refill_queue.retain(|p| p.0 > frame);
+        for (_, i, kind) in due {
+            self.refill_pending[i] = false;
+            let (x, y) = ((i as i32) % b.w, (i as i32) / b.w);
+            let c = world.get(x, y);
+            if c.organism_id() == 0 && Self::is_ground(world, c.material) {
+                self.refill_standing[kind] += 1;
+            }
+        }
         // The lasting check: the cut is still room (empty or an animal).
         let due: Vec<(u64, i32, i32, u32)> = self.pending.iter().copied().filter(|p| p.0 <= frame).collect();
         self.pending.retain(|p| p.0 > frame);
@@ -1632,14 +1690,20 @@ impl NestFunnel {
             self.put_refill
         );
         println!(
-            "LEDGER frame={frame} dug cells refilled: by a pellet {}, fell in {} (spoil {}, soil {}, other {}; from the cell above {}, from the side {})",
+            "LEDGER frame={frame} dug cells refilled: by a pellet {}, fell in {} (spoil {}, soil {}, other {}; from the cell above {}, from the side {}); still ground {REFILL_STANDING} frames later: by a fall {}, by a pellet {}; worked ground turned loose in place: lining {} below and {} above the old surface, pellets {} below and {} above",
             self.put_refill,
             self.refill_fall.iter().sum::<u64>(),
             self.refill_fall[0],
             self.refill_fall[1],
             self.refill_fall[2],
             self.refill_from_above,
-            self.refill_from_side
+            self.refill_from_side,
+            self.refill_standing[0],
+            self.refill_standing[1],
+            self.turned_loose[0][0],
+            self.turned_loose[0][1],
+            self.turned_loose[1][0],
+            self.turned_loose[1][1]
         );
         // Who to trace: a few ids stopped at each stage.
         for (i, name) in FUNNEL_STAGES.iter().enumerate().skip(1) {
@@ -1757,6 +1821,62 @@ fn funnel_selftest(b: &Box2) {
         fun.refill_fall[1], fun.refill_fall[0], fun.refill_from_above, fun.refill_from_side, fun.put_refill
     );
     assert_eq!((fun.refill_fall, fun.refill_from_above, fun.refill_from_side, fun.put_refill), ([0, 2, 0], 1, 1, 1), "the refill ledger must place a roof collapse above and a cave-in beside, and leave a put-back pellet to the pellet ledger");
+
+    // 4b. Passes against fills, and worked ground turned loose. A grain
+    //     falling through a three-cell dug shaft books three passes and no
+    //     standing fill; a grain that stops in one books one; lining with
+    //     air below and a pellet with no footing, turned to soil in place,
+    //     book one conversion each.
+    let (cx, r0) = (b.w / 2 + 20, b.surface + 8);
+    for y in r0..r0 + 4 {
+        w.set(cx, y, Cell::EMPTY);
+    }
+    for y in r0..r0 + 3 {
+        let i = (y * b.w + cx) as usize;
+        fun.dug[i] = true;
+        fun.dug_list.push(i);
+    }
+    // Let the earlier cases' fills (the cave-in, the roof collapse) come due
+    // first: they stay ground, so they count, and must not land in this window.
+    frame += REFILL_STANDING + 1;
+    idle(&mut w, &mut fun, frame, 4);
+    let stand0 = fun.refill_standing;
+    let falls0: u64 = fun.refill_fall.iter().sum();
+    for step in 0..4 {
+        frame += 1;
+        fun.before_with(&w, b, ant(0, 4, false));
+        w.set(cx, r0 + step - 1, Cell::EMPTY);
+        w.set(cx, r0 + step, Cell::new(soil, 0));
+        fun.after_with(&w, b, frame, &after(4, false));
+    }
+    frame += REFILL_STANDING + 1;
+    idle(&mut w, &mut fun, frame, 4);
+    let passes = fun.refill_fall.iter().sum::<u64>() - falls0;
+    println!("  funnel: a grain falling through a 3-cell dug shaft -> passes {passes}, standing fills {} (must be 3 and 0)", fun.refill_standing[0] - stand0[0]);
+    assert_eq!((passes, fun.refill_standing[0] - stand0[0]), (3, 0), "a grain passing through must not count as a filled hole");
+    frame += 1;
+    fun.before_with(&w, b, ant(0, 4, false));
+    w.set(cx, r0 + 2, Cell::new(soil, 0));
+    fun.after_with(&w, b, frame, &after(4, false));
+    frame += REFILL_STANDING + 1;
+    idle(&mut w, &mut fun, frame, 4);
+    let lining_id = w.materials.id_of("packedsoil").expect("packedsoil is a shipped material");
+    frame += 1;
+    w.set(cx + 2, r0, Cell::new(lining_id, 0));
+    w.set(cx + 3, b.surface - 5, Cell::new(spoil, 0));
+    idle(&mut w, &mut fun, frame, 4);
+    frame += 1;
+    fun.before_with(&w, b, ant(0, 4, false));
+    w.set(cx + 2, r0, Cell::new(soil, 0));
+    w.set(cx + 3, b.surface - 5, Cell::new(soil, 0));
+    fun.after_with(&w, b, frame, &after(4, false));
+    println!(
+        "  funnel: a grain that stops -> standing fills {}; lining and a pellet turned loose -> lining below {}, pellets above {} (must be 1, 1, 1)",
+        fun.refill_standing[0] - stand0[0],
+        fun.turned_loose[0][0],
+        fun.turned_loose[1][1]
+    );
+    assert_eq!((fun.refill_standing[0] - stand0[0], fun.turned_loose[0][0], fun.turned_loose[1][1]), (1, 1, 1), "a fill that stays and worked ground turned loose must each be booked once");
 
     // 5. The ledger's own control: a dig the world does not show must be
     //    booked as unplaceable, not quietly dropped or guessed.

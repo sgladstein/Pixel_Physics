@@ -37,9 +37,10 @@ the lab colony (food eaten lower on 10 of 12, one colony lost) -- the
 owner's "good reason not to".
 
 **Next, 2026-09-27** (proposed to the owner, not yet ruled on):
-1. Walls and a roof that hold. Refills are 94% soil falling in, half from
-   above and half from the side; the heaps contribute nothing
-   (`nest-work-2026-09-27.md` §4).
+1. The heaps feed the holes. 78% of worked ground turning loose is pellets
+   in the heaps above the surface, undercut by diggers; ~1,150 dug cells a
+   run fill and stay filled (`nest-work-2026-09-27.md` §4, corrected: the
+   first reading, "the bank, not the heaps", counted passes).
 2. `DIG_DOWN` stays off (measured 2026-09-27): colony bed starved 201 → 460
    of 480 (ants trapped digging at home); the lab ties.
 3. A dig marker at the face (Toffin's marker half; untried) against the 31
