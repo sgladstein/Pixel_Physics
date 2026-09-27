@@ -3327,6 +3327,8 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     the whole nest holds a median of 4 food cells. The prerequisite is
     foragers feeding hungry nestmates directly. Also a correction: §20's
     "food carried" figure was cell-steps, not joules.
+  - Handoff: [lanes/foraging-loop.md](lanes/foraging-loop.md) -- the
+    owner's rulings, the live question, the baseline, commands and traps.
   - The per-decision mix matched the formula within a point at both
     energies. The reach predictions were low; the report says why.
   - The scene's own checks caught rain pooling on the slab and an ant dying
