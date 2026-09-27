@@ -47,6 +47,10 @@ LEDGER_DIG = re.compile(
     r"new ground under a roof (?P<roofed>\d+)"
     r"(?:.*?the cells cut again were spoil (?P<a_spoil>\d+), soil (?P<a_soil>\d+), lining (?P<a_lining>\d+), other (?P<a_other>\d+))?"
 )
+LEDGER_REFILL = re.compile(
+    r"^LEDGER frame=(?P<frame>\d+) dug cells refilled: by a pellet (?P<pellet>\d+), fell in (?P<fell>\d+) "
+    r"\(spoil (?P<spoil>\d+), soil (?P<soil>\d+), other (?P<other>\d+); from the cell above (?P<above>\d+), from the side (?P<side>\d+)\)"
+)
 LEDGER_PUT = re.compile(
     r"^LEDGER frame=(?P<frame>\d+) pellets put down (?P<put>\d+) \+ died holding (?P<died>\d+) \+ site not found (?P<lost>\d+) = "
     r"engine spoil_dumped (?P<dumped>\d+) \+ spoil_lost (?P<slost>\d+): beside the head (?P<beside>\d+), posted up the column (?P<lifted>\d+); "
@@ -78,6 +82,10 @@ def parse(path):
             m = LEDGER_DIG.match(line)
             if m:
                 out.setdefault(int(m["frame"]), {"n": 0, "colony": None, "null": {}, "spec": None}).setdefault("funnel", {})["dig"] = {k: int(v) for k, v in m.groupdict().items() if v is not None}
+                continue
+            m = LEDGER_REFILL.match(line)
+            if m:
+                out.setdefault(int(m["frame"]), {"n": 0, "colony": None, "null": {}, "spec": None}).setdefault("funnel", {})["refill"] = {k: int(v) for k, v in m.groupdict().items()}
                 continue
             m = LEDGER_PUT.match(line)
             if m:
@@ -217,6 +225,14 @@ def funnel_report(runs, stop):
                     "  where the pellets went (share of placed pellets):  "
                     + "  ".join(f"{k} {med_worst([d[k] / pp(d) for d in put], max)}" for k in ("beside", "lifted", "out", "below", "refill"))
                 )
+            ref = [f["refill"] for f in fs if f.get("refill")]
+            if ref:
+                tot = lambda d: max(d["pellet"] + d["fell"], 1)
+                fell = lambda d: max(d["fell"], 1)
+                print(
+                    f"  where a refilled hole's fill came from (share of refills):  a pellet {med_worst([d['pellet'] / tot(d) for d in ref], max)}  fell in {med_worst([d['fell'] / tot(d) for d in ref], max)};"
+                    f"  of the falls: soil {med_worst([d['soil'] / fell(d) for d in ref], max)}  spoil {med_worst([d['spoil'] / fell(d) for d in ref], max)}  from above {med_worst([d['above'] / fell(d) for d in ref], max)}"
+                )
             mism = [d["mismatch"] / max(d["digs"], 1) for d in dig]
             lost = [d["lost"] / max(d["dumped"] + d["slost"], 1) for d in put] if put else []
             print(f"  the instrument's own error: digs it could not place {med_worst(mism, max)}; pellets it could not place {med_worst(lost, max)}")
@@ -265,6 +281,7 @@ def selftest():
         + "FUNNEL   cuts that built 9 of 400 placed cuts (2.2%); cuts per ant: median 9 max 28\n"
         + "LEDGER frame=100 cuts 400 + target mismatch 6 = engine digs 406: above the old surface 160, a pellet or refill cut again 112, new ground open to the sky 70, new ground under a roof 58 (of the new ground, tunnel lining 99; placed by elimination 3); mismatch: ahead refilled 1, ahead not ground 5; the cells cut again were spoil 6, soil 40, lining 66, other 0\n"
         + "LEDGER frame=100 pellets put down 397 + died holding 0 + site not found 2 = engine spoil_dumped 399 + spoil_lost 0: beside the head 223, posted up the column 174; landed above the old surface 374, below it 23 (into a dug cell 23)\n"
+        + "LEDGER frame=100 dug cells refilled: by a pellet 23, fell in 377 (spoil 1, soil 375, other 1; from the cell above 190, from the side 187)\n"
     )
     # digbox's own order at a stop: the funnel block, then the scoreboard.
     body = funnel + score
@@ -282,6 +299,7 @@ def selftest():
     assert fu["ants"] == 40 and fu["stages"] == [("lived", 40), ("cut a cell", 30)], fu["stages"]
     assert fu["built"] == (9, 400) and fu["dig"]["above"] == 160 and fu["dig"]["digs"] == 406, fu
     assert (fu["dig"]["a_spoil"], fu["dig"]["a_soil"], fu["dig"]["a_lining"]) == (6, 40, 66), fu["dig"]
+    assert fu["refill"]["fell"] == 377 and fu["refill"]["soil"] == 375 and fu["refill"]["above"] == 190, fu.get("refill")
     assert fu["put"]["beside"] == 223 and fu["put"]["refill"] == 23 and fu["put"]["dumped"] == 399, fu["put"]
     # A duplicate key must refuse, not pool (last write wins is the failure).
     try:

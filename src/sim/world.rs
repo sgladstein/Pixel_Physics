@@ -1885,8 +1885,19 @@ pub struct CreatureStats {
     pub deliveries: u64,
     /// **Food picked up while at the nest**, on the predicate `deliveries`
     /// counts drops on, and read before the mouthful leaves the world.
-    /// `deliveries - pickups_at_nest` is the net flow of food cells into
-    /// home, which is what `deliveries` is usually read as.
+    ///
+    /// **`deliveries - pickups_at_nest` is not the food that came home**,
+    /// though it was first written up as that. Both counters judge where the
+    /// acting animal's *head* is, not the food. So a crumb set down just
+    /// beyond the head, fallen, or handed through bodies is picked up from
+    /// outside home with no debit and delivered again. Traced ant by ant by
+    /// the foraging lane on 2026-09-27 (90-cell colony bed, 24 seeds): the
+    /// difference read 7,506 where 1,637 cells of pile food were ever
+    /// delivered home, and one fruit was delivered 110 times while moving
+    /// about a cell. What this counts is pickups made at home, a lower bound
+    /// on how much of `deliveries` is the same food going round. A net flow
+    /// needs both judged at the food cell's own position, or only a crumb's
+    /// first delivery counted.
     ///
     /// Added 2026-09-26 (`Reports/nest-mouth-2026-09-26.md` §6-§7), when a
     /// home that climbed the colony's own food heap raised deliveries
