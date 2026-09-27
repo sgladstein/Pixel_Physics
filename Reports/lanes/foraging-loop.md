@@ -40,19 +40,24 @@ commands and the traps.*
 has not ruled.** `PIXEL_PHYSICS_FORAGE_DRIVE` (§22, off). Under `always` a
 forager that has been to the food goes back out while fed, scouting and pacing
 like a hungry ant:
-- **bed 90:** loops per forager 1.46 → 2.15 (24/0); net food into home
-  7,506 → 17,030; starved 201 → 156; born 10 → 72;
-- **bed 140:** loops per forager 1.57 → 1.97 (21/2); net food 5,999 → 9,565;
-  born 7 → 48; starvation unchanged (the early cull, problem 2);
-- **lab:** 52% more carried home, but food eaten and births flat, and 2 of 12
-  colonies die out (0 on the default). The lab's limit is its regrowing
-  pasture: foraging harder grazes it bare sooner.
+- **bed 90** (rerun on `main`; the first run was an intermediate build, §22):
+  loops per forager 1.46 → 2.04 (22/0); food taken from the pile
+  2,241 → 3,327 (24/0); starved 201 → 172 (more by frame 6,000, 125 → 133,
+  far fewer after, 76 → 39); born 10 → 67. With the come-home tether on top:
+  starved 123 and food taken 3,674, the best arm at 90;
+- **bed 140:** loops per forager 1.57 → 1.97 (21/2); food taken
+  2,005 → 2,895 (24/0); born 7 → 48; starvation unchanged (the early cull,
+  problem 2);
+- **lab:** 52% more carried home, but food eaten, births and survival flat.
+  "2 of 12 die out, 0 today" is crash timing: 4 of 12 end under 10 ants in
+  both arms. The lab's limit is its regrowing pasture.
+- **"Net food into home" overcounts 3.4-4.6×** (§22j); read food taken.
 
 The forms that read the colony's need did worse. `hunger` is inert on the bed
-(the colony is fed once the early deaths are over) and killed 4 of 12 lab
-colonies at founding. `larder` is a weaker `always` on the bed and ends lab
+(the colony is fed once the early deaths are over) and ended 4 of 12 lab
+colonies (one a founding that never grew, three boom and bust). `larder` is a weaker `always` on the bed and ends lab
 colonies smaller. `,keep` (fed foragers leave the store) made them stand in it
-digging, and births fell 72 → 9. A fed forager eating the store is how the
+digging, and births fell 67 → 9. A fed forager eating the store is how the
 surplus becomes new ants: budding reads body energy.
 
 **Shown to the owner:** card `20260927T172924982Z-46b30b` (seed 22, frames

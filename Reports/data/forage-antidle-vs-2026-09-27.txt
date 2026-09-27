@@ -1,13 +1,13 @@
-== hunger 90
-  loops per looper (median over seeds)                 1.462 ->     1.667   better on 15, worse on 9, sign p 0.307
-  full loops (sum)                                   462.000 ->   466.000   better on 12, worse on 12, sign p 1.000
-  life after 1st delivery fed at home (median)         0.538 ->     0.539   better on 8, worse on 16, sign p 0.152
-    ... of it holding food off the nest (median)       0.399 ->     0.461   better on 6, worse on 18, sign p 0.023
-== always 90
-  loops per looper (median over seeds)                 1.462 ->     2.148   better on 24, worse on 0, sign p 0.000
-  full loops (sum)                                   462.000 ->   649.000   better on 22, worse on 2, sign p 0.000
-  life after 1st delivery fed at home (median)         0.538 ->     0.601   better on 6, worse on 18, sign p 0.023
-    ... of it holding food off the nest (median)       0.399 ->     0.647   better on 0, worse on 24, sign p 0.000
+== hunger 90 (rerun on main 2026-09-27 evening; the first run was an intermediate build)
+  loops per looper (median over seeds)                 1.462 ->     1.690   better on 18, worse on 6, sign p 0.023
+  full loops (sum)                                   462.000 ->   481.000   better on 12, worse on 9, sign p 0.664
+  life after 1st delivery fed at home (median)         0.538 ->     0.551   better on 13, worse on 11, sign p 0.839
+    ... of it holding food off the nest (median)       0.399 ->     0.461   better on 3, worse on 21, sign p 0.000
+== always 90 (rerun on main 2026-09-27 evening; the first run was an intermediate build)
+  loops per looper (median over seeds)                 1.462 ->     2.038   better on 22, worse on 0, sign p 0.000
+  full loops (sum)                                   462.000 ->   619.000   better on 22, worse on 0, sign p 0.000
+  life after 1st delivery fed at home (median)         0.538 ->     0.626   better on 9, worse on 15, sign p 0.307
+    ... of it holding food off the nest (median)       0.399 ->     0.623   better on 0, worse on 24, sign p 0.000
 == larder 90
   loops per looper (median over seeds)                 1.462 ->     1.840   better on 20, worse on 4, sign p 0.002
   full loops (sum)                                   462.000 ->   563.000   better on 19, worse on 4, sign p 0.003
