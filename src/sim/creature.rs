@@ -10516,7 +10516,12 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 let bite = world.get(fxx, fyy);
                 // **Home is read before the mouthful leaves**, for
                 // `pickups_at_nest` below, on the predicate the drop's
-                // `deliveries` uses, so the two subtract. No shipped home
+                // `deliveries` uses. **They do not subtract to food brought
+                // home**: both judge the acting ant's head, not the food
+                // cell, so a crumb at the nest's edge is picked up from
+                // outside uncounted and delivered again, 3.4-4.6x on the
+                // colony bed (`Reports/ant-scenes-2026-09-23.md` §22j,
+                // traced crumb by crumb 2026-09-27). No shipped home
                 // depends on the food cell, but one defined by what is piled
                 // on the mouth did (`PIXEL_PHYSICS_NEST_HOME=mound`, built
                 // and reverted 2026-09-26, `Reports/nest-mouth-2026-09-26.md`

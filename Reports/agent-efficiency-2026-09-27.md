@@ -84,6 +84,15 @@ recorded before it:
 | deferred-tool list | ~1.5k | yes |
 | **total at the first call** | **~78k** | **~28-30k** |
 
+A third form, measured the same evening: an agent type defined in
+`~/.claude/agents/data-analyst.md` with `tools: Bash, Read, Write, Edit,
+Grep, Glob` starts at **~41k**. It keeps `CLAUDE.md` (26k) and the tools a
+data agent writes files with, and drops ~34k of schemas it never uses; the
+skill and deferred-tool listings go too. Defined per user it is only in the
+container that made it; in the repo's `.claude/agents/` it would reach every
+session. A new definition is picked up by a running session only after the
+agent registry reloads, not at once.
+
 Siblings in one workflow phase share a ~34k cached prefix; each phase's first
 agent reads none of it, and nothing after that prefix is shared [nest §8].
 
@@ -138,9 +147,9 @@ now lives.
    `agentType: 'Explore'` in a workflow, or `subagent_type: Explore`, at
    ~28-30k against ~78k. It does not load `CLAUDE.md`, so name any rule the
    stage needs in its prompt. It has no Write or Edit tool. A stage that must
-   write files or checkpoint uses the default type; a tool-limited
-   `.claude/agents/` type for data work would save ~30k per call and is the
-   owner's call (untested).
+   write files or checkpoint uses a tool-limited type (measured: ~41k to
+   start, keeping `CLAUDE.md`), or the default type until one is in the repo's
+   `.claude/agents/`, which is the owner's call.
 2. **Brief every agent with what the session already holds** (measured
    against its absence; the controlled test is §5):
    - the verified facts, definitions and traps already found;

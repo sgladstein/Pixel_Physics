@@ -2019,11 +2019,14 @@ fn main() {
     // construction rather than by failure.
     // **...and `pickups_at_nest`, because a delivery is a drop at home
     // whatever the food's history.** A crumb lifted off the colony's own heap
-    // and put straight back is a second delivery of one cell; the difference
-    // is the net flow home, and the only one of the two that means the same
-    // thing in two arms whose home differs (`world.rs`'s doc on the field).
+    // and put straight back is a second delivery of one cell. **The difference
+    // is still not the net flow home** (`Reports/ant-scenes-2026-09-23.md`
+    // §22j, 2026-09-27): both are judged at the acting ant's head, so a crumb
+    // at the nest's edge is picked up from outside uncounted and delivered
+    // again. Printed for continuity with older logs, under a name that does
+    // not claim more than it counts.
     println!(
-        "  round trips: deliveries {} nest visits {} | picked up at home {} -> net into home {}",
+        "  round trips: deliveries {} nest visits {} | picked up at home {} -> drops minus home pickups {}",
         st.deliveries,
         st.nest_visits,
         st.pickups_at_nest,

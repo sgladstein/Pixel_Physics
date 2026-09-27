@@ -263,8 +263,12 @@ the tick: the ant still gets its move roll (§6) afterwards.
    `drops_passed_on` the drops that went past the neighbours. **A delivery
    is any drop at home, whatever the food's history**, so a crumb picked up
    at the nest and put back counts again. `pickups_at_nest` counts step 3's
-   pickups made on the same test (read before the food leaves), so
-   `deliveries - pickups_at_nest` is the food that came home.
+   pickups made on the same test (read before the food leaves). **The
+   difference is not the food that came home** (measured 2026-09-27,
+   `ant-scenes-2026-09-23.md` §22j): both counters judge the acting ant's
+   head, not the food cell, so a crumb at the nest's edge is picked up from
+   outside, uncounted, and delivered again. On the colony bed it overcounts
+   3.4-4.6×; food taken from the pile is the honest flow.
 5. **Drop spoil**, if holding a dig pellet, then **return**, placed or not,
    so an ant holding a pellet never digs. The roll is against `DropSpoil`,
    its own output (§4), not the food drop's. On a win the pellet goes on the

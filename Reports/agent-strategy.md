@@ -235,7 +235,9 @@ a brief, for a sub-agent as for a lane, carries:
 And around it:
 - **Choose the type by the job.** A read-only stage runs as `Explore`
   (~28-30k to start, against ~78k), with any `CLAUDE.md` rule it needs named
-  in its prompt; a stage that writes files uses the default type.
+  in its prompt; a stage that writes files uses a type limited to Bash, Read,
+  Write, Edit, Grep and Glob where one is defined (~41k, measured), else the
+  default.
 - **Hand phases a digest, never raw results**: a designer given 222k
   characters of raw reader output started at 160k tokens.
 - **Prefer short agents.** A late call re-reads everything before it, and
