@@ -31,26 +31,65 @@ commands and the traps.*
   `PIXEL_PHYSICS_HUNGRY_HOME` and **off**, because it only pays when home can
   feed the hungry (§21). The owner has not yet seen that result; bring it
   with the fix below.
+- **You may spin up sub-agents if that helps** (2026-09-27). Pick the kind by
+  what the job is short of:
+  - **In-process** (`Agent` tool): for reading and surveying, e.g. grepping
+    `dead-ends.md`, tracing a mechanism through `creature.rs`, or checking
+    a guard. **Not for runs**: they share this container's 4 cores, and a
+    lab box already takes about 15 minutes over 12 seeds on all four.
+  - **A cloud session** (`create_session`): gets its own machine. Use one
+    for a run that would otherwise queue, e.g. a lab arm beside a bed arm.
+    Invoke the `lab-coordinator` skill first, whatever the task (the name
+    is historical), and pass `model:` explicitly, never inherited (Opus
+    unless there is a reason).
+  - **Either way the return path is files, not messages.** A sub-agent
+    writes its findings where you will read them, and you own the merge.
 - An ant should breed only at the nest, and in the end *where* it breeds
   should be something a lineage evolves (09-23). `PIXEL_PHYSICS_BUD_SITE=nest`,
   off by default; the bed runs with it on.
 
 ## Live question
 
-**Food at home does not reach the hungry.** The whole nest holds a median of
-4 food cells. A hungry ant at home stands 11–17 cells from the nearest, and on
-about 1 census in 5 there is none at all. Hungry ants at home were beside food
-42 times in 285, and ate it 71–84% of the time when they were. Sharing between
-ants (`share` / trophallaxis) is about 4% of what a colony eats (§13).
+**Fed foragers stop foraging.** The owner asked (2026-09-27): *food not
+building up at the nest seems like the #1 limit -- are ants foraging too slowly,
+or is the economy still too hard?* **Too slowly**, measured on the 90-cell bed
+(scouting default, 24 seeds):
 
-**The candidate:** the social stomach. A returning forager feeds hungry
-nestmates directly from its crop before, or instead of, dropping food on the
-ground. This is **not** §17f's `hungergate`, a fed carrier that does not
-digest its own cargo. That one was inert: it held 1–3% of digestion
-(dead-ends, `digest_hunger_weight`). Grep `dead-ends.md` for `share` and
-`trophallaxis` before building. Measure it by `antloop`'s HUNGRY AT HOME section and by net food into
-home, then re-test `HUNGRY_HOME=tether` on top of it, on both beds and at
-140 cells.
+- **Supply never limits.** The pile refills. The colony takes 91 cells a run
+  against the ~116 it burns, and absorbs 64% of what it burns.
+- **Each trip pays.** A loop brings home 4.9 cells (~1,170 J to an ant). A
+  forager burns 0.06 J a frame, so a loop pays about 3x its cost even counting
+  the wait between loops, and far more on the walk alone.
+- **The effort is missing.** 303 of 480 founders completed a loop, but they
+  averaged **1.5 loops each**. After its last loop a forager lives a median
+  **11,712 frames at full energy** and never goes out again. 200 of the 303
+  are alive at the end, while 201 nestmates starve.
+- **What sends an ant out is its own hunger.** Scouting scales with it, by
+  design, and the brain's `Move` reads `Energy`. The colony's need barely
+  reaches a fed forager: `KinNeed` (hungry kin beside it) reads 0 on 99% of
+  its decisions at home.
+- **So food cannot build up at home.** About 19 loops a run cannot cover the
+  colony's burn, and whatever lands is eaten at once. Food at home does not
+  reach the hungry either (a median 4 cells on the whole nest; hungry ants
+  beside food 42 times in 285, eating it 71–84% of the time when they are),
+  but that is downstream: there is too little to share.
+
+**The candidate: a forager's drive to go out follows the colony's need, not
+its own belly.** Real foragers keep foraging while nestmates take their loads
+quickly, and slow down when unloading is slow (honeybees: unloading time).
+Engine forms to weigh, each behind a switch:
+
+- let `scout_w` read the colony's need, e.g. how little food the nest's larder
+  point holds, or hungry kin met at home;
+- give the forager a fidelity that persists after its first loop;
+- the social stomach: unload into hungry nestmates, so a forager's crop, not
+  its belly, is what it fills.
+
+Target quantity: **loops per looper, and the frames a fed forager spends at
+home** (`scripts/antidle.py` prints both). Check: net food into home and starved. Not §17f's `hungergate` (inert,
+dead-ends `digest_hunger_weight`). Grep `dead-ends.md` for `share`,
+`trophallaxis`, `KinNeed` and `forager` first. Then re-test
+`HUNGRY_HOME=tether` on top, on both beds and at 140 cells.
 
 ## Baseline (the shipped default, 2026-09-27)
 
@@ -68,8 +107,9 @@ extinct 0 of 12.
 
 ## Ranked open problems
 
-1. **Food at home to the hungry** (above). The colony is short of transport,
-   not of food at the source: the pile refills.
+1. **Fed foragers stop foraging** (above): 1.5 loops per looper, then a
+   median 11,712 frames resting at full energy. Food at home reaching the
+   hungry comes after; there is too little to share until this moves.
 2. **Scouts that pick the dead-end side** waste their reserve there: 108 died
    having only ever gone the empty way (§20). Real desert ants remember the
    direction that paid.
@@ -87,6 +127,32 @@ extinct 0 of 12.
    so measure it. Found when `an_ant_eats_a_living_worm_...` failed under
    scouting (traced; it was the path, not this, and that test now pins
    scouting off).
+
+## Tools and skills (use these; the names do not say what they answer)
+
+- **`funnel` skill**: invoke it before investigating anything. The method
+  behind every finding here.
+- **`review` skill** (`scripts/review.py`): post a card whenever a change is
+  visible. The owner judges by eye.
+- **`scripts/antloop.py`**: the loop ant by ant over `trailfollow
+  decisioncsv` traces. It prints the funnel, GOING OUT, who starved and
+  where, HUNGRY AT HOME, the time budget and the economy. `--vs base.log`
+  pairs starved and net food into home by seed; `--selftest` is the control.
+- **`scripts/antidle.py`**: do foragers keep foraging? It prints the loop
+  period, the wait at home, and life after the last loop.
+- **`scripts/labpair.py`**: two arms of `labforage` logs paired by seed on
+  net food into home. Never compare lab `deliveries`.
+- **`trailfollow`**, the colony bed:
+  - `decisioncsv dtag=` writes the per-decision trace that the scripts read;
+  - `gifants framesdir= gifevery= gifstart= gifcount= gifw= gifh= gifat=`
+    make card frames, ants magenta when empty and cyan when carrying;
+  - the log's `FOOD BUDGET`, `food into home` and `HUNGRY AT HOME` lines
+    carry the economy.
+- **`labforage`**, the lab box: its `SUMMARY seed=` line.
+- **`scripts/deadendindex.py --touching`**: before opening a PR.
+- **`scripts/branchcheck.sh --who-touched src/sim/creature.rs`**: before
+  editing the ant, since other lanes work in it too.
+- **`Reports/instruments.md`**: grep it before building any new harness.
 
 ## Commands
 
