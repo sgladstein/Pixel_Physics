@@ -27,6 +27,15 @@ But it is the **minority term**. Decomposing a real measured agent run —
 | always-loaded prefix | ~24,295 | 26% |
 | everything else — **reading** | ~71,223 | **74%** |
 
+**Measured 2026-09-27, for workflow and general-purpose sub-agents, the fixed
+prefix is ~78k tokens, not ~24k:** it also carries every tool's schema (~37k,
+of which a data agent uses ~4k) and the skill listing (~4k). Read off 37
+sub-agents' transcripts by `scripts/agentmeter.py`, it was **35-54% of what
+each default agent cost**. An Explore agent starts at ~28-30k, because it
+skips `CLAUDE.md` and most tools. `agent-efficiency-2026-09-27.md` has the
+breakdown; the prefix is still not the whole of it, since reading and the
+agent's own thinking (kept in context, never recorded) grow on top.
+
 Both numbers matter, and they matter in different places. The prefix is
 multiplied by **head count**, so it prices the *topology* decision. The reading
 is multiplied by **what each head opens**, so it prices the *brief*. A strategy
@@ -200,6 +209,41 @@ this and will deny the read with a pointer to the right index.
 Fork: build it, OR write the finding up and stop. Not a half-built fix.
 Return: commit, push, report the head SHA.
 ```
+
+### What every brief carries, and what each agent costs
+
+Measured over 37 sub-agents in two lanes, 2026-09-27
+(`agent-efficiency-2026-09-27.md`). Agents paid again for what their spawner
+already held: all 5 agents of one survey read `creature.rs`, and two spent ~20
+calls fetching the owner's rulings from a transcript. The three whose prompts
+named the data files, formats and parser cost 0.53M each against 1.2-1.9M. So
+a brief, for a sub-agent as for a lane, carries:
+
+- **what the session already verified**: the facts, definitions and traps
+  found so far, and what earlier work established;
+- **parsed data and the functions to import**, with paths, not raw files;
+- **the owner's rulings** the question depends on;
+- **line anchors, and the list of paths it may read.** Anchors alone invite
+  reading: a briefed agent still spent 9 of its first 12 calls opening code;
+- **a call budget** (~30), independent reads grouped into one call, and the
+  code read before its comments (`grep -v '^\s*//'` on a range; comments are
+  61% of `creature.rs`);
+- **output discipline**: summaries in context, tables to files, and each
+  result appended to a `FINDINGS.md` as it is found. A session limit killed six
+  running agents at once; their files were all that survived.
+
+And around it:
+- **Choose the type by the job.** A read-only stage runs as `Explore`
+  (~28-30k to start, against ~78k), with any `CLAUDE.md` rule it needs named
+  in its prompt; a stage that writes files uses the default type.
+- **Hand phases a digest, never raw results**: a designer given 222k
+  characters of raw reader output started at 160k tokens.
+- **Prefer short agents.** A late call re-reads everything before it, and
+  resuming a long agent costs its whole context per call.
+- **Check the inputs are the code under test before fanning out.** Eight
+  agents were once set to trace logs an intermediate build had written.
+- **Measure after**: `python3 scripts/agentmeter.py`. More reading calls than
+  data calls, or one file read by several agents, means the brief was thin.
 
 ## 5. What is enforced mechanically, and why prose was not enough
 

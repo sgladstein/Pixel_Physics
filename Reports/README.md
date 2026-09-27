@@ -338,15 +338,18 @@ by somebody about to try it on creatures.
   workflows default to a **5-minute** prompt cache while the main session gets
   an hour. Recommends the ~67,000-token `open-bugs-handoff.md` split and says
   why it did not do it.
-- [agent-efficiency-2026-09-27.md](agent-efficiency-2026-09-27.md) — **draft,
-  2026-09-27; being combined with the nest lane's findings.** What a sub-agent
-  spends and on what, read off its transcript by the new
-  `scripts/agentmeter.py`. A workflow sub-agent starts at **~78k tokens**, not
-  the ~22k `agent-strategy.md` §1 priced, because it also carries every tool's
-  schema (~37k, of which a data agent uses ~4k); that prefix is 35-54% of its
-  cost. Agents re-read the same files before any data work (all 5 of a survey
-  read `creature.rs`), and an agent handed exact data paths and parsers cost
-  0.53M against 1.2-1.75M. Thinking stays in context and is not recorded.
+- [agent-efficiency-2026-09-27.md](agent-efficiency-2026-09-27.md) — **the
+  combined findings of the foraging-loop and nest lanes, 2026-09-27; built into
+  `agent-strategy.md` §4, the `lab-coordinator` skill, `instruments.md` and
+  `CLAUDE.md`.** What 37 sub-agents spent and on what, read off their
+  transcripts by the new `scripts/agentmeter.py`. A default sub-agent starts at
+  **~78k tokens** (tool schemas ~37k, `CLAUDE.md` ~26k), an Explore agent at
+  ~28-30k; the start is 35-54% of a default agent's cost. Agents paid again for
+  what their spawner held (all 5 of one survey read `creature.rs`), and the
+  main thread was the biggest bill in both sessions. Checking paid. A
+  brief checklist, output discipline and checkpointing, and choosing the agent
+  type by the job are the recommendations; the brief's controlled test was cut
+  short and is recorded as inconclusive.
 - [agent-efficiency-nest-2026-09-27.md](agent-efficiency-nest-2026-09-27.md)
   — **measurement, 2026-09-27; the nest lane's input to the combined
   `agent-efficiency-2026-09-27.md`.** What 19 sub-agents cost in one session
@@ -3354,10 +3357,12 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     traced ant by ant, a forager comes home hungry, eats back up off the
     nest's floor (a third of what the colony digests), and stays home until
     it is hungry again. A drive that sends fed foragers back out (`always`)
-    lifts loops per forager on every seed. At 90 cells net food into home is
-    2.3×, 45 fewer starve and births go 10 → 72; at 140 food is +59% and births
-    7 → 48. In the lab box it carries more home but grows no bigger colony,
-    and 2 of 12 colonies graze the box bare and die. The forms that read the
+    lifts loops per forager on 22 of 24 seeds. At 90 cells (rerun on `main`
+    after the first run proved to be an intermediate build) food taken from
+    the pile is 1.48×, 29 fewer starve and births go 10 → 67; at 140 food is
+    1.44× and births 7 → 48. In the lab box it carries more home but grows no
+    bigger colony, with no measurable harm ("2 of 12 die out" is crash
+    timing). §22j finds "net food into home" counts the same crumbs again. The forms that read the
     colony's need (its hunger, its store) did worse in both games. Awaiting
     the owner's ruling; the next step is an off-switch that reads food out
     there, not need at home.

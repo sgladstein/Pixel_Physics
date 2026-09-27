@@ -56,6 +56,8 @@ Usage
     python3 scripts/agentmeter.py PATH ...         # transcripts or directories
     python3 scripts/agentmeter.py --reads          # ...and each agent's ORIENT calls
     python3 scripts/agentmeter.py --json           # one JSON object per agent
+    python3 scripts/agentmeter.py --main           # the session's own conversation, not its agents
+    python3 scripts/agentmeter.py --repo PATH      # a checkout other than the working directory's
     python3 scripts/agentmeter.py --selftest       # controls; no transcript needed
 """
 import collections
@@ -69,7 +71,26 @@ import sys
 import tempfile
 
 PROJECTS = pathlib.Path.home() / ".claude" / "projects"
-REPO = str(pathlib.Path(__file__).resolve().parent.parent)
+
+
+def find_repo():
+    """The checkout whose transcripts to read: --repo PATH, else the git top level
+    of the working directory, else the checkout this script sits in. Found by the
+    nest lane, 2026-09-27: a copy run from /tmp took '/' for the repo, and its
+    selftest failed four classification rows."""
+    if "--repo" in sys.argv:
+        return os.path.abspath(sys.argv[sys.argv.index("--repo") + 1])
+    import subprocess
+    try:
+        top = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, timeout=10)
+        if top.returncode == 0 and top.stdout.strip():
+            return top.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return str(pathlib.Path(__file__).resolve().parent.parent)
+
+
+REPO = find_repo()
 # A path inside the repo named in a command or a Read. Scratch, data and build
 # output are not the repo's knowledge, so they never count as orientation.
 REPO_FILE = re.compile(r"(?:^|[\s'\"=(])((?:src|scripts|examples|tests|Reports|wiki|assets|\.claude)/[\w./-]+\.\w+|(?:CLAUDE|README|PLAN)\.md)")
@@ -85,7 +106,8 @@ def classify(name, inp):
     """ORIENT / DATA / WRITE / OTHER for one tool call."""
     if name == "Read":
         p = inp.get("file_path", "")
-        if p.endswith((".png", ".gif", ".jpg")) or "/scratchpad/" in p or "/tmp/" in p:
+        if p.endswith((".png", ".gif", ".jpg", ".csv", ".log", ".json")) or not p.startswith(REPO + "/") \
+                or "/target/" in p or "/.git/" in p:
             return "DATA"
         return "ORIENT"
     if name in ("Grep", "Glob"):
@@ -117,7 +139,12 @@ def when(ts):
 
 def meter(path):
     """One agent's numbers from its transcript."""
-    rows = [json.loads(l) for l in open(path) if l.strip()]
+    rows = []
+    for l in open(path):
+        try:
+            rows.append(json.loads(l))
+        except ValueError:
+            pass        # a running agent's last line is still being written
     meta = {}
     mp = path[:-len(".jsonl")] + ".meta.json"
     if os.path.exists(mp):
@@ -168,7 +195,11 @@ def meter(path):
     chars = collections.Counter()
     for c, _, _, n in calls:
         chars[c] += n
+    big = max(calls, key=lambda c: c[3]) if calls else ("", "", {}, 0)
     return {
+        "phase": meta.get("workflowPhase", ""),
+        "peak": max((ctx(u) for u in us), default=0),
+        "biggest": (big[3], big[1], re.sub(r"\s+", " ", big[2].get("file_path") or big[2].get("command") or big[2].get("pattern", ""))[:90]),
         "agent": os.path.basename(path)[len("agent-"):-len(".jsonl")],
         "run": os.path.basename(os.path.dirname(path)),
         "task": meta.get("description", ""),
@@ -229,10 +260,12 @@ def report(paths, show_reads=False, as_json=False):
     k = lambda x: f"{x / 1000:.0f}k"
     for run, group in runs.items():
         print(f"== {run}: {len(group)} agent(s)")
-        print(f"   {'agent':9} {'task':32} {'calls':>5} {'start':>6} {'end':>6} {'cost':>7} {'fixed':>6} {'orient':>6} {'data':>5} {'write':>5} {'orient chars':>12} {'data chars':>10} {'min':>5}")
+        print(f"   {'agent':9} {'phase':7} {'task':30} {'calls':>5} {'start':>6} {'peak':>6} {'cost':>7} {'fixed':>6} {'orient':>6} {'data':>5} {'write':>5} {'orient chars':>12} {'data chars':>10} {'biggest':>8} {'min':>5}")
         for a in group:
-            print(f"   {a['agent'][:9]:9} {a['task'][:32]:32} {a['calls']:>5} {k(a['start']):>6} {k(a['end']):>6} {k(a['cost']):>7} "
-                  f"{a['fixed_share']:>6.0%} {a['orient']:>6} {a['data']:>5} {a['write']:>5} {k(a['orient_chars']):>12} {k(a['data_chars']):>10} {a['minutes']:>5.1f}")
+            print(f"   {a['agent'][:9]:9} {a['phase'][:7]:7} {a['task'][:30]:30} {a['calls']:>5} {k(a['start']):>6} {k(a['peak']):>6} {k(a['cost']):>7} "
+                  f"{a['fixed_share']:>6.0%} {a['orient']:>6} {a['data']:>5} {a['write']:>5} {k(a['orient_chars']):>12} {k(a['data_chars']):>10} {k(a['biggest'][0]):>8} {a['minutes']:>5.1f}")
+            if a['biggest'][0] > 20000:
+                print(f"        largest single result {a['biggest'][0]:,} chars from {a['biggest'][1]}: {a['biggest'][2]}")
             if show_reads:
                 for name, inp, n, ps in a["reads"]:
                     what = re.sub(r"\s+", " ", inp.get("file_path") or inp.get("command") or inp.get("pattern", ""))
@@ -254,6 +287,10 @@ def selftest():
     one (CLAUDE.md, put the fault back)."""
     tmp = tempfile.mkdtemp(prefix="agentmeter-")
     fails = []
+    # A fixed synthetic repo root, so the controls give the same answer wherever
+    # this script is run from (the nest lane's /tmp copy failed four rows).
+    global REPO
+    saved_repo, REPO = REPO, "/work/checkout"
 
     def agent(run, name, calls):
         d = os.path.join(tmp, run)
@@ -315,14 +352,65 @@ def selftest():
         check("blind classifier is caught (sensitivity)", (blind["orient"], blind["data"]) != (1, 1))
     finally:
         classify = real
+    REPO = saved_repo
     print(f"agentmeter selftest: {'PASS' if not fails else 'FAIL: ' + ', '.join(fails)}")
     return 1 if fails else 0
 
 
+def main_thread(path):
+    """The session's own conversation (not its sub-agents): turns, context per
+    turn, re-read volume and what its tool results added. The nest lane found it
+    was two thirds of a session's cost (477M of ~700M tokens re-read)."""
+    usage, order, results = {}, [], collections.Counter()
+    for l in open(path):
+        try:
+            r = json.loads(l)
+        except ValueError:
+            continue    # a live session's last line is still being written
+        if r.get("isSidechain"):
+            continue
+        if r.get("type") == "assistant":
+            m = r["message"]
+            mid = m.get("id") or r.get("uuid")
+            if mid not in usage:
+                order.append(mid)
+            usage[mid] = m.get("usage", {})
+        elif r.get("type") == "user" and isinstance(r["message"].get("content"), list):
+            for b in r["message"]["content"]:
+                if b.get("type") == "tool_result":
+                    c = b.get("content")
+                    results["chars"] += len(c if isinstance(c, str) else json.dumps(c))
+                    results["n"] += 1
+    ctxs = sorted(u.get("input_tokens", 0) + u.get("cache_creation_input_tokens", 0) + u.get("cache_read_input_tokens", 0) for u in (usage[m] for m in order))
+    if not ctxs:
+        print(f"agentmeter --main: no main-thread turns in {path}")
+        return
+    q = lambda f: ctxs[min(len(ctxs) - 1, int(f * len(ctxs)))]
+    reread = sum(usage[m].get("cache_read_input_tokens", 0) for m in order)
+    written = sum(usage[m].get("cache_creation_input_tokens", 0) for m in order)
+    print(f"== main thread of {os.path.basename(path)}")
+    print(f"   {len(ctxs)} turns; context per turn median {q(0.5) / 1000:.0f}k, p90 {q(0.9) / 1000:.0f}k, max {ctxs[-1] / 1000:.0f}k")
+    print(f"   re-read from cache {reread / 1e6:.1f}M tokens, written {written / 1e6:.2f}M; "
+          f"{results['n']} tool results adding {results['chars'] / 1e6:.2f}M characters")
+
+
 def main():
-    argv = [a for a in sys.argv[1:] if not a.startswith("--")]
+    argv, skip = [], False
+    for a in sys.argv[1:]:
+        if skip:
+            skip = False
+        elif a == "--repo":
+            skip = True
+        elif not a.startswith("--"):
+            argv.append(a)
     if "--selftest" in sys.argv:
         return selftest()
+    if "--main" in sys.argv:
+        root = PROJECTS / escaped(REPO)
+        sessions = sorted(root.glob("*.jsonl"), key=lambda p: p.stat().st_mtime)
+        for p in (sessions if "--all" in sys.argv else sessions[-1:]):
+            main_thread(str(p))
+        return 0
     paths = transcripts(argv)
     if not paths:
         print(f"agentmeter: no sub-agent transcripts under {PROJECTS / escaped(REPO)}/*/subagents/")

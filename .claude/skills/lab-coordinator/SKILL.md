@@ -254,12 +254,20 @@ they have cost:
    choose to read. A multi-hour subagent would exhaust the coordinator outright.
 3. **The token cost is the same.** Measured: `scripts/contextbudget.py` reports
    **~21,860 tokens always-loaded**, and a cloud lane and an in-process
-   subagent each pay it once. Container compute is not token-billed.
+   subagent each pay it once. Container compute is not token-billed. (That is
+   the files alone. With tool schemas and the skill listing, a default
+   sub-agent's first call is **~78k**, an `Explore` agent's ~28-30k:
+   `Reports/agent-efficiency-2026-09-27.md`.)
 
 **So the standing answer is cloud, and here is what would change it** — re-run
 `python3 scripts/contextbudget.py` if you suspect it has:
 
-- **~21.8k tokens is the floor price of *any* spawn.** If a job is smaller than
+- **Brief any agent, lane or sub-agent, from the checklist in
+  `Reports/agent-strategy.md` §4** ("What every brief carries"), and run
+  `python3 scripts/agentmeter.py` after a fan-out to see what each one spent
+  and what they all re-read.
+- **~21.8k tokens is the floor price of *any* spawn** (~78k for a default
+  sub-agent, counting its tool schemas). If a job is smaller than
   its own startup tax — grep one file, read one number, check one branch — **do
   it yourself.** You have already paid the tax; a lane pays it again to do 500
   tokens of work. This is the most common waste in a round.

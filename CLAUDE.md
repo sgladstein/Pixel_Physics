@@ -138,6 +138,7 @@ bash scripts/worldgencheck.sh               # is a generation pass eating anothe
 bash scripts/seedsweep.sh                   # the order-statistic seed sweep; run BEFORE changing any model over procedural content
 bash scripts/docscheck.sh                   # documentation checks: links, map-vs-tree, freshness notes, report index
 python3 scripts/bugindex.py --branches      # WHICH BUG LETTER IS FREE -- swept over every fetched branch, not just this tree. Run it BEFORE filing in Reports/open-bugs-handoff.md; --check cannot see a letter claimed on an unlanded branch. --selftest is the positive control
+python3 scripts/agentmeter.py               # what each sub-agent SPENT, and on what (reading vs data, files several agents re-read); run after any fan-out. Brief agents from Reports/agent-strategy.md s4
 python3 scripts/contextbudget.py            # what every session, agent and subagent pays before it starts; --gate is the ceiling, --check is gated by docscheck
 bash scripts/contextprobe.sh                 # ...and what the runtime ACTUALLY loads, over the InstructionsLoaded hook; contextbudget infers, this measures. --selftest is the positive control
 bash scripts/branchcheck.sh                 # how far behind main this branch is, and which branches are merged-and-deletable; --gate is the CI trunk check
