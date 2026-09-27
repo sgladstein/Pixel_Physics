@@ -27,28 +27,33 @@ the live question, what is addressed to another lane, predictions and heads.*
 
 ## Live question
 
-**Is the colony building a nest? Not yet** ([`../nest-work-2026-09-27.md`](../nest-work-2026-09-27.md)).
+**Is the colony building a nest? Not yet** ([`../nest-work-2026-09-27.md`](../nest-work-2026-09-27.md),
+[`../nest-spoil-footing-2026-09-27.md`](../nest-spoil-footing-2026-09-27.md)).
 At 40 ants its excavation is less nest-like than random walkers digging from
 the door on 12 of 12 seeds (31 mouths, no chamber); 3% of cuts build
-anything; 78% re-dig the heaps or cells that refilled, mostly by falling in.
-**The mouth line stays closed and the default stays off:** re-measured on
-current `main`, door + dug mouth halves bed starvation (201 → 105) and costs
-the lab colony (food eaten lower on 10 of 12, one colony lost) -- the
-owner's "good reason not to".
+anything.
+- **The heaps refill the holes** because two pellets in three are put down
+  where they cannot stay (on an ant, or over a hole) and crumble within ten
+  frames.
+- `SPOIL_FOOTING=ground` makes digging stick: building 3% -> 6%, the room
+  doubled. `SPOIL_PACKS=off` removes the hanging spoil.
+- **Both stay off.** Footing opens more mouths (12 of 12). Unpacked spoil
+  costs the lab colony births on 10 of 12 seeds.
+- The mouth line stays closed and its default stays off.
 
-**Next, 2026-09-27** (proposed to the owner, not yet ruled on):
-1. The heaps feed the holes. 78% of worked ground turning loose is pellets
-   in the heaps above the surface, undercut by diggers; ~1,150 dug cells a
-   run fill and stay filled (`nest-work-2026-09-27.md` §4, corrected: the
-   first reading, "the bank, not the heaps", counted passes).
-2. `DIG_DOWN` stays off (measured 2026-09-27): colony bed starved 201 → 460
-   of 480 (ants trapped digging at home); the lab ties.
-3. A dig marker at the face (Toffin's marker half; untried) against the 31
-   mouths.
-4. `DropSpoil` as a spoil drop, not a food drop: only with 1-3 (alone it
-   moves pellets and builds nothing).
-5. `UNPACK`: unmeasured alone in the lab; on top of the mouth, 3 of 12 lab
-   colonies lost.
+**Next** (2026-09-27):
+1. **A dig marker at the face** (Toffin's marker half; untried): digging
+   drawn to where digging just happened, so one site wins. Every fix so far
+   has made scattered digging more effective, and this is the lever for the
+   31 mouths. It must name its writer and reader first, and must not raise
+   digging at home generally (the `DIG_DOWN` lesson).
+2. **The footing switch, with the marker**: digging that sticks and
+   concentrates. Drop-away rides with it (7.1% with both switches, against
+   3.1%).
+3. **Why unpacked spoil costs the lab**: not traced. The suspect is a mound
+   that slumps into its own passages.
+4. `DIG_DOWN` stays off (colony bed starved 201 -> 460); `UNPACK` is
+   unmeasured alone in the lab.
 
 ## Working agreement with the foraging lane (2026-09-27)
 
@@ -149,3 +154,10 @@ exploratory and carry none.
 - `fa97db9e` — the nest scoreboard in `digbox` (colony against four nulls).
 - `2358c2dc`, `0e08216c` — the nest funnel, and what re-cut cells were made of.
 - `6ead09ce` — the write-up: not yet a nest; door + dug mouth stays off.
+- `434bc8e8` (#501) — the refill ledger corrected: passes against standing
+  fills, and conversions in place.
+- `400ee85b` — the funnel's why-loose line: two pellets in three unfooted.
+- `231d8857` — `SPOIL_FOOTING` and `SPOIL_PACKS`, both off; ten digbox
+  arms and the colony bed.
+- The commit after it — the lab, the verdict (both stay off), the wiki's
+  hanging-tailings claim corrected.

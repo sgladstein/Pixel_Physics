@@ -209,11 +209,63 @@ ground yellow), at 3,000, 6,000, 9,000 and 12,000 frames:
 
 Neither moves the bed beyond its seed-to-seed spread.
 
-**Lab** (`labforage`, 12 seeds, 120,000 frames): LAB-PENDING.
+**Lab** (`labforage`, 12 seeds, 120,000 frames; medians; seeds lower
+against default). The default's 12 summaries are identical to the pre-merge
+default's, so the switches unset are bit-exact here too.
+
+| arm | births | lower on | food eaten | lower on | alive at the end | colonies lost |
+|---|---:|---:|---:|---:|---:|---:|
+| default | 530 | — | 1.15 M | — | 80 | 0 |
+| `SPOIL_PACKS=off` | 424 | **10 of 12 (p 0.04)** | 0.94 M | 8 of 12 | 50 | **3** |
+| ground, no packing | LAB-G-BORN | LAB-G-BL | LAB-G-FOOD | LAB-G-FL | LAB-G-ALIVE | LAB-G-LOST |
+
+- **Unpacked spoil costs the lab colony.** Births are lower on 10 of 12
+  seeds, and three colonies die out; all three starved.
+- Two of those three seeds were already near the edge on the default: it
+  ends seeds 1 and 8 with 2 and 5 ants alive. The births count is the
+  signal.
+- **Why is not traced.** The lab's colony builds its mound out of spoil and
+  food over its own mouth. A heap that slumps when it is tunnelled, instead
+  of standing, is the obvious suspect. It is a hypothesis, and nothing in
+  this report tests it.
 
 ## 5. Verdict, and what is next
 
-VERDICT-PENDING.
+**Both switches stay off.** The owner prefers options on by default unless
+there is a good reason not to, and each has one:
+
+- **`SPOIL_PACKS=off`:** the lab colony has fewer births on 10 of 12
+  seeds, and 3 of 12 colonies die out. That is despite the dig box's cleaner
+  picture: no hanging ground, and fewer mouths on 11 of 12.
+- **`SPOIL_FOOTING=ground`:**
+  - More open mouths on 12 of 12 seeds (43 against 31.5), and a shallower,
+    less roofed dig. That moves the dig box away from the spec's one mouth.
+  - With packing on, it hangs spoil in the sky (16 → 124 cells).
+  - With packing off, the lab reads VERDICT-G-LAB.
+
+**What the work did establish:**
+
+- **The heaps' supply, and the mechanism, as numbers.** Two pellets in
+  three are unfooted. `digbox` now reports both every run.
+- **The shipped wiki claim that tailings no longer hang is only half
+  true.** A cut packs undermined spoil into lining, and it hangs: 16 cells a
+  run in the dig box.
+- **Drop-away is a lever once pellets can stay put** (7.1% of cuts build,
+  against 3.1%).
+
+**The next step is not another spoil lever.** Every footing arm opened more
+mouths, because holes that no longer refill show how scattered the digging
+is. The refill was hiding scattered digging, not preventing a nest.
+
+`nest-work-2026-09-27.md` §7's dig marker is the missing piece:
+- digging drawn to where digging just happened, with a saturating response
+  so one site wins (Toffin et al. 2009);
+- only the density half of that has ever been tried here.
+
+Built on top of the footing switches, it gets digging that sticks and
+digging that concentrates. It must name its writer and its reader before it
+is built. It must also not raise digging at home generally, which is how
+`DIG_DOWN` took the foragers underground on the colony bed.
 
 ## 6. Predictions, written before each batch
 
@@ -238,5 +290,5 @@ Each row was written into the lane's scratch file before the batch ran
 | 36 | the same | room >= 200 | 188 | wrong |
 | 37 | colony bed, no packing | starved within +-15 of default | 230 against 201 (9 / 13, p 0.52) | wrong on size, within the bed's spread |
 | 38 | colony bed, footing + no packing | within +-20 | 184 against 201 (14 / 10) | right |
-| 39 | lab, no packing | births, food eaten, colony-frames no worse than 4 / 8; no more colonies lost | LAB-39 | LAB-39R |
+| 39 | lab, no packing | births, food eaten, colony-frames no worse than 4 / 8; no more colonies lost | births lower on 10 of 12 (p 0.04); 3 colonies lost | wrong |
 | 40 | lab, footing + no packing | as 39 | LAB-40 | LAB-40R |
