@@ -30,6 +30,10 @@ will be.
   2026-09-26 for scouting (`chooser_step`'s `scout_w`, `scout_cos`,
   `SCOUT_GIVE_UP`, `scout_of`). §5 on 2026-09-26 for what a delivery counts
   and `pickups_at_nest` (`act`'s feed and drop branches).
+  §6d, §8 and §12 on 2026-09-27 for scouting as the default
+  (`SCOUT_DEFAULT`), the hungry-home switch and the nest larder
+  (`update_hungry_home`, `hungry_target`, `NestSite::larder`, the delivery
+  block in `act`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -389,8 +393,8 @@ it acts only on a route; off a trail an empty ant scores exactly as under
 `trail`. On a route an ant facing home can turn round (turning round now
 scores `AWAY_GAIN × presence`), and one facing away almost never does.
 
-**Scouting (`PIXEL_PHYSICS_SCOUT=<gain>`, off unless set) gives the empty ant
-a direction off a route too, scaled by hunger.** Under `trailaway`, an empty
+**Scouting (`PIXEL_PHYSICS_SCOUT=<gain>`, 2 unless set, 0 turns it off) gives
+the empty ant a direction off a route too, scaled by hunger.** Under `trailaway`, an empty
 ant carrying no spoil and not fed (`hunger = 1 − energy / start_energy`, so 0
 when fed and the term is never added) scores each heading with
 `gain × hunger × (1 − presence) × level cos(heading, away from home)`. Home is
@@ -403,6 +407,18 @@ pull is scaled by patience. Below `SCOUT_GIVE_UP` (0.1) the scout has given up
 (`scout_home`) and the same term pulls it home, by the full home cosine, until
 a nest contact re-anchors it and starts the next excursion. Only the ant's
 state is written, and only while the term is on.
+
+**`PIXEL_PHYSICS_HUNGRY_HOME` (off) gives a hungry empty ant the laden ant's home
+pull.** It fires when the ant's energy is under what the walk home costs:
+`0.1 × start_energy + distance × (move_cost_per_cell + idle_cost_per_cell) ×
+body cells × 2`. The latch is `hungry_home` (`update_hungry_home`). It pulls
+the ant to its nest's larder (`hungry_target`, §8) through `home_pull`,
+patience and all, and it suppresses scouting, since `away_from` needs no home
+pull. Two forms:
+- `on` / `refed` holds the latch until the ant has eaten back to half of
+  `start_energy`.
+- `tether` sets it only off a route (trail B under the head under presence
+  0.5), and clears it within 2 cells of the target.
 
 The decision trace records the patience each choice scored with, the home
 cosine of the heading picked (for an empty ant too, under `trailaway`), and
@@ -465,6 +481,10 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   of the shaft's top `NEST_MOUTH_ROWS` (2) rows does: the rim and the first
   body length down. `AtNest` and the re-anchoring both ask `adjacent_nest`,
   so both follow it. Unset, nothing here changes.
+- **`NestSite::larder`** is where a nest keeps its food: a running mean of
+  the cells food is delivered onto (each new delivery weighs `LARDER_EMA`,
+  0.05). Only the hungry-home switch reads it (§6d). On the colony bed
+  deliveries land at the end of the strip facing the food.
 
 ## 9. The crop, digestion and energy
 
@@ -573,7 +593,8 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_LOAD_BY` | joules | `cells`: a load weighs the cells in the crop, not its worth ÷ 480 (§9) |
 | `PIXEL_PHYSICS_NEST_DOOR` | strip | `<d>`: founding paints a door of `2d + 1` columns instead of the strip, and every founder's home is the door (§8) |
 | `PIXEL_PHYSICS_NEST_DOOR_FOUNDERS` | spread | `pile`: under the door, founders start heaped on it instead of spread along the ground (§8) |
-| `PIXEL_PHYSICS_SCOUT` | 0 | `<gain>`: under `trailaway`, a hungry empty ant off a route runs out from home and back (§6d); `World::scout` for one world |
+| `PIXEL_PHYSICS_SCOUT` | 2 | `<gain>`: under `trailaway`, a hungry empty ant off a route runs out from home and back (§6d); `0` turns it off; `World::scout` for one world |
+| `PIXEL_PHYSICS_HUNGRY_HOME` | off | `on`/`refed` or `tether`: an empty ant too hungry to be out is pulled home to its nest's larder (§6d, §8); `World::hungry_home` for one world |
 | `PIXEL_PHYSICS_LOAD_SCALE` | 1.0 | `<f>`: every food load weighs `f` times as much again, on top of the species' `food_weight` (§9) |
 | `PIXEL_PHYSICS_SPOIL_HAUL`, `_DIG_DOWN`, `_SPOIL_DROP_COVER`, `_TRAFFIC_DEFER`, `_COLONY_SPACING` | unset | haulage re-roll to the nest door, downward dig bias, spoil held under cover, jam deferral length, founder spacing |
 

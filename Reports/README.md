@@ -3313,10 +3313,20 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   - **Scouting** (§20, `PIXEL_PHYSICS_SCOUT`, off): a hungry empty ant off
     a trail runs out from home and, when the way stops getting it further,
     walks back and tries again. On the colony bed, starved 279 → 201 (19
-    seeds better, 4 worse) and food carried home up 65%, with fewer ants
+    seeds better, 4 worse) and net food into home up 62%, with fewer ants
     dying up a wall than the default (85 → 13). The plain pull, with no
     memory, pinned scouts against the edge wall (169–180). In the lab box it
-    costs nothing, and none of the 12 colonies went extinct. Not yet shipped.
+    costs nothing, and none of the 12 colonies went extinct.
+  - **Scouting shipped; coming home hungry does not pay yet** (§21, owner's
+    rulings 2026-09-26). Scouting is the ant's default. It is what makes a
+    long road work at all: at 140 cells starved 416 → 209 and net food into
+    home 882 → 5,999; at 200, 467 → 322 and 183 → 2,913, better on every
+    seed. The owner's come-home rule, in three forms, trades deaths in the
+    field for deaths at home. The best form helps at 90 cells (201 → 173),
+    doubles starvation at 140, and starves lab colonies amid plenty, because
+    the whole nest holds a median of 4 food cells. The prerequisite is
+    foragers feeding hungry nestmates directly. Also a correction: §20's
+    "food carried" figure was cell-steps, not joules.
   - The per-decision mix matched the formula within a point at both
     energies. The reach predictions were low; the report says why.
   - The scene's own checks caught rain pooling on the slab and an ant dying
