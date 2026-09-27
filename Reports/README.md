@@ -344,7 +344,7 @@ by somebody about to try it on creatures.
   `CLAUDE.md`.** What 37 sub-agents spent and on what, read off their
   transcripts by the new `scripts/agentmeter.py`. A default sub-agent starts at
   **~78k tokens** (tool schemas ~37k, `CLAUDE.md` ~26k), an Explore agent at
-  ~28-30k; the start is 35-54% of a default agent's cost. Agents paid again for
+  ~27.5-30k; the start is 35-54% of a default agent's cost. Agents paid again for
   what their spawner held (all 5 of one survey read `creature.rs`), and the
   main thread was the biggest bill in both sessions. Checking paid. A
   brief checklist, output discipline and checkpointing, and choosing the agent

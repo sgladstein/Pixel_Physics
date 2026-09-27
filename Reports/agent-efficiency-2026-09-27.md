@@ -12,7 +12,7 @@ and is cited here as **[nest §n]**. The recommendations in §6 are built into
 **The agents were accurate and expensive, and most of the expense was set
 before the first question was read.**
 
-- **A default sub-agent starts at ~78k tokens; an Explore agent at ~28-30k.**
+- **A default sub-agent starts at ~78k tokens; an Explore agent at ~27.5-30k.**
   The default carries every tool's schema (~37k, of which a data agent uses
   ~4k), `CLAUDE.md` (~26k), the skill listing (~4k) and the deferred-tool list
   (~1.5k). The task prompt is under 1k. Every call re-reads the start, so it is
@@ -82,7 +82,7 @@ recorded before it:
 | `CLAUDE.md` | ~26k | **no** |
 | skill listing | ~4k | yes |
 | deferred-tool list | ~1.5k | yes |
-| **total at the first call** | **~78k** | **~28-30k** |
+| **total at the first call** | **~78k** | **~27.5-30k** |
 
 A third form, measured the same evening: an agent type defined in
 `~/.claude/agents/data-analyst.md` with `tools: Bash, Read, Write, Edit,
@@ -145,7 +145,7 @@ now lives.
 
 1. **Choose the agent type by the job** (measured). A stage that only reads:
    `agentType: 'Explore'` in a workflow, or `subagent_type: Explore`, at
-   ~28-30k against ~78k. It does not load `CLAUDE.md`, so name any rule the
+   ~27.5-30k against ~78k. It does not load `CLAUDE.md`, so name any rule the
    stage needs in its prompt. It has no Write or Edit tool. A stage that must
    write files or checkpoint uses a tool-limited type (measured: ~41k to
    start, keeping `CLAUDE.md`), or the default type until one is in the repo's
@@ -160,26 +160,29 @@ now lives.
    - a call budget (~30), with independent reads grouped into one call;
    - "read the code first (`grep -v '^\s*//'` on a range), then only the
      comments the question needs".
-3. **Hand digests between phases, not raw results** (estimated: more than
+3. **Give skeptics the cited line ranges**, to open in one batch (the nest
+   lane's skeptics took 59-94 calls, the most of any stage, re-finding each
+   citation) [nest §3.2, §6].
+4. **Hand digests between phases, not raw results** (estimated: more than
    half of a designer's 160k start).
-4. **Keep tool output small, and checkpoint** (measured, by loss): print
+5. **Keep tool output small, and checkpoint** (measured, by loss): print
    summaries and write tables to files; append each established result to a
    `FINDINGS.md` in the agent's scratch directory. A killed agent leaves only
    its files.
-5. **Prefer short agents** (measured): a late call re-reads everything, and
+6. **Prefer short agents** (measured): a late call re-reads everything, and
    resuming a long agent costs its whole context per call (a resumed tracer's
    last 6 calls cost 248k tokens at 236k context).
-6. **Set model and effort per stage** (untested for quality): readers whose
+7. **Set model and effort per stage** (untested for quality): readers whose
    every claim is re-checked are cheap and loud to get wrong, which is
    `CLAUDE.md`'s test for stepping down a tier.
-7. **In the main thread** (measured as the largest bill): delegate bulk
+8. **In the main thread** (measured as the largest bill): delegate bulk
    reading, keep large output out of context, compact between phases.
-8. **Verify inputs before fanning out** (measured, by loss): check that the
+9. **Verify inputs before fanning out** (measured, by loss): check that the
    data the agents will read came from the code under test. A harness log
    should name the build that wrote it; `trailfollow`'s does not yet
    (proposed: `git describe --dirty` at build time).
-9. **Expect CPUs − 2 agents at a time**: 2 on these 4-CPU containers.
-10. **Measure after every fan-out** with `python3 scripts/agentmeter.py`. More
+10. **Expect CPUs − 2 agents at a time**: 2 on these 4-CPU containers.
+11. **Measure after every fan-out** with `python3 scripts/agentmeter.py`. More
     reading calls than data calls, or one file read by several agents, means
     the brief was too thin.
 

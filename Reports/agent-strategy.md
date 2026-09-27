@@ -31,7 +31,7 @@ But it is the **minority term**. Decomposing a real measured agent run —
 prefix is ~78k tokens, not ~24k:** it also carries every tool's schema (~37k,
 of which a data agent uses ~4k) and the skill listing (~4k). Read off 37
 sub-agents' transcripts by `scripts/agentmeter.py`, it was **35-54% of what
-each default agent cost**. An Explore agent starts at ~28-30k, because it
+each default agent cost**. An Explore agent starts at ~27.5-30k, because it
 skips `CLAUDE.md` and most tools. `agent-efficiency-2026-09-27.md` has the
 breakdown; the prefix is still not the whole of it, since reading and the
 agent's own thinking (kept in context, never recorded) grow on top.
@@ -234,10 +234,12 @@ a brief, for a sub-agent as for a lane, carries:
 
 And around it:
 - **Choose the type by the job.** A read-only stage runs as `Explore`
-  (~28-30k to start, against ~78k), with any `CLAUDE.md` rule it needs named
+  (~27.5-30k to start, against ~78k), with any `CLAUDE.md` rule it needs named
   in its prompt; a stage that writes files uses a type limited to Bash, Read,
   Write, Edit, Grep and Glob where one is defined (~41k, measured), else the
   default.
+- **Give a skeptic the cited line ranges** to open in one batch: re-finding
+  each citation made skeptics the costliest stage (59-94 calls).
 - **Hand phases a digest, never raw results**: a designer given 222k
   characters of raw reader output started at 160k tokens.
 - **Prefer short agents.** A late call re-reads everything before it, and
