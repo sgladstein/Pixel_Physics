@@ -26239,6 +26239,14 @@ mod tests {
             if let Some(v) = flesh {
                 w.materials.get_mut(worm_material).food_energy = v;
             }
+            // **Scouting pinned off: this scene is about what worm flesh is
+            // worth, not about the walk.** It relies on the ant stumbling into
+            // the worm inside a sealed, nestless box. Since scouting became the
+            // default (2026-09-27) the ant runs out along the box's top row,
+            // three rows above the worm, to the far wall, and turns for home
+            // before the run ends: traced, it never stands beside the worm. The
+            // beetle scene beside this one does not depend on the path.
+            w.scout = Some(0.0);
             let ant = spawn(&mut w, "ant", 108, 100);
             // `plant_worm_seed`, not `spawn`: there is no `CreatureDef` to
             // place a worm from, which is the whole reason this species needs

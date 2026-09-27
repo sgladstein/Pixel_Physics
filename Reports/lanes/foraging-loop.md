@@ -78,6 +78,15 @@ extinct 0 of 12.
    `HUNGRY_HOME` reads it.
 4. **Lab deliveries are 86% churn** (the nest lane): read net food into home,
    never `deliveries`.
+5. **Latent: a scout that has given up is released only by a nest contact**
+   (`scout_for` resets when `forage_anchor` moves). Where home is not beside
+   nest material -- an ant in a nestless box, a nest dug away -- it stays
+   homebound for good. It is harmless on both beds, since arriving home means
+   touching the nest. `HUNGRY_HOME=tether` already lets go on arrival
+   (`HUNGRY_ARRIVED`); the same rule for the scout would change the default,
+   so measure it. Found when `an_ant_eats_a_living_worm_...` failed under
+   scouting (traced; it was the path, not this, and that test now pins
+   scouting off).
 
 ## Commands
 
