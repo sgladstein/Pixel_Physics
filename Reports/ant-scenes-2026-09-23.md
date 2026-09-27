@@ -2247,3 +2247,52 @@ still in a crop at the end. A correct counter would judge the drop and the
 pickup at the food cell's own position, or count only a crumb's first
 delivery. The counter is the nest lane's (`world.rs`), and it has been told.
 
+### 22k. Ants walking past the pile are loaded foragers that lost their way home
+
+*Added 2026-09-27 evening.* With the drive on, the seed-22 frames show more
+ants at and past the food pile. Traced over all 24 seeds (one briefed agent,
+decision traces from `main`):
+
+- **They are not ants the drive sent out.** Every ant that crosses the pile's
+  far edge steps off the pile itself with food in its crop: a full load from
+  the pile (63% of past-the-pile time with the drive, 51% today), a part load
+  (14%, 18%), or a crop filled at the nest (22%, 27%). The drive cannot reach
+  them: the `Move` pace requires an empty crop, and scouting's pull is worked
+  out only when `!laden` (`chooser_step`, where `away_from` is set).
+- **Why they walk on: home patience runs out at the pile.** The pull home is
+  `HOME_GAIN × g × patience`, and patience shrinks ×0.9 a decision. A forager
+  spends it while loading and climbing the pile's tall face: laden time at
+  patience 0 is 3% at home, 32% on the road, 74% at the pile and 99-100% past
+  it, in both arms. With no pull home it walks off the far side, heading
+  straight away from home, often to the wall.
+- **The drive does not add to it per trip.** Past-the-pile time is 0.955 ants
+  per frame today and 1.085 with the drive (13 seeds up, 11 down), but per cell
+  taken it falls, 240 → 172 ant-frames (8/16). The rise is the extra traffic.
+- **It is a loss in today's game too:** 24-28% of the time ants spend away from
+  the nest band is spent past the pile. Filed as §Z34's neighbour, Z35.
+- Also seen: a crop filled at the nest almost never loads at the pile (0.001 of
+  decisions beside food, against 0.42 for a part load from the pile). The
+  material match in the pickup is the leading candidate, unverified.
+
+### 22l. Driving only fed foragers removes the early cost and most of the gain
+
+*Added 2026-09-27 evening.* §22c-§22d found the drive starves more founders
+before frame 6,000 (125 → 133) and far fewer after (76 → 39), and the traces
+showed it acts almost entirely on **hungry** foragers early. `,fed` drives
+only a forager at or above its `start_energy`. 90 cells, 24 seeds, from
+`main` with the switch added:
+
+| arm | loops per forager | food taken from the pile | starved by frame 6,000 | after | whole run | born |
+|---|---:|---:|---:|---:|---:|---:|
+| default | 1.46 | 2,241 | 125 | 76 | 201 | 10 |
+| `always` | **2.04** (22/0) | **3,327** (24/0) | 133 (8/14) | **39** | **172** | **67** |
+| `always,fed` | 1.83 (23/1) | 3,099 (22/2) | **125** (0/0) | 63 | 188 | 37 |
+
+- **The early cost is the drive acting on hungry foragers**: with `,fed`,
+  deaths by frame 6,000 equal the default's on every one of the 24 seeds.
+- **But that early drive is where most of the gain comes from.** Against
+  `always`, `,fed` starves 188 against 172 (worse on 14 seeds, better on 6,
+  p 0.12), takes less food and breeds 37 against 67. Eight extra early deaths
+  buy 37 fewer later; `,fed` gives up the eight and most of the 37.
+- **`always` stays the candidate.** `,fed` is recorded in `dead-ends.md`.
+

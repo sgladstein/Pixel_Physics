@@ -52,6 +52,12 @@ like a hungry ant:
   "2 of 12 die out, 0 today" is crash timing: 4 of 12 end under 10 ants in
   both arms. The lab's limit is its regrowing pasture.
 - **"Net food into home" overcounts 3.4-4.6×** (§22j); read food taken.
+- **The drive's early cost** (125 → 133 starved by frame 6,000) is its action
+  on hungry foragers: `,fed` removes it exactly and gives up most of the gain
+  (starved 188 against 172; §22l, a dead end). `always` stays the candidate.
+- **Loaded foragers lose their way at the pile** in today's game too: home
+  patience runs out while they load and climb, and they walk off the far side
+  (24-28% of time away from the nest; §22k, bug Z35, fix not built).
 
 The forms that read the colony's need did worse. `hunger` is inert on the bed
 (the colony is fed once the early deaths are over) and ended 4 of 12 lab
