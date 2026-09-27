@@ -50,6 +50,8 @@ LEDGER_DIG = re.compile(
 LEDGER_REFILL = re.compile(
     r"^LEDGER frame=(?P<frame>\d+) dug cells refilled: by a pellet (?P<pellet>\d+), fell in (?P<fell>\d+) "
     r"\(spoil (?P<spoil>\d+), soil (?P<soil>\d+), other (?P<other>\d+); from the cell above (?P<above>\d+), from the side (?P<side>\d+)\)"
+    r"(?:; still ground \d+ frames later: by a fall (?P<stand_fall>\d+), by a pellet (?P<stand_pellet>\d+); worked ground turned loose in place: "
+    r"lining (?P<loose_lining_below>\d+) below and (?P<loose_lining_above>\d+) above the old surface, pellets (?P<loose_pellet_below>\d+) below and (?P<loose_pellet_above>\d+) above)?"
 )
 LEDGER_PUT = re.compile(
     r"^LEDGER frame=(?P<frame>\d+) pellets put down (?P<put>\d+) \+ died holding (?P<died>\d+) \+ site not found (?P<lost>\d+) = "
@@ -85,7 +87,7 @@ def parse(path):
                 continue
             m = LEDGER_REFILL.match(line)
             if m:
-                out.setdefault(int(m["frame"]), {"n": 0, "colony": None, "null": {}, "spec": None}).setdefault("funnel", {})["refill"] = {k: int(v) for k, v in m.groupdict().items()}
+                out.setdefault(int(m["frame"]), {"n": 0, "colony": None, "null": {}, "spec": None}).setdefault("funnel", {})["refill"] = {k: int(v) for k, v in m.groupdict().items() if v is not None}
                 continue
             m = LEDGER_PUT.match(line)
             if m:
@@ -226,12 +228,20 @@ def funnel_report(runs, stop):
                     + "  ".join(f"{k} {med_worst([d[k] / pp(d) for d in put], max)}" for k in ("beside", "lifted", "out", "below", "refill"))
                 )
             ref = [f["refill"] for f in fs if f.get("refill")]
-            if ref:
-                tot = lambda d: max(d["pellet"] + d["fell"], 1)
-                fell = lambda d: max(d["fell"], 1)
+            # Passes, not fills, and the arriving material cannot name the source
+            # (worked ground turns to soil in place before it falls): read the
+            # standing fills and the conversions, when the log carries them.
+            stand = [d for d in ref if "stand_fall" in d]
+            if stand:
+                md = lambda k: statistics.median(d[k] for d in stand)
+                loose = lambda d: max(d["loose_lining_below"] + d["loose_lining_above"] + d["loose_pellet_below"] + d["loose_pellet_above"], 1)
                 print(
-                    f"  where a refilled hole's fill came from (share of refills):  a pellet {med_worst([d['pellet'] / tot(d) for d in ref], max)}  fell in {med_worst([d['fell'] / tot(d) for d in ref], max)};"
-                    f"  of the falls: soil {med_worst([d['soil'] / fell(d) for d in ref], max)}  spoil {med_worst([d['spoil'] / fell(d) for d in ref], max)}  from above {med_worst([d['above'] / fell(d) for d in ref], max)}"
+                    f"  refilled dug cells still ground 100 frames on (median): by a fall {md('stand_fall'):g}, by a pellet {md('stand_pellet'):g}; grains passing through dug cells {md('fell'):g}"
+                )
+                print(
+                    "  worked ground turned loose in place (share of all conversions):  "
+                    + "  ".join(f"{name} {med_worst([d[k] / loose(d) for d in stand], max)}" for name, k in (("pellets above the old surface", "loose_pellet_above"), ("lining above", "loose_lining_above"), ("pellets below", "loose_pellet_below"), ("lining below", "loose_lining_below")))
+                    + f"   (count median {statistics.median(loose(d) for d in stand):g})"
                 )
             mism = [d["mismatch"] / max(d["digs"], 1) for d in dig]
             lost = [d["lost"] / max(d["dumped"] + d["slost"], 1) for d in put] if put else []
@@ -281,7 +291,7 @@ def selftest():
         + "FUNNEL   cuts that built 9 of 400 placed cuts (2.2%); cuts per ant: median 9 max 28\n"
         + "LEDGER frame=100 cuts 400 + target mismatch 6 = engine digs 406: above the old surface 160, a pellet or refill cut again 112, new ground open to the sky 70, new ground under a roof 58 (of the new ground, tunnel lining 99; placed by elimination 3); mismatch: ahead refilled 1, ahead not ground 5; the cells cut again were spoil 6, soil 40, lining 66, other 0\n"
         + "LEDGER frame=100 pellets put down 397 + died holding 0 + site not found 2 = engine spoil_dumped 399 + spoil_lost 0: beside the head 223, posted up the column 174; landed above the old surface 374, below it 23 (into a dug cell 23)\n"
-        + "LEDGER frame=100 dug cells refilled: by a pellet 23, fell in 377 (spoil 1, soil 375, other 1; from the cell above 190, from the side 187)\n"
+        + "LEDGER frame=100 dug cells refilled: by a pellet 23, fell in 377 (spoil 1, soil 375, other 1; from the cell above 190, from the side 187); still ground 100 frames later: by a fall 140, by a pellet 7; worked ground turned loose in place: lining 3 below and 21 above the old surface, pellets 10 below and 125 above\n"
     )
     # digbox's own order at a stop: the funnel block, then the scoreboard.
     body = funnel + score
@@ -300,6 +310,7 @@ def selftest():
     assert fu["built"] == (9, 400) and fu["dig"]["above"] == 160 and fu["dig"]["digs"] == 406, fu
     assert (fu["dig"]["a_spoil"], fu["dig"]["a_soil"], fu["dig"]["a_lining"]) == (6, 40, 66), fu["dig"]
     assert fu["refill"]["fell"] == 377 and fu["refill"]["soil"] == 375 and fu["refill"]["above"] == 190, fu.get("refill")
+    assert (fu["refill"]["stand_fall"], fu["refill"]["loose_pellet_above"], fu["refill"]["loose_lining_below"]) == (140, 125, 3), fu["refill"]
     assert fu["put"]["beside"] == 223 and fu["put"]["refill"] == 23 and fu["put"]["dumped"] == 399, fu["put"]
     # A duplicate key must refuse, not pool (last write wins is the failure).
     try:
