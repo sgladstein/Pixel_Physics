@@ -87,6 +87,9 @@ def parse(path):
             if m:
                 fr = int(m["frame"])
                 d = out.setdefault(fr, {"n": int(m["n"]), "colony": None, "null": {}, "spec": None})
+                # digbox prints the FUNNEL block before the SCORE lines, and
+                # that block has already made this frame's entry with n=0.
+                d["n"] = int(m["n"])
                 kv = dict(KV.findall(m["rest"]))
                 if m["rest"].startswith("colony"):
                     d["colony"] = {k: float(v) for k, v in kv.items() if k in METRICS}
@@ -246,14 +249,16 @@ def paired(runs, base, stop):
 def selftest():
     import tempfile
     d = tempfile.mkdtemp()
-    body = (
+    score = (
         "SCORE frame=100 n=50 colony mouths=3.000 reach=0.500 largest=0.400 roofed=0.300 depth90=5.000 iqr=20.000 wide=0.100\n"
         + "".join(
             f"SCORE frame=100 n=50 null={nm} k=10 mouths=0.500 reach=0.900 largest=0.900 roofed=0.100 depth90=0.500 iqr=0.800 wide=0.500 median=0.800 ties=depth90\n"
             for nm in NULLS
         )
         + "SPEC frame=100 mouths=3 chambers=0 passage=2 contrast=0.0 widest=0   -- spec\n"
-        + "FUNNEL frame=100 ants=40  (booked at the furthest stage each ant ever reached)\n"
+    )
+    funnel = (
+        "FUNNEL frame=100 ants=40  (booked at the furthest stage each ant ever reached)\n"
         + "FUNNEL   lived                                                          40  of prev 100.0%  of all 100.0%\n"
         + "FUNNEL   cut a cell                                                     30  of prev  75.0%  of all  75.0%\n"
         + "FUNNEL   complete cycles per ant: 0: 36  1: 1  2: 2  3+: 1   (cuts still waiting on the lasting check: 32)\n"
@@ -261,6 +266,8 @@ def selftest():
         + "LEDGER frame=100 cuts 400 + target mismatch 6 = engine digs 406: above the old surface 160, a pellet or refill cut again 112, new ground open to the sky 70, new ground under a roof 58 (of the new ground, tunnel lining 99; placed by elimination 3); mismatch: ahead refilled 1, ahead not ground 5; the cells cut again were spoil 6, soil 40, lining 66, other 0\n"
         + "LEDGER frame=100 pellets put down 397 + died holding 0 + site not found 2 = engine spoil_dumped 399 + spoil_lost 0: beside the head 223, posted up the column 174; landed above the old surface 374, below it 23 (into a dug cell 23)\n"
     )
+    # digbox's own order at a stop: the funnel block, then the scoreboard.
+    body = funnel + score
     for arm in ("a", "b"):
         for s in (1, 2):
             with open(os.path.join(d, f"{arm}-s{s}.log"), "w") as f:
@@ -268,6 +275,7 @@ def selftest():
     runs = load([d], None)
     assert len(runs) == 4, f"expected 4 keyed runs, got {len(runs)}"
     r = runs[("a", 1)][100]
+    assert r["n"] == 50, f"dug cells read {r['n']}, not 50: the FUNNEL block ahead of SCORE must not pin n at 0"
     assert r["colony"]["iqr"] == 20.0 and r["null"]["eden"]["median"] == 0.8 and r["null"]["rows"]["ties"] == ["depth90"], r
     assert r["spec"]["chambers"] == 0 and r["spec"]["mouths"] == 3, r["spec"]
     fu = r["funnel"]
