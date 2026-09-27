@@ -25307,10 +25307,12 @@ mod tests {
     /// 0.75, each with the "it fired" counts (`forage_scouted`,
     /// `forage_paced`) nonzero -- the effect is the far side of the call, the
     /// wall reached. `always,nopace` aims without pacing: it must still get
-    /// further east than the control, and `forage_paced` must stay 0.
+    /// further east than the control, and `forage_paced` must stay 0; and
+    /// paced, the forager must reach the wall sooner than aimed alone.
     /// **Watched red** with the drive removed from `scout_w` (both driven
-    /// arms walk with the control) and with `forage_pace`'s lift removed
-    /// (`forage_paced` stays 0 under `always`).
+    /// arms walk with the control) and with `forage_pace`'s lift computed and
+    /// counted but not applied (the paced forager reaches the wall no
+    /// sooner).
     #[test]
     fn a_fed_forager_runs_out_when_its_colony_is_hungry_and_rests_when_it_is_fed() {
         struct Walk {
@@ -25387,6 +25389,11 @@ mod tests {
         let aimed = walk(nopace(always), true, 1.0);
         assert!(furthest(&aimed.path) > furthest(&control.path), "always,nopace: aimed but no further east ({}) than the control ({})", furthest(&aimed.path), furthest(&control.path));
         assert!(aimed.scouted > 0 && aimed.paced == 0, "always,nopace: scouted {} paced {} -- the pace must stay off", aimed.scouted, aimed.paced);
+        // The pace's effect, from the far side of the call: paced, the same
+        // run out reaches the wall sooner than aimed alone.
+        let at_wall = |p: &[(i32, i32)]| p.iter().position(|c| c.0 >= 150).unwrap_or(usize::MAX);
+        let paced = walk(always, true, 1.0);
+        assert!(at_wall(&paced.path) < at_wall(&aimed.path), "the pace lifted nothing: paced reached the wall at frame {}, aimed alone at {}", at_wall(&paced.path), at_wall(&aimed.path));
     }
 
     /// **A nest is as hungry as the mean of its animals, floored at 0 each,
