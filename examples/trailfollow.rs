@@ -535,6 +535,14 @@ struct Arm {
     /// about trail shape, it is a loop that never seeded.
     trips: u64,
     deliveries: u64,
+    /// `CreatureStats::pickups_at_nest`: food picked up at home, so
+    /// `deliveries - pickups_at_nest` is the net flow of food cells into home
+    /// (the nest-mouth lane's counter; a crumb lifted and put back counts twice
+    /// in `deliveries` alone).
+    pickups_at_nest: u64,
+    /// `CreatureStats::hungry_home_turns`: empty ants that turned for home
+    /// too hungry to stay out.
+    hungry_home_turns: u64,
     /// **What those cells were worth to this ant**, in joules -- the
     /// provisioning denominator, and the number whose absence produced two
     /// wrong published claims on this branch.
@@ -4640,6 +4648,8 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         alive_min: if alive_min == usize::MAX { 0 } else { alive_min },
         trips: st.forage_trips,
         deliveries: st.deliveries,
+        pickups_at_nest: st.pickups_at_nest,
+        hungry_home_turns: st.hungry_home_turns,
         supply_j: larder_placed as f64 * per_cell_j,
         eaten_j: diet_by_material(&w, larder).0,
         ate_other_j: diet_by_material(&w, larder).1,
@@ -4844,7 +4854,7 @@ fn main() {
     // `ant-forage-bed-and-gates-2026-09-21.md` is run with, echoed so a log
     // that does not name them was written by a binary that never had them.
     println!(
-        "  breadoff={} wire={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} LOAD_BY={} LOAD_SCALE={} layfrom={}",
+        "  breadoff={} wire={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} LOAD_BY={} LOAD_SCALE={} NEST_DOOR={} NEST_DOOR_FOUNDERS={} NEST_SHAFT={} NEST_HOME={} SCOUT={} HUNGRY_HOME={} layfrom={}",
         flag("breadoff"),
         arg_str("wire").unwrap_or_else(|| "shipped".into()),
         flag("decisioncsv"),
@@ -4854,6 +4864,12 @@ fn main() {
         std::env::var("PIXEL_PHYSICS_DROP_REACH").unwrap_or_else(|_| "shipped".into()),
         std::env::var("PIXEL_PHYSICS_LOAD_BY").unwrap_or_else(|_| "shipped".into()),
         std::env::var("PIXEL_PHYSICS_LOAD_SCALE").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_NEST_DOOR").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_NEST_DOOR_FOUNDERS").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_NEST_SHAFT").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_NEST_HOME").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_SCOUT").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_HUNGRY_HOME").unwrap_or_else(|_| "shipped".into()),
         arg_str("layfrom").unwrap_or_else(|| "nest".into())
     );
     println!("  {LANDED_NOTE}\n");
@@ -5130,6 +5146,14 @@ fn main() {
                         a.births,
                         a.deaths,
                         a.starved
+                    );
+                    println!(
+                        "{:>16}food into home: delivered {} picked up at home {} -> net {} | turned home hungry {}",
+                        "",
+                        a.deliveries,
+                        a.pickups_at_nest,
+                        a.deliveries as i64 - a.pickups_at_nest as i64,
+                        a.hungry_home_turns
                     );
                     // **Do the survivors keep the trail up once we stop laying
                     // it?** Owner's ask. `stop` releases the hand-laid ramp at

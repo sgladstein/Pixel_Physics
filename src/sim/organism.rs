@@ -6171,6 +6171,12 @@ pub struct OrganismState {
     /// **Given up and heading home.** Set when `scout_patience` runs out;
     /// cleared by the next nest contact, which starts the next excursion.
     pub scout_home: bool,
+    /// **Too hungry to be out: heading home before it starves**
+    /// (`creature::hungry_home_of`). Set when an empty animal's energy falls
+    /// below what the walk home costs it with a margin; cleared once it has
+    /// eaten back up (`creature::HUNGRY_REFED`). While set, the chooser pulls
+    /// it home exactly as it pulls a laden animal, patience and all.
+    pub hungry_home: bool,
     /// **A fading memory of the trail strength under this animal's own feet**,
     /// in the same normalised units `sense` reads the plane in.
     ///

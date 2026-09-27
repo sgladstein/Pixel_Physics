@@ -12825,7 +12825,9 @@ const AWAY_GAIN: f32 = 1.0;
 /// So it is the complement of `AWAY_GAIN`: that one gives an empty ant a
 /// direction on a route, this one off it, and a well-fed ant has neither.
 ///
-/// **0 unless set, and at 0 the term is never added.**
+/// **2 unless set -- the ant's default since 2026-09-26, the owner's
+/// ruling** (`Reports/ant-scenes-2026-09-23.md` §20-21). `PIXEL_PHYSICS_SCOUT=0`
+/// turns it off, and at 0 the term is never added.
 ///
 /// Why it exists, traced 2026-09-26 on the colony bed with no trail laid
 /// (`Reports/ant-scenes-2026-09-23.md` §20): an ant that reached the food
@@ -12846,9 +12848,14 @@ pub fn scout_from_env() -> f32 {
             .ok()
             .and_then(|v| v.parse::<f32>().ok())
             .filter(|g| g.is_finite() && *g >= 0.0)
-            .unwrap_or(0.0)
+            .unwrap_or(SCOUT_DEFAULT)
     })
 }
+
+/// **The shipped scouting gain.** Measured at 1 and 2 on the colony bed
+/// (24 seeds): 2 is better on every line -- starved 223 against 201, reached
+/// the food 276 against 322 -- and costs nothing in the lab box.
+const SCOUT_DEFAULT: f32 = 2.0;
 
 /// **When a scout gives up and heads home**: its patience, which falls by
 /// `PATIENCE_DECAY` on every step that gets it no further out than it has
@@ -12860,6 +12867,71 @@ const SCOUT_GIVE_UP: f32 = 0.1;
 /// This world's scouting gain: `World::scout` if set, else the environment's.
 pub fn scout_of(world: &World) -> f32 {
     world.scout.unwrap_or_else(scout_from_env)
+}
+
+/// **A hungry animal comes home before it starves** -- the owner's ruling,
+/// 2026-09-26: *"scout or any ant should come home when they get so hungry
+/// before they are going to starve to death."* `PIXEL_PHYSICS_HUNGRY_HOME=on`,
+/// or `World::hungry_home` for one world (`hungry_home_of`).
+///
+/// An empty animal with no spoil turns for home once its energy is under
+/// what the walk home costs, `HUNGRY_RESERVE x start_energy + distance x
+/// (move_cost_per_cell + idle_cost_per_cell) x body cells x HUNGRY_MARGIN`,
+/// and the chooser then pulls it home as it pulls a laden one
+/// (`home_pull`), patience and all. It stays bound for home -- and at home,
+/// where the pull has no direction left -- until it has eaten back up to
+/// `HUNGRY_REFED x start_energy` (and twice the walk home, wherever it is),
+/// so it does not turn round at the door and starve outside it.
+///
+/// The per-cell cost is the species' own step and idle bills at one step a
+/// tick; the ant's is 0.35 J a cell, against a measured 0.37 on the colony
+/// bed's walk to food (648 frames for 90 cells at a 6-frame tick).
+pub fn hungry_home_from_env() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_HUNGRY_HOME").as_deref() == Ok("on"))
+}
+
+/// This world's setting: `World::hungry_home` if set, else the environment's.
+pub fn hungry_home_of(world: &World) -> bool {
+    world.hungry_home.unwrap_or_else(hungry_home_from_env)
+}
+
+/// The walk home's reserve on arrival, as a fraction of `start_energy`.
+const HUNGRY_RESERVE: f32 = 0.1;
+/// How many times the one-step-a-tick cost of the walk home to keep in hand:
+/// covers pauses, turns and a way round.
+const HUNGRY_MARGIN: f32 = 2.0;
+/// Fed enough to go out again, as a fraction of `start_energy`.
+const HUNGRY_REFED: f32 = 0.5;
+
+/// **Is this animal too hungry to be out?** Sets and clears
+/// `OrganismState::hungry_home` (`hungry_home_of`). Only an empty animal
+/// with no spoil is ever set; one carrying anything is cleared, since a
+/// load already sends it home.
+fn update_hungry_home(world: &mut World, organism: OrganismId, def: &CreatureDef, head: (i32, i32)) {
+    let body = live_body_cells(world, organism, def);
+    let Some(state) = world.organism(organism) else { return };
+    let empty = state.spoil.is_none() && state.crop.is_none_or(|c| c.worth() <= 0.0);
+    let (hx, hy) = home_target(world, state);
+    let d = (((hx - head.0) as f32).powi(2) + ((hy - head.1) as f32).powi(2)).sqrt();
+    let walk = d * (def.move_cost_per_cell + def.idle_cost_per_cell) * body * HUNGRY_MARGIN;
+    let need = HUNGRY_RESERVE * def.start_energy + walk;
+    let (energy, was) = (state.energy, state.hungry_home);
+    let now = if !empty {
+        false
+    } else if was {
+        energy < (2.0 * need).max(HUNGRY_REFED * def.start_energy)
+    } else {
+        energy < need
+    };
+    if now != was {
+        if now {
+            world.creature_stats.hungry_home_turns += 1;
+        }
+        if let Some(state) = world.organism_mut(organism) {
+            state.hungry_home = now;
+        }
+    }
 }
 
 /// **Is the step along `d` onto a route?** The scent where the head would go
@@ -12892,7 +12964,11 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
             Some(((site.x, site.surface), w))
         }
         None => {
-            if def.home_bias <= 0.0 || state.crop.is_none_or(|c| c.worth() <= 0.0) {
+            if def.home_bias <= 0.0 {
+                return None;
+            }
+            // Too hungry to be out (`update_hungry_home`): home as if laden.
+            if state.crop.is_none_or(|c| c.worth() <= 0.0) && !(state.hungry_home && state.spoil.is_none()) {
                 return None;
             }
             Some((home_target(world, state), def.home_bias))
@@ -12969,6 +13045,9 @@ fn chooser_step(
         return step_chain(world, organism, heading, outputs, def, draw);
     }
 
+    if hungry_home_of(world) {
+        update_hungry_home(world, organism, def, (hx, hy));
+    }
     // The home memory, started again whenever the target is new, and cleared
     // whenever there is nothing to take home.
     let pull = home_pull(world, organism, def, (hx, hy));
@@ -17746,27 +17825,6 @@ mod tests {
     }
 
 
-    /// **Every lifetime counter closes against its world total.**
-    ///
-    /// `CLAUDE.md` requires an "it fired" counter to be paired with a
-    /// far-side one, and this is that pairing made arithmetic:
-    ///
-    /// ```text
-    /// sum over the living + World::dead_life == the world-wide total
-    /// ```
-    ///
-    /// A freed organism takes its counts with it, so without `dead_life` the
-    /// live sum can only fall and is comparable to nothing. Both halves are
-    /// provable red: delete a mirror at its increment site and the live sum
-    /// undershoots; delete the roll-up in `World::free_organism` and it
-    /// undershoots by exactly the dead animals' totals.
-    ///
-    /// **The vacuity checks come first and are not decoration.** On a bed
-    /// where nothing dies the dead-side term is zero, and the identity then
-    /// passes with the roll-up deleted -- which is `CLAUDE.md`'s *green is the
-    /// default state* blindness exactly. So the test asserts that something
-    /// died, and that each counter actually moved, before it asserts anything
-    /// about the sums.
     /// **`PIXEL_PHYSICS_NEST_DOOR` paints a door and nothing else, and every
     /// founder's home is that door** -- the positive control for the colony
     /// bed's §19 arms (`Reports/ant-scenes-2026-09-23.md`). Counted as nest
@@ -17819,6 +17877,27 @@ mod tests {
         }
     }
 
+    /// **Every lifetime counter closes against its world total.**
+    ///
+    /// `CLAUDE.md` requires an "it fired" counter to be paired with a
+    /// far-side one, and this is that pairing made arithmetic:
+    ///
+    /// ```text
+    /// sum over the living + World::dead_life == the world-wide total
+    /// ```
+    ///
+    /// A freed organism takes its counts with it, so without `dead_life` the
+    /// live sum can only fall and is comparable to nothing. Both halves are
+    /// provable red: delete a mirror at its increment site and the live sum
+    /// undershoots; delete the roll-up in `World::free_organism` and it
+    /// undershoots by exactly the dead animals' totals.
+    ///
+    /// **The vacuity checks come first and are not decoration.** On a bed
+    /// where nothing dies the dead-side term is zero, and the identity then
+    /// passes with the roll-up deleted -- which is `CLAUDE.md`'s *green is the
+    /// default state* blindness exactly. So the test asserts that something
+    /// died, and that each counter actually moved, before it asserts anything
+    /// about the sums.
     #[test]
     fn every_lifetime_counter_closes_against_its_world_total() {
         let (mut w, low) = colony_bed();
@@ -24803,6 +24882,63 @@ mod tests {
         assert!(gave_up, "the scout never gave up at the wall");
         assert!(far - back >= 20, "the scout gave up at the wall but came back only {} cells", far - back);
         assert_eq!(walk(0.0, 1.0), walk(2.0, 1.0), "a fed ant's walk changed with scouting on");
+    }
+
+    /// **Too hungry to be out, an empty ant walks home; fed, it is not
+    /// touched** (`hungry_home_of`, the owner's ruling of 2026-09-26). The
+    /// scouting scene: a bare floor, home 80 cells west, the ant facing home,
+    /// scouting on at the shipped gain. Held at a fifth of `start_energy`
+    /// (40 J, against the 76 J the walk home needs), it scouts east with the
+    /// rule off -- the control that the scene shows the difference at all --
+    /// and with the rule on it turns for home once (`hungry_home_turns`, the
+    /// "it fired" count) and walks at least 20 cells west (the effect). Fed,
+    /// the rule never sets and the walk is position for position the one it
+    /// walks with the rule off. **Watched red** with the hungry case removed
+    /// from `home_pull`: the hungry ant scouts east with the control.
+    #[test]
+    fn an_empty_ant_too_hungry_to_be_out_walks_home_and_a_fed_one_does_not() {
+        let walk = |on: bool, fed: f32| -> (Vec<(i32, i32)>, u64) {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            for x in 0..160 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            for y in 0..41 {
+                for x in [0, 159] {
+                    w.set(x, y, stone);
+                }
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.scout = Some(SCOUT_DEFAULT);
+            w.hungry_home = Some(on);
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let energy = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy * fed;
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.heading = 4;
+                st.forage_anchor = (20, 40);
+            }
+            let mut path = Vec::new();
+            for _ in 0..900 {
+                w.organism_mut(ant).expect("live").energy = energy;
+                run(&mut w, 1);
+                let st = w.organism(ant).expect("live");
+                assert!(st.crop.is_none(), "the ant must stay empty");
+                path.push(st.chain[0]);
+            }
+            (path, w.creature_stats.hungry_home_turns)
+        };
+        let start = 100;
+        let (control, control_turns) = walk(false, 0.2);
+        let (hungry, turns) = walk(true, 0.2);
+        let east = |p: &[(i32, i32)]| p.iter().map(|c| c.0).max().expect("walked") - start;
+        let net = |p: &[(i32, i32)]| p.last().expect("walked").0 - start;
+        assert!(control_turns == 0 && east(&control) >= 20, "with the rule off a hungry ant should scout east, and got {} cells out: the scene cannot show a difference", east(&control));
+        assert_eq!(turns, 1, "the hungry ant should turn for home exactly once");
+        assert!(net(&hungry) <= -20, "the hungry ant should walk home, and moved {}", net(&hungry));
+        assert_eq!(walk(false, 1.0).0, walk(true, 1.0).0, "a fed ant's walk changed with the rule on");
     }
 
     /// **A fed, laden ant beside food and facing away from home still walks
