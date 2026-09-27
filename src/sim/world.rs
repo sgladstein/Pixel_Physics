@@ -1898,6 +1898,18 @@ pub struct CreatureStats {
     /// (`creature::hungry_home_of`): one per setting of
     /// `OrganismState::hungry_home`, never per tick it stays set.
     pub hungry_home_turns: u64,
+    /// **Decisions where the colony's need, not the animal's own hunger, set
+    /// how hard it scouted** (`creature::forage_drive_from_env`): the forage
+    /// drive's "it fired" count on the walk. 0 unless the switch is on.
+    pub forage_scouted: u64,
+    /// **Decisions where the forage drive lifted the step chance**
+    /// (`creature::forage_pace`). 0 unless the switch is on, and under
+    /// `,nopace`.
+    pub forage_paced: u64,
+    /// **Decisions where a forager the colony needs left the store at home
+    /// alone** (`creature::forage_drive_from_env`'s `,keep`): its feed urge
+    /// scaled down at the nest. 0 unless set.
+    pub forage_kept: u64,
     /// **Not a trip counter, and not a sessility guard — read
     /// `forage_trips` for either.** It increments on any move made while
     /// nest-adjacent, guarded on `OrganismState::since_nest > 0`; but
@@ -3449,6 +3461,11 @@ pub struct World {
     /// (`creature::hungry_home_of`). `None` follows the environment; a field
     /// for the reason `chooser` is one.
     pub hungry_home: Option<crate::sim::creature::HungryHome>,
+    /// **Whether the colony's need sends a fed forager out, overriding
+    /// `PIXEL_PHYSICS_FORAGE_DRIVE` for this world** (`creature::
+    /// forage_drive_of`). `None` follows the environment, which is off unless
+    /// set; a field for the reason `chooser` is one.
+    pub forage_drive: Option<crate::sim::creature::ForageDrive>,
     /// **Which material stopped a creature**, counted per blocked tick and
     /// indexed by `MaterialId` — the breakdown `CreatureStats::
     /// blocked_by_plant` deliberately does not carry, because that struct is
@@ -3702,6 +3719,13 @@ pub struct World {
     /// empty with `room_gate` off, which is the branch that makes the revert
     /// free rather than merely inert.
     pub nest_room: Vec<NestRoom>,
+    /// **What each nest needs, for the forage drive**, in `[0, 1]`: under
+    /// `hunger` its animals' mean hunger, under `larder` how far the food
+    /// standing at home falls short of a store (`creature::nest_needs`).
+    /// Rebuilt every `ROOM_INTERVAL` frames by `step_nest_need` -- same length
+    /// and order as `nest_sites`, and empty unless the forage drive reads
+    /// it, so an arm that does not use it pays nothing.
+    pub nest_need: Vec<f32>,
     /// **Whether an ant at the nest reads room rather than density.**
     ///
     /// On by default (owner: *ship new behaviours on by default*).
@@ -5790,6 +5814,7 @@ impl World {
             nest_shaft: None,
             scout: None,
             hungry_home: None,
+            forage_drive: None,
             blocked_tissue_by_material: Vec::new(),
             energy_ledger: EnergyLedger::default(),
             colony_books: Vec::new(),
@@ -5816,6 +5841,7 @@ impl World {
             vital_losses: Vec::new(),
             nest_sites: Vec::new(),
             nest_room: Vec::new(),
+            nest_need: Vec::new(),
             room_gate: creature::room_gate_default(),
             room_target: creature::room_target_default(),
             room_datum: Vec::new(),
@@ -6803,6 +6829,7 @@ impl World {
             scout_for: (i32::MIN, i32::MIN),
             scout_patience: 1.0,
             scout_home: false,
+            foraged: false,
             hungry_home: false,
             // Zero is "no memory yet"; the first tick's read sees `live - 0`,
             // which normalises to +1 and decays to the true reading within a
@@ -7635,6 +7662,24 @@ impl World {
             rooms[site].roofed += self.roofed_in_column(b, x, ROOF_REACH);
         }
         self.nest_room = rooms;
+    }
+
+    /// **Each nest's need, for the forage drive** (`World::nest_need`,
+    /// `creature::nest_needs`): its animals' mean hunger under `hunger`, or
+    /// how far its store falls short under `larder`. On `ROOM_INTERVAL` and
+    /// whenever the site list has changed length; cleared and skipped
+    /// entirely unless the drive reads it, so every other world pays one
+    /// comparison a frame.
+    pub fn step_nest_need(&mut self) {
+        let need = crate::sim::creature::forage_drive_of(self).need;
+        if !matches!(need, crate::sim::creature::ForageNeed::Hunger | crate::sim::creature::ForageNeed::Larder) || self.nest_sites.is_empty() {
+            self.nest_need.clear();
+            return;
+        }
+        if !self.frame.is_multiple_of(ROOM_INTERVAL) && self.nest_need.len() == self.nest_sites.len() {
+            return;
+        }
+        self.nest_need = crate::sim::creature::nest_needs(self, need);
     }
 
     /// **Roofed void in one column** -- the inner loop of
@@ -10213,6 +10258,10 @@ impl World {
         // harness, no new phase. A box with no nest returns on the first
         // line, so the outdoor game pays one `Vec::is_empty` a frame.
         self.step_nest_room();
+        // **And how hungry each nest is**, on the same cadence, for the forage
+        // drive only (`step_nest_need`); every other world returns on its
+        // first line.
+        self.step_nest_need();
         // No world-time bookkeeping here on purpose. The phase clocks are
         // *derived* from `frame` (`clock::Clock::sky_frame`), not advanced
         // beside it -- an earlier version incremented a counter from this

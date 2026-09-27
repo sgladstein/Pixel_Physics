@@ -6171,6 +6171,10 @@ pub struct OrganismState {
     /// **Given up and heading home.** Set when `scout_patience` runs out;
     /// cleared by the next nest contact, which starts the next excursion.
     pub scout_home: bool,
+    /// **Has foraged: picked food up away from home at least once**, so the
+    /// colony's need can send it out again (`creature::forage_drive_level`,
+    /// off unless `PIXEL_PHYSICS_FORAGE_DRIVE` is set). Never cleared.
+    pub foraged: bool,
     /// **Too hungry to be out: heading home before it starves**
     /// (`creature::hungry_home_of`). Set when an empty animal's energy falls
     /// below what the walk home costs it with a margin; cleared once it has

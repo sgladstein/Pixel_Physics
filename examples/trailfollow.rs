@@ -543,6 +543,12 @@ struct Arm {
     /// `CreatureStats::hungry_home_turns`: empty ants that turned for home
     /// too hungry to stay out.
     hungry_home_turns: u64,
+    /// `CreatureStats::forage_scouted` / `forage_paced`: decisions where the
+    /// colony's need, not the ant's own hunger, set its scouting pull / its
+    /// step chance (`PIXEL_PHYSICS_FORAGE_DRIVE`). Printed only when set.
+    forage_scouted: u64,
+    forage_paced: u64,
+    forage_kept: u64,
     /// **What those cells were worth to this ant**, in joules -- the
     /// provisioning denominator, and the number whose absence produced two
     /// wrong published claims on this branch.
@@ -2611,7 +2617,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 // 0.0000 on every row of a run where it was nonzero, and a
                 // parse of that column called it exactly zero.
                 decision_rows.push(format!(
-                    "{seed},{gap},{arm_name},{},{},{},{},{:.4},{},{},{},{},{},{},{},{},{},{:.4},{:.4},{},{:.4},{:.4},{:.5},{:.5},{},{:.4},{},{},{:.4},{:.4},{:e},{:.4},{:.4},{},{},{:.4},{},{},{:.4},{:.4},{},{},{},{},{:.4},{:.4},{:.4},{},{},{:.4},{:.4},{:.4}",
+                    "{seed},{gap},{arm_name},{},{},{},{},{:.4},{},{},{},{},{},{},{},{},{},{:.4},{:.4},{},{:.4},{:.4},{:.5},{:.5},{},{:.4},{},{},{:.4},{:.4},{:e},{:.4},{:.4},{},{},{:.4},{},{},{:.4},{:.4},{},{},{},{},{:.4},{:.4},{:.4},{},{},{:.4},{:.4},{:.4},{:.2},{:.4},{:.4},{:.4},{}",
                     decision_tag,
                     r.frame,
                     r.id,
@@ -2661,6 +2667,11 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     r.patience,
                     r.chosen_cos,
                     r.chosen_route,
+                    r.energy_j,
+                    r.drive,
+                    r.scout_w,
+                    r.scout_patience,
+                    u8::from(r.scout_home),
                 ));
             }
         }
@@ -4493,7 +4504,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             let suffix = if decision_tag.is_empty() { String::new() } else { format!("-{decision_tag}") };
             let path = format!("{decision_dir}/trailfollow-decisions-seed{seed}-gap{gap}-{arm_name}{suffix}.csv");
             let mut out = String::from(
-                "seed,gap,arm,tag,frame,id,leg,fill,x,y,x2,y2,heading,heading2,usable,setting,ax,ay,energy,home_aligned,at_nest,crowding,stillness,along_a,along_b,food_adjacent,kin_need,nest_x,move_out,p_move,turn,roll_move,roll_tumble,outcome,homeward,home_cos,moved,drop,drop_roll,drop_p,free8,n_nw,n_n,n_ne,n_w,n_e,n_sw,n_s,n_se,nbr_self,nbr_other,cone_l,cone_s,cone_r,pick,drop_reach,patience,chosen_cos,chosen_route\n",
+                "seed,gap,arm,tag,frame,id,leg,fill,x,y,x2,y2,heading,heading2,usable,setting,ax,ay,energy,home_aligned,at_nest,crowding,stillness,along_a,along_b,food_adjacent,kin_need,nest_x,move_out,p_move,turn,roll_move,roll_tumble,outcome,homeward,home_cos,moved,drop,drop_roll,drop_p,free8,n_nw,n_n,n_ne,n_w,n_e,n_sw,n_s,n_se,nbr_self,nbr_other,cone_l,cone_s,cone_r,pick,drop_reach,patience,chosen_cos,chosen_route,energy_j,drive,scout_w,scout_patience,scout_home\n",
             );
             out.push_str(&decision_rows.join("\n"));
             out.push('\n');
@@ -4679,6 +4690,9 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         deliveries: st.deliveries,
         pickups_at_nest: st.pickups_at_nest,
         hungry_home_turns: st.hungry_home_turns,
+        forage_scouted: st.forage_scouted,
+        forage_paced: st.forage_paced,
+        forage_kept: st.forage_kept,
         supply_j: larder_placed as f64 * per_cell_j,
         eaten_j: diet_by_material(&w, larder).0,
         ate_other_j: diet_by_material(&w, larder).1,
@@ -4883,7 +4897,7 @@ fn main() {
     // `ant-forage-bed-and-gates-2026-09-21.md` is run with, echoed so a log
     // that does not name them was written by a binary that never had them.
     println!(
-        "  breadoff={} wire={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} LOAD_BY={} LOAD_SCALE={} NEST_DOOR={} NEST_DOOR_FOUNDERS={} NEST_SHAFT={} NEST_HOME={} SCOUT={} HUNGRY_HOME={} layfrom={}",
+        "  breadoff={} wire={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} LOAD_BY={} LOAD_SCALE={} NEST_DOOR={} NEST_DOOR_FOUNDERS={} NEST_SHAFT={} NEST_HOME={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) layfrom={}",
         flag("breadoff"),
         arg_str("wire").unwrap_or_else(|| "shipped".into()),
         flag("decisioncsv"),
@@ -4899,6 +4913,8 @@ fn main() {
         std::env::var("PIXEL_PHYSICS_NEST_HOME").unwrap_or_else(|_| "shipped".into()),
         std::env::var("PIXEL_PHYSICS_SCOUT").unwrap_or_else(|_| "shipped".into()),
         std::env::var("PIXEL_PHYSICS_HUNGRY_HOME").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_FORAGE_DRIVE").unwrap_or_else(|_| "shipped".into()),
+        creature::forage_drive_from_env(),
         arg_str("layfrom").unwrap_or_else(|| "nest".into())
     );
     println!("  {LANDED_NOTE}\n");
@@ -5184,6 +5200,9 @@ fn main() {
                         a.deliveries as i64 - a.pickups_at_nest as i64,
                         a.hungry_home_turns
                     );
+                    if creature::forage_drive_from_env().on() {
+                        println!("{:>16}forage drive: scouted by the colony's need {} decisions, paced {}, left the store {}", "", a.forage_scouted, a.forage_paced, a.forage_kept);
+                    }
                     // **Do the survivors keep the trail up once we stop laying
                     // it?** Owner's ask. `stop` releases the hand-laid ramp at
                     // frame 6,000 and these are sampled only well after that
