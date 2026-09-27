@@ -40,8 +40,8 @@ owner's "good reason not to".
 1. Walls and a roof that hold. Refills are 94% soil falling in, half from
    above and half from the side; the heaps contribute nothing
    (`nest-work-2026-09-27.md` §4).
-2. `DIG_DOWN` as a default candidate: cuts that build 3% → 6%, a bigger and
-   better-connected excavation; bed and lab check first.
+2. `DIG_DOWN` stays off (measured 2026-09-27): colony bed starved 201 → 460
+   of 480 (ants trapped digging at home); the lab ties.
 3. A dig marker at the face (Toffin's marker half; untried) against the 31
    mouths.
 4. `DropSpoil` as a spoil drop, not a food drop: only with 1-3 (alone it
