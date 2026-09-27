@@ -1,0 +1,47 @@
+== hunger 90
+  loops per looper (median over seeds)                 1.462 ->     1.667   better on 15, worse on 9, sign p 0.307
+  full loops (sum)                                   462.000 ->   466.000   better on 12, worse on 12, sign p 1.000
+  life after 1st delivery fed at home (median)         0.538 ->     0.539   better on 8, worse on 16, sign p 0.152
+    ... of it holding food off the nest (median)       0.399 ->     0.461   better on 6, worse on 18, sign p 0.023
+== always 90
+  loops per looper (median over seeds)                 1.462 ->     2.148   better on 24, worse on 0, sign p 0.000
+  full loops (sum)                                   462.000 ->   649.000   better on 22, worse on 2, sign p 0.000
+  life after 1st delivery fed at home (median)         0.538 ->     0.601   better on 6, worse on 18, sign p 0.023
+    ... of it holding food off the nest (median)       0.399 ->     0.647   better on 0, worse on 24, sign p 0.000
+== larder 90
+  loops per looper (median over seeds)                 1.462 ->     1.840   better on 20, worse on 4, sign p 0.002
+  full loops (sum)                                   462.000 ->   563.000   better on 19, worse on 4, sign p 0.003
+  life after 1st delivery fed at home (median)         0.538 ->     0.600   better on 8, worse on 16, sign p 0.152
+    ... of it holding food off the nest (median)       0.399 ->     0.577   better on 2, worse on 22, sign p 0.000
+== akeep2 90
+  loops per looper (median over seeds)                 1.462 ->     1.707   better on 18, worse on 6, sign p 0.023
+  full loops (sum)                                   462.000 ->   511.000   better on 15, worse on 5, sign p 0.041
+  life after 1st delivery fed at home (median)         0.538 ->     0.599   better on 10, worse on 14, sign p 0.541
+    ... of it holding food off the nest (median)       0.399 ->     0.330   better on 22, worse on 2, sign p 0.000
+== lkeep2 90
+  loops per looper (median over seeds)                 1.462 ->     1.786   better on 18, worse on 5, sign p 0.011
+  full loops (sum)                                   462.000 ->   519.000   better on 17, worse on 6, sign p 0.035
+  life after 1st delivery fed at home (median)         0.538 ->     0.657   better on 5, worse on 19, sign p 0.007
+    ... of it holding food off the nest (median)       0.399 ->     0.447   better on 10, worse on 14, sign p 0.541
+== atether 90
+  loops per looper (median over seeds)                 1.462 ->     1.840   better on 21, worse on 3, sign p 0.000
+  full loops (sum)                                   462.000 ->   649.000   better on 23, worse on 1, sign p 0.000
+  life after 1st delivery fed at home (median)         0.538 ->     0.549   better on 12, worse on 12, sign p 1.000
+    ... of it holding food off the nest (median)       0.399 ->     0.560   better on 3, worse on 21, sign p 0.000
+== always 140
+  loops per looper (median over seeds)                 1.572 ->     1.967   better on 21, worse on 2, sign p 0.000
+  full loops (sum)                                   432.000 ->   562.000   better on 20, worse on 2, sign p 0.000
+  life after 1st delivery fed at home (median)         0.569 ->     0.570   better on 11, worse on 13, sign p 0.839
+    ... of it holding food off the nest (median)       0.436 ->     0.614   better on 1, worse on 23, sign p 0.000
+== larder 140
+  loops per looper (median over seeds)                 1.572 ->     1.764   better on 18, worse on 5, sign p 0.011
+  full loops (sum)                                   432.000 ->   503.000   better on 17, worse on 4, sign p 0.007
+  life after 1st delivery fed at home (median)         0.569 ->     0.559   better on 12, worse on 12, sign p 1.000
+    ... of it holding food off the nest (median)       0.436 ->     0.557   better on 3, worse on 21, sign p 0.000
+== atether 140
+  loops per looper (median over seeds)                 1.572 ->     1.000   better on 3, worse on 21, sign p 0.000
+  full loops (sum)                                   432.000 ->   136.000   better on 2, worse on 22, sign p 0.000
+  life after 1st delivery fed at home (median)         0.569 ->     0.000   better on 21, worse on 3, sign p 0.000
+    ... of it holding food off the nest (median)       0.436 ->     0.000   better on 17, worse on 7, sign p 0.064
+
+[exited with code 0]

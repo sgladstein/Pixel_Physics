@@ -10,6 +10,13 @@ economy too hard?" (`Reports/lanes/foraging-loop.md`, live question): on the
 full energy without going out again.
 
     python3 scripts/antidle.py '/tmp/trailfollow-decisions-seed*-gap90-self-TAG.csv' [gap]
+    python3 scripts/antidle.py '<arm glob>' [gap] --vs '<base glob>'
+
+`--vs` pairs the arm against a baseline seed by seed, with a sign test, on the
+lane's target quantities: loops per looper, loops, and the share of a looper's
+life after its first delivery spent fed at home (and how much of that it holds
+food off the nest). Keyed by seed from the file name; the gap in the name must
+match. `antloop.py --vs` pairs the checks (starved, net food into home).
 
 A loop is booked as antloop books it: a delivery after having been at the food
 (within 10 cells of nest_x + gap) since the last one. The gap defaults to 90 and
@@ -22,12 +29,16 @@ spends the rest of its life after its FIRST delivery: fed (at or above the
 and how much of its fed time at home it is holding food -- which, at home, is
 food it took off the nest.
 """
-import csv, glob, sys, collections as C, statistics as st
-GAP=int(sys.argv[2]) if len(sys.argv)>2 else 90; NEAR=10; BAND=26; START=200.0
+import csv, glob, sys, re, math, collections as C, statistics as st
+args=sys.argv[1:]
+VS=None
+if '--vs' in args:
+    i=args.index('--vs'); VS=args[i+1]; del args[i:i+2]
+GAP=int(args[1]) if len(args)>1 else 90; NEAR=10; BAND=26; START=200.0
 q=lambda xs,p: sorted(xs)[min(len(xs)-1,int(p*len(xs)))] if xs else float('nan')
 loop_len=[]; wait=[]; wait_e=[]; wait_pm=[]; after_last=[]; after_last_e=[]; n_loopers=0; loops=0; alive_end=0
 budget=C.Counter(); held=C.Counter(); has_j=False
-for path in sorted(glob.glob(sys.argv[1])):
+for path in sorted(glob.glob(args[0])):
     by=C.defaultdict(list)
     last_frame=0
     for r in csv.DictReader(open(path)):
@@ -76,3 +87,50 @@ if has_j:
     T=sum(budget.values())
     print(f"after its FIRST delivery a looper's life ({T} frames pooled): " + ", ".join(f"{k} {budget[k]/T:.1%}" for k in ['fed at home','hungry at home','fed out','hungry out']))
     print(f"   holding food while fed at home: {held['fed at home']/max(1,budget['fed at home']):.1%} of that time (at home, food taken off the nest)")
+
+
+def per_seed(pattern):
+    """The target quantities per seed, keyed on the seed in the file name."""
+    out={}
+    for path in sorted(glob.glob(pattern)):
+        m=re.search(r'seed(\d+)-gap(\d+)', path)
+        assert m and int(m.group(2))==GAP, f"{path}: not a gap-{GAP} trace"
+        by=C.defaultdict(list)
+        for r in csv.DictReader(open(path)):
+            if int(r['id'])<1048576: by[r['id']].append(r)
+        loopers=loops=0; fed_home=total=held=0
+        for rs in by.values():
+            rs.sort(key=lambda r:int(r['frame'])); nx=int(rs[0]['nest_x'])
+            been=False; done=[]
+            for i,r in enumerate(rs):
+                if abs(int(r['x2'])-nx-GAP)<=NEAR: been=True
+                if been and r['drop']=='delivered': done.append(i); been=False
+            if not done: continue
+            loopers+=1; loops+=len(done)
+            tail=rs[done[0]:]
+            for a,b in zip(tail,tail[1:]):
+                dt=int(b['frame'])-int(a['frame']); total+=dt
+                if 'energy_j' in a and float(a['energy_j'])>=START and abs(int(a['x2'])-nx)<=BAND:
+                    fed_home+=dt
+                    if a['leg']=='laden': held+=dt
+        out[int(m.group(1))]=dict(lpl=loops/loopers if loopers else 0.0, loops=loops,
+                                  fedhome=fed_home/total if total else 0.0, held=held/fed_home if fed_home else 0.0)
+    return out
+
+
+def sign_p(better, worse):
+    n=better+worse
+    if n==0: return 1.0
+    k=min(better,worse)
+    return min(1.0, 2*sum(math.comb(n,i) for i in range(k+1))/2**n)
+
+
+if VS:
+    base=per_seed(VS); arm=per_seed(args[0]); seeds=sorted(set(base)&set(arm))
+    print(f"\nPAIRED AGAINST {VS}: seeds keyed base {len(base)}, arm {len(arm)}, paired {len(seeds)}")
+    for key,label,higher in [('lpl','loops per looper (median over seeds)',True),('loops','full loops (sum)',True),
+                             ('fedhome','life after 1st delivery fed at home (median)',False),('held','  ... of it holding food off the nest (median)',False)]:
+        a=[base[s][key] for s in seeds]; b=[arm[s][key] for s in seeds]
+        better=sum((y>x) if higher else (y<x) for x,y in zip(a,b)); worse=sum((y<x) if higher else (y>x) for x,y in zip(a,b))
+        agg=(lambda v: sum(v)) if key=='loops' else (lambda v: st.median(v))
+        print(f"  {label:48s} {agg(a):9.3f} -> {agg(b):9.3f}   better on {better}, worse on {worse}, sign p {sign_p(better,worse):.3f}")

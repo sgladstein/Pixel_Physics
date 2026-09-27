@@ -3327,6 +3327,17 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     the whole nest holds a median of 4 food cells. The prerequisite is
     foragers feeding hungry nestmates directly. Also a correction: §20's
     "food carried" figure was cell-steps, not joules.
+  - **Foragers that keep working** (§22, `PIXEL_PHYSICS_FORAGE_DRIVE`, off):
+    traced ant by ant, a forager comes home hungry, eats back up off the
+    nest's floor (a third of what the colony digests), and stays home until
+    it is hungry again. A drive that sends fed foragers back out (`always`)
+    lifts loops per forager on every seed. At 90 cells net food into home is
+    2.3×, 45 fewer starve and births go 10 → 72; at 140 food is +59% and births
+    7 → 48. In the lab box it carries more home but grows no bigger colony,
+    and 2 of 12 colonies graze the box bare and die. The forms that read the
+    colony's need (its hunger, its store) did worse in both games. Awaiting
+    the owner's ruling; the next step is an off-switch that reads food out
+    there, not need at home.
   - Handoff: [lanes/foraging-loop.md](lanes/foraging-loop.md) -- the
     owner's rulings, the live question, the baseline, commands and traps.
   - The per-decision mix matched the formula within a point at both

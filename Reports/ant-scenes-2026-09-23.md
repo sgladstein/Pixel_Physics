@@ -1923,3 +1923,259 @@ the tether once home can feed the hungry, on both beds and at 140 cells.
 - `trailfollow` echoes the nest and scouting switches, prints `food into home`
   per run, and prints the `HUNGRY AT HOME` census.
 - Data: `Reports/data/home-*-2026-09-27.*`.
+
+## 22. Foragers that keep working: the forage drive
+
+*2026-09-27.* The owner's question: food is not building up at the nest. Is
+that because ants forage too slowly, or because the economy is still too hard?
+§21's handoff measured *too slowly*: 1.5 loops per forager, then a long rest.
+The ask was to make a forager's drive to go out follow the colony's need, not
+its own belly. Bed runs are 24 seeds × 20 founders, paired by seed against the
+default; the lab is 12 seeds. Every number here comes from one command over
+the logs and decision traces, and the traces now carry energy in joules
+(`energy_j`; the old `energy` column is the brain's input, clamped at the
+200 J grant).
+
+### 22a. What a forager does after its last loop, ant by ant
+
+The default at 90 cells, 303 ants that made a loop, from each one's last
+delivery to its death or the end of the run:
+
+- **It comes home hungry, not fed.** The median forager puts its last load
+  down at **138 J, below its 200 J grant**. Its crop is empty 78 frames later,
+  at 149 J.
+- **Then it eats from the nest's floor.** It picks food up off the nest and
+  eats it, reaching a median peak of **414 J**. Loopers gain a median 414 J
+  each at home against 0 J out: 129,354 J pooled at home, against 14,144 J out.
+  That is **about a third of everything the colony digests, eaten by ants that
+  were already coming off the loop**.
+- **Where its time goes:** at home 83% (fed 61%, hungry 21%), out 17%. Fed at
+  home, it is holding food taken off the nest 41% of the time, at a step
+  chance of exactly 0, and hauling dirt 22% of the time. When it is empty with
+  nothing in reach it steps on 0.13 of its decisions, against the 0.20 that
+  `how-the-ant-works` §4 used to give (the nest's crowding takes 0.15 off).
+- **What sends a looper out again is its own hunger.** Of 159 second-or-later
+  trips, 112 began with the ant hungry. The 47 that began fed took a median
+  **1,710 frames** to walk out, against 681 for a hungry ant.
+
+So §21's "rests at full energy" is really **comes home hungry, eats back up
+from the nest, then rests until it is hungry again**. Scouting's pull is
+`gain × (1 − energy/200)`, and `Move` reads `Energy` at −1.75. Once an ant is
+over its grant, neither says go.
+
+### 22b. The switch
+
+`PIXEL_PHYSICS_FORAGE_DRIVE=<need>[,nopace][,keep]`, or `World::forage_drive`.
+Off by default, and unset it is bit-exact: 24 bed seeds line for line and
+decision row for decision row, and lab seed 1 on all 143 `SUMMARY` keys. It
+reaches an ant that has foraged (`OrganismState::foraged`: it has picked food
+up away from home), is empty and walks `trailaway`. That ant feels
+`max(own hunger, drive)` in the two places that send it out, and nowhere
+else:
+- **scouting's pull**, so a fed forager runs out and back like a hungry scout;
+- **its step chance**: the `Move` row reads `Energy` as `1 − drive`
+  (`forage_pace`, recovered exactly from the row's own sum).
+
+`Drop`, `Share` and `Feed` still read its true energy, so a fed forager that
+comes home still puts its load down. The need has three forms:
+- `hunger`: the nest's mean hunger;
+- `larder`: how far the food standing at home falls short of one 200 J grant
+  per ant;
+- `always`: 1. This is the control, a forager that never rests.
+
+`,keep` additionally stops a fed forager eating from the store at home.
+Guards, each watched red:
+- `a_fed_forager_runs_out_when_its_colony_is_hungry_and_rests_when_it_is_fed`;
+- `a_nest_is_as_hungry_as_the_mean_of_its_animals_and_only_while_the_drive_reads_it`;
+- `a_fed_forager_the_colony_needs_leaves_the_store_and_a_hungry_one_eats_from_it`.
+
+### 22c. The colony's hunger is the wrong measure of its need
+
+The mean hunger of the colony, median over the 24 default runs:
+
+| frame | 0 | 2,000 | 4,000 | 6,000 | 8,000 | 10,000–24,000 |
+|---|---:|---:|---:|---:|---:|---:|
+| mean hunger | 0.43 | 0.57 | 0.39 | 0.18 | 0.07 | 0.04–0.09 |
+| share of ants fed | 0 | 0 | 0.06 | 0.67 | 0.78 | 0.79–0.84 |
+
+It is high only before frame 5,000, while most foragers have not finished a
+first loop. After that the hungry are dead and the survivors are fed.
+**`hunger` therefore fires hardest when there is nobody to send, and hardly
+at all when the idle foragers exist.** Measured, it is nearly inert:
+- starved 201 → 188 (11 seeds better, 8 worse);
+- net food into home 7,506 → 8,013;
+- loops per forager 1.46 → 1.67 (median over seeds; 15 better, 9 worse).
+
+After frame 6,000 the colony is not hungry, it is not *growing*: 10 births in
+24 runs. The need that matters is a store and new ants, and hunger cannot see
+either.
+
+### 22d. At 90 cells
+
+| arm | loops per forager | loops | a forager's life after its 1st loop spent fed at home | … holding food off the nest | net food into home | starved of 480 | born |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| default | 1.46 | 462 | 54% | 40% | 7,506 | 201 | 10 |
+| `hunger` | 1.67 (15/9) | 466 | 54% | 46% | 8,013 (14/9) | 188 (11/8) | 10 |
+| **`always`** | **2.15 (24/0)** | **649 (22/2)** | 60% | 65% | **17,030 (23/1)** | **156 (16/5, p 0.027)** | **72** |
+| `larder` | 1.84 (20/4) | 563 (19/4) | 60% | 58% | 10,918 (22/2) | 184 (15/6) | 47 |
+| `always,keep` | 1.71 (18/6) | 511 | 60% | 33% | 15,115 (24/0) | 174 (15/8) | 9 |
+| `larder,keep` | 1.79 (18/5) | 519 | 66% | 45% | 12,449 (22/2) | 176 (15/7) | 21 |
+
+Loops per forager and the two shares are medians over seeds, from
+`scripts/antidle.py --vs`; the checks are from `scripts/antloop.py --vs`.
+Brackets are seeds better / worse against the default.
+
+**`always` is the strongest arm on every check.**
+- Loops per forager rise on all 24 seeds.
+- Net food into home is 2.3× the default, and starvation falls by 45 ants.
+- The colony absorbs **76.5%** of what it burns, against 64%.
+- 14 ants are alive at the end against 10, and 72 are born against 10.
+
+**How it works, traced.** Trips that began with the forager fed rose from 47
+to 197, and those walk out in 528 frames, as fast as a hungry ant. Time spent
+fed and *out* after the first loop rose from 10.8% to 18.9%; time hungry at
+home fell from 21.2% to 11.6%. One typical forager (seed 1, ant 9) makes 4
+loops. After each, it eats back up at home (152 → 457 J over 2,874 frames),
+then leaves at 400–500 J and reaches the food in ~450 frames. On the default
+an ant at 457 J would stay home until it had burned below 200 J.
+
+**Where the surplus goes: into foragers' bodies, and then into new ants.**
+- Food standing at home: 1,300–2,200 J under `always`, against 900–1,000 J.
+- Ants' bodies: 5,500–6,600 J, against 2,900–4,000.
+- Fed foragers still eat from the store: holding home food is 41% → 65% of
+  their fed time at home, the larger store being the reason. But they then
+  leave, and their surplus crosses the 1,100 J budding line.
+
+**Food at home and colony need.** The owner's words were "food not building
+up at the nest". Under `always` the store grows modestly and the colony grows
+a lot. That is the surplus the owner's ruling of 2026-09-25 asked for: enough
+to feed themselves and extra for the colony.
+
+### 22e. Why keeping foragers off the store does not help
+
+`,keep` does what it says on the store. Fed foragers hold home food 33% of
+their fed time at home, against 41% on the default, better on 22 seeds. Food
+standing at home rises to 3,200–3,800 J, 3.5× the default. The colony is worse
+off:
+- loops 649 → 511;
+- starved 156 → 174;
+- born **72 → 9**.
+
+Traced: kept off the store, a fed forager **stands in it anyway**. It spends
+61% of its fed decisions at home hauling dirt, at a step chance of exactly 0.
+With food in reach, `FoodAdjacent`'s −1.16 brake holds it, and the `Dig` urge
+(+0.8 from `FoodAdjacent`) sets it digging. The fed forager eating the store
+was never the loss. It is how the surplus becomes new ants, because budding
+reads body energy.
+
+The first form of `,keep` scaled the feed urge by `1 − (drive − hunger)`,
+which under `always` cut a forager at hunger 0.3 to 30% of its urge. One-loop
+ants starved 13 → 40, 22 of them on the nest. It was fixed to fed foragers
+only (`1 − drive` at or above 200 J), and the numbers above are the fixed
+form.
+
+### 22f. At 140 cells
+
+| arm | loops per forager | loops | net food into home | starved | born |
+|---|---:|---:|---:|---:|---:|
+| default | 1.57 | 432 | 5,999 | 209 | 7 |
+| `always` | **1.97 (21/2)** | **562 (20/2)** | **9,565 (23/1)** | 207 (11/8) | **48** |
+| `larder` | 1.76 (18/5) | 503 (17/4) | 7,516 (16/8) | 217 (9/12) | 35 |
+
+Starvation does not move at 140. Of the 205–209 starved, 171–177 are ants
+that never reached the food, dying at a median frame of about 3,800, before
+any forager could be driven. That is the founding cull (§16–§17b, E14), and
+this lever cannot reach it.
+
+### 22g. The come-home tether, re-tested on top
+
+The standing condition for re-testing `HUNGRY_HOME=tether` (§21) was that home
+can feed the hungry. With `always` it holds more.
+
+**At 90 cells, `always` + `tether` is the best starvation result the lane has
+measured.** Against the default:
+- starved **201 → 123**, 22 seeds better and 1 worse;
+- net food into home 7,506 → 14,171;
+- the colony absorbs 83% of its burn.
+
+Against `always` alone it trades food and births for lives: net food
+17,030 → 14,171 (5/19), born 72 → 44.
+
+**At 140 cells it is as catastrophic as the tether alone:** starved
+209 → **429** (1/23), net food into home 5,999 → 1,524. The leash, not the
+food at home, is what kills there. A founder's ~134 J cannot reach 140 cells
+under it. The tether stays off.
+
+### 22h. In the lab box: more carried home, no bigger colony
+
+12 seeds, `labforage scenario=played_bed`, 120,000 frames, all arms from one
+binary. The default reproduces the stored baseline to the joule (net food into
+home median 856, intake 1,150k J, births 530, extinct 0 of 12).
+
+| lab, median of 12 | default | `always` | `larder` | `hunger` |
+|---|---:|---:|---:|---:|
+| net food into home | 856 | 1,300 (8/4) | 1,139 (9/3) | 848 (5/7) |
+| food eaten | 1,150k J | 1,078k (7/5) | 1,107k (4/8) | 957k (5/7) |
+| births | 530 | 470 (5/7) | 530 (4/8) | 375 (5/7) |
+| ant-frames lived, thousands | 9,572 | 8,819 (5/7) | 9,413 (6/6) | 9,320 (5/7) |
+| alive at the end | 80 | 81 (5/7) | 25 (2/10, p 0.039) | 50 (7/5) |
+| went extinct | 0 of 12 | 2 | 2 | **4** |
+| steps taken | 593k | 906k | 849k | 529k |
+
+**The lab's limit is its pasture, not its foragers' effort.** Food there is
+plants that regrow, not a pile that refills. A colony that forages harder
+eats the box down sooner. The lab's colonies boom and bust in every arm: a
+colony peaks, grazes the edible cells below 100, and crashes. The default's
+end-of-run count ranges from 2 to 311 ants.
+
+**`always`:**
+- Ants take 53% more steps and 18% more mouthfuls, and carry 52% more home.
+- They absorb no more food and bud no more.
+- The box is grazed out earlier on 8 seeds and later on 3.
+- The two extinctions are that cycle arriving early. On seed 6 the colony
+  reached 176 ants by frame 54,000 (44 on the default) and grazed the plants
+  from 1,242 to 85 by 63,000; it was gone by 108,000. The default's colony
+  peaked at 317 at the end of the run.
+
+**`larder`** fires heavily in the lab, which keeps little food at home. Over
+the whole run its colony is the default's size (ant-frames 6/6), but its bust
+lands before the end more often (alive at the end 80 → 25).
+
+**`hunger`** is the worst arm in the lab: 4 colonies of 12 die out. On three
+seeds the colony never grows past its founders, peaking at 16–53 ants within
+the first 25,000 frames, when the colony is at its hungriest and the drive
+fires hardest. Untraced: `labforage` writes no decision trace, so why a
+driven founding fails is open. It is recorded as a dead end with the bed's
+reason (§22c).
+
+**So the drive helps where the food supply outruns the foragers (the bed),
+and not where the foragers outrun the food (the lab).** No arm is ready to
+ship as a default on this evidence.
+
+### 22i. Predictions, written before each run
+
+Most were wrong, including the premise. I predicted that `always` would take a
+forager's fed time at home below 35%. It rose to 60–72%, because a larger store
+holds fed foragers longer. The colony did better anyway, for the reason in
+§22e. Every lab prediction was wrong in the same direction: I expected the lab
+to follow the bed.
+
+| # | run | prediction | right? |
+|---|---|---|---|
+| 1 | `FORAGE_DRIVE` unset, bed 24 seeds at 90, lab seed 1 | line for line the default (trace columns added only) || right: 24 bed seeds line for line and row for row; lab seed 1 on 143 keys |
+| 2 | `=hunger`, bed 90 | weak: colony hunger is 0.4–0.6 before frame 5,000 and 0.04–0.09 after, when the idle foragers exist. Loops per looper 1.52 → 1.6–1.8; fed-at-home share of retirement 61% → ~55%; starved 201 → 185–200; net food into home 7,506 → 7,500–8,500 || mostly right (loops per looper 1.63, starved 188, net 8,013); wrong on direction: fed time at home rose, 61% → 67% |
+| 3 | `=always`, bed 90 (the control: a forager that never rests) | strong on effort: loops per looper → 2.5+, fed-at-home share → under 35%; net food into home → 10,000+; starved 201 → 180–195 (most deaths are never-reachers before frame 4,000, whom this cannot reach) || wrong on effort, better on the colony: loops per looper 2.15, fed time at home rose to 72% (fed foragers eat the store: holding home food 41% → 64%); net food 17,030; starved 156; births 10 → 72 |
+| 4 | `=always,keep`, bed 90 | fed foragers stop re-taking the store: holding home food 64% → under 15% of their fed decisions at home; loops per looper 2.13 → 2.8+; net food into home 17,030 → 20,000+; starved 156 → 160–190 (§17a: the re-grab is how delivered food got eaten) || wrong: holding home food stayed 41%, net 15,316, starved 204. The formula cut hungry foragers' feeding too: one-loop ants starved 13 → 40, 22 on the nest |
+| 5 | `=larder,keep`, bed 90 | between baseline and #4: the store starts empty (need 1) and caps the drive once it holds a grant per ant. Loops per looper ~2.3; net food ~15,000; starved ~165 || wrong: loops per looper 1.77, net 12,674, starved 183 |
+| 6 | `=larder` (no keep), bed 90 | close to `always`, a little weaker: loops per looper ~2.0; net food ~14,000 || half: loops per looper 1.85 (right), net 10,918 (lower), starved 184 |
+| 7 | the second build, unset, bed seeds 1–8 and lab seed 1 | still line for line the default || right |
+| 8 | `=always,keep` with the rule fixed to fed foragers only | foragers stop starving on the nest again (one-loop starved 40 → ~15, as `always`); fed time at home stays low (~30%); net food into home ≥ `always`'s 17,030, since fed ants no longer eat the store; starved ~150–160 || wrong: fed time at home 61% (kept off the store they stand in it digging, 61% of their fed decisions at home, step chance 0); net 15,115, starved 174; births 72 → 9 |
+| 9 | `=larder,keep`, fixed | the store now fills, so the drive switches itself off: loops per looper ~1.9; net food ~14,000; starved ~165; food standing at home rises toward one grant per ant || close on loops (1.79) and the store (~1,700–2,000 J against ~2,400 wanted); net 12,449, starved 176 |
+| 10 | `=always`, bed 140 | loops per looper 1.55 → ~2.0; net food into home 5,999 → ~11,000; starved 209 → ~180; births up several-fold || right on loops per looper (2.00, 21/2) and births (7 → 48); net 9,565 (23/1) under the guess; starved 207: no change (never-reachers die before frame 4,000) |
+| 11 | `=larder`, bed 140 | between the default and #10: net food ~9,000, starved ~195 || wrong: net 7,516 (16/8, not significant), starved 217 |
+| 12 | `=always` + `HUNGRY_HOME=tether`, bed 90 | the tether pays now there is more at home: starved 156 → ~140; net food within 10% of `always` || better than predicted on starved: 156 → 123 (201 → 123 against the default, 22/1); net food 17,030 → 14,171, below `always` (5/19); births 72 → 44 |
+| 13 | `=always`, lab 12 seeds | net food into home up (856 → 1,200+), births and food eaten up modestly; extinctions no worse than 1; plants standing fall (more grazing, §17g) || half: net food into home 856 → 1,300 (8/4) right; births 530 → 470 (5/7) and intake flat, wrong; extinct 0 → 2, wrong (traced: those two boomed earlier and grazed the box bare); plants 38.5 → 30.5 right |
+| 16 | `=hunger`, lab 12 seeds | the lab colony is hungry through its boom-and-bust, so unlike the bed the drive fires: between the default and `always` on net food, and fewer early crashes than `always` (extinct ≤ 1) || wrong, the bad way: extinct 0 → 4 (three colonies never grew past their founders); births 530 → 375; net food flat (848) |
+| 15 | `=always` + `HUNGRY_HOME=tether`, bed 140 | the leash still forbids the long trips at 140: starved rises above `always`'s 207 (to ~250+), though less than the tether alone (419) || wrong, the bad way: starved 209 → 429 (1/23), net food 5,999 → 1,524, as the tether alone (419). The leash kills at 140 whatever home holds |
+| 14 | `=larder`, lab 12 seeds | the lab's nest sits under litter, which counts as store: drive mostly off, so within spread of the default || wrong: the drive fired heavily (the lab keeps little at home). Net food 856 → 1,139 (9/3); alive at the end 80 → 25 (2/10, p 0.039); extinct 0 → 2; ant-frames lived flat (6/6) |
+
