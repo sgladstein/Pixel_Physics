@@ -37,8 +37,9 @@ the lab colony (food eaten lower on 10 of 12, one colony lost) -- the
 owner's "good reason not to".
 
 **Next, 2026-09-27** (proposed to the owner, not yet ruled on):
-1. Book where each refill comes from (ground falling from above, a heap
-   slumping from the lip, a pellet) before choosing a lever.
+1. Walls and a roof that hold. Refills are 94% soil falling in, half from
+   above and half from the side; the heaps contribute nothing
+   (`nest-work-2026-09-27.md` §4).
 2. `DIG_DOWN` as a default candidate: cuts that build 3% → 6%, a bigger and
    better-connected excavation; bed and lab check first.
 3. A dig marker at the face (Toffin's marker half; untried) against the 31
