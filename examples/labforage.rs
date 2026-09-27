@@ -1532,11 +1532,15 @@ fn main() {
         world.species.set_creature(sid, def);
     }
     println!(
-        "  {} crop_capacity = {} face J; LOAD_SCALE={} LOAD_BY={}",
+        "  {} crop_capacity = {} face J; LOAD_SCALE={} LOAD_BY={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?})",
         spec.colony_species,
         world.species.id_of(&spec.colony_species).and_then(|id| world.species.get(id).creature.as_ref().map(|d| d.crop_capacity)).unwrap_or(0.0),
         std::env::var("PIXEL_PHYSICS_LOAD_SCALE").unwrap_or_else(|_| "shipped".into()),
-        std::env::var("PIXEL_PHYSICS_LOAD_BY").unwrap_or_else(|_| "shipped".into())
+        std::env::var("PIXEL_PHYSICS_LOAD_BY").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_SCOUT").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_HUNGRY_HOME").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_FORAGE_DRIVE").unwrap_or_else(|_| "shipped".into()),
+        pixel_physics::sim::creature::forage_drive_from_env()
     );
     // **Same block, same reason, same refusal.** See `wire_rider`'s own doc:
     // before founding, because `place_creature` copies the genome at
@@ -2570,6 +2574,13 @@ fn main() {
         piles.idle_hist_any.values().sum::<u64>(),
         piles.idle_max_streak_any,
         piles.idle_streak_p90_any()
+    );
+    // **The forage drive's "it fired" counts**, on a line of their own so the
+    // `SUMMARY` keys an identity check compares are the same with it unset
+    // (`creature::forage_drive_from_env`).
+    println!(
+        "FORAGE seed={} scouted={} paced={} kept={}",
+        spec.seed, st.forage_scouted, st.forage_paced, st.forage_kept
     );
     // **What the move drive itself was**, over every creature decision tick
     // of the run -- the probe §Z13 named and left for whoever owns

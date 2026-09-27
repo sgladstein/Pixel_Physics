@@ -34,6 +34,11 @@ will be.
   (`SCOUT_DEFAULT`), the hungry-home switch and the nest larder
   (`update_hungry_home`, `hungry_target`, `NestSite::larder`, the delivery
   block in `act`).
+  §4, §5, §6d, §8, §12 and §15 on 2026-09-27 for the forage drive
+  (`forage_drive_from_env`, `forage_drive_level`, `forage_pace`,
+  `nest_needs`, `World::step_nest_need`, `OrganismState::foraged`, `act`'s
+  feed urge under `,keep`) and the trace's `energy_j` and scout columns; §4's
+  `P(move)` table corrected the same day for `Crowding` at the nest.
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -205,6 +210,11 @@ so every laden row is 0.76 whichever way it faces; and the trail throttle
 outweigh any of them. Stillness adds up to +1.5 after 192 still ticks, which
 is what eventually frees a stuck ant.
 
+**At the nest the table's "empty, fed" row is lower.** There `Crowding` is
+the nest's room occupancy (§3), typically about 0.5, which takes 0.15 off the
+sum: a fed empty ant at home steps on about 1 decision in 10 (measured
+0.10–0.13 on the colony bed), and on 0 beside food.
+
 ## 5. Acting: feed, drop, dig, share, attack
 
 `act`, before movement, in this order. **Later steps are skipped by an early
@@ -218,6 +228,12 @@ the tick: the ant still gets its move roll (§6) afterwards.
 3. **Feed = pick up.** With food in the crop, `choose_weighted` between
    `Feed` and `Drop` first decides whether to try feeding at all. Feeding
    requires room in the crop and the same material as what is already held.
+   **`Feed` reads no hunger**, so a fed ant beside food at the nest takes it
+   on about half its decisions. Under `PIXEL_PHYSICS_FORAGE_DRIVE=<need>,keep`
+   (off, §6d) a forager the colony needs, at or above its `start_energy`,
+   has its feed urge at the nest scaled by `1 - drive`, so it leaves the
+   store for the hungry and unloads rather than re-taking; below
+   `start_energy` it eats as before.
    A successful feed roll **removes one adjacent food cell from the world
    into the crop**, and `act` returns. **The crop is both the cargo and the
    stomach** (§9). `crop_capacity: 5760` worth units is six fruit cells
@@ -420,6 +436,28 @@ pull. Two forms:
 - `tether` sets it only off a route (trail B under the head under presence
   0.5), and clears it within 2 cells of the target.
 
+**`PIXEL_PHYSICS_FORAGE_DRIVE` (off) sends a fed forager out when the colony
+needs food.** It reaches an animal that has foraged (`OrganismState::foraged`,
+set by any pickup away from its nest), is empty (sensed empty and still empty
+after `act`), carries no spoil and walks `trailaway`. That animal feels
+`drive` (`forage_drive_level`) in two places and nowhere else:
+- scouting's pull uses `gain × max(hunger, drive)` in place of
+  `gain × hunger`, so a fed forager runs out and back like a hungry scout;
+- unless `,nopace`, the `Move` row reads `Energy` as `1 - drive` where that is
+  lower than its own (`forage_pace`: the row's sum is recovered by inverting
+  `squash`, and the animal's own `Energy → Move` weight times the change is
+  added). `Drop`, `Share` and `Feed` still read its true energy.
+
+The drive is the nest's need (`World::nest_need`, §8), found from
+`home_target` as `hungry_target` finds its nest, or 1:
+- `hunger`: the mean over the nest's animals of `1 - energy / start_energy`,
+  floored at 0 each;
+- `larder`: `1 - store / (animals × start_energy × LARDER_GRANTS)`, clamped
+  to 0..1, where the store is the loose food near the nest (§8);
+- `always`: 1, the control.
+`,keep` adds the store rule in §5. On the nest itself the anchor follows the
+ant, so the pull has no direction until the ant steps off an end.
+
 The decision trace records the patience each choice scored with, the home
 cosine of the heading picked (for an empty ant too, under `trailaway`), and
 under stage 2 its trail presence (`patience`, `chosen_cos`, `chosen_route`).
@@ -485,6 +523,14 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   the cells food is delivered onto (each new delivery weighs `LARDER_EMA`,
   0.05). Only the hungry-home switch reads it (§6d). On the colony bed
   deliveries land at the end of the strip facing the food.
+- **`World::nest_need`**, one per nest site, is the forage drive's need
+  (§6d), rebuilt every 256 frames by `World::step_nest_need` and empty unless
+  the drive reads it. It attributes every live creature of a nesting species
+  to its nearest nest site by head, as the room census does (`nest_needs`).
+  Under `larder` the store is every loose food cell (not living tissue)
+  within 2 cells of nest material and 64 columns / 24 rows of the site,
+  priced as the first attributed animal absorbs it (`diet_yield`, above
+  `EAT_YIELD_THRESHOLD`).
 
 ## 9. The crop, digestion and energy
 
@@ -595,6 +641,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_NEST_DOOR_FOUNDERS` | spread | `pile`: under the door, founders start heaped on it instead of spread along the ground (§8) |
 | `PIXEL_PHYSICS_SCOUT` | 2 | `<gain>`: under `trailaway`, a hungry empty ant off a route runs out from home and back (§6d); `0` turns it off; `World::scout` for one world |
 | `PIXEL_PHYSICS_HUNGRY_HOME` | off | `on`/`refed` or `tether`: an empty ant too hungry to be out is pulled home to its nest's larder (§6d, §8); `World::hungry_home` for one world |
+| `PIXEL_PHYSICS_FORAGE_DRIVE` | off | `hunger`, `larder` or `always`, then optionally `,nopace` and `,keep`: a fed forager goes out when its nest needs food (§6d), and with `,keep` leaves the store at home (§5); `World::forage_drive` for one world |
 | `PIXEL_PHYSICS_LOAD_SCALE` | 1.0 | `<f>`: every food load weighs `f` times as much again, on top of the species' `food_weight` (§9) |
 | `PIXEL_PHYSICS_SPOIL_HAUL`, `_DIG_DOWN`, `_SPOIL_DROP_COVER`, `_TRAFFIC_DEFER`, `_COLONY_SPACING` | unset | haulage re-roll to the nest door, downward dig bias, spoil held under cover, jam deferral length, founder spacing |
 
@@ -640,6 +687,9 @@ is on, every walking decision, the move stage of `creature_tick`, pushes one
 - under the chooser (§6d), the patience it scored with and the home cosine
   of the heading it picked, and under stage 2 that heading's trail presence
   (`chosen_route`).
+- the animal's energy in joules (`energy_j`: `energy` is the clamped input),
+  the forage drive it felt (`drive`, NaN when off or carrying), and scouting
+  as the chooser scored it (`scout_w`, `scout_patience`, `scout_home`).
 
 `CreatureStats::decision_census` counts the same decisions by leg × setting
 × outcome, and only while the trace is on, because the setting needs all

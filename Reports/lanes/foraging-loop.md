@@ -206,4 +206,15 @@ for line. Diff the logs with the `trailfollow:`, `breadoff=`, `ant.ron:` and
 
 | # | run | prediction | right? |
 |---|---|---|---|
-| | | | |
+| 1 | `FORAGE_DRIVE` unset, bed 24 seeds at 90, lab seed 1 | line for line the default (trace columns added only) | |
+| 2 | `=hunger`, bed 90 | weak: colony hunger is 0.4–0.6 before frame 5,000 and 0.04–0.09 after, when the idle foragers exist. Loops per looper 1.52 → 1.6–1.8; fed-at-home share of retirement 61% → ~55%; starved 201 → 185–200; net food into home 7,506 → 7,500–8,500 | |
+| 3 | `=always`, bed 90 (the control: a forager that never rests) | strong on effort: loops per looper → 2.5+, fed-at-home share → under 35%; net food into home → 10,000+; starved 201 → 180–195 (most deaths are never-reachers before frame 4,000, whom this cannot reach) | |
+| 4 | `=always,keep`, bed 90 | fed foragers stop re-taking the store: holding home food 64% → under 15% of their fed decisions at home; loops per looper 2.13 → 2.8+; net food into home 17,030 → 20,000+; starved 156 → 160–190 (§17a: the re-grab is how delivered food got eaten) | |
+| 5 | `=larder,keep`, bed 90 | between baseline and #4: the store starts empty (need 1) and caps the drive once it holds a grant per ant. Loops per looper ~2.3; net food ~15,000; starved ~165 | |
+| 6 | `=larder` (no keep), bed 90 | close to `always`, a little weaker: loops per looper ~2.0; net food ~14,000 | |
+| 7 | the second build, unset, bed seeds 1–8 and lab seed 1 | still line for line the default | |
+| 8 | `=always,keep` with the rule fixed to fed foragers only | foragers stop starving on the nest again (one-loop starved 40 → ~15, as `always`); fed time at home stays low (~30%); net food into home ≥ `always`'s 17,030, since fed ants no longer eat the store; starved ~150–160 | |
+| 9 | `=larder,keep`, fixed | the store now fills, so the drive switches itself off: loops per looper ~1.9; net food ~14,000; starved ~165; food standing at home rises toward one grant per ant | |
+| 10 | `=always`, bed 140 | loops per looper 1.55 → ~2.0; net food into home 5,999 → ~11,000; starved 209 → ~180; births up several-fold | |
+| 11 | `=larder`, bed 140 | between the default and #10: net food ~9,000, starved ~195 | |
+| 12 | `=always` + `HUNGRY_HOME=tether`, bed 90 | the tether pays now there is more at home: starved 156 → ~140; net food within 10% of `always` | |

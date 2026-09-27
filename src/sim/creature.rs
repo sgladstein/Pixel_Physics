@@ -655,6 +655,13 @@ pub struct DecisionScratch {
     /// Stage 2: the trail presence (`trail_presence`, 0..1) of the heading
     /// the chooser picked; NaN otherwise.
     pub chosen_route: f32,
+    /// Scouting as the chooser scored it (`scout_of`): the pull's weight
+    /// (gain x the hunger or forage drive it felt), the scout's patience, and
+    /// whether it had given up and was heading home. NaN / false when the
+    /// chooser did not choose.
+    pub scout_w: f32,
+    pub scout_patience: f32,
+    pub scout_home: bool,
 }
 
 impl Default for DecisionScratch {
@@ -676,6 +683,9 @@ impl Default for DecisionScratch {
             patience: f32::NAN,
             chosen_cos: f32::NAN,
             chosen_route: f32::NAN,
+            scout_w: f32::NAN,
+            scout_patience: f32::NAN,
+            scout_home: false,
         }
     }
 }
@@ -769,6 +779,17 @@ pub struct DecisionRow {
     pub chosen_cos: f32,
     /// Stage 2: the trail presence of the heading picked (`trail_presence`).
     pub chosen_route: f32,
+    /// The animal's energy in joules when the move was decided. `energy`
+    /// above is the brain's input, clamped at `start_energy`, so every fed
+    /// ant reads 1.0 there whatever it holds; this is what it holds.
+    pub energy_j: f32,
+    /// The forage drive this empty animal felt (`forage_drive_level`), NaN
+    /// when the drive is off or the animal is carrying.
+    pub drive: f32,
+    /// Scouting as the chooser scored it: see `DecisionScratch::scout_w`.
+    pub scout_w: f32,
+    pub scout_patience: f32,
+    pub scout_home: bool,
 }
 
 fn worm_tick(world: &mut World, x: i32, y: i32, organism: OrganismId) -> Vec<ActiveSite> {
@@ -5507,7 +5528,34 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // *"there is no steering toward the nest anywhere"* until 2026-09-23,
     // which stopped being true when `ant.ron` shipped `home_bias: 1.0`. See
     // `Reports/how-the-ant-works.md` §6.
-    let p_move = outputs[brain::BrainOutput::Move as usize].clamp(0.0, 1.0);
+    let mut p_move = outputs[brain::BrainOutput::Move as usize].clamp(0.0, 1.0);
+    // **A forager the colony needs paces out like a hungry one**
+    // (`forage_drive_from_env`, off unless set): the `Move` row reads
+    // `Energy` as `1 - drive` for an empty forager walking `TrailAway`, the
+    // walk whose scouting the same drive aims. Checked in this order so an
+    // unset switch reads nothing past its own flag.
+    let drive_now = forage_drive_of(world);
+    let mut drive_level = f32::NAN;
+    // Empty on both sides of `act`: sensed empty (`CarryingFood` 0, so the
+    // `Move` sum being lifted is an empty ant's, with no `HomeAligned`) and
+    // still empty now -- an ant that put down its last cell this tick keeps
+    // the laden sum it decided with.
+    let sensed_empty = inputs[brain::BrainInput::CarryingFood as usize] <= 0.0;
+    if drive_now.on() && sensed_empty && chooser_for(world, def) == Chooser::TrailAway {
+        let felt = world.organism(organism).filter(|s| s.crop.is_none_or(|c| c.worth() <= 0.0) && s.spoil.is_none() && !s.hungry_home).map(|st| {
+            let d = forage_drive_level(world, st);
+            let move_out = outputs[brain::BrainOutput::Move as usize];
+            (d, if drive_now.pace { forage_pace(&st.genome, move_out, inputs[brain::BrainInput::Energy as usize], d) } else { None })
+        });
+        if let Some((d, paced)) = felt {
+            drive_level = d;
+            if let Some(p) = paced {
+                p_move = p;
+                world.creature_stats.forage_paced += 1;
+            }
+        }
+    }
+    let p_move = p_move;
     // Set by either arm that actually puts the body somewhere else -- the
     // walk and the launch. `moved` cannot serve: it gates the pheromone
     // deposit and is held false for a creature in the air on purpose.
@@ -5535,7 +5583,8 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         } else {
             0
         };
-        Some((head, usable, anchor, fill, leg))
+        let energy_j = st.map_or(0.0, |s| s.energy);
+        Some((head, usable, anchor, fill, leg, energy_j))
     } else {
         None
     };
@@ -5738,7 +5787,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // block makes, and it has to be re-read here because `hx`/`hy` there are
     // scoped to `if moved`.
     // **The decision trace's "after" half**, and the C4 census beside it.
-    if let Some((head, usable, anchor, fill, leg)) = trace_pre {
+    if let Some((head, usable, anchor, fill, leg, energy_j)) = trace_pre {
         let st = world.organism(organism);
         let head_after = st.and_then(|s| s.chain.first().copied()).unwrap_or(head);
         let heading_after = st.map_or(heading, |s| s.heading);
@@ -5788,6 +5837,11 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             patience: sc.patience,
             chosen_cos: sc.chosen_cos,
             chosen_route: sc.chosen_route,
+            energy_j,
+            drive: drive_level,
+            scout_w: sc.scout_w,
+            scout_patience: sc.scout_patience,
+            scout_home: sc.scout_home,
         };
         if let Some(log) = world.decision_log.as_mut() {
             log.push(row);
@@ -9962,7 +10016,29 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
     // make ants dig at all, raised the baseline eating probability in the
     // same stroke, invisibly. Evolution cannot select a burrower against a
     // grazer while the two share a gene.
-    let feed_urge = outputs[O::Feed as usize].clamp(0.0, 1.0);
+    let mut feed_urge = outputs[O::Feed as usize].clamp(0.0, 1.0);
+    // **A fed forager the colony needs leaves the store for the colony**
+    // (`forage_drive_from_env`'s `,keep`): at home, at or above its
+    // `start_energy`, its urge to feed is scaled by `1 - drive`, so it leaves
+    // what is put down for the hungry; below it, it eats as before. The same
+    // urge sets the feed-or-drop choice below, so a fed forager also unloads
+    // rather than re-taking. Scaled, not forbidden: the drive is graded, and
+    // so is this. Nothing is read unless the switch is on.
+    //
+    // **Only the fed, measured.** The first form scaled by `1 - (drive -
+    // hunger)`, which under `always` cut a forager at hunger 0.3 to 30% of
+    // its urge: on the colony bed (24 seeds, 90 cells) ants with one loop
+    // starved 13 -> 40, 22 of them on the nest, and the colony's starved
+    // rose 156 -> 204 against `always` alone.
+    let drive_now = forage_drive_of(world);
+    if drive_now.on() && drive_now.keep {
+        let drive = world.organism(organism).filter(|st| st.energy >= def.start_energy).map_or(0.0, |st| forage_drive_level(world, st));
+        if drive > 0.0 && nest_within_reach(world, organism, x, y, def) {
+            feed_urge *= 1.0 - drive;
+            world.creature_stats.forage_kept += 1;
+        }
+    }
+    let feed_urge = feed_urge;
     let drop_urge = outputs[O::Drop as usize].clamp(0.0, 1.0);
     // **The spoil dump is its own verb since 2026-09-02**, for the reason
     // stated one comment up about `Feed`: while two acts share an output,
@@ -10699,6 +10775,12 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // inside the crop-update block and does not reach here.
                 let first = if let Some(state) = world.organism_mut(organism) {
                     state.life.bites += 1;
+                    // **Food taken away from home makes a forager**
+                    // (`forage_drive_level`). Written whatever the switch,
+                    // and read by nothing unless it is on.
+                    if !picked_at_home {
+                        state.foraged = true;
+                    }
                     state.life.bites == 1
                 } else {
                     false
@@ -12875,6 +12957,248 @@ pub fn scout_of(world: &World) -> f32 {
     world.scout.unwrap_or_else(scout_from_env)
 }
 
+/// **A forager goes out when the colony needs food, not only when it does**
+/// -- the owner's question of 2026-09-27, *"food is not building up at the
+/// nest"*. `PIXEL_PHYSICS_FORAGE_DRIVE=hunger`, or `World::forage_drive` for
+/// one world (`forage_drive_of`). Off unless set.
+///
+/// **Why.** Everything that sends an empty ant out answers to its own
+/// belly: scouting's pull is `gain x (1 - energy / start_energy)` and the
+/// brain's `Move` reads `Energy` at -1.75, so an ant at or above its 200 J
+/// grant has no outward pull and steps on about one decision in five.
+/// Traced ant by ant on the colony bed (24 seeds, 90 cells, 303 ants that
+/// made a loop; `Reports/ant-scenes-2026-09-23.md` §22): after its last loop
+/// a forager spends 83% of its remaining life at home, 61% of it fed, and
+/// holding food it took off the nest 41% of that time. It gains a median
+/// 414 J there against 0 J out, about a third of everything the colony
+/// digests, eaten by ants that were not hungry while the ones that were
+/// starved. A real forager's crop is pooled with its nestmates', so its own
+/// state follows the colony's (Greenwald, Baltiansky & Feinerman 2018,
+/// *eLife* 7:e31730: each forager leaves on its own crop load, and trip
+/// frequency rises linearly with the colony's empty space). Here the carrier
+/// digests its own cargo, so that coupling is missing and this puts it back.
+///
+/// **What it does.** An animal that has foraged (`OrganismState::foraged`:
+/// it has picked food up away from home) and walks the chooser feels
+/// `max(own hunger, drive)` in the two places that send it out, and nowhere
+/// else: scouting's pull, and -- unless `,nopace` -- the `Move` row, which
+/// reads `Energy` as `1 - drive` (`forage_pace`). `Drop`, `Share` and `Feed`
+/// still read its true energy, so a fed forager that comes home still puts
+/// its load down. The drive itself (`forage_drive_level`):
+/// - `hunger`: the mean hunger of its nest's animals (`World::nest_need`,
+///   `nest_needs`), so it falls to 0 when the colony is fed -- the OFF a
+///   verb needs (`dead-ends.md`, the flitter's `(Energy,Fly)`);
+/// - `larder`: how far the food standing at home falls short of one
+///   `start_energy` per animal of the nest (`LARDER_GRANTS`), so it falls to
+///   0 once the colony has a store -- the OFF, measured on what the owner
+///   asked about, food building up at the nest;
+/// - `always`: 1, the control -- a forager that never rests, whatever the
+///   colony needs -- to separate "any drive" from "a drive that follows need".
+///
+/// `,keep` adds: **a fed forager the colony needs leaves the store for the
+/// colony**. At home, at or above its `start_energy`, its `Feed` urge is
+/// scaled by `1 - drive` (`act`), so it does not stand at the larder picking
+/// up and eating what the others brought; below it, it eats as before. Traced on the bed under `always` without it:
+/// fed foragers at home spent 64% of their decisions holding food taken off
+/// the nest, at a step chance of exactly 0, and the drive could not reach
+/// them -- it acts on an empty ant.
+///
+/// Read once per process. Unset, nothing is read or written and no draw is
+/// taken, so the default is bit-exact.
+pub fn forage_drive_from_env() -> ForageDrive {
+    static V: std::sync::OnceLock<ForageDrive> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        let raw = std::env::var("PIXEL_PHYSICS_FORAGE_DRIVE").unwrap_or_default();
+        let mut parts = raw.split(',').map(str::trim);
+        let need = match parts.next() {
+            Some("hunger") => ForageNeed::Hunger,
+            Some("larder") => ForageNeed::Larder,
+            Some("always") => ForageNeed::Always,
+            _ => ForageNeed::Off,
+        };
+        let mods: Vec<&str> = parts.collect();
+        ForageDrive { need, pace: !mods.contains(&"nopace"), keep: mods.contains(&"keep") }
+    })
+}
+
+/// **Whose need sends a forager out** (`forage_drive_from_env`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ForageNeed {
+    /// No drive: an ant goes out on its own hunger only. The default.
+    Off,
+    /// The mean hunger of its nest's animals (`World::nest_need`).
+    Hunger,
+    /// How far the food standing at home falls short of one `start_energy`
+    /// per animal of the nest (`World::nest_need`, `LARDER_GRANTS`).
+    Larder,
+    /// Always 1: the control, a forager that never rests.
+    Always,
+}
+
+/// **The forage drive's form** (`forage_drive_from_env`): whose need;
+/// whether it also lifts the step chance (`pace`, on unless `,nopace`) or
+/// only aims the walk; and whether a forager it drives leaves the store at
+/// home for the colony (`keep`, off unless `,keep`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ForageDrive {
+    pub need: ForageNeed,
+    pub pace: bool,
+    pub keep: bool,
+}
+
+impl ForageDrive {
+    /// No drive: the shipped ant.
+    pub const OFF: ForageDrive = ForageDrive { need: ForageNeed::Off, pace: true, keep: false };
+
+    /// Whether any drive is on.
+    pub fn on(self) -> bool {
+        self.need != ForageNeed::Off
+    }
+}
+
+/// This world's forage drive: `World::forage_drive` if set, else the
+/// environment's.
+pub fn forage_drive_of(world: &World) -> ForageDrive {
+    world.forage_drive.unwrap_or_else(forage_drive_from_env)
+}
+
+/// **How strongly the colony's need sends this animal out**, in `[0, 1]`:
+/// 0 unless the drive is on and the animal has foraged; else 1 under
+/// `always`, and under `hunger` its nest's mean hunger, the nest found from
+/// home as `hungry_target` finds it (`World::nearest_nest_site` of
+/// `home_target`). A need sampled at home and held, not a field that fades
+/// on the way out: an ungated `(PheroARise, Move)` that fell along the
+/// outbound leg worked as a leash (`dead-ends.md`, reached food 199 -> 156).
+fn forage_drive_level(world: &World, state: &crate::sim::organism::OrganismState) -> f32 {
+    let drive = forage_drive_of(world);
+    if !drive.on() || !state.foraged {
+        return 0.0;
+    }
+    match drive.need {
+        ForageNeed::Off => 0.0,
+        ForageNeed::Always => 1.0,
+        ForageNeed::Hunger | ForageNeed::Larder => {
+            let (hx, hy) = home_target(world, state);
+            world.nearest_nest_site(hx, hy).and_then(|i| world.nest_need.get(i).copied()).unwrap_or(0.0)
+        }
+    }
+}
+
+/// **The step chance of an empty forager the colony needs**: `p_move` as the
+/// `Move` row would give it reading `Energy` as `1 - drive` where that is
+/// lower than its own, so a fed forager paces out like a hungry one while
+/// `Drop`, `Share` and `Feed` go on reading what it holds. Exact, from the
+/// row's own sum: `squash` is inverted (`s = o / (1 - |o|)`), the animal's
+/// own `Energy -> Move` weight (`genome`, which mutates) times the change in
+/// `Energy` is added, and the sum squashed again. `None` when nothing
+/// changes, so the caller keeps its value untouched.
+fn forage_pace(genome: &[f32], move_out: f32, energy_in: f32, drive: f32) -> Option<f32> {
+    let felt = 1.0 - drive;
+    if drive <= 0.0 || felt >= energy_in {
+        return None;
+    }
+    // The same weight `eval_brain` reads, and ignored below `W_EPS` as it
+    // ignores it, so a mutated near-zero weight lifts nothing here either.
+    let w = genome.get(brain::BrainOutput::Move as usize * brain::INPUT_SLOTS + brain::BrainInput::Energy as usize).copied().filter(|w| w.abs() >= brain::W_EPS).unwrap_or(0.0);
+    let sum = move_out / (1.0 - move_out.abs()).max(1e-6);
+    let lifted = sum + w * (felt - energy_in);
+    Some((lifted / (1.0 + lifted.abs())).clamp(0.0, 1.0))
+}
+
+/// **How big a store the `larder` drive wants**: one `start_energy` per
+/// animal of the nest, in the joules those animals would absorb from it --
+/// enough to give every member its founding grant once more. Not tuned: the
+/// grant is the unit a colony already starts from (E14 sized it so an idle
+/// ant lives one scene), and one of it each is the smallest store that means
+/// anything to every member.
+pub const LARDER_GRANTS: f32 = 1.0;
+
+/// **How far from home a larder census looks**, around a nest site's centre
+/// and founding surface; a food cell counts only if nest material lies
+/// within `LARDER_TOUCH` of it, so the box bounds the work and the nest
+/// decides what is home. Wide enough for the 53-column painted strip.
+const LARDER_SCAN: (i32, i32) = (64, 24);
+const LARDER_TOUCH: i32 = 2;
+
+/// **Each nest's need, for the forage drive** (`World::nest_need`, one per
+/// `nest_sites`, by `World::step_nest_need` on its cadence): the animals of
+/// nesting species attributed to each site by head, as `step_nest_room`
+/// attributes them, and then
+/// - `Hunger`: their mean `1 - energy / start_energy`, floored at 0 each so
+///   a rich forager cannot cancel a starving one;
+/// - `Larder`: `1 - store / (members x start_energy x LARDER_GRANTS)`,
+///   clamped to `[0, 1]`, where the store is every loose food cell within
+///   `LARDER_TOUCH` of nest material near the site, priced as the first
+///   member attributed to it absorbs it (`diet_yield`, and only above
+///   `EAT_YIELD_THRESHOLD`, what that animal could see as food at all).
+///   Living tissue -- a plant, an animal -- is not a store.
+///
+/// **Hunger is a stand-in for pooled crops, not a sense.** In a real colony
+/// food passes crop to crop within the hour, so a forager's own state
+/// follows the colony's (Greenwald, Baltiansky & Feinerman 2018). Here the
+/// carrier digests its own cargo, so the colony's state is read where the
+/// pooling would have put it. Measured on the colony bed it is 0.4-0.6 for
+/// the first 5,000 frames and under 0.1 for most of what follows, when the
+/// idle foragers exist. **The store is inspected, as real colonies inspect
+/// stores of solid food** (bees' pollen, Fewell & Winston 1992; ants'
+/// protein, Abbott et al. 2025), and on the bed food is solid and put down.
+pub(crate) fn nest_needs(world: &World, need: ForageNeed) -> Vec<f32> {
+    let n = world.nest_sites.len();
+    let mut hunger = vec![0.0f64; n];
+    let mut count = vec![0u32; n];
+    let mut first: Vec<Option<(OrganismId, f32)>> = vec![None; n];
+    let mut nest_mats: Vec<material::MaterialId> = Vec::new();
+    for id in world.live_organism_ids() {
+        let Some(state) = world.organism(id) else { continue };
+        let Some(def) = world.species.get(state.species).creature.as_ref() else { continue };
+        let Some(nest) = world.materials.id_of(&def.nest) else { continue };
+        if !nest_mats.contains(&nest) {
+            nest_mats.push(nest);
+        }
+        let Some(&(hx, hy)) = state.chain.first() else { continue };
+        if let Some(i) = world.nearest_nest_site(hx, hy) {
+            hunger[i] += (1.0 - state.energy / def.start_energy.max(1.0)).clamp(0.0, 1.0) as f64;
+            count[i] += 1;
+            if first[i].is_none() {
+                first[i] = Some((id, def.start_energy));
+            }
+        }
+    }
+    match need {
+        ForageNeed::Hunger => hunger.iter().zip(&count).map(|(&s, &c)| if c > 0 { (s / c as f64) as f32 } else { 0.0 }).collect(),
+        ForageNeed::Larder => {
+            let Some(b) = world.bounds() else { return vec![0.0; n] };
+            let is_nest = |x: i32, y: i32| {
+                (y - LARDER_TOUCH..=y + LARDER_TOUCH).any(|ny| (x - LARDER_TOUCH..=x + LARDER_TOUCH).any(|nx| nx >= b.min_x && nx <= b.max_x && ny >= b.min_y && ny <= b.max_y && nest_mats.contains(&world.get(nx, ny).material)))
+            };
+            (0..n)
+                .map(|i| {
+                    let Some((member, start)) = first[i] else { return 0.0 };
+                    let Some(def) = world.organism(member).and_then(|s| world.species.get(s.species).creature.as_ref()) else { return 0.0 };
+                    let gut = traits_of(world, member, def)[TRAIT_GUT_BIAS];
+                    let site = world.nest_sites[i];
+                    let mut store = 0.0f64;
+                    for y in (site.surface - LARDER_SCAN.1).max(b.min_y)..=(site.surface + LARDER_SCAN.1).min(b.max_y) {
+                        for x in (site.x - LARDER_SCAN.0).max(b.min_x)..=(site.x + LARDER_SCAN.0).min(b.max_x) {
+                            let c = world.get(x, y);
+                            if c.organism_id() != 0 {
+                                continue;
+                            }
+                            let j = diet_yield(world, c, gut);
+                            if j >= EAT_YIELD_THRESHOLD && is_nest(x, y) {
+                                store += j as f64;
+                            }
+                        }
+                    }
+                    let want = count[i] as f64 * start as f64 * LARDER_GRANTS as f64;
+                    (1.0 - store / want.max(1.0)).clamp(0.0, 1.0) as f32
+                })
+                .collect()
+        }
+        ForageNeed::Off | ForageNeed::Always => Vec::new(),
+    }
+}
+
 /// **A hungry animal comes home before it starves** -- the owner's ruling,
 /// 2026-09-26: *"scout or any ant should come home when they get so hungry
 /// before they are going to starve to death."* `PIXEL_PHYSICS_HUNGRY_HOME=on`,
@@ -13162,18 +13486,33 @@ fn chooser_step(
     };
     // **Scouting, off a route** (`scout_of`): the gain times hunger, 0 for
     // an ant with no `away_from` or a gain of 0, when the term is not added.
+    // Under the forage drive (`forage_drive_from_env`) a forager the colony
+    // needs feels the larger of its own hunger and the drive, so a fed one
+    // runs out too; off, `drive` is 0 and this is `hunger` exactly.
+    let mut drove = false;
     let scout_w = match away_from {
         Some(_) => {
             let g = scout_of(world);
             if g > 0.0 {
-                let fed = world.organism(organism).map_or(1.0, |s| (s.energy / def.start_energy.max(1.0)).clamp(0.0, 1.0));
-                g * (1.0 - fed)
+                let st = world.organism(organism);
+                let fed = st.map_or(1.0, |s| (s.energy / def.start_energy.max(1.0)).clamp(0.0, 1.0));
+                let hunger = 1.0 - fed;
+                let drive = if forage_drive_of(world).on() { st.map_or(0.0, |s| forage_drive_level(world, s)) } else { 0.0 };
+                if drive > hunger {
+                    drove = true;
+                    g * drive
+                } else {
+                    g * hunger
+                }
             } else {
                 0.0
             }
         }
         None => 0.0,
     };
+    if drove {
+        world.creature_stats.forage_scouted += 1;
+    }
     let away_home_cos = |d: u8| -> Option<f32> {
         let (ax, ay) = away_from?;
         let (vx, vy) = ((ax - hx) as f32, (ay - hy) as f32);
@@ -13247,6 +13586,9 @@ fn chooser_step(
         world.decision_scratch.patience = patience;
         world.decision_scratch.chosen_cos = picked_cos;
         world.decision_scratch.chosen_route = picked_route;
+        world.decision_scratch.scout_w = scout_w;
+        world.decision_scratch.scout_patience = scout_patience;
+        world.decision_scratch.scout_home = scout_home;
     }
 
     if pick == usable.len() {
@@ -24946,6 +25288,202 @@ mod tests {
         assert!(gave_up, "the scout never gave up at the wall");
         assert!(far - back >= 20, "the scout gave up at the wall but came back only {} cells", far - back);
         assert_eq!(walk(0.0, 1.0), walk(2.0, 1.0), "a fed ant's walk changed with scouting on");
+    }
+
+    /// **The forage drive: a fed forager runs out when its colony is
+    /// hungry, and rests when it is fed or has never foraged**
+    /// (`forage_drive_from_env`, `forage_drive_level`, `forage_pace`). The
+    /// scouting scene -- a bare floor, walls at each end, home 80 cells west,
+    /// scouting at the shipped gain -- with a nest site registered at home and
+    /// the ant held at `start_energy`, where its own hunger is 0 and scouting
+    /// never adds its term. The nest's need is forced after `begin_step`'s
+    /// census on every frame, so it is exactly the value under test.
+    ///
+    /// The control, drive off, is the fed walk; it never reaches the east
+    /// wall. Four arms must match it position for position: a colony that is
+    /// fed (`hunger` at need 0, the OFF), an ant that has never foraged under
+    /// `always`, and both of those again under `,nopace`. Two must run east to
+    /// the wall (x 158) and give up there: `always`, and `hunger` at need
+    /// 0.75, each with the "it fired" counts (`forage_scouted`,
+    /// `forage_paced`) nonzero -- the effect is the far side of the call, the
+    /// wall reached. `always,nopace` aims without pacing: it must still get
+    /// further east than the control, and `forage_paced` must stay 0.
+    /// **Watched red** with the drive removed from `scout_w` (both driven
+    /// arms walk with the control) and with `forage_pace`'s lift removed
+    /// (`forage_paced` stays 0 under `always`).
+    #[test]
+    fn a_fed_forager_runs_out_when_its_colony_is_hungry_and_rests_when_it_is_fed() {
+        struct Walk {
+            path: Vec<(i32, i32)>,
+            gave_up: bool,
+            scouted: u64,
+            paced: u64,
+        }
+        let walk = |drive: ForageDrive, foraged: bool, need: f32| -> Walk {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            for x in 0..160 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            for y in 0..41 {
+                for x in [0, 159] {
+                    w.set(x, y, stone);
+                }
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.scout = Some(SCOUT_DEFAULT);
+            w.forage_drive = Some(drive);
+            w.register_nest_site(20, 40, 4);
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let energy = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy;
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.heading = 4;
+                st.forage_anchor = (20, 40);
+                st.foraged = foraged;
+            }
+            let (mut path, mut gave_up) = (Vec::new(), false);
+            for _ in 0..3000 {
+                w.organism_mut(ant).expect("live").energy = energy;
+                w.begin_step();
+                if drive.need == ForageNeed::Hunger {
+                    w.nest_need = vec![need];
+                }
+                scheduler::step(&mut w);
+                w.end_step();
+                let st = w.organism(ant).expect("live");
+                assert!(st.crop.is_none(), "the ant must stay empty");
+                assert_eq!(st.forage_anchor, (20, 40), "the ant touched a nest: the scene has lost its home point");
+                gave_up |= st.scout_home;
+                path.push(st.chain[0]);
+            }
+            Walk { path, gave_up, scouted: w.creature_stats.forage_scouted, paced: w.creature_stats.forage_paced }
+        };
+        let hunger = ForageDrive { need: ForageNeed::Hunger, pace: true, keep: false };
+        let always = ForageDrive { need: ForageNeed::Always, pace: true, keep: false };
+        let nopace = |d: ForageDrive| ForageDrive { pace: false, ..d };
+        let furthest = |p: &[(i32, i32)]| p.iter().map(|c| c.0).max().expect("walked");
+
+        let control = walk(ForageDrive::OFF, true, 0.0);
+        assert!(furthest(&control.path) < 130, "a fed ant with no drive reached x {}: the scene cannot show a drive", furthest(&control.path));
+        assert_eq!((control.scouted, control.paced), (0, 0), "the drive fired while off");
+        for (name, w) in [
+            ("a fed colony (hunger at need 0)", walk(hunger, true, 0.0)),
+            ("a fed colony, nopace", walk(nopace(hunger), true, 0.0)),
+            ("an ant that never foraged, always", walk(always, false, 1.0)),
+            ("an ant that never foraged, always,nopace", walk(nopace(always), false, 1.0)),
+        ] {
+            assert_eq!(w.path, control.path, "{name}: the walk changed, so the drive acted where it must not");
+            assert_eq!((w.scouted, w.paced), (0, 0), "{name}: the drive counted a decision it did not drive");
+        }
+        for (name, w) in [("always", walk(always, true, 1.0)), ("a hungry colony (hunger at need 0.75)", walk(hunger, true, 0.75))] {
+            let far = furthest(&w.path);
+            assert!(far >= 150, "{name}: a fed forager should run east to the wall (x 158), and got no further than {far}");
+            assert!(w.gave_up, "{name}: the forager never gave up at the wall");
+            assert!(w.scouted > 0 && w.paced > 0, "{name}: the wall was reached but the counters read scouted {} paced {}", w.scouted, w.paced);
+        }
+        let aimed = walk(nopace(always), true, 1.0);
+        assert!(furthest(&aimed.path) > furthest(&control.path), "always,nopace: aimed but no further east ({}) than the control ({})", furthest(&aimed.path), furthest(&control.path));
+        assert!(aimed.scouted > 0 && aimed.paced == 0, "always,nopace: scouted {} paced {} -- the pace must stay off", aimed.scouted, aimed.paced);
+    }
+
+    /// **A nest is as hungry as the mean of its animals, floored at 0 each,
+    /// and the census runs only for the drive that reads it**
+    /// (`World::step_nest_need`). Two nests 120 cells apart; at the west one
+    /// an ant at `start_energy` and one at half (hunger 0 and 0.5, mean 0.25);
+    /// at the east one an ant at a tenth and one at three times
+    /// `start_energy` (0.9 and 0 -- not -2, which is what the floor is for:
+    /// a rich forager must not cancel a starving one). Under `always` and off
+    /// the census is empty. **Watched red** with the floor removed (the east
+    /// nest reads -0.55).
+    #[test]
+    fn a_nest_is_as_hungry_as_the_mean_of_its_animals_and_only_while_the_drive_reads_it() {
+        let stone = Cell::new(material::STONE, 0).with_attached(true);
+        let mut w = World::new(Rect::new(0, 0, 159, 63));
+        for x in 0..160 {
+            for y in 41..64 {
+                w.set(x, y, stone);
+            }
+        }
+        w.register_nest_site(20, 40, 4);
+        w.register_nest_site(140, 40, 4);
+        let start = {
+            let a = spawn(&mut w, "ant", 16, 40);
+            w.species.get(w.organism(a).expect("live").species).creature.as_ref().expect("a creature").start_energy
+        };
+        let placed = [(16, 1.0), (26, 0.5), (136, 0.1), (146, 3.0)];
+        for (i, &(x, fed)) in placed.iter().enumerate() {
+            let id = if i == 0 { w.get(16, 40).organism_id() } else { spawn(&mut w, "ant", x, 40) };
+            w.organism_mut(id).expect("live").energy = start * fed;
+        }
+        w.frame = crate::sim::world::ROOM_INTERVAL * 4;
+        for (drive, want) in [
+            (ForageDrive::OFF, vec![]),
+            (ForageDrive { need: ForageNeed::Always, pace: true, keep: false }, vec![]),
+            (ForageDrive { need: ForageNeed::Hunger, pace: true, keep: false }, vec![0.25, 0.45]),
+        ] {
+            w.forage_drive = Some(drive);
+            w.nest_need = vec![9.0; 7];
+            w.step_nest_need();
+            assert_eq!(w.nest_need.len(), want.len(), "{drive:?}: need {:?}", w.nest_need);
+            for (got, want) in w.nest_need.iter().zip(&want) {
+                assert!((got - want).abs() < 1e-5, "{drive:?}: a nest read {got}, not {want}");
+            }
+        }
+    }
+
+    /// **`,keep`: a fed forager the colony needs leaves the store at home
+    /// alone, and a hungry one eats from it** (`act`'s feed urge under the
+    /// forage drive). An ant shut in a 7 x 2 chamber of stone, nest material
+    /// under it and a cell of fruit at each end, so it can reach the food and
+    /// the nest and nowhere else; pickups at the nest are counted over 600
+    /// frames. Fed under `always,keep` it takes none; fed under
+    /// `always` alone it takes some (the control that the scene can show a
+    /// pickup at all); held at a quarter of `start_energy` under
+    /// `always,keep` it takes some too. **Watched red** with the scaling
+    /// removed (the fed ant under `,keep` picks up) and with it applied
+    /// whatever the energy (the hungry ant takes none).
+    #[test]
+    fn a_fed_forager_the_colony_needs_leaves_the_store_and_a_hungry_one_eats_from_it() {
+        let pickups = |drive: ForageDrive, fed: f32| -> u64 {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 99, 63));
+            for x in 0..100 {
+                for y in 30..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            let nest = w.materials.id_of("nest").expect("the ant's nest material is compiled in");
+            let fruit = w.materials.id_of("fruit").expect("fruit is compiled in");
+            for x in 47..54 {
+                for y in 39..41 {
+                    w.set(x, y, Cell::new(material::EMPTY, 0));
+                }
+                w.set(x, 41, Cell::new(nest, 0).with_attached(true));
+            }
+            for x in [47, 53] {
+                w.set(x, 40, Cell::new(fruit, 0));
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.forage_drive = Some(drive);
+            let ant = spawn(&mut w, "ant", 50, 40);
+            let energy = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy * fed;
+            w.organism_mut(ant).expect("live").foraged = true;
+            for _ in 0..600 {
+                if let Some(st) = w.organism_mut(ant) {
+                    st.energy = energy;
+                }
+                run(&mut w, 1);
+            }
+            w.creature_stats.pickups_at_nest
+        };
+        let always = ForageDrive { need: ForageNeed::Always, pace: true, keep: false };
+        let keep = ForageDrive { keep: true, ..always };
+        assert!(pickups(always, 1.0) > 0, "a fed ant beside fruit at the nest with no ,keep never took any: the scene cannot show a pickup");
+        assert_eq!(pickups(keep, 1.0), 0, "a fed forager under ,keep took food off the nest");
+        assert!(pickups(keep, 0.25) > 0, "a hungry forager under ,keep did not eat from the store");
     }
 
     /// **Too hungry to be out, an empty ant walks home; fed, it is not
