@@ -31,6 +31,19 @@ commands and the traps.*
   `PIXEL_PHYSICS_HUNGRY_HOME` and **off**, because it only pays when home can
   feed the hungry (§21). The owner has not yet seen that result; bring it
   with the fix below.
+- **You may spin up sub-agents if that helps** (2026-09-27). Pick the kind by
+  what the job is short of:
+  - **In-process** (`Agent` tool): for reading and surveying, e.g. grepping
+    `dead-ends.md`, tracing a mechanism through `creature.rs`, or checking
+    a guard. **Not for runs**: they share this container's 4 cores, and a
+    lab box already takes about 15 minutes over 12 seeds on all four.
+  - **A cloud session** (`create_session`): gets its own machine. Use one
+    for a run that would otherwise queue, e.g. a lab arm beside a bed arm.
+    Invoke the `lab-coordinator` skill first, whatever the task (the name
+    is historical), and pass `model:` explicitly, never inherited (Opus
+    unless there is a reason).
+  - **Either way the return path is files, not messages.** A sub-agent
+    writes its findings where you will read them, and you own the merge.
 - An ant should breed only at the nest, and in the end *where* it breeds
   should be something a lineage evolves (09-23). `PIXEL_PHYSICS_BUD_SITE=nest`,
   off by default; the bed runs with it on.
