@@ -27,27 +27,26 @@ the live question, what is addressed to another lane, predictions and heads.*
 
 ## Live question
 
-**The mouth line is closed; the stop rule applied twice** (report §0, §6). Net
-of food picked up at home again, the dug mouth brings home as much as the
-strip (604 against 712 cells, 6 / 6) and cuts bed starvation 277 → 221; the
-painted door alone brings home about half. The one variant after the stop
-rule, a home that follows the pile, built food towers and was reverted. What
-reopens it: delivered food that slides, or deliveries that stop piling in the
-mouth. **The live question now is the nest itself: is the colony building
-anything, or scratching at random?** Nothing yet can tell.
+**Is the colony building a nest? Not yet** ([`../nest-work-2026-09-27.md`](../nest-work-2026-09-27.md)).
+At 40 ants its excavation is less nest-like than random walkers digging from
+the door on 12 of 12 seeds (31 mouths, no chamber); 3% of cuts build
+anything; 78% re-dig the heaps or cells that refilled, mostly by falling in.
+**The mouth line stays closed and the default stays off:** re-measured on
+current `main`, door + dug mouth halves bed starvation (201 → 105) and costs
+the lab colony (food eaten lower on 10 of 12, one colony lost) -- the
+owner's "good reason not to".
 
 **Next, 2026-09-27** (proposed to the owner, not yet ruled on):
-1. Re-measure the door + dug mouth on current `main` (scouting is now on),
-   then flip it on by default if it still holds.
-2. Re-baseline `digbox` on `main`; every nest-shape number predates scouting,
-   and digbox ants run low on energy late, when scouting pulls hardest.
-3. A scoreboard before any new mechanism: a nest-vs-random-digging score and
-   a per-ant nest funnel, both in `digbox`, with no engine change.
-4. Then mechanisms, scored on it: dig reinforcement at the face (the
-   biology's dig-marker), a downward bias (`DIG_DOWN`, built and off), and
-   pellets carried out rather than posted up the column.
-5. Floating lining: `UNPACK` is built and off (stranded cells 1-28 → 0-2
-   at 40 ants); the owner's preference argues for turning it on.
+1. Book where each refill comes from (ground falling from above, a heap
+   slumping from the lip, a pellet) before choosing a lever.
+2. `DIG_DOWN` as a default candidate: cuts that build 3% → 6%, a bigger and
+   better-connected excavation; bed and lab check first.
+3. A dig marker at the face (Toffin's marker half; untried) against the 31
+   mouths.
+4. `DropSpoil` as a spoil drop, not a food drop: only with 1-3 (alone it
+   moves pellets and builds nothing).
+5. `UNPACK`: unmeasured alone in the lab; on top of the mouth, 3 of 12 lab
+   colonies lost.
 
 ## Working agreement with the foraging lane (2026-09-27)
 
@@ -89,14 +88,15 @@ asked the two sessions to agree who owns what.
   **Channel:** a poke (`create_trigger(persistent_session_id=…)` then
   `fire_trigger` bare) works both ways, but waits until the other's turn ends:
   15:30 → about 17:50 once. Files pushed to origin are the record.
-- **Sequencing:** this lane settles the door + dug-mouth default first, on
-  current `main`, and pokes the foraging lane with the SHA; the foraging lane
-  then re-baselines its forage drive on it.
+- **Sequencing:** settled 2026-09-27: door + dug mouth stays off, so there
+  is no new baseline for the forage drive; the foraging lane was poked.
 - **Still open for the foraging lane:** `trailfollow`'s header does not echo
   `PIXEL_PHYSICS_NEST_DOOR` / `_SHAFT` / `_HOME`, and it does not print
   `pickups_at_nest`.
 
 ## Predictions (written before each run)
+
+The 2026-09-27 funnel arms (haul, cover, dig-down, drop-away) were exploratory and carry none.
 
 | # | run | prediction | right? |
 |---|---|---|---|
@@ -162,3 +162,6 @@ asked the two sessions to agree who owns what.
 - `e6b3537b` — the mound reverted: every lab colony built a food tower.
 - The commit after it — the verdict corrected: lab deliveries are 86% churn,
   the dug mouth brings home as much as the strip, the tower in the report's §6.
+- `fa97db9e` — the nest scoreboard in `digbox` (colony against four nulls).
+- `2358c2dc`, `0e08216c` — the nest funnel, and what re-cut cells were made of.
+- `6ead09ce` — the write-up: not yet a nest; door + dug mouth stays off.

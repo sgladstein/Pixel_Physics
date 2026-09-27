@@ -3984,6 +3984,26 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   from theirs), **contents exist without eggs** via the `live_seed` guard, the
   brain-input pricing as the argument *for* their call-site route, and the
   landing discipline. **Treat their plan as the plan.**
+- [nest-work-2026-09-27.md](nest-work-2026-09-27.md) — **measurement,
+  2026-09-27. `engine`/`lab`. Instruments and switches only; nothing in any
+  game changed.** Is the colony building a nest, or digging at random? The
+  answer comes from two instruments new in `digbox`: a scoreboard against
+  four null models, and a per-ant nest funnel whose ledgers reconcile with
+  the engine's counters. Lane note: [lanes/nest-mouth.md](lanes/nest-mouth.md).
+  - **Not yet.** At 40 ants and 12 seeds the excavation is less nest-like
+    than random walkers digging from the door, on 12 of 12 seeds. It has 31
+    openings where the spec has one, and no chamber.
+  - **3% of cuts build anything.** 78% is churn: 36% digging the spoil heaps
+    and 42% re-cutting cells that refilled, mostly by falling in.
+  - **The spoil does leave the ground but stops at the lip.** 90% of
+    pellets land above the old surface, and 74% of them beside the digger:
+    `DropSpoil` is authored as the old food drop, so it drops at home.
+  - **What moved it:** `DIG_DOWN=1.0` doubles the building (3% → 6%).
+    **What did not:** `SPOIL_HAUL` (first measurement), a spoil drop that
+    holds on the nest, and hold-under-cover, which halves it.
+  - **The door + dug-mouth default stays off.** Re-measured on current
+    `main`: it halves bed starvation, but the lab colony eats less on 10 of
+    12 seeds and loses one colony in twelve.
 - [nest-mouth-2026-09-26.md](nest-mouth-2026-09-26.md) — **measurement,
   2026-09-26. `lab`/`engine`. Switches only; nothing in either game
   changed.** The dug entrance, measured for the first time, on top of
