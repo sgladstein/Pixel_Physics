@@ -1266,6 +1266,13 @@ struct NestFunnel {
     // The dig ledger: every cut in exactly one bucket.
     cut_above: u64,
     cut_again: u64,
+    /// Of `cut_again`, by what the cell was made of when it was cut again:
+    /// spoil (a pellet, or a heap that slid back in), soil (the bank fell
+    /// in), lining, anything else. Says what the churn is made of.
+    again_spoil: u64,
+    again_soil: u64,
+    again_lining: u64,
+    again_other: u64,
     cut_new_open: u64,
     cut_new_roofed: u64,
     cut_new_lining: u64,
@@ -1423,6 +1430,12 @@ impl NestFunnel {
                         2
                     } else if self.touched[at(tx, ty)] {
                         self.cut_again += 1;
+                        match was.map(|m| world.materials.get(m).name.as_str()) {
+                            Some("spoil") => self.again_spoil += 1,
+                            Some("soil") => self.again_soil += 1,
+                            Some("packedsoil") => self.again_lining += 1,
+                            _ => self.again_other += 1,
+                        }
                         2
                     } else {
                         if world.materials.id_of("packedsoil") == was {
@@ -1543,7 +1556,7 @@ impl NestFunnel {
         );
         let cuts = self.cut_above + self.cut_again + self.cut_new_open + self.cut_new_roofed;
         println!(
-            "LEDGER frame={frame} cuts {cuts} + target mismatch {} = engine digs {}: above the old surface {}, a pellet or refill cut again {}, new ground open to the sky {}, new ground under a roof {} (of the new ground, tunnel lining {}; placed by elimination {}); mismatch: ahead refilled {}, ahead not ground {}",
+            "LEDGER frame={frame} cuts {cuts} + target mismatch {} = engine digs {}: above the old surface {}, a pellet or refill cut again {}, new ground open to the sky {}, new ground under a roof {} (of the new ground, tunnel lining {}; placed by elimination {}); mismatch: ahead refilled {}, ahead not ground {}; the cells cut again were spoil {}, soil {}, lining {}, other {}",
             self.target_mismatch,
             st.digs,
             self.cut_above,
@@ -1553,7 +1566,11 @@ impl NestFunnel {
             self.cut_new_lining,
             self.cut_retargeted,
             self.mismatch_refilled,
-            self.mismatch_not_ground
+            self.mismatch_not_ground,
+            self.again_spoil,
+            self.again_soil,
+            self.again_lining,
+            self.again_other
         );
         println!(
             "LEDGER frame={frame} pellets put down {} + died holding {} + site not found {} = engine spoil_dumped {} + spoil_lost {}: beside the head {}, posted up the column {}; landed above the old surface {}, below it {} (into a dug cell {})",

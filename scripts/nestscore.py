@@ -45,6 +45,7 @@ LEDGER_DIG = re.compile(
     r"^LEDGER frame=(?P<frame>\d+) cuts (?P<cuts>\d+) \+ target mismatch (?P<mismatch>\d+) = engine digs (?P<digs>\d+): "
     r"above the old surface (?P<above>\d+), a pellet or refill cut again (?P<again>\d+), new ground open to the sky (?P<open>\d+), "
     r"new ground under a roof (?P<roofed>\d+)"
+    r"(?:.*?the cells cut again were spoil (?P<a_spoil>\d+), soil (?P<a_soil>\d+), lining (?P<a_lining>\d+), other (?P<a_other>\d+))?"
 )
 LEDGER_PUT = re.compile(
     r"^LEDGER frame=(?P<frame>\d+) pellets put down (?P<put>\d+) \+ died holding (?P<died>\d+) \+ site not found (?P<lost>\d+) = "
@@ -76,7 +77,7 @@ def parse(path):
                 continue
             m = LEDGER_DIG.match(line)
             if m:
-                out.setdefault(int(m["frame"]), {"n": 0, "colony": None, "null": {}, "spec": None}).setdefault("funnel", {})["dig"] = {k: int(v) for k, v in m.groupdict().items()}
+                out.setdefault(int(m["frame"]), {"n": 0, "colony": None, "null": {}, "spec": None}).setdefault("funnel", {})["dig"] = {k: int(v) for k, v in m.groupdict().items() if v is not None}
                 continue
             m = LEDGER_PUT.match(line)
             if m:
@@ -200,6 +201,12 @@ def funnel_report(runs, stop):
                 + "  ".join(f"{k} {med_worst([d[k] / cut(d) for d in dig], max)}" for k in ("above", "again", "open", "roofed"))
                 + "   [above = in the heaps above the old surface; again = a cell already dug or filled]"
             )
+            split = [d for d in dig if "a_lining" in d and d["again"]]
+            if split:
+                print(
+                    "  what the re-cut cells were made of (share of re-cuts):  "
+                    + "  ".join(f"{k[2:]} {med_worst([d[k] / d['again'] for d in split], max)}" for k in ("a_spoil", "a_soil", "a_lining", "a_other"))
+                )
             put = [f["put"] for f in fs if f.get("put")]
             if put:
                 pp = lambda d: max(d["put"], 1)
@@ -251,7 +258,7 @@ def selftest():
         + "FUNNEL   cut a cell                                                     30  of prev  75.0%  of all  75.0%\n"
         + "FUNNEL   complete cycles per ant: 0: 36  1: 1  2: 2  3+: 1   (cuts still waiting on the lasting check: 32)\n"
         + "FUNNEL   cuts that built 9 of 400 placed cuts (2.2%); cuts per ant: median 9 max 28\n"
-        + "LEDGER frame=100 cuts 400 + target mismatch 6 = engine digs 406: above the old surface 160, a pellet or refill cut again 112, new ground open to the sky 70, new ground under a roof 58 (of the new ground, tunnel lining 99; placed by elimination 3); mismatch: ahead refilled 1, ahead not ground 5\n"
+        + "LEDGER frame=100 cuts 400 + target mismatch 6 = engine digs 406: above the old surface 160, a pellet or refill cut again 112, new ground open to the sky 70, new ground under a roof 58 (of the new ground, tunnel lining 99; placed by elimination 3); mismatch: ahead refilled 1, ahead not ground 5; the cells cut again were spoil 6, soil 40, lining 66, other 0\n"
         + "LEDGER frame=100 pellets put down 397 + died holding 0 + site not found 2 = engine spoil_dumped 399 + spoil_lost 0: beside the head 223, posted up the column 174; landed above the old surface 374, below it 23 (into a dug cell 23)\n"
     )
     for arm in ("a", "b"):
@@ -266,6 +273,7 @@ def selftest():
     fu = r["funnel"]
     assert fu["ants"] == 40 and fu["stages"] == [("lived", 40), ("cut a cell", 30)], fu["stages"]
     assert fu["built"] == (9, 400) and fu["dig"]["above"] == 160 and fu["dig"]["digs"] == 406, fu
+    assert (fu["dig"]["a_spoil"], fu["dig"]["a_soil"], fu["dig"]["a_lining"]) == (6, 40, 66), fu["dig"]
     assert fu["put"]["beside"] == 223 and fu["put"]["refill"] == 23 and fu["put"]["dumped"] == 399, fu["put"]
     # A duplicate key must refuse, not pool (last write wins is the failure).
     try:
