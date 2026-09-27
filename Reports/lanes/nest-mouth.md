@@ -25,6 +25,13 @@ the live question, what is addressed to another lane, predictions and heads.*
   a pure look off until he has seen it. The foraging lane has asked to hear
   it from the owner directly before applying it to its own switches.
 
+- **2026-09-27 (evening): colony numbers do not block a nest step.**
+  "Unless you are specifically working on a foraging loop part of the nest,
+  you shouldn't care about 'Lost colonies died of starvation'. You care about
+  making progress in nest building. It is okay if nest building temporarily
+  hurts colony numbers." A step is judged on the dig box's nest measures; the
+  bed and the lab are run to tell the foraging lane what moved, not to veto.
+
 ## Live question
 
 **Is the colony building a nest? Not yet** ([`../nest-work-2026-09-27.md`](../nest-work-2026-09-27.md),
@@ -37,12 +44,11 @@ anything.
   frames.
 - `SPOIL_FOOTING=ground` makes digging stick: building 3% -> 6%, the room
   doubled. `SPOIL_PACKS=off` removes the hanging spoil.
-- **Both stay off for now.** Footing alone opens more mouths (12 of 12).
-  Unpacked spoil alone costs the lab colony births on 10 of 12 seeds. The
-  pair together ties both colony beds (bed 184 vs 201 starved; lab births
-  555 vs 530), with more mouths in the dig box. Whether to turn the pair on
-  is put to the owner, and the recommendation is yes, in its own PR after a
-  poke: it moves the foraging lane's lab churn counters threefold.
+- **Unpacked spoil is the default** (owner ruling, above): fewer mouths on
+  11 of 12 and no hanging ground, at a cost in lab births that no longer
+  vetoes. **The footing rule stays a switch**: alone it opens more mouths,
+  and it belongs in the dig marker's arms. **`DIG_DOWN` stays off on nest
+  measures** (building 3.9% -> 2.7% on the footing pair).
 - The mouth line stays closed and its default stays off.
 
 **Next** (2026-09-27):
