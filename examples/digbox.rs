@@ -1261,6 +1261,19 @@ struct NestFunnel {
     touched: Vec<bool>,
     /// Cells dug since frame 0: a pellet put down in one is the hole refilled.
     dug: Vec<bool>,
+    /// The same cells as a list, so the refill scan visits only them.
+    dug_list: Vec<usize>,
+    /// This frame's put-down sites, which the refill scan leaves to the
+    /// pellet ledger.
+    put_sites: Vec<usize>,
+    /// **Where a refilled hole's fill came from.** A dug cell that was room
+    /// before the frame and is ground after it, with no pellet put there:
+    /// by what arrived (spoil, soil, anything else) and from where -- the
+    /// cell straight above emptied in the same frame (the roof or the bank
+    /// fell in), or not (it slid in from the side: a heap slumping).
+    refill_fall: [u64; 3],
+    refill_from_above: u64,
+    refill_from_side: u64,
     /// (frame due, cut x, cut y, ant) waiting on the lasting check.
     pending: Vec<(u64, i32, i32, u32)>,
     // The dig ledger: every cut in exactly one bucket.
@@ -1451,6 +1464,9 @@ impl NestFunnel {
                         }
                     };
                     self.touched[at(tx, ty)] = true;
+                    if !self.dug[at(tx, ty)] {
+                        self.dug_list.push(at(tx, ty));
+                    }
                     self.dug[at(tx, ty)] = true;
                     track.cuts += 1;
                     track.stage = track.stage.max(reached);
@@ -1493,6 +1509,7 @@ impl NestFunnel {
                             }
                         }
                         self.touched[at(sx, sy)] = true;
+                        self.put_sites.push(at(sx, sy));
                         if let Some((cx, cy, reached)) = track.cut.take() {
                             if out && reached >= 4 {
                                 track.stage = track.stage.max(5);
@@ -1503,6 +1520,35 @@ impl NestFunnel {
                 }
             }
         }
+        // The refill scan: every dug cell that was room before the frame and
+        // is ground now, unless a pellet was put there (the pellet ledger's).
+        let room = |c: Option<MaterialId>| matches!(c, None | Some(material::EMPTY));
+        for &i in &self.dug_list {
+            if !room(self.grid[i]) || self.put_sites.contains(&i) {
+                continue;
+            }
+            let (x, y) = ((i as i32) % b.w, (i as i32) / b.w);
+            let now = world.get(x, y);
+            if now.organism_id() != 0 || !Self::is_ground(world, now.material) {
+                continue;
+            }
+            let slot = match world.materials.get(now.material).name.as_str() {
+                "spoil" => 0,
+                "soil" => 1,
+                _ => 2,
+            };
+            self.refill_fall[slot] += 1;
+            let above_fell = y > 0 && matches!(self.grid[at(x, y - 1)], Some(m) if Self::is_ground(world, m)) && {
+                let a = world.get(x, y - 1);
+                a.organism_id() != 0 || a.material == material::EMPTY
+            };
+            if above_fell {
+                self.refill_from_above += 1;
+            } else {
+                self.refill_from_side += 1;
+            }
+        }
+        self.put_sites.clear();
         // The lasting check: the cut is still room (empty or an animal).
         let due: Vec<(u64, i32, i32, u32)> = self.pending.iter().copied().filter(|p| p.0 <= frame).collect();
         self.pending.retain(|p| p.0 > frame);
@@ -1584,6 +1630,16 @@ impl NestFunnel {
             self.put_above,
             self.put_below,
             self.put_refill
+        );
+        println!(
+            "LEDGER frame={frame} dug cells refilled: by a pellet {}, fell in {} (spoil {}, soil {}, other {}; from the cell above {}, from the side {})",
+            self.put_refill,
+            self.refill_fall.iter().sum::<u64>(),
+            self.refill_fall[0],
+            self.refill_fall[1],
+            self.refill_fall[2],
+            self.refill_from_above,
+            self.refill_from_side
         );
         // Who to trace: a few ids stopped at each stage.
         for (i, name) in FUNNEL_STAGES.iter().enumerate().skip(1) {
@@ -1684,11 +1740,29 @@ fn funnel_selftest(b: &Box2) {
     );
     assert_eq!((t.cycles, fun.put_refill, fun.put_beside, fun.cut_new_roofed, fun.put_above, fun.put_below), (1, 1, 1, 3, 2, 1), "a refilled or caved-in cut must not count as built");
 
-    // 4. The ledger's own control: a dig the world does not show must be
-    //    booked as unplaceable, not quietly dropped or guessed.
-    fun.before_with(&w, b, ant(0, 3, false));
+    // 4. The refill ledger: case 3's cave-in was soil arriving with the cell
+    //    above it untouched (from the side); now a roof collapse -- cut the
+    //    roof, post the pellet out, and let the soil above drop into the cut.
     frame += 1;
+    let roof = cut(&mut w, &mut fun, frame, 2);
+    frame += 1;
+    put(&mut w, &mut fun, frame, head.0, b.surface - 3, 4);
+    frame += 1;
+    fun.before_with(&w, b, ant(0, 4, false));
+    w.set(roof.0, roof.1 - 1, Cell::EMPTY);
+    w.set(roof.0, roof.1, Cell::new(soil, 0));
     fun.after_with(&w, b, frame, &after(4, false));
+    println!(
+        "  funnel: refills that fell in -> soil {}, spoil {}, from above {}, from the side {} (must be 2, 0, 1, 1; the pellet put back in its hole is the pellet ledger's: {})",
+        fun.refill_fall[1], fun.refill_fall[0], fun.refill_from_above, fun.refill_from_side, fun.put_refill
+    );
+    assert_eq!((fun.refill_fall, fun.refill_from_above, fun.refill_from_side, fun.put_refill), ([0, 2, 0], 1, 1, 1), "the refill ledger must place a roof collapse above and a cave-in beside, and leave a put-back pellet to the pellet ledger");
+
+    // 5. The ledger's own control: a dig the world does not show must be
+    //    booked as unplaceable, not quietly dropped or guessed.
+    fun.before_with(&w, b, ant(0, 4, false));
+    frame += 1;
+    fun.after_with(&w, b, frame, &after(5, false));
     println!("  funnel: a dig that changed no cell -> target mismatch {} (must be 1; before it, 0)", fun.target_mismatch);
     assert_eq!((fun.target_mismatch, fun.site_not_found), (1, 0), "the ledger must refuse to place a cut it cannot see");
 }

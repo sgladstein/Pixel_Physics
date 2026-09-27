@@ -37,10 +37,11 @@ the lab colony (food eaten lower on 10 of 12, one colony lost) -- the
 owner's "good reason not to".
 
 **Next, 2026-09-27** (proposed to the owner, not yet ruled on):
-1. Book where each refill comes from (ground falling from above, a heap
-   slumping from the lip, a pellet) before choosing a lever.
-2. `DIG_DOWN` as a default candidate: cuts that build 3% → 6%, a bigger and
-   better-connected excavation; bed and lab check first.
+1. Walls and a roof that hold. Refills are 94% soil falling in, half from
+   above and half from the side; the heaps contribute nothing
+   (`nest-work-2026-09-27.md` §4).
+2. `DIG_DOWN` stays off (measured 2026-09-27): colony bed starved 201 → 460
+   of 480 (ants trapped digging at home); the lab ties.
 3. A dig marker at the face (Toffin's marker half; untried) against the 31
    mouths.
 4. `DropSpoil` as a spoil drop, not a food drop: only with 1-3 (alone it
@@ -161,7 +162,8 @@ The 2026-09-27 funnel arms (haul, cover, dig-down, drop-away) were exploratory a
 - `4d9262f4` — `CreatureStats::pickups_at_nest`, printed by `labforage`.
 - `e6b3537b` — the mound reverted: every lab colony built a food tower.
 - The commit after it — the verdict corrected: lab deliveries are 86% churn,
-  the dug mouth brings home as much as the strip, the tower in the report's §6.
+  the dug mouth brings home as much as the strip (withdrawn 2026-09-27: not a
+  net flow), the tower in the report's §6.
 - `fa97db9e` — the nest scoreboard in `digbox` (colony against four nulls).
 - `2358c2dc`, `0e08216c` — the nest funnel, and what re-cut cells were made of.
 - `6ead09ce` — the write-up: not yet a nest; door + dug mouth stays off.
