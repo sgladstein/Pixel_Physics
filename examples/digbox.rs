@@ -53,7 +53,7 @@
 
 use pixel_physics::render::Renderer;
 use pixel_physics::sim::explosion::Blasts;
-use pixel_physics::sim::material::MaterialKind;
+use pixel_physics::sim::material::{MaterialId, MaterialKind};
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::weather::Pin;
 use pixel_physics::sim::{material, parallel, Cell, World};
@@ -1186,6 +1186,496 @@ fn scoreboard_selftest() {
     }
 }
 
+// =============================================================================
+// THE NEST FUNNEL: every ant, booked at the furthest point of nest work it reached
+// =============================================================================
+//
+// The funnel skill's shape (`.claude/skills/funnel/SKILL.md`), for digging:
+// count individuals, not events, each at its high-water mark, and gate each
+// stage on the state that makes it real rather than on the event that looks
+// like it. A dig that cut a pellet somebody put back is not nest work; a
+// pellet posted up the column is out of the ground wherever the head is.
+//
+// Read off the world between frames, with no engine change: an ant ticks at
+// most once a frame (`tick_interval` 6), and within a tick it acts before it
+// moves, so a dig seen after a frame was aimed at the pre-frame head plus the
+// pre-frame heading, and a pellet that left the jaws landed beside that head
+// or straight up its column. `target mismatch` and `site not found` count
+// every event those two assumptions could not place; they must read 0.
+
+/// The stages, in order. An ant's `stage` is the index of the furthest.
+const FUNNEL_STAGES: [&str; 7] = [
+    "lived",
+    "faced diggable ground, jaws free",
+    "cut a cell",
+    "cut new ground (below the old surface, never dug or filled)",
+    "cut new ground with a roof over it",
+    "carried that pellet out above the old surface",
+    "the cut still open 1,500 frames later",
+];
+
+/// How long a cut must stay open to count as built rather than scratched.
+const FUNNEL_LASTING: u64 = 1_500;
+
+#[derive(Clone, Copy)]
+struct AntBefore {
+    head: (i32, i32),
+    heading: u8,
+    digs: u32,
+    holding: bool,
+    /// The held pellet's material: a put-down is a cell of *this* appearing,
+    /// so a soil grain falling into the gallery is never read as one.
+    pellet: MaterialId,
+    crop_empty: bool,
+}
+
+/// What the funnel needs of an ant after the frame. Separate from the world
+/// so the classification can be driven by hand (`funnel_selftest`):
+/// `World::organism_mut` is `pub(crate)`, so an example cannot edit an ant.
+#[derive(Clone, Copy)]
+struct AntAfter {
+    digs: u32,
+    holding: bool,
+}
+
+#[derive(Clone, Copy, Default)]
+struct AntTrack {
+    stage: usize,
+    /// The cut whose pellet is in the jaws: (x, y, stage it reached).
+    cut: Option<(i32, i32, usize)>,
+    /// Cuts this ant made that passed every stage: roofed new ground, the
+    /// pellet carried out, the cell still open `FUNNEL_LASTING` frames later.
+    cycles: u32,
+    /// Every cut this ant made, placed or not by stage.
+    cuts: u32,
+}
+
+#[derive(Default)]
+struct NestFunnel {
+    ants: std::collections::BTreeMap<u32, AntTrack>,
+    before: std::collections::BTreeMap<u32, AntBefore>,
+    /// The box as it stood before the frame: `None` is an organism's cell.
+    grid: Vec<Option<MaterialId>>,
+    /// Cells dug, or filled by a pellet, since frame 0: re-cutting them is
+    /// churn, not new ground.
+    touched: Vec<bool>,
+    /// Cells dug since frame 0: a pellet put down in one is the hole refilled.
+    dug: Vec<bool>,
+    /// (frame due, cut x, cut y, ant) waiting on the lasting check.
+    pending: Vec<(u64, i32, i32, u32)>,
+    // The dig ledger: every cut in exactly one bucket.
+    cut_above: u64,
+    cut_again: u64,
+    cut_new_open: u64,
+    cut_new_roofed: u64,
+    cut_new_lining: u64,
+    /// Cuts placed by elimination (the one 8-neighbour of the head that went
+    /// ground -> empty) because the cell straight ahead had not: counted so
+    /// that a heading assumption that stops holding shows up here first.
+    cut_retargeted: u64,
+    target_mismatch: u64,
+    /// Of `target_mismatch`: the cell ahead was ground before and after the
+    /// frame (cut and refilled within it, most likely by falling powder)...
+    mismatch_refilled: u64,
+    /// ...or it was not ground before the frame at all.
+    mismatch_not_ground: u64,
+    // The pellet ledger.
+    put_beside: u64,
+    put_lifted: u64,
+    put_above: u64,
+    put_below: u64,
+    /// Of `put_below`, landed in a cell dug since frame 0: the hole refilled.
+    put_refill: u64,
+    /// The carrier died holding it; the engine drops it by its corpse.
+    died_holding: u64,
+    site_not_found: u64,
+}
+
+impl NestFunnel {
+    fn is_ground(world: &World, m: MaterialId) -> bool {
+        m != material::EMPTY && matches!(world.materials.kind(m), MaterialKind::Powder | MaterialKind::Solid)
+    }
+
+    /// Every live creature's state, as `before` needs it.
+    fn ants_before(world: &World) -> std::collections::BTreeMap<u32, AntBefore> {
+        let mut out = std::collections::BTreeMap::new();
+        for id in world.live_organism_ids() {
+            let Some(st) = world.organism(id) else { continue };
+            if world.species.get(st.species).creature.is_none() {
+                continue;
+            }
+            let Some(&head) = st.chain.first() else { continue };
+            out.insert(
+                id,
+                AntBefore {
+                    head,
+                    heading: st.heading,
+                    digs: st.life.digs,
+                    holding: st.spoil.is_some(),
+                    pellet: st.spoil.map_or(material::EMPTY, |p| p.cell.material),
+                    crop_empty: st.crop.is_none(),
+                },
+            );
+        }
+        out
+    }
+
+    /// Every live creature's state, as `after` needs it. An ant missing here
+    /// has died.
+    fn ants_after(world: &World) -> std::collections::BTreeMap<u32, AntAfter> {
+        let mut out = std::collections::BTreeMap::new();
+        for id in world.live_organism_ids() {
+            let Some(st) = world.organism(id) else { continue };
+            if world.species.get(st.species).creature.is_some() {
+                out.insert(id, AntAfter { digs: st.life.digs, holding: st.spoil.is_some() });
+            }
+        }
+        out
+    }
+
+    fn before(&mut self, world: &World, b: &Box2) {
+        self.before_with(world, b, Self::ants_before(world));
+    }
+
+    fn after(&mut self, world: &World, b: &Box2, frame: u64) {
+        self.after_with(world, b, frame, &Self::ants_after(world));
+    }
+
+    fn before_with(&mut self, world: &World, b: &Box2, ants: std::collections::BTreeMap<u32, AntBefore>) {
+        let n = (b.w * b.h) as usize;
+        if self.touched.len() != n {
+            self.touched = vec![false; n];
+            self.dug = vec![false; n];
+        }
+        self.grid.clear();
+        for y in 0..b.h {
+            for x in 0..b.w {
+                let c = world.get(x, y);
+                self.grid.push(if c.organism_id() != 0 { None } else { Some(c.material) });
+            }
+        }
+        for &id in ants.keys() {
+            self.ants.entry(id).or_default();
+        }
+        self.before = ants;
+    }
+
+    fn after_with(&mut self, world: &World, b: &Box2, frame: u64, now: &std::collections::BTreeMap<u32, AntAfter>) {
+        use pixel_physics::sim::creature::DIRS;
+        let at = |x: i32, y: i32| (y * b.w + x) as usize;
+        let inside = |x: i32, y: i32| x >= 0 && y >= 0 && x < b.w && y < b.h;
+        let ids: Vec<u32> = self.before.keys().copied().collect();
+        for id in ids {
+            let pre = self.before[&id];
+            let track = self.ants.get_mut(&id).expect("registered in before");
+            let (dx, dy) = DIRS[pre.heading as usize % 8];
+            let (tx, ty) = (pre.head.0 + dx, pre.head.1 + dy);
+            // N1: at the moment act ran, jaws free and diggable ground ahead.
+            if pre.crop_empty && !pre.holding && inside(tx, ty) {
+                if let Some(m) = self.grid[at(tx, ty)] {
+                    if Self::is_ground(world, m) && world.materials.get(m).penetration_resistance <= 1.0 {
+                        track.stage = track.stage.max(1);
+                    }
+                }
+            }
+            let Some(&st) = now.get(&id) else {
+                if pre.holding {
+                    self.died_holding += 1;
+                }
+                continue;
+            };
+            // A cut: the lifetime count rose, and a cell beside the head was
+            // ground before the frame and is empty now -- the one straight
+            // ahead if it qualifies, else the only one of the other seven.
+            let cuts = st.digs.saturating_sub(pre.digs);
+            if cuts > 1 {
+                // An ant acts at most once a frame; if that ever stops being
+                // true the extra cuts cannot be placed, and say so.
+                self.target_mismatch += u64::from(cuts - 1);
+            }
+            if cuts > 0 {
+                // Opened: ground before the frame, and now either empty or
+                // standing under an animal -- a digger acts and then moves,
+                // and the cell it has just cut is the one it steps into.
+                let opened = |x: i32, y: i32| {
+                    inside(x, y) && matches!(self.grid[at(x, y)], Some(was) if Self::is_ground(world, was)) && {
+                        let now = world.get(x, y);
+                        now.material == material::EMPTY || now.organism_id() != 0
+                    }
+                };
+                let target = if opened(tx, ty) {
+                    Some((tx, ty))
+                } else {
+                    let others: Vec<(i32, i32)> = DIRS.iter().map(|&(ox, oy)| (pre.head.0 + ox, pre.head.1 + oy)).filter(|&(x, y)| (x, y) != (tx, ty) && opened(x, y)).collect();
+                    if others.len() == 1 {
+                        self.cut_retargeted += 1;
+                        Some(others[0])
+                    } else {
+                        None
+                    }
+                };
+                if let Some((tx, ty)) = target {
+                    let was = self.grid[at(tx, ty)];
+                    debug_assert!(was.is_some(), "opened() admits only a material cell");
+                    let row = ty - b.surface;
+                    let reached = if row < 0 {
+                        self.cut_above += 1;
+                        2
+                    } else if self.touched[at(tx, ty)] {
+                        self.cut_again += 1;
+                        2
+                    } else {
+                        if world.materials.id_of("packedsoil") == was {
+                            self.cut_new_lining += 1;
+                        }
+                        let roofed = (b.surface..ty).any(|yy| matches!(self.grid[at(tx, yy)], Some(m) if Self::is_ground(world, m)));
+                        if roofed {
+                            self.cut_new_roofed += 1;
+                            4
+                        } else {
+                            self.cut_new_open += 1;
+                            3
+                        }
+                    };
+                    self.touched[at(tx, ty)] = true;
+                    self.dug[at(tx, ty)] = true;
+                    track.cuts += 1;
+                    track.stage = track.stage.max(reached);
+                    track.cut = Some((tx, ty, reached));
+                } else {
+                    self.target_mismatch += 1;
+                    // Why, for the cell straight ahead: not ground before the
+                    // frame, or ground again after it.
+                    match (inside(tx, ty).then(|| self.grid[at(tx, ty)]).flatten(), inside(tx, ty).then(|| world.get(tx, ty))) {
+                        (Some(was), Some(now)) if Self::is_ground(world, was) && now.organism_id() == 0 && Self::is_ground(world, now.material) => self.mismatch_refilled += 1,
+                        _ => self.mismatch_not_ground += 1,
+                    }
+                }
+            }
+            // A put-down: the pellet left the jaws. Beside the head first,
+            // then straight up its column, as the engine places it.
+            if pre.holding && !st.holding {
+                let (hx, hy) = pre.head;
+                let appeared = |x: i32, y: i32| inside(x, y) && self.grid[at(x, y)] == Some(material::EMPTY) && world.get(x, y).material == pre.pellet;
+                let beside = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)]
+                    .iter()
+                    .map(|&(ox, oy)| (hx + ox, hy + oy))
+                    .find(|&(x, y)| appeared(x, y));
+                let site = beside.map(|s| (s, false)).or_else(|| (1..=160).map(|dy| (hx, hy - dy)).find(|&(x, y)| appeared(x, y)).map(|s| (s, true)));
+                match site {
+                    None => self.site_not_found += 1,
+                    Some(((sx, sy), lifted)) => {
+                        if lifted {
+                            self.put_lifted += 1;
+                        } else {
+                            self.put_beside += 1;
+                        }
+                        let out = sy < b.surface;
+                        if out {
+                            self.put_above += 1;
+                        } else {
+                            self.put_below += 1;
+                            if self.dug[at(sx, sy)] {
+                                self.put_refill += 1;
+                            }
+                        }
+                        self.touched[at(sx, sy)] = true;
+                        if let Some((cx, cy, reached)) = track.cut.take() {
+                            if out && reached >= 4 {
+                                track.stage = track.stage.max(5);
+                                self.pending.push((frame + FUNNEL_LASTING, cx, cy, id));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // The lasting check: the cut is still room (empty or an animal).
+        let due: Vec<(u64, i32, i32, u32)> = self.pending.iter().copied().filter(|p| p.0 <= frame).collect();
+        self.pending.retain(|p| p.0 > frame);
+        for (_, x, y, id) in due {
+            let c = world.get(x, y);
+            let open = c.material == material::EMPTY || world.materials.kind(c.material) == MaterialKind::Creature;
+            if open {
+                if let Some(t) = self.ants.get_mut(&id) {
+                    t.stage = t.stage.max(6);
+                    t.cycles += 1;
+                }
+            }
+        }
+    }
+
+    fn print(&self, frame: u64, world: &World) {
+        let st = world.creature_stats;
+        let total = self.ants.len();
+        println!("FUNNEL frame={frame} ants={total}  (booked at the furthest stage each ant ever reached)");
+        let mut prev = total;
+        for (i, name) in FUNNEL_STAGES.iter().enumerate() {
+            let n = self.ants.values().filter(|t| t.stage >= i).count();
+            println!(
+                "FUNNEL   {name:<60} {n:>4}  of prev {:>5.1}%  of all {:>5.1}%",
+                if prev > 0 { 100.0 * n as f64 / prev as f64 } else { 0.0 },
+                if total > 0 { 100.0 * n as f64 / total as f64 } else { 0.0 }
+            );
+            prev = n;
+        }
+        let mut cyc = [0usize; 4];
+        for t in self.ants.values() {
+            cyc[(t.cycles as usize).min(3)] += 1;
+        }
+        println!(
+            "FUNNEL   complete cycles per ant: 0: {}  1: {}  2: {}  3+: {}   (cuts still waiting on the lasting check: {})",
+            cyc[0], cyc[1], cyc[2], cyc[3], self.pending.len()
+        );
+        // **The rate, which the high-water mark cannot show.** Over a long run
+        // nearly every ant reaches every stage once by chance, so the stages
+        // saturate; what separates building from scratching is how much of
+        // the work built something.
+        let built: u64 = self.ants.values().map(|t| u64::from(t.cycles)).sum();
+        let placed: u64 = self.ants.values().map(|t| u64::from(t.cuts)).sum();
+        let mut per: Vec<u32> = self.ants.values().map(|t| t.cuts).collect();
+        per.sort_unstable();
+        println!(
+            "FUNNEL   cuts that built {built} of {placed} placed cuts ({:.1}%); cuts per ant: median {} max {}",
+            if placed > 0 { 100.0 * built as f64 / placed as f64 } else { 0.0 },
+            per.get(per.len() / 2).copied().unwrap_or(0),
+            per.last().copied().unwrap_or(0)
+        );
+        let cuts = self.cut_above + self.cut_again + self.cut_new_open + self.cut_new_roofed;
+        println!(
+            "LEDGER frame={frame} cuts {cuts} + target mismatch {} = engine digs {}: above the old surface {}, a pellet or refill cut again {}, new ground open to the sky {}, new ground under a roof {} (of the new ground, tunnel lining {}; placed by elimination {}); mismatch: ahead refilled {}, ahead not ground {}",
+            self.target_mismatch,
+            st.digs,
+            self.cut_above,
+            self.cut_again,
+            self.cut_new_open,
+            self.cut_new_roofed,
+            self.cut_new_lining,
+            self.cut_retargeted,
+            self.mismatch_refilled,
+            self.mismatch_not_ground
+        );
+        println!(
+            "LEDGER frame={frame} pellets put down {} + died holding {} + site not found {} = engine spoil_dumped {} + spoil_lost {}: beside the head {}, posted up the column {}; landed above the old surface {}, below it {} (into a dug cell {})",
+            self.put_beside + self.put_lifted,
+            self.died_holding,
+            self.site_not_found,
+            st.spoil_dumped,
+            st.spoil_lost,
+            self.put_beside,
+            self.put_lifted,
+            self.put_above,
+            self.put_below,
+            self.put_refill
+        );
+        // Who to trace: a few ids stopped at each stage.
+        for (i, name) in FUNNEL_STAGES.iter().enumerate().skip(1) {
+            let stuck: Vec<String> = self.ants.iter().filter(|(_, t)| t.stage == i).take(6).map(|(id, _)| id.to_string()).collect();
+            if !stuck.is_empty() {
+                println!("FUNNEL   stopped at \"{name}\": {}", stuck.join(" "));
+            }
+        }
+    }
+}
+
+/// **The funnel's positive control**: one ant driven by hand through a
+/// complete cycle and through two that must not count, then a dig that
+/// changed no cell, which the ledger must refuse to place. The funnel reads
+/// only the world, so a hand-edited world is a fair test of it: every edit
+/// here is one the engine makes in `act` (cell emptied, `life.digs` bumped,
+/// pellet into `spoil`; pellet written back, `spoil` cleared).
+fn funnel_selftest(b: &Box2) {
+    use pixel_physics::sim::creature::DIRS;
+    let mut w = build(b);
+    let spoil = w.materials.id_of("spoil").expect("spoil is a shipped material");
+    let soil = w.materials.id_of("soil").expect("soil is a shipped material");
+    // A gallery six rows down for the ant to stand in, soil above it.
+    let (gx, gy) = (b.w / 2 - 6, b.surface + 6);
+    for x in gx..gx + 12 {
+        w.set(x, gy, Cell::EMPTY);
+    }
+    // The ant is a record, not a body: the funnel reads cells from the world
+    // and each ant's state from `before_with`/`after_with`, so its head can
+    // stand in the gallery without a live organism there.
+    let id = 1u32;
+    let head = (gx + 5, gy);
+    let pellet = Cell::new(spoil, 0);
+    let mut fun = NestFunnel::default();
+    let mut frame = 0u64;
+    let mut digs = 0u32;
+    let ant = |heading: u8, digs: u32, holding: bool| {
+        std::collections::BTreeMap::from([(id, AntBefore { head, heading, digs, holding, pellet: if holding { spoil } else { material::EMPTY }, crop_empty: true })])
+    };
+    let after = |digs: u32, holding: bool| std::collections::BTreeMap::from([(id, AntAfter { digs, holding })]);
+    // One dig by hand: face `dir`, cut the cell ahead, take the pellet.
+    let mut cut = |w: &mut World, fun: &mut NestFunnel, frame: u64, dir: u8| {
+        fun.before_with(w, b, ant(dir, digs, false));
+        let (tx, ty) = (head.0 + DIRS[dir as usize].0, head.1 + DIRS[dir as usize].1);
+        w.set(tx, ty, Cell::EMPTY);
+        digs += 1;
+        fun.after_with(w, b, frame, &after(digs, true));
+        (tx, ty)
+    };
+    // One put-down by hand, at `(x, y)`. `digs` is not read on a put-down.
+    let put = |w: &mut World, fun: &mut NestFunnel, frame: u64, x: i32, y: i32, digs: u32| {
+        fun.before_with(w, b, ant(0, digs, true));
+        w.set(x, y, pellet);
+        fun.after_with(w, b, frame, &after(digs, false));
+    };
+    let idle = |w: &mut World, fun: &mut NestFunnel, frame: u64, digs: u32| {
+        fun.before_with(w, b, ant(0, digs, false));
+        fun.after_with(w, b, frame, &after(digs, false));
+    };
+
+    // 1. The whole cycle: roofed new ground straight down, the pellet posted
+    //    up the column to the air, the cut still open 1,500 frames on.
+    frame += 1;
+    let first = cut(&mut w, &mut fun, frame, 6);
+    frame += 1;
+    put(&mut w, &mut fun, frame, head.0, b.surface - 1, 1);
+    frame += FUNNEL_LASTING;
+    idle(&mut w, &mut fun, frame, 1);
+    let t = fun.ants[&id];
+    println!(
+        "  funnel: a hand-driven tunnel cut, pellet posted out, still open {FUNNEL_LASTING} frames on -> stage {} ({}), cycles {} (must be 6 and 1)",
+        t.stage, FUNNEL_STAGES[t.stage], t.cycles
+    );
+    assert_eq!((t.stage, t.cycles, fun.cut_new_roofed, fun.put_lifted, fun.put_above), (6, 1, 1, 1, 1), "the funnel must book a complete cycle as one");
+
+    // 2. A pellet put straight back into the hole it came from: refill, and
+    //    no second cycle.
+    frame += 1;
+    cut(&mut w, &mut fun, frame, 5);
+    frame += 1;
+    put(&mut w, &mut fun, frame, first.0, first.1, 2);
+    // 3. A cut whose pellet goes out and which caves in before it has stood
+    //    1,500 frames: carried out, and not built.
+    frame += 1;
+    let third = cut(&mut w, &mut fun, frame, 7);
+    frame += 1;
+    put(&mut w, &mut fun, frame, head.0, b.surface - 2, 3);
+    frame += 1;
+    fun.before_with(&w, b, ant(0, 3, false));
+    w.set(third.0, third.1, Cell::new(soil, 0));
+    fun.after_with(&w, b, frame, &after(3, false));
+    frame += FUNNEL_LASTING;
+    idle(&mut w, &mut fun, frame, 3);
+    let t = fun.ants[&id];
+    println!(
+        "  funnel: + a pellet put back in its own hole, + a cut that caved in before {FUNNEL_LASTING} frames -> cycles {}, refill {}, roofed cuts {}, out {} (must be 1, 1, 3, 2)",
+        t.cycles, fun.put_refill, fun.cut_new_roofed, fun.put_above
+    );
+    assert_eq!((t.cycles, fun.put_refill, fun.put_beside, fun.cut_new_roofed, fun.put_above, fun.put_below), (1, 1, 1, 3, 2, 1), "a refilled or caved-in cut must not count as built");
+
+    // 4. The ledger's own control: a dig the world does not show must be
+    //    booked as unplaceable, not quietly dropped or guessed.
+    fun.before_with(&w, b, ant(0, 3, false));
+    frame += 1;
+    fun.after_with(&w, b, frame, &after(4, false));
+    println!("  funnel: a dig that changed no cell -> target mismatch {} (must be 1; before it, 0)", fun.target_mismatch);
+    assert_eq!((fun.target_mismatch, fun.site_not_found), (1, 0), "the ledger must refuse to place a cut it cannot see");
+}
+
 /// **The moisture gradient as the ant's own brain reads it**, sampled at
 /// every ant's head.
 ///
@@ -1750,12 +2240,23 @@ fn main() {
         println!("  tint: spoil ORANGE, tunnel lining (packedsoil) CYAN, nest WHITE, ants MAGENTA, loose soil above the old ground line YELLOW, stone left grey");
     }
 
+    // **The nest funnel** (see [`NestFunnel`]): on unless `nofunnel`. It
+    // reads the world between frames and writes nothing, so it cannot change
+    // the run; its LEDGER lines reconcile with the engine's own counters.
+    let funnel_on = !flag("nofunnel");
+    let mut funnel = NestFunnel::default();
     for f in 0..=frames {
         if f > 0 {
+            if funnel_on {
+                funnel.before(&world, &b);
+            }
             parallel::step(&mut world);
             world.step_active_sites();
             world.step_fields();
             world.step_pheromones();
+            if funnel_on {
+                funnel.after(&world, &b, f);
+            }
         }
         trickle.step(&mut world, &b);
         if f == 0 && score_k > 0 {
@@ -1784,6 +2285,9 @@ fn main() {
             }
             if flag("trace") {
                 trace(&world);
+            }
+            if funnel_on && f > 0 {
+                funnel.print(f, &world);
             }
             if let Some(g) = &ground {
                 let cut = world.nest_sites.iter().find_map(|s| s.shaft);
@@ -2242,6 +2746,8 @@ fn cut_census(world: &World) -> Option<String> {
 fn selftest_run(b: &Box2) {
     // The scoreboard first: mask-only, and seconds.
     scoreboard_selftest();
+    // The nest funnel: a hand-driven ant, no stepping, milliseconds.
+    funnel_selftest(b);
     // Specificity: nobody digs, so the census must find nothing. A box that
     // reads void with no ants in it is measuring its own scene.
     let mut bare = build(b);

@@ -10,6 +10,13 @@ geometry, absolute). This script pools them by arm, stop and null, and reads
 the order statistics a chaotic system needs -- the median over seeds, the
 WORST seed, and how many seeds clear 0.9 -- never a pooled mean.
 
+It reads the NEST FUNNEL the same way (`FUNNEL` and `LEDGER` lines, or
+`--funnel` for those alone): the share of ants that ever reached each stage
+of nest work, the share of cuts that built something, and where every cut and
+every pellet went -- each a per-seed ratio, medianed over seeds. The ledger's
+two can't-place counts are printed as the worst seed's share, because they
+are the instrument's own error bar.
+
 Logs are named `<arm>-s<seed>.log` (the pattern every nest-lane run script
 writes). Before any table it prints the key's cardinality against what was
 found, because a parse keyed on fewer dimensions than the run swept pools
@@ -31,13 +38,50 @@ NAME = re.compile(r"^(?P<arm>.+)-s(?P<seed>\d+)\.log$")
 SCORE = re.compile(r"^SCORE frame=(?P<frame>\d+) n=(?P<n>\d+) (?P<rest>.*)$")
 SPEC = re.compile(r"^SPEC frame=(?P<frame>\d+) (?P<rest>.*?)(\s+--.*)?$")
 KV = re.compile(r"(\w+)=([^\s]+)")
+FUNNEL_HEAD = re.compile(r"^FUNNEL frame=(?P<frame>\d+) ants=(?P<ants>\d+)")
+FUNNEL_STAGE = re.compile(r"^FUNNEL   (?P<name>.+?)\s+(?P<n>\d+)  of prev\s+[\d.]+%  of all\s+[\d.]+%$")
+FUNNEL_BUILT = re.compile(r"^FUNNEL   cuts that built (?P<built>\d+) of (?P<placed>\d+) placed cuts")
+LEDGER_DIG = re.compile(
+    r"^LEDGER frame=(?P<frame>\d+) cuts (?P<cuts>\d+) \+ target mismatch (?P<mismatch>\d+) = engine digs (?P<digs>\d+): "
+    r"above the old surface (?P<above>\d+), a pellet or refill cut again (?P<again>\d+), new ground open to the sky (?P<open>\d+), "
+    r"new ground under a roof (?P<roofed>\d+)"
+)
+LEDGER_PUT = re.compile(
+    r"^LEDGER frame=(?P<frame>\d+) pellets put down (?P<put>\d+) \+ died holding (?P<died>\d+) \+ site not found (?P<lost>\d+) = "
+    r"engine spoil_dumped (?P<dumped>\d+) \+ spoil_lost (?P<slost>\d+): beside the head (?P<beside>\d+), posted up the column (?P<lifted>\d+); "
+    r"landed above the old surface (?P<out>\d+), below it (?P<below>\d+) \(into a dug cell (?P<refill>\d+)\)"
+)
 
 
 def parse(path):
-    """One log -> {frame: {'n':, 'colony': {...}, 'null': {name: {...}}, 'spec': {...}}}."""
+    """One log -> {frame: {'n':, 'colony': {...}, 'null': {name: {...}}, 'spec': {...}, 'funnel': {...}}}."""
     out = {}
+    funnel = None  # the FUNNEL block being read: stage lines carry no frame of their own
     with open(path) as f:
         for line in f:
+            line = line.rstrip("\n")
+            m = FUNNEL_HEAD.match(line)
+            if m:
+                fr = int(m["frame"])
+                d = out.setdefault(fr, {"n": 0, "colony": None, "null": {}, "spec": None})
+                funnel = d["funnel"] = {"ants": int(m["ants"]), "stages": [], "built": None, "dig": None, "put": None}
+                continue
+            m = FUNNEL_STAGE.match(line)
+            if m and funnel is not None:
+                funnel["stages"].append((m["name"], int(m["n"])))
+                continue
+            m = FUNNEL_BUILT.match(line)
+            if m and funnel is not None:
+                funnel["built"] = (int(m["built"]), int(m["placed"]))
+                continue
+            m = LEDGER_DIG.match(line)
+            if m:
+                out.setdefault(int(m["frame"]), {"n": 0, "colony": None, "null": {}, "spec": None}).setdefault("funnel", {})["dig"] = {k: int(v) for k, v in m.groupdict().items()}
+                continue
+            m = LEDGER_PUT.match(line)
+            if m:
+                out.setdefault(int(m["frame"]), {"n": 0, "colony": None, "null": {}, "spec": None}).setdefault("funnel", {})["put"] = {k: int(v) for k, v in m.groupdict().items()}
+                continue
             m = SCORE.match(line)
             if m:
                 fr = int(m["frame"])
@@ -87,7 +131,7 @@ def report(runs, stop):
     frames = sorted({fr for r in runs.values() for fr in r})
     print(f"nestscore: {len(runs)} runs keyed (arm, seed): arms {arms}; seeds per arm {[len(seeds[a]) for a in arms]}; stops seen {frames}")
     unscored = [(a, s) for (a, s), r in runs.items() if not r or all(v["colony"] is None for v in r.values())]
-    if unscored:
+    if unscored and not any(v.get("funnel") for r in runs.values() for v in r.values()):
         print(f"  WARNING: {len(unscored)} runs carry no SCORE lines (built before the scoreboard, or nulls=0): {unscored[:6]}")
     stops = [stop] if stop else frames
     for fr in stops:
@@ -126,6 +170,48 @@ def report(runs, stop):
                 print(f"  {nm:>9}" + "".join(cells) + f"{panel:>14}  {hi} of {len(med)}")
 
 
+def med_worst(vals, worst=min):
+    return f"{fmt(statistics.median(vals))}/{fmt(worst(vals))}" if vals else "  -  "
+
+
+def funnel_report(runs, stop):
+    """The nest funnel by arm: every figure a per-seed ratio, medianed over seeds."""
+    arms = sorted({a for a, _ in runs})
+    frames = sorted({fr for r in runs.values() for fr, d in r.items() if d.get("funnel", {}).get("dig")})
+    if not frames:
+        return
+    for fr in [stop] if stop else frames:
+        print(f"\n=== nest funnel, frame {fr}: median over seeds / worst seed ===")
+        for a in arms:
+            fs = [r[fr]["funnel"] for (b, _), r in runs.items() if b == a and fr in r and r[fr].get("funnel", {}).get("dig") and r[fr]["funnel"].get("stages")]
+            if not fs:
+                continue
+            print(f"\n{a}: {len(fs)} seeds, ants median {statistics.median(f['ants'] for f in fs):g}")
+            names = [nm for nm, _ in fs[0]["stages"]]
+            for i, nm in enumerate(names):
+                share = [f["stages"][i][1] / f["ants"] for f in fs if f["ants"] and len(f["stages"]) > i]
+                print(f"  {nm:<62} of all ants {med_worst(share)}")
+            built = [f["built"][0] / f["built"][1] for f in fs if f.get("built") and f["built"][1]]
+            print(f"  cuts that built (roofed new ground, pellet out, open {'1,500'} frames on): {med_worst(built)} of placed cuts")
+            dig = [f["dig"] for f in fs]
+            cut = lambda d: max(d["cuts"], 1)
+            print(
+                "  where the cuts went (share of placed cuts):  "
+                + "  ".join(f"{k} {med_worst([d[k] / cut(d) for d in dig], max)}" for k in ("above", "again", "open", "roofed"))
+                + "   [above = in the heaps above the old surface; again = a cell already dug or filled]"
+            )
+            put = [f["put"] for f in fs if f.get("put")]
+            if put:
+                pp = lambda d: max(d["put"], 1)
+                print(
+                    "  where the pellets went (share of placed pellets):  "
+                    + "  ".join(f"{k} {med_worst([d[k] / pp(d) for d in put], max)}" for k in ("beside", "lifted", "out", "below", "refill"))
+                )
+            mism = [d["mismatch"] / max(d["digs"], 1) for d in dig]
+            lost = [d["lost"] / max(d["dumped"] + d["slost"], 1) for d in put] if put else []
+            print(f"  the instrument's own error: digs it could not place {med_worst(mism, max)}; pellets it could not place {med_worst(lost, max)}")
+
+
 def paired(runs, base, stop):
     """Colony metrics, arm against `base`, paired by seed: how many seeds up/down."""
     arms = sorted({a for a, _ in runs} - {base})
@@ -160,6 +246,13 @@ def selftest():
             for nm in NULLS
         )
         + "SPEC frame=100 mouths=3 chambers=0 passage=2 contrast=0.0 widest=0   -- spec\n"
+        + "FUNNEL frame=100 ants=40  (booked at the furthest stage each ant ever reached)\n"
+        + "FUNNEL   lived                                                          40  of prev 100.0%  of all 100.0%\n"
+        + "FUNNEL   cut a cell                                                     30  of prev  75.0%  of all  75.0%\n"
+        + "FUNNEL   complete cycles per ant: 0: 36  1: 1  2: 2  3+: 1   (cuts still waiting on the lasting check: 32)\n"
+        + "FUNNEL   cuts that built 9 of 400 placed cuts (2.2%); cuts per ant: median 9 max 28\n"
+        + "LEDGER frame=100 cuts 400 + target mismatch 6 = engine digs 406: above the old surface 160, a pellet or refill cut again 112, new ground open to the sky 70, new ground under a roof 58 (of the new ground, tunnel lining 99; placed by elimination 3); mismatch: ahead refilled 1, ahead not ground 5\n"
+        + "LEDGER frame=100 pellets put down 397 + died holding 0 + site not found 2 = engine spoil_dumped 399 + spoil_lost 0: beside the head 223, posted up the column 174; landed above the old surface 374, below it 23 (into a dug cell 23)\n"
     )
     for arm in ("a", "b"):
         for s in (1, 2):
@@ -170,13 +263,17 @@ def selftest():
     r = runs[("a", 1)][100]
     assert r["colony"]["iqr"] == 20.0 and r["null"]["eden"]["median"] == 0.8 and r["null"]["rows"]["ties"] == ["depth90"], r
     assert r["spec"]["chambers"] == 0 and r["spec"]["mouths"] == 3, r["spec"]
+    fu = r["funnel"]
+    assert fu["ants"] == 40 and fu["stages"] == [("lived", 40), ("cut a cell", 30)], fu["stages"]
+    assert fu["built"] == (9, 400) and fu["dig"]["above"] == 160 and fu["dig"]["digs"] == 406, fu
+    assert fu["put"]["beside"] == 223 and fu["put"]["refill"] == 23 and fu["put"]["dumped"] == 399, fu["put"]
     # A duplicate key must refuse, not pool (last write wins is the failure).
     try:
         load([d, d], None)
         raise AssertionError("a duplicate (arm, seed) was pooled silently")
     except SystemExit:
         pass
-    print("nestscore selftest: PASS -- parses colony, null and SPEC lines, and refuses a duplicate key")
+    print("nestscore selftest: PASS -- parses colony, null, SPEC, FUNNEL and LEDGER lines, and refuses a duplicate key")
 
 
 def main():
@@ -185,6 +282,7 @@ def main():
     ap.add_argument("--stop", type=int, default=None, help="one stop only (default: every stop)")
     ap.add_argument("--arms", default=None, help="comma-separated arms to include")
     ap.add_argument("--base", default=None, help="an arm to pair every other arm against, by seed")
+    ap.add_argument("--funnel", action="store_true", help="the nest funnel only, not the scoreboard")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
     if a.selftest:
@@ -195,7 +293,9 @@ def main():
     runs = load(a.dirs, set(a.arms.split(",")) if a.arms else None)
     if not runs:
         sys.exit("nestscore: no <arm>-s<seed>.log files found")
-    report(runs, a.stop)
+    if not a.funnel:
+        report(runs, a.stop)
+    funnel_report(runs, a.stop)
     if a.base:
         stop = a.stop or max(fr for r in runs.values() for fr in r)
         paired(runs, a.base, stop)
