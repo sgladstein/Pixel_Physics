@@ -53,7 +53,7 @@
 
 use pixel_physics::render::Renderer;
 use pixel_physics::sim::explosion::Blasts;
-use pixel_physics::sim::material::MaterialKind;
+use pixel_physics::sim::material::{MaterialId, MaterialKind};
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::weather::Pin;
 use pixel_physics::sim::{material, parallel, Cell, World};
@@ -428,7 +428,15 @@ fn chambers(world: &World, b: &Box2) -> Chambers {
             }
         }
     }
-    // Chebyshev distance to the nearest non-room cell, two passes.
+    chambers_of(&void, w, h)
+}
+
+/// **Chebyshev distance to the nearest non-room cell**, two passes: every
+/// room cell gets the radius of the largest square of room centred on it.
+/// Split out of [`chambers`] so the scoreboard reads bores through the same
+/// transform the chamber census does.
+fn chebyshev(void: &[bool], w: usize, h: usize) -> Vec<i32> {
+    let idx = |x: usize, y: usize| y * w + x;
     const FAR: i32 = 1 << 20;
     let mut d: Vec<i32> = void.iter().map(|&v| if v { FAR } else { 0 }).collect();
     for y in 0..h {
@@ -473,6 +481,15 @@ fn chambers(world: &World, b: &Box2) -> Chambers {
             d[idx(x, y)] = d[idx(x, y)].min(best + 1);
         }
     }
+    d
+}
+
+/// [`chambers`] over any room mask `void` (`w` x `h`, row 0 the old
+/// surface), so a null model's mask is scored by the same census as the
+/// colony's.
+fn chambers_of(void: &[bool], w: usize, h: usize) -> Chambers {
+    let idx = |x: usize, y: usize| y * w + x;
+    let d = chebyshev(void, w, h);
     // Components of the core, 8-connected, flood filled iteratively -- a
     // recursive fill blows the stack on a box-wide hole, which is exactly
     // the case this census exists to name.
@@ -531,6 +548,1149 @@ fn chambers(world: &World, b: &Box2) -> Chambers {
     let max_w = ws.last().copied().unwrap_or(0);
     let contrast = if passage > 0 { med_h as f32 / passage as f32 } else { 0.0 };
     Chambers { count: boxes.len() as i32, med_h, med_w, max_w, passage, contrast }
+}
+
+// =============================================================================
+// THE NEST SCOREBOARD: is the colony building anything, or scratching at random?
+// =============================================================================
+//
+// Owner, 2026-09-27: *"Do you have a good way to evaluate how well a nest is
+// being built versus random digging?"* Nothing here did. Every column above
+// either ranks how MUCH was dug or describes a bounding box, and none says
+// whether what was dug is more nest-like than the same number of cells removed
+// by a rule with no nest in it. So: one boolean mask per excavation, one panel
+// of shape metrics over it, and several null models that carve exactly as many
+// cells from the same ground, all scored by the identical code. The colony's
+// score on a metric is its percentile among a null's draws (mid-rank, ties
+// split), so **0.5 reads "indistinguishable from this kind of random
+// digging"** and 1.0 "more nest-like than every draw".
+//
+// Two grades, never pooled. STRUCTURE is against the nulls; SPEC is the
+// owner's 2026-09-20 geometry in absolute terms (`SPEC` line), because a
+// giant hole beats random on connectivity and still fails the spec.
+
+/// A boolean mask over the soil band: `w` columns by `h` rows, row 0 the old
+/// ground surface.
+#[derive(Clone)]
+struct Mask {
+    w: usize,
+    h: usize,
+    on: Vec<bool>,
+}
+
+impl Mask {
+    fn empty(w: usize, h: usize) -> Self {
+        Mask { w, h, on: vec![false; w * h] }
+    }
+    fn at(&self, x: i32, y: i32) -> bool {
+        x >= 0 && y >= 0 && (x as usize) < self.w && (y as usize) < self.h && self.on[y as usize * self.w + x as usize]
+    }
+    fn set(&mut self, x: usize, y: usize) {
+        self.on[y * self.w + x] = true;
+    }
+    fn count(&self) -> usize {
+        self.on.iter().filter(|&&v| v).count()
+    }
+}
+
+/// **The room as a mask**, on [`census_masked`]'s own predicate: below the
+/// old surface, not ground, and empty or an animal. Roofed and open both,
+/// because `roofed` is one of the panel's metrics rather than a filter, and
+/// less the cells `skip` names (the founding cut, which the colony did not
+/// dig).
+fn room_mask(world: &World, b: &Box2, skip: &dyn Fn(i32, i32) -> bool) -> Mask {
+    let mut m = Mask::empty(b.w as usize, (b.floor - b.surface) as usize);
+    for x in 1..b.w - 1 {
+        for y in b.surface..b.floor {
+            let cell = world.get(x, y);
+            let kind = world.materials.kind(cell.material);
+            let is_ground = cell.material != material::EMPTY
+                && matches!(kind, MaterialKind::Powder | MaterialKind::Solid)
+                && cell.organism_id() == 0;
+            if is_ground || skip(x, y) {
+                continue;
+            }
+            if cell.material == material::EMPTY || kind == MaterialKind::Creature {
+                m.set(x as usize, (y - b.surface) as usize);
+            }
+        }
+    }
+    m
+}
+
+/// **Where a null may dig, and where it starts from**, read once at frame 0.
+struct Ground {
+    /// Every band cell an ant could cut at frame 0: ground within
+    /// `dig_force` 1.0, so soil but never the painted nest (6.0) or the
+    /// stone shell.
+    elig: Mask,
+    elig_idx: Vec<usize>,
+    elig_rows: Vec<Vec<usize>>,
+    /// The founding cut: void the colony was handed. A gallery that opens
+    /// into it is open to the outside, for the colony and a null alike.
+    portal: Mask,
+    /// Eligible cells within 2 of the door (painted nest or founding cut),
+    /// where the door-grown nulls begin.
+    starts: Vec<usize>,
+}
+
+fn ground_at(world: &World, b: &Box2, cut: &dyn Fn(i32, i32) -> bool) -> Ground {
+    let (w, h) = (b.w as usize, (b.floor - b.surface) as usize);
+    let nest = world.materials.id_of("nest");
+    let mut elig = Mask::empty(w, h);
+    let mut portal = Mask::empty(w, h);
+    let mut door: Vec<(i32, i32)> = Vec::new();
+    for x in 1..b.w - 1 {
+        for y in (b.surface - 2)..b.floor {
+            let row = y - b.surface;
+            if cut(x, y) {
+                if row >= 0 {
+                    portal.set(x as usize, row as usize);
+                }
+                door.push((x, row));
+                continue;
+            }
+            let cell = world.get(x, y);
+            if Some(cell.material) == nest {
+                door.push((x, row));
+                continue;
+            }
+            let kind = world.materials.kind(cell.material);
+            let ground = cell.material != material::EMPTY && matches!(kind, MaterialKind::Powder | MaterialKind::Solid) && cell.organism_id() == 0;
+            if row >= 0 && ground && world.materials.get(cell.material).penetration_resistance <= 1.0 {
+                elig.set(x as usize, row as usize);
+            }
+        }
+    }
+    let elig_idx: Vec<usize> = (0..w * h).filter(|&i| elig.on[i]).collect();
+    let mut elig_rows: Vec<Vec<usize>> = vec![Vec::new(); h];
+    for &i in &elig_idx {
+        elig_rows[i / w].push(i);
+    }
+    let starts: Vec<usize> = elig_idx
+        .iter()
+        .copied()
+        .filter(|&i| {
+            let (x, y) = ((i % w) as i32, (i / w) as i32);
+            door.iter().any(|&(dx, dy)| (dx - x).abs() <= 2 && (dy - y).abs() <= 2)
+        })
+        .collect();
+    Ground { elig, elig_idx, elig_rows, portal, starts }
+}
+
+/// One excavation's shape, every number read the same way off any mask.
+#[derive(Clone, Copy, Default)]
+struct Panel {
+    n: usize,
+    /// Entrances: runs of dug (or cut) cells along the old surface row.
+    mouths: f32,
+    /// Share of the dug cells in pieces that reach the outside, through the
+    /// surface row or the founding cut. A nest is a place you can walk into.
+    reach: f32,
+    /// Share in the largest 8-connected piece.
+    largest: f32,
+    /// Share with ground somewhere above in the column: a room, not a pit.
+    roofed: f32,
+    /// 90th percentile depth below the old surface, in rows.
+    depth90: f32,
+    /// Columns holding the middle half of the dug cells: concentration.
+    iqr: f32,
+    /// Share of dug cells at Chebyshev radius 2 or more, i.e. bore 3+: a
+    /// passage rather than a two-cell scratch.
+    wide: f32,
+}
+
+/// The panel's metrics, **directions fixed before any run**: the name, and
+/// whether a higher value is the more nest-like one. `mouths` is scored as
+/// its distance from the owner's one mouth.
+const METRICS: [(&str, bool); 7] =
+    [("mouths", false), ("reach", true), ("largest", true), ("roofed", true), ("depth90", true), ("iqr", false), ("wide", true)];
+
+fn metric(p: &Panel, i: usize) -> f32 {
+    match i {
+        0 => (p.mouths - 1.0).abs(),
+        1 => p.reach,
+        2 => p.largest,
+        3 => p.roofed,
+        4 => p.depth90,
+        5 => p.iqr,
+        _ => p.wide,
+    }
+}
+
+fn panel_of(m: &Mask, portal: &Mask) -> Panel {
+    let (w, h) = (m.w, m.h);
+    let n = m.count();
+    if n == 0 {
+        return Panel::default();
+    }
+    let mut mouths = 0;
+    let mut in_run = false;
+    for x in 0..w {
+        let v = m.on[x] || portal.on[x];
+        if v && !in_run {
+            mouths += 1;
+        }
+        in_run = v;
+    }
+    // Pieces, 8-connected like every other census here, iteratively.
+    let mut seen = vec![false; w * h];
+    let (mut reached, mut largest) = (0usize, 0usize);
+    let mut stack: Vec<usize> = Vec::new();
+    for s in 0..w * h {
+        if !m.on[s] || seen[s] {
+            continue;
+        }
+        let (mut size, mut out) = (0usize, false);
+        seen[s] = true;
+        stack.push(s);
+        while let Some(i) = stack.pop() {
+            size += 1;
+            let (x, y) = ((i % w) as i32, (i / w) as i32);
+            if y == 0 {
+                out = true;
+            }
+            for dy in -1i32..=1 {
+                for dx in -1i32..=1 {
+                    let (nx, ny) = (x + dx, y + dy);
+                    if portal.at(nx, ny) {
+                        out = true;
+                    }
+                    if m.at(nx, ny) {
+                        let j = ny as usize * w + nx as usize;
+                        if !seen[j] {
+                            seen[j] = true;
+                            stack.push(j);
+                        }
+                    }
+                }
+            }
+        }
+        largest = largest.max(size);
+        if out {
+            reached += size;
+        }
+    }
+    let mut roofed = 0usize;
+    for x in 0..w {
+        let mut covered = false;
+        for y in 0..h {
+            let i = y * w + x;
+            if m.on[i] {
+                if covered {
+                    roofed += 1;
+                }
+            } else if !portal.on[i] {
+                covered = true;
+            }
+        }
+    }
+    let mut depths: Vec<usize> = (0..w * h).filter(|&i| m.on[i]).map(|i| i / w).collect();
+    depths.sort_unstable();
+    let depth90 = depths[(depths.len() * 9 / 10).min(depths.len() - 1)] as f32;
+    let mut per_col = vec![0usize; w];
+    for i in 0..w * h {
+        if m.on[i] {
+            per_col[i % w] += 1;
+        }
+    }
+    let q = n / 4;
+    let (mut lo, mut hi, mut run) = (0usize, w - 1, 0usize);
+    for (x, &c) in per_col.iter().enumerate() {
+        run += c;
+        if run > q {
+            lo = x;
+            break;
+        }
+    }
+    run = 0;
+    for x in (0..w).rev() {
+        run += per_col[x];
+        if run > q {
+            hi = x;
+            break;
+        }
+    }
+    // Bores on a copy padded with one ring of ground, so the surface row and
+    // the band's edges bound the transform instead of reading as open room.
+    let (pw, ph) = (w + 2, h + 2);
+    let mut padded = vec![false; pw * ph];
+    for y in 0..h {
+        for x in 0..w {
+            padded[(y + 1) * pw + x + 1] = m.on[y * w + x];
+        }
+    }
+    let d = chebyshev(&padded, pw, ph);
+    let wide = (0..pw * ph).filter(|&i| padded[i] && d[i] >= 2).count();
+    Panel {
+        n,
+        mouths: mouths as f32,
+        reach: reached as f32 / n as f32,
+        largest: largest as f32 / n as f32,
+        roofed: roofed as f32 / n as f32,
+        depth90,
+        iqr: (hi.saturating_sub(lo) + 1) as f32,
+        wide: wide as f32 / n as f32,
+    }
+}
+
+/// Mid-rank percentile of `c` among `draws`, oriented so 1.0 is more
+/// nest-like than every draw, and the share of draws it ties.
+fn percentile(c: f32, draws: &[f32], higher: bool) -> (f32, f32) {
+    let (mut beat, mut tie) = (0usize, 0usize);
+    for &d in draws {
+        if (d - c).abs() <= 1e-6 {
+            tie += 1;
+        } else if (c > d) == higher {
+            beat += 1;
+        }
+    }
+    let k = draws.len().max(1) as f32;
+    ((beat as f32 + 0.5 * tie as f32) / k, tie as f32 / k)
+}
+
+/// **The null models, weakest to strongest.** Each carves exactly `n` cells
+/// of the eligible ground and has no nest logic in it.
+///
+/// - `uniform`: anywhere in the band. A floor: any connected dig beats it.
+/// - `rows`: the colony's own count in every row, placed at random along
+///   the row. Keeps how deep the colony dug and asks only whether the
+///   arrangement is a nest; its `depth90` ties by construction.
+/// - `eden`: one blob grown a random neighbour at a time from the door.
+///   Connected and entered, with no plan: the strictest test of
+///   compactness, and a pit rather than a room.
+/// - `walkers`: as many diggers as the colony has ants, starting beside the
+///   door, each walking straight with probability 0.8 and digging whatever
+///   it walks into. The engine's own rule stripped of the nest gate, the
+///   brain and the spoil: the closest thing to "random digging by ants".
+#[derive(Clone, Copy, PartialEq)]
+enum Null {
+    Uniform,
+    Rows,
+    Eden,
+    Walkers,
+}
+
+const NULLS: [(Null, &str); 4] = [(Null::Uniform, "uniform"), (Null::Rows, "rows"), (Null::Eden, "eden"), (Null::Walkers, "walkers")];
+
+/// Straight-ahead persistence of the `walkers` null, per step.
+const WALKER_PERSIST: f32 = 0.8;
+
+fn draw_null(kind: Null, g: &Ground, colony: &Mask, n: usize, walkers: usize, rng: &mut pixel_physics::sim::rng::Rng) -> Mask {
+    let (w, h) = (g.elig.w, g.elig.h);
+    let mut m = Mask::empty(w, h);
+    let pick = |pool: &mut Vec<usize>, k: usize, rng: &mut pixel_physics::sim::rng::Rng, m: &mut Mask| {
+        let k = k.min(pool.len());
+        for i in 0..k {
+            let j = i + rng.below((pool.len() - i) as u32) as usize;
+            pool.swap(i, j);
+            m.on[pool[i]] = true;
+        }
+    };
+    match kind {
+        Null::Uniform => {
+            let mut pool = g.elig_idx.clone();
+            pick(&mut pool, n, rng, &mut m);
+        }
+        Null::Rows => {
+            for y in 0..h {
+                let want = (0..w).filter(|&x| colony.on[y * w + x]).count();
+                if want > 0 {
+                    let mut pool = g.elig_rows[y].clone();
+                    pick(&mut pool, want, rng, &mut m);
+                }
+            }
+        }
+        Null::Eden => {
+            let mut in_front = vec![false; w * h];
+            let mut front: Vec<usize> = Vec::new();
+            let mut dug = 0usize;
+            while dug < n {
+                if front.is_empty() {
+                    // (Re)seed beside the door; fall back to anywhere eligible.
+                    let pool: Vec<usize> = g.starts.iter().copied().filter(|&i| !m.on[i]).collect();
+                    let pool = if pool.is_empty() { g.elig_idx.iter().copied().filter(|&i| !m.on[i]).collect() } else { pool };
+                    if pool.is_empty() {
+                        break;
+                    }
+                    let s = pool[rng.below(pool.len() as u32) as usize];
+                    front.push(s);
+                    in_front[s] = true;
+                }
+                let k = rng.below(front.len() as u32) as usize;
+                let i = front.swap_remove(k);
+                if m.on[i] {
+                    continue;
+                }
+                m.on[i] = true;
+                dug += 1;
+                let (x, y) = ((i % w) as i32, (i / w) as i32);
+                for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                    if g.elig.at(x + dx, y + dy) {
+                        let j = (y + dy) as usize * w + (x + dx) as usize;
+                        if !m.on[j] && !in_front[j] {
+                            in_front[j] = true;
+                            front.push(j);
+                        }
+                    }
+                }
+            }
+        }
+        Null::Walkers => {
+            const DIRS: [(i32, i32); 8] = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)];
+            let starts = if g.starts.is_empty() { &g.elig_idx } else { &g.starts };
+            if starts.is_empty() {
+                return m;
+            }
+            let mut ws: Vec<(i32, i32, usize)> = Vec::new();
+            let mut dug = 0usize;
+            for _ in 0..walkers.max(1) {
+                let s = starts[rng.below(starts.len() as u32) as usize];
+                if !m.on[s] && dug < n {
+                    m.on[s] = true;
+                    dug += 1;
+                }
+                ws.push(((s % w) as i32, (s / w) as i32, rng.below(8) as usize));
+            }
+            let mut steps = 0usize;
+            while dug < n && steps < 400 * n.max(1) {
+                for wk in ws.iter_mut() {
+                    steps += 1;
+                    if rng.unit_f32() >= WALKER_PERSIST {
+                        wk.2 = rng.below(8) as usize;
+                    }
+                    let (nx, ny) = (wk.0 + DIRS[wk.2].0, wk.1 + DIRS[wk.2].1);
+                    if !(g.elig.at(nx, ny) || m.at(nx, ny)) {
+                        wk.2 = rng.below(8) as usize;
+                        continue;
+                    }
+                    let j = ny as usize * w + nx as usize;
+                    if !m.on[j] {
+                        m.on[j] = true;
+                        dug += 1;
+                    }
+                    wk.0 = nx;
+                    wk.1 = ny;
+                    if dug >= n {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    m
+}
+
+/// The colony's percentile against one null, per metric, over `k` draws;
+/// and each metric's tie share.
+fn score_against(colony: &Panel, colony_mask: &Mask, g: &Ground, kind: Null, k: usize, walkers: usize, seed: (u64, u64)) -> Vec<(f32, f32)> {
+    let draws: Vec<Panel> = (0..k)
+        .map(|i| {
+            let mut rng = pixel_physics::sim::rng::stream(seed.0, seed.1, kind as u64, i as u64);
+            panel_of(&draw_null(kind, g, colony_mask, colony.n, walkers, &mut rng), &g.portal)
+        })
+        .collect();
+    (0..METRICS.len())
+        .map(|mi| {
+            let v: Vec<f32> = draws.iter().map(|p| metric(p, mi)).collect();
+            percentile(metric(colony, mi), &v, METRICS[mi].1)
+        })
+        .collect()
+}
+
+/// The `SCORE` and `SPEC` lines for one excavation. Parse with
+/// `scripts/nestscore.py`, which orders them by seed.
+fn print_score(frame: u64, colony_mask: &Mask, g: &Ground, k: usize, walkers: usize, seed: u64) {
+    let p = panel_of(colony_mask, &g.portal);
+    if p.n < 10 {
+        println!("SCORE frame={frame} n={} (fewer than 10 dug cells: not scored)", p.n);
+        return;
+    }
+    let raw: Vec<String> = (0..METRICS.len())
+        .map(|i| {
+            let v = if i == 0 { p.mouths } else { metric(&p, i) };
+            format!("{}={v:.3}", METRICS[i].0)
+        })
+        .collect();
+    println!("SCORE frame={frame} n={} colony {}", p.n, raw.join(" "));
+    for (kind, name) in NULLS {
+        let s = score_against(&p, colony_mask, g, kind, k, walkers, (seed, frame));
+        let cols: Vec<String> = (0..METRICS.len()).map(|i| format!("{}={:.3}", METRICS[i].0, s[i].0)).collect();
+        let ties: Vec<&str> = (0..METRICS.len()).filter(|&i| s[i].1 > 0.9).map(|i| METRICS[i].0).collect();
+        let mut live: Vec<f32> = (0..METRICS.len()).filter(|&i| s[i].1 <= 0.9).map(|i| s[i].0).collect();
+        live.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let med = if live.is_empty() { f32::NAN } else { live[live.len() / 2] };
+        println!(
+            "SCORE frame={frame} n={} null={name} k={k} {} median={med:.3} ties={}",
+            p.n,
+            cols.join(" "),
+            if ties.is_empty() { "-".to_string() } else { ties.join(",") }
+        );
+    }
+    // The owner's geometry, absolute: chambers on the roofed part.
+    let mut roofed = vec![false; colony_mask.w * colony_mask.h];
+    for x in 0..colony_mask.w {
+        let mut covered = false;
+        for y in 0..colony_mask.h {
+            let i = y * colony_mask.w + x;
+            if colony_mask.on[i] {
+                roofed[i] = covered;
+            } else if !g.portal.on[i] {
+                covered = true;
+            }
+        }
+    }
+    let ch = chambers_of(&roofed, colony_mask.w, colony_mask.h);
+    println!(
+        "SPEC frame={frame} mouths={} chambers={} passage={} contrast={:.1} widest={}   -- spec: 1 mouth, passage ~4, chambers 8-16 tall and wider than tall, contrast 2-4x",
+        p.mouths, ch.count, ch.passage, ch.contrast, ch.max_w
+    );
+}
+
+/// **What the scoreboard compared, drawn**: the colony's excavation and one
+/// draw of each null at the same cell count, one tile each, top to bottom
+/// (colony, uniform, rows, eden, walkers). Sky dark, ground brown, dug
+/// cells black, the door (painted nest or founding cut) white. `maskout=`
+/// writes it at the last stop, because a percentile says how often and
+/// never what.
+fn mask_tiles(colony: &Mask, g: &Ground, b: &Box2, walkers: usize, seed: u64, frame: u64) -> Vec<Vec<u8>> {
+    let mut masks = vec![colony.clone()];
+    for (kind, _) in NULLS {
+        let mut rng = pixel_physics::sim::rng::stream(seed, frame, kind as u64, 0);
+        masks.push(draw_null(kind, g, colony, colony.count(), walkers, &mut rng));
+    }
+    masks
+        .iter()
+        .map(|m| {
+            let mut buf = vec![0u8; (b.w * b.h * 4) as usize];
+            for y in 0..b.h {
+                for x in 0..b.w {
+                    let row = y - b.surface;
+                    let rgba: [u8; 4] = if row < 0 {
+                        [28, 32, 44, 255]
+                    } else if row as usize >= m.h || x == 0 || x == b.w - 1 {
+                        [90, 90, 90, 255]
+                    } else if m.at(x, row) {
+                        [0, 0, 0, 255]
+                    } else if g.portal.at(x, row) || !(g.elig.at(x, row)) {
+                        [240, 240, 240, 255]
+                    } else {
+                        [134, 96, 62, 255]
+                    };
+                    let i = ((y * b.w + x) * 4) as usize;
+                    buf[i..i + 4].copy_from_slice(&rgba);
+                }
+            }
+            buf
+        })
+        .collect()
+}
+
+/// **The scoreboard's own controls, mask-only and in seconds.** Run from
+/// `selftest`, before any colony is scored, because a score is only
+/// evidence if it can go high for a nest and sits at the middle for noise.
+fn scoreboard_selftest() {
+    let (w, h) = (200usize, 60usize);
+    let c = w as i32 / 2;
+    let mut elig = Mask::empty(w, h);
+    for y in 0..h {
+        for x in 1..w - 1 {
+            elig.set(x, y);
+        }
+    }
+    let elig_idx: Vec<usize> = (0..w * h).filter(|&i| elig.on[i]).collect();
+    let mut elig_rows = vec![Vec::new(); h];
+    for &i in &elig_idx {
+        elig_rows[i / w].push(i);
+    }
+    // A 5-wide door on the surface at the centre, as NEST_DOOR=2 paints it.
+    let starts: Vec<usize> = elig_idx.iter().copied().filter(|&i| (i / w) <= 2 && ((i % w) as i32 - c).abs() <= 4).collect();
+    let g = Ground { elig, elig_idx, elig_rows, portal: Mask::empty(w, h), starts };
+
+    // (1) POSITIVE: an ideal small nest -- a 4-wide shaft from the surface,
+    // 8 rows, into a chamber 8 tall and 13 wide. 136 cells, about what 40
+    // ants dig here in 12,000 frames.
+    let mut ideal = Mask::empty(w, h);
+    for y in 0..8 {
+        for x in (c - 2)..(c + 2) {
+            ideal.set(x as usize, y);
+        }
+    }
+    for y in 8..16 {
+        for x in (c - 6)..=(c + 6) {
+            ideal.set(x as usize, y);
+        }
+    }
+    let p = panel_of(&ideal, &g.portal);
+    assert_eq!(p.n, 136, "the ideal nest must be 136 cells");
+    println!(
+        "  scoreboard, ideal nest ({} cells): mouths {} reach {:.2} largest {:.2} roofed {:.2} depth90 {} iqr {} wide {:.2}",
+        p.n, p.mouths, p.reach, p.largest, p.roofed, p.depth90, p.iqr, p.wide
+    );
+    let mut table = Vec::new();
+    for (kind, name) in NULLS {
+        let s = score_against(&p, &ideal, &g, kind, 200, 40, (7, 0));
+        let cols: Vec<String> = (0..METRICS.len()).map(|i| format!("{} {:.2}{}", METRICS[i].0, s[i].0, if s[i].1 > 0.9 { "(tie)" } else { "" })).collect();
+        println!("    against {name:>8}: {}", cols.join("  "));
+        table.push(s);
+    }
+    let at = |null: usize, name: &str| table[null][METRICS.iter().position(|m| m.0 == name).unwrap()];
+    for (null, name) in [(0, "reach"), (0, "largest"), (1, "reach"), (1, "largest"), (2, "depth90"), (2, "roofed"), (3, "depth90")] {
+        assert!(
+            at(null, name).0 >= 0.95,
+            "the ideal nest scores {:.2} on {name} against {}: a nest by construction must beat that null there, or the score cannot see a nest",
+            at(null, name).0,
+            NULLS[null].1
+        );
+    }
+    assert!(at(1, "depth90").1 >= 0.9, "the rows null must tie the colony's depth by construction");
+
+    // (2) NEGATIVE: each null against itself must score in the middle. A
+    // biased generator, scorer or tie rule reads as a finding.
+    for (ni, (kind, name)) in NULLS.iter().enumerate() {
+        let mut per_metric: Vec<Vec<f32>> = vec![Vec::new(); METRICS.len()];
+        for t in 0..40u64 {
+            let mut rng = pixel_physics::sim::rng::stream(99, t, ni as u64, 0);
+            let pseudo = draw_null(*kind, &g, &ideal, 136, 40, &mut rng);
+            let pp = panel_of(&pseudo, &g.portal);
+            let s = score_against(&pp, &pseudo, &g, *kind, 100, 40, (1000 + t, 1));
+            for mi in 0..METRICS.len() {
+                if s[mi].1 <= 0.9 {
+                    per_metric[mi].push(s[mi].0);
+                }
+            }
+        }
+        let meds: Vec<String> = per_metric
+            .iter_mut()
+            .enumerate()
+            .map(|(mi, v)| {
+                if v.len() < 10 {
+                    return format!("{} tie", METRICS[mi].0);
+                }
+                // **The mean, not the median.** A mid-rank percentile has
+                // mean 0.5 against its own distribution by construction,
+                // but on a lumpy metric -- `mouths` is 1 for most blobs --
+                // its median sits at the mode (measured: eden's `mouths`
+                // median 0.73 against itself). 40 draws put the mean within
+                // about 0.05 of 0.5, so 0.35-0.65 is three standard errors.
+                let mean = v.iter().sum::<f32>() / v.len() as f32;
+                assert!(
+                    (0.35..=0.65).contains(&mean),
+                    "{name} against itself scores a mean {mean:.2} on {}: a null must sit at its own middle",
+                    METRICS[mi].0
+                );
+                format!("{} {mean:.2}", METRICS[mi].0)
+            })
+            .collect();
+        println!("    {name:>8} against itself (mean of 40): {}", meds.join("  "));
+    }
+}
+
+// =============================================================================
+// THE NEST FUNNEL: every ant, booked at the furthest point of nest work it reached
+// =============================================================================
+//
+// The funnel skill's shape (`.claude/skills/funnel/SKILL.md`), for digging:
+// count individuals, not events, each at its high-water mark, and gate each
+// stage on the state that makes it real rather than on the event that looks
+// like it. A dig that cut a pellet somebody put back is not nest work; a
+// pellet posted up the column is out of the ground wherever the head is.
+//
+// Read off the world between frames, with no engine change: an ant ticks at
+// most once a frame (`tick_interval` 6), and within a tick it acts before it
+// moves, so a dig seen after a frame was aimed at the pre-frame head plus the
+// pre-frame heading, and a pellet that left the jaws landed beside that head
+// or straight up its column. `target mismatch` and `site not found` count
+// every event those two assumptions could not place; they must read 0.
+
+/// The stages, in order. An ant's `stage` is the index of the furthest.
+const FUNNEL_STAGES: [&str; 7] = [
+    "lived",
+    "faced diggable ground, jaws free",
+    "cut a cell",
+    "cut new ground (below the old surface, never dug or filled)",
+    "cut new ground with a roof over it",
+    "carried that pellet out above the old surface",
+    "the cut still open 1,500 frames later",
+];
+
+/// How long a cut must stay open to count as built rather than scratched.
+const FUNNEL_LASTING: u64 = 1_500;
+
+#[derive(Clone, Copy)]
+struct AntBefore {
+    head: (i32, i32),
+    heading: u8,
+    digs: u32,
+    holding: bool,
+    /// The held pellet's material: a put-down is a cell of *this* appearing,
+    /// so a soil grain falling into the gallery is never read as one.
+    pellet: MaterialId,
+    crop_empty: bool,
+}
+
+/// What the funnel needs of an ant after the frame. Separate from the world
+/// so the classification can be driven by hand (`funnel_selftest`):
+/// `World::organism_mut` is `pub(crate)`, so an example cannot edit an ant.
+#[derive(Clone, Copy)]
+struct AntAfter {
+    digs: u32,
+    holding: bool,
+}
+
+#[derive(Clone, Copy, Default)]
+struct AntTrack {
+    stage: usize,
+    /// The cut whose pellet is in the jaws: (x, y, stage it reached).
+    cut: Option<(i32, i32, usize)>,
+    /// Cuts this ant made that passed every stage: roofed new ground, the
+    /// pellet carried out, the cell still open `FUNNEL_LASTING` frames later.
+    cycles: u32,
+    /// Every cut this ant made, placed or not by stage.
+    cuts: u32,
+}
+
+#[derive(Default)]
+struct NestFunnel {
+    ants: std::collections::BTreeMap<u32, AntTrack>,
+    before: std::collections::BTreeMap<u32, AntBefore>,
+    /// The box as it stood before the frame: `None` is an organism's cell.
+    grid: Vec<Option<MaterialId>>,
+    /// Cells dug, or filled by a pellet, since frame 0: re-cutting them is
+    /// churn, not new ground.
+    touched: Vec<bool>,
+    /// Cells dug since frame 0: a pellet put down in one is the hole refilled.
+    dug: Vec<bool>,
+    /// (frame due, cut x, cut y, ant) waiting on the lasting check.
+    pending: Vec<(u64, i32, i32, u32)>,
+    // The dig ledger: every cut in exactly one bucket.
+    cut_above: u64,
+    cut_again: u64,
+    /// Of `cut_again`, by what the cell was made of when it was cut again:
+    /// spoil (a pellet, or a heap that slid back in), soil (the bank fell
+    /// in), lining, anything else. Says what the churn is made of.
+    again_spoil: u64,
+    again_soil: u64,
+    again_lining: u64,
+    again_other: u64,
+    cut_new_open: u64,
+    cut_new_roofed: u64,
+    cut_new_lining: u64,
+    /// Cuts placed by elimination (the one 8-neighbour of the head that went
+    /// ground -> empty) because the cell straight ahead had not: counted so
+    /// that a heading assumption that stops holding shows up here first.
+    cut_retargeted: u64,
+    target_mismatch: u64,
+    /// Of `target_mismatch`: the cell ahead was ground before and after the
+    /// frame (cut and refilled within it, most likely by falling powder)...
+    mismatch_refilled: u64,
+    /// ...or it was not ground before the frame at all.
+    mismatch_not_ground: u64,
+    // The pellet ledger.
+    put_beside: u64,
+    put_lifted: u64,
+    put_above: u64,
+    put_below: u64,
+    /// Of `put_below`, landed in a cell dug since frame 0: the hole refilled.
+    put_refill: u64,
+    /// The carrier died holding it; the engine drops it by its corpse.
+    died_holding: u64,
+    site_not_found: u64,
+}
+
+impl NestFunnel {
+    fn is_ground(world: &World, m: MaterialId) -> bool {
+        m != material::EMPTY && matches!(world.materials.kind(m), MaterialKind::Powder | MaterialKind::Solid)
+    }
+
+    /// Every live creature's state, as `before` needs it.
+    fn ants_before(world: &World) -> std::collections::BTreeMap<u32, AntBefore> {
+        let mut out = std::collections::BTreeMap::new();
+        for id in world.live_organism_ids() {
+            let Some(st) = world.organism(id) else { continue };
+            if world.species.get(st.species).creature.is_none() {
+                continue;
+            }
+            let Some(&head) = st.chain.first() else { continue };
+            out.insert(
+                id,
+                AntBefore {
+                    head,
+                    heading: st.heading,
+                    digs: st.life.digs,
+                    holding: st.spoil.is_some(),
+                    pellet: st.spoil.map_or(material::EMPTY, |p| p.cell.material),
+                    crop_empty: st.crop.is_none(),
+                },
+            );
+        }
+        out
+    }
+
+    /// Every live creature's state, as `after` needs it. An ant missing here
+    /// has died.
+    fn ants_after(world: &World) -> std::collections::BTreeMap<u32, AntAfter> {
+        let mut out = std::collections::BTreeMap::new();
+        for id in world.live_organism_ids() {
+            let Some(st) = world.organism(id) else { continue };
+            if world.species.get(st.species).creature.is_some() {
+                out.insert(id, AntAfter { digs: st.life.digs, holding: st.spoil.is_some() });
+            }
+        }
+        out
+    }
+
+    fn before(&mut self, world: &World, b: &Box2) {
+        self.before_with(world, b, Self::ants_before(world));
+    }
+
+    fn after(&mut self, world: &World, b: &Box2, frame: u64) {
+        self.after_with(world, b, frame, &Self::ants_after(world));
+    }
+
+    fn before_with(&mut self, world: &World, b: &Box2, ants: std::collections::BTreeMap<u32, AntBefore>) {
+        let n = (b.w * b.h) as usize;
+        if self.touched.len() != n {
+            self.touched = vec![false; n];
+            self.dug = vec![false; n];
+        }
+        self.grid.clear();
+        for y in 0..b.h {
+            for x in 0..b.w {
+                let c = world.get(x, y);
+                self.grid.push(if c.organism_id() != 0 { None } else { Some(c.material) });
+            }
+        }
+        for &id in ants.keys() {
+            self.ants.entry(id).or_default();
+        }
+        self.before = ants;
+    }
+
+    fn after_with(&mut self, world: &World, b: &Box2, frame: u64, now: &std::collections::BTreeMap<u32, AntAfter>) {
+        use pixel_physics::sim::creature::DIRS;
+        let at = |x: i32, y: i32| (y * b.w + x) as usize;
+        let inside = |x: i32, y: i32| x >= 0 && y >= 0 && x < b.w && y < b.h;
+        let ids: Vec<u32> = self.before.keys().copied().collect();
+        for id in ids {
+            let pre = self.before[&id];
+            let track = self.ants.get_mut(&id).expect("registered in before");
+            let (dx, dy) = DIRS[pre.heading as usize % 8];
+            let (tx, ty) = (pre.head.0 + dx, pre.head.1 + dy);
+            // N1: at the moment act ran, jaws free and diggable ground ahead.
+            if pre.crop_empty && !pre.holding && inside(tx, ty) {
+                if let Some(m) = self.grid[at(tx, ty)] {
+                    if Self::is_ground(world, m) && world.materials.get(m).penetration_resistance <= 1.0 {
+                        track.stage = track.stage.max(1);
+                    }
+                }
+            }
+            let Some(&st) = now.get(&id) else {
+                if pre.holding {
+                    self.died_holding += 1;
+                }
+                continue;
+            };
+            // A cut: the lifetime count rose, and a cell beside the head was
+            // ground before the frame and is empty now -- the one straight
+            // ahead if it qualifies, else the only one of the other seven.
+            let cuts = st.digs.saturating_sub(pre.digs);
+            if cuts > 1 {
+                // An ant acts at most once a frame; if that ever stops being
+                // true the extra cuts cannot be placed, and say so.
+                self.target_mismatch += u64::from(cuts - 1);
+            }
+            if cuts > 0 {
+                // Opened: ground before the frame, and now either empty or
+                // standing under an animal -- a digger acts and then moves,
+                // and the cell it has just cut is the one it steps into.
+                let opened = |x: i32, y: i32| {
+                    inside(x, y) && matches!(self.grid[at(x, y)], Some(was) if Self::is_ground(world, was)) && {
+                        let now = world.get(x, y);
+                        now.material == material::EMPTY || now.organism_id() != 0
+                    }
+                };
+                let target = if opened(tx, ty) {
+                    Some((tx, ty))
+                } else {
+                    let others: Vec<(i32, i32)> = DIRS.iter().map(|&(ox, oy)| (pre.head.0 + ox, pre.head.1 + oy)).filter(|&(x, y)| (x, y) != (tx, ty) && opened(x, y)).collect();
+                    if others.len() == 1 {
+                        self.cut_retargeted += 1;
+                        Some(others[0])
+                    } else {
+                        None
+                    }
+                };
+                if let Some((tx, ty)) = target {
+                    let was = self.grid[at(tx, ty)];
+                    debug_assert!(was.is_some(), "opened() admits only a material cell");
+                    let row = ty - b.surface;
+                    let reached = if row < 0 {
+                        self.cut_above += 1;
+                        2
+                    } else if self.touched[at(tx, ty)] {
+                        self.cut_again += 1;
+                        match was.map(|m| world.materials.get(m).name.as_str()) {
+                            Some("spoil") => self.again_spoil += 1,
+                            Some("soil") => self.again_soil += 1,
+                            Some("packedsoil") => self.again_lining += 1,
+                            _ => self.again_other += 1,
+                        }
+                        2
+                    } else {
+                        if world.materials.id_of("packedsoil") == was {
+                            self.cut_new_lining += 1;
+                        }
+                        let roofed = (b.surface..ty).any(|yy| matches!(self.grid[at(tx, yy)], Some(m) if Self::is_ground(world, m)));
+                        if roofed {
+                            self.cut_new_roofed += 1;
+                            4
+                        } else {
+                            self.cut_new_open += 1;
+                            3
+                        }
+                    };
+                    self.touched[at(tx, ty)] = true;
+                    self.dug[at(tx, ty)] = true;
+                    track.cuts += 1;
+                    track.stage = track.stage.max(reached);
+                    track.cut = Some((tx, ty, reached));
+                } else {
+                    self.target_mismatch += 1;
+                    // Why, for the cell straight ahead: not ground before the
+                    // frame, or ground again after it.
+                    match (inside(tx, ty).then(|| self.grid[at(tx, ty)]).flatten(), inside(tx, ty).then(|| world.get(tx, ty))) {
+                        (Some(was), Some(now)) if Self::is_ground(world, was) && now.organism_id() == 0 && Self::is_ground(world, now.material) => self.mismatch_refilled += 1,
+                        _ => self.mismatch_not_ground += 1,
+                    }
+                }
+            }
+            // A put-down: the pellet left the jaws. Beside the head first,
+            // then straight up its column, as the engine places it.
+            if pre.holding && !st.holding {
+                let (hx, hy) = pre.head;
+                let appeared = |x: i32, y: i32| inside(x, y) && self.grid[at(x, y)] == Some(material::EMPTY) && world.get(x, y).material == pre.pellet;
+                let beside = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)]
+                    .iter()
+                    .map(|&(ox, oy)| (hx + ox, hy + oy))
+                    .find(|&(x, y)| appeared(x, y));
+                let site = beside.map(|s| (s, false)).or_else(|| (1..=160).map(|dy| (hx, hy - dy)).find(|&(x, y)| appeared(x, y)).map(|s| (s, true)));
+                match site {
+                    None => self.site_not_found += 1,
+                    Some(((sx, sy), lifted)) => {
+                        if lifted {
+                            self.put_lifted += 1;
+                        } else {
+                            self.put_beside += 1;
+                        }
+                        let out = sy < b.surface;
+                        if out {
+                            self.put_above += 1;
+                        } else {
+                            self.put_below += 1;
+                            if self.dug[at(sx, sy)] {
+                                self.put_refill += 1;
+                            }
+                        }
+                        self.touched[at(sx, sy)] = true;
+                        if let Some((cx, cy, reached)) = track.cut.take() {
+                            if out && reached >= 4 {
+                                track.stage = track.stage.max(5);
+                                self.pending.push((frame + FUNNEL_LASTING, cx, cy, id));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // The lasting check: the cut is still room (empty or an animal).
+        let due: Vec<(u64, i32, i32, u32)> = self.pending.iter().copied().filter(|p| p.0 <= frame).collect();
+        self.pending.retain(|p| p.0 > frame);
+        for (_, x, y, id) in due {
+            let c = world.get(x, y);
+            let open = c.material == material::EMPTY || world.materials.kind(c.material) == MaterialKind::Creature;
+            if open {
+                if let Some(t) = self.ants.get_mut(&id) {
+                    t.stage = t.stage.max(6);
+                    t.cycles += 1;
+                }
+            }
+        }
+    }
+
+    fn print(&self, frame: u64, world: &World) {
+        let st = world.creature_stats;
+        let total = self.ants.len();
+        println!("FUNNEL frame={frame} ants={total}  (booked at the furthest stage each ant ever reached)");
+        let mut prev = total;
+        for (i, name) in FUNNEL_STAGES.iter().enumerate() {
+            let n = self.ants.values().filter(|t| t.stage >= i).count();
+            println!(
+                "FUNNEL   {name:<60} {n:>4}  of prev {:>5.1}%  of all {:>5.1}%",
+                if prev > 0 { 100.0 * n as f64 / prev as f64 } else { 0.0 },
+                if total > 0 { 100.0 * n as f64 / total as f64 } else { 0.0 }
+            );
+            prev = n;
+        }
+        let mut cyc = [0usize; 4];
+        for t in self.ants.values() {
+            cyc[(t.cycles as usize).min(3)] += 1;
+        }
+        println!(
+            "FUNNEL   complete cycles per ant: 0: {}  1: {}  2: {}  3+: {}   (cuts still waiting on the lasting check: {})",
+            cyc[0], cyc[1], cyc[2], cyc[3], self.pending.len()
+        );
+        // **The rate, which the high-water mark cannot show.** Over a long run
+        // nearly every ant reaches every stage once by chance, so the stages
+        // saturate; what separates building from scratching is how much of
+        // the work built something.
+        let built: u64 = self.ants.values().map(|t| u64::from(t.cycles)).sum();
+        let placed: u64 = self.ants.values().map(|t| u64::from(t.cuts)).sum();
+        let mut per: Vec<u32> = self.ants.values().map(|t| t.cuts).collect();
+        per.sort_unstable();
+        println!(
+            "FUNNEL   cuts that built {built} of {placed} placed cuts ({:.1}%); cuts per ant: median {} max {}",
+            if placed > 0 { 100.0 * built as f64 / placed as f64 } else { 0.0 },
+            per.get(per.len() / 2).copied().unwrap_or(0),
+            per.last().copied().unwrap_or(0)
+        );
+        let cuts = self.cut_above + self.cut_again + self.cut_new_open + self.cut_new_roofed;
+        println!(
+            "LEDGER frame={frame} cuts {cuts} + target mismatch {} = engine digs {}: above the old surface {}, a pellet or refill cut again {}, new ground open to the sky {}, new ground under a roof {} (of the new ground, tunnel lining {}; placed by elimination {}); mismatch: ahead refilled {}, ahead not ground {}; the cells cut again were spoil {}, soil {}, lining {}, other {}",
+            self.target_mismatch,
+            st.digs,
+            self.cut_above,
+            self.cut_again,
+            self.cut_new_open,
+            self.cut_new_roofed,
+            self.cut_new_lining,
+            self.cut_retargeted,
+            self.mismatch_refilled,
+            self.mismatch_not_ground,
+            self.again_spoil,
+            self.again_soil,
+            self.again_lining,
+            self.again_other
+        );
+        println!(
+            "LEDGER frame={frame} pellets put down {} + died holding {} + site not found {} = engine spoil_dumped {} + spoil_lost {}: beside the head {}, posted up the column {}; landed above the old surface {}, below it {} (into a dug cell {})",
+            self.put_beside + self.put_lifted,
+            self.died_holding,
+            self.site_not_found,
+            st.spoil_dumped,
+            st.spoil_lost,
+            self.put_beside,
+            self.put_lifted,
+            self.put_above,
+            self.put_below,
+            self.put_refill
+        );
+        // Who to trace: a few ids stopped at each stage.
+        for (i, name) in FUNNEL_STAGES.iter().enumerate().skip(1) {
+            let stuck: Vec<String> = self.ants.iter().filter(|(_, t)| t.stage == i).take(6).map(|(id, _)| id.to_string()).collect();
+            if !stuck.is_empty() {
+                println!("FUNNEL   stopped at \"{name}\": {}", stuck.join(" "));
+            }
+        }
+    }
+}
+
+/// **The funnel's positive control**: one ant driven by hand through a
+/// complete cycle and through two that must not count, then a dig that
+/// changed no cell, which the ledger must refuse to place. The funnel reads
+/// only the world, so a hand-edited world is a fair test of it: every edit
+/// here is one the engine makes in `act` (cell emptied, `life.digs` bumped,
+/// pellet into `spoil`; pellet written back, `spoil` cleared).
+fn funnel_selftest(b: &Box2) {
+    use pixel_physics::sim::creature::DIRS;
+    let mut w = build(b);
+    let spoil = w.materials.id_of("spoil").expect("spoil is a shipped material");
+    let soil = w.materials.id_of("soil").expect("soil is a shipped material");
+    // A gallery six rows down for the ant to stand in, soil above it.
+    let (gx, gy) = (b.w / 2 - 6, b.surface + 6);
+    for x in gx..gx + 12 {
+        w.set(x, gy, Cell::EMPTY);
+    }
+    // The ant is a record, not a body: the funnel reads cells from the world
+    // and each ant's state from `before_with`/`after_with`, so its head can
+    // stand in the gallery without a live organism there.
+    let id = 1u32;
+    let head = (gx + 5, gy);
+    let pellet = Cell::new(spoil, 0);
+    let mut fun = NestFunnel::default();
+    let mut frame = 0u64;
+    let mut digs = 0u32;
+    let ant = |heading: u8, digs: u32, holding: bool| {
+        std::collections::BTreeMap::from([(id, AntBefore { head, heading, digs, holding, pellet: if holding { spoil } else { material::EMPTY }, crop_empty: true })])
+    };
+    let after = |digs: u32, holding: bool| std::collections::BTreeMap::from([(id, AntAfter { digs, holding })]);
+    // One dig by hand: face `dir`, cut the cell ahead, take the pellet.
+    let mut cut = |w: &mut World, fun: &mut NestFunnel, frame: u64, dir: u8| {
+        fun.before_with(w, b, ant(dir, digs, false));
+        let (tx, ty) = (head.0 + DIRS[dir as usize].0, head.1 + DIRS[dir as usize].1);
+        w.set(tx, ty, Cell::EMPTY);
+        digs += 1;
+        fun.after_with(w, b, frame, &after(digs, true));
+        (tx, ty)
+    };
+    // One put-down by hand, at `(x, y)`. `digs` is not read on a put-down.
+    let put = |w: &mut World, fun: &mut NestFunnel, frame: u64, x: i32, y: i32, digs: u32| {
+        fun.before_with(w, b, ant(0, digs, true));
+        w.set(x, y, pellet);
+        fun.after_with(w, b, frame, &after(digs, false));
+    };
+    let idle = |w: &mut World, fun: &mut NestFunnel, frame: u64, digs: u32| {
+        fun.before_with(w, b, ant(0, digs, false));
+        fun.after_with(w, b, frame, &after(digs, false));
+    };
+
+    // 1. The whole cycle: roofed new ground straight down, the pellet posted
+    //    up the column to the air, the cut still open 1,500 frames on.
+    frame += 1;
+    let first = cut(&mut w, &mut fun, frame, 6);
+    frame += 1;
+    put(&mut w, &mut fun, frame, head.0, b.surface - 1, 1);
+    frame += FUNNEL_LASTING;
+    idle(&mut w, &mut fun, frame, 1);
+    let t = fun.ants[&id];
+    println!(
+        "  funnel: a hand-driven tunnel cut, pellet posted out, still open {FUNNEL_LASTING} frames on -> stage {} ({}), cycles {} (must be 6 and 1)",
+        t.stage, FUNNEL_STAGES[t.stage], t.cycles
+    );
+    assert_eq!((t.stage, t.cycles, fun.cut_new_roofed, fun.put_lifted, fun.put_above), (6, 1, 1, 1, 1), "the funnel must book a complete cycle as one");
+
+    // 2. A pellet put straight back into the hole it came from: refill, and
+    //    no second cycle.
+    frame += 1;
+    cut(&mut w, &mut fun, frame, 5);
+    frame += 1;
+    put(&mut w, &mut fun, frame, first.0, first.1, 2);
+    // 3. A cut whose pellet goes out and which caves in before it has stood
+    //    1,500 frames: carried out, and not built.
+    frame += 1;
+    let third = cut(&mut w, &mut fun, frame, 7);
+    frame += 1;
+    put(&mut w, &mut fun, frame, head.0, b.surface - 2, 3);
+    frame += 1;
+    fun.before_with(&w, b, ant(0, 3, false));
+    w.set(third.0, third.1, Cell::new(soil, 0));
+    fun.after_with(&w, b, frame, &after(3, false));
+    frame += FUNNEL_LASTING;
+    idle(&mut w, &mut fun, frame, 3);
+    let t = fun.ants[&id];
+    println!(
+        "  funnel: + a pellet put back in its own hole, + a cut that caved in before {FUNNEL_LASTING} frames -> cycles {}, refill {}, roofed cuts {}, out {} (must be 1, 1, 3, 2)",
+        t.cycles, fun.put_refill, fun.cut_new_roofed, fun.put_above
+    );
+    assert_eq!((t.cycles, fun.put_refill, fun.put_beside, fun.cut_new_roofed, fun.put_above, fun.put_below), (1, 1, 1, 3, 2, 1), "a refilled or caved-in cut must not count as built");
+
+    // 4. The ledger's own control: a dig the world does not show must be
+    //    booked as unplaceable, not quietly dropped or guessed.
+    fun.before_with(&w, b, ant(0, 3, false));
+    frame += 1;
+    fun.after_with(&w, b, frame, &after(4, false));
+    println!("  funnel: a dig that changed no cell -> target mismatch {} (must be 1; before it, 0)", fun.target_mismatch);
+    assert_eq!((fun.target_mismatch, fun.site_not_found), (1, 0), "the ledger must refuse to place a cut it cannot see");
 }
 
 /// **The moisture gradient as the ant's own brain reads it**, sampled at
@@ -1083,18 +2243,46 @@ fn main() {
     };
     let mut shots: Vec<Vec<u8>> = Vec::new();
     let mut tinted_shots: Vec<Vec<u8>> = Vec::new();
+    // **The nest scoreboard** (see [`print_score`]): `nulls=K` draws per
+    // null model at every stop, 0 to switch it off. It reads the world and
+    // draws from its own seeded streams, so it cannot change the run.
+    let score_k: usize = arg("nulls").unwrap_or(200);
+    let mut ground: Option<Ground> = None;
+    if score_k > 0 {
+        println!(
+            "  scoreboard: {score_k} draws per null (uniform, rows, eden, walkers x{ants} at persistence {WALKER_PERSIST}); SCORE = percentile among the draws, 0.5 = like random digging, 1.0 = more nest-like than every draw"
+        );
+    }
     if tint_out.is_some() {
         println!("  tint: spoil ORANGE, tunnel lining (packedsoil) CYAN, nest WHITE, ants MAGENTA, loose soil above the old ground line YELLOW, stone left grey");
     }
 
+    // **The nest funnel** (see [`NestFunnel`]): on unless `nofunnel`. It
+    // reads the world between frames and writes nothing, so it cannot change
+    // the run; its LEDGER lines reconcile with the engine's own counters.
+    let funnel_on = !flag("nofunnel");
+    let mut funnel = NestFunnel::default();
     for f in 0..=frames {
         if f > 0 {
+            if funnel_on {
+                funnel.before(&world, &b);
+            }
             parallel::step(&mut world);
             world.step_active_sites();
             world.step_fields();
             world.step_pheromones();
+            if funnel_on {
+                funnel.after(&world, &b, f);
+            }
         }
         trickle.step(&mut world, &b);
+        if f == 0 && score_k > 0 {
+            // Before any ant has dug (digging starts with frame 1's step)
+            // and after founding, so a founding cut is already ground's
+            // missing piece rather than something a null may carve.
+            let cut = world.nest_sites.iter().find_map(|s| s.shaft);
+            ground = Some(ground_at(&world, &b, &|x, y| cut.is_some_and(|c| c.contains(x, y))));
+        }
         if stops.contains(&f) {
             let (roofed, open, above, bodies, _rw, _rh, _iqr, _p50x) = census(&world, &b);
             let (n, e) = charge(&world);
@@ -1114,6 +2302,20 @@ fn main() {
             }
             if flag("trace") {
                 trace(&world);
+            }
+            if funnel_on && f > 0 {
+                funnel.print(f, &world);
+            }
+            if let Some(g) = &ground {
+                let cut = world.nest_sites.iter().find_map(|s| s.shaft);
+                let m = room_mask(&world, &b, &|x, y| cut.is_some_and(|c| c.contains(x, y)));
+                print_score(f, &m, g, score_k, ants as usize, seed);
+                if f == *stops.iter().max().unwrap_or(&f) {
+                    if let Some(path) = arg::<String>("maskout") {
+                        write_sheet(&path, &mask_tiles(&m, g, &b, ants as usize, seed, f), &b, scale);
+                        println!("  maskout: tiles top to bottom are the colony, then one draw each of uniform, rows, eden, walkers, all {} cells", m.count());
+                    }
+                }
             }
             if out.is_some() || tint_out.is_some() {
                 let (vw, vh) = (b.w as u32, b.h as u32);
@@ -1559,6 +2761,10 @@ fn cut_census(world: &World) -> Option<String> {
 
 /// Two arms, because the two ways this harness can lie are opposite ones.
 fn selftest_run(b: &Box2) {
+    // The scoreboard first: mask-only, and seconds.
+    scoreboard_selftest();
+    // The nest funnel: a hand-driven ant, no stepping, milliseconds.
+    funnel_selftest(b);
     // Specificity: nobody digs, so the census must find nothing. A box that
     // reads void with no ants in it is measuring its own scene.
     let mut bare = build(b);
