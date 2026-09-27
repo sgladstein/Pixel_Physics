@@ -124,7 +124,19 @@ were given 222k characters of raw reader and skeptic output and started at
   files, their formats and the parser to import cost 0.53M each, with 2-15
   reading calls.
 
-## 5. The brief test: inconclusive, and what it showed
+## 5. The brief test
+
+**Measured afterwards, 2026-09-27 evening, on a new question** (why ants walk
+past the food pile): one agent of the tool-limited `data-analyst` type, briefed
+from the §6 checklist with a ~30-call budget and a list of the source ranges it
+could read. It answered the question, corrected a wrong claim in its own brief
+(scouting's pull does check the crop, one line above the site the brief
+named), and cost **0.49M** in 32 calls: a 44k start, 138k peak, 20k characters
+of repo reading. The two unbriefed tracers before it cost 1.74M and 2.04M in 68
+and 82 calls, peaking at ~300k, with 101k and 145k characters of repo reading.
+The questions differ, so read it as indicative: about 3.5-4× cheaper.
+
+**The first attempt, cut short:**
 
 A verified ~2k-token brief (what is already parsed and where, the functions to
 import, line anchors, the traps already found, what earlier work established)
