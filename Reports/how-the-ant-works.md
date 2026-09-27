@@ -42,6 +42,9 @@ will be.
   `nest_needs`, `World::step_nest_need`, `OrganismState::foraged`, `act`'s
   feed urge under `,keep`) and the trace's `energy_j` and scout columns; §4's
   `P(move)` table corrected the same day for `Crowding` at the nest.
+  §5 steps 5-6 and §12 again on 2026-09-27 for the spoil footing and packing
+  switches (`spoil_site_open`, `is_footing`, `spoil_footing_drop`,
+  `pack_neighbours_with`, `spoil_packs`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -274,7 +277,14 @@ the tick: the ant still gets its move roll (§6) afterwards.
    its own output (§4), not the food drop's. On a win the pellet goes on the
    first of the 8 neighbours, in fixed order, that is empty, sits on at least
    two filled cells of the three below it, and has `SPOIL_HEADROOM` (3) empty
-   cells above. **If none qualifies it is posted straight up the ant's own
+   cells above (`spoil_site_open`). **An animal counts as filled**, so a
+   pellet can be set on its carrier's own back, on a nestmate, or over a hole
+   whose two diagonals are filled. The footing rule (`update_powder`) turns a
+   pellet to loose soil unless the cell straight beneath it is ground, so
+   such a pellet falls within a few frames. Under
+   `PIXEL_PHYSICS_SPOIL_FOOTING=ground` the drop site asks for ground instead:
+   the cell straight beneath and two of the three must be a non-animal
+   `Powder` or `Solid` (`is_footing`). **If none qualifies it is posted straight up the ant's own
    column** to the first cell that does, and the ant does not move
    (`lift_reach`). Under the default `SPOIL_LIFT=climb` that scan passes
    ground the ant could cut and empty rows with a wall beside them, and stops
@@ -291,7 +301,10 @@ the tick: the ant still gets its move roll (§6) afterwards.
    all become `spoil`), else its `packs_into` form, else as itself: a dug
    crumb stays food, carried in the spoil slot. Then it **lines the burrow**
    (`line_burrow`): every one of the 8 neighbours with a `packs_into` form
-   (soil and spoil) becomes `packedsoil`.
+   (soil and spoil) becomes `packedsoil`. `packedsoil` needs no footing, so a
+   pellet packed this way stays up even with nothing beneath it. Under
+   `PIXEL_PHYSICS_SPOIL_PACKS=off` a neighbour whose material `needs_footing`
+   (spoil) is left as it is.
 
 ## 6. Moving
 
@@ -660,6 +673,8 @@ Read once per process from the environment. The default is what ships.
 | `SPOIL_IS_CARGO` | on | `0`: spoil no longer counts toward `Carrying` |
 | `PIXEL_PHYSICS_DIG_SPOIL` | kept | `destroy`: dug cells vanish |
 | `PIXEL_PHYSICS_BURROW_LINING` | on | `off`: no `packedsoil` lining |
+| `PIXEL_PHYSICS_SPOIL_PACKS` | on | `off`: the lining leaves spoil unpacked, so an undermined heap slumps instead of hanging (§5) |
+| `PIXEL_PHYSICS_SPOIL_FOOTING` | filled | `ground`: a pellet is put down only where the cell beneath is ground, never on an animal or over a hole (§5) |
 | `CROSS_TRUNK`, `TISSUE_PARTING` | on | `0` |
 | `PIXEL_PHYSICS_DIGEST` | continuous | `lump`: pays out per whole cell |
 | `PIXEL_PHYSICS_LOAD_BY` | joules | `cells`: a load weighs the cells in the crop, not its worth ÷ 480 (§9) |

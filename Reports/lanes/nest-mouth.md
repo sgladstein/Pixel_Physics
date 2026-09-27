@@ -98,32 +98,13 @@ asked the two sessions to agree who owns what.
 
 ## Predictions (written before each run)
 
-The 2026-09-27 funnel arms (haul, cover, dig-down, drop-away) were exploratory and carry none.
-
-| # | run | prediction | right? |
-|---|---|---|---|
-| 1 | shaft at frames 0/1/5/30/300, unlined | frame 0 = the positive control; mostly refilled by 5 | right on both; the census hid it |
-| 2 | lined cut | ≥ 90% open through 300 | right (82 of 82) |
-| 3 | what floats (300 ants) | spoil resting on ants | wrong: lining |
-| 4 | shaft vs default, shape (300 ants) | taller and narrower ≥ 8 / 12 | right (11–12 / 0) |
-| 5 | home vs not home (300 ants) | deeper, and more dirt in the cut | wrong on both |
-| 6 | w4 vs w2, home | more of the cut open | right (by construction) |
-| 7 | default on this branch vs reference | identical, every line | right |
-| 8 | strip + home shaft, bed | within ±15 starved | wrong: 309 / 376 |
-| 9 | door on the scratch merge | reproduces 209 | right |
-| 10 | door + shaft 6, bed | within ±15 of the door | right (195) |
-| 11 | door + home shaft 6, bed | worse by > 15 | right (254) |
-| 12 | door + shaft 6 (home or not), lab | deliveries recover toward 5,396 | partly: 2,072 / 3,696, both lower than the default on 11 of 12 |
-| 13 | final binary, bed default and door | every line of the reference and of the scratch-merge door | right (396 lines × 3 each) |
-| 14 | door 2 + shaft 6 + `NEST_HOME=mouth`, bed | within ±15 of door + shaft 6 (195): the door's own paint already makes the rim and first row home, so the mouth adds two cells | wrong: 221 (against the door 10 / 9) |
-| 15 | no paint (door 0) + shaft 6 + mouth, bed | within ±20 of the door's 209; loops within ±10% of 465 | wrong on starved (256; 7 fewer / 16 more against the door), right on loops (445) |
-| 16 | both mouth arms, lab | near door + shaft 6 (2,072), well under the home shaft's 3,696; lower than the default on ≥ 10 of 12 | no paint: right (2,257; 1 / 11), and not what matters: births, food eaten and extinctions tie the default |
-| 17 | door 2 + mouth, lab: extinctions | as the door (4 of 12), because the paint is what gets buried | wrong: 2 of 12 failed (door 4, no-paint mouth 2, default 1); home, not paint, is what matters there |
-| 18 | lab census, 12 seeds: is the mouth open at frame 30,600? | buried on ≥ 9 of 12 in both mouth arms; the whole-cut home keeps it open on ≥ 4 of 12 | right on the mouth arms (11 and 12 of 12 buried); wrong on the whole cut (buried 12 of 12). The cover is the colony's own food and roots, not litter |
-| 19 | door 2 + shaft 6 + `NEST_HOME=mound`, bed | within ±20 of the mouth arm's 221: the bed mouth is not buried much | wrong, better: 188 (default 279: 22 fewer / 2 more; the mouth arm: 16 / 6) |
-| 20 | mound, lab | deliveries above the mouth arm on ≥ 9 of 12, median ≥ 4,000; STOP if not | right on its letter (12 of 12, 8,015) and wrong on what it meant: 77% of the deliveries were food picked up at home first, and the rest built a tower (report §6); births, food eaten, colony-frames and starvation split 6 / 6 against the mouth arm |
-| 21 | mound, lab census | the heap over the mouth taller than under the mouth arm (median cover at 30,600 > 4) | right: census cover 21 against 4; read off the frames, a tower of 34.5 rows (median) against 3 |
-| 22 | mound, `digbox` 40 ants | nest shape within the mouth arm's spread | right: 126 cells dug (median) against 141 |
+Rows 1-22 (the mouth and the mound) are in
+[`../nest-mouth-2026-09-26.md`](../nest-mouth-2026-09-26.md)'s appendix, and
+rows 23-40 (the spoil footing) in
+[`../nest-spoil-footing-2026-09-27.md`](../nest-spoil-footing-2026-09-27.md)
+§6. New rows go in the report of the work they predict. The 2026-09-27 funnel
+arms in `nest-work-2026-09-27.md` (haul, cover, dig-down, drop-away) were
+exploratory and carry none.
 
 ## Cards with the owner
 

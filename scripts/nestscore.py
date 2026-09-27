@@ -59,6 +59,15 @@ LEDGER_PUT = re.compile(
     r"landed above the old surface (?P<out>\d+), below it (?P<below>\d+) \(into a dug cell (?P<refill>\d+)\)"
 )
 
+LEDGER_LOOSE = re.compile(
+    r"^LEDGER frame=(?P<frame>\d+) pellets above the old surface turned loose (?P<n>\d+): on its carrier's own body (?P<own>\d+), on another animal (?P<other>\d+), "
+    r"over air (?P<air>\d+), cut out from under it (?P<cut>\d+), the ground under it fell (?P<fell>\d+), other (?P<else_>\d+); "
+    r"had stood <=1 frame (?P<a1>\d+), <=10 (?P<a10>\d+), <=100 (?P<a100>\d+), <=1000 (?P<a1000>\d+), longer (?P<older>\d+), unknown (?P<unknown>\d+); "
+    r"pellets put down with no footing: on the carrier's own body (?P<p_own>\d+), on another animal (?P<p_other>\d+), over air (?P<p_air>\d+)"
+    r"(?: \(of them posted up the column: (?P<l_own>\d+), (?P<l_other>\d+), (?P<l_air>\d+)\))?"
+)
+LEDGER_HELD = re.compile(r"^LEDGER frame=(?P<frame>\d+) ant-frames holding a pellet (?P<held>\d+) of (?P<all>\d+)")
+
 
 def parse(path):
     """One log -> {frame: {'n':, 'colony': {...}, 'null': {name: {...}}, 'spec': {...}, 'funnel': {...}}}."""
@@ -88,6 +97,11 @@ def parse(path):
             m = LEDGER_REFILL.match(line)
             if m:
                 out.setdefault(int(m["frame"]), {"n": 0, "colony": None, "null": {}, "spec": None}).setdefault("funnel", {})["refill"] = {k: int(v) for k, v in m.groupdict().items() if v is not None}
+                continue
+            m = LEDGER_LOOSE.match(line) or LEDGER_HELD.match(line)
+            if m:
+                key = "loose" if "own" in m.groupdict() else "held"
+                out.setdefault(int(m["frame"]), {"n": 0, "colony": None, "null": {}, "spec": None}).setdefault("funnel", {})[key] = {k: int(v) for k, v in m.groupdict().items() if v is not None}
                 continue
             m = LEDGER_PUT.match(line)
             if m:
@@ -243,6 +257,23 @@ def funnel_report(runs, stop):
                     + "  ".join(f"{name} {med_worst([d[k] / loose(d) for d in stand], max)}" for name, k in (("pellets above the old surface", "loose_pellet_above"), ("lining above", "loose_lining_above"), ("pellets below", "loose_pellet_below"), ("lining below", "loose_lining_below")))
                     + f"   (count median {statistics.median(loose(d) for d in stand):g})"
                 )
+            # Why a pellet above the old surface turned loose (the cell straight
+            # beneath it, as the footing rule read it), and how many pellets
+            # were never footed at all.
+            lo = [f["loose"] for f in fs if f.get("loose")]
+            if lo:
+                n = lambda d: max(d["n"], 1)
+                print(
+                    "  why pellets above the old surface turned loose (share of them):  "
+                    + "  ".join(f"{name} {med_worst([d[k] / n(d) for d in lo], max)}" for name, k in (("own back", "own"), ("another ant", "other"), ("air", "air"), ("cut from under", "cut"), ("ground fell", "fell")))
+                    + f"   (count median {statistics.median(d['n'] for d in lo):g}; stood <= 10 frames {med_worst([(d['a1'] + d['a10']) / n(d) for d in lo], max)})"
+                )
+                if put:
+                    unf = [(d["p_own"] + d["p_other"] + d["p_air"]) / max(p["put"], 1) for d, p in zip(lo, put)]
+                    print(f"  pellets put down with no footing (share of placed pellets):  {med_worst(unf, max)}")
+            he = [f["held"] for f in fs if f.get("held")]
+            if he:
+                print(f"  ant-time holding a pellet (a held pellet blocks the next dig):  {med_worst([d['held'] / max(d['all'], 1) for d in he], max)}")
             mism = [d["mismatch"] / max(d["digs"], 1) for d in dig]
             lost = [d["lost"] / max(d["dumped"] + d["slost"], 1) for d in put] if put else []
             print(f"  the instrument's own error: digs it could not place {med_worst(mism, max)}; pellets it could not place {med_worst(lost, max)}")
@@ -292,6 +323,8 @@ def selftest():
         + "LEDGER frame=100 cuts 400 + target mismatch 6 = engine digs 406: above the old surface 160, a pellet or refill cut again 112, new ground open to the sky 70, new ground under a roof 58 (of the new ground, tunnel lining 99; placed by elimination 3); mismatch: ahead refilled 1, ahead not ground 5; the cells cut again were spoil 6, soil 40, lining 66, other 0\n"
         + "LEDGER frame=100 pellets put down 397 + died holding 0 + site not found 2 = engine spoil_dumped 399 + spoil_lost 0: beside the head 223, posted up the column 174; landed above the old surface 374, below it 23 (into a dug cell 23)\n"
         + "LEDGER frame=100 dug cells refilled: by a pellet 23, fell in 377 (spoil 1, soil 375, other 1; from the cell above 190, from the side 187); still ground 100 frames later: by a fall 140, by a pellet 7; worked ground turned loose in place: lining 3 below and 21 above the old surface, pellets 10 below and 125 above\n"
+        + "LEDGER frame=100 pellets above the old surface turned loose 125: on its carrier's own body 60, on another animal 30, over air 25, cut out from under it 2, the ground under it fell 8, other 0; had stood <=1 frame 50, <=10 60, <=100 10, <=1000 5, longer 0, unknown 0; pellets put down with no footing: on the carrier's own body 70, on another animal 31, over air 26 (of them posted up the column: 5, 20, 1)\n"
+        + "LEDGER frame=100 ant-frames holding a pellet 800 of 4000 (20.0%)\n"
     )
     # digbox's own order at a stop: the funnel block, then the scoreboard.
     body = funnel + score
@@ -312,6 +345,8 @@ def selftest():
     assert fu["refill"]["fell"] == 377 and fu["refill"]["soil"] == 375 and fu["refill"]["above"] == 190, fu.get("refill")
     assert (fu["refill"]["stand_fall"], fu["refill"]["loose_pellet_above"], fu["refill"]["loose_lining_below"]) == (140, 125, 3), fu["refill"]
     assert fu["put"]["beside"] == 223 and fu["put"]["refill"] == 23 and fu["put"]["dumped"] == 399, fu["put"]
+    assert (fu["loose"]["n"], fu["loose"]["own"], fu["loose"]["cut"], fu["loose"]["a10"], fu["loose"]["p_air"], fu["loose"]["l_other"]) == (125, 60, 2, 60, 26, 20), fu.get("loose")
+    assert (fu["held"]["held"], fu["held"]["all"]) == (800, 4000), fu.get("held")
     # A duplicate key must refuse, not pool (last write wins is the failure).
     try:
         load([d, d], None)

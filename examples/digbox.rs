@@ -1320,6 +1320,11 @@ struct NestFunnel {
     /// Of `put_unfooted`, the ones posted up the column rather than set
     /// beside the head.
     put_unfooted_lifted: [u64; 3],
+    /// Ant-frames with a pellet in the jaws, of all ant-frames: an ant
+    /// holding a pellet cannot dig, so a drop that finds nowhere to go is
+    /// paid for here.
+    held_frames: u64,
+    ant_frames: u64,
     /// **A refill that stays**: a dug cell still ground `REFILL_STANDING`
     /// frames after it filled. [by a fall, by a pellet put there].
     refill_standing: [u64; 2],
@@ -1444,6 +1449,10 @@ impl NestFunnel {
         let ids: Vec<u32> = self.before.keys().copied().collect();
         for id in ids {
             let pre = self.before[&id];
+            self.ant_frames += 1;
+            if pre.holding {
+                self.held_frames += 1;
+            }
             let track = self.ants.get_mut(&id).expect("registered in before");
             let (dx, dy) = DIRS[pre.heading as usize % 8];
             let (tx, ty) = (pre.head.0 + dx, pre.head.1 + dy);
@@ -1809,6 +1818,12 @@ impl NestFunnel {
             self.put_unfooted_lifted[0],
             self.put_unfooted_lifted[1],
             self.put_unfooted_lifted[2]
+        );
+        println!(
+            "LEDGER frame={frame} ant-frames holding a pellet {} of {} ({:.1}%)",
+            self.held_frames,
+            self.ant_frames,
+            if self.ant_frames > 0 { 100.0 * self.held_frames as f64 / self.ant_frames as f64 } else { 0.0 }
         );
         // Who to trace: a few ids stopped at each stage.
         for (i, name) in FUNNEL_STAGES.iter().enumerate().skip(1) {
