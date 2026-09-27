@@ -3048,6 +3048,35 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 }
             }
             store_series.push(format!("{f}: nest ground {at_nest}, crops {in_crops}, elsewhere {elsewhere}, crumbs {crumb_cells}, ants {live}, nest food {nest_food_j:.0} J ({crumb_nest} crumbs), ant bodies {body_j:.0} J"));
+            // **How far a hungry ant at home stands from the nearest food at
+            // home**, per ant: the question the funnel of 2026-09-27 left
+            // (hungry ants at home were beside food on 42 of 285, and ate it
+            // when they were). Hungry is under a quarter of `start_energy`;
+            // home and food at home are the census's `on_nest` columns;
+            // distance is Chebyshev, in cells, head to food cell.
+            let start_j = w.species.get(species_id).creature.as_ref().map_or(1.0, |c| c.start_energy.max(1.0));
+            let mut food_home: Vec<(i32, i32)> = Vec::new();
+            for y in 0..spec.height {
+                for x in (nest_lo - 10).max(0)..=(nest_hi + 10).min(width - 1) {
+                    let m = w.get(x, y).material;
+                    if m == larder || Some(m) == crumbs {
+                        food_home.push((x, y));
+                    }
+                }
+            }
+            let mut dists: Vec<String> = Vec::new();
+            for id in w.live_organism_ids() {
+                let Some(st) = w.organism(id) else { continue };
+                let Some(&(hx, hy)) = st.chain.first() else { continue };
+                if st.species != species_id || st.energy / start_j >= 0.25 || hx < nest_lo - 10 || hx > nest_hi + 10 || st.crop.is_some() {
+                    continue;
+                }
+                let d = food_home.iter().map(|&(x, y)| (x - hx).abs().max((y - hy).abs())).min();
+                dists.push(d.map_or("none".into(), |d| d.to_string()));
+            }
+            if !dists.is_empty() {
+                println!("    HUNGRY AT HOME frame {f}: {} empty ants under a quarter full, cells to the nearest food at home [{}]; food cells at home {}", dists.len(), dists.join(","), food_home.len());
+            }
         }
         if (gif_out.is_some() || frames_dir.is_some()) && gif_frames.len() < gif_count && f >= gif_start && (f == gif_start || f.is_multiple_of(gif_every)) {
             // The camera: `gifat=` or, by default, centred on the nest cursor

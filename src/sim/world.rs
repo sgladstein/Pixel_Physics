@@ -1171,6 +1171,14 @@ pub struct NestSite {
     /// was sunk from. A reader that wants to know where the mouth is -- a
     /// census, or a home that reaches down the shaft -- asks this.
     pub shaft: Option<ShaftFootprint>,
+    /// **Where this nest keeps its food**: a running mean of the cells food
+    /// is put down on at home (`creature::LARDER_EMA` per delivery), or
+    /// `None` before the first delivery. A hungry animal bound for home goes
+    /// here rather than to the spot it last touched the nest
+    /// (`creature::hungry_target`): on the colony bed the food lands at the
+    /// end of the strip facing the food, a median 15 cells east of centre,
+    /// and ants starving at home died a median 16 cells west of it.
+    pub larder: Option<(f32, f32)>,
 }
 
 /// **Where a founding cut went**, as two inclusive rectangles: the shaft,
@@ -3440,7 +3448,7 @@ pub struct World {
     /// overriding `PIXEL_PHYSICS_HUNGRY_HOME` for this world**
     /// (`creature::hungry_home_of`). `None` follows the environment; a field
     /// for the reason `chooser` is one.
-    pub hungry_home: Option<bool>,
+    pub hungry_home: Option<crate::sim::creature::HungryHome>,
     /// **Which material stopped a creature**, counted per blocked tick and
     /// indexed by `MaterialId` — the breakdown `CreatureStats::
     /// blocked_by_plant` deliberately does not carry, because that struct is
@@ -7518,7 +7526,7 @@ impl World {
         // the top of a tailings pile home. The founding row is the fixed
         // datum `step_nest_room` already freezes for the same reason.
         let surface = crate::sim::creature::colony_surface(self, x, y).unwrap_or(y);
-        self.nest_sites.push(NestSite { x, y, surface, scent: [0.0; 3], seeded: false, drift_epoch: epoch, shaft: None });
+        self.nest_sites.push(NestSite { x, y, surface, scent: [0.0; 3], seeded: false, drift_epoch: epoch, shaft: None, larder: None });
     }
 
     /// Index of the nest site nearest `(x, y)`, or `None` when the box holds
