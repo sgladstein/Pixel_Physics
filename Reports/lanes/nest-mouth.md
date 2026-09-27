@@ -4,14 +4,13 @@
 [`../nest-mouth-2026-09-26.md`](../nest-mouth-2026-09-26.md); this note keeps
 the live question, what is addressed to another lane, predictions and heads.*
 
-- **Session:** `session_01WF4wABj2ewSmzWVJTk6DsC` (the nest-mouth lane).
-- **Branch:** `claude/ant-nest-mouth-4f6s79`, off `main` at `636612c6`.
-- **Peer:** the foraging-loop session, `session_01AFH5xR442VuoZsXm7VzJmx`
-  (the walk, feeding, the crop, dropping food, `trailfollow.rs`,
-  `scripts/antloop.py`, `Reports/ant-scenes-2026-09-23.md`). This lane owns
-  nest founding and shape, digging and spoil, the nest material and the
-  nest/dig examples. **Exception:** §19's door switch and founder placement
-  are the loop session's; this lane builds on them once they land.
+- **Session:** `session_01WF4wABj2ewSmzWVJTk6DsC` (the nest lane: the mouth,
+  then nest building and spoil).
+- **Branch:** `claude/ant-nest-mouth-4f6s79`. GitHub deleted it when #493
+  merged; restarted from `main` 2026-09-27, same name.
+- **Peer:** the foraging-loop session `session_01Pt5N39pfcix13hMycPN9Xs`,
+  branch `claude/ant-foraging-loop-handoff-986v7n`, lane note
+  [`foraging-loop.md`](foraging-loop.md). The only other agent on the repo.
 
 ## Standing owner rulings for this lane
 
@@ -20,70 +19,82 @@ the live question, what is addressed to another lane, predictions and heads.*
   `energy=1000` (under the 1,100 budding threshold, no food, so the count
   stays 40); every picture is several stops. Results taken at 300 ants (which
   breed past 800) are marked as such in the report.
+- **2026-09-27: "In general, I prefer options on by default unless there is
+  a good reason not to."** It restates 2026-09-12's "You can ship everything
+  on. I will tell you to change it if I don't like it", whose carve-out keeps
+  a pure look off until he has seen it. The foraging lane has asked to hear
+  it from the owner directly before applying it to its own switches.
 
 ## Live question
 
-**Answered, and the stop rule applied twice: no mouth tried is better than
-today on both beds.** Bed (24 seeds, starved against 277): door 209, door +
-mouth as home 221, door + whole cut as home 254, no paint + mouth 256. Lab (12
-seeds): the dug mouth is buried by frame 30,600 on 11-12 of 12 seeds under the
-colony's own delivered food and the roots that grow in it. Every narrow home
-records fewer deliveries than the strip, but a delivery is a drop made at home,
-so a smaller home counts fewer of them by definition. The lab's outcomes that
-do not depend on where home is (births, food eaten, colony-frames, starvation)
-separate no arm from the default at 12 seeds. A new counter says 86% of the
-strip's deliveries are food picked up at home first; net of that, the dug
-mouth brings home as much as the strip (604 against 712 cells, 6 / 6) and the
-painted door about half (384, lower on 10 of 12).
+**The mouth line is closed; the stop rule applied twice** (report §0, §6). Net
+of food picked up at home again, the dug mouth brings home as much as the
+strip (604 against 712 cells, 6 / 6) and cuts bed starvation 277 → 221; the
+painted door alone brings home about half. The one variant after the stop
+rule, a home that follows the pile, built food towers and was reverted. What
+reopens it: delivered food that slides, or deliveries that stop piling in the
+mouth. **The live question now is the nest itself: is the colony building
+anything, or scratching at random?** Nothing yet can tell.
 
-**The one variant tried after the stop rule failed on sight.** A home that
-follows the pile over the mouth (`NEST_HOME=mound`, predictions 19-22) is what
-this note said would reopen it. In the lab it makes the colony stack its food
-into a tower over the door: a median of 34.5 rows at frame 30,600, and over 15
-rows on 12 of 12 seeds by 60,300. The fixed mouth stays at a median of 3 rows
-(0 of 12 over 15). Its 8,015 deliveries were read as a win before anyone looked
-at a frame. Reverted, report §6. What would reopen the line now: delivered
-food that slides, so a pile widens as it grows, or deliveries that stop piling
-in the mouth. Changing the default is the owner's ruling.
+**Next, 2026-09-27** (proposed to the owner, not yet ruled on):
+1. Re-measure the door + dug mouth on current `main` (scouting is now on),
+   then flip it on by default if it still holds.
+2. Re-baseline `digbox` on `main`; every nest-shape number predates scouting,
+   and digbox ants run low on energy late, when scouting pulls hardest.
+3. A scoreboard before any new mechanism: a nest-vs-random-digging score and
+   a per-ant nest funnel, both in `digbox`, with no engine change.
+4. Then mechanisms, scored on it: dig reinforcement at the face (the
+   biology's dig-marker), a downward bias (`DIG_DOWN`, built and off), and
+   pellets carried out rather than posted up the column.
+5. Floating lining: `UNPACK` is built and off (stranded cells 1-28 → 0-2
+   at 40 ants); the owner's preference argues for turning it on.
 
-## For the loop session
+## Working agreement with the foraging lane (2026-09-27)
 
-- §19's founder anchor was computed from `colony_surface` *after* founding,
-  and founding can now cut a shaft (`PIXEL_PHYSICS_NEST_SHAFT`), in which case
-  every founder's home landed on the chamber floor. Fixed on this branch in
-  `found_colony_with`: it reads the surface the cut recorded
-  (`NestSite::shaft`). The door arm reproduces §19's logs line for line, and
-  guard `a_door_over_a_founding_shaft_homes_every_founder_at_the_mouth` was
-  watched red.
-- §19's guard `a_nest_door_paints_its_width_and_anchors_every_founder_at_it`
-  was inserted between `every_lifetime_counter_closes_against_its_world_total`
-  and that test's doc comment, so the doc now sits over the door test. Left
-  alone here; it is yours.
-- **L1185 and L1186** (`AtNest:Feed`, the `Drop` wiring) name "the nest has one
-  mouth" as their re-test condition; §19's door and the dug mouth both meet
-  it on the bed, behind switches. Written back to both entries; not re-tested.
-- **Your §19 re-test condition is not met**: a dug mouth does not stay open
-  in the lab. It is buried by frame 30,600 on 11-12 of 12 seeds under the
-  colony's own delivered food and the roots growing in it. Written back to
-  your dead-ends entry; numbers in the report's §5.
-- **Echo request, your file**: `trailfollow`'s header does not name
-  `PIXEL_PHYSICS_NEST_DOOR` / `_SHAFT` / `_HOME`, so a bed log does not say
-  which nest it ran. Not touched here.
-- **`deliveries` depends on how big home is, and so does the funnel's
-  "looped".** A delivery is any drop made at home, so a crumb lifted off the
-  nest and put straight back counts twice, and a bigger home counts more
-  drops. New on this branch: `CreatureStats::pickups_at_nest`, the pickups
-  made on the same predicate, read before the mouthful leaves.
-  `deliveries - pickups_at_nest` is the net flow home. `labforage` prints it;
-  `trailfollow` (yours) does not yet. Starvation is the bed measure that does
-  not move with home's size. **Measured in the lab (12 seeds): 86% of the
-  default strip's deliveries are food picked up at home first**, so net,
-  §19's door is 712 -> 384 cells (lower on 10 of 12, p 0.039), not
-  5,396 -> 1,279. That is the cycle your L1185 entry was built to break, seen
-  in the lab; the §19 entry is written back.
-- **How this reached you**: the trigger poke the brief prescribed failed.
-  `session_01AFH5xR442VuoZsXm7VzJmx` is "not found" from this session's
-  account, so this note is the channel. PR #493 carries all of it.
+Proposed by this lane, accepted by the foraging lane the same day. The owner
+asked the two sessions to agree who owns what.
+
+- **Foraging lane:** the walk (`chooser_step`, scouting, hungry-home,
+  homing, `forage_anchor`), the trail planes, `act`'s share, ingest and
+  drop-food sections, the crop and digestion, `NestSite::larder`,
+  `World::nest_need` / `forage_drive` / `step_nest_need`, `trailfollow.rs`,
+  `antloop.py`, `labforage.rs` (this lane asks before editing it),
+  `ant-scenes-2026-09-23.md`, and `ant.ron` rows into Move, Turn, Feed, Drop,
+  Share and Attack.
+- **Nest lane:** founding and the nest's shape (`found_colony_with`,
+  `paint_nest_patch*`, `colony_stations*`, `NEST_DOOR/SHAFT/HOME`,
+  `cut_founding_shaft`, `NestSite` except `larder`), the home test
+  (`adjacent_nest`, `nest_within_reach`, `nest_home`), `act`'s spoil and dig
+  sections, `line_burrow`, `lift_reach`, the dig and room gates, the nest and
+  spoil materials, `ant.ron` rows into Dig and DropSpoil, the examples
+  `digbox`, `labshot`, `antdirt`, `labnest`, `spoil_*` and `burrow_probe`, and
+  `Reports/nest-*.md`.
+- **Shared, by region or append-only:** `CreatureStats` (each its own
+  group); `DecisionRow` (foraging lane's; nest fields go at the end, after
+  asking); `how-the-ant-works.md` (nest: §5 steps 5-6 and §8; foraging: the
+  rest; §12 rows and the "Verified against" paragraph are appended, both
+  kept on a conflict); `dead-ends.md` (append; regenerate the index files,
+  never hand-merge them); `Reports/README.md` (own entries); bug letters from
+  `bugindex.py --branches`. `CLAUDE.md` and `.claude/`: neither lane without
+  the owner.
+- **Couplings, poke before landing:** the home test feeds `AtNest`,
+  deliveries, homing, scout release, the dig gate, and the forage drive's
+  `home_target` / `forage_anchor`; founding and nest shape move the loop's
+  baselines; `Crowding` and `MoistureGrad` feed both lanes' outputs; nest
+  attribution (`nearest_nest_site`) feeds both `step_nest_room` and
+  `step_nest_need`.
+- **How:** small PRs, each lane merges its own on green after merging `main`
+  in. Run `branchcheck.sh --who-touched <path>` before editing the other's
+  region. Poke with the SHA when a merge moves the other's baseline.
+  **Channel:** a poke (`create_trigger(persistent_session_id=…)` then
+  `fire_trigger` bare) works both ways, but waits until the other's turn ends:
+  15:30 → about 17:50 once. Files pushed to origin are the record.
+- **Sequencing:** this lane settles the door + dug-mouth default first, on
+  current `main`, and pokes the foraging lane with the SHA; the foraging lane
+  then re-baselines its forage drive on it.
+- **Still open for the foraging lane:** `trailfollow`'s header does not echo
+  `PIXEL_PHYSICS_NEST_DOOR` / `_SHAFT` / `_HOME`, and it does not print
+  `pickups_at_nest`.
 
 ## Predictions (written before each run)
 
