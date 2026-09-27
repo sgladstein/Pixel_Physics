@@ -217,7 +217,7 @@ default's, so the switches unset are bit-exact here too.
 |---|---:|---:|---:|---:|---:|---:|
 | default | 530 | — | 1.15 M | — | 80 | 0 |
 | `SPOIL_PACKS=off` | 424 | **10 of 12 (p 0.04)** | 0.94 M | 8 of 12 | 50 | **3** |
-| ground, no packing | LAB-G-BORN | LAB-G-BL | LAB-G-FOOD | LAB-G-FL | LAB-G-ALIVE | LAB-G-LOST |
+| ground, no packing | 555 | 7 of 12 (p 0.77) | 1.00 M | 8 of 12 (p 0.39) | 128 | 0 |
 
 - **Unpacked spoil costs the lab colony.** Births are lower on 10 of 12
   seeds, and three colonies die out; all three starved.
@@ -228,11 +228,22 @@ default's, so the switches unset are bit-exact here too.
   food over its own mouth. A heap that slumps when it is tunnelled, instead
   of standing, is the obvious suspect. It is a hypothesis, and nothing in
   this report tests it.
+- **Together, the two switches tie the default.**
+  - Births 555 against 530, and alive at the end 128 against 80 (7 of 12
+    higher).
+  - Plants 78 against 38 (9 of 12 higher). No colony lost.
+  - The footing rule removes whatever unpacked spoil alone costs; that is
+    not traced either.
+- **One number moves a lot, and it is the foraging lane's.** Food drops at
+  the nest fall threefold on 12 of 12 seeds (7,053 -> 2,427), and pickups at
+  the nest fall with them (6,270 -> 1,993). The ratio holds at about 0.85,
+  so what fell is the pick-up-and-put-back churn at home, not food reaching
+  the colony: food eaten ties. Why the churn fell is not traced.
 
 ## 5. Verdict, and what is next
 
-**Both switches stay off.** The owner prefers options on by default unless
-there is a good reason not to, and each has one:
+**Both switches stay off in this PR.** The owner prefers options on by
+default unless there is a good reason not to. Alone, each has one:
 
 - **`SPOIL_PACKS=off`:** the lab colony has fewer births on 10 of 12
   seeds, and 3 of 12 colonies die out. That is despite the dig box's cleaner
@@ -241,7 +252,18 @@ there is a good reason not to, and each has one:
   - More open mouths on 12 of 12 seeds (43 against 31.5), and a shallower,
     less roofed dig. That moves the dig box away from the spec's one mouth.
   - With packing on, it hangs spoil in the sky (16 → 124 cells).
-  - With packing off, the lab reads VERDICT-G-LAB.
+  - With packing off as well, **both colony beds tie** (bed starved 184
+    against 201; lab births 555 against 530, none lost). The hanging spoil
+    goes (16 -> 1), and dug cells that refill and stay full fall from
+    1,148 to 447.
+  - What is left against the pair is shape, not colony outcomes: more
+    mouths (41.5 against 31.5, 11 of 12) and less roofed (10 of 12) in the
+    dig box.
+  - **Whether that is a good enough reason is the owner's call**, and it is
+    put to the owner with a recommendation: turn the pair on together, and build
+    the dig marker on top of it. A default change also moves the foraging
+    lane's baselines (the churn above), so it lands in its own PR after a
+    poke.
 
 **What the work did establish:**
 
@@ -291,4 +313,4 @@ Each row was written into the lane's scratch file before the batch ran
 | 37 | colony bed, no packing | starved within +-15 of default | 230 against 201 (9 / 13, p 0.52) | wrong on size, within the bed's spread |
 | 38 | colony bed, footing + no packing | within +-20 | 184 against 201 (14 / 10) | right |
 | 39 | lab, no packing | births, food eaten, colony-frames no worse than 4 / 8; no more colonies lost | births lower on 10 of 12 (p 0.04); 3 colonies lost | wrong |
-| 40 | lab, footing + no packing | as 39 | LAB-40 | LAB-40R |
+| 40 | lab, footing + no packing | as 39 | births 5 / 7, food eaten 4 / 8, none lost | right |

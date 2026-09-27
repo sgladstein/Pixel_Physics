@@ -37,8 +37,12 @@ anything.
   frames.
 - `SPOIL_FOOTING=ground` makes digging stick: building 3% -> 6%, the room
   doubled. `SPOIL_PACKS=off` removes the hanging spoil.
-- **Both stay off.** Footing opens more mouths (12 of 12). Unpacked spoil
-  costs the lab colony births on 10 of 12 seeds.
+- **Both stay off for now.** Footing alone opens more mouths (12 of 12).
+  Unpacked spoil alone costs the lab colony births on 10 of 12 seeds. The
+  pair together ties both colony beds (bed 184 vs 201 starved; lab births
+  555 vs 530), with more mouths in the dig box. Whether to turn the pair on
+  is put to the owner, and the recommendation is yes, in its own PR after a
+  poke: it moves the foraging lane's lab churn counters threefold.
 - The mouth line stays closed and its default stays off.
 
 **Next** (2026-09-27):

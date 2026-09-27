@@ -4027,6 +4027,10 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     game too) and, alone, opens fewer mouths (27.5, 11 of 12).
   - **Drop-away works once pellets can stay**: 3.5% alone, 7.1% with both
     switches; its dead end was measured under the unfooted drops.
+  - **Both stay off in this PR.** Unpacked spoil alone costs the lab
+    (births lower on 10 of 12, 3 colonies lost). The pair together ties
+    both colony beds, and only the dig box's shape (more mouths) is left
+    against it: the owner's call.
 - [nest-work-2026-09-27.md](nest-work-2026-09-27.md) — **measurement,
   2026-09-27. `engine`/`lab`. Instruments and switches only; nothing in any
   game changed.** Is the colony building a nest, or digging at random? The
