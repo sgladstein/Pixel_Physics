@@ -347,6 +347,20 @@ by somebody about to try it on creatures.
   cost. Agents re-read the same files before any data work (all 5 of a survey
   read `creature.rs`), and an agent handed exact data paths and parsers cost
   0.53M against 1.2-1.75M. Thinking stays in context and is not recorded.
+- [agent-efficiency-nest-2026-09-27.md](agent-efficiency-nest-2026-09-27.md)
+  — **measurement, 2026-09-27; the nest lane's input to the combined
+  `agent-efficiency-2026-09-27.md`.** What 19 sub-agents cost in one session
+  (5 spawned directly, 14 in one read-verify-design workflow), and why.
+  - The type of agent sets the starting context: 27,500 tokens for Explore,
+    which skips CLAUDE.md, against 78,000 for a default workflow agent.
+  - Every turn re-reads that start plus a context that grew to
+    230,000–375,000 tokens, over 50–94 mostly single-call turns.
+  - The verify phase earned its cost: 102 claims checked, 3 refuted, 40
+    qualified, 60 missed facts found.
+  - Recommendations: Explore for read-only stages; line anchors, the owner's
+    rulings and a call budget in every prompt; digests between phases; a
+    model and effort chosen per stage.
+  - The main thread cost twice what the agents did.
 - [agent-documentation-audit-2026-08-24.md](agent-documentation-audit-2026-08-24.md)
   — **findings; the mechanical half executed (`fbc10e6`), §5 awaiting an owner
   call.** The companion to the three above, asking the other question: not *is
