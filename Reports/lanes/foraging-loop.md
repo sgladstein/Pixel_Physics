@@ -115,6 +115,32 @@ extinct 0 of 12.
    scouting (traced; it was the path, not this, and that test now pins
    scouting off).
 
+## Tools and skills (use these; the names do not say what they answer)
+
+- **`funnel` skill**: invoke it before investigating anything. The method
+  behind every finding here.
+- **`review` skill** (`scripts/review.py`): post a card whenever a change is
+  visible. The owner judges by eye.
+- **`scripts/antloop.py`**: the loop ant by ant over `trailfollow
+  decisioncsv` traces. It prints the funnel, GOING OUT, who starved and
+  where, HUNGRY AT HOME, the time budget and the economy. `--vs base.log`
+  pairs starved and net food into home by seed; `--selftest` is the control.
+- **`scripts/antidle.py`**: do foragers keep foraging? It prints the loop
+  period, the wait at home, and life after the last loop.
+- **`scripts/labpair.py`**: two arms of `labforage` logs paired by seed on
+  net food into home. Never compare lab `deliveries`.
+- **`trailfollow`**, the colony bed:
+  - `decisioncsv dtag=` writes the per-decision trace that the scripts read;
+  - `gifants framesdir= gifevery= gifstart= gifcount= gifw= gifh= gifat=`
+    make card frames, ants magenta when empty and cyan when carrying;
+  - the log's `FOOD BUDGET`, `food into home` and `HUNGRY AT HOME` lines
+    carry the economy.
+- **`labforage`**, the lab box: its `SUMMARY seed=` line.
+- **`scripts/deadendindex.py --touching`**: before opening a PR.
+- **`scripts/branchcheck.sh --who-touched src/sim/creature.rs`**: before
+  editing the ant, since other lanes work in it too.
+- **`Reports/instruments.md`**: grep it before building any new harness.
+
 ## Commands
 
 The colony bed. Run from anywhere; keep the env exactly this. Run three
