@@ -10912,9 +10912,11 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
     // about where a colony's tailings belong: *"is this a problem for you to
     // solve or for the ants to solve. An ant should be able to hold and carry
     // soil similar to how it holds and carries food."* So the roll is
-    // `drop_urge` -- a brain output, which is to say a gene, and the same one
-    // the food drop above rolls against. What is left in this file is one
-    // predicate about a *cell*: whether a pellet put there would stay put.
+    // `dump_urge` -- the `DropSpoil` output, which is to say a gene. (Until
+    // 2026-09-02 it was `drop_urge`, the food drop's own output; the note
+    // where both are read at the top of `act` says why they were split.)
+    // What is left in this file is one predicate about a *cell*: whether a
+    // pellet put there would stay put.
     // Nothing here prefers one part of the world to another.
     //
     // Four placement rules were built and measured before this one and all
@@ -11067,10 +11069,11 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
     }
 
     // --- dig --------------------------------------------------------------
-    // Reached with nothing edible in reach, or with a crop that cannot yield
-    // a whole cell to put down -- which since the crop landed includes a
-    // sub-unit residue, and is what keeps this verb reachable for an animal
-    // that is laden most of the time. Gated on the
+    // Reached only by an animal holding nothing: a crop holding any food
+    // returns in the drop branch above and a held pellet in the spoil branch,
+    // so a laden animal never digs. An empty crop is `None`; the sub-unit
+    // residue this header used to name no longer exists. An empty animal
+    // beside food gets here when its feed roll lost. Gated on the
     // material's own `penetration_resistance` against this species'
     // `dig_force` -- the pattern roots already use, never a name whitelist,
     // so a future softer stone becomes diggable with no code change.

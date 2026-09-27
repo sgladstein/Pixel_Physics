@@ -789,7 +789,9 @@ fn trace(world: &World) {
     let Some(sid) = world.species.id_of("ant") else { return };
     let Some(def) = world.species.get(sid).creature.as_ref().cloned() else { return };
 
-    // Every input that reaches `Dig` in `ant.ron`, plus the decision itself.
+    // Every input that reaches `Dig` in `ant.ron`, and `SurfaceCurvature`,
+    // which reaches `DropSpoil` instead: the put-down is what frees the jaws
+    // for the next dig. Plus the decision itself.
     let watch: [(&str, usize); 5] = [
         ("food beside it", I::FoodAdjacent as usize),
         ("am I home", I::AtNest as usize),

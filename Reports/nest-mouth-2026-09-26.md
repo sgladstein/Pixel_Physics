@@ -162,7 +162,8 @@ of 26 cells open at frame 12,000, against 11.5 with the whole cut home).
 **So the look and the loop want opposite homes**: the shape wants home to
 reach down the hole, and the colony bed pays for every row it does (§4).
 
-**The crowded box, for the record** — 300 ants, 6,000 frames, same scoring.
+**The crowded box, for the record** — 300 founders that breed past 800,
+6,000 frames, same scoring.
 Here the effect is stronger and the cut is full of ants rather than dirt:
 
 | arm | own room | depth | height / width | middle-half width | chambers |

@@ -34,6 +34,9 @@ will be.
   (`SCOUT_DEFAULT`), the hungry-home switch and the nest larder
   (`update_hungry_home`, `hungry_target`, `NestSite::larder`, the delivery
   block in `act`).
+  §5 steps 5-6 on 2026-09-27 against `act`'s spoil and dig branches,
+  `lift_reach` and `line_burrow`: the spoil roll is `DropSpoil`, and lining
+  takes spoil as well as soil.
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -246,15 +249,29 @@ the tick: the ant still gets its move roll (§6) afterwards.
    at the nest and put back counts again. `pickups_at_nest` counts step 3's
    pickups made on the same test (read before the food leaves), so
    `deliveries - pickups_at_nest` is the food that came home.
-5. **Drop spoil**, if holding a dig pellet, then **return**. The target must
-   be empty, sit on at least two filled cells of the three below it, and have
-   clear headroom above. It may lift up the shaft (`lift_reach`).
+5. **Drop spoil**, if holding a dig pellet, then **return**, placed or not,
+   so an ant holding a pellet never digs. The roll is against `DropSpoil`,
+   its own output (§4), not the food drop's. On a win the pellet goes on the
+   first of the 8 neighbours, in fixed order, that is empty, sits on at least
+   two filled cells of the three below it, and has `SPOIL_HEADROOM` (3) empty
+   cells above. **If none qualifies it is posted straight up the ant's own
+   column** to the first cell that does, and the ant does not move
+   (`lift_reach`). Under the default `SPOIL_LIFT=climb` that scan passes
+   ground the ant could cut and empty rows with a wall beside them, and stops
+   at open sky with nothing to hold, at material it cannot cut, or after 160
+   rows. `spoil_lifted` counts these.
 6. **Dig**, only if both crop and spoil are empty. **So a laden ant never
-   digs.** It removes the cell straight ahead if it is diggable
-   (`penetration_resistance ≤ dig_force: 1.0`, not a creature, plant or
-   live seed), keeps it as a spoil pellet, and **lines the burrow**
-   (`line_burrow`): every soil cell among the 8 neighbours of the dug cell
-   becomes `packedsoil`.
+   digs.** The roll is against `Dig`, and the target is **the cell straight
+   ahead of the head, along its current heading**: nothing chooses a face, a
+   depth, or a place near other digging. It must not be empty, a creature or
+   plant cell, or a live seed, and needs `penetration_resistance ≤
+   dig_force` (1.0). Soil, lining and spoil pass, and so do powder foods and
+   litter such as crumbs; sand and the nest's own material do not. The cell
+   becomes the held pellet in its `spoils_into` form (soil, lining and spoil
+   all become `spoil`), else its `packs_into` form, else as itself: a dug
+   crumb stays food, carried in the spoil slot. Then it **lines the burrow**
+   (`line_burrow`): every one of the 8 neighbours with a `packs_into` form
+   (soil and spoil) becomes `packedsoil`.
 
 ## 6. Moving
 
