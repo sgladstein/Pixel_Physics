@@ -1756,7 +1756,7 @@ built in turn, each after the one before failed on the named risk:
 | colony's first delivery, median frame | 1,926 | 1,782 | 1,710 | 1,746 (12 / 9: no change) |
 | **died up a wall or ceiling** (the risk) | 85 | **169** | **170** | **13** |
 | starved, of 480 | 279 | 231 (17/5) | 248 (13/9) | **201** (19 / 4, sign p 0.003) |
-| food carried to the nest, J | 16,014 | 21,113 | 21,264 | **26,438** (19 / 5, p 0.007) |
+| food moved homeward while carried, cell-steps (*not* joules; see §21) | 16,014 | 21,113 | 21,264 | **26,438** (19 / 5, p 0.007) |
 | full loops | 366 | 405 | 415 | **460** |
 | colony's need met by what it absorbed | 51% | 56% | 57% | **64%** |
 
@@ -1813,10 +1813,113 @@ lab run is that the box's walls, on every side, do not trap scouts the way
 they trapped the radial and level forms on the bed.
 
 **Status: a switch, off.** On the bed it cuts starvation 279 → 201 and lifts
-food carried home 65%. In the lab it costs nothing and carries more. Guard:
+food moved homeward 65% (net food into home +62%, §21). In the lab it costs nothing and carries more. Guard:
 `off_a_route_a_hungry_empty_ant_scouts_out_and_back_and_a_fed_one_does_not`.
 Watched red twice: with the term removed, the hungry scout never reaches the
 wall; with the give-up never set, it never comes back. Making it the default
 is the owner's call. The data is in `Reports/data/scout-bed-*-2026-09-26.*`
 and `scout-lab-2026-09-26.txt.gz`. Seed 1, the typical seed, is shown against
 the default on review card `20260926T053940368Z-b1d8b1`, frames 300–6,000.
+
+## 21. Scouting shipped; coming home hungry only pays when home can feed you
+
+*2026-09-27.* The owner ruled on §20 ("yes") and set a new rule: *"scout or any
+ant should come home when they get so hungry before they are going to starve to
+death."*
+
+**Scouting is the ant's default** (gain 2; `PIXEL_PHYSICS_SCOUT=0` turns it
+off). The default build reproduces §20's gain-2 arm on all 24 bed seeds (1,155
+lines) and all 12 lab seeds (every shared `SUMMARY` key), and `SCOUT=0`
+reproduces the old default on bed seeds 1–8.
+
+**A correction to §20.** Its "food carried to the nest" row is the harness's
+`carry->nest`: cells moved homeward while carrying food, a transport measure,
+not joules. The honest measure is **net food into home**, deliveries minus food
+picked up at home. That is the nest session's counter; in the lab, 86% of
+deliveries are food lifted off the nest and put straight back. At 90 cells,
+scouting takes net food into home **4,642 → 7,506 cells** (19 better / 5 worse,
+p 0.007). `trailfollow` now prints it per run.
+
+**Scouting is what makes a long road work at all.** Bed, 24 seeds, paired
+against scouting off:
+
+| food distance | starved, off → on | net food into home (cells), off → on |
+|---|---:|---:|
+| 90 | 279 → 201 (19 / 4) | 4,642 → 7,506 (19 / 5) |
+| 140 | 416 → **209** (23 / 0) | 882 → **5,999** (24 / 0) |
+| 200 | 467 → **322** (24 / 0) | 183 → **2,913** (24 / 0) |
+
+In the lab box it is flat: net food into home 712 → 856 (7 / 5), food eaten
+and births 6 / 6, extinct 1 → 0. Predictions (≥ 30 and ≥ 20 fewer starved at
+140 and 200) were right, and far too small.
+
+**The come-home rule, three forms.** `PIXEL_PHYSICS_HUNGRY_HOME`: an empty ant
+whose energy falls under what the walk home costs gets the laden ant's home
+pull. The cost is 10% of `start_energy` plus distance × its own step and idle
+bills × 2, which is 0.7 J a cell for the ant. Bed at 90 cells, 24 seeds, against
+the scouting default (starved 201, net food into home 7,506):
+
+| form | starved | net food into home | where they died |
+|---|---:|---:|---|
+| `refed`, home = last nest contact: held home until eaten back to half | 217 (10 / 12) | 7,226 (11 / 12) | deaths away from home ~120 → ~77; the "west" dead are at the nest's west end |
+| `refed`, home = the nest's larder (`NestSite::larder`, a running mean of delivery cells) | 227 (9 / 12) | 6,657 (10 / 14) | almost all on the nest |
+| **`tether`**: larder; only off a road (trail presence < 0.5); let go on arrival | **173** (16 / 7, p 0.093) | **8,618** (18 / 6, p 0.023) | deaths away from home ~120 → ~36; reached food 322 → 358 |
+
+The tether looked like the answer on the 90-cell bed. It is not:
+
+- **At 140 cells it doubles starvation**: 209 → 419 (1 / 23), and net food into
+  home falls 5,999 → 1,467.
+- **At 200 cells no ant ever reaches the food**: 477 of 480 starve. A founder
+  starts with about 134 J, and under the leash it can never be more than about
+  160 cells from home.
+- **In the lab box, colonies starve amid plenty.** Alive at the end falls from
+  a median of 25 to 2, and extinctions go 0 → 2. On seed 11 the colony dwindles
+  from 43 ants to none by frame 100,800 while 1,000–1,200 edible cells stand in
+  the box; the default grows past 200. Lab food is scattered plants, not a
+  road, so as the colony gets hungry each leash shortens toward an empty larder.
+
+**Why: food at home is tiny.** Counted ant by ant (antloop's `HUNGRY AT HOME`):
+
+- Of 285 ants that were hungry and empty at home, **42** were ever beside food
+  there. When they were, they ate it within two decisions 71–84% of the time.
+- A new census in `trailfollow` measures every 3,000 frames. The whole nest
+  holds a **median of 4 food cells**. A hungry ant at home stands a median of
+  11–17 cells from the nearest one. On about 1 census in 5 there is no food at
+  home at all.
+- Delivered food lands where laden ants first touch the nest, a median 15 cells
+  east of centre, toward the food. Ants that starved at home died a median 16
+  cells west.
+
+So the colony is short of *transport*, not of food at the source. Only 64–72%
+of what it burns comes home.
+
+**Verdict.** Coming home before starving is right physiology, but it pays only
+if home can feed the hungry. Today home holds a few cells of food, so each form
+of the rule trades deaths out in the field for deaths at home, and the leash
+forbids the long trips that feed the colony. All three forms stay off, recorded
+in `dead-ends.md`. **The prerequisite is what real colonies do**: a returning
+forager feeds hungry nestmates directly from its crop (the social stomach).
+Today, sharing between ants is about 4% of what a colony eats (§13). Re-test
+the tether once home can feed the hungry, on both beds and at 140 cells.
+
+**Predictions, written before.**
+
+| prediction | right? |
+|---|---|
+| refed: deaths away from home ~90 → < 40 | wrong (~77) |
+| refed with a larder: starved ~180 | wrong (227) |
+| tether at 90: starved ~190, loops ±5% | better than predicted (173, loops +11%) |
+| tether in the lab: within spread | wrong (alive 25 → 2, 2 extinct) |
+| tether at 140 and 200: a further ~20 fewer / ±20 | wrong (419; 477, nobody reaches food) |
+| scouting at 140 and 200: ≥ 30 / ≥ 20 fewer starved | right (207 / 145 fewer) |
+
+**Instruments.**
+
+- `scripts/antloop.py` now prints **GOING OUT** (the colony's first delivery,
+  who ever left home toward the food, when reachers last set out, who ever
+  stepped onto a road) and **HUNGRY AT HOME**.
+- `--vs base.log` pairs starved and net food into home seed by seed with a sign
+  test.
+- `trailfollow` echoes the nest and scouting switches, prints `food into home`
+  per run, and prints the `HUNGRY AT HOME` census.
+- Data: `Reports/data/home-*-2026-09-27.*`.

@@ -16,6 +16,15 @@ rebuilding four scripts.
     # 2. read it:
     python3 scripts/antloop.py /tmp --tag mine --log run.log
     python3 scripts/antloop.py --selftest      # the positive control
+    # 3. against a baseline run, seed by seed (starved and net food into home):
+    python3 scripts/antloop.py /tmp --tag mine --log run.log --vs base.log
+
+Sections: the loop funnel; GOING OUT (the colony's first delivery, who ever
+left home toward the food, when reachers last set out, who ever stepped onto a
+road); who starved and where; HUNGRY AT HOME (hungry empty ants at home, how
+often beside food and whether they ate it, and -- from the log -- how far a
+hungry ant at home stands from the nearest food there, and the net food into
+home); the time budget; the economy.
 
 **A full loop** is: reach the food (within `near` cells, the harness's own
 `near=`) -> pick food up there (the crop turns laden after reaching it) -> get
@@ -60,7 +69,9 @@ def walk(rs, gap, near):
     food_x = nest_x + gap
     surf = int(rs[0]['y2'])
     a = dict(loops=0, reached=0, picked=0, home=0, ate_way=0, ate_home=0, eaten_face=0.0,
-             last_loop_i=-1, budget=C.Counter(), could_not_move=0, paused=0, rows=len(rs))
+             last_loop_i=-1, budget=C.Counter(), could_not_move=0, paused=0, rows=len(rs),
+             first_reach=None, set_out=None, left_home=False, on_road=False, first_delivery=None,
+             hungry_home=0, hungry_home_food=0, hungry_home_took=0)
     phase = 'out'
     prev_fill = None
     for i, r in enumerate(rs):
@@ -93,6 +104,32 @@ def walk(rs, gap, near):
             elif not laden:
                 a['ate_home'] += 1
                 phase = 'out'
+        # **Going out** (`ant-scenes-2026-09-23.md` §20): the first time at
+        # the food, the last decision in the home band before it, whether the
+        # ant ever went more than a band's width toward the food, and whether
+        # it ever chose a step onto a road (trail presence >= 0.5).
+        if at_food and a['first_reach'] is None:
+            a['first_reach'] = int(r['frame'])
+        if at_nest and a['first_reach'] is None:
+            a['set_out'] = int(r['frame'])
+        if x - nest_x > BAND:
+            a['left_home'] = True
+        cr = r.get('chosen_route', 'NaN')
+        if cr not in ('NaN', '', None) and float(cr) >= 0.5:
+            a['on_road'] = True
+        if r['drop'] == 'delivered' and a['first_delivery'] is None:
+            a['first_delivery'] = int(r['frame'])
+        # **Hungry at home** (§21): empty, under a quarter of start, in the
+        # band; beside food there; and whether it took or ate it within the
+        # next two decisions (the crop fills, it turns laden, or its energy
+        # rises).
+        if not laden and at_nest and float(r['energy']) < 0.25:
+            a['hungry_home'] += 1
+            if float(r.get('food_adjacent', 0) or 0) > 0:
+                a['hungry_home_food'] += 1
+                nxt = rs[i + 1:i + 3]
+                if any(float(n['fill']) > fill or n['leg'] == 'laden' or float(n['energy']) > float(r['energy']) + 0.002 for n in nxt):
+                    a['hungry_home_took'] += 1
         moved = r['outcome'] == 'stepped'
         if laden:
             b = BUCKETS[0]
@@ -150,6 +187,7 @@ def read(paths, near, end):
 def harness(logs):
     """Per (gap, seed): starved count, absorbed J, food on the nest series, near=, frames=."""
     out, params = {}, {}
+    last = None
     for log in logs:
         pend = {}
         for line in open(log):
@@ -183,10 +221,19 @@ def harness(logs):
             m = re.search(r'FOOD BUDGET \(cells, one cell = (\d+) face\): taken from the pile (\d+)', line)
             if m:
                 pend['face'], pend['taken'] = int(m.group(1)), int(m.group(2))
+            m = re.search(r'HUNGRY AT HOME frame \d+: \d+ empty ants under a quarter full, cells to the nearest food at home \[([^\]]*)\]; food cells at home (\d+)', line)
+            if m:
+                pend.setdefault('hungry_d', []).extend(m.group(1).split(','))
+                pend.setdefault('home_food', []).append(int(m.group(2)))
             m = re.match(r'^\s+(\d+)\s+(\d+)\s+(\w+)\s+\S+\s+(\d+)', line)
             if m and m.group(3) in ('hand', 'self', 'hmute', 'mute', 'homeA', 'flatN', 'flatF'):
-                out[(int(m.group(1)), int(m.group(2)))] = dict(pend, ate=int(m.group(4)))
+                last = (int(m.group(1)), int(m.group(2)))
+                out[last] = dict(pend, ate=int(m.group(4)))
                 pend = {}
+            # Printed after its run's table row, so it belongs to that row.
+            m = re.search(r'food into home: delivered (\d+) picked up at home (\d+) -> net (-?\d+)(?: \| turned home hungry (\d+))?', line)
+            if m and out:
+                out[last].update(net_home=int(m.group(3)), hungry_turns=int(m.group(4) or 0))
     return out, params
 
 
@@ -226,6 +273,27 @@ def report(ants, runs, gap):
     print(f"  broken loops: ate the load on the way home {sum(a['ate_way'] for a in f)}; "
           f"brought it home and ate it there {sum(a['ate_home'] for a in f)}")
 
+    print("\nGOING OUT: when and whether ants leave home for the food")
+    firsts = []
+    for sd in seeds:
+        fd = [a['first_delivery'] for a in ants if a['gap'] == gap and a['seed'] == sd and a['first_delivery'] is not None]
+        if fd:
+            firsts.append(min(fd))
+    q = lambda xs, p: sorted(xs)[min(len(xs) - 1, int(p * len(xs)))] if xs else float('nan')
+    print(f"  the colony's first delivery, median frame {q(firsts, .5):.0f} (p25 {q(firsts, .25):.0f}, p75 {q(firsts, .75):.0f}); "
+          f"runs with none {len(seeds) - len(firsts)}")
+    left = [a for a in f if a['left_home']]
+    print(f"  founders who ever went more than {BAND} cells toward the food: {len(left)} ({pct(len(left), n).strip()})")
+    rch = [a for a in f if a['first_reach'] is not None]
+    fr = [a['first_reach'] for a in rch]
+    so = [a['set_out'] for a in rch if a['set_out'] is not None]
+    print(f"  reached the food {len(rch)}: first reach median frame {q(fr, .5):.0f}; "
+          f"last set out from home before it, median frame {q(so, .5):.0f} (p25 {q(so, .25):.0f}, p75 {q(so, .75):.0f})")
+    never = [a for a in f if a['first_reach'] is None]
+    print(f"  never reached it {len(never)}, of whom never left home toward it {sum(not a['left_home'] for a in never)}")
+    print(f"  ever chose a step onto a road (trail presence >= 0.5): reachers {pct(sum(a['on_road'] for a in rch), len(rch)).strip()}, "
+          f"never-reachers {pct(sum(a['on_road'] for a in never), len(never)).strip()}")
+
     print("\nWHO STARVED, by how far they got (and where they spent their last ~1,000 frames)")
     groups = [("never reached the food", lambda a: a['reached'] == 0),
               ("reached it, never completed a loop", lambda a: a['reached'] > 0 and a['loops'] == 0),
@@ -252,6 +320,25 @@ def report(ants, runs, gap):
     # found (`ant-scenes-2026-09-23.md` §17).
     fed = [a for a in f if a['starved'] and a['fill_last'] > 0.25]
     print(f"  starved with the crop over a quarter full: {len(fed)} ({pct(len(fed), max(1, sv_all)).strip()} of the starved)")
+
+    print("\nHUNGRY AT HOME: empty ants under a quarter full, in the home band")
+    hh = [a for a in f if a['hungry_home']]
+    fed = [a for a in hh if a['hungry_home_food']]
+    took = sum(a['hungry_home_took'] for a in f)
+    beside = sum(a['hungry_home_food'] for a in f)
+    print(f"  ants ever hungry at home {len(hh)}; ever beside food while so {len(fed)} ({pct(len(fed), len(hh)).strip()}); "
+          f"took or ate it within two decisions {took} of {beside} times ({pct(took, beside).strip()})")
+    ds = [d for s_ in seeds for d in runs.get((gap, s_), {}).get('hungry_d', [])]
+    if ds:
+        num = [int(d) for d in ds if d != 'none']
+        food = [c for s_ in seeds for c in runs.get((gap, s_), {}).get('home_food', [])]
+        print(f"  census (every 3,000 frames): {len(ds)} hungry ants at home, a median {q(num, .5):.0f} cells from the nearest "
+              f"food at home; no food at home at all for {pct(len(ds) - len(num), len(ds)).strip()}; food cells at home, median {q(food, .5):.0f}")
+    nets = [runs[(gap, s_)]['net_home'] for s_ in seeds if 'net_home' in runs.get((gap, s_), {})]
+    if nets:
+        turns = sum(runs[(gap, s_)].get('hungry_turns', 0) for s_ in seeds if (gap, s_) in runs)
+        print(f"  net food into home (delivered minus picked up at home): {sum(nets)} cells over {len(nets)} runs; "
+              f"turned home hungry {turns}")
 
     print("\nTIME BUDGET: where each group's decisions went (pooled; typical ant in brackets)")
     for name, test in (("never looped", lambda a: a['loops'] == 0), ("looped at least once", lambda a: a['loops'] >= 1)):
@@ -310,6 +397,28 @@ def report(ants, runs, gap):
                       f"ants alive {st.median(s[i][1] for s in stores):.1f}; in their bodies {st.median(s[i][4] for s in stores):.0f} J")
 
 
+def sign_p(better, worse):
+    """Two-sided sign test on paired seeds, ties dropped."""
+    import math
+    n, k = better + worse, min(better, worse)
+    return min(1.0, 2 * sum(math.comb(n, i) for i in range(k + 1)) / 2 ** n) if n else 1.0
+
+
+def versus(runs, base, gap):
+    """Paired by seed against a baseline run's logs: starved and net food
+    into home, the two numbers that do not move with how big home is."""
+    keys = sorted(k for k in runs if k[0] == gap and k in base)
+    print(f"\nPAIRED AGAINST THE BASELINE, seed by seed ({len(keys)} seeds at gap {gap})")
+    for name, field, lower in (("starved", 'starved', True), ("net food into home, cells", 'net_home', False)):
+        pairs = [(base[k][field], runs[k][field]) for k in keys if field in base[k] and field in runs[k]]
+        if not pairs:
+            continue
+        better = sum((b_ < a_) if lower else (b_ > a_) for a_, b_ in pairs)
+        worse = sum((b_ > a_) if lower else (b_ < a_) for a_, b_ in pairs)
+        print(f"  {name:<28} {sum(a_ for a_, _ in pairs):>7} -> {sum(b_ for _, b_ in pairs):>7}   "
+              f"better on {better} seeds, worse on {worse}, sign p {sign_p(better, worse):.3f}")
+
+
 def selftest():
     """Hand-built ants whose answers are known. Exits non-zero on any miss."""
     cols = ['seed', 'gap', 'arm', 'tag', 'frame', 'id', 'leg', 'fill', 'x2', 'y2', 'nest_x', 'energy',
@@ -317,10 +426,12 @@ def selftest():
     rows = []
 
     def ant(aid, steps):
-        for i, (x, leg, fill, drop, e) in enumerate(steps):
+        for i, st_ in enumerate(steps):
+            x, leg, fill, drop, e = st_[:5]
+            food = st_[5] if len(st_) > 5 else 0
             rows.append(dict(seed=1, gap=50, arm='self', tag='t', frame=6 * (i + 1), id=aid, leg=leg,
                              fill=fill, x2=x, y2=40, nest_x=10, energy=e, outcome='stepped', p_move=0.5,
-                             drop=drop, food_adjacent=0, chosen_route='NaN'))
+                             drop=drop, food_adjacent=food, chosen_route='NaN'))
     # food at x=60. Two full loops, then alive at the end.
     trip = [(30, 'empty', 0, 'not_asked', 1), (60, 'empty', 0, 'not_asked', 1), (60, 'laden', .33, 'not_asked', 1),
             (35, 'laden', .30, 'not_asked', 1), (10, 'laden', .30, 'roll_lost', 1), (10, 'empty', 0, 'delivered', 1)]
@@ -332,6 +443,8 @@ def selftest():
         + [(95, 'empty', 0, 'not_asked', .05)] * 6 + [(95, 'empty', 0, 'not_asked', 0.0)])
     # Never reached the food, starved on the nest.
     ant(4, [(12, 'empty', 0, 'not_asked', .5)] * 5 + [(12, 'empty', 0, 'not_asked', 0.0)])
+    # Hungry at home beside food, and eats it (its energy rises next decision); alive at the end.
+    ant(5, [(12, 'empty', 0, 'not_asked', .2, 1), (12, 'empty', 0, 'not_asked', .3)] + [(12, 'empty', 0, 'not_asked', .3)] * 30)
     d = tempfile.mkdtemp()
     p = os.path.join(d, 'trailfollow-decisions-seed1-gap50-self-t.csv')
     with open(p, 'w', newline='') as fh:
@@ -346,6 +459,12 @@ def selftest():
         (ants[3]['died_where'] == 'beyond the food', f"ant 3 died {ants[3]['died_where']}"),
         (ants[4]['reached'] == 0 and ants[4]['starved'] and ants[4]['died_where'] == 'on the nest', f"ant 4: {ants[4]}"),
         (not ants[1]['starved'], "ant 1 is alive at the end"),
+        (ants[1]['first_reach'] == 12 and ants[1]['set_out'] == 6 and ants[1]['left_home'] and ants[1]['first_delivery'] == 36,
+         f"ant 1 going out: first_reach {ants[1]['first_reach']} set_out {ants[1]['set_out']} left {ants[1]['left_home']} first_delivery {ants[1]['first_delivery']}"),
+        (not ants[4]['left_home'] and ants[4]['hungry_home'] == 1 and ants[4]['hungry_home_food'] == 0,
+         f"ant 4 hungry at home, no food: {ants[4]['hungry_home']}, {ants[4]['hungry_home_food']}"),
+        (ants[5]['hungry_home'] == 1 and ants[5]['hungry_home_food'] == 1 and ants[5]['hungry_home_took'] == 1,
+         f"ant 5 hungry at home beside food, ate it: {ants[5]['hungry_home']}, {ants[5]['hungry_home_food']}, {ants[5]['hungry_home_took']}"),
     ]
     bad = [msg for ok, msg in checks if not ok]
     for msg in bad:
@@ -362,6 +481,7 @@ def main():
     ap.add_argument('--log', nargs='*', default=[], help="the trailfollow run log(s), for the economy and the death reconciliation")
     ap.add_argument('--near', type=int, default=None, help="cells from the food that count as at it (default: from --log, else 10)")
     ap.add_argument('--cropcap', type=float, default=None, help="crop capacity in face J (default: from --log, else ant.ron's 5760; a log from before 2026-09-25 needs --cropcap 2880)")
+    ap.add_argument('--vs', nargs='*', default=[], help="a baseline run's trailfollow log(s): pairs starved and net food into home seed by seed")
     ap.add_argument('--selftest', action='store_true')
     args = ap.parse_args()
     if args.selftest:
@@ -389,8 +509,11 @@ def main():
           + f"; arms {sorted({k[2] for k in keys})}; near={near}; crop {CAP:.0f} face J")
     if len({k[2] for k in keys}) > 1 or len({k[3] for k in keys}) > 1:
         print("antloop: WARNING -- more than one arm or tag in these files; they are pooled below. Pass --tag.")
+    base = harness(args.vs)[0] if args.vs else None
     for g in sorted(by_gap):
         report(ants, runs, g)
+        if base:
+            versus(runs, base, g)
 
 
 if __name__ == '__main__':

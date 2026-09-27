@@ -1,6 +1,20 @@
 # Ants
 
-*Current as of: 2026-09-25, when **a forager started bringing home enough to share.**
+*Current as of: 2026-09-27, when **hungry ants started going out to look for food.**
+An ant with nothing to carry and no trail under its feet used to have no reason
+to go anywhere, so a colony sat at home until someone stumbled on food, and
+most ants never left the nest area at all. Now a hungry ant heads out along the
+ground, the hungrier the harder, and a well-fed one stays home. If the way stops
+getting it any further -- a wall, a dead end -- it gives up, walks home, and
+tries again from the nest: the search real desert ants make, a run out and a run
+back. It does not change how soon the colony finds its first food; it changes
+how many ants have been out looking by the time a road to it exists. In a test
+colony with food 90 cells away, over a quarter fewer ants starve and 60% more
+food reaches the nest; with food 140 cells away half as many starve, and at 200
+cells, where the colony used to bring almost nothing home, it now brings home a
+steady supply. The cost is ants that pick the empty side, which wear themselves
+out there. In the lab box it changes little. Two days before, **a forager
+started bringing home enough to share.**
 An ant carries food in its stomach, and what it carries weighs it down. A full
 load used to weigh three times the ant, and walking it home cost about what the
 food was worth, so a forager barely fed itself and little was left over for the

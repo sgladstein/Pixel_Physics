@@ -535,6 +535,14 @@ struct Arm {
     /// about trail shape, it is a loop that never seeded.
     trips: u64,
     deliveries: u64,
+    /// `CreatureStats::pickups_at_nest`: food picked up at home, so
+    /// `deliveries - pickups_at_nest` is the net flow of food cells into home
+    /// (the nest-mouth lane's counter; a crumb lifted and put back counts twice
+    /// in `deliveries` alone).
+    pickups_at_nest: u64,
+    /// `CreatureStats::hungry_home_turns`: empty ants that turned for home
+    /// too hungry to stay out.
+    hungry_home_turns: u64,
     /// **What those cells were worth to this ant**, in joules -- the
     /// provisioning denominator, and the number whose absence produced two
     /// wrong published claims on this branch.
@@ -3040,6 +3048,35 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 }
             }
             store_series.push(format!("{f}: nest ground {at_nest}, crops {in_crops}, elsewhere {elsewhere}, crumbs {crumb_cells}, ants {live}, nest food {nest_food_j:.0} J ({crumb_nest} crumbs), ant bodies {body_j:.0} J"));
+            // **How far a hungry ant at home stands from the nearest food at
+            // home**, per ant: the question the funnel of 2026-09-27 left
+            // (hungry ants at home were beside food on 42 of 285, and ate it
+            // when they were). Hungry is under a quarter of `start_energy`;
+            // home and food at home are the census's `on_nest` columns;
+            // distance is Chebyshev, in cells, head to food cell.
+            let start_j = w.species.get(species_id).creature.as_ref().map_or(1.0, |c| c.start_energy.max(1.0));
+            let mut food_home: Vec<(i32, i32)> = Vec::new();
+            for y in 0..spec.height {
+                for x in (nest_lo - 10).max(0)..=(nest_hi + 10).min(width - 1) {
+                    let m = w.get(x, y).material;
+                    if m == larder || Some(m) == crumbs {
+                        food_home.push((x, y));
+                    }
+                }
+            }
+            let mut dists: Vec<String> = Vec::new();
+            for id in w.live_organism_ids() {
+                let Some(st) = w.organism(id) else { continue };
+                let Some(&(hx, hy)) = st.chain.first() else { continue };
+                if st.species != species_id || st.energy / start_j >= 0.25 || hx < nest_lo - 10 || hx > nest_hi + 10 || st.crop.is_some() {
+                    continue;
+                }
+                let d = food_home.iter().map(|&(x, y)| (x - hx).abs().max((y - hy).abs())).min();
+                dists.push(d.map_or("none".into(), |d| d.to_string()));
+            }
+            if !dists.is_empty() {
+                println!("    HUNGRY AT HOME frame {f}: {} empty ants under a quarter full, cells to the nearest food at home [{}]; food cells at home {}", dists.len(), dists.join(","), food_home.len());
+            }
         }
         if (gif_out.is_some() || frames_dir.is_some()) && gif_frames.len() < gif_count && f >= gif_start && (f == gif_start || f.is_multiple_of(gif_every)) {
             // The camera: `gifat=` or, by default, centred on the nest cursor
@@ -4640,6 +4677,8 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         alive_min: if alive_min == usize::MAX { 0 } else { alive_min },
         trips: st.forage_trips,
         deliveries: st.deliveries,
+        pickups_at_nest: st.pickups_at_nest,
+        hungry_home_turns: st.hungry_home_turns,
         supply_j: larder_placed as f64 * per_cell_j,
         eaten_j: diet_by_material(&w, larder).0,
         ate_other_j: diet_by_material(&w, larder).1,
@@ -4844,7 +4883,7 @@ fn main() {
     // `ant-forage-bed-and-gates-2026-09-21.md` is run with, echoed so a log
     // that does not name them was written by a binary that never had them.
     println!(
-        "  breadoff={} wire={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} LOAD_BY={} LOAD_SCALE={} layfrom={}",
+        "  breadoff={} wire={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} LOAD_BY={} LOAD_SCALE={} NEST_DOOR={} NEST_DOOR_FOUNDERS={} NEST_SHAFT={} NEST_HOME={} SCOUT={} HUNGRY_HOME={} layfrom={}",
         flag("breadoff"),
         arg_str("wire").unwrap_or_else(|| "shipped".into()),
         flag("decisioncsv"),
@@ -4854,6 +4893,12 @@ fn main() {
         std::env::var("PIXEL_PHYSICS_DROP_REACH").unwrap_or_else(|_| "shipped".into()),
         std::env::var("PIXEL_PHYSICS_LOAD_BY").unwrap_or_else(|_| "shipped".into()),
         std::env::var("PIXEL_PHYSICS_LOAD_SCALE").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_NEST_DOOR").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_NEST_DOOR_FOUNDERS").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_NEST_SHAFT").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_NEST_HOME").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_SCOUT").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_HUNGRY_HOME").unwrap_or_else(|_| "shipped".into()),
         arg_str("layfrom").unwrap_or_else(|| "nest".into())
     );
     println!("  {LANDED_NOTE}\n");
@@ -5130,6 +5175,14 @@ fn main() {
                         a.births,
                         a.deaths,
                         a.starved
+                    );
+                    println!(
+                        "{:>16}food into home: delivered {} picked up at home {} -> net {} | turned home hungry {}",
+                        "",
+                        a.deliveries,
+                        a.pickups_at_nest,
+                        a.deliveries as i64 - a.pickups_at_nest as i64,
+                        a.hungry_home_turns
                     );
                     // **Do the survivors keep the trail up once we stop laying
                     // it?** Owner's ask. `stop` releases the hand-laid ramp at

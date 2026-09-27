@@ -10886,6 +10886,12 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 }
                 world.creature_stats.drops += 1;
                 if at_nest {
+                    // Where this nest keeps its food (`NestSite::larder`).
+                    // Written always and read only by `hungry_target`.
+                    if let Some(site) = world.nearest_nest_site(dx, dy).and_then(|i| world.nest_sites.get_mut(i)) {
+                        let (fx, fy) = (dx as f32, dy as f32);
+                        site.larder = Some(site.larder.map_or((fx, fy), |(lx, ly)| (lx + LARDER_EMA * (fx - lx), ly + LARDER_EMA * (fy - ly))));
+                    }
                     world.creature_stats.deliveries += 1;
                     if let Some(state) = world.organism_mut(organism) {
                         state.life.deliveries += 1;
@@ -12825,7 +12831,9 @@ const AWAY_GAIN: f32 = 1.0;
 /// So it is the complement of `AWAY_GAIN`: that one gives an empty ant a
 /// direction on a route, this one off it, and a well-fed ant has neither.
 ///
-/// **0 unless set, and at 0 the term is never added.**
+/// **2 unless set -- the ant's default since 2026-09-26, the owner's
+/// ruling** (`Reports/ant-scenes-2026-09-23.md` §20-21). `PIXEL_PHYSICS_SCOUT=0`
+/// turns it off, and at 0 the term is never added.
 ///
 /// Why it exists, traced 2026-09-26 on the colony bed with no trail laid
 /// (`Reports/ant-scenes-2026-09-23.md` §20): an ant that reached the food
@@ -12846,9 +12854,14 @@ pub fn scout_from_env() -> f32 {
             .ok()
             .and_then(|v| v.parse::<f32>().ok())
             .filter(|g| g.is_finite() && *g >= 0.0)
-            .unwrap_or(0.0)
+            .unwrap_or(SCOUT_DEFAULT)
     })
 }
+
+/// **The shipped scouting gain.** Measured at 1 and 2 on the colony bed
+/// (24 seeds): 2 is better on every line -- starved 223 against 201, reached
+/// the food 276 against 322 -- and costs nothing in the lab box.
+const SCOUT_DEFAULT: f32 = 2.0;
 
 /// **When a scout gives up and heads home**: its patience, which falls by
 /// `PATIENCE_DECAY` on every step that gets it no further out than it has
@@ -12860,6 +12873,127 @@ const SCOUT_GIVE_UP: f32 = 0.1;
 /// This world's scouting gain: `World::scout` if set, else the environment's.
 pub fn scout_of(world: &World) -> f32 {
     world.scout.unwrap_or_else(scout_from_env)
+}
+
+/// **A hungry animal comes home before it starves** -- the owner's ruling,
+/// 2026-09-26: *"scout or any ant should come home when they get so hungry
+/// before they are going to starve to death."* `PIXEL_PHYSICS_HUNGRY_HOME=on`,
+/// or `World::hungry_home` for one world (`hungry_home_of`).
+///
+/// An empty animal with no spoil turns for home once its energy is under
+/// what the walk home costs, `HUNGRY_RESERVE x start_energy + distance x
+/// (move_cost_per_cell + idle_cost_per_cell) x body cells x HUNGRY_MARGIN`,
+/// and the chooser then pulls it home as it pulls a laden one
+/// (`home_pull`), patience and all -- to the nest's larder once food has
+/// been put down there (`hungry_target`), since home is where the food is
+/// only if it goes where the food was left. It stays bound for home -- and at home,
+/// where the pull has no direction left -- until it has eaten back up to
+/// `HUNGRY_REFED x start_energy` (and twice the walk home, wherever it is),
+/// so it does not turn round at the door and starve outside it.
+///
+/// The per-cell cost is the species' own step and idle bills at one step a
+/// tick; the ant's is 0.35 J a cell, against a measured 0.37 on the colony
+/// bed's walk to food (648 frames for 90 cells at a 6-frame tick).
+pub fn hungry_home_from_env() -> HungryHome {
+    static V: std::sync::OnceLock<HungryHome> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_HUNGRY_HOME").as_deref() {
+        Ok("on") | Ok("refed") => HungryHome::Refed,
+        Ok("tether") => HungryHome::Tether,
+        _ => HungryHome::Off,
+    })
+}
+
+/// **Which form of the come-home rule** (`hungry_home_from_env`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HungryHome {
+    /// No rule.
+    Off,
+    /// `on` / `refed`: bound for home, and held there, until it has eaten
+    /// back to `HUNGRY_REFED`. Measured 2026-09-27 and not adopted: with food
+    /// at home a median of 4 cells, an ant held at home starves at home.
+    Refed,
+    /// `tether`: bound for home only while off a route (`HUNGRY_ROUTE`), and
+    /// released on reaching it. A hungry ant searches within a leash that
+    /// shortens as it weakens, and one that knows the road takes the road.
+    Tether,
+}
+
+/// This world's setting: `World::hungry_home` if set, else the environment's.
+pub fn hungry_home_of(world: &World) -> HungryHome {
+    world.hungry_home.unwrap_or_else(hungry_home_from_env)
+}
+
+/// **On a route, for the tether**: trail B under the head at or over this
+/// presence (`x / (1 + x)` over `TRAIL_HALF`, as `trail_presence` reads it).
+/// A hungry ant on a road to food is not called home off it.
+const HUNGRY_ROUTE: f32 = 0.5;
+
+/// **Arrived**, for the tether: within this many cells of the hungry target.
+const HUNGRY_ARRIVED: f32 = 2.0;
+
+/// **How fast a nest's larder point follows where food is put down**
+/// (`NestSite::larder`): the weight of each new delivery in the running
+/// mean, so the point settles on the heap within a few dozen deliveries and
+/// is not dragged by any one crumb.
+const LARDER_EMA: f32 = 0.05;
+
+/// **Where a hungry animal bound for home goes**: its nest's larder once
+/// food has been put down there (`NestSite::larder`), else `home_target`.
+fn hungry_target(world: &World, state: &crate::sim::organism::OrganismState) -> (i32, i32) {
+    let home = home_target(world, state);
+    world
+        .nearest_nest_site(home.0, home.1)
+        .and_then(|i| world.nest_sites.get(i))
+        .and_then(|s| s.larder)
+        .map_or(home, |(x, y)| (x.round() as i32, y.round() as i32))
+}
+
+/// The walk home's reserve on arrival, as a fraction of `start_energy`.
+const HUNGRY_RESERVE: f32 = 0.1;
+/// How many times the one-step-a-tick cost of the walk home to keep in hand:
+/// covers pauses, turns and a way round.
+const HUNGRY_MARGIN: f32 = 2.0;
+/// Fed enough to go out again, as a fraction of `start_energy`.
+const HUNGRY_REFED: f32 = 0.5;
+
+/// **Is this animal too hungry to be out?** Sets and clears
+/// `OrganismState::hungry_home` (`hungry_home_of`). Only an empty animal
+/// with no spoil is ever set; one carrying anything is cleared, since a
+/// load already sends it home.
+fn update_hungry_home(world: &mut World, organism: OrganismId, def: &CreatureDef, head: (i32, i32), mode: HungryHome) {
+    let body = live_body_cells(world, organism, def);
+    let Some(state) = world.organism(organism) else { return };
+    let empty = state.spoil.is_none() && state.crop.is_none_or(|c| c.worth() <= 0.0);
+    let (hx, hy) = hungry_target(world, state);
+    let d = (((hx - head.0) as f32).powi(2) + ((hy - head.1) as f32).powi(2)).sqrt();
+    let walk = d * (def.move_cost_per_cell + def.idle_cost_per_cell) * body * HUNGRY_MARGIN;
+    let need = HUNGRY_RESERVE * def.start_energy + walk;
+    let (energy, was) = (state.energy, state.hungry_home);
+    let now = if !empty {
+        false
+    } else if mode == HungryHome::Tether {
+        let x = f32::from(world.pheromone_at(Channel::B, head.0, head.1)) / TRAIL_HALF;
+        let on_route = x / (1.0 + x) >= HUNGRY_ROUTE;
+        if on_route || d < HUNGRY_ARRIVED {
+            false
+        } else if was {
+            energy < 2.0 * need
+        } else {
+            energy < need
+        }
+    } else if was {
+        energy < (2.0 * need).max(HUNGRY_REFED * def.start_energy)
+    } else {
+        energy < need
+    };
+    if now != was {
+        if now {
+            world.creature_stats.hungry_home_turns += 1;
+        }
+        if let Some(state) = world.organism_mut(organism) {
+            state.hungry_home = now;
+        }
+    }
 }
 
 /// **Is the step along `d` onto a route?** The scent where the head would go
@@ -12892,8 +13026,13 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
             Some(((site.x, site.surface), w))
         }
         None => {
-            if def.home_bias <= 0.0 || state.crop.is_none_or(|c| c.worth() <= 0.0) {
+            if def.home_bias <= 0.0 {
                 return None;
+            }
+            // Too hungry to be out (`update_hungry_home`): home as if laden,
+            // to where the food is kept.
+            if state.crop.is_none_or(|c| c.worth() <= 0.0) {
+                return (state.hungry_home && state.spoil.is_none()).then(|| (hungry_target(world, state), def.home_bias));
             }
             Some((home_target(world, state), def.home_bias))
         }
@@ -12969,6 +13108,10 @@ fn chooser_step(
         return step_chain(world, organism, heading, outputs, def, draw);
     }
 
+    let hungry_mode = hungry_home_of(world);
+    if hungry_mode != HungryHome::Off {
+        update_hungry_home(world, organism, def, (hx, hy), hungry_mode);
+    }
     // The home memory, started again whenever the target is new, and cleared
     // whenever there is nothing to take home.
     let pull = home_pull(world, organism, def, (hx, hy));
@@ -17746,27 +17889,6 @@ mod tests {
     }
 
 
-    /// **Every lifetime counter closes against its world total.**
-    ///
-    /// `CLAUDE.md` requires an "it fired" counter to be paired with a
-    /// far-side one, and this is that pairing made arithmetic:
-    ///
-    /// ```text
-    /// sum over the living + World::dead_life == the world-wide total
-    /// ```
-    ///
-    /// A freed organism takes its counts with it, so without `dead_life` the
-    /// live sum can only fall and is comparable to nothing. Both halves are
-    /// provable red: delete a mirror at its increment site and the live sum
-    /// undershoots; delete the roll-up in `World::free_organism` and it
-    /// undershoots by exactly the dead animals' totals.
-    ///
-    /// **The vacuity checks come first and are not decoration.** On a bed
-    /// where nothing dies the dead-side term is zero, and the identity then
-    /// passes with the roll-up deleted -- which is `CLAUDE.md`'s *green is the
-    /// default state* blindness exactly. So the test asserts that something
-    /// died, and that each counter actually moved, before it asserts anything
-    /// about the sums.
     /// **`PIXEL_PHYSICS_NEST_DOOR` paints a door and nothing else, and every
     /// founder's home is that door** -- the positive control for the colony
     /// bed's §19 arms (`Reports/ant-scenes-2026-09-23.md`). Counted as nest
@@ -17819,6 +17941,27 @@ mod tests {
         }
     }
 
+    /// **Every lifetime counter closes against its world total.**
+    ///
+    /// `CLAUDE.md` requires an "it fired" counter to be paired with a
+    /// far-side one, and this is that pairing made arithmetic:
+    ///
+    /// ```text
+    /// sum over the living + World::dead_life == the world-wide total
+    /// ```
+    ///
+    /// A freed organism takes its counts with it, so without `dead_life` the
+    /// live sum can only fall and is comparable to nothing. Both halves are
+    /// provable red: delete a mirror at its increment site and the live sum
+    /// undershoots; delete the roll-up in `World::free_organism` and it
+    /// undershoots by exactly the dead animals' totals.
+    ///
+    /// **The vacuity checks come first and are not decoration.** On a bed
+    /// where nothing dies the dead-side term is zero, and the identity then
+    /// passes with the roll-up deleted -- which is `CLAUDE.md`'s *green is the
+    /// default state* blindness exactly. So the test asserts that something
+    /// died, and that each counter actually moved, before it asserts anything
+    /// about the sums.
     #[test]
     fn every_lifetime_counter_closes_against_its_world_total() {
         let (mut w, low) = colony_bed();
@@ -24805,6 +24948,133 @@ mod tests {
         assert_eq!(walk(0.0, 1.0), walk(2.0, 1.0), "a fed ant's walk changed with scouting on");
     }
 
+    /// **Too hungry to be out, an empty ant walks home; fed, it is not
+    /// touched** (`hungry_home_of`, the owner's ruling of 2026-09-26). The
+    /// scouting scene: a bare floor, home 80 cells west, the ant facing home,
+    /// scouting on at the shipped gain. Held at a fifth of `start_energy`
+    /// (40 J, against the 76 J the walk home needs), it scouts east with the
+    /// rule off -- the control that the scene shows the difference at all --
+    /// and with the rule on it turns for home once (`hungry_home_turns`, the
+    /// "it fired" count) and walks at least 20 cells west (the effect). Fed,
+    /// the rule never sets and the walk is position for position the one it
+    /// walks with the rule off. **Watched red** with the hungry case removed
+    /// from `home_pull`: the hungry ant scouts east with the control.
+    #[test]
+    fn an_empty_ant_too_hungry_to_be_out_walks_home_and_a_fed_one_does_not() {
+        let walk = |on: bool, fed: f32| -> (Vec<(i32, i32)>, u64) {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            for x in 0..160 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            for y in 0..41 {
+                for x in [0, 159] {
+                    w.set(x, y, stone);
+                }
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.scout = Some(SCOUT_DEFAULT);
+            w.hungry_home = Some(if on { HungryHome::Refed } else { HungryHome::Off });
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let energy = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy * fed;
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.heading = 4;
+                st.forage_anchor = (20, 40);
+            }
+            let mut path = Vec::new();
+            for _ in 0..900 {
+                w.organism_mut(ant).expect("live").energy = energy;
+                run(&mut w, 1);
+                let st = w.organism(ant).expect("live");
+                assert!(st.crop.is_none(), "the ant must stay empty");
+                path.push(st.chain[0]);
+            }
+            (path, w.creature_stats.hungry_home_turns)
+        };
+        let start = 100;
+        let (control, control_turns) = walk(false, 0.2);
+        let (hungry, turns) = walk(true, 0.2);
+        let east = |p: &[(i32, i32)]| p.iter().map(|c| c.0).max().expect("walked") - start;
+        let net = |p: &[(i32, i32)]| p.last().expect("walked").0 - start;
+        assert!(control_turns == 0 && east(&control) >= 20, "with the rule off a hungry ant should scout east, and got {} cells out: the scene cannot show a difference", east(&control));
+        assert_eq!(turns, 1, "the hungry ant should turn for home exactly once");
+        assert!(net(&hungry) <= -20, "the hungry ant should walk home, and moved {}", net(&hungry));
+        assert_eq!(walk(false, 1.0).0, walk(true, 1.0).0, "a fed ant's walk changed with the rule on");
+    }
+
+    /// **The tether: off a route a hungry empty ant walks home and is let go
+    /// on arrival; on a route it is never called home** (`HungryHome::Tether`).
+    /// The scouting scene, energy held at a fifth of `start_energy`. Off any
+    /// trail it turns for home (`hungry_home_turns`, the "it fired" count),
+    /// walks there (the effect), and once within `HUNGRY_ARRIVED` of home it is
+    /// released (`hungry_home` false). With trail B laid along the whole floor
+    /// it walks away from home to the road's end, as `AWAY_GAIN` sends it, and
+    /// is first called home only there, once it has climbed off the road onto
+    /// the end wall -- a road that ends in no food is left like any other
+    /// ground. **Watched red** twice: with the route exemption removed the ant
+    /// on the trail is called home at once and never walks the road (furthest
+    /// x 100); with the hungry case removed from `home_pull` the ant off the
+    /// trail never gets home to be let go.
+    #[test]
+    fn the_tether_calls_a_hungry_ant_home_off_a_route_lets_it_go_there_and_leaves_it_on_a_road() {
+        let walk = |trail: bool| -> (u64, bool, Option<(i32, i32)>, i32) {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            for x in 0..160 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            for y in 0..41 {
+                for x in [0, 159] {
+                    w.set(x, y, stone);
+                }
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.scout = Some(SCOUT_DEFAULT);
+            w.hungry_home = Some(HungryHome::Tether);
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let energy = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy * 0.2;
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.heading = 4;
+                st.forage_anchor = (20, 40);
+            }
+            let (mut released_at_home, mut first_turn, mut furthest) = (false, None, 100);
+            for _ in 0..1800 {
+                if trail {
+                    for x in 1..159 {
+                        let have = w.pheromone_at(Channel::B, x, 40);
+                        if have < pheromone::DEPOSIT {
+                            w.deposit_pheromone(Channel::B, x, 40, pheromone::DEPOSIT - have);
+                        }
+                    }
+                }
+                w.organism_mut(ant).expect("live").energy = energy;
+                run(&mut w, 1);
+                let st = w.organism(ant).expect("live");
+                assert!(st.crop.is_none(), "the ant must stay empty");
+                furthest = furthest.max(st.chain[0].0);
+                if st.hungry_home && first_turn.is_none() {
+                    first_turn = Some(st.chain[0]);
+                }
+                released_at_home |= (st.chain[0].0 - 20).abs() <= 2 && !st.hungry_home;
+            }
+            (w.creature_stats.hungry_home_turns, released_at_home, first_turn, furthest)
+        };
+        let (turns_off, released, _, _) = walk(false);
+        assert!(turns_off >= 1, "off a route the hungry ant never turned for home");
+        assert!(released, "the hungry ant was not let go at home");
+        let (_, _, first_on, furthest_on) = walk(true);
+        assert!(furthest_on >= 155, "on a route the hungry ant should walk away from home to the road's end, and got to x {furthest_on}");
+        if let Some((x, y)) = first_on {
+            assert!(y < 40 || x >= 157, "on a route the hungry ant was called home in the middle of the road, at ({x}, {y})");
+        }
+    }
+
     /// **A fed, laden ant beside food and facing away from home still walks
     /// under the chooser** -- the freeze the colony bed found
     /// (`Reports/ant-scenes-2026-09-23.md` §8).
@@ -25969,6 +26239,14 @@ mod tests {
             if let Some(v) = flesh {
                 w.materials.get_mut(worm_material).food_energy = v;
             }
+            // **Scouting pinned off: this scene is about what worm flesh is
+            // worth, not about the walk.** It relies on the ant stumbling into
+            // the worm inside a sealed, nestless box. Since scouting became the
+            // default (2026-09-27) the ant runs out along the box's top row,
+            // three rows above the worm, to the far wall, and turns for home
+            // before the run ends: traced, it never stands beside the worm. The
+            // beetle scene beside this one does not depend on the path.
+            w.scout = Some(0.0);
             let ant = spawn(&mut w, "ant", 108, 100);
             // `plant_worm_seed`, not `spawn`: there is no `CreatureDef` to
             // place a worm from, which is the whole reason this species needs

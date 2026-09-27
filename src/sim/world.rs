@@ -1171,6 +1171,14 @@ pub struct NestSite {
     /// was sunk from. A reader that wants to know where the mouth is -- a
     /// census, or a home that reaches down the shaft -- asks this.
     pub shaft: Option<ShaftFootprint>,
+    /// **Where this nest keeps its food**: a running mean of the cells food
+    /// is put down on at home (`creature::LARDER_EMA` per delivery), or
+    /// `None` before the first delivery. A hungry animal bound for home goes
+    /// here rather than to the spot it last touched the nest
+    /// (`creature::hungry_target`): on the colony bed the food lands at the
+    /// end of the strip facing the food, a median 15 cells east of centre,
+    /// and ants starving at home died a median 16 cells west of it.
+    pub larder: Option<(f32, f32)>,
 }
 
 /// **Where a founding cut went**, as two inclusive rectangles: the shaft,
@@ -1886,6 +1894,10 @@ pub struct CreatureStats {
     /// births, food eaten and colony-frames split 6 / 6. The heap was a
     /// tower, and every drop on its top counted as a delivery.
     pub pickups_at_nest: u64,
+    /// **Times an empty animal turned for home too hungry to stay out**
+    /// (`creature::hungry_home_of`): one per setting of
+    /// `OrganismState::hungry_home`, never per tick it stays set.
+    pub hungry_home_turns: u64,
     /// **Not a trip counter, and not a sessility guard — read
     /// `forage_trips` for either.** It increments on any move made while
     /// nest-adjacent, guarded on `OrganismState::since_nest > 0`; but
@@ -3432,6 +3444,11 @@ pub struct World {
     /// `None` follows the environment, which is 0 (no pull) unless set; a
     /// field for the reason `chooser` is one.
     pub scout: Option<f32>,
+    /// **Whether a hungry empty animal turns for home before it starves,
+    /// overriding `PIXEL_PHYSICS_HUNGRY_HOME` for this world**
+    /// (`creature::hungry_home_of`). `None` follows the environment; a field
+    /// for the reason `chooser` is one.
+    pub hungry_home: Option<crate::sim::creature::HungryHome>,
     /// **Which material stopped a creature**, counted per blocked tick and
     /// indexed by `MaterialId` — the breakdown `CreatureStats::
     /// blocked_by_plant` deliberately does not carry, because that struct is
@@ -5772,6 +5789,7 @@ impl World {
             nest_home: None,
             nest_shaft: None,
             scout: None,
+            hungry_home: None,
             blocked_tissue_by_material: Vec::new(),
             energy_ledger: EnergyLedger::default(),
             colony_books: Vec::new(),
@@ -6785,6 +6803,7 @@ impl World {
             scout_for: (i32::MIN, i32::MIN),
             scout_patience: 1.0,
             scout_home: false,
+            hungry_home: false,
             // Zero is "no memory yet"; the first tick's read sees `live - 0`,
             // which normalises to +1 and decays to the true reading within a
             // few ticks. See `OrganismState::phero_a_mem`.
@@ -7507,7 +7526,7 @@ impl World {
         // the top of a tailings pile home. The founding row is the fixed
         // datum `step_nest_room` already freezes for the same reason.
         let surface = crate::sim::creature::colony_surface(self, x, y).unwrap_or(y);
-        self.nest_sites.push(NestSite { x, y, surface, scent: [0.0; 3], seeded: false, drift_epoch: epoch, shaft: None });
+        self.nest_sites.push(NestSite { x, y, surface, scent: [0.0; 3], seeded: false, drift_epoch: epoch, shaft: None, larder: None });
     }
 
     /// Index of the nest site nearest `(x, y)`, or `None` when the box holds
