@@ -64,7 +64,7 @@ and since 2026-09-28 that is the shipped ant**
   - **Colony bed:** starved 201 -> 83 (fewer on 22 of 24).
   - **Lab:** ties on the pairs. The founding mouth is buried by frame 30,600
     on 12 of 12 seeds, in every arm, under food and plants.
-- **Dig down ships on for an enclosed digger** (this branch), refused only
+- **Dig down ships on for an enclosed digger** (#508), refused only
   where there is no way down (`way_down`): the creep stops (2 openings
   against 6 at frame 24,000 over 24 seeds, 22 of 24 nest-like against 12),
   and the colony bed pays (starved 83 -> 152, born 59 -> 30). Shipped on
@@ -184,6 +184,8 @@ wiring (#505), are in `git log` and in the reports each one names.
 - `5529b1dd`, `1fb07611`, `35d03998` — dig down only for an enclosed digger,
   as a switch; the dig box, the colony bed and the lab.
 - `493a2b42` — the enclosed dig down ships on; the bed's cost stated.
-- The commit after it — the turn refused only where there is no way down
-  (the suite caught a beetle turned from its one cell of soil); six wider
-  refusals measured, every one lost the nest; the trace records the turn.
+- `a7df24de` — the turn refused only where there is no way down (the suite
+  caught a beetle turned from its one cell of soil); six wider refusals
+  measured, every one lost the nest; the trace records the turn.
+- `34e07b86` (#508) — merged: dig down on for an enclosed digger. GitHub
+  deleted the branch; restarted from `main` the same day, same name.
