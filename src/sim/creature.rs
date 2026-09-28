@@ -11640,7 +11640,15 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // one that never came near a flower, are the same `best_bite` and
             // opposite findings.
             world.creature_stats.best_offer = world.creature_stats.best_offer.max(offer);
-            if draw.unit_f32() < feed_urge {
+            // **A pellet in the mandibles blocks the mouthful**
+            // (`haul_bite_from_env`). After the roll, so the draw is taken
+            // whatever the switch and the stream is unchanged.
+            let won = draw.unit_f32() < feed_urge;
+            let blocked = won && haul_bite_blocks(world, organism, def);
+            if blocked {
+                world.creature_stats.haul_bites_refused += 1;
+            }
+            if won && !blocked {
                 // **What the mouthful is worth, read off the mouthful.**
                 // This is the keystone: it used to be `def.eat_energy`, a
                 // constant of the *eater*, so a starved ant's corpse paid
@@ -11939,6 +11947,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // `LifeCounters`. Its own lookup: the `organism_mut` above is
                 // inside the crop-update block and does not reach here.
                 let restart = carry_patience_of(world);
+                // `store_lunch_of`: read before the borrow below.
+                let trip_bar = if store_lunch_of(world) { Some(scaled_cells(world, FORAGE_TRIP_MIN as i32).clamp(0, u16::MAX as i32) as u16) } else { None };
                 let first = if let Some(state) = world.organism_mut(organism) {
                     state.life.bites += 1;
                     // **A carry is measured from the last cell loaded**
@@ -11960,7 +11970,12 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     // (`carries_lunch`): an empty crop's first cell taken at
                     // home starts one, and any cell taken away from home
                     // makes it a load. Written whatever the switch.
-                    state.lunch = picked_at_home && (state.lunch || crop.is_none_or(|c| c.worth() <= 0.0));
+                    //
+                    // Under `store_lunch_from_env`, food taken before the ant
+                    // has been `FORAGE_TRIP_MIN` cells from its last nest
+                    // contact is from home too, wherever it stood.
+                    let from_home = picked_at_home || trip_bar.is_some_and(|bar| state.forage_max < bar);
+                    state.lunch = from_home && (state.lunch || crop.is_none_or(|c| c.worth() <= 0.0));
                     state.life.bites == 1
                 } else {
                     false
@@ -13821,8 +13836,10 @@ fn commit_step(
     world.creature_stats.moves += 1;
 
     // How deep this excursion has got, in cells from the last nest contact.
-    // **`forage_max` is measurement only. `forage_anchor` beside it is NOT,
-    // and this comment said it was until 2026-09-21.** `sense` reads the
+    // **`forage_max` is measurement only unless `PIXEL_PHYSICS_STORE_LUNCH`
+    // is on** (`store_lunch_from_env`, which reads it at a pickup).
+    // **`forage_anchor` beside it is NOT, and this comment said it was until
+    // 2026-09-21.** `sense` reads the
     // anchor as the homing direction for `BrainInput::HomeAligned`, so the
     // re-anchor below — correct for keeping a loiterer's excursion depth at 1,
     // which is the rule's stated purpose — also moves where every laden animal
@@ -14440,11 +14457,90 @@ pub fn packed_lunch_of(world: &World) -> bool {
     world.packed_lunch.unwrap_or_else(packed_lunch_from_env)
 }
 
+/// **`PIXEL_PHYSICS_STORE_LUNCH=on`: store food is a packed lunch wherever
+/// the ant stood to take it.** Unset or `off` is the ant before it: a crop
+/// is a lunch only while every cell in it was taken with the head beside
+/// nest material (`nest_within_reach`). On the colony bed with the nest
+/// lane's door (`NEST_DOOR=2`, 90 cells, 24 seeds, traced 2026-09-28), a
+/// forager spends 41% of its life after its last delivery and 70% of that
+/// fed at home, and 63% of that time it holds store food the drive cannot
+/// reach because it is not a lunch: a third taken on the heap over the
+/// door or down the shaft, where no nest material touches, and a third a
+/// lunch turned into a load by a later cell taken one step off it
+/// (`Reports/ant-scenes-2026-09-23.md` §22r). With `on`, a cell taken
+/// while the ant's excursion since its last nest contact
+/// (`OrganismState::forage_max`) is under `FORAGE_TRIP_MIN` -- the bar
+/// below which an outing is loitering at home, not a trip -- counts as
+/// taken at home for the lunch. Only the lunch reads it: `foraged` and
+/// `pickups_at_nest` keep the nest-contact rule. Read once per process.
+pub fn store_lunch_from_env() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_STORE_LUNCH").unwrap_or_default().trim() {
+        "on" => true,
+        "off" | "" => false,
+        other => {
+            eprintln!("PIXEL_PHYSICS_STORE_LUNCH={other:?}: unknown, read as off (off, on)");
+            false
+        }
+    })
+}
+
+/// This world's store-lunch rule: `World::store_lunch` if set, else the
+/// environment's (`store_lunch_from_env`).
+pub fn store_lunch_of(world: &World) -> bool {
+    world.store_lunch.unwrap_or_else(store_lunch_from_env)
+}
+
 /// **This animal carries a packed lunch the rule lets out**
 /// (`packed_lunch_from_env`): the rule is on, its crop is worth something
 /// and holds only food taken at home, and it hauls no spoil.
 fn carries_lunch(world: &World, state: &crate::sim::organism::OrganismState) -> bool {
     state.lunch && state.spoil.is_none() && state.crop.is_some_and(|c| c.worth() > 0.0) && packed_lunch_of(world)
+}
+
+/// **`PIXEL_PHYSICS_HAUL_BITE`: whether an animal hauling a dirt pellet can
+/// take a mouthful.** Unset or `on` is the ant before it: it can, and does --
+/// on the colony bed (24 seeds, 90 cells, `main` after #510) 51% of the crops
+/// filled at home were filled by an ant holding a pellet (`Reports/ant-
+/// scenes-2026-09-23.md` §22q). Such a crop can never be a packed lunch
+/// (`carries_lunch` wants no spoil), so the drive cannot send its holder
+/// out. `off`: no animal holding spoil swallows or loads food; `fed`: only
+/// one at or above its `start_energy` is stopped, so a hungry digger still
+/// eats. Only the swallow is gated: the `Feed` roll is drawn as before, and
+/// gnawing a living target is not touched. Read once per process.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HaulBite {
+    On,
+    Off,
+    Fed,
+}
+
+pub fn haul_bite_from_env() -> HaulBite {
+    static V: std::sync::OnceLock<HaulBite> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_haul_bite(&std::env::var("PIXEL_PHYSICS_HAUL_BITE").unwrap_or_default()))
+}
+
+/// `PIXEL_PHYSICS_HAUL_BITE`'s value read as the rule (`haul_bite_from_env`);
+/// an unset variable reads as `""`.
+fn parse_haul_bite(raw: &str) -> HaulBite {
+    match raw.trim() {
+        "on" | "" => HaulBite::On,
+        "off" => HaulBite::Off,
+        "fed" => HaulBite::Fed,
+        other => {
+            eprintln!("PIXEL_PHYSICS_HAUL_BITE={other:?}: unknown, read as on (on, off, fed)");
+            HaulBite::On
+        }
+    }
+}
+
+/// Whether this animal's won `Feed` roll is refused for the pellet it holds
+/// (`haul_bite_from_env`).
+fn haul_bite_blocks(world: &World, organism: OrganismId, def: &CreatureDef) -> bool {
+    match haul_bite_from_env() {
+        HaulBite::On => false,
+        rule => world.organism(organism).is_some_and(|s| s.spoil.is_some() && (rule == HaulBite::Off || s.energy >= def.start_energy)),
+    }
 }
 
 /// This world's forage drive: `World::forage_drive` if set, else the
@@ -26830,6 +26926,61 @@ mod tests {
         assert_eq!(off, load, "the rule on moved a real load, or the rule off moved a lunch");
         assert!(furthest(&off) < 130, "a laden ant with the rule off ran out to x {}: the scene cannot show the rule", furthest(&off));
         assert_eq!((off_paced, load_paced), (0, 0), "the drive paced a laden ant it must not reach");
+    }
+
+    /// **Under `PIXEL_PHYSICS_STORE_LUNCH` store food taken near home is a
+    /// packed lunch wherever the ant stood** (`store_lunch_of`). A bare floor
+    /// with a nest site registered but no nest material anywhere, so the
+    /// nest-contact rule never calls a pickup "at home"; a fed ant with
+    /// crumbs on the floor all round it, its excursion since its last nest
+    /// contact (`OrganismState::forage_max`) held every frame. Run until the
+    /// crop fills, then read `lunch`. Rule on at an excursion of 2 cells (under
+    /// `FORAGE_TRIP_MIN`): a lunch. Rule off at 2, and rule on at 20: a load,
+    /// as before. **Watched red** with the excursion test removed from
+    /// `from_home`: the first arm read a load.
+    #[test]
+    fn store_food_taken_near_home_is_a_packed_lunch_wherever_the_ant_stood() {
+        let pick = |rule: bool, excursion: u16| -> bool {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            for x in 0..160 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.store_lunch = Some(rule);
+            w.packed_lunch = Some(true);
+            w.register_nest_site(20, 40, 4);
+            let crumbs = w.materials.id_of("crumbs").expect("crumbs.ron must be registered");
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let energy = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy;
+            for x in 90..111 {
+                if w.get(x, 40).material == material::EMPTY {
+                    w.set(x, 40, Cell::new(crumbs, 0).with_aux(400));
+                }
+            }
+            for _ in 0..2000 {
+                {
+                    let st = w.organism_mut(ant).expect("live");
+                    st.energy = energy;
+                    st.foraged = true;
+                    st.forage_max = excursion;
+                    st.forage_anchor = (20, 40);
+                }
+                w.begin_step();
+                scheduler::step(&mut w);
+                w.end_step();
+                let st = w.organism(ant).expect("live");
+                if st.crop.is_some_and(|c| c.worth() > 0.0) {
+                    return st.lunch;
+                }
+            }
+            panic!("the ant never took a crumb in 2,000 frames: the scene cannot show the rule");
+        };
+        assert!(pick(true, 2), "rule on, taken 2 cells into an outing: should be a packed lunch");
+        assert!(!pick(false, 2), "rule off: a cell taken away from nest material is a load");
+        assert!(!pick(true, 20), "rule on, taken 20 cells into an outing: that is a trip, so a load");
     }
 
     /// **A packed lunch is finished beside food it cannot swallow, so the
