@@ -9385,13 +9385,14 @@ fn spoil_footing_drop() -> bool {
 /// why the cue stands aside for an animal the ground encloses: there the
 /// face does the work, and a heap cue would stall it.
 ///
-/// **The rule.** On a dig roll aimed at ground that is not itself a pellet,
-/// by an animal at the surface -- its curvature above
-/// [`SPOIL_CUE_ENCLOSED`] -- or by any animal whose cut would open the
-/// ground to the sky ([`open_to_the_sky`]), the urge is multiplied by
-/// `floor + (1 - floor) s^2 / (s^2 + K^2)`, `s` being the pellets within
-/// [`SPOIL_CUE_REACH`] of the cell ahead. No heap cuts the urge to `floor`;
-/// a heap of `K` pellets lets half the rest through. A pellet ahead is left
+/// **The rule.** On a won dig roll, the cell actually cut -- after any
+/// `DIG_DOWN` turn -- is judged: if it is ground and not itself a pellet,
+/// and the cut would open the ground to the sky (the animal stands at the
+/// surface, its curvature above [`SPOIL_CUE_ENCLOSED`], or the cell has no
+/// ground above it, [`open_to_the_sky`]), the cut goes ahead with
+/// probability `floor + (1 - floor) s^2 / (s^2 + K^2)`, `s` being the pellets
+/// within [`SPOIL_CUE_REACH`] of it. No heap cuts the chance to `floor`; a
+/// heap of `K` pellets lets half the rest through. A pellet ahead is left
 /// alone, because digging a heap out is refill churn rather than a start.
 ///
 /// **Any pellet, not a fresh one.** A cell carries no age. In `digbox` the
@@ -11382,27 +11383,6 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
     // moisture_gradient(..))`, the inverse coefficient of the drop's, so
     // excavation ran toward wetter ground by a rule no lineage could alter.
     // It is `(MoistureGrad, Dig, w)` now, with the sign free.
-    //
-    // **A heap draws where digging starts, under `PIXEL_PHYSICS_SPOIL_CUE`**
-    // ([`spoil_cue`]): for a digger at the surface, the urge is scaled by the
-    // pellets beside the cell ahead. Unset, nothing is read and no draw is
-    // taken.
-    let dig_urge = match spoil_cue() {
-        Some(cue) if dig_urge > 0.0 => {
-            let heading = world.organism(organism).map_or(0, |s| s.heading);
-            let (dx, dy) = DIRS[heading as usize];
-            let radius = curvature_radius_of(def, &traits_of(world, organism, def)).max(1);
-            match spoil_cue_factor(world, (x, y), (x + dx, y + dy), radius, cue) {
-                Some(f) => {
-                    world.creature_stats.spoil_cue_applied += 1;
-                    world.creature_stats.spoil_cue_kept_milli += (f * 1000.0).round() as u64;
-                    dig_urge * f
-                }
-                None => dig_urge,
-            }
-        }
-        _ => dig_urge,
-    };
     if draw.unit_f32() < dig_urge {
         // **Before any of the target tests below**, which is what makes it
         // the "it fired" half of the pair: a roll counted only once a cell
@@ -11429,6 +11409,31 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         let (dx, dy) = DIRS[heading as usize];
         let (tx, ty) = (x + dx, y + dy);
         let target = world.get(tx, ty);
+        // **A heap draws where digging starts, under `PIXEL_PHYSICS_SPOIL_CUE`**
+        // ([`spoil_cue`]): a cut that would open the ground to the sky goes
+        // ahead with probability `f`, the heap factor for the pellets beside
+        // it. **Judged on the cell actually cut, after the `DIG_DOWN` turn
+        // above.** It first scaled the roll by the cell ahead *before* that
+        // turn, so an ant at the surface facing along it read no ground
+        // ahead, took the whole urge, turned down and cut: with
+        // `PIXEL_PHYSICS_DIG_DOWN=1.0` new openings from the surface went 77
+        // -> 212 over 12 seeds, three in four with no spoil beside them. A
+        // draw is taken only while `f < 1`, so the floor-1 control takes none
+        // and stays bit-exact with the switch unset, as does the switch unset.
+        let vetoed = match spoil_cue() {
+            Some(cue) => {
+                let radius = curvature_radius_of(def, &traits_of(world, organism, def)).max(1);
+                match spoil_cue_factor(world, (x, y), (tx, ty), radius, cue) {
+                    Some(f) => {
+                        world.creature_stats.spoil_cue_applied += 1;
+                        world.creature_stats.spoil_cue_kept_milli += (f * 1000.0).round() as u64;
+                        f < 1.0 && draw.unit_f32() >= f
+                    }
+                    None => false,
+                }
+            }
+            None => false,
+        };
         // **Digging is a verb against *ground*, and this kind test is what
         // says so.** It is not the material-name whitelist the force gate
         // exists to avoid -- it states as data the distinction the force
@@ -11480,7 +11485,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         if live_seed {
             world.dig_diverted_seed += 1;
         }
-        if ground && !live_seed && target.material != material::EMPTY && world.materials.get(target.material).penetration_resistance <= dig_force_of(def, &traits_of(world, organism, def), world.trait_reach) {
+        if !vetoed && ground && !live_seed && target.material != material::EMPTY && world.materials.get(target.material).penetration_resistance <= dig_force_of(def, &traits_of(world, organism, def), world.trait_reach) {
             // **The spoil is picked up, not destroyed.** This line read
             // `world.set(tx, ty, Cell::EMPTY)` with a comment calling
             // carrying it out "a stage-4+ refinement -- noted, not built",

@@ -301,10 +301,11 @@ the tick: the ant still gets its move roll (§6) afterwards.
    digs.** The roll is against `Dig`, and the target is **the cell straight
    ahead of the head, along its current heading**: nothing chooses a face, a
    depth, or a place near other digging. Under `PIXEL_PHYSICS_SPOIL_CUE`
-   (off by default) the roll is first scaled by the pellets within 2 cells
-   of that target, `floor + (1 - floor) s²/(s² + K²)`, when the cut would
-   open the ground to the sky: the ant stands at the surface (curvature
-   above -0.3), or the target has no ground above it (`spoil_cue_factor`,
+   (off by default) a cut that would open the ground to the sky goes ahead
+   only with probability `floor + (1 - floor) s²/(s² + K²)`, `s` the pellets
+   within 2 cells of the cell actually cut, after any `DIG_DOWN` turn. The
+   cut opens the sky when the ant stands at the surface (curvature above
+   -0.3), or the target has no ground above it (`spoil_cue_factor`,
    `open_to_the_sky`). A pellet target and a cut under a roof are left
    alone. It must not be empty, a creature or
    plant cell, or a live seed, and needs `penetration_resistance ≤
