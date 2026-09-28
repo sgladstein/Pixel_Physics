@@ -2671,3 +2671,96 @@ floor.
 
 All three aim at trips. Delivery at the heap over the door belongs to the
 nest lane. Data: `Reports/data/nest-food-2026-09-28.txt.gz`.
+
+### 22r. Foragers retire: store food as a packed lunch, and price is not the limit
+
+*Added 2026-09-28, asked by the owner:* "Even in the easiest situation,
+unlimited food 90 cells from the nest, we barely collect food and ants
+starve. Either the forage loop has serious issues or the economy is too
+hard. Is there another option?" Colony bed, 24 seeds, every ant traced per
+decision; `main` after #511, with and without the nest lane's door
+(`PIXEL_PHYSICS_NEST_DOOR=2`).
+
+**The answer is a third option: the trip works and pays, and the foragers
+stop making it.** It is the same finding as `scripts/antidle.py`'s of
+2026-09-27, one layer further down.
+
+- **The trip works** (door on, 90 cells): 89% of ants reach the pile, 98%
+  of those that pick food up get home with it, 86% complete a loop. A loop
+  takes ~1,400 frames (walk out 498, at the pile 144, walk home 444, home
+  until the crop empties 300) and brings 4.9 cells home, 1,179 J to an
+  ant: about 11x what it burns meanwhile and two-thirds of its burn for the
+  whole 24,000-frame run.
+- **They retire.** A forager's life is 28% inside loops, 19% at home
+  between them (median 1,728 frames, longer than the loop), 12% before its
+  first trip and **41% after its last delivery**. After it, 70% of the time
+  is fed at home at a median step chance of 0.069.
+- **The drive cannot reach the retired.** Of that fed time at home, the
+  forage drive acts on 19%. 63% is spent holding store food that is not a
+  packed lunch, and 17% holding a dirt pellet. The non-lunch store loads
+  came from three places in about equal parts: taken just off nest
+  material (the heap over the door, dy -1 to -3, or down the shaft, dy +1
+  to +5, all within 5 cells of the door); a lunch turned into a load by a
+  later cell taken one step off it; and taken while holding a pellet.
+  Beside food, their step chance is exactly 0. Each switch covers part of
+  the colony, and the retired fall between the definitions: lunch or load,
+  home as touching nest material or as near it.
+
+**Price is not the limit** (`trailfollow burn=0.5`, the ant's idle and
+walking cost halved, nothing else). The colony grows and starves less, and
+each ant works no more:
+
+| 90 cells, 24 seeds | loops per 10,000 ant-frames | born | starved | taken |
+|---|---:|---:|---:|---:|
+| door on, shipped | 0.93 | 150 | 15 | 5,611 |
+| door on, `burn=0.5` | 0.91 | 468 (24/0) | 6 | 7,150 (21/3) |
+| door off, shipped | 0.78 | 151 | 93 | 4,574 |
+| door off, `burn=0.5` | 0.68 | 296 (22/1) | 26 (4/18) | 5,008 (16/8) |
+
+**Store food as a packed lunch** (`PIXEL_PHYSICS_STORE_LUNCH=on`): a cell
+taken before the ant has been `FORAGE_TRIP_MIN` (8) cells from its last
+nest contact counts as taken at home for the lunch, wherever it stood.
+That is the bar below which an outing is loitering, not a trip, and
+`OrganismState::forage_max` already held it. Unset is byte-identical (24 of
+24 seeds). Seed pairs on higher / lower:
+
+| 24 seeds | taken from the pile | born | starved | food at the nest |
+|---|---:|---:|---:|---:|
+| door off, 90 | 4,574 -> **19,732** (24/0) | 151 -> 1,447 (24/0) | 93 -> 86 (8/13) | 7,743 -> 7,984 J (13/11) |
+| door off, 140 | 4,174 -> **13,791** (24/0) | 91 -> 757 (24/0) | 89 -> 80 (9/9) | 7,554 -> 9,244 J (18/6) |
+| door on, 90 | 5,611 -> **10,564** (22/2) | 150 -> 658 (23/1) | 15 -> 45 (12/4) | 6,279 -> 5,847 J (8/16) |
+| door on, 140 | 5,046 -> **7,037** (19/5) | 82 -> 264 (22/0) | 38 -> 68 (16/5) | 4,773 -> 4,726 J (13/11) |
+
+Per ant, traced at 90 cells without the door: loops per 10,000 ant-frames
+0.78 -> **1.46**; a forager's life inside loops 25% -> 43%, after its last
+delivery 47% -> 36%; median wait at home between loops 1,359 -> 342
+frames; starved per ant that lived ~15% -> 5%. The colony takes more
+because each ant works more *and* because there are three times as many
+ants. With the door: 0.93 -> 1.28 loops per 10,000 ant-frames, the drive's
+reach over the retired 19% -> 65%, and life after the last delivery only
+41% -> 38%, because **the ants it sends out go west**: 41% of ant-time is
+west of the nest against 13%. Without the door that is 4% -> 5%, and the
+road takes the time instead (12% -> 29%). The door leaves open ground west
+of a 5-cell nest, and a driven forager has no bearing on which side the
+food is: open problem 3 in the lane note, now the one that caps this
+change with the door on. The extra starved with the door are mostly
+newborns that never left the nest (24 of 42 traced at 90 died there,
+median frame 7,116): the store goes out as lunches, and the young at home
+find less of it.
+
+**A pellet in the mandibles does not help** (`PIXEL_PHYSICS_HAUL_BITE`,
+built on the same evidence and not adopted, `dead-ends.md`): with the door
+off it costs births (151 -> 93 at 90, 4/15; 91 -> 64 at 140, 5/18), with
+the door on it breaks even, and traced it only swaps the food a retiree
+holds for a pellet.
+
+**The door itself** (the nest lane's switch, re-measured on today's ant for
+them): taken 4,574 -> 5,611 at 90 (20/4) and 4,174 -> 5,046 at 140 (20/3);
+starved 93 -> 15 (3/21) and 89 -> 38 (2/20); born flat; food standing at
+the nest lower (4/20, 0/24), because fewer die: the census counts 97-99%
+of all crumbs in the world in both arms, and fewer lie there. Lab box
+(24 seeds) neutral, no sign test below p 0.15.
+
+LAB-PRE-SHIP-CHECK
+
+Data: `Reports/data/store-lunch-2026-09-28.txt.gz`.

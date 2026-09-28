@@ -11385,8 +11385,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // `LifeCounters`. Its own lookup: the `organism_mut` above is
                 // inside the crop-update block and does not reach here.
                 let restart = carry_patience_of(world);
-                // `store_lunch_from_env`: read before the borrow below.
-                let trip_bar = if store_lunch_from_env() { Some(scaled_cells(world, FORAGE_TRIP_MIN as i32).clamp(0, u16::MAX as i32) as u16) } else { None };
+                // `store_lunch_of`: read before the borrow below.
+                let trip_bar = if store_lunch_of(world) { Some(scaled_cells(world, FORAGE_TRIP_MIN as i32).clamp(0, u16::MAX as i32) as u16) } else { None };
                 let first = if let Some(state) = world.organism_mut(organism) {
                     state.life.bites += 1;
                     // **A carry is measured from the last cell loaded**
@@ -13913,6 +13913,12 @@ pub fn store_lunch_from_env() -> bool {
             false
         }
     })
+}
+
+/// This world's store-lunch rule: `World::store_lunch` if set, else the
+/// environment's (`store_lunch_from_env`).
+pub fn store_lunch_of(world: &World) -> bool {
+    world.store_lunch.unwrap_or_else(store_lunch_from_env)
 }
 
 /// **This animal carries a packed lunch the rule lets out**
@@ -26305,6 +26311,61 @@ mod tests {
         assert_eq!(off, load, "the rule on moved a real load, or the rule off moved a lunch");
         assert!(furthest(&off) < 130, "a laden ant with the rule off ran out to x {}: the scene cannot show the rule", furthest(&off));
         assert_eq!((off_paced, load_paced), (0, 0), "the drive paced a laden ant it must not reach");
+    }
+
+    /// **Under `PIXEL_PHYSICS_STORE_LUNCH` store food taken near home is a
+    /// packed lunch wherever the ant stood** (`store_lunch_of`). A bare floor
+    /// with a nest site registered but no nest material anywhere, so the
+    /// nest-contact rule never calls a pickup "at home"; a fed ant with
+    /// crumbs on the floor all round it, its excursion since its last nest
+    /// contact (`OrganismState::forage_max`) held every frame. Run until the
+    /// crop fills, then read `lunch`. Rule on at an excursion of 2 cells (under
+    /// `FORAGE_TRIP_MIN`): a lunch. Rule off at 2, and rule on at 20: a load,
+    /// as before. **Watched red** with the excursion test removed from
+    /// `from_home`: the first arm read a load.
+    #[test]
+    fn store_food_taken_near_home_is_a_packed_lunch_wherever_the_ant_stood() {
+        let pick = |rule: bool, excursion: u16| -> bool {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            for x in 0..160 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.store_lunch = Some(rule);
+            w.packed_lunch = Some(true);
+            w.register_nest_site(20, 40, 4);
+            let crumbs = w.materials.id_of("crumbs").expect("crumbs.ron must be registered");
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let energy = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy;
+            for x in 90..111 {
+                if w.get(x, 40).material == material::EMPTY {
+                    w.set(x, 40, Cell::new(crumbs, 0).with_aux(400));
+                }
+            }
+            for _ in 0..2000 {
+                {
+                    let st = w.organism_mut(ant).expect("live");
+                    st.energy = energy;
+                    st.foraged = true;
+                    st.forage_max = excursion;
+                    st.forage_anchor = (20, 40);
+                }
+                w.begin_step();
+                scheduler::step(&mut w);
+                w.end_step();
+                let st = w.organism(ant).expect("live");
+                if st.crop.is_some_and(|c| c.worth() > 0.0) {
+                    return st.lunch;
+                }
+            }
+            panic!("the ant never took a crumb in 2,000 frames: the scene cannot show the rule");
+        };
+        assert!(pick(true, 2), "rule on, taken 2 cells into an outing: should be a packed lunch");
+        assert!(!pick(false, 2), "rule off: a cell taken away from nest material is a load");
+        assert!(!pick(true, 20), "rule on, taken 20 cells into an outing: that is a trip, so a load");
     }
 
     /// **A packed lunch is finished beside food it cannot swallow, so the

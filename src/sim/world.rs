@@ -3532,6 +3532,11 @@ pub struct World {
     /// environment, which is on unless set `off`; a field for the reason
     /// `chooser` is one.
     pub packed_lunch: Option<bool>,
+    /// **Whether store food taken near home counts as a packed lunch
+    /// wherever the ant stood, overriding `PIXEL_PHYSICS_STORE_LUNCH` for
+    /// this world** (`creature::store_lunch_of`). `None` follows the
+    /// environment; a field for the reason `chooser` is one.
+    pub store_lunch: Option<bool>,
     /// **Whether a birth counts food in reach at what its bite is certain to
     /// pay, overriding `PIXEL_PHYSICS_BIRTH_PRICE` for this world**
     /// (`creature::birth_price_of`). `None` follows the environment, which is
@@ -5890,6 +5895,7 @@ impl World {
             forage_drive: None,
             carry_patience: None,
             packed_lunch: None,
+            store_lunch: None,
             birth_price: None,
             blocked_tissue_by_material: Vec::new(),
             energy_ledger: EnergyLedger::default(),
