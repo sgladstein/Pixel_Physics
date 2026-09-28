@@ -46,6 +46,16 @@ the live question, what is addressed to another lane, predictions and heads.*
   Roces 2013). The heap is what the marker still has to do: make the holes
   compete so one wins.
 
+- **2026-09-28: food goes into a chamber.** Asked whether the lab's buried
+  mouth should be kept clear or the food taken inside, the owner answered
+  "Food in chamber". A joint step with the foraging lane (the drop and the
+  homing are theirs); prototyped in scratch first.
+- **2026-09-28: a simple test environment for this work.** "I don't think we
+  should worry about plants or the standard lab bed during this development.
+  Just use a simpler test environment for now." The granary is developed on
+  the colony bed (`trailfollow`: soil, one food pile, 20 founders, no plants
+  or weather) and `digbox`, not the lab box.
+
 ## Live question
 
 **Is the colony building a nest? It digs one nest with one entrance area,
@@ -73,6 +83,11 @@ and since 2026-09-28 that is the shipped ant**
   (report §13): the turn's nest and its price are one mechanism.
 - **The creep:** a fresh heap would refuse at most a third to under a half
   of it, so it is not built.
+- **Food in a chamber, prototyped in scratch**
+  ([`../nest-granary-2026-09-28.md`](../nest-granary-2026-09-28.md)): food
+  carried in keeps the doorstep clear, but carrying is eating, so it stores
+  little or costs breeding (54 -> 11 born with everyone carrying in). The
+  next step is a design decision, put to the owner and the foraging lane.
 
 **Next** (2026-09-28):
 1. **The mouth in the lab:** kept clear by the colony, or the food taken
@@ -147,11 +162,8 @@ exploratory and carry none.
 
 ## Cards with the owner
 
-- `20260926T044019146Z-52a96c` — a colony of 40 founded with one hole, four
-  stops (replaces `…af67e6`).
-- `20260926T044022784Z-77bab8` — the gray pixels are tunnel lining, four stops
-  (replaces `…6faaf7`).
-- `…e86359` (`UNPACK`) withdrawn: at 40 ants there is nothing for it to remove.
+- 2026-09-26: `…52a96c` (one hole, 40 ants), `…77bab8` (gray is lining);
+  `…e86359` withdrawn.
 - `20260926T061431136Z-a29145` — blind: the painted door against the dug
   mouth with no paint, as GIFs of ants coming home (bed, seed 1).
 - `20260926T064019633Z-0211cf` — four foundings on the colony bed, five

@@ -4012,6 +4012,19 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   from theirs), **contents exist without eggs** via the `live_seed` guard, the
   brain-input pricing as the argument *for* their call-site route, and the
   landing discipline. **Treat their plan as the plan.**
+- [nest-granary-2026-09-28.md](nest-granary-2026-09-28.md) —
+  **measurement of a scratch prototype, 2026-09-28. `engine`.** Food carried
+  into the founding chamber instead of dropped on the doorstep, the owner's
+  "Food in chamber". Lane note: [lanes/nest-mouth.md](lanes/nest-mouth.md).
+  - **It can be done, and the doorstep stays clear**, but carrying is eating:
+    everyone carrying in takes half again as much food off the pile and
+    starves fewer, while births fall 54 -> 11 and digging to a third; food
+    picked up at home carried in by the ants at home keeps breeding and
+    barely reaches the room.
+  - **The lab entrance stayed open** at 8 of 9 checks against 2 of 9, before
+    the owner set the lab aside for this work.
+  - **Next is a design decision**: a short trip and births paid from the
+    store, or a store load carried in the mandibles like spoil.
 - [nest-heap-cue-2026-09-28.md](nest-heap-cue-2026-09-28.md) —
   **measurement and a default change, 2026-09-28. `engine`/`lab`.** One
   entrance instead of ten: a dig that would open the ground to the sky needs
