@@ -144,6 +144,13 @@ asked the two sessions to agree who owns what.
   15:30 → about 17:50 once. Files pushed to origin are the record.
 - **Sequencing:** settled 2026-09-27: door + dug mouth stays off, so there
   is no new baseline for the forage drive; the foraging lane was poked.
+- **Food in a chamber (2026-09-28, their reply):** no objection; the drop
+  and home-target pieces land as switches the foraging lane reviews. One
+  definition of home for the drop, the pickup and the packed lunch: a
+  pickup in the chamber must read as at home (`picked_at_home` on the same
+  predicate as the chamber-as-home piece), or a fed ant ferries chamber food
+  back out to the strip. Once #509 lands, colony baselines are taken with
+  packed lunch on (`=off` for runs before it).
 - **Still open for the foraging lane:** `trailfollow`'s header echoes
   `PIXEL_PHYSICS_NEST_DOOR` / `_SHAFT` / `_HOME` and prints
   `pickups_at_nest` (both done on their side), but reads the raw variable:
@@ -177,19 +184,10 @@ exploratory and carry none.
 
 ## Head SHAs
 
-Older heads, from the branch cut (`636612c6`, 2026-09-26) through the dig
-wiring (#505), are in `git log` and in the reports each one names.
+Older heads, from the branch cut (`636612c6`, 2026-09-26) through the heap
+cue (#506) and its founding fixes, are in `git log` and in the reports each
+one names.
 
-- `ffbac01e` (#506) — the heap cue as a switch, off; the veto on the cell
-  actually cut, after any dig-down turn.
-- `09b3c872` — the founding shaft and the heap cue ship on; dig down stays
-  off (bed starvation 83 -> 295).
-- `6bc7a535`, `a9922509` — the founding shaft digs only what the founders
-  could, and opens a column only onto ground under the paint.
-- `fbdd7ecd` — founding deals the reserve over the founders placed: the
-  books leak the flip exposed (82.6 J; the lab's 52-planned, 43-placed
-  colony on every run).
-- `69f0d80a` — the lab on the final code: the flip ties on every pair.
 - `97129556` (#507) — merged: the founding shaft and the heap cue on by
   default, and both founding fixes.
 - `0ff219b8` — dig down gated on hunger: a partial rescue, a dead end.
