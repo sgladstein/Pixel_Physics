@@ -1612,8 +1612,8 @@ pub struct CreatureStats {
     /// wrong is the colony still wanting to and merely failing.
     pub dig_rolls: u64,
     /// **How many dig rolls actually turned the animal downward**, which is
-    /// the "it fired" half of `creature::dig_down_bias` and reads 0 at the
-    /// default.
+    /// the "it fired" half of `creature::dig_down_bias` and reads 0 with
+    /// `PIXEL_PHYSICS_DIG_DOWN=off`.
     ///
     /// It is not `dig_rolls * w`: `turn_toward` returns the heading unchanged
     /// when the animal is already pointed straight down, so the counter
@@ -1621,6 +1621,12 @@ pub struct CreatureStats {
     /// downward has nothing for this lever to add, and the gap between this
     /// and `dig_rolls * w` is how much of the time that was true.
     pub digs_aimed_down: u64,
+    /// **Dig rolls whose downward turn was refused because there is no way
+    /// down** (`creature::way_down`): all three cells under the animal are
+    /// ground it cannot cut -- stone, bedrock, nest paint. Those rolls dig
+    /// straight ahead instead. Before the refusal (2026-09-28) every one of
+    /// them turned the animal to face that floor.
+    pub digs_down_refused: u64,
     /// **Drop rolls damped because the animal was under cover** -- the "it
     /// fired" counter for `creature::spoil_drop_cover`, 0 at the default.
     pub spoil_holds_under_cover: u64,
@@ -3484,6 +3490,12 @@ pub struct World {
     /// shipped floor of 0 its animals could never open bare ground -- this is
     /// how such a scene says it wants the ant before the cue.
     pub spoil_cue: Option<Option<crate::sim::creature::SpoilCue>>,
+    /// **The dig-down turn, overriding `PIXEL_PHYSICS_DIG_DOWN` for this
+    /// world** (`creature::dig_down_of`). `None` follows the environment,
+    /// which is `creature::DIG_DOWN_SHIPPED` unless it says `off`;
+    /// `Some(None)` turns it off. A field so a guard can take both arms in
+    /// one process.
+    pub dig_down: Option<Option<crate::sim::creature::DigDown>>,
     /// **How hard a hungry empty ant off a route is drawn away from home,
     /// overriding `PIXEL_PHYSICS_SCOUT` for this world** (`creature::scout_of`).
     /// `None` follows the environment, which is 0 (no pull) unless set; a
@@ -5857,6 +5869,7 @@ impl World {
             nest_home: None,
             nest_shaft: None,
             spoil_cue: None,
+            dig_down: None,
             scout: None,
             hungry_home: None,
             forage_drive: None,
