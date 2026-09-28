@@ -14,9 +14,8 @@ third more stands at the nest, a quarter fewer ants starve and nearly four
 times as many young are born. At 140 cells half as much food again stands at
 the nest, a few fewer ants starve and three times as many young are born; most
 of the dead there still die before any forager has found the food. In the lab
-box colonies eat a quarter more and grow faster, which brings on sooner the
-crash that follows a box eaten bare: three boxes in twelve died out, against
-none before, though as many crashed either way.
+box colonies eat two thirds more, raise more young and end twice the size, and
+fewer boxes die out after eating themselves bare.
 The day before, **a colony's spoil heaps stopped hanging in the air.** An ant
 used to press the pellets beside anything it dug into wall, heaps included, so
 a heap dug out from underneath could leave dirt hanging a few rows up in open

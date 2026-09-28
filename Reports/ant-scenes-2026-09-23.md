@@ -2393,6 +2393,18 @@ the committed default: starved 201 → 230 at 90 cells (13 more / 9 fewer, p
 0.52) and 209 → 242 at 140 (12/8, p 0.50); by frame 6,000 at 90, 125 → 159
 (16/7, p 0.09). Not significant; passed to the nest lane.
 
+**The lab box on `main` after #503**, both on against both off, one binary,
+12 seeds: food eaten 0.94M → 1.61M J (8/4), born 424 → 746 (6/6), alive at
+the end 50 → 106 (8/4), ant-frames lived 7.7M → 14.4M (8/4); **died out
+3 → 1**, under 10 ants at the end 5 → 3. The 0 → 3 extinctions measured
+before #503 did not recur; on this tree it is the switches-off box that
+loses colonies, all three after grazing their boxes below 30 edible cells.
+The one box that died with both on (seed 2) is a different kind: it peaked at
+160 ants and fell under 10 with 198 edible cells still standing, and the same
+seed fell to 6 ants with 532 edible cells in the switches-off game before
+#503. So the grazing crashes read as crash timing; seed 2 is a colony that
+dies with food around, in either arm, and is untraced.
+
 **Frame cost** (`ascii scene=foraging`, one binary, off and on alternated
 three times): mean frame 1.251 → 1.293 ms at the median, slower in 2 of 3
 pairs, inside the spread of one arm's own runs (1.22-1.31 ms). The worst

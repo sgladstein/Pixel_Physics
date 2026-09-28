@@ -90,11 +90,11 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Trail lifetime status — the way home keeps, the food trail still fades](#trail-lifetime-status--the-way-home-keeps-the-food-trail-still-fades) | 8405 |
 | [Walk status — the ant chooses where to step, and a colony builds its own road](#walk-status--the-ant-chooses-where-to-step-and-a-colony-builds-its-own-road) | 8480 |
 | [Forage status — a forager keeps going out, and heads home from the last mouthful](#forage-status--a-forager-keeps-going-out-and-heads-home-from-the-last-mouthful) | 8506 |
-| [Lifespan status — an ant gets old, and the colony's fall becomes a slope](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) | 8559 |
-| [Held world status — the third game, and time you carry in a circle](#held-world-status--the-third-game-and-time-you-carry-in-a-circle) | 8705 |
-| [Colony books status — what each colony is living on, in joules](#colony-books-status--what-each-colony-is-living-on-in-joules) | 9613 |
-| [Food road status — the trail the colony actually walks, and the box that was not there](#food-road-status--the-trail-the-colony-actually-walks-and-the-box-that-was-not-there) | 9744 |
-| [Field wake status — the field solves for the ants, and only one half of the fix is free](#field-wake-status--the-field-solves-for-the-ants-and-only-one-half-of-the-fix-is-free) | 9799 |
+| [Lifespan status — an ant gets old, and the colony's fall becomes a slope](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) | 8561 |
+| [Held world status — the third game, and time you carry in a circle](#held-world-status--the-third-game-and-time-you-carry-in-a-circle) | 8707 |
+| [Colony books status — what each colony is living on, in joules](#colony-books-status--what-each-colony-is-living-on-in-joules) | 9615 |
+| [Food road status — the trail the colony actually walks, and the box that was not there](#food-road-status--the-trail-the-colony-actually-walks-and-the-box-that-was-not-there) | 9746 |
+| [Field wake status — the field solves for the ants, and only one half of the fix is free](#field-wake-status--the-field-solves-for-the-ants-and-only-one-half-of-the-fix-is-free) | 9801 |
 
 ### Milestones, in numeric order
 
@@ -140,13 +140,13 @@ your time goes, not a rule about what you may read.
 | Topic | Game | Sections, primary first |
 |---|---|---|
 | **plants, trees and moss** | engine | [M16 status](#m16-status) 1941, [Soil nutrient status](#soil-nutrient-status--ground-is-worth-something-water-is-not) 7671, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1432, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 4738, [Parameter-genome status](#parameter-genome-status--a-species-file-is-a-starting-point-and-it-ships-inert) 4841, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1583, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1873, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1502, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1791, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 5021, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 5258, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 5335, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6796, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 5655, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5703, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5934, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6688 |
-| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2354, [The ant colony](#the-ant-colony--status) 3928, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6796, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5703, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5934, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6858, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6688, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7714, [Hunger status](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) 8014, [Rest status](#rest-status--a-rest-that-ends-so-a-resting-animal-is-not-a-stopped-one) 8125, [Hopper status](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) 8094, [Trophallaxis status](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) 8256, [Stacking status](#stacking-status--many-ants-of-one-colony-in-one-cell-off-by-default) 8314, [Trail status](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) 8368, [Trail lifetime status](#trail-lifetime-status--the-way-home-keeps-the-food-trail-still-fades) 8405, [Walk status](#walk-status--the-ant-chooses-where-to-step-and-a-colony-builds-its-own-road) 8480, [Forage status](#forage-status--a-forager-keeps-going-out-and-heads-home-from-the-last-mouthful) 8506, [Lifespan status](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) 8559, [Colony books status](#colony-books-status--what-each-colony-is-living-on-in-joules) 9613, [Food road status](#food-road-status--the-trail-the-colony-actually-walks-and-the-box-that-was-not-there) 9744 |
+| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2354, [The ant colony](#the-ant-colony--status) 3928, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6796, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5703, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5934, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6858, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6688, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7714, [Hunger status](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) 8014, [Rest status](#rest-status--a-rest-that-ends-so-a-resting-animal-is-not-a-stopped-one) 8125, [Hopper status](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) 8094, [Trophallaxis status](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) 8256, [Stacking status](#stacking-status--many-ants-of-one-colony-in-one-cell-off-by-default) 8314, [Trail status](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) 8368, [Trail lifetime status](#trail-lifetime-status--the-way-home-keeps-the-food-trail-still-fades) 8405, [Walk status](#walk-status--the-ant-chooses-where-to-step-and-a-colony-builds-its-own-road) 8480, [Forage status](#forage-status--a-forager-keeps-going-out-and-heads-home-from-the-last-mouthful) 8506, [Lifespan status](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) 8561, [Colony books status](#colony-books-status--what-each-colony-is-living-on-in-joules) 9615, [Food road status](#food-road-status--the-trail-the-colony-actually-walks-and-the-box-that-was-not-there) 9746 |
 | **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 2127, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 5021, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 5258, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 5335, [M8 status](#m8-status--started-not-complete) 3122 |
 | **fire, heat and phase change** | engine | [M14 status](#m14-status) 1019, [Materials](#materials) 299 |
 | **explosions, particles and debris** | outdoor | [M15 status](#m15-status) 1196, [M7 status](#m7-status) 1167 |
 | **liquids and gases** | engine | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 993, [Canopy throughfall status](#canopy-throughfall-status--rain-drips-through-a-wood) 864, [The coarse field grid](#the-coarse-field-grid) 575 |
 | **powders and granular flow** | engine | [Materials](#materials) 299, [Architecture](#architecture) 373, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7714 |
-| **the coarse field grid — pressure, heat, light** | engine | [The coarse field grid](#the-coarse-field-grid) 575, [M12/M13 status](#m12m13-status) 837, [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 5528, [Field wake status](#field-wake-status--the-field-solves-for-the-ants-and-only-one-half-of-the-fix-is-free) 9799 |
+| **the coarse field grid — pressure, heat, light** | engine | [The coarse field grid](#the-coarse-field-grid) 575, [M12/M13 status](#m12m13-status) 837, [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 5528, [Field wake status](#field-wake-status--the-field-solves-for-the-ants-and-only-one-half-of-the-fix-is-free) 9801 |
 | **worldgen and world structure** | outdoor | [M10 status](#m10-status--the-worldgen-half) 3741, [Architecture](#architecture) 373 |
 | **the gnome (player character)** | outdoor | [M9 status](#m9-status--the-gnome) 3235, [Controls](#controls) 228 |
 | **weather, sky and the clock** | engine | [Weather status](#weather-status) 3911, [M19 status](#m19-status--started) 4949, [World speed](#world-speed--five-independent-time-axes) 7193 |
@@ -169,7 +169,7 @@ your time goes, not a rule about what you may read.
 | **the speed dial, and what a tick costs** | lab | [Lab speed-dial status](#lab-speed-dial-status--what-the-dial-is-actually-short-of) 7411 |
 | **tuning and saving the box's own numbers** | lab | [Lab parameters status](#lab-parameters-status--a-save-that-reaches-the-founders-not-just-the-file) 6946 |
 | **a saved starting box, and replicating it in a rack** | lab | [Lab scenarios status](#lab-scenarios-status--a-saved-starting-box-with-a-question-written-on-it) 7568 |
-| **the held world — the third game, and time you carry** | held | [Held world status](#held-world-status--the-third-game-and-time-you-carry-in-a-circle) 8705 |
+| **the held world — the third game, and time you carry** | held | [Held world status](#held-world-status--the-third-game-and-time-you-carry-in-a-circle) 8707 |
 
 <!-- END GENERATED TOC -->
 
@@ -8532,8 +8532,9 @@ Measured first on the tree before #503 (the nest lane's spoil change, which
 moves the bed by itself), with the same direction: loops per forager 1.46 →
 2.12 at 90 cells (24/0).
 
-- **Lab box** (12 seeds): food eaten 1.15M → 1.45M J (8/4), ant-frames lived
-  9.6M → 12.3M (8/4), births 530 → 594 (6/6).
+- **Lab box** (12 seeds, `main` after #503, both off → both on): food eaten
+  0.94M → 1.61M J (8/4), births 424 → 746 (6/6), alive at the end 50 → 106
+  (8/4), ant-frames lived 7.7M → 14.4M (8/4); died out 3 → 1.
 - **Costs:** at 140 cells carry patience takes about 5% less off the pile than
   the drive alone (48 seeds, lower on 31); nothing the colony lives on moves
   with it. Early in a run the drive also sends out hungry foragers; on the
@@ -8543,9 +8544,10 @@ moves the bed by itself), with the same direction: loops per forager 1.46 →
 - **Frame cost:** `ascii scene=foraging` mean frame 1.251 → 1.293 ms
   (median of three alternated pairs), inside one arm's own spread; its
   forage trips 56 → 91.
-- **Lab extinctions:** 3 of 12 boxes died out, against none. Read as crash
-  timing: every crash follows the box grazed below 100 edible cells, and as
-  many boxes fell under 10 ants either way (4 and 4).
+- **Lab extinctions:** measured before #503, 3 of 12 boxes died out against
+  none; on `main` after it, 1 against 3. The switches-off deaths all follow
+  a box grazed bare (crash timing); the one with both on (seed 2) died with
+  food standing, as the same seed nearly did with the switches off.
 - **Known limitation:** at 140 cells most of the dead still die before any
   forager has found the food (181 of 223 by frame 6,000), which neither
   switch reaches. A third of all ant time is now spent

@@ -55,11 +55,12 @@ pile's far side). `=off` on either is the ant before it, bit for bit.
   taken off the pile 5,717 → 5,402 at 140 cells (lower on 31 of 48, p 0.06);
   food at the nest, starvation and births did not move. At 90 it is a gain:
   food at the nest 6,537 → 6,958 J, starved 346 → 313.
-- **Lab** (both on against today, 12 seeds): food eaten 1.15M → 1.45M J
-  (8/4), ant-frames lived 9.6M → 12.3M (8/4); 3 of 12 died out against 0,
-  every one after the box was grazed below 100 edible cells, with as many
-  boxes crashing under 10 ants in each arm (4 and 4). The lab's limit is its
-  regrowing pasture; a colony that grows faster crashes sooner.
+- **Lab** (`main` after #503, both on against both off, 12 seeds): food
+  eaten 0.94M → 1.61M J (8/4), born 424 → 746, alive at the end 50 → 106,
+  died out 3 → 1. Before #503 it read 0 → 3. The grazing crashes are crash
+  timing; seed 2 dies with food standing (198 edible cells, both on; to 6
+  ants with 532, both off before #503), untraced. The lab's limit is its
+  regrowing pasture.
 - **"Net food into home" overcounts 3.4-4.6×** (§22j); read food taken, and
   food standing at the nest (`FOOD STORE`'s `nest food`, mean from frame
   6,000).
@@ -85,9 +86,9 @@ Colony bed, no trail, 24 seeds (seeds 1-24):
 Both `=off` on the same tree: 90 cells 2,209, 4,539 J, 230, 159, 15; 140
 cells 1,940, 3,956 J, 242, 182, 9. #503 (spoil stays spoil) moved the bed by
 itself, so numbers from before it (§22m's component table) are a different
-tree. Lab box, 12 seeds, median, both on: food eaten 1,450k J, births 594, alive at
-the end 62, ant-frames lived 12.3M; died out 3, under 10 at the end 3. Before
-them: 1,150k J, 530, 80, 9.6M; 0 and 4.
+tree. Lab box, 12 seeds, median, both on (`main` after #503): food eaten 1,610k J,
+births 746, alive at the end 106, ant-frames lived 14.4M; died out 1, under
+10 at the end 3. Both off on the same tree: 940k J, 424, 50, 7.7M; 3 and 5.
 
 ## Ranked open problems
 
