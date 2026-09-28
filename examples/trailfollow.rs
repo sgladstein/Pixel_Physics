@@ -3067,9 +3067,9 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 let cs = &w.creature_stats;
                 creature::storeroom_census(&w, ((nest_lo - 10).max(0), (nest_hi + 10).min(width - 1)), (0, spec.height - 1)).map_or_else(
                     || ", STOREROOM no cut".to_string(),
-                    |[ch, sh, up, down, cch, csh, cup, cdown]| {
+                    |[ch, sh, up, down, cch, csh, cup, cdown, bound]| {
                         format!(
-                            ", STOREROOM chamber {ch} shaft {sh} surface {up} under {down}; pickups {} delivered {} held {} released {} full {}; carriers {cch}/{csh}/{cup}/{cdown}",
+                            ", STOREROOM chamber {ch} shaft {sh} surface {up} under {down}; pickups {} delivered {} held {} released {} full {}; carriers {cch}/{csh}/{cup}/{cdown}; nestbound {bound}",
                             cs.store_pickups, cs.store_delivered, cs.store_held, cs.store_released, cs.store_room_full
                         )
                     },

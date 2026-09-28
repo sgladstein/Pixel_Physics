@@ -6935,6 +6935,7 @@ impl World {
             foraged: false,
             store_return: false,
             store_carried: false,
+            nest_bound_until: 0,
             lunch: false,
             eat_lunch_now: false,
             hungry_home: false,

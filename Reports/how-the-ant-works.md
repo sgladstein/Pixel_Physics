@@ -67,7 +67,9 @@ will be.
   gate, `home_pull`, `chooser_step`'s `laden`, the drop block and
   digestion's `progressed`). §12 on 2026-09-28 for the storeroom switch, off
   (`storeroom_of`, `store_pickup_ok`, `store_drop`, `store_post_site`,
-  `store_target`, `store_return_target`, `Spoil::store`).
+  `store_target`, `store_return_target`, `Spoil::store`), and its nest-bound
+  part (`is_nest_bound` in `forage_drive_level`, `home_pull` and
+  `chooser_step`'s `away_from`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -771,7 +773,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_PACKED_LUNCH` | on | `off`: a crop filled only at home counts as a load, so the forage drive does not reach its carrier (§6d); `World::packed_lunch` for one world |
 | `PIXEL_PHYSICS_CARRY_PATIENCE` | `pickup` | `off`: a carry's home patience restarts only at the first pickup, not at every one (§6d step 5, bug Z35); `World::carry_patience` for one world |
 | `PIXEL_PHYSICS_LOAD_SCALE` | 1.0 | `<f>`: every food load weighs `f` times as much again, on top of the species' `food_weight` (§9) |
-| `PIXEL_PHYSICS_STOREROOM` | off | parts, comma-joined: `on`, a fed ant at home with an empty crop and empty mandibles, on a won `Feed` roll beside loose food more than a cell from its nest's founding chamber, takes the cell whole into its mandibles instead of swallowing it (`store_pickup_ok`); the load is pulled home to the chamber (`home_pull`, `home_target`, `HomeAligned` read as laden), goes down on a `DropSpoil` roll only in or beside the chamber (`store_drop`), is let go where it stands after 48 still decisions or when patience runs out, and its carrier is pulled back up to the mouth (`store_return_target`); a pick-up within a cell of the chamber reads as at home. `home`: the chamber is home to `adjacent_nest` (§8). `once`: one load until the next pick-up away from home. `post`: the load is handed down the open shaft from the mouth instead of walked down (`store_post_site`). `World::storeroom` for one world |
+| `PIXEL_PHYSICS_STOREROOM` | off | parts, comma-joined: `on`, a fed ant at home with an empty crop and empty mandibles, on a won `Feed` roll beside loose food more than a cell from its nest's founding chamber, takes the cell whole into its mandibles instead of swallowing it (`store_pickup_ok`); the load is pulled home to the chamber (`home_pull`, `home_target`, `HomeAligned` read as laden), goes down on a `DropSpoil` roll only in or beside the chamber (`store_drop`), is let go where it stands after 48 still decisions or when patience runs out, and its carrier is pulled back up to the mouth (`store_return_target`); a pick-up within a cell of the chamber reads as at home. `home`: the chamber is home to `adjacent_nest` (§8). `once`: one load until the next pick-up away from home. `post`: the load is handed down the open shaft from the mouth instead of walked down (`store_post_site`). `nestbound=<frames>[/<k>]` (bare: 8,000): an ant born in the colony, and with `/<k>` one founder in `k`, is nest-bound for its first `<frames>` (`OrganismState::nest_bound_until`, `is_nest_bound`): the forage drive reads 0 for it, fed it takes no away term and is pulled home when it strays (`home_pull`), and only it carries. `World::storeroom` for one world |
 | `PIXEL_PHYSICS_DIG_DOWN` | `1.0,enclosed` | `off` (or `0`): no turn, the ant before 2026-09-28; `<w>`: the turn with chance `w` for any digger; `<w>,enclosed`: only an enclosed one (§5 step 6) |
 | `PIXEL_PHYSICS_SPOIL_HAUL`, `_SPOIL_DROP_COVER`, `_TRAFFIC_DEFER`, `_COLONY_SPACING` | unset | haulage re-roll to the nest door, spoil held under cover, jam deferral length, founder spacing |
 

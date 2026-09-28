@@ -2054,6 +2054,15 @@ fn place_creature(
     // covers the founder arm and the birth arm alike -- and the birth arm's
     // charges land on the parent's colony, which is the child's, which is
     // why the two arms can share it.
+    // **Nest-bound from birth** ([`Storeroom::nest_bound`]): every ant born
+    // here, and one founder in `k`, only while the switch asks.
+    let rule = storeroom_of(world);
+    if rule.nest_bound > 0 && (matches!(origin, Origin::Bud { .. }) || (rule.nest_bound_founders > 0 && organism % rule.nest_bound_founders == 0)) {
+        let until = world.frame + u64::from(rule.nest_bound);
+        if let Some(st) = world.organism_mut(organism) {
+            st.nest_bound_until = until;
+        }
+    }
     let colony = world.colony_of(organism);
     let stamp = (def.body_energy * body_cells as f32) as f64;
     match origin {
@@ -2992,11 +3001,18 @@ pub struct Storeroom {
     /// open shaft into the chamber, the walk down abstracted as the spoil
     /// lift abstracts the walk up ([`store_post_site`]).
     pub post: bool,
+    /// `nestbound=<frames>[/<k>]`: an ant born in the colony stays home for
+    /// its first `<frames>` frames ([`is_nest_bound`]), and with `/<k>` so does
+    /// one founder in `k` from the start. Only a nest-bound ant carries. 0 is
+    /// off.
+    pub nest_bound: u32,
+    /// The `<k>` of `nestbound=<frames>/<k>`; 0 is no founder.
+    pub nest_bound_founders: u32,
 }
 
 impl Storeroom {
     /// No storeroom: the ant as shipped.
-    pub const OFF: Storeroom = Storeroom { carry: false, room_home: false, once: false, post: false };
+    pub const OFF: Storeroom = Storeroom { carry: false, room_home: false, once: false, post: false, nest_bound: 0, nest_bound_founders: 0 };
 
     /// Whether food is carried into the room under this rule.
     pub fn carries(self) -> bool {
@@ -3012,7 +3028,10 @@ impl Storeroom {
 /// The switch's own spelling: `off`, or its parts joined by commas.
 impl std::fmt::Display for Storeroom {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let parts: Vec<&str> = [(self.carry, "on"), (self.room_home, "home"), (self.once, "once"), (self.post, "post")].iter().filter(|(on, _)| *on).map(|&(_, name)| name).collect();
+        let mut parts: Vec<String> = [(self.carry, "on"), (self.room_home, "home"), (self.once, "once"), (self.post, "post")].iter().filter(|(on, _)| *on).map(|&(_, name)| name.to_string()).collect();
+        if self.nest_bound > 0 {
+            parts.push(if self.nest_bound_founders > 0 { format!("nestbound={}/{}", self.nest_bound, self.nest_bound_founders) } else { format!("nestbound={}", self.nest_bound) });
+        }
         if parts.is_empty() {
             write!(f, "off")
         } else {
@@ -3082,13 +3101,45 @@ fn parse_storeroom(raw: &str) -> Storeroom {
             "home" => out.room_home = true,
             "once" => out.once = true,
             "post" => out.post = true,
+            "nestbound" => out.nest_bound = NEST_BOUND_FRAMES,
+            other if other.starts_with("nestbound=") => {
+                let v = &other["nestbound=".len()..];
+                let (frames, founders) = v.split_once('/').map_or((v, None), |(f, k)| (f, Some(k)));
+                match (frames.parse::<u32>(), founders.map(str::parse::<u32>).transpose()) {
+                    (Ok(f), Ok(k)) if f > 0 => {
+                        out.nest_bound = f;
+                        out.nest_bound_founders = k.unwrap_or(0);
+                    }
+                    _ => {
+                        eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: bad {other:?}, read as off (nestbound=<frames>[/<k>])");
+                        return Storeroom::OFF;
+                    }
+                }
+            }
             other => {
-                eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: unknown part {other:?}, read as off (off, or any of on, home, once, post)");
+                eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: unknown part {other:?}, read as off (off, or any of on, home, once, post, nestbound[=<frames>[/<k>]])");
                 return Storeroom::OFF;
             }
         }
     }
     out
+}
+
+/// **How long a young ant stays home**, in frames, under a bare
+/// `nestbound`: a fifth of the ant's `life_half_life` (40,000). Real workers
+/// spend the first part of their lives inside and forage later (age
+/// polyethism); this is the engine's first form of it, a stage by age, as a
+/// switch before it is anything a genome can carry.
+pub const NEST_BOUND_FRAMES: u32 = 8_000;
+
+/// **Nest-bound now** ([`Storeroom::nest_bound`]): stamped at birth, and on
+/// one founder in `k`, only while the switch asks. A nest-bound ant is not
+/// sent out by the forage drive ([`forage_drive_level`]); fed, it does not
+/// read the way out along a route and is pulled home when it strays
+/// ([`home_pull`]); hungry, it scouts for food as any ant does. Only it
+/// carries food into the storeroom.
+fn is_nest_bound(world: &World, state: &crate::sim::organism::OrganismState) -> bool {
+    state.nest_bound_until > world.frame
 }
 
 /// The founding chamber of the nest site nearest `(x, y)` that has one.
@@ -3281,7 +3332,8 @@ fn store_pickup_ok(world: &mut World, organism: OrganismId, def: &CreatureDef, (
     let Some(state) = world.organism(organism) else {
         return false;
     };
-    if state.spoil.is_some() || state.energy < def.start_energy || (storeroom_of(world).once && state.store_carried) {
+    let rule = storeroom_of(world);
+    if state.spoil.is_some() || state.energy < def.start_energy || (rule.once && state.store_carried) || (rule.nest_bound > 0 && !is_nest_bound(world, state)) {
         return false;
     }
     let Some(room) = storeroom_near(world, x, y) else {
@@ -3303,8 +3355,9 @@ fn store_pickup_ok(world: &mut World, organism: OrganismId, def: &CreatureDef, (
 /// `x_lo..=x_hi` by `y_lo..=y_hi`, at the first nest site that has a founding
 /// cut. `None` with no cut.
 /// The second four count the animals holding a store load, by where the
-/// head is, in the same four places.
-pub fn storeroom_census(world: &World, (x_lo, x_hi): (i32, i32), (y_lo, y_hi): (i32, i32)) -> Option<[u32; 8]> {
+/// head is, in the same four places; the ninth, the nest-bound animals alive
+/// ([`is_nest_bound`]).
+pub fn storeroom_census(world: &World, (x_lo, x_hi): (i32, i32), (y_lo, y_hi): (i32, i32)) -> Option<[u32; 9]> {
     let room = world.nest_sites.iter().find_map(|n| n.shaft)?;
     let place = |x: i32, y: i32| -> usize {
         if room.in_chamber(x, y) {
@@ -3317,7 +3370,7 @@ pub fn storeroom_census(world: &World, (x_lo, x_hi): (i32, i32), (y_lo, y_hi): (
             3
         }
     };
-    let mut n = [0u32; 8];
+    let mut n = [0u32; 9];
     for y in y_lo..=y_hi {
         for x in x_lo..=x_hi {
             let c = world.get(x, y);
@@ -3328,7 +3381,11 @@ pub fn storeroom_census(world: &World, (x_lo, x_hi): (i32, i32), (y_lo, y_hi): (
         }
     }
     for id in world.live_organism_ids() {
-        if let Some(st) = world.organism(id).filter(|st| is_store_load(world, st.spoil)) {
+        let Some(st) = world.organism(id) else { continue };
+        if is_nest_bound(world, st) {
+            n[8] += 1;
+        }
+        if is_store_load(world, st.spoil) {
             if let Some(&(hx, hy)) = st.chain.first() {
                 n[4 + place(hx, hy)] += 1;
             }
@@ -14251,6 +14308,11 @@ fn forage_drive_level(world: &World, state: &crate::sim::organism::OrganismState
     if !drive.on() || !state.foraged || (drive.fed && state.energy < def.start_energy) {
         return 0.0;
     }
+    // **A nest-bound ant is not sent out** ([`is_nest_bound`], the nest
+    // lane's storeroom switch); read only when that switch stamped it.
+    if is_nest_bound(world, state) {
+        return 0.0;
+    }
     match drive.need {
         ForageNeed::Off => 0.0,
         ForageNeed::Always => 1.0,
@@ -14527,6 +14589,17 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
     if let Some(target) = store_target(world, state).or_else(|| store_return_target(world, state)).filter(|_| def.home_bias > 0.0) {
         return Some((target, def.home_bias));
     }
+    // **A fed nest-bound ant that strays is pulled home** ([`is_nest_bound`]),
+    // as a laden ant is, to where it last stood beside the nest.
+    if def.home_bias > 0.0
+        && is_nest_bound(world, state)
+        && state.energy >= def.start_energy
+        && state.spoil.is_none()
+        && state.crop.is_none_or(|c| c.worth() <= 0.0)
+        && !nest_within_reach(world, organism, head.0, head.1, def)
+    {
+        return Some((home_target(world, state), def.home_bias));
+    }
     match spoil_haul().filter(|_| state.spoil.is_some()) {
         Some(w) => {
             let site = world.nearest_nest_site(head.0, head.1).and_then(|i| world.nest_sites.get(i))?;
@@ -14675,7 +14748,8 @@ fn chooser_step(
     // uses it. `None` for a laden ant, one hauling spoil, or one standing on
     // its target.
     let away_from = if mode == Chooser::TrailAway && pull.is_none() && !laden {
-        world.organism(organism).filter(|s| s.spoil.is_none()).map(|s| home_target(world, s))
+        // A fed nest-bound ant does not take the way out ([`is_nest_bound`]).
+        world.organism(organism).filter(|s| s.spoil.is_none() && !(is_nest_bound(world, s) && s.energy >= def.start_energy)).map(|s| home_target(world, s))
     } else {
         None
     };

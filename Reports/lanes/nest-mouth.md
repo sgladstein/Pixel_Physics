@@ -89,10 +89,13 @@ and since 2026-09-28 that is the shipped ant**
   alone now helps the bed a lot (starved 93 -> 15).
 
 **Next** (2026-09-28):
-1. **The storeroom (B).** Asked the owner whether to build ants that stay
-   home (young ants work inside before they forage), which would make the
-   carry cheap; it changes when an ant starts to forage, the foraging lane's
-   region. Pieces in their region land as switches they review.
+1. **The storeroom (B), with nest-bound ants** (owner: "you can try this",
+   report §8g). Young ants stay home for 8,000 frames and alone carry. They
+   cost little, but carry little (15-28 loads a run), and the room fills
+   only when it is home (-18% food against the door alone); not home, the
+   door over the mouth buries it in food. Put to the owner: a door beside
+   the mouth and more nest-bound ants. Their region's pieces are switches
+   the foraging lane reviews (poked 18:24).
 2. **Dig down's bed cost, traced** (report §16, packed lunch on). When food
    is wanted, 47% of the fed foragers at home are inside the nest with dig
    down, against 35%. From inside, 13-17% go out first, against 53-56% from
@@ -192,10 +195,7 @@ the reports each one names.
 - `34e07b86` (#508) — merged: dig down on for an enclosed digger, refused
   only where there is no way down. GitHub deleted the branch; restarted
   from `main` the same day, same name.
-- `117d8db6` — food in a chamber, a scratch prototype measured on the colony
-  bed (`nest-granary-2026-09-28.md`).
-- `f703472a` — `main` merged in: #509, packed lunch on. The colony bed's
-  baseline is now 4,574 taken / 93 starved / 151 born (`=off` on dig down:
-  5,377 / 64 / 185), reproduced exactly on this branch.
+- `f703472a` — `main` merged in (#509, packed lunch on). The bed baseline:
+  4,574 taken / 93 starved / 151 born, reproduced exactly here.
 - `828ce885` — the storeroom (B) as `PIXEL_PHYSICS_STOREROOM`, off; `off`
   is `main`'s bed line for line; the suite passes on it.

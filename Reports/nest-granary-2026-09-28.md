@@ -178,6 +178,14 @@ form the store's food is drawn two ways.
 | 137 | the door alone, against off | starved lower on at least 14 of 24; food taken higher on at least 16 | 21 and 20 | right |
 | 138 | door + `on,post,home`, against the door | room >= 3 cells at 12,000 on at least 14; born lower on at least 14; starved within ±15 | 14; 16; 41 against 15 | half |
 | 139 | `on,post,home` without the door, against off | food taken lower on at least 16 of 24 | 24 of 24 | right |
+| 140 | door + nest-bound young carry (`on,post,home,nestbound`), against the door | born within 20%; starved within +15; food taken within -10% | 125; 55; -25% | wrong |
+| 141 | same | room >= 3 cells at 12,000 on at least 10 of 24 | 15 of 24 | right |
+| 142 | young and 1 founder in 4, against young only | pick-ups at 12,000 at least twice, median | 4 against 0.5 | right |
+| 143 | door + the stage and the room as home, nothing carried | food taken lower on at least 14 of 24 | 23 of 24 | right |
+| 144 | door + the room as home alone | food taken lower on at least 14 of 24 | 20 of 24 | right |
+| 145 | door + the stage alone | food taken within ±5% | -6% | wrong, close |
+| 146 | door + nest-bound carry without the room as home | food taken within -10%; born within ±15% | -1%; -7% (but 0 loads delivered) | right |
+| 147 | door + nest-bound carry walked down, room home | delivered at least twice the handed-down 15.5 | 11.5 | wrong |
 
 ## 8. B, built: foragers drop at the door, ants at home carry it in
 
@@ -296,3 +304,48 @@ that would be young ants that do not forage for a while, and carry and dig.
 Then the carriers would not be the foragers or the breeders. It changes when
 an ant starts to forage, which is the foraging lane's region, so it is put to
 the owner and that lane first.
+
+### 8g. Nest-bound ants (the owner's "nest-bound ants carry it in")
+
+`nestbound=<frames>[/<k>]`: an ant born in the colony stays home for its first
+`<frames>` (8,000, a fifth of the ant's half-life), and with `/<k>` so does one
+founder in `k` from the start. A nest-bound ant is not sent out by the forage
+drive; fed, it does not take the way out along a route and is pulled home when
+it strays; hungry, it scouts for food as any ant does. Only it carries.
+
+The colony bed, 24 seeds, **the door on in every arm**: food taken, starved,
+born, food at the nest, the room at 12,000:
+
+| | taken | starved | born | at the nest | room >= 3 cells |
+|---|---:|---:|---:|---:|---:|
+| the door alone | 5,611 | 15 | 150 | 6,279 J | -- |
+| + the stage alone | 5,277 | 13 | 134 | 5,625 J | 1 of 24 |
+| + the room as home alone | 4,590 | 49 | 139 | 6,384 J | 15 of 24 |
+| + both, nothing carried | 4,173 | 58 | 120 | 5,790 J | 15 of 24 |
+| + nest-bound young carry, room home, handed down | 4,221 | 55 | 125 | 5,682 J | 15 of 24 |
+| + young and 1 founder in 4 carry, room home, handed down | 4,610 | 45 | 142 | 6,822 J | 17 of 24 |
+| + the same, walked down | 4,804 | 67 | 142 | 6,820 J | 16 of 24 |
+| + the same, handed down, room not home | 5,548 | 32 | 139 | 5,492 J | 3 of 24 |
+
+- **The stay-home stage costs little on its own**: food taken -6%,
+  starvation 13 against 15.
+- **The room fills because it is home, not because it is carried to.**
+  Made home, foragers who go in put food down there, as they do anywhere at
+  home: 3 or more cells on 15 of 24 seeds with nothing carried at all. That
+  is also what costs: food taken -18% against the door alone.
+- **Nest-bound ants carry little**: 15-28 loads a run. There are few of them
+  (2 to 6 at a time), and they reach food at the door only when it is not
+  already buried.
+- **Without the room as home the entrance is buried.** With the door over the
+  mouth, every delivery lands at the mouth; crumbs fall into the shaft and a
+  mound of food grows over it (seed 4, pictures). No load was delivered in 24
+  runs, median: the shaft was never open.
+- Against today's shipped ant (no door), the best storeroom form here, the
+  door with the room as home and nest-bound carriers, starves fewer (93 -> 45)
+  and takes as much food (4,574 -> 4,610), with 151 -> 142 born. Against the
+  door alone it costs 18% of the food taken.
+
+**What would let nest-bound ants do the work**: a mouth that food does not
+fall into (the door beside the mouth rather than over it), and more of them.
+Both are put to the owner.
+

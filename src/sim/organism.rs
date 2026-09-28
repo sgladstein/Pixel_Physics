@@ -6188,6 +6188,11 @@ pub struct OrganismState {
     /// from home** (`creature::storeroom_of`'s `once`): set by a store
     /// pick-up, cleared by a pick-up away from home.
     pub store_carried: bool,
+    /// **Nest-bound until this frame** (`creature::storeroom_of`'s
+    /// `nestbound`): a young ant stays home, is not sent out by the forage
+    /// drive, and is the one that carries food into the storeroom. 0, the
+    /// default, is never.
+    pub nest_bound_until: u64,
     /// **The crop holds only food taken at home** since it was last empty:
     /// a packed lunch rather than a load (`creature::carries_lunch`). Set by
     /// a pickup at home into an empty crop, cleared by any pickup away from
