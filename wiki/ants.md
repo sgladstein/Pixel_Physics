@@ -1,6 +1,21 @@
 # Ants
 
-*Current as of: 2026-09-27, when **hungry ants started going out to look for food.**
+*Current as of: 2026-09-27, when **foragers stopped resting while the colony
+went short, and stopped walking past the food.**
+A forager used to go out only when it was hungry itself. It brought a load
+home, ate its fill off the nest floor and sat at home until hunger sent it out
+again, so food never built up at the nest. Now an ant that has once picked up
+food out in the world keeps going back for more, hungry or fed. And a loaded forager used to
+lose its sense of the way home while it filled up at a heap, because climbing
+the heap counted as failing to get nearer home. Some walked off the far side
+of the heap and away. Now each mouthful restarts its sense of home and it turns for the nest.
+In a test colony with food 90 cells away, nearly half as much food again
+comes off the heap, 60% more stands at the nest, a fifth fewer foragers starve
+and nearly eight times as many young are born. At 140 cells a third more food comes
+off the heap and six times as many young are born, but as many ants starve as before:
+most die before any forager has found the food. In the lab box colonies eat a quarter more and grow faster, which brings on
+sooner the crash that follows a box eaten bare: three boxes in twelve died out,
+against none before, though as many crashed either way. Earlier that day, **hungry ants started going out to look for food.**
 An ant with nothing to carry and no trail under its feet used to have no reason
 to go anywhere, so a colony sat at home until someone stumbled on food, and
 most ants never left the nest area at all. Now a hungry ant heads out along the

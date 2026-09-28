@@ -5530,10 +5530,10 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // `Reports/how-the-ant-works.md` §6.
     let mut p_move = outputs[brain::BrainOutput::Move as usize].clamp(0.0, 1.0);
     // **A forager the colony needs paces out like a hungry one**
-    // (`forage_drive_from_env`, off unless set): the `Move` row reads
+    // (`forage_drive_from_env`, on unless `off`): the `Move` row reads
     // `Energy` as `1 - drive` for an empty forager walking `TrailAway`, the
-    // walk whose scouting the same drive aims. Checked in this order so an
-    // unset switch reads nothing past its own flag.
+    // walk whose scouting the same drive aims. Checked in this order so a
+    // switch set `off` reads nothing past its own flag.
     let drive_now = forage_drive_of(world);
     let mut drive_level = f32::NAN;
     // Empty on both sides of `act`: sensed empty (`CarryingFood` 0, so the
@@ -10778,8 +10778,17 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // `bites` mirrors `pickups` and never `eats` -- see
                 // `LifeCounters`. Its own lookup: the `organism_mut` above is
                 // inside the crop-update block and does not reach here.
+                let restart = carry_patience_of(world);
                 let first = if let Some(state) = world.organism_mut(organism) {
                     state.life.bites += 1;
+                    // **A carry is measured from the last cell loaded**
+                    // (`carry_patience_from_env`), as a new home target
+                    // restarts it in `chooser_step`.
+                    if restart {
+                        state.home_best = f32::INFINITY;
+                        state.home_away = 0;
+                        state.home_patience = 1.0;
+                    }
                     // **Food taken away from home makes a forager**
                     // (`forage_drive_level`). Written whatever the switch,
                     // and read by nothing unless it is on.
@@ -12967,8 +12976,16 @@ pub fn scout_of(world: &World) -> f32 {
 
 /// **A forager goes out when the colony needs food, not only when it does**
 /// -- the owner's question of 2026-09-27, *"food is not building up at the
-/// nest"*. `PIXEL_PHYSICS_FORAGE_DRIVE=hunger`, or `World::forage_drive` for
-/// one world (`forage_drive_of`). Off unless set.
+/// nest"*. `PIXEL_PHYSICS_FORAGE_DRIVE`, or `World::forage_drive` for one
+/// world (`forage_drive_of`). **On, as `always`, since 2026-09-27** -- the
+/// owner's ruling that a feature ships on unless it measures as a harm. On
+/// the colony bed (24 seeds, carry patience on in both arms) it took 57% more
+/// food off the pile at 90 cells and 48% more at 140, and births went 13 ->
+/// 77 and 5 -> 43. In the lab box, with both on, colonies ate a quarter more
+/// and 3 of 12 died out against none, every one after grazing its box bare
+/// -- crash timing, as many boxes crashed either way
+/// (`Reports/ant-scenes-2026-09-23.md` §22m).
+/// `PIXEL_PHYSICS_FORAGE_DRIVE=off` is the ant before it, bit for bit.
 ///
 /// **Why.** Everything that sends an empty ant out answers to its own
 /// belly: scouting's pull is `gain x (1 - energy / start_energy)` and the
@@ -13019,35 +13036,46 @@ pub fn scout_of(world: &World) -> f32 {
 /// early runs coincided with more founders starving at home: 125 -> 133 by
 /// frame 6,000 on `main`, 14 seeds worse and 8 better (p 0.29).
 ///
-/// Read once per process. Unset, nothing is read or written and no draw is
-/// taken, so the default is bit-exact.
+/// Read once per process. Unset (or empty) it is `always`; `off` reads and
+/// writes nothing and takes no draw, so it is the ant before the drive, bit
+/// for bit. An unknown value is reported and read as unset.
 pub fn forage_drive_from_env() -> ForageDrive {
     static V: std::sync::OnceLock<ForageDrive> = std::sync::OnceLock::new();
-    *V.get_or_init(|| {
-        let raw = std::env::var("PIXEL_PHYSICS_FORAGE_DRIVE").unwrap_or_default();
-        let mut parts = raw.split(',').map(str::trim);
-        let need = match parts.next() {
-            Some("hunger") => ForageNeed::Hunger,
-            Some("larder") => ForageNeed::Larder,
-            Some("always") => ForageNeed::Always,
-            _ => ForageNeed::Off,
-        };
-        let mods: Vec<&str> = parts.collect();
-        ForageDrive { need, pace: !mods.contains(&"nopace"), keep: mods.contains(&"keep"), fed: mods.contains(&"fed") }
-    })
+    *V.get_or_init(|| parse_forage_drive(&std::env::var("PIXEL_PHYSICS_FORAGE_DRIVE").unwrap_or_default()))
+}
+
+/// `PIXEL_PHYSICS_FORAGE_DRIVE`'s value read as a drive
+/// (`forage_drive_from_env`); an unset variable reads as `""`.
+fn parse_forage_drive(raw: &str) -> ForageDrive {
+    let mut parts = raw.split(',').map(str::trim);
+    let need = match parts.next() {
+        Some("off") => ForageNeed::Off,
+        Some("hunger") => ForageNeed::Hunger,
+        Some("larder") => ForageNeed::Larder,
+        Some("always" | "") | None => ForageNeed::Always,
+        Some(other) => {
+            eprintln!("PIXEL_PHYSICS_FORAGE_DRIVE={raw:?}: unknown need {other:?}, read as always (off, hunger, larder, always)");
+            ForageNeed::Always
+        }
+    };
+    let mods: Vec<&str> = parts.collect();
+    ForageDrive { need, pace: !mods.contains(&"nopace"), keep: mods.contains(&"keep"), fed: mods.contains(&"fed") }
 }
 
 /// **Whose need sends a forager out** (`forage_drive_from_env`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ForageNeed {
-    /// No drive: an ant goes out on its own hunger only. The default.
+    /// No drive: an ant goes out on its own hunger only. `off`; the default
+    /// until 2026-09-27.
     Off,
     /// The mean hunger of its nest's animals (`World::nest_need`).
     Hunger,
     /// How far the food standing at home falls short of one `start_energy`
     /// per animal of the nest (`World::nest_need`, `LARDER_GRANTS`).
     Larder,
-    /// Always 1: the control, a forager that never rests.
+    /// Always 1: a forager that never rests. Built as the control for the
+    /// two needs, it measured best of the three on the bed, and is the
+    /// default since 2026-09-27.
     Always,
 }
 
@@ -13065,13 +13093,61 @@ pub struct ForageDrive {
 }
 
 impl ForageDrive {
-    /// No drive: the shipped ant.
+    /// No drive: the ant before 2026-09-27, `PIXEL_PHYSICS_FORAGE_DRIVE=off`.
     pub const OFF: ForageDrive = ForageDrive { need: ForageNeed::Off, pace: true, keep: false, fed: false };
+
+    /// The shipped drive, what an unset switch reads: `always`, paced, with
+    /// no `,keep` and no `,fed`.
+    pub const SHIPPED: ForageDrive = ForageDrive { need: ForageNeed::Always, pace: true, keep: false, fed: false };
 
     /// Whether any drive is on.
     pub fn on(self) -> bool {
         self.need != ForageNeed::Off
     }
+}
+
+/// **`PIXEL_PHYSICS_CARRY_PATIENCE`: a carry's home memory starts again at
+/// every pickup** (`pickup`), not only at the first. `home_patience` relaxes
+/// the pull home on every step that gets no nearer home than the best of
+/// this carry (`chooser_step`), and a carry began at the first cell loaded.
+/// So every step spent loading more cells and climbing the pile's face
+/// counted against it: traced on the colony bed (90 cells, 24 seeds, both
+/// forage arms), laden decisions at patience 0 were 3% at home, 32% on the
+/// road, **74% at the pile and 99-100% past it**, and with no pull home a
+/// loaded forager walked off the far side, away from home -- 24-28% of the
+/// time ants spent away from the nest (`open-bugs-handoff.md` Z35). With
+/// `pickup`, each pickup resets `home_best`, `home_away` and
+/// `home_patience` as a new target does, so the carry is measured from the
+/// last cell loaded. **On since 2026-09-27** (owner: a feature ships on
+/// unless it measures as a harm): on the colony bed it cut the time laden
+/// ants spend past the pile by about two thirds. With the drive on (48
+/// seeds) it raised food standing at the nest at 90 cells and took about 5%
+/// less off the pile at 140, where no colony measure moved; the time saved
+/// is spent at home (`Reports/ant-scenes-2026-09-23.md` §22m). Read once
+/// per process; `off` is the ant before it, bit for bit. An unknown value
+/// is reported and read as unset.
+pub fn carry_patience_from_env() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_carry_patience(&std::env::var("PIXEL_PHYSICS_CARRY_PATIENCE").unwrap_or_default()))
+}
+
+/// `PIXEL_PHYSICS_CARRY_PATIENCE`'s value read as the rule
+/// (`carry_patience_from_env`); an unset variable reads as `""`.
+fn parse_carry_patience(raw: &str) -> bool {
+    match raw.trim() {
+        "off" => false,
+        "pickup" | "" => true,
+        other => {
+            eprintln!("PIXEL_PHYSICS_CARRY_PATIENCE={other:?}: unknown, read as pickup (off, pickup)");
+            true
+        }
+    }
+}
+
+/// This world's carry-patience rule: `World::carry_patience` if set, else
+/// the environment's.
+pub fn carry_patience_of(world: &World) -> bool {
+    world.carry_patience.unwrap_or_else(carry_patience_from_env)
 }
 
 /// This world's forage drive: `World::forage_drive` if set, else the
@@ -25418,6 +25494,90 @@ mod tests {
         let at_wall = |p: &[(i32, i32)]| p.iter().position(|c| c.0 >= 150).unwrap_or(usize::MAX);
         let paced = walk(always, true, 1.0);
         assert!(at_wall(&paced.path) < at_wall(&aimed.path), "the pace lifted nothing: paced reached the wall at frame {}, aimed alone at {}", at_wall(&paced.path), at_wall(&aimed.path));
+    }
+
+    /// **Under `PIXEL_PHYSICS_CARRY_PATIENCE=pickup` a carry's home memory
+    /// starts again at every pickup** (`carry_patience_of`, bug Z35). A
+    /// scene with fruit all round a forager 80 cells from home: it loads a
+    /// first cell, its patience is then run down to 0.2 with a best distance
+    /// it cannot beat, and it loads a second. With the rule its patience is
+    /// back at 1 after that pickup; without it, still at most 0.2 -- the
+    /// control that the scene shows the difference at all. **Watched red**
+    /// with the reset removed from the pickup (both arms read 0.2 or less).
+    #[test]
+    fn a_carry_is_measured_from_the_last_cell_loaded_under_carry_patience() {
+        let patience_after_second_pickup = |restart: bool| -> f32 {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            for x in 0..160 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            let fruit = w.materials.id_of("fruit").expect("fruit is compiled in");
+            for x in 96..105 {
+                for y in 36..41 {
+                    w.set(x, y, Cell::new(fruit, 0));
+                }
+            }
+            w.set(100, 40, Cell::new(material::EMPTY, 0));
+            w.set(99, 40, Cell::new(material::EMPTY, 0));
+            w.chooser = Some(Chooser::TrailAway);
+            w.carry_patience = Some(restart);
+            w.register_nest_site(20, 40, 4);
+            let ant = spawn(&mut w, "ant", 100, 40);
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.forage_anchor = (20, 40);
+            }
+            let pickups = |w: &World| w.creature_stats.pickups;
+            let mut frames = 0;
+            while pickups(&w) < 1 && frames < 3000 {
+                run(&mut w, 1);
+                frames += 1;
+            }
+            assert!(pickups(&w) >= 1, "the forager never loaded a first cell: the scene cannot show a carry");
+            run(&mut w, 1);
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.home_patience = 0.2;
+                st.home_best = 1.0;
+            }
+            let before = pickups(&w);
+            frames = 0;
+            while pickups(&w) == before && frames < 3000 {
+                run(&mut w, 1);
+                frames += 1;
+            }
+            assert!(pickups(&w) > before, "the forager never loaded a second cell: the scene cannot show a restart");
+            w.organism(ant).expect("live").home_patience
+        };
+        let with_rule = patience_after_second_pickup(true);
+        let without = patience_after_second_pickup(false);
+        assert!(without <= 0.2 + 1e-6, "without the rule the patience rose to {without}: the scene restarts the carry by itself");
+        assert!(with_rule > 0.9, "with the rule the patience after a pickup is {with_rule}, not back at 1");
+    }
+
+    /// **Both forage switches ship on** (owner, 2026-09-27: a feature is on
+    /// unless it measures as a harm). An unset variable reads as `""`: the
+    /// drive is `always`, paced, and carry patience restarts at every
+    /// pickup; `off` is the ant before either, and the modifiers still
+    /// parse. Tight assertions on pure functions, so not watched red; the
+    /// old parsers read `""` as off and fail the first line.
+    #[test]
+    fn the_forage_drive_and_carry_patience_ship_on_and_off_turns_them_off() {
+        assert_eq!(parse_forage_drive(""), ForageDrive::SHIPPED, "unset must be the shipped drive");
+        assert_eq!(ForageDrive::SHIPPED, ForageDrive { need: ForageNeed::Always, pace: true, keep: false, fed: false });
+        assert_eq!(parse_forage_drive("always"), ForageDrive::SHIPPED);
+        assert_eq!(parse_forage_drive("off"), ForageDrive::OFF, "off must be the ant before the drive");
+        assert!(!parse_forage_drive("off").on());
+        assert_eq!(parse_forage_drive("hunger,nopace,fed"), ForageDrive { need: ForageNeed::Hunger, pace: false, keep: false, fed: true });
+        assert_eq!(parse_forage_drive("larder, keep").need, ForageNeed::Larder);
+        assert!(parse_forage_drive("larder, keep").keep);
+        assert!(parse_carry_patience(""), "unset must restart patience at every pickup");
+        assert!(parse_carry_patience("pickup"));
+        assert!(!parse_carry_patience("off"), "off must be the old rule");
+        assert!(!parse_carry_patience(" off "));
     }
 
     /// **Under `,fed` only a fed forager is driven** (`forage_drive_level`).

@@ -2296,3 +2296,96 @@ only a forager at or above its `start_energy`. 90 cells, 24 seeds, from
   buy 37 fewer later; `,fed` gives up the eight and most of the 37.
 - **`always` stays the candidate.** `,fed` is recorded in `dead-ends.md`.
 
+### 22m. Shipped: the drive and carry patience, both on
+
+*Added 2026-09-27 night.* The owner's ruling the same evening: **a feature
+ships on unless it measures as a harm; neutral ships on.** Two switches were
+measured against it: the drive (`always`, §22d-§22l) and a fix for bug Z35,
+`PIXEL_PHYSICS_CARRY_PATIENCE=pickup`, which restarts a carry's home patience
+at every pickup rather than only at the first, so a forager is not counted as
+lost while it loads and climbs the pile (§22k). Both are now on by default;
+`=off` on either is the old ant, bit for bit.
+
+No prediction was written before the carry-patience runs, against this lane's
+rule.
+
+**What the fix targets, and it moved.** Time loaded ants spend past the
+pile's far edge, per cell taken from the pile, median over seeds:
+
+| food at | today | carry patience | the drive | both |
+|---|---:|---:|---:|---:|
+| 90 cells | 184 | **65** (22/2) | 148 | **79** (21/3) |
+| 140 cells | 107 | **42** (19/5) | 108 | **46** (20/4) |
+
+As a share of all ant time, 5.3% → 1.8% at 90 without the drive and 6.4% →
+3.1% with it.
+
+**Where the saved time went: home, not more trips.** Ant time by zone
+(empty / holding food, % of all ant-frames, 24 seeds at 90 cells):
+
+| arm | home | road | pile | past the pile |
+|---|---:|---:|---:|---:|
+| today | 43.6 / 25.8 | 7.5 / 5.7 | 0.4 / 5.1 | 1.7 / 5.3 |
+| carry patience | 46.7 / 29.0 | 8.3 / 5.0 | 0.4 / 3.3 | 1.0 / 1.8 |
+| the drive | 33.4 / 34.5 | 5.5 / 7.1 | 0.4 / 7.1 | 1.1 / 6.4 |
+| both | 36.0 / 37.7 | 5.8 / 6.9 | 0.4 / 5.0 | 0.7 / 3.1 |
+
+A forager that stops wandering gets home sooner and less hungry, and what
+sends it out again is still mostly hunger, so it waits longer. Loads leaving
+the pile are the same size (0.62 against 0.64 of a crop at 90; 13/11), so it
+is not leaving half-loaded. What falls is the number of trips.
+
+**The colony, with the drive on, 48 seeds** (seeds 1-24 with traces, 25-48
+added to check the first half), paired by seed:
+
+| food at | arm | food taken from the pile | starved | by frame 6,000 | born | food standing at the nest |
+|---|---|---:|---:|---:|---:|---:|
+| 90 | the drive | 6,634 | 346 | 259 | 134 | 6,537 J |
+| 90 | both | 6,537 (21 more / 26 less) | **313** (15 more / 26 fewer) | 255 (19 / 21) | 146 (21 / 15) | **6,958 J** (30 / 18) |
+| 140 | the drive | 5,717 | 407 | 352 | 89 | 6,352 J |
+| 140 | both | **5,402** (17 more / 31 less, p 0.06) | 418 (21 / 20) | 359 (16 / 13) | 79 (13 / 19) | 6,324 J (22 / 26) |
+
+Food standing at the nest is the mean of `FOOD STORE`'s samples from frame
+6,000 to 24,000, median over seeds. Each pair counts the seeds where the
+second arm is higher, then lower. **At 90 the fix brings home more while
+taking a little less**: less of each load is eaten on the wander. **At 140 it
+takes about 5% less off the pile** and nothing the colony lives on moves:
+food at the nest, starvation and births are within the spread. The first 24
+seeds suggested more early deaths at 140 (10 seeds more, 3 fewer); the next
+24 went the other way (6 more, 10 fewer), so that was noise. Without the drive (24 seeds):
+at 90, food at the nest 4,300 → 5,136 J (15/9) and energy in ant bodies
+3,245 → 4,340 J (18/6, p 0.02); at 140, flat.
+
+**Lab box, 12 seeds, both on against today:** food eaten 1.15M → 1.45M J
+(8/4), ant-frames lived 9.6M → 12.3M (8/4), born 530 → 594 (6/6), alive at
+the end 80 → 62 (5/7). **Three of 12 boxes died out, against none**, and it
+reads as crash timing, as §22h found for the drive alone: every crash in
+either arm follows the box grazed below 100 edible cells, and as many boxes
+fell under 10 ants in each (4 and 4). Seeds 1 and 5 crashed in today's game
+too, at the same frame, to 2 ants; with both on the last 2 died. Seed 10
+boomed earlier with both on (277 ants at frame 97,000 against 147 at 113,000)
+and grazed its box out; today's crashes on seeds 2 and 8 did not happen.
+Carry patience alone is flat: food eaten 1.11M J (6/6), born 516 (4/8),
+ant-frames 6/6, none died out, 1 box under 10 at the end against 4.
+
+**Against today, both on** (24 seeds): at 90, loops per forager 1.46 → 2.12
+(24/0), food taken 2,241 → 3,265 (23/1), starved 201 → 158 (17 fewer, 3
+more), born 10 → 77, food standing at the nest 4,300 → 6,881 J (23/1). At
+140: loops per forager 1.57 → 1.91 (22/2), food taken 2,005 → 2,720 (22/2),
+born 7 → 43, food at the nest 4,138 → 6,880 J (20/4), starved 209 → 214
+(8 fewer, 11 more; the early cull, which neither switch reaches).
+
+**Frame cost** (`ascii scene=foraging`, one binary, off and on alternated
+three times): mean frame 1.251 → 1.293 ms at the median, slower in 2 of 3
+pairs, inside the spread of one arm's own runs (1.22-1.31 ms). The worst
+frame is an order statistic over 12,000 frames there and says nothing. The
+scene's forage trips went 56 → 91.
+
+**Still open.** A third of all ant time is now spent at home holding food
+(37.7% at 90). The drive cannot reach those ants, because it acts on an empty
+crop; `,keep` tried to stop them re-taking the store and made them stand in it
+(§22e). Why a loaded forager holds its crop at home instead of putting it down
+is the next question for the loop.
+
+Data: `Reports/data/forage-carry-2026-09-27.txt.gz` (the bed logs, both
+distances, all four arms and the extra seeds, and the lab logs).
