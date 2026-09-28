@@ -435,7 +435,7 @@ before the flip:
 
 ## 10. The creep, sized before building a fresh heap
 
-§12 proposed a fresh heap as the next lever: pellets carry no age, so a heap
+§13 proposed a fresh heap as the next lever: pellets carry no age, so a heap
 of any age licenses an opening. `digbox`'s funnel already dates every pellet
 it sees put down, so the lever's reach could be read before building it. In
 the window where the creep happens, frames 12,000 to 24,000, over 12 seeds:
@@ -494,7 +494,53 @@ candidate left is the one that goes at the mechanism the bed shows: the
 turn down only for an ant the ground already encloses, so an ant on the
 surface at home never starts a new hole downward and stays a forager.
 
-## 12. What is next
+## 12. Dig down only for an enclosed ant: the nest the lane was after, at a price
+
+`PIXEL_PHYSICS_DIG_DOWN=1.0,enclosed` takes the turn down only when the
+digger's curvature is at or below -0.3, the heap cue's own enclosure test,
+so an ant on the surface at home never starts a new hole downward. Built
+because the hunger gate (§11) showed fed ants at home turning down too. One
+binary on the final code; the plain `1.0` spelling on it reproduces the
+earlier dig-down runs exactly, on 24 of 24 bed seeds and 12 of 12 dig box
+seeds.
+
+**The dig box** (40 ants, 12 seeds):
+
+| | shipped | + dig down | + dig down, enclosed only |
+|---|---:|---:|---:|
+| openings, frame 12,000 | 4 | 2.5 | **2** |
+| openings, frame 24,000 | 6 | 5 | **3** |
+| roofed share, frame 24,000 | 0.91 | 0.85 | **0.95** |
+| middle-half width, frame 24,000 | 21.5 | 17 | **8.5** |
+| largest connected piece, frame 24,000 | 0.34 | 0.42 | **0.63** |
+| more nest-like than random walkers (≥ 0.9), frame 24,000 | 6 of 12 | 6 of 12 | **12 of 12** |
+| cells dug, frame 24,000 | 73 | 88 | 56 |
+
+**It stops the creep.** The pictures (seeds 3 and 8, three stops, sent to
+the owner) show why. Shipped, seed 8 runs a shallow gallery sideways under
+the surface for about 40 columns, spoil heaped along the top, 12 holes by
+frame 24,000. With the enclosed turn the same seed keeps one entrance over
+one compact shaft-and-chamber for the whole run. It digs less there -- 24
+cells against 122 -- because only ants already in the shaft dig; over all
+12 seeds, 56 against 73.
+
+**The colony bed pays for it** (24 seeds, gap 90):
+
+| | starved | food taken from the pile | born | reached the food |
+|---|---:|---:|---:|---:|
+| shipped | 83 | 3,744 | 59 | 369 |
+| + dig down | 295 | 1,870 | 25 | 216 |
+| + dig down, enclosed only | 134 | 2,953 | 22 | 360 |
+
+Against the shipped ant: starved higher on 17 of 24, food taken lower on 22,
+births lower on 19. Against dig down everywhere: starved lower on 21, food
+higher on 22. With the founding shaft, home is partly inside the ground, so
+an ant at home in the shaft is enclosed and still turns down.
+
+**The lab** (`labforage`, 12 seeds) is running as this is first committed;
+its pairs follow in the next commit.
+
+## 13. What is next
 
 1. **The mouth in the lab** (§7). It is buried by what the colony brings
    home and by the planting growing over the nest ground, not by digging.
@@ -520,7 +566,7 @@ surface at home never starts a new hole downward and stays a forager.
 The creep is closed for now: a fresh heap would refuse at most a third to
 under a half of it (§10).
 
-## 13. Predictions, written before each batch
+## 14. Predictions, written before each batch
 
 | # | arm | prediction | result | right? |
 |---|---|---|---|---|
@@ -563,3 +609,6 @@ under a half of it (§10).
 | 91 | bed, + gate 2 | starved ≤ 133 | 220 | wrong |
 | 92 | bed, + gate 4 | starved within ±25 of 83; food within 10% of 3,744 | 140; -27% | wrong |
 | 93 | bed, gate 2 without dig down | starved within ±25 of 83 | 69 | right |
+| 94 | bed, dig down enclosed only | starved ≤ 113; food within 10% of 3,744 | 134; -21% | wrong |
+| 95 | dig box, enclosed, frame 12,000 | openings ≤ 3; ≥ 11 of 12 seeds nest-like | 2; 12 of 12 | right |
+| 96 | dig box, enclosed, frame 24,000 | openings ≤ 5 | 3 | right |
