@@ -13608,7 +13608,14 @@ pub fn carry_patience_of(world: &World) -> bool {
 }
 
 /// **`PIXEL_PHYSICS_PACKED_LUNCH`: a forager whose crop holds only food it
-/// took at home is driven out like an empty one** (`on`; off unless set).
+/// took at home is driven out like an empty one**. **On since
+/// 2026-09-28** (the owner's rule: a feature ships on unless it measures as
+/// a harm); `off` is the ant before it, bit for bit. Measured on `main`
+/// after #507, one binary, 24 seeds each (`Reports/ant-scenes-2026-09-23.md`
+/// §22o): colony bed at 90 cells, food taken from the pile 3,744 -> 5,377
+/// (higher on 24 of 24), births 59 -> 185, food standing at the nest
+/// 7,160 -> 8,591 J (18/6); at 140 cells 3,797 -> 4,859 (23/0), births
+/// 55 -> 115; in the lab box neutral (food eaten 13/11, ant-time 14/10).
 ///
 /// **Why.** At the nest store the crop is a spoon: an ant beside floor food
 /// swallows a cell whatever its hunger, eats from it while it holds it and
@@ -13630,8 +13637,8 @@ pub fn carry_patience_of(world: &World) -> bool {
 /// so it does not put the lunch down on the way. Beside food its crop
 /// cannot swallow it finishes the lunch that tick (`OrganismState::
 /// eat_lunch_now`, digestion completing the cell), so it can load. Read
-/// once per process;
-/// unset, nothing is read or written and no draw is taken.
+/// once per process; with `off`, nothing is read or written and no draw is
+/// taken.
 pub fn packed_lunch_from_env() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| parse_packed_lunch(&std::env::var("PIXEL_PHYSICS_PACKED_LUNCH").unwrap_or_default()))
@@ -13641,11 +13648,11 @@ pub fn packed_lunch_from_env() -> bool {
 /// (`packed_lunch_from_env`); an unset variable reads as `""`.
 fn parse_packed_lunch(raw: &str) -> bool {
     match raw.trim() {
-        "on" => true,
-        "off" | "" => false,
+        "on" | "" => true,
+        "off" => false,
         other => {
-            eprintln!("PIXEL_PHYSICS_PACKED_LUNCH={other:?}: unknown, read as off (off, on)");
-            false
+            eprintln!("PIXEL_PHYSICS_PACKED_LUNCH={other:?}: unknown, read as on (off, on)");
+            true
         }
     }
 }
@@ -26225,11 +26232,11 @@ mod tests {
         assert!(with_rule > 0.9, "with the rule the patience after a pickup is {with_rule}, not back at 1");
     }
 
-    /// **Both forage switches ship on** (owner, 2026-09-27: a feature is on
+    /// **The forage switches ship on** (owner, 2026-09-27: a feature is on
     /// unless it measures as a harm). An unset variable reads as `""`: the
-    /// drive is `always`, paced, and carry patience restarts at every
-    /// pickup; `off` is the ant before either, and the modifiers still
-    /// parse. Tight assertions on pure functions, so not watched red; the
+    /// drive is `always`, paced, carry patience restarts at every pickup, and
+    /// (since 2026-09-28) packed lunch is on; `off` is the ant before each,
+    /// and the modifiers still parse. Tight assertions on pure functions, so not watched red; the
     /// old parsers read `""` as off and fail the first line.
     #[test]
     fn the_forage_drive_and_carry_patience_ship_on_and_off_turns_them_off() {
@@ -26245,7 +26252,7 @@ mod tests {
         assert!(parse_carry_patience("pickup"));
         assert!(!parse_carry_patience("off"), "off must be the old rule");
         assert!(!parse_carry_patience(" off "));
-        assert!(!parse_packed_lunch(""), "packed lunch is off until measured");
+        assert!(parse_packed_lunch(""), "unset must be packed lunch on");
         assert!(parse_packed_lunch("on") && !parse_packed_lunch("off"));
     }
 

@@ -2457,9 +2457,53 @@ skeptics (4 claims confirmed, 30 qualified, 1 refuted), one synthesis.
 - **Refuted:** that sated ants hold because `drop_urge` 0.521 is below `feed_urge` 0.545 -- at the
   store, sated ants empty faster, not slower (22/24).
 
-**Open: does the eating delay the next trip?** If a fed forager's time at the store is filler, leave
-it (the colony is eating and breeding from it). If it delays the next trip, "packed lunch" -- let
-the drive see through a crop filled at home, so the forager goes back out still eating -- could
-convert up to ~22% of ant time into trips. A visit-level trace is running; this section will carry
-the answer. The workflow's synthesis, with levers and the dead ends each touches, is
+**Does the eating delay the next trip? Yes -- answered by intervention, §22o.** A second
+trace-verify workflow (3 tracers and their skeptics; cut short by a session limit) could not tell from 24 seeds of observations: the
+drive is felt by every empty ant and by no laden one, so crop state and drive are confounded, and
+being beside food holds an ant as firmly as holding it. So "packed lunch" was built and measured. The workflow's synthesis, with levers and the dead ends each touches, is
 `Reports/data/home-holding-2026-09-28.md`.
+
+### 22o. Packed lunch: a fed forager takes the store out with it, and the colony triples its births
+
+*Added 2026-09-28.* `PIXEL_PHYSICS_PACKED_LUNCH` (`creature::carries_lunch`): a forager whose crop
+holds only food it took at home is treated as empty by the forage drive's gate, `home_pull` and
+`chooser_step`, so a fed forager holding store food goes back out and eats it on the road. All
+runs on `main` after #507, one binary per comparison, 24 seeds each, paired by seed. Predictions
+were written in the lane note before the first run.
+
+**Three forms, the third shipped.** The first form had no rule at the food, and its carriers could
+not load there: a crop holds one material, the store is crumbs and the pile is fruit, so beside the
+pile a lunch carrier picked up on 0.6% of its decisions against 55% for an empty forager, and lunch
+carriers spent 636,000 ant-frames at or past the pile (traced, before #507). The second set the lunch
+down beside food it could not swallow; that exported the store and measured worse than the first in
+both games (a dead end, `dead-ends.md`). The third finishes the lunch on the spot: `act` sets
+`OrganismState::eat_lunch_now` and that tick's digestion completes the cell, booked as any meal.
+
+| colony bed, 90 cells | off | no rule | set down | **finish (shipped)** |
+|---|---:|---:|---:|---:|
+| food taken from the pile | 3,744 | 4,790 | 4,357 | **5,377** (24/0 vs off) |
+| food eaten | 2,985 | 3,728 | 3,480 | **4,288** (23/1) |
+| food standing at the nest | 7,160 J | 8,173 J | 6,935 J | **8,591 J** (18/6) |
+| energy in ant bodies | 6,792 J | 7,210 J | 7,456 J | **9,168 J** (22/2) |
+| starved of 480 | 83 | 73 | 75 | **64** (12 fewer / 8 more) |
+| born | 59 | 114 | 109 | **185** (23/1) |
+
+- **140 cells**, off -> finish: food taken 3,797 -> 4,859 (23/0), born 55 -> 115 (19/3), food at the
+  nest 6,762 -> 7,827 J (17/7), starved 79 -> 79.
+- **The target, traced at 90 cells:** entries into the pile 1,326 -> 1,851 (23/1); store food held
+  away from home 5.4% -> 11.8% of ant time. The time at the store was a delay: given the drive, the
+  forager goes. **Wrong prediction:** home-holding did not fall to 25-30%; it rose, 35.7% -> 39.3%
+  (22/2), as it rose under the drive -- a richer colony has more of its floor beside food to sip.
+  Home time empty-handed fell, 32.8% -> 27.1%.
+- **Lab box** (clean environment), off -> finish: food eaten 1.17M -> 1.15M J (13/11), born 515 -> 482
+  (13/11), alive at the end 48 -> 55 (11/13), ant-time 9.8M -> 10.9M (14/10): neutral. Died out 1 -> 3,
+  each after grazing its box to 21 edible cells or fewer (crash timing). The no-rule form did better
+  in the lab (alive at the end, finish lower on 16 of 24, p 0.05) and worse on the bed; seeds 7 and 20
+  fall under 10 ants with food standing in every lunch form, untraced.
+- **A lab run that looked like a disaster was an environment leak**: a script exported the bed's
+  `COLONY_SPACING`, `STACK_DEPTH` and `BUD_SITE` and the lab runs after it inherited them, founding 52
+  where the lab places 41; every box died by frame 35,000. `labforage` now echoes all three.
+
+Shipped on by the owner's rule (gain on the bed at both distances, neutral in the lab); `=off` is
+the ant before it, bit for bit (8 seeds, 261 of 261 lines). Data:
+`Reports/data/forage-lunch-2026-09-28.txt.gz`.

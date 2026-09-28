@@ -57,7 +57,10 @@ will be.
   `dig_founding_shaft`, `cut_founding_shaft`, `founding_dig_force`,
   `parse_spoil_cue`, `SPOIL_CUE_SHIPPED`, `spoil_cue_of`). §9 on 2026-09-28
   for eating at the nest store (`act`'s feed branch and drop roll, the drive
-  gate in `creature_tick`, `DropWhy::NotAsked`).
+  gate in `creature_tick`, `DropWhy::NotAsked`). §6d, §9 and §12 again that day for
+  packed lunch shipped on (`carries_lunch`, `packed_lunch_of`,
+  `OrganismState::lunch` and `eat_lunch_now`, the drive gate, `home_pull`,
+  `chooser_step`'s `laden`, the drop block and digestion's `progressed`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -500,7 +503,16 @@ pull. Two forms:
 **`PIXEL_PHYSICS_FORAGE_DRIVE` (`always` since 2026-09-27; `off` is the ant
 before it) sends a fed forager out when the colony needs food.** It reaches an animal that has foraged (`OrganismState::foraged`,
 set by any pickup away from its nest), is empty (sensed empty and still empty
-after `act`), carries no spoil and walks `trailaway`. That animal feels
+after `act`) **or carries a packed lunch**, carries no spoil and walks
+`trailaway`. A packed lunch (`carries_lunch`, `PIXEL_PHYSICS_PACKED_LUNCH`,
+on since 2026-09-28) is a crop filled only at home since it was last empty
+(`OrganismState::lunch`, set by a pickup at home into an empty crop, cleared
+by any pickup away from home): its carrier also has no pull home
+(`home_pull`) and scouts and reads the trail as an empty ant (`chooser_step`'s
+`laden`), and eats the lunch on the road. Its `Drop` still reads `AtNest`, so
+it does not put the lunch down on the way; beside food its crop cannot
+swallow (a crop holds one material), it finishes the lunch that tick
+(`eat_lunch_now`: digestion completes the cell in progress) so it can load. That animal feels
 `drive` (`forage_drive_level`) in two places and nowhere else:
 - scouting's pull uses `gain × max(hunger, drive)` in place of
   `gain × hunger`, so a fed forager runs out and back like a hungry scout;
@@ -626,11 +638,13 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   is 0 / 0.001 / 0.19 / 0.33 at E 0.25 / 0.5 / 0.75 / 1 beside food, and
   `drop_urge` itself (0 / 0.003 / 0.31 / 0.47) away from it. Emptied beside
   food it usually swallows again before it steps. A fed ant beside food does
-  not step: its `Move` sum is below 0 (`FoodAdjacent` -1.16). The forage
-  drive cannot reach it, because the drive's gate reads the crop after `act`
-  and a swallow fills it that tick. Nothing is lost -- the put-back returns
-  what is left -- and this is where most of the colony's eating and budding
-  happens (measured in `Reports/ant-scenes-2026-09-23.md` §22n).
+  not step on its own: its `Move` sum is below 0 (`FoodAdjacent` -1.16).
+  But a crop of store food is a packed lunch (§6d), so a foraged ant holding
+  one feels the forage drive and goes back out, eating as it walks (the drive
+  reads the crop after `act`, and without packed lunch a swallow put the ant
+  out of its reach that tick). Nothing is lost -- the put-back returns what
+  is left -- and this is where most of the colony's eating and budding
+  happens (measured in `Reports/ant-scenes-2026-09-23.md` §22n, §22o).
 - **A part-eaten piece of plant food goes down as `crumbs`.** The drop hands
   over the worth left (`unit - digesting`). A whole cell goes down as its
   own material. A part-eaten one (plant food, `food_class` below 0) goes
@@ -735,6 +749,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_SCOUT` | 2 | `<gain>`: under `trailaway`, a hungry empty ant off a route runs out from home and back (§6d); `0` turns it off; `World::scout` for one world |
 | `PIXEL_PHYSICS_HUNGRY_HOME` | off | `on`/`refed` or `tether`: an empty ant too hungry to be out is pulled home to its nest's larder (§6d, §8); `World::hungry_home` for one world |
 | `PIXEL_PHYSICS_FORAGE_DRIVE` | `always` | `off`, `hunger`, `larder` or `always`, then optionally `,nopace`, `,keep` and `,fed` (only foragers at or above `start_energy`): a fed forager goes out when its nest needs food (§6d), and with `,keep` leaves the store at home (§5); `World::forage_drive` for one world |
+| `PIXEL_PHYSICS_PACKED_LUNCH` | on | `off`: a crop filled only at home counts as a load, so the forage drive does not reach its carrier (§6d); `World::packed_lunch` for one world |
 | `PIXEL_PHYSICS_CARRY_PATIENCE` | `pickup` | `off`: a carry's home patience restarts only at the first pickup, not at every one (§6d step 5, bug Z35); `World::carry_patience` for one world |
 | `PIXEL_PHYSICS_LOAD_SCALE` | 1.0 | `<f>`: every food load weighs `f` times as much again, on top of the species' `food_weight` (§9) |
 | `PIXEL_PHYSICS_SPOIL_HAUL`, `_DIG_DOWN`, `_SPOIL_DROP_COVER`, `_TRAFFIC_DEFER`, `_COLONY_SPACING` | unset | haulage re-roll to the nest door, downward dig bias, spoil held under cover, jam deferral length, founder spacing |

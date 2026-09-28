@@ -3507,8 +3507,8 @@ pub struct World {
     /// **Whether a forager whose crop holds only food taken at home is
     /// driven out like an empty one, overriding `PIXEL_PHYSICS_PACKED_LUNCH`
     /// for this world** (`creature::packed_lunch_of`). `None` follows the
-    /// environment, which is off unless set; a field for the reason `chooser`
-    /// is one.
+    /// environment, which is on unless set `off`; a field for the reason
+    /// `chooser` is one.
     pub packed_lunch: Option<bool>,
     /// **Which material stopped a creature**, counted per blocked tick and
     /// indexed by `MaterialId` — the breakdown `CreatureStats::
