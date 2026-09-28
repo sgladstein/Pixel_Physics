@@ -2003,6 +2003,10 @@ pub struct CreatureStats {
     /// (`creature::haul_bite_from_env`): a won `Feed` roll beside food by an
     /// animal hauling spoil. 0 unless `PIXEL_PHYSICS_HAUL_BITE` is set.
     pub haul_bites_refused: u64,
+    /// **Foragers home with food from a trip** (`OrganismState::trip_load`):
+    /// one per trip, at its first put-down at home. What the forage drive's
+    /// `returns` need reads, counted whatever the need.
+    pub forage_returns: u64,
     /// **Not a trip counter, and not a sessility guard — read
     /// `forage_trips` for either.** It increments on any move made while
     /// nest-adjacent, guarded on `OrganismState::since_nest > 0`; but
@@ -3858,6 +3862,11 @@ pub struct World {
     /// and order as `nest_sites`, and empty unless the forage drive reads
     /// it, so an arm that does not use it pays nothing.
     pub nest_need: Vec<f32>,
+    /// **The frame each nest last saw a forager come home with food from a
+    /// trip** (`OrganismState::trip_load`), indexed like `nest_sites`, grown
+    /// on write; 0 is never. Read by the forage drive's `returns` need
+    /// (`creature::forage_drive_level`) and by nothing else.
+    pub nest_last_return: Vec<u64>,
     /// **Whether an ant at the nest reads room rather than density.**
     ///
     /// On by default (owner: *ship new behaviours on by default*).
@@ -5981,6 +5990,7 @@ impl World {
             nest_sites: Vec::new(),
             nest_room: Vec::new(),
             nest_need: Vec::new(),
+            nest_last_return: Vec::new(),
             room_gate: creature::room_gate_default(),
             room_target: creature::room_target_default(),
             room_datum: Vec::new(),
@@ -6973,6 +6983,7 @@ impl World {
             store_carried: false,
             nest_bound_until: 0,
             lunch: false,
+            trip_load: false,
             eat_lunch_now: false,
             hungry_home: false,
             // Zero is "no memory yet"; the first tick's read sees `live - 0`,
@@ -7816,6 +7827,17 @@ impl World {
     /// comparison a frame.
     pub fn step_nest_need(&mut self) {
         let need = crate::sim::creature::forage_drive_of(self).need;
+        // **`returns`: a nest the drive has not seen starts its clock now**,
+        // as though food had just come home, so a founding colony forages
+        // (`creature::ForageNeed::Returns`). It keeps no census.
+        if need == crate::sim::creature::ForageNeed::Returns {
+            if self.nest_last_return.len() < self.nest_sites.len() {
+                let now = self.frame.max(1);
+                self.nest_last_return.resize(self.nest_sites.len(), now);
+            }
+            self.nest_need.clear();
+            return;
+        }
         if !matches!(need, crate::sim::creature::ForageNeed::Hunger | crate::sim::creature::ForageNeed::Larder) || self.nest_sites.is_empty() {
             self.nest_need.clear();
             return;

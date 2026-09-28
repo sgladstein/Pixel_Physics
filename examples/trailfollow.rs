@@ -4651,12 +4651,13 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             pixel_physics::sim::organism::DEATH_CAUSE_LIST.iter().zip(d).filter(|(_, n)| **n > 0).map(|(c, n)| format!("{} {n}", c.label())).collect::<Vec<_>>().join(", ")
         };
         println!(
-            "    BIRTHS {} | buds held for the nest {} (PIXEL_PHYSICS_BUD_SITE={}) | parents overdrawn by a birth {} | mouthfuls refused for a pellet held {}",
+            "    BIRTHS {} | buds held for the nest {} (PIXEL_PHYSICS_BUD_SITE={}) | parents overdrawn by a birth {} | mouthfuls refused for a pellet held {} | foragers home with food from a trip {}",
             w.creature_stats.births,
             w.creature_stats.buds_held_for_nest,
             if creature::bud_at_nest(&w) { "nest" } else { "anywhere" },
             w.creature_stats.births_overdrawn,
-            w.creature_stats.haul_bites_refused
+            w.creature_stats.haul_bites_refused,
+            w.creature_stats.forage_returns
         );
         // **Trophallaxis, the pair `CLAUDE.md` asks for**: `shares` fired,
         // `shared_j` moved. Added 2026-09-24 when breaking the carriers'

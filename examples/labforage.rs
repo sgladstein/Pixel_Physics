@@ -2691,8 +2691,8 @@ fn main() {
     // `SUMMARY` keys an identity check compares are the same with it unset
     // (`creature::forage_drive_from_env`).
     println!(
-        "FORAGE seed={} scouted={} paced={} kept={}",
-        spec.seed, st.forage_scouted, st.forage_paced, st.forage_kept
+        "FORAGE seed={} scouted={} paced={} kept={} returns={}",
+        spec.seed, st.forage_scouted, st.forage_paced, st.forage_kept, st.forage_returns
     );
     // **What the move drive itself was**, over every creature decision tick
     // of the run -- the probe §Z13 named and left for whoever owns

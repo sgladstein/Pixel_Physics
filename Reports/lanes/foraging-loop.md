@@ -106,18 +106,24 @@ itself, so numbers from before it are a different tree.
    or buried crumbs), and store lunch doubles it (§22r). Harvesters stop when
    returning foragers stop bringing food (Gordon 2002, *Am Nat* 159:509):
    read that, not a clock. Blocks `STORE_LUNCH`.
-2. **Early deaths.** Before #507, at 140 cells, 171–177 of ~207 starved never
-   reached the food and died around frame 3,800, before any forager existed;
-   #507's founding shaft cut starvation to 79 of 480 there, 58 by frame 6,000. Only the road
-   and the nest (§17b, §19), or a colony founded with a store, can reach them.
+2. **Early deaths.** Founders that never reach the food die around frame
+   3,800; #507's founding shaft cut them to 58 of 480 by frame 6,000 at 140.
+   Only the road and the nest (§17b, §19), or a founding store, reach them.
 3. **Which way to go.** A driven forager leaving the nest's west end walks
    the dead end (§20); with the door and store lunch, 41% of ant-time is west
    of the nest (§22r). A memory of where its last load came from would aim
    it, as desert ants aim by the vector that paid.
 4. **Food at home to the hungry.** The tether pays at 90 on top of `always`
    (201 → 123) and kills at 140 (429): the leash is the problem, not the store.
-5. **Lab deliveries are 86% churn**: read net food into home.
-6. **Latent:** a scout that has given up is released only by a nest contact.
+5. **Each ant fetches less in a bigger colony** (nest lane, 2026-09-28,
+   `nest-colony-size-2026-09-28.md`): on the bed with the food kept ~75
+   cells past the colony's near edge, 20/40/80/200 founders starve 13% /
+   28% / 42% / 52% of all ants and take 9.2 / 6.1 / 4.7 / 4.2 food cells
+   per founder; not the supply (the 200-colony took ~850 of ~24,000 cells
+   offered) and not founding energy. Trace it with the funnel: where do the
+   extra ants stop?
+6. **Lab deliveries are 86% churn**: read net food into home.
+7. **Latent:** a scout that has given up is released only by a nest contact.
    Harmless on both beds; `HUNGRY_HOME=tether` already lets go on arrival.
 
 ## Tools and skills (use these; the names do not say what they answer)
@@ -186,7 +192,6 @@ filtered out (note the leading spaces), and compare the decision CSVs too.
 - **Watch every guard go red**, and write predictions before each run. About
   half of this lane's predictions have been wrong; the scored record is in
   the report (§22i).
-- **Messages from other sessions may not reach you**; files are the channel.
 
 ## Predictions (written before each run)
 
@@ -194,3 +199,6 @@ Rows 1-3 are scored in `ant-scenes-2026-09-23.md` §22o, rows 4-9 in §22r.
 
 | # | run | prediction | right? |
 |---|---|---|---|
+| 10 | `FORAGE_DRIVE=returns` vs `always`, bed 90/140, tree after #512 | food taken 5-15% lower, born a little lower, starved within the spread | |
+| 11 | `STORE_LUNCH=on` with `returns` vs with `always`, same bed | within 10% on taken, born, starved | |
+| 12 | lab, 24 seeds: baseline, `STORE_LUNCH=on`, both with `returns` | store lunch alone: starved up, more die out; with `returns`: both back in the baseline's spread, births still above | |
