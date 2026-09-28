@@ -12,15 +12,23 @@ stores little or costs the colony its breeding.**
 - **Everyone carries food in** (the founding room made bigger): on the colony
   bed a row of food lies on the room's floor by frame 20,000 and the doorstep
   is clear. Food taken from the pile rises by half and fewer ants starve. But
-  young born fall from 54 to 11, and the colony digs a third as much, because
-  an ant carrying food never digs.
+  young born fall from 54 to 11, and the colony spends a third as much of its
+  time carrying spoil (7.1% of decisions against 20.8%), because an ant
+  carrying food never digs. (A share of decisions, between arms with
+  different populations; cells dug were not counted.)
 - **Only food picked up at home goes in** (foragers still drop at the door):
-  breeding survives and even rises (30 -> 58 with today's room), but with
-  today's room almost none of it reaches the room. The carriers eat it on the
-  way.
+  **births rise only where storage fails, and fall where it works.** With
+  today's room, which holds 0-1 cells (seed 1), born 30 -> 58, higher on 15 of
+  24 seeds. With the bigger room, the only arm where food reaches the room
+  (7-12 cells, seed 1), born 54 -> 40 (lower on 13, higher on 4), starved
+  242 -> 295 (higher on 14, lower on 7), food taken 2,672 -> 2,518 (12 / 12).
+  The carriers eat the loads on the way.
 - **In the lab box**, looked at before the owner set the lab aside for this
   work, carrying food in kept the entrance open at 8 of 9 checks against 2 of
-  9.
+  9: three seeds at three stops, so n = 3 seeds, and `labshot`'s open count
+  also counts a mouth filled by ants as open.
+- **Every arm here ran before packed lunch shipped (#509)**, so with it off;
+  the storeroom (§8) was measured with it on.
 
 The owner chose **B**: foragers drop food at the door and ants at home carry
 it in. **Built as a switch (§8), it fills the room, and it costs the
@@ -70,16 +78,23 @@ binary reproduced `main`'s colony bed exactly (24 of 24).
 ## 3. The colony bed (24 seeds, gap 90)
 
 Starved of about 480; food taken from the pile in cells; food standing at the
-nest in joules (the harness's `FOOD STORE`); room food from seed 1's census.
+nest in joules (the harness's `FOOD STORE`, each seed's mean from frame 6,000,
+then the median over the 24 seeds -- the foraging lane's convention; this
+column first printed the 24-seed sum); room food from **seed 1's census
+only**.
 
 | | food taken | starved | born | food at the nest | room holds (seed 1) |
 |---|---:|---:|---:|---:|---:|
-| today's ant | 3,057 | 152 | 30 | 160,063 | -- |
-| everyone carries in, today's room | 4,755 | 90 | 0 | 36,973 | 2-7 cells |
-| the bigger room, no granary | 2,672 | 242 | 54 | 151,443 | -- |
-| everyone carries in, the bigger room | 4,061 | 161 | 11 | 92,742 | up to 12 |
-| store loads only, today's room | 3,231 | 180 | 58 | 83,368 | 0-1 |
-| store loads only, the bigger room | 2,518 | 295 | 40 | 94,489 | 7-12 |
+| today's ant | 3,057 | 152 | 30 | 6,670 J | -- |
+| everyone carries in, today's room | 4,755 | 90 | 0 | 1,298 J | 2-7 cells |
+| the bigger room, no granary | 2,672 | 242 | 54 | 6,338 J | -- |
+| everyone carries in, the bigger room | 4,061 | 161 | 11 | 3,720 J | up to 12 |
+| store loads only, today's room | 3,231 | 180 | 58 | 3,503 J | 0-1 |
+| store loads only, the bigger room | 2,518 | 295 | 40 | 4,046 J | 7-12 |
+
+"born 0" with everyone carrying into today's room is an exact zero over 24
+seeds and was not traced (the foraging lane's guess: births held for want of
+the nest, or of space, behind the jammed shaft).
 
 Paired, against the arm without a granary on the same room: everyone carrying
 in raises food taken on 21-22 of 24 seeds and lowers starvation on 16-17, and
@@ -87,12 +102,13 @@ lowers births on 20. Store loads only, today's room, against today's ant: food
 taken higher on 15, starved 12 / 9, born higher on 15, food at the nest lower
 on 23.
 
-- **Today's room jams.** On seed 1 with everyone carrying in, deliveries fell
-  from 6,177 to 274. Laden ants reached the entrance, where 63% of their
-  decisions at home were on the surface row, and the 2-wide shaft let few
-  through; those that reached the room found no space for 203 of their drops.
-  The bigger room clears most of it (ticks spent holding a load at home
-  10,166 -> 4,217).
+- **Today's room jams.** On seed 1 with everyone carrying in, laden ants at
+  home spent 10,166 ticks holding a load they could not put down, 63% of
+  their decisions at home were on the surface row, and those that reached the
+  room found no space for 203 of their drops. The bigger room clears most of
+  it (holding 10,166 -> 4,217 ticks). (The delivery counter, 6,177 -> 274,
+  does not size it: it counts the same food again and again, 3.4-4.6x, and
+  the granary rule removes the repeat drops by construction.)
 - **Carrying replaces digging.** With everyone carrying in (bigger room) the
   colony's time laden goes 48.5% -> 62.9% of decisions, and its time carrying
   spoil 20.8% -> 7.1%.

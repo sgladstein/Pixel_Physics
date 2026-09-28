@@ -22,12 +22,17 @@ is no way down. It stops the openings creeping back (2 against 6 at frame
 12) and costs the colony bed food (starved 83 -> 152, born 59 -> 30);
 everywhere, it took the foragers underground (§8). Refusing the turn more
 widely was measured six ways and every one lost the nest (§13). Traced
-on the ant with packed lunch (§16), the cost is mostly where the colony's
-fed foragers stand when food is wanted: inside the nest, not on the
+on the ant with packed lunch (§16), most of the drop in going out first
+comes from where the fed foragers' episodes start when food is wanted:
+inside the nest, where delivered food lies and pins them, not on the
 doorstep.
 
 The cue governs such a dig whether the ant stands on the surface or a tunnel
-is breaking out from below.
+is breaking out from below. **It leaves alone a cut into the floor under a
+roof** (§17, a correction after the foraging lane's review): a room's floor
+had read as the surface. The wider fix, leaving every roofed digger alone,
+opened more mouths on 17 of 24 seeds, because the misread was what kept the
+ground over a gallery just under the surface whole.
 
 In `digbox` (40 ants, energy 1,000, no food, 12 seeds, frame 12,000), on the
 committed code, against the shipped ant. **"Shipped" in this report's tables
@@ -672,8 +677,9 @@ The variant switch's two controls reproduced the built arms 12 of 12 each.
    their crop, energy and the colony's need read when they do, before
    choosing a lever.
    **Traced in §16**, on the ant with packed lunch. When food is wanted,
-   47% of the fed foragers at home are inside the nest with dig down,
-   against 35%. From inside few go out first: they handle food or dig.
+   47% of the episodes of fed foragers at home start inside the nest with
+   dig down, against 35% (episodes, not ants). From inside few go out first:
+   they handle food or dig.
 3. **The brain input**, per the owner's ruling. The sense is the pellet count
    beside the target, and the gate is "this cut opens the sky". Each new
    input costs 24 genome slots and moves every breeding scene, so it is
@@ -755,6 +761,9 @@ under a half of it (§10).
 | 128 | the ant before packed lunch | "picked up at home, left with it" under 15% | 1.6% / 1.2% | right |
 | 129 | packed lunch on | went out first falls by at least 4 points | 42.2% -> 34.3% | right |
 | 130 | packed lunch on | more of the colony's decisions inside the nest | 27% -> 36% | right |
+| 152 | dig box, the first fix (§17) | cells dug higher on ≥ 16 of 24; openings within ±1 (median); nest-like on ≥ 20 of 24 | higher on 11; 2 -> 3, more on 17; 16 of 24 | wrong |
+| 153 | colony bed, the first fix | food taken within ±5% of 4,574; starved within ±15 of 93 | +1.9%; 89 | right |
+| -- | floor cuts only, both beds | none written: built after the first fix measured worse | ties on both | -- |
 
 ## 16. Which fed ants dig when food is wanted
 
@@ -771,7 +780,11 @@ at the nest. With it: 4,574, 93, 151, 7,743 J. Food taken is lower on 21 of
 starts when an ant at home is fed (energy at least 0.999), empty, and feels
 the forage drive. At home means on the doorstep, or underground below the
 nest's 45 columns ("inside the nest"). The episode is scored by the first
-thing the ant does next.
+thing the ant does next. **An episode is not an ant**: the "picked up food
+and emptied it at home" outcome starts the next episode within frames, so an
+ant that churns food at home is counted many times, and every share below is
+a share of episodes, weighted toward churners (the foraging lane's review,
+2026-09-28). Not re-run per ant.
 
 | | dig down off | on |
 |---|---:|---:|
@@ -791,18 +804,24 @@ Split by where the episode starts:
 | on the doorstep | 55.6% / 53.2% | 4.6% / 5.8% |
 | inside the nest | 17.4% / 13.1% | 25.7% / 28.3% |
 
-- **Most of the cost is where the foragers are standing.** With dig down, 47%
-  of the colony's fed foragers at home are inside the nest when food is
-  wanted, against 35%. From the doorstep over half go out first. From
-  inside, one in six to eight does. Held at the old mix, dig down's own rates
-  account for 1.7 of the 4.4 points of extra digging, and 3.1 of the 7.9
-  points of going out less.
+- **Most of the drop in going out first comes from where the episodes
+  start.** With dig down, 47% of the episodes start inside the nest, against
+  35%. From the doorstep over half go out first; from inside, one in six to
+  eight. Held at the old mix, dig down's own rates account for 1.7 of the 4.4
+  points of extra digging, and 3.1 of the 7.9 points of going out less. This
+  decomposes a first action, not the cost in food, which was not carried
+  through.
 - **Inside, a fed forager mostly handles food.** It picks up food at home and
   empties it there (57-58%), or it digs (26-28%). The food is underground:
   86-90% of those pickups happen inside the nest, mostly one to three rows
-  below the surface, so delivered food lies in the top of the nest. The ones that go out get
-  out fast (median 18-36 frames, p90 54-96), so the way out is not the
-  obstacle.
+  below the surface, so delivered food lies in the top of the nest. Those
+  that go out take a median 18-36 frames (p90 54-96); ants that never leave
+  within the episode are not in it (censored), so this is not a time to
+  leave. **Why they stay** (the foraging lane, 2026-09-28, measured on
+  `main` after #510): food beside an ant pins it -- `Move`'s `FoodAdjacent`
+  -1.16 -- and it steps on 3-4% of decisions beside food against 17-18%
+  without, the same inside and on the doorstep; inside is where the
+  delivered food lies.
 - **The colony's time.** Decisions inside the nest go from 27% to 36%.
   Spoil carried inside goes from 11.8% to 16.6%, food held inside from 12.7%
   to 15.4%, and food held on the doorstep falls from 18.3% to 13.8%.
@@ -815,6 +834,94 @@ Split by where the episode starts:
 needs would reach the 28% who dig from inside. It would not reach the 58% who
 stay to handle food, so it is not expected to send many out. The larger
 effect is that a deeper nest has more of the colony inside when food is
-wanted. Why the fed foragers are inside when the drive comes on is not traced
-yet. It bears on the granary (`nest-granary-2026-09-28.md` §6): food kept
+wanted, and the food lying there pins them (above). It bears on the granary (`nest-granary-2026-09-28.md` §6): food kept
 inside the nest would hold the ants who handle it, as it does here.
+
+## 17. A cut into a room's floor, and the crust the misread was holding
+
+*The foraging lane's review of #506, 2026-09-28: the cue judged a cut on the
+floor of a wide underground room as a new mouth. Verified, fixed in a narrow
+form, and measured on `digbox` (40 ants, energy 1,000, 24 seeds, frame
+24,000) and on the colony bed (24 seeds, gap 90, packed lunch on).*
+
+**Verified.** The curvature disc reads a room's floor as open ground: 0 on
+the floor of a room 3 rows tall and 9 wide, 8 rows down, and -0.25 one cell
+in from its wall, both above the enclosed line of -0.3. So a cut into that
+floor was judged a surface dig, and with floor 0 and no heap it was refused
+outright: a room 3 rows tall could not deepen.
+`the_heap_cue_leaves_a_dig_inside_a_wide_room_alone` builds that room, and
+it goes red on the shipped rule.
+
+**The first fix was worse.** It counted a digger in open ground as at the
+surface only with no ground over its head, so every roofed digger was left
+alone unless the cut itself opened the sky:
+
+| `digbox`, frame 24,000 (median; seeds better / worse than the shipped cue) | shipped cue | first fix | floor cuts only |
+|---|---:|---:|---:|
+| openings to the surface | 2 | 3 (5 / 17) | 2 (9 / 8) |
+| roofed share of the dug room | 0.95 | 0.91 (5 / 18) | 0.96 (11 / 10) |
+| 90th-percentile depth, rows | 10 | 8 (6 / 16) | 9 (9 / 10) |
+| cells dug | 54 | 47 | 57 |
+| nest-like against random walkers (≥ 0.9) | 22 of 24 | 16 | 21 |
+| cuts that opened a new mouth from below | 1 | 2 (more on 16, fewer on 3) | 1 (7 / 7) |
+| cells cut again (dug or filled before) | 72.5 | 102 (more on 17) | 84.5 (13 / 10) |
+| dug cells refilled by a fall | 458 | 556.5 (more on 15) | 518.5 (12 / 11) |
+
+Paired, the first fix dug no less (more on 11 seeds, less on 12); it dug in
+different places.
+
+**Traced**, with the decision logged wherever the first fix left the cue
+aside and the shipped rule had applied it (six seeds: five where it opened
+more mouths, one where it opened fewer; the traced runs are the measured
+ones, line for line). Of 529 such decisions, **503 were by ants one or two
+rows under the old surface** (25 in the heaps above it, one deeper), **471
+with exactly one cell of ground over the ant's head**, and 432 cut level or
+up (97 down). 226 had no pellet within reach of the target, so the shipped
+cue had refused them outright; the rest it had scaled down.
+
+**So the first fix's cuts were not in rooms.** They were ants in a gallery
+just under the surface, where the digging round the mouth has hollowed the
+ground enough to read as open, cutting along or up through the one row of
+ground over them. The shipped cue refused those cuts away from a heap, and
+that is what kept that crust whole. What each extra cut went on to do was not
+traced cut by cut; the counts that moved are the ones a thinned crust moves:
+breakouts from below, re-cuts, and refill by falling ground (table).
+
+**So only the floor is exempt.** A cut below a digger with ground over its
+head neither opens the sky nor thins the ground over it, and the cue now
+stands aside for it as it does for a tunnel's. A roofed digger's level and
+upward cuts still meet the cue. The form fires on every seed (all 24 runs
+leave the shipped one by frame 6,000) and ties the shipped cue on the nest
+(table). In the dig box the case the review named barely arises -- one of
+the 529 traced decisions was deeper than two rows -- so its gain is for rooms
+this box seldom digs, and it is shipped as a correction, not as a
+measured improvement.
+`the_heap_cue_still_guards_the_crust_over_a_roofed_digger` holds the other
+half: an ant in a notch under the lip of an open shaft, whose cuts along and
+up through the ground over it meet the cue, and whose cut into its own floor
+does not. It goes red with the first fix put back; the room test goes red
+with the shipped rule put back.
+
+**The colony bed** does not move with either. The shipped arm reproduces
+§16's figures exactly:
+
+| colony bed, 24 seeds | shipped cue | first fix | floor cuts only |
+|---|---:|---:|---:|
+| food taken from the pile | 4,574 | 4,663 (higher on 14, lower on 10) | 4,566 (11 / 12) |
+| starved | 93 | 89 | 83 |
+| born | 151 | 145 | 144 |
+
+**Found on the way: a conservation guard counting two different sets.**
+The new trajectory sent `digging_moves_the_ground_rather_than_eating_it`
+red at 259 -> 260 cells of ground. Traced, the two pellets lost with dying
+carriers were one of spoil and one of corpse, and the identity subtracted both
+as ground. Counting only the lost pellets that were ground
+(`CreatureStats::spoil_lost_ground`: a material digging turns into spoil)
+closes it exactly, 260 + 1 = 259 + 2. `ascii`'s dig scene counted loads and
+losses the same way and is fixed the same way. The engine conserved ground
+throughout. Not fixed: a lost carcass pellet takes its meat with it unbooked,
+which the meat guard, an upper bound, cannot see.
+
+Predictions 152 and 153 (§15) were written before the first fix was
+measured. The floor-only form was built after it measured worse, and was run
+without one. Dead end: the first fix, in `dead-ends.md`.

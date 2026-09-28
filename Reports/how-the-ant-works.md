@@ -73,7 +73,9 @@ will be.
   `store_target`, `store_return_target`, `Spoil::store`), and its nest-bound
   part (`is_nest_bound` in `forage_drive_level`, `home_pull` and
   `chooser_step`'s `away_from`), its caste and worker-home parts
-  (`nest_within_reach`), and `nest_shaft_offset`.
+  (`nest_within_reach`), and `nest_shaft_offset`. §5 step 6 again that day
+  for the heap cue standing aside for a cut into the floor under a roof
+  (`spoil_cue_factor`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -340,10 +342,13 @@ the tick: the ant still gets its move roll (§6) afterwards.
    `floor + (1 - floor) s²/(s² + K²)`, `s` the pellets within 2 cells of the
    cell actually cut, after any `DIG_DOWN` turn; shipped at `K` 5 and floor
    0, so bare ground is opened only beside a heap, and a colony's first
-   opening is its founding shaft (§8). The cut opens the sky when the ant
-   stands at the surface (curvature above -0.3), or the target has no
-   ground above it (`spoil_cue_factor`, `open_to_the_sky`). A pellet target
-   and a cut under a roof are left alone. It must not be empty, a creature or
+   opening is its founding shaft (§8). Two cuts are left alone: a pellet
+   target, and a cut into a cell with ground above it by an ant that is
+   enclosed (curvature at or below -0.3) or that has ground over its own
+   head and cuts below itself (`spoil_cue_factor`, `open_to_the_sky`). So a
+   tunnel's digger, and one on the floor of a wide room, dig freely until a
+   cut would open the sky, while an ant in open ground under a roof meets
+   the cue when it cuts level or up. It must not be empty, a creature or
    plant cell, or a live seed, and needs `penetration_resistance ≤
    dig_force` (1.0) (`jaw_can_cut`). Soil, lining and spoil pass, and so do powder foods and
    litter such as crumbs; sand and the nest's own material do not. The cell

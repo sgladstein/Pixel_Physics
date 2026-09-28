@@ -1930,6 +1930,16 @@ pub struct CreatureStats {
     /// mechanism was built to remove, and one that is small today is one
     /// nobody would notice growing.
     pub spoil_lost: u64,
+    /// **Of [`CreatureStats::spoil_lost`], the pellets that were ground**: a
+    /// material digging turns into spoil (`Material::spoils_into`), which is
+    /// soil, lining and spoil itself -- not a dug crumb or a piece of carrion,
+    /// which the mandibles carry in the same slot. A census of ground
+    /// subtracts only these. Every lost pellet was subtracted until
+    /// 2026-09-28, and `digging_moves_the_ground_rather_than_eating_it` read
+    /// one lost piece of carrion as a cell of ground made from nothing
+    /// (259 -> 260, traced: the two pellets lost were one of spoil and one of
+    /// corpse).
+    pub spoil_lost_ground: u64,
     pub drops: u64,
     /// Drops that happened at the nest — food actually delivered home.
     /// **The number that proves the loop rather than its parts.**

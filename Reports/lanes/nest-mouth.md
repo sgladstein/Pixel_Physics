@@ -72,7 +72,9 @@ and since 2026-09-28 that is the shipped ant**
   heap cue (`K` 5, floor 0): a dig that would open the ground to the sky
   needs a heap beside it. Dig box openings 10 -> 4 (12 of 12); colony bed
   starved 201 -> 83; lab ties, and its founding mouth is buried by frame
-  30,600 on 12 of 12 seeds under food and plants.
+  30,600 on 12 of 12 seeds under food and plants. A cut into the floor
+  under a roof is left alone (report §17); leaving every roofed digger
+  alone opened more mouths (17 of 24): the cue holds the crust.
 - **Dig down ships on for an enclosed digger** (#508), refused only
   where there is no way down (`way_down`): the creep stops (2 openings
   against 6 at frame 24,000 over 24 seeds, 22 of 24 nest-like against 12),
@@ -80,8 +82,6 @@ and since 2026-09-28 that is the shipped ant**
   the lane's ruling; the turn everywhere stays off (starved 295). Refusing
   the turn more widely was measured six ways and every one lost the nest
   (report §13): the turn's nest and its price are one mechanism.
-- **The creep:** a fresh heap would refuse at most a third to under a half
-  of it, so it is not built.
 - **Food in a chamber: the owner chose B** (foragers drop at the door, ants
   at home carry it in). Built as `PIXEL_PHYSICS_STOREROOM`, off
   ([`../nest-granary-2026-09-28.md`](../nest-granary-2026-09-28.md) §8): the
@@ -97,12 +97,12 @@ and since 2026-09-28 that is the shipped ant**
    down, because the entrance shaft is plugged, mostly by crumbs they set
    down there. Proposed to the owner: a storeroom off to the side of the
    entrance. Their region's pieces are switches the foraging lane reviews.
-2. **Dig down's bed cost, traced** (report §16, packed lunch on). When food
-   is wanted, 47% of the fed foragers at home are inside the nest with dig
-   down, against 35%. From inside, 13-17% go out first, against 53-56% from
-   the doorstep; inside they handle food (57-58%) or dig (26-28%). A dig
-   gate for a forager the colony needs would reach only the diggers. The
-   hunger gate is a dead end (report §11).
+2. **Dig down's bed cost, traced** (report §16, packed lunch on; shares of
+   episodes, not ants). When food is wanted, 47% of fed foragers' episodes
+   at home start inside the nest with dig down, against 35%; from inside
+   13-17% go out first, against 53-56%. Food lying inside pins them (the
+   foraging lane: `FoodAdjacent` on `Move`). The hunger gate is a dead end
+   (report §11).
 3. **The brain input** for the cue (owner's order); 24 genome slots, so
    planned with the lab lines.
 4. **Chambers** need contents (brood or a granary), which the dig box lacks.

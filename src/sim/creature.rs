@@ -10164,8 +10164,9 @@ fn parse_spoil_cue(raw: &str) -> Option<SpoilCue> {
 
 /// The factor [`SpoilCue`] puts on a dig roll by the animal at `(x, y)`
 /// facing `(tx, ty)`, reading its curvature at `radius`; `None` where the cue
-/// stands aside -- nothing ahead, a pellet ahead, or a digger the ground
-/// encloses.
+/// stands aside -- nothing ahead, a pellet ahead, or a cut that opens no sky
+/// (an enclosed digger, or one with ground over its head cutting the floor
+/// below it, cutting a cell with ground above it).
 fn spoil_cue_factor(world: &World, (x, y): (i32, i32), (tx, ty): (i32, i32), radius: i32, cue: SpoilCue) -> Option<f32> {
     let pellet = |c: Cell| c.material != material::EMPTY && world.materials.get(c.material).needs_footing;
     let ahead = world.get(tx, ty);
@@ -10178,7 +10179,29 @@ fn spoil_cue_factor(world: &World, (x, y): (i32, i32), (tx, ty): (i32, i32), rad
     // half the new openings (32 of 66 over 12 seeds) were a tunnel cutting
     // the top cell of a column from underneath. So an enclosed digger is left
     // alone only while the cell it cuts has ground somewhere above it.
-    if surface_curvature(world, x, y, radius) <= SPOIL_CUE_ENCLOSED && !open_to_the_sky(world, tx, ty) {
+    //
+    // **A cut into the floor under a roof opens nothing.** Curvature alone
+    // reads the floor of a wide underground room as the surface -- a 5 by 5
+    // disc reads 0 on the floor of any room 3 rows tall and 5 wide, and -0.25
+    // one cell in from its wall -- so a cut into a room's floor was judged a
+    // new mouth and vetoed without a heap, and a room 3 rows tall could not
+    // deepen (the foraging lane's review, 2026-09-28). A cut below a digger
+    // with ground over its head neither opens the sky nor thins the ground
+    // over it, so the cue stands aside for it.
+    //
+    // **Only the floor: a roofed digger cutting level or up still meets the
+    // cue, and that is load-bearing.** Standing aside for every roofed digger
+    // in open ground was measured first, and was worse: more mouths on 17 of
+    // 24 `digbox` seeds, less of the dig roofed on 18. Traced, those cuts were
+    // not in rooms at all -- 503 of 529 were by ants one or two rows under the
+    // surface with a single cell of ground over their heads, 432 of them
+    // cutting level or up, through or along that crust. The misread was what
+    // kept the crust whole away from a heap
+    // (`Reports/nest-heap-cue-2026-09-28.md` §17;
+    // `the_heap_cue_leaves_a_dig_inside_a_wide_room_alone`).
+    let enclosed = surface_curvature(world, x, y, radius) <= SPOIL_CUE_ENCLOSED;
+    let floor_cut = ty > y && !open_to_the_sky(world, x, y);
+    if (enclosed || floor_cut) && !open_to_the_sky(world, tx, ty) {
         return None;
     }
     let mut s = 0u32;
@@ -19304,7 +19327,12 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
             // crop beside it books its remainder into `meat_lost` for the
             // same reason; there is no material ledger to book this into, so
             // the counter *is* the book.
-            None => world.creature_stats.spoil_lost += 1,
+            None => {
+                world.creature_stats.spoil_lost += 1;
+                if world.materials.get(spoil.cell.material).spoils_into.is_some() {
+                    world.creature_stats.spoil_lost_ground += 1;
+                }
+            }
         }
         if let Some(state) = world.organism_mut(organism) {
             state.spoil = None;
@@ -22509,7 +22537,15 @@ mod tests {
         let after = ground(&w);
         let digs = w.creature_stats.digs;
         let dumped = w.creature_stats.spoil_dumped;
-        let lost = w.creature_stats.spoil_lost as usize;
+        let lost_any = w.creature_stats.spoil_lost as usize;
+        // **Only the lost pellets that were ground**, the same set `ground`
+        // counts. A dug crumb or a piece of carrion rides in the same slot, and
+        // this read every lost pellet until 2026-09-28: a new trajectory ended
+        // with one corpse pellet lost at a death, and the identity read
+        // `259 -> 260` as a cell of ground made from nothing. Traced, the two
+        // pellets lost were one of spoil and one of corpse; counted by set, it
+        // closes exactly (260 + 1 = 259 + 2).
+        let lost = w.creature_stats.spoil_lost_ground as usize;
         assert!(digs > 0, "nothing dug, so conservation here would be a statement about an idle ant");
         assert!(dumped > 0, "digs {digs} and not one pellet put back -- the colony is holding its spoil, not hauling it");
         // **`spoil_lost` is in the sum rather than asserted to be zero**, and
@@ -22549,7 +22585,7 @@ mod tests {
         // That identity is the claim this test exists for; the bound below
         // only has to keep a 1-of-99 edge case from quietly becoming the
         // old behaviour, which was every pellet vanishing.
-        assert!(lost * 20 <= digs as usize, "{lost} of {digs} pellets died with their carrier -- that is a sink, not an edge case");
+        assert!(lost_any * 20 <= digs as usize, "{lost_any} of {digs} pellets died with their carrier -- that is a sink, not an edge case");
     }
 
     /// One ant on a bank of soil at a given `dig_cost_in_moves`, returning
@@ -35830,6 +35866,105 @@ mod tests {
         assert_eq!(pellet, None, "a pellet ahead is refill churn, left alone");
         assert_eq!(buried, None, "an enclosed digger under a roof is the face's, left alone");
         assert_eq!(breakout, Some(0.1), "a tunnel breaking out to the sky is a start, and there is no heap here");
+    }
+
+    /// **A dig inside a wide underground room is not a new mouth.** The heap
+    /// cue is for a cut that opens the ground to the sky. The ant's curvature
+    /// disc reads a room's floor, and a cell beside its wall, as open ground,
+    /// so the first form judged those cuts as surface digs and vetoed them
+    /// without a heap: a room three rows tall could not deepen (found by the
+    /// foraging lane's review of #506, 2026-09-28). A 3 by 9 room under 8 rows
+    /// of soil: cuts into its floor, mid-room and one cell in from its wall,
+    /// are left alone. The same room with its roof taken off is a crater
+    /// under the sky, and there the cue still applies -- the positive control
+    /// that the rule was not simply switched off. The curvature precondition
+    /// is asserted, or every arm is vacuous. Only the floor is exempt: see
+    /// `the_heap_cue_still_guards_the_crust_over_a_roofed_digger`.
+    #[test]
+    fn the_heap_cue_leaves_a_dig_inside_a_wide_room_alone() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").unwrap();
+        let surface = 150;
+        for x in 60..140 {
+            for y in surface..surface + 20 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        let cue = SpoilCue { k: 1.5, floor: 0.1 };
+        // The room: columns 70..=78, rows surface+8..=surface+10, roofed.
+        for x in 70..=78 {
+            for y in surface + 8..=surface + 10 {
+                w.set(x, y, Cell::EMPTY);
+            }
+        }
+        let floor = (74, surface + 10);
+        // One cell in from the west wall, on the floor row.
+        let by_wall = (71, surface + 10);
+        for (name, at) in [("floor", floor), ("floor by the wall", by_wall)] {
+            let c = surface_curvature(&w, at.0, at.1, 2);
+            assert!(c > SPOIL_CUE_ENCLOSED, "the {name} of a wide room must read as open ground ({c}), or this test cannot see the bug");
+        }
+        let down = spoil_cue_factor(&w, floor, (floor.0, floor.1 + 1), 2, cue);
+        let side = spoil_cue_factor(&w, by_wall, (by_wall.0, by_wall.1 + 1), 2, cue);
+        assert_eq!(down, None, "a cut into a roofed room's floor opens no sky");
+        assert_eq!(side, None, "a cut into the floor beside a roofed room's wall opens no sky");
+        // The crater: the same room with everything above it dug out.
+        for x in 70..=78 {
+            for y in surface..surface + 8 {
+                w.set(x, y, Cell::EMPTY);
+            }
+        }
+        let crater = spoil_cue_factor(&w, floor, (floor.0, floor.1 + 1), 2, cue);
+        assert_eq!(crater, Some(0.1), "a crater's floor is under the sky, and there is no heap: the cue applies");
+    }
+
+    /// **But a roofed digger cutting level or up still meets the heap cue,
+    /// and that half is load-bearing.** Standing aside for every roofed
+    /// digger in open ground was the first fix for the room above, and
+    /// `digbox` measured it worse: more mouths on 17 of 24 seeds, less of the
+    /// dig roofed on 18. Its cuts were not in rooms: 503 of 529 were by ants
+    /// one or two rows under the surface with one cell of ground over their
+    /// heads, cutting along or up through that crust
+    /// (`Reports/nest-heap-cue-2026-09-28.md` §17). The scene is that crust:
+    /// an open shaft three wide, and a notch cut under its lip. From the
+    /// notch, a cut sideways under the intact surface and a cut up into a
+    /// crust cell with a lump of soil on it both meet the cue with no heap in
+    /// reach; the cut into the notch's own floor is left alone, as in the
+    /// room. The preconditions are asserted -- open ground at the notch, and
+    /// ground over the digger and over each cut -- or the arms are vacuous.
+    #[test]
+    fn the_heap_cue_still_guards_the_crust_over_a_roofed_digger() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").unwrap();
+        let surface = 150;
+        for x in 60..140 {
+            for y in surface..surface + 20 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        let cue = SpoilCue { k: 1.5, floor: 0.1 };
+        // The shaft: columns 73..=75, open from the surface down six rows.
+        for x in 73..=75 {
+            for y in surface..=surface + 6 {
+                w.set(x, y, Cell::EMPTY);
+            }
+        }
+        // The notch under the lip, and a lump of soil on the surface beside it.
+        let notch = (72, surface + 1);
+        w.set(notch.0, notch.1, Cell::EMPTY);
+        w.set(71, surface - 1, Cell::new(soil, 0));
+        let c = surface_curvature(&w, notch.0, notch.1, 2);
+        assert!(c > SPOIL_CUE_ENCLOSED, "the notch must read as open ground ({c}), or this test cannot see the rule");
+        assert!(!open_to_the_sky(&w, notch.0, notch.1), "the notch must have ground over it");
+        let level = (71, surface + 1);
+        let up = (71, surface);
+        let floor = (72, surface + 2);
+        for (name, t) in [("level", level), ("up", up), ("floor", floor)] {
+            assert!(!open_to_the_sky(&w, t.0, t.1), "the {name} cut must have ground over it");
+        }
+        assert_eq!(spoil_cue_factor(&w, notch, level, 2, cue), Some(0.1), "a cut along the crust, with no heap in reach, meets the cue");
+        assert_eq!(spoil_cue_factor(&w, notch, up, 2, cue), Some(0.1), "a cut up into the crust, with no heap in reach, meets the cue");
+        assert_eq!(spoil_cue_factor(&w, notch, floor, 2, cue), None, "a cut into the floor under a roof opens nothing");
     }
 
     /// `PIXEL_PHYSICS_SPOIL_CUE`'s spellings: unset and `off` read nothing,
