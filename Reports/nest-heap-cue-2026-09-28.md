@@ -398,9 +398,10 @@ where the food is far.
   than the shaft. Founding books each founder's flat grant, then deals the
   colony's reserve out unevenly in pairs that cancel; it dealt over every
   planned station, so a station that could not place its founder took its
-  share with it, unbooked. With the shaft, one of the test bed's twelve
-  stations fell on a neighbour's founder: 82.6 J out before the first
-  frame. Two colonies founded 8 cells apart, no shaft at all: 85.1 J out. The
+  share with it, unbooked. With the shaft, the hole moved the test bed's
+  first colony one column (founders at 81-101 instead of 82-102), and the
+  second colony's first station, at 102, was left without room for a
+  two-cell body beside it: 82.6 J out before the first frame. Two colonies founded 8 cells apart, no shaft at all: 85.1 J out. The
   reserve is now dealt over the founders placed, and a guard written first
   was watched red on the old code (-85.09 J).
 
