@@ -9,8 +9,11 @@ commands and the traps.*
 - **Previous session:** `session_01Pt5N39pfcix13hMycPN9Xs`, branch
   `claude/ant-foraging-loop-handoff-986v7n` (2026-09-27): the forage drive and
   carry patience, both shipped on (§22, §22m).
-- **Peer lanes:** the nest-mouth lane ([`nest-mouth.md`](nest-mouth.md)) has
-  concluded: no mouth beats today's nest on both beds.
+- **Peer lanes:** the nest-mouth lane ([`nest-mouth.md`](nest-mouth.md))
+  shipped dig down for an enclosed digger (#508, 2026-09-28). With packed
+  lunch it costs the loop (below); the owner ruled a nest step is not blocked
+  on colony numbers, and that lane is tracing which ants dig when food is
+  wanted.
 
 ## Standing owner rulings
 
@@ -71,7 +74,7 @@ harvesters stop when returning foragers stop bringing food).
   food standing at the nest (`FOOD STORE`'s `nest food`, mean from frame
   6,000).
 
-## Baseline (the shipped default: drive, carry patience and packed lunch on, `main` after #507)
+## Baseline (the shipped default: drive, carry patience and packed lunch on)
 
 Colony bed, no trail, 24 seeds (seeds 1-24):
 
@@ -79,6 +82,13 @@ Colony bed, no trail, 24 seeds (seeds 1-24):
 |---|---:|---:|---:|---:|
 | 90 | 5,377 | 8,591 J | 64 | 185 |
 | 140 | 4,859 | 7,827 J | 79 | 115 |
+| 90, with #508's dig down | **4,574** | 7,743 J | 93 | 151 |
+
+The first two rows are `main` after #507; the third is this branch merged
+with #508's head (24 seeds, 90 cells only; 140 and the lab not yet re-run
+with both). Against the first row, dig down takes less off the pile on 21 of
+24 seeds and starves more on 12 (5 fewer). Neither switch on that tree:
+3,744, 7,160 J, 83, 59; dig down alone 3,057, 6,670 J, 152, 30.
 
 Packed lunch `=off` on the same tree: 90 cells 3,744, 7,160 J, 83, 59; 140
 cells 3,797, 6,762 J, 79, 55. #507 (founding shaft, heap cue) moved the bed

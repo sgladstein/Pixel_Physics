@@ -2507,3 +2507,22 @@ both games (a dead end, `dead-ends.md`). The third finishes the lunch on the spo
 Shipped on by the owner's rule (gain on the bed at both distances, neutral in the lab); `=off` is
 the ant before it, bit for bit (8 seeds, 261 of 261 lines). Data:
 `Reports/data/forage-lunch-2026-09-28.txt.gz`.
+
+**With #508's dig down** (the nest lane's turn for an enclosed digger, merged the same day), one
+scratch merge of both heads, 90 cells, 24 seeds, the four corners:
+
+| | neither | dig down | packed lunch | both |
+|---|---:|---:|---:|---:|
+| food taken from the pile | 3,744 | 3,057 | 5,377 | 4,574 |
+| food standing at the nest | 7,160 J | 6,670 J | 8,591 J | 7,743 J |
+| starved of 480 | 83 | 152 | 64 | 93 |
+| born | 59 | 30 | 185 | 151 |
+
+Dig down alone against neither: taken lower on 19 of 24, starved more on 18 (3 fewer), born lower on
+17. Both against neither: taken higher on 21 of 24, born 19/3, starved 11 more / 9 fewer. Both
+against packed lunch alone: taken lower on 21 of 24, starved 12 more / 5 fewer, born lower on 14 (7
+higher). Dig down costs the loop
+700-800 cells off the pile whichever way the lunch switch is set, and packed lunch recovers most of
+the starvation dig down causes on its own. The owner let #508 ship (a nest step is not blocked on
+colony numbers); why fed ants at home dig when food is wanted is the nest lane's trace. 140 cells
+and the lab were not re-run with both.
