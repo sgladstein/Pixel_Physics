@@ -134,7 +134,20 @@ by side; the picture was sent to the owner on 2026-09-28.
 Run to tell the foraging lane what moved, not to veto. The owner ruled on
 2026-09-27 that colony numbers do not block a step toward the nest.
 
-BED-LAB-PENDING
+Both arms ran on one binary, the new genome against `wire=` back to
+`(Bias, Dig, 0.15)` and no curvature term. The old arm reproduces the
+unpacked-spoil lab arm of `nest-spoil-footing-2026-09-27.md` exactly: 424
+births, 3 colonies lost.
+
+- **Colony bed** (`trailfollow`, 24 seeds, 20 founders, gap 90): starved
+  **230 -> 213**, fewer on 8 seeds and more on 9 (p 1.0). Loops 451 -> 466,
+  ants that reached the food 296 -> 303. Food carried to the nest is lower on
+  19 of 24 seeds. That is the foraging lane's counter; it has read as churn at
+  home before (`nest-spoil-footing-2026-09-27.md` §4), and it is not traced
+  here.
+- **Lab** (`labforage`, 12 seeds, 120,000 frames): **ties on every column.**
+  Births 424 -> 440 (6 / 6), food eaten 6 / 6, alive at the end 5 / 6,
+  colonies lost 3 -> 2.
 
 ## 5. What is still missing, and what is next
 
@@ -166,5 +179,5 @@ BED-LAB-PENDING
 | 50 | grid | mouths fall as the bias falls; curvature alone does not move them | monotone at -1 and -2, not at -0.5 | mostly right |
 | 51 | grid | depth rises with the curvature; bias -0.5 starves the digging | depth right; starved only at -0.5 / -0.5 | partly right |
 | 52 | grid | no knife-edge around -1 / -0.3 | all four neighbours ≤ 15 mouths, roofed ≥ 0.7 | right |
-| 53 | colony bed | starved within ±25 | BED-53 | BED-53R |
-| 54 | lab | births no worse than 4 / 8 either way; ≤ 1 extra colony lost | LAB-54 | LAB-54R |
+| 53 | colony bed | starved within ±25 | 230 -> 213 (8 / 9) | right |
+| 54 | lab | births no worse than 4 / 8 either way; ≤ 1 extra colony lost | 6 / 6; lost 3 -> 2 | right |
