@@ -3355,7 +3355,7 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     the whole nest holds a median of 4 food cells. The prerequisite is
     foragers feeding hungry nestmates directly. Also a correction: §20's
     "food carried" figure was cell-steps, not joules.
-  - **Foragers that keep working** (§22, `PIXEL_PHYSICS_FORAGE_DRIVE`, off):
+  - **Foragers that keep working** (§22, `PIXEL_PHYSICS_FORAGE_DRIVE`, on):
     traced ant by ant, a forager comes home hungry, eats back up off the
     nest's floor (a third of what the colony digests), and stays home until
     it is hungry again. A drive that sends fed foragers back out (`always`)
@@ -3368,9 +3368,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     §22k that ants past the pile are loaded foragers whose pull home ran out
     (bug Z35, today's game too); §22l that driving only fed foragers removes
     the drive's early deaths and most of its gain. The forms that read the
-    colony's need (its hunger, its store) did worse in both games. Awaiting
-    the owner's ruling; the next step is an off-switch that reads food out
-    there, not need at home.
+    colony's need (its hunger, its store) did worse in both games. §22m
+    ships `always` on with the Z35 fix (`PIXEL_PHYSICS_CARRY_PATIENCE`, on:
+    every pickup restarts the pull home), under the owner's ruling that a
+    feature is on unless it measures as a harm. The fix cuts laden time past
+    the pile by about two thirds; at 90 cells more food stands at the nest,
+    and at 140 about 5% less is taken off the pile with no colony measure
+    moving. Next: why a third of ant time is spent at home holding food.
   - Handoff: [lanes/foraging-loop.md](lanes/foraging-loop.md) -- the
     owner's rulings, the live question, the baseline, commands and traps.
   - The per-decision mix matched the formula within a point at both

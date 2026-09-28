@@ -46,6 +46,9 @@ will be.
   switches (`spoil_site_open`, `is_footing`, `spoil_footing_drop`,
   `pack_neighbours_with`, `spoil_packs`), and again that evening when the
   lining stopped packing spoil by default.
+  §6d and §12 on 2026-09-27 for the forage drive and carry patience shipped
+  on (`forage_drive_from_env`, `ForageDrive::SHIPPED`,
+  `carry_patience_from_env`, the pickup block in `act`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -237,7 +240,7 @@ the tick: the ant still gets its move roll (§6) afterwards.
    requires room in the crop and the same material as what is already held.
    **`Feed` reads no hunger**, so a fed ant beside food at the nest takes it
    on about half its decisions. Under `PIXEL_PHYSICS_FORAGE_DRIVE=<need>,keep`
-   (off, §6d) a forager the colony needs, at or above its `start_energy`,
+   (`,keep` is off, §6d) a forager the colony needs, at or above its `start_energy`,
    has its feed urge at the nest scaled by `1 - drive`, so it leaves the
    store for the hungry and unloads rather than re-taking; below
    `start_energy` it eats as before.
@@ -418,8 +421,13 @@ plus the trail terms (`trail`), plus the away term (`trailaway`).
    step that does. **Back to 1 when a way round fails**: once the head has
    been 6 or more cells (`EXCURSION_CELLS`) from where it set its best, and
    comes back to within a cell of that spot. It resets when the ant has
-   nothing to take home or the target moves.
-   `PIXEL_PHYSICS_CHOOSER=nopatience` holds it at 1.
+   nothing to take home or the target moves, **and at every pickup**
+   (`carry_patience_of`, `PIXEL_PHYSICS_CARRY_PATIENCE`, on since
+   2026-09-27), so a carry is measured from the last cell loaded. Before
+   that it restarted only at the first: loading more cells and climbing the
+   pile's face ran it down, and a loaded forager with no pull home walked
+   off the pile's far side (bug Z35). `PIXEL_PHYSICS_CARRY_PATIENCE=off` is
+   the old rule. `PIXEL_PHYSICS_CHOOSER=nopatience` holds it at 1.
 
 **Stage 2 (`PIXEL_PHYSICS_CHOOSER=trail`) adds two things:**
 - **The trail where a step would go.** For each heading, `trail_presence`
@@ -471,8 +479,8 @@ pull. Two forms:
 - `tether` sets it only off a route (trail B under the head under presence
   0.5), and clears it within 2 cells of the target.
 
-**`PIXEL_PHYSICS_FORAGE_DRIVE` (off) sends a fed forager out when the colony
-needs food.** It reaches an animal that has foraged (`OrganismState::foraged`,
+**`PIXEL_PHYSICS_FORAGE_DRIVE` (`always` since 2026-09-27; `off` is the ant
+before it) sends a fed forager out when the colony needs food.** It reaches an animal that has foraged (`OrganismState::foraged`,
 set by any pickup away from its nest), is empty (sensed empty and still empty
 after `act`), carries no spoil and walks `trailaway`. That animal feels
 `drive` (`forage_drive_level`) in two places and nowhere else:
@@ -489,7 +497,8 @@ The drive is the nest's need (`World::nest_need`, §8), found from
   floored at 0 each;
 - `larder`: `1 - store / (animals × start_energy × LARDER_GRANTS)`, clamped
   to 0..1, where the store is the loose food near the nest (§8);
-- `always`: 1, the control.
+- `always`: 1. Built as the control for the two needs; it measured best of
+  the three on the bed and is the default (`ForageDrive::SHIPPED`).
 `,keep` adds the store rule in §5. `,fed` drives only an animal at or above
 its `start_energy`; below it the level reads 0 and the animal goes out on its
 own hunger. Without `,fed` the drive reaches hungry foragers too, and early in
@@ -683,7 +692,8 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_NEST_DOOR_FOUNDERS` | spread | `pile`: under the door, founders start heaped on it instead of spread along the ground (§8) |
 | `PIXEL_PHYSICS_SCOUT` | 2 | `<gain>`: under `trailaway`, a hungry empty ant off a route runs out from home and back (§6d); `0` turns it off; `World::scout` for one world |
 | `PIXEL_PHYSICS_HUNGRY_HOME` | off | `on`/`refed` or `tether`: an empty ant too hungry to be out is pulled home to its nest's larder (§6d, §8); `World::hungry_home` for one world |
-| `PIXEL_PHYSICS_FORAGE_DRIVE` | off | `hunger`, `larder` or `always`, then optionally `,nopace`, `,keep` and `,fed` (only foragers at or above `start_energy`): a fed forager goes out when its nest needs food (§6d), and with `,keep` leaves the store at home (§5); `World::forage_drive` for one world |
+| `PIXEL_PHYSICS_FORAGE_DRIVE` | `always` | `off`, `hunger`, `larder` or `always`, then optionally `,nopace`, `,keep` and `,fed` (only foragers at or above `start_energy`): a fed forager goes out when its nest needs food (§6d), and with `,keep` leaves the store at home (§5); `World::forage_drive` for one world |
+| `PIXEL_PHYSICS_CARRY_PATIENCE` | `pickup` | `off`: a carry's home patience restarts only at the first pickup, not at every one (§6d step 5, bug Z35); `World::carry_patience` for one world |
 | `PIXEL_PHYSICS_LOAD_SCALE` | 1.0 | `<f>`: every food load weighs `f` times as much again, on top of the species' `food_weight` (§9) |
 | `PIXEL_PHYSICS_SPOIL_HAUL`, `_DIG_DOWN`, `_SPOIL_DROP_COVER`, `_TRAFFIC_DEFER`, `_COLONY_SPACING` | unset | haulage re-roll to the nest door, downward dig bias, spoil held under cover, jam deferral length, founder spacing |
 

@@ -11,7 +11,7 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 <!-- BEGIN GENERATED INDEX -- regenerate with scripts/bugindex.py -->
 
-**67 open, 130 bugs** (plus 20 landing-note items,
+**66 open, 130 bugs** (plus 20 landing-note items,
 marked `note`). Generated from the headings by
 `scripts/bugindex.py` -- a bug's verdict is written into its own heading, so
 this is derived, never maintained by hand. Entries are never moved when they
@@ -175,7 +175,7 @@ point.
 | Z31 | **OPEN** | 13669 | field::step carries derived arrays forward over a settled chunk that still holds an un-ta... |
 | Z33 | closed | 13749 | A part-eaten fruit put down comes back whole, so putting food down and picking it up crea... |
 | Z34 | **OPEN** | 13843 | deliveries - pickups_at_nest counts the same crumbs into home again and again, so "net fo... |
-| Z35 | **OPEN** | 13878 | A loaded forager's pull home runs out while it loads at the pile, so it walks off the far... |
+| Z35 | closed | 13878 | A loaded forager's pull home runs out while it loads at the pile, so it walks off the far... |
 
 <!-- END GENERATED INDEX -->
 
@@ -13875,7 +13875,7 @@ is fixed, read `trailfollow`'s FOOD BUDGET "taken from the pile" (an upper
 bound: 27% of it is eaten on the way, lost at a carrier's death, or still in
 a crop at the end). Reproduction: `Reports/ant-scenes-2026-09-23.md` §22j.
 
-### Z35. A loaded forager's pull home runs out while it loads at the pile, so it walks off the far side away from home (engine/creatures) — **OPEN, found 2026-09-27**
+### Z35. A loaded forager's pull home runs out while it loads at the pile, so it walks off the far side away from home (engine/creatures) — **FIXED 2026-09-27, found the same day**
 
 **Symptom.** On the colony bed (90 cells, 24 seeds, today's game and with the
 forage drive alike) ants carrying food wander past the food pile to the far
@@ -13899,9 +13899,17 @@ ant, and past-the-pile time per cell taken falls with it (240 → 172).
 pile (0.001 of its decisions beside food, against 0.42 for a part load from
 the pile); the material match in the pickup is the leading candidate.
 
-**Fix, not built.** Reset `home_patience` to 1.0 on each pickup (beside
-`state.foraged = true` in the pickup), or hold it while the ant stands beside
-food. Untested; measure on the bed and in the lab box, since patience also
-governs how long a lost ant keeps trying one way. Reproduction and numbers:
-`Reports/ant-scenes-2026-09-23.md` §22k.
+**Fixed, and shipped on.** Every pickup now restarts the carry's home
+memory -- `home_best`, `home_away` and `home_patience` -- as a new home target
+does (`carry_patience_of`, `PIXEL_PHYSICS_CARRY_PATIENCE`, on unless `off`;
+guard `a_carry_is_measured_from_the_last_cell_loaded_under_carry_patience`,
+watched red). Laden time past the pile per cell taken, median over 24 seeds:
+184 → 65 at 90 cells (22/2) and 107 → 42 at 140 (19/5); with the forage drive
+on, 148 → 79 and 108 → 46. Loads leaving the pile are the same size. The
+time saved goes to home, not to more trips. With the drive on, over 48 seeds:
+at 90 cells food standing at the nest 6,537 → 6,958 J and starved 346 → 313;
+at 140, about 5% less food is taken off the pile (5,717 → 5,402, lower on 31
+of 48 seeds) and nothing the colony lives on moves. Lab box, 12 seeds: flat (food eaten 1.15M → 1.11M J,
+6/6; none died out).
+Reproduction and numbers: `Reports/ant-scenes-2026-09-23.md` §22k, §22m.
 

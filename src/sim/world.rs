@@ -3474,9 +3474,14 @@ pub struct World {
     pub hungry_home: Option<crate::sim::creature::HungryHome>,
     /// **Whether the colony's need sends a fed forager out, overriding
     /// `PIXEL_PHYSICS_FORAGE_DRIVE` for this world** (`creature::
-    /// forage_drive_of`). `None` follows the environment, which is off unless
-    /// set; a field for the reason `chooser` is one.
+    /// forage_drive_of`). `None` follows the environment, which is `always`
+    /// unless set; a field for the reason `chooser` is one.
     pub forage_drive: Option<crate::sim::creature::ForageDrive>,
+    /// **Whether a carry's home memory starts again at every pickup,
+    /// overriding `PIXEL_PHYSICS_CARRY_PATIENCE` for this world**
+    /// (`creature::carry_patience_of`). `None` follows the environment,
+    /// which is on unless set `off`; a field for the reason `chooser` is one.
+    pub carry_patience: Option<bool>,
     /// **Which material stopped a creature**, counted per blocked tick and
     /// indexed by `MaterialId` — the breakdown `CreatureStats::
     /// blocked_by_plant` deliberately does not carry, because that struct is
@@ -5826,6 +5831,7 @@ impl World {
             scout: None,
             hungry_home: None,
             forage_drive: None,
+            carry_patience: None,
             blocked_tissue_by_material: Vec::new(),
             energy_ledger: EnergyLedger::default(),
             colony_books: Vec::new(),

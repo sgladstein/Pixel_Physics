@@ -235,9 +235,10 @@ a brief, for a sub-agent as for a lane, carries:
 And around it:
 - **Choose the type by the job.** A read-only stage runs as `Explore`
   (~27.5-30k to start, against ~78k), with any `CLAUDE.md` rule it needs named
-  in its prompt; a stage that writes files uses a type limited to Bash, Read,
-  Write, Edit, Grep and Glob where one is defined (~41k, measured), else the
-  default.
+  in its prompt. A stage that writes files, **including one whose brief asks
+  it to checkpoint to a `FINDINGS.md`**, which `Explore` cannot write, uses
+  `data-analyst` (`.claude/agents/`: Bash, Read, Write, Edit, Grep and Glob,
+  ~41k to start, keeps `CLAUDE.md`), else the default.
 - **Give a skeptic the cited line ranges** to open in one batch: re-finding
   each citation made skeptics the costliest stage (59-94 calls).
 - **Hand phases a digest, never raw results**: a designer given 222k
