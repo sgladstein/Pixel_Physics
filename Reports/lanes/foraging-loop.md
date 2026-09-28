@@ -164,6 +164,11 @@ filtered out (note the leading spaces), and compare the decision CSVs too.
   --example trailfollow --example labforage`, ~2 minutes incremental), copy
   them into the run directory, and `grep -c` the binary for the switch name.
 - **Don't edit source while a build runs**, and never `pgrep -f`/`pkill -f`.
+- **Never export the bed's env (`COLONY_SPACING`, `STACK_DEPTH`, `BUD_SITE`)
+  in a script that also runs the lab.** A lab run inherited them on
+  2026-09-28, founded 52 where the lab places 41, and every box died by frame
+  35,000 -- read as a harm of the change under test. `labforage` now echoes
+  all three; check the header says `shipped`.
 - **Key every parse by seed.** `carry->nest` is cell-steps, not food.
 - **The `energy` trace column is clamped at 200 J.** "At full energy" in it
   means *at or above the grant*; read `energy_j`. A forager "resting fed" was
