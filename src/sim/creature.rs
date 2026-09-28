@@ -2220,6 +2220,11 @@ fn place_creature(
                 state.energy -= cost;
                 state.seeds_set = state.seeds_set.saturating_add(1);
             }
+            // Under the floor means the ground paid less than `try_bud`
+            // counted on (`reachable_provision`); the parent dies next tick.
+            if world.organism(parent).is_some_and(|s| s.energy < 0.5) {
+                world.creature_stats.births_overdrawn += 1;
+            }
         }
     }
     Some(ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(organism_tick_interval(world, organism, def)) })
@@ -3662,6 +3667,13 @@ fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision
     // surplus put down where the animal lives can each pay for a child.
     let gut = gut_of(world, organism, def);
     let bank = state.energy;
+    // **Face first, because this runs every tick an animal survives.** A
+    // guaranteed price is never above face, so an animal the face sum cannot
+    // carry to its bar cannot get there at all, and the common tick -- an
+    // animal nowhere near its bar -- never pays for pricing a bite.
+    if bank + provisions_in_reach(world, hx, hy, gut).map(|(w, _, _)| w).sum::<f32>() < bar {
+        return None;
+    }
     let reachable = reachable_provision(world, hx, hy, gut);
     if bank + reachable < bar {
         return None;
@@ -8715,9 +8727,50 @@ fn provisions_in_reach(world: &World, x: i32, y: i32, gut: Gut) -> impl Iterator
     })
 }
 
-/// What `provisions_in_reach` is worth in total.
+/// What `provisions_in_reach` is certain to pay in total, which is what a
+/// birth may count on before a single bite is taken.
+///
+/// **Priced at what each bite is guaranteed to pay, not at face**
+/// (`plant::guaranteed_bite_fraction`, `PIXEL_PHYSICS_BIRTH_PRICE`, on unless
+/// set `face`). The payment in `place_creature`'s `Origin::Bud` arm walks the
+/// same cells and pays a bare seed the spared fraction whenever its bite
+/// spares it (`seed_survives_bite`), so a face-value check let a parent bud
+/// on seeds that then paid a quarter of what was counted, and charged it the
+/// full cost anyway: the parent went negative and died on its next tick, the
+/// "birth that kills its parent" `try_bud`'s own doc says the bar exists to
+/// make impossible. Priced this way the payment can fall short of the check
+/// by nothing, so the parent is left at the `+ 1` the floor promises.
 fn reachable_provision(world: &World, x: i32, y: i32, gut: Gut) -> f32 {
-    provisions_in_reach(world, x, y, gut).map(|(w, _, _)| w).sum()
+    let guaranteed = birth_price_of(world);
+    provisions_in_reach(world, x, y, gut).map(|(w, px, py)| if guaranteed { w * plant::guaranteed_bite_fraction(world, px, py) } else { w }).sum()
+}
+
+/// **Whether a birth counts food in reach at what its bite is certain to pay**
+/// (`reachable_provision`): `World::birth_price` if set, else
+/// `PIXEL_PHYSICS_BIRTH_PRICE` (`guaranteed` unless set `face`).
+pub fn birth_price_of(world: &World) -> bool {
+    world.birth_price.unwrap_or_else(birth_price_from_env)
+}
+
+/// `PIXEL_PHYSICS_BIRTH_PRICE`: `guaranteed` (the default) prices a bare seed
+/// in a birth's reach at what a bite that spares it pays; `face` is the rule
+/// before 2026-09-28, which could overdraw the parent. Read once per process.
+pub fn birth_price_from_env() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_birth_price(&std::env::var("PIXEL_PHYSICS_BIRTH_PRICE").unwrap_or_default()))
+}
+
+/// `PIXEL_PHYSICS_BIRTH_PRICE`'s value read as the rule
+/// (`birth_price_from_env`); an unset variable reads as `""`.
+fn parse_birth_price(raw: &str) -> bool {
+    match raw.trim() {
+        "guaranteed" | "" => true,
+        "face" => false,
+        other => {
+            eprintln!("PIXEL_PHYSICS_BIRTH_PRICE={other:?}: unknown, read as guaranteed (face, guaranteed)");
+            true
+        }
+    }
 }
 
 /// **Test-only since `sense`'s `FoodAdjacent` fill switched to
@@ -26416,6 +26469,8 @@ mod tests {
         assert!(!parse_carry_patience(" off "));
         assert!(parse_packed_lunch(""), "unset must be packed lunch on");
         assert!(parse_packed_lunch("on") && !parse_packed_lunch("off"));
+        assert!(parse_birth_price(""), "unset must price a birth at what its bites are certain to pay");
+        assert!(parse_birth_price("guaranteed") && !parse_birth_price("face"), "face must be the old price");
     }
 
     /// **Under `,fed` only a fed forager is driven** (`forage_drive_level`).
@@ -34364,6 +34419,69 @@ mod tests {
             "parent paid {paid:.2}, far more than the {cost:.2} birth cost plus a few ticks of metabolism and {:.2} J shared with kin",
             w.creature_stats.shared_j
         );
+    }
+
+    /// **A birth paid partly in bare seeds never overdraws its parent.**
+    ///
+    /// Measured on the played bed, seed 20 (`Reports/ant-scenes-2026-09-23.md`
+    /// §22p): the affordability check priced a bare seed in reach at face,
+    /// the payment paid a seed its bite spared at `seed_provision_fraction`,
+    /// and the parent was charged the whole cost anyway -- 25 of the first 62
+    /// births left it at -5 to -284 J, and it died on its next tick holding a
+    /// crop of food. Here: a parent `need` short of its bar, beside herb seeds
+    /// that a bite always spares, worth enough at face and too little spared.
+    /// Priced at what a bite is certain to pay (`World::birth_price`), there
+    /// is no birth and the parent keeps its bank; given a bank that the
+    /// spared price does cover, it buds and is left at the floor's `+ 1` or
+    /// above. The fault put back (`birth_price = Some(false)`) is the
+    /// overdrawn parent, so this goes red for the bug it is named for.
+    #[test]
+    fn a_birth_never_overdraws_its_parent_on_seeds() {
+        let herb = |w: &World| w.species.id_of("herb").expect("herb species");
+        let scene = |guaranteed: bool, bank_short_by_spared: bool| {
+            // A threshold under the cost, so the bar is the floor (`cost + 1`)
+            // and any bank under it must be topped up from the ground.
+            let (mut w, founders) = breeding_colony(1, 1.0, 0.0);
+            w.birth_price = Some(guaranteed);
+            let h = herb(&w);
+            w.species.get_mut(h).seed_gut_survival = 1.0;
+            let seed_mat = w.materials.id_of("seed").expect("seed material");
+            let parent = founders[0];
+            let (hx, hy) = w.organism(parent).expect("live").chain[0];
+            // Above and behind the head: the child goes to the first of east,
+            // north-east and north that fits, so the seeds must not take all
+            // three -- two of them stay open.
+            let mut seeds = 0.0;
+            let mut spared = 0.0;
+            for (dx, dy) in [(-1, -1), (0, -1)] {
+                let id = w.push_organism(h).expect("slot");
+                w.set(hx + dx, hy + dy, Cell::new(seed_mat, 0).with_organism_id(id).with_aux(organism::pack_cell_type(CellType::Seed)));
+                let face = diet_yield(&w, w.get(hx + dx, hy + dy), gut_of(&w, parent, &w.species.get(w.organism(parent).expect("live").species).creature.clone().expect("ant")).bias);
+                seeds += face;
+                spared += face * plant::guaranteed_bite_fraction(&w, hx + dx, hy + dy);
+            }
+            assert!(spared < seeds, "premise: a spared seed must pay less than face ({spared} against {seeds})");
+            let def = w.species.get(w.organism(parent).expect("live").species).creature.clone().expect("ant");
+            let bar = reproduce_at_of(&def, &w.organism(parent).expect("live").traits).expect("the ant breeds");
+            // Short of the bar by more than the spared seeds pay and less than
+            // their face, or (the funded arm) by less than the spared price.
+            let bank = if bank_short_by_spared { bar - (spared + seeds) / 2.0 } else { bar - spared / 2.0 };
+            fund(&mut w, parent, bank);
+            let site = try_bud(&mut w, parent, &def, 0.0);
+            (site.is_some(), w.organism(parent).map(|s| s.energy), bank)
+        };
+        let (born, energy, bank) = scene(true, true);
+        assert!(!born, "priced at what the bites are certain to pay, a parent that far short must not bud");
+        assert_eq!(energy, Some(bank), "and must keep its bank untouched");
+        let (born, energy, _) = scene(true, false);
+        assert!(born, "a parent the spared price does cover must still bud");
+        let energy = energy.expect("the parent survives its own birth");
+        assert!(energy >= 1.0 - 1e-3, "and is left at the floor or above, not {energy}");
+        // The fault put back: the old face-value price buds the first parent
+        // and overdraws it.
+        let (born, energy, _) = scene(false, true);
+        assert!(born, "control: at face value the same parent buds");
+        assert!(energy.expect("still in the world until its next tick") < 0.0, "control: and is overdrawn by the birth, the bug this guards");
     }
 
     /// **The threshold can never sit below the cost.**
