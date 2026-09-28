@@ -1,21 +1,27 @@
 # Ants
 
-*Current as of: 2026-09-27, when **foragers stopped resting while the colony
-went short, and stopped walking past the food.**
-A forager used to go out only when it was hungry itself. It brought a load
-home, ate its fill off the nest floor and sat at home until hunger sent it out
-again, so food never built up at the nest. Now an ant that has once picked up
-food out in the world keeps going back for more, hungry or fed. And a loaded forager used to
-lose its sense of the way home while it filled up at a heap, because climbing
-the heap counted as failing to get nearer home. Some walked off the far side
-of the heap and away. Now each mouthful restarts its sense of home and it turns for the nest.
-In a test colony with food 90 cells away, nearly half as much food again
-comes off the heap, 60% more stands at the nest, a fifth fewer foragers starve
-and nearly eight times as many young are born. At 140 cells a third more food comes
-off the heap and six times as many young are born, but as many ants starve as before:
-most die before any forager has found the food. In the lab box colonies eat a quarter more and grow faster, which brings on
-sooner the crash that follows a box eaten bare: three boxes in twelve died out,
-against none before, though as many crashed either way. Earlier that day, **hungry ants started going out to look for food.**
+*Current as of: 2026-09-28, when **foragers stopped resting while the colony
+went short, and stopped walking past the food.** A forager used to go out only
+when it was hungry itself. It brought a load home, ate its fill off the nest
+floor and sat at home until hunger sent it out again, so food never built up at
+the nest. Now an ant that has once picked up food out in the world keeps going
+back for more, hungry or fed. And a loaded forager used to lose its sense of
+the way home while it filled up at a heap, because climbing the heap counted as
+failing to get nearer home. Some walked off the far side of the heap and away.
+Now each mouthful restarts its sense of home and it turns for the nest. In a
+test colony with food 90 cells away, nearly half as much food again comes off
+the heap, 60% more stands at the nest, a fifth fewer foragers starve and nearly
+eight times as many young are born. At 140 cells a third more food comes off
+the heap and six times as many young are born, but as many ants starve as
+before: most die before any forager has found the food. In the lab box colonies
+eat a quarter more and grow faster, which brings on sooner the crash that
+follows a box eaten bare: three boxes in twelve died out, against none before,
+though as many crashed either way.
+The day before, **a colony's spoil heaps stopped hanging in the air.** An ant
+used to press the pellets beside anything it dug into wall, heaps included, so
+a heap dug out from underneath could leave dirt hanging a few rows up in open
+sky. Now a heap stays a heap and slumps when undermined. Earlier the same day,
+**hungry ants started going out to look for food.**
 An ant with nothing to carry and no trail under its feet used to have no reason
 to go anywhere, so a colony sat at home until someone stumbled on food, and
 most ants never left the nest area at all. Now a hungry ant heads out along the
@@ -1167,15 +1173,30 @@ from under an overhang and it comes down a cell at a time off the underside,
 each cell turning back into loose dirt that falls and piles below, so
 undermining your own spoil does something you can watch. The shelf in front of
 the face is still a shelf and a tower is still a tower; what has gone is the
-part that was standing on nothing. And a passage driven through a heap stands,
-because an ant that works a pellet into the side of it has made a wall of
-it.
+part that was standing on nothing.
+
+**Until 2026-09-27 that was only half true.** When an ant dug right beside a
+heap, it pressed the pellets next to the hole into wall, and wall needs
+nothing under it, so a heap dug out from its foot could still leave a block
+of dirt hanging on one thin shelf, a few rows up in open air. **An ant no
+longer presses pellets into wall**: it still walls its tunnels through
+ordinary ground, but a heap it digs beside stays a heap, and when it is
+undermined it slumps into loose dirt. Nothing hangs. The price is that a
+passage dug through a heap no longer stands; the heap slumps into it. In a
+test box the colony's digging comes out with fewer holes to the surface and
+more of it roofed over. In the lab box colonies raised fewer young, and some
+died out, which is accepted while the nest is being built.
 
 **An ant will not put a pellet down just anywhere**, and the two things it
 insists on are the two ways spoil otherwise goes wrong. It has to be able to
 *lie* there — something solid under it, and not a single cell it would be
 balanced on — because cemented dirt does not fall and a crumb left standing
-on nothing stays standing on nothing. And it has to be out in the open,
+on nothing stays standing on nothing. **But "something under it" includes
+another ant, and the ant's own back** (measured 2026-09-27). About two
+pellets in three are set down on an ant or over a hole, and each crumbles
+into loose dirt within moments and falls. That loose dirt is most of what
+fills a colony's holes back in, and it is why the digging near the nest keeps
+starting over. And it has to be out in the open,
 because everything else is the inside of the burrow, and a colony that tips
 its spoil back down its own corridors ends up with no corridors. When there
 is nowhere beside it that will do, the ant takes the pellet out of the burrow

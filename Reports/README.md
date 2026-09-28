@@ -4012,6 +4012,31 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   from theirs), **contents exist without eggs** via the `live_seed` guard, the
   brain-input pricing as the argument *for* their call-site route, and the
   landing discipline. **Treat their plan as the plan.**
+- [nest-spoil-footing-2026-09-27.md](nest-spoil-footing-2026-09-27.md) —
+  **measurement, 2026-09-27. `engine`/`lab`. Two switches and an
+  instrument.** Where the spoil heaps' soil comes from, traced per pellet,
+  and what setting pellets on ground does. Corrects
+  [nest-work-2026-09-27.md](nest-work-2026-09-27.md) §4's guess. Lane note:
+  [lanes/nest-mouth.md](lanes/nest-mouth.md).
+  - **Two pellets in three are put down where they cannot stay**: on the
+    carrying ant's back, on a nestmate, or over a hole. The drop site counts
+    an ant as filled; the footing rule does not. They turn to loose soil
+    within ten frames and are most of what refills the holes.
+  - **`SPOIL_FOOTING=ground` makes digging stick**: the building share
+    doubles (3.1% -> 5.6%), the room doubles on 31% fewer digs, and falls
+    that refill a hole drop to a quarter, 12 of 12 seeds. But packed spoil
+    then hangs in the sky (ground with no path down 16 -> 124), and holes
+    that stay open show how scattered the digging is (mouths 31.5 -> 43).
+  - **`SPOIL_PACKS=off` removes the hanging ground** (16 -> 0, in the shipped
+    game too) and, alone, opens fewer mouths (27.5, 11 of 12).
+  - **Drop-away works once pellets can stay**: 3.5% alone, 7.1% with both
+    switches; its dead end was measured under the unfooted drops.
+  - **Unpacked spoil is the default from the same evening**, under the
+    owner's ruling that colony numbers do not block a step toward the nest:
+    it is the most nest-like arm (fewer mouths 11 of 12, more roofed, no
+    hanging ground), at a cost in the lab's births. The footing rule stays a
+    switch for the dig marker; `DIG_DOWN`, re-scored on nest measures, stays
+    off.
 - [nest-work-2026-09-27.md](nest-work-2026-09-27.md) — **measurement,
   2026-09-27. `engine`/`lab`. Instruments and switches only; nothing in any
   game changed.** Is the colony building a nest, or digging at random? The
