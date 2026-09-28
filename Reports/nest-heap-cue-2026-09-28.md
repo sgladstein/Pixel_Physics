@@ -418,9 +418,12 @@ before the flip:
   colony plans 52 founders and places 43, plants standing on the other nine
   stations, so the reserve was dealt over 52 with nine gaps and is now dealt
   over the 43. With the shaft and the cue both off the old and new binaries
-  already differ by frame 6,300. The flip's own effect
-  there, both arms on the final code, is being run and follows in the next
-  commit.
+  already differ by frame 6,300. On the final code the
+  flip is neutral there (`labforage`, 12 seeds, new default against `=off`):
+  deliveries 6 / 6, food eaten 7 / 5, births 8 / 4, alive 5 / 6, one colony
+  lost in each. The founding fix alone moves every lab trajectory and leans
+  nowhere: against the old shipped runs, food eaten 4 / 8, births 4 / 8,
+  alive 6 / 6.
 - **`ascii`**: 31 of 31 scenes. The excavation scene, whose ants are set
   down by hand beside a bank with no founding shaft, digs 326 -> 151 and
   roofs 83 -> 51 cells of void with the cue on, and still passes its guards:
