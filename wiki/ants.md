@@ -9,14 +9,14 @@ back for more, hungry or fed. And a loaded forager used to lose its sense of
 the way home while it filled up at a heap, because climbing the heap counted as
 failing to get nearer home. Some walked off the far side of the heap and away.
 Now each mouthful restarts its sense of home and it turns for the nest. In a
-test colony with food 90 cells away, nearly half as much food again comes off
-the heap, 60% more stands at the nest, a fifth fewer foragers starve and nearly
-eight times as many young are born. At 140 cells a third more food comes off
-the heap and six times as many young are born, but as many ants starve as
-before: most die before any forager has found the food. In the lab box colonies
-eat a quarter more and grow faster, which brings on sooner the crash that
-follows a box eaten bare: three boxes in twelve died out, against none before,
-though as many crashed either way.
+test colony with food 90 cells away, a third more food comes off the heap, a
+third more stands at the nest, a quarter fewer ants starve and nearly four
+times as many young are born. At 140 cells half as much food again stands at
+the nest, a few fewer ants starve and three times as many young are born; most
+of the dead there still die before any forager has found the food. In the lab
+box colonies eat a quarter more and grow faster, which brings on sooner the
+crash that follows a box eaten bare: three boxes in twelve died out, against
+none before, though as many crashed either way.
 The day before, **a colony's spoil heaps stopped hanging in the air.** An ant
 used to press the pellets beside anything it dug into wall, heaps included, so
 a heap dug out from underneath could leave dirt hanging a few rows up in open

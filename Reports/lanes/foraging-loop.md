@@ -73,17 +73,19 @@ an off-switch that reads what the lab is short of, food out there (Gordon
 2002, *Am Nat* 159:509: harvesters stop when returning foragers stop
 bringing food).
 
-## Baseline (the shipped default, 2026-09-27: drive and carry patience on)
+## Baseline (the shipped default: drive and carry patience on, `main` after #503)
 
 Colony bed, no trail, 24 seeds (seeds 1-24):
 
-| food distance | loops per forager | food taken from the pile | food at the nest | starved of 480 | born |
+| food distance | food taken from the pile | food at the nest | starved of 480 | by frame 6,000 | born |
 |---|---:|---:|---:|---:|---:|
-| 90 | 2.12 | 3,265 | 6,881 J | 158 | 77 |
-| 140 | 1.91 | 2,720 | 6,880 J | 214 | 43 |
+| 90 | 2,921 | 6,166 J | 174 | 136 | 58 |
+| 140 | 2,479 | 5,975 J | 223 | 181 | 26 |
 
-Before them (both `=off`): 90 cells 1.46, 2,241, 4,300 J, 201, 10; 140 cells
-1.57, 2,005, 4,138 J, 209, 7. Lab box, 12 seeds, median, both on: food eaten 1,450k J, births 594, alive at
+Both `=off` on the same tree: 90 cells 2,209, 4,539 J, 230, 159, 15; 140
+cells 1,940, 3,956 J, 242, 182, 9. #503 (spoil stays spoil) moved the bed by
+itself, so numbers from before it (§22m's component table) are a different
+tree. Lab box, 12 seeds, median, both on: food eaten 1,450k J, births 594, alive at
 the end 62, ant-frames lived 12.3M; died out 3, under 10 at the end 3. Before
 them: 1,150k J, 530, 80, 9.6M; 0 and 4.
 

@@ -2375,6 +2375,24 @@ more), born 10 → 77, food standing at the nest 4,300 → 6,881 J (23/1). At
 born 7 → 43, food at the nest 4,138 → 6,880 J (20/4), starved 209 → 214
 (8 fewer, 11 more; the early cull, which neither switch reaches).
 
+**Re-measured on `main` after #503**, which landed while these ran: the nest
+lane's spoil footing, and the lining no longer packing pellets by default.
+That change moves the bed by itself, so the numbers above describe the tree
+before it. Both on against both off, one binary, 24 seeds:
+
+| food at | arm | food taken from the pile | food at the nest | energy in bodies | starved | by frame 6,000 | born |
+|---|---|---:|---:|---:|---:|---:|---:|
+| 90 | both off | 2,209 | 4,539 J | 3,345 J | 230 | 159 | 15 |
+| 90 | both on | **2,921** (22/2) | **6,166 J** (19/5) | **5,740 J** (23/1) | **174** (4 more / 16 fewer) | 136 (7/11) | **58** (20/3) |
+| 140 | both off | 1,940 | 3,956 J | 2,923 J | 242 | 182 | 9 |
+| 140 | both on | **2,479** (21/3) | **5,975 J** (20/4) | **4,229 J** (24/0) | **223** (4 more / 15 fewer) | 181 (9/9) | **26** (13/3) |
+
+The same direction as before and, at 140 cells, better: starvation now falls
+there too (p 0.02). The nest change alone, both switches off, paired against
+the committed default: starved 201 → 230 at 90 cells (13 more / 9 fewer, p
+0.52) and 209 → 242 at 140 (12/8, p 0.50); by frame 6,000 at 90, 125 → 159
+(16/7, p 0.09). Not significant; passed to the nest lane.
+
 **Frame cost** (`ascii scene=foraging`, one binary, off and on alternated
 three times): mean frame 1.251 → 1.293 ms at the median, slower in 2 of 3
 pairs, inside the spread of one arm's own runs (1.22-1.31 ms). The worst
