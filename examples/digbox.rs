@@ -2766,7 +2766,7 @@ fn main() {
             pixel_physics::sim::creature::nest_shaft_width(),
             std::env::var("PIXEL_PHYSICS_BURROW_LINING").as_deref() != Ok("off")
         ),
-        None => println!("  founding: painted strip only, nothing dug (PIXEL_PHYSICS_NEST_SHAFT unset)"),
+        None => println!("  founding: painted strip only, nothing dug (PIXEL_PHYSICS_NEST_SHAFT=off)"),
     }
     println!("  {}", pixel_physics::sim::creature::spoil_switches_line());
     match pixel_physics::sim::creature::nest_home(&world) {

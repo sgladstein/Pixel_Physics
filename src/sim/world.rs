@@ -3467,9 +3467,18 @@ pub struct World {
     /// **The founding shaft's depth in rows, overriding
     /// `PIXEL_PHYSICS_NEST_SHAFT` for this world**
     /// (`creature::World::dig_founding_shaft`). `None` follows the
-    /// environment, which cuts nothing unless set; a field so a guard can
-    /// found a colony over a shaft without the variable.
+    /// environment, which cuts `creature::NEST_SHAFT_ROWS` unless it says
+    /// `off`; `Some(0)` cuts nothing. A field so a guard can take both arms
+    /// in one process.
     pub nest_shaft: Option<i32>,
+    /// **The heap cue, overriding `PIXEL_PHYSICS_SPOIL_CUE` for this world**
+    /// (`creature::spoil_cue_of`). `None` follows the environment, which is
+    /// `creature::SPOIL_CUE_SHIPPED` unless it says `off`; `Some(None)` turns
+    /// the cue off. A scene that places animals by hand rather than founding
+    /// them has no founding shaft and so no heap to start from, and at the
+    /// shipped floor of 0 its animals could never open bare ground -- this is
+    /// how such a scene says it wants the ant before the cue.
+    pub spoil_cue: Option<Option<crate::sim::creature::SpoilCue>>,
     /// **How hard a hungry empty ant off a route is drawn away from home,
     /// overriding `PIXEL_PHYSICS_SCOUT` for this world** (`creature::scout_of`).
     /// `None` follows the environment, which is 0 (no pull) unless set; a
@@ -5836,6 +5845,7 @@ impl World {
             bud_at_nest: None,
             nest_home: None,
             nest_shaft: None,
+            spoil_cue: None,
             scout: None,
             hungry_home: None,
             forage_drive: None,

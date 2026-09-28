@@ -8,16 +8,23 @@ the lane on "one mouth: ten remain along the nest strip".*
 ## 0. The answer
 
 **The colony now digs one nest with one entrance area, not ten holes along
-the nest strip.** Two switches, both off by default:
-- the founding shaft (`PIXEL_PHYSICS_NEST_SHAFT=6`, built 2026-09-26);
-- a new heap cue (`PIXEL_PHYSICS_SPOIL_CUE=5,0`): a dig that would open the
-  ground to the sky needs a heap of spoil beside it.
+the nest strip.** Two switches, **both on by default since the second PR of
+this report** (§9):
+- the founding shaft (`PIXEL_PHYSICS_NEST_SHAFT`, 6 rows, built 2026-09-26);
+- a new heap cue (`PIXEL_PHYSICS_SPOIL_CUE`, `K` 5, floor 0): a dig that
+  would open the ground to the sky needs a heap of spoil beside it.
+
+`=off` on either is the ant before it, bit for bit. A third, dig down, makes
+the nest better still and stays off, because it takes the foragers
+underground (§8).
 
 The cue governs such a dig whether the ant stands on the surface or a tunnel
 is breaking out from below.
 
 In `digbox` (40 ants, energy 1,000, no food, 12 seeds, frame 12,000), on the
-committed code, against the shipped ant:
+committed code, against the shipped ant. **"Shipped" in this report's tables
+is the ant before the shaft and the cue came on**, now spelled
+`PIXEL_PHYSICS_NEST_SHAFT=off PIXEL_PHYSICS_SPOIL_CUE=off`:
 
 | | shipped | shaft + cue | + dig down | seeds better (shaft + cue / + dig down) |
 |---|---:|---:|---:|---:|
@@ -102,10 +109,13 @@ shipped ant, 12 seeds:
   only while `f < 1`.
 - **What it leaves alone.** A pellet target (digging a heap out is refill
   churn), and a cut under a roof.
-- **Spellings.** `on` is `K` 1.5, floor 0.1; `K,floor` sets both.
+- **Spellings.** `off` removes it; `K,floor` sets both dials. Unset and
+  `on` are the shipped `K` 5, floor 0 (`SPOIL_CUE_SHIPPED`) since §9. Until
+  then unset was off and `on` meant `K` 1.5, floor 0.1, the first hook's
+  arm; the change keeps any spelling from naming a setting nothing ships.
 
 It is a data test (`needs_footing`, which only `spoil` carries), not a name
-lookup. Unset, it reads nothing and takes no draw.
+lookup. Off, it reads nothing and takes no draw.
 
 **Controls and guards.**
 - **Floor 1.** With the floor at 1, every factor is 1 and the runs are
@@ -289,15 +299,119 @@ large swings in the medians the lab always shows.
 Whether the dug mouth is buried by the colony's own food, the 2026-09-26
 finding, needs `labshot`'s cut census and was not run.
 
-## 7. What is next
+## 7. The lab: the founding mouth is buried in every arm
 
-1. **Defaults.** The owner prefers options on unless there is a good reason.
-   Shaft, cue and dig down together are the candidate. The lab has to be
-   read first, above all for the 2026-09-26 finding that the dug mouth gets
-   buried by the colony's own food.
-2. **The creep.** A heap of any age licenses an opening, so once spoil covers
-   the strip the cue tells nothing apart. A fresh heap is the biology's cue.
-   Pellets carry no age; giving them one is the next lever.
+`labshot` on the lab's `played_bed` (the owner's planting, grown for 6,000
+frames before a colony lands), 12 seeds, 120,000 frames, one binary on the
+committed code. At each stop its census reads the founding cut: how much of
+it is open, and how many cells of cover lie over its mouth.
+
+| mouth open, of 12 seeds | 6,300 | 12,600 | 30,600 | 60,300 | 119,700 |
+|---|---:|---:|---:|---:|---:|
+| shaft alone | 6 | 2 | **0** | 1 | 5 |
+| shaft + cue | 6 | 3 | **0** | 1 | 4 |
+| + dig down | 6 | 4 | **0** | 1 | 4 |
+
+- **Buried on 12 of 12 seeds by frame 30,600, in every arm.** The
+  2026-09-26 census found the same under the door and home switches (11-12 of
+  12). The shaft alone buries the same way, so neither those switches nor
+  these cause it.
+- **Buried from above, by what the colony brings home and what grows.**
+  Over every seed and stop the cover is delivered food (crumbs) and plants,
+  and late on loose soil and lining. Spoil is 0 to 2 cells of it in each
+  arm: the colony does not fill its mouth with its own digging.
+- **The picture** (seed 7, three arms, five stops, sent to the owner): the
+  grass of the lab's planting grows across the whole nest ground and over the
+  mouth by frame 12,600. By 60,300 the plants have died back to stalks among
+  the crumbs. Underneath, all three colonies have long sloping tunnels.
+- **The colony's size at the end is a boom and a bust, not a verdict.** At
+  60,300 the cue's colonies are larger than the shaft alone's on 8 of 12. At
+  119,700 they are smaller on 9 (3 larger, p 0.15), five of them at 3 ants or
+  fewer against none with the shaft alone. Dig down turns it round: larger
+  than the cue alone on 9 of 12 (p 0.07), one at 3 or fewer. Against the
+  shipped ant (`labforage`, §6) the cue's colonies ended larger on 7 of 12.
+
+## 8. Dig down on the colony bed and the lab
+
+Run because the owner's rule asks whether a switch that helps the nest should
+ship on. `trailfollow`, 24 seeds, 20 founders, gap 90, one binary, paired by
+seed:
+
+| | shipped | shaft + cue | + dig down | dig down higher / lower than shaft + cue |
+|---|---:|---:|---:|---:|
+| starved | 201 | 83 | **295** | 22 / 0 |
+| food taken from the pile, cells | 3,043 | 3,744 | **1,870** | 0 / 24 |
+| food standing at the nest, J (median) | 7,000 | 7,160 | 5,784 | 7 / 17 |
+| born | 59 | 59 | 25 | 4 / 15 |
+| ants that ever reached the food | 305 | 369 | 216 | |
+
+It is the 2026-09-27 mechanism unchanged (`dead-ends.md`'s `DIG_DOWN`
+entry): an ant at home, where `Dig` runs high, turns down and digs instead of
+going out. The dig wiring lowered `Dig` away from home and left it high at
+home, so that entry's re-test condition is not met.
+
+**The lab** (`labforage`, 12 seeds) was still running when this section was
+first committed; its pairs follow in the next commit.
+
+## 9. The default: the shaft and the cue on, dig down a switch
+
+- **The rule** (owner, 2026-09-27, in `CLAUDE.md`): a switch that measures as
+  a gain or as neutral ships on, and a good reason to keep one off is a
+  measured harm, stated in its doc and the report.
+- **The shaft and the cue: on.** They gain on the nest (every dig box
+  measure; openings fewer on 12 of 12 seeds) and on the colony bed
+  (starvation 201 -> 83, food taken +23%), and are neutral in the lab (§6's
+  ties; the mouth buried exactly as with the shaft alone, §7).
+- **Dig down: off, for the harm in §8.** Its doc (`dig_down_bias`) says so,
+  and names what brings it on: the turn has to stop recruiting the foragers.
+- **In the code.** `NEST_SHAFT_ROWS` (6) and `SPOIL_CUE_SHIPPED` (`K` 5,
+  floor 0) are the unset values, and `off` on either is the ant before it.
+  `World::spoil_cue` joins `World::nest_shaft` as a per-world override. The
+  `ascii` construction scene places its ants by hand on a lattice with no
+  heap, and turns the cue off beside the supply it already pins.
+- **Floor 0 leans on the founding shaft.** A colony opens bare ground only
+  beside a heap, so one placed without a founding cut never opens it. Every
+  game founds through `found_colony_of`, which cuts one. A hand-built scene
+  that wants the ant before the cue sets `World::spoil_cue`.
+
+**The proofs** -- the new default against the committed-code arms, bit for
+bit, and the full suite -- follow in the next commit.
+
+## 10. The creep, sized before building a fresh heap
+
+§11 proposed a fresh heap as the next lever: pellets carry no age, so a heap
+of any age licenses an opening. `digbox`'s funnel already dates every pellet
+it sees put down, so the lever's reach could be read before building it. In
+the window where the creep happens, frames 12,000 to 24,000, over 12 seeds:
+
+| | new openings | spoil beside | fresh spoil beside (≤ 1,000 frames) | old spoil only |
+|---|---:|---:|---:|---:|
+| shaft + cue | 54 | 53 | 34 | **19 (35%)** |
+| + dig down | 34 | 32 | 17 | **15 (44%)** |
+
+- A cue that counted only fresh pellets could refuse at most the last column,
+  and less if the ants then opened somewhere else: a third to under a half of
+  the creep.
+- The rest open beside fresh spoil, next to digging that is going on now:
+  the porous top of the one body, not a new start. So pellet age is a partial
+  lever at best, and it is not built.
+
+## 11. What is next
+
+1. **The mouth in the lab** (§7). It is buried by what the colony brings
+   home and by the planting growing over the nest ground, not by digging.
+   Two readings, to put to the owner before building either:
+   - the colony keeps its door clear, as real ants clear their entrances;
+   - the food goes inside, into a chamber, so it stops landing on the door.
+     That is chambers with contents (item 4), and the food drop belongs to
+     the foraging lane, so it would be a joint step.
+2. **Dig down without the foraging harm** (§8). The turn has to stop
+   recruiting the foragers. Two candidates, each measured first on the colony
+   bed:
+   - a genome weight, the owner's preferred route: a hungry ant's `Dig`
+     lower, so it goes out rather than down;
+   - the turn only for an ant the ground already encloses, so none starts a
+     new hole from the surface at home.
 3. **The brain input**, per the owner's ruling. The sense is the pellet count
    beside the target, and the gate is "this cut opens the sky". Each new
    input costs 24 genome slots and moves every breeding scene, so it is
@@ -306,7 +420,10 @@ finding, needs `labshot`'s cut census and was not run.
    of narrow passages, not rooms. The research's rank-1 cue is contents,
    which the dig box lacks.
 
-## 8. Predictions, written before each batch
+The creep is closed for now: a fresh heap would refuse at most a third to
+under a half of it (§10).
+
+## 12. Predictions, written before each batch
 
 | # | arm | prediction | result | right? |
 |---|---|---|---|---|
@@ -337,3 +454,9 @@ finding, needs `labshot`'s cut census and was not run.
 | 79 | lab | births no worse than 4 / 8; ≤ 1 extra colony lost | 5 / 7; 1 lost either way | right |
 | 80 | dig down 1.0, frame 24,000 | ≤ 4 openings, fewer than shaft + cue on ≥ 8; depth ≥ 15 | 5, fewer on 6 of 12; depth 9 | wrong |
 | 81 | dig down 0.5, frame 24,000 | between the two | 6 openings, depth 11 | mostly wrong |
+| 82 | lab census, shaft alone | mouth buried at 30,600 on 6-9 of 12 | 12 of 12 | wrong: worse |
+| 83 | lab census, shaft + cue | open on more seeds than the shaft alone at 30,600 and 60,300 | 0 against 0, 1 against 1 | wrong |
+| 84 | lab census, + dig down | open on at least as many as the cue from 30,600 on | 0, 1, 4 against 0, 1, 4 | right, as a tie |
+| 85 | lab census | the cover is crumbs and plants, not spoil | spoil 0-2 cells an arm | right |
+| 86 | colony bed, + dig down | starved within ±25 of shaft + cue's 83, under shipped on ≥ 20 of 24 | 295; over shipped on 19 | wrong |
+| 87 | colony bed, + dig down | food taken within ±10% of shaft + cue | -50%, lower on 24 of 24 | wrong |

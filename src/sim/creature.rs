@@ -2804,17 +2804,18 @@ pub fn nest_site_rows() -> Option<i32> {
     *ROWS.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SITE_ROWS").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v >= 0))
 }
 
-/// **How many rows the founding gesture DIGS, or `None` for the shipped
-/// painted-only door.**
+/// **How many rows the founding gesture DIGS, or `None` for the painted-only
+/// door the ant had before 2026-09-28.**
 ///
 /// `PIXEL_PHYSICS_NEST_SHAFT=<rows>` makes founding cut a shaft and an
 /// entrance chamber instead of only converting surface ground; see
 /// [`World::dig_founding_shaft`] for the architecture and where its numbers
-/// come from. Unset is bit-exact.
+/// come from. **Unset is [`NEST_SHAFT_ROWS`] since 2026-09-28**, and `off`
+/// (or `0`) is the ant before it, bit for bit.
 ///
-/// **A parse failure falls back to unset rather than to 0**, matching
-/// [`nest_core`]: a typo that silently reverted the mechanism would put the
-/// control into a sweep wearing another point's label.
+/// **A parse failure falls back to the default rather than to off**,
+/// matching [`nest_core`]: a typo that silently reverted the mechanism would
+/// put the control into a sweep wearing another point's label.
 ///
 /// Depth is a dial rather than a constant on purpose. The founding queen's
 /// depth control is *idiothetic and temporal* (Roces, *J. Exp. Biol.* 2012)
@@ -2824,7 +2825,37 @@ pub fn nest_site_rows() -> Option<i32> {
 /// internal reference nothing here models yet.
 pub fn nest_shaft_rows() -> Option<i32> {
     static ROWS: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
-    *ROWS.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SHAFT").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v > 0))
+    *ROWS.get_or_init(|| parse_nest_shaft(&std::env::var("PIXEL_PHYSICS_NEST_SHAFT").unwrap_or_default()))
+}
+
+/// **The founding shaft's depth when `PIXEL_PHYSICS_NEST_SHAFT` is unset:
+/// on since 2026-09-28**, by the owner's rule that a switch measuring as a
+/// gain or as neutral ships on (`CLAUDE.md`).
+///
+/// **What it measured, with [`SpoilCue`] on beside it**
+/// (`Reports/nest-heap-cue-2026-09-28.md`): in `digbox` (40 ants, 12 seeds,
+/// frame 12,000) the colony opens 4 holes to the surface instead of 10, on
+/// 12 of 12 seeds, with 0.94 of the dug room roofed against 0.76; on the
+/// colony bed (24 seeds) starvation fell 201 -> 83, fewer on 22 of 24; the
+/// lab box (12 seeds) ties. **Alone it adds a hole and stops none** (12
+/// openings in `digbox`): the shaft gives the colony one place to start, and
+/// the cue is what keeps it the only one. 6 is the depth every one of those
+/// arms ran at.
+pub const NEST_SHAFT_ROWS: i32 = 6;
+
+/// `PIXEL_PHYSICS_NEST_SHAFT`'s value read as a depth ([`nest_shaft_rows`]).
+fn parse_nest_shaft(raw: &str) -> Option<i32> {
+    match raw.trim() {
+        "" => Some(NEST_SHAFT_ROWS),
+        "off" | "0" => None,
+        v => match v.parse::<i32>() {
+            Ok(rows) if rows > 0 => Some(rows),
+            _ => {
+                eprintln!("PIXEL_PHYSICS_NEST_SHAFT={v:?}: not `off` or a depth in rows; read as unset ({NEST_SHAFT_ROWS})");
+                Some(NEST_SHAFT_ROWS)
+            }
+        },
+    }
 }
 
 /// **How many columns wide the founding shaft is** --
@@ -9421,28 +9452,57 @@ pub const SPOIL_CUE_REACH: i32 = 2;
 /// ground 0, and a shallow dent at a mouth's lip in between.
 pub const SPOIL_CUE_ENCLOSED: f32 = -0.3;
 
-/// The shipped cue: see [`SpoilCue`].
+/// **The cue the ant ships with: on since 2026-09-28**, by the owner's rule
+/// that a switch measuring as a gain or as neutral ships on (`CLAUDE.md`).
+///
+/// `K` 5 and floor 0 are the arm every figure in
+/// `Reports/nest-heap-cue-2026-09-28.md` §0 was measured at, beside
+/// [`NEST_SHAFT_ROWS`]: `K` barely moved the openings (4, 5 and 4 at 1.5, 3
+/// and 5) and at 5 the worst seed was the most nest-like. **Floor 0 means a
+/// colony opens bare ground only beside a heap**, so it leans on the
+/// founding shaft for its first one: every game founds through
+/// [`World::found_colony_of`], which cuts it. Animals placed any other way
+/// -- a test's hand-built scene, `digbox`'s free ants -- have no heap to
+/// start from, and [`World::spoil_cue`] is how such a scene turns the cue
+/// off.
+pub const SPOIL_CUE_SHIPPED: SpoilCue = SpoilCue { k: 5.0, floor: 0.0 };
+
+/// The cue this process runs: [`SPOIL_CUE_SHIPPED`] unless
+/// `PIXEL_PHYSICS_SPOIL_CUE` says otherwise. See [`SpoilCue`].
 pub fn spoil_cue() -> Option<SpoilCue> {
     static V: std::sync::OnceLock<Option<SpoilCue>> = std::sync::OnceLock::new();
     *V.get_or_init(|| parse_spoil_cue(&std::env::var("PIXEL_PHYSICS_SPOIL_CUE").unwrap_or_default()))
 }
 
-/// `PIXEL_PHYSICS_SPOIL_CUE`'s value read as a cue ([`spoil_cue`]). A value
-/// it cannot read is reported and read as unset, never as some other cue.
+/// The cue in force in `world`: its [`World::spoil_cue`] override, else the
+/// process's [`spoil_cue`].
+pub fn spoil_cue_of(world: &World) -> Option<SpoilCue> {
+    world.spoil_cue.unwrap_or_else(spoil_cue)
+}
+
+/// `PIXEL_PHYSICS_SPOIL_CUE`'s value read as a cue ([`spoil_cue`]): unset
+/// and `on` are [`SPOIL_CUE_SHIPPED`], `off` is the ant before the cue, bit
+/// for bit, and `K[,floor]` sets the dials (the floor is the shipped one when
+/// left out). A value it cannot read is reported and read as unset, never as
+/// some other cue.
+///
+/// **`on` meant `K` 1.5, floor 0.1 until the cue shipped** -- the first
+/// hook's arm (`Reports/nest-heap-cue-2026-09-28.md` §4) -- and now means the
+/// shipped cue, so a spelling never names a setting nothing ships.
 fn parse_spoil_cue(raw: &str) -> Option<SpoilCue> {
     let raw = raw.trim();
     match raw {
-        "" | "off" => None,
-        "on" => Some(SpoilCue { k: 1.5, floor: 0.1 }),
+        "" | "on" => Some(SPOIL_CUE_SHIPPED),
+        "off" => None,
         _ => {
             let mut parts = raw.split(',').map(str::trim);
             let k = parts.next().and_then(|v| v.parse::<f32>().ok()).filter(|k| *k > 0.0);
-            let floor = parts.next().map_or(Some(0.1), |v| v.parse::<f32>().ok().filter(|f| (0.0..=1.0).contains(f)));
+            let floor = parts.next().map_or(Some(SPOIL_CUE_SHIPPED.floor), |v| v.parse::<f32>().ok().filter(|f| (0.0..=1.0).contains(f)));
             match (k, floor, parts.next()) {
                 (Some(k), Some(floor), None) => Some(SpoilCue { k, floor }),
                 _ => {
                     eprintln!("PIXEL_PHYSICS_SPOIL_CUE={raw:?}: not `on`, `off` or `K[,floor]` (K > 0, floor in 0..1); read as unset");
-                    None
+                    Some(SPOIL_CUE_SHIPPED)
                 }
             }
         }
@@ -9511,8 +9571,9 @@ pub fn spoil_switches_line() -> String {
         if spoil_footing_drop() { "ground (PIXEL_PHYSICS_SPOIL_FOOTING)" } else { "shipped" },
         if spoil_packs() { "on (PIXEL_PHYSICS_SPOIL_PACKS)" } else { "shipped (off)" },
         match spoil_cue() {
+            Some(c) if c == SPOIL_CUE_SHIPPED => format!("K {} floor {} (shipped)", c.k, c.floor),
             Some(c) => format!("K {} floor {} (PIXEL_PHYSICS_SPOIL_CUE)", c.k, c.floor),
-            None => "off".to_string(),
+            None => "off (PIXEL_PHYSICS_SPOIL_CUE)".to_string(),
         }
     )
 }
@@ -9607,6 +9668,19 @@ fn turn_toward(from: u8, to: u8) -> u8 {
 /// every `creature_space` baseline, which is not affordable inside one
 /// question. If the direction turns out to be worth shipping, that bill is
 /// the follow-on and not this.
+///
+/// **Off by default for a measured harm, and it is the colony's food, not
+/// its nest.** Measured 2026-09-28 on top of the founding shaft and the heap
+/// cue, both on (`Reports/nest-heap-cue-2026-09-28.md` §8): in `digbox` it
+/// makes the nest better still (openings 4 -> 2.5 at frame 12,000, more
+/// nest-like than random digging on 12 of 12 seeds), but on the colony bed
+/// (24 seeds, gap 90) starvation goes **83 -> 295, higher on 22 of 24**, and
+/// food taken off the pile **3,744 -> 1,870 cells, lower on 24 of 24**. It is
+/// the mechanism of 2026-09-27 (`Reports/dead-ends.md`'s `DIG_DOWN` entry):
+/// an ant at home, where `Dig` runs high, turns down and digs instead of
+/// going out. The dig wiring lowered `Dig` away from home and left it high
+/// at home, so the condition that entry names is not met. It comes on when
+/// the turn stops recruiting the foragers.
 fn dig_down_bias() -> Option<f32> {
     static W: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
     *W.get_or_init(|| {
@@ -11409,8 +11483,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         let (dx, dy) = DIRS[heading as usize];
         let (tx, ty) = (x + dx, y + dy);
         let target = world.get(tx, ty);
-        // **A heap draws where digging starts, under `PIXEL_PHYSICS_SPOIL_CUE`**
-        // ([`spoil_cue`]): a cut that would open the ground to the sky goes
+        // **A heap draws where digging starts** ([`SpoilCue`], on since
+        // 2026-09-28, [`spoil_cue_of`]): a cut that would open the ground to the sky goes
         // ahead with probability `f`, the heap factor for the pellets beside
         // it. **Judged on the cell actually cut, after the `DIG_DOWN` turn
         // above.** It first scaled the roll by the cell ahead *before* that
@@ -11419,8 +11493,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // `PIXEL_PHYSICS_DIG_DOWN=1.0` new openings from the surface went 77
         // -> 212 over 12 seeds, three in four with no spoil beside them. A
         // draw is taken only while `f < 1`, so the floor-1 control takes none
-        // and stays bit-exact with the switch unset, as does the switch unset.
-        let vetoed = match spoil_cue() {
+        // and stays bit-exact with the cue off, as does the cue off.
+        let vetoed = match spoil_cue_of(world) {
             Some(cue) => {
                 let radius = curvature_radius_of(def, &traits_of(world, organism, def)).max(1);
                 match spoil_cue_factor(world, (x, y), (tx, ty), radius, cue) {
@@ -34537,13 +34611,32 @@ mod tests {
     /// than some other cue.
     #[test]
     fn the_heap_cue_parses_its_spellings_and_refuses_the_rest() {
-        assert_eq!(parse_spoil_cue(""), None);
+        // Shipped on since 2026-09-28: unset and `on` are the measured arm,
+        // and `off` is the only way back to the ant before the cue.
+        assert_eq!(parse_spoil_cue(""), Some(SPOIL_CUE_SHIPPED));
+        assert_eq!(parse_spoil_cue("on"), Some(SPOIL_CUE_SHIPPED));
+        assert_eq!(SPOIL_CUE_SHIPPED, SpoilCue { k: 5.0, floor: 0.0 }, "the arm every figure in the report was measured at");
         assert_eq!(parse_spoil_cue("off"), None);
-        assert_eq!(parse_spoil_cue("on"), Some(SpoilCue { k: 1.5, floor: 0.1 }));
-        assert_eq!(parse_spoil_cue("3"), Some(SpoilCue { k: 3.0, floor: 0.1 }));
+        assert_eq!(parse_spoil_cue("3"), Some(SpoilCue { k: 3.0, floor: 0.0 }), "a floor left out is the shipped one");
         assert_eq!(parse_spoil_cue(" 2.5 , 0.25 "), Some(SpoilCue { k: 2.5, floor: 0.25 }));
         for bad in ["x", "0", "-1", "2,1.5", "2,0.1,9", "2,"] {
-            assert_eq!(parse_spoil_cue(bad), None, "{bad:?} must read as unset");
+            assert_eq!(parse_spoil_cue(bad), Some(SPOIL_CUE_SHIPPED), "{bad:?} must read as unset, which is the shipped cue");
+        }
+    }
+
+    #[test]
+    fn the_founding_shaft_parses_its_spellings_and_refuses_the_rest() {
+        // Shipped on since 2026-09-28: unset is the measured depth, `off` or
+        // `0` the painted-only door before it, and a typo the default rather
+        // than off -- a typo that turned the mechanism off would put the
+        // control into a sweep wearing another point's label.
+        assert_eq!(parse_nest_shaft(""), Some(NEST_SHAFT_ROWS));
+        assert_eq!(NEST_SHAFT_ROWS, 6, "the depth every figure in the report was measured at");
+        assert_eq!(parse_nest_shaft("off"), None);
+        assert_eq!(parse_nest_shaft("0"), None);
+        assert_eq!(parse_nest_shaft(" 12 "), Some(12));
+        for bad in ["x", "-3", "6.5"] {
+            assert_eq!(parse_nest_shaft(bad), Some(NEST_SHAFT_ROWS), "{bad:?} must read as unset, which is the shipped depth");
         }
     }
 }

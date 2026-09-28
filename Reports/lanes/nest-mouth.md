@@ -48,35 +48,36 @@ the live question, what is addressed to another lane, predictions and heads.*
 
 ## Live question
 
-**Is the colony building a nest? It digs one nest with one entrance area
-under two switches** ([`../nest-heap-cue-2026-09-28.md`](../nest-heap-cue-2026-09-28.md)).
+**Is the colony building a nest? It digs one nest with one entrance area,
+and since 2026-09-28 that is the shipped ant**
+([`../nest-heap-cue-2026-09-28.md`](../nest-heap-cue-2026-09-28.md)).
 - **2026-09-28, shipped:** the dig wiring, `(Bias, Dig, -0.3)` with
   `(SurfaceCurvature, Dig, -1.0)` (#505). Openings 27.5 -> 10, digging in
   one place ([`../nest-dig-wiring-2026-09-28.md`](../nest-dig-wiring-2026-09-28.md)).
-- **2026-09-28, off:** `PIXEL_PHYSICS_SPOIL_CUE=5,0` with
-  `PIXEL_PHYSICS_NEST_SHAFT=6`. A dig that would open the ground to the sky
-  needs a heap beside it, from above or below.
-  - **Dig box:** openings 10 -> 4 (12 of 12), roofed 0.94, width 16. With
-    `DIG_DOWN=1.0` as well, 2.5 openings, more nest-like than random
-    walkers on every seed. About half the digging by frame 12,000.
-  - **Frame 24,000:** openings creep to 5-6, as shallow galleries spread
-    spoil over the whole strip.
+- **2026-09-28, shipped on:** the founding shaft (6 rows) and the heap cue
+  (`K` 5, floor 0), switches in #506 and on by the owner's default rule. A
+  dig that would open the ground to the sky needs a heap beside it, from
+  above or below. `=off` on either is the ant before.
+  - **Dig box:** openings 10 -> 4 (12 of 12), roofed 0.94, width 16. About
+    half the digging by frame 12,000; by 24,000 openings creep to 6.
   - **Colony bed:** starved 201 -> 83 (fewer on 22 of 24).
-  - **Lab:** ties on the pairs; 2.5 times the roofed room on seed 11.
-- **Spoil stays spoil** (#503); the footing switch undoes the cue (spoil
-  everywhere) and stays off.
-- **The marker is the heap**, not a scent at the face (owner, 2026-09-28).
+  - **Lab:** ties on the pairs. The founding mouth is buried by frame 30,600
+    on 12 of 12 seeds, in every arm, under food and plants.
+- **Dig down stays off:** it makes the nest better still (2.5 openings) and
+  takes the foragers underground (bed starvation 83 -> 295).
+- **The creep:** a fresh heap would refuse at most a third to under a half
+  of it, so it is not built.
 
 **Next** (2026-09-28):
-1. **Land the cue and the census** (off, #506). The bed and the lab are
-   read; next is the default, shaft + cue + dig down, and the creep (a
-   fresh heap, not any heap).
-2. **The brain input** for the cue, once the beds are read (owner's order).
-3. **Bigger and deeper**: a longer run, to see whether half the early
-   digging catches up.
-4. **Chambers** need contents (brood or a granary), which the dig box
-   lacks.
-5. **Why unpacked spoil cost the lab**: not traced.
+1. **The mouth in the lab:** kept clear by the colony, or the food taken
+   inside? Ask the owner before building either; the second is a joint step
+   with the foraging lane (the food drop is theirs).
+2. **Dig down without the foraging harm:** a hungry ant's `Dig` lowered
+   through the genome, or the turn only for an enclosed ant. Measured first
+   on the colony bed.
+3. **The brain input** for the cue (owner's order); 24 genome slots, so
+   planned with the lab lines.
+4. **Chambers** need contents (brood or a granary), which the dig box lacks.
 
 ## Working agreement with the foraging lane (2026-09-27)
 
