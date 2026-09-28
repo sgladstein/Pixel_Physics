@@ -9,7 +9,8 @@
 //! ant's dig wiring is
 //!
 //! ```text
-//! dig_urge = squash(0.15*Bias + 0.8*FoodAdjacent - 0.55*MoistureGrad + 2.5*u5 - 2.5*u6)
+//! dig_urge = squash(-0.3*Bias - 1.0*SurfaceCurvature + 0.8*FoodAdjacent - 0.55*MoistureGrad + 2.5*u5 - 2.5*u6)
+//!            (the first two terms since 2026-09-28; before, `0.15*Bias` alone)
 //! u5 = squash(-30 + 30*AtNest + 6*Crowding)    u6 = squash(-30 + 30*AtNest - 6*Crowding)
 //! ```
 //!

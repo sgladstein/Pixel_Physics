@@ -45,7 +45,9 @@ will be.
   §5 steps 5-6 and §12 again on 2026-09-27 for the spoil footing and packing
   switches (`spoil_site_open`, `is_footing`, `spoil_footing_drop`,
   `pack_neighbours_with`, `spoil_packs`), and again that evening when the
-  lining stopped packing spoil by default.
+  lining stopped packing spoil by default. §3 and §4 on 2026-09-28 for the
+  dig wiring (`ant.ron`'s `(Bias, Dig, -0.3)` and
+  `(SurfaceCurvature, Dig, -1.0)`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -191,7 +193,7 @@ squash(0.5 − 6a))` for a forward difference `a`. That is ±1.5 at a = ±0.1,
 | `Feed` | `Bias +0.4, FoodAdjacent +0.8`: 0.29, or 0.55 with food in reach | §5 |
 | `Drop` | `Bias −2.0, Energy +1.8, AtNest +1.0889, Carrying +0.2`: **0 away from the nest; at it, 0.52 when fed and 0 below about 40% of `start_energy`** | §5 |
 | `DropSpoil` | `AtNest +0.9, Carrying +0.2, SurfaceCurvature +0.169` | §5 |
-| `Dig` | `Bias +0.15, FoodAdjacent +0.8, MoistureGrad −0.55` | §5 |
+| `Dig` | `Bias −0.3, SurfaceCurvature −1.0, FoodAdjacent +0.8, MoistureGrad −0.55`: **0 on open ground away from the nest**, positive where the ground encloses the ant (a tunnel face, a shaft, a pit) or beside food; at the nest about 0.8 from units 5/6 | §5 |
 | `Share` | `Energy +2.5, KinNeed +1.9, Bias −2.5` | §5 |
 | `Attack` | `Alarm +2.0` | §5 |
 | `Impulse`, `Provision`, `Fly` | none (0): no hops, no birth provisioning, no flight | — |

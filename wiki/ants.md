@@ -1,7 +1,11 @@
 # Ants
 
-*Current as of: 2026-09-27, when **a colony's spoil heaps stopped hanging in
-the air.** An ant used to press the pellets beside anything it dug into wall,
+*Current as of: 2026-09-28, when **a colony started digging its nest in one
+place.** An ant used to dig whatever ground it faced, wherever it was, so a
+colony scraped a crust across all the ground round its nest; now it digs
+where the ground closes round it, and the workings gather under the nest,
+deeper, with a third as many holes to the surface. The day before, **a
+colony's spoil heaps stopped hanging in the air.** An ant used to press the pellets beside anything it dug into wall,
 heaps included, so a heap dug out from underneath could leave dirt hanging a
 few rows up in open sky. Now a heap stays a heap and slumps when undermined.
 Earlier the same day, **hungry ants started going out to look for food.**
@@ -1192,6 +1196,18 @@ ants can chew in the time you would watch them for, and you have to be
 looking at the bank rather than at the ants to see it. But it is genuinely
 enclosed ground, with soil standing over the top of it, and that is the
 thing a slumping bank can never produce.
+
+**Since 2026-09-28 an ant digs where the ground closes round it, not on open
+ground.** Before, an ant would bite whatever ground was in front of it
+wherever it happened to be, so a colony scraped a thin lined crust across
+all the ground around its nest and opened some thirty holes to the surface.
+Now, away from home, an ant on open ground does not dig at all; in a hole,
+a shaft or a tunnel it does, and at home it digs as keenly as ever. The
+colony's workings gather under the nest, deeper and roofed over, with about
+ten openings instead of thirty, for the same amount of digging, and in a
+test box the dig now looks less like random scratching than random
+scratching does for the first time. It is not yet one entrance, and there
+are no chambers; those are the next things being worked on.
 
 **Rooms, and why there are not any yet.** A real ant nest starts as a round
 chamber and sprouts side tunnels as it grows, and the reason is crowding: a

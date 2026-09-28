@@ -34,36 +34,26 @@ the live question, what is addressed to another lane, predictions and heads.*
 
 ## Live question
 
-**Is the colony building a nest? Not yet** ([`../nest-work-2026-09-27.md`](../nest-work-2026-09-27.md),
-[`../nest-spoil-footing-2026-09-27.md`](../nest-spoil-footing-2026-09-27.md)).
-At 40 ants its excavation is less nest-like than random walkers digging from
-the door on 12 of 12 seeds (31 mouths, no chamber); 3% of cuts build
-anything.
-- **The heaps refill the holes** because two pellets in three are put down
-  where they cannot stay (on an ant, or over a hole) and crumble within ten
-  frames.
-- `SPOIL_FOOTING=ground` makes digging stick: building 3% -> 6%, the room
-  doubled. `SPOIL_PACKS=off` removes the hanging spoil.
-- **Unpacked spoil is the default** (owner ruling, above): fewer mouths on
-  11 of 12 and no hanging ground, at a cost in lab births that no longer
-  vetoes. **The footing rule stays a switch**: alone it opens more mouths,
-  and it belongs in the dig marker's arms. **`DIG_DOWN` stays off on nest
-  measures** (building 3.9% -> 2.7% on the footing pair).
-- The mouth line stays closed and its default stays off.
+**Is the colony building a nest? It is digging one in one place now**
+([`../nest-dig-wiring-2026-09-28.md`](../nest-dig-wiring-2026-09-28.md)).
+- **2026-09-28:** `(Bias, Dig, -0.3)` with `(SurfaceCurvature, Dig, -1.0)`.
+  Openings 27.5 -> 10 (12 of 12), roofed 0.78, deeper, half as wide, the
+  same digging; the dig beats random walkers on roofed share and depth for
+  the first time.
+- **Spoil stays spoil** (#503); the footing switch and drop-away stay
+  switches ([`../nest-spoil-footing-2026-09-27.md`](../nest-spoil-footing-2026-09-27.md)).
+- **The dig marker is withdrawn**: a digging pheromone tested negative in
+  ants (`nest-biology-digging-signals-2026-09-19.md` §3.1).
 
-**Next** (2026-09-27):
-1. **A dig marker at the face** (Toffin's marker half; untried): digging
-   drawn to where digging just happened, so one site wins. Every fix so far
-   has made scattered digging more effective, and this is the lever for the
-   31 mouths. It must name its writer and reader first, and must not raise
-   digging at home generally (the `DIG_DOWN` lesson).
-2. **The footing switch, with the marker**: digging that sticks and
-   concentrates. Drop-away rides with it (7.1% with both switches, against
-   3.1%).
-3. **Why unpacked spoil costs the lab**: not traced. The suspect is a mound
-   that slumps into its own passages.
-4. `DIG_DOWN` stays off (colony bed starved 201 -> 460); `UNPACK` is
-   unmeasured alone in the lab.
+**Next** (2026-09-28):
+1. **One mouth.** Ten remain along the nest strip. Re-score on the new
+   dig: a narrower home (`NEST_SITE_COLS`, its condition is met), the
+   founding shaft and door + dug mouth, and fresh spoil as where new digging
+   starts.
+2. **The footing switch and drop-away**, re-scored on the new dig.
+3. **Chambers** need contents (brood or a granary), which the dig box
+   lacks.
+4. **Why unpacked spoil cost the lab**: not traced.
 
 ## Working agreement with the foraging lane (2026-09-27)
 
