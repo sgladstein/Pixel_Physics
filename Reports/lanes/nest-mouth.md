@@ -46,6 +46,20 @@ the live question, what is addressed to another lane, predictions and heads.*
   Roces 2013). The heap is what the marker still has to do: make the holes
   compete so one wins.
 
+- **2026-09-28: food goes into a chamber.** Asked whether the lab's buried
+  mouth should be kept clear or the food taken inside, the owner answered
+  "Food in chamber". A joint step with the foraging lane (the drop and the
+  homing are theirs); prototyped in scratch first.
+- **2026-09-28: granary form B.** "Go ahead with B: Foragers drop food at
+  the door; ants that stay home carry it into the storeroom." Then: "Some
+  ants should stay home... we should have two different types of ants or
+  castes" -- castes, built as a switch first (report §8h).
+- **2026-09-28: a simple test environment for this work.** "I don't think we
+  should worry about plants or the standard lab bed during this development.
+  Just use a simpler test environment for now." The granary is developed on
+  the colony bed (`trailfollow`: soil, one food pile, 20 founders, no plants
+  or weather) and `digbox`, not the lab box.
+
 ## Live question
 
 **Is the colony building a nest? It digs one nest with one entrance area,
@@ -55,34 +69,40 @@ and since 2026-09-28 that is the shipped ant**
   `(SurfaceCurvature, Dig, -1.0)` (#505). Openings 27.5 -> 10, digging in
   one place ([`../nest-dig-wiring-2026-09-28.md`](../nest-dig-wiring-2026-09-28.md)).
 - **2026-09-28, shipped on (#507):** the founding shaft (6 rows) and the
-  heap cue (`K` 5, floor 0), switches in #506 and on by the owner's default
-  rule. A
-  dig that would open the ground to the sky needs a heap beside it, from
-  above or below. `=off` on either is the ant before.
-  - **Dig box:** openings 10 -> 4 (12 of 12), roofed 0.94, width 16. About
-    half the digging by frame 12,000; by 24,000 openings creep to 6.
-  - **Colony bed:** starved 201 -> 83 (fewer on 22 of 24).
-  - **Lab:** ties on the pairs. The founding mouth is buried by frame 30,600
-    on 12 of 12 seeds, in every arm, under food and plants.
-- **Dig down ships on for an enclosed digger** (this branch), refused only
+  heap cue (`K` 5, floor 0): a dig that would open the ground to the sky
+  needs a heap beside it. Dig box openings 10 -> 4 (12 of 12); colony bed
+  starved 201 -> 83; lab ties, and its founding mouth is buried by frame
+  30,600 on 12 of 12 seeds under food and plants. A cut into the floor
+  under a roof is left alone (report §17); leaving every roofed digger
+  alone opened more mouths (17 of 24): the cue holds the crust.
+- **Dig down ships on for an enclosed digger** (#508), refused only
   where there is no way down (`way_down`): the creep stops (2 openings
   against 6 at frame 24,000 over 24 seeds, 22 of 24 nest-like against 12),
   and the colony bed pays (starved 83 -> 152, born 59 -> 30). Shipped on
   the lane's ruling; the turn everywhere stays off (starved 295). Refusing
   the turn more widely was measured six ways and every one lost the nest
   (report §13): the turn's nest and its price are one mechanism.
-- **The creep:** a fresh heap would refuse at most a third to under a half
-  of it, so it is not built.
+- **Food in a chamber: the owner chose B** (foragers drop at the door, ants
+  at home carry it in). Built as `PIXEL_PHYSICS_STOREROOM`, off
+  ([`../nest-granary-2026-09-28.md`](../nest-granary-2026-09-28.md) §8): the
+  room fills (3+ cells at mid-run on 14 of 24 with a door), and against the
+  door alone it costs 14% of food taken and a third of the young. No ants
+  stay home here, so the carriers are the fed ants that breed. The door
+  alone now helps the bed a lot (starved 93 -> 15).
 
 **Next** (2026-09-28):
-1. **The mouth in the lab:** kept clear by the colony, or the food taken
-   inside? Ask the owner before building either; the second is a joint step
-   with the foraging lane (the food drop is theirs).
-2. **The enclosed dig down's bed cost.** Ants at home in the founding
-   shaft are enclosed, turn down and dig when they would have gone out.
-   The lever is not which turns are taken (report §13) but which ants dig
-   at home when food is wanted. Trace it per ant on the bed before choosing
-   a lever; the hunger gate is a dead end (report §11).
+1. **The storeroom (B), with a nest-worker caste** (report §8g-§8h). One
+   ant in four is a nest worker for life, and the cut is its home. The
+   caste costs 11% of food taken; the workers get only 7-9 loads a run
+   down, because the entrance shaft is plugged, mostly by crumbs they set
+   down there. Proposed to the owner: a storeroom off to the side of the
+   entrance. Their region's pieces are switches the foraging lane reviews.
+2. **Dig down's bed cost, traced** (report §16, packed lunch on; shares of
+   episodes, not ants). When food is wanted, 47% of fed foragers' episodes
+   at home start inside the nest with dig down, against 35%; from inside
+   13-17% go out first, against 53-56%. Food lying inside pins them (the
+   foraging lane: `FoodAdjacent` on `Move`). The hunger gate is a dead end
+   (report §11).
 3. **The brain input** for the cue (owner's order); 24 genome slots, so
    planned with the lab lines.
 4. **Chambers** need contents (brood or a granary), which the dig box lacks.
@@ -129,6 +149,13 @@ asked the two sessions to agree who owns what.
   15:30 → about 17:50 once. Files pushed to origin are the record.
 - **Sequencing:** settled 2026-09-27: door + dug mouth stays off, so there
   is no new baseline for the forage drive; the foraging lane was poked.
+- **Food in a chamber (2026-09-28, their reply):** no objection; the drop
+  and home-target pieces land as switches the foraging lane reviews. One
+  definition of home for the drop, the pickup and the packed lunch: a
+  pickup in the chamber must read as at home (`picked_at_home` on the same
+  predicate as the chamber-as-home piece), or a fed ant ferries chamber food
+  back out to the strip. Once #509 lands, colony baselines are taken with
+  packed lunch on (`=off` for runs before it).
 - **Still open for the foraging lane:** `trailfollow`'s header echoes
   `PIXEL_PHYSICS_NEST_DOOR` / `_SHAFT` / `_HOME` and prints
   `pickups_at_nest` (both done on their side), but reads the raw variable:
@@ -147,11 +174,8 @@ exploratory and carry none.
 
 ## Cards with the owner
 
-- `20260926T044019146Z-52a96c` — a colony of 40 founded with one hole, four
-  stops (replaces `…af67e6`).
-- `20260926T044022784Z-77bab8` — the gray pixels are tunnel lining, four stops
-  (replaces `…6faaf7`).
-- `…e86359` (`UNPACK`) withdrawn: at 40 ants there is nothing for it to remove.
+- 2026-09-26: `…52a96c` (one hole, 40 ants), `…77bab8` (gray is lining);
+  `…e86359` withdrawn.
 - `20260926T061431136Z-a29145` — blind: the painted door against the dug
   mouth with no paint, as GIFs of ants coming home (bed, seed 1).
 - `20260926T064019633Z-0211cf` — four foundings on the colony bed, five
@@ -165,25 +189,14 @@ exploratory and carry none.
 
 ## Head SHAs
 
-Older heads, from the branch cut (`636612c6`, 2026-09-26) through the dig
-wiring (#505), are in `git log` and in the reports each one names.
+Older heads, from the branch cut (`636612c6`, 2026-09-26) through #507
+(`97129556`) and the dig-down work merged as #508, are in `git log` and in
+the reports each one names.
 
-- `ffbac01e` (#506) — the heap cue as a switch, off; the veto on the cell
-  actually cut, after any dig-down turn.
-- `09b3c872` — the founding shaft and the heap cue ship on; dig down stays
-  off (bed starvation 83 -> 295).
-- `6bc7a535`, `a9922509` — the founding shaft digs only what the founders
-  could, and opens a column only onto ground under the paint.
-- `fbdd7ecd` — founding deals the reserve over the founders placed: the
-  books leak the flip exposed (82.6 J; the lab's 52-planned, 43-placed
-  colony on every run).
-- `69f0d80a` — the lab on the final code: the flip ties on every pair.
-- `97129556` (#507) — merged: the founding shaft and the heap cue on by
-  default, and both founding fixes.
-- `0ff219b8` — dig down gated on hunger: a partial rescue, a dead end.
-- `5529b1dd`, `1fb07611`, `35d03998` — dig down only for an enclosed digger,
-  as a switch; the dig box, the colony bed and the lab.
-- `493a2b42` — the enclosed dig down ships on; the bed's cost stated.
-- The commit after it — the turn refused only where there is no way down
-  (the suite caught a beetle turned from its one cell of soil); six wider
-  refusals measured, every one lost the nest; the trace records the turn.
+- `34e07b86` (#508) — merged: dig down on for an enclosed digger, refused
+  only where there is no way down. GitHub deleted the branch; restarted
+  from `main` the same day, same name.
+- `f703472a` — `main` merged in (#509, packed lunch on). The bed baseline:
+  4,574 taken / 93 starved / 151 born, reproduced exactly here.
+- `828ce885` — the storeroom (B) as `PIXEL_PHYSICS_STOREROOM`, off; `off`
+  is `main`'s bed line for line; the suite passes on it.

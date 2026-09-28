@@ -68,7 +68,14 @@ will be.
   digestion's `progressed`). §9 and §12 again that day for the birth price
   (`try_bud`, `reachable_provision`, `birth_price_of`,
   `plant::guaranteed_bite_fraction`, the `Origin::Bud` arm of
-  `place_creature`).
+  `place_creature`). §12 on 2026-09-28 for the storeroom switch, off
+  (`storeroom_of`, `store_pickup_ok`, `store_drop`, `store_post_site`,
+  `store_target`, `store_return_target`, `Spoil::store`), and its nest-bound
+  part (`is_nest_bound` in `forage_drive_level`, `home_pull` and
+  `chooser_step`'s `away_from`), its caste and worker-home parts
+  (`nest_within_reach`), and `nest_shaft_offset`. §5 step 6 again that day
+  for the heap cue standing aside for a cut into the floor under a roof
+  (`spoil_cue_factor`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -335,10 +342,13 @@ the tick: the ant still gets its move roll (§6) afterwards.
    `floor + (1 - floor) s²/(s² + K²)`, `s` the pellets within 2 cells of the
    cell actually cut, after any `DIG_DOWN` turn; shipped at `K` 5 and floor
    0, so bare ground is opened only beside a heap, and a colony's first
-   opening is its founding shaft (§8). The cut opens the sky when the ant
-   stands at the surface (curvature above -0.3), or the target has no
-   ground above it (`spoil_cue_factor`, `open_to_the_sky`). A pellet target
-   and a cut under a roof are left alone. It must not be empty, a creature or
+   opening is its founding shaft (§8). Two cuts are left alone: a pellet
+   target, and a cut into a cell with ground above it by an ant that is
+   enclosed (curvature at or below -0.3) or that has ground over its own
+   head and cuts below itself (`spoil_cue_factor`, `open_to_the_sky`). So a
+   tunnel's digger, and one on the floor of a wide room, dig freely until a
+   cut would open the sky, while an ant in open ground under a roof meets
+   the cue when it cuts level or up. It must not be empty, a creature or
    plant cell, or a live seed, and needs `penetration_resistance ≤
    dig_force` (1.0) (`jaw_can_cut`). Soil, lining and spoil pass, and so do powder foods and
    litter such as crumbs; sand and the nest's own material do not. The cell
@@ -782,6 +792,8 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_BIRTH_PRICE` | `guaranteed` | `face`: a birth counts a bare seed in reach at its full worth, though a bite that spares it pays a quarter, so the top-up can leave the parent overdrawn (§9); `World::birth_price` for one world |
 | `PIXEL_PHYSICS_CARRY_PATIENCE` | `pickup` | `off`: a carry's home patience restarts only at the first pickup, not at every one (§6d step 5, bug Z35); `World::carry_patience` for one world |
 | `PIXEL_PHYSICS_LOAD_SCALE` | 1.0 | `<f>`: every food load weighs `f` times as much again, on top of the species' `food_weight` (§9) |
+| `PIXEL_PHYSICS_STOREROOM` | off | parts, comma-joined: `on`, a fed ant at home with an empty crop and empty mandibles, on a won `Feed` roll beside loose food more than a cell from its nest's founding chamber, takes the cell whole into its mandibles instead of swallowing it (`store_pickup_ok`); the load is pulled home to the chamber (`home_pull`, `home_target`, `HomeAligned` read as laden), goes down on a `DropSpoil` roll only in or beside the chamber (`store_drop`), is let go where it stands after 48 still decisions or when patience runs out, and its carrier is pulled back up to the mouth (`store_return_target`); a pick-up within a cell of the chamber reads as at home. `home`: the chamber is home to `adjacent_nest` (§8). `once`: one load until the next pick-up away from home. `post`: the load is handed down the open shaft from the mouth instead of walked down (`store_post_site`). `nestbound=<frames>[/<k>]` (bare: 8,000): an ant born in the colony, and with `/<k>` one founder in `k`, is nest-bound for its first `<frames>` (`OrganismState::nest_bound_until`, `is_nest_bound`): the forage drive reads 0 for it, fed it takes no away term and is pulled home when it strays (`home_pull`), and only it carries. `caste=<k>`: one ant in `k`, by id, founders and born, is nest-bound for life. `workerhome`: the founding cut is home to a nest-bound ant only (`nest_within_reach`). `World::storeroom` for one world |
+| `PIXEL_PHYSICS_NEST_SHAFT_OFFSET` | 0 | `<cells>`: the founding shaft is cut that many columns from the founding point (negative is west), so a door (`PIXEL_PHYSICS_NEST_DOOR`) has the mouth beside it (§8) |
 | `PIXEL_PHYSICS_DIG_DOWN` | `1.0,enclosed` | `off` (or `0`): no turn, the ant before 2026-09-28; `<w>`: the turn with chance `w` for any digger; `<w>,enclosed`: only an enclosed one (§5 step 6) |
 | `PIXEL_PHYSICS_SPOIL_HAUL`, `_SPOIL_DROP_COVER`, `_TRAFFIC_DEFER`, `_COLONY_SPACING` | unset | haulage re-roll to the nest door, spoil held under cover, jam deferral length, founder spacing |
 

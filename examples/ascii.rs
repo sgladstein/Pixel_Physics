@@ -2478,10 +2478,20 @@ fn nest_dig_scene() {
     // for is `roofed > 0` above -- which is the column that says a nest
     // exists, and the one `dead-ends.md` records as the repair for censusing
     // a dug volume at all.
+    // **Pellets of ground only, the set `bank` counts**, in the mandibles and
+    // among those lost with their carriers. A dug crumb or a piece of carrion
+    // rides in the same slot, and counting every load read one as ground: the
+    // unit-test sibling below went `259 -> 260` that way on 2026-09-28, a
+    // lost corpse pellet taken for a cell of ground made from nothing.
     let laden = world
         .live_organism_ids()
         .into_iter()
-        .filter(|&id| world.organism(id).is_some_and(|s| s.spoil.is_some()))
+        .filter(|&id| {
+            world
+                .organism(id)
+                .and_then(|s| s.spoil)
+                .is_some_and(|sp| sp.cell.material == soil || sp.cell.material == packed || sp.cell.material == spoil)
+        })
         .count();
     // Skipped under the ablation for the reason the lining's assertions are:
     // the control arm is the old behaviour, which does not conserve, and a
@@ -2508,10 +2518,10 @@ fn nest_dig_scene() {
     // what this assertion exists to catch.
     let rotted_back = (world.rotted_to_solid - world.rotted_onward) as usize;
     assert_eq!(
-        soil_after + laden + st.spoil_lost as usize,
+        soil_after + laden + st.spoil_lost_ground as usize,
         soil_before + rotted_back,
         "the bank is not conserved: {soil_before} -> {soil_after} standing, {laden} in mandibles, {} lost with their carriers, {rotted_back} rotted back from carrion",
-        st.spoil_lost
+        st.spoil_lost_ground
     );
     assert_eq!(stone_floor as i32, w, "ants must not have dug through stone -- dig_force 1.0 is below stone's penetration_resistance");
 }
