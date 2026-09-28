@@ -350,8 +350,19 @@ entry): an ant at home, where `Dig` runs high, turns down and digs instead of
 going out. The dig wiring lowered `Dig` away from home and left it high at
 home, so that entry's re-test condition is not met.
 
-**The lab** (`labforage`, 12 seeds) was still running when this section was
-first committed; its pairs follow in the next commit.
+**The lab** (`labforage`, 12 seeds, 120,000 frames) does not see the harm:
+
+| | shipped | shaft + cue | + dig down | dig down higher / lower than shipped | than shaft + cue |
+|---|---:|---:|---:|---:|---:|
+| food eaten, J (median) | 1.53 M | 1.23 M | 1.47 M | 6 / 6 | 9 / 3 |
+| births (median) | 724 | 587 | 759 | 6 / 6 | 7 / 5 |
+| alive at the end (median) | 66 | 19 | 137 | 8 / 4 | 9 / 2 (p 0.07) |
+| colonies extinct | 1 of 12 | 1 of 12 | 0 of 12 | | |
+
+In the lab box food grows all round the nest, so an ant that digs at home
+is never far from a meal; on the colony bed the food is 90 cells off, and
+every ant that goes down instead of out is a forager lost. The harm shows
+where the food is far.
 
 ## 9. The default: the shaft and the cue on, dig down a switch
 
@@ -460,3 +471,4 @@ under a half of it (§10).
 | 85 | lab census | the cover is crumbs and plants, not spoil | spoil 0-2 cells an arm | right |
 | 86 | colony bed, + dig down | starved within ±25 of shaft + cue's 83, under shipped on ≥ 20 of 24 | 295; over shipped on 19 | wrong |
 | 87 | colony bed, + dig down | food taken within ±10% of shaft + cue | -50%, lower on 24 of 24 | wrong |
+| 88 | lab, + dig down | ties with shipped, no split worse than 3 / 9; ≤ 2 colonies lost | 6 / 6 on food and births; none lost | right |
