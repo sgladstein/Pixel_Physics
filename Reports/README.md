@@ -4012,6 +4012,19 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   from theirs), **contents exist without eggs** via the `live_seed` guard, the
   brain-input pricing as the argument *for* their call-site route, and the
   landing discipline. **Treat their plan as the plan.**
+- [nest-dig-wiring-2026-09-28.md](nest-dig-wiring-2026-09-28.md) —
+  **measurement and a default change, 2026-09-28. `engine`/`lab`.** Two
+  weights in the ant's genome concentrate its digging under the nest.
+  Lane note: [lanes/nest-mouth.md](lanes/nest-mouth.md).
+  - **`(Bias, Dig)` 0.15 -> -0.3 and `(SurfaceCurvature, Dig, -1.0)`:** no
+    digging on open ground away from home, digging where the ground
+    encloses the ant. In `digbox` openings to the surface 27.5 -> 10 (12 of
+    12), roofed 0.58 -> 0.78, deeper, half as wide, the same digging; for the
+    first time the dig beats random walkers on roofed share and depth.
+  - **Not a knife-edge:** a 3x3 grid keeps mouths at 8.5-16.
+  - **Corrects the lane's strategy:** the proposed dig marker (a digging
+    pheromone) tested negative in ants; fresh spoil is beside 37% of
+    decisions to dig, but a pile-reading rule would stall the face.
 - [nest-spoil-footing-2026-09-27.md](nest-spoil-footing-2026-09-27.md) —
   **measurement, 2026-09-27. `engine`/`lab`. Two switches and an
   instrument.** Where the spoil heaps' soil comes from, traced per pellet,
