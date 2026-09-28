@@ -1946,6 +1946,10 @@ pub struct CreatureStats {
     /// dies of `Starved` on its next tick. The it-fired count for
     /// `PIXEL_PHYSICS_BIRTH_PRICE`; 0 is what that switch promises.
     pub births_overdrawn: u64,
+    /// **Mouthfuls not taken because the mandibles held a pellet**
+    /// (`creature::haul_bite_from_env`): a won `Feed` roll beside food by an
+    /// animal hauling spoil. 0 unless `PIXEL_PHYSICS_HAUL_BITE` is set.
+    pub haul_bites_refused: u64,
     /// **Not a trip counter, and not a sessility guard — read
     /// `forage_trips` for either.** It increments on any move made while
     /// nest-adjacent, guarded on `OrganismState::since_nest > 0`; but
