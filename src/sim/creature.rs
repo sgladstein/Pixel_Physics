@@ -24789,7 +24789,11 @@ mod tests {
     #[test]
     fn the_decision_trace_changes_nothing_it_watches() {
         // The chooser's ants reach the canopy later: in 3,000 frames none had
-        // eaten, so its laden half would go untested. 9,000 it is.
+        // eaten, so its laden half would go untested. 9,000 it is -- for
+        // both walks since 2026-09-28, when the dig wiring
+        // (`(Bias, Dig, -0.3)`, `(SurfaceCurvature, Dig, -1.0)`) left the
+        // old walk's ants unladen at 3,000 frames on this bed as well; the
+        // vacuity check below is what said so.
         let run_bed = |traced: bool, mode: Chooser| {
             let (mut w, low) = colony_bed();
             w.chooser = Some(mode);
@@ -24797,7 +24801,7 @@ mod tests {
             if traced {
                 w.decision_log = Some(Vec::new());
             }
-            run(&mut w, if mode == Chooser::Off { 3000 } else { 9000 });
+            run(&mut w, 9000);
             let rows = w.decision_log.take().unwrap_or_default();
             (creature_world_state(&w), rows, w.creature_stats)
         };
