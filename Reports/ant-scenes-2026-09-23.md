@@ -2761,6 +2761,32 @@ the nest lower (4/20, 0/24), because fewer die: the census counts 97-99%
 of all crumbs in the world in both arms, and fewer lie there. Lab box
 (24 seeds) neutral, no sign test below p 0.15.
 
-LAB-PRE-SHIP-CHECK
+**The lab pre-ship check flags it, so it stays off.** Lab box, 24 seeds,
+paired against the same tree with the switch unset (identity checked on
+seed 1): births 408 -> 568 (18/6), food eaten and ant-time lived up
+(18/6 each), alive at the end 78 -> 88 (13/9) -- and starved 137 -> 263
+(17/7, p 0.06), boxes died out 1 -> 5. Traced (`labforage lifetrace=`) in
+the two that died out with food standing at the end (seeds 10 and 12, both
+byte-identical to their untraced runs): every starved ant died out in the
+box, none at home, mostly more than 100 cells from the nest, with the
+nearest food a corpse, a seed or litter -- the box grazed down, then
+emptied of ants. That is the lab's ordinary starvation (lane note, open
+problem 1) arriving sooner: a colony that forages harder in a finite box
+strips it faster, and nothing tells a forager to stop when the returns
+stop. **Next: that off-switch** (harvesters stop when returning foragers
+stop bringing food, Gordon 2002 *Am Nat* 159:509), then the lab again with
+both on.
+
+**Predictions, written in the lane note before each run and scored here**
+(rows 1-3 are in §22o):
+
+| # | run | prediction | right? |
+|---|---|---|---|
+| 4 | `BIRTH_PRICE=guaranteed` vs `face`, lab 24 seeds | parents killed by their own birth ~0 (from 11-15% of births); starved down ~20-25%; births up a little; alive at the end up; died out no worse | overdrawn 88.5 -> 0 (right); starved -47% (right way, twice the size); births -33% (wrong); alive at the end flat (wrong); died out 2 -> 1 (right) |
+| 5 | same, bed 90 and 140 | neutral: bed births are paid in crumbs, not seeds | right: byte-identical at both distances |
+| 6 | `wire=AtNest:Feed:-0.7,Energy:Feed:-0.7`, bed 90 | food standing on the nest at least 2x; taken up 5-15%; starved within the spread; bodies hold less | standing 7,743 -> 13,832 J (right); taken 4,574 -> 2,523 (wrong); starved 93 -> 180 (wrong); bodies 8,038 -> 2,124 J (right); born 151 -> 7 (§22q) |
+| 7 | `HAUL_BITE=off`, bed 90, door off | food standing at the nest up; births down | standing +11% (16/8, not significant); born 151 -> 93 (4/15, right) |
+| 8 | `STORE_LUNCH=on`, bed 90, door on, traced | life after the last delivery 41% -> 30% or less; loops per looper 2.4 -> 2.5+; taken +10-20%; standing flat or lower; born and starved within the spread; door off moves less | 41% -> 38% (wrong); per looper 2.42 -> 2.63 (wrong), per ant-time +38%; taken +88% (right way, five times the size); standing lower (right); born 150 -> 658 and starved 15 -> 45 (wrong); door off moved *more*, 4.3x (wrong) |
+| 9 | `burn=0.5`, bed 90, door on, traced | loops per ant-time within +-10%; life after the last delivery not below 41%; starved down, born up | 0.93 -> 0.91 (right); 41.3% -> 39.4% (unchanged, strictly wrong); starved 15 -> 6 and born 150 -> 468 (right) |
 
 Data: `Reports/data/store-lunch-2026-09-28.txt.gz`.
