@@ -156,12 +156,24 @@ Both arms ran on one binary, the new genome against `wire=` back to
 unpacked-spoil lab arm of `nest-spoil-footing-2026-09-27.md` exactly: 424
 births, 3 colonies lost.
 
-- **Colony bed** (`trailfollow`, 24 seeds, 20 founders, gap 90): starved
-  **230 -> 213**, fewer on 8 seeds and more on 9 (p 1.0). Loops 451 -> 466,
-  ants that reached the food 296 -> 303. Food carried to the nest is lower on
-  19 of 24 seeds. That is the foraging lane's counter; it has read as churn at
-  home before (`nest-spoil-footing-2026-09-27.md` §4), and it is not traced
-  here.
+- **Colony bed** (`trailfollow`, 24 seeds, 20 founders, gap 90): **ties on
+  every colony column**, paired by seed:
+
+  | | old genome | new genome | new higher / lower |
+  |---|---:|---:|---:|
+  | food taken from the pile, cells | 2,209 | 2,288 | 14 / 8 |
+  | food standing at the nest, J (median, mean from frame 6,000) | 4,539 | 4,818 | 13 / 11 |
+  | starved | 230 | 213 | 9 / 8 |
+  | born | 15 | 24 | 9 / 4 |
+
+  Loops 451 -> 466, and ants that reached the food 296 -> 303. The old arm
+  reproduces #504's switches-off arm on the same tree exactly (2,209 cells
+  taken, 4,539 J standing, 230 starved, 15 born).
+  - **Corrected the same day.** This bullet first said "food carried to the
+    nest is lower on 19 of 24 seeds". The foraging lane pointed out that
+    `trailfollow`'s `carry->nest` is not food reaching the nest: it is
+    ant-time at home with food in the crop, and the crop is both cargo and
+    stomach. The columns above are the ones that count food.
 - **Lab** (`labforage`, 12 seeds, 120,000 frames): **ties on every column.**
   Births 424 -> 440 (6 / 6), food eaten 6 / 6, alive at the end 5 / 6,
   colonies lost 3 -> 2.
@@ -196,5 +208,5 @@ births, 3 colonies lost.
 | 50 | grid | mouths fall as the bias falls; curvature alone does not move them | monotone at -1 and -2, not at -0.5 | mostly right |
 | 51 | grid | depth rises with the curvature; bias -0.5 starves the digging | depth right; starved only at -0.5 / -0.5 | partly right |
 | 52 | grid | no knife-edge around -1 / -0.3 | all four neighbours ≤ 15 mouths, roofed ≥ 0.7 | right |
-| 53 | colony bed | starved within ±25 | 230 -> 213 (8 / 9) | right |
+| 53 | colony bed | starved within ±25 | 230 -> 213 (fewer on 8, more on 9) | right |
 | 54 | lab | births no worse than 4 / 8 either way; ≤ 1 extra colony lost | 6 / 6; lost 3 -> 2 | right |
