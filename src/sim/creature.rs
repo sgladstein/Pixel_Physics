@@ -662,6 +662,12 @@ pub struct DecisionScratch {
     pub scout_w: f32,
     pub scout_patience: f32,
     pub scout_home: bool,
+    /// **`act` turned this animal one octant down before it cut**
+    /// (`dig_down_bias`). The move is still decided from the heading the
+    /// animal had before `act` -- `step_chain` and `chooser_step` take the
+    /// tick's `heading`, not the state -- so a step or a tumble replaces the
+    /// turn, and a lost move roll leaves the turned heading standing.
+    pub dig_turned: bool,
 }
 
 impl Default for DecisionScratch {
@@ -686,6 +692,7 @@ impl Default for DecisionScratch {
             scout_w: f32::NAN,
             scout_patience: f32::NAN,
             scout_home: false,
+            dig_turned: false,
         }
     }
 }
@@ -790,6 +797,10 @@ pub struct DecisionRow {
     pub scout_w: f32,
     pub scout_patience: f32,
     pub scout_home: bool,
+    /// The nest lane's: `act` turned the animal down before it cut; see
+    /// `DecisionScratch::dig_turned`. `heading` is still the one the move
+    /// was decided from.
+    pub dig_turned: bool,
 }
 
 fn worm_tick(world: &mut World, x: i32, y: i32, organism: OrganismId) -> Vec<ActiveSite> {
@@ -5947,6 +5958,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             scout_w: sc.scout_w,
             scout_patience: sc.scout_patience,
             scout_home: sc.scout_home,
+            dig_turned: sc.dig_turned,
         };
         if let Some(log) = world.decision_log.as_mut() {
             log.push(row);
@@ -9709,12 +9721,86 @@ fn turn_toward(from: u8, to: u8) -> u8 {
     }
 }
 
+/// **Could this animal cut `cell` out of the ground?** The dig's own test,
+/// kept in one place because two callers read it: the cut in `act`, and
+/// [`way_down`], which asks it of the cells under the animal before the
+/// dig-down turn. Ground, not a live seed, not empty, and no harder than this
+/// animal's jaw.
+fn jaw_can_cut(world: &World, def: &CreatureDef, organism: OrganismId, cell: Cell) -> bool {
+    // **Digging is a verb against *ground*, and this kind test is what
+    // says so.** It is not the material-name whitelist the force gate
+    // exists to avoid -- it states as data the distinction the force
+    // cannot: an animal is bitten and a plant is eaten; neither is
+    // excavated.
+    //
+    // **It went in with the food table and it holds behaviour fixed
+    // rather than changing it.** Before 2026-09-02 no `Creature`- or
+    // `Plant`-kind material authored a `penetration_resistance` at all,
+    // so every one sat at the 100.0 default and this branch could never
+    // reach one; pricing flesh at 0.25 and foliage at 0.1 would have
+    // opened it silently. Two things would then have been wrong. A
+    // creature cell dug out never goes through `reconcile_chain`, so
+    // the victim runs on a stale chain -- the exact orphaned-segment
+    // bug that function exists to prevent -- and its `body_energy`
+    // stamp is never booked to `meat_lost`, so it stands in the world
+    // as a spoil pellet of live flesh owned by nobody while the ledger
+    // still counts it alive. And an ant quarrying foliage is a second
+    // change to the same outcome as the ingest gate, which
+    // `CLAUDE.md` says cannot be attributed apart from it.
+    let ground = !matches!(world.materials.kind(cell.material), MaterialKind::Creature | MaterialKind::Plant);
+    // **A live seed is not spoil.** Round 28 traced a delivered pip's
+    // whole life end-to-end (`Reports/lanes/evolution-lab-garden-
+    // loop.md`): bitten, survived the gut roll, carried home, dead five
+    // frames after being set down -- and the bite verb could not have
+    // taken it. A neutral gut's `diet_yield` on a `pip` is 40 * 0.25 =
+    // 10, under `EAT_YIELD_THRESHOLD` 12, so `adjacent_food_counted`'s
+    // own gate (`gain <= EAT_YIELD_THRESHOLD { continue }`) never lets
+    // the bite verb's target scan select one -- confirmed by reading
+    // that gate, not assumed. `pip` and `windfall` are `Powder`-kind
+    // with a low `penetration_resistance` (so a gut that *can* afford
+    // one can still eat it, deliberately), which is exactly what the
+    // `ground` test above cannot tell apart from ordinary dirt -- so
+    // this dig branch was clearing a living organism's one cell as
+    // spoil with no call to `seed_survives_bite` at all, and no
+    // counter anywhere saw it happen. Distinct from the bite path on
+    // purpose: `is_living_kin`-style exclusion is about *this animal's
+    // own kind*, and a pip is not a creature at all, so nothing already
+    // written excluded it.
+    //
+    // Skipped here rather than at `adjacent_food_counted`'s scan
+    // because that scan is the *bite* verb's, and never reaches a
+    // standing pip either way (the gate above already stops it) --
+    // this is a second, independent verb reading the same cell.
+    ground
+        && !is_live_seed(cell)
+        && cell.material != material::EMPTY
+        && world.materials.get(cell.material).penetration_resistance <= dig_force_of(def, &traits_of(world, organism, def), world.trait_reach)
+}
+
+/// A live organism's seed cell, which [`jaw_can_cut`] will not dig.
+fn is_live_seed(cell: Cell) -> bool {
+    cell.organism_id() != 0 && organism::cell_type(cell.aux()) == Some(CellType::Seed)
+}
+
+/// **Is there a way down from `(x, y)`?** One of the three cells under it is
+/// open, an animal (a nestmate, which will move), or ground this animal can
+/// cut ([`jaw_can_cut`]). The dig-down turn is refused where there is none --
+/// a floor of stone, bedrock or nest paint -- because facing it only costs
+/// the dig the roll would have made ([`dig_down_bias`]).
+fn way_down(world: &World, def: &CreatureDef, organism: OrganismId, x: i32, y: i32) -> bool {
+    [(-1, 1), (0, 1), (1, 1)].iter().any(|&(dx, dy)| {
+        let c = world.get(x + dx, y + dy);
+        c.material == material::EMPTY || matches!(world.materials.kind(c.material), MaterialKind::Creature) || jaw_can_cut(world, def, organism, c)
+    })
+}
+
 /// **Gravity in the dig, as a turn rather than as a target.**
 ///
 /// `PIXEL_PHYSICS_DIG_DOWN=<0.0..1.0>` makes a digger rotate one octant
 /// toward straight down before it cuts, with that probability, per dig roll.
-/// Unset is `None` and takes **no draw at all**, so every archived number
-/// from this engine still reproduces to the cell.
+/// `off` is `None` and takes **no draw at all**, so every archived number
+/// from this engine still reproduces to the cell with it; unset is
+/// [`DIG_DOWN_SHIPPED`] (below).
 ///
 /// **Why this place and not the two obvious ones.** Buarque de Macedo et al.
 /// (*PNAS* 118, 2021, validated through PubMed 2026-09-19) confirm that ants
@@ -9749,9 +9835,10 @@ fn turn_toward(from: u8, to: u8) -> u8 {
 /// question. If the direction turns out to be worth shipping, that bill is
 /// the follow-on and not this.
 ///
-/// **Off by default for a measured harm, and it is the colony's food, not
-/// its nest.** Measured 2026-09-28 on top of the founding shaft and the heap
-/// cue, both on (`Reports/nest-heap-cue-2026-09-28.md` §8): in `digbox` it
+/// **The turn anywhere stays off for a measured harm, and it is the
+/// colony's food, not its nest.** Measured 2026-09-28 on top of the founding
+/// shaft and the heap cue, both on (`Reports/nest-heap-cue-2026-09-28.md`
+/// §8): in `digbox` it
 /// makes the nest better still (openings 4 -> 2.5 at frame 12,000, more
 /// nest-like than random digging on 12 of 12 seeds), but on the colony bed
 /// (24 seeds, gap 90) starvation goes **83 -> 295, higher on 22 of 24**, and
@@ -9766,20 +9853,42 @@ fn turn_toward(from: u8, to: u8) -> u8 {
 /// (curvature at or below [`SPOIL_CUE_ENCLOSED`], the heap cue's own test),
 /// so an ant on the surface at home never starts a new hole downward. Built
 /// 2026-09-28 after the hunger gate showed fed ants at home turning down as
-/// well as hungry ones (`Reports/nest-heap-cue-2026-09-28.md` §11). Without
-/// `,enclosed` the draws are exactly the plain switch's.
+/// well as hungry ones (`Reports/nest-heap-cue-2026-09-28.md` §11).
+///
+/// **The turn is refused only where there is no way down** ([`way_down`]):
+/// all three cells under the animal are ground it cannot cut. Refused, the
+/// roll digs straight ahead as it would with the switch off, and
+/// `CreatureStats::digs_down_refused` counts it. Until 2026-09-28 the turn
+/// was taken there too, and the suite caught it the day the turn shipped on:
+/// a beetle sealed in a stone pocket turned from its one cell of soil toward
+/// the stone below and dug nothing. **Refusing more costs the nest**
+/// (`Reports/nest-heap-cue-2026-09-28.md` §13): a turn is one octant, so an
+/// ant is brought round to face down over several rolls, and refusing a turn
+/// whenever the next octant faced something the jaw could not take -- open
+/// shaft, a nestmate, the paint at the shaft's top -- stopped it halfway,
+/// and the nest came back sideways. The draw is taken only while `w < 1`.
+/// The move is still decided from the heading the animal had before `act`,
+/// so a step or a tumble replaces a turn and a lost move roll leaves it
+/// standing (`DecisionScratch::dig_turned`).
 ///
 /// **Shipped on in that form since 2026-09-28** ([`DIG_DOWN_SHIPPED`];
 /// `off` is the ant before). In `digbox` it stops the creep -- openings at
-/// frame 24,000 3 against 6, 12 of 12 seeds more nest-like than random
-/// digging against 6 -- and the lab ties; the colony bed pays for it,
-/// starved 83 -> 134 and food taken 3,744 -> 2,953 (§12). It ships on the
+/// frame 24,000 2 against 6 over 24 seeds, more nest-like than random
+/// digging on 22 of 24 against 12 -- and the lab ties; the colony bed pays
+/// for it, starved 83 -> 152, food taken 3,744 -> 3,057 and young born
+/// 59 -> 30 (§12, §13). It ships on the
 /// lane's standing ruling that colony numbers do not block a nest step
 /// (2026-09-27); **the bed's harm is the measured cost, recorded here so
 /// it is not mistaken for a free change.**
 fn dig_down_bias() -> Option<DigDown> {
     static W: std::sync::OnceLock<Option<DigDown>> = std::sync::OnceLock::new();
     *W.get_or_init(|| parse_dig_down(&std::env::var("PIXEL_PHYSICS_DIG_DOWN").unwrap_or_default()))
+}
+
+/// The dig-down turn in force in `world`: its [`World::dig_down`] override,
+/// else the process's [`dig_down_bias`].
+pub fn dig_down_of(world: &World) -> Option<DigDown> {
+    world.dig_down.unwrap_or_else(dig_down_bias)
 }
 
 /// What [`dig_down_bias`] read: the chance of the turn per dig roll, and
@@ -9811,7 +9920,7 @@ fn parse_dig_down(raw: &str) -> Option<DigDown> {
     }
     let mut parts = raw.split(',').map(str::trim);
     let w = match parts.next().map(str::parse::<f32>) {
-        Some(Ok(w)) if w == 0.0 => return None,
+        Some(Ok(0.0)) => return None,
         Some(Ok(w)) if w > 0.0 => w,
         _ => {
             eprintln!("PIXEL_PHYSICS_DIG_DOWN={raw:?}: not `off`, `<w>` or `<w>,enclosed`; read as unset");
@@ -11603,20 +11712,42 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // `CreatureStats::dig_rolls`.
         world.creature_stats.dig_rolls += 1;
         // **The digger turns downward before it cuts, rather than cutting a
-        // cell it will never enter.** Default off and bit-exact; see
+        // cell it will never enter.** On for an enclosed digger since
+        // 2026-09-28, and `off` is bit-exact with the ant before; see
         // [`dig_down_bias`] for the whole argument and for why the two
         // obvious places to put this are both wrong.
-        if let Some(dd) = dig_down_bias() {
-            let may_turn = !dd.enclosed_only
-                || surface_curvature(world, x, y, curvature_radius_of(def, &traits_of(world, organism, def)).max(1)) <= SPOIL_CUE_ENCLOSED;
-            if may_turn && draw.unit_f32() < dd.w {
-                let h = world.organism(organism).map_or(0, |s| s.heading);
-                let turned = turn_toward(h, DOWN_DIR);
-                if turned != h {
+        if let Some(dd) = dig_down_of(world) {
+            let h = world.organism(organism).map_or(0, |s| s.heading);
+            let turned = turn_toward(h, DOWN_DIR);
+            let may_turn = turned != h
+                && (!dd.enclosed_only
+                    || surface_curvature(world, x, y, curvature_radius_of(def, &traits_of(world, organism, def)).max(1)) <= SPOIL_CUE_ENCLOSED);
+            if may_turn {
+                // **Not where there is no way down** ([`way_down`]): a
+                // beetle sealed in a stone pocket turned from the one cell
+                // of soil it could cut toward the stone below and dug
+                // nothing. Refused, the roll digs straight ahead as it would
+                // with the turn off. Only there: a turn is one octant, so an
+                // ant is brought round to face down over several rolls, and
+                // the octants on the way can face a wall, a nestmate or open
+                // shaft. Refusing any of those stopped it halfway, and the
+                // nest came back sideways (`Reports/nest-heap-cue-2026-09-28.md`
+                // §13).
+                //
+                // **A draw only while `w < 1`**, as the heap cue takes one
+                // only while its factor is below 1: at the shipped 1.0 the
+                // turn spends no draw, so it moves the heading and nothing
+                // else in the stream.
+                if !way_down(world, def, organism, x, y) {
+                    world.creature_stats.digs_down_refused += 1;
+                } else if dd.w >= 1.0 || draw.unit_f32() < dd.w {
                     if let Some(state) = world.organism_mut(organism) {
                         state.heading = turned;
                     }
                     world.creature_stats.digs_aimed_down += 1;
+                    if world.decision_log.is_some() {
+                        world.decision_scratch.dig_turned = true;
+                    }
                 }
             }
         }
@@ -11649,58 +11780,14 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             }
             None => false,
         };
-        // **Digging is a verb against *ground*, and this kind test is what
-        // says so.** It is not the material-name whitelist the force gate
-        // exists to avoid -- it states as data the distinction the force
-        // cannot: an animal is bitten and a plant is eaten; neither is
-        // excavated.
-        //
-        // **It went in with the food table and it holds behaviour fixed
-        // rather than changing it.** Before 2026-09-02 no `Creature`- or
-        // `Plant`-kind material authored a `penetration_resistance` at all,
-        // so every one sat at the 100.0 default and this branch could never
-        // reach one; pricing flesh at 0.25 and foliage at 0.1 would have
-        // opened it silently. Two things would then have been wrong. A
-        // creature cell dug out never goes through `reconcile_chain`, so
-        // the victim runs on a stale chain -- the exact orphaned-segment
-        // bug that function exists to prevent -- and its `body_energy`
-        // stamp is never booked to `meat_lost`, so it stands in the world
-        // as a spoil pellet of live flesh owned by nobody while the ledger
-        // still counts it alive. And an ant quarrying foliage is a second
-        // change to the same outcome as the ingest gate, which
-        // `CLAUDE.md` says cannot be attributed apart from it.
-        let ground = !matches!(
-            world.materials.kind(target.material),
-            MaterialKind::Creature | MaterialKind::Plant
-        );
-        // **A live seed is not spoil.** Round 28 traced a delivered pip's
-        // whole life end-to-end (`Reports/lanes/evolution-lab-garden-
-        // loop.md`): bitten, survived the gut roll, carried home, dead five
-        // frames after being set down -- and the bite verb could not have
-        // taken it. A neutral gut's `diet_yield` on a `pip` is 40 * 0.25 =
-        // 10, under `EAT_YIELD_THRESHOLD` 12, so `adjacent_food_counted`'s
-        // own gate (`gain <= EAT_YIELD_THRESHOLD { continue }`) never lets
-        // the bite verb's target scan select one -- confirmed by reading
-        // that gate, not assumed. `pip` and `windfall` are `Powder`-kind
-        // with a low `penetration_resistance` (so a gut that *can* afford
-        // one can still eat it, deliberately), which is exactly what the
-        // `ground` test above cannot tell apart from ordinary dirt -- so
-        // this dig branch was clearing a living organism's one cell as
-        // spoil with no call to `seed_survives_bite` at all, and no
-        // counter anywhere saw it happen. Distinct from the bite path on
-        // purpose: `is_living_kin`-style exclusion is about *this animal's
-        // own kind*, and a pip is not a creature at all, so nothing already
-        // written excluded it.
-        //
-        // Skipped here rather than at `adjacent_food_counted`'s scan
-        // because that scan is the *bite* verb's, and never reaches a
-        // standing pip either way (the gate above already stops it) --
-        // this is a second, independent verb reading the same cell.
-        let live_seed = target.organism_id() != 0 && organism::cell_type(target.aux()) == Some(CellType::Seed);
-        if live_seed {
+        // **What the jaw can take is [`jaw_can_cut`]**, one test shared with
+        // the dig-down turn above so the two cannot drift apart; the argument
+        // for each of its terms is there. A live seed is still counted here,
+        // at the cut, as it always was.
+        if is_live_seed(target) {
             world.dig_diverted_seed += 1;
         }
-        if !vetoed && ground && !live_seed && target.material != material::EMPTY && world.materials.get(target.material).penetration_resistance <= dig_force_of(def, &traits_of(world, organism, def), world.trait_reach) {
+        if !vetoed && jaw_can_cut(world, def, organism, target) {
             // **The spoil is picked up, not destroyed.** This line read
             // `world.set(tx, ty, Cell::EMPTY)` with a comment calling
             // carrying it out "a stage-4+ refinement -- noted, not built",
@@ -25497,7 +25584,10 @@ mod tests {
             assert_eq!(r.homeward != HomewardWhy::NotAsked, tumbled, "the homeward reason is set exactly when a tumble happened: {r:?}");
             assert_eq!(r.roll_tumble.is_nan(), r.roll_move < r.p_move, "a tumble roll is taken exactly when the move roll fails: {r:?}");
             if r.outcome == D::RollFailedIdle {
-                assert_eq!(r.heading_after, r.heading, "nothing happened, yet the heading changed: {r:?}");
+                // The one thing that may have turned it is `act`'s dig-down
+                // turn, which the walk does not undo on a lost roll.
+                let left = if r.dig_turned { turn_toward(r.heading, DOWN_DIR) } else { r.heading };
+                assert_eq!(r.heading_after, left, "nothing happened but the dig-down turn, yet the heading changed: {r:?}");
             }
         }
 
@@ -25512,6 +25602,11 @@ mod tests {
             ("stepped to a side", count(&|r| r.pick == 0 || r.pick == 2)),
         ] {
             assert!(n > 0, "no decision {what} on this bed, so the checks on it are vacuous");
+        }
+        // The idle check's dig-down branch, while the turn is on.
+        if dig_down_of(&w).is_some() {
+            let n = count(&|r| r.dig_turned && r.outcome == D::RollFailedIdle);
+            assert!(n > 0, "no dig-down turn left standing on an idle tick on this bed, so that branch is vacuous");
         }
     }
 

@@ -22,7 +22,7 @@ the live question, what is addressed to another lane, predictions and heads.*
 - **2026-09-27: "In general, I prefer options on by default unless there is
   a good reason not to."** It restates 2026-09-12's "You can ship everything
   on. I will tell you to change it if I don't like it", whose carve-out keeps
-  a pure look off until he has seen it. The foraging lane has asked to hear
+  a pure look off until they have seen it. The foraging lane has asked to hear
   it from the owner directly before applying it to its own switches.
 
 - **2026-09-27 (evening): colony numbers do not block a nest step.**
@@ -64,10 +64,13 @@ and since 2026-09-28 that is the shipped ant**
   - **Colony bed:** starved 201 -> 83 (fewer on 22 of 24).
   - **Lab:** ties on the pairs. The founding mouth is buried by frame 30,600
     on 12 of 12 seeds, in every arm, under food and plants.
-- **Dig down ships on for an enclosed digger** (this branch): the creep
-  stops (3 openings against 6 at frame 24,000, 12 of 12 nest-like), the lab
-  ties, and the colony bed pays (starved 83 -> 134, born 59 -> 22). Shipped
-  on the lane's ruling; the turn everywhere stays off (starved 295).
+- **Dig down ships on for an enclosed digger** (this branch), refused only
+  where there is no way down (`way_down`): the creep stops (2 openings
+  against 6 at frame 24,000 over 24 seeds, 22 of 24 nest-like against 12),
+  and the colony bed pays (starved 83 -> 152, born 59 -> 30). Shipped on
+  the lane's ruling; the turn everywhere stays off (starved 295). Refusing
+  the turn more widely was measured six ways and every one lost the nest
+  (report §13): the turn's nest and its price are one mechanism.
 - **The creep:** a fresh heap would refuse at most a third to under a half
   of it, so it is not built.
 
@@ -77,8 +80,9 @@ and since 2026-09-28 that is the shipped ant**
    with the foraging lane (the food drop is theirs).
 2. **The enclosed dig down's bed cost.** Ants at home in the founding
    shaft are enclosed, turn down and dig when they would have gone out.
-   Trace it per ant on the bed before choosing a lever; the hunger gate is
-   a dead end (report §11).
+   The lever is not which turns are taken (report §13) but which ants dig
+   at home when food is wanted. Trace it per ant on the bed before choosing
+   a lever; the hunger gate is a dead end (report §11).
 3. **The brain input** for the cue (owner's order); 24 genome slots, so
    planned with the lab lines.
 4. **Chambers** need contents (brood or a granary), which the dig box lacks.
@@ -161,44 +165,9 @@ exploratory and carry none.
 
 ## Head SHAs
 
-- `636612c6` — branch cut from `main`.
-- `133c6b73` — the founding shaft lined; genesis frozen before the cut.
-- `80065c60` — `PIXEL_PHYSICS_NEST_HOME=shaft`; the 300-ant shape sweep.
-- `9d73c684` — the 40-ant shape sweep; report and index.
-- `3809f434` — `main` merged in (§19's door); the door's anchor read from
-  the cut; `PIXEL_PHYSICS_NEST_HOME=mouth`.
-- `97c491e1` — both beds measured on the final binary; `labshot`'s cut
-  census; dead-end write-backs.
-- `9d1c93ac` — the write-up: stop rule applied, new dead-ends entry, §19's
-  entry written back.
-- `6ef76d7f` — `main` merged in again (#492, scouting); bed default and
-  door + mouth re-checked identical; 1,962 tests pass.
-- `5ced0c9a` — review fixes: one founding cut per site; the door anchor
-  reads only its own cut.
-- `6281f729` — `NEST_HOME=mound`, the one variant after the stop rule.
-- `4d9262f4` — `CreatureStats::pickups_at_nest`, printed by `labforage`.
-- `e6b3537b` — the mound reverted: every lab colony built a food tower.
-- The commit after it — the verdict corrected: lab deliveries are 86% churn,
-  the dug mouth brings home as much as the strip (withdrawn 2026-09-27: not a
-  net flow), the tower in the report's §6.
-- `fa97db9e` — the nest scoreboard in `digbox` (colony against four nulls).
-- `2358c2dc`, `0e08216c` — the nest funnel, and what re-cut cells were made of.
-- `6ead09ce` — the write-up: not yet a nest; door + dug mouth stays off.
-- `434bc8e8` (#501) — the refill ledger corrected: passes against standing
-  fills, and conversions in place.
-- `400ee85b` — the funnel's why-loose line: two pellets in three unfooted.
-- `231d8857` — `SPOIL_FOOTING` and `SPOIL_PACKS`, both off; ten digbox
-  arms and the colony bed.
-- The commit after it — the lab, the verdict (both stay off), the wiki's
-  hanging-tailings claim corrected.
-- `c4157a8a` — the funnel's fresh-spoil line: spoil beside 37% of decisions
-  to dig.
-- `8136774a`, `cf30f160` — the dig wiring shipped: `(Bias, Dig, -0.3)`,
-  `(SurfaceCurvature, Dig, -1.0)`; the colony bed and the lab.
-- `1db71efa` — the foraging lane's decision-trace test runs both walks
-  9,000 frames.
-- `d96f3eeb` — `main` merged in (#504, forage drive and carry patience on);
-  the dig box re-checked on it, the comparison unchanged.
+Older heads, from the branch cut (`636612c6`, 2026-09-26) through the dig
+wiring (#505), are in `git log` and in the reports each one names.
+
 - `ffbac01e` (#506) — the heap cue as a switch, off; the veto on the cell
   actually cut, after any dig-down turn.
 - `09b3c872` — the founding shaft and the heap cue ship on; dig down stays
@@ -211,3 +180,10 @@ exploratory and carry none.
 - `69f0d80a` — the lab on the final code: the flip ties on every pair.
 - `97129556` (#507) — merged: the founding shaft and the heap cue on by
   default, and both founding fixes.
+- `0ff219b8` — dig down gated on hunger: a partial rescue, a dead end.
+- `5529b1dd`, `1fb07611`, `35d03998` — dig down only for an enclosed digger,
+  as a switch; the dig box, the colony bed and the lab.
+- `493a2b42` — the enclosed dig down ships on; the bed's cost stated.
+- The commit after it — the turn refused only where there is no way down
+  (the suite caught a beetle turned from its one cell of soil); six wider
+  refusals measured, every one lost the nest; the trace records the turn.

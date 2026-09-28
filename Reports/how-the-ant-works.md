@@ -57,7 +57,9 @@ will be.
   `dig_founding_shaft`, `cut_founding_shaft`, `founding_dig_force`,
   `parse_spoil_cue`, `SPOIL_CUE_SHIPPED`, `spoil_cue_of`). §5 step 6 and
   §12 again that day for the dig-down turn shipped on for an enclosed
-  digger (`dig_down_bias`, `parse_dig_down`, `DIG_DOWN_SHIPPED`).
+  digger (`dig_down_bias`, `parse_dig_down`, `DIG_DOWN_SHIPPED`), and §5
+  step 6 again for the turn refused where there is no way down
+  (`way_down`, `jaw_can_cut`, `dig_down_of`, `DecisionScratch::dig_turned`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -308,10 +310,17 @@ the tick: the ant still gets its move roll (§6) afterwards.
    ahead of the head, along its current heading**: nothing chooses a face or
    a place near other digging. **An enclosed digger first turns down**: on a
    won roll, an ant whose curvature is at or below -0.3 turns one octant
-   toward straight down before it cuts (`dig_down_bias`, on since 2026-09-28
-   in this enclosed form; `PIXEL_PHYSICS_DIG_DOWN=off` removes it, `=<w>`
-   turns anywhere), so an ant on the open surface never starts a hole
-   downward. **The heap cue** (on since
+   toward straight down before it cuts (`dig_down_bias`, `dig_down_of`, on
+   since 2026-09-28 in this enclosed form; `PIXEL_PHYSICS_DIG_DOWN=off`
+   removes it, `=<w>` turns anywhere), so an ant on the open surface never
+   starts a hole downward. **It does not turn where there is no way down**
+   (`way_down`): when all three cells under it are ground it cannot cut
+   (`jaw_can_cut`, the test below) -- stone, bedrock, nest paint -- the turn
+   is refused (`digs_down_refused`) and the roll digs straight ahead. At the
+   shipped chance of 1.0 the turn takes no draw. The move after it is still
+   decided from the heading the ant had before `act`, so a step or a tumble
+   replaces the turn and a lost move roll leaves it standing. **The heap
+   cue** (on since
    2026-09-28; `PIXEL_PHYSICS_SPOIL_CUE=off` removes it) lets a cut that
    would open the ground to the sky go ahead only with probability
    `floor + (1 - floor) s²/(s² + K²)`, `s` the pellets within 2 cells of the
@@ -322,7 +331,7 @@ the tick: the ant still gets its move roll (§6) afterwards.
    ground above it (`spoil_cue_factor`, `open_to_the_sky`). A pellet target
    and a cut under a roof are left alone. It must not be empty, a creature or
    plant cell, or a live seed, and needs `penetration_resistance ≤
-   dig_force` (1.0). Soil, lining and spoil pass, and so do powder foods and
+   dig_force` (1.0) (`jaw_can_cut`). Soil, lining and spoil pass, and so do powder foods and
    litter such as crumbs; sand and the nest's own material do not. The cell
    becomes the held pellet in its `spoils_into` form (soil, lining and spoil
    all become `spoil`), else its `packs_into` form, else as itself: a dug

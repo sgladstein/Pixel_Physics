@@ -15,10 +15,13 @@ this report** (§9):
   would open the ground to the sky needs a heap of spoil beside it.
 
 `=off` on either is the ant before it, bit for bit. **A third, dig down,
-ships on in an enclosed form** (§12): an ant already underground turns down
-before it cuts, and one on the surface does not. It stops the openings
-creeping back (3 against 6 at frame 24,000) and costs the colony bed food
-(starved 83 -> 134); everywhere, it took the foragers underground (§8).
+ships on in an enclosed form** (§12, §13): an ant already underground turns
+down before it cuts, one on the surface does not, and none turns where there
+is no way down. It stops the openings creeping back (2 against 6 at frame
+24,000 over 24 seeds, more nest-like than random digging on 22 of 24 against
+12) and costs the colony bed food (starved 83 -> 152, born 59 -> 30);
+everywhere, it took the foragers underground (§8). Refusing the turn more
+widely was measured six ways and every one lost the nest (§13).
 
 The cue governs such a dig whether the ant stands on the surface or a tunnel
 is breaking out from below.
@@ -442,7 +445,7 @@ before the flip:
 
 ## 10. The creep, sized before building a fresh heap
 
-§13 proposed a fresh heap as the next lever: pellets carry no age, so a heap
+The next-steps list proposed a fresh heap as the next lever: pellets carry no age, so a heap
 of any age licenses an opening. `digbox`'s funnel already dates every pellet
 it sees put down, so the lever's reach could be read before building it. In
 the window where the creep happens, frames 12,000 to 24,000, over 12 seeds:
@@ -556,9 +559,98 @@ creep, and the lab does not see its cost. **The cost is real and is
 stated, not waved off**: on the colony bed half again as many ants starve,
 a fifth less food comes off the pile, and about a third as many young are
 born. It is in `dig_down_bias`'s doc, the foraging lane was told before
-landing, and lowering it is in §13.
+landing, and lowering it is in §14. **§13 changes what ships**: the turn as
+measured here failed three tests, and the fix is measured there.
 
-## 13. What is next
+## 13. The turn refused only where there is no way down
+
+The suite on §12's default failed three tests, and one of them was the turn's
+fault:
+
+- **A beetle sealed in a stone pocket dug nothing** (the jaw allele's test).
+  Its one cell of soil is east of its head, and the turn brought it round to
+  the stone below on every roll. A turn that faces what the jaw cannot take
+  costs the dig the roll would have made.
+- **The decision trace saw a heading change on a tick where nothing
+  happened.** The move is decided from the heading the animal had before
+  `act` (`step_chain` and `chooser_step` take the tick's `heading`, not the
+  state), so a turn stands only when the move roll is lost, and the trace's
+  idle rows assumed nothing but the walk turns an animal. Not a defect: the
+  row now records the turn (`DecisionRow::dig_turned`), the check allows
+  exactly that octant, and a vacuity check asks for such a row while the
+  turn is on. Recording the heading after `act` instead was tried and is
+  wrong: the step's pick is relative to the heading before.
+- **The store test's hungry ant did not eat** (`,keep`). Traced per tick,
+  it takes one pickup, at frame 173 of 600, and a draw spent by the turn at
+  frame 11 moved it out of the window; the ant rolls a dig three times in
+  2,400 frames. At the shipped chance of 1.0 the turn now takes no draw.
+
+**What to refuse was measured, not chosen.** The obvious fix, turning only
+toward a cell the jaw can cut, lost most of the nest the turn was shipped
+for, and so did every narrower version of it but one. The dig box, 40 ants,
+paired by seed against the unrefused
+turn at frame 24,000, and the colony bed, 24 seeds; the variants ran on one
+scratch binary with a switch for the rule (the `""` and `open` settings
+reproduced the two built arms exactly, 12 of 12 each):
+
+| the turn is refused when it would face | seeds | openings | more nest-like than random walkers | fewer openings / more | narrower / wider | more nest-like / less | bed: starved | turns refused |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| nothing (§12) | 24 | 2 | 24 of 24 | | | | 134 | 0 |
+| any cell the jaw cannot take | 24 | 3 | 19 of 24 | 4 / 15 | 4 / 18 | 4 / 14 | 98 | 48% |
+| ... but open ground allowed | 12 | 3.5 | 10 of 12 | 2 / 7 | 3 / 8 | 3 / 8 | 121 | 14% |
+| ... open ground and nestmates allowed | 24 | 4 | 20 of 24 | 6 / 16 | 6 / 15 | 7 / 16 | 116 | 12% |
+| ... nestmates allowed | 12 | 3 | 9 of 12 | 3 / 5 | 3 / 9 | 3 / 7 | 135 | 44% |
+| a cell it cannot take, when the cell ahead is one it can | 24 | 4 | 19 of 24 | 3 / 16 | 6 / 18 | 6 / 15 | 120 | 17% |
+| **a floor with no way down** | 24 | 2 | 22 of 24 | 6 / 8 | 10 / 14 | 11 / 8 | 143 | 1.6% |
+| the ant before the turn | 24 | 6 | 12 of 24 | | | | 83 | |
+
+- **The unrefused turn's lead is not a lucky twelve.** It was picked because
+  it measured best, so it was re-run on fresh seeds 13-24 against the refused
+  turn: fewer openings on 8 of 12 again (3 more), narrower on 9 (2 wider);
+  on the panel against random walkers the fresh seeds tie, 4 / 4.
+- **The likely reading, not traced per ant:** a turn is one octant, so an
+  ant pointing up the shaft is brought round to face down over several
+  rolls, and the octants on the way face the paint at the shaft's top, a
+  nestmate below or open shaft (a census of what the third rule refused,
+  4 seeds: other ants 11-36 a run, nest paint 7-24, bedrock 5-21). Refused
+  at any of them, the rotation stops where it is, and the digging goes
+  sideways again. Keeping a cut ahead refuses exactly the ant facing a side
+  wall with open ground below, which then digs the wall.
+- **Every refusal that loses the nest costs the colony bed less**, which is
+  the same trade §12 made: the turn's price and its nest are one mechanism.
+- **What ships is the last rule** (`way_down`): refused only when all three
+  cells under the animal are ground it cannot cut -- stone, bedrock, nest
+  paint. It ties the unrefused turn on every nest measure over 24 seeds,
+  refuses 1.6% of turns, and fixes the beetle. The bed pays what the
+  unrefused turn paid: starved 143 against 134 (higher on 12 of 24, lower on
+  11), born 25 against 22.
+
+**On its final binary** (no draw at 1.0, so a new sample of the same rule):
+
+| | the ant before the turn | the turn as it ships | paired |
+|---|---:|---:|---:|
+| dig box, openings at frame 24,000 (24 seeds) | 6 | **2** | fewer on 18, more on 3 |
+| ... at frame 12,000 | 4 | **1** | fewer on 19, more on 2 |
+| ... middle-half width | 19 | **12.5** | narrower on 21, wider on 3 |
+| ... roofed share | 0.91 | **0.93** | 14 / 10 |
+| ... more nest-like than random walkers | 12 of 24 | **22 of 24** | 19 / 5 |
+| ... cells dug | 70 | 60 | |
+| colony bed, starved (24 seeds) | 83 | **152** | higher on 18, lower on 3 |
+| ... food taken from the pile | 3,744 | 3,057 | lower on 19 |
+| ... young born | 59 | 30 | lower on 17 |
+| lab, 12 seeds | | ties | deliveries 9 / 3, food eaten 7 / 5, births 7 / 5, alive 6 / 6; two colonies lost against one |
+
+Against the unrefused turn on the same 24 dig-box seeds it ties (openings
+8 / 11, nest-like 10 / 10; a little wider, 6 / 15), and on the bed it ties
+(starved 152 against 134, 12 / 12). It refuses 1% of turns there.
+
+**Proofs.** `PIXEL_PHYSICS_DIG_DOWN=off` on the final binary is #507's ant,
+bit for bit: `digbox` 12 of 12 seeds and the colony bed 24 of 24, every log
+line but those naming the switches (and the new `down_refused=` field); the
+same comparison against the turned-on arm differs on 12 of 12 and 24 of 24.
+The variant switch's two controls reproduced the built arms 12 of 12 each.
+
+## 14. What is next
 
 1. **The mouth in the lab** (§7). It is buried by what the colony brings
    home and by the planting growing over the nest ground, not by digging.
@@ -567,12 +659,15 @@ landing, and lowering it is in §13.
    - the food goes inside, into a chamber, so it stops landing on the door.
      That is chambers with contents (item 4), and the food drop belongs to
      the foraging lane, so it would be a joint step.
-2. **The enclosed dig down's bed cost** (§12). It ships; what is left is
-   that an ant at home in the founding shaft is enclosed, turns down and
+2. **The enclosed dig down's bed cost** (§12, §13). It ships; what is left
+   is that an ant at home in the founding shaft is enclosed, turns down and
    digs when it would have gone out. The hunger gate was tried (§11) and
-   fails for its own reason. The trace to take next: per ant, on the bed,
-   which ants dig at home and what their crop and energy read when they do,
-   before choosing a lever.
+   fails for its own reason, and §13 shows the lever is not in *which*
+   turns are taken: every refusal that lowered the cost lost the nest. So
+   the lever is *which ants* are digging at home when food is wanted. The
+   trace to take next: per ant, on the bed, which ants dig at home and what
+   their crop, energy and the colony's need read when they do, before
+   choosing a lever.
 3. **The brain input**, per the owner's ruling. The sense is the pellet count
    beside the target, and the gate is "this cut opens the sky". Each new
    input costs 24 genome slots and moves every breeding scene, so it is
@@ -584,7 +679,7 @@ landing, and lowering it is in §13.
 The creep is closed for now: a fresh heap would refuse at most a third to
 under a half of it (§10).
 
-## 14. Predictions, written before each batch
+## 15. Predictions, written before each batch
 
 | # | arm | prediction | result | right? |
 |---|---|---|---|---|
@@ -630,3 +725,21 @@ under a half of it (§10).
 | 94 | bed, dig down enclosed only | starved ≤ 113; food within 10% of 3,744 | 134; -21% | wrong |
 | 95 | dig box, enclosed, frame 12,000 | openings ≤ 3; ≥ 11 of 12 seeds nest-like | 2; 12 of 12 | right |
 | 96 | dig box, enclosed, frame 24,000 | openings ≤ 5 | 3 | right |
+| 97 | dig box, turn only toward a cuttable cell | 20-70% of turn chances refused | 48% | right |
+| 98 | same, frame 24,000 | openings between 3 and 6, about 4 | 3 | half |
+| 99 | same | nest-like on ≥ 9 of 12 | 9 | right |
+| 100 | colony bed, same | starved between 83 and 134, about 100-120 | 98 | half |
+| 101 | lab, same | ties | not run: superseded by §13 | -- |
+| 102 | dig box, open ground allowed | within a seed of the unrefused turn; nest-like 11-12 of 12 | 10 of 12; openings 2 / 7 against it | wrong |
+| 103 | colony bed, open ground allowed | starved within ±15 of 134 | 121 | right |
+| 104 | the rule as a switch | `""` and `open` reproduce the built arms | 12 of 12 each | right |
+| 105 | dig box, open ground and nestmates allowed | nest-like ≥ 11 of 12, no pair worse than 5 / 7 | 10 of 12; openings 3 / 7 | wrong |
+| 106 | dig box, nestmates allowed | between the refused turn and the unrefused | ties the refused turn | wrong |
+| 107 | colony bed, open ground and nestmates allowed | starved within ±15 of 134 | 116 | wrong |
+| 108 | fresh seeds 13-24 | the unrefused turn beats the refused on the panel on ≥ 8 of 12 | 4 / 4 (openings 8 / 3, width 9 / 2) | wrong |
+| 109 | dig box, keep a cut ahead | ties the unrefused turn, no pair worse than 9 / 15 | openings 3 / 16, roofed 2 / 22 | wrong |
+| 110 | colony bed, keep a cut ahead | starved within ±15 of 134 | 120 | right |
+| 111 | keep a cut ahead | under 10% of turn chances refused | 17% | wrong |
+| 112 | dig box, no way down | ties the unrefused turn, no pair worse than 9 / 15; nest-like ≥ 22 of 24 | worst pair 10 / 14; 22 of 24 | right |
+| 113 | no way down | under 5% refused | 1.6% | right |
+| 114 | colony bed, no way down | starved within ±15 of 134 | 143 | right |

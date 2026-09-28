@@ -1249,12 +1249,15 @@ heap lies everywhere, and the holes creep back up to about six. **That
 stopped the same day**: an ant already inside the ground now turns to dig
 downward rather than along, and one on the open surface does not, so the
 colony works one compact body down from its shaft instead of a crust
-sideways under its nest. In a test box it keeps about three holes where it
-had six, and every run looks more like a nest than random digging does. The
-cost is food: where food is far from the nest, ants at home in the shaft
-dig when they would have gone out, and in a test colony with food ninety
-cells away half again as many of them starve and about a third as many
-young are born (the lab box, with food all round, does not notice). And in the
+sideways under its nest. It turns down only where there is a way down:
+standing on stone, bedrock or the nest's own floor it digs on ahead
+instead. In a test box it keeps about two holes where it had six, and
+nearly every run looks more like a nest than random digging does, against
+half of them before. The cost is food: where food is far from the nest,
+ants at home in the shaft dig when they would have gone out, and in a test
+colony with food ninety cells away nearly twice as many of them starve and
+half as many young are born (the lab box, with food all round, does not
+notice). And in the
 lab box the entrance does not stay open -- by a quarter of the way through a
 run it is buried on every box under the colony's own food and the plants
 growing over it, and the ants go on living in and on the nest ground around
