@@ -407,3 +407,36 @@ born, room >= 3 food cells at 12,000, loads delivered a run:
 tunnel, so that stored food does not block the way down. Real harvester nests
 keep their granaries in chambers off the main tunnel.
 
+### 8i. Food in the room over the whole run
+
+The owner: *"Track food in the room over time. Not at a single instance."*
+The tables above read the room at frame 12,000, one sample of a quantity that
+rises, dips and drifts. `trailfollow roomevery=250` now counts the food cells
+in the founding chamber (and in the shaft) every 250 frames, for any arm
+whatever its switches; nothing else in the run changes (colony numbers equal
+the runs above, seed for seed).
+
+Time-averaged over frames 3,000-24,000, median of 24 seeds, the door on
+unless marked:
+
+| | food in the room, cells | time with 3+ cells | food in the shaft | more than the door alone |
+|---|---:|---:|---:|---:|
+| today's ant, no door | 0.01 | 0% | 5.2 | 4 of 24 |
+| the door alone | 1.09 | 0% | 4.5 | -- |
+| mouth beside the door | 0.91 | 0% | 5.8 | 7 of 24 |
+| + the caste, nothing carried | 0.66 | 0% | 5.6 | 10 of 24 |
+| + nest workers carry, walked down | 1.74 | 31% | 4.5 | 17 of 24 |
+| the room as home, nothing carried | 2.72 | 55% | 3.2 | 21 of 24 |
+| nest-bound young and 1 founder in 4 carry, room home | 2.98 | 59% | 3.3 | 20 of 24 |
+| every fed ant carries, room home | 3.54 | 69% | 3.6 | 23 of 24 |
+
+- **Over the run the ordering holds and the gaps are clear.** Where every fed
+  ant carries into a room that is home, the room fills within 6,000 frames
+  and stays at 3-4.5 cells (mean of the 24 runs); with the room as home alone
+  it fills as fast and drifts down to 2.5-3; the nest workers fill it slowly,
+  to about 2.5 by frame 12,000-17,000, then 2.
+- **The shaft holds food in every arm**, 3 to 6 cells on average, today's
+  ant included: food falling into the entrance is not new, it is what the
+  shipped nest already does.
+- The colony-number costs of each arm are in §8c, §8g and §8h.
+
