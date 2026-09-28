@@ -180,4 +180,6 @@ filtered out (note the leading spaces), and compare the decision CSVs too.
 
 | # | run | prediction | right? |
 |---|---|---|---|
-| | | | |
+| 1 | `PACKED_LUNCH=on` vs off, bed 90, 24 seeds (2026-09-28, on `main` after #505) | pile trips up: food taken from the pile +10-30%; home-holding share of ant time 37% -> 25-30%; food standing at the nest flat or down (the lunch is eaten on the road, not put back); births flat or slightly down (budding needs the nest); starved flat | |
+| 2 | same, bed 140 | same direction, smaller: food taken +5-20% | |
+| 3 | same, lab 12 seeds | food eaten up; boom-and-bust sooner, so extinctions no better | |

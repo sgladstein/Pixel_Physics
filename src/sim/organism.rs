@@ -6175,6 +6175,12 @@ pub struct OrganismState {
     /// colony's need can send it out again (`creature::forage_drive_level`,
     /// on unless `PIXEL_PHYSICS_FORAGE_DRIVE=off`). Never cleared.
     pub foraged: bool,
+    /// **The crop holds only food taken at home** since it was last empty:
+    /// a packed lunch rather than a load (`creature::carries_lunch`). Set by
+    /// a pickup at home into an empty crop, cleared by any pickup away from
+    /// home; meaningless while the crop is empty. Written whatever
+    /// `PIXEL_PHYSICS_PACKED_LUNCH` says, and read by nothing unless it is on.
+    pub lunch: bool,
     /// **Too hungry to be out: heading home before it starves**
     /// (`creature::hungry_home_of`). Set when an empty animal's energy falls
     /// below what the walk home costs it with a margin; cleared once it has

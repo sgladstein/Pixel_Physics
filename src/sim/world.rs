@@ -3482,6 +3482,12 @@ pub struct World {
     /// (`creature::carry_patience_of`). `None` follows the environment,
     /// which is on unless set `off`; a field for the reason `chooser` is one.
     pub carry_patience: Option<bool>,
+    /// **Whether a forager whose crop holds only food taken at home is
+    /// driven out like an empty one, overriding `PIXEL_PHYSICS_PACKED_LUNCH`
+    /// for this world** (`creature::packed_lunch_of`). `None` follows the
+    /// environment, which is off unless set; a field for the reason `chooser`
+    /// is one.
+    pub packed_lunch: Option<bool>,
     /// **Which material stopped a creature**, counted per blocked tick and
     /// indexed by `MaterialId` — the breakdown `CreatureStats::
     /// blocked_by_plant` deliberately does not carry, because that struct is
@@ -5832,6 +5838,7 @@ impl World {
             hungry_home: None,
             forage_drive: None,
             carry_patience: None,
+            packed_lunch: None,
             blocked_tissue_by_material: Vec::new(),
             energy_ledger: EnergyLedger::default(),
             colony_books: Vec::new(),
@@ -6847,6 +6854,7 @@ impl World {
             scout_patience: 1.0,
             scout_home: false,
             foraged: false,
+            lunch: false,
             hungry_home: false,
             // Zero is "no memory yet"; the first tick's read sees `live - 0`,
             // which normalises to +1 and decays to the true reading within a
