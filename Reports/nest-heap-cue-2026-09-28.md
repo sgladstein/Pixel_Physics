@@ -266,7 +266,28 @@ same picture (starved 82, taken 3,914). The founding shaft is the likely
 cause: on 2026-09-27 door and shaft also halved the bed's starvation, with a
 mouth that ants find (`nest-work-2026-09-27.md` §6).
 
-**Lab** (`labforage`, 12 seeds, 120,000 frames): running when this was written; the result goes here.
+**Lab** (`labforage`, 12 seeds, 120,000 frames): ties on the pairs, with the
+large swings in the medians the lab always shows.
+
+| | shipped | shaft + cue | shaft + cue higher / lower |
+|---|---:|---:|---:|
+| births (median) | 724 | 587 | 5 / 7 |
+| food eaten, J (median) | 1.53 M | 1.23 M | 4 / 8 |
+| alive at the end (median) | 66 | 19 | 7 / 5 |
+| colonies extinct | 1 of 12 | 1 of 12 | |
+| nest visits | | | 2 / 10 (p 0.04) |
+
+**Looked at, on seed 11 at frame 120,000:**
+- **The shipped colony** has a shallow gallery just under the surface and a
+  couple of short tunnels.
+- **The shaft-and-cue colony** has a network of long sloping tunnels 20-30
+  rows deep. That is its roofed room, 2.5 times the shipped one: 748 cells
+  against 298, with 244 ants against 116.
+- **Both** run a gallery just under the surface along the width of the view,
+  the same shallow spread as the dig box's long run (§4b).
+
+Whether the dug mouth is buried by the colony's own food, the 2026-09-26
+finding, needs `labshot`'s cut census and was not run.
 
 ## 7. What is next
 
@@ -313,6 +334,6 @@ mouth that ants find (`nest-work-2026-09-27.md` §6).
 | 76 | breakout rule, K 1.5 | openings ≤ 3 | 5 | wrong |
 | 77 | colony bed | starved within ±30 of shipped | 201 -> 83, fewer on 22 of 24 | wrong: far better |
 | 78 | colony bed | food taken from the pile within ±10% | +23%, higher on 19 of 24 | wrong: better |
-| 79 | lab | births no worse than 4 / 8; ≤ 1 extra colony lost | running | |
+| 79 | lab | births no worse than 4 / 8; ≤ 1 extra colony lost | 5 / 7; 1 lost either way | right |
 | 80 | dig down 1.0, frame 24,000 | ≤ 4 openings, fewer than shaft + cue on ≥ 8; depth ≥ 15 | 5, fewer on 6 of 12; depth 9 | wrong |
 | 81 | dig down 0.5, frame 24,000 | between the two | 6 openings, depth 11 | mostly wrong |

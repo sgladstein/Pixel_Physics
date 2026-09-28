@@ -55,16 +55,22 @@ under two switches** ([`../nest-heap-cue-2026-09-28.md`](../nest-heap-cue-2026-0
   one place ([`../nest-dig-wiring-2026-09-28.md`](../nest-dig-wiring-2026-09-28.md)).
 - **2026-09-28, off:** `PIXEL_PHYSICS_SPOIL_CUE=5,0` with
   `PIXEL_PHYSICS_NEST_SHAFT=6`. A dig that would open the ground to the sky
-  needs a heap beside it, from above or below. Openings 10 -> 3 (12 of 12),
-  roofed 0.94, width 14, more nest-like than random walkers on every seed;
-  half the digging by frame 12,000.
+  needs a heap beside it, from above or below.
+  - **Dig box:** openings 10 -> 4 (12 of 12), roofed 0.94, width 16. With
+    `DIG_DOWN=1.0` as well, 2.5 openings, more nest-like than random
+    walkers on every seed. About half the digging by frame 12,000.
+  - **Frame 24,000:** openings creep to 5-6, as shallow galleries spread
+    spoil over the whole strip.
+  - **Colony bed:** starved 201 -> 83 (fewer on 22 of 24).
+  - **Lab:** ties on the pairs; 2.5 times the roofed room on seed 11.
 - **Spoil stays spoil** (#503); the footing switch undoes the cue (spoil
   everywhere) and stays off.
 - **The marker is the heap**, not a scent at the face (owner, 2026-09-28).
 
 **Next** (2026-09-28):
-1. **Land the cue and the census** (off), then **the colony bed and the lab**
-   on shaft + cue, for the foraging lane; then the default.
+1. **Land the cue and the census** (off, #506). The bed and the lab are
+   read; next is the default, shaft + cue + dig down, and the creep (a
+   fresh heap, not any heap).
 2. **The brain input** for the cue, once the beds are read (owner's order).
 3. **Bigger and deeper**: a longer run, to see whether half the early
    digging catches up.
