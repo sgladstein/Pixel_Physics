@@ -91,12 +91,12 @@ and since 2026-09-28 that is the shipped ant**
   alone now helps the bed a lot (starved 93 -> 15).
 
 **Next** (2026-09-28):
-1. **The storeroom (B), with a nest-worker caste** (report §8g-§8h). One
-   ant in four is a nest worker for life, and the cut is its home. The
-   caste costs 11% of food taken; the workers get only 7-9 loads a run
-   down, because the entrance shaft is plugged, mostly by crumbs they set
-   down there. Proposed to the owner: a storeroom off to the side of the
-   entrance. Their region's pieces are switches the foraging lane reviews.
+1. **The storeroom off one side of the tunnel** (`side`, report §8j; the
+   owner said yes). Nest workers get five times as many loads down (31.5 a
+   run) and births rise 144 -> 203 with the mouth under the door; the room
+   holds about what the foot chamber did. Next: trace where its food goes.
+   Colony size (`../nest-colony-size-2026-09-28.md`): every number here is
+   a 20-founder number; one entrance no longer holds from 80 ants.
 2. **Dig down's bed cost, traced** (report §16, packed lunch on; shares of
    episodes, not ants). When food is wanted, 47% of fed foragers' episodes
    at home start inside the nest with dig down, against 35%; from inside

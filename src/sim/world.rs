@@ -1208,6 +1208,53 @@ pub struct ShaftFootprint {
     pub chamber_x1: i32,
     pub chamber_top: i32,
     pub chamber_bottom: i32,
+    /// **A storeroom off to one side of the shaft**, cut at founding under
+    /// `PIXEL_PHYSICS_STOREROOM=side` (`creature::storeroom_of`); `None`
+    /// otherwise, and then the storeroom is the chamber.
+    pub side: Option<SideRoom>,
+}
+
+/// **A room cut off one side of the entrance shaft, not at its foot**, and
+/// the passage that joins them: the storeroom under
+/// `PIXEL_PHYSICS_STOREROOM=side`. Harvester nests keep their granaries in
+/// chambers off the main tunnel, so stored food does not stand in the way in;
+/// the chamber at the shaft's foot, the storeroom until 2026-09-28, filled
+/// the entrance with food (`Reports/nest-granary-2026-09-28.md` §8h).
+///
+/// **The room's floor is a row below the passage's**, so food set down in it
+/// lies under the level ants walk at and does not close the way through: a
+/// room two rows tall has one row left over its food, and an ant, whose legs
+/// ride a row above its spine, needs two.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SideRoom {
+    /// The passage from the shaft's wall to the room: columns and rows.
+    pub passage_x0: i32,
+    pub passage_x1: i32,
+    pub passage_top: i32,
+    pub passage_bottom: i32,
+    /// The room: columns and rows.
+    pub x0: i32,
+    pub x1: i32,
+    pub top: i32,
+    pub bottom: i32,
+}
+
+impl SideRoom {
+    /// Whether `(x, y)` lies inside the passage.
+    pub fn in_passage(&self, x: i32, y: i32) -> bool {
+        (self.passage_x0..=self.passage_x1).contains(&x) && (self.passage_top..=self.passage_bottom).contains(&y)
+    }
+
+    /// Whether `(x, y)` lies inside the room.
+    pub fn in_room(&self, x: i32, y: i32) -> bool {
+        (self.x0..=self.x1).contains(&x) && (self.top..=self.bottom).contains(&y)
+    }
+
+    /// Whether `(x, y)` is within one cell of the passage or the room.
+    pub fn touches(&self, x: i32, y: i32) -> bool {
+        ((self.passage_x0 - 1..=self.passage_x1 + 1).contains(&x) && (self.passage_top - 1..=self.passage_bottom + 1).contains(&y))
+            || ((self.x0 - 1..=self.x1 + 1).contains(&x) && (self.top - 1..=self.bottom + 1).contains(&y))
+    }
 }
 
 impl ShaftFootprint {
@@ -1215,6 +1262,7 @@ impl ShaftFootprint {
     pub fn contains(&self, x: i32, y: i32) -> bool {
         ((self.x0..=self.x1).contains(&x) && (self.top..=self.bottom).contains(&y))
             || ((self.chamber_x0..=self.chamber_x1).contains(&x) && (self.chamber_top..=self.chamber_bottom).contains(&y))
+            || self.side.is_some_and(|s| s.in_passage(x, y) || s.in_room(x, y))
     }
 
     /// Whether `(x, y)` is **within one cell** of the cut, diagonals
@@ -1224,6 +1272,7 @@ impl ShaftFootprint {
     pub fn touches(&self, x: i32, y: i32) -> bool {
         ((self.x0 - 1..=self.x1 + 1).contains(&x) && (self.top - 1..=self.bottom + 1).contains(&y))
             || ((self.chamber_x0 - 1..=self.chamber_x1 + 1).contains(&x) && (self.chamber_top - 1..=self.chamber_bottom + 1).contains(&y))
+            || self.side.is_some_and(|s| s.touches(x, y))
     }
 
     /// Whether `(x, y)` is **within one cell of the mouth**: the shaft's rows
@@ -1258,6 +1307,38 @@ impl ShaftFootprint {
         ((self.chamber_x0 + self.chamber_x1) / 2, self.chamber_bottom)
     }
 
+    /// **The storeroom's columns and rows**: the side room when one was cut,
+    /// else the chamber, so every storeroom rule reads one rectangle and a
+    /// cut with no side room is the storeroom as it was, bit for bit.
+    pub fn store_rect(&self) -> (i32, i32, i32, i32) {
+        match self.side {
+            Some(s) => (s.x0, s.x1, s.top, s.bottom),
+            None => (self.chamber_x0, self.chamber_x1, self.chamber_top, self.chamber_bottom),
+        }
+    }
+
+    /// Whether `(x, y)` lies inside the storeroom ([`ShaftFootprint::store_rect`]).
+    pub fn in_store(&self, x: i32, y: i32) -> bool {
+        let (x0, x1, top, bottom) = self.store_rect();
+        (x0..=x1).contains(&x) && (top..=bottom).contains(&y)
+    }
+
+    /// Whether `(x, y)` is within one cell of the storeroom, diagonals
+    /// included.
+    pub fn touches_store(&self, x: i32, y: i32) -> bool {
+        let (x0, x1, top, bottom) = self.store_rect();
+        (x0 - 1..=x1 + 1).contains(&x) && (top - 1..=bottom + 1).contains(&y)
+    }
+
+    /// **Where a store load is carried once it is inside the cut**: the
+    /// chamber's floor, or the side room's -- the middle of its floor row.
+    pub fn store_floor(&self) -> (i32, i32) {
+        match self.side {
+            Some(s) => ((s.x0 + s.x1) / 2, s.bottom),
+            None => self.chamber_floor(),
+        }
+    }
+
     /// Every cell of the cut, each once: the shaft row by row, then the
     /// chamber row by row with the shaft's own columns left out where the
     /// two rectangles overlap.
@@ -1271,6 +1352,20 @@ impl ShaftFootprint {
         for y in self.chamber_top..=self.chamber_bottom {
             for x in self.chamber_x0..=self.chamber_x1 {
                 if !((self.x0..=self.x1).contains(&x) && (self.top..=self.bottom).contains(&y)) {
+                    out.push((x, y));
+                }
+            }
+        }
+        // The side room and its passage, which touch the shaft and the
+        // chamber but never overlap them.
+        if let Some(s) = self.side {
+            for y in s.passage_top..=s.passage_bottom {
+                for x in s.passage_x0..=s.passage_x1 {
+                    out.push((x, y));
+                }
+            }
+            for y in s.top..=s.bottom {
+                for x in s.x0..=s.x1 {
                     out.push((x, y));
                 }
             }

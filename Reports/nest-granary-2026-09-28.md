@@ -36,7 +36,10 @@ colony**: with a door over the mouth, 3 or more food cells in the room at
 mid-run on 14 of 24 seeds, and against the door alone 14% less food taken and
 a third fewer young. This colony has no ants that stay home, so the carriers
 are the fed ants that also breed. Found on the way: the door alone now helps
-the bed a great deal (starved 93 -> 15).
+the bed a great deal (starved 93 -> 15). **With a nest-worker caste and the
+storeroom off one side of the entrance tunnel** (§8j), five times as many
+loads get down and births rise 144 -> 203, but the room holds about as much
+as the chamber at the tunnel's foot did: the colony uses the food.
 
 ## 1. Where this sits
 
@@ -206,6 +209,9 @@ form the store's food is drawn two ways.
 | 149 | + nest workers carry (`on,post,caste=4,workerhome`), against 148's arm | room >= 3 at 12,000 on at least 12 of 24; food taken within -10%; born within ±15% | 7 of 24; -9.7%; -16% | mostly wrong |
 | 150 | + the caste alone (`caste=4`), against 148's arm | food taken 5-15% lower | -11% | right |
 | 151 | walked down against handed down | more delivered | 9 against 7.5 | right |
+| 154 | side room against the foot chamber, mouth beside the door, nest workers walking (§8j) | room food (time-averaged) higher on at least 14 of 24 | 8 of 24 (under the door: 11) | wrong |
+| 155 | same | food taken within ±10%; starved within ±25 | +4%; 92 against 89 | right |
+| 156 | same | loads delivered a run at least twice the foot chamber's | 30.5 against 8 (under the door 31.5 against 5.5) | right |
 
 ## 8. B, built: foragers drop at the door, ants at home carry it in
 
@@ -456,3 +462,61 @@ unless marked:
   shipped nest already does.
 - The colony-number costs of each arm are in §8c, §8g and §8h.
 
+### 8j. A storeroom off one side of the entrance tunnel
+
+The owner, to §8h's proposal: yes. Built as a part of
+`PIXEL_PHYSICS_STOREROOM`, off:
+
+- **`side`**: at founding a passage two rows tall leaves the entrance shaft
+  halfway down, on the side away from the door, and runs past the end of the
+  chamber at the shaft's foot. Beyond it is a room as wide as that chamber (7
+  columns), its floor a row below the passage's, so food on it lies under
+  the level ants walk at. The nest workers walk their loads down the shaft,
+  along the passage and onto the room's floor. Every storeroom rule reads
+  this room in place of the chamber (`ShaftFootprint::store_rect`); without
+  `side` it is the chamber, and every arm measured before is unchanged bit
+  for bit (the bed's default and the foot-chamber caste arm, 24 of 24 seeds
+  each; `digbox`, 4 of 4).
+
+The colony bed, 24 seeds, the door on, nest workers carrying
+(`on,caste=4,workerhome`) in every arm. Food in the room counted every 250
+frames, as in §8i:
+
+| | foot chamber, mouth under the door | side room, mouth under the door | foot chamber, mouth beside the door | side room, mouth beside the door |
+|---|---:|---:|---:|---:|
+| loads delivered a run (median) | 5.5 | **31.5** | 8 | **30.5** |
+| food in the room, frames 3,000-24,000 (median of time-averages) | 1.66 | 1.76 | 1.46 | 0.69 |
+| ... frames 3,000-12,000 | 1.55 | 0.78 | 1.04 | 0.12 |
+| ... frames 12,000-24,000 | 1.91 | 1.86 | 1.71 | 1.05 |
+| food in the shaft (median) | 4.0 | 5.6 | 4.3 | 4.7 |
+| food taken from the pile | 5,292 | 5,900 | 5,009 | 5,211 |
+| starved | 61 | 75 | 89 | 92 |
+| born | 144 | **203** | 110 | 119 |
+
+For scale, the door alone on the same binary: 5,301 taken, 23 starved, 136
+born.
+
+- **The side room gets five times as many loads down**, 31.5 a run against
+  5.5 with the mouth under the door, because the way in is no longer the
+  store. **The room does not hold much more.** Seed for seed it fills later
+  (less food in the first half on 17 of 24) and ties in the second half
+  (more on 13, less on 11). The mean of the 24 runs is higher from about
+  frame 15,000 (3.3 cells at the end against 2.7), because a few seeds store
+  a lot.
+- **The colony uses what goes in.** With the mouth under the door, births
+  rise from 144 to 203 (higher on 18 of 24), the most of any arm measured on
+  this bed, and food standing at the nest from 7,153 to 10,112 J (higher on
+  18). Food taken rises 11% (14 / 9). Starvation rises too, 61 -> 75 (13 / 7).
+  Who takes the stored food back out -- the nest workers who live in the
+  cut, births paid from food within reach at home, or packed lunches -- was
+  not traced.
+- **With the mouth beside the door the side room is the worse room.** Loads
+  still rise (8 -> 30.5), but it holds less (lower on 18 of 24 in the first
+  half, 17 in the second) and births barely move (110 -> 119). The room
+  then lies 10 to 16 columns from the door, against 5 to 11 with the mouth
+  under it. Not traced further.
+- **The shaft still holds 4-6 food cells in every arm**, with a storeroom or
+  without: that food comes down from the door, not from the store.
+
+**Next**: trace where the side room's food goes, per load, before tuning
+it. The arm to take forward is the side room with the mouth under the door.
