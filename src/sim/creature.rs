@@ -9755,14 +9755,41 @@ fn turn_toward(from: u8, to: u8) -> u8 {
 /// going out. The dig wiring lowered `Dig` away from home and left it high
 /// at home, so the condition that entry names is not met. It comes on when
 /// the turn stops recruiting the foragers.
-fn dig_down_bias() -> Option<f32> {
-    static W: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
-    *W.get_or_init(|| {
-        std::env::var("PIXEL_PHYSICS_DIG_DOWN")
-            .ok()
-            .and_then(|v| v.parse::<f32>().ok())
-            .filter(|v| *v > 0.0)
-    })
+///
+/// **`<w>,enclosed` turns only an animal the ground already encloses**
+/// (curvature at or below [`SPOIL_CUE_ENCLOSED`], the heap cue's own test),
+/// so an ant on the surface at home never starts a new hole downward. Built
+/// 2026-09-28 after the hunger gate showed fed ants at home turning down as
+/// well as hungry ones (`Reports/nest-heap-cue-2026-09-28.md` §11). Without
+/// `,enclosed` the draws are exactly the plain switch's.
+fn dig_down_bias() -> Option<DigDown> {
+    static W: std::sync::OnceLock<Option<DigDown>> = std::sync::OnceLock::new();
+    *W.get_or_init(|| parse_dig_down(&std::env::var("PIXEL_PHYSICS_DIG_DOWN").unwrap_or_default()))
+}
+
+/// What [`dig_down_bias`] read: the chance of the turn per dig roll, and
+/// whether only an enclosed animal takes it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct DigDown {
+    w: f32,
+    enclosed_only: bool,
+}
+
+/// `PIXEL_PHYSICS_DIG_DOWN`'s value: `<w>` or `<w>,enclosed`, `w` above 0.
+/// Anything else is off, as the plain switch always read a value it could
+/// not parse; a qualifier it does not know is reported and read as none.
+fn parse_dig_down(raw: &str) -> Option<DigDown> {
+    let mut parts = raw.split(',').map(str::trim);
+    let w = parts.next()?.parse::<f32>().ok().filter(|v| *v > 0.0)?;
+    let enclosed_only = match parts.next() {
+        None => false,
+        Some("enclosed") => true,
+        Some(other) => {
+            eprintln!("PIXEL_PHYSICS_DIG_DOWN: `{other}` is not `enclosed`; turning anywhere");
+            false
+        }
+    };
+    Some(DigDown { w, enclosed_only })
 }
 
 /// **Is this ANIMAL at its nest** — every cell of the body, not just the head.
@@ -11541,8 +11568,10 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // cell it will never enter.** Default off and bit-exact; see
         // [`dig_down_bias`] for the whole argument and for why the two
         // obvious places to put this are both wrong.
-        if let Some(w) = dig_down_bias() {
-            if draw.unit_f32() < w {
+        if let Some(dd) = dig_down_bias() {
+            let may_turn = !dd.enclosed_only
+                || surface_curvature(world, x, y, curvature_radius_of(def, &traits_of(world, organism, def)).max(1)) <= SPOIL_CUE_ENCLOSED;
+            if may_turn && draw.unit_f32() < dd.w {
                 let h = world.organism(organism).map_or(0, |s| s.heading);
                 let turned = turn_toward(h, DOWN_DIR);
                 if turned != h {
@@ -34758,6 +34787,20 @@ mod tests {
         for bad in ["x", "0", "-1", "2,1.5", "2,0.1,9", "2,"] {
             assert_eq!(parse_spoil_cue(bad), Some(SPOIL_CUE_SHIPPED), "{bad:?} must read as unset, which is the shipped cue");
         }
+    }
+
+    #[test]
+    fn dig_down_parses_its_spellings_and_refuses_the_rest() {
+        // Unset and unreadable are off, as the plain switch always read them;
+        // `,enclosed` narrows the turn to an animal the ground encloses, and
+        // an unknown qualifier is reported and read as none rather than off,
+        // so a typo cannot turn the arm into the control.
+        assert_eq!(parse_dig_down(""), None);
+        assert_eq!(parse_dig_down("off"), None);
+        assert_eq!(parse_dig_down("0"), None);
+        assert_eq!(parse_dig_down("1.0"), Some(DigDown { w: 1.0, enclosed_only: false }));
+        assert_eq!(parse_dig_down(" 0.5 , enclosed "), Some(DigDown { w: 0.5, enclosed_only: true }));
+        assert_eq!(parse_dig_down("1.0,enclsoed"), Some(DigDown { w: 1.0, enclosed_only: false }));
     }
 
     #[test]
