@@ -768,9 +768,10 @@ at the nest. With it: 4,574, 93, 151, 7,743 J. Food taken is lower on 21 of
 24 seeds.
 
 **The trace** reads the decision CSV (scratch `digcost3.py`). An episode
-starts when an ant at home (on the doorstep, or inside the founding cut) is
-fed (energy at least 0.999), empty, and feels the forage drive. It is scored
-by the first thing the ant does next.
+starts when an ant at home is fed (energy at least 0.999), empty, and feels
+the forage drive. At home means on the doorstep, or underground below the
+nest's 45 columns ("inside the nest"). The episode is scored by the first
+thing the ant does next.
 
 | | dig down off | on |
 |---|---:|---:|
@@ -797,7 +798,9 @@ Split by where the episode starts:
   account for 1.7 of the 4.4 points of extra digging, and 3.1 of the 7.9
   points of going out less.
 - **Inside, a fed forager mostly handles food.** It picks up food at home and
-  empties it there (57-58%), or it digs (26-28%). The ones that go out get
+  empties it there (57-58%), or it digs (26-28%). The food is underground:
+  86-90% of those pickups happen inside the nest, mostly one to three rows
+  below the surface, so delivered food lies in the top of the nest. The ones that go out get
   out fast (median 18-36 frames, p90 54-96), so the way out is not the
   obstacle.
 - **The colony's time.** Decisions inside the nest go from 27% to 36%.
