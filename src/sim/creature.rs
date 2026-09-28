@@ -3667,6 +3667,13 @@ fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision
     // surplus put down where the animal lives can each pay for a child.
     let gut = gut_of(world, organism, def);
     let bank = state.energy;
+    // **Face first, because this runs every tick an animal survives.** A
+    // guaranteed price is never above face, so an animal the face sum cannot
+    // carry to its bar cannot get there at all, and the common tick -- an
+    // animal nowhere near its bar -- never pays for pricing a bite.
+    if bank + provisions_in_reach(world, hx, hy, gut).map(|(w, _, _)| w).sum::<f32>() < bar {
+        return None;
+    }
     let reachable = reachable_provision(world, hx, hy, gut);
     if bank + reachable < bar {
         return None;
