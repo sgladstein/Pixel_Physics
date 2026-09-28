@@ -1,6 +1,13 @@
 # Ants
 
-*Current as of: 2026-09-28, when **a forager started taking a bite from the
+*Current as of: 2026-09-28, when **a birth stopped killing its parent.** An
+ant a little short of the price of young makes up the rest from food beside
+it, and it used to count seeds at their full worth though a bitten seed often
+survives and gives only a quarter; it paid anyway and died a moment later with
+a crop full of food. In the lab box that was a quarter of every ant that
+starved. Now half as many starve, with a third fewer births and the same
+number of ants alive; the colony's generations turn over more slowly.
+Earlier that day, **a forager started taking a bite from the
 store out with it.** An ant at home next to stored food picks a piece up, eats
 from it while it holds it and puts the rest back, over and over: that nibbling
 is most of how a colony eats. A well-fed forager doing it used to stay home
@@ -2121,6 +2128,15 @@ stores last**, which is what a colony's stores were always supposed to be
 for and what nothing in the game had ever read back. So how many young a
 colony raises is now a question about how well it forages, and a well-stocked
 nest is worth something beyond looking well stocked.
+
+**A parent short of the price makes up the difference from food right beside
+it**, eating it on the spot. A seed is a poor bargain for that: bitten, it
+often survives and gives up only a quarter of its worth. Until 2026-09-28 a
+parent counted the seeds around it at their full worth, came up short, paid
+for the young anyway and died a moment later with its crop full of food; in the
+lab box a quarter of all the ants that starved died that way. Now it counts a
+seed only at what it is sure to get, so it waits until it can really afford
+the young, and a birth never kills its parent.
 
 Ants also **take the best thing in reach** rather than the first thing they
 happen to turn toward. Standing between a leaf and a flower they now take the

@@ -1331,6 +1331,32 @@ fn main() {
         writeln!(w, "frame,id,x,y,bank,reachable,bar,at_nest,nest_d,crop,generation,children,child_lines").expect("write budtrace header");
         w
     });
+    // **`lifetrace=FILE`: every animal, every `lifetrace_every=` frames
+    // (default 30), with the nearest food it could eat** -- built 2026-09-28
+    // for boxes that die with food standing (`Reports/lanes/foraging-loop.md`,
+    // seeds 7 and 20: 127 of 207 deaths starved on seed 20 with 30-100 edible
+    // cells within 16 columns of the nest). A population table cannot say
+    // *why* an ant starved beside food; one row per ant per sample can, read
+    // back from its grave. Columns: where it is, its energy and crop, the
+    // forage flags the drive reads, how far its nest is, and the nearest cell
+    // the census would count as edible (Chebyshev distance, the vector to it,
+    // its material and height above the soil line). An id is reused once its
+    // slot frees, so `(id, born)` is the individual. Each creature's grave is
+    // written as a `grave,id,born,died,cause,x,y,generation` row at the first
+    // sample after it dies -- not at the end, because the graveyard holds
+    // 2,048 graves across plants and animals and a 120,000-frame box buries
+    // more plants than that. Each creature birth is a `birth,child,born,parent`
+    // row, from the run log, at the first sample after it.
+    let lifetrace_every: u64 = arg("lifetrace_every").unwrap_or(30);
+    let mut lifetrace = arg::<String>("lifetrace").map(|p| {
+        use std::io::Write;
+        let mut w = std::io::BufWriter::new(std::fs::File::create(&p).expect("create lifetrace file"));
+        writeln!(w, "frame,id,born,x,y,energy,crop,crop_mat,lunch,foraged,hungry_home,nest_d,food_d,food_dx,food_dy,food_mat,food_above,generation")
+            .expect("write lifetrace header");
+        w
+    });
+    let mut graves_written: std::collections::HashSet<(u32, u64)> = std::collections::HashSet::new();
+    let mut births_written: std::collections::HashSet<(u32, u64)> = std::collections::HashSet::new();
     let handout: u64 = arg("handout").unwrap_or(0);
     // **`no_colony=1` -- the colony-removed control, on a scenario or off
     // one alike.** See `strip_colony`'s own doc for why this is a
@@ -1532,7 +1558,7 @@ fn main() {
         world.species.set_creature(sid, def);
     }
     println!(
-        "  {} crop_capacity = {} face J; LOAD_SCALE={} LOAD_BY={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) CARRY_PATIENCE={} PACKED_LUNCH={} COLONY_SPACING={} STACK_DEPTH={} BUD_SITE={}",
+        "  {} crop_capacity = {} face J; LOAD_SCALE={} LOAD_BY={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) CARRY_PATIENCE={} PACKED_LUNCH={} BIRTH_PRICE={} COLONY_SPACING={} STACK_DEPTH={} BUD_SITE={}",
         spec.colony_species,
         world.species.id_of(&spec.colony_species).and_then(|id| world.species.get(id).creature.as_ref().map(|d| d.crop_capacity)).unwrap_or(0.0),
         std::env::var("PIXEL_PHYSICS_LOAD_SCALE").unwrap_or_else(|_| "shipped".into()),
@@ -1543,6 +1569,7 @@ fn main() {
         pixel_physics::sim::creature::forage_drive_from_env(),
         if pixel_physics::sim::creature::carry_patience_from_env() { "pickup" } else { "off" },
         if pixel_physics::sim::creature::packed_lunch_from_env() { "on" } else { "off" },
+        if pixel_physics::sim::creature::birth_price_from_env() { "guaranteed" } else { "face" },
         // The colony bed's founding levers, echoed because a lab run once
         // inherited them from a bed script's exports and founded 52 founders
         // where the lab places 41, every box dying by frame 35,000
@@ -1931,6 +1958,74 @@ fn main() {
                 }
             }
         }
+        if let Some(out) = lifetrace.as_mut() {
+            if f % lifetrace_every == 0 {
+                use std::io::Write;
+                // The census's own edibility predicate, so "food standing"
+                // here is exactly the `edible` column of the table.
+                let mut food: Vec<(i32, i32, MaterialId)> = Vec::new();
+                for y in 0..spec.height {
+                    for x in 0..spec.width {
+                        let cell = world.get(x, y);
+                        if diet_yield(&world, cell, gut) <= EAT_YIELD_THRESHOLD {
+                            continue;
+                        }
+                        if world.organism(cell.organism_id()).is_some_and(|st| world.species.get(st.species).creature.is_some()) {
+                            continue;
+                        }
+                        food.push((x, y, cell.material));
+                    }
+                }
+                for id in world.live_organism_ids() {
+                    let Some(st) = world.organism(id) else { continue };
+                    if world.species.get(st.species).creature.is_none() {
+                        continue;
+                    }
+                    let Some(&(hx, hy)) = st.chain.first() else { continue };
+                    let nest_d = world.nearest_nest_site(hx, hy).map_or(-1, |i| {
+                        let n = world.nest_sites[i];
+                        (n.x - hx).abs().max((n.surface - hy).abs())
+                    });
+                    let near = food.iter().min_by_key(|&&(x, y, _)| (x - hx).abs().max((y - hy).abs()));
+                    let (fd, fdx, fdy, fmat, fabove) = near.map_or((-1, 0, 0, "-".to_string(), 0), |&(x, y, m)| {
+                        ((x - hx).abs().max((y - hy).abs()), x - hx, y - hy, world.materials.get(m).name.clone(), spec.ground_y - y)
+                    });
+                    let (crop, crop_mat) = st.crop.map_or((0.0, "-".to_string()), |c| (c.worth(), world.materials.get(c.material).name.clone()));
+                    writeln!(
+                        out,
+                        "{f},{id},{},{hx},{hy},{:.1},{crop:.1},{crop_mat},{},{},{},{nest_d},{fd},{fdx},{fdy},{fmat},{fabove},{}",
+                        st.born_frame,
+                        st.energy,
+                        u8::from(st.lunch),
+                        u8::from(st.foraged),
+                        u8::from(st.hungry_home),
+                        st.generation
+                    )
+                    .expect("write lifetrace");
+                }
+                // Births, from the run log, as `birth,child,born,parent`: so a
+                // death can be read against what the animal had just done.
+                let mut born: Vec<_> = world
+                    .run_log
+                    .recent()
+                    .filter(|e| e.kind == pixel_physics::sim::world::LogKind::Born && world.species.get(e.species).creature.is_some())
+                    .filter(|e| !births_written.contains(&(e.id, e.born_frame)))
+                    .map(|e| (e.id, e.born_frame, e.other))
+                    .collect();
+                born.reverse();
+                for (child, bf, parent) in born {
+                    births_written.insert((child, bf));
+                    writeln!(out, "birth,{child},{bf},{parent}").expect("write lifetrace birth");
+                }
+                let mut new: Vec<_> = world.graveyard.recent().filter(|g| g.creature && !graves_written.contains(&(g.id, g.born_frame))).collect();
+                new.reverse();
+                for g in new {
+                    graves_written.insert((g.id, g.born_frame));
+                    writeln!(out, "grave,{},{},{},{},{},{},{}", g.id, g.born_frame, g.died_frame, g.cause.label().replace(' ', "_"), g.at.0, g.at.1, g.generation)
+                        .expect("write lifetrace grave");
+                }
+            }
+        }
         // **`budtrace=FILE`: what `try_bud` would weigh, for every animal
         // with a nest, every `budtrace_every=` frames (default 30).** One row
         // per animal: its bank, the food within reach a birth may also draw
@@ -1983,6 +2078,10 @@ fn main() {
         }
     }
 
+    if let Some(out) = lifetrace.as_mut() {
+        use std::io::Write;
+        out.flush().expect("flush lifetrace");
+    }
     let st = world.creature_stats;
     let l = &world.energy_ledger;
     let cols = visited.iter().filter(|v| **v).count();
@@ -2278,7 +2377,7 @@ fn main() {
     println!(
         "SUMMARY seed={} founders={} colonies={} frames={frames} handout={handout} cols={cols} plants={} windfall={} fruit_dropped={} edible={} unvisited={} floor={} aloft={} \
          peak_edible={peak_edible} eats={} born={} died={} alive={} intake={:.0} burn={:.0} shares={} shared_j={:.0} moves={} deliveries={} pickups_at_nest={} nest_visits={} \
-         regime={} bud_site={} buds_held_for_nest={} births_denied_no_space={} breeders={} gen={} bgen={} windfall_bitten={} seeds_spilled={} plants_from_pip={} pips_rotted={} pips_eaten={} \
+         regime={} bud_site={} buds_held_for_nest={} births_denied_no_space={} births_overdrawn={} breeders={} gen={} bgen={} windfall_bitten={} seeds_spilled={} plants_from_pip={} pips_rotted={} pips_eaten={} \
          windfall_bitten_ownerless={} seeds_carried={} seeds_delivered={} plants_from_pip_near_nest={} seed_transit_median={} lookup={} visits={} \
          flower_visits={} nectar_paid={:.0} nectar_j_per_1000f={:.2} organs_built={} bloom_seen={} \
          standing_flowers={} standing_fruit={} flowers_rebloomed={} organ_ripening_blocked={} organ_ripening_paid={} \
@@ -2312,6 +2411,7 @@ fn main() {
         if pixel_physics::sim::creature::bud_at_nest(&world) { "nest" } else { "anywhere" },
         st.buds_held_for_nest,
         st.births_denied_no_space,
+        st.births_overdrawn,
         last.breeders, world.deepest_animal_generation, world.deepest_breeder_generation,
         // **M2's own counter** -- every bite that reached an owned windfall
         // cell and was about to roll for survival, counted *before* the

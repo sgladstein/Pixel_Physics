@@ -1983,6 +1983,12 @@ pub struct CreatureStats {
     /// swallow, the cell in progress is digested whole that tick. 0 unless
     /// `PIXEL_PHYSICS_PACKED_LUNCH` is on.
     pub lunch_finished: u64,
+    /// **Births that left the parent under the `+ 1` floor** (`place_creature`'s
+    /// `Origin::Bud` arm): the food in reach paid less than the affordability
+    /// check counted, and the parent was charged the whole cost anyway, so it
+    /// dies of `Starved` on its next tick. The it-fired count for
+    /// `PIXEL_PHYSICS_BIRTH_PRICE`; 0 is what that switch promises.
+    pub births_overdrawn: u64,
     /// **Not a trip counter, and not a sessility guard — read
     /// `forage_trips` for either.** It increments on any move made while
     /// nest-adjacent, guarded on `OrganismState::since_nest > 0`; but
@@ -3568,6 +3574,11 @@ pub struct World {
     /// environment, which is on unless set `off`; a field for the reason
     /// `chooser` is one.
     pub packed_lunch: Option<bool>,
+    /// **Whether a birth counts food in reach at what its bite is certain to
+    /// pay, overriding `PIXEL_PHYSICS_BIRTH_PRICE` for this world**
+    /// (`creature::birth_price_of`). `None` follows the environment, which is
+    /// on unless set `face`; a field for the reason `chooser` is one.
+    pub birth_price: Option<bool>,
     /// **Which material stopped a creature**, counted per blocked tick and
     /// indexed by `MaterialId` — the breakdown `CreatureStats::
     /// blocked_by_plant` deliberately does not carry, because that struct is
@@ -5922,6 +5933,7 @@ impl World {
             forage_drive: None,
             carry_patience: None,
             packed_lunch: None,
+            birth_price: None,
             blocked_tissue_by_material: Vec::new(),
             energy_ledger: EnergyLedger::default(),
             colony_books: Vec::new(),

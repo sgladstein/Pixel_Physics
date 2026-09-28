@@ -65,7 +65,10 @@ will be.
   §9 and §12 again that day for packed lunch shipped on (`carries_lunch`,
   `packed_lunch_of`, `OrganismState::lunch` and `eat_lunch_now`, the drive
   gate, `home_pull`, `chooser_step`'s `laden`, the drop block and
-  digestion's `progressed`). §12 on 2026-09-28 for the storeroom switch, off
+  digestion's `progressed`). §9 and §12 again that day for the birth price
+  (`try_bud`, `reachable_provision`, `birth_price_of`,
+  `plant::guaranteed_bite_fraction`, the `Origin::Bud` arm of
+  `place_creature`). §12 on 2026-09-28 for the storeroom switch, off
   (`storeroom_of`, `store_pickup_ok`, `store_drop`, `store_post_site`,
   `store_target`, `store_return_target`, `Spoil::store`), and its nest-bound
   part (`is_nest_bound` in `forage_drive_level`, `home_pull` and
@@ -698,6 +701,15 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   - per laying tick: 0.0625 × a step × (emit A + emit B).
 - **Death:** starved at energy ≤ 0; old age by half-life. **Budding:**
   `try_bud` above `reproduce_threshold: 1100`, wherever the ant stands.
+  The bar counts the food in the eight cells around the head as well as the
+  bank (`reachable_provision`), and a birth the bank cannot cover eats that
+  food to make up the difference (`place_creature`'s `Origin::Bud` arm),
+  leaving the parent at 1 J or more. A bare seed there counts only what a
+  bite that spares it pays (`seed_provision_fraction`, a quarter), because
+  a bite spares it 60% of the time (`plant::guaranteed_bite_fraction`,
+  `PIXEL_PHYSICS_BIRTH_PRICE`); counted at face, the top-up could fall
+  short and the parent died the next tick. `CreatureStats::births_overdrawn`
+  counts births that leave a parent under the floor.
   With `PIXEL_PHYSICS_BUD_SITE=nest` (or `World::bud_at_nest`) a species
   that names a nest material buds only while at its nest (the `AtNest`
   read); `CreatureStats::buds_held_for_nest` counts the ticks it could have
@@ -772,6 +784,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_HUNGRY_HOME` | off | `on`/`refed` or `tether`: an empty ant too hungry to be out is pulled home to its nest's larder (§6d, §8); `World::hungry_home` for one world |
 | `PIXEL_PHYSICS_FORAGE_DRIVE` | `always` | `off`, `hunger`, `larder` or `always`, then optionally `,nopace`, `,keep` and `,fed` (only foragers at or above `start_energy`): a fed forager goes out when its nest needs food (§6d), and with `,keep` leaves the store at home (§5); `World::forage_drive` for one world |
 | `PIXEL_PHYSICS_PACKED_LUNCH` | on | `off`: a crop filled only at home counts as a load, so the forage drive does not reach its carrier (§6d); `World::packed_lunch` for one world |
+| `PIXEL_PHYSICS_BIRTH_PRICE` | `guaranteed` | `face`: a birth counts a bare seed in reach at its full worth, though a bite that spares it pays a quarter, so the top-up can leave the parent overdrawn (§9); `World::birth_price` for one world |
 | `PIXEL_PHYSICS_CARRY_PATIENCE` | `pickup` | `off`: a carry's home patience restarts only at the first pickup, not at every one (§6d step 5, bug Z35); `World::carry_patience` for one world |
 | `PIXEL_PHYSICS_LOAD_SCALE` | 1.0 | `<f>`: every food load weighs `f` times as much again, on top of the species' `food_weight` (§9) |
 | `PIXEL_PHYSICS_STOREROOM` | off | parts, comma-joined: `on`, a fed ant at home with an empty crop and empty mandibles, on a won `Feed` roll beside loose food more than a cell from its nest's founding chamber, takes the cell whole into its mandibles instead of swallowing it (`store_pickup_ok`); the load is pulled home to the chamber (`home_pull`, `home_target`, `HomeAligned` read as laden), goes down on a `DropSpoil` roll only in or beside the chamber (`store_drop`), is let go where it stands after 48 still decisions or when patience runs out, and its carrier is pulled back up to the mouth (`store_return_target`); a pick-up within a cell of the chamber reads as at home. `home`: the chamber is home to `adjacent_nest` (§8). `once`: one load until the next pick-up away from home. `post`: the load is handed down the open shaft from the mouth instead of walked down (`store_post_site`). `nestbound=<frames>[/<k>]` (bare: 8,000): an ant born in the colony, and with `/<k>` one founder in `k`, is nest-bound for its first `<frames>` (`OrganismState::nest_bound_until`, `is_nest_bound`): the forage drive reads 0 for it, fed it takes no away term and is pulled home when it strays (`home_pull`), and only it carries. `caste=<k>`: one ant in `k`, by id, founders and born, is nest-bound for life. `workerhome`: the founding cut is home to a nest-bound ant only (`nest_within_reach`). `World::storeroom` for one world |
