@@ -405,8 +405,30 @@ where the food is far.
   reserve is now dealt over the founders placed, and a guard written first
   was watched red on the old code (-85.09 J).
 
-**The proofs** -- the new default against the committed-code arms, bit for
-bit, and the full suite -- follow in the next commit.
+**The proofs.** One binary on the final code against the arms measured
+before the flip:
+- **`digbox`** (40 ants, 12 seeds, 24,000 frames): unset is the old
+  `NEST_SHAFT=6 SPOIL_CUE=5,0` arm, both `=off` is the old unset ant, and
+  `SPOIL_CUE=off` is the old shaft alone -- 12 of 12 each, every line of the
+  log but the two that name the switches. The same diff against the wrong arm
+  differs on 12 of 12, so it can fail.
+- **The colony bed** (`trailfollow`, 24 seeds): unset is the old shaft and
+  cue arm on all 24; against the old shipped ant it differs, as it must.
+- **The lab is not bit for bit, and the founding fix is why.** The lab's
+  colony plans 52 founders and places 43, plants standing on the other nine
+  stations, so the reserve was dealt over 52 with nine gaps and is now dealt
+  over the 43. With the shaft and the cue both off the old and new binaries
+  already differ by frame 6,300. The flip's own effect
+  there, both arms on the final code, is being run and follows in the next
+  commit.
+- **`ascii`**: 31 of 31 scenes. The excavation scene, whose ants are set
+  down by hand beside a bank with no founding shaft, digs 326 -> 151 and
+  roofs 83 -> 51 cells of void with the cue on, and still passes its guards:
+  the cue's early cost, where nothing has made a heap yet.
+- **The suite**: 1,978 passed, 0 failed (lib 1,918 with 88 ignored, druid 2,
+  the bin 10, `tests/determinism.rs` 4, `tests/worldgen.rs` 44 with 18
+  ignored). `clippy --all-targets --release --locked -D warnings` and
+  `docscheck` clean.
 
 ## 10. The creep, sized before building a fresh heap
 
