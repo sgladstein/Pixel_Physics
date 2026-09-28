@@ -54,8 +54,9 @@ and since 2026-09-28 that is the shipped ant**
 - **2026-09-28, shipped:** the dig wiring, `(Bias, Dig, -0.3)` with
   `(SurfaceCurvature, Dig, -1.0)` (#505). Openings 27.5 -> 10, digging in
   one place ([`../nest-dig-wiring-2026-09-28.md`](../nest-dig-wiring-2026-09-28.md)).
-- **2026-09-28, shipped on:** the founding shaft (6 rows) and the heap cue
-  (`K` 5, floor 0), switches in #506 and on by the owner's default rule. A
+- **2026-09-28, shipped on (#507):** the founding shaft (6 rows) and the
+  heap cue (`K` 5, floor 0), switches in #506 and on by the owner's default
+  rule. A
   dig that would open the ground to the sky needs a heap beside it, from
   above or below. `=off` on either is the ant before.
   - **Dig box:** openings 10 -> 4 (12 of 12), roofed 0.94, width 16. About
@@ -121,9 +122,11 @@ asked the two sessions to agree who owns what.
   15:30 → about 17:50 once. Files pushed to origin are the record.
 - **Sequencing:** settled 2026-09-27: door + dug mouth stays off, so there
   is no new baseline for the forage drive; the foraging lane was poked.
-- **Still open for the foraging lane:** `trailfollow`'s header does not echo
-  `PIXEL_PHYSICS_NEST_DOOR` / `_SHAFT` / `_HOME`, and it does not print
-  `pickups_at_nest`.
+- **Still open for the foraging lane:** `trailfollow`'s header echoes
+  `PIXEL_PHYSICS_NEST_DOOR` / `_SHAFT` / `_HOME` and prints
+  `pickups_at_nest` (both done on their side), but reads the raw variable:
+  an unset shaft prints `shipped`, which since #507 means on (6 rows), and
+  `PIXEL_PHYSICS_SPOIL_CUE` is not echoed at all. Raised in the #507 poke.
 
 ## Predictions (written before each run)
 
@@ -203,3 +206,5 @@ exploratory and carry none.
   books leak the flip exposed (82.6 J; the lab's 52-planned, 43-placed
   colony on every run).
 - `69f0d80a` — the lab on the final code: the flip ties on every pair.
+- `97129556` (#507) — merged: the founding shaft and the heap cue on by
+  default, and both founding fixes.
