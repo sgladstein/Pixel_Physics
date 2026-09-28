@@ -48,6 +48,10 @@ separate models that all looked correct in tests.
 
 ## What this project is optimising for
 
+**Features default on unless there is a good reason not to** (owner,
+2026-09-27). A switch that measures as a gain, or as neutral, ships on; a
+good reason is a *measured* harm, stated in the switch's doc and the report.
+
 **Looks good and realistic, in motion, at play scale — without ruining
 performance.** Stated by the owner directly. Three consequences that have
 already changed decisions:

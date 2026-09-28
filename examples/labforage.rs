@@ -1532,15 +1532,16 @@ fn main() {
         world.species.set_creature(sid, def);
     }
     println!(
-        "  {} crop_capacity = {} face J; LOAD_SCALE={} LOAD_BY={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?})",
+        "  {} crop_capacity = {} face J; LOAD_SCALE={} LOAD_BY={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) CARRY_PATIENCE={}",
         spec.colony_species,
         world.species.id_of(&spec.colony_species).and_then(|id| world.species.get(id).creature.as_ref().map(|d| d.crop_capacity)).unwrap_or(0.0),
         std::env::var("PIXEL_PHYSICS_LOAD_SCALE").unwrap_or_else(|_| "shipped".into()),
         std::env::var("PIXEL_PHYSICS_LOAD_BY").unwrap_or_else(|_| "shipped".into()),
         std::env::var("PIXEL_PHYSICS_SCOUT").unwrap_or_else(|_| "shipped".into()),
         std::env::var("PIXEL_PHYSICS_HUNGRY_HOME").unwrap_or_else(|_| "shipped".into()),
-        std::env::var("PIXEL_PHYSICS_FORAGE_DRIVE").unwrap_or_else(|_| "shipped".into()),
-        pixel_physics::sim::creature::forage_drive_from_env()
+        std::env::var("PIXEL_PHYSICS_FORAGE_DRIVE").unwrap_or_else(|_| "unset".into()),
+        pixel_physics::sim::creature::forage_drive_from_env(),
+        if pixel_physics::sim::creature::carry_patience_from_env() { "pickup" } else { "off" }
     );
     // **Same block, same reason, same refusal.** See `wire_rider`'s own doc:
     // before founding, because `place_creature` copies the genome at

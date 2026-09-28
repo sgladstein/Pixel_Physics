@@ -220,6 +220,9 @@ TOPICS = {
         # What reads the two trails above and turns them into steps: the
         # chooser the ant walks since 2026-09-24.
         "Walk status — the ant chooses where to step, and a colony builds its own road",
+        # What sends a forager out along that walk, and home from the pile:
+        # the forage drive and carry patience, shipped on 2026-09-27.
+        "Forage status — a forager keeps going out, and heads home from the last mouthful",
         "Lifespan status — an ant gets old, and the colony's fall becomes a slope",
         # The books under the two lines above: hunger and trophallaxis are
         # both *mechanisms*, and this is the reading that says what either

@@ -1,14 +1,31 @@
 # Ants
 
-*Current as of: 2026-09-28, when **a colony started digging its nest in one
-place.** An ant used to dig whatever ground it faced, wherever it was, so a
-colony scraped a crust across all the ground round its nest; now it digs
-where the ground closes round it, and the workings gather under the nest,
-deeper, with a third as many holes to the surface. The day before, **a
-colony's spoil heaps stopped hanging in the air.** An ant used to press the pellets beside anything it dug into wall,
-heaps included, so a heap dug out from underneath could leave dirt hanging a
-few rows up in open sky. Now a heap stays a heap and slumps when undermined.
-Earlier the same day, **hungry ants started going out to look for food.**
+*Current as of: 2026-09-28, when **foragers stopped resting while the colony
+went short, and stopped walking past the food**, and **a colony started
+digging its nest in one place.** A forager used to go out only
+when it was hungry itself. It brought a load home, ate its fill off the nest
+floor and sat at home until hunger sent it out again, so food never built up at
+the nest. Now an ant that has once picked up food out in the world keeps going
+back for more, hungry or fed. And a loaded forager used to lose its sense of
+the way home while it filled up at a heap, because climbing the heap counted as
+failing to get nearer home. Some walked off the far side of the heap and away.
+Now each mouthful restarts its sense of home and it turns for the nest. In a
+test colony with food 90 cells away, a third more food comes off the heap, a
+third more stands at the nest, a quarter fewer ants starve and nearly four
+times as many young are born. At 140 cells half as much food again stands at
+the nest, a few fewer ants starve and three times as many young are born; most
+of the dead there still die before any forager has found the food. In the lab
+box colonies eat two thirds more, raise more young and end twice the size, and
+fewer boxes die out after eating themselves bare.
+The same day the digging changed. An ant used to dig whatever ground it faced,
+wherever it was, so a colony scraped a crust across all the ground round its
+nest; now it digs where the ground closes round it, and the workings gather
+under the nest, deeper, with a third as many holes to the surface.
+The day before, **a colony's spoil heaps stopped hanging in the air.** An ant
+used to press the pellets beside anything it dug into wall, heaps included, so
+a heap dug out from underneath could leave dirt hanging a few rows up in open
+sky. Now a heap stays a heap and slumps when undermined. Earlier the same day,
+**hungry ants started going out to look for food.**
 An ant with nothing to carry and no trail under its feet used to have no reason
 to go anywhere, so a colony sat at home until someone stumbled on food, and
 most ants never left the nest area at all. Now a hungry ant heads out along the

@@ -545,7 +545,7 @@ struct Arm {
     hungry_home_turns: u64,
     /// `CreatureStats::forage_scouted` / `forage_paced`: decisions where the
     /// colony's need, not the ant's own hunger, set its scouting pull / its
-    /// step chance (`PIXEL_PHYSICS_FORAGE_DRIVE`). Printed only when set.
+    /// step chance (`PIXEL_PHYSICS_FORAGE_DRIVE`). Printed only when on.
     forage_scouted: u64,
     forage_paced: u64,
     forage_kept: u64,
@@ -4897,7 +4897,7 @@ fn main() {
     // `ant-forage-bed-and-gates-2026-09-21.md` is run with, echoed so a log
     // that does not name them was written by a binary that never had them.
     println!(
-        "  breadoff={} wire={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} LOAD_BY={} LOAD_SCALE={} NEST_DOOR={} NEST_DOOR_FOUNDERS={} NEST_SHAFT={} NEST_HOME={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) layfrom={}",
+        "  breadoff={} wire={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} LOAD_BY={} LOAD_SCALE={} NEST_DOOR={} NEST_DOOR_FOUNDERS={} NEST_SHAFT={} NEST_HOME={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) CARRY_PATIENCE={} layfrom={}",
         flag("breadoff"),
         arg_str("wire").unwrap_or_else(|| "shipped".into()),
         flag("decisioncsv"),
@@ -4913,8 +4913,9 @@ fn main() {
         std::env::var("PIXEL_PHYSICS_NEST_HOME").unwrap_or_else(|_| "shipped".into()),
         std::env::var("PIXEL_PHYSICS_SCOUT").unwrap_or_else(|_| "shipped".into()),
         std::env::var("PIXEL_PHYSICS_HUNGRY_HOME").unwrap_or_else(|_| "shipped".into()),
-        std::env::var("PIXEL_PHYSICS_FORAGE_DRIVE").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_FORAGE_DRIVE").unwrap_or_else(|_| "unset".into()),
         creature::forage_drive_from_env(),
+        if creature::carry_patience_from_env() { "pickup" } else { "off" },
         arg_str("layfrom").unwrap_or_else(|| "nest".into())
     );
     println!("  {LANDED_NOTE}\n");
