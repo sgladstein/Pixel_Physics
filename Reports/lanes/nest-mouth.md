@@ -48,30 +48,35 @@ the live question, what is addressed to another lane, predictions and heads.*
 
 ## Live question
 
-**Is the colony building a nest? It is digging one in one place now**
-([`../nest-dig-wiring-2026-09-28.md`](../nest-dig-wiring-2026-09-28.md)).
-- **2026-09-28:** `(Bias, Dig, -0.3)` with `(SurfaceCurvature, Dig, -1.0)`.
-  Openings 27.5 -> 10 (12 of 12), roofed 0.78, deeper, half as wide, the
-  same digging; the dig beats random walkers on roofed share and depth for
-  the first time.
-- **Spoil stays spoil** (#503); the footing switch and drop-away stay
-  switches ([`../nest-spoil-footing-2026-09-27.md`](../nest-spoil-footing-2026-09-27.md)).
-- **The dig marker is withdrawn**: a digging pheromone tested negative in
-  ants (`nest-biology-digging-signals-2026-09-19.md` §3.1).
+**Is the colony building a nest? It digs one nest with one entrance area
+under two switches** ([`../nest-heap-cue-2026-09-28.md`](../nest-heap-cue-2026-09-28.md)).
+- **2026-09-28, shipped:** the dig wiring, `(Bias, Dig, -0.3)` with
+  `(SurfaceCurvature, Dig, -1.0)` (#505). Openings 27.5 -> 10, digging in
+  one place ([`../nest-dig-wiring-2026-09-28.md`](../nest-dig-wiring-2026-09-28.md)).
+- **2026-09-28, off:** `PIXEL_PHYSICS_SPOIL_CUE=5,0` with
+  `PIXEL_PHYSICS_NEST_SHAFT=6`. A dig that would open the ground to the sky
+  needs a heap beside it, from above or below.
+  - **Dig box:** openings 10 -> 4 (12 of 12), roofed 0.94, width 16. With
+    `DIG_DOWN=1.0` as well, 2.5 openings, more nest-like than random
+    walkers on every seed. About half the digging by frame 12,000.
+  - **Frame 24,000:** openings creep to 5-6, as shallow galleries spread
+    spoil over the whole strip.
+  - **Colony bed:** starved 201 -> 83 (fewer on 22 of 24).
+  - **Lab:** ties on the pairs; 2.5 times the roofed room on seed 11.
+- **Spoil stays spoil** (#503); the footing switch undoes the cue (spoil
+  everywhere) and stays off.
+- **The marker is the heap**, not a scent at the face (owner, 2026-09-28).
 
 **Next** (2026-09-28):
-1. **One mouth.** Ten remain along the nest strip.
-   - **First, the heap as the marker**: fresh spoil draws digging, with a
-     saturating response so the busiest hole keeps its diggers. Built as a
-     switch first and scored with `SPOIL_FOOTING` off and on. It fails if
-     openings do not fall below 10 on 9 of 12 seeds for the same digging.
-     Watch heap cuts: digging into the pile refills the holes.
-   - Then re-score on the new dig: a narrower home (`NEST_SITE_COLS`, its
-     condition is met), and the founding shaft with door + dug mouth.
-2. **The footing switch and drop-away**, re-scored on the new dig.
-3. **Chambers** need contents (brood or a granary), which the dig box
+1. **Land the cue and the census** (off, #506). The bed and the lab are
+   read; next is the default, shaft + cue + dig down, and the creep (a
+   fresh heap, not any heap).
+2. **The brain input** for the cue, once the beds are read (owner's order).
+3. **Bigger and deeper**: a longer run, to see whether half the early
+   digging catches up.
+4. **Chambers** need contents (brood or a granary), which the dig box
    lacks.
-4. **Why unpacked spoil cost the lab**: not traced.
+5. **Why unpacked spoil cost the lab**: not traced.
 
 ## Working agreement with the foraging lane (2026-09-27)
 
