@@ -1,6 +1,10 @@
 # Ants
 
-*Current as of: 2026-09-27, when **hungry ants started going out to look for food.**
+*Current as of: 2026-09-27, when **a colony's spoil heaps stopped hanging in
+the air.** An ant used to press the pellets beside anything it dug into wall,
+heaps included, so a heap dug out from underneath could leave dirt hanging a
+few rows up in open sky. Now a heap stays a heap and slumps when undermined.
+Earlier the same day, **hungry ants started going out to look for food.**
 An ant with nothing to carry and no trail under its feet used to have no reason
 to go anywhere, so a colony sat at home until someone stumbled on food, and
 most ants never left the nest area at all. Now a hungry ant heads out along the
@@ -1152,19 +1156,19 @@ from under an overhang and it comes down a cell at a time off the underside,
 each cell turning back into loose dirt that falls and piles below, so
 undermining your own spoil does something you can watch. The shelf in front of
 the face is still a shelf and a tower is still a tower; what has gone is the
-part that was standing on nothing. And a passage driven through a heap stands,
-because an ant that works a pellet into the side of it has made a wall of
-it.
+part that was standing on nothing.
 
-**That is only half true, measured on 2026-09-27.** The same wall-making is
-how a heap still hangs. When an ant digs right beside a heap, the pellets
-next to the hole are pressed into wall, and wall needs nothing under it. A
-heap dug out from its foot can still leave a block of dirt hanging on one
-thin shelf, a few rows up in open air. A small test colony carries about
-sixteen cells of it. The two cannot be pulled apart cheaply: stop the ants
-pressing pellets into wall, and the hanging dirt disappears, but the heap
-slumps into its own passages instead. A colony living that way in the lab
-box raised fewer young, and some colonies died out.
+**Until 2026-09-27 that was only half true.** When an ant dug right beside a
+heap, it pressed the pellets next to the hole into wall, and wall needs
+nothing under it, so a heap dug out from its foot could still leave a block
+of dirt hanging on one thin shelf, a few rows up in open air. **An ant no
+longer presses pellets into wall**: it still walls its tunnels through
+ordinary ground, but a heap it digs beside stays a heap, and when it is
+undermined it slumps into loose dirt. Nothing hangs. The price is that a
+passage dug through a heap no longer stands; the heap slumps into it. In a
+test box the colony's digging comes out with fewer holes to the surface and
+more of it roofed over. In the lab box colonies raised fewer young, and some
+died out, which is accepted while the nest is being built.
 
 **An ant will not put a pellet down just anywhere**, and the two things it
 insists on are the two ways spoil otherwise goes wrong. It has to be able to

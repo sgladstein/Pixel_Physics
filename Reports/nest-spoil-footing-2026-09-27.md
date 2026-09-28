@@ -242,8 +242,9 @@ default's, so the switches unset are bit-exact here too.
 
 ## 5. Verdict, and what is next
 
-**Both switches stay off in this PR.** The owner prefers options on by
-default unless there is a good reason not to. Alone, each has one:
+**Both switches stayed off in #502.** Superseded the same evening by §7:
+`SPOIL_PACKS=off` is now the default. The owner prefers options on by
+default unless there is a good reason not to. Alone, each had one:
 
 - **`SPOIL_PACKS=off`:** the lab colony has fewer births on 10 of 12
   seeds, and 3 of 12 colonies die out. That is despite the dig box's cleaner
@@ -314,3 +315,58 @@ Each row was written into the lane's scratch file before the batch ran
 | 38 | colony bed, footing + no packing | within +-20 | 184 against 201 (14 / 10) | right |
 | 39 | lab, no packing | births, food eaten, colony-frames no worse than 4 / 8; no more colonies lost | births lower on 10 of 12 (p 0.04); 3 colonies lost | wrong |
 | 40 | lab, footing + no packing | as 39 | births 5 / 7, food eaten 4 / 8, none lost | right |
+
+## 7. The owner's ruling, and what it changed
+
+Given the same evening, after #502 was opened:
+
+> Unless you are specifically working on a foraging loop part of the nest,
+> you shouldn't care about "Lost colonies died of starvation". You care about
+> making progress in nest building. It is okay if nest building temporarily
+> hurts colony numbers. A successful nest will require multiple fixes and
+> solutions to be implemented. Just because an intermediate step in the
+> process hurts starvation and colony numbers is not a problem if it gets us
+> closer to the final ideal goal.
+
+So every verdict above that rested on the lab or the colony bed was
+re-read on nest measures alone: the dig box's scoreboard and funnel.
+
+- **`SPOIL_PACKS=off` is the default now.** Its only reason against was the
+  lab's births and lost colonies. On nest measures it is the most nest-like
+  arm measured:
+  - against the default: fewer mouths on 11 of 12 (31.5 -> 27.5), more
+    roofed on 8 of 12, deeper on 8 of 12, and hanging ground 16 -> 0 on 12
+    of 12;
+  - against the footing pair: fewer mouths and more roofed on 12 of 12,
+    deeper on 10 of 12.
+
+  `PIXEL_PHYSICS_SPOIL_PACKS=on` restores packing. The full suite passes
+  both ways (1,912 library tests, `determinism.rs`, `worldgen.rs`).
+- **`SPOIL_FOOTING=ground` stays a switch, for a nest reason.** Alone it
+  opens more mouths (12 of 12) and leaves the dig shallower and less roofed.
+  It is still what stops pellets landing on ants, so it goes into the dig
+  marker's arms, where concentrated digging has to stay dug.
+- **`DIG_DOWN`, re-scored on nest measures** (predictions 41-42). It was
+  rejected on the colony bed's starvation alone, and it was the best single
+  lever on the old funnel (3% -> 6%). On top of the footing pair it is worse
+  on nest measures:
+
+  | arm | cuts that built | room | mouths | roofed | depth90 | holding |
+  |---|---:|---:|---:|---:|---:|---:|
+  | footing + no packing | 3.9% | 172 | 41.5 | 0.39 | 5 | 33% |
+  | + `DIG_DOWN=0.5` | 2.6% | 184 | 45.5 | 0.34 | 3 | 50% |
+  | + `DIG_DOWN=1.0` | 2.7% | 200 | 45.5 | 0.37 | 3 | 55% |
+
+  Pellets cut at the bottom of a hole have nowhere footed to go, so ants
+  spend half their time holding one. It stays off, and now for a nest
+  reason. Its old gain was measured while pellets crumbled wherever they
+  were put.
+- **Door + dug mouth** was kept off for the lab's food and one lost colony.
+  On nest measures it is mixed: fewer mouths on 9 of 12, less roofed on 10 of
+  12 (`nest-work-2026-09-27.md` §2). It is re-opened as a nest-lane
+  candidate, to be scored with the dig marker, not turned on alone.
+
+| # | arm | prediction | result | right? |
+|---|---|---|---|---|
+| 41 | footing + no packing + `DIG_DOWN=1.0` | building >= 6%; largest piece bigger >= 9/12; depth deeper >= 9/12; more mouths >= 6/12 | 2.7%; 10/12; deeper on 1/12; more mouths 9/12 | wrong but for the piece and the mouths |
+| 42 | the same at 0.5 | between | building 2.6%, below both | wrong |

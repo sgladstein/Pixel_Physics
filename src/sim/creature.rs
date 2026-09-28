@@ -12112,14 +12112,14 @@ fn lining_enabled() -> bool {
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_BURROW_LINING").as_deref() != Ok("off"))
 }
 
-/// **`PIXEL_PHYSICS_SPOIL_PACKS=off`: the lining leaves a pellet a pellet.**
+/// **The lining leaves a pellet a pellet, by default since 2026-09-27;
+/// `PIXEL_PHYSICS_SPOIL_PACKS=on` packs it into wall as before.**
 /// `pack_neighbours` turns every neighbour with a `packs_into` form into
-/// lining, spoil included, and lining carries no `needs_footing`: so a spoil
-/// heap cut at its foot becomes lining standing on nothing, and a tower of
-/// pellets hangs over the gap on its one lined row. Under this switch a cell
-/// whose material `needs_footing` is skipped, so placed ground stays placed
-/// ground and a heap undermined slumps (§Z18's footing rule) instead of
-/// hanging.
+/// lining, and lining carries no `needs_footing`: packed, a spoil heap cut at
+/// its foot becomes lining standing on nothing, and a tower of pellets hangs
+/// over the gap on its one lined row. So a cell whose material
+/// `needs_footing` is skipped: placed ground stays placed ground, and a heap
+/// undermined slumps (§Z18's footing rule) instead of hanging.
 ///
 /// **Why, measured** (`examples/digbox`, 40 ants, 12 seeds, frame 12,000):
 /// with the drop site asking for ground ([`spoil_footing_drop`]) the pellets
@@ -12128,10 +12128,19 @@ fn lining_enabled() -> bool {
 /// shows as spoil blocks on one cyan row, two or three rows up in open sky.
 /// `dead-ends.md`'s Khuong entry names the same condition from the other
 /// side: *a pellet stays distinguishable from a wall ... a `spoil` that does
-/// not pack*. On by default (spoil packs); unset is bit-exact.
+/// not pack*.
+///
+/// **Why it is the default, measured on the shipped ant alone** (the same
+/// runs): the dig box's excavation has fewer mouths on 11 of 12 seeds
+/// (31.5 -> 27.5), is more roofed on 8 and deeper on 8, and the hanging ground
+/// goes 16 -> 0 on 12 of 12. It costs the lab colony births (530 -> 424,
+/// lower on 10 of 12) and lost 3 colonies of 12. The owner ruled the same
+/// day that colony numbers do not block a step toward the nest unless the
+/// work is on the foraging loop, so it ships.
+/// `Reports/nest-spoil-footing-2026-09-27.md` §7.
 fn spoil_packs() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_SPOIL_PACKS").as_deref() != Ok("off"))
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_SPOIL_PACKS").as_deref() == Ok("on"))
 }
 
 /// Move the whole chain one cell, snake-fashion. Returns whether it moved.

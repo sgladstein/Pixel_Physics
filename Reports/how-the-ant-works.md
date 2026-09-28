@@ -44,7 +44,8 @@ will be.
   `P(move)` table corrected the same day for `Crowding` at the nest.
   §5 steps 5-6 and §12 again on 2026-09-27 for the spoil footing and packing
   switches (`spoil_site_open`, `is_footing`, `spoil_footing_drop`,
-  `pack_neighbours_with`, `spoil_packs`).
+  `pack_neighbours_with`, `spoil_packs`), and again that evening when the
+  lining stopped packing spoil by default.
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -301,10 +302,10 @@ the tick: the ant still gets its move roll (§6) afterwards.
    all become `spoil`), else its `packs_into` form, else as itself: a dug
    crumb stays food, carried in the spoil slot. Then it **lines the burrow**
    (`line_burrow`): every one of the 8 neighbours with a `packs_into` form
-   (soil and spoil) becomes `packedsoil`. `packedsoil` needs no footing, so a
-   pellet packed this way stays up even with nothing beneath it. Under
-   `PIXEL_PHYSICS_SPOIL_PACKS=off` a neighbour whose material `needs_footing`
-   (spoil) is left as it is.
+   becomes `packedsoil`, **except spoil**: a neighbour whose material
+   `needs_footing` is left as it is, so a heap undermined by the cut slumps
+   into loose soil rather than hanging as wall (`packedsoil` needs no
+   footing). `PIXEL_PHYSICS_SPOIL_PACKS=on` packs spoil as well.
 
 ## 6. Moving
 
@@ -673,7 +674,7 @@ Read once per process from the environment. The default is what ships.
 | `SPOIL_IS_CARGO` | on | `0`: spoil no longer counts toward `Carrying` |
 | `PIXEL_PHYSICS_DIG_SPOIL` | kept | `destroy`: dug cells vanish |
 | `PIXEL_PHYSICS_BURROW_LINING` | on | `off`: no `packedsoil` lining |
-| `PIXEL_PHYSICS_SPOIL_PACKS` | on | `off`: the lining leaves spoil unpacked, so an undermined heap slumps instead of hanging (§5) |
+| `PIXEL_PHYSICS_SPOIL_PACKS` | off | `on`: the lining packs spoil into wall too, so an undermined heap can hang (§5) |
 | `PIXEL_PHYSICS_SPOIL_FOOTING` | filled | `ground`: a pellet is put down only where the cell beneath is ground, never on an animal or over a hole (§5) |
 | `CROSS_TRUNK`, `TISSUE_PARTING` | on | `0` |
 | `PIXEL_PHYSICS_DIGEST` | continuous | `lump`: pays out per whole cell |
