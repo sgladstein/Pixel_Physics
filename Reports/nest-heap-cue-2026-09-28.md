@@ -389,10 +389,20 @@ where the food is far.
   sand (1.4) as readily as soil, against the ant's `dig_force` of 1.0. Found
   when the flip turned `the_books_close_for_every_colony` red: on that
   test's one-row stone floor the shaft opened a hole into the void below. A
-  column now stops at the first ground too hard for the ant
+  column now opens only where the cell under the nest paint is neither empty
+  nor too hard for the ant, and stops at the first ground that is
   (`founding_dig_force`); the chamber is cut only if a column reached it;
   and a founding on rock is a painted nest with no hole and no footprint. On
   soil nothing changes, which the proofs below show digit for digit.
+- **What the hole had exposed was a books leak in founding itself**, older
+  than the shaft. Founding books each founder's flat grant, then deals the
+  colony's reserve out unevenly in pairs that cancel; it dealt over every
+  planned station, so a station that could not place its founder took its
+  share with it, unbooked. With the shaft, one of the test bed's twelve
+  stations fell on a neighbour's founder: 82.6 J out before the first
+  frame. Two colonies founded 8 cells apart, no shaft at all: 85.1 J out. The
+  reserve is now dealt over the founders placed, and a guard written first
+  was watched red on the old code (-85.09 J).
 
 **The proofs** -- the new default against the committed-code arms, bit for
 bit, and the full suite -- follow in the next commit.

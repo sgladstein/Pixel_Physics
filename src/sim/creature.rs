@@ -4550,7 +4550,25 @@ impl World {
             let m = w.get(cx, cy).material;
             Some(m) == nest || w.materials.get(m).penetration_resistance <= force
         };
-        let mut blocked = vec![false; span as usize];
+        // **A column opens only onto ground the founders can dig.** The
+        // paint is not ground of its own -- it is whatever the surface was,
+        // converted -- so cutting it is licensed by what lies under it: a
+        // column whose second row is empty or too hard is never started.
+        // Without this the paint exception reopened the hole the rule above
+        // closes: `two_colony_bed`'s stone floor is painted nest where the
+        // colony stands, and the cut went through the paint into the void,
+        // `the_books_close_for_every_colony` red by the same 82.6 J.
+        // A root or a liquid under the paint does not stop it, any more
+        // than one does further down: the cut has always passed those.
+        let mut blocked: Vec<bool> = (0..span)
+            .map(|dx| {
+                let (cx, cy) = (x0 + dx, top + 1);
+                let opens = self.in_bounds(cx, cy)
+                    && self.get(cx, cy).material != material::EMPTY
+                    && (!self.is_diggable_ground(cx, cy) || founders_cut(self, cx, cy));
+                !opens
+            })
+            .collect();
         let mut cut: Vec<(i32, i32)> = Vec::new();
         // **The shaft.** Cut from the surface down, **through** the painted
         // door rather than under it: `colony_surface` returns the painted
