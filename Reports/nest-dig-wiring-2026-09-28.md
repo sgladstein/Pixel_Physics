@@ -177,6 +177,17 @@ births, 3 colonies lost.
 - **Lab** (`labforage`, 12 seeds, 120,000 frames): **ties on every column.**
   Births 424 -> 440 (6 / 6), food eaten 6 / 6, alive at the end 5 / 6,
   colonies lost 3 -> 2.
+- **`ascii`, two scenes with no nest**, read from CI's logs of `main` and of
+  this branch:
+  - *Excavating a chamber out of soil* digs half as much: 633 -> 326 cells,
+    roofed void 123 -> 83. Its guards still pass. That is the change working
+    as intended, with less digging away from home.
+  - *Deposition* dug **0** cells and put down no pellet, so its own guard
+    ("no ant ever put a pellet down") failed CI. The scene measures where a
+    carried pellet lands, not where digging starts, so it now sets its
+    species back to the old dig before its ants are placed. Its output is
+    then identical to `main`'s, line for line: 125 cells dug, 125 pellets
+    put down.
 
 ## 5. What is still missing, and what is next
 

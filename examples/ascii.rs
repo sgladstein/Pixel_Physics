@@ -2653,6 +2653,27 @@ fn construction_scene() {
         world.species.set_genome(id, g);
         println!("  ABLATED: (SurfaceCurvature, DropSpoil, {w_terrain:.4}) folded into the bias at {fold} of its ceiling -- the dependence gone, the rate held");
     }
+    // **The supply, held at the dig this scene was written against.** Since
+    // 2026-09-28 the ant does not dig open ground away from home: `(Bias,
+    // Dig)` went 0.15 -> -0.3, and `(SurfaceCurvature, Dig, -1.0)` gives the
+    // digging back only where the ground encloses the animal
+    // (`Reports/nest-dig-wiring-2026-09-28.md`). This scene has no nest and
+    // a one-cell lattice on a flat floor, so on the shipped genome its ants
+    // dug **0** cells, carried nothing, and the guard at the end fired on a
+    // verb that never had anything to put down. What the scene measures is
+    // where a *carried* pellet lands, not where digging starts, so its supply
+    // is set back to the old baseline -- before the ants, for the reason
+    // given above the ablation -- and the deposition verb is left exactly as
+    // it ships.
+    {
+        use pixel_physics::sim::brain::{io_slot, BrainInput, BrainOutput};
+        let id = world.species.id_of("ant").expect("ant");
+        let mut g = world.species.get(id).genome.clone();
+        g[io_slot(BrainInput::Bias, BrainOutput::Dig)] = 0.15;
+        g[io_slot(BrainInput::SurfaceCurvature, BrainOutput::Dig)] = 0.0;
+        world.species.set_genome(id, g);
+        println!("  SUPPLY: (Bias, Dig) 0.15 and no (SurfaceCurvature, Dig) -- the dig this scene was written against; it measures where a pellet lands, not where digging starts");
+    }
 
     // **One colony, not fifty-five.** `World::plant_ant` claims a fresh
     // colony per call, so a loop of it builds a crowd of strangers that only
