@@ -241,6 +241,13 @@ And around it:
   ~41k to start, keeps `CLAUDE.md`), else the default.
 - **Give a skeptic the cited line ranges** to open in one batch: re-finding
   each citation made skeptics the costliest stage (59-94 calls).
+- **Brief a skeptic by the kind of claim it checks.** A data claim's skeptic
+  gets the tracer's script and data paths and no code anchors; a code claim's
+  gets the line ranges and no data. Measured 2026-09-28 on a 39-agent
+  trace-verify-synthesize workflow: 242k per agent, a third of the day
+  before's unbriefed agents, yet 38 of 39 re-read `creature.rs` (632k
+  characters) and reading calls outnumbered data calls 417 to 283, mostly
+  data skeptics opening the code anchors the shared brief carried.
 - **Hand phases a digest, never raw results**: a designer given 222k
   characters of raw reader output started at 160k tokens.
 - **Prefer short agents.** A late call re-reads everything before it, and

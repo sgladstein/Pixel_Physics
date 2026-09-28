@@ -2419,3 +2419,47 @@ is the next question for the loop.
 
 Data: `Reports/data/forage-carry-2026-09-27.txt.gz` (the bed logs, both
 distances, all four arms and the extra seeds, and the lab logs).
+
+### 22n. At home the crop is a spoon: ants holding food are eating the store
+
+*Added 2026-09-28.* With the drive and carry patience on, ants spent 36.6% of all ant time at home
+with food in the crop, against 26.3% with both off (colony bed, 90 cells, 24 seeds, the tree #504
+merged, before #505's dig wiring, one binary; the traced runs reproduce the measured ones line for
+line). The question was
+whether that is loaded foragers failing to put their loads down. It is not. Answered by a
+trace-verify-synthesize workflow: 3 tracers (population, 10 individual ants, the code path), 35
+skeptics (4 claims confirmed, 30 qualified, 1 refuted), one synthesis.
+
+| home-holding, % of all ant time (off -> on) | store food | pile load |
+|---|---:|---:|
+| fed ant (>= 200 J) | 17.6 -> **27.7** | 0.6 -> 1.0 |
+| hungry ant | 6.6 -> 6.6 | 1.5 -> 1.2 |
+
+- **It is the nest store being eaten a cell at a time.** An empty ant beside floor food swallows a
+  cell at `feed_urge` 0.545 a tick in every energy band (`Feed` reads no hunger), eats from it while
+  holding it (3.3 J of food value a tick, 0.2375 J to the body per J), and puts the rest back where
+  it stands a median 12 frames later. 98% of what is put down at home was picked up at home; 99 times
+  in 100 an ant emptied beside food swallows again before it leaves.
+- **The whole rise is fed ants doing it** (+9.6 points of ant time, 24/24 seeds): the colony is
+  richer (ant time at >= 400 J 18.6% -> 36.6%) and more of the nest floor is beside food. The rule
+  did not change; the state it acts on did.
+- **A fed ant beside food is pinned and the drive cannot reach it.** Its `Move` sum is below 0
+  (`FoodAdjacent` -1.16 on `Move`; `p_move` 0 on 98.9% of laden time at the nest beside food), and
+  the drive's gate reads the crop after `act`, so the tick it swallows it is not driven: 0 of 19,901
+  home bites by sensed-empty ants felt the drive.
+- **Nothing is lost, and it is how the colony eats.** No held tick goes uneaten; a put-back returns
+  what is left. Holding at home carries 59% of all digestion, and the eaten share of what the colony
+  takes in is unchanged (0.825 -> 0.831). 56 of 58 births came from a parent at home (median 819 J).
+- **Corrected on the way:** the `ant.ron` comment's P(drop) table (0 / 0 / 0.022 / 0.14 / 0.25) is
+  P(Drop wins the choice) x `drop_urge` probed with `Carrying` 1, not the per-tick rate; at the nest
+  at E ~1 a laden ant puts a cell down on 0.35 of its decisions. And a laden `DropWhy::NotAsked` row
+  is always a swallow: fighting and sharing never `return`. Both comments are fixed.
+- **Refuted:** that sated ants hold because `drop_urge` 0.521 is below `feed_urge` 0.545 -- at the
+  store, sated ants empty faster, not slower (22/24).
+
+**Open: does the eating delay the next trip?** If a fed forager's time at the store is filler, leave
+it (the colony is eating and breeding from it). If it delays the next trip, "packed lunch" -- let
+the drive see through a crop filled at home, so the forager goes back out still eating -- could
+convert up to ~22% of ant time into trips. A visit-level trace is running; this section will carry
+the answer. The workflow's synthesis, with levers and the dead ends each touches, is
+`Reports/data/home-holding-2026-09-28.md`.

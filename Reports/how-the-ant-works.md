@@ -50,7 +50,9 @@ will be.
   on (`forage_drive_from_env`, `ForageDrive::SHIPPED`,
   `carry_patience_from_env`, the pickup block in `act`). §3 and §4 on
   2026-09-28 for the dig wiring (`ant.ron`'s `(Bias, Dig, -0.3)` and
-  `(SurfaceCurvature, Dig, -1.0)`).
+  `(SurfaceCurvature, Dig, -1.0)`). §9 on 2026-09-28 for eating at the nest
+  store (`act`'s feed branch and drop roll, the drive gate in
+  `creature_tick`, `DropWhy::NotAsked`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -593,6 +595,19 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   pays into energy continuously. **A laden ant eats its cargo while carrying
   it**, so fill falls on the way home and with it the homeward re-roll's
   chance. `digest_hunger_weight: 0.0`: digestion does not wait for hunger.
+- **At the nest store the crop is a spoon, not a suitcase.** An empty ant
+  beside floor food swallows a cell at `feed_urge` 0.545 a tick whatever its
+  hunger (`Feed` reads no hunger, §5), eats from it while it holds it, and
+  puts the rest back where it stands: a feed pick that swallows nothing falls
+  through to the drop roll, so for one cell at the nest a delivery per tick
+  is 0 / 0.001 / 0.19 / 0.33 at E 0.25 / 0.5 / 0.75 / 1 beside food, and
+  `drop_urge` itself (0 / 0.003 / 0.31 / 0.47) away from it. Emptied beside
+  food it usually swallows again before it steps. A fed ant beside food does
+  not step: its `Move` sum is below 0 (`FoodAdjacent` -1.16). The forage
+  drive cannot reach it, because the drive's gate reads the crop after `act`
+  and a swallow fills it that tick. Nothing is lost -- the put-back returns
+  what is left -- and this is where most of the colony's eating and budding
+  happens (measured in `Reports/ant-scenes-2026-09-23.md` §22n).
 - **A part-eaten piece of plant food goes down as `crumbs`.** The drop hands
   over the worth left (`unit - digesting`). A whole cell goes down as its
   own material. A part-eaten one (plant food, `food_class` below 0) goes

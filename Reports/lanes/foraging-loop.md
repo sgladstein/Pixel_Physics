@@ -65,11 +65,14 @@ pile's far side). `=off` on either is the ant before it, bit for bit.
   food standing at the nest (`FOOD STORE`'s `nest food`, mean from frame
   6,000).
 
-**The next question: a third of all ant time is spent at home holding food**
-(37.7% of ant-frames at 90 cells with both on). The drive cannot reach those
-ants -- it acts on an empty crop -- and `,keep` made them stand in the store
-(§22e). Why a loaded forager at home holds its crop rather than putting it
-down, traced ant by ant, is where the loop goes next. Behind it, still open:
+**Answered 2026-09-28 (§22n): the third of ant time spent at home holding
+food is the colony eating the store**, a cell at a time: pick up, eat while
+holding, put the rest back, again. 94% of it is store food, the whole rise
+under the switches is fed ants doing it, nothing is lost, and 56 of 58 births
+come from a parent at home. **Open: does that eating delay a fed forager's
+next trip?** If yes, "packed lunch" (the drive sees through a crop filled at
+home) could turn up to ~22% of ant time into trips; if it is filler, leave
+it. A visit-level trace is deciding it. Behind it, still open:
 an off-switch that reads what the lab is short of, food out there (Gordon
 2002, *Am Nat* 159:509: harvesters stop when returning foragers stop
 bringing food).

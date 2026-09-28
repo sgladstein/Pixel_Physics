@@ -558,7 +558,10 @@ pub fn aim_class(cos: f32) -> usize {
 #[repr(u8)]
 pub enum DropWhy {
     /// The drop was not reached with a cell in the crop: nothing to put down,
-    /// or an earlier verb (fighting, sharing, eating) took the tick.
+    /// or the ant swallowed a cell (or took nectar) this tick. Fighting and
+    /// sharing never `return`, so for an ant holding food `NotAsked` means it
+    /// ate -- this said "fighting, sharing, eating" until 2026-09-28, when a
+    /// trace found 80,928 of 80,928 laden `NotAsked` rows were swallows.
     #[default]
     NotAsked = 0,
     /// The roll against `Drop` failed.

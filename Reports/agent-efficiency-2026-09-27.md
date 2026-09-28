@@ -206,3 +206,20 @@ now lives.
   every spawner loads.
 - `Reports/instruments.md`: `agentmeter.py`'s row.
 - `CLAUDE.md`: one command line, inside the `contextbudget.py` gate.
+
+## 8. Measured again, 2026-09-28: a briefed workflow
+
+One trace-verify-synthesize workflow (why ants hold food at home; `ant-scenes-2026-09-23.md`
+§22n): 3 tracers, 35 skeptics, 1 synthesizer, all briefed from §6's checklist with pre-parsed data
+and a shared loader. 39 agents cost 9.44M input-token equivalents, **242k per agent**, against
+0.6-0.7M per agent for the unbriefed runs of the day before. Starts: `data-analyst` 44-45k,
+`Explore` 33-34k, the synthesizer 115k (its digest of 35 verdicts). Tracers 406-472k, skeptics
+128-292k.
+
+What the meter still flagged: 38 of 39 agents read `creature.rs` (632k characters in all), 26
+read `ant.ron`, and reading calls outnumbered data calls 417 to 283. Most of it was skeptics of
+*data* claims opening the code anchors the shared brief carried for the code tracer. The fix is
+now in `agent-strategy.md` §4: brief a skeptic by the kind of claim it checks. The skeptics earned
+their cost: of 35 claims, 4 were confirmed, 30 qualified (the number stood, the reading was
+corrected) and 1 refuted, and three corrections overturned readings the synthesis would otherwise
+have built on.
