@@ -2898,14 +2898,15 @@ fn main() {
     let (roofed, open, above, bodies, rw, rh, iqr, p50x) = census(&world, &b);
     println!();
     println!(
-        "SUMMARY digs={} rolls={} per_roll={:.3} roofed={roofed} open={open} ants_in_it={bodies} room_total={} hauled_up={above} spoil_dumped={} room={rw}w x{rh}h vert={:.2} iqr={iqr} p50x={p50x:+} aimed_down={}",
+        "SUMMARY digs={} rolls={} per_roll={:.3} roofed={roofed} open={open} ants_in_it={bodies} room_total={} hauled_up={above} spoil_dumped={} room={rw}w x{rh}h vert={:.2} iqr={iqr} p50x={p50x:+} aimed_down={} down_refused={}",
         st.digs,
         st.dig_rolls,
         if st.dig_rolls > 0 { st.digs as f64 / st.dig_rolls as f64 } else { 0.0 },
         roofed + open + bodies,
         st.spoil_dumped,
         if rw > 0 { rh as f64 / rw as f64 } else { 0.0 },
-        st.digs_aimed_down
+        st.digs_aimed_down,
+        st.digs_down_refused
     );
     // **The shape columns above rank a bigger hole above a better one.**
     // This one does not: see `chambers`. Printed beside them rather than

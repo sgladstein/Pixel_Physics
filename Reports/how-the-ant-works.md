@@ -55,7 +55,11 @@ will be.
   §5 step 6, §8 and §12 again that day for the founding shaft and the heap
   cue shipped on (`parse_nest_shaft`, `NEST_SHAFT_ROWS`,
   `dig_founding_shaft`, `cut_founding_shaft`, `founding_dig_force`,
-  `parse_spoil_cue`, `SPOIL_CUE_SHIPPED`, `spoil_cue_of`).
+  `parse_spoil_cue`, `SPOIL_CUE_SHIPPED`, `spoil_cue_of`). §5 step 6 and
+  §12 again that day for the dig-down turn shipped on for an enclosed
+  digger (`dig_down_bias`, `parse_dig_down`, `DIG_DOWN_SHIPPED`), and §5
+  step 6 again for the turn refused where there is no way down
+  (`way_down`, `jaw_can_cut`, `dig_down_of`, `DecisionScratch::dig_turned`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -303,8 +307,20 @@ the tick: the ant still gets its move roll (§6) afterwards.
    rows. `spoil_lifted` counts these.
 6. **Dig**, only if both crop and spoil are empty. **So a laden ant never
    digs.** The roll is against `Dig`, and the target is **the cell straight
-   ahead of the head, along its current heading**: nothing chooses a face, a
-   depth, or a place near other digging. **The heap cue** (on since
+   ahead of the head, along its current heading**: nothing chooses a face or
+   a place near other digging. **An enclosed digger first turns down**: on a
+   won roll, an ant whose curvature is at or below -0.3 turns one octant
+   toward straight down before it cuts (`dig_down_bias`, `dig_down_of`, on
+   since 2026-09-28 in this enclosed form; `PIXEL_PHYSICS_DIG_DOWN=off`
+   removes it, `=<w>` turns anywhere), so an ant on the open surface never
+   starts a hole downward. **It does not turn where there is no way down**
+   (`way_down`): when all three cells under it are ground it cannot cut
+   (`jaw_can_cut`, the test below) -- stone, bedrock, nest paint -- the turn
+   is refused (`digs_down_refused`) and the roll digs straight ahead. At the
+   shipped chance of 1.0 the turn takes no draw. The move after it is still
+   decided from the heading the ant had before `act`, so a step or a tumble
+   replaces the turn and a lost move roll leaves it standing. **The heap
+   cue** (on since
    2026-09-28; `PIXEL_PHYSICS_SPOIL_CUE=off` removes it) lets a cut that
    would open the ground to the sky go ahead only with probability
    `floor + (1 - floor) s²/(s² + K²)`, `s` the pellets within 2 cells of the
@@ -315,7 +331,7 @@ the tick: the ant still gets its move roll (§6) afterwards.
    ground above it (`spoil_cue_factor`, `open_to_the_sky`). A pellet target
    and a cut under a roof are left alone. It must not be empty, a creature or
    plant cell, or a live seed, and needs `penetration_resistance ≤
-   dig_force` (1.0). Soil, lining and spoil pass, and so do powder foods and
+   dig_force` (1.0) (`jaw_can_cut`). Soil, lining and spoil pass, and so do powder foods and
    litter such as crumbs; sand and the nest's own material do not. The cell
    becomes the held pellet in its `spoils_into` form (soil, lining and spoil
    all become `spoil`), else its `packs_into` form, else as itself: a dug
@@ -722,7 +738,8 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_FORAGE_DRIVE` | `always` | `off`, `hunger`, `larder` or `always`, then optionally `,nopace`, `,keep` and `,fed` (only foragers at or above `start_energy`): a fed forager goes out when its nest needs food (§6d), and with `,keep` leaves the store at home (§5); `World::forage_drive` for one world |
 | `PIXEL_PHYSICS_CARRY_PATIENCE` | `pickup` | `off`: a carry's home patience restarts only at the first pickup, not at every one (§6d step 5, bug Z35); `World::carry_patience` for one world |
 | `PIXEL_PHYSICS_LOAD_SCALE` | 1.0 | `<f>`: every food load weighs `f` times as much again, on top of the species' `food_weight` (§9) |
-| `PIXEL_PHYSICS_SPOIL_HAUL`, `_DIG_DOWN`, `_SPOIL_DROP_COVER`, `_TRAFFIC_DEFER`, `_COLONY_SPACING` | unset | haulage re-roll to the nest door, downward dig bias, spoil held under cover, jam deferral length, founder spacing |
+| `PIXEL_PHYSICS_DIG_DOWN` | `1.0,enclosed` | `off` (or `0`): no turn, the ant before 2026-09-28; `<w>`: the turn with chance `w` for any digger; `<w>,enclosed`: only an enclosed one (§5 step 6) |
+| `PIXEL_PHYSICS_SPOIL_HAUL`, `_SPOIL_DROP_COVER`, `_TRAFFIC_DEFER`, `_COLONY_SPACING` | unset | haulage re-roll to the nest door, spoil held under cover, jam deferral length, founder spacing |
 
 ## 13. Where the implementation lives
 

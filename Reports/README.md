@@ -4021,9 +4021,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     0.94, width 37 -> 16; on the colony bed starvation 201 -> 83; the lab
     ties. `=off` on either is the ant before. Half the digging by frame
     12,000.
-  - **Dig down stays off for a measured harm:** better nest still (openings
-    2.5), but starvation 83 -> 295 on the colony bed, the foragers digging
-    at home.
+  - **Dig down ships on for an enclosed digger only, refused where there
+    is no way down:** the openings no longer creep back (2 against 6 at
+    frame 24,000 over 24 seeds, 22 of 24 more nest-like than random digging
+    against 12), the lab ties, and the colony bed pays (starved 83 -> 152,
+    born 59 -> 30). Every wider refusal of the turn, six measured, lost the
+    nest. Everywhere, it starved 295; a hunger gate on `Dig` rescued it only
+    in part and stops a hungry colony digging.
   - **In the lab the founding mouth is buried by frame 30,600 on 12 of 12
     seeds in every arm**, under food and plants rather than spoil.
   - **A fresh heap, sized before building:** it would refuse at most a third
