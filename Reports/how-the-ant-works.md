@@ -50,9 +50,14 @@ will be.
   on (`forage_drive_from_env`, `ForageDrive::SHIPPED`,
   `carry_patience_from_env`, the pickup block in `act`). §3 and §4 on
   2026-09-28 for the dig wiring (`ant.ron`'s `(Bias, Dig, -0.3)` and
-  `(SurfaceCurvature, Dig, -1.0)`). §9 on 2026-09-28 for eating at the nest
-  store (`act`'s feed branch and drop roll, the drive gate in
-  `creature_tick`, `DropWhy::NotAsked`).
+  `(SurfaceCurvature, Dig, -1.0)`). §5 step 6 and §12 again that day for
+  the heap cue (`spoil_cue`, `spoil_cue_factor`, `open_to_the_sky`).
+  §5 step 6, §8 and §12 again that day for the founding shaft and the heap
+  cue shipped on (`parse_nest_shaft`, `NEST_SHAFT_ROWS`,
+  `dig_founding_shaft`, `cut_founding_shaft`, `founding_dig_force`,
+  `parse_spoil_cue`, `SPOIL_CUE_SHIPPED`, `spoil_cue_of`). §9 on 2026-09-28
+  for eating at the nest store (`act`'s feed branch and drop roll, the drive
+  gate in `creature_tick`, `DropWhy::NotAsked`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -301,7 +306,16 @@ the tick: the ant still gets its move roll (§6) afterwards.
 6. **Dig**, only if both crop and spoil are empty. **So a laden ant never
    digs.** The roll is against `Dig`, and the target is **the cell straight
    ahead of the head, along its current heading**: nothing chooses a face, a
-   depth, or a place near other digging. It must not be empty, a creature or
+   depth, or a place near other digging. **The heap cue** (on since
+   2026-09-28; `PIXEL_PHYSICS_SPOIL_CUE=off` removes it) lets a cut that
+   would open the ground to the sky go ahead only with probability
+   `floor + (1 - floor) s²/(s² + K²)`, `s` the pellets within 2 cells of the
+   cell actually cut, after any `DIG_DOWN` turn; shipped at `K` 5 and floor
+   0, so bare ground is opened only beside a heap, and a colony's first
+   opening is its founding shaft (§8). The cut opens the sky when the ant
+   stands at the surface (curvature above -0.3), or the target has no
+   ground above it (`spoil_cue_factor`, `open_to_the_sky`). A pellet target
+   and a cut under a roof are left alone. It must not be empty, a creature or
    plant cell, or a live seed, and needs `penetration_resistance ≤
    dig_force` (1.0). Soil, lining and spoil pass, and so do powder foods and
    litter such as crumbs; sand and the nest's own material do not. The cell
@@ -549,7 +563,16 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
 - **Nest material** is the species' `nest: "nest"` material. Being next to it
   drives `AtNest`, which is the only way the ant knows it is home. Founding
   paints it on the surface as a strip of up to 53 columns (±26, a masked
-  comb with an unbroken core) and digs nothing. Under
+  comb with an unbroken core), and **since 2026-09-28 also cuts a shaft**
+  `NEST_SHAFT_ROWS` (6) rows deep and 2 wide under the founding point, with
+  an entrance chamber at the bottom, lined, and records it in
+  `NestSite::shaft` (`dig_founding_shaft`, `cut_founding_shaft`; one cut per
+  site; `PIXEL_PHYSICS_NEST_SHAFT=off` paints only). It cuts only ground the
+  founders could dig themselves (`founding_dig_force`, the ant's 1.0, plus
+  the nest paint over its mouth): a column opens only where the cell under
+  the paint is not empty and not too hard, it stops at stone, gravel or sand,
+  the chamber is cut only if a column reached it, and on rock the nest is
+  painted and nothing is cut. Under
   `PIXEL_PHYSICS_NEST_DOOR=<d>` it paints `2d + 1` columns, unbroken, instead:
   a door (§12).
 - **`forage_anchor`** is a world coordinate. It is set to the spawn cell at
@@ -702,6 +725,8 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_BURROW_LINING` | on | `off`: no `packedsoil` lining |
 | `PIXEL_PHYSICS_SPOIL_PACKS` | off | `on`: the lining packs spoil into wall too, so an undermined heap can hang (§5) |
 | `PIXEL_PHYSICS_SPOIL_FOOTING` | filled | `ground`: a pellet is put down only where the cell beneath is ground, never on an animal or over a hole (§5) |
+| `PIXEL_PHYSICS_SPOIL_CUE` | `on` (K 5, floor 0) | `off`: no heap cue, the ant before 2026-09-28; `K[,floor]` sets the dials. The cue: a dig that would open the ground to the sky, from the surface or from a tunnel breaking out, goes ahead only in proportion to the pellets beside its target (§5 step 6); `World::spoil_cue` for one world |
+| `PIXEL_PHYSICS_NEST_SHAFT` | 6 | `off` (or `0`): founding paints only and digs nothing, the ant before 2026-09-28; `<rows>`: a deeper or shallower founding shaft (§8); `_NEST_SHAFT_WIDTH=<cells>` its width (2); `World::nest_shaft` for one world |
 | `CROSS_TRUNK`, `TISSUE_PARTING` | on | `0` |
 | `PIXEL_PHYSICS_DIGEST` | continuous | `lump`: pays out per whole cell |
 | `PIXEL_PHYSICS_LOAD_BY` | joules | `cells`: a load weighs the cells in the crop, not its worth ÷ 480 (§9) |

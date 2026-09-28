@@ -1,8 +1,11 @@
 # Ants
 
 *Current as of: 2026-09-28, when **foragers stopped resting while the colony
-went short, and stopped walking past the food**, and **a colony started
-digging its nest in one place.** A forager used to go out only
+went short, and stopped walking past the food**, **a colony started
+digging its nest in one place**, and **a colony started with one entrance.**
+A new colony now begins with a short shaft dug under its nest, and its ants
+open the ground to the sky only beside a heap of their own spoil, so the
+digging starts at the shaft and stays there (below). A forager used to go out only
 when it was hungry itself. It brought a load home, ate its fill off the nest
 floor and sat at home until hunger sent it out again, so food never built up at
 the nest. Now an ant that has once picked up food out in the world keeps going
@@ -1223,8 +1226,29 @@ a shaft or a tunnel it does, and at home it digs as keenly as ever. The
 colony's workings gather under the nest, deeper and roofed over, with about
 ten openings instead of thirty, for the same amount of digging, and in a
 test box the dig now looks less like random scratching than random
-scratching does for the first time. It is not yet one entrance, and there
-are no chambers; those are the next things being worked on.
+scratching does for the first time. It was not yet one entrance, and there
+are no chambers.
+
+**Later the same day, one entrance.** A colony is now founded with a short
+shaft already dug under the middle of its nest, two cells wide and six
+deep with a small chamber at the foot, the way a founding queen digs
+her first burrow. It digs only what the ants themselves could: it stops at
+stone, gravel or sand, and a colony founded on bare rock gets its nest
+patch and no hole. And an ant opens the ground to the sky -- from the surface,
+or by breaking up out of a tunnel -- only beside a heap of the colony's own
+spoil. The first heap is the one thrown up round the shaft, so that is where
+digging starts and where it stays: in a test box the colony opens about four
+holes to the surface instead of ten, every one of them in the same stretch
+of ground, with nearly all of the dug room roofed over, and in a test colony
+with food ninety cells away fewer than half as many ants starve. It costs
+about half the digging early on, because the colony starts in one place
+rather than forty. **What it does not yet do:** given twice as long, the
+galleries creeping sideways under the nest spread spoil over all of it, a
+heap lies everywhere, and the holes creep back up to about six. And in the
+lab box the entrance does not stay open -- by a quarter of the way through a
+run it is buried on every box under the colony's own food and the plants
+growing over it, and the ants go on living in and on the nest ground around
+it.
 
 **Rooms, and why there are not any yet.** A real ant nest starts as a round
 chamber and sprouts side tunnels as it grows, and the reason is crowding: a
@@ -1760,7 +1784,9 @@ colours an ant and a flitter look much alike.
 ## Placing a colony, and watching what they smell
 
 Press **Y** to found a colony on the ground under the cursor: it lays a nest
-patch along whatever surface is there and stands about fifty ants on it.
+patch along whatever surface is there, digs a short shaft down from the
+middle of it -- the colony's first entrance -- and stands about fifty ants on
+it.
 Fifty, not one, because fewer than that does not look like ants. It follows
 the terrain, so it works on a hillside or in a cave mouth as well as on flat
 ground.

@@ -48,30 +48,36 @@ the live question, what is addressed to another lane, predictions and heads.*
 
 ## Live question
 
-**Is the colony building a nest? It is digging one in one place now**
-([`../nest-dig-wiring-2026-09-28.md`](../nest-dig-wiring-2026-09-28.md)).
-- **2026-09-28:** `(Bias, Dig, -0.3)` with `(SurfaceCurvature, Dig, -1.0)`.
-  Openings 27.5 -> 10 (12 of 12), roofed 0.78, deeper, half as wide, the
-  same digging; the dig beats random walkers on roofed share and depth for
-  the first time.
-- **Spoil stays spoil** (#503); the footing switch and drop-away stay
-  switches ([`../nest-spoil-footing-2026-09-27.md`](../nest-spoil-footing-2026-09-27.md)).
-- **The dig marker is withdrawn**: a digging pheromone tested negative in
-  ants (`nest-biology-digging-signals-2026-09-19.md` §3.1).
+**Is the colony building a nest? It digs one nest with one entrance area,
+and since 2026-09-28 that is the shipped ant**
+([`../nest-heap-cue-2026-09-28.md`](../nest-heap-cue-2026-09-28.md)).
+- **2026-09-28, shipped:** the dig wiring, `(Bias, Dig, -0.3)` with
+  `(SurfaceCurvature, Dig, -1.0)` (#505). Openings 27.5 -> 10, digging in
+  one place ([`../nest-dig-wiring-2026-09-28.md`](../nest-dig-wiring-2026-09-28.md)).
+- **2026-09-28, shipped on:** the founding shaft (6 rows) and the heap cue
+  (`K` 5, floor 0), switches in #506 and on by the owner's default rule. A
+  dig that would open the ground to the sky needs a heap beside it, from
+  above or below. `=off` on either is the ant before.
+  - **Dig box:** openings 10 -> 4 (12 of 12), roofed 0.94, width 16. About
+    half the digging by frame 12,000; by 24,000 openings creep to 6.
+  - **Colony bed:** starved 201 -> 83 (fewer on 22 of 24).
+  - **Lab:** ties on the pairs. The founding mouth is buried by frame 30,600
+    on 12 of 12 seeds, in every arm, under food and plants.
+- **Dig down stays off:** it makes the nest better still (2.5 openings) and
+  takes the foragers underground (bed starvation 83 -> 295).
+- **The creep:** a fresh heap would refuse at most a third to under a half
+  of it, so it is not built.
 
 **Next** (2026-09-28):
-1. **One mouth.** Ten remain along the nest strip.
-   - **First, the heap as the marker**: fresh spoil draws digging, with a
-     saturating response so the busiest hole keeps its diggers. Built as a
-     switch first and scored with `SPOIL_FOOTING` off and on. It fails if
-     openings do not fall below 10 on 9 of 12 seeds for the same digging.
-     Watch heap cuts: digging into the pile refills the holes.
-   - Then re-score on the new dig: a narrower home (`NEST_SITE_COLS`, its
-     condition is met), and the founding shaft with door + dug mouth.
-2. **The footing switch and drop-away**, re-scored on the new dig.
-3. **Chambers** need contents (brood or a granary), which the dig box
-   lacks.
-4. **Why unpacked spoil cost the lab**: not traced.
+1. **The mouth in the lab:** kept clear by the colony, or the food taken
+   inside? Ask the owner before building either; the second is a joint step
+   with the foraging lane (the food drop is theirs).
+2. **Dig down without the foraging harm:** a hungry ant's `Dig` lowered
+   through the genome, or the turn only for an enclosed ant. Measured first
+   on the colony bed.
+3. **The brain input** for the cue (owner's order); 24 genome slots, so
+   planned with the lab lines.
+4. **Chambers** need contents (brood or a granary), which the dig box lacks.
 
 ## Working agreement with the foraging lane (2026-09-27)
 
@@ -187,3 +193,13 @@ exploratory and carry none.
   9,000 frames.
 - `d96f3eeb` — `main` merged in (#504, forage drive and carry patience on);
   the dig box re-checked on it, the comparison unchanged.
+- `ffbac01e` (#506) — the heap cue as a switch, off; the veto on the cell
+  actually cut, after any dig-down turn.
+- `09b3c872` — the founding shaft and the heap cue ship on; dig down stays
+  off (bed starvation 83 -> 295).
+- `6bc7a535`, `a9922509` — the founding shaft digs only what the founders
+  could, and opens a column only onto ground under the paint.
+- `fbdd7ecd` — founding deals the reserve over the founders placed: the
+  books leak the flip exposed (82.6 J; the lab's 52-planned, 43-placed
+  colony on every run).
+- `69f0d80a` — the lab on the final code: the flip ties on every pair.

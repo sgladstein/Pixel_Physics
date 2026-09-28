@@ -2807,17 +2807,18 @@ pub fn nest_site_rows() -> Option<i32> {
     *ROWS.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SITE_ROWS").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v >= 0))
 }
 
-/// **How many rows the founding gesture DIGS, or `None` for the shipped
-/// painted-only door.**
+/// **How many rows the founding gesture DIGS, or `None` for the painted-only
+/// door the ant had before 2026-09-28.**
 ///
 /// `PIXEL_PHYSICS_NEST_SHAFT=<rows>` makes founding cut a shaft and an
 /// entrance chamber instead of only converting surface ground; see
 /// [`World::dig_founding_shaft`] for the architecture and where its numbers
-/// come from. Unset is bit-exact.
+/// come from. **Unset is [`NEST_SHAFT_ROWS`] since 2026-09-28**, and `off`
+/// (or `0`) is the ant before it, bit for bit.
 ///
-/// **A parse failure falls back to unset rather than to 0**, matching
-/// [`nest_core`]: a typo that silently reverted the mechanism would put the
-/// control into a sweep wearing another point's label.
+/// **A parse failure falls back to the default rather than to off**,
+/// matching [`nest_core`]: a typo that silently reverted the mechanism would
+/// put the control into a sweep wearing another point's label.
 ///
 /// Depth is a dial rather than a constant on purpose. The founding queen's
 /// depth control is *idiothetic and temporal* (Roces, *J. Exp. Biol.* 2012)
@@ -2827,7 +2828,37 @@ pub fn nest_site_rows() -> Option<i32> {
 /// internal reference nothing here models yet.
 pub fn nest_shaft_rows() -> Option<i32> {
     static ROWS: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
-    *ROWS.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SHAFT").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v > 0))
+    *ROWS.get_or_init(|| parse_nest_shaft(&std::env::var("PIXEL_PHYSICS_NEST_SHAFT").unwrap_or_default()))
+}
+
+/// **The founding shaft's depth when `PIXEL_PHYSICS_NEST_SHAFT` is unset:
+/// on since 2026-09-28**, by the owner's rule that a switch measuring as a
+/// gain or as neutral ships on (`CLAUDE.md`).
+///
+/// **What it measured, with [`SpoilCue`] on beside it**
+/// (`Reports/nest-heap-cue-2026-09-28.md`): in `digbox` (40 ants, 12 seeds,
+/// frame 12,000) the colony opens 4 holes to the surface instead of 10, on
+/// 12 of 12 seeds, with 0.94 of the dug room roofed against 0.76; on the
+/// colony bed (24 seeds) starvation fell 201 -> 83, fewer on 22 of 24; the
+/// lab box (12 seeds) ties. **Alone it adds a hole and stops none** (12
+/// openings in `digbox`): the shaft gives the colony one place to start, and
+/// the cue is what keeps it the only one. 6 is the depth every one of those
+/// arms ran at.
+pub const NEST_SHAFT_ROWS: i32 = 6;
+
+/// `PIXEL_PHYSICS_NEST_SHAFT`'s value read as a depth ([`nest_shaft_rows`]).
+fn parse_nest_shaft(raw: &str) -> Option<i32> {
+    match raw.trim() {
+        "" => Some(NEST_SHAFT_ROWS),
+        "off" | "0" => None,
+        v => match v.parse::<i32>() {
+            Ok(rows) if rows > 0 => Some(rows),
+            _ => {
+                eprintln!("PIXEL_PHYSICS_NEST_SHAFT={v:?}: not `off` or a depth in rows; read as unset ({NEST_SHAFT_ROWS})");
+                Some(NEST_SHAFT_ROWS)
+            }
+        },
+    }
 }
 
 /// **How many columns wide the founding shaft is** --
@@ -4018,7 +4049,6 @@ impl World {
         let start_energy = def.as_ref().map_or(0.0, |d| d.start_energy);
         let seed = self.seed;
         let stations = self.colony_stations_with(x, y, species_id, ants, door, pile);
-        let total = stations.len() as i32;
         // **Under a door, every founder's home is the door** -- the cell
         // above its centre, which is where `step_chain`'s re-anchoring would
         // put it on the first contact anyway. Without this a founder standing
@@ -4048,29 +4078,15 @@ impl World {
         // and every later station joins; a founding in which nothing fits
         // claims nothing. See `OrganismState::colony`.
         let mut colony: Option<u32> = None;
-        for (i, (cx, cy)) in stations.into_iter().enumerate() {
+        let mut founders: Vec<OrganismId> = Vec::new();
+        for (cx, cy) in stations {
             let before = self.get(cx, cy).organism_id();
             if let Some(site) = plant_creature_seed_in(self, cx, cy, species, colony) {
                 if colony.is_none() {
                     colony = colony_of_site(self, &site);
                 }
-                // **Overridden after placement, before scheduling**, so
-                // nothing has ticked yet and no ledger bookkeeping runs
-                // between the grant and the correction. `place_creature`
-                // already booked `energy_ledger.granted += start_energy` for
-                // this founder; `founder_reserve`'s pairing conserves the
-                // COHORT's total exactly, so the aggregate identity
-                // (`expected_live_total() == sum(live energies)`) still
-                // holds even though this one individual's bank now
-                // disagrees with what was granted for it -- this is a
-                // redistribution, not a subsidy.
-                if spread > 0.0 {
-                    if let ActiveKind::Creature { organism } = site.kind {
-                        let factor = founder_reserve(seed, x, i as i32, total, spread);
-                        if let Some(state) = self.organism_mut(organism) {
-                            state.energy = start_energy * factor;
-                        }
-                    }
+                if let ActiveKind::Creature { organism } = site.kind {
+                    founders.push(organism);
                 }
                 if let (Some(anchor), ActiveKind::Creature { organism }) = (door_anchor, site.kind) {
                     if let Some(state) = self.organism_mut(organism) {
@@ -4081,6 +4097,31 @@ impl World {
             }
             if self.get(cx, cy).organism_id() != before {
                 placed += 1;
+            }
+        }
+        // **The reserve, dealt over the founders actually placed.** Each
+        // founder was booked `start_energy` as `Granted` when it was placed
+        // (`place_creature`), and its bank is overridden here, before anything
+        // has ticked, with its share of the colony's reserve. `founder_reserve`
+        // pairs founder `i` with founder `total - 1 - i` so each pair sums to
+        // exactly two grants, which keeps `expected_live_total() == sum(live
+        // energies)` -- a redistribution, not a subsidy -- **only if `total`
+        // counts the founders that exist.** It was dealt inside the loop over
+        // every planned station, so a station that could not place its founder
+        // left its partner's share unmatched and the books out by it: 82.6 J
+        // on `two_colony_bed` once the founding shaft shifted its stations
+        // (2026-09-28), 85.1 J with two colonies founded 8 cells apart. When
+        // every station places, which is nearly always, the indices and the
+        // total are the ones the loop used and every founder's bank is the
+        // same to the bit
+        // (`a_founding_that_places_fewer_founders_than_planned_still_closes_its_books`).
+        if spread > 0.0 {
+            let total = founders.len() as i32;
+            for (i, &organism) in founders.iter().enumerate() {
+                let factor = founder_reserve(seed, x, i as i32, total, spread);
+                if let Some(state) = self.organism_mut(organism) {
+                    state.energy = start_energy * factor;
+                }
             }
         }
         placed
@@ -4493,6 +4534,44 @@ impl World {
         self.freeze_ground_datum();
         self.freeze_room_datum();
 
+        // **The shaft cuts only what the founders could dig themselves**
+        // ([`World::founding_dig_force`]), plus the nest paint laid over its
+        // mouth a moment ago. A column stops at the first ground too hard for
+        // them, and the chamber is cut only if a column got down to it.
+        //
+        // Found 2026-09-28, the day the shaft shipped on: the cut took any
+        // `Solid` or `Powder` cell, stone (penetration resistance 100),
+        // gravel (3.5) and sand (1.4) included, against the ant's `dig_force`
+        // of 1.0. On `two_colony_bed`'s one-row stone floor it opened a hole
+        // into the void below -- a shaft no ant in the game could have dug --
+        // and `the_books_close_for_every_colony` went red through it (82.6 J
+        // against a bar of 0.75). Kept row by row, so the order of `cut`, and
+        // with it the lining pass below, is the order it always was.
+        let force = self.founding_dig_force();
+        let nest = self.materials.id_of("nest");
+        let founders_cut = |w: &World, cx: i32, cy: i32| {
+            let m = w.get(cx, cy).material;
+            Some(m) == nest || w.materials.get(m).penetration_resistance <= force
+        };
+        // **A column opens only onto ground the founders can dig.** The
+        // paint is not ground of its own -- it is whatever the surface was,
+        // converted -- so cutting it is licensed by what lies under it: a
+        // column whose second row is empty or too hard is never started.
+        // Without this the paint exception reopened the hole the rule above
+        // closes: `two_colony_bed`'s stone floor is painted nest where the
+        // colony stands, and the cut went through the paint into the void,
+        // `the_books_close_for_every_colony` red by the same 82.6 J.
+        // A root or a liquid under the paint does not stop it, any more
+        // than one does further down: the cut has always passed those.
+        let mut blocked: Vec<bool> = (0..span)
+            .map(|dx| {
+                let (cx, cy) = (x0 + dx, top + 1);
+                let opens = self.in_bounds(cx, cy)
+                    && self.get(cx, cy).material != material::EMPTY
+                    && (!self.is_diggable_ground(cx, cy) || founders_cut(self, cx, cy));
+                !opens
+            })
+            .collect();
         let mut cut: Vec<(i32, i32)> = Vec::new();
         // **The shaft.** Cut from the surface down, **through** the painted
         // door rather than under it: `colony_surface` returns the painted
@@ -4502,9 +4581,14 @@ impl World {
         for dy in 0..depth {
             for dx in 0..span {
                 let (cx, cy) = (x0 + dx, top + dy);
-                if self.in_bounds(cx, cy) && self.is_diggable_ground(cx, cy) {
+                if blocked[dx as usize] || !self.in_bounds(cx, cy) || !self.is_diggable_ground(cx, cy) {
+                    continue;
+                }
+                if founders_cut(self, cx, cy) {
                     self.set(cx, cy, Cell::EMPTY);
                     cut.push((cx, cy));
+                } else {
+                    blocked[dx as usize] = true;
                 }
             }
         }
@@ -4519,14 +4603,21 @@ impl World {
         // place to dump tailings everywhere on its floor.
         let chamber_half = (depth / 2).clamp(3, 12);
         let floor = top + depth;
+        let reached = blocked.iter().any(|b| !b);
         for dy in 0..2 {
             for dx in -chamber_half..=chamber_half {
                 let (cx, cy) = (x + dx, floor + dy);
-                if self.in_bounds(cx, cy) && self.is_diggable_ground(cx, cy) {
+                if reached && self.in_bounds(cx, cy) && self.is_diggable_ground(cx, cy) && founders_cut(self, cx, cy) {
                     self.set(cx, cy, Cell::EMPTY);
                     cut.push((cx, cy));
                 }
             }
+        }
+        // **No cut, no footprint.** A founding on ground too hard to open is
+        // a painted nest with no hole, and a footprint over it would have
+        // `NEST_HOME` and every census treat rock as a mouth.
+        if cut.is_empty() {
+            return 0;
         }
         // **Recorded on the site it was cut under**, because after the cut
         // nothing can re-derive it: `colony_surface` in a shaft column now
@@ -4559,7 +4650,21 @@ impl World {
         cut.len()
     }
 
+    /// **The hardest ground a founding shaft may cut**: the strongest
+    /// authored `dig_force` among the species whose `nest` is the material
+    /// [`World::paint_nest_patch`] lays -- the shipped ant's 1.0. The
+    /// founding stands in for the queen's first burrow, so it digs only what
+    /// the founders' own jaws could; with no such species it digs nothing.
+    fn founding_dig_force(&self) -> f32 {
+        (0..self.species.len())
+            .filter_map(|i| self.species.get(SpeciesId(i as u16)).creature.as_ref())
+            .filter(|c| c.nest == "nest")
+            .map(|c| c.dig_force)
+            .fold(0.0, f32::max)
+    }
+
     /// Ground a founding cut may remove: solid or powder, and nobody's body.
+    /// Whether the founders could dig it is [`World::founding_dig_force`]'s.
     fn is_diggable_ground(&self, x: i32, y: i32) -> bool {
         let cell = self.get(x, y);
         cell.material != material::EMPTY
@@ -9367,6 +9472,192 @@ fn spoil_footing_drop() -> bool {
     *ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_SPOIL_FOOTING").as_deref(), Ok("ground")))
 }
 
+/// **`PIXEL_PHYSICS_SPOIL_CUE`: a heap of spoil draws where digging starts.**
+/// Unset or `off`, nothing is read and no draw is taken, so the ant is
+/// bit-exact; `on` is `K` 1.5 with a floor of 0.1, and `K,floor` sets both.
+///
+/// **What it is for: one mouth.** Since 2026-09-28 the colony digs in one
+/// place (`Reports/nest-dig-wiring-2026-09-28.md`), but ten holes still open
+/// along the nest strip, and each reads as ground curving in, so
+/// `(SurfaceCurvature, Dig)` feeds every one alike and nothing makes them
+/// compete. The biology's one positive cue for *where digging starts* is a
+/// heap of freshly dug pellets: Pielström & Roces (*PLOS ONE* 2013, *Atta
+/// vollenweideri*) found fresh pellets drew where workers started digging
+/// and hour-old ones did not. A scent on the digging face is a different
+/// thing, tested in ants with no effect (Bruce 2015), and is not what this
+/// is (`nest-biology-digging-signals-2026-09-19.md` §3).
+///
+/// **Measured before it was built** (`digbox`, 40 ants, 12 seeds, the
+/// funnel's cut-kind line): spoil lies within 2 cells of 27% of the cuts
+/// that open a new mouth from the surface, against 77% of the cuts into a
+/// mouth already open (0.53 spoil cells on average against 1.86), so the cue
+/// has something to tell apart. Cuts below the old surface -- the tunnels,
+/// 55% of all cuts -- have spoil beside them only 37% of the time, which is
+/// why the cue stands aside for an animal the ground encloses: there the
+/// face does the work, and a heap cue would stall it.
+///
+/// **The rule.** On a won dig roll, the cell actually cut -- after any
+/// `DIG_DOWN` turn -- is judged: if it is ground and not itself a pellet,
+/// and the cut would open the ground to the sky (the animal stands at the
+/// surface, its curvature above [`SPOIL_CUE_ENCLOSED`], or the cell has no
+/// ground above it, [`open_to_the_sky`]), the cut goes ahead with
+/// probability `floor + (1 - floor) s^2 / (s^2 + K^2)`, `s` being the pellets
+/// within [`SPOIL_CUE_REACH`] of it. No heap cuts the chance to `floor`; a
+/// heap of `K` pellets lets half the rest through. A pellet ahead is left
+/// alone, because digging a heap out is refill churn rather than a start.
+///
+/// **Any pellet, not a fresh one.** A cell carries no age. In `digbox` the
+/// any-age and the fresh (under 1,000 frames) shares track each other at the
+/// cut (27% and 18%, 77% and 66%), so the hour of decay is not modelled.
+/// A pellet is a `needs_footing` cell, which only `spoil` carries -- the
+/// same data test `pack_neighbours_with` reads, and no name lookup.
+///
+/// A switch before a brain input, by the owner's ruling of 2026-09-28: the
+/// marker becomes a sense once a switch version shows it works.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SpoilCue {
+    /// Pellets beside the target that let half of the urge above `floor`
+    /// through.
+    pub k: f32,
+    /// The share of the urge left where no pellet lies in reach.
+    pub floor: f32,
+}
+
+/// How far from the cell ahead [`SpoilCue`] counts pellets: the census's
+/// reach, a 5x5 square.
+pub const SPOIL_CUE_REACH: i32 = 2;
+
+/// Surface curvature at or below which the digger is enclosed and
+/// [`SpoilCue`] stands aside. A tunnel or a shaft reads -0.5 or below, flat
+/// ground 0, and a shallow dent at a mouth's lip in between.
+pub const SPOIL_CUE_ENCLOSED: f32 = -0.3;
+
+/// **The cue the ant ships with: on since 2026-09-28**, by the owner's rule
+/// that a switch measuring as a gain or as neutral ships on (`CLAUDE.md`).
+///
+/// `K` 5 and floor 0 are the arm every figure in
+/// `Reports/nest-heap-cue-2026-09-28.md` §0 was measured at, beside
+/// [`NEST_SHAFT_ROWS`]: `K` barely moved the openings (4, 5 and 4 at 1.5, 3
+/// and 5) and at 5 the worst seed was the most nest-like. **Floor 0 means a
+/// colony opens bare ground only beside a heap**, so it leans on the
+/// founding shaft for its first one: every game founds through
+/// [`World::found_colony_of`], which cuts it. Animals placed any other way
+/// -- a test's hand-built scene, `digbox`'s free ants -- have no heap to
+/// start from, and [`World::spoil_cue`] is how such a scene turns the cue
+/// off.
+pub const SPOIL_CUE_SHIPPED: SpoilCue = SpoilCue { k: 5.0, floor: 0.0 };
+
+/// The cue this process runs: [`SPOIL_CUE_SHIPPED`] unless
+/// `PIXEL_PHYSICS_SPOIL_CUE` says otherwise. See [`SpoilCue`].
+pub fn spoil_cue() -> Option<SpoilCue> {
+    static V: std::sync::OnceLock<Option<SpoilCue>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_spoil_cue(&std::env::var("PIXEL_PHYSICS_SPOIL_CUE").unwrap_or_default()))
+}
+
+/// The cue in force in `world`: its [`World::spoil_cue`] override, else the
+/// process's [`spoil_cue`].
+pub fn spoil_cue_of(world: &World) -> Option<SpoilCue> {
+    world.spoil_cue.unwrap_or_else(spoil_cue)
+}
+
+/// `PIXEL_PHYSICS_SPOIL_CUE`'s value read as a cue ([`spoil_cue`]): unset
+/// and `on` are [`SPOIL_CUE_SHIPPED`], `off` is the ant before the cue, bit
+/// for bit, and `K[,floor]` sets the dials (the floor is the shipped one when
+/// left out). A value it cannot read is reported and read as unset, never as
+/// some other cue.
+///
+/// **`on` meant `K` 1.5, floor 0.1 until the cue shipped** -- the first
+/// hook's arm (`Reports/nest-heap-cue-2026-09-28.md` §4) -- and now means the
+/// shipped cue, so a spelling never names a setting nothing ships.
+fn parse_spoil_cue(raw: &str) -> Option<SpoilCue> {
+    let raw = raw.trim();
+    match raw {
+        "" | "on" => Some(SPOIL_CUE_SHIPPED),
+        "off" => None,
+        _ => {
+            let mut parts = raw.split(',').map(str::trim);
+            let k = parts.next().and_then(|v| v.parse::<f32>().ok()).filter(|k| *k > 0.0);
+            let floor = parts.next().map_or(Some(SPOIL_CUE_SHIPPED.floor), |v| v.parse::<f32>().ok().filter(|f| (0.0..=1.0).contains(f)));
+            match (k, floor, parts.next()) {
+                (Some(k), Some(floor), None) => Some(SpoilCue { k, floor }),
+                _ => {
+                    eprintln!("PIXEL_PHYSICS_SPOIL_CUE={raw:?}: not `on`, `off` or `K[,floor]` (K > 0, floor in 0..1); read as unset");
+                    Some(SPOIL_CUE_SHIPPED)
+                }
+            }
+        }
+    }
+}
+
+/// The factor [`SpoilCue`] puts on a dig roll by the animal at `(x, y)`
+/// facing `(tx, ty)`, reading its curvature at `radius`; `None` where the cue
+/// stands aside -- nothing ahead, a pellet ahead, or a digger the ground
+/// encloses.
+fn spoil_cue_factor(world: &World, (x, y): (i32, i32), (tx, ty): (i32, i32), radius: i32, cue: SpoilCue) -> Option<f32> {
+    let pellet = |c: Cell| c.material != material::EMPTY && world.materials.get(c.material).needs_footing;
+    let ahead = world.get(tx, ty);
+    if ahead.material == material::EMPTY || pellet(ahead) {
+        return None;
+    }
+    // **A cut that opens the ground to the sky is a start, from above or
+    // from below.** Standing aside for every enclosed digger let tunnels
+    // break out wherever they rose: with the founding shaft and no floor,
+    // half the new openings (32 of 66 over 12 seeds) were a tunnel cutting
+    // the top cell of a column from underneath. So an enclosed digger is left
+    // alone only while the cell it cuts has ground somewhere above it.
+    if surface_curvature(world, x, y, radius) <= SPOIL_CUE_ENCLOSED && !open_to_the_sky(world, tx, ty) {
+        return None;
+    }
+    let mut s = 0u32;
+    for dy in -SPOIL_CUE_REACH..=SPOIL_CUE_REACH {
+        for dx in -SPOIL_CUE_REACH..=SPOIL_CUE_REACH {
+            s += u32::from(pellet(world.get(tx + dx, ty + dy)));
+        }
+    }
+    let s2 = (s * s) as f32;
+    Some(cue.floor + (1.0 - cue.floor) * s2 / (s2 + cue.k * cue.k))
+}
+
+/// How far up [`open_to_the_sky`] looks before it calls a column open: the
+/// cap bounds the work and does not flip the answer, because a cell with
+/// this much air over it is open for every purpose it is asked about.
+const SKY_SCAN_ROWS: i32 = 64;
+
+/// **Is `(x, y)` the top of the ground in its column** -- nothing but air,
+/// liquid, gas or animals above it, to the world's top edge or for
+/// [`SKY_SCAN_ROWS`]? [`SpoilCue`] reads it to tell a cut that opens the
+/// ground to the sky from one under a roof. Ground is `Powder` or `Solid`,
+/// the kinds a dig takes; the world's edge is not ground here, although a
+/// read past it returns a solid sentinel.
+fn open_to_the_sky(world: &World, x: i32, y: i32) -> bool {
+    for yy in (y - SKY_SCAN_ROWS..y).rev() {
+        if !world.in_bounds(x, yy) {
+            return true;
+        }
+        let m = world.get(x, yy).material;
+        if m != material::EMPTY && matches!(world.materials.kind(m), MaterialKind::Powder | MaterialKind::Solid) {
+            return false;
+        }
+    }
+    true
+}
+
+/// **Every spoil switch this process read, in one line**, for a harness
+/// header: a log that cannot say which arm wrote it is the stale-harness
+/// failure `CLAUDE.md` records.
+pub fn spoil_switches_line() -> String {
+    format!(
+        "spoil: footing {}, packs {}, cue {}",
+        if spoil_footing_drop() { "ground (PIXEL_PHYSICS_SPOIL_FOOTING)" } else { "shipped" },
+        if spoil_packs() { "on (PIXEL_PHYSICS_SPOIL_PACKS)" } else { "shipped (off)" },
+        match spoil_cue() {
+            Some(c) if c == SPOIL_CUE_SHIPPED => format!("K {} floor {} (shipped)", c.k, c.floor),
+            Some(c) => format!("K {} floor {} (PIXEL_PHYSICS_SPOIL_CUE)", c.k, c.floor),
+            None => "off (PIXEL_PHYSICS_SPOIL_CUE)".to_string(),
+        }
+    )
+}
+
 /// **Can a pellet be put down at `(px, py)`?** The cell is empty, it has a
 /// footing, and `SPOIL_HEADROOM` cells above it are empty -- `act`'s spoil
 /// branch carries the argument for each half. `footed` is
@@ -9457,6 +9748,19 @@ fn turn_toward(from: u8, to: u8) -> u8 {
 /// every `creature_space` baseline, which is not affordable inside one
 /// question. If the direction turns out to be worth shipping, that bill is
 /// the follow-on and not this.
+///
+/// **Off by default for a measured harm, and it is the colony's food, not
+/// its nest.** Measured 2026-09-28 on top of the founding shaft and the heap
+/// cue, both on (`Reports/nest-heap-cue-2026-09-28.md` §8): in `digbox` it
+/// makes the nest better still (openings 4 -> 2.5 at frame 12,000, more
+/// nest-like than random digging on 12 of 12 seeds), but on the colony bed
+/// (24 seeds, gap 90) starvation goes **83 -> 295, higher on 22 of 24**, and
+/// food taken off the pile **3,744 -> 1,870 cells, lower on 24 of 24**. It is
+/// the mechanism of 2026-09-27 (`Reports/dead-ends.md`'s `DIG_DOWN` entry):
+/// an ant at home, where `Dig` runs high, turns down and digs instead of
+/// going out. The dig wiring lowered `Dig` away from home and left it high
+/// at home, so the condition that entry names is not met. It comes on when
+/// the turn stops recruiting the foragers.
 fn dig_down_bias() -> Option<f32> {
     static W: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
     *W.get_or_init(|| {
@@ -11264,6 +11568,31 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         let (dx, dy) = DIRS[heading as usize];
         let (tx, ty) = (x + dx, y + dy);
         let target = world.get(tx, ty);
+        // **A heap draws where digging starts** ([`SpoilCue`], on since
+        // 2026-09-28, [`spoil_cue_of`]): a cut that would open the ground to the sky goes
+        // ahead with probability `f`, the heap factor for the pellets beside
+        // it. **Judged on the cell actually cut, after the `DIG_DOWN` turn
+        // above.** It first scaled the roll by the cell ahead *before* that
+        // turn, so an ant at the surface facing along it read no ground
+        // ahead, took the whole urge, turned down and cut: with
+        // `PIXEL_PHYSICS_DIG_DOWN=1.0` new openings from the surface went 77
+        // -> 212 over 12 seeds, three in four with no spoil beside them. A
+        // draw is taken only while `f < 1`, so the floor-1 control takes none
+        // and stays bit-exact with the cue off, as does the cue off.
+        let vetoed = match spoil_cue_of(world) {
+            Some(cue) => {
+                let radius = curvature_radius_of(def, &traits_of(world, organism, def)).max(1);
+                match spoil_cue_factor(world, (x, y), (tx, ty), radius, cue) {
+                    Some(f) => {
+                        world.creature_stats.spoil_cue_applied += 1;
+                        world.creature_stats.spoil_cue_kept_milli += (f * 1000.0).round() as u64;
+                        f < 1.0 && draw.unit_f32() >= f
+                    }
+                    None => false,
+                }
+            }
+            None => false,
+        };
         // **Digging is a verb against *ground*, and this kind test is what
         // says so.** It is not the material-name whitelist the force gate
         // exists to avoid -- it states as data the distinction the force
@@ -11315,7 +11644,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         if live_seed {
             world.dig_diverted_seed += 1;
         }
-        if ground && !live_seed && target.material != material::EMPTY && world.materials.get(target.material).penetration_resistance <= dig_force_of(def, &traits_of(world, organism, def), world.trait_reach) {
+        if !vetoed && ground && !live_seed && target.material != material::EMPTY && world.materials.get(target.material).penetration_resistance <= dig_force_of(def, &traits_of(world, organism, def), world.trait_reach) {
             // **The spoil is picked up, not destroyed.** This line read
             // `world.set(tx, ty, Cell::EMPTY)` with a comment calling
             // carrying it out "a stage-4+ refinement -- noted, not built",
@@ -18505,14 +18834,20 @@ mod tests {
                 .collect::<Vec<_>>()
         };
 
+        // **Painted without the founding cut throughout**: this is the
+        // door's paint and its anchor, and the shaft that ships on since
+        // 2026-09-28 cuts the middle two of the door's five columns. The door
+        // over a shaft has its own test.
         // Shipped: a strip, and each founder anchored where it was placed.
         let (mut w, low) = colony_bed();
+        w.nest_shaft = Some(0);
         assert!(w.found_colony_with(200, low - 32, "ant", COLONY_ANTS, None, false) > 0, "the bed placed no ants");
         let strip = nest_cols(&w);
         assert!(strip.len() > 20, "the shipped patch is a strip, not {} columns", strip.len());
 
         // A door of half-width 2, founders spread: five columns, every home at the door.
         let (mut w, low) = colony_bed();
+        w.nest_shaft = Some(0);
         assert!(w.found_colony_with(200, low - 32, "ant", COLONY_ANTS, Some(2), false) > 0, "the bed placed no ants");
         let door = nest_cols(&w);
         assert_eq!(door.len(), 5, "a door of half-width 2 is five columns: {door:?}");
@@ -18528,6 +18863,7 @@ mod tests {
 
         // Piled: every founder starts on the door's columns.
         let (mut w, low) = colony_bed();
+        w.nest_shaft = Some(0);
         assert!(w.found_colony_with(200, low - 32, "ant", COLONY_ANTS, Some(2), true) > 0, "the bed placed no ants");
         let piled = ants(&w);
         assert!(piled.len() > 1, "the pile placed {} founders", piled.len());
@@ -19525,6 +19861,11 @@ mod tests {
                 w.set(x, y, Cell::new(soil, 0));
             }
         }
+        // **The paint alone, no founding cut.** Every test on this bed asks
+        // about the comb the paint lays -- its drains, its unbroken core --
+        // and the shaft that ships on since 2026-09-28 would put its mouth in
+        // the middle of that core. The cut has its own tests.
+        w.nest_shaft = Some(0);
         w.paint_nest_patch(96, 99);
         let nest = w.materials.id_of("nest").expect("nest is compiled in");
         let patch: Vec<(i32, i32)> = (0..=191).flat_map(|x| (95..105).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == nest).collect();
@@ -21415,6 +21756,11 @@ mod tests {
     /// unaffected by anything this build changes.
     fn dig_price_scene(price: f32) -> (u64, f64, f32) {
         let mut w = test_world();
+        // **No heap cue.** The ant here is set down by hand on bare soil with
+        // no founding shaft and so no heap, and at the cue's shipped floor of
+        // 0 it would never open the ground: the arms would compare two idle
+        // ants. This test is the price of a cut, not where cutting starts.
+        w.spoil_cue = Some(None);
         let soil = w.materials.id_of("soil").expect("soil");
         for x in 90..=140 {
             for y in 96..=101 {
@@ -24238,6 +24584,10 @@ mod tests {
     /// agreeing with each other.
     fn verbs_scene(feed: f32, dig: f32) -> (u64, u64) {
         let mut w = test_world();
+        // **No heap cue**, for `dig_price_scene`'s reason: an animal set down
+        // by hand on heapless ground never digs at the cue's floor of 0, and
+        // this is about which gene moves which verb.
+        w.spoil_cue = Some(None);
         let soil = w.materials.id_of("soil").expect("soil");
         // **A leaf, and it used to be a corpse.** This test is about the
         // Feed/Dig split and the food is incidental to it -- but S5 made
@@ -31022,6 +31372,47 @@ mod tests {
         }
     }
 
+    /// **A founding that places fewer founders than it planned still closes
+    /// its books** -- `the_books_close_for_every_colony` at frame 0, on the
+    /// one path that test's bed reached only by accident.
+    ///
+    /// Founding books each placed founder's flat `start_energy` as `Granted`
+    /// and then deals the colony's reserve out unevenly
+    /// ([`founder_reserve`]), paired so the cohort's total is unchanged. The
+    /// pairing is exact only over the founders actually placed: dealt over
+    /// every planned station, a station that could not place its founder took
+    /// its share of the reserve with it, unbooked. Found 2026-09-28 when the
+    /// founding shaft, shipping on, shifted `two_colony_bed`'s stations so
+    /// one colony's first station fell on the other's founder: 82.6 J gone
+    /// before the first frame, against a bar of 0.75. Here the two colonies
+    /// are founded 8 cells apart, so the second places only some of its six;
+    /// measured on the code before the fix, its founders held 85.1 J less
+    /// than its books.
+    #[test]
+    fn a_founding_that_places_fewer_founders_than_planned_still_closes_its_books() {
+        let mut w = test_world();
+        w.nest_shaft = Some(0);
+        for x in 10..190 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        assert_eq!(w.found_colony_of(90, 100, "ant", 6), 6, "test setup: the first colony must place all six");
+        let placed = w.found_colony_of(98, 100, "ant", 6);
+        assert!(
+            (1..6).contains(&placed),
+            "test setup: the second founding must place some founders and not all, or it cannot leave a share behind -- placed {placed}"
+        );
+        let live = w.live_creature_energy_by_colony();
+        for (colony, books) in w.all_colony_books().iter().enumerate() {
+            let held = live.get(colony).copied().unwrap_or(0.0);
+            let expected = books.expected_live_total();
+            assert!(
+                (held - expected).abs() <= 1e-3,
+                "colony {colony}: its founders hold {held:.4} against books of {expected:.4} -- {:+.4} apart at founding",
+                held - expected
+            );
+        }
+    }
+
     /// **The diet band sums to the harvest accounts, per colony.**
     ///
     /// The band is what the food panel draws, and it is booked on the same
@@ -34443,5 +34834,83 @@ mod tests {
         };
         assert_eq!(arm(false), (2, true, true), "shipped: the lining packs spoil and soil alike");
         assert_eq!(arm(true), (1, false, true), "switch on: the pellet stays spoil, the soil is still lined");
+    }
+
+    /// **`PIXEL_PHYSICS_SPOIL_CUE` scales a cut that opens the ground by the
+    /// heap beside it, and stands aside at a pellet and under a roof.** Five
+    /// arms on one bed, each a case the rule exists to tell apart: bare ground
+    /// ahead cut to the floor; ground beside a two-pellet heap let through at
+    /// the Hill value; a pellet ahead left alone; an animal buried in the soil
+    /// left alone; and a tunnel breaking out to the sky treated as a start. A
+    /// cue that ignored the heap turns the second arm red, one that reached
+    /// into the tunnels turns the fourth, and one that let every enclosed
+    /// digger through turns the fifth.
+    #[test]
+    fn the_heap_cue_scales_a_surface_dig_and_stands_aside_underground() {
+        let mut w = test_world();
+        let (soil, spoil) = (w.materials.id_of("soil").unwrap(), w.materials.id_of("spoil").unwrap());
+        assert!(w.materials.get(spoil).needs_footing && !w.materials.get(soil).needs_footing, "the cue keys on needs_footing; if spoil stops carrying it every arm is vacuous");
+        let surface = 150;
+        for x in 60..140 {
+            for y in surface..surface + 20 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        let cue = SpoilCue { k: 1.5, floor: 0.1 };
+        // Bare: standing on flat ground, facing straight down into it.
+        let bare = spoil_cue_factor(&w, (80, surface - 1), (80, surface), 2, cue);
+        // Beside a heap: two pellets on the ground, within reach of the target.
+        w.set(101, surface - 1, Cell::new(spoil, 0));
+        w.set(102, surface - 1, Cell::new(spoil, 0));
+        let heaped = spoil_cue_factor(&w, (100, surface - 1), (100, surface), 2, cue);
+        // A pellet ahead.
+        let pellet = spoil_cue_factor(&w, (100, surface - 1), (101, surface - 1), 2, cue);
+        // Buried: a one-cell pocket deep in the soil.
+        w.set(120, surface + 10, Cell::EMPTY);
+        let buried = spoil_cue_factor(&w, (120, surface + 10), (120, surface + 11), 2, cue);
+        // Breaking out: a pocket one row under the surface, facing up into
+        // the top cell of its column -- enclosed, but the cut opens the sky.
+        w.set(130, surface + 1, Cell::EMPTY);
+        let breakout = spoil_cue_factor(&w, (130, surface + 1), (130, surface), 2, cue);
+        let hill = 0.1 + 0.9 * 4.0 / (4.0 + 2.25);
+        assert_eq!(bare, Some(0.1), "no heap: the urge is cut to the floor");
+        assert!(heaped.is_some_and(|f| (f - hill).abs() < 1e-6), "two pellets beside the target: {heaped:?}, not {hill}");
+        assert_eq!(pellet, None, "a pellet ahead is refill churn, left alone");
+        assert_eq!(buried, None, "an enclosed digger under a roof is the face's, left alone");
+        assert_eq!(breakout, Some(0.1), "a tunnel breaking out to the sky is a start, and there is no heap here");
+    }
+
+    /// `PIXEL_PHYSICS_SPOIL_CUE`'s spellings: unset and `off` read nothing,
+    /// `on` is the calibrated cue, and a value it cannot read is unset rather
+    /// than some other cue.
+    #[test]
+    fn the_heap_cue_parses_its_spellings_and_refuses_the_rest() {
+        // Shipped on since 2026-09-28: unset and `on` are the measured arm,
+        // and `off` is the only way back to the ant before the cue.
+        assert_eq!(parse_spoil_cue(""), Some(SPOIL_CUE_SHIPPED));
+        assert_eq!(parse_spoil_cue("on"), Some(SPOIL_CUE_SHIPPED));
+        assert_eq!(SPOIL_CUE_SHIPPED, SpoilCue { k: 5.0, floor: 0.0 }, "the arm every figure in the report was measured at");
+        assert_eq!(parse_spoil_cue("off"), None);
+        assert_eq!(parse_spoil_cue("3"), Some(SpoilCue { k: 3.0, floor: 0.0 }), "a floor left out is the shipped one");
+        assert_eq!(parse_spoil_cue(" 2.5 , 0.25 "), Some(SpoilCue { k: 2.5, floor: 0.25 }));
+        for bad in ["x", "0", "-1", "2,1.5", "2,0.1,9", "2,"] {
+            assert_eq!(parse_spoil_cue(bad), Some(SPOIL_CUE_SHIPPED), "{bad:?} must read as unset, which is the shipped cue");
+        }
+    }
+
+    #[test]
+    fn the_founding_shaft_parses_its_spellings_and_refuses_the_rest() {
+        // Shipped on since 2026-09-28: unset is the measured depth, `off` or
+        // `0` the painted-only door before it, and a typo the default rather
+        // than off -- a typo that turned the mechanism off would put the
+        // control into a sweep wearing another point's label.
+        assert_eq!(parse_nest_shaft(""), Some(NEST_SHAFT_ROWS));
+        assert_eq!(NEST_SHAFT_ROWS, 6, "the depth every figure in the report was measured at");
+        assert_eq!(parse_nest_shaft("off"), None);
+        assert_eq!(parse_nest_shaft("0"), None);
+        assert_eq!(parse_nest_shaft(" 12 "), Some(12));
+        for bad in ["x", "-3", "6.5"] {
+            assert_eq!(parse_nest_shaft(bad), Some(NEST_SHAFT_ROWS), "{bad:?} must read as unset, which is the shipped depth");
+        }
     }
 }

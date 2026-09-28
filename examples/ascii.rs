@@ -2672,7 +2672,13 @@ fn construction_scene() {
         g[io_slot(BrainInput::Bias, BrainOutput::Dig)] = 0.15;
         g[io_slot(BrainInput::SurfaceCurvature, BrainOutput::Dig)] = 0.0;
         world.species.set_genome(id, g);
-        println!("  SUPPLY: (Bias, Dig) 0.15 and no (SurfaceCurvature, Dig) -- the dig this scene was written against; it measures where a pellet lands, not where digging starts");
+        // **And no heap cue** (`creature::SpoilCue`, on since 2026-09-28).
+        // At its shipped floor of 0 a cut that opens the ground to the sky
+        // goes ahead only beside a heap, and every cell of this lattice is
+        // such a cut with no heap anywhere, so the cue alone would take the
+        // supply back to 0 for the reason the genome above does.
+        world.spoil_cue = Some(None);
+        println!("  SUPPLY: (Bias, Dig) 0.15, no (SurfaceCurvature, Dig), no heap cue -- the dig this scene was written against; it measures where a pellet lands, not where digging starts");
     }
 
     // **One colony, not fifty-five.** `World::plant_ant` claims a fresh
