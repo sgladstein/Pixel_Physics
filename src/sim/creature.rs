@@ -9361,6 +9361,161 @@ fn spoil_footing_drop() -> bool {
     *ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_SPOIL_FOOTING").as_deref(), Ok("ground")))
 }
 
+/// **`PIXEL_PHYSICS_SPOIL_CUE`: a heap of spoil draws where digging starts.**
+/// Unset or `off`, nothing is read and no draw is taken, so the ant is
+/// bit-exact; `on` is `K` 1.5 with a floor of 0.1, and `K,floor` sets both.
+///
+/// **What it is for: one mouth.** Since 2026-09-28 the colony digs in one
+/// place (`Reports/nest-dig-wiring-2026-09-28.md`), but ten holes still open
+/// along the nest strip, and each reads as ground curving in, so
+/// `(SurfaceCurvature, Dig)` feeds every one alike and nothing makes them
+/// compete. The biology's one positive cue for *where digging starts* is a
+/// heap of freshly dug pellets: Pielström & Roces (*PLOS ONE* 2013, *Atta
+/// vollenweideri*) found fresh pellets drew where workers started digging
+/// and hour-old ones did not. A scent on the digging face is a different
+/// thing, tested in ants with no effect (Bruce 2015), and is not what this
+/// is (`nest-biology-digging-signals-2026-09-19.md` §3).
+///
+/// **Measured before it was built** (`digbox`, 40 ants, 12 seeds, the
+/// funnel's cut-kind line): spoil lies within 2 cells of 27% of the cuts
+/// that open a new mouth from the surface, against 77% of the cuts into a
+/// mouth already open (0.53 spoil cells on average against 1.86), so the cue
+/// has something to tell apart. Cuts below the old surface -- the tunnels,
+/// 55% of all cuts -- have spoil beside them only 37% of the time, which is
+/// why the cue stands aside for an animal the ground encloses: there the
+/// face does the work, and a heap cue would stall it.
+///
+/// **The rule.** On a dig roll aimed at ground that is not itself a pellet,
+/// by an animal at the surface -- its curvature above
+/// [`SPOIL_CUE_ENCLOSED`] -- or by any animal whose cut would open the
+/// ground to the sky ([`open_to_the_sky`]), the urge is multiplied by
+/// `floor + (1 - floor) s^2 / (s^2 + K^2)`, `s` being the pellets within
+/// [`SPOIL_CUE_REACH`] of the cell ahead. No heap cuts the urge to `floor`;
+/// a heap of `K` pellets lets half the rest through. A pellet ahead is left
+/// alone, because digging a heap out is refill churn rather than a start.
+///
+/// **Any pellet, not a fresh one.** A cell carries no age. In `digbox` the
+/// any-age and the fresh (under 1,000 frames) shares track each other at the
+/// cut (27% and 18%, 77% and 66%), so the hour of decay is not modelled.
+/// A pellet is a `needs_footing` cell, which only `spoil` carries -- the
+/// same data test `pack_neighbours_with` reads, and no name lookup.
+///
+/// A switch before a brain input, by the owner's ruling of 2026-09-28: the
+/// marker becomes a sense once a switch version shows it works.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SpoilCue {
+    /// Pellets beside the target that let half of the urge above `floor`
+    /// through.
+    pub k: f32,
+    /// The share of the urge left where no pellet lies in reach.
+    pub floor: f32,
+}
+
+/// How far from the cell ahead [`SpoilCue`] counts pellets: the census's
+/// reach, a 5x5 square.
+pub const SPOIL_CUE_REACH: i32 = 2;
+
+/// Surface curvature at or below which the digger is enclosed and
+/// [`SpoilCue`] stands aside. A tunnel or a shaft reads -0.5 or below, flat
+/// ground 0, and a shallow dent at a mouth's lip in between.
+pub const SPOIL_CUE_ENCLOSED: f32 = -0.3;
+
+/// The shipped cue: see [`SpoilCue`].
+pub fn spoil_cue() -> Option<SpoilCue> {
+    static V: std::sync::OnceLock<Option<SpoilCue>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_spoil_cue(&std::env::var("PIXEL_PHYSICS_SPOIL_CUE").unwrap_or_default()))
+}
+
+/// `PIXEL_PHYSICS_SPOIL_CUE`'s value read as a cue ([`spoil_cue`]). A value
+/// it cannot read is reported and read as unset, never as some other cue.
+fn parse_spoil_cue(raw: &str) -> Option<SpoilCue> {
+    let raw = raw.trim();
+    match raw {
+        "" | "off" => None,
+        "on" => Some(SpoilCue { k: 1.5, floor: 0.1 }),
+        _ => {
+            let mut parts = raw.split(',').map(str::trim);
+            let k = parts.next().and_then(|v| v.parse::<f32>().ok()).filter(|k| *k > 0.0);
+            let floor = parts.next().map_or(Some(0.1), |v| v.parse::<f32>().ok().filter(|f| (0.0..=1.0).contains(f)));
+            match (k, floor, parts.next()) {
+                (Some(k), Some(floor), None) => Some(SpoilCue { k, floor }),
+                _ => {
+                    eprintln!("PIXEL_PHYSICS_SPOIL_CUE={raw:?}: not `on`, `off` or `K[,floor]` (K > 0, floor in 0..1); read as unset");
+                    None
+                }
+            }
+        }
+    }
+}
+
+/// The factor [`SpoilCue`] puts on a dig roll by the animal at `(x, y)`
+/// facing `(tx, ty)`, reading its curvature at `radius`; `None` where the cue
+/// stands aside -- nothing ahead, a pellet ahead, or a digger the ground
+/// encloses.
+fn spoil_cue_factor(world: &World, (x, y): (i32, i32), (tx, ty): (i32, i32), radius: i32, cue: SpoilCue) -> Option<f32> {
+    let pellet = |c: Cell| c.material != material::EMPTY && world.materials.get(c.material).needs_footing;
+    let ahead = world.get(tx, ty);
+    if ahead.material == material::EMPTY || pellet(ahead) {
+        return None;
+    }
+    // **A cut that opens the ground to the sky is a start, from above or
+    // from below.** Standing aside for every enclosed digger let tunnels
+    // break out wherever they rose: with the founding shaft and no floor,
+    // half the new openings (32 of 66 over 12 seeds) were a tunnel cutting
+    // the top cell of a column from underneath. So an enclosed digger is left
+    // alone only while the cell it cuts has ground somewhere above it.
+    if surface_curvature(world, x, y, radius) <= SPOIL_CUE_ENCLOSED && !open_to_the_sky(world, tx, ty) {
+        return None;
+    }
+    let mut s = 0u32;
+    for dy in -SPOIL_CUE_REACH..=SPOIL_CUE_REACH {
+        for dx in -SPOIL_CUE_REACH..=SPOIL_CUE_REACH {
+            s += u32::from(pellet(world.get(tx + dx, ty + dy)));
+        }
+    }
+    let s2 = (s * s) as f32;
+    Some(cue.floor + (1.0 - cue.floor) * s2 / (s2 + cue.k * cue.k))
+}
+
+/// How far up [`open_to_the_sky`] looks before it calls a column open: the
+/// cap bounds the work and does not flip the answer, because a cell with
+/// this much air over it is open for every purpose it is asked about.
+const SKY_SCAN_ROWS: i32 = 64;
+
+/// **Is `(x, y)` the top of the ground in its column** -- nothing but air,
+/// liquid, gas or animals above it, to the world's top edge or for
+/// [`SKY_SCAN_ROWS`]? [`SpoilCue`] reads it to tell a cut that opens the
+/// ground to the sky from one under a roof. Ground is `Powder` or `Solid`,
+/// the kinds a dig takes; the world's edge is not ground here, although a
+/// read past it returns a solid sentinel.
+fn open_to_the_sky(world: &World, x: i32, y: i32) -> bool {
+    for yy in (y - SKY_SCAN_ROWS..y).rev() {
+        if !world.in_bounds(x, yy) {
+            return true;
+        }
+        let m = world.get(x, yy).material;
+        if m != material::EMPTY && matches!(world.materials.kind(m), MaterialKind::Powder | MaterialKind::Solid) {
+            return false;
+        }
+    }
+    true
+}
+
+/// **Every spoil switch this process read, in one line**, for a harness
+/// header: a log that cannot say which arm wrote it is the stale-harness
+/// failure `CLAUDE.md` records.
+pub fn spoil_switches_line() -> String {
+    format!(
+        "spoil: footing {}, packs {}, cue {}",
+        if spoil_footing_drop() { "ground (PIXEL_PHYSICS_SPOIL_FOOTING)" } else { "shipped" },
+        if spoil_packs() { "on (PIXEL_PHYSICS_SPOIL_PACKS)" } else { "shipped (off)" },
+        match spoil_cue() {
+            Some(c) => format!("K {} floor {} (PIXEL_PHYSICS_SPOIL_CUE)", c.k, c.floor),
+            None => "off".to_string(),
+        }
+    )
+}
+
 /// **Can a pellet be put down at `(px, py)`?** The cell is empty, it has a
 /// footing, and `SPOIL_HEADROOM` cells above it are empty -- `act`'s spoil
 /// branch carries the argument for each half. `footed` is
@@ -11227,6 +11382,27 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
     // moisture_gradient(..))`, the inverse coefficient of the drop's, so
     // excavation ran toward wetter ground by a rule no lineage could alter.
     // It is `(MoistureGrad, Dig, w)` now, with the sign free.
+    //
+    // **A heap draws where digging starts, under `PIXEL_PHYSICS_SPOIL_CUE`**
+    // ([`spoil_cue`]): for a digger at the surface, the urge is scaled by the
+    // pellets beside the cell ahead. Unset, nothing is read and no draw is
+    // taken.
+    let dig_urge = match spoil_cue() {
+        Some(cue) if dig_urge > 0.0 => {
+            let heading = world.organism(organism).map_or(0, |s| s.heading);
+            let (dx, dy) = DIRS[heading as usize];
+            let radius = curvature_radius_of(def, &traits_of(world, organism, def)).max(1);
+            match spoil_cue_factor(world, (x, y), (x + dx, y + dy), radius, cue) {
+                Some(f) => {
+                    world.creature_stats.spoil_cue_applied += 1;
+                    world.creature_stats.spoil_cue_kept_milli += (f * 1000.0).round() as u64;
+                    dig_urge * f
+                }
+                None => dig_urge,
+            }
+        }
+        _ => dig_urge,
+    };
     if draw.unit_f32() < dig_urge {
         // **Before any of the target tests below**, which is what makes it
         // the "it fired" half of the pair: a roll counted only once a cell
@@ -34305,5 +34481,64 @@ mod tests {
         };
         assert_eq!(arm(false), (2, true, true), "shipped: the lining packs spoil and soil alike");
         assert_eq!(arm(true), (1, false, true), "switch on: the pellet stays spoil, the soil is still lined");
+    }
+
+    /// **`PIXEL_PHYSICS_SPOIL_CUE` scales a cut that opens the ground by the
+    /// heap beside it, and stands aside at a pellet and under a roof.** Five
+    /// arms on one bed, each a case the rule exists to tell apart: bare ground
+    /// ahead cut to the floor; ground beside a two-pellet heap let through at
+    /// the Hill value; a pellet ahead left alone; an animal buried in the soil
+    /// left alone; and a tunnel breaking out to the sky treated as a start. A
+    /// cue that ignored the heap turns the second arm red, one that reached
+    /// into the tunnels turns the fourth, and one that let every enclosed
+    /// digger through turns the fifth.
+    #[test]
+    fn the_heap_cue_scales_a_surface_dig_and_stands_aside_underground() {
+        let mut w = test_world();
+        let (soil, spoil) = (w.materials.id_of("soil").unwrap(), w.materials.id_of("spoil").unwrap());
+        assert!(w.materials.get(spoil).needs_footing && !w.materials.get(soil).needs_footing, "the cue keys on needs_footing; if spoil stops carrying it every arm is vacuous");
+        let surface = 150;
+        for x in 60..140 {
+            for y in surface..surface + 20 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        let cue = SpoilCue { k: 1.5, floor: 0.1 };
+        // Bare: standing on flat ground, facing straight down into it.
+        let bare = spoil_cue_factor(&w, (80, surface - 1), (80, surface), 2, cue);
+        // Beside a heap: two pellets on the ground, within reach of the target.
+        w.set(101, surface - 1, Cell::new(spoil, 0));
+        w.set(102, surface - 1, Cell::new(spoil, 0));
+        let heaped = spoil_cue_factor(&w, (100, surface - 1), (100, surface), 2, cue);
+        // A pellet ahead.
+        let pellet = spoil_cue_factor(&w, (100, surface - 1), (101, surface - 1), 2, cue);
+        // Buried: a one-cell pocket deep in the soil.
+        w.set(120, surface + 10, Cell::EMPTY);
+        let buried = spoil_cue_factor(&w, (120, surface + 10), (120, surface + 11), 2, cue);
+        // Breaking out: a pocket one row under the surface, facing up into
+        // the top cell of its column -- enclosed, but the cut opens the sky.
+        w.set(130, surface + 1, Cell::EMPTY);
+        let breakout = spoil_cue_factor(&w, (130, surface + 1), (130, surface), 2, cue);
+        let hill = 0.1 + 0.9 * 4.0 / (4.0 + 2.25);
+        assert_eq!(bare, Some(0.1), "no heap: the urge is cut to the floor");
+        assert!(heaped.is_some_and(|f| (f - hill).abs() < 1e-6), "two pellets beside the target: {heaped:?}, not {hill}");
+        assert_eq!(pellet, None, "a pellet ahead is refill churn, left alone");
+        assert_eq!(buried, None, "an enclosed digger under a roof is the face's, left alone");
+        assert_eq!(breakout, Some(0.1), "a tunnel breaking out to the sky is a start, and there is no heap here");
+    }
+
+    /// `PIXEL_PHYSICS_SPOIL_CUE`'s spellings: unset and `off` read nothing,
+    /// `on` is the calibrated cue, and a value it cannot read is unset rather
+    /// than some other cue.
+    #[test]
+    fn the_heap_cue_parses_its_spellings_and_refuses_the_rest() {
+        assert_eq!(parse_spoil_cue(""), None);
+        assert_eq!(parse_spoil_cue("off"), None);
+        assert_eq!(parse_spoil_cue("on"), Some(SpoilCue { k: 1.5, floor: 0.1 }));
+        assert_eq!(parse_spoil_cue("3"), Some(SpoilCue { k: 3.0, floor: 0.1 }));
+        assert_eq!(parse_spoil_cue(" 2.5 , 0.25 "), Some(SpoilCue { k: 2.5, floor: 0.25 }));
+        for bad in ["x", "0", "-1", "2,1.5", "2,0.1,9", "2,"] {
+            assert_eq!(parse_spoil_cue(bad), None, "{bad:?} must read as unset");
+        }
     }
 }

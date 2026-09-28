@@ -50,7 +50,8 @@ will be.
   on (`forage_drive_from_env`, `ForageDrive::SHIPPED`,
   `carry_patience_from_env`, the pickup block in `act`). §3 and §4 on
   2026-09-28 for the dig wiring (`ant.ron`'s `(Bias, Dig, -0.3)` and
-  `(SurfaceCurvature, Dig, -1.0)`).
+  `(SurfaceCurvature, Dig, -1.0)`). §5 step 6 and §12 again that day for
+  the heap cue (`spoil_cue`, `spoil_cue_factor`, `open_to_the_sky`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -299,7 +300,13 @@ the tick: the ant still gets its move roll (§6) afterwards.
 6. **Dig**, only if both crop and spoil are empty. **So a laden ant never
    digs.** The roll is against `Dig`, and the target is **the cell straight
    ahead of the head, along its current heading**: nothing chooses a face, a
-   depth, or a place near other digging. It must not be empty, a creature or
+   depth, or a place near other digging. Under `PIXEL_PHYSICS_SPOIL_CUE`
+   (off by default) the roll is first scaled by the pellets within 2 cells
+   of that target, `floor + (1 - floor) s²/(s² + K²)`, when the cut would
+   open the ground to the sky: the ant stands at the surface (curvature
+   above -0.3), or the target has no ground above it (`spoil_cue_factor`,
+   `open_to_the_sky`). A pellet target and a cut under a roof are left
+   alone. It must not be empty, a creature or
    plant cell, or a live seed, and needs `penetration_resistance ≤
    dig_force` (1.0). Soil, lining and spoil pass, and so do powder foods and
    litter such as crumbs; sand and the nest's own material do not. The cell
@@ -687,6 +694,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_BURROW_LINING` | on | `off`: no `packedsoil` lining |
 | `PIXEL_PHYSICS_SPOIL_PACKS` | off | `on`: the lining packs spoil into wall too, so an undermined heap can hang (§5) |
 | `PIXEL_PHYSICS_SPOIL_FOOTING` | filled | `ground`: a pellet is put down only where the cell beneath is ground, never on an animal or over a hole (§5) |
+| `PIXEL_PHYSICS_SPOIL_CUE` | off | `on` (K 1.5, floor 0.1) or `K[,floor]`: a dig that would open the ground to the sky, from the surface or from a tunnel breaking out, is scaled by the pellets beside its target (§5 step 6) |
 | `CROSS_TRUNK`, `TISSUE_PARTING` | on | `0` |
 | `PIXEL_PHYSICS_DIGEST` | continuous | `lump`: pays out per whole cell |
 | `PIXEL_PHYSICS_LOAD_BY` | joules | `cells`: a load weighs the cells in the crop, not its worth ÷ 480 (§9) |

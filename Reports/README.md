@@ -4012,6 +4012,19 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   from theirs), **contents exist without eggs** via the `live_seed` guard, the
   brain-input pricing as the argument *for* their call-site route, and the
   landing discipline. **Treat their plan as the plan.**
+- [nest-heap-cue-2026-09-28.md](nest-heap-cue-2026-09-28.md) —
+  **measurement and two switches, 2026-09-28. `engine`.** One entrance
+  instead of ten: a dig that would open the ground to the sky needs a heap
+  of spoil beside it. Lane note: [lanes/nest-mouth.md](lanes/nest-mouth.md).
+  - **`PIXEL_PHYSICS_SPOIL_CUE=5,0` with the founding shaft
+    (`PIXEL_PHYSICS_NEST_SHAFT=6`), both off:** in `digbox` openings 10 -> 3
+    (12 of 12), roofed 0.76 -> 0.94, width 37 -> 14; the first arm more
+    nest-like than random walkers on every seed. Half the digging by frame
+    12,000.
+  - **The census behind it:** spoil beside 27% of cuts that open a new mouth
+    against 77% at a mouth already open; the openings are set in the
+    founding burst; half the residue was tunnels breaking out from below.
+  - **The marker reopened as the heap**, not a scent at the digging face.
 - [nest-dig-wiring-2026-09-28.md](nest-dig-wiring-2026-09-28.md) —
   **measurement and a default change, 2026-09-28. `engine`/`lab`.** Two
   weights in the ant's genome concentrate its digging under the nest.

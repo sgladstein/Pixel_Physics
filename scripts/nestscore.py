@@ -67,6 +67,12 @@ LEDGER_LOOSE = re.compile(
     r"(?: \(of them posted up the column: (?P<l_own>\d+), (?P<l_other>\d+), (?P<l_air>\d+)\))?"
 )
 LEDGER_HELD = re.compile(r"^LEDGER frame=(?P<frame>\d+) ant-frames holding a pellet (?P<held>\d+) of (?P<all>\d+)")
+LEDGER_KIND = re.compile(r"^LEDGER frame=(?P<frame>\d+) spoil within \d+ cells of the cut, by where it opened: (?P<rest>.+)$")
+KIND_SEG = re.compile(
+    r"^(?P<name>[a-z ]+?) (?P<n>\d+) \(spoil near (?P<near>[\d.]+)%, fresh (?P<fresh>[\d.]+)%, mean (?P<cells>[\d.]+) cells, fresh (?P<fcells>[\d.]+)\)$"
+)
+# digbox's order: where a cut can open, the mouths first.
+KINDS = ("new mouth from the surface", "new mouth from below", "a mouth already open", "below the old surface", "in the heaps")
 
 
 def parse(path):
@@ -102,6 +108,16 @@ def parse(path):
             if m:
                 key = "loose" if "own" in m.groupdict() else "held"
                 out.setdefault(int(m["frame"]), {"n": 0, "colony": None, "null": {}, "spec": None}).setdefault("funnel", {})[key] = {k: int(v) for k, v in m.groupdict().items() if v is not None}
+                continue
+            m = LEDGER_KIND.match(line)
+            if m:
+                kinds = {}
+                for seg in m["rest"].split(" | "):
+                    k = KIND_SEG.match(seg)
+                    if not k:
+                        sys.exit(f"nestscore: {path}: cannot read `{seg}` in the cut-kind line")
+                    kinds[k["name"]] = {"n": int(k["n"]), **{f: float(k[f]) for f in ("near", "fresh", "cells", "fcells")}}
+                out.setdefault(int(m["frame"]), {"n": 0, "colony": None, "null": {}, "spec": None}).setdefault("funnel", {})["kind"] = kinds
                 continue
             m = LEDGER_PUT.match(line)
             if m:
@@ -274,6 +290,22 @@ def funnel_report(runs, stop):
             he = [f["held"] for f in fs if f.get("held")]
             if he:
                 print(f"  ant-time holding a pellet (a held pellet blocks the next dig):  {med_worst([d['held'] / max(d['all'], 1) for d in he], max)}")
+            # Where the cuts opened, and whether spoil lay beside them: a heap
+            # cue can close mouths only if spoil separates the cuts that open
+            # one from the digging it should keep.
+            ki = [f["kind"] for f in fs if f.get("kind")]
+            if ki:
+                print("  spoil within 2 cells of the cut, by where it opened:   share of cuts, spoil near, fresh near, mean spoil cells")
+                for name in KINDS:
+                    rows = [k[name] for k in ki if name in k]
+                    total = lambda k: max(sum(v["n"] for v in k.values()), 1)
+                    share = [k[name]["n"] / total(k) for k in ki if name in k]
+                    had = [r for r in rows if r["n"]]
+                    print(
+                        f"    {name:<28} {med_worst(share, max)}   "
+                        f"{med_worst([r['near'] / 100 for r in had])}   {med_worst([r['fresh'] / 100 for r in had])}   {med_worst([r['cells'] for r in had])}"
+                        f"   (seeds with any: {len(had)} of {len(rows)})"
+                    )
             mism = [d["mismatch"] / max(d["digs"], 1) for d in dig]
             lost = [d["lost"] / max(d["dumped"] + d["slost"], 1) for d in put] if put else []
             print(f"  the instrument's own error: digs it could not place {med_worst(mism, max)}; pellets it could not place {med_worst(lost, max)}")
@@ -325,6 +357,7 @@ def selftest():
         + "LEDGER frame=100 dug cells refilled: by a pellet 23, fell in 377 (spoil 1, soil 375, other 1; from the cell above 190, from the side 187); still ground 100 frames later: by a fall 140, by a pellet 7; worked ground turned loose in place: lining 3 below and 21 above the old surface, pellets 10 below and 125 above\n"
         + "LEDGER frame=100 pellets above the old surface turned loose 125: on its carrier's own body 60, on another animal 30, over air 25, cut out from under it 2, the ground under it fell 8, other 0; had stood <=1 frame 50, <=10 60, <=100 10, <=1000 5, longer 0, unknown 0; pellets put down with no footing: on the carrier's own body 70, on another animal 31, over air 26 (of them posted up the column: 5, 20, 1)\n"
         + "LEDGER frame=100 ant-frames holding a pellet 800 of 4000 (20.0%)\n"
+        + "LEDGER frame=100 spoil within 2 cells of the cut, by where it opened: new mouth from the surface 12 (spoil near 25.0%, fresh 16.7%, mean 0.42 cells, fresh 0.25) | new mouth from below 3 (spoil near 0.0%, fresh 0.0%, mean 0.00 cells, fresh 0.00) | a mouth already open 40 (spoil near 70.0%, fresh 60.0%, mean 2.10 cells, fresh 1.50) | below the old surface 200 (spoil near 5.0%, fresh 4.0%, mean 0.08 cells, fresh 0.05) | in the heaps 145 (spoil near 100.0%, fresh 90.0%, mean 4.00 cells, fresh 3.00)\n"
     )
     # digbox's own order at a stop: the funnel block, then the scoreboard.
     body = funnel + score
@@ -347,6 +380,9 @@ def selftest():
     assert fu["put"]["beside"] == 223 and fu["put"]["refill"] == 23 and fu["put"]["dumped"] == 399, fu["put"]
     assert (fu["loose"]["n"], fu["loose"]["own"], fu["loose"]["cut"], fu["loose"]["a10"], fu["loose"]["p_air"], fu["loose"]["l_other"]) == (125, 60, 2, 60, 26, 20), fu.get("loose")
     assert (fu["held"]["held"], fu["held"]["all"]) == (800, 4000), fu.get("held")
+    ki = fu["kind"]
+    assert tuple(ki) == KINDS, list(ki)
+    assert (ki["new mouth from the surface"]["n"], ki["new mouth from the surface"]["near"], ki["a mouth already open"]["cells"], ki["in the heaps"]["fcells"]) == (12, 25.0, 2.1, 3.0), ki
     # A duplicate key must refuse, not pool (last write wins is the failure).
     try:
         load([d, d], None)

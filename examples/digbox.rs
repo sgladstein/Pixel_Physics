@@ -1343,6 +1343,18 @@ struct NestFunnel {
     /// which is the Khuong entry's lesson in `dead-ends.md`.
     /// [decisions, cuts][faced, spoil near, fresh spoil near].
     spoil_near: [[u64; 3]; 2],
+    /// **Where a cut opens, and whether spoil lies beside it.** The panel's
+    /// mouths are runs of dug cells in the old surface row, so a cut in that
+    /// row with neither neighbour ever dug opens a new mouth: from the
+    /// surface, or from below when the digger's head is under the row (a
+    /// tunnel breaking out). A heap cue can close mouths only if spoil
+    /// separates those cuts from the digging it should keep, at a mouth
+    /// already open and below the old surface.
+    /// [new mouth from the surface, new mouth from below, a mouth already
+    /// open, below the old surface, in the heaps] x [cuts, spoil near, fresh
+    /// spoil near, spoil cells, fresh spoil cells], within `SPOIL_NEAR` of
+    /// the cut.
+    cut_kind_spoil: [[u64; 5]; 5],
     /// **A refill that stays**: a dug cell still ground `REFILL_STANDING`
     /// frames after it filled. [by a fall, by a pellet put there].
     refill_standing: [u64; 2],
@@ -1407,6 +1419,30 @@ impl NestFunnel {
             }
         }
         (near, fresh)
+    }
+
+    /// How many spoil cells lie within `SPOIL_NEAR` of `(tx, ty)` in the grid
+    /// as it stood before the frame: (any age, put down within `SPOIL_FRESH`
+    /// frames). The count, not the flag: a cue that makes one hole outdraw
+    /// another needs to know how much spoil, not only whether any.
+    fn spoil_cells_of(grid: &[Option<MaterialId>], put_frame: &[u64], b: &Box2, spoil: Option<MaterialId>, frame: u64, tx: i32, ty: i32) -> (u64, u64) {
+        let Some(spoil) = spoil else { return (0, 0) };
+        let (mut any, mut fresh) = (0u64, 0u64);
+        for y in ty - SPOIL_NEAR..=ty + SPOIL_NEAR {
+            for x in tx - SPOIL_NEAR..=tx + SPOIL_NEAR {
+                if x < 0 || y < 0 || x >= b.w || y >= b.h {
+                    continue;
+                }
+                let i = (y * b.w + x) as usize;
+                if grid[i] == Some(spoil) {
+                    any += 1;
+                    if put_frame[i] != u64::MAX && frame.saturating_sub(put_frame[i]) <= SPOIL_FRESH {
+                        fresh += 1;
+                    }
+                }
+            }
+        }
+        (any, fresh)
     }
 
     fn is_ground(world: &World, m: MaterialId) -> bool {
@@ -1551,6 +1587,28 @@ impl NestFunnel {
                     self.spoil_near[1][0] += 1;
                     self.spoil_near[1][1] += u64::from(near);
                     self.spoil_near[1][2] += u64::from(fresh);
+                    // Where it opened: read before this cut is booked as dug.
+                    let kind = match ty - b.surface {
+                        row if row < 0 => 4,
+                        row if row > 0 => 3,
+                        _ => {
+                            let dug_at = |x: i32| inside(x, ty) && self.dug[at(x, ty)];
+                            if dug_at(tx) || dug_at(tx - 1) || dug_at(tx + 1) {
+                                2
+                            } else if pre.head.1 > b.surface {
+                                1
+                            } else {
+                                0
+                            }
+                        }
+                    };
+                    let (cells, fresh_cells) = Self::spoil_cells_of(&self.grid, &self.put_frame, b, spoil_id, frame, tx, ty);
+                    let k = &mut self.cut_kind_spoil[kind];
+                    k[0] += 1;
+                    k[1] += u64::from(cells > 0);
+                    k[2] += u64::from(fresh_cells > 0);
+                    k[3] += cells;
+                    k[4] += fresh_cells;
                     let was = self.grid[at(tx, ty)];
                     debug_assert!(was.is_some(), "opened() admits only a material cell");
                     let row = ty - b.surface;
@@ -1884,6 +1942,15 @@ impl NestFunnel {
             pct(sc, fc),
             pct(nc, fc)
         );
+        let kinds: Vec<String> = ["new mouth from the surface", "new mouth from below", "a mouth already open", "below the old surface", "in the heaps"]
+            .iter()
+            .zip(self.cut_kind_spoil.iter())
+            .map(|(name, &[n, near, fresh, cells, fresh_cells])| {
+                let mean = |c: u64| if n > 0 { c as f64 / n as f64 } else { 0.0 };
+                format!("{name} {n} (spoil near {:.1}%, fresh {:.1}%, mean {:.2} cells, fresh {:.2})", pct(near, n), pct(fresh, n), mean(cells), mean(fresh_cells))
+            })
+            .collect();
+        println!("LEDGER frame={frame} spoil within {SPOIL_NEAR} cells of the cut, by where it opened: {}", kinds.join(" | "));
         // Who to trace: a few ids stopped at each stage.
         for (i, name) in FUNNEL_STAGES.iter().enumerate().skip(1) {
             let stuck: Vec<String> = self.ants.iter().filter(|(_, t)| t.stage == i).take(6).map(|(id, _)| id.to_string()).collect();
@@ -2133,6 +2200,49 @@ fn funnel_selftest(b: &Box2) {
         face(&mut f, &w, 11 + SPOIL_FRESH + 2, (hx - 20, hy));
         println!("  funnel: decisions to dig beside a fresh pellet, a stale one, none -> faced, spoil near, fresh {:?} (must be [3, 2, 1])", f.spoil_near[0]);
         assert_eq!(f.spoil_near[0], [3, 2, 1], "spoil beside a dig target must be booked, and fresh only while fresh");
+    }
+
+    // 4e. Where a cut opens: a new mouth cut from the surface beside a fresh
+    //     pellet, the same mouth widened, a new mouth cut from below, a cut
+    //     below the old surface, and a cut into a heap.
+    {
+        let mut w = build(b);
+        let mut f = NestFunnel::default();
+        let rec = |head: (i32, i32), heading: u8, holding: bool| {
+            std::collections::BTreeMap::from([(id, AntBefore { head, heading, digs: 0, holding, pellet: if holding { spoil } else { material::EMPTY }, crop_empty: true })])
+        };
+        let aft = |digs: u32| std::collections::BTreeMap::from([(id, AntAfter { digs, holding: false })]);
+        let (x0, s) = (b.w / 2 - 60, b.surface);
+        // Pellets put down by hand at frame 10: beside the first mouth, and
+        // one standing alone to be cut as a heap.
+        for px in [x0 + 1, x0 + 40] {
+            f.before_with(&w, b, rec((px + 1, s - 1), 0, true));
+            w.set(px, s - 1, pellet);
+            f.after_with(&w, b, 10, &aft(0));
+        }
+        let mut fr = 10u64;
+        let mut cut_at = |w: &mut World, f: &mut NestFunnel, head: (i32, i32), heading: u8| {
+            fr += 1;
+            let (dx, dy) = pixel_physics::sim::creature::DIRS[heading as usize];
+            f.before_with(w, b, rec(head, heading, false));
+            w.set(head.0 + dx, head.1 + dy, Cell::EMPTY);
+            f.after_with(w, b, fr, &aft(1));
+        };
+        cut_at(&mut w, &mut f, (x0, s - 1), 6); // down: a new mouth, from the surface
+        cut_at(&mut w, &mut f, (x0 + 2, s - 1), 5); // down-left: beside it, widened
+        w.set(x0 + 20, s + 1, Cell::EMPTY);
+        cut_at(&mut w, &mut f, (x0 + 20, s + 1), 2); // up: a new mouth, from below
+        cut_at(&mut w, &mut f, (x0 + 20, s + 1), 6); // down: below the old surface
+        cut_at(&mut w, &mut f, (x0 + 41, s - 1), 4); // left: into the lone pellet
+        println!(
+            "  funnel: cuts by where they opened (new from the surface, new from below, open, below, heaps) x (cuts, near, fresh, cells, fresh cells) -> {:?} (must be [[1, 1, 1, 1, 1], [1, 0, 0, 0, 0], [1, 1, 1, 1, 1], [1, 0, 0, 0, 0], [1, 1, 1, 1, 1]])",
+            f.cut_kind_spoil
+        );
+        assert_eq!(
+            f.cut_kind_spoil,
+            [[1, 1, 1, 1, 1], [1, 0, 0, 0, 0], [1, 1, 1, 1, 1], [1, 0, 0, 0, 0], [1, 1, 1, 1, 1]],
+            "each cut must be booked under where it opened, with the spoil beside it"
+        );
     }
 
     // 5. The ledger's own control: a dig the world does not show must be
@@ -2658,6 +2768,7 @@ fn main() {
         ),
         None => println!("  founding: painted strip only, nothing dug (PIXEL_PHYSICS_NEST_SHAFT unset)"),
     }
+    println!("  {}", pixel_physics::sim::creature::spoil_switches_line());
     match pixel_physics::sim::creature::nest_home(&world) {
         pixel_physics::sim::creature::NestHome::Material => {}
         pixel_physics::sim::creature::NestHome::Shaft => {
@@ -3024,6 +3135,15 @@ fn main() {
             }
         }
         println!("SUMMARY spoil standing in the world: {spoil_cells} cells, against {} pellets ever put down", st.spoil_dumped);
+        // `PIXEL_PHYSICS_SPOIL_CUE`'s "it fired" half; the funnel's cut-kind
+        // line is the effect, from the far side of the call.
+        if st.spoil_cue_applied > 0 {
+            println!(
+                "SUMMARY heap cue: scaled {} dig rolls, mean factor {:.3} of the urge let through",
+                st.spoil_cue_applied,
+                st.spoil_cue_kept_milli as f64 / 1000.0 / st.spoil_cue_applied as f64
+            );
+        }
         // **Khuong's rule, priced where the decision is taken.** The
         // adjacency line below is the *dig* side's denominator, averaged over
         // the whole buried world; this is the *drop* side's, counted at every
