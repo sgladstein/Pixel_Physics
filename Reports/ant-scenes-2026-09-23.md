@@ -2469,7 +2469,13 @@ being beside food holds an ant as firmly as holding it. So "packed lunch" was bu
 holds only food it took at home is treated as empty by the forage drive's gate, `home_pull` and
 `chooser_step`, so a fed forager holding store food goes back out and eats it on the road. All
 runs on `main` after #507, one binary per comparison, 24 seeds each, paired by seed. Predictions
-were written in the lane note before the first run.
+were written in the lane note before the first run, and are scored here:
+
+| # | run | prediction | right? |
+|---|---|---|---|
+| 1 | `PACKED_LUNCH=on` vs off, bed 90, 24 seeds (2026-09-28, on `main` after #505) | pile trips up: food taken from the pile +10-30%; home-holding share of ant time 37% -> 25-30%; food standing at the nest flat or down (the lunch is eaten on the road, not put back); births flat or slightly down (budding needs the nest); starved flat | half. First form, before #507: food taken +12% (right), births 59 -> 93 (wrong, up), nest food flat (right). Shipped form after #507: food taken +44%, trips +40%, births x3.1, nest food +20%, home-holding UP 35.7% -> 39.3% (wrong) |
+| 2 | same, bed 140 | same direction, smaller: food taken +5-20% | right in direction, wrong in size: +21% (first form), +28% (shipped); births x2.1 |
+| 3 | same, lab 12 seeds | food eaten up; boom-and-bust sooner, so extinctions no better | first form before #507: every measure lower, died out 1 -> 4 (wrong); after #507, 24 seeds: food eaten up 17/7 (right); shipped form neutral, died out 1 -> 3 (right on extinctions) |
 
 **Three forms, the third shipped.** The first form had no rule at the food, and its carriers could
 not load there: a crop holds one material, the store is crumbs and the pile is fruit, so beside the
@@ -2526,3 +2532,69 @@ higher). Dig down costs the loop
 the starvation dig down causes on its own. The owner let #508 ship (a nest step is not blocked on
 colony numbers); why fed ants at home dig when food is wanted is the nest lane's trace. 140 cells
 and the lab were not re-run with both.
+
+### 22p. A birth that killed its parent: the lab's hidden starvation
+
+*Added 2026-09-28 evening.* The lane's first open problem was lab boxes that die
+with food standing (seeds 7 and 20). `labforage` had no per-ant trace, so one
+was added: `lifetrace=FILE` writes every animal every 30 frames with the nearest
+cell the census counts as edible, plus a row for each birth and each grave.
+Read from the graves back, the first 25 "starvations" on seed 20 were not
+starvation at all.
+
+**What the trace showed.** Every one of them died six frames after a child
+appeared beside it, with 400-870 J in its bank a sample earlier and a crop
+holding a median 5,376 J of food. Traced at the creature tick
+(`lifetrace_every=6`) over seed 20's first 36,000 frames: 25 of 62 births left
+the parent at -5 to -284 J, and each died of `Starved` on its next tick. Over
+whole runs of seeds 7 and 20, these parents were 22% and 25% of all
+starvation (81 of 371, 121 of 477); the rest are ordinary starvation, mostly
+far from the nest in a grazed-down box.
+
+**The mechanism.** A parent short of the price tops up from the food around
+its head. `try_bud`'s check counted a bare seed there at face (120 J to the
+ant's gut). The payment then bites it through `seed_survives_bite`: 60% of the
+time the seed is spared as a pip and pays `seed_provision_fraction`, a quarter.
+The parent was charged the whole cost anyway. Printed per birth: three seeds
+counted at 360 J paid 90, and the parent went to -159 J.
+
+**The fix, and it ships on.** The check now counts each cell at what its bite
+is certain to pay (`plant::guaranteed_bite_fraction`; `PIXEL_PHYSICS_BIRTH_PRICE`,
+`guaranteed` unless set `face`), so the payment cannot fall short.
+`CreatureStats::births_overdrawn` counts births that leave a parent under the
+floor. `face` in the fixed binary reproduces the old build's trace byte for
+byte.
+
+- **Colony bed: byte-identical** at 90 and 140 cells, 24 seeds each. Under
+  `onlyfood` there are no seeds in the diet, so the price never reaches it.
+- **Lab box, 24 paired seeds** (face → guaranteed, seeds higher / lower):
+
+| | face | guaranteed |
+|---|---:|---:|
+| parents overdrawn by a birth | 88.5 | **0** (0/24) |
+| starved | 257 | **137** (5/19, p 0.01) |
+| died of old age | 142.5 | 161 (17/7) |
+| births | 608.5 | 407.5 (7/17, p 0.06) |
+| deepest generation | 28 | **18** (3/20) |
+| alive at the end | 78.5 | 77.5 (13/11) |
+| ant-frames lived | 10.6M | 10.5M (12/12) |
+| food eaten | 1.30M J | 1.15M J (9/15, p 0.31) |
+| died out / under 10 ants at the end | 2 / 6 | 1 / 6 |
+
+**What it costs, stated plainly: the lab's generations run about a third
+slower.** A birth that killed its parent was a replacement: one ant in, one out,
+one generation deeper. Without those, a colony keeps the same number of ants
+alive for the same time (ant-frames 12/12, alive at the end 13/11). It gets
+there with a third fewer births and half the starving, and its ants live
+longer. The deepest generation reached falls from 28 to 18. That old clock was
+a bug's product, so it is not held as the baseline. `face` is the switch for
+anyone who wants it back, in keeping with the lab's "expose, don't tune".
+
+**Predictions** (lane note, #4 and #5): parents killed to about 0, right. Starved
+down 20-25%, right in direction, and at 47% it was twice as large. Births up
+a little, wrong: down a third. Alive at the end up, wrong: flat. Died out
+no worse, right. Bed neutral, right: byte-identical.
+
+Data: `Reports/data/birth-price-2026-09-28.txt.gz` (the 48 lab logs without
+per-plant lines, the per-birth table and the starvation census). Bug:
+`Reports/open-bugs-handoff.md` §Z36.

@@ -1,6 +1,13 @@
 # Ants
 
-*Current as of: 2026-09-28, when **a forager started taking a bite from the
+*Current as of: 2026-09-28, when **a birth stopped killing its parent.** An
+ant a little short of the price of young makes up the rest from food beside
+it, and it used to count seeds at their full worth though a bitten seed often
+survives and gives only a quarter; it paid anyway and died a moment later with
+a crop full of food. In the lab box that was a quarter of every ant that
+starved. Now half as many starve, with a third fewer births and the same
+number of ants alive; the colony's generations turn over more slowly.
+Earlier that day, **a forager started taking a bite from the
 store out with it.** An ant at home next to stored food picks a piece up, eats
 from it while it holds it and puts the rest back, over and over: that nibbling
 is most of how a colony eats. A well-fed forager doing it used to stay home
