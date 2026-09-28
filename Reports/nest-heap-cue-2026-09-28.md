@@ -14,9 +14,11 @@ this report** (§9):
 - a new heap cue (`PIXEL_PHYSICS_SPOIL_CUE`, `K` 5, floor 0): a dig that
   would open the ground to the sky needs a heap of spoil beside it.
 
-`=off` on either is the ant before it, bit for bit. A third, dig down, makes
-the nest better still and stays off, because it takes the foragers
-underground (§8).
+`=off` on either is the ant before it, bit for bit. **A third, dig down,
+ships on in an enclosed form** (§12): an ant already underground turns down
+before it cuts, and one on the surface does not. It stops the openings
+creeping back (3 against 6 at frame 24,000) and costs the colony bed food
+(starved 83 -> 134); everywhere, it took the foragers underground (§8).
 
 The cue governs such a dig whether the ant stands on the surface or a tunnel
 is breaking out from below.
@@ -375,6 +377,11 @@ where the food is far.
   ties; the mouth buried exactly as with the shaft alone, §7).
 - **Dig down: off, for the harm in §8.** Its doc (`dig_down_bias`) says so,
   and names what brings it on: the turn has to stop recruiting the foragers.
+  **Superseded by §12, and the reasoning here was wrong for this lane:** its
+  standing ruling (2026-09-27) is that colony numbers do not block a nest
+  step -- a step is judged on the nest, and the bed and the lab are run to
+  tell the foraging lane what moved. The enclosed form is the better nest
+  and the smaller cost of the two, and it ships.
 - **In the code.** `NEST_SHAFT_ROWS` (6) and `SPOIL_CUE_SHIPPED` (`K` 5,
   floor 0) are the unset values, and `off` on either is the ant before it.
   `World::spoil_cue` joins `World::nest_shaft` as a per-world override. The
@@ -542,6 +549,15 @@ the shipped ant: deliveries 5 / 7, food eaten 7 / 5, births 8 / 4, alive at
 the end 7 / 3, one colony lost in each. As with dig down everywhere (§8),
 the harm shows only where the food is far.
 
+**It ships on** (`DIG_DOWN_SHIPPED`, `PIXEL_PHYSICS_DIG_DOWN=off` the ant
+before), by the lane's ruling that colony numbers do not block a nest step:
+on the nest it is the largest gain the lane has measured, it stops the
+creep, and the lab does not see its cost. **The cost is real and is
+stated, not waved off**: on the colony bed half again as many ants starve,
+a fifth less food comes off the pile, and about a third as many young are
+born. It is in `dig_down_bias`'s doc, the foraging lane was told before
+landing, and lowering it is in §13.
+
 ## 13. What is next
 
 1. **The mouth in the lab** (§7). It is buried by what the colony brings
@@ -551,12 +567,12 @@ the harm shows only where the food is far.
    - the food goes inside, into a chamber, so it stops landing on the door.
      That is chambers with contents (item 4), and the food drop belongs to
      the foraging lane, so it would be a joint step.
-2. **Dig down without the foraging harm** (§8). The turn has to stop
-   recruiting the foragers. The genome weight -- a hungry ant's `Dig` lower
-   -- was tried (§11): a partial rescue that stops a hungry colony digging.
-   Left: the turn only for an ant the ground already encloses, so none
-   starts a new hole from the surface at home. Measured first on the colony
-   bed.
+2. **The enclosed dig down's bed cost** (§12). It ships; what is left is
+   that an ant at home in the founding shaft is enclosed, turns down and
+   digs when it would have gone out. The hunger gate was tried (§11) and
+   fails for its own reason. The trace to take next: per ant, on the bed,
+   which ants dig at home and what their crop and energy read when they do,
+   before choosing a lever.
 3. **The brain input**, per the owner's ruling. The sense is the pellet count
    beside the target, and the gate is "this cut opens the sky". Each new
    input costs 24 genome slots and moves every breeding scene, so it is

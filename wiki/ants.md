@@ -5,7 +5,8 @@ went short, and stopped walking past the food**, **a colony started
 digging its nest in one place**, and **a colony started with one entrance.**
 A new colony now begins with a short shaft dug under its nest, and its ants
 open the ground to the sky only beside a heap of their own spoil, so the
-digging starts at the shaft and stays there (below). A forager used to go out only
+digging starts at the shaft and stays there; an ant already underground digs
+downward (below). A forager used to go out only
 when it was hungry itself. It brought a load home, ate its fill off the nest
 floor and sat at home until hunger sent it out again, so food never built up at
 the nest. Now an ant that has once picked up food out in the world keeps going
@@ -1244,7 +1245,16 @@ with food ninety cells away fewer than half as many ants starve. It costs
 about half the digging early on, because the colony starts in one place
 rather than forty. **What it does not yet do:** given twice as long, the
 galleries creeping sideways under the nest spread spoil over all of it, a
-heap lies everywhere, and the holes creep back up to about six. And in the
+heap lies everywhere, and the holes creep back up to about six. **That
+stopped the same day**: an ant already inside the ground now turns to dig
+downward rather than along, and one on the open surface does not, so the
+colony works one compact body down from its shaft instead of a crust
+sideways under its nest. In a test box it keeps about three holes where it
+had six, and every run looks more like a nest than random digging does. The
+cost is food: where food is far from the nest, ants at home in the shaft
+dig when they would have gone out, and in a test colony with food ninety
+cells away half again as many of them starve and about a third as many
+young are born (the lab box, with food all round, does not notice). And in the
 lab box the entrance does not stay open -- by a quarter of the way through a
 run it is buried on every box under the colony's own food and the plants
 growing over it, and the ants go on living in and on the nest ground around

@@ -9636,18 +9636,24 @@ fn open_to_the_sky(world: &World, x: i32, y: i32) -> bool {
     true
 }
 
-/// **Every spoil switch this process read, in one line**, for a harness
-/// header: a log that cannot say which arm wrote it is the stale-harness
-/// failure `CLAUDE.md` records.
+/// **Every spoil switch this process read, and the dig-down turn, in one
+/// line**, for a harness header: a log that cannot say which arm wrote it is
+/// the stale-harness failure `CLAUDE.md` records, and since the turn ships on
+/// an unset variable no longer says which it was.
 pub fn spoil_switches_line() -> String {
     format!(
-        "spoil: footing {}, packs {}, cue {}",
+        "spoil: footing {}, packs {}, cue {}; dig down {}",
         if spoil_footing_drop() { "ground (PIXEL_PHYSICS_SPOIL_FOOTING)" } else { "shipped" },
         if spoil_packs() { "on (PIXEL_PHYSICS_SPOIL_PACKS)" } else { "shipped (off)" },
         match spoil_cue() {
             Some(c) if c == SPOIL_CUE_SHIPPED => format!("K {} floor {} (shipped)", c.k, c.floor),
             Some(c) => format!("K {} floor {} (PIXEL_PHYSICS_SPOIL_CUE)", c.k, c.floor),
             None => "off (PIXEL_PHYSICS_SPOIL_CUE)".to_string(),
+        },
+        match dig_down_bias() {
+            Some(d) if d == DIG_DOWN_SHIPPED => format!("{} enclosed only (shipped)", d.w),
+            Some(d) => format!("{}{} (PIXEL_PHYSICS_DIG_DOWN)", d.w, if d.enclosed_only { " enclosed only" } else { " anywhere" }),
+            None => "off (PIXEL_PHYSICS_DIG_DOWN)".to_string(),
         }
     )
 }
@@ -9762,6 +9768,15 @@ fn turn_toward(from: u8, to: u8) -> u8 {
 /// 2026-09-28 after the hunger gate showed fed ants at home turning down as
 /// well as hungry ones (`Reports/nest-heap-cue-2026-09-28.md` §11). Without
 /// `,enclosed` the draws are exactly the plain switch's.
+///
+/// **Shipped on in that form since 2026-09-28** ([`DIG_DOWN_SHIPPED`];
+/// `off` is the ant before). In `digbox` it stops the creep -- openings at
+/// frame 24,000 3 against 6, 12 of 12 seeds more nest-like than random
+/// digging against 6 -- and the lab ties; the colony bed pays for it,
+/// starved 83 -> 134 and food taken 3,744 -> 2,953 (§12). It ships on the
+/// lane's standing ruling that colony numbers do not block a nest step
+/// (2026-09-27); **the bed's harm is the measured cost, recorded here so
+/// it is not mistaken for a free change.**
 fn dig_down_bias() -> Option<DigDown> {
     static W: std::sync::OnceLock<Option<DigDown>> = std::sync::OnceLock::new();
     *W.get_or_init(|| parse_dig_down(&std::env::var("PIXEL_PHYSICS_DIG_DOWN").unwrap_or_default()))
@@ -9770,17 +9785,39 @@ fn dig_down_bias() -> Option<DigDown> {
 /// What [`dig_down_bias`] read: the chance of the turn per dig roll, and
 /// whether only an enclosed animal takes it.
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct DigDown {
-    w: f32,
-    enclosed_only: bool,
+pub struct DigDown {
+    pub w: f32,
+    pub enclosed_only: bool,
 }
 
-/// `PIXEL_PHYSICS_DIG_DOWN`'s value: `<w>` or `<w>,enclosed`, `w` above 0.
-/// Anything else is off, as the plain switch always read a value it could
-/// not parse; a qualifier it does not know is reported and read as none.
+/// **The dig-down turn the ant ships with**: every dig roll, an enclosed
+/// digger only. See [`dig_down_bias`].
+pub const DIG_DOWN_SHIPPED: DigDown = DigDown { w: 1.0, enclosed_only: true };
+
+/// `PIXEL_PHYSICS_DIG_DOWN`'s value: unset is [`DIG_DOWN_SHIPPED`], `off`
+/// (or `0`) the ant before it, `<w>` a turn anywhere and `<w>,enclosed` one
+/// only an enclosed animal takes, `w` above 0. **A value it cannot read is
+/// reported and read as unset, never as off**, as the shaft and the cue
+/// read theirs: a typo that turned the mechanism off would put the control
+/// into a sweep wearing another point's label. A qualifier it does not know
+/// is reported and read as none.
 fn parse_dig_down(raw: &str) -> Option<DigDown> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Some(DIG_DOWN_SHIPPED);
+    }
+    if raw == "off" {
+        return None;
+    }
     let mut parts = raw.split(',').map(str::trim);
-    let w = parts.next()?.parse::<f32>().ok().filter(|v| *v > 0.0)?;
+    let w = match parts.next().map(str::parse::<f32>) {
+        Some(Ok(w)) if w == 0.0 => return None,
+        Some(Ok(w)) if w > 0.0 => w,
+        _ => {
+            eprintln!("PIXEL_PHYSICS_DIG_DOWN={raw:?}: not `off`, `<w>` or `<w>,enclosed`; read as unset");
+            return Some(DIG_DOWN_SHIPPED);
+        }
+    };
     let enclosed_only = match parts.next() {
         None => false,
         Some("enclosed") => true,
@@ -9791,6 +9828,7 @@ fn parse_dig_down(raw: &str) -> Option<DigDown> {
     };
     Some(DigDown { w, enclosed_only })
 }
+
 
 /// **Is this ANIMAL at its nest** — every cell of the body, not just the head.
 ///
@@ -34791,16 +34829,20 @@ mod tests {
 
     #[test]
     fn dig_down_parses_its_spellings_and_refuses_the_rest() {
-        // Unset and unreadable are off, as the plain switch always read them;
-        // `,enclosed` narrows the turn to an animal the ground encloses, and
-        // an unknown qualifier is reported and read as none rather than off,
-        // so a typo cannot turn the arm into the control.
-        assert_eq!(parse_dig_down(""), None);
+        // Shipped on in its enclosed form since 2026-09-28: unset is that,
+        // `off` or `0` the ant before, and a value it cannot read the
+        // default rather than off. `,enclosed` narrows the turn to an animal
+        // the ground encloses; an unknown qualifier is read as none.
+        assert_eq!(parse_dig_down(""), Some(DIG_DOWN_SHIPPED));
+        assert_eq!(DIG_DOWN_SHIPPED, DigDown { w: 1.0, enclosed_only: true }, "the arm every figure in the report was measured at");
         assert_eq!(parse_dig_down("off"), None);
         assert_eq!(parse_dig_down("0"), None);
         assert_eq!(parse_dig_down("1.0"), Some(DigDown { w: 1.0, enclosed_only: false }));
         assert_eq!(parse_dig_down(" 0.5 , enclosed "), Some(DigDown { w: 0.5, enclosed_only: true }));
         assert_eq!(parse_dig_down("1.0,enclsoed"), Some(DigDown { w: 1.0, enclosed_only: false }));
+        for bad in ["x", "-1", "on"] {
+            assert_eq!(parse_dig_down(bad), Some(DIG_DOWN_SHIPPED), "{bad:?} must read as unset, which is the shipped turn");
+        }
     }
 
     #[test]

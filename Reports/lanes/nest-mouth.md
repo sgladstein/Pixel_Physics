@@ -64,8 +64,10 @@ and since 2026-09-28 that is the shipped ant**
   - **Colony bed:** starved 201 -> 83 (fewer on 22 of 24).
   - **Lab:** ties on the pairs. The founding mouth is buried by frame 30,600
     on 12 of 12 seeds, in every arm, under food and plants.
-- **Dig down stays off:** it makes the nest better still (2.5 openings) and
-  takes the foragers underground (bed starvation 83 -> 295).
+- **Dig down ships on for an enclosed digger** (this branch): the creep
+  stops (3 openings against 6 at frame 24,000, 12 of 12 nest-like), the lab
+  ties, and the colony bed pays (starved 83 -> 134, born 59 -> 22). Shipped
+  on the lane's ruling; the turn everywhere stays off (starved 295).
 - **The creep:** a fresh heap would refuse at most a third to under a half
   of it, so it is not built.
 
@@ -73,11 +75,10 @@ and since 2026-09-28 that is the shipped ant**
 1. **The mouth in the lab:** kept clear by the colony, or the food taken
    inside? Ask the owner before building either; the second is a joint step
    with the foraging lane (the food drop is theirs).
-2. **Dig down without the foraging harm.** A hungry ant's `Dig` lowered
-   through the genome was tried (report §11): starvation 295 -> 140 at best,
-   against 83 shipped, and a hungry colony stops digging (a dead end). Fed
-   ants at home turn down too, so next is the turn only for an ant the
-   ground already encloses. Measured first on the colony bed.
+2. **The enclosed dig down's bed cost.** Ants at home in the founding
+   shaft are enclosed, turn down and dig when they would have gone out.
+   Trace it per ant on the bed before choosing a lever; the hunger gate is
+   a dead end (report §11).
 3. **The brain input** for the cue (owner's order); 24 genome slots, so
    planned with the lab lines.
 4. **Chambers** need contents (brood or a granary), which the dig box lacks.
