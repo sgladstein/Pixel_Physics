@@ -2598,3 +2598,76 @@ no worse, right. Bed neutral, right: byte-identical.
 Data: `Reports/data/birth-price-2026-09-28.txt.gz` (the 48 lab logs without
 per-plant lines, the per-birth table and the starvation census). Bug:
 `Reports/open-bugs-handoff.md` §Z36.
+
+### 22q. Why so little food builds up at the nest
+
+*Added 2026-09-28, asked by the owner.* The colony bed on `main` after #510
+(drive, carry patience, packed lunch, birth price and the nest lane's dig
+down all on), 90 cells, 24 seeds, traced per decision and read with
+`scripts/antloop.py`. A new `BURN` line in `trailfollow` splits the ledger by
+verb. The arms are dig down off (the nest lane's switch), and two gates on
+eating at home. Tracing leaves the run unchanged: the traced and untraced
+arms print the same food budget on 24 of 24 seeds.
+
+**The answer: the colony eats its store as it comes in, and that eating is
+what it lives and breeds on.** Food standing on the nest is a median
+7,743 J face (about 1,900 J to an ant) from frame 6,000 on. The ants' bodies
+hold 8,038 J over the same frames. By the ledger the colony takes in more than
+it burns, and the difference goes into bodies (2,600 J -> 8,100 J over the
+run) and into births (151 over 24 runs, about 1,040 J each), not onto the
+floor.
+
+- **Who eats it.** A quarter of all colony decisions (26%) are ants in the
+  home band holding food beside the nest. Most are fed foragers repeating
+  §9's spoon: take a cell, eat from it, put it back, take it again. Beside
+  food they step on 3-4% of decisions and put the food down on about 30%.
+  With no food beside them, the rates are 17-18% and 45-48%. The rates are
+  the same inside the nest and on the doorstep. 87% of the food held at home
+  is not a packed lunch, so the drive does not reach its holder. It is
+  either a crop topped up from the store while it still held a load from the
+  pile (lunch needs an empty crop at the pickup), or food held with a spoil
+  pellet: diggers eat the store too, and one holding a pellet can never take
+  a lunch.
+- **It cannot simply be stopped.** Two gates were tried:
+  - `wire=AtNest:Feed:-0.7,Energy:Feed:-0.7` is the recorded dead end,
+    re-tested now that its condition is met (the nest has one mouth).
+  - A sharp scratch switch stops only ants at or above `start_energy` from
+    eating at their nest.
+
+  Both make food pile up, and both cost the colony its young:
+
+| arm, 24 seeds | food on the nest | in ants' bodies | taken from the pile | starved | born |
+|---|---:|---:|---:|---:|---:|
+| shipped | 7,743 J | 8,038 J | 4,574 | 93 | 151 |
+| linear gate (the dead end) | 13,832 J | 2,124 J | 2,523 (0/24) | 180 (20 more / 4) | 7 (0/24) |
+| only the fed stop eating at home | 14,836 J (21/3) | 3,487 J | 2,725 (1/23) | 143 (17 / 5) | 16 (0/24) |
+
+  Births are paid from the bank, and the bank is filled at the store. A fed
+  forager's lunch also fuels its next trip: without it, trips fall by 40%.
+  So the store turns into bodies because bodies are where the colony keeps
+  its food, not because the store is being wasted.
+- **What limits it is trips.** A full loop brings home 5.3 cells, about
+  1,265 J to an ant, and the walk home costs it roughly a tenth of that. Yet
+  loopers make about two loops in 24,000 frames. A round trip takes about
+  1,000 frames, so a looper spends about a tenth of its time looping. The
+  rest is the spoon at home (above) and 17% digging or hauling. More trips,
+  not less eating, is what would leave food standing.
+- **The nest's part is time and place, not energy.** Digging is 2.7% of the
+  colony's burn (2.3% with dig down off); walking is 55%. Dig down off
+  against on: food taken 4,574 -> 5,377 (21/3), starved 93 -> 64, born
+  151 -> 185, food on the nest 7,743 -> 8,591 J. Dig down costs by holding
+  more foragers inside (nest lane's §16), where the delivered food lies. And
+  7% of all decisions are loaded ants standing on a heap over the nest's
+  end, where they are not beside nest material and cannot deliver
+  (`AtNest` 0, stepping 70%).
+
+**Levers, not built:**
+1. **A load topped up at home becomes a lunch.** Today a lunch needs an
+   empty crop at the pickup, so a returning forager that tops up from the
+   store never leaves with it.
+2. **A digger holding a pellet does not eat.** Its mandibles are full.
+3. **An unpinned lunch carrier.** `FoodAdjacent` holds a fed ant beside food
+   (`Move` -1.16) whether or not it is leaving.
+
+All three aim at trips. Delivery at the heap over the door belongs to the
+nest lane. Data: `Reports/data/nest-food-2026-09-28.txt.gz`.

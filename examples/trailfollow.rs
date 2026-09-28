@@ -4597,6 +4597,27 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             "    SHARES {} | joules moved {:.0} | handling cost {:.0}",
             w.creature_stats.shares, w.creature_stats.shared_j, w.creature_stats.share_energy
         );
+        // **Where the colony's energy went, by verb** (2026-09-28): the
+        // ledger's three sinks, with digging, trail-laying and exposure split
+        // out of `metabolized`, so a question like "does building the nest
+        // eat the colony's surplus" is read off the run rather than
+        // estimated from how often ants were seen digging.
+        {
+            let l = &w.energy_ledger;
+            let st = &w.creature_stats;
+            let idle = l.metabolized - st.dig_energy - st.emit_energy - st.exposure_energy - st.share_energy;
+            println!(
+                "    BURN (J) walking {:.0} | digging {:.0} | trail laying {:.0} | exposure {:.0} | sharing {:.0} | idle and senses {:.0} | brains {:.0} | total {:.0}",
+                l.moved,
+                st.dig_energy,
+                st.emit_energy,
+                st.exposure_energy,
+                st.share_energy,
+                idle,
+                l.synapse_tax,
+                l.moved + l.metabolized + l.synapse_tax
+            );
+        }
         println!(
             "    DEATHS BY CAUSE -- by frame 6000: [{}] | whole run: [{}]",
             deaths_at_6000.as_ref().map_or_else(|| "not reached".to_string(), causes),

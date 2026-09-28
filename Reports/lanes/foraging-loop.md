@@ -46,31 +46,25 @@ commands and the traps.*
 
 ## Live question
 
-**Three forage switches ship on** (§22m, §22o), under the owner's ruling that
-a feature is on unless it measures as a harm; `=off` on each is the ant
-before it, bit for bit:
-- `PIXEL_PHYSICS_FORAGE_DRIVE=always`: a forager that has picked food up away
-  from home goes back out fed or hungry;
-- `PIXEL_PHYSICS_CARRY_PATIENCE=pickup`: every pickup restarts a carry's home
-  patience (bug Z35 fixed);
-- `PIXEL_PHYSICS_PACKED_LUNCH=on` (2026-09-28): food taken at home is not a
-  load, so a fed forager nibbling the store is driven back out and eats it on
-  the road, finishing it where it meets food its crop cannot swallow.
+**Four forage switches ship on** (§22m, §22o, §22p); `=off` (`face` for the
+birth price) on each is the ant before it, bit for bit:
+`PIXEL_PHYSICS_FORAGE_DRIVE=always` (a forager goes back out fed or hungry),
+`PIXEL_PHYSICS_CARRY_PATIENCE=pickup` (Z35), `PIXEL_PHYSICS_PACKED_LUNCH=on`
+(a fed forager takes store food out and eats it on the road; food taken
+3,744 -> 5,377 at 90) and `PIXEL_PHYSICS_BIRTH_PRICE=guaranteed` (a birth no
+longer overdraws its parent, Z36; lab starved 257 -> 137, generations
+28 -> 18; bed byte-identical).
 
-**Packed lunch answered §22n's question: the store time was a delay.** Given
-the drive, a fed forager holding store food goes: trips to the pile
-1,326 -> 1,851 (23/1), food taken 3,744 -> 5,377 (24/0), born 59 -> 185 at 90
-cells; 140 cells and the lab as in §22o. Home-holding did not fall (35.7% ->
-39.3%): a richer colony has more floor beside food to sip. Setting the lunch
-down instead exported the store (a dead end).
+**Why so little food builds up at the nest (§22q, owner's question):** the
+colony keeps its food in its bodies. Fed ants at home take the store, eat
+from it and put it back (a quarter of all decisions), and that is how banks
+fill for births and lunches fuel trips. Stopping it doubles the floor store
+and drops births 151 -> 7-16. The limit is trips: loopers make about two in
+24,000 frames. Levers, not built: a load topped up at home becomes a lunch;
+a digger holding a pellet does not eat; a lunch carrier is not held by food
+beside it.
 
-**The birth price (§22p, bug Z36):** in the lab a quarter of all starvation
-was parents killed by their own birth. A top-up from bare seeds paid a quarter
-of what the check counted. Fixed and on (`PIXEL_PHYSICS_BIRTH_PRICE`,
-`face` = old). Lab: starved 257 -> 137, births 608 -> 408, the same ants alive
-for the same time, generations 28 -> 18. Bed byte-identical.
-
-**Next:** the lab's remaining starvation is ordinary. Most starved ants die
+**Then:** the lab's remaining starvation is ordinary. Most starved ants die
 out in the box (55% more than 128 cells from the nest) after it is grazed
 down, and a third die within 3 cells of food that is mostly corpse, litter
 or buried crumbs. Traced with `labforage lifetrace=`. Behind it:
@@ -199,3 +193,4 @@ Rows 1-3 (packed lunch, scored) are in `ant-scenes-2026-09-23.md` §22o.
 |---|---|---|---|
 | 4 | `BIRTH_PRICE=guaranteed` vs `face`, lab 24 seeds (2026-09-28, this branch after #508) | parents killed by their own birth ~0 (from 11-15% of births); starved deaths down ~20-25% over the run; births up a little; alive at the end up; died out no worse | overdrawn 88.5 -> 0 (right); starved -47% (right way, twice the size); births -33% (wrong); alive at the end flat (wrong); died out 2 -> 1 (right) |
 | 5 | same, bed 90 and 140, 24 seeds | neutral: bed births are paid at the nest in crumbs, not seeds; starved and born within the spread | right: byte-identical at both distances (no seeds in the bed's diet) |
+| 6 | `wire=AtNest:Feed:-0.7,Energy:Feed:-0.7` on `main` after #510, bed 90, 24 seeds (2026-09-28): fed ants at home stop re-taking the store | food standing on the nest at least 2x (1,400-2,800 J to an ant today); food taken off the pile up 5-15%; starved within the spread; ants' bodies hold less | food on the nest 7,743 -> 13,832 J (right); taken 4,574 -> 2,523, lower on 24 (wrong); starved 93 -> 180 (wrong); bodies 8,038 -> 2,124 J (right); born 151 -> 7. s22q |
