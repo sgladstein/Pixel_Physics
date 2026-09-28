@@ -1666,6 +1666,10 @@ pub struct CreatureStats {
     pub store_released: u64,
     /// Store pickups refused because the chamber had no empty cell.
     pub store_room_full: u64,
+    /// **Why a won hand-down did not happen** (`post`), by the first test it
+    /// failed: the head was not at the mouth; a shaft row had no open cell;
+    /// the chamber had no empty cell.
+    pub store_post_misses: [u64; 3],
     /// **Drop rolls damped because the animal was under cover** -- the "it
     /// fired" counter for `creature::spoil_drop_cover`, 0 at the default.
     pub spoil_holds_under_cover: u64,

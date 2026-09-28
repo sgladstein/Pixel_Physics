@@ -2450,6 +2450,13 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // in a crop feeds its carrier and, through sharing, its neighbours, while
     // a cell on the ground feeds only whoever stands beside it.
     let mut store_series: Vec<String> = Vec::new();
+    // **Food in the founding chamber over the whole run** (`roomevery=<frames>`,
+    // the nest lane's storeroom work): the chamber's and the shaft's food cells
+    // every `<frames>`, whatever the switches, so a room is read over time
+    // rather than at one frame. Off unless asked, so a log without it is the
+    // shipped log.
+    let room_every: Option<u64> = arg("roomevery").filter(|&n: &u64| n > 0);
+    let mut room_series: Vec<(u64, u32, u32)> = Vec::new();
     // A larder cell's face value, read off any crop holding one: `Crop::unit`
     // is the per-cell worth the crop was filled at, the same figure
     // `digested_face` is summed in.
@@ -3011,6 +3018,13 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         if f == 6000 {
             deaths_at_6000 = Some(w.deaths_by_cause);
         }
+        if let Some(n) = room_every {
+            if f.is_multiple_of(n) {
+                if let Some(c) = creature::storeroom_census(&w, ((nest_lo - 10).max(0), (nest_hi + 10).min(width - 1)), (0, spec.height - 1)) {
+                    room_series.push((f, c[0], c[1]));
+                }
+            }
+        }
         if f.is_multiple_of(3000) {
             let (mut at_nest, mut elsewhere, mut crumb_cells) = (0u32, 0u32, 0u32);
             // **What is standing ON the nest, in joules** -- whole fruit and
@@ -3065,12 +3079,12 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             // switch on, so a log without it is the shipped line exactly.
             let storeroom = if creature::storeroom_of(&w) != creature::Storeroom::OFF {
                 let cs = &w.creature_stats;
-                creature::storeroom_census(&w, ((nest_lo - 10).max(0), (nest_hi + 10).min(width - 1)), (0, spec.height - 1)).map_or_else(
+                creature::storeroom_census_full(&w, ((nest_lo - 10).max(0), (nest_hi + 10).min(width - 1)), (0, spec.height - 1)).map_or_else(
                     || ", STOREROOM no cut".to_string(),
-                    |[ch, sh, up, down, cch, csh, cup, cdown, bound]| {
+                    |([ch, sh, up, down, cch, csh, cup, cdown, bound], fill)| {
                         format!(
-                            ", STOREROOM chamber {ch} shaft {sh} surface {up} under {down}; pickups {} delivered {} held {} released {} full {}; carriers {cch}/{csh}/{cup}/{cdown}; nestbound {bound}",
-                            cs.store_pickups, cs.store_delivered, cs.store_held, cs.store_released, cs.store_room_full
+                            ", STOREROOM chamber {ch} shaft {sh} surface {up} under {down}; pickups {} delivered {} held {} released {} full {}; carriers {cch}/{csh}/{cup}/{cdown}; nestbound {bound}; post misses {:?}; shaft holds {fill:?}",
+                            cs.store_pickups, cs.store_delivered, cs.store_held, cs.store_released, cs.store_room_full, cs.store_post_misses
                         )
                     },
                 )
@@ -3139,10 +3153,14 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     // Yellow: food held in the mandibles for the storeroom
                     // (the nest lane's `PIXEL_PHYSICS_STOREROOM`).
                     let store = st.spoil.is_some_and(|sp| sp.store);
+                    // Green: an empty nest-bound ant, a nest worker.
+                    let worker = st.nest_bound_until > w.frame;
                     let rgb: [u8; 3] = if store {
                         [255, 230, 0]
                     } else if st.crop.is_some_and(|c| c.worth() > 0.0) {
                         [0, 255, 255]
+                    } else if worker {
+                        [60, 230, 60]
                     } else {
                         [255, 0, 255]
                     };
@@ -4566,6 +4584,16 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // **Written outside `if tracing`**: the GIF is not a trace artifact and
     // gating it on that flag made it silently produce nothing.
     println!("    FOOD STORE (larder cells) -- {}", store_series.join(" | "));
+    if let Some(n) = room_every {
+        let chamber: Vec<String> = room_series.iter().map(|&(_, c, _)| c.to_string()).collect();
+        let shaft: Vec<String> = room_series.iter().map(|&(_, _, s)| s.to_string()).collect();
+        println!(
+            "    ROOM SERIES every {n} from frame {}: chamber [{}] shaft [{}]",
+            room_series.first().map_or(0, |r| r.0),
+            chamber.join(","),
+            shaft.join(",")
+        );
+    }
     if food_watch {
         println!("    FOODWATCH: {} unexplained losses", watch_lines.len());
         for l in &watch_lines {

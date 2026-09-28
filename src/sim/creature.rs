@@ -2063,6 +2063,13 @@ fn place_creature(
             st.nest_bound_until = until;
         }
     }
+    // **The nest-worker caste** ([`Storeroom::caste`]): one ant in `k`, by
+    // its id, founders and the born alike, nest-bound for life.
+    if rule.caste > 0 && organism % rule.caste == 0 {
+        if let Some(st) = world.organism_mut(organism) {
+            st.nest_bound_until = u64::MAX;
+        }
+    }
     let colony = world.colony_of(organism);
     let stamp = (def.body_energy * body_cells as f32) as f64;
     match origin {
@@ -3008,11 +3015,18 @@ pub struct Storeroom {
     pub nest_bound: u32,
     /// The `<k>` of `nestbound=<frames>/<k>`; 0 is no founder.
     pub nest_bound_founders: u32,
+    /// `caste=<k>`: **a nest-worker caste**: one ant in `k`, founders and
+    /// ants born alike, is nest-bound for life. 0 is off.
+    pub caste: u32,
+    /// `workerhome`: the founding cut (shaft, chamber and rim) is home to a
+    /// nest-bound ant, and only to it, so it lives, eats, digs and breeds
+    /// there while foragers keep the door.
+    pub worker_home: bool,
 }
 
 impl Storeroom {
     /// No storeroom: the ant as shipped.
-    pub const OFF: Storeroom = Storeroom { carry: false, room_home: false, once: false, post: false, nest_bound: 0, nest_bound_founders: 0 };
+    pub const OFF: Storeroom = Storeroom { carry: false, room_home: false, once: false, post: false, nest_bound: 0, nest_bound_founders: 0, caste: 0, worker_home: false };
 
     /// Whether food is carried into the room under this rule.
     pub fn carries(self) -> bool {
@@ -3028,7 +3042,10 @@ impl Storeroom {
 /// The switch's own spelling: `off`, or its parts joined by commas.
 impl std::fmt::Display for Storeroom {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut parts: Vec<String> = [(self.carry, "on"), (self.room_home, "home"), (self.once, "once"), (self.post, "post")].iter().filter(|(on, _)| *on).map(|&(_, name)| name.to_string()).collect();
+        let mut parts: Vec<String> = [(self.carry, "on"), (self.room_home, "home"), (self.once, "once"), (self.post, "post"), (self.worker_home, "workerhome")].iter().filter(|(on, _)| *on).map(|&(_, name)| name.to_string()).collect();
+        if self.caste > 0 {
+            parts.push(format!("caste={}", self.caste));
+        }
         if self.nest_bound > 0 {
             parts.push(if self.nest_bound_founders > 0 { format!("nestbound={}/{}", self.nest_bound, self.nest_bound_founders) } else { format!("nestbound={}", self.nest_bound) });
         }
@@ -3102,6 +3119,14 @@ fn parse_storeroom(raw: &str) -> Storeroom {
             "once" => out.once = true,
             "post" => out.post = true,
             "nestbound" => out.nest_bound = NEST_BOUND_FRAMES,
+            "workerhome" => out.worker_home = true,
+            other if other.starts_with("caste=") => match other["caste=".len()..].parse::<u32>() {
+                Ok(k) if k > 0 => out.caste = k,
+                _ => {
+                    eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: bad {other:?}, read as off (caste=<k>, k >= 1)");
+                    return Storeroom::OFF;
+                }
+            },
             other if other.starts_with("nestbound=") => {
                 let v = &other["nestbound=".len()..];
                 let (frames, founders) = v.split_once('/').map_or((v, None), |(f, k)| (f, Some(k)));
@@ -3117,7 +3142,7 @@ fn parse_storeroom(raw: &str) -> Storeroom {
                 }
             }
             other => {
-                eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: unknown part {other:?}, read as off (off, or any of on, home, once, post, nestbound[=<frames>[/<k>]])");
+                eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: unknown part {other:?}, read as off (off, or any of on, home, once, post, nestbound[=<frames>[/<k>]], caste=<k>, workerhome)");
                 return Storeroom::OFF;
             }
         }
@@ -3190,22 +3215,28 @@ fn store_target(world: &World, state: &crate::sim::organism::OrganismState) -> O
 /// head is at the mouth (within a cell of its top rows) and the shaft below it
 /// is open all the way down -- every shaft cell empty or an animal, which the
 /// load is passed over. `None` otherwise, and the carrier holds on.
-fn store_post_site(world: &World, (x, y): (i32, i32)) -> Option<(i32, i32)> {
+fn store_post_site(world: &mut World, (x, y): (i32, i32)) -> Option<(i32, i32)> {
     let room = storeroom_near(world, x, y)?;
     if !room.touches_mouth(x, y) {
+        world.creature_stats.store_post_misses[0] += 1;
         return None;
     }
-    let passable = |cx: i32, cy: i32| {
-        let m = world.get(cx, cy).material;
-        m == material::EMPTY || matches!(world.materials.kind(m), MaterialKind::Creature)
+    let passable = |w: &World, cx: i32, cy: i32| {
+        let m = w.get(cx, cy).material;
+        m == material::EMPTY || matches!(w.materials.kind(m), MaterialKind::Creature)
     };
-    if !(room.top..=room.bottom).all(|cy| (room.x0..=room.x1).any(|cx| passable(cx, cy))) {
+    if !(room.top..=room.bottom).all(|cy| (room.x0..=room.x1).any(|cx| passable(world, cx, cy))) {
+        world.creature_stats.store_post_misses[1] += 1;
         return None;
     }
-    (room.chamber_top..=room.chamber_bottom)
+    let site = (room.chamber_top..=room.chamber_bottom)
         .rev()
         .flat_map(|cy| (room.chamber_x0..=room.chamber_x1).map(move |cx| (cx, cy)))
-        .find(|&(cx, cy)| world.get(cx, cy).material == material::EMPTY && world.is_empty(cx, cy))
+        .find(|&(cx, cy)| world.get(cx, cy).material == material::EMPTY && world.is_empty(cx, cy));
+    if site.is_none() {
+        world.creature_stats.store_post_misses[2] += 1;
+    }
+    site
 }
 
 /// **The way back up from the storeroom**: the air over the mouth's middle,
@@ -3333,7 +3364,7 @@ fn store_pickup_ok(world: &mut World, organism: OrganismId, def: &CreatureDef, (
         return false;
     };
     let rule = storeroom_of(world);
-    if state.spoil.is_some() || state.energy < def.start_energy || (rule.once && state.store_carried) || (rule.nest_bound > 0 && !is_nest_bound(world, state)) {
+    if state.spoil.is_some() || state.energy < def.start_energy || (rule.once && state.store_carried) || ((rule.nest_bound > 0 || rule.caste > 0) && !is_nest_bound(world, state)) {
         return false;
     }
     let Some(room) = storeroom_near(world, x, y) else {
@@ -3358,7 +3389,34 @@ fn store_pickup_ok(world: &mut World, organism: OrganismId, def: &CreatureDef, (
 /// head is, in the same four places; the ninth, the nest-bound animals alive
 /// ([`is_nest_bound`]).
 pub fn storeroom_census(world: &World, (x_lo, x_hi): (i32, i32), (y_lo, y_hi): (i32, i32)) -> Option<[u32; 9]> {
+    storeroom_census_full(world, (x_lo, x_hi), (y_lo, y_hi)).map(|(n, _)| n)
+}
+
+/// What fills the founding shaft's cells, by material name and count.
+pub type ShaftFill = Vec<(String, u32)>;
+
+/// [`storeroom_census`], and what fills the shaft's cells, by material name
+/// (empty cells and animals left out): what a hand-down has to get past.
+pub fn storeroom_census_full(world: &World, (x_lo, x_hi): (i32, i32), (y_lo, y_hi): (i32, i32)) -> Option<([u32; 9], ShaftFill)> {
     let room = world.nest_sites.iter().find_map(|n| n.shaft)?;
+    let mut fill: ShaftFill = Vec::new();
+    for cy in room.top..=room.bottom {
+        for cx in room.x0..=room.x1 {
+            let m = world.get(cx, cy).material;
+            if m == material::EMPTY || matches!(world.materials.kind(m), MaterialKind::Creature) {
+                continue;
+            }
+            let name = world.materials.get(m).name.clone();
+            match fill.iter_mut().find(|(n, _)| *n == name) {
+                Some((_, c)) => *c += 1,
+                None => fill.push((name, 1)),
+            }
+        }
+    }
+    storeroom_census_counts(world, room, (x_lo, x_hi), (y_lo, y_hi)).map(|n| (n, fill))
+}
+
+fn storeroom_census_counts(world: &World, room: crate::sim::world::ShaftFootprint, (x_lo, x_hi): (i32, i32), (y_lo, y_hi): (i32, i32)) -> Option<[u32; 9]> {
     let place = |x: i32, y: i32| -> usize {
         if room.in_chamber(x, y) {
             0
@@ -3415,6 +3473,18 @@ pub fn storeroom_census(world: &World, (x_lo, x_hi): (i32, i32), (y_lo, y_hi): (
 pub fn nest_door() -> Option<i32> {
     static D: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
     *D.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_DOOR").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v >= 0))
+}
+
+/// **`PIXEL_PHYSICS_NEST_SHAFT_OFFSET=<cells>`: the founding shaft cut that
+/// many columns from the founding point** (negative is west), so a door
+/// painted there has the mouth beside it rather than under it. Unset is 0,
+/// the shipped cut under the founding point, bit-exact. Measured with a door
+/// over the mouth: every delivery lands on the mouth, crumbs fall down the
+/// shaft, and a mound of food grows over it until nothing can be handed down
+/// (`Reports/nest-granary-2026-09-28.md` §8g).
+pub fn nest_shaft_offset() -> Option<i32> {
+    static O: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *O.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SHAFT_OFFSET").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v != 0))
 }
 
 /// **`PIXEL_PHYSICS_NEST_DOOR_FOUNDERS=pile`**: under [`nest_door`], founders
@@ -4847,7 +4917,11 @@ impl World {
                 }
             }
         }
-        self.dig_founding_shaft(x, y);
+        // **The mouth beside the door, not under it**
+        // ([`nest_shaft_offset`]): under a door every delivery lands on the
+        // mouth and its crumbs fall down the shaft.
+        let off = nest_shaft_offset().map_or(0, |o| o.signum() * scaled_cells(self, o.abs()));
+        self.dig_founding_shaft(x + off, y);
         painted
     }
 
@@ -10411,6 +10485,14 @@ fn parse_dig_down(raw: &str) -> Option<DigDown> {
 /// is bit-identical and both arms come out of one binary:
 /// `PIXEL_PHYSICS_NEST_REACH=body`.
 fn nest_within_reach(world: &World, organism: OrganismId, x: i32, y: i32, def: &CreatureDef) -> bool {
+    // **The cut is a nest worker's home** ([`Storeroom::worker_home`]), and a
+    // forager's only if the rules below say so. Off, one branch.
+    if storeroom_of(world).worker_home
+        && world.organism(organism).is_some_and(|st| is_nest_bound(world, st))
+        && world.nest_sites.iter().filter_map(|s| s.shaft).any(|cut| cut.touches(x, y))
+    {
+        return true;
+    }
     if !nest_reach_is_body() {
         return adjacent_nest(world, x, y, def);
     }

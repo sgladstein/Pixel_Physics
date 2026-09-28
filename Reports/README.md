@@ -4033,7 +4033,9 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     mid-run on 14 of 24 seeds; against the door alone it costs 14% of the
     food taken and a third of the young, because no ants stay home and the
     carriers are the ants that breed. The door alone now cuts starvation
-    93 -> 15 on the bed.
+    93 -> 15 on the bed. A nest-worker caste (§8h) costs 11% of food taken
+    and still gets few loads down: the entrance shaft is plugged with the
+    workers' own crumbs.
 - [nest-heap-cue-2026-09-28.md](nest-heap-cue-2026-09-28.md) —
   **measurement and a default change, 2026-09-28. `engine`/`lab`.** One
   entrance instead of ten: a dig that would open the ground to the sky needs

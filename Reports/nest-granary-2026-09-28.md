@@ -186,6 +186,10 @@ form the store's food is drawn two ways.
 | 145 | door + the stage alone | food taken within ±5% | -6% | wrong, close |
 | 146 | door + nest-bound carry without the room as home | food taken within -10%; born within ±15% | -1%; -7% (but 0 loads delivered) | right |
 | 147 | door + nest-bound carry walked down, room home | delivered at least twice the handed-down 15.5 | 11.5 | wrong |
+| 148 | the mouth 5 columns west of the door, nothing else, against the door | food taken within ±5% | -5.2%; born 150 -> 105 | wrong, close |
+| 149 | + nest workers carry (`on,post,caste=4,workerhome`), against 148's arm | room >= 3 at 12,000 on at least 12 of 24; food taken within -10%; born within ±15% | 7 of 24; -9.7%; -16% | mostly wrong |
+| 150 | + the caste alone (`caste=4`), against 148's arm | food taken 5-15% lower | -11% | right |
+| 151 | walked down against handed down | more delivered | 9 against 7.5 | right |
 
 ## 8. B, built: foragers drop at the door, ants at home carry it in
 
@@ -348,4 +352,58 @@ born, food at the nest, the room at 12,000:
 **What would let nest-bound ants do the work**: a mouth that food does not
 fall into (the door beside the mouth rather than over it), and more of them.
 Both are put to the owner.
+
+### 8h. Two castes (the owner: "two different types of ants")
+
+Asked whether "young" was right, the owner proposed castes, and they are the
+better first step here. Most ants, the red harvester ant among them, divide
+work by age, but this colony starts as 20 adults at once and breeds about six
+young a run, so an age rule gave 2 to 6 home ants and none before the first
+birth. A caste gives a home workforce from the start; *Messor* harvesters have
+such a caste; and the engine already has the channel meant for one (a parent
+hands its child `Provision`, which the child reads as `Made`), so it can go
+into the genome once the switch shows it works.
+
+Built as parts of `PIXEL_PHYSICS_STOREROOM`, off:
+
+- **`caste=<k>`**: one ant in `k`, by its id, founders and the born alike, is
+  a nest worker for life: nest-bound (§8g) with no end.
+- **`workerhome`**: the founding cut (shaft, chamber and rim) is home to a
+  nest worker and only to it; foragers keep the door.
+
+And a founding dial, **`PIXEL_PHYSICS_NEST_SHAFT_OFFSET=<cells>`**: the shaft
+is cut that many columns from the founding point, so the mouth sits beside the
+door, not under it.
+
+The colony bed, 24 seeds, the door on in every arm; food taken, starved,
+born, room >= 3 food cells at 12,000, loads delivered a run:
+
+| | taken | starved | born | room | delivered |
+|---|---:|---:|---:|---:|---:|
+| the door alone (mouth under it) | 5,611 | 15 | 150 | -- | -- |
+| the mouth 5 columns west of it | 5,319 | 23 | 105 | -- | -- |
+| + the caste, nothing carried | 4,728 | 20 | 86 | 4 of 24 | -- |
+| + workers carry, handed down | 4,805 | 78 | 88 | 7 of 24 | 7.5 |
+| + workers carry, walked down | 5,125 | 72 | 98 | 11 of 24 | 9 |
+| mouth under the door, workers carry, handed down | 4,748 | 88 | 106 | 8 of 24 | 3.5 |
+
+- **The caste costs what a quarter of the colony not foraging costs**: food
+  taken -11%, born 105 -> 86. Starvation does not rise without the carry
+  (23 -> 20).
+- **Moving the mouth off the door costs births on its own** (150 -> 105,
+  lower on 15 of 24). Not traced.
+- **The workers barely fill the room: 7 to 9 loads a run get down.** A
+  hand-down fails at the mouth because a shaft row has no open cell: 26 to
+  824 such misses a run.
+- **What blocks the shaft is food.** A census of its 12 cells (seeds 1, 3, 4)
+  finds crumbs in most samples, 2 to 10 cells of them, with some lining,
+  spoil and soil. The workers live in the cut, eat there and set crumbs down
+  there, and a load that cannot get past is let go at the mouth and falls in.
+  So food is stored inside the nest, but in the entrance shaft, blocking it,
+  not in the room below.
+- **The carry raises starvation** (20 -> 72-88), not traced per ant.
+
+**Next, put to the owner**: a storeroom off to the side of the entrance
+tunnel, so that stored food does not block the way down. Real harvester nests
+keep their granaries in chambers off the main tunnel.
 
