@@ -4016,6 +4016,27 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   from theirs), **contents exist without eggs** via the `live_seed` guard, the
   brain-input pricing as the argument *for* their call-site route, and the
   landing discipline. **Treat their plan as the plan.**
+- [nest-granary-2026-09-28.md](nest-granary-2026-09-28.md) —
+  **measurement of a scratch prototype, 2026-09-28. `engine`.** Food carried
+  into the founding chamber instead of dropped on the doorstep, the owner's
+  "Food in chamber". Lane note: [lanes/nest-mouth.md](lanes/nest-mouth.md).
+  - **It can be done, and the doorstep stays clear**, but carrying is eating:
+    everyone carrying in takes half again as much food off the pile and
+    starves fewer, while births fall 54 -> 11 and time carrying spoil to a
+    third; with only food picked up at home carried in, births rise only
+    where storage fails (today's room, 0-1 cells) and fall where it works
+    (the bigger room, 54 -> 40).
+  - **The lab entrance stayed open** at 8 of 9 checks against 2 of 9 (3
+    seeds), before the owner set the lab aside for this work.
+  - **The owner chose B, built as `PIXEL_PHYSICS_STOREROOM` (off), §8:**
+    foragers drop at the door and fed ants at home carry the food down in
+    their mandibles. With a door over the mouth the room holds 3+ cells at
+    mid-run on 14 of 24 seeds; against the door alone it costs 14% of the
+    food taken and a third of the young, because no ants stay home and the
+    carriers are the ants that breed. The door alone now cuts starvation
+    93 -> 15 on the bed. A nest-worker caste (§8h) costs 11% of food taken
+    and still gets few loads down: the entrance shaft is plugged with the
+    workers' own crumbs.
 - [nest-heap-cue-2026-09-28.md](nest-heap-cue-2026-09-28.md) —
   **measurement and a default change, 2026-09-28. `engine`/`lab`.** One
   entrance instead of ten: a dig that would open the ground to the sky needs
@@ -4032,6 +4053,11 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     born 59 -> 30). Every wider refusal of the turn, six measured, lost the
     nest. Everywhere, it starved 295; a hunger gate on `Dig` rescued it only
     in part and stops a hungry colony digging.
+  - **Why the bed pays, traced with packed lunch on (§16):** when food is
+    wanted, 47% of fed foragers' episodes at home start inside the nest with
+    dig down, against 35% (episodes, not ants), and from inside only 13-17%
+    go out first (53-56% from the doorstep); inside they handle the food that
+    lies there, which pins them.
   - **In the lab the founding mouth is buried by frame 30,600 on 12 of 12
     seeds in every arm**, under food and plants rather than spoil.
   - **A fresh heap, sized before building:** it would refuse at most a third
@@ -4040,6 +4066,11 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     against 77% at a mouth already open; the openings are set in the
     founding burst; half the residue was tunnels breaking out from below.
   - **The marker reopened as the heap**, not a scent at the digging face.
+  - **A cut into the floor under a roof is left alone (§17)**, after the
+    foraging lane's review found a room's floor read as the surface. The
+    wider fix, every roofed digger left alone, opened more mouths on 17 of
+    24 seeds: the misread was holding the crust over a gallery just under
+    the surface.
 - [nest-dig-wiring-2026-09-28.md](nest-dig-wiring-2026-09-28.md) —
   **measurement and a default change, 2026-09-28. `engine`/`lab`.** Two
   weights in the ant's genome concentrate its digging under the nest.

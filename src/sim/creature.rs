@@ -2054,6 +2054,22 @@ fn place_creature(
     // covers the founder arm and the birth arm alike -- and the birth arm's
     // charges land on the parent's colony, which is the child's, which is
     // why the two arms can share it.
+    // **Nest-bound from birth** ([`Storeroom::nest_bound`]): every ant born
+    // here, and one founder in `k`, only while the switch asks.
+    let rule = storeroom_of(world);
+    if rule.nest_bound > 0 && (matches!(origin, Origin::Bud { .. }) || (rule.nest_bound_founders > 0 && organism % rule.nest_bound_founders == 0)) {
+        let until = world.frame + u64::from(rule.nest_bound);
+        if let Some(st) = world.organism_mut(organism) {
+            st.nest_bound_until = until;
+        }
+    }
+    // **The nest-worker caste** ([`Storeroom::caste`]): one ant in `k`, by
+    // its id, founders and the born alike, nest-bound for life.
+    if rule.caste > 0 && organism % rule.caste == 0 {
+        if let Some(st) = world.organism_mut(organism) {
+            st.nest_bound_until = u64::MAX;
+        }
+    }
     let colony = world.colony_of(organism);
     let stamp = (def.body_energy * body_cells as f32) as f64;
     match origin {
@@ -2979,6 +2995,468 @@ pub fn nest_home(world: &World) -> NestHome {
     })
 }
 
+/// **The storeroom** -- `PIXEL_PHYSICS_STOREROOM`, read by [`storeroom_of`]:
+/// three independent parts, all off unless named. See there for each.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Storeroom {
+    /// `on`: food lying at home is carried into the founding chamber by fed
+    /// ants at home, in their mandibles, uneaten.
+    pub carry: bool,
+    /// `home`: the chamber is home to [`adjacent_nest`], and so to `AtNest`
+    /// and everything it gates. Without it the chamber is home only to the
+    /// pick-up's own test (`act`'s `picked_at_home`).
+    pub room_home: bool,
+    /// `once`: an ant carries one load in, then not again until it has taken
+    /// food away from home -- one load a trip.
+    pub once: bool,
+    /// `post`: the carrier takes the load to the mouth and hands it down the
+    /// open shaft into the chamber, the walk down abstracted as the spoil
+    /// lift abstracts the walk up ([`store_post_site`]).
+    pub post: bool,
+    /// `nestbound=<frames>[/<k>]`: an ant born in the colony stays home for
+    /// its first `<frames>` frames ([`is_nest_bound`]), and with `/<k>` so does
+    /// one founder in `k` from the start. Only a nest-bound ant carries. 0 is
+    /// off.
+    pub nest_bound: u32,
+    /// The `<k>` of `nestbound=<frames>/<k>`; 0 is no founder.
+    pub nest_bound_founders: u32,
+    /// `caste=<k>`: **a nest-worker caste**: one ant in `k`, founders and
+    /// ants born alike, is nest-bound for life. 0 is off.
+    pub caste: u32,
+    /// `workerhome`: the founding cut (shaft, chamber and rim) is home to a
+    /// nest-bound ant, and only to it, so it lives, eats, digs and breeds
+    /// there while foragers keep the door.
+    pub worker_home: bool,
+}
+
+impl Storeroom {
+    /// No storeroom: the ant as shipped.
+    pub const OFF: Storeroom = Storeroom { carry: false, room_home: false, once: false, post: false, nest_bound: 0, nest_bound_founders: 0, caste: 0, worker_home: false };
+
+    /// Whether food is carried into the room under this rule.
+    pub fn carries(self) -> bool {
+        self.carry
+    }
+
+    /// Whether the chamber counts as home to [`adjacent_nest`].
+    pub fn room_is_home(self) -> bool {
+        self.room_home
+    }
+}
+
+/// The switch's own spelling: `off`, or its parts joined by commas.
+impl std::fmt::Display for Storeroom {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut parts: Vec<String> = [(self.carry, "on"), (self.room_home, "home"), (self.once, "once"), (self.post, "post"), (self.worker_home, "workerhome")].iter().filter(|(on, _)| *on).map(|&(_, name)| name.to_string()).collect();
+        if self.caste > 0 {
+            parts.push(format!("caste={}", self.caste));
+        }
+        if self.nest_bound > 0 {
+            parts.push(if self.nest_bound_founders > 0 { format!("nestbound={}/{}", self.nest_bound, self.nest_bound_founders) } else { format!("nestbound={}", self.nest_bound) });
+        }
+        if parts.is_empty() {
+            write!(f, "off")
+        } else {
+            write!(f, "{}", parts.join(","))
+        }
+    }
+}
+
+/// **Foragers drop food at the door; ants that stay home carry it into the
+/// storeroom** -- the owner's choice of the two granary forms, 2026-09-28
+/// (`Reports/nest-granary-2026-09-28.md` §6, B, and §8 for what the forms
+/// below measured). `PIXEL_PHYSICS_STOREROOM=<parts>` or [`World::storeroom`]
+/// for one world; [`Storeroom::OFF`] unless set, and then nothing here reads
+/// or writes anything.
+///
+/// **Why the mandibles and not the crop.** In this engine carrying is eating:
+/// a crop digests while it is carried (§9 of `how-the-ant-works.md`), so a
+/// scratch prototype that sent every load down to the chamber in the crop
+/// either stored little or cost the colony its breeding (births 54 -> 11 on
+/// the colony bed). A cell held in the mandibles, in the spoil slot, is not
+/// digested: it arrives whole. Harvester ants partition the task the same
+/// way: foragers put the harvest down at the entrance and nest workers take it
+/// in.
+///
+/// **Who carries** (the pick-up, [`store_pickup_ok`], in `act`'s feed
+/// branch): an ant at home, fed (at or above its `start_energy`), with an
+/// empty crop and empty mandibles, on a won `Feed` roll beside loose food
+/// lying more than a cell from the chamber, while the chamber has room. A
+/// hungry ant eats as before, and food at the chamber is eaten there, never
+/// carried again. **This colony has no ants that only stay home**: under the
+/// shipped forage drive every ant that has taken food away from home is sent
+/// out again, and nearly every ant has, so the carriers are fed foragers at
+/// home -- the same ants that sit by the food at the door and breed there.
+///
+/// **The carry**: a store load ([`is_store_load`]) is pulled to the mouth and
+/// then the chamber's floor ([`store_target`]) at the laden gain and pace. It
+/// lays no food trail (`CarryingFood` is the crop's) and never digs (a full
+/// mandible never does). Having put it down in the room, the carrier is
+/// pulled back up to the mouth ([`store_return_target`]).
+///
+/// **The drop** ([`store_drop`]): the `DropSpoil` roll, the mandibles' own
+/// verb. Under `post` the load is handed down the open shaft from the mouth
+/// ([`store_post_site`]); otherwise it goes on an empty chamber cell beside
+/// the carrier ([`storeroom_drop_site`]), or any cell beside it within a cell
+/// of the room. Anywhere else it is held, until the carrier gives up (still
+/// for [`STORE_STUCK_TICKS`], or home patience under [`SCOUT_GIVE_UP`]) and
+/// lets it go where it stands.
+pub fn storeroom_of(world: &World) -> Storeroom {
+    world.storeroom.unwrap_or_else(storeroom_from_env)
+}
+
+/// `PIXEL_PHYSICS_STOREROOM` read once per process; see [`storeroom_of`].
+pub fn storeroom_from_env() -> Storeroom {
+    static V: std::sync::OnceLock<Storeroom> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_storeroom(&std::env::var("PIXEL_PHYSICS_STOREROOM").unwrap_or_default()))
+}
+
+/// `PIXEL_PHYSICS_STOREROOM`'s value read as the rule; an unset variable
+/// reads as `""`. **A value it does not know reads as off, and says so**, so
+/// a typo cannot put an arm in a sweep wearing another's label.
+fn parse_storeroom(raw: &str) -> Storeroom {
+    let mut out = Storeroom::OFF;
+    for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+        match part {
+            "off" => return Storeroom::OFF,
+            "on" => out.carry = true,
+            "home" => out.room_home = true,
+            "once" => out.once = true,
+            "post" => out.post = true,
+            "nestbound" => out.nest_bound = NEST_BOUND_FRAMES,
+            "workerhome" => out.worker_home = true,
+            other if other.starts_with("caste=") => match other["caste=".len()..].parse::<u32>() {
+                Ok(k) if k > 0 => out.caste = k,
+                _ => {
+                    eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: bad {other:?}, read as off (caste=<k>, k >= 1)");
+                    return Storeroom::OFF;
+                }
+            },
+            other if other.starts_with("nestbound=") => {
+                let v = &other["nestbound=".len()..];
+                let (frames, founders) = v.split_once('/').map_or((v, None), |(f, k)| (f, Some(k)));
+                match (frames.parse::<u32>(), founders.map(str::parse::<u32>).transpose()) {
+                    (Ok(f), Ok(k)) if f > 0 => {
+                        out.nest_bound = f;
+                        out.nest_bound_founders = k.unwrap_or(0);
+                    }
+                    _ => {
+                        eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: bad {other:?}, read as off (nestbound=<frames>[/<k>])");
+                        return Storeroom::OFF;
+                    }
+                }
+            }
+            other => {
+                eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: unknown part {other:?}, read as off (off, or any of on, home, once, post, nestbound[=<frames>[/<k>]], caste=<k>, workerhome)");
+                return Storeroom::OFF;
+            }
+        }
+    }
+    out
+}
+
+/// **How long a young ant stays home**, in frames, under a bare
+/// `nestbound`: a fifth of the ant's `life_half_life` (40,000). Real workers
+/// spend the first part of their lives inside and forage later (age
+/// polyethism); this is the engine's first form of it, a stage by age, as a
+/// switch before it is anything a genome can carry.
+pub const NEST_BOUND_FRAMES: u32 = 8_000;
+
+/// **Nest-bound now** ([`Storeroom::nest_bound`]): stamped at birth, and on
+/// one founder in `k`, only while the switch asks. A nest-bound ant is not
+/// sent out by the forage drive ([`forage_drive_level`]); fed, it does not
+/// read the way out along a route and is pulled home when it strays
+/// ([`home_pull`]); hungry, it scouts for food as any ant does. Only it
+/// carries food into the storeroom.
+fn is_nest_bound(world: &World, state: &crate::sim::organism::OrganismState) -> bool {
+    state.nest_bound_until > world.frame
+}
+
+/// The founding chamber of the nest site nearest `(x, y)` that has one.
+fn storeroom_near(world: &World, x: i32, y: i32) -> Option<crate::sim::world::ShaftFootprint> {
+    world
+        .nest_sites
+        .iter()
+        .filter_map(|n| n.shaft.map(|c| (n.x, n.surface, c)))
+        .min_by_key(|&(nx, ny, _)| (nx - x).abs().max((ny - y).abs()))
+        .map(|(_, _, c)| c)
+}
+
+/// **A store load**: the storeroom carries and the mandibles hold food
+/// picked up for it ([`Spoil::store`]).
+///
+/// **Not any food in the mandibles.** A digger cuts crumbs into the spoil
+/// slot, and they go down as spoil, as they always did. The first form
+/// counted them as store loads too; taking them out moved the colony bed
+/// little (seeds 1-8, a door over the mouth and one load a trip: food taken
+/// 1,687 -> 1,709 cells, births 9 -> 8), so this flag says what the switch
+/// means rather than what it costs.
+fn is_store_load(world: &World, spoil: Option<crate::sim::organism::Spoil>) -> bool {
+    spoil.is_some_and(|s| s.store && storeroom_of(world).carries())
+}
+
+/// **Where a store load is carried**, at the storeroom nearest the animal's
+/// anchor (as [`home_target`] finds its nest): **the mouth, then the floor.**
+/// The chamber is reached only down the shaft, and a straight pull at its
+/// floor from the surface presses the carrier into the ground beside the
+/// mouth until its patience runs out: measured on the colony bed with the
+/// floor as the only target, 20 loads a run reached the room against 75
+/// picked up. So the target is the mouth's middle cell until the head is in
+/// the shaft or the chamber, and the chamber's floor after. `None` for
+/// anything that is not a store load.
+fn store_target(world: &World, state: &crate::sim::organism::OrganismState) -> Option<(i32, i32)> {
+    if !is_store_load(world, state.spoil) {
+        return None;
+    }
+    let (ax, ay) = state.forage_anchor;
+    let room = storeroom_near(world, ax, ay)?;
+    let (hx, hy) = state.chain.first().copied().unwrap_or((ax, ay));
+    let mouth = ((room.x0 + room.x1) / 2, room.top);
+    Some(if storeroom_of(world).post || !(room.in_shaft(hx, hy) || room.in_chamber(hx, hy)) { mouth } else { room.chamber_floor() })
+}
+
+/// **Where a load handed down the shaft lands** (`post`): the first empty
+/// chamber cell, the floor row first and then left to right, if the carrier's
+/// head is at the mouth (within a cell of its top rows) and the shaft below it
+/// is open all the way down -- every shaft cell empty or an animal, which the
+/// load is passed over. `None` otherwise, and the carrier holds on.
+fn store_post_site(world: &mut World, (x, y): (i32, i32)) -> Option<(i32, i32)> {
+    let room = storeroom_near(world, x, y)?;
+    if !room.touches_mouth(x, y) {
+        world.creature_stats.store_post_misses[0] += 1;
+        return None;
+    }
+    let passable = |w: &World, cx: i32, cy: i32| {
+        let m = w.get(cx, cy).material;
+        m == material::EMPTY || matches!(w.materials.kind(m), MaterialKind::Creature)
+    };
+    if !(room.top..=room.bottom).all(|cy| (room.x0..=room.x1).any(|cx| passable(world, cx, cy))) {
+        world.creature_stats.store_post_misses[1] += 1;
+        return None;
+    }
+    let site = (room.chamber_top..=room.chamber_bottom)
+        .rev()
+        .flat_map(|cy| (room.chamber_x0..=room.chamber_x1).map(move |cx| (cx, cy)))
+        .find(|&(cx, cy)| world.get(cx, cy).material == material::EMPTY && world.is_empty(cx, cy));
+    if site.is_none() {
+        world.creature_stats.store_post_misses[2] += 1;
+    }
+    site
+}
+
+/// **The way back up from the storeroom**: the air over the mouth's middle,
+/// for an animal that has put a store load down and holds nothing, while its
+/// head is below the mouth's row. `None` otherwise.
+///
+/// **Why it is needed.** Underground nothing in the walk points up: the away
+/// term is level on purpose (`scout_cos`), and home is the anchor on the
+/// surface. Measured on the colony bed with the carry and no return: the
+/// carriers that reached the chamber stayed below, dug sideways, and the
+/// colonies starved (seed 1, every ant underground by frame 12,000).
+fn store_return_target(world: &World, state: &crate::sim::organism::OrganismState) -> Option<(i32, i32)> {
+    if !state.store_return || state.spoil.is_some() || !storeroom_of(world).carries() {
+        return None;
+    }
+    let (ax, ay) = state.forage_anchor;
+    let room = storeroom_near(world, ax, ay)?;
+    let (_, hy) = state.chain.first().copied()?;
+    (hy >= room.top).then_some(((room.x0 + room.x1) / 2, room.top - 1))
+}
+
+/// **How long a store carrier stands still before it lets its load go**,
+/// in decisions: a jam, not a pause. A walking carrier steps on about three
+/// decisions in four at the laden pace.
+const STORE_STUCK_TICKS: u16 = 48;
+
+/// **Whether the chamber has a cell a store load could be set on**: one
+/// holding no material, or only an animal, which will move. Ants crowd a
+/// room that is home, so asking for a cell empty *now* read a room of four
+/// food cells as full on 36 pick-ups a run.
+fn storeroom_has_room(world: &World, room: crate::sim::world::ShaftFootprint) -> bool {
+    (room.chamber_top..=room.chamber_bottom).any(|y| {
+        (room.chamber_x0..=room.chamber_x1).any(|x| {
+            let m = world.get(x, y).material;
+            m == material::EMPTY || matches!(world.materials.kind(m), MaterialKind::Creature)
+        })
+    })
+}
+
+/// **Where a store load goes down**: an empty chamber cell among the 8 beside
+/// `(x, y)`, the lowest row first and, within a row, the first in
+/// `NEIGHBOURS_8` order. `None` when the animal stands beside no such cell.
+fn storeroom_drop_site(world: &World, x: i32, y: i32) -> Option<(i32, i32)> {
+    let room = storeroom_near(world, x, y)?;
+    let mut best: Option<(i32, i32)> = None;
+    for &(dx, dy) in NEIGHBOURS_8.iter() {
+        let (px, py) = (x + dx, y + dy);
+        if room.in_chamber(px, py) && world.get(px, py).material == material::EMPTY && world.is_empty(px, py) && best.is_none_or(|(_, by)| py > by) {
+            best = Some((px, py));
+        }
+    }
+    best
+}
+
+/// **A store load's drop** ([`storeroom_of`]): on a won `DropSpoil` roll the
+/// cell goes on an empty chamber cell beside the carrier
+/// ([`storeroom_drop_site`]), or, for a carrier within a cell of the room with
+/// none beside it, on any empty neighbour. Anywhere else it is held and the
+/// carrier walks on -- unless it has given up (home patience under
+/// [`SCOUT_GIVE_UP`], or still for [`STORE_STUCK_TICKS`]) or the room has no
+/// cell to spare, when it lets the load go where it stands, through
+/// [`food_drop_site`] as any food is put down.
+///
+/// **Still, not only patient**: patience falls only on steps, so a carrier
+/// jammed in the shaft never gives up by it.
+fn store_drop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), spoil: Spoil, dump_urge: f32, draw: &mut rng::Rng) {
+    if draw.unit_f32() >= dump_urge {
+        return;
+    }
+    // **In the room, anywhere beside it will do.** The chamber is small and
+    // fills with food and ants; asking for an empty chamber cell beside the
+    // carrier held loads there for good -- on the colony bed (seed 1, frame
+    // 15,000) six carriers at once stood in the room holding, while their
+    // colony starved. A carrier within a cell of the chamber that has no chamber cell
+    // beside it puts the load on any empty neighbour, which is the room's rim.
+    let in_room = storeroom_near(world, x, y).is_some_and(|room| room.touches_chamber(x, y));
+    let posted = if storeroom_of(world).post { store_post_site(world, (x, y)) } else { None };
+    let site = match posted.or_else(|| storeroom_drop_site(world, x, y)).or_else(|| in_room.then(|| food_drop_site(world, x, y, drop_through_bodies()).map(|(p, _)| p)).flatten()) {
+        Some(p) => {
+            world.creature_stats.store_delivered += 1;
+            Some(p)
+        }
+        None => {
+            let gave_up = world.organism(organism).is_some_and(|s| s.home_patience < SCOUT_GIVE_UP || s.still_ticks >= STORE_STUCK_TICKS)
+                || storeroom_near(world, x, y).is_none_or(|room| !storeroom_has_room(world, room));
+            if gave_up {
+                let p = food_drop_site(world, x, y, drop_through_bodies()).map(|(p, _)| p);
+                if p.is_some() {
+                    world.creature_stats.store_released += 1;
+                }
+                p
+            } else {
+                world.creature_stats.store_held += 1;
+                None
+            }
+        }
+    };
+    let delivered = site.is_some() && (in_room || storeroom_near(world, x, y).is_some_and(|room| room.in_chamber(x, y)));
+    if let Some((px, py)) = site {
+        world.set(px, py, spoil.cell);
+        if let Some(state) = world.organism_mut(organism) {
+            state.spoil = None;
+            state.store_return |= delivered;
+        }
+    }
+}
+
+/// **Whether this pick-up at home goes into the mandibles for the
+/// storeroom** ([`storeroom_of`]). The animal: fed (at or above its
+/// `start_energy`), crop and mandibles empty. **Not only the ants the forage
+/// drive misses**: that was built first (`nestbound`) and on the colony bed it
+/// picked up nothing, median 0 a run over 24 seeds, because under the shipped
+/// `always` every ant that has ever taken food away from home is driven and
+/// nearly every ant has. The cell: loose food (no organism owns it), not meat (a load
+/// `carried_meat` prices, which the mandibles would hide from it), lying
+/// more than a cell from the chamber (food on the room's rim is the store's,
+/// or the spoon's put-back beside the room would be carried in again). The
+/// room: a cell to put it on, else refused and counted (`store_room_full`).
+#[allow(clippy::too_many_arguments)]
+fn store_pickup_ok(world: &mut World, organism: OrganismId, def: &CreatureDef, (x, y): (i32, i32), (fx, fy): (i32, i32), bite: Cell, crop: Option<Crop>) -> bool {
+    if crop.is_some_and(|c| c.cells > 0) || bite.organism_id() != 0 || food_value(world, bite) <= 0.0 || world.materials.get(bite.material).worth_in_aux {
+        return false;
+    }
+    let Some(state) = world.organism(organism) else {
+        return false;
+    };
+    let rule = storeroom_of(world);
+    if state.spoil.is_some() || state.energy < def.start_energy || (rule.once && state.store_carried) || ((rule.nest_bound > 0 || rule.caste > 0) && !is_nest_bound(world, state)) {
+        return false;
+    }
+    let Some(room) = storeroom_near(world, x, y) else {
+        return false;
+    };
+    if room.touches_chamber(fx, fy) {
+        return false;
+    }
+    if !storeroom_has_room(world, room) {
+        world.creature_stats.store_room_full += 1;
+        return false;
+    }
+    true
+}
+
+/// **Food around the storeroom, in cells**, for a harness census: loose food
+/// (worth something, owned by no organism) in the chamber, in the shaft, at
+/// or above the mouth's row, and anywhere else below it, over the box
+/// `x_lo..=x_hi` by `y_lo..=y_hi`, at the first nest site that has a founding
+/// cut. `None` with no cut.
+/// The second four count the animals holding a store load, by where the
+/// head is, in the same four places; the ninth, the nest-bound animals alive
+/// ([`is_nest_bound`]).
+pub fn storeroom_census(world: &World, (x_lo, x_hi): (i32, i32), (y_lo, y_hi): (i32, i32)) -> Option<[u32; 9]> {
+    storeroom_census_full(world, (x_lo, x_hi), (y_lo, y_hi)).map(|(n, _)| n)
+}
+
+/// What fills the founding shaft's cells, by material name and count.
+pub type ShaftFill = Vec<(String, u32)>;
+
+/// [`storeroom_census`], and what fills the shaft's cells, by material name
+/// (empty cells and animals left out): what a hand-down has to get past.
+pub fn storeroom_census_full(world: &World, (x_lo, x_hi): (i32, i32), (y_lo, y_hi): (i32, i32)) -> Option<([u32; 9], ShaftFill)> {
+    let room = world.nest_sites.iter().find_map(|n| n.shaft)?;
+    let mut fill: ShaftFill = Vec::new();
+    for cy in room.top..=room.bottom {
+        for cx in room.x0..=room.x1 {
+            let m = world.get(cx, cy).material;
+            if m == material::EMPTY || matches!(world.materials.kind(m), MaterialKind::Creature) {
+                continue;
+            }
+            let name = world.materials.get(m).name.clone();
+            match fill.iter_mut().find(|(n, _)| *n == name) {
+                Some((_, c)) => *c += 1,
+                None => fill.push((name, 1)),
+            }
+        }
+    }
+    storeroom_census_counts(world, room, (x_lo, x_hi), (y_lo, y_hi)).map(|n| (n, fill))
+}
+
+fn storeroom_census_counts(world: &World, room: crate::sim::world::ShaftFootprint, (x_lo, x_hi): (i32, i32), (y_lo, y_hi): (i32, i32)) -> Option<[u32; 9]> {
+    let place = |x: i32, y: i32| -> usize {
+        if room.in_chamber(x, y) {
+            0
+        } else if room.in_shaft(x, y) {
+            1
+        } else if y <= room.top {
+            2
+        } else {
+            3
+        }
+    };
+    let mut n = [0u32; 9];
+    for y in y_lo..=y_hi {
+        for x in x_lo..=x_hi {
+            let c = world.get(x, y);
+            if c.material == material::EMPTY || c.organism_id() != 0 || food_value(world, c) <= 0.0 {
+                continue;
+            }
+            n[place(x, y)] += 1;
+        }
+    }
+    for id in world.live_organism_ids() {
+        let Some(st) = world.organism(id) else { continue };
+        if is_nest_bound(world, st) {
+            n[8] += 1;
+        }
+        if is_store_load(world, st.spoil) {
+            if let Some(&(hx, hy)) = st.chain.first() {
+                n[4 + place(hx, hy)] += 1;
+            }
+        }
+    }
+    Some(n)
+}
+
 /// **`PIXEL_PHYSICS_NEST_DOOR=<half-width>`: the nest as a door, not a strip.**
 /// Founding paints `2 * half-width + 1` columns of nest, unbroken, instead of
 /// the 53-column masked strip, and anchors every founder's home at its centre
@@ -3000,6 +3478,18 @@ pub fn nest_home(world: &World) -> NestHome {
 pub fn nest_door() -> Option<i32> {
     static D: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
     *D.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_DOOR").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v >= 0))
+}
+
+/// **`PIXEL_PHYSICS_NEST_SHAFT_OFFSET=<cells>`: the founding shaft cut that
+/// many columns from the founding point** (negative is west), so a door
+/// painted there has the mouth beside it rather than under it. Unset is 0,
+/// the shipped cut under the founding point, bit-exact. Measured with a door
+/// over the mouth: every delivery lands on the mouth, crumbs fall down the
+/// shaft, and a mound of food grows over it until nothing can be handed down
+/// (`Reports/nest-granary-2026-09-28.md` §8g).
+pub fn nest_shaft_offset() -> Option<i32> {
+    static O: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *O.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SHAFT_OFFSET").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v != 0))
 }
 
 /// **`PIXEL_PHYSICS_NEST_DOOR_FOUNDERS=pile`**: under [`nest_door`], founders
@@ -4439,7 +4929,11 @@ impl World {
                 }
             }
         }
-        self.dig_founding_shaft(x, y);
+        // **The mouth beside the door, not under it**
+        // ([`nest_shaft_offset`]): under a door every delivery lands on the
+        // mouth and its crumbs fall down the shaft.
+        let off = nest_shaft_offset().map_or(0, |o| o.signum() * scaled_cells(self, o.abs()));
+        self.dig_founding_shaft(x + off, y);
         painted
     }
 
@@ -4853,6 +5347,12 @@ fn nest_mask(half_width: i32, core: i32, drain_period: usize) -> Vec<bool> {
 /// so it ships as a selector with a measurement behind it rather than as a
 /// silent repair.
 fn home_target(world: &World, state: &crate::sim::organism::OrganismState) -> (i32, i32) {
+    // **A store load goes to the storeroom's floor, and back up to the mouth
+    // after** ([`storeroom_of`]), whichever home the switch below picks for
+    // food in the crop.
+    if let Some(target) = store_target(world, state).or_else(|| store_return_target(world, state)) {
+        return target;
+    }
     if !home_target_is_nest() {
         return state.forage_anchor;
     }
@@ -6849,7 +7349,10 @@ fn sense(
         // graded half -- *the fuller I am, the likelier I head home* -- already
         // belongs to `CreatureDef::home_bias`, exactly as the comment above
         // says. One question per sensor: this one answers *which way*.
-        inputs[I::HomeAligned as usize] = if crop_fill > 0.0 {
+        // **A store carrier reads it too** ([`storeroom_of`]): it has a home to
+        // head for, the storeroom's floor or, coming back, the mouth, so it
+        // walks at the laden pace.
+        inputs[I::HomeAligned as usize] = if crop_fill > 0.0 || is_store_load(world, state.spoil) || store_return_target(world, state).is_some() {
             let (ax, ay) = home_target(world, state);
             let (vx, vy) = ((ax - x) as f32, (ay - y) as f32);
             let len = (vx * vx + vy * vy).sqrt();
@@ -9661,8 +10164,9 @@ fn parse_spoil_cue(raw: &str) -> Option<SpoilCue> {
 
 /// The factor [`SpoilCue`] puts on a dig roll by the animal at `(x, y)`
 /// facing `(tx, ty)`, reading its curvature at `radius`; `None` where the cue
-/// stands aside -- nothing ahead, a pellet ahead, or a digger the ground
-/// encloses.
+/// stands aside -- nothing ahead, a pellet ahead, or a cut that opens no sky
+/// (an enclosed digger, or one with ground over its head cutting the floor
+/// below it, cutting a cell with ground above it).
 fn spoil_cue_factor(world: &World, (x, y): (i32, i32), (tx, ty): (i32, i32), radius: i32, cue: SpoilCue) -> Option<f32> {
     let pellet = |c: Cell| c.material != material::EMPTY && world.materials.get(c.material).needs_footing;
     let ahead = world.get(tx, ty);
@@ -9675,7 +10179,29 @@ fn spoil_cue_factor(world: &World, (x, y): (i32, i32), (tx, ty): (i32, i32), rad
     // half the new openings (32 of 66 over 12 seeds) were a tunnel cutting
     // the top cell of a column from underneath. So an enclosed digger is left
     // alone only while the cell it cuts has ground somewhere above it.
-    if surface_curvature(world, x, y, radius) <= SPOIL_CUE_ENCLOSED && !open_to_the_sky(world, tx, ty) {
+    //
+    // **A cut into the floor under a roof opens nothing.** Curvature alone
+    // reads the floor of a wide underground room as the surface -- a 5 by 5
+    // disc reads 0 on the floor of any room 3 rows tall and 5 wide, and -0.25
+    // one cell in from its wall -- so a cut into a room's floor was judged a
+    // new mouth and vetoed without a heap, and a room 3 rows tall could not
+    // deepen (the foraging lane's review, 2026-09-28). A cut below a digger
+    // with ground over its head neither opens the sky nor thins the ground
+    // over it, so the cue stands aside for it.
+    //
+    // **Only the floor: a roofed digger cutting level or up still meets the
+    // cue, and that is load-bearing.** Standing aside for every roofed digger
+    // in open ground was measured first, and was worse: more mouths on 17 of
+    // 24 `digbox` seeds, less of the dig roofed on 18. Traced, those cuts were
+    // not in rooms at all -- 503 of 529 were by ants one or two rows under the
+    // surface with a single cell of ground over their heads, 432 of them
+    // cutting level or up, through or along that crust. The misread was what
+    // kept the crust whole away from a heap
+    // (`Reports/nest-heap-cue-2026-09-28.md` §17;
+    // `the_heap_cue_leaves_a_dig_inside_a_wide_room_alone`).
+    let enclosed = surface_curvature(world, x, y, radius) <= SPOIL_CUE_ENCLOSED;
+    let floor_cut = ty > y && !open_to_the_sky(world, x, y);
+    if (enclosed || floor_cut) && !open_to_the_sky(world, tx, ty) {
         return None;
     }
     let mut s = 0u32;
@@ -10035,6 +10561,14 @@ fn parse_dig_down(raw: &str) -> Option<DigDown> {
 /// is bit-identical and both arms come out of one binary:
 /// `PIXEL_PHYSICS_NEST_REACH=body`.
 fn nest_within_reach(world: &World, organism: OrganismId, x: i32, y: i32, def: &CreatureDef) -> bool {
+    // **The cut is a nest worker's home** ([`Storeroom::worker_home`]), and a
+    // forager's only if the rules below say so. Off, one branch.
+    if storeroom_of(world).worker_home
+        && world.organism(organism).is_some_and(|st| is_nest_bound(world, st))
+        && world.nest_sites.iter().filter_map(|s| s.shaft).any(|cut| cut.touches(x, y))
+    {
+        return true;
+    }
     if !nest_reach_is_body() {
         return adjacent_nest(world, x, y, def);
     }
@@ -10113,6 +10647,12 @@ fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
         NestHome::Mouth => world.nest_sites.iter().filter_map(|s| s.shaft).any(|cut| cut.touches_mouth(x, y)),
     };
     if in_cut {
+        return true;
+    }
+    // **The storeroom is home** ([`storeroom_of`], `home` or `onhome`):
+    // within one cell of the founding chamber. Under `on` the room is home to
+    // the pick-up alone (`act`'s `picked_at_home`). Off, one branch.
+    if storeroom_of(world).room_is_home() && world.nest_sites.iter().filter_map(|s| s.shaft).any(|cut| cut.touches_chamber(x, y)) {
         return true;
     }
     // **The site branch: home is a place, not a cell.** No `World::get` at
@@ -11133,7 +11673,29 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // and reverted 2026-09-26, `Reports/nest-mouth-2026-09-26.md`
                 // §6), and read after the bite it lost exactly the pickups
                 // this counter exists to see: watched red that way.
-                let picked_at_home = nest_within_reach(world, organism, x, y, def);
+                // **Store food is home food** ([`storeroom_of`]): a pick-up
+                // within a cell of the chamber reads as at home whether or not
+                // the room is home to `AtNest`, the foraging lane's condition
+                // (2026-09-28) -- read as away, a forager swallowing store food
+                // there would take it back out to the door as a load, not
+                // carry it off as a packed lunch.
+                let picked_at_home = nest_within_reach(world, organism, x, y, def)
+                    || (storeroom_of(world).carries() && storeroom_near(world, x, y).is_some_and(|room| room.touches_chamber(x, y)));
+                // **The storeroom's pick-up** ([`storeroom_of`], `on`): an ant
+                // that stays home takes the cell whole into its mandibles and
+                // carries it into the chamber uneaten, where this branch
+                // would have swallowed it. The same won `Feed` roll, so the
+                // draw sequence is unchanged; see [`store_pickup_ok`] for who
+                // and what.
+                if picked_at_home && storeroom_of(world).carries() && store_pickup_ok(world, organism, def, (x, y), (fxx, fyy), bite, crop) {
+                    world.set(fxx, fyy, Cell::EMPTY);
+                    if let Some(state) = world.organism_mut(organism) {
+                        state.spoil = Some(Spoil { cell: bite, store: true });
+                        state.store_carried = true;
+                    }
+                    world.creature_stats.store_pickups += 1;
+                    return did;
+                }
                 // **A flower an animal can afford to feed at pays nectar and
                 // stays standing** -- the box's first renewable food, and the
                 // mechanism the pollinator design needs before an animal can
@@ -11402,6 +11964,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     // and read by nothing unless it is on.
                     if !picked_at_home {
                         state.foraged = true;
+                        state.store_carried = false;
                     }
                     // **A crop filled only at home is a packed lunch**
                     // (`carries_lunch`): an empty crop's first cell taken at
@@ -11661,6 +12224,13 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
     // clearance from the dug cell, and gating the roll on the light channel.
     //
     if let Some(spoil) = world.organism(organism).and_then(|s| s.spoil) {
+        // **A store load goes down only in the storeroom** ([`storeroom_of`]):
+        // the same `DropSpoil` roll, one draw, and none of the spoil rules
+        // below, which are about where tailings can lie.
+        if is_store_load(world, Some(spoil)) {
+            store_drop(world, organism, (x, y), spoil, dump_urge, draw);
+            return did;
+        }
         // **The fifth placement rule, and the one the record asks for by
         // name.** `dead-ends.md`'s `LightHere` entry closes with *"an honest
         // attempt at 'let the ants find the outside' that failed on the
@@ -11968,7 +12538,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             world.set(tx, ty, Cell::EMPTY);
             if spoil_kept() {
                 if let Some(state) = world.organism_mut(organism) {
-                    state.spoil = Some(Spoil { cell: pellet });
+                    state.spoil = Some(Spoil { cell: pellet, store: false });
                 }
             }
             world.creature_stats.digs += 1;
@@ -13992,6 +14562,11 @@ fn forage_drive_level(world: &World, state: &crate::sim::organism::OrganismState
     if !drive.on() || !state.foraged || (drive.fed && state.energy < def.start_energy) {
         return 0.0;
     }
+    // **A nest-bound ant is not sent out** ([`is_nest_bound`], the nest
+    // lane's storeroom switch); read only when that switch stamped it.
+    if is_nest_bound(world, state) {
+        return 0.0;
+    }
     match drive.need {
         ForageNeed::Off => 0.0,
         ForageNeed::Always => 1.0,
@@ -14262,6 +14837,23 @@ fn trail_presence(world: &World, head: (i32, i32), d: u8, laden: bool) -> f32 {
 /// longer it had been lost the less it was steered home.
 fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32, i32)) -> Option<((i32, i32), f32)> {
     let state = world.organism(organism)?;
+    // **A store load is taken home as a load of food is** ([`storeroom_of`]),
+    // at the laden ant's gain, to the storeroom's floor; and the carrier that
+    // put one down comes back up to the mouth the same way.
+    if let Some(target) = store_target(world, state).or_else(|| store_return_target(world, state)).filter(|_| def.home_bias > 0.0) {
+        return Some((target, def.home_bias));
+    }
+    // **A fed nest-bound ant that strays is pulled home** ([`is_nest_bound`]),
+    // as a laden ant is, to where it last stood beside the nest.
+    if def.home_bias > 0.0
+        && is_nest_bound(world, state)
+        && state.energy >= def.start_energy
+        && state.spoil.is_none()
+        && state.crop.is_none_or(|c| c.worth() <= 0.0)
+        && !nest_within_reach(world, organism, head.0, head.1, def)
+    {
+        return Some((home_target(world, state), def.home_bias));
+    }
     match spoil_haul().filter(|_| state.spoil.is_some()) {
         Some(w) => {
             let site = world.nearest_nest_site(head.0, head.1).and_then(|i| world.nest_sites.get(i))?;
@@ -14355,6 +14947,15 @@ fn chooser_step(
     if hungry_mode != HungryHome::Off {
         update_hungry_home(world, organism, def, (hx, hy), hungry_mode);
     }
+    // **Back up from the storeroom** ([`store_return_target`]): the trip ends
+    // with the head above the mouth.
+    if world.organism(organism).is_some_and(|s| s.store_return) && store_return_target(world, world.organism(organism).expect("read above")).is_none() {
+        if let Some(s) = world.organism_mut(organism) {
+            if s.spoil.is_none() {
+                s.store_return = false;
+            }
+        }
+    }
     // The home memory, started again whenever the target is new, and cleared
     // whenever there is nothing to take home.
     let pull = home_pull(world, organism, def, (hx, hy));
@@ -14401,7 +15002,8 @@ fn chooser_step(
     // uses it. `None` for a laden ant, one hauling spoil, or one standing on
     // its target.
     let away_from = if mode == Chooser::TrailAway && pull.is_none() && !laden {
-        world.organism(organism).filter(|s| s.spoil.is_none()).map(|s| home_target(world, s))
+        // A fed nest-bound ant does not take the way out ([`is_nest_bound`]).
+        world.organism(organism).filter(|s| s.spoil.is_none() && !(is_nest_bound(world, s) && s.energy >= def.start_energy)).map(|s| home_target(world, s))
     } else {
         None
     };
@@ -18821,7 +19423,12 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
             // crop beside it books its remainder into `meat_lost` for the
             // same reason; there is no material ledger to book this into, so
             // the counter *is* the book.
-            None => world.creature_stats.spoil_lost += 1,
+            None => {
+                world.creature_stats.spoil_lost += 1;
+                if world.materials.get(spoil.cell.material).spoils_into.is_some() {
+                    world.creature_stats.spoil_lost_ground += 1;
+                }
+            }
         }
         if let Some(state) = world.organism_mut(organism) {
             state.spoil = None;
@@ -22026,7 +22633,15 @@ mod tests {
         let after = ground(&w);
         let digs = w.creature_stats.digs;
         let dumped = w.creature_stats.spoil_dumped;
-        let lost = w.creature_stats.spoil_lost as usize;
+        let lost_any = w.creature_stats.spoil_lost as usize;
+        // **Only the lost pellets that were ground**, the same set `ground`
+        // counts. A dug crumb or a piece of carrion rides in the same slot, and
+        // this read every lost pellet until 2026-09-28: a new trajectory ended
+        // with one corpse pellet lost at a death, and the identity read
+        // `259 -> 260` as a cell of ground made from nothing. Traced, the two
+        // pellets lost were one of spoil and one of corpse; counted by set, it
+        // closes exactly (260 + 1 = 259 + 2).
+        let lost = w.creature_stats.spoil_lost_ground as usize;
         assert!(digs > 0, "nothing dug, so conservation here would be a statement about an idle ant");
         assert!(dumped > 0, "digs {digs} and not one pellet put back -- the colony is holding its spoil, not hauling it");
         // **`spoil_lost` is in the sum rather than asserted to be zero**, and
@@ -22066,7 +22681,7 @@ mod tests {
         // That identity is the claim this test exists for; the bound below
         // only has to keep a 1-of-99 edge case from quietly becoming the
         // old behaviour, which was every pellet vanishing.
-        assert!(lost * 20 <= digs as usize, "{lost} of {digs} pellets died with their carrier -- that is a sink, not an edge case");
+        assert!(lost_any * 20 <= digs as usize, "{lost_any} of {digs} pellets died with their carrier -- that is a sink, not an edge case");
     }
 
     /// One ant on a bank of soil at a given `dig_cost_in_moves`, returning
@@ -27387,7 +28002,7 @@ mod tests {
         assert_ne!(ant, 0, "the scene does not contain the situation this test is about");
         let head = {
             let state = w.organism_mut(ant).expect("just placed");
-            state.spoil = Some(super::super::organism::Spoil { cell: Cell::new(soil, 0) });
+            state.spoil = Some(super::super::organism::Spoil { cell: Cell::new(soil, 0), store: false });
             state.chain.first().copied().unwrap_or((64, 61))
         };
         let def = w.species.get(w.organism(ant).expect("live").species).creature.clone().expect("ant is a creature");
@@ -35402,6 +36017,105 @@ mod tests {
         assert_eq!(pellet, None, "a pellet ahead is refill churn, left alone");
         assert_eq!(buried, None, "an enclosed digger under a roof is the face's, left alone");
         assert_eq!(breakout, Some(0.1), "a tunnel breaking out to the sky is a start, and there is no heap here");
+    }
+
+    /// **A dig inside a wide underground room is not a new mouth.** The heap
+    /// cue is for a cut that opens the ground to the sky. The ant's curvature
+    /// disc reads a room's floor, and a cell beside its wall, as open ground,
+    /// so the first form judged those cuts as surface digs and vetoed them
+    /// without a heap: a room three rows tall could not deepen (found by the
+    /// foraging lane's review of #506, 2026-09-28). A 3 by 9 room under 8 rows
+    /// of soil: cuts into its floor, mid-room and one cell in from its wall,
+    /// are left alone. The same room with its roof taken off is a crater
+    /// under the sky, and there the cue still applies -- the positive control
+    /// that the rule was not simply switched off. The curvature precondition
+    /// is asserted, or every arm is vacuous. Only the floor is exempt: see
+    /// `the_heap_cue_still_guards_the_crust_over_a_roofed_digger`.
+    #[test]
+    fn the_heap_cue_leaves_a_dig_inside_a_wide_room_alone() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").unwrap();
+        let surface = 150;
+        for x in 60..140 {
+            for y in surface..surface + 20 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        let cue = SpoilCue { k: 1.5, floor: 0.1 };
+        // The room: columns 70..=78, rows surface+8..=surface+10, roofed.
+        for x in 70..=78 {
+            for y in surface + 8..=surface + 10 {
+                w.set(x, y, Cell::EMPTY);
+            }
+        }
+        let floor = (74, surface + 10);
+        // One cell in from the west wall, on the floor row.
+        let by_wall = (71, surface + 10);
+        for (name, at) in [("floor", floor), ("floor by the wall", by_wall)] {
+            let c = surface_curvature(&w, at.0, at.1, 2);
+            assert!(c > SPOIL_CUE_ENCLOSED, "the {name} of a wide room must read as open ground ({c}), or this test cannot see the bug");
+        }
+        let down = spoil_cue_factor(&w, floor, (floor.0, floor.1 + 1), 2, cue);
+        let side = spoil_cue_factor(&w, by_wall, (by_wall.0, by_wall.1 + 1), 2, cue);
+        assert_eq!(down, None, "a cut into a roofed room's floor opens no sky");
+        assert_eq!(side, None, "a cut into the floor beside a roofed room's wall opens no sky");
+        // The crater: the same room with everything above it dug out.
+        for x in 70..=78 {
+            for y in surface..surface + 8 {
+                w.set(x, y, Cell::EMPTY);
+            }
+        }
+        let crater = spoil_cue_factor(&w, floor, (floor.0, floor.1 + 1), 2, cue);
+        assert_eq!(crater, Some(0.1), "a crater's floor is under the sky, and there is no heap: the cue applies");
+    }
+
+    /// **But a roofed digger cutting level or up still meets the heap cue,
+    /// and that half is load-bearing.** Standing aside for every roofed
+    /// digger in open ground was the first fix for the room above, and
+    /// `digbox` measured it worse: more mouths on 17 of 24 seeds, less of the
+    /// dig roofed on 18. Its cuts were not in rooms: 503 of 529 were by ants
+    /// one or two rows under the surface with one cell of ground over their
+    /// heads, cutting along or up through that crust
+    /// (`Reports/nest-heap-cue-2026-09-28.md` §17). The scene is that crust:
+    /// an open shaft three wide, and a notch cut under its lip. From the
+    /// notch, a cut sideways under the intact surface and a cut up into a
+    /// crust cell with a lump of soil on it both meet the cue with no heap in
+    /// reach; the cut into the notch's own floor is left alone, as in the
+    /// room. The preconditions are asserted -- open ground at the notch, and
+    /// ground over the digger and over each cut -- or the arms are vacuous.
+    #[test]
+    fn the_heap_cue_still_guards_the_crust_over_a_roofed_digger() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").unwrap();
+        let surface = 150;
+        for x in 60..140 {
+            for y in surface..surface + 20 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        let cue = SpoilCue { k: 1.5, floor: 0.1 };
+        // The shaft: columns 73..=75, open from the surface down six rows.
+        for x in 73..=75 {
+            for y in surface..=surface + 6 {
+                w.set(x, y, Cell::EMPTY);
+            }
+        }
+        // The notch under the lip, and a lump of soil on the surface beside it.
+        let notch = (72, surface + 1);
+        w.set(notch.0, notch.1, Cell::EMPTY);
+        w.set(71, surface - 1, Cell::new(soil, 0));
+        let c = surface_curvature(&w, notch.0, notch.1, 2);
+        assert!(c > SPOIL_CUE_ENCLOSED, "the notch must read as open ground ({c}), or this test cannot see the rule");
+        assert!(!open_to_the_sky(&w, notch.0, notch.1), "the notch must have ground over it");
+        let level = (71, surface + 1);
+        let up = (71, surface);
+        let floor = (72, surface + 2);
+        for (name, t) in [("level", level), ("up", up), ("floor", floor)] {
+            assert!(!open_to_the_sky(&w, t.0, t.1), "the {name} cut must have ground over it");
+        }
+        assert_eq!(spoil_cue_factor(&w, notch, level, 2, cue), Some(0.1), "a cut along the crust, with no heap in reach, meets the cue");
+        assert_eq!(spoil_cue_factor(&w, notch, up, 2, cue), Some(0.1), "a cut up into the crust, with no heap in reach, meets the cue");
+        assert_eq!(spoil_cue_factor(&w, notch, floor, 2, cue), None, "a cut into the floor under a roof opens nothing");
     }
 
     /// `PIXEL_PHYSICS_SPOIL_CUE`'s spellings: unset and `off` read nothing,

@@ -86,7 +86,10 @@ Colony bed, no trail, 24 seeds (seeds 1-24), measured 2026-09-28:
 | 90, `NEST_DOOR=2` | 5,611 | 6,279 J | 15 | 150 |
 | 140, `NEST_DOOR=2` | 5,046 | 4,773 J | 38 | 82 |
 
-The door rows are the nest lane's switch (§22r). Lab box, 24 seeds, median,
+After #512 (the heap cue lets a room deepen) the 90-cell row reads 4,566 /
+8,003 J / 83 / 144 (within the spread; reproduces the nest lane's figure
+exactly); the switch results here were measured before it. The door rows are
+the nest lane's switch (§22r). Lab box, 24 seeds, median,
 same tree: food eaten 1,149k J, births 408, starved 137, alive at the end 78,
 ant-frames lived 10.5M; died out 1, under 10 at the end 6. With the door:
 1,053k J, 406, 156, 113, 9.4M; 2 and 2 (no sign test below p 0.15).
