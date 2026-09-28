@@ -537,8 +537,10 @@ births lower on 19. Against dig down everywhere: starved lower on 21, food
 higher on 22. With the founding shaft, home is partly inside the ground, so
 an ant at home in the shaft is enclosed and still turns down.
 
-**The lab** (`labforage`, 12 seeds) is running as this is first committed;
-its pairs follow in the next commit.
+**The lab** (`labforage`, 12 seeds, final code) ties on every pair against
+the shipped ant: deliveries 5 / 7, food eaten 7 / 5, births 8 / 4, alive at
+the end 7 / 3, one colony lost in each. As with dig down everywhere (§8),
+the harm shows only where the food is far.
 
 ## 13. What is next
 
