@@ -1220,6 +1220,12 @@ const FUNNEL_LASTING: u64 = 1_500;
 /// How long a refilled dug cell must stay ground to count as filled rather
 /// than passed through: a falling grain crosses a cell in one frame.
 const REFILL_STANDING: u64 = 100;
+/// Spoil this close to a dig target counts as beside it (Chebyshev cells).
+const SPOIL_NEAR: i32 = 2;
+/// ...and this recently put down counts as fresh. The biology's fresh heap
+/// stops drawing digging within about an hour; an ant here decides every
+/// six frames, so a thousand frames is some 170 decisions.
+const SPOIL_FRESH: u64 = 1_000;
 
 #[derive(Clone, Copy)]
 struct AntBefore {
@@ -1325,6 +1331,17 @@ struct NestFunnel {
     /// paid for here.
     held_frames: u64,
     ant_frames: u64,
+    /// **Is there fresh spoil beside where an ant digs?** At every decision
+    /// with the jaws free and diggable ground straight ahead, and at every
+    /// placed cut: spoil within `SPOIL_NEAR` cells of the target, any age,
+    /// and put down within `SPOIL_FRESH` frames. The biology's one positive
+    /// stigmergic dig cue is a pile of fresh pellets
+    /// (`nest-biology-digging-signals-2026-09-19.md` §3.2, §10 rank 4), and a
+    /// rule reading it can only steer where the answer differs between the
+    /// places an ant could dig -- counted at the decision, not over the box,
+    /// which is the Khuong entry's lesson in `dead-ends.md`.
+    /// [decisions, cuts][faced, spoil near, fresh spoil near].
+    spoil_near: [[u64; 3]; 2],
     /// **A refill that stays**: a dug cell still ground `REFILL_STANDING`
     /// frames after it filled. [by a fall, by a pellet put there].
     refill_standing: [u64; 2],
@@ -1368,6 +1385,29 @@ struct NestFunnel {
 }
 
 impl NestFunnel {
+    /// Spoil within `SPOIL_NEAR` of `(tx, ty)` in the grid as it stood before
+    /// the frame: (any age, put down within `SPOIL_FRESH` frames).
+    fn spoil_near_of(grid: &[Option<MaterialId>], put_frame: &[u64], b: &Box2, spoil: Option<MaterialId>, frame: u64, tx: i32, ty: i32) -> (bool, bool) {
+        let Some(spoil) = spoil else { return (false, false) };
+        let (mut near, mut fresh) = (false, false);
+        for y in ty - SPOIL_NEAR..=ty + SPOIL_NEAR {
+            for x in tx - SPOIL_NEAR..=tx + SPOIL_NEAR {
+                if x < 0 || y < 0 || x >= b.w || y >= b.h {
+                    continue;
+                }
+                let i = (y * b.w + x) as usize;
+                if grid[i] == Some(spoil) {
+                    near = true;
+                    if put_frame[i] != u64::MAX && frame.saturating_sub(put_frame[i]) <= SPOIL_FRESH {
+                        fresh = true;
+                        return (near, fresh);
+                    }
+                }
+            }
+        }
+        (near, fresh)
+    }
+
     fn is_ground(world: &World, m: MaterialId) -> bool {
         m != material::EMPTY && matches!(world.materials.kind(m), MaterialKind::Powder | MaterialKind::Solid)
     }
@@ -1446,6 +1486,7 @@ impl NestFunnel {
         use pixel_physics::sim::creature::DIRS;
         let at = |x: i32, y: i32| (y * b.w + x) as usize;
         let inside = |x: i32, y: i32| x >= 0 && y >= 0 && x < b.w && y < b.h;
+        let spoil_id = world.materials.id_of("spoil");
         let ids: Vec<u32> = self.before.keys().copied().collect();
         for id in ids {
             let pre = self.before[&id];
@@ -1461,6 +1502,10 @@ impl NestFunnel {
                 if let Some(m) = self.grid[at(tx, ty)] {
                     if Self::is_ground(world, m) && world.materials.get(m).penetration_resistance <= 1.0 {
                         track.stage = track.stage.max(1);
+                        let (near, fresh) = Self::spoil_near_of(&self.grid, &self.put_frame, b, spoil_id, frame, tx, ty);
+                        self.spoil_near[0][0] += 1;
+                        self.spoil_near[0][1] += u64::from(near);
+                        self.spoil_near[0][2] += u64::from(fresh);
                     }
                 }
             }
@@ -1501,6 +1546,10 @@ impl NestFunnel {
                     }
                 };
                 if let Some((tx, ty)) = target {
+                    let (near, fresh) = Self::spoil_near_of(&self.grid, &self.put_frame, b, spoil_id, frame, tx, ty);
+                    self.spoil_near[1][0] += 1;
+                    self.spoil_near[1][1] += u64::from(near);
+                    self.spoil_near[1][2] += u64::from(fresh);
                     let was = self.grid[at(tx, ty)];
                     debug_assert!(was.is_some(), "opened() admits only a material cell");
                     let row = ty - b.surface;
@@ -1825,6 +1874,15 @@ impl NestFunnel {
             self.ant_frames,
             if self.ant_frames > 0 { 100.0 * self.held_frames as f64 / self.ant_frames as f64 } else { 0.0 }
         );
+        let pct = |a: u64, b: u64| if b > 0 { 100.0 * a as f64 / b as f64 } else { 0.0 };
+        let [[fd, sd, nd], [fc, sc, nc]] = self.spoil_near;
+        println!(
+            "LEDGER frame={frame} spoil within {SPOIL_NEAR} cells of the dig target: at the decisions to dig {sd} of {fd} ({:.1}%), fresh (<= {SPOIL_FRESH} frames) {nd} ({:.1}%); at the cuts {sc} of {fc} ({:.1}%), fresh {nc} ({:.1}%)",
+            pct(sd, fd),
+            pct(nd, fd),
+            pct(sc, fc),
+            pct(nc, fc)
+        );
         // Who to trace: a few ids stopped at each stage.
         for (i, name) in FUNNEL_STAGES.iter().enumerate().skip(1) {
             let stuck: Vec<String> = self.ants.iter().filter(|(_, t)| t.stage == i).take(6).map(|(id, _)| id.to_string()).collect();
@@ -2048,6 +2106,32 @@ fn funnel_selftest(b: &Box2) {
         );
         assert_eq!((f.loose_why, f.put_unfooted, f.loose_age), ([1, 1, 1, 1, 1, 0], [1, 1, 1], [5, 0, 0, 0, 0, 0]), "each cause of a pellet turning loose must be booked once, under its own name");
         assert_eq!(f.cut_new_open + f.cut_above + f.cut_again + f.cut_new_roofed, 1, "case (d)'s cut, and only it, must be placed");
+    }
+
+    // 4d. Spoil beside the dig target: a pellet put down by hand, then three
+    //     decisions to dig with the jaws free -- beside it while fresh, beside
+    //     it once stale, and out of reach of it.
+    {
+        let mut w = build(b);
+        let mut f = NestFunnel::default();
+        let rec = |head: (i32, i32), heading: u8, holding: bool| {
+            std::collections::BTreeMap::from([(id, AntBefore { head, heading, digs: 0, holding, pellet: if holding { spoil } else { material::EMPTY }, crop_empty: true })])
+        };
+        let aft = |holding: bool| std::collections::BTreeMap::from([(id, AntAfter { digs: 0, holding })]);
+        let (hx, hy) = (b.w / 2 + 40, b.surface - 1);
+        f.before_with(&w, b, rec((hx, hy), 0, true));
+        w.set(hx + 1, hy, pellet);
+        f.after_with(&w, b, 10, &aft(false));
+        // Facing down-right, at ground one column past the pellet: within 2.
+        let face = |f: &mut NestFunnel, w: &World, frame: u64, head: (i32, i32)| {
+            f.before_with(w, b, rec(head, 7, false));
+            f.after_with(w, b, frame, &aft(false));
+        };
+        face(&mut f, &w, 11, (hx, hy));
+        face(&mut f, &w, 11 + SPOIL_FRESH + 1, (hx, hy));
+        face(&mut f, &w, 11 + SPOIL_FRESH + 2, (hx - 20, hy));
+        println!("  funnel: decisions to dig beside a fresh pellet, a stale one, none -> faced, spoil near, fresh {:?} (must be [3, 2, 1])", f.spoil_near[0]);
+        assert_eq!(f.spoil_near[0], [3, 2, 1], "spoil beside a dig target must be booked, and fresh only while fresh");
     }
 
     // 5. The ledger's own control: a dig the world does not show must be
