@@ -1929,6 +1929,10 @@ pub struct CreatureStats {
     /// alone** (`creature::forage_drive_from_env`'s `,keep`): its feed urge
     /// scaled down at the nest. 0 unless set.
     pub forage_kept: u64,
+    /// **Drop rolls a packed lunch was set down on** (`creature::
+    /// carries_lunch`): away from the nest, beside food its crop cannot
+    /// swallow. 0 unless `PIXEL_PHYSICS_PACKED_LUNCH` is on.
+    pub lunch_set_down: u64,
     /// **Not a trip counter, and not a sessility guard — read
     /// `forage_trips` for either.** It increments on any move made while
     /// nest-adjacent, guarded on `OrganismState::since_nest > 0`; but

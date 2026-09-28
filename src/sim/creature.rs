@@ -11261,7 +11261,20 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // counter that disagrees with the behaviour it counts is worse
             // than no counter.
             let at_nest = nest_within_reach(world, organism, x, y, def);
-            let p = drop_urge;
+            // **A packed lunch goes down where there is a load to take**
+            // (`carries_lunch`): away from the nest, beside food its crop
+            // cannot swallow (a crop holds one material), the roll is 1, so
+            // the next tick can load. Without it, measured on the colony bed
+            // under `PIXEL_PHYSICS_PACKED_LUNCH=on` (24 seeds, 90 cells),
+            // lunch carriers beside the pile picked up on 0.6% of their
+            // decisions against 55% for an empty forager, and spent 636,000
+            // ant-frames at or past it; in the lab, colonies starved with far
+            // food standing. The lunch is not lost: it goes down as a cell.
+            let lunch_down = !at_nest && world.organism(organism).is_some_and(|s| carries_lunch(world, s)) && adjacent_food_counted(world, organism, (x, y), gut, def.start_energy).best.is_some_and(|(_, _, _, m)| m != held.material);
+            if lunch_down {
+                world.creature_stats.lunch_set_down += 1;
+            }
+            let p = if lunch_down { 1.0 } else { drop_urge };
             // The same single draw as before, bound to a name so the trace can
             // report it. **The roll is spent before the search for an empty
             // neighbour**, so a won roll with nowhere to go is a tick that did
@@ -13601,7 +13614,9 @@ pub fn carry_patience_of(world: &World) -> bool {
 /// pull home unless `hungry_home`), and `chooser_step`'s `laden` (it scouts
 /// outward and reads the outbound trail). Digestion runs wherever the ant
 /// is, so it eats its lunch on the road. Its `Drop` still reads `AtNest`,
-/// so it does not put the lunch down on the way. Read once per process;
+/// so it does not put the lunch down on the way -- except beside food its
+/// crop cannot swallow, where the lunch goes down so the next tick can load
+/// (the drop roll in `act`). Read once per process;
 /// unset, nothing is read or written and no draw is taken.
 pub fn packed_lunch_from_env() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -25964,6 +25979,59 @@ mod tests {
         assert_eq!(off, load, "the rule on moved a real load, or the rule off moved a lunch");
         assert!(furthest(&off) < 130, "a laden ant with the rule off ran out to x {}: the scene cannot show the rule", furthest(&off));
         assert_eq!((off_paced, load_paced), (0, 0), "the drive paced a laden ant it must not reach");
+    }
+
+    /// **A packed lunch goes down beside food it cannot swallow, so the
+    /// forager can load** (`act`'s drop roll under `carries_lunch`). A fed,
+    /// foraged ant 80 cells from home holding one cell of crumbs taken at
+    /// home, with a fruit cell beside its head. With the rule on, within 60
+    /// frames the crumbs go down (`lunch_set_down` counted) and the crop
+    /// holds fruit. With it off the crop still holds crumbs and no fruit was
+    /// taken: a crop holds one material, and away from the nest `Drop` is 0.
+    /// **Watched red** with the roll left at `drop_urge`: the crop kept its
+    /// crumbs.
+    #[test]
+    fn a_packed_lunch_is_set_down_beside_food_it_cannot_swallow() {
+        let run = |rule: bool| -> (Option<Crop>, u64, material::MaterialId, material::MaterialId) {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            for x in 0..160 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.forage_drive = Some(ForageDrive::SHIPPED);
+            w.packed_lunch = Some(rule);
+            w.register_nest_site(20, 40, 4);
+            let crumbs = w.materials.id_of("crumbs").expect("crumbs.ron must be registered");
+            let fruit = w.materials.id_of("fruit").expect("fruit.ron must be registered");
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let energy = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy;
+            let (hx, hy) = w.organism(ant).expect("live").chain[0];
+            let spot = NEIGHBOURS_8.iter().map(|&(dx, dy)| (hx + dx, hy + dy)).find(|&(x, y)| w.get(x, y).is_empty() && w.get(x, y + 1).material == material::STONE).expect("an empty cell on the floor beside the head");
+            w.set(spot.0, spot.1, Cell::new(fruit, 0));
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.forage_anchor = (20, 40);
+                st.foraged = true;
+                st.lunch = true;
+                st.crop = Some(Crop { material: crumbs, cells: 1, digesting: 0.0, unit: 400.0, shade: 0, passenger: None });
+            }
+            for _ in 0..60 {
+                w.organism_mut(ant).expect("live").energy = energy;
+                w.begin_step();
+                scheduler::step(&mut w);
+                w.end_step();
+            }
+            (w.organism(ant).expect("live").crop, w.creature_stats.lunch_set_down, crumbs, fruit)
+        };
+        let (on, down, crumbs, fruit) = run(true);
+        assert!(down > 0, "the lunch was never set down beside the fruit");
+        assert_eq!(on.map(|c| c.material), Some(fruit), "set down, but the forager did not load the fruit: crop {on:?}");
+        let (off, off_down, _, _) = run(false);
+        assert_eq!(off_down, 0, "the rule off set a lunch down");
+        assert_eq!(off.map(|c| c.material), Some(crumbs), "with the rule off the crop should still hold its crumbs: {off:?}");
     }
 
     /// **The forage drive: a fed forager runs out when its colony is
