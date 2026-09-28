@@ -76,28 +76,26 @@ bringing food).
   food standing at the nest (`FOOD STORE`'s `nest food`, mean from frame
   6,000).
 
-## Baseline (the shipped default: drive, carry patience and packed lunch on)
+## Baseline (`main` after #511: drive, carry patience, packed lunch, birth price, dig down)
 
-Colony bed, no trail, 24 seeds (seeds 1-24):
+Colony bed, no trail, 24 seeds (seeds 1-24), measured 2026-09-28:
 
 | food distance | food taken from the pile | food at the nest | starved of 480 | born |
 |---|---:|---:|---:|---:|
-| 90 | 5,377 | 8,591 J | 64 | 185 |
-| 140 | 4,859 | 7,827 J | 79 | 115 |
-| 90, with #508's dig down | **4,574** | 7,743 J | 93 | 151 |
+| 90 | 4,574 | 7,743 J | 93 | 151 |
+| 140 | 4,174 | 7,554 J | 89 | 91 |
+| 90, `NEST_DOOR=2` | 5,611 | 6,279 J | 15 | 150 |
+| 140, `NEST_DOOR=2` | 5,046 | 4,773 J | 38 | 82 |
 
-The first two rows are `main` after #507; the third is this branch merged
-with #508's head (24 seeds, 90 cells only; 140 and the lab not yet re-run
-with both). Against the first row, dig down takes less off the pile on 21 of
-24 seeds and starves more on 12 (5 fewer). Neither switch on that tree:
-3,744, 7,160 J, 83, 59; dig down alone 3,057, 6,670 J, 152, 30.
+The door rows are the nest lane's switch (§22r). Lab box, 24 seeds, median,
+same tree: food eaten 1,149k J, births 408, starved 137, alive at the end 78,
+ant-frames lived 10.5M; died out 1, under 10 at the end 6. With the door:
+1,053k J, 406, 156, 113, 9.4M; 2 and 2 (no sign test below p 0.15).
 
-Packed lunch `=off` on the same tree: 90 cells 3,744, 7,160 J, 83, 59; 140
-cells 3,797, 6,762 J, 79, 55. #507 (founding shaft, heap cue) moved the bed
-by itself, so numbers from before it are a different tree. Lab box, 24 seeds,
-median, shipped: food eaten 1,150k J, births 482, alive at the end 55,
-ant-frames lived 10.9M; died out 3, under 10 at the end 6. Packed lunch off:
-1,170k J, 515, 48, 9.8M; 1 and 3.
+Before #508 (dig down) and #510 the 90-cell bed read 5,377 / 8,591 J / 64 /
+185 and 140 read 4,859 / 7,827 J / 79 / 115; packed lunch off on that tree
+3,744 / 7,160 J / 83 / 59. #507 (founding shaft, heap cue) moved the bed by
+itself, so numbers from before it are a different tree.
 
 ## Ranked open problems
 
