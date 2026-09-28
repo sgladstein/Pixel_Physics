@@ -435,7 +435,7 @@ before the flip:
 
 ## 10. The creep, sized before building a fresh heap
 
-§11 proposed a fresh heap as the next lever: pellets carry no age, so a heap
+§12 proposed a fresh heap as the next lever: pellets carry no age, so a heap
 of any age licenses an opening. `digbox`'s funnel already dates every pellet
 it sees put down, so the lever's reach could be read before building it. In
 the window where the creep happens, frames 12,000 to 24,000, over 12 seeds:
@@ -452,7 +452,49 @@ the window where the creep happens, frames 12,000 to 24,000, over 12 seeds:
   the porous top of the one body, not a new start. So pellet age is a partial
   lever at best, and it is not built.
 
-## 11. What is next
+## 11. Dig down with a hunger gate: a partial rescue, and a dead end
+
+§8's harm is ants at home turning down to dig instead of going out, so the
+first candidate for keeping dig down's nest was the one the owner's route
+prefers, a genome weight: a hungry ant digs less. `(Energy, Dig) = w` with
+`(Bias, Dig)` moved to `-0.3 - w`, so a fed ant (`Energy` 1.0) digs exactly
+as before and a hungry one `w (1 - Energy)` less. Set at runtime through
+each harness's `wire=`, one binary on the final code.
+
+**Colony bed** (24 seeds, gap 90):
+
+| | starved | food taken from the pile | born | reached the food |
+|---|---:|---:|---:|---:|
+| shipped (shaft + cue) | 83 | 3,744 | 59 | 369 |
+| + dig down | 295 | 1,870 | 25 | 216 |
+| + dig down, gate 1 | 250 | 2,073 | 26 | 233 |
+| + dig down, gate 2 | 220 | 2,171 | 22 | 266 |
+| + dig down, gate 4 | 140 | 2,750 | 20 | 340 |
+| gate 2, no dig down | 69 | 3,914 | 70 | 386 |
+
+- **The gate rescues dig down in part and never in full.** At 4 it takes
+  starvation 295 -> 140 (lower on 22 of 24) and food taken 1,870 -> 2,750
+  (higher on 23), still short of the shipped ant on food (lower on 21 of
+  24) and births (lower on 17). So hunger is only part of why the diggers
+  stay home: **fed ants at home turn down and dig too.**
+- **Without dig down the gate leans the right way and does not
+  resolve:** starved 69 against 83 (lower on 14, higher on 9), food taken
+  13 / 11.
+
+**The dig box** (40 ants, 12 seeds, no food) prices it, and the price is the
+nest. With nothing to eat an ant's bank is about a quarter of its start by
+frame 12,000, so the gate stops nearly all digging: dig events at frame
+12,000, median over every seed, 133 shipped, 227 with dig down, and with dig
+down gated at 1, 2 and 4, 79, 23 and 9.5; the gate alone, 17.5. A colony
+that is hungry stops building, which is the opposite of what a colony short
+of food and shelter needs.
+
+**Recorded as a dead end** (`dead-ends.md`, the `(Energy, Dig)` entry). The
+candidate left is the one that goes at the mechanism the bed shows: the
+turn down only for an ant the ground already encloses, so an ant on the
+surface at home never starts a new hole downward and stays a forager.
+
+## 12. What is next
 
 1. **The mouth in the lab** (§7). It is buried by what the colony brings
    home and by the planting growing over the nest ground, not by digging.
@@ -462,12 +504,11 @@ the window where the creep happens, frames 12,000 to 24,000, over 12 seeds:
      That is chambers with contents (item 4), and the food drop belongs to
      the foraging lane, so it would be a joint step.
 2. **Dig down without the foraging harm** (§8). The turn has to stop
-   recruiting the foragers. Two candidates, each measured first on the colony
-   bed:
-   - a genome weight, the owner's preferred route: a hungry ant's `Dig`
-     lower, so it goes out rather than down;
-   - the turn only for an ant the ground already encloses, so none starts a
-     new hole from the surface at home.
+   recruiting the foragers. The genome weight -- a hungry ant's `Dig` lower
+   -- was tried (§11): a partial rescue that stops a hungry colony digging.
+   Left: the turn only for an ant the ground already encloses, so none
+   starts a new hole from the surface at home. Measured first on the colony
+   bed.
 3. **The brain input**, per the owner's ruling. The sense is the pellet count
    beside the target, and the gate is "this cut opens the sky". Each new
    input costs 24 genome slots and moves every breeding scene, so it is
@@ -479,7 +520,7 @@ the window where the creep happens, frames 12,000 to 24,000, over 12 seeds:
 The creep is closed for now: a fresh heap would refuse at most a third to
 under a half of it (§10).
 
-## 12. Predictions, written before each batch
+## 13. Predictions, written before each batch
 
 | # | arm | prediction | result | right? |
 |---|---|---|---|---|
@@ -517,3 +558,8 @@ under a half of it (§10).
 | 86 | colony bed, + dig down | starved within ±25 of shaft + cue's 83, under shipped on ≥ 20 of 24 | 295; over shipped on 19 | wrong |
 | 87 | colony bed, + dig down | food taken within ±10% of shaft + cue | -50%, lower on 24 of 24 | wrong |
 | 88 | lab, + dig down | ties with shipped, no split worse than 3 / 9; ≤ 2 colonies lost | 6 / 6 on food and births; none lost | right |
+| 89 | bed, dig down on the final code | starved 295 exactly | 295 | right |
+| 90 | bed, + gate 1 | starved between 83 and 295; food higher than dig down alone on ≥ 18 of 24 | 250; 14 of 24 | half |
+| 91 | bed, + gate 2 | starved ≤ 133 | 220 | wrong |
+| 92 | bed, + gate 4 | starved within ±25 of 83; food within 10% of 3,744 | 140; -27% | wrong |
+| 93 | bed, gate 2 without dig down | starved within ±25 of 83 | 69 | right |

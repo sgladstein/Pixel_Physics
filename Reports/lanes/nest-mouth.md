@@ -73,9 +73,11 @@ and since 2026-09-28 that is the shipped ant**
 1. **The mouth in the lab:** kept clear by the colony, or the food taken
    inside? Ask the owner before building either; the second is a joint step
    with the foraging lane (the food drop is theirs).
-2. **Dig down without the foraging harm:** a hungry ant's `Dig` lowered
-   through the genome, or the turn only for an enclosed ant. Measured first
-   on the colony bed.
+2. **Dig down without the foraging harm.** A hungry ant's `Dig` lowered
+   through the genome was tried (report §11): starvation 295 -> 140 at best,
+   against 83 shipped, and a hungry colony stops digging (a dead end). Fed
+   ants at home turn down too, so next is the turn only for an ant the
+   ground already encloses. Measured first on the colony bed.
 3. **The brain input** for the cue (owner's order); 24 genome slots, so
    planned with the lab lines.
 4. **Chambers** need contents (brood or a granary), which the dig box lacks.
