@@ -116,6 +116,23 @@ each):
 **The default reproduces the measured arm line for line** (seeds 1–3), since
 `wire=` sets the same slots the genome file now carries.
 
+**It holds on `main` after #504**, which ships the forage drive (`always`)
+and carry patience (`pickup`). Same 12 seeds, the new genome against `wire=`
+back to the old one, on the merged binary:
+
+| | old | new | seeds better |
+|---|---:|---:|---:|
+| openings to the surface | 28 | **10** | 12 of 12 |
+| roofed share | 0.60 | **0.76** | 12 of 12 |
+| 90th-percentile depth, rows | 7 | **10** | 7 of 12 |
+| middle-half width, columns | 71 | **37** | 12 of 12 |
+| largest connected piece | 0.16 | **0.27** | 12 of 12 |
+| cells dug | 131 | 115 | |
+
+- The forage drive moves the dig box a little on its own: the logs differ
+  from the pre-merge runs on 9–10 of 12 seeds, though the box has no food.
+- The comparison between the two genomes does not move.
+
 ## 3. What it looks like
 
 Seed 1, tinted: tunnel wall cyan, spoil orange, ants magenta, the nest

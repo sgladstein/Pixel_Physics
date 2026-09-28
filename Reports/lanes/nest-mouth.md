@@ -31,6 +31,20 @@ the live question, what is addressed to another lane, predictions and heads.*
   making progress in nest building. It is okay if nest building temporarily
   hurts colony numbers." A step is judged on the dig box's nest measures; the
   bed and the lab are run to tell the foraging lane what moved, not to veto.
+- **2026-09-28: the footing switch and the marker.** "Yes to both your
+  recommendations":
+  - "pellets only on real ground" (`SPOIL_FOOTING=ground`) stays a switch,
+    decided together with the marker, since that is when it should pay off;
+  - the marker becomes a new brain input once a switch version shows it
+    works.
+
+  On the marker itself: "if you think this is a good idea, you are welcome
+  to reopen it." **Reopened as the fresh-spoil heap, not a scent at the
+  face.** A dig-face pheromone tested negative in ants (Bruce 2015) and was
+  never built here: it was dropped before any code on 2026-09-19 and again on
+  2026-09-28. Fresh pellets do draw where ants start digging (Pielström &
+  Roces 2013). The heap is what the marker still has to do: make the holes
+  compete so one wins.
 
 ## Live question
 
@@ -46,10 +60,14 @@ the live question, what is addressed to another lane, predictions and heads.*
   ants (`nest-biology-digging-signals-2026-09-19.md` §3.1).
 
 **Next** (2026-09-28):
-1. **One mouth.** Ten remain along the nest strip. Re-score on the new
-   dig: a narrower home (`NEST_SITE_COLS`, its condition is met), the
-   founding shaft and door + dug mouth, and fresh spoil as where new digging
-   starts.
+1. **One mouth.** Ten remain along the nest strip.
+   - **First, the heap as the marker**: fresh spoil draws digging, with a
+     saturating response so the busiest hole keeps its diggers. Built as a
+     switch first and scored with `SPOIL_FOOTING` off and on. It fails if
+     openings do not fall below 10 on 9 of 12 seeds for the same digging.
+     Watch heap cuts: digging into the pile refills the holes.
+   - Then re-score on the new dig: a narrower home (`NEST_SITE_COLS`, its
+     condition is met), and the founding shaft with door + dug mouth.
 2. **The footing switch and drop-away**, re-scored on the new dig.
 3. **Chambers** need contents (brood or a granary), which the dig box
    lacks.
@@ -161,3 +179,11 @@ exploratory and carry none.
   arms and the colony bed.
 - The commit after it — the lab, the verdict (both stay off), the wiki's
   hanging-tailings claim corrected.
+- `c4157a8a` — the funnel's fresh-spoil line: spoil beside 37% of decisions
+  to dig.
+- `8136774a`, `cf30f160` — the dig wiring shipped: `(Bias, Dig, -0.3)`,
+  `(SurfaceCurvature, Dig, -1.0)`; the colony bed and the lab.
+- `1db71efa` — the foraging lane's decision-trace test runs both walks
+  9,000 frames.
+- `d96f3eeb` — `main` merged in (#504, forage drive and carry patience on);
+  the dig box re-checked on it, the comparison unchanged.
