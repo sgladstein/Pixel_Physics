@@ -11385,6 +11385,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // `LifeCounters`. Its own lookup: the `organism_mut` above is
                 // inside the crop-update block and does not reach here.
                 let restart = carry_patience_of(world);
+                // `store_lunch_from_env`: read before the borrow below.
+                let trip_bar = if store_lunch_from_env() { Some(scaled_cells(world, FORAGE_TRIP_MIN as i32).clamp(0, u16::MAX as i32) as u16) } else { None };
                 let first = if let Some(state) = world.organism_mut(organism) {
                     state.life.bites += 1;
                     // **A carry is measured from the last cell loaded**
@@ -11405,7 +11407,12 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     // (`carries_lunch`): an empty crop's first cell taken at
                     // home starts one, and any cell taken away from home
                     // makes it a load. Written whatever the switch.
-                    state.lunch = picked_at_home && (state.lunch || crop.is_none_or(|c| c.worth() <= 0.0));
+                    //
+                    // Under `store_lunch_from_env`, food taken before the ant
+                    // has been `FORAGE_TRIP_MIN` cells from its last nest
+                    // contact is from home too, wherever it stood.
+                    let from_home = picked_at_home || trip_bar.is_some_and(|bar| state.forage_max < bar);
+                    state.lunch = from_home && (state.lunch || crop.is_none_or(|c| c.worth() <= 0.0));
                     state.life.bites == 1
                 } else {
                     false
@@ -13259,8 +13266,10 @@ fn commit_step(
     world.creature_stats.moves += 1;
 
     // How deep this excursion has got, in cells from the last nest contact.
-    // **`forage_max` is measurement only. `forage_anchor` beside it is NOT,
-    // and this comment said it was until 2026-09-21.** `sense` reads the
+    // **`forage_max` is measurement only unless `PIXEL_PHYSICS_STORE_LUNCH`
+    // is on** (`store_lunch_from_env`, which reads it at a pickup).
+    // **`forage_anchor` beside it is NOT, and this comment said it was until
+    // 2026-09-21.** `sense` reads the
     // anchor as the homing direction for `BrainInput::HomeAligned`, so the
     // re-anchor below — correct for keeping a loiterer's excursion depth at 1,
     // which is the rule's stated purpose — also moves where every laden animal
@@ -13876,6 +13885,34 @@ fn parse_packed_lunch(raw: &str) -> bool {
 /// environment's.
 pub fn packed_lunch_of(world: &World) -> bool {
     world.packed_lunch.unwrap_or_else(packed_lunch_from_env)
+}
+
+/// **`PIXEL_PHYSICS_STORE_LUNCH=on`: store food is a packed lunch wherever
+/// the ant stood to take it.** Unset or `off` is the ant before it: a crop
+/// is a lunch only while every cell in it was taken with the head beside
+/// nest material (`nest_within_reach`). On the colony bed with the nest
+/// lane's door (`NEST_DOOR=2`, 90 cells, 24 seeds, traced 2026-09-28), a
+/// forager spends 41% of its life after its last delivery and 70% of that
+/// fed at home, and 63% of that time it holds store food the drive cannot
+/// reach because it is not a lunch: a third taken on the heap over the
+/// door or down the shaft, where no nest material touches, and a third a
+/// lunch turned into a load by a later cell taken one step off it
+/// (`Reports/ant-scenes-2026-09-23.md` §22r). With `on`, a cell taken
+/// while the ant's excursion since its last nest contact
+/// (`OrganismState::forage_max`) is under `FORAGE_TRIP_MIN` -- the bar
+/// below which an outing is loitering at home, not a trip -- counts as
+/// taken at home for the lunch. Only the lunch reads it: `foraged` and
+/// `pickups_at_nest` keep the nest-contact rule. Read once per process.
+pub fn store_lunch_from_env() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_STORE_LUNCH").unwrap_or_default().trim() {
+        "on" => true,
+        "off" | "" => false,
+        other => {
+            eprintln!("PIXEL_PHYSICS_STORE_LUNCH={other:?}: unknown, read as off (off, on)");
+            false
+        }
+    })
 }
 
 /// **This animal carries a packed lunch the rule lets out**

@@ -1896,6 +1896,19 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         cdef.crop_capacity = cc;
         w.species.set_creature(species_id, cdef);
     }
+    // **`burn=<factor>` -- the economy control** (2026-09-28, the owner's "is
+    // the economy too hard?"): the ant's `idle_cost_per_cell` and
+    // `move_cost_per_cell` are both multiplied by `<factor>`, so `burn=0.5`
+    // is an ant that lives on half as much. Nothing else moves. If loops per
+    // forager and the time a forager spends retired do not move with it, the
+    // price of living is not what limits the loop.
+    if let Some(b) = arg::<f32>("burn") {
+        let mut cdef = w.species.get(species_id).creature.clone().expect("ant is a creature");
+        assert!((b - 1.0).abs() > f32::EPSILON, "burn=1 is the shipped ant wearing a different name");
+        cdef.idle_cost_per_cell *= b;
+        cdef.move_cost_per_cell *= b;
+        w.species.set_creature(species_id, cdef);
+    }
     // **`hungergate=` -- how far digestion follows appetite**, the control arm
     // for `CreatureDef::digest_hunger_weight`. `hungergate=0` restores the
     // clock-driven gut exactly, which is the baseline every number for this
@@ -4914,13 +4927,13 @@ fn main() {
     // a 1.84% open gate where the same command at the default reports 639,100
     // and 1.25%, and nothing in the header said why. Found 2026-09-18 by an
     // archived log failing to reproduce against a binary that was correct.
-    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill} stop={stop} homebias={} cropcap={} hungergate={} arho={} brho={} adiffuse={} arise={}/{} tumble={} persist={} tumblegrad={} homewire={}", gate.name, arg::<f32>("homebias").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("cropcap").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("hungergate").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("arho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("brho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("adiffuse").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("arise").map_or("off".to_string(), |v| format!("{v}")), arg::<f32>("arisetumble").map_or("off".to_string(), |v| format!("{v}")), arg::<f32>("tumble").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("persist").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tumblegrad").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("homewire").map_or("shipped".to_string(), |v| format!("{v}")));
+    println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill} stop={stop} homebias={} cropcap={} hungergate={} burn={} arho={} brho={} adiffuse={} arise={}/{} tumble={} persist={} tumblegrad={} homewire={}", gate.name, arg::<f32>("homebias").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("cropcap").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("hungergate").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("burn").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("arho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("brho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("adiffuse").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("arise").map_or("off".to_string(), |v| format!("{v}")), arg::<f32>("arisetumble").map_or("off".to_string(), |v| format!("{v}")), arg::<f32>("tumble").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("persist").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tumblegrad").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("homewire").map_or("shipped".to_string(), |v| format!("{v}")));
     println!("  gate {}: off {:+.1}  on {:+.1}  along ±{:.1}", gate.name, gate.off, gate.on, gate.along);
     // The trace and trail-B switches, and the environment levers every bed in
     // `ant-forage-bed-and-gates-2026-09-21.md` is run with, echoed so a log
     // that does not name them was written by a binary that never had them.
     println!(
-        "  breadoff={} wire={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} LOAD_BY={} LOAD_SCALE={} NEST_DOOR={} NEST_DOOR_FOUNDERS={} NEST_SHAFT={} NEST_HOME={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) CARRY_PATIENCE={} PACKED_LUNCH={} BIRTH_PRICE={} HAUL_BITE={:?} layfrom={}",
+        "  breadoff={} wire={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} LOAD_BY={} LOAD_SCALE={} NEST_DOOR={} NEST_DOOR_FOUNDERS={} NEST_SHAFT={} NEST_HOME={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) CARRY_PATIENCE={} PACKED_LUNCH={} BIRTH_PRICE={} HAUL_BITE={:?} STORE_LUNCH={} layfrom={}",
         flag("breadoff"),
         arg_str("wire").unwrap_or_else(|| "shipped".into()),
         flag("decisioncsv"),
@@ -4942,6 +4955,7 @@ fn main() {
         if creature::packed_lunch_from_env() { "on" } else { "off" },
         if creature::birth_price_from_env() { "guaranteed" } else { "face" },
         creature::haul_bite_from_env(),
+        if creature::store_lunch_from_env() { "on" } else { "off" },
         arg_str("layfrom").unwrap_or_else(|| "nest".into())
     );
     println!("  {LANDED_NOTE}\n");

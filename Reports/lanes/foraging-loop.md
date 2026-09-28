@@ -19,9 +19,16 @@ commands and the traps.*
 
 - **The goal:** foragers earn enough to feed themselves *and* extra for the
   colony (2026-09-25). "All we care about is the loop is improving."
-- **Test in both games**, the colony bed (`trailfollow`) and the lab box
-  (`labforage`), and at 140 cells, before asking for any ruling. The lab
-  caught the painted door (§19) and the forage drive's early crashes (§22h).
+- **The colony bed decides; the lab box is the pre-ship check** (09-28,
+  replacing "test in both games before any ruling"). Develop and rule on
+  loop changes on the bed (`trailfollow`) at 90 *and* 140 cells, traced.
+  Before a change ships, run the lab (`labforage`, 24 seeds) once as a
+  regression check: died out, starved, births, alive at the end. It is not
+  evidence the loop improved: it came back neutral on the drive, carry
+  patience, packed lunch and the door, and costs ~25x the bed per arm. What
+  it caught was harm the bed cannot contain: the birth overdraw (Z36, seeds),
+  the forage drive's early crashes (§22h), the painted door's lab loss (§19,
+  gone on the 09-28 ant).
 - **Lead with the specific quantity a change targets**; colony totals
   (starved, net food into home) are the check, not the headline (09-26).
 - **Features default on unless there is a good reason not to** (09-27,
@@ -192,3 +199,6 @@ Rows 1-3 (packed lunch, scored) are in `ant-scenes-2026-09-23.md` §22o.
 | 4 | `BIRTH_PRICE=guaranteed` vs `face`, lab 24 seeds (2026-09-28, this branch after #508) | parents killed by their own birth ~0 (from 11-15% of births); starved deaths down ~20-25% over the run; births up a little; alive at the end up; died out no worse | overdrawn 88.5 -> 0 (right); starved -47% (right way, twice the size); births -33% (wrong); alive at the end flat (wrong); died out 2 -> 1 (right) |
 | 5 | same, bed 90 and 140, 24 seeds | neutral: bed births are paid at the nest in crumbs, not seeds; starved and born within the spread | right: byte-identical at both distances (no seeds in the bed's diet) |
 | 6 | `wire=AtNest:Feed:-0.7,Energy:Feed:-0.7` on `main` after #510, bed 90, 24 seeds (2026-09-28): fed ants at home stop re-taking the store | food standing on the nest at least 2x (1,400-2,800 J to an ant today); food taken off the pile up 5-15%; starved within the spread; ants' bodies hold less | food on the nest 7,743 -> 13,832 J (right); taken 4,574 -> 2,523, lower on 24 (wrong); starved 93 -> 180 (wrong); bodies 8,038 -> 2,124 J (right); born 151 -> 7. s22q |
+| 7 | `HAUL_BITE=off` (a pellet in the mandibles blocks a bite), bed 90, door off, 24 seeds (2026-09-28) | food standing at the nest up; births down | standing 7,743 -> 8,608 J (16/8, not significant); born 151 -> 93 (4/15, right). Taken 4,574 -> 3,998 (7/16). Retirement not fixed: the time moves to holding a pellet beside food. §22r |
+| 8 | `STORE_LUNCH=on`, bed 90, door on, 24 seeds, traced | loopers' life after the last delivery 41% -> 30% or less; loops per ant 2.1 -> 2.5+; food taken +10-20%; food standing at the nest flat or lower; born and starved within the spread; door off moves less (the strip is 53 cells of nest material) | |
+| 9 | `burn=0.5` (the ant lives on half as much), bed 90, door on, traced | loops per ant within +-10% of 2.1, and life after the last delivery not lower than 41%: price is not the limit; starved down, born up | |
