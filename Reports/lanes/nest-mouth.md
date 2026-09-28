@@ -193,3 +193,13 @@ exploratory and carry none.
   9,000 frames.
 - `d96f3eeb` — `main` merged in (#504, forage drive and carry patience on);
   the dig box re-checked on it, the comparison unchanged.
+- `ffbac01e` (#506) — the heap cue as a switch, off; the veto on the cell
+  actually cut, after any dig-down turn.
+- `09b3c872` — the founding shaft and the heap cue ship on; dig down stays
+  off (bed starvation 83 -> 295).
+- `6bc7a535`, `a9922509` — the founding shaft digs only what the founders
+  could, and opens a column only onto ground under the paint.
+- `fbdd7ecd` — founding deals the reserve over the founders placed: the
+  books leak the flip exposed (82.6 J; the lab's 52-planned, 43-placed
+  colony on every run).
+- `69f0d80a` — the lab on the final code: the flip ties on every pair.
