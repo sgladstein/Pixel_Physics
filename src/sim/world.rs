@@ -1234,6 +1234,30 @@ impl ShaftFootprint {
         (self.x0 - 1..=self.x1 + 1).contains(&x) && (self.top - 1..=self.mouth_bottom + 1).contains(&y)
     }
 
+    /// Whether `(x, y)` lies inside the **chamber**, the room at the foot of
+    /// the shaft: the storeroom under `PIXEL_PHYSICS_STOREROOM`
+    /// (`creature::storeroom_of`).
+    pub fn in_chamber(&self, x: i32, y: i32) -> bool {
+        (self.chamber_x0..=self.chamber_x1).contains(&x) && (self.chamber_top..=self.chamber_bottom).contains(&y)
+    }
+
+    /// Whether `(x, y)` is **within one cell of the chamber**, diagonals
+    /// included: [`ShaftFootprint::touches`] restricted to the room.
+    pub fn touches_chamber(&self, x: i32, y: i32) -> bool {
+        (self.chamber_x0 - 1..=self.chamber_x1 + 1).contains(&x) && (self.chamber_top - 1..=self.chamber_bottom + 1).contains(&y)
+    }
+
+    /// Whether `(x, y)` lies inside the **shaft**, from the mouth's row down
+    /// to its last row.
+    pub fn in_shaft(&self, x: i32, y: i32) -> bool {
+        (self.x0..=self.x1).contains(&x) && (self.top..=self.bottom).contains(&y)
+    }
+
+    /// The middle of the chamber's floor row: where a store load is carried.
+    pub fn chamber_floor(&self) -> (i32, i32) {
+        ((self.chamber_x0 + self.chamber_x1) / 2, self.chamber_bottom)
+    }
+
     /// Every cell of the cut, each once: the shaft row by row, then the
     /// chamber row by row with the shaft's own columns left out where the
     /// two rectangles overlap.
@@ -1627,6 +1651,21 @@ pub struct CreatureStats {
     /// straight ahead instead. Before the refusal (2026-09-28) every one of
     /// them turned the animal to face that floor.
     pub digs_down_refused: u64,
+    /// **The storeroom** (`creature::storeroom_of`, `PIXEL_PHYSICS_STOREROOM=on`):
+    /// food taken whole into the mandibles at home by an ant the colony is not
+    /// sending out, to be carried into the founding chamber uneaten. The "it
+    /// fired" counter; `store_delivered` is its effect on the far side.
+    pub store_pickups: u64,
+    /// Store loads set down inside the chamber.
+    pub store_delivered: u64,
+    /// Drop rolls a store load won outside the chamber, or beside no empty
+    /// chamber cell: the load is held and the carrier walks on.
+    pub store_held: u64,
+    /// Store loads let go outside the chamber because the carrier gave up
+    /// (its home patience ran out) or the room was full.
+    pub store_released: u64,
+    /// Store pickups refused because the chamber had no empty cell.
+    pub store_room_full: u64,
     /// **Drop rolls damped because the animal was under cover** -- the "it
     /// fired" counter for `creature::spoil_drop_cover`, 0 at the default.
     pub spoil_holds_under_cover: u64,
@@ -3496,6 +3535,9 @@ pub struct World {
     /// `Some(None)` turns it off. A field so a guard can take both arms in
     /// one process.
     pub dig_down: Option<Option<crate::sim::creature::DigDown>>,
+    /// **The storeroom, overriding `PIXEL_PHYSICS_STOREROOM` for this world**
+    /// (`creature::storeroom_of`). `None` follows the environment.
+    pub storeroom: Option<crate::sim::creature::Storeroom>,
     /// **How hard a hungry empty ant off a route is drawn away from home,
     /// overriding `PIXEL_PHYSICS_SCOUT` for this world** (`creature::scout_of`).
     /// `None` follows the environment, which is 0 (no pull) unless set; a
@@ -5870,6 +5912,7 @@ impl World {
             nest_shaft: None,
             spoil_cue: None,
             dig_down: None,
+            storeroom: None,
             scout: None,
             hungry_home: None,
             forage_drive: None,
@@ -6890,6 +6933,8 @@ impl World {
             scout_patience: 1.0,
             scout_home: false,
             foraged: false,
+            store_return: false,
+            store_carried: false,
             lunch: false,
             eat_lunch_now: false,
             hungry_home: false,

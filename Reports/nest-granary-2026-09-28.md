@@ -22,8 +22,13 @@ stores little or costs the colony its breeding.**
   work, carrying food in kept the entrance open at 8 of 9 checks against 2 of
   9.
 
-The next step is a design decision (§6), put to the owner and the foraging
-lane.
+The owner chose **B**: foragers drop food at the door and ants at home carry
+it in. **Built as a switch (§8), it fills the room, and it costs the
+colony**: with a door over the mouth, 3 or more food cells in the room at
+mid-run on 14 of 24 seeds, and against the door alone 14% less food taken and
+a third fewer young. This colony has no ants that stay home, so the carriers
+are the fed ants that also breed. Found on the way: the door alone now helps
+the bed a great deal (starved 93 -> 15).
 
 ## 1. Where this sits
 
@@ -164,3 +169,130 @@ form the store's food is drawn two ways.
 | 122 | store loads only, today's room | food taken within ±10%; starved within ±25 | +6%; 180 against 152 | half |
 | 123 | same | food in the room at 12,000 on most seeds | 0 cells (seed 1) | wrong |
 | 124 | store loads only | births at least 20 | 58 and 40 | right |
+| 131 | B, `off` on the storeroom binary | reproduces the shipped bed exactly | 4,574 / 93 / 151 / 7,743 J, 24 of 24 | right |
+| 132 | B, `home` (the room is home, nothing carried) | starved at least 110; born lower than off | 122; 137 | right |
+| 133 | B, first form | at least 3 food cells in the room at 12,000 on at least 18 of 24 | 15 of 24 | wrong |
+| 134 | B, first form | starved higher than off on at least 16 of 24 | 18 of 24 (206 against 93) | right |
+| 135 | B, only ants the drive misses (`nestbound`) | store pick-ups under 10 a run | median 0 | right |
+| 136 | B, first form | food on the surface at 12,000 lower than under `home` on at least 16 of 24 | medians 13 against 13.5 | wrong |
+| 137 | the door alone, against off | starved lower on at least 14 of 24; food taken higher on at least 16 | 21 and 20 | right |
+| 138 | door + `on,post,home`, against the door | room >= 3 cells at 12,000 on at least 14; born lower on at least 14; starved within ±15 | 14; 16; 41 against 15 | half |
+| 139 | `on,post,home` without the door, against off | food taken lower on at least 16 of 24 | 24 of 24 | right |
+
+## 8. B, built: foragers drop at the door, ants at home carry it in
+
+*2026-09-28, after the owner chose B: "Foragers drop food at the door; ants
+that stay home carry it into the storeroom." Built on the branch as a switch,
+off by default. The colony bed with packed lunch and dig down on (`main`
+after #509), gap 90.*
+
+**The storeroom can be filled, and it is visible, but in this colony it
+costs the loop and the breeding.** With a door over the mouth, the best form
+found keeps 3 or more food cells in the room at mid-run on 14 of 24 seeds.
+Against the door alone it costs 14% of the food taken from the pile, 26 more
+ants starved and a third of the young (102 born against 150).
+
+### 8a. What is built
+
+`PIXEL_PHYSICS_STOREROOM`, comma-joined parts, off unless named:
+
+- **`on`, the carry.** A fed ant at home, with an empty crop and empty
+  mandibles, wins its `Feed` roll beside loose food lying more than a cell
+  from the founding chamber. It takes the cell whole into its mandibles (the
+  spoil slot), so the food is not eaten on the way. The load is pulled to the
+  mouth, then to the chamber's floor, at the laden pace. It goes down on a
+  `DropSpoil` roll in or beside the chamber. A carrier that has put a load
+  down is pulled back up to the mouth. A carrier still for 48 decisions, or
+  out of patience, lets the load go where it stands. A pick-up within a cell
+  of the chamber reads as at home, the foraging lane's condition.
+- **`home`**: the chamber is home to `AtNest` (breeding, the food drop, the
+  dig gate).
+- **`once`**: one load a trip, until the next pick-up away from home.
+- **`post`**: the load is handed down the open shaft from the mouth, the walk
+  down abstracted as the spoil lift abstracts the walk up.
+
+Nothing is read or written with the switch off. On seeds 1-8 its `off` arm
+reproduces `main`'s binary line for line, except the header line that names
+the switches.
+
+### 8b. How it got there (seeds 1-8 unless marked)
+
+Each form fixed what the one before it showed, in pictures and counts:
+
+1. **The first form** (24 seeds) sent loads to the chamber's floor and made
+   the room home. 75 loads a run were picked up and 20 reached the room.
+   Carriers pressed into the ground beside the mouth, or stood in the full
+   room holding; starved 93 -> 206, born 151 -> 78.
+2. **Only ants the drive misses** (`nestbound`) picked up nothing, median 0
+   a run. Under the shipped drive every ant that has ever taken food away from
+   home is sent out again, and nearly every ant has. **This colony has no
+   ants that only stay home.**
+3. **Mouth first, then the floor**: loads reached the room. But the carriers
+   stayed underground, dug sideways and starved (seed 1: every ant below
+   ground by frame 12,000). Nothing in the walk points up: the away pull is
+   level on purpose. **The return trip** fixed that.
+4. **One load a trip** (`once`) changed nothing: food taken 1,030 -> 1,000,
+   born 7 -> 7. Carrying was not displacing foraging by its amount; about 60
+   pick-ups a run is too few for that.
+5. **Dug crumbs out**: the first forms counted any food in the mandibles,
+   so crumbs a digger cut were carried too. Taking them out moved little
+   (door and `once`: food taken 1,687 -> 1,709, born 9 -> 8).
+6. **Handing the load down** (`post`): the 2-wide shaft jams, and crumbs
+   fall into it (3-8 food cells lie in the shaft by frame 24,000). Posting
+   from the mouth cost less (starved 62 -> 41, born 8 -> 14), and with the
+   room as home it delivered the most (with the door: 55 loads a run
+   against 10).
+
+Where the colony spends its time (seeds 1-8, decision trace): away from home
+44% of decisions with it off, 40% with the carry, 33% with the carry and the
+room as home. Inside the nest 35%, 43% and 53%.
+
+### 8c. The colony bed, 24 seeds
+
+Food taken from the pile (cells), starved of about 480, born, food standing
+at the nest (J), and the room at frame 12,000:
+
+| | taken | starved | born | at the nest | room >= 3 cells |
+|---|---:|---:|---:|---:|---:|
+| off | 4,574 | 93 | 151 | 7,743 | -- |
+| `home` only | 4,295 | 122 | 137 | 7,711 | 7 of 24 |
+| first form (§8b item 1) | 3,504 | 206 | 78 | 6,122 | 15 of 24 |
+| `on,post,home` | 2,994 | 151 | 35 | 5,058 | 7 of 24 |
+| the door alone (`NEST_DOOR=2`) | **5,611** | **15** | 150 | 6,279 | -- |
+| door + `on,post,home` | 4,831 | 41 | 102 | 6,454 | 14 of 24 |
+
+Paired, door + storeroom against the door alone: food taken lower on 16 of
+24, starved higher on 12 (lower on 5), born lower on 16, food standing at the
+nest higher on 16. The room holds a median 3 cells at 12,000 and 4 at
+24,000.
+
+### 8d. What limits it
+
+- **The carriers are the breeders.** A birth is paid from food within reach
+  of an ant at home (`try_bud`). The fed ants that sit by the food at the
+  door are the ones that breed, and they are the ones a won `Feed` roll turns
+  into carriers. Food moved into the room is within reach only of an ant in
+  the room, and only under `home` can it pay for a birth there (door and
+  post: born 18 without `home`, 30 with it, seeds 1-8).
+- **No ants stay home.** Under the shipped forage drive every forager is
+  sent out, so there is no nest-worker caste to do the carrying.
+- **The founding cut is small.** A 2-wide shaft jams, crumbs fall into it,
+  and a 7 by 2 room fills.
+
+### 8e. The door alone, on today's ant
+
+Found on the way, and not this lane's lever: the painted door over the mouth
+(`PIXEL_PHYSICS_NEST_DOOR=2`, the foraging lane's §19 switch) now helps the
+bed a great deal. Against off, starved 93 -> 15 (lower on 21 of 24), food
+taken +23% (higher on 20 of 24), born 151 -> 150. It was left off when every
+narrow home carried less food home in the lab; that was before packed lunch
+and dig down. The foraging lane was told.
+
+### 8f. What is next
+
+The step that would make B cheap is **ants that stay home**. Real ants
+divide the work by age: young workers work inside, older ones forage. Here
+that would be young ants that do not forage for a while, and carry and dig.
+Then the carriers would not be the foragers or the breeders. It changes when
+an ant starts to forage, which is the foraging lane's region, so it is put to
+the owner and that lane first.

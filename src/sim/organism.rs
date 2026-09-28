@@ -5250,6 +5250,10 @@ pub struct Spoil {
     /// `creature::line_burrow` tamps a gallery wall. See `creature::act`'s
     /// dig branch for why, and its drop for the floor that costs.
     pub cell: Cell,
+    /// **Food picked up at home for the storeroom** (`creature::storeroom_of`),
+    /// not a pellet dug out of the ground. Only a store load goes to the
+    /// chamber; a dug crumb is put down as spoil, as it always was.
+    pub store: bool,
 }
 
 /// **Whether the crop pays out in one lump at maturity, as it did before
@@ -6175,6 +6179,15 @@ pub struct OrganismState {
     /// colony's need can send it out again (`creature::forage_drive_level`,
     /// on unless `PIXEL_PHYSICS_FORAGE_DRIVE=off`). Never cleared.
     pub foraged: bool,
+    /// **On its way back up from the storeroom** (`creature::storeroom_of`):
+    /// set when this animal puts a store load down in the founding chamber,
+    /// cleared once its head is above the mouth. While set, and while it
+    /// holds nothing, it is pulled to the mouth (`creature::home_pull`).
+    pub store_return: bool,
+    /// **Has carried a load into the storeroom since it last took food away
+    /// from home** (`creature::storeroom_of`'s `once`): set by a store
+    /// pick-up, cleared by a pick-up away from home.
+    pub store_carried: bool,
     /// **The crop holds only food taken at home** since it was last empty:
     /// a packed lunch rather than a load (`creature::carries_lunch`). Set by
     /// a pickup at home into an empty crop, cleared by any pickup away from

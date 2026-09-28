@@ -4027,8 +4027,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     barely reaches the room.
   - **The lab entrance stayed open** at 8 of 9 checks against 2 of 9, before
     the owner set the lab aside for this work.
-  - **Next is a design decision**: a short trip and births paid from the
-    store, or a store load carried in the mandibles like spoil.
+  - **The owner chose B, built as `PIXEL_PHYSICS_STOREROOM` (off), §8:**
+    foragers drop at the door and fed ants at home carry the food down in
+    their mandibles. With a door over the mouth the room holds 3+ cells at
+    mid-run on 14 of 24 seeds; against the door alone it costs 14% of the
+    food taken and a third of the young, because no ants stay home and the
+    carriers are the ants that breed. The door alone now cuts starvation
+    93 -> 15 on the bed.
 - [nest-heap-cue-2026-09-28.md](nest-heap-cue-2026-09-28.md) —
   **measurement and a default change, 2026-09-28. `engine`/`lab`.** One
   entrance instead of ten: a dig that would open the ground to the sky needs

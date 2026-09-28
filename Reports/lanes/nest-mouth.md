@@ -50,6 +50,8 @@ the live question, what is addressed to another lane, predictions and heads.*
   mouth should be kept clear or the food taken inside, the owner answered
   "Food in chamber". A joint step with the foraging lane (the drop and the
   homing are theirs); prototyped in scratch first.
+- **2026-09-28: granary form B.** "Go ahead with B: Foragers drop food at
+  the door; ants that stay home carry it into the storeroom."
 - **2026-09-28: a simple test environment for this work.** "I don't think we
   should worry about plants or the standard lab bed during this development.
   Just use a simpler test environment for now." The granary is developed on
@@ -65,15 +67,10 @@ and since 2026-09-28 that is the shipped ant**
   `(SurfaceCurvature, Dig, -1.0)` (#505). Openings 27.5 -> 10, digging in
   one place ([`../nest-dig-wiring-2026-09-28.md`](../nest-dig-wiring-2026-09-28.md)).
 - **2026-09-28, shipped on (#507):** the founding shaft (6 rows) and the
-  heap cue (`K` 5, floor 0), switches in #506 and on by the owner's default
-  rule. A
-  dig that would open the ground to the sky needs a heap beside it, from
-  above or below. `=off` on either is the ant before.
-  - **Dig box:** openings 10 -> 4 (12 of 12), roofed 0.94, width 16. About
-    half the digging by frame 12,000; by 24,000 openings creep to 6.
-  - **Colony bed:** starved 201 -> 83 (fewer on 22 of 24).
-  - **Lab:** ties on the pairs. The founding mouth is buried by frame 30,600
-    on 12 of 12 seeds, in every arm, under food and plants.
+  heap cue (`K` 5, floor 0): a dig that would open the ground to the sky
+  needs a heap beside it. Dig box openings 10 -> 4 (12 of 12); colony bed
+  starved 201 -> 83; lab ties, and its founding mouth is buried by frame
+  30,600 on 12 of 12 seeds under food and plants.
 - **Dig down ships on for an enclosed digger** (#508), refused only
   where there is no way down (`way_down`): the creep stops (2 openings
   against 6 at frame 24,000 over 24 seeds, 22 of 24 nest-like against 12),
@@ -83,26 +80,25 @@ and since 2026-09-28 that is the shipped ant**
   (report §13): the turn's nest and its price are one mechanism.
 - **The creep:** a fresh heap would refuse at most a third to under a half
   of it, so it is not built.
-- **Food in a chamber, prototyped in scratch**
-  ([`../nest-granary-2026-09-28.md`](../nest-granary-2026-09-28.md)): food
-  carried in keeps the doorstep clear, but carrying is eating, so it stores
-  little or costs breeding (54 -> 11 born with everyone carrying in). The
-  next step is a design decision, put to the owner and the foraging lane.
+- **Food in a chamber: the owner chose B** (foragers drop at the door, ants
+  at home carry it in). Built as `PIXEL_PHYSICS_STOREROOM`, off
+  ([`../nest-granary-2026-09-28.md`](../nest-granary-2026-09-28.md) §8): the
+  room fills (3+ cells at mid-run on 14 of 24 with a door), and against the
+  door alone it costs 14% of food taken and a third of the young. No ants
+  stay home here, so the carriers are the fed ants that breed. The door
+  alone now helps the bed a lot (starved 93 -> 15).
 
 **Next** (2026-09-28):
-1. **Food in a chamber** (the owner's answer to "door kept clear, or food
-   inside?"). Prototyped in scratch; the owner is choosing between **A**
-   (everyone carries in, a short trip, births paid from the store) and **B**
-   (foragers drop at the door, ants at home carry it in their jaws, not
-   eaten). The drop and home-target pieces land as switches the foraging
-   lane reviews.
+1. **The storeroom (B).** Asked the owner whether to build ants that stay
+   home (young ants work inside before they forage), which would make the
+   carry cheap; it changes when an ant starts to forage, the foraging lane's
+   region. Pieces in their region land as switches they review.
 2. **Dig down's bed cost, traced** (report §16, packed lunch on). When food
    is wanted, 47% of the fed foragers at home are inside the nest with dig
    down, against 35%. From inside, 13-17% go out first, against 53-56% from
    the doorstep; inside they handle food (57-58%) or dig (26-28%). A dig
-   gate for a forager the colony needs would reach only the diggers. Why
-   the fed foragers are inside when the drive comes on is not traced yet.
-   The hunger gate is a dead end (report §11).
+   gate for a forager the colony needs would reach only the diggers. The
+   hunger gate is a dead end (report §11).
 3. **The brain input** for the cue (owner's order); 24 genome slots, so
    planned with the lab lines.
 4. **Chambers** need contents (brood or a granary), which the dig box lacks.
