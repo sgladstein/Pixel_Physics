@@ -384,6 +384,15 @@ where the food is far.
   beside a heap, so one placed without a founding cut never opens it. Every
   game founds through `found_colony_of`, which cuts one. A hand-built scene
   that wants the ant before the cue sets `World::spoil_cue`.
+- **The shaft now digs only what the founders could.** Its cut took any
+  solid or powder cell: stone (penetration resistance 100), gravel (3.5) and
+  sand (1.4) as readily as soil, against the ant's `dig_force` of 1.0. Found
+  when the flip turned `the_books_close_for_every_colony` red: on that
+  test's one-row stone floor the shaft opened a hole into the void below. A
+  column now stops at the first ground too hard for the ant
+  (`founding_dig_force`); the chamber is cut only if a column reached it;
+  and a founding on rock is a painted nest with no hole and no footprint. On
+  soil nothing changes, which the proofs below show digit for digit.
 
 **The proofs** -- the new default against the committed-code arms, bit for
 bit, and the full suite -- follow in the next commit.

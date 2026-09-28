@@ -54,8 +54,8 @@ will be.
   the heap cue (`spoil_cue`, `spoil_cue_factor`, `open_to_the_sky`).
   §5 step 6, §8 and §12 again that day for the founding shaft and the heap
   cue shipped on (`parse_nest_shaft`, `NEST_SHAFT_ROWS`,
-  `dig_founding_shaft`, `parse_spoil_cue`, `SPOIL_CUE_SHIPPED`,
-  `spoil_cue_of`).
+  `dig_founding_shaft`, `cut_founding_shaft`, `founding_dig_force`,
+  `parse_spoil_cue`, `SPOIL_CUE_SHIPPED`, `spoil_cue_of`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -565,7 +565,11 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   `NEST_SHAFT_ROWS` (6) rows deep and 2 wide under the founding point, with
   an entrance chamber at the bottom, lined, and records it in
   `NestSite::shaft` (`dig_founding_shaft`, `cut_founding_shaft`; one cut per
-  site; `PIXEL_PHYSICS_NEST_SHAFT=off` paints only). Under
+  site; `PIXEL_PHYSICS_NEST_SHAFT=off` paints only). It cuts only ground the
+  founders could dig themselves (`founding_dig_force`, the ant's 1.0, plus
+  the nest paint over its mouth): a column stops at stone, gravel or sand,
+  the chamber is cut only if a column reached it, and on rock the nest is
+  painted and nothing is cut. Under
   `PIXEL_PHYSICS_NEST_DOOR=<d>` it paints `2d + 1` columns, unbroken, instead:
   a door (§12).
 - **`forage_anchor`** is a world coordinate. It is set to the spawn cell at

@@ -4521,6 +4521,26 @@ impl World {
         self.freeze_ground_datum();
         self.freeze_room_datum();
 
+        // **The shaft cuts only what the founders could dig themselves**
+        // ([`World::founding_dig_force`]), plus the nest paint laid over its
+        // mouth a moment ago. A column stops at the first ground too hard for
+        // them, and the chamber is cut only if a column got down to it.
+        //
+        // Found 2026-09-28, the day the shaft shipped on: the cut took any
+        // `Solid` or `Powder` cell, stone (penetration resistance 100),
+        // gravel (3.5) and sand (1.4) included, against the ant's `dig_force`
+        // of 1.0. On `two_colony_bed`'s one-row stone floor it opened a hole
+        // into the void below -- a shaft no ant in the game could have dug --
+        // and `the_books_close_for_every_colony` went red through it (82.6 J
+        // against a bar of 0.75). Kept row by row, so the order of `cut`, and
+        // with it the lining pass below, is the order it always was.
+        let force = self.founding_dig_force();
+        let nest = self.materials.id_of("nest");
+        let founders_cut = |w: &World, cx: i32, cy: i32| {
+            let m = w.get(cx, cy).material;
+            Some(m) == nest || w.materials.get(m).penetration_resistance <= force
+        };
+        let mut blocked = vec![false; span as usize];
         let mut cut: Vec<(i32, i32)> = Vec::new();
         // **The shaft.** Cut from the surface down, **through** the painted
         // door rather than under it: `colony_surface` returns the painted
@@ -4530,9 +4550,14 @@ impl World {
         for dy in 0..depth {
             for dx in 0..span {
                 let (cx, cy) = (x0 + dx, top + dy);
-                if self.in_bounds(cx, cy) && self.is_diggable_ground(cx, cy) {
+                if blocked[dx as usize] || !self.in_bounds(cx, cy) || !self.is_diggable_ground(cx, cy) {
+                    continue;
+                }
+                if founders_cut(self, cx, cy) {
                     self.set(cx, cy, Cell::EMPTY);
                     cut.push((cx, cy));
+                } else {
+                    blocked[dx as usize] = true;
                 }
             }
         }
@@ -4547,14 +4572,21 @@ impl World {
         // place to dump tailings everywhere on its floor.
         let chamber_half = (depth / 2).clamp(3, 12);
         let floor = top + depth;
+        let reached = blocked.iter().any(|b| !b);
         for dy in 0..2 {
             for dx in -chamber_half..=chamber_half {
                 let (cx, cy) = (x + dx, floor + dy);
-                if self.in_bounds(cx, cy) && self.is_diggable_ground(cx, cy) {
+                if reached && self.in_bounds(cx, cy) && self.is_diggable_ground(cx, cy) && founders_cut(self, cx, cy) {
                     self.set(cx, cy, Cell::EMPTY);
                     cut.push((cx, cy));
                 }
             }
+        }
+        // **No cut, no footprint.** A founding on ground too hard to open is
+        // a painted nest with no hole, and a footprint over it would have
+        // `NEST_HOME` and every census treat rock as a mouth.
+        if cut.is_empty() {
+            return 0;
         }
         // **Recorded on the site it was cut under**, because after the cut
         // nothing can re-derive it: `colony_surface` in a shaft column now
@@ -4587,7 +4619,21 @@ impl World {
         cut.len()
     }
 
+    /// **The hardest ground a founding shaft may cut**: the strongest
+    /// authored `dig_force` among the species whose `nest` is the material
+    /// [`World::paint_nest_patch`] lays -- the shipped ant's 1.0. The
+    /// founding stands in for the queen's first burrow, so it digs only what
+    /// the founders' own jaws could; with no such species it digs nothing.
+    fn founding_dig_force(&self) -> f32 {
+        (0..self.species.len())
+            .filter_map(|i| self.species.get(SpeciesId(i as u16)).creature.as_ref())
+            .filter(|c| c.nest == "nest")
+            .map(|c| c.dig_force)
+            .fold(0.0, f32::max)
+    }
+
     /// Ground a founding cut may remove: solid or powder, and nobody's body.
+    /// Whether the founders could dig it is [`World::founding_dig_force`]'s.
     fn is_diggable_ground(&self, x: i32, y: i32) -> bool {
         let cell = self.get(x, y);
         cell.material != material::EMPTY
@@ -18693,14 +18739,20 @@ mod tests {
                 .collect::<Vec<_>>()
         };
 
+        // **Painted without the founding cut throughout**: this is the
+        // door's paint and its anchor, and the shaft that ships on since
+        // 2026-09-28 cuts the middle two of the door's five columns. The door
+        // over a shaft has its own test.
         // Shipped: a strip, and each founder anchored where it was placed.
         let (mut w, low) = colony_bed();
+        w.nest_shaft = Some(0);
         assert!(w.found_colony_with(200, low - 32, "ant", COLONY_ANTS, None, false) > 0, "the bed placed no ants");
         let strip = nest_cols(&w);
         assert!(strip.len() > 20, "the shipped patch is a strip, not {} columns", strip.len());
 
         // A door of half-width 2, founders spread: five columns, every home at the door.
         let (mut w, low) = colony_bed();
+        w.nest_shaft = Some(0);
         assert!(w.found_colony_with(200, low - 32, "ant", COLONY_ANTS, Some(2), false) > 0, "the bed placed no ants");
         let door = nest_cols(&w);
         assert_eq!(door.len(), 5, "a door of half-width 2 is five columns: {door:?}");
@@ -18716,6 +18768,7 @@ mod tests {
 
         // Piled: every founder starts on the door's columns.
         let (mut w, low) = colony_bed();
+        w.nest_shaft = Some(0);
         assert!(w.found_colony_with(200, low - 32, "ant", COLONY_ANTS, Some(2), true) > 0, "the bed placed no ants");
         let piled = ants(&w);
         assert!(piled.len() > 1, "the pile placed {} founders", piled.len());
@@ -19713,6 +19766,11 @@ mod tests {
                 w.set(x, y, Cell::new(soil, 0));
             }
         }
+        // **The paint alone, no founding cut.** Every test on this bed asks
+        // about the comb the paint lays -- its drains, its unbroken core --
+        // and the shaft that ships on since 2026-09-28 would put its mouth in
+        // the middle of that core. The cut has its own tests.
+        w.nest_shaft = Some(0);
         w.paint_nest_patch(96, 99);
         let nest = w.materials.id_of("nest").expect("nest is compiled in");
         let patch: Vec<(i32, i32)> = (0..=191).flat_map(|x| (95..105).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == nest).collect();
@@ -21603,6 +21661,11 @@ mod tests {
     /// unaffected by anything this build changes.
     fn dig_price_scene(price: f32) -> (u64, f64, f32) {
         let mut w = test_world();
+        // **No heap cue.** The ant here is set down by hand on bare soil with
+        // no founding shaft and so no heap, and at the cue's shipped floor of
+        // 0 it would never open the ground: the arms would compare two idle
+        // ants. This test is the price of a cut, not where cutting starts.
+        w.spoil_cue = Some(None);
         let soil = w.materials.id_of("soil").expect("soil");
         for x in 90..=140 {
             for y in 96..=101 {
@@ -24426,6 +24489,10 @@ mod tests {
     /// agreeing with each other.
     fn verbs_scene(feed: f32, dig: f32) -> (u64, u64) {
         let mut w = test_world();
+        // **No heap cue**, for `dig_price_scene`'s reason: an animal set down
+        // by hand on heapless ground never digs at the cue's floor of 0, and
+        // this is about which gene moves which verb.
+        w.spoil_cue = Some(None);
         let soil = w.materials.id_of("soil").expect("soil");
         // **A leaf, and it used to be a corpse.** This test is about the
         // Feed/Dig split and the food is incidental to it -- but S5 made

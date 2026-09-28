@@ -1232,7 +1232,9 @@ are no chambers.
 **Later the same day, one entrance.** A colony is now founded with a short
 shaft already dug under the middle of its nest, two cells wide and six
 deep with a small chamber at the foot, the way a founding queen digs
-her first burrow. And an ant opens the ground to the sky -- from the surface,
+her first burrow. It digs only what the ants themselves could: it stops at
+stone, gravel or sand, and a colony founded on bare rock gets its nest
+patch and no hole. And an ant opens the ground to the sky -- from the surface,
 or by breaking up out of a tunnel -- only beside a heap of the colony's own
 spoil. The first heap is the one thrown up round the shaft, so that is where
 digging starts and where it stays: in a test box the colony opens about four
