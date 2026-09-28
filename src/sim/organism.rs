@@ -6181,6 +6181,12 @@ pub struct OrganismState {
     /// home; meaningless while the crop is empty. Written whatever
     /// `PIXEL_PHYSICS_PACKED_LUNCH` says, and read by nothing unless it is on.
     pub lunch: bool,
+    /// **Finish the packed lunch this tick** (`creature::carries_lunch`):
+    /// set by `act` when a lunch meets food its crop cannot swallow, read and
+    /// cleared by the same tick's digestion, which completes the cell in
+    /// progress at the normal energy rate. Only ever set under
+    /// `PIXEL_PHYSICS_PACKED_LUNCH=on`.
+    pub eat_lunch_now: bool,
     /// **Too hungry to be out: heading home before it starves**
     /// (`creature::hungry_home_of`). Set when an empty animal's energy falls
     /// below what the walk home costs it with a margin; cleared once it has

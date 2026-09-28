@@ -6151,7 +6151,11 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             // from being credited twice: the tick that finishes a cell is paid
             // only for the sliver that was left.
             let lumpy = organism::digest_is_lumpy();
-            let progressed = digest_rate.min((c.unit - c.digesting).max(0.0));
+            // A packed lunch meeting food it cannot share a crop with is
+            // finished this tick (`eat_lunch_now`, set in `act`): the whole
+            // cell in progress, at the normal overhead.
+            let finish_lunch = world.organism(organism).is_some_and(|s| s.eat_lunch_now);
+            let progressed = if finish_lunch { (c.unit - c.digesting).max(0.0) } else { digest_rate.min((c.unit - c.digesting).max(0.0)) };
             let matured = c.digesting + progressed;
             let finished = matured >= c.unit;
             // **`PIXEL_PHYSICS_DIGEST=lump` is the pre-2026-09-20 arm**, kept so
@@ -6190,6 +6194,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
                     digesting: if finished { 0.0 } else { matured },
                     ..c
                 });
+                state.eat_lunch_now = false;
             }
             // **The owner's rule, 2026-09-11: "where should the seed drop
             // when a creature picks up food -- it should drop where it is
@@ -11261,20 +11266,28 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // counter that disagrees with the behaviour it counts is worse
             // than no counter.
             let at_nest = nest_within_reach(world, organism, x, y, def);
-            // **A packed lunch goes down where there is a load to take**
+            // **A packed lunch is finished where there is a load to take**
             // (`carries_lunch`): away from the nest, beside food its crop
-            // cannot swallow (a crop holds one material), the roll is 1, so
-            // the next tick can load. Without it, measured on the colony bed
-            // under `PIXEL_PHYSICS_PACKED_LUNCH=on` (24 seeds, 90 cells),
-            // lunch carriers beside the pile picked up on 0.6% of their
-            // decisions against 55% for an empty forager, and spent 636,000
-            // ant-frames at or past it; in the lab, colonies starved with far
-            // food standing. The lunch is not lost: it goes down as a cell.
-            let lunch_down = !at_nest && world.organism(organism).is_some_and(|s| carries_lunch(world, s)) && adjacent_food_counted(world, organism, (x, y), gut, def.start_energy).best.is_some_and(|(_, _, _, m)| m != held.material);
-            if lunch_down {
-                world.creature_stats.lunch_set_down += 1;
+            // cannot swallow (a crop holds one material), this tick's
+            // digestion completes the cell in progress (`eat_lunch_now`), so
+            // the forager empties and loads. Without it, measured on the
+            // colony bed under `PIXEL_PHYSICS_PACKED_LUNCH=on` (24 seeds, 90
+            // cells), lunch carriers beside the pile picked up on 0.6% of
+            // their decisions against 55% for an empty forager, and spent
+            // 636,000 ant-frames at or past it. **Setting the lunch down
+            // instead was tried and is worse** (2026-09-28): it carries the
+            // store out and leaves it where the ant stood -- food standing at
+            // the nest 8,173 -> 6,935 J on the bed (lower on 18 of 24), and
+            // in the lab 3 -> 5 colonies died out, ant-time lower on 17 of
+            // 24. Eating it is what the lunch was for.
+            let finish_lunch = !at_nest && world.organism(organism).is_some_and(|s| carries_lunch(world, s)) && adjacent_food_counted(world, organism, (x, y), gut, def.start_energy).best.is_some_and(|(_, _, _, m)| m != held.material);
+            if finish_lunch {
+                world.creature_stats.lunch_finished += 1;
+                if let Some(s) = world.organism_mut(organism) {
+                    s.eat_lunch_now = true;
+                }
             }
-            let p = if lunch_down { 1.0 } else { drop_urge };
+            let p = drop_urge;
             // The same single draw as before, bound to a name so the trace can
             // report it. **The roll is spent before the search for an empty
             // neighbour**, so a won roll with nowhere to go is a tick that did
@@ -13614,9 +13627,10 @@ pub fn carry_patience_of(world: &World) -> bool {
 /// pull home unless `hungry_home`), and `chooser_step`'s `laden` (it scouts
 /// outward and reads the outbound trail). Digestion runs wherever the ant
 /// is, so it eats its lunch on the road. Its `Drop` still reads `AtNest`,
-/// so it does not put the lunch down on the way -- except beside food its
-/// crop cannot swallow, where the lunch goes down so the next tick can load
-/// (the drop roll in `act`). Read once per process;
+/// so it does not put the lunch down on the way. Beside food its crop
+/// cannot swallow it finishes the lunch that tick (`OrganismState::
+/// eat_lunch_now`, digestion completing the cell), so it can load. Read
+/// once per process;
 /// unset, nothing is read or written and no draw is taken.
 pub fn packed_lunch_from_env() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -25981,18 +25995,19 @@ mod tests {
         assert_eq!((off_paced, load_paced), (0, 0), "the drive paced a laden ant it must not reach");
     }
 
-    /// **A packed lunch goes down beside food it cannot swallow, so the
-    /// forager can load** (`act`'s drop roll under `carries_lunch`). A fed,
-    /// foraged ant 80 cells from home holding one cell of crumbs taken at
-    /// home, with a fruit cell beside its head. With the rule on, within 60
-    /// frames the crumbs go down (`lunch_set_down` counted) and the crop
-    /// holds fruit. With it off the crop still holds crumbs and no fruit was
-    /// taken: a crop holds one material, and away from the nest `Drop` is 0.
-    /// **Watched red** with the roll left at `drop_urge`: the crop kept its
-    /// crumbs.
+    /// **A packed lunch is finished beside food it cannot swallow, so the
+    /// forager can load** (`act`'s `eat_lunch_now`, digestion completing the
+    /// cell). A fed, foraged ant 80 cells from home holding one cell of
+    /// crumbs taken at home, with a fruit cell beside its head. With the rule
+    /// on, within 60 frames the lunch is finished (`lunch_finished`
+    /// counted), the crop holds fruit, no crumbs lie on the ground, and the
+    /// eaten face value (`digested_face`) grew by at least the lunch's 400.
+    /// With it off the crop still holds crumbs: a crop holds one material,
+    /// and away from the nest `Drop` is 0. **Watched red** with the flag set
+    /// but digestion's progress left at the rate: the crop kept its crumbs.
     #[test]
-    fn a_packed_lunch_is_set_down_beside_food_it_cannot_swallow() {
-        let run = |rule: bool| -> (Option<Crop>, u64, material::MaterialId, material::MaterialId) {
+    fn a_packed_lunch_is_finished_beside_food_it_cannot_swallow() {
+        let run = |rule: bool| -> (Option<Crop>, u64, material::MaterialId, material::MaterialId, usize, f64) {
             let stone = Cell::new(material::STONE, 0).with_attached(true);
             let mut w = World::new(Rect::new(0, 0, 159, 63));
             for x in 0..160 {
@@ -26024,13 +26039,16 @@ mod tests {
                 scheduler::step(&mut w);
                 w.end_step();
             }
-            (w.organism(ant).expect("live").crop, w.creature_stats.lunch_set_down, crumbs, fruit)
+            let crumbs_on_ground = (0..160).flat_map(|x| (0..41).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == crumbs).count();
+            (w.organism(ant).expect("live").crop, w.creature_stats.lunch_finished, crumbs, fruit, crumbs_on_ground, w.creature_stats.digested_face)
         };
-        let (on, down, crumbs, fruit) = run(true);
-        assert!(down > 0, "the lunch was never set down beside the fruit");
-        assert_eq!(on.map(|c| c.material), Some(fruit), "set down, but the forager did not load the fruit: crop {on:?}");
-        let (off, off_down, _, _) = run(false);
-        assert_eq!(off_down, 0, "the rule off set a lunch down");
+        let (on, finished, crumbs, fruit, on_ground, eaten) = run(true);
+        assert!(finished > 0, "the lunch was never finished beside the fruit");
+        assert_eq!(on.map(|c| c.material), Some(fruit), "finished, but the forager did not load the fruit: crop {on:?}");
+        assert_eq!(on_ground, 0, "the lunch went down on the ground instead of being eaten");
+        assert!(eaten >= 400.0, "the lunch's 400 face value was not booked as eaten: digested_face {eaten}");
+        let (off, off_finished, _, _, _, _) = run(false);
+        assert_eq!(off_finished, 0, "the rule off finished a lunch");
         assert_eq!(off.map(|c| c.material), Some(crumbs), "with the rule off the crop should still hold its crumbs: {off:?}");
     }
 
