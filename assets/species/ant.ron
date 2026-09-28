@@ -1543,6 +1543,19 @@
             // before. Measured with the chooser: food eaten +16% at 90 cells
             // and +46% at 140 on the colony bed, and in the lab colonies
             // ended at a median 96 animals against 20 without it (12 seeds).
+            //
+            // **That P(drop) table is not the per-tick rate** (found
+            // 2026-09-28, `Reports/ant-scenes-2026-09-23.md` §22n). It is
+            // P(Drop wins `choose_weighted`) x `drop_urge`, probed with
+            // `FoodAdjacent` 1 and `Carrying` 1. It leaves out that a Feed
+            // pick which swallows nothing falls through to the same drop
+            // roll, and `Carrying` is the crop's fill now, about 0.07 a
+            // cell. For a one-cell ant at the nest, `drop_urge` at E 0.25 /
+            // 0.5 / 0.75 / 1 is 0 / 0.003 / 0.31 / 0.47, and a delivery per
+            // tick is 0 / 0.001 / 0.19 / 0.33 beside food and `drop_urge`
+            // itself away from it. On the colony bed a laden ant at the nest
+            // at E ~1 puts a cell down on 0.35 of its decisions, 0.34-0.37
+            // in every seed.
             (Bias, Drop, -2.0),
             (Energy, Drop, 1.8),
             (AtNest, Drop, 1.0889),

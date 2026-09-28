@@ -1935,6 +1935,11 @@ pub struct CreatureStats {
     /// alone** (`creature::forage_drive_from_env`'s `,keep`): its feed urge
     /// scaled down at the nest. 0 unless set.
     pub forage_kept: u64,
+    /// **Ticks a packed lunch was finished on the spot** (`creature::
+    /// carries_lunch`): away from the nest, beside food its crop cannot
+    /// swallow, the cell in progress is digested whole that tick. 0 unless
+    /// `PIXEL_PHYSICS_PACKED_LUNCH` is on.
+    pub lunch_finished: u64,
     /// **Not a trip counter, and not a sessility guard — read
     /// `forage_trips` for either.** It increments on any move made while
     /// nest-adjacent, guarded on `OrganismState::since_nest > 0`; but
@@ -3511,6 +3516,12 @@ pub struct World {
     /// (`creature::carry_patience_of`). `None` follows the environment,
     /// which is on unless set `off`; a field for the reason `chooser` is one.
     pub carry_patience: Option<bool>,
+    /// **Whether a forager whose crop holds only food taken at home is
+    /// driven out like an empty one, overriding `PIXEL_PHYSICS_PACKED_LUNCH`
+    /// for this world** (`creature::packed_lunch_of`). `None` follows the
+    /// environment, which is on unless set `off`; a field for the reason
+    /// `chooser` is one.
+    pub packed_lunch: Option<bool>,
     /// **Which material stopped a creature**, counted per blocked tick and
     /// indexed by `MaterialId` — the breakdown `CreatureStats::
     /// blocked_by_plant` deliberately does not carry, because that struct is
@@ -5863,6 +5874,7 @@ impl World {
             hungry_home: None,
             forage_drive: None,
             carry_patience: None,
+            packed_lunch: None,
             blocked_tissue_by_material: Vec::new(),
             energy_ledger: EnergyLedger::default(),
             colony_books: Vec::new(),
@@ -6878,6 +6890,8 @@ impl World {
             scout_patience: 1.0,
             scout_home: false,
             foraged: false,
+            lunch: false,
+            eat_lunch_now: false,
             hungry_home: false,
             // Zero is "no memory yet"; the first tick's read sees `live - 0`,
             // which normalises to +1 and decays to the true reading within a

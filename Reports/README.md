@@ -3374,7 +3374,11 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     feature is on unless it measures as a harm. The fix cuts laden time past
     the pile by about two thirds; at 90 cells more food stands at the nest,
     and at 140 about 5% less is taken off the pile with no colony measure
-    moving. Next: why a third of ant time is spent at home holding food.
+    moving. §22n answers why a third of ant time is spent at home holding
+    food: it is the colony eating the nest store a cell at a time, the route
+    to births, with nothing lost. §22o ships packed lunch: a fed forager
+    holding store food is driven back out and eats it on the road -- trips
+    +40%, food taken +44%, births x3 at 90 cells, neutral in the lab.
   - Handoff: [lanes/foraging-loop.md](lanes/foraging-loop.md) -- the
     owner's rulings, the live question, the baseline, commands and traps.
   - The per-decision mix matched the formula within a point at both

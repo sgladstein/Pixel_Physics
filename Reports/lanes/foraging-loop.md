@@ -9,8 +9,11 @@ commands and the traps.*
 - **Previous session:** `session_01Pt5N39pfcix13hMycPN9Xs`, branch
   `claude/ant-foraging-loop-handoff-986v7n` (2026-09-27): the forage drive and
   carry patience, both shipped on (§22, §22m).
-- **Peer lanes:** the nest-mouth lane ([`nest-mouth.md`](nest-mouth.md)) has
-  concluded: no mouth beats today's nest on both beds.
+- **Peer lanes:** the nest-mouth lane ([`nest-mouth.md`](nest-mouth.md))
+  shipped dig down for an enclosed digger (#508, 2026-09-28). With packed
+  lunch it costs the loop (below); the owner ruled a nest step is not blocked
+  on colony numbers, and that lane is tracing which ants dig when food is
+  wanted.
 
 ## Standing owner rulings
 
@@ -29,6 +32,10 @@ commands and the traps.*
 - **"Scout or any ant should come home when they get so hungry before they
   are going to starve to death"** (09-26). `PIXEL_PHYSICS_HUNGRY_HOME`, off:
   it helps at 90 cells and kills at 140 whatever home holds (§21, §22g).
+- **Agents: judge each situation, use them where they help, never
+  wastefully** (09-28; no default count, and not scale for its own sake
+  under a thoroughness mode). A 39-agent run cost 9.4M where its 3 tracers
+  cost 1.35M (`agent-strategy.md` s4).
 - **Sub-agents allowed** (09-27): in-process agents for reading and surveys
   (not runs: they share this box's 4 cores); a cloud session for a run that
   would otherwise queue, via the `lab-coordinator` skill with `model:` set.
@@ -39,63 +46,64 @@ commands and the traps.*
 
 ## Live question
 
-**Both switches shipped on, 2026-09-27** (§22m), under the owner's ruling
-that a feature is on unless it measures as a harm:
-`PIXEL_PHYSICS_FORAGE_DRIVE` is `always` (a forager that has picked food up
-away from home goes back out fed or hungry) and
-`PIXEL_PHYSICS_CARRY_PATIENCE` is `pickup` (bug Z35 fixed: every pickup
-restarts a carry's home patience, so loaded foragers no longer walk off the
-pile's far side). `=off` on either is the ant before it, bit for bit.
+**Three forage switches ship on** (§22m, §22o), under the owner's ruling that
+a feature is on unless it measures as a harm; `=off` on each is the ant
+before it, bit for bit:
+- `PIXEL_PHYSICS_FORAGE_DRIVE=always`: a forager that has picked food up away
+  from home goes back out fed or hungry;
+- `PIXEL_PHYSICS_CARRY_PATIENCE=pickup`: every pickup restarts a carry's home
+  patience (bug Z35 fixed);
+- `PIXEL_PHYSICS_PACKED_LUNCH=on` (2026-09-28): food taken at home is not a
+  load, so a fed forager nibbling the store is driven back out and eats it on
+  the road, finishing it where it meets food its crop cannot swallow.
 
-- **What carry patience moved:** laden time past the pile per cell taken
-  184 → 65 at 90 cells, 107 → 42 at 140 (medians, 24 seeds). The time saved
-  goes to home, not to more trips: a forager comes home sooner and less
-  hungry, so it waits longer. Loads leave the pile the same size.
-- **Its cost, measured and accepted:** with the drive on, 48 seeds, food
-  taken off the pile 5,717 → 5,402 at 140 cells (lower on 31 of 48, p 0.06);
-  food at the nest, starvation and births did not move. At 90 it is a gain:
-  food at the nest 6,537 → 6,958 J, starved 346 → 313.
-- **Lab** (`main` after #503, both on against both off, 12 seeds): food
-  eaten 0.94M → 1.61M J (8/4), born 424 → 746, alive at the end 50 → 106,
-  died out 3 → 1. Before #503 it read 0 → 3. The grazing crashes are crash
-  timing; seed 2 dies with food standing (198 edible cells, both on; to 6
-  ants with 532, both off before #503), untraced. The lab's limit is its
-  regrowing pasture.
-- **"Net food into home" overcounts 3.4-4.6×** (§22j); read food taken, and
+**Packed lunch answered §22n's question: the store time was a delay.** Given
+the drive, a fed forager holding store food goes: trips to the pile
+1,326 -> 1,851 (23/1), food taken 3,744 -> 5,377 (24/0), born 59 -> 185 at 90
+cells; 140 cells and the lab as in §22o. Home-holding did not fall (35.7% ->
+39.3%): a richer colony has more floor beside food to sip. Setting the lunch
+down instead exported the store (a dead end).
+
+**Next:** two lab seeds (7, 20) fall under 10 ants with food standing under
+every form of packed lunch; untraced, and `labforage` has no per-ant trace,
+so tracing them means adding one. Behind it: an off-switch that reads what
+the lab is short of, food out there (Gordon 2002, *Am Nat* 159:509:
+harvesters stop when returning foragers stop bringing food).
+
+- **"Net food into home" overcounts 3.4-4.6x** (§22j); read food taken, and
   food standing at the nest (`FOOD STORE`'s `nest food`, mean from frame
   6,000).
 
-**The next question: a third of all ant time is spent at home holding food**
-(37.7% of ant-frames at 90 cells with both on). The drive cannot reach those
-ants -- it acts on an empty crop -- and `,keep` made them stand in the store
-(§22e). Why a loaded forager at home holds its crop rather than putting it
-down, traced ant by ant, is where the loop goes next. Behind it, still open:
-an off-switch that reads what the lab is short of, food out there (Gordon
-2002, *Am Nat* 159:509: harvesters stop when returning foragers stop
-bringing food).
-
-## Baseline (the shipped default: drive and carry patience on, `main` after #503)
+## Baseline (the shipped default: drive, carry patience and packed lunch on)
 
 Colony bed, no trail, 24 seeds (seeds 1-24):
 
-| food distance | food taken from the pile | food at the nest | starved of 480 | by frame 6,000 | born |
-|---|---:|---:|---:|---:|---:|
-| 90 | 2,921 | 6,166 J | 174 | 136 | 58 |
-| 140 | 2,479 | 5,975 J | 223 | 181 | 26 |
+| food distance | food taken from the pile | food at the nest | starved of 480 | born |
+|---|---:|---:|---:|---:|
+| 90 | 5,377 | 8,591 J | 64 | 185 |
+| 140 | 4,859 | 7,827 J | 79 | 115 |
+| 90, with #508's dig down | **4,574** | 7,743 J | 93 | 151 |
 
-Both `=off` on the same tree: 90 cells 2,209, 4,539 J, 230, 159, 15; 140
-cells 1,940, 3,956 J, 242, 182, 9. #503 (spoil stays spoil) moved the bed by
-itself, so numbers from before it (§22m's component table) are a different
-tree. Lab box, 12 seeds, median, both on (`main` after #503): food eaten 1,610k J,
-births 746, alive at the end 106, ant-frames lived 14.4M; died out 1, under
-10 at the end 3. Both off on the same tree: 940k J, 424, 50, 7.7M; 3 and 5.
+The first two rows are `main` after #507; the third is this branch merged
+with #508's head (24 seeds, 90 cells only; 140 and the lab not yet re-run
+with both). Against the first row, dig down takes less off the pile on 21 of
+24 seeds and starves more on 12 (5 fewer). Neither switch on that tree:
+3,744, 7,160 J, 83, 59; dig down alone 3,057, 6,670 J, 152, 30.
+
+Packed lunch `=off` on the same tree: 90 cells 3,744, 7,160 J, 83, 59; 140
+cells 3,797, 6,762 J, 79, 55. #507 (founding shaft, heap cue) moved the bed
+by itself, so numbers from before it are a different tree. Lab box, 24 seeds,
+median, shipped: food eaten 1,150k J, births 482, alive at the end 55,
+ant-frames lived 10.9M; died out 3, under 10 at the end 6. Packed lunch off:
+1,170k J, 515, 48, 9.8M; 1 and 3.
 
 ## Ranked open problems
 
-1. **Loaded foragers holding food at home** (above), a third of ant time.
-   Then the drive's off-switch, lab first.
-2. **Early deaths.** At 140 cells, 171–177 of ~207 starved never reach the
-   food and die around frame 3,800, before any forager exists. Only the road
+1. **Lab boxes that die with food standing** (seeds 7, 20; above). Needs a
+   per-ant trace in `labforage`. Then the drive's off-switch, lab first.
+2. **Early deaths.** Before #507, at 140 cells, 171–177 of ~207 starved never
+   reached the food and died around frame 3,800, before any forager existed;
+   #507's founding shaft cut starvation to 79 of 480 there, 58 by frame 6,000. Only the road
    and the nest (§17b, §19), or a colony founded with a store, can reach them.
 3. **Which way to go.** A driven forager leaving the nest's west end walks
    the dead end (§20). A memory of where its last load came from would aim
@@ -157,6 +165,11 @@ filtered out (note the leading spaces), and compare the decision CSVs too.
   --example trailfollow --example labforage`, ~2 minutes incremental), copy
   them into the run directory, and `grep -c` the binary for the switch name.
 - **Don't edit source while a build runs**, and never `pgrep -f`/`pkill -f`.
+- **Never export the bed's env (`COLONY_SPACING`, `STACK_DEPTH`, `BUD_SITE`)
+  in a script that also runs the lab.** A lab run inherited them on
+  2026-09-28, founded 52 where the lab places 41, and every box died by frame
+  35,000 -- read as a harm of the change under test. `labforage` now echoes
+  all three; check the header says `shipped`.
 - **Key every parse by seed.** `carry->nest` is cell-steps, not food.
 - **The `energy` trace column is clamped at 200 J.** "At full energy" in it
   means *at or above the grant*; read `energy_j`. A forager "resting fed" was
@@ -173,4 +186,6 @@ filtered out (note the leading spaces), and compare the decision CSVs too.
 
 | # | run | prediction | right? |
 |---|---|---|---|
-| | | | |
+| 1 | `PACKED_LUNCH=on` vs off, bed 90, 24 seeds (2026-09-28, on `main` after #505) | pile trips up: food taken from the pile +10-30%; home-holding share of ant time 37% -> 25-30%; food standing at the nest flat or down (the lunch is eaten on the road, not put back); births flat or slightly down (budding needs the nest); starved flat | half. First form, before #507: food taken +12% (right), births 59 -> 93 (wrong, up), nest food flat (right). Shipped form after #507: food taken +44%, trips +40%, births x3.1, nest food +20%, home-holding UP 35.7% -> 39.3% (wrong) |
+| 2 | same, bed 140 | same direction, smaller: food taken +5-20% | right in direction, wrong in size: +21% (first form), +28% (shipped); births x2.1 |
+| 3 | same, lab 12 seeds | food eaten up; boom-and-bust sooner, so extinctions no better | first form before #507: every measure lower, died out 1 -> 4 (wrong); after #507, 24 seeds: food eaten up 17/7 (right); shipped form neutral, died out 1 -> 3 (right on extinctions) |
