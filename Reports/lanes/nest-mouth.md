@@ -90,14 +90,19 @@ and since 2026-09-28 that is the shipped ant**
   next step is a design decision, put to the owner and the foraging lane.
 
 **Next** (2026-09-28):
-1. **The mouth in the lab:** kept clear by the colony, or the food taken
-   inside? Ask the owner before building either; the second is a joint step
-   with the foraging lane (the food drop is theirs).
-2. **The enclosed dig down's bed cost.** Ants at home in the founding
-   shaft are enclosed, turn down and dig when they would have gone out.
-   The lever is not which turns are taken (report §13) but which ants dig
-   at home when food is wanted. Trace it per ant on the bed before choosing
-   a lever; the hunger gate is a dead end (report §11).
+1. **Food in a chamber** (the owner's answer to "door kept clear, or food
+   inside?"). Prototyped in scratch; the owner is choosing between **A**
+   (everyone carries in, a short trip, births paid from the store) and **B**
+   (foragers drop at the door, ants at home carry it in their jaws, not
+   eaten). The drop and home-target pieces land as switches the foraging
+   lane reviews.
+2. **Dig down's bed cost, traced** (report §16, packed lunch on). When food
+   is wanted, 47% of the fed foragers at home are inside the nest with dig
+   down, against 35%. From inside, 13-17% go out first, against 53-56% from
+   the doorstep; inside they handle food (57-58%) or dig (26-28%). A dig
+   gate for a forager the colony needs would reach only the diggers. Why
+   the fed foragers are inside when the drive comes on is not traced yet.
+   The hunger gate is a dead end (report §11).
 3. **The brain input** for the cue (owner's order); 24 genome slots, so
    planned with the lab lines.
 4. **Chambers** need contents (brood or a granary), which the dig box lacks.
@@ -184,18 +189,15 @@ exploratory and carry none.
 
 ## Head SHAs
 
-Older heads, from the branch cut (`636612c6`, 2026-09-26) through the heap
-cue (#506) and its founding fixes, are in `git log` and in the reports each
-one names.
+Older heads, from the branch cut (`636612c6`, 2026-09-26) through #507
+(`97129556`) and the dig-down work merged as #508, are in `git log` and in
+the reports each one names.
 
-- `97129556` (#507) — merged: the founding shaft and the heap cue on by
-  default, and both founding fixes.
-- `0ff219b8` — dig down gated on hunger: a partial rescue, a dead end.
-- `5529b1dd`, `1fb07611`, `35d03998` — dig down only for an enclosed digger,
-  as a switch; the dig box, the colony bed and the lab.
-- `493a2b42` — the enclosed dig down ships on; the bed's cost stated.
-- `a7df24de` — the turn refused only where there is no way down (the suite
-  caught a beetle turned from its one cell of soil); six wider refusals
-  measured, every one lost the nest; the trace records the turn.
-- `34e07b86` (#508) — merged: dig down on for an enclosed digger. GitHub
-  deleted the branch; restarted from `main` the same day, same name.
+- `34e07b86` (#508) — merged: dig down on for an enclosed digger, refused
+  only where there is no way down. GitHub deleted the branch; restarted
+  from `main` the same day, same name.
+- `117d8db6` — food in a chamber, a scratch prototype measured on the colony
+  bed (`nest-granary-2026-09-28.md`).
+- `f703472a` — `main` merged in: #509, packed lunch on. The colony bed's
+  baseline is now 4,574 taken / 93 starved / 151 born (`=off` on dig down:
+  5,377 / 64 / 185), reproduced exactly on this branch.

@@ -21,7 +21,10 @@ is no way down. It stops the openings creeping back (2 against 6 at frame
 24,000 over 24 seeds, more nest-like than random digging on 22 of 24 against
 12) and costs the colony bed food (starved 83 -> 152, born 59 -> 30);
 everywhere, it took the foragers underground (§8). Refusing the turn more
-widely was measured six ways and every one lost the nest (§13).
+widely was measured six ways and every one lost the nest (§13). Traced
+on the ant with packed lunch (§16), the cost is mostly where the colony's
+fed foragers stand when food is wanted: inside the nest, not on the
+doorstep.
 
 The cue governs such a dig whether the ant stands on the surface or a tunnel
 is breaking out from below.
@@ -668,6 +671,9 @@ The variant switch's two controls reproduced the built arms 12 of 12 each.
    trace to take next: per ant, on the bed, which ants dig at home and what
    their crop, energy and the colony's need read when they do, before
    choosing a lever.
+   **Traced in §16**, on the ant with packed lunch. When food is wanted,
+   47% of the fed foragers at home are inside the nest with dig down,
+   against 35%. From inside few go out first: they handle food or dig.
 3. **The brain input**, per the owner's ruling. The sense is the pellet count
    beside the target, and the gate is "this cut opens the sky". Each new
    input costs 24 genome slots and moves every breeding scene, so it is
@@ -743,3 +749,69 @@ under a half of it (§10).
 | 112 | dig box, no way down | ties the unrefused turn, no pair worse than 9 / 15; nest-like ≥ 22 of 24 | worst pair 10 / 14; 22 of 24 | right |
 | 113 | no way down | under 5% refused | 1.6% | right |
 | 114 | colony bed, no way down | starved within ±15 of 134 | 143 | right |
+| 125 | colony bed, packed lunch on, dig down on / off | reproduce the foraging lane's factorial exactly | 4,574 / 93 / 151 and 5,377 / 64 / 185 | right |
+| 126 | same, the trace (§16) | dug first rises by at least 4 points | 12.0% -> 16.4% | right |
+| 127 | same | "picked up at home, left with it" the largest outcome, at least 35% | 24% / 18%; the largest is picked up and emptied at home, 46-49% | wrong |
+| 128 | the ant before packed lunch | "picked up at home, left with it" under 15% | 1.6% / 1.2% | right |
+| 129 | packed lunch on | went out first falls by at least 4 points | 42.2% -> 34.3% | right |
+| 130 | packed lunch on | more of the colony's decisions inside the nest | 27% -> 36% | right |
+
+## 16. Which fed ants dig when food is wanted
+
+*Traced after #509 put packed lunch on (2026-09-28): the colony bed, 24
+seeds, gap 90, one binary on `main`, `PIXEL_PHYSICS_DIG_DOWN=off` against the
+default.* §14 item 2 asked this, and the foraging lane waits on it.
+
+The two arms reproduce the foraging lane's factorial exactly. Without dig
+down: 5,377 cells taken from the pile, 64 starved, 185 born, 8,591 J standing
+at the nest. With it: 4,574, 93, 151, 7,743 J. Food taken is lower on 21 of
+24 seeds.
+
+**The trace** reads the decision CSV (scratch `digcost3.py`). An episode
+starts when an ant at home (on the doorstep, or inside the founding cut) is
+fed (energy at least 0.999), empty, and feels the forage drive. It is scored
+by the first thing the ant does next.
+
+| | dig down off | on |
+|---|---:|---:|
+| episodes | 27,449 | 26,696 |
+| ... starting inside the nest | 35% | 47% |
+| went out first, empty or with a packed lunch | 42.2% | 34.3% |
+| dug first | 12.0% | 16.4% |
+| picked up food at home and emptied it at home | 45.6% | 49.1% |
+
+Paired by seed: dug first is higher with dig down on 18 of 24 seeds, and went
+out first is lower on 18.
+
+Split by where the episode starts:
+
+| starts | went out first, off / on | dug first, off / on |
+|---|---:|---:|
+| on the doorstep | 55.6% / 53.2% | 4.6% / 5.8% |
+| inside the nest | 17.4% / 13.1% | 25.7% / 28.3% |
+
+- **Most of the cost is where the foragers are standing.** With dig down, 47%
+  of the colony's fed foragers at home are inside the nest when food is
+  wanted, against 35%. From the doorstep over half go out first. From
+  inside, one in six to eight does. Held at the old mix, dig down's own rates
+  account for 1.7 of the 4.4 points of extra digging, and 3.1 of the 7.9
+  points of going out less.
+- **Inside, a fed forager mostly handles food.** It picks up food at home and
+  empties it there (57-58%), or it digs (26-28%). The ones that go out get
+  out fast (median 18-36 frames, p90 54-96), so the way out is not the
+  obstacle.
+- **The colony's time.** Decisions inside the nest go from 27% to 36%.
+  Spoil carried inside goes from 11.8% to 16.6%, food held inside from 12.7%
+  to 15.4%, and food held on the doorstep falls from 18.3% to 13.8%.
+- **The ant before packed lunch has the same shape** (#507's ant against
+  #508's, §13). Dug first
+  goes 24.0% -> 30.1%, went out first 31.6% -> 25.7%, and episodes starting
+  inside 43% -> 59%.
+
+**What it says about a lever.** A gate on digging for a forager the colony
+needs would reach the 28% who dig from inside. It would not reach the 58% who
+stay to handle food, so it is not expected to send many out. The larger
+effect is that a deeper nest has more of the colony inside when food is
+wanted. Why the fed foragers are inside when the drive comes on is not traced
+yet. It bears on the granary (`nest-granary-2026-09-28.md` §6): food kept
+inside the nest would hold the ants who handle it, as it does here.

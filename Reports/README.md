@@ -4045,6 +4045,10 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     born 59 -> 30). Every wider refusal of the turn, six measured, lost the
     nest. Everywhere, it starved 295; a hunger gate on `Dig` rescued it only
     in part and stops a hungry colony digging.
+  - **Why the bed pays, traced with packed lunch on (§16):** when food is
+    wanted, 47% of the fed foragers at home are inside the nest with dig
+    down, against 35%, and from inside only 13-17% go out first (53-56%
+    from the doorstep); inside they handle food or dig.
   - **In the lab the founding mouth is buried by frame 30,600 on 12 of 12
     seeds in every arm**, under food and plants rather than spoil.
   - **A fresh heap, sized before building:** it would refuse at most a third

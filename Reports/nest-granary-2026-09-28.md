@@ -141,6 +141,15 @@ A decision, before building further:
 Either way the founding room needs to be big enough for the traffic, and the
 bigger room's own cost on the bed (§3) comes first.
 
+Traced after this was written (`nest-heap-cue-2026-09-28.md` §16, packed lunch
+on): when food is wanted, a fed forager inside the nest goes out first only
+13-17% of the time, against 53-56% from the doorstep. Inside, it mostly picks
+up food and empties it there (57-58%). So a store kept inside would hold the
+ants who handle it unless handling it stops holding them. Under **B** the
+ants carrying food in are inside by design. Packed lunch (#509, on since this
+prototype) also takes store food from home back out as lunch, so under either
+form the store's food is drawn two ways.
+
 ## 7. Predictions, written before each batch
 
 | # | arm | prediction | result | right? |
