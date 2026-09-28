@@ -4046,7 +4046,6 @@ impl World {
         let start_energy = def.as_ref().map_or(0.0, |d| d.start_energy);
         let seed = self.seed;
         let stations = self.colony_stations_with(x, y, species_id, ants, door, pile);
-        let total = stations.len() as i32;
         // **Under a door, every founder's home is the door** -- the cell
         // above its centre, which is where `step_chain`'s re-anchoring would
         // put it on the first contact anyway. Without this a founder standing
@@ -4076,29 +4075,15 @@ impl World {
         // and every later station joins; a founding in which nothing fits
         // claims nothing. See `OrganismState::colony`.
         let mut colony: Option<u32> = None;
-        for (i, (cx, cy)) in stations.into_iter().enumerate() {
+        let mut founders: Vec<OrganismId> = Vec::new();
+        for (cx, cy) in stations {
             let before = self.get(cx, cy).organism_id();
             if let Some(site) = plant_creature_seed_in(self, cx, cy, species, colony) {
                 if colony.is_none() {
                     colony = colony_of_site(self, &site);
                 }
-                // **Overridden after placement, before scheduling**, so
-                // nothing has ticked yet and no ledger bookkeeping runs
-                // between the grant and the correction. `place_creature`
-                // already booked `energy_ledger.granted += start_energy` for
-                // this founder; `founder_reserve`'s pairing conserves the
-                // COHORT's total exactly, so the aggregate identity
-                // (`expected_live_total() == sum(live energies)`) still
-                // holds even though this one individual's bank now
-                // disagrees with what was granted for it -- this is a
-                // redistribution, not a subsidy.
-                if spread > 0.0 {
-                    if let ActiveKind::Creature { organism } = site.kind {
-                        let factor = founder_reserve(seed, x, i as i32, total, spread);
-                        if let Some(state) = self.organism_mut(organism) {
-                            state.energy = start_energy * factor;
-                        }
-                    }
+                if let ActiveKind::Creature { organism } = site.kind {
+                    founders.push(organism);
                 }
                 if let (Some(anchor), ActiveKind::Creature { organism }) = (door_anchor, site.kind) {
                     if let Some(state) = self.organism_mut(organism) {
@@ -4109,6 +4094,31 @@ impl World {
             }
             if self.get(cx, cy).organism_id() != before {
                 placed += 1;
+            }
+        }
+        // **The reserve, dealt over the founders actually placed.** Each
+        // founder was booked `start_energy` as `Granted` when it was placed
+        // (`place_creature`), and its bank is overridden here, before anything
+        // has ticked, with its share of the colony's reserve. `founder_reserve`
+        // pairs founder `i` with founder `total - 1 - i` so each pair sums to
+        // exactly two grants, which keeps `expected_live_total() == sum(live
+        // energies)` -- a redistribution, not a subsidy -- **only if `total`
+        // counts the founders that exist.** It was dealt inside the loop over
+        // every planned station, so a station that could not place its founder
+        // left its partner's share unmatched and the books out by it: 82.6 J
+        // on `two_colony_bed` once the founding shaft shifted its stations
+        // (2026-09-28), 85.1 J with two colonies founded 8 cells apart. When
+        // every station places, which is nearly always, the indices and the
+        // total are the ones the loop used and every founder's bank is the
+        // same to the bit
+        // (`a_founding_that_places_fewer_founders_than_planned_still_closes_its_books`).
+        if spread > 0.0 {
+            let total = founders.len() as i32;
+            for (i, &organism) in founders.iter().enumerate() {
+                let factor = founder_reserve(seed, x, i as i32, total, spread);
+                if let Some(state) = self.organism_mut(organism) {
+                    state.energy = start_energy * factor;
+                }
             }
         }
         placed
@@ -31201,6 +31211,47 @@ mod tests {
                 (held - expected).abs() <= bar,
                 "colony {colony}: its animals hold {held:.4} against books of {expected:.4} \
                  -- {:+.6} apart, against a bar of {bar:.6} for {through:.1} J of throughput",
+                held - expected
+            );
+        }
+    }
+
+    /// **A founding that places fewer founders than it planned still closes
+    /// its books** -- `the_books_close_for_every_colony` at frame 0, on the
+    /// one path that test's bed reached only by accident.
+    ///
+    /// Founding books each placed founder's flat `start_energy` as `Granted`
+    /// and then deals the colony's reserve out unevenly
+    /// ([`founder_reserve`]), paired so the cohort's total is unchanged. The
+    /// pairing is exact only over the founders actually placed: dealt over
+    /// every planned station, a station that could not place its founder took
+    /// its share of the reserve with it, unbooked. Found 2026-09-28 when the
+    /// founding shaft, shipping on, shifted `two_colony_bed`'s stations so
+    /// one colony's first station fell on the other's founder: 82.6 J gone
+    /// before the first frame, against a bar of 0.75. Here the two colonies
+    /// are founded 8 cells apart, so the second places only some of its six;
+    /// measured on the code before the fix, its founders held 85.1 J less
+    /// than its books.
+    #[test]
+    fn a_founding_that_places_fewer_founders_than_planned_still_closes_its_books() {
+        let mut w = test_world();
+        w.nest_shaft = Some(0);
+        for x in 10..190 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        assert_eq!(w.found_colony_of(90, 100, "ant", 6), 6, "test setup: the first colony must place all six");
+        let placed = w.found_colony_of(98, 100, "ant", 6);
+        assert!(
+            (1..6).contains(&placed),
+            "test setup: the second founding must place some founders and not all, or it cannot leave a share behind -- placed {placed}"
+        );
+        let live = w.live_creature_energy_by_colony();
+        for (colony, books) in w.all_colony_books().iter().enumerate() {
+            let held = live.get(colony).copied().unwrap_or(0.0);
+            let expected = books.expected_live_total();
+            assert!(
+                (held - expected).abs() <= 1e-3,
+                "colony {colony}: its founders hold {held:.4} against books of {expected:.4} -- {:+.4} apart at founding",
                 held - expected
             );
         }
