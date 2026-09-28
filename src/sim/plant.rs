@@ -2613,6 +2613,50 @@ pub fn seed_provision_fraction(world: &World, x: i32, y: i32) -> f32 {
         .unwrap_or(1.0)
 }
 
+/// **What a bite of `(x, y)` is certain to pay, as a fraction of the cell's
+/// face value**: `seed_provision_fraction` for a bare seed that a bite may
+/// spare (`seed_survives_bite` returning `SeedBite::SurvivedBare`), and `1.0`
+/// for everything else.
+///
+/// For a price that must be *guaranteed* before the bite is taken, which a
+/// birth's affordability check is (`creature::reachable_provision`): the
+/// roll has not happened yet, so the check can only count what the bite will
+/// pay whichever way it goes. Pricing a bare seed at face there and paying it
+/// at the spared fraction afterwards charged the parent for joules the ground
+/// never handed over -- measured 2026-09-28 on the played bed, seed 20: 25 of
+/// the first 62 births left the parent overdrawn (-5 to -284 J) and it died
+/// of "starvation" one tick later holding a median 5,376 J of food in its
+/// crop (`Reports/ant-scenes-2026-09-23.md` §22p).
+///
+/// **The same tests as `seed_survives_bite`, in the same order, without its
+/// counters or its roll.** Two readings of one rule is the shape `food_value`'s
+/// own doc warns about; `a_birth_never_overdraws_its_parent_on_seeds` puts the
+/// two side by side on a spared seed, so a change to one that the other does
+/// not see goes red there.
+pub fn guaranteed_bite_fraction(world: &World, x: i32, y: i32) -> f32 {
+    let cell = world.get(x, y);
+    let organism_id = cell.organism_id();
+    if organism_id == 0 || organism::cell_type(cell.aux()) != Some(CellType::Seed) {
+        return 1.0;
+    }
+    // Only a bare seed is repriced: a pip is digested outright, and a seed in
+    // flesh pays the flesh at face.
+    if world.materials.id_of("seed") != Some(cell.material) || world.materials.id_of("pip").is_none() {
+        return 1.0;
+    }
+    if std::env::var("PIXEL_PHYSICS_SEED_CARGO").as_deref() == Ok("0") {
+        return 1.0;
+    }
+    let Some(species) = world.organism(organism_id).map(|s| s.species) else {
+        return 1.0;
+    };
+    let def = world.species.get(species);
+    if world.materials.id_of(&def.windfall_material).is_none() || def.seed_gut_survival.clamp(0.0, 1.0) <= 0.0 {
+        return 1.0;
+    }
+    def.seed_provision_fraction.clamp(0.0, 1.0)
+}
+
 /// **A2 -- the crop-side half of "the seed rides home."**
 /// `Reports/evolution-lab-ecology-design-2026-09-10.md` §2.2, Brief A2. The
 /// one caller is the bite site in `creature.rs`, immediately after

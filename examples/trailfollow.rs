@@ -4582,10 +4582,11 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             pixel_physics::sim::organism::DEATH_CAUSE_LIST.iter().zip(d).filter(|(_, n)| **n > 0).map(|(c, n)| format!("{} {n}", c.label())).collect::<Vec<_>>().join(", ")
         };
         println!(
-            "    BIRTHS {} | buds held for the nest {} (PIXEL_PHYSICS_BUD_SITE={})",
+            "    BIRTHS {} | buds held for the nest {} (PIXEL_PHYSICS_BUD_SITE={}) | parents overdrawn by a birth {}",
             w.creature_stats.births,
             w.creature_stats.buds_held_for_nest,
-            if creature::bud_at_nest(&w) { "nest" } else { "anywhere" }
+            if creature::bud_at_nest(&w) { "nest" } else { "anywhere" },
+            w.creature_stats.births_overdrawn
         );
         // **Trophallaxis, the pair `CLAUDE.md` asks for**: `shares` fired,
         // `shared_j` moved. Added 2026-09-24 when breaking the carriers'
@@ -4897,7 +4898,7 @@ fn main() {
     // `ant-forage-bed-and-gates-2026-09-21.md` is run with, echoed so a log
     // that does not name them was written by a binary that never had them.
     println!(
-        "  breadoff={} wire={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} LOAD_BY={} LOAD_SCALE={} NEST_DOOR={} NEST_DOOR_FOUNDERS={} NEST_SHAFT={} NEST_HOME={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) CARRY_PATIENCE={} PACKED_LUNCH={} layfrom={}",
+        "  breadoff={} wire={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} LOAD_BY={} LOAD_SCALE={} NEST_DOOR={} NEST_DOOR_FOUNDERS={} NEST_SHAFT={} NEST_HOME={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) CARRY_PATIENCE={} PACKED_LUNCH={} BIRTH_PRICE={} layfrom={}",
         flag("breadoff"),
         arg_str("wire").unwrap_or_else(|| "shipped".into()),
         flag("decisioncsv"),
@@ -4917,6 +4918,7 @@ fn main() {
         creature::forage_drive_from_env(),
         if creature::carry_patience_from_env() { "pickup" } else { "off" },
         if creature::packed_lunch_from_env() { "on" } else { "off" },
+        if creature::birth_price_from_env() { "guaranteed" } else { "face" },
         arg_str("layfrom").unwrap_or_else(|| "nest".into())
     );
     println!("  {LANDED_NOTE}\n");

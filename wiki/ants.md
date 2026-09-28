@@ -2122,6 +2122,15 @@ for and what nothing in the game had ever read back. So how many young a
 colony raises is now a question about how well it forages, and a well-stocked
 nest is worth something beyond looking well stocked.
 
+**A parent short of the price makes up the difference from food right beside
+it**, eating it on the spot. A seed is a poor bargain for that: bitten, it
+often survives and gives up only a quarter of its worth. Until 2026-09-28 a
+parent counted the seeds around it at their full worth, came up short, paid
+for the young anyway and died a moment later with its crop full of food; in the
+lab box a quarter of all the ants that starved died that way. Now it counts a
+seed only at what it is sure to get, so it waits until it can really afford
+the young, and a birth never kills its parent.
+
 Ants also **take the best thing in reach** rather than the first thing they
 happen to turn toward. Standing between a leaf and a flower they now take the
 flower, which is worth three times as much — before, which one they got
