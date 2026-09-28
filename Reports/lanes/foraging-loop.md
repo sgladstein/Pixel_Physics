@@ -29,6 +29,9 @@ commands and the traps.*
 - **"Scout or any ant should come home when they get so hungry before they
   are going to starve to death"** (09-26). `PIXEL_PHYSICS_HUNGRY_HOME`, off:
   it helps at 90 cells and kills at 140 whatever home holds (§21, §22g).
+- **Agents: 1-3 by default** (09-28): more only when a stage clearly pays
+  for itself, whatever the thoroughness mode. A 39-agent run cost 9.4M where
+  its 3 tracers cost 1.35M (`agent-strategy.md` s4).
 - **Sub-agents allowed** (09-27): in-process agents for reading and surveys
   (not runs: they share this box's 4 cores); a cloud session for a run that
   would otherwise queue, via the `lab-coordinator` skill with `model:` set.
