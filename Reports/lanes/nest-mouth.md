@@ -197,3 +197,5 @@ the reports each one names.
 - `f703472a` — `main` merged in: #509, packed lunch on. The colony bed's
   baseline is now 4,574 taken / 93 starved / 151 born (`=off` on dig down:
   5,377 / 64 / 185), reproduced exactly on this branch.
+- `828ce885` — the storeroom (B) as `PIXEL_PHYSICS_STOREROOM`, off; `off`
+  is `main`'s bed line for line; the suite passes on it.
