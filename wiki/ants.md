@@ -1,6 +1,18 @@
 # Ants
 
-*Current as of: 2026-09-28, when **foragers stopped resting while the colony
+*Current as of: 2026-09-28, when **a forager started taking a bite from the
+store out with it.** An ant at home next to stored food picks a piece up, eats
+from it while it holds it and puts the rest back, over and over: that nibbling
+is most of how a colony eats. A well-fed forager doing it used to stay home
+until the piece was gone, because an ant holding food behaves as if it is
+carrying a load home. Now food it picked up at home counts as a packed lunch:
+the forager heads back out and eats it on the way, and if it reaches food
+before it has finished, it finishes the lunch there so it can pick the new food
+up. In a test colony with food 90 cells away, trips to the food rise by two
+fifths, 44% more food comes off the heap, a fifth more stands at the nest and
+three times as many young are born; at 140 cells, 28% more food and twice the
+young. In the lab box it changes little.
+Earlier the same day, **foragers stopped resting while the colony
 went short, and stopped walking past the food**, **a colony started
 digging its nest in one place**, and **a colony started with one entrance.**
 A new colony now begins with a short shaft dug under its nest, and its ants

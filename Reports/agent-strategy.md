@@ -241,6 +241,25 @@ And around it:
   ~41k to start, keeps `CLAUDE.md`), else the default.
 - **Give a skeptic the cited line ranges** to open in one batch: re-finding
   each citation made skeptics the costliest stage (59-94 calls).
+- **How many agents: judge each situation on its own, use them where they
+  help, never wastefully** (owner, 2026-09-28: *"There is a huge difference
+  between 1-3 agents and 40+. Use agents when they help. Don't be wasteful
+  because ultramode is on."*, and on a follow-up, *"I am not saying 1-3
+  should be the default"*). There is no default count; a thoroughness
+  setting is not a licence for scale, and each agent has to earn its place.
+  Measured the same day: of a 39-agent run's 9.4M, the 3 tracers that found
+  the answer cost 1.35M and 35 one-per-claim skeptics 7.4M, for about five
+  material corrections, while ~30 checks returned "the number stands,
+  reword it". So verify by merging the claims first, checking only the ones
+  the conclusion rests on, and batching them by kind into 1-3 skeptics (one
+  code skeptic reads the code once for every code claim).
+- **Brief a skeptic by the kind of claim it checks.** A data claim's skeptic
+  gets the tracer's script and data paths and no code anchors; a code claim's
+  gets the line ranges and no data. Measured 2026-09-28 on a 39-agent
+  trace-verify-synthesize workflow: 242k per agent, a third of the day
+  before's unbriefed agents, yet 38 of 39 re-read `creature.rs` (632k
+  characters) and reading calls outnumbered data calls 417 to 283, mostly
+  data skeptics opening the code anchors the shared brief carried.
 - **Hand phases a digest, never raw results**: a designer given 222k
   characters of raw reader output started at 160k tokens.
 - **Prefer short agents.** A late call re-reads everything before it, and
