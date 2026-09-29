@@ -1,0 +1,57 @@
+{
+  "id": "20260929T174447550Z-04be5b",
+  "created": "2026-09-29T17:44:47Z",
+  "board": "nest",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/nest57",
+    "branch": "nest57-local",
+    "commit": "e1a3c9fe",
+    "agent": null,
+    "session_id": "02cfa3f7-cc46-597e-8f90-5488d21d3601",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/nest57"
+  },
+  "title": "Correction: the walked colony buries its own door (it is not a shaft jam)",
+  "question": "May a carrier walk its pellet away from the mouth before it can put it down (a crater ring round an open door), as its own carry rather than a placement rule?",
+  "context_md": "**A correction to card …d6747.** It asked, for bigger colonies, whether nest workers should relay the soil up the shaft or the colony should open more mouths, because \"at 200 ants the one shaft jams\". I traced it before building either, and **the shaft is not what jams**.\n\n- **Where the carriers are:** 77% of their decisions are in the storeroom and the galleries off it, not in the shaft. They step on 78% of them, but go down as often as up (2,362 up, 2,262 down): they cannot get out.\n- **Why:** a walked carrier puts its pellet down on the first open ground outside, the rim of the mouth, so the colony piles its own spoil over the door. At 200 ants a mound covers the mouth by frame 2,000; at the top of the shaft, 53% of a carrier's decisions have no way up at all. At 40 ants a heap sits on the mouth by frame 4,000.\n- **So a relay would not help:** it brings the same pellets to the same rim. More mouths would each grow the same mound.\n\n**The lever is where the pellet goes down.** Real harvester ants carry soil some way from the entrance and leave a crater ring round an open mouth. Here that would be the ant's own walk: a carrier outside the nest keeps walking away from the mouth for a distance it picks at random (most a few body lengths, some further) before it may put the pellet down, the way it carries food home before it may drop it. No rule decides where soil lands; the ant decides when to stop carrying. It is close to your 2026-08-31 ruling, so I'm asking before building it. Built, it would be a switch, off, shown to you at 40 and 200 ants.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "200 ants, walked out and back, seed 1",
+      "files": [
+        "20260929T174447550Z-04be5b/000-mouth-a200-f2000.png",
+        "20260929T174447550Z-04be5b/001-mouth-a200-f4000.png",
+        "20260929T174447550Z-04be5b/002-mouth-a200-f6000.png"
+      ],
+      "caption": "the mouth (tan: the door) at frames 2,000 / 4,000 / 6,000",
+      "meta": {
+        "pellets carried out by frame 6,000": 51,
+        "carrier decisions at the mouth’s top cell with no way up": "53%",
+        "a stood carrier faced: another carrier / an empty ant / a nest worker": "59% / 34% / 6% (6 seeds)"
+      },
+      "focus": null
+    },
+    {
+      "label": "40 ants, walked out and back, seed 1",
+      "files": [
+        "20260929T174447550Z-04be5b/003-mouth-a40-f2000.png",
+        "20260929T174447550Z-04be5b/004-mouth-a40-f4000.png",
+        "20260929T174447550Z-04be5b/005-mouth-a40-f6000.png"
+      ],
+      "caption": "the mouth (tan: the door) at frames 2,000 / 4,000 / 6,000",
+      "meta": {
+        "the shaft’s heads, mean": 1.29,
+        "a stood carrier faced: another carrier / an empty ant / a nest worker": "33% / 49% / 16% (6 seeds)"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
