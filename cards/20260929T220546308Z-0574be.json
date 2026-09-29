@@ -1,0 +1,54 @@
+{
+  "id": "20260929T220546308Z-0574be",
+  "created": "2026-09-29T22:05:46Z",
+  "board": "ants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/ant-foraging-loop-handoff-986v7n",
+    "commit": "5576fde5",
+    "agent": null,
+    "session_id": "1289a7cd-b802-5816-86ed-d6248c445388",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Food scent today vs laid only by ants bringing food from a trip",
+  "question": "Does the bottom trail read as a road from the door to the food, where the top one reads as scent smeared around the nest? This is the lay rule the next build will switch on.",
+  "context_md": "Same run, same ants, same paths (seed 3, food 90 cells east of the door, frames 8,000-9,000). Trail B is painted on a fixed log scale (violet faint, yellow strong); ants on top: **magenta** empty, **cyan** carrying food, **yellow** store food, **green** nest worker.\n\n- **Top: today.** Anything with food in its crop lays food scent, so lunch carriers walking out lay it west of the door and a blob builds at the door.\n- **Bottom: counterfactual.** The same deposits, kept only when the ant carries a load from a trip. Nothing is built yet: this plane is replayed from the top run's own moves.\n\nWhy this and not a trail that rises toward the food: a model of the returning stream says *no* lay rule makes the trail an ant reads rise toward the food (each returner's fresh line fades behind it faster than any odometer tilts it), so the reader will compare sides at the door, not climb the road.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "today",
+      "files": [
+        "20260929T220546308Z-0574be/000-ov-b.gif"
+      ],
+      "caption": "every ant with food in its crop lays B",
+      "meta": {
+        "B laid west of the door": "13.4% of all B (16 seeds)",
+        "empty departures reading food side at reach 6": "67% (90 cells), 43% (140)"
+      },
+      "focus": null,
+      "gif_frames": 10
+    },
+    {
+      "label": "trip loads only",
+      "files": [
+        "20260929T220546308Z-0574be/001-ov-cfgate.gif"
+      ],
+      "caption": "only a load from a trip lays B",
+      "meta": {
+        "B west of the door": "cut 85-99.9% (16 of 16 seeds at least 85%)",
+        "empty departures reading food side at reach 6": "78% (90 cells), 57% (140)"
+      },
+      "focus": null,
+      "gif_frames": 10
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
