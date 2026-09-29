@@ -7580,8 +7580,18 @@ fn sense(
         // ([`spoil_haul_pace`]): the haul gives it the door to head for, and
         // without the laden pace it walked there at an empty fed ant's one
         // step in five decisions.
+        // **...and it reads the bearing to where that carrier is going**
+        // ([`spoil_pace_target`]): the door for a hauled pellet, the face for
+        // a digger walking back. Read against `home_target` -- the forage
+        // anchor, which every contact with the nest re-sets to where the ant
+        // stands -- a carrier at the mouth was always standing on its own
+        // anchor, read 0, and lost the laden pace exactly where it had to
+        // climb out: `P(move)` 0.36-0.46 in the mouth's two rows and at the
+        // door against 0.77-0.79 a row deeper, and 30-45% of its decisions a
+        // step against 75-86% (`examples/digbox`, 40 ants, seed 1,
+        // 2026-09-29).
         inputs[I::HomeAligned as usize] = if crop_fill > 0.0 || is_store_load(world, state.spoil) || store_return_target(world, state).is_some() || spoil_haul_pace(world, def, state) {
-            let (ax, ay) = home_target(world, state);
+            let (ax, ay) = spoil_pace_target(world, def, state, (x, y)).unwrap_or_else(|| home_target(world, state));
             let (vx, vy) = ((ax - x) as f32, (ay - y) as f32);
             let len = (vx * vx + vy * vy).sqrt();
             // **Standing on the anchor is not a direction** -- the guard
@@ -10242,6 +10252,25 @@ fn spoil_haul() -> Option<f32> {
     })
 }
 
+/// **Where [`spoil_haul`] takes a pellet**: the nearest nest site's door.
+///
+/// **Under `SPOIL_OUT` that is the door every ant is homed to**
+/// ([`World::door_anchor`]: a row above the mouth), not `site.surface`, which
+/// over a founding cut is the mouth's own row and so inside the nest, where
+/// `keep` will not let the pellet go. Traced in `examples/digbox` (`TRIPS`,
+/// 2026-09-29): with the old target a carrier climbed the shaft in a handful
+/// of steps, reached the target, lost its pull (standing on a target is not a
+/// direction) and milled in the mouth -- 77% of the carrying frames at 200
+/// ants in the founding cut, 64% at 40. `PIXEL_PHYSICS_SPOIL_HAUL` alone keeps
+/// its old target, the one its measurements were taken with.
+fn spoil_haul_target(world: &World, head: (i32, i32)) -> Option<(i32, i32)> {
+    let site = world.nearest_nest_site(head.0, head.1).and_then(|i| world.nest_sites.get(i))?;
+    Some(match site.shaft {
+        Some(cut) if spoil_out().haul => (site.x, cut.top - 1),
+        _ => (site.x, site.surface),
+    })
+}
+
 /// **The excavation cycle, walked**: `PIXEL_PHYSICS_SPOIL_OUT`, off unless
 /// set. Grab, climb out, put down, go back -- the cycle the excavation
 /// reference describes, of which the shipped ant walks only the first and
@@ -10268,7 +10297,10 @@ fn spoil_haul() -> Option<f32> {
 ///   ([`spoil_haul_pace`]);
 /// - `keep`: inside the nest ([`inside_nest`]) the pellet is not put down --
 ///   no drop beside the carrier and no lift -- until the haul's patience runs
-///   out on it, so it goes down outside;
+///   out on it, so it goes down outside; and a carrier that has run out of
+///   patience inside may lay it beside itself where a cell will hold it but
+///   is **never lifted**, up its column or out through the passages -- it
+///   keeps carrying;
 /// - `back`: once it is down, a digger that is not hungry walks back to the
 ///   cell it cut (`OrganismState::dig_return`, [`dig_return_target`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -10340,6 +10372,20 @@ fn inside_nest(world: &World, x: i32, y: i32) -> bool {
 /// load. A store load already walks this way ([`is_store_load`]).
 fn spoil_haul_pace(world: &World, def: &CreatureDef, state: &crate::sim::organism::OrganismState) -> bool {
     spoil_out().pace && ((spoil_haul().is_some() && state.spoil.is_some_and(|s| !s.store)) || dig_return_target(world, def, state).is_some())
+}
+
+/// Where a carrier under [`spoil_haul_pace`] is going, for its `HomeAligned`
+/// bearing: the haul's door ([`spoil_haul_target`]) for a pellet, the face
+/// ([`dig_return_target`]) for a digger walking back; `None` for everyone
+/// else, who reads `home_target` as before.
+fn spoil_pace_target(world: &World, def: &CreatureDef, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
+    if !spoil_out().pace {
+        return None;
+    }
+    if spoil_haul().is_some() && state.spoil.is_some_and(|s| !s.store) {
+        return spoil_haul_target(world, head);
+    }
+    dig_return_target(world, def, state)
 }
 
 /// **The trip back to the face** ([`SpoilOut`]'s `back`).
@@ -12654,9 +12700,11 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // [`spoil_drop_cover`].
         // **Kept until it is out** ([`SpoilOut`]'s `keep`): inside the nest
         // the roll is not won, so the pellet is neither laid beside the
-        // carrier nor lifted, while the haul still has patience; a carrier
-        // that has stuck lets it go as it always did.
-        let kept_inside = spoil_out().keep && inside_nest(world, x, y) && world.organism(organism).is_some_and(|s| s.home_patience >= DIG_RETURN_GIVE_UP);
+        // carrier nor lifted, while the haul still has patience. A carrier
+        // that has stuck may lay it beside itself where a cell will hold it,
+        // and is never lifted: see `no_lift` below.
+        let keep_inside = spoil_out().keep && inside_nest(world, x, y);
+        let kept_inside = keep_inside && world.organism(organism).is_some_and(|s| s.home_patience >= DIG_RETURN_GIVE_UP);
         let cover_scale = if kept_inside {
             world.creature_stats.spoil_kept_inside += 1;
             0.0
@@ -12762,8 +12810,22 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             let reach = lift_reach(world, x, y, dig_force_of(def, &traits_of(world, organism, def), world.trait_reach), mode);
             // **...or out through the passages** under `SpoilLift::Out`
             // ([`lift_out`]), the column only when that search finds nothing.
-            let out = if lifted && mode == SpoilLift::Out { lift_out(world, x, y, footed) } else { None };
-            let site = beside.or(out).or_else(|| (1..=reach).map(|dy| (x, y - dy)).find(|&(px, py)| open(px, py)));
+            //
+            // **Never lifted from inside the nest under `keep`**: a carrier
+            // that gave up the walk out there and has no cell beside it keeps
+            // carrying. The first build let it go as it always had, and at 200
+            // ants (`examples/digbox`, 2026-09-29) that release posted 81% of
+            // all pellets up the column -- from everywhere in the nest, not
+            // only the shaft: 165-293 a seed from 1-4 rows under the old
+            // surface and 59-244 from 9-16 rows (seeds 1-4) -- and the heaps
+            // over the galleries broke 7 entrances (24 seeds), against 3 for
+            // the walk out with no trip back.
+            let no_lift = keep_inside;
+            let out = if lifted && !no_lift && mode == SpoilLift::Out { lift_out(world, x, y, footed) } else { None };
+            let site = beside.or_else(|| if no_lift { None } else { out.or_else(|| (1..=reach).map(|dy| (x, y - dy)).find(|&(px, py)| open(px, py))) });
+            if site.is_none() && no_lift {
+                world.creature_stats.spoil_kept_no_lift += 1;
+            }
             world.creature_stats.spoil_drop_candidates += candidates;
             world.creature_stats.spoil_drop_candidates_by_spoil += candidates_by_spoil;
             if candidates > 0 && candidates_by_spoil > 0 && candidates_by_spoil < candidates {
@@ -15414,10 +15476,7 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
         return Some((home_target(world, state), def.home_bias));
     }
     match spoil_haul().filter(|_| state.spoil.is_some()) {
-        Some(w) => {
-            let site = world.nearest_nest_site(head.0, head.1).and_then(|i| world.nest_sites.get(i))?;
-            Some(((site.x, site.surface), w))
-        }
+        Some(w) => Some((spoil_haul_target(world, head)?, w)),
         None => {
             if def.home_bias <= 0.0 {
                 return None;

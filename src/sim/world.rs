@@ -2005,6 +2005,12 @@ pub struct CreatureStats {
     /// `PIXEL_PHYSICS_SPOIL_OUT`'s `keep` (`creature::SpoilOut`): the pellet
     /// goes out before it goes down. 0 unless the switch is on.
     pub spoil_kept_inside: u64,
+    /// Drop rolls won inside the nest under `keep` **after the carrier's
+    /// patience ran out**, with no cell beside it that would hold the pellet:
+    /// it keeps carrying, because `keep` never lifts from inside the nest. The
+    /// far side of the call is the lift count from inside the nest, which
+    /// `examples/digbox`'s LIFTS line reads. 0 unless the switch is on.
+    pub spoil_kept_no_lift: u64,
     /// Of `spoil_lifted`, the lifts **carried out through the passages**
     /// (`PIXEL_PHYSICS_SPOIL_LIFT=out`, `creature::lift_out`) rather than up
     /// the carrier's own column; 0 in every other lift mode.

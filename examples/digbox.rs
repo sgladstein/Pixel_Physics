@@ -1456,6 +1456,12 @@ struct NestFunnel {
     /// Of `put_lifted`, the pellets found neither beside the head nor up its
     /// column: carried out through the passages (`SPOIL_LIFT=out`).
     put_out: u64,
+    /// **Where a pellet posted up the column left from**: the carrier's head
+    /// before the frame -- [in the founding cut, under cover 1-4 rows below the
+    /// old surface, 5-8, 9-16, 17 or more, not under cover]. Under
+    /// `PIXEL_PHYSICS_SPOIL_OUT` a lift is a carrier that gave up the walk out,
+    /// and where it gave up says whether the way out jammed or lost it.
+    lift_from: [u64; 6],
     put_above: u64,
     put_below: u64,
     /// Of `put_below`, landed in a cell dug since frame 0: the hole refilled.
@@ -1787,6 +1793,21 @@ impl NestFunnel {
                     Some(((sx, sy), lifted)) => {
                         if lifted {
                             self.put_lifted += 1;
+                            let (hx, hy) = pre.head;
+                            let in_cut = world.nest_sites.iter().any(|s| s.shaft.is_some_and(|c| c.contains(hx, hy)));
+                            let depth = hy - b.surface;
+                            self.lift_from[if in_cut {
+                                0
+                            } else if place != 0 {
+                                5
+                            } else {
+                                match depth {
+                                    ..=4 => 1,
+                                    5..=8 => 2,
+                                    9..=16 => 3,
+                                    _ => 4,
+                                }
+                            }] += 1;
                         } else {
                             self.put_beside += 1;
                         }
@@ -2120,6 +2141,11 @@ impl NestFunnel {
             self.put_refill
         );
         println!("LEDGER frame={frame} of the pellets posted up, carried out through the passages {} (engine spoil_lifted_out {})", self.put_out, st.spoil_lifted_out);
+        let l = self.lift_from;
+        println!(
+            "LIFTS frame={frame} pellets posted up the column, by where the carrier stood: in the founding cut {} | under cover 1-4 rows below the old surface {} | 5-8 {} | 9-16 {} | 17+ {} | not under cover {}; drop rolls held inside the nest (SPOIL_OUT keep) {}, and after patience ran out with no room beside, kept carrying {}",
+            l[0], l[1], l[2], l[3], l[4], l[5], st.spoil_kept_inside, st.spoil_kept_no_lift
+        );
         println!(
             "LEDGER frame={frame} dug cells refilled: by a pellet {}, fell in {} (spoil {}, soil {}, other {}; from the cell above {}, from the side {}); still ground {REFILL_STANDING} frames later: by a fall {}, by a pellet {}; worked ground turned loose in place: lining {} below and {} above the old surface, pellets {} below and {} above",
             self.put_refill,
@@ -2780,6 +2806,257 @@ fn local_senses(world: &World, x: i32, y: i32, me: u32) -> [f32; 5] {
     ]
 }
 
+/// **Every pellet's trip, from the cut to where it went down** (`TRIPS`).
+///
+/// Built 2026-09-29 for the question the ledgers could not answer: under
+/// `PIXEL_PHYSICS_SPOIL_OUT` with `keep` never lifting from inside the nest,
+/// three quarters of the colony's ant-frames under cover were spent holding a
+/// pellet, some 680 a pellet at 200 ants, to carry it out of a nest ten rows
+/// deep. A rate says how often, never why (`CLAUDE.md`, *tracing
+/// individuals*), so each trip is followed frame by frame: did the head move,
+/// and if it stood, what was in the cell it faced -- an animal, ground, or
+/// nothing (it chose not to step) -- and was the carrier's patience under the
+/// give-up line. Reads the world between frames and writes nothing.
+/// `tripcsv=PATH` also writes one row per carrier per frame.
+#[derive(Default)]
+struct TripLog {
+    open: std::collections::BTreeMap<u32, Trip>,
+    closed: Vec<Trip>,
+    before: std::collections::BTreeMap<u32, TripAnt>,
+    csv: Option<std::io::BufWriter<std::fs::File>>,
+    /// `decisions=PATH`: the engine's own per-decision row
+    /// (`creature::DecisionRow`, via `World::decision_log`) for every decision
+    /// an animal made holding a pellet -- which headings were usable, the move
+    /// roll against `p_move`, what came of it, the chooser's patience.
+    decisions: Option<std::io::BufWriter<std::fs::File>>,
+}
+
+#[derive(Clone, Copy)]
+struct TripAnt {
+    head: (i32, i32),
+    heading: u8,
+    holding: bool,
+    patience: f32,
+    covered: bool,
+    in_cut: bool,
+}
+
+#[derive(Clone, Copy, Default)]
+struct Trip {
+    start: u64,
+    /// Rows below the old surface of the head when the pellet was taken up.
+    depth: i32,
+    in_cut_start: bool,
+    frames: u64,
+    moved: u64,
+    stood_ant: u64,
+    stood_ground: u64,
+    stood_open: u64,
+    low_patience: u64,
+    in_cut: u64,
+    covered: u64,
+    open_air: u64,
+    /// Frames from taking the pellet up to the first frame outside the nest.
+    left_after: Option<u64>,
+    /// 0 put down outside the nest, 1 put down inside it, 2 died holding.
+    end: u8,
+}
+
+/// Patience under which `SPOIL_OUT`'s `keep` lets a carrier go
+/// (`creature::DIG_RETURN_GIVE_UP`, private there).
+const TRIP_GIVE_UP: f32 = 0.1;
+
+impl TripLog {
+    fn ants(world: &World) -> std::collections::BTreeMap<u32, TripAnt> {
+        let mut out = std::collections::BTreeMap::new();
+        for id in world.live_organism_ids() {
+            let Some(st) = world.organism(id) else { continue };
+            if world.species.get(st.species).creature.is_none() {
+                continue;
+            }
+            let Some(&(hx, hy)) = st.chain.first() else { continue };
+            let covered = (1..=COVER_ROWS).any(|dy| {
+                let c = world.get(hx, hy - dy);
+                c.material != material::EMPTY && c.organism_id() == 0 && matches!(world.materials.kind(c.material), MaterialKind::Powder | MaterialKind::Solid)
+            });
+            let in_cut = world.nearest_nest_site(hx, hy).and_then(|i| world.nest_sites.get(i)).and_then(|s| s.shaft).is_some_and(|c| c.contains(hx, hy));
+            out.insert(
+                id,
+                TripAnt { head: (hx, hy), heading: st.heading, holding: st.spoil.is_some_and(|p| !p.store), patience: st.home_patience, covered, in_cut },
+            );
+        }
+        out
+    }
+
+    fn before(&mut self, world: &World) {
+        self.before = Self::ants(world);
+    }
+
+    /// Drains the frame's decision rows, keeping those of animals that held a
+    /// pellet before the frame. Call between the step and [`Self::after`].
+    fn log_decisions(&mut self, world: &mut World) {
+        use pixel_physics::sim::creature::{DECISION_OUTCOME_NAMES, DROP_WHY_NAMES};
+        use std::io::Write;
+        let Some(log) = world.decision_log.as_mut() else { return };
+        let rows = std::mem::take(log);
+        let Some(w) = self.decisions.as_mut() else { return };
+        for r in rows {
+            if !self.before.get(&r.id).is_some_and(|a| a.holding) {
+                continue;
+            }
+            let _ = writeln!(
+                w,
+                "{},{},{},{},{},{},{},{},{:08b},{},{},{:.3},{:.3},{:.3},{:.3},{},{:.3},{:.3},{},{:.3},{:.3},{:.3},{:.3},{:.3},{:.1}",
+                r.frame,
+                r.id,
+                r.head.0,
+                r.head.1,
+                r.head_after.0,
+                r.head_after.1,
+                r.heading,
+                r.heading_after,
+                r.usable,
+                r.anchor.0,
+                r.anchor.1,
+                r.home_aligned,
+                r.p_move,
+                r.roll_move,
+                r.roll_tumble,
+                DECISION_OUTCOME_NAMES[r.outcome as usize],
+                r.patience,
+                r.chosen_cos,
+                DROP_WHY_NAMES[r.drop as usize],
+                r.drop_roll,
+                r.drop_p,
+                r.at_nest,
+                r.crowding,
+                r.energy,
+                r.energy_j
+            );
+        }
+    }
+
+    fn after(&mut self, world: &World, b: &Box2, frame: u64) {
+        use pixel_physics::sim::creature::DIRS;
+        use std::io::Write;
+        let now = Self::ants(world);
+        for (&id, pre) in &self.before {
+            let post = now.get(&id);
+            if pre.holding {
+                let t = self.open.entry(id).or_insert_with(|| Trip { start: frame, depth: pre.head.1 - b.surface, in_cut_start: pre.in_cut, ..Trip::default() });
+                t.frames += 1;
+                let inside = pre.covered || pre.in_cut;
+                if pre.in_cut {
+                    t.in_cut += 1;
+                } else if pre.covered {
+                    t.covered += 1;
+                } else {
+                    t.open_air += 1;
+                    t.left_after.get_or_insert(frame.saturating_sub(t.start));
+                }
+                if pre.patience < TRIP_GIVE_UP {
+                    t.low_patience += 1;
+                }
+                // 0 moved; else what stood in the cell it faced: 1 an animal,
+                // 2 ground, 3 nothing.
+                let ahead = match post {
+                    Some(q) if q.head != pre.head => 0u8,
+                    _ => {
+                        let (dx, dy) = DIRS[pre.heading as usize % 8];
+                        let c = world.get(pre.head.0 + dx, pre.head.1 + dy);
+                        if c.organism_id() != 0 {
+                            1
+                        } else if c.material != material::EMPTY && matches!(world.materials.kind(c.material), MaterialKind::Powder | MaterialKind::Solid) {
+                            2
+                        } else {
+                            3
+                        }
+                    }
+                };
+                match ahead {
+                    0 => t.moved += 1,
+                    1 => t.stood_ant += 1,
+                    2 => t.stood_ground += 1,
+                    _ => t.stood_open += 1,
+                }
+                if let Some(w) = self.csv.as_mut() {
+                    let _ = writeln!(
+                        w,
+                        "{frame},{id},{},{},{},{},{ahead},{:.3},{},{}",
+                        t.start,
+                        pre.head.0,
+                        pre.head.1,
+                        pre.heading,
+                        pre.patience,
+                        u8::from(inside),
+                        u8::from(pre.in_cut)
+                    );
+                }
+                let ended = match post {
+                    None => Some(2),
+                    Some(q) if !q.holding => Some(u8::from(inside)),
+                    _ => None,
+                };
+                if let Some(end) = ended {
+                    let mut t = self.open.remove(&id).expect("opened above");
+                    t.end = end;
+                    self.closed.push(t);
+                }
+            }
+        }
+        self.before = now;
+    }
+
+    fn print(&self, frame: u64) {
+        let c = &self.closed;
+        let n = c.len();
+        let q = |mut v: Vec<u64>, p: f64| -> u64 {
+            if v.is_empty() {
+                return 0;
+            }
+            v.sort_unstable();
+            v[((v.len() - 1) as f64 * p).round() as usize]
+        };
+        let ends = |e: u8| c.iter().filter(|t| t.end == e).count();
+        let durs: Vec<u64> = c.iter().map(|t| t.frames).collect();
+        let left: Vec<u64> = c.iter().filter_map(|t| t.left_after).collect();
+        let sum = |f: &dyn Fn(&Trip) -> u64| c.iter().map(f).sum::<u64>();
+        let all = sum(&|t| t.frames).max(1) as f64;
+        let pct = |v: u64| 100.0 * v as f64 / all;
+        let by = |lo: i32, hi: i32| {
+            let v: Vec<u64> = c.iter().filter(|t| !t.in_cut_start && (lo..=hi).contains(&t.depth)).map(|t| t.frames).collect();
+            format!("{}/{}", v.len(), q(v, 0.5))
+        };
+        let cut: Vec<u64> = c.iter().filter(|t| t.in_cut_start).map(|t| t.frames).collect();
+        println!(
+            "TRIPS frame={frame} pellets carried and let go {n} (outside the nest {}, inside it {}, died holding {}), still held {} | frames a trip median {} p90 {} | left the nest on {} of them, frames to leave median {} p90 {} | of the carrying frames: moving {:.1}%, standing facing an animal {:.1}%, facing ground {:.1}%, facing nothing {:.1}% | patience under the give-up line {:.1}% | in the founding cut {:.1}%, under cover elsewhere {:.1}%, in the open {:.1}% | trips by where the pellet was taken up (n/median frames): in the cut {}/{}, 1-4 rows down {}, 5-8 {}, 9-16 {}, 17+ {}",
+            ends(0),
+            ends(1),
+            ends(2),
+            self.open.len(),
+            q(durs.clone(), 0.5),
+            q(durs, 0.9),
+            left.len(),
+            q(left.clone(), 0.5),
+            q(left, 0.9),
+            pct(sum(&|t| t.moved)),
+            pct(sum(&|t| t.stood_ant)),
+            pct(sum(&|t| t.stood_ground)),
+            pct(sum(&|t| t.stood_open)),
+            pct(sum(&|t| t.low_patience)),
+            pct(sum(&|t| t.in_cut)),
+            pct(sum(&|t| t.covered)),
+            pct(sum(&|t| t.open_air)),
+            cut.len(),
+            q(cut, 0.5),
+            by(i32::MIN, 4),
+            by(5, 8),
+            by(9, 16),
+            by(17, i32::MAX),
+        );
+    }
+}
+
 fn trace(world: &World) {
     use pixel_physics::sim::brain::{BrainInput as I, BrainOutput as O};
     let Some(sid) = world.species.id_of("ant") else { return };
@@ -3045,6 +3322,18 @@ fn main() {
         ),
         None => println!("  founding: painted strip only, nothing dug (PIXEL_PHYSICS_NEST_SHAFT=off)"),
     }
+    // **Where the site and its cut are**, since `SPOIL_OUT`'s haul pulls a
+    // carrier to `(site.x, site.surface)`: a log that does not say whether
+    // that point is inside the cut cannot say where the walk out ends.
+    for s in &world.nest_sites {
+        match s.shaft {
+            Some(c) => println!(
+                "  site: x {} surface {} | shaft columns {}..{} rows {}..{} (mouth to {}) | chamber columns {}..{} rows {}..{} | the haul's target ({}, {}) inside the cut: {}",
+                s.x, s.surface, c.x0, c.x1, c.top, c.bottom, c.mouth_bottom, c.chamber_x0, c.chamber_x1, c.chamber_top, c.chamber_bottom, s.x, s.surface, c.contains(s.x, s.surface)
+            ),
+            None => println!("  site: x {} surface {} | no cut", s.x, s.surface),
+        }
+    }
     // **The door and the storeroom, echoed** for the reason the shaft is: both
     // ship on since 2026-09-29, and a log that does not name them cannot say
     // which founding it ran.
@@ -3109,17 +3398,35 @@ fn main() {
     // the run; its LEDGER lines reconcile with the engine's own counters.
     let funnel_on = !flag("nofunnel");
     let mut funnel = NestFunnel::default();
+    // **Every pellet's trip** (see [`TripLog`]), with the funnel.
+    let mut trips = TripLog::default();
+    if let Some(path) = arg::<String>("tripcsv") {
+        use std::io::Write;
+        let mut w = std::io::BufWriter::new(std::fs::File::create(&path).expect("tripcsv: cannot create the file"));
+        let _ = writeln!(w, "frame,id,trip_start,hx,hy,heading,ahead,patience,inside,in_cut");
+        trips.csv = Some(w);
+    }
+    if let Some(path) = arg::<String>("decisions") {
+        use std::io::Write;
+        let mut w = std::io::BufWriter::new(std::fs::File::create(&path).expect("decisions: cannot create the file"));
+        let _ = writeln!(w, "frame,id,hx,hy,hx_after,hy_after,heading,heading_after,usable,anchor_x,anchor_y,home_aligned,p_move,roll_move,roll_tumble,outcome,patience,chosen_cos,drop,drop_roll,drop_p,at_nest,crowding,energy,energy_j");
+        trips.decisions = Some(w);
+        world.decision_log = Some(Vec::new());
+    }
     for f in 0..=frames {
         if f > 0 {
             if funnel_on {
                 funnel.before(&world, &b);
+                trips.before(&world);
             }
             parallel::step(&mut world);
             world.step_active_sites();
             world.step_fields();
             world.step_pheromones();
             if funnel_on {
+                trips.log_decisions(&mut world);
                 funnel.after(&world, &b, f);
+                trips.after(&world, &b, f);
             }
         }
         trickle.step(&mut world, &b);
@@ -3152,6 +3459,7 @@ fn main() {
             }
             if funnel_on && f > 0 {
                 funnel.print(f, &world);
+                trips.print(f);
                 let cut = world.nest_sites.iter().find_map(|s| s.shaft);
                 funnel.print_openings(f, &world, &b, &|x, y| cut.is_some_and(|c| c.contains(x, y)));
             }
