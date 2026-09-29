@@ -19928,6 +19928,10 @@ fn relocate_chain(world: &mut World, organism: OrganismId, def: &CreatureDef, au
     // and after `from` is cleared -- so a leaf owed back to a cell the body
     // is stepping off lands in ground that is empty again. Anything still
     // under the new body stays held and is carried forward below.
+    //
+    // **"Empty again" is not true of a cell a nestmate is still standing in**,
+    // and `close_or_hand_over` is what stops the leaf coming back on top of it
+    // -- see its doc for the seven lab deaths this was.
     let held = world.organism(organism).map_or(Vec::new(), |state| state.parted.clone());
     let mut still_held: Vec<organism::Parted> = Vec::new();
     for entry in held {
@@ -19935,7 +19939,7 @@ fn relocate_chain(world: &mut World, organism: OrganismId, def: &CreatureDef, au
             still_held.push(entry);
             continue;
         }
-        restore_parted(world, &entry);
+        close_or_hand_over(world, organism, entry);
     }
 
     // **Arriving where somebody already stands registers a rider instead of
@@ -20068,6 +20072,65 @@ fn restore_parted(world: &mut World, entry: &organism::Parted) {
     }
 }
 
+/// **Tissue closes only over a cell nobody is standing in; while a nestmate
+/// is still there, it goes on holding it.** The one exit for held tissue,
+/// shared by the step (`relocate_chain`) and the death (`return_parted`).
+///
+/// Parting was written when a body owned every cell it stood in, so "the
+/// animal has left the cell" and "the cell is empty" were the same fact and
+/// `restore_parted` could write unconditionally. Stacking split them. An ant
+/// that parted a grass root, and then had a nestmate step onto it, handed the
+/// cell to that nestmate on the way out (`relocate_chain`'s promotion) and
+/// then wrote the root straight back over it. The nestmate's head cell was
+/// now plant, so `reconcile_chain` found its vital cell gone and booked it
+/// `Killed`, with any rider still standing there killed the same way. The
+/// death exit did the same thing in the other order: `return_parted` put the
+/// tissue back before `stamp_as_corpse` promoted the rider, so the rider was
+/// promoted into a cell that no longer held an animal.
+///
+/// **Traced, not reasoned**: `labshot scenario=played_bed seed=3` at a stack
+/// cap of 4 booked **7 `Killed` by frame 12,000**, with a grass root (6) or a
+/// leaf (1) in the head cell (`World::vital_losses`). **All seven** followed
+/// a restore over a live nestmate in the same cell, on the same frame or the
+/// victim's next tick. Five came down the step path and two down the death
+/// path, and they cascade: an ant killed this way dies holding tissue of its
+/// own, and its death put that back over whoever was riding it. At a
+/// cap of 1 the same seed restored over an animal **zero** times and killed
+/// none. Over the foraging lane's 24-seed lab pair it was the whole
+/// regression that kept stacking off by default: births **418 -> 2**, 20 of
+/// 24 colonies lost.
+///
+/// **Handed over rather than kept back or dropped.** Keeping it with the
+/// animal that walked away leaves it holding a cell it is not in, and the
+/// next step writes it back anyway. Dropping it deletes a leaf, which
+/// `an_ant_walking_through_foliage_leaves_it_intact` exists to forbid. The
+/// nestmate now standing in the cell is the one body the tissue is really
+/// under, so it holds it and closes it when it leaves, or passes it on if
+/// somebody is still there.
+///
+/// Who that is: the cell's grid owner if it is another animal (a promoted
+/// rider after a step, or the host when the leaver was only riding). Failing
+/// that, the oldest rider, which is exactly who `stamp_as_corpse` promotes
+/// when the leaver is dying and still owns the cell.
+///
+/// **A no-op at a stack cap of 1** on every path the engine takes. A body
+/// that steps off a cell has already cleared it to `EMPTY` by the time this
+/// runs, and no riders exist, so nobody else can be standing there.
+fn close_or_hand_over(world: &mut World, leaving: OrganismId, entry: organism::Parted) {
+    let p = (entry.x, entry.y);
+    let cell = world.get(p.0, p.1);
+    let owner = cell.organism_id();
+    let standing = if owner != 0 && owner != leaving && is_animal_cell(world, cell) {
+        Some(owner)
+    } else {
+        world.riders_at(p.0, p.1).iter().map(|r| r.organism).find(|&r| r != leaving)
+    };
+    match standing.and_then(|who| world.organism_mut(who)) {
+        Some(state) => state.parted.push(entry),
+        None => restore_parted(world, &entry),
+    }
+}
+
 /// **Everything this animal is holding out of the world, given back.**
 ///
 /// The death exit named in `OrganismState::parted`'s doc. Called before the
@@ -20075,10 +20138,15 @@ fn restore_parted(world: &mut World, entry: &organism::Parted) {
 /// laid only where there is room for it: a bush closes over an ant that
 /// dies inside it, which is both the right picture and the only ordering
 /// that cannot leave a leaf deleted.
+///
+/// **A bush closes over the dying ant only if nobody else is standing in the
+/// cell.** With a nestmate riding there, the tissue passes to it instead
+/// ([`close_or_hand_over`]); `stamp_as_corpse` then promotes that same
+/// nestmate into the cell and lays the corpse beside it.
 fn return_parted(world: &mut World, organism: OrganismId) {
     let held = world.organism(organism).map_or(Vec::new(), |state| state.parted.clone());
-    for entry in &held {
-        restore_parted(world, entry);
+    for entry in held {
+        close_or_hand_over(world, organism, entry);
     }
     if let Some(state) = world.organism_mut(organism) {
         state.parted.clear();
@@ -25677,6 +25745,101 @@ mod tests {
             "a strike that killed the creature on top also killed the one under it -- the cell changed hands, it was not consumed"
         );
         assert_eq!(w.get(at2.0, at2.1).organism_id(), rider2, "and the survivor now owns the cell");
+    }
+
+    /// Two nestmates stacked in a leaf the one underneath is holding: the
+    /// state a host is in when it parted a leaf and a nestmate then stepped
+    /// onto it. `host` is a two-cell chain, head `(11,5)` and tail `(10,5)`;
+    /// `rider` is a one-cell body riding the host's tail, where the host holds
+    /// a live plant's leaf with carbon in it. Built by hand rather than walked
+    /// into, so the order of events is the one under test and not whatever a
+    /// crowd happens to produce. Returns the host, the rider, the leaf's
+    /// material and the shared cell.
+    fn stacked_in_a_parted_leaf(w: &mut World) -> (OrganismId, OrganismId, material::MaterialId, (i32, i32)) {
+        w.set_stack_cap(20);
+        let ant = w.species.id_of("ant").expect("ant species");
+        let ant_material = w.materials.id_of("ant").expect("ant material");
+        let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
+        let tree = w.species.id_of("tree").expect("tree species");
+        let plant = w.push_organism(tree).expect("a slot for the plant");
+        let host = w.push_organism(ant).expect("a slot for the host");
+        let rider = w.push_organism(ant).expect("a slot for the rider");
+        let body = |id: OrganismId, cell_type: CellType| Cell::new(ant_material, 0).with_organism_id(id).with_aux(pack_cell_type(cell_type));
+        let (head, shared) = ((11, 5), (10, 5));
+        w.set(head.0, head.1, body(host, CellType::Head));
+        w.set(shared.0, shared.1, body(host, CellType::Segment));
+        w.add_rider(shared.0, shared.1, rider, body(rider, CellType::Head));
+        for (id, chain) in [(host, vec![head, shared]), (rider, vec![shared])] {
+            let st = w.organism_mut(id).expect("live");
+            st.colony = 7;
+            st.chain = chain;
+        }
+        // What `relocate_chain`'s arrival loop gives a rider: the position in
+        // its own record, which is what keeps it alive (`reconcile_chain`
+        // resolves against `cells`, not the grid).
+        w.organism_mut(rider).expect("live").cells.insert(shared, organism::OrganismCell::default());
+        let scalars = organism::OrganismCell { carbon: 0.5, ..Default::default() };
+        let held = organism::Parted { x: shared.0, y: shared.1, cell: Cell::new(leaf, 0).with_organism_id(plant), scalars };
+        w.organism_mut(host).expect("live").parted.push(held);
+        assert_eq!(w.get(shared.0, shared.1).organism_id(), host, "test setup: the host holds the shared cell");
+        assert_eq!(w.riders_at(shared.0, shared.1).len(), 1, "test setup: one nestmate rides it");
+        (host, rider, leaf, shared)
+    }
+
+    fn holds_leaf_at(w: &World, id: OrganismId, leaf: material::MaterialId, p: (i32, i32)) -> bool {
+        w.organism(id).is_some_and(|s| s.parted.iter().any(|h| (h.x, h.y) == p && h.cell.material == leaf))
+    }
+
+    /// **A leaf closes behind an ant only once nobody is left standing in
+    /// it** -- the step half of `close_or_hand_over`, and five of the seven
+    /// lab deaths that kept stacking off by default.
+    ///
+    /// The host steps east off the shared cell, which hands the cell to the
+    /// rider. The leaf the host was holding there must pass to the rider, not
+    /// be written back over it. Then the rider steps off with nobody behind
+    /// it and the leaf comes back, carbon and all -- the half that says the
+    /// hand-over did not simply delete the leaf.
+    ///
+    /// Watched red against the unconditional restore: the rider is killed on
+    /// its first `reconcile_chain`, with a leaf in its head cell.
+    #[test]
+    fn a_leaf_does_not_close_over_a_nestmate_still_standing_in_it() {
+        let mut w = test_world();
+        let (host, rider, leaf, shared) = stacked_in_a_parted_leaf(&mut w);
+        let def = w.species.get(w.organism(host).expect("live").species).creature.clone().expect("a creature");
+
+        let from = w.organism(host).expect("live").chain.clone();
+        let to = [(12, 5), (11, 5)];
+        relocate_chain(&mut w, host, &def, &[], BodySide { cells: &from, groups: &[] }, BodySide { cells: &to, groups: &[] });
+
+        let now = w.materials.get(w.get(shared.0, shared.1).material).name.clone();
+        assert!(reconcile_chain(&mut w, rider), "the rider died when its host stepped off -- the leaf came back over it (the cell holds {now})");
+        assert_eq!(w.get(shared.0, shared.1).organism_id(), rider, "the rider owns the cell it was standing in");
+        assert!(holds_leaf_at(&w, rider, leaf, shared), "and holds the leaf still pushed aside under it");
+        assert!(!holds_leaf_at(&w, host, leaf, shared), "while the host no longer holds a cell it has left");
+
+        relocate_chain(&mut w, rider, &def, &[], BodySide { cells: &[shared], groups: &[] }, BodySide { cells: &[(9, 5)], groups: &[] });
+        assert_eq!(w.get(shared.0, shared.1).material, leaf, "the leaf closes once the last animal has left");
+        let carbon = w.organism_cell(shared.0, shared.1).map_or(0.0, |c| c.carbon);
+        assert!((carbon - 0.5).abs() < 1e-6, "and comes back with its carbon, not a zeroed sidecar: {carbon}");
+        assert!(!holds_leaf_at(&w, rider, leaf, shared), "and nobody is left holding it");
+    }
+
+    /// **A host that dies holding a leaf under a nestmate hands the leaf on
+    /// with the cell** -- the death half of `close_or_hand_over`, and the
+    /// other two of the seven. `return_parted` runs before `stamp_as_corpse`
+    /// promotes the rider, so an unconditional restore put the leaf into the
+    /// cell first and the rider was promoted into a plant.
+    #[test]
+    fn a_host_dying_in_a_leaf_hands_it_to_the_nestmate_on_top() {
+        let mut w = test_world();
+        let (host, rider, leaf, shared) = stacked_in_a_parted_leaf(&mut w);
+
+        creature_dies(&mut w, host, organism::DeathCause::Starved);
+        let now = w.materials.get(w.get(shared.0, shared.1).material).name.clone();
+        assert!(reconcile_chain(&mut w, rider), "the rider died with its host -- the leaf came back over the cell it was promoted into (the cell holds {now})");
+        assert_eq!(w.get(shared.0, shared.1).organism_id(), rider, "the rider takes the cell over");
+        assert!(holds_leaf_at(&w, rider, leaf, shared), "and goes on holding the leaf under it");
     }
 
     /// **A handover always changes the cell's owner, whatever cell the rider

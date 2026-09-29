@@ -156,7 +156,10 @@ ant's expressed `TRAIT_PACE` and by its body's leg fraction. A founder decides
 - **Enterable cell** (`cell_is_enterable`): empty, its own body, or living
   plant tissue (`is_partable`: leaf, wood, grass, reed, moss and fruit are
   walk-through while alive; `TISSUE_PARTING` on). A nestmate is **not**
-  enterable at the default `PIXEL_PHYSICS_STACK_DEPTH=1`.
+  enterable at the default `PIXEL_PHYSICS_STACK_DEPTH=1`. Parted tissue is
+  held by the ant standing in it and closes when the cell is left empty; when
+  an ant steps off or dies in a cell a nestmate still stands in (stack depth
+  above 1), the nestmate holds the tissue instead (`close_or_hand_over`).
 - **Foothold** (`head_has_foothold`): the **head's** 8 neighbours include
   `Solid`, `Powder` or `Plant`, or a nestmate (`climbs_over_kin: true`).
   Ants walk on walls and ceilings.
