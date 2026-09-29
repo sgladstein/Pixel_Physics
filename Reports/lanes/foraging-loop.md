@@ -7,13 +7,14 @@ This note keeps the owner's rulings, the live question, the baseline, the
 commands and the traps.*
 
 - **Previous session:** `session_01Pt5N39pfcix13hMycPN9Xs`, branch
-  `claude/ant-foraging-loop-handoff-986v7n` (2026-09-28): packed lunch, the
-  birth price, why food does not build up (§22q), foragers retire (§22r).
+  `claude/ant-foraging-loop-handoff-986v7n` (2026-09-28/29): packed lunch,
+  the birth price, why food does not build up (§22q), foragers retire
+  (§22r), the `returns` drive (§22s), store lunch held off on the granary
+  and the test-bed review (§22t).
 - **Peer lanes:** the nest-mouth lane ([`nest-mouth.md`](nest-mouth.md))
-  shipped dig down for an enclosed digger (#508, 2026-09-28). With packed
-  lunch it costs the loop (below); the owner ruled a nest step is not blocked
-  on colony numbers, and that lane is tracing which ants dig when food is
-  wanted.
+  shipped the granary (#513, 2026-09-29: a door, a storeroom, nest workers,
+  `keep`). Every baseline before it is a different ant; its `keep` and
+  nest-bound drive sit in this lane's region, reviewed and agreed.
 
 ## Standing owner rulings
 
@@ -51,6 +52,8 @@ commands and the traps.*
   (not runs: they share this box's 4 cores); a cloud session for a run that
   would otherwise queue, via the `lab-coordinator` skill with `model:` set.
   Either way the return path is files.
+- **A nest step is not blocked on colony numbers** (09-28): the nest lane
+  ships a nest change that costs the loop, and this lane answers the cost.
 - An ant should breed only at the nest, and in the end *where* it breeds
   should be something a lineage evolves (09-23). `PIXEL_PHYSICS_BUD_SITE=nest`,
   off by default; the bed runs with it on.
@@ -59,63 +62,61 @@ commands and the traps.*
 
 **Shipped on** (`=off`, or `face`, `always`, is the ant before it):
 `FORAGE_DRIVE=returns`, `CARRY_PATIENCE=pickup` (Z35), `PACKED_LUNCH=on`,
-`STORE_LUNCH=on`, `BIRTH_PRICE=guaranteed` (Z36) -- all `PIXEL_PHYSICS_`.
+`BIRTH_PRICE=guaranteed` (Z36) -- all `PIXEL_PHYSICS_`; and the nest lane's
+granary (#513: `NEST_DOOR`, `STOREROOM`). **`STORE_LUNCH` is off** (§22t).
 
-**Foragers retire, and now go back out (§22r, §22s).** The trip pays ~11x
-its cost; foragers stopped after 1-3 loops because store food they held was
-not a lunch. Store lunch makes it one; the `returns` drive stands fed
-foragers down when no food has come home for a round trip, which is what
-the lab needed. Bed, today's nest, 90 cells: food taken 4,566 -> 19,117,
-born 144 -> 1,391. Lab: births 373 -> 749, ant-time +54%, died out 4 -> 3.
-Price is not the limit (`burn=0.5`: loop rate 0.93 -> 0.91).
+**Which way to go is now the loop's blocker (§22t).** Store lunch was the
+lane's largest gain before the granary (taken 4,566 -> 19,117) and on it is
+all of a loss: starved 75 -> 215 (20/4), because a forager that takes food
+at the door leaves with it at full drive, no bearing, and digs west of the
+door until it starves, while the storeroom goes empty (6.1 -> 0.4 cells).
+The granary alone keeps that ant home. So a lunch needs a bearing before it
+can ship.
 
-**Next:** why each ant fetches less in a bigger colony (open problem 5),
-and which way to go once the door ships (open problem 3).
+**Next:** give a driven forager a bearing out of the nest (open problem 1);
+then store lunch again. The `returns` drive barely fades on the granary
+(open problem 2).
 
 - **Read food taken, and food standing at the nest** (`FOOD STORE`'s
   `nest food`, mean from 6,000); "net food into home" overcounts (§22j).
 
-## Baseline (`main` with store lunch and the `returns` drive, 2026-09-29)
+## Baseline (`main` with the granary and the `returns` drive, 2026-09-29)
 
-Colony bed, no trail, 24 seeds, tree after #512:
+Colony bed, no trail, 24 seeds, merged tree `0002baad`:
 
-| food distance | food taken from the pile | food at the nest | starved | born |
+| | food taken from the pile | food at the nest | starved | born |
 |---|---:|---:|---:|---:|
-| 90 | 19,117 | 8,530 J | 74 | 1,391 |
-| 140 | 13,233 | 8,586 J | 73 | 712 |
-| 90, both off (the ant of #512) | 4,566 | 8,003 J | 83 | 144 |
-| 140, both off | 4,264 | 7,903 J | 87 | 100 |
+| 90 cells | 5,992 | 12,147 J | 73 | 223 |
+| 140 cells | 4,598 | 9,064 J | 107 | 76 |
+| 80 founders at 135 | 8,174 | 8,726 J | 1,102 | 70 |
+| 90, `always` (the granary as #513 shipped it) | 6,088 | 12,379 J | 75 | 226 |
 
-Lab box, 24 seeds, medians: births 749, starved 282, alive at the end 124,
-food eaten 1,745k J, ant-time 15.1M; died out 3, under 10 at the end 6.
-Both off: 373, 195, 112, 1,051k J, 9.8M; 4 and 5. The nest lane's door
-(`NEST_DOOR=2`, off) cuts starvation on the bed and sends store-lunch
-foragers west (§22r).
+Lab box, 24 seeds, rain Light: LABBASE
 
 ## Ranked open problems
 
-1. **Lab starvation out in a grazed box** is now damped by the `returns`
-   drive (§22s), not gone: starved per ant-time 19.8 -> 18.7 per million.
-   The ants that die out there are hungry scouts, which no drive reaches.
-2. **Early deaths.** Founders that never reach the food die around frame
-   3,800; #507's founding shaft cut them to 58 of 480 by frame 6,000 at 140.
-   Only the road and the nest (§17b, §19), or a founding store, reach them.
-3. **Which way to go.** A driven forager leaving the nest's west end walks
-   the dead end (§20); with the door and store lunch, 41% of ant-time is west
-   of the nest (§22r). A memory of where its last load came from would aim
-   it, as desert ants aim by the vector that paid.
-4. **Food at home to the hungry.** The tether pays at 90 on top of `always`
-   (201 → 123) and kills at 140 (429): the leash is the problem, not the store.
-5. **Each ant fetches less in a bigger colony** (nest lane, 2026-09-28,
-   `nest-colony-size-2026-09-28.md`): on the bed with the food kept ~75
-   cells past the colony's near edge, 20/40/80/200 founders starve 13% /
-   28% / 42% / 52% of all ants and take 9.2 / 6.1 / 4.7 / 4.2 food cells
-   per founder; not the supply (the 200-colony took ~850 of ~24,000 cells
-   offered) and not founding energy. Trace it with the funnel: where do the
-   extra ants stop?
+1. **Which way to go.** A driven forager has no bearing. Before the
+   granary the strip of nest paint covered the ground west of the nest;
+   the door leaves it open, and a forager sent out with a lunch digs there
+   until it starves (§22t; 32% of ant-time west against 14%). A memory of
+   where its last load came from would aim it, as desert ants aim by the
+   vector that paid. Store lunch waits on it.
+2. **The `returns` drive barely fades on the granary**: with the pile empty
+   it reads 0.92-0.97 (§22t). Traced to the booking: 46% of returns are food
+   picked up inside the home band by an ant that roamed 16 cells from nest
+   contact, past `FORAGE_TRIP_MIN` (8). Judge a trip by where the food was
+   taken (beyond the home band), not by how far the ant roamed.
+3. **Early deaths.** Founders that never reach the food die early (35% of
+   the starved on the granary at 90 cells). Only the road and the nest
+   (§17b, §19), or a founding store, reach them.
+4. **Each ant fetches less in a bigger colony** (nest lane,
+   `nest-colony-size-2026-09-28.md`): 20/40/80/200 founders starve 13% /
+   28% / 42% / 52%; on the granary 80 founders starve 55% of the ants that
+   lived. Trace it with the funnel: where do the extra ants stop?
+5. **Food at home to the hungry.** The tether pays at 90 and kills at 140:
+   the leash is the problem, not the store.
 6. **Lab deliveries are 86% churn**: read net food into home.
 7. **Latent:** a scout that has given up is released only by a nest contact.
-   Harmless on both beds; `HUNGRY_HOME=tether` already lets go on arrival.
 
 ## Tools and skills (use these; the names do not say what they answer)
 
@@ -135,7 +136,8 @@ foragers west (§22r).
   own block; net food into home is last, an overcount (§22j).
 - **`trailfollow decisioncsv dtag=`**: the per-decision trace. Since 09-27 it
   carries `energy_j` (`energy` is clamped at the 200 J grant) and `drive`,
-  `scout_w`, `scout_patience`, `scout_home`. `gifants framesdir=` for cards.
+  `scout_w`, `scout_patience`, `scout_home`; since 09-29 `trip_load` and
+  `forage_max` (what the `returns` drive books: `scripts/tripsrc.py`). `gifants framesdir=` for cards.
 - **`labforage`**: its `SUMMARY seed=` line, and `FORAGE seed=` for the drive.
 - **`scripts/deadendindex.py --touching`** before a PR (needs an unshallowed
   clone to regenerate); **`scripts/branchcheck.sh --who-touched <file>`**.

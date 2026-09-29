@@ -84,8 +84,9 @@ will be.
   2026-09-29 for the door and the full storeroom shipped on (`parse_nest_door`,
   `nest_door_of`, `World::nest_door`, `Storeroom::SHIPPED`,
   `parse_storeroom`), and §6d, §8 and §12 that day for the `returns` drive
-  and store lunch shipped on (`returns_drive`, `RETURN_WINDOW`, `trip_load`,
-  `nest_last_return`, `step_nest_need`, `ForageDrive::ALWAYS`).
+  shipped on and store lunch held off (`returns_drive`, `RETURN_WINDOW`,
+  `trip_load`, `nest_last_return`, `step_nest_need`, `ForageDrive::ALWAYS`,
+  `store_lunch_from_env`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -562,7 +563,7 @@ after `act`) **or carries a packed lunch**, carries no spoil and walks
 on since 2026-09-28) is a crop filled only at home since it was last empty
 (`OrganismState::lunch`, set by a pickup at home into an empty crop, cleared
 by any pickup away from home; "at home" is the head beside nest material, or,
-under `PIXEL_PHYSICS_STORE_LUNCH` (on since 2026-09-29), any pickup before the ant has been
+under `PIXEL_PHYSICS_STORE_LUNCH` (off; `on` is a switch), any pickup before the ant has been
 `FORAGE_TRIP_MIN` cells from its last nest contact, `OrganismState::
 forage_max`): its carrier also has no pull home
 (`home_pull`) and scouts and reads the trail as an empty ant (`chooser_step`'s
@@ -848,7 +849,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_HUNGRY_HOME` | off | `on`/`refed` or `tether`: an empty ant too hungry to be out is pulled home to its nest's larder (§6d, §8); `World::hungry_home` for one world |
 | `PIXEL_PHYSICS_FORAGE_DRIVE` | `returns` | `off`, `hunger`, `larder`, `returns` or `always`, then optionally `,nopace`, `,keep` and `,fed` (only foragers at or above `start_energy`): a fed forager goes out when its nest needs food (§6d), and with `,keep` leaves the store at home (§5); `World::forage_drive` for one world |
 | `PIXEL_PHYSICS_PACKED_LUNCH` | on | `off`: a crop filled only at home counts as a load, so the forage drive does not reach its carrier (§6d); `World::packed_lunch` for one world |
-| `PIXEL_PHYSICS_STORE_LUNCH` | on | `off`: a crop is a packed lunch only while every cell in it was taken with the head beside nest material; on, a cell taken before the ant has been `FORAGE_TRIP_MIN` (8) cells from its last nest contact counts as taken at home, wherever it stood (§6d); `World::store_lunch` for one world |
+| `PIXEL_PHYSICS_STORE_LUNCH` | off | `on`: a cell taken before the ant has been `FORAGE_TRIP_MIN` (8) cells from its last nest contact counts as taken at home for the packed lunch, wherever it stood; off, a crop is a lunch only while every cell in it was taken with the head beside nest material (§6d); `World::store_lunch` for one world |
 | `PIXEL_PHYSICS_HAUL_BITE` | on | `off`: an animal holding spoil cannot swallow or load food; `fed`: only one at or above `start_energy` (§9) |
 | `PIXEL_PHYSICS_BIRTH_PRICE` | `guaranteed` | `face`: a birth counts a bare seed in reach at its full worth, though a bite that spares it pays a quarter, so the top-up can leave the parent overdrawn (§9); `World::birth_price` for one world |
 | `PIXEL_PHYSICS_CARRY_PATIENCE` | `pickup` | `off`: a carry's home patience restarts only at the first pickup, not at every one (§6d step 5, bug Z35); `World::carry_patience` for one world |

@@ -804,6 +804,12 @@ pub struct DecisionRow {
     /// `DecisionScratch::dig_turned`. `heading` is still the one the move
     /// was decided from.
     pub dig_turned: bool,
+    /// **What the `returns` drive will book**, read after `act`:
+    /// `OrganismState::trip_load` (the crop holds a load from a trip, so its
+    /// first put-down at home books a return) and `forage_max`, the
+    /// excursion since the last nest contact that decided it. Trace-only.
+    pub trip_load: bool,
+    pub forage_max: u16,
 }
 
 fn worm_tick(world: &mut World, x: i32, y: i32, organism: OrganismId) -> Vec<ActiveSite> {
@@ -6609,6 +6615,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         let st = world.organism(organism);
         let head_after = st.and_then(|s| s.chain.first().copied()).unwrap_or(head);
         let heading_after = st.map_or(heading, |s| s.heading);
+        let (trip_load, forage_max) = st.map_or((false, 0), |s| (s.trip_load, s.forage_max));
         let sc = world.decision_scratch;
         world.creature_stats.decision_census[leg][setting_class(usable)][sc.outcome as usize] += 1;
         use brain::BrainInput as I;
@@ -6661,6 +6668,8 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             scout_patience: sc.scout_patience,
             scout_home: sc.scout_home,
             dig_turned: sc.dig_turned,
+            trip_load,
+            forage_max,
         };
         if let Some(log) = world.decision_log.as_mut() {
             log.push(row);
@@ -14727,14 +14736,24 @@ pub fn packed_lunch_of(world: &World) -> bool {
 /// below which an outing is loitering at home, not a trip -- counts as
 /// taken at home for the lunch. Only the lunch reads it: `foraged` and
 /// `pickups_at_nest` keep the nest-contact rule. Read once per process.
+///
+/// **Off by default, on a measured harm** (2026-09-29, §22t). Before the
+/// nest lane's granary it tripled what came off the pile; on the granary
+/// (#513: door, storeroom, nest workers, `keep`) it is the whole of a loss,
+/// 24 seeds at 90 cells: starved 75 -> 215 (more on 20), food taken 6,088 ->
+/// 4,726 (less on 20). Traced ant by ant: a forager that takes food at the
+/// door now leaves with it as a lunch at full drive, with no bearing, and on
+/// the door's open ground west of the nest it digs until it starves -- the
+/// granary alone has that ant carry the food home and live off the room.
+/// What it lacks is a way out, not a reason to go.
 pub fn store_lunch_from_env() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_STORE_LUNCH").unwrap_or_default().trim() {
-        "on" | "" => true,
-        "off" => false,
+        "on" => true,
+        "off" | "" => false,
         other => {
-            eprintln!("PIXEL_PHYSICS_STORE_LUNCH={other:?}: unknown, read as on (off, on)");
-            true
+            eprintln!("PIXEL_PHYSICS_STORE_LUNCH={other:?}: unknown, read as off (off, on)");
+            false
         }
     })
 }
