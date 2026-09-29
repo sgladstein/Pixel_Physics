@@ -1,0 +1,48 @@
+{
+  "id": "20260929T114332133Z-757008",
+  "created": "2026-09-29T11:43:32Z",
+  "board": "ants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/ant-foraging-loop-handoff-986v7n",
+    "commit": "e9d6562f",
+    "agent": null,
+    "session_id": "1289a7cd-b802-5816-86ed-d6248c445388",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Trip reach: do fed ants stop walking to an empty pile?",
+  "question": "Colony bed, food 90 cells east of the nest (the nest is at the left), a small pile that refills every 6,000 frames. Same seed, the last 2,400 frames of a cycle, after the pile's last load went home. One colony counts food shuffled beside its own door as 'food still coming home'; the other counts only food carried in from out in the world, so its fed ants should stand down. Magenta = empty ant, cyan = carrying food. Which colony has stopped sending ants out to the empty pile -- and is the difference visible at all?",
+  "context_md": "Counts, seed 14, frames 15,600-18,000 (one colony / the other, labels hidden): fed ants setting out 6 / 1; ants seen more than 26 cells out of the nest 10 / 5; mean drive of foragers 0.93 / 0.47. Over 24 seeds fed set-outs fall in every third of the cycle (96/119/173 -> 63/81/128), last third not significant by seed (10 higher / 12 lower). Food taken, starved and born do not move outside seed noise. Report: Reports/ant-scenes-2026-09-23.md s22u.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "off (the ant before, TRIP_REACH=off)",
+      "files": [
+        "20260929T114332133Z-757008/000-off-s14.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 60
+    },
+    {
+      "label": "trip reach on (shipped)",
+      "files": [
+        "20260929T114332133Z-757008/001-on-s14.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 60
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
