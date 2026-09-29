@@ -2011,6 +2011,14 @@ pub struct CreatureStats {
     /// far side of the call is the lift count from inside the nest, which
     /// `examples/digbox`'s LIFTS line reads. 0 unless the switch is on.
     pub spoil_kept_no_lift: u64,
+    /// **Carry distances drawn** under `PIXEL_PHYSICS_SPOIL_RING`
+    /// (`creature::spoil_ring`): one per pellet, the first time its carrier
+    /// stands outside the nest with it. The "it fired" half; the effect half
+    /// is `spoil_ring_held`. 0 unless the switch is on.
+    pub spoil_ring_drawn: u64,
+    /// Drop rolls held because the carrier was not yet as far from the nest
+    /// site's centre as its drawn distance. 0 unless the switch is on.
+    pub spoil_ring_held: u64,
     /// Of `spoil_lifted`, the lifts **carried out through the passages**
     /// (`PIXEL_PHYSICS_SPOIL_LIFT=out`, `creature::lift_out`) rather than up
     /// the carrier's own column; 0 in every other lift mode.
@@ -3688,6 +3696,12 @@ pub struct World {
     /// `Some(None)` turns it off. A field so a guard can take both arms in
     /// one process.
     pub dig_down: Option<Option<crate::sim::creature::DigDown>>,
+    /// **The carry away from the mouth, overriding
+    /// `PIXEL_PHYSICS_SPOIL_RING` for this world** (`creature::spoil_ring_of`).
+    /// `None` follows the environment, which is off unless it names a carry;
+    /// `Some(None)` turns it off. A field so a guard can take both arms in
+    /// one process.
+    pub spoil_ring: Option<Option<crate::sim::creature::SpoilRing>>,
     /// **The storeroom, overriding `PIXEL_PHYSICS_STOREROOM` for this world**
     /// (`creature::storeroom_of`). `None` follows the environment, which is
     /// `creature::Storeroom::SHIPPED` unless it says `off`.
@@ -6092,6 +6106,7 @@ impl World {
             nest_shaft: None,
             spoil_cue: None,
             dig_down: None,
+            spoil_ring: None,
             storeroom: None,
             nest_door: None,
             scout: None,
@@ -7121,6 +7136,7 @@ impl World {
             store_return: false,
             store_carried: false,
             dig_return: None,
+            spoil_ring: None,
             nest_bound_until: 0,
             lunch: false,
             trip_load: false,

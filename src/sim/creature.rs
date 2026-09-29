@@ -202,6 +202,12 @@ const RNG_SLOT_OLD_AGE: u64 = 8;
 /// coin changes the heading and nothing else in any stream.
 const RNG_SLOT_HALF_TURN: u64 = 9;
 
+/// The carry stream ([`spoil_ring`]): how far from the nest this carrier
+/// walks its pellet, and which way when it came out of the middle. Keyed on
+/// the animal and the frame, and a slot of its own so the switch moves no
+/// other draw.
+const RNG_SLOT_SPOIL_RING: u64 = 10;
+
 /// **The cap `grow_body` walks a `Segmented` body's `FateGenome` to.** With
 /// laterals that is at most 16 cells; both shipped bodies land at 7-8, well
 /// under it, and the cap exists only to bound a mutated genome that never
@@ -10312,8 +10318,15 @@ fn spoil_haul() -> Option<f32> {
 /// direction) and milled in the mouth -- 77% of the carrying frames at 200
 /// ants in the founding cut, 64% at 40. `PIXEL_PHYSICS_SPOIL_HAUL` alone keeps
 /// its old target, the one its measurements were taken with.
-fn spoil_haul_target(world: &World, head: (i32, i32)) -> Option<(i32, i32)> {
+///
+/// **Outside the nest under [`spoil_ring`], the column the carrier drew**, on
+/// the row over the nest's surface: the pellet is walked out that far before
+/// it may go down, so the pull is along the ground, away from the door.
+fn spoil_haul_target(world: &World, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
     let site = world.nearest_nest_site(head.0, head.1).and_then(|i| world.nest_sites.get(i))?;
+    if let Some(col) = state.spoil_ring.filter(|_| spoil_ring_of(world).is_some() && !inside_nest(world, head.0, head.1)) {
+        return Some((col, site.surface - 1));
+    }
     Some(match site.shaft {
         Some(cut) if spoil_out().haul => (site.x, cut.top - 1),
         _ => (site.x, site.surface),
@@ -10413,6 +10426,106 @@ fn inside_nest(world: &World, x: i32, y: i32) -> bool {
     under_cover(world, x, y) || world.nearest_nest_site(x, y).and_then(|i| world.nest_sites.get(i)).and_then(|s| s.shaft).is_some_and(|c| c.contains(x, y))
 }
 
+/// **How far a carrier walks its pellet from the nest before it lets go**:
+/// `PIXEL_PHYSICS_SPOIL_RING=<shape>,<scale>`, off unless set. On top of
+/// [`SpoilOut`] (whose haul pulls the carrier, and whose `keep` holds the
+/// pellet inside the nest).
+///
+/// **Why.** Walked out with nothing more, a carrier puts its pellet down on
+/// the first ground outside the founding cut, which is the mouth's rim, and
+/// the colony buries its own door: at 200 ants in `digbox` a mound of spoil
+/// and ants covers the mouth by frame 2,000, and at the shaft's top cell 53%
+/// of a carrier's decisions have no way up (seed 1, 2026-09-29;
+/// `Reports/nest-one-entrance-2026-09-29.md` §11). This file's own record of
+/// the placement rules has the same failure from 2026-08-31: *the first cell
+/// with clear sky above plugs the shafts, because a shaft mouth has clear
+/// sky by definition*.
+///
+/// **When to let go, not where it lies.** The owner's ruling stands (the
+/// spoil drop's comment in [`act`]): a carrier that has come out draws a
+/// distance, and until its head is that many columns from the nest site's
+/// centre, on the side it came out, the drop roll is held; past it, the roll
+/// and the cell predicate are exactly as before. Harvester ants leave a
+/// crater ring round an open entrance this way, each carrying some distance
+/// from the hole (`Reports/nest-entrance-dimensions-2026-09-19.md` §3).
+///
+/// **The distance** is the door's half-width plus one, so no pellet is set
+/// on the door, plus a Gamma(`shape`, `scale`) draw in cells. That section
+/// report's §3 is why `shape` is a knob: in a slice, mass dropped at `r`
+/// lands at two points, not round a circle, so the flat form `p(r)` draws a
+/// ridge with a dip before the hole, and a slice through a real mound is
+/// `p(r)/r` -- for a Gamma of shape `k`, a Gamma of shape `k - 1`. It is
+/// judged by eye.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SpoilRing {
+    /// Integer, 1-8: the draw is the sum of this many exponentials.
+    pub shape: u8,
+    /// Cells, the mean of each exponential.
+    pub scale: f32,
+}
+
+/// The carry in force for this world: [`World::spoil_ring`] when a test set
+/// it, else [`spoil_ring`].
+pub fn spoil_ring_of(world: &World) -> Option<SpoilRing> {
+    world.spoil_ring.unwrap_or_else(spoil_ring)
+}
+
+/// The carry this process runs ([`SpoilRing`]): `None` unless
+/// `PIXEL_PHYSICS_SPOIL_RING` names one.
+pub fn spoil_ring() -> Option<SpoilRing> {
+    static V: std::sync::OnceLock<Option<SpoilRing>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_spoil_ring(&std::env::var("PIXEL_PHYSICS_SPOIL_RING").unwrap_or_default()))
+}
+
+/// `PIXEL_PHYSICS_SPOIL_RING`'s value: unset and `off` are `None`,
+/// `<shape>,<scale>` a carry. A value it cannot read is reported and read as
+/// unset.
+fn parse_spoil_ring(raw: &str) -> Option<SpoilRing> {
+    let v = raw.trim();
+    if v.is_empty() || v == "off" {
+        return None;
+    }
+    let parsed = v.split_once(',').and_then(|(k, s)| Some((k.trim().parse::<u8>().ok()?, s.trim().parse::<f32>().ok()?)));
+    match parsed {
+        Some((shape, scale)) if (1..=8).contains(&shape) && scale > 0.0 && scale.is_finite() => Some(SpoilRing { shape, scale }),
+        _ => {
+            eprintln!("PIXEL_PHYSICS_SPOIL_RING={raw:?}: not `off` or `<shape 1-8>,<scale>`; read as unset");
+            None
+        }
+    }
+}
+
+/// **The column a carrier standing at `(x, y)` walks its pellet out to**
+/// ([`SpoilRing`]): on its own side of the nest site's centre (a coin in the
+/// middle), the door's half-width plus one plus a Gamma draw from the
+/// carrier's own stream. `None` with no nest site.
+fn spoil_ring_column(world: &World, organism: OrganismId, (x, y): (i32, i32), ring: SpoilRing) -> Option<i32> {
+    let site = world.nearest_nest_site(x, y).and_then(|i| world.nest_sites.get(i))?;
+    let mut draw = rng::stream(world.seed, u64::from(organism), world.frame, RNG_SLOT_SPOIL_RING);
+    let side = match (x - site.x).signum() {
+        0 => {
+            if draw.flip() {
+                1
+            } else {
+                -1
+            }
+        }
+        s => s,
+    };
+    let gamma: f32 = (0..ring.shape).map(|_| -ring.scale * (1.0 - draw.unit_f32()).ln()).sum();
+    let door = scaled_cells(world, nest_door_of(world).unwrap_or(NEST_DOOR_SHIPPED));
+    Some(site.x + side * (door + 1 + gamma.round() as i32))
+}
+
+/// **Whether a carrier at `(x, y)` is still short of its drawn column**
+/// ([`spoil_ring`]): the pellet is held until the head is as far from the
+/// nest site's centre as the column is.
+fn spoil_ring_holds(world: &World, state: &crate::sim::organism::OrganismState, (x, y): (i32, i32)) -> bool {
+    let Some(col) = state.spoil_ring.filter(|_| spoil_ring_of(world).is_some()) else { return false };
+    let Some(site) = world.nearest_nest_site(x, y).and_then(|i| world.nest_sites.get(i)) else { return false };
+    (x - site.x).abs() < (col - site.x).abs()
+}
+
 /// **A hauled pellet is carried at the laden pace** ([`SpoilOut`]'s `pace`):
 /// `HomeAligned` reads as it does for a load of food, so the step roll is the
 /// laden ant's (0.76 a decision) rather than an empty fed ant's (0.20), for a
@@ -10432,7 +10545,7 @@ fn spoil_pace_target(world: &World, def: &CreatureDef, state: &crate::sim::organ
         return None;
     }
     if spoil_haul().is_some() && state.spoil.is_some_and(|s| !s.store) {
-        return spoil_haul_target(world, head);
+        return spoil_haul_target(world, state, head);
     }
     dig_return_target(world, def, state)
 }
@@ -12804,7 +12917,26 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // carrier nor lifted, while the haul still has patience. A carrier
         // that has stuck may lay it beside itself where a cell will hold it,
         // and is never lifted: see `no_lift` below.
-        let keep_inside = spoil_out().keep && inside_nest(world, x, y);
+        // **Walked out a distance first** ([`spoil_ring`]): the first time a
+        // carrier stands outside the nest with its pellet it draws how far to
+        // take it, and until it is that far out the pellet is held as it is
+        // inside. Unset, no read and no draw.
+        let ring_hold = match spoil_ring_of(world) {
+            Some(ring) => {
+                if !inside_nest(world, x, y) && world.organism(organism).is_some_and(|s| s.spoil_ring.is_none()) {
+                    let col = spoil_ring_column(world, organism, (x, y), ring);
+                    if let Some(state) = world.organism_mut(organism) {
+                        state.spoil_ring = col;
+                    }
+                    world.creature_stats.spoil_ring_drawn += u64::from(col.is_some());
+                }
+                let holds = world.organism(organism).is_some_and(|s| spoil_ring_holds(world, s, (x, y)));
+                world.creature_stats.spoil_ring_held += u64::from(holds);
+                holds
+            }
+            None => false,
+        };
+        let keep_inside = (spoil_out().keep && inside_nest(world, x, y)) || ring_hold;
         let kept_inside = keep_inside && world.organism(organism).is_some_and(|s| s.home_patience >= DIG_RETURN_GIVE_UP);
         let cover_scale = if kept_inside {
             world.creature_stats.spoil_kept_inside += 1;
@@ -12937,6 +13069,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 world.set(px, py, spoil.cell);
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = None;
+                    state.spoil_ring = None;
                 }
                 world.creature_stats.spoil_dumped += 1;
                 if lifted {
@@ -15662,7 +15795,7 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
         return Some((home_target(world, state), def.home_bias));
     }
     match spoil_haul().filter(|_| state.spoil.is_some()) {
-        Some(w) => Some((spoil_haul_target(world, head)?, w)),
+        Some(w) => Some((spoil_haul_target(world, state, head)?, w)),
         None => {
             if def.home_bias <= 0.0 {
                 return None;
@@ -22421,6 +22554,88 @@ mod tests {
         let (west, east) = (headings.iter().filter(|&&h| h == 3).count(), headings.iter().filter(|&&h| h == 1).count());
         assert_eq!(west + east, 32, "a digger facing north did not turn one octant toward down every time: {headings:?}");
         assert!(west >= 8 && east >= 8, "a digger facing north turned down through the west {west} times and the east {east} of 32");
+    }
+
+    /// `PIXEL_PHYSICS_SPOIL_RING`'s spellings: off, a shape and a scale, and
+    /// nothing else.
+    #[test]
+    fn the_spoil_ring_parses_its_spellings_and_refuses_the_rest() {
+        assert_eq!(parse_spoil_ring(""), None);
+        assert_eq!(parse_spoil_ring("off"), None);
+        assert_eq!(parse_spoil_ring("2,2"), Some(SpoilRing { shape: 2, scale: 2.0 }));
+        assert_eq!(parse_spoil_ring(" 3, 1.5 "), Some(SpoilRing { shape: 3, scale: 1.5 }));
+        for bad in ["0,2", "9,2", "2,0", "2,-1", "2", "on", "2,x", "x,2"] {
+            assert_eq!(parse_spoil_ring(bad), None, "{bad:?} was read as a carry");
+        }
+    }
+
+    /// A carrier on the open surface at `x`, holding a pellet of soil beside a
+    /// nest site centred at column 60, with `ring` in force and `drawn` as its
+    /// column already: one `act` with `DropSpoil` 1, and whether the pellet
+    /// went down, and the column it held after.
+    fn ring_drop(ring: Option<SpoilRing>, x: i32, drawn: Option<i32>) -> (bool, Option<i32>) {
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        founding_ground(&mut w);
+        w.register_nest_site(60, 38, 2);
+        w.spoil_ring = Some(ring);
+        let a = spawn(&mut w, "ant", x, 39);
+        let soil = w.materials.id_of("soil").expect("soil material");
+        {
+            let st = w.organism_mut(a).expect("live");
+            st.spoil = Some(Spoil { cell: Cell::new(soil, 0), store: false });
+            st.spoil_ring = drawn;
+        }
+        let (hx, hy) = w.organism(a).expect("live").chain[0];
+        assert!(!inside_nest(&w, hx, hy), "test setup: the carrier at ({hx}, {hy}) is not outside the nest");
+        let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+        let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        outputs[brain::BrainOutput::DropSpoil as usize] = 1.0;
+        let mut draw = rng::stream(1, a as u64, 0, RNG_SLOT_MOVE);
+        act(&mut w, hx, hy, a, &def, &outputs, &mut draw);
+        let st = w.organism(a).expect("live");
+        (st.spoil.is_none(), st.spoil_ring)
+    }
+
+    /// **A carried pellet is held until its carrier is its distance out**
+    /// ([`spoil_ring`]). Two columns from the nest's centre, with the carry
+    /// off, the pellet goes down -- the control that says the scene lets it;
+    /// with a carry of three columns (the door's half-width plus one, and a
+    /// draw of nothing) it is held and the column is drawn on the carrier's
+    /// own side; four columns out it goes down, and the column is cleared.
+    #[test]
+    fn a_carried_pellet_is_held_until_its_carrier_is_its_distance_out() {
+        let near = SpoilRing { shape: 1, scale: 0.001 };
+        assert_eq!(ring_drop(None, 62, None), (true, None), "test setup: with no carry the pellet did not go down, so the scene cannot show one held");
+        assert_eq!(ring_drop(Some(near), 62, None), (false, Some(63)), "two columns out, short of a carry of three, the pellet was not held on the carrier's side");
+        assert_eq!(ring_drop(Some(near), 64, None), (true, None), "four columns out, past a carry of three, the pellet was not put down");
+        assert_eq!(ring_drop(Some(near), 62, Some(66)), (false, Some(66)), "a carrier short of the column it drew let go");
+    }
+
+    /// **The carry's distance**: never onto the door (at least its half-width
+    /// plus one from the centre), on the carrier's side, both sides from the
+    /// middle, and a mean near the door plus `shape * scale`.
+    #[test]
+    fn a_carry_goes_past_the_door_on_the_carriers_side() {
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        founding_ground(&mut w);
+        w.register_nest_site(60, 38, 2);
+        let ring = SpoilRing { shape: 2, scale: 2.0 };
+        let cols: Vec<i32> = (0..400u64)
+            .map(|f| {
+                w.frame = f;
+                spoil_ring_column(&w, 7, (61, 39), ring).expect("a site")
+            })
+            .collect();
+        assert!(cols.iter().all(|&c| c >= 63), "a carry east of the centre landed on the door or west of it: {:?}", cols.iter().min());
+        let mean = cols.iter().map(|&c| f64::from(c - 60)).sum::<f64>() / cols.len() as f64;
+        assert!((6.0..=8.0).contains(&mean), "the mean carry was {mean:.2} columns, not about 3 + 2 * 2");
+        let sides: std::collections::BTreeSet<i32> = (0..64u64)
+            .map(|f| {
+                w.frame = f;
+                (spoil_ring_column(&w, 7, (60, 39), ring).expect("a site") - 60).signum()
+            })
+            .collect();
+        assert_eq!(sides, [-1, 1].into_iter().collect(), "a carrier out of the middle went one way only");
     }
 
     fn run(w: &mut World, frames: usize) {

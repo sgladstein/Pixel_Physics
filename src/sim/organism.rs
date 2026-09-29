@@ -6197,6 +6197,13 @@ pub struct OrganismState {
     /// when hunger or food in the crop ends the trip. `None` otherwise, and
     /// always with the switch unset.
     pub dig_return: Option<(i32, i32)>,
+    /// **The column this carrier's pellet is walked out to**, under
+    /// `PIXEL_PHYSICS_SPOIL_RING` (`creature::spoil_ring`): drawn the first
+    /// time a carrier stands outside its nest with a pellet, a distance from
+    /// the nest site's centre on the side it came out, and cleared when the
+    /// pellet goes down. Until its head is that far out it holds the pellet.
+    /// `None` otherwise, and always with the switch unset.
+    pub spoil_ring: Option<i32>,
     /// **Nest-bound until this frame** (`creature::storeroom_of`'s
     /// `nestbound`): a young ant stays home, is not sent out by the forage
     /// drive, and is the one that carries food into the storeroom. 0, the

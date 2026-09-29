@@ -2840,6 +2840,10 @@ struct TripLog {
     /// `shaft_frames` frames; and in the rest of the founding cut.
     shaft_pop: [u64; 4],
     cut_pop: [u64; 4],
+    /// Heads on the two rows over the mouth (a column either side), by role:
+    /// the colony standing on its own way out. Every founder's home is the
+    /// cell over the mouth's middle (`World::door_anchor`).
+    over_pop: [u64; 4],
     shaft_frames: u64,
     /// The same stands by where the carrier was ([`TripAnt::place`]) and
     /// what it faced: an animal by role, then ground, then nothing.
@@ -3061,11 +3065,15 @@ impl TripLog {
                 }
             }
         }
+        let cut = world.nest_sites.iter().find_map(|s| s.shaft);
         for a in now.values() {
             if a.in_shaft {
                 self.shaft_pop[a.role as usize] += 1;
             } else if a.in_cut {
                 self.cut_pop[a.role as usize] += 1;
+            }
+            if cut.is_some_and(|c| (c.x0 - 1..=c.x1 + 1).contains(&a.head.0) && (c.top - 2..c.top).contains(&a.head.1)) {
+                self.over_pop[a.role as usize] += 1;
             }
         }
         self.shaft_frames += 1;
@@ -3080,10 +3088,11 @@ impl TripLog {
             .join(", ");
         let mean = |pop: &[u64; 4]| (0..4).map(|r| format!("{} {:.2}", JAM_ROLES[r], pop[r] as f64 / self.shaft_frames.max(1) as f64)).collect::<Vec<_>>().join(", ");
         println!(
-            "JAM frame={frame} carrying frames standing facing an animal {}: it was {by} | heads in the founding shaft, mean over frames: {} | in the rest of the founding cut: {}",
+            "JAM frame={frame} carrying frames standing facing an animal {}: it was {by} | heads in the founding shaft, mean over frames: {} | in the rest of the founding cut: {} | on the two rows over the mouth: {}",
             self.stood_by.iter().sum::<u64>(),
             mean(&self.shaft_pop),
-            mean(&self.cut_pop)
+            mean(&self.cut_pop),
+            mean(&self.over_pop)
         );
         let all = self.stood_at.iter().flatten().sum::<u64>().max(1) as f64;
         let at = (0..4)
@@ -3151,6 +3160,43 @@ impl TripLog {
             by(17, i32::MAX),
         );
     }
+}
+
+/// **The mound over the nest, by distance from the door** (`CRATER`, every
+/// stop): cells of ground standing above the old surface -- spoil, and
+/// whatever it turned into -- in bins of columns from the nest site's
+/// centre, and how many stand over the mouth's own columns. Built for
+/// `PIXEL_PHYSICS_SPOIL_RING` (`creature::spoil_ring`), whose question is
+/// whether the colony stops burying its own door (one-entrance report §11):
+/// the first bin is the door and the mouth, and a crater is a dip there with
+/// a ring beyond. With the carry counters beside it, the "it fired" half.
+fn crater(world: &World, b: &Box2, frame: u64) -> String {
+    const BINS: [(i32, i32, &str); 6] = [(0, 2, "0-2"), (3, 5, "3-5"), (6, 9, "6-9"), (10, 14, "10-14"), (15, 24, "15-24"), (25, i32::MAX, "25+")];
+    let Some(site) = world.nest_sites.first() else { return format!("CRATER frame={frame} no nest site") };
+    let mut bins = [0u32; 6];
+    let mut over_mouth = 0u32;
+    let mouth = site.shaft.map(|c| (c.x0, c.x1));
+    for x in 0..b.w {
+        for y in 0..b.surface {
+            let c = world.get(x, y);
+            if c.material == material::EMPTY || c.organism_id() != 0 || !matches!(world.materials.kind(c.material), MaterialKind::Powder | MaterialKind::Solid) {
+                continue;
+            }
+            let d = (x - site.x).abs();
+            if let Some(i) = BINS.iter().position(|&(lo, hi, _)| (lo..=hi).contains(&d)) {
+                bins[i] += 1;
+            }
+            if mouth.is_some_and(|(x0, x1)| (x0..=x1).contains(&x)) {
+                over_mouth += 1;
+            }
+        }
+    }
+    let st = world.creature_stats;
+    let by = BINS.iter().zip(bins).map(|(&(_, _, name), n)| format!("{name} {n}")).collect::<Vec<_>>().join(", ");
+    format!(
+        "CRATER frame={frame} ground above the old surface, by columns from the nest's centre: {by} | over the mouth's columns {over_mouth} | carry (SPOIL_RING) distances drawn {}, drop rolls held short of them {}",
+        st.spoil_ring_drawn, st.spoil_ring_held
+    )
 }
 
 fn trace(world: &World) {
@@ -3550,6 +3596,7 @@ fn main() {
             if let Some(line) = cut_census(&world) {
                 println!("{line}");
             }
+            println!("{}", crater(&world, &b, f));
             if flag("trace") {
                 trace(&world);
             }
