@@ -804,6 +804,12 @@ pub struct DecisionRow {
     /// `DecisionScratch::dig_turned`. `heading` is still the one the move
     /// was decided from.
     pub dig_turned: bool,
+    /// **What the `returns` drive will book**, read after `act`:
+    /// `OrganismState::trip_load` (the crop holds a load from a trip, so its
+    /// first put-down at home books a return) and `forage_max`, the
+    /// excursion since the last nest contact that decided it. Trace-only.
+    pub trip_load: bool,
+    pub forage_max: u16,
 }
 
 fn worm_tick(world: &mut World, x: i32, y: i32, organism: OrganismId) -> Vec<ActiveSite> {
@@ -6640,6 +6646,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         let st = world.organism(organism);
         let head_after = st.and_then(|s| s.chain.first().copied()).unwrap_or(head);
         let heading_after = st.map_or(heading, |s| s.heading);
+        let (trip_load, forage_max) = st.map_or((false, 0), |s| (s.trip_load, s.forage_max));
         let sc = world.decision_scratch;
         world.creature_stats.decision_census[leg][setting_class(usable)][sc.outcome as usize] += 1;
         use brain::BrainInput as I;
@@ -6692,6 +6699,8 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             scout_patience: sc.scout_patience,
             scout_home: sc.scout_home,
             dig_turned: sc.dig_turned,
+            trip_load,
+            forage_max,
         };
         if let Some(log) = world.decision_log.as_mut() {
             log.push(row);
@@ -12327,7 +12336,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // inside the crop-update block and does not reach here.
                 let restart = carry_patience_of(world);
                 // `store_lunch_of`: read before the borrow below.
-                let trip_bar = if store_lunch_of(world) { Some(scaled_cells(world, FORAGE_TRIP_MIN as i32).clamp(0, u16::MAX as i32) as u16) } else { None };
+                let trip_min = scaled_cells(world, FORAGE_TRIP_MIN as i32).clamp(0, u16::MAX as i32) as u16;
+                let trip_bar = store_lunch_of(world).then_some(trip_min);
                 let first = if let Some(state) = world.organism_mut(organism) {
                     state.life.bites += 1;
                     // **A carry is measured from the last cell loaded**
@@ -12344,6 +12354,11 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     if !picked_at_home {
                         state.foraged = true;
                         state.store_carried = false;
+                        // **Food from a trip** (`ForageNeed::Returns`):
+                        // booked at the nest when it is first put down there.
+                        if state.forage_max >= trip_min {
+                            state.trip_load = true;
+                        }
                     }
                     // **A crop filled only at home is a packed lunch**
                     // (`carries_lunch`): an empty crop's first cell taken at
@@ -12570,8 +12585,23 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                         site.larder = Some(site.larder.map_or((fx, fy), |(lx, ly)| (lx + LARDER_EMA * (fx - lx), ly + LARDER_EMA * (fy - ly))));
                     }
                     world.creature_stats.deliveries += 1;
-                    if let Some(state) = world.organism_mut(organism) {
+                    let returned = world.organism_mut(organism).is_some_and(|state| {
                         state.life.deliveries += 1;
+                        std::mem::take(&mut state.trip_load)
+                    });
+                    // **A forager home with food from a trip**, once per trip
+                    // (`ForageNeed::Returns`). Written whatever the need.
+                    if returned {
+                        world.creature_stats.forage_returns += 1;
+                        if let Some(i) = world.nearest_nest_site(dx, dy) {
+                            if world.nest_last_return.len() <= i {
+                                // A nest not yet seen starts its clock now,
+                                // as `World::step_nest_need` starts it.
+                                let now = world.frame.max(1);
+                                world.nest_last_return.resize(i + 1, now);
+                            }
+                            world.nest_last_return[i] = world.frame.max(1);
+                        }
                     }
                 }
                 note_drop(world, if at_nest { DropWhy::Delivered } else { DropWhy::Placed });
@@ -14774,10 +14804,11 @@ fn parse_forage_drive(raw: &str) -> ForageDrive {
         Some("off") => ForageNeed::Off,
         Some("hunger") => ForageNeed::Hunger,
         Some("larder") => ForageNeed::Larder,
-        Some("always" | "") | None => ForageNeed::Always,
+        Some("returns" | "") | None => ForageNeed::Returns,
+        Some("always") => ForageNeed::Always,
         Some(other) => {
-            eprintln!("PIXEL_PHYSICS_FORAGE_DRIVE={raw:?}: unknown need {other:?}, read as always (off, hunger, larder, always)");
-            ForageNeed::Always
+            eprintln!("PIXEL_PHYSICS_FORAGE_DRIVE={raw:?}: unknown need {other:?}, read as returns (off, hunger, larder, returns, always)");
+            ForageNeed::Returns
         }
     };
     let mods: Vec<&str> = parts.collect();
@@ -14799,6 +14830,41 @@ pub enum ForageNeed {
     /// two needs, it measured best of the three on the bed, and is the
     /// default since 2026-09-27.
     Always,
+    /// **Whether foragers are coming home with food** (`returns_drive`): 1
+    /// while its nest last saw a forager come home with food from a trip
+    /// (`World::nest_last_return`) less than `RETURN_WINDOW` frames ago, then
+    /// fading over the next window; a new nest's clock starts when
+    /// `World::step_nest_need` first sees it, as though food had just come
+    /// home, so a founding colony forages. Not the colony's need but what
+    /// the ground is paying: in a
+    /// box grazed bare the returns stop and a fed forager stays home, while
+    /// on a pile that pays it is `always`. Harvester ants leave on the rate
+    /// at which foragers come back with food (Gordon 2002, *Am Nat*
+    /// 159:509). The two needs above read the colony and failed because the
+    /// colony keeps its food in its bodies (`dead-ends.md`, 2026-09-27).
+    Returns,
+}
+
+/// **How long a nest keeps sending fed foragers after its last return**
+/// (`ForageNeed::Returns`), in frames: one round trip on the colony bed,
+/// measured -- walk out 498, at the pile 144, walk home 444, home until the
+/// crop empties 300, about 1,400 frames at the median
+/// (`Reports/ant-scenes-2026-09-23.md` §22r). So a nest that has seen no
+/// food come home for a trip's length starts to stop sending the fed.
+pub const RETURN_WINDOW: f32 = 1400.0;
+
+/// **The `returns` drive at `age` frames since the last return**: 1 for one
+/// `RETURN_WINDOW`, then `e^-(age - W)/W`. **A plateau, not a fade from 0,
+/// and measured:** fading from the return itself (`e^-age/W`), traced on the
+/// colony bed (24 seeds, 90 cells), held a fed forager's drive at 0.37-0.9
+/// on 60% of its decisions and at 0.9 or more on only 26% on a pile that
+/// never runs out -- returns come every few hundred frames but in clumps --
+/// and cost 15% of the food taken. A trip's length of full drive is the
+/// principle stated plainly: no food home for a round trip, start standing
+/// down.
+fn returns_drive(age: u64) -> f32 {
+    let over = age as f32 - RETURN_WINDOW;
+    if over <= 0.0 { 1.0 } else { (-over / RETURN_WINDOW).exp() }
 }
 
 /// **The forage drive's form** (`forage_drive_from_env`): whose need;
@@ -14818,9 +14884,13 @@ impl ForageDrive {
     /// No drive: the ant before 2026-09-27, `PIXEL_PHYSICS_FORAGE_DRIVE=off`.
     pub const OFF: ForageDrive = ForageDrive { need: ForageNeed::Off, pace: true, keep: false, fed: false };
 
-    /// The shipped drive, what an unset switch reads: `always`, paced, with
-    /// no `,keep` and no `,fed`.
-    pub const SHIPPED: ForageDrive = ForageDrive { need: ForageNeed::Always, pace: true, keep: false, fed: false };
+    /// The shipped drive, what an unset switch reads: `returns` (since
+    /// 2026-09-29), paced, with no `,keep` and no `,fed`.
+    pub const SHIPPED: ForageDrive = ForageDrive { need: ForageNeed::Returns, pace: true, keep: false, fed: false };
+    /// `always`, paced: the drive shipped 2026-09-27 to 2026-09-29, and the
+    /// one a test means when it needs a fed forager sent out with no food
+    /// coming home in its scene.
+    pub const ALWAYS: ForageDrive = ForageDrive { need: ForageNeed::Always, pace: true, keep: false, fed: false };
 
     /// Whether any drive is on.
     pub fn on(self) -> bool {
@@ -14944,6 +15014,16 @@ pub fn packed_lunch_of(world: &World) -> bool {
 /// below which an outing is loitering at home, not a trip -- counts as
 /// taken at home for the lunch. Only the lunch reads it: `foraged` and
 /// `pickups_at_nest` keep the nest-contact rule. Read once per process.
+///
+/// **Off by default, on a measured harm** (2026-09-29, §22t). Before the
+/// nest lane's granary it tripled what came off the pile; on the granary
+/// (#513: door, storeroom, nest workers, `keep`) it is the whole of a loss,
+/// 24 seeds at 90 cells: starved 75 -> 215 (more on 20), food taken 6,088 ->
+/// 4,726 (less on 20). Traced ant by ant: a forager that takes food at the
+/// door now leaves with it as a lunch at full drive, with no bearing, and on
+/// the door's open ground west of the nest it digs until it starves -- the
+/// granary alone has that ant carry the food home and live off the room.
+/// What it lacks is a way out, not a reason to go.
 pub fn store_lunch_from_env() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_STORE_LUNCH").unwrap_or_default().trim() {
@@ -15041,6 +15121,14 @@ fn forage_drive_level(world: &World, state: &crate::sim::organism::OrganismState
     match drive.need {
         ForageNeed::Off => 0.0,
         ForageNeed::Always => 1.0,
+        ForageNeed::Returns => {
+            let (hx, hy) = home_target(world, state);
+            world
+                .nearest_nest_site(hx, hy)
+                .and_then(|i| world.nest_last_return.get(i).copied())
+                .filter(|&t| t > 0)
+                .map_or(0.0, |t| returns_drive(world.frame.saturating_sub(t)))
+        }
         ForageNeed::Hunger | ForageNeed::Larder => {
             let (hx, hy) = home_target(world, state);
             world.nearest_nest_site(hx, hy).and_then(|i| world.nest_need.get(i).copied()).unwrap_or(0.0)
@@ -15159,7 +15247,7 @@ pub(crate) fn nest_needs(world: &World, need: ForageNeed) -> Vec<f32> {
                 })
                 .collect()
         }
-        ForageNeed::Off | ForageNeed::Always => Vec::new(),
+        ForageNeed::Off | ForageNeed::Always | ForageNeed::Returns => Vec::new(),
     }
 }
 
@@ -27551,7 +27639,7 @@ mod tests {
             }
             w.chooser = Some(Chooser::TrailAway);
             w.scout = Some(SCOUT_DEFAULT);
-            w.forage_drive = Some(ForageDrive::SHIPPED);
+            w.forage_drive = Some(ForageDrive::ALWAYS);
             w.packed_lunch = Some(rule);
             w.register_nest_site(20, 40, 4);
             let crumbs = w.materials.id_of("crumbs").expect("crumbs.ron must be registered");
@@ -27646,6 +27734,139 @@ mod tests {
         assert!(!pick(true, 20), "rule on, taken 20 cells into an outing: that is a trip, so a load");
     }
 
+    /// **The `returns` drive fades with the time since its nest last saw a
+    /// forager come home with food** (`ForageNeed::Returns`,
+    /// `RETURN_WINDOW`). A fed, foraged ant whose home is a registered nest
+    /// site: 0 before any return, 1 on the frame of one and still 1 a window
+    /// later, `e^-1` two windows later, 1 again once `step_nest_need` has
+    /// started a new nest's clock, and 1 under `always` with no return at all -- the arm
+    /// that says the difference is the need, not the scene. **Watched red**
+    /// with the arm reading `always`'s 1: the first assertion failed.
+    #[test]
+    fn the_returns_drive_fades_with_the_time_since_food_last_came_home() {
+        let mut w = World::new(Rect::new(0, 0, 159, 63));
+        w.register_nest_site(20, 40, 4);
+        let ant = spawn(&mut w, "ant", 100, 40);
+        let species = w.organism(ant).expect("live").species;
+        let def = w.species.get(species).creature.clone().expect("a creature");
+        {
+            let st = w.organism_mut(ant).expect("live");
+            st.forage_anchor = (20, 40);
+            st.foraged = true;
+            st.energy = def.start_energy;
+        }
+        let level = |w: &World| forage_drive_level(w, w.organism(ant).expect("live"), &def);
+        w.forage_drive = Some(ForageDrive { need: ForageNeed::Returns, pace: true, keep: false, fed: false });
+        w.frame = 5000;
+        assert_eq!(level(&w), 0.0, "no forager has come home with food, yet the drive is on");
+        w.nest_last_return = vec![5000];
+        assert!((level(&w) - 1.0).abs() < 1e-6, "on the frame of a return the drive should be 1, read {}", level(&w));
+        w.frame = 5000 + RETURN_WINDOW as u64;
+        assert!((level(&w) - 1.0).abs() < 1e-6, "one window after a return the drive should still be 1, read {}", level(&w));
+        w.frame = 5000 + 2 * RETURN_WINDOW as u64;
+        assert!((level(&w) - (-1.0f32).exp()).abs() < 1e-3, "two windows after a return the drive should be e^-1, read {}", level(&w));
+        w.nest_last_return.clear();
+        w.step_nest_need();
+        assert_eq!(w.nest_last_return, vec![w.frame], "a nest the drive had not seen did not start its clock");
+        assert!((level(&w) - 1.0).abs() < 1e-6, "a nest just seen should send its fed foragers, read {}", level(&w));
+        w.nest_last_return.clear();
+        w.forage_drive = Some(ForageDrive::ALWAYS);
+        assert_eq!(level(&w), 1.0, "`always` needs no return");
+    }
+
+    /// **A load from a trip books one return at its nest, and a load from
+    /// home books none** (`OrganismState::trip_load`,
+    /// `World::nest_last_return`, `CreatureStats::forage_returns`). Two
+    /// halves. The pickup: the store-lunch scene (crumbs all round, no nest
+    /// material, excursion held) -- a cell taken 20 cells into an outing
+    /// marks the crop as from a trip, one taken 2 cells in does not. The
+    /// put-down: nest material laid into the floor under a fed ant holding
+    /// one cell, run for 1,500 frames. Marked, it books exactly one return
+    /// (not one per cell it re-takes and puts down again) and stamps the
+    /// nest; unmarked, it delivers and books none -- the control that the
+    /// scene delivers at all. **Watched red** with the booking keyed on
+    /// every delivery instead of the mark: the marked arm booked 12 returns
+    /// over 12 deliveries -- one cell taken back and put down again and again
+    /// at the nest, each read as food coming home.
+    #[test]
+    fn a_load_from_a_trip_books_one_return_and_a_load_from_home_books_none() {
+        let stone = Cell::new(material::STONE, 0).with_attached(true);
+        let floor = |w: &mut World| {
+            for x in 0..160 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+        };
+        let picked = |excursion: u16| -> bool {
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            floor(&mut w);
+            w.chooser = Some(Chooser::TrailAway);
+            w.register_nest_site(20, 40, 4);
+            let crumbs = w.materials.id_of("crumbs").expect("crumbs.ron must be registered");
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let energy = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy;
+            for x in 90..111 {
+                if w.get(x, 40).material == material::EMPTY {
+                    w.set(x, 40, Cell::new(crumbs, 0).with_aux(400));
+                }
+            }
+            for _ in 0..2000 {
+                {
+                    let st = w.organism_mut(ant).expect("live");
+                    st.energy = energy;
+                    st.forage_max = excursion;
+                    st.forage_anchor = (20, 40);
+                }
+                w.begin_step();
+                scheduler::step(&mut w);
+                w.end_step();
+                let st = w.organism(ant).expect("live");
+                if st.crop.is_some_and(|c| c.worth() > 0.0) {
+                    return st.trip_load;
+                }
+            }
+            panic!("the ant never took a crumb in 2,000 frames: the scene cannot show the mark");
+        };
+        assert!(picked(20), "a cell taken 20 cells into an outing did not mark the crop as from a trip");
+        assert!(!picked(2), "a cell taken 2 cells from home marked the crop as from a trip");
+        let delivered = |marked: bool| -> (u64, u64, Vec<u64>) {
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            floor(&mut w);
+            let nest = w.materials.id_of("nest").expect("nest is compiled in");
+            for x in 90..111 {
+                w.set(x, 41, Cell::new(nest, 0).with_attached(true));
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.register_nest_site(100, 40, 10);
+            let fruit = w.materials.id_of("fruit").expect("fruit.ron must be registered");
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let energy = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy;
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.crop = Some(Crop { material: fruit, cells: 1, digesting: 0.0, unit: 960.0, shade: 0, passenger: None });
+                st.trip_load = marked;
+                st.foraged = true;
+            }
+            for _ in 0..1500 {
+                if let Some(st) = w.organism_mut(ant) {
+                    st.energy = energy;
+                }
+                w.begin_step();
+                scheduler::step(&mut w);
+                w.end_step();
+            }
+            (w.creature_stats.deliveries, w.creature_stats.forage_returns, w.nest_last_return.clone())
+        };
+        let (deliveries, returns, stamp) = delivered(true);
+        assert!(deliveries > 0, "the marked load was never put down at the nest: the scene cannot show a return");
+        assert_eq!(returns, 1, "a trip's load booked {returns} returns over {deliveries} deliveries, not one");
+        assert!(stamp.first().is_some_and(|&t| t > 0), "the return was counted but the nest was not stamped");
+        let (deliveries, returns, _) = delivered(false);
+        assert!(deliveries > 0, "the unmarked load was never put down: the control cannot show anything");
+        assert_eq!(returns, 0, "a load from home booked {returns} returns");
+    }
+
     /// **A packed lunch is finished beside food it cannot swallow, so the
     /// forager can load** (`act`'s `eat_lunch_now`, digestion completing the
     /// cell). A fed, foraged ant 80 cells from home holding one cell of
@@ -27667,7 +27888,7 @@ mod tests {
                 }
             }
             w.chooser = Some(Chooser::TrailAway);
-            w.forage_drive = Some(ForageDrive::SHIPPED);
+            w.forage_drive = Some(ForageDrive::ALWAYS);
             w.packed_lunch = Some(rule);
             w.register_nest_site(20, 40, 4);
             let crumbs = w.materials.id_of("crumbs").expect("crumbs.ron must be registered");
@@ -27885,8 +28106,9 @@ mod tests {
     #[test]
     fn the_forage_drive_and_carry_patience_ship_on_and_off_turns_them_off() {
         assert_eq!(parse_forage_drive(""), ForageDrive::SHIPPED, "unset must be the shipped drive");
-        assert_eq!(ForageDrive::SHIPPED, ForageDrive { need: ForageNeed::Always, pace: true, keep: false, fed: false });
-        assert_eq!(parse_forage_drive("always"), ForageDrive::SHIPPED);
+        assert_eq!(ForageDrive::SHIPPED, ForageDrive { need: ForageNeed::Returns, pace: true, keep: false, fed: false });
+        assert_eq!(parse_forage_drive("returns"), ForageDrive::SHIPPED);
+        assert_eq!(parse_forage_drive("always"), ForageDrive::ALWAYS);
         assert_eq!(parse_forage_drive("off"), ForageDrive::OFF, "off must be the ant before the drive");
         assert!(!parse_forage_drive("off").on());
         assert_eq!(parse_forage_drive("hunger,nopace,fed"), ForageDrive { need: ForageNeed::Hunger, pace: false, keep: false, fed: true });
@@ -28014,6 +28236,13 @@ mod tests {
             }
             w.chooser = Some(Chooser::TrailAway);
             w.forage_drive = Some(drive);
+            // **Pinned to the lunch rule this guard was written against.**
+            // The chamber's upper row does not touch nest material, so under
+            // `store_lunch_of` (on since 2026-09-29) a pickup there is a
+            // packed lunch the ant keeps eating up there, not a load pulled
+            // back down and re-taken beside the nest -- and this counts only
+            // pickups beside nest material, which is what `,keep` acts on.
+            w.store_lunch = Some(false);
             let ant = spawn(&mut w, "ant", 50, 40);
             let energy = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy * fed;
             w.organism_mut(ant).expect("live").foraged = true;

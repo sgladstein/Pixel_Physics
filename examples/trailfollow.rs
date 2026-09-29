@@ -2638,7 +2638,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 // 0.0000 on every row of a run where it was nonzero, and a
                 // parse of that column called it exactly zero.
                 decision_rows.push(format!(
-                    "{seed},{gap},{arm_name},{},{},{},{},{:.4},{},{},{},{},{},{},{},{},{},{:.4},{:.4},{},{:.4},{:.4},{:.5},{:.5},{},{:.4},{},{},{:.4},{:.4},{:e},{:.4},{:.4},{},{},{:.4},{},{},{:.4},{:.4},{},{},{},{},{:.4},{:.4},{:.4},{},{},{:.4},{:.4},{:.4},{:.2},{:.4},{:.4},{:.4},{}",
+                    "{seed},{gap},{arm_name},{},{},{},{},{:.4},{},{},{},{},{},{},{},{},{},{:.4},{:.4},{},{:.4},{:.4},{:.5},{:.5},{},{:.4},{},{},{:.4},{:.4},{:e},{:.4},{:.4},{},{},{:.4},{},{},{:.4},{:.4},{},{},{},{},{:.4},{:.4},{:.4},{},{},{:.4},{:.4},{:.4},{:.2},{:.4},{:.4},{:.4},{},{},{}",
                     decision_tag,
                     r.frame,
                     r.id,
@@ -2693,6 +2693,8 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     r.scout_w,
                     r.scout_patience,
                     u8::from(r.scout_home),
+                    u8::from(r.trip_load),
+                    r.forage_max,
                 ));
             }
         }
@@ -4565,7 +4567,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             let suffix = if decision_tag.is_empty() { String::new() } else { format!("-{decision_tag}") };
             let path = format!("{decision_dir}/trailfollow-decisions-seed{seed}-gap{gap}-{arm_name}{suffix}.csv");
             let mut out = String::from(
-                "seed,gap,arm,tag,frame,id,leg,fill,x,y,x2,y2,heading,heading2,usable,setting,ax,ay,energy,home_aligned,at_nest,crowding,stillness,along_a,along_b,food_adjacent,kin_need,nest_x,move_out,p_move,turn,roll_move,roll_tumble,outcome,homeward,home_cos,moved,drop,drop_roll,drop_p,free8,n_nw,n_n,n_ne,n_w,n_e,n_sw,n_s,n_se,nbr_self,nbr_other,cone_l,cone_s,cone_r,pick,drop_reach,patience,chosen_cos,chosen_route,energy_j,drive,scout_w,scout_patience,scout_home\n",
+                "seed,gap,arm,tag,frame,id,leg,fill,x,y,x2,y2,heading,heading2,usable,setting,ax,ay,energy,home_aligned,at_nest,crowding,stillness,along_a,along_b,food_adjacent,kin_need,nest_x,move_out,p_move,turn,roll_move,roll_tumble,outcome,homeward,home_cos,moved,drop,drop_roll,drop_p,free8,n_nw,n_n,n_ne,n_w,n_e,n_sw,n_s,n_se,nbr_self,nbr_other,cone_l,cone_s,cone_r,pick,drop_reach,patience,chosen_cos,chosen_route,energy_j,drive,scout_w,scout_patience,scout_home,trip_load,forage_max\n",
             );
             out.push_str(&decision_rows.join("\n"));
             out.push('\n');
@@ -4653,12 +4655,13 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             pixel_physics::sim::organism::DEATH_CAUSE_LIST.iter().zip(d).filter(|(_, n)| **n > 0).map(|(c, n)| format!("{} {n}", c.label())).collect::<Vec<_>>().join(", ")
         };
         println!(
-            "    BIRTHS {} | buds held for the nest {} (PIXEL_PHYSICS_BUD_SITE={}) | parents overdrawn by a birth {} | mouthfuls refused for a pellet held {}",
+            "    BIRTHS {} | buds held for the nest {} (PIXEL_PHYSICS_BUD_SITE={}) | parents overdrawn by a birth {} | mouthfuls refused for a pellet held {} | foragers home with food from a trip {}",
             w.creature_stats.births,
             w.creature_stats.buds_held_for_nest,
             if creature::bud_at_nest(&w) { "nest" } else { "anywhere" },
             w.creature_stats.births_overdrawn,
-            w.creature_stats.haul_bites_refused
+            w.creature_stats.haul_bites_refused,
+            w.creature_stats.forage_returns
         );
         // **Trophallaxis, the pair `CLAUDE.md` asks for**: `shares` fired,
         // `shared_j` moved. Added 2026-09-24 when breaking the carriers'
@@ -5374,8 +5377,11 @@ fn main() {
                 }
             }
         }
-        println!("\n  larder put out, over the whole sweep: {supply_lo:.0}-{supply_hi:.0} J, against a need near 46,800 J");
-        println!("    for 52 ants over 24,000 frames -- so these colonies are provisioned, not starved.");
+        // The need is the 52-ant figure the sweep was first sized on (46,800 J
+        // over 24,000 frames, `run`'s pile comment), scaled to `ants=`: it was
+        // printed unscaled for 20-ant beds until 2026-09-29.
+        println!("\n  larder put out, over the whole sweep: {supply_lo:.0}-{supply_hi:.0} J, against a need near {:.0} J", 46_800.0 * f64::from(ants) / 52.0);
+        println!("    for {ants} ants over 24,000 frames (the 52-ant rate) -- so these colonies are provisioned, not starved.");
         println!("  intake off anything that is not the larder is ASSERTED to be 0 in every row, not printed.");
         println!("\n  `self` vs `mute` is the real question: do the ants' OWN trails do anything?");
         println!("  `visitors` is DISTINCT ants that reached the food over distinct ants that ever lived --");

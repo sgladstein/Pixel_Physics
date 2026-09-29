@@ -1533,8 +1533,8 @@ impl Lab {
         // after `frame::step`, so a drop this tick sees this tick's own
         // settled state.** `rain::tick` is its own due-gate on `World::
         // frame` and returns 0 immediately for `Rain::Off`, so a box with
-        // the mister off -- the shipped default -- pays one `match` and
-        // nothing else.
+        // the mister off pays one `match` and nothing else. The shipped
+        // default is Light (`Rain::default()`), not off.
         rain::tick(&mut self.world, &self.spec, self.spec.rain);
         // **Both series are sampled here, per simulated tick, and they used
         // to be sampled in `advance` after the whole batch.** Each has its

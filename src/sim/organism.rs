@@ -6208,6 +6208,14 @@ pub struct OrganismState {
     /// home; meaningless while the crop is empty. Written whatever
     /// `PIXEL_PHYSICS_PACKED_LUNCH` says, and read by nothing unless it is on.
     pub lunch: bool,
+    /// **The crop holds food taken on a trip** (`creature::ForageNeed::
+    /// Returns`): set by a pickup away from home once the ant has been
+    /// `creature::FORAGE_TRIP_MIN` cells from its last nest contact, cleared
+    /// by its first put-down at home, which books a return at that nest
+    /// (`World::nest_last_return`). Written whatever
+    /// `PIXEL_PHYSICS_FORAGE_DRIVE` says, and read by nothing but that
+    /// booking.
+    pub trip_load: bool,
     /// **Finish the packed lunch this tick** (`creature::carries_lunch`):
     /// set by `act` when a lunch meets food its crop cannot swallow, read and
     /// cleared by the same tick's digestion, which completes the cell in

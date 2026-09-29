@@ -1558,7 +1558,7 @@ fn main() {
         world.species.set_creature(sid, def);
     }
     println!(
-        "  {} crop_capacity = {} face J; LOAD_SCALE={} LOAD_BY={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) CARRY_PATIENCE={} PACKED_LUNCH={} BIRTH_PRICE={} COLONY_SPACING={} STACK_DEPTH={} BUD_SITE={}",
+        "  {} crop_capacity = {} face J; LOAD_SCALE={} LOAD_BY={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) CARRY_PATIENCE={} PACKED_LUNCH={} STORE_LUNCH={} BIRTH_PRICE={} NEST_DOOR={} STOREROOM={} COLONY_SPACING={} STACK_DEPTH={} BUD_SITE={}",
         spec.colony_species,
         world.species.id_of(&spec.colony_species).and_then(|id| world.species.get(id).creature.as_ref().map(|d| d.crop_capacity)).unwrap_or(0.0),
         std::env::var("PIXEL_PHYSICS_LOAD_SCALE").unwrap_or_else(|_| "shipped".into()),
@@ -1569,7 +1569,13 @@ fn main() {
         pixel_physics::sim::creature::forage_drive_from_env(),
         if pixel_physics::sim::creature::carry_patience_from_env() { "pickup" } else { "off" },
         if pixel_physics::sim::creature::packed_lunch_from_env() { "on" } else { "off" },
+        // Echoed since 2026-09-29: the lab run that measured the `returns`
+        // drive on the granary had arms differing only in this switch and
+        // could not show it in a header -- the lane checked it at the source.
+        if pixel_physics::sim::creature::store_lunch_from_env() { "on" } else { "off" },
         if pixel_physics::sim::creature::birth_price_from_env() { "guaranteed" } else { "face" },
+        std::env::var("PIXEL_PHYSICS_NEST_DOOR").unwrap_or_else(|_| "shipped".into()),
+        pixel_physics::sim::creature::storeroom_from_env(),
         // The colony bed's founding levers, echoed because a lab run once
         // inherited them from a bed script's exports and founded 52 founders
         // where the lab places 41, every box dying by frame 35,000
@@ -1578,6 +1584,34 @@ fn main() {
         std::env::var("PIXEL_PHYSICS_STACK_DEPTH").unwrap_or_else(|_| "shipped".into()),
         std::env::var("PIXEL_PHYSICS_BUD_SITE").unwrap_or_else(|_| "shipped".into())
     );
+    // **The colony bed's founding levers are refused, not only echoed**
+    // (the test-bed review, 2026-09-29). Echoing them did not stop the run
+    // of 2026-09-28 that inherited them from a bed script's exports, founded
+    // 52 where the lab places 41, and read every dead box as a harm of the
+    // change under test. A lab arm that means to vary one passes `bedenv`.
+    let bed_env: Vec<&str> = ["PIXEL_PHYSICS_COLONY_SPACING", "PIXEL_PHYSICS_STACK_DEPTH", "PIXEL_PHYSICS_BUD_SITE"].into_iter().filter(|k| std::env::var(k).is_ok()).collect();
+    assert!(
+        bed_env.is_empty() || std::env::args().any(|a| a == "bedenv"),
+        "{bed_env:?} set: these are the colony bed's founding levers, and a lab run that inherits them is a different box -- unset them, or pass `bedenv` to vary one on purpose"
+    );
+    // **The game's rain** (`lab::rain::tick`, which `Lab::tick` calls right
+    // after `frame::step`). This harness never called it until 2026-09-29,
+    // so the pre-ship check ran the played bed dry while the lab game waters
+    // it: the review measured the check's box losing up to 16.5% of its soil
+    // water by frame 120,000 where the game's gains 7%, on a check whose live
+    // harm is grazing out. Unset it is the scenario's own rate (the played
+    // bed names none, so `Rain::default()`, Light, as in the game); `rain=off`
+    // is the harness before this, bit for bit (`tick` returns before any
+    // draw).
+    let rain = match arg::<String>("rain").as_deref() {
+        None => spec.rain,
+        Some("off") => pixel_physics::lab::rain::Rain::Off,
+        Some("light") => pixel_physics::lab::rain::Rain::Light,
+        Some("steady") => pixel_physics::lab::rain::Rain::Steady,
+        Some("heavy") => pixel_physics::lab::rain::Rain::Heavy,
+        Some(other) => panic!("rain={other}: expected off, light, steady or heavy"),
+    };
+    println!("labforage: rain={} (the lab game's mister, lab::rain::tick)", rain.label());
     // **Same block, same reason, same refusal.** See `wire_rider`'s own doc:
     // before founding, because `place_creature` copies the genome at
     // placement -- and it asserts that the write actually moved a slot,
@@ -2075,6 +2109,7 @@ fn main() {
         }
         if f < frames {
             frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
+            pixel_physics::lab::rain::tick(&mut world, &spec, rain);
         }
     }
 
@@ -2280,7 +2315,14 @@ fn main() {
         "    resting {pip_checks_resting}/{pip_checks_n} | light>=threshold {pip_checks_light_ok}/{pip_checks_n} | \
          soil_water>=threshold {pip_checks_water_ok}/{pip_checks_n} | all three (would germinate now) {pip_checks_ready}/{pip_checks_n}"
     );
-    for c in &world.pip_checks {
+    // **Capped at `PIP_ROWS` unless `pipchecks=all`** (2026-09-29). With the
+    // lab game's rain the box grows ~40x the pips it did dry, and this list
+    // made every log 38-83 MB: 344,112 lines of one run's 344,150, and a
+    // 71 MB tarball of 48 logs. The counts above are over every pip either way.
+    let all_pips = std::env::args().any(|a| a == "pipchecks=all");
+    const PIP_ROWS: usize = 40;
+    let shown = if all_pips { world.pip_checks.len() } else { world.pip_checks.len().min(PIP_ROWS) };
+    for c in world.pip_checks.iter().take(shown) {
         println!(
             "      frame {:>7} x={:>4} y={:>4} {} resting={:<5} light {:>5.2}/{:<5.2} ({}) water {:>4.2}/{:<4.2} ({}) overburden={}",
             c.frame,
@@ -2297,11 +2339,21 @@ fn main() {
             c.overburden
         );
     }
-    let pip_rot_x = &world.pip_rot_x;
-    let pip_eaten_x = &world.pip_eaten_x;
+    if shown < world.pip_checks.len() {
+        println!("      ... and {} more (pipchecks=all prints every one)", world.pip_checks.len() - shown);
+    }
+    let cap_xs = |xs: &[i32]| -> String {
+        if all_pips || xs.len() <= PIP_ROWS {
+            format!("{xs:?}")
+        } else {
+            format!("{:?} ... {} in all", &xs[..PIP_ROWS], xs.len())
+        }
+    };
+    let pip_rot_x = cap_xs(&world.pip_rot_x);
+    let pip_eaten_x = cap_xs(&world.pip_eaten_x);
     println!(
         "  round 28 -- pip exits: seeds_spilled {} = seeds_carried {} (rode home) + {} (stood at the bite) | \
-         plants_from_pip {} + pips_rotted {} (at {pip_rot_x:?}) + pips_eaten {} (at {pip_eaten_x:?}) should not exceed seeds_spilled, the rest still standing | \
+         plants_from_pip {} + pips_rotted {} (at {pip_rot_x}) + pips_eaten {} (at {pip_eaten_x}) should not exceed seeds_spilled, the rest still standing | \
          dig_diverted_seed {} (garden-fix: the dig verb routed around a live seed instead of clearing it)",
         world.seeds_spilled,
         world.seeds_carried,
@@ -2691,8 +2743,8 @@ fn main() {
     // `SUMMARY` keys an identity check compares are the same with it unset
     // (`creature::forage_drive_from_env`).
     println!(
-        "FORAGE seed={} scouted={} paced={} kept={}",
-        spec.seed, st.forage_scouted, st.forage_paced, st.forage_kept
+        "FORAGE seed={} scouted={} paced={} kept={} returns={}",
+        spec.seed, st.forage_scouted, st.forage_paced, st.forage_kept, st.forage_returns
     );
     // **What the move drive itself was**, over every creature decision tick
     // of the run -- the probe §Z13 named and left for whoever owns
