@@ -4016,6 +4016,22 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   from theirs), **contents exist without eggs** via the `live_seed` guard, the
   brain-input pricing as the argument *for* their call-site route, and the
   landing discipline. **Treat their plan as the plan.**
+- [nest-one-entrance-2026-09-29.md](nest-one-entrance-2026-09-29.md) —
+  **measurement and switches (all off), 2026-09-29. `engine`/`lab`. The
+  owner picked walking the soil out and back (§7); §10 traces it.** Why a
+  colony under the five-column door opens 6-7 entrances where the old strip
+  allowed 2: the storeroom adds none, and the roof breaks under the colony's
+  own spoil heaps, which the lift posts straight up over every gallery and
+  the heap cue cannot see under (314 of 444 crust breaks). Three forms
+  behind switches: walking the pellet out (`PIXEL_PHYSICS_SPOIL_OUT`), out
+  and back, and the lift sent out through the passages (`SPOIL_LIFT=out`:
+  digs most, opens 5 and 12). **§10 corrects the out-and-back claim**: its
+  growth with the colony (304 cells at 200 ants) was carriers giving up and
+  lifting through the roof. Traced and fixed (no lift from inside, the haul
+  aimed at the door, the laden pace kept to the mouth), it keeps 1.5
+  entrances at 40 ants and 3 at 200, and its nest does not grow through one
+  2-wide shaft (43 and 70 cells against 207.5 and 613.5). Lane note:
+  [lanes/nest-mouth.md](lanes/nest-mouth.md).
 - [nest-colony-size-2026-09-28.md](nest-colony-size-2026-09-28.md) —
   **measurement, 2026-09-28. `engine`.** The nest and the colony at 40, 80
   and 200 ants, the owner's question. Lane note:
@@ -4098,6 +4114,12 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     wider fix, every roofed digger left alone, opened more mouths on 17 of
     24 seeds: the misread was holding the crust over a gallery just under
     the surface.
+  - **The same review's findings 2-5 (§18):** a digger facing straight up
+    turned down through the west every time, and the nest leaned west of
+    the door on 24 of 24 seeds; with a coin its galleries fan down both
+    sides (with the storeroom off, west 19 -> 10 of 24). The enclosed-only
+    turn gets its own test; the founding cut leaves a corpse where it lies
+    and digs with the founding species' own jaw.
 - [nest-dig-wiring-2026-09-28.md](nest-dig-wiring-2026-09-28.md) —
   **measurement and a default change, 2026-09-28. `engine`/`lab`.** Two
   weights in the ant's genome concentrate its digging under the nest.

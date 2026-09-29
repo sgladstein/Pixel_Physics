@@ -6,8 +6,8 @@ the live question, what is addressed to another lane, predictions and heads.*
 
 - **Session:** `session_01WF4wABj2ewSmzWVJTk6DsC` (the nest lane: the mouth,
   then nest building and spoil).
-- **Branch:** `claude/ant-nest-mouth-4f6s79`. GitHub deleted it when #493
-  merged; restarted from `main` 2026-09-27, same name.
+- **Branch:** `claude/ant-nest-mouth-4f6s79`. GitHub deletes it on every
+  merge; restarted from `main` after #513, 2026-09-29, same name.
 - **Peer:** the foraging-loop session `session_01Pt5N39pfcix13hMycPN9Xs`,
   branch `claude/ant-foraging-loop-handoff-986v7n`, lane note
   [`foraging-loop.md`](foraging-loop.md). The only other agent on the repo.
@@ -72,33 +72,34 @@ the live question, what is addressed to another lane, predictions and heads.*
 
 ## Live question
 
-**Does the colony build a nest, and keep one entrance, now that the door
-ships?** Since 2026-09-29 every colony has the door and the granary
-([`../nest-granary-2026-09-28.md`](../nest-granary-2026-09-28.md) §9;
-README *Nest status*). What ships, in order: the dig wiring (#505), the
-founding shaft and the heap cue (#507), dig down for an enclosed digger
-(#508), and the granary (#512-#513 as switches, on by default since
-2026-09-29).
-- **The door is not a roof.** In `digbox` at 40 ants the new default opens
-  7 entrances against 2, and no seed is more nest-like than random digging
-  (21 of 24 before). Half of it is the door: nest paint cannot be dug, so
-  the old strip was a roof the lane's one entrance was measured under. Half
-  is the storeroom (alone it opens 6): its nest workers or its room, not yet
-  traced which. On the bed, with food to fetch, the nest reads as one entrance.
+**One entrance round the door: the walked cycle, traced**
+([`../nest-one-entrance-2026-09-29.md`](../nest-one-entrance-2026-09-29.md)
+§10). The owner picked "walk it out, then back to the dig". Three faults in
+`SPOIL_OUT` fixed (`86adc504`): a carrier that gave up posted its pellet up
+through the roof (that, not the trip back, was the first build's growth),
+the haul aimed inside the shaft, and the laden pace read 0 at the mouth.
+Now 1.5 entrances at 40 ants and 3 at 200, but the nest does not grow
+through one 2-wide shaft: 43 and 70 cells against the lift's 207.5 and
+613.5. Bed: starvation no worse, births lower (160 against 223 at 20
+founders). Lab: births 0.76 per seed; the walked mouth ends under its own
+loose soil, pellets set on its rim run back in (open 1 of 12 against 6). Card `…2d6747` asks: relay the soil up through nest workers,
+or let the colony open more mouths beside the door?
+
 - **The granary does not scale.** On the bed at 80 founders: starved 848 ->
   1,102, fewer alive at the end on 21 of 24. At 20 it pays (born 144 ->
   226).
+- **The lane's box starves its colony**: at `energy=1000` and no food the 40
+  ants are at a quarter of their energy by frame 12,000 and nearly all dead
+  by 24,000; anything that brings ants to the surface meets hunger's
+  scouting there. Read late stops with that in mind.
 
 **Next** (2026-09-29):
-1. **One entrance round the door**: trace which ants open the extra
-   entrances, cut by cut, then a lever. Measure at 40 and 200 ants. First
-   make `digbox` found as the game now does: its trickle still spawns ants
-   across the old strip's 53 columns, homed where they land.
+1. The owner's answer on `…2d6747`; then the relay (diggers leave pellets in
+   the entrance chamber, nest workers carry them out: the granary in
+   reverse) or more mouths, the lab, tests, and a PR.
 2. **Nest workers who go out when the colony is hungry** (the scale cost;
    harvester workers switch tasks with the colony's need).
-3. R3 of the foraging lane's review: the dig-down guard test, the
-   north-facing turn's west bias, founding-cut meat and founding force.
-4. The brain input for the cue (owner's order), planned with the lab lines.
+3. The brain input for the cue (owner's order), planned with the lab lines.
 
 ## Working agreement with the foraging lane (2026-09-27)
 
@@ -173,6 +174,13 @@ exploratory and carry none.
 - `20260926T160641891Z-86d16b` — home that climbs the pile: every lab colony
   builds a food tower over its door; reverting (seed 7 at five stops, all 12
   seeds at three, the fixed mouth as control).
+- `20260929T011756489Z-b929b7` — the full granary as the default, bed
+  before and after (#513).
+- `20260929T031008312Z-5d7b1a` — one entrance round the door: shipped, walk
+  it out, out and back, lift out the nearest hole (seed 2, four stops); asks
+  which, and whether the lift may carry spoil to the door.
+- `20260929T171054067Z-ce5b22` — the nest no longer leans west (R3: the
+  half turn's coin), seeds 1 and 20 before and after.
 
 ## Head SHAs
 
@@ -182,7 +190,11 @@ the reports each one names.
 
 - `7933010e` (#512) — merged: the storeroom (off), castes, the room
   series, the heap cue's floor fix. Branch restarted from `main`.
-- `e3296aaa`, `72987899`, `f6ae02b1` (#513) — the side storeroom and
-  `keep` (off), colony size, main (#514) merged in.
-- `828ce885` — the storeroom (B) as `PIXEL_PHYSICS_STOREROOM`, off; `off`
-  is `main`'s bed line for line; the suite passes on it.
+- `72383e39` (#513) — merged: the full granary on by default (the door,
+  the side storeroom, `keep`, nest workers), colony size. Branch restarted
+  from `main`.
+- `7ee0e338` (#517) — merged: the entrance ledger, `SPOIL_OUT` and
+  `SPOIL_LIFT=out` (off), `TRIPS` / `decisions=` in digbox. Branch
+  restarted from `main`.
+- R3 of the foraging lane's review (findings 2-5): the half turn's coin,
+  the enclosed-gate test, the founding cut's corpses and jaw (report §18).

@@ -6188,6 +6188,15 @@ pub struct OrganismState {
     /// from home** (`creature::storeroom_of`'s `once`): set by a store
     /// pick-up, cleared by a pick-up away from home.
     pub store_carried: bool,
+    /// **The cell its last pellet was cut from**, under
+    /// `PIXEL_PHYSICS_SPOIL_OUT`'s `back` part (`creature::SpoilOut`):
+    /// set by every cut inside the nest (`creature::inside_nest`) and cleared
+    /// by one outside it. Once the pellet is down, the empty animal, if not
+    /// hungry, walks back to it -- to the door while it is outside, then to
+    /// the face -- and it is cleared on arrival, when patience runs out, or
+    /// when hunger or food in the crop ends the trip. `None` otherwise, and
+    /// always with the switch unset.
+    pub dig_return: Option<(i32, i32)>,
     /// **Nest-bound until this frame** (`creature::storeroom_of`'s
     /// `nestbound`): a young ant stays home, is not sent out by the forage
     /// drive, and is the one that carries food into the storeroom. 0, the
