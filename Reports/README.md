@@ -1180,6 +1180,32 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology  ·  `engine`
 
+- [ant-breeding-plan-2026-09-29.md](ant-breeding-plan-2026-09-29.md)
+  — **plan, 2026-09-29, for the owner's reading; read it before any work on
+  ant eggs, brood, castes, a colony's breeder or colonies founding colonies.
+  `engine`, with a per-game rollout in §7.** Six steps from today's budding
+  (every fed ant splits off a full-grown copy wherever it stands) to the ant
+  life cycle, under the 2026-09-09 rulings that a queen is never a type the
+  engine knows and that fertility is graded. **B1** a birth lays one egg
+  cell — an organism-owned, seed-shaped `Powder`, as `nest-biology` D11
+  asked — which alone makes nest-only breeding geometrically possible.
+  **B2** the existing `graded` regime on, after the owed
+  `GRADED_MAX_SUPPRESSION` sweep, with a breeder's eggs as a second signal
+  source (the *Lasius niger* queen pheromone rides on her eggs). **B3**
+  larvae that nurses fill through the existing `Share`, so laying is cheap
+  and growing an ant is what costs the colony. **B4** `made` from how a larva
+  was fed, and pale callows released by a constant hazard. **B5** a
+  per-species founding rule: one provisioned breeder plus a cohort. **B6**
+  `(Made, Fly)` alates and one founding verb shared with the fission design's
+  budding party — the dispersal the breeding clock named as the condition for
+  breeder-centred breeding to pay. Names the two traps that decide B1's cost
+  (an organism-owned `Powder` is food, spoil and footing to four verbs today;
+  eggs as organisms reach 222 + 36 + 57 census call sites) and a records
+  fallback. **Found on the way, confirmed by a run:**
+  `World::note_birth_denied` indexes a 4,096-bit array with a 20-bit slot, so
+  a refused birth in slot 4,096 or above panics, which the held world's grown
+  start can reach. Six questions for the owner in §10; the real-ant biology
+  checked against 13 papers, with DOIs.
 - [ant-sim-research-review-2026-09-19.md](ant-sim-research-review-2026-09-19.md)
   — **review, 2026-09-19, docs only. `engine`/`lab`.** An outside literature
   survey on ant simulation, checked section by section against the tree and
