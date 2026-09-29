@@ -1,7 +1,7 @@
 # One entrance round the door (2026-09-29)
 
-**Status: measurement and switches, all off; the direction is the owner's
-call (§7).** The nest lane's live question after the granary shipped
+**Status: measurement and switches, all off; the owner picked the walked
+cycle (§7), traced and fixed in §10.** The nest lane's live question after the granary shipped
 (#513): with a five-column door instead of the old 53-column strip of nest
 paint, a colony in `digbox` opens 6-7 entrances where it used to open 2.
 This report finds why, builds three ways to fix it behind switches, and
@@ -9,7 +9,13 @@ measures each at 40 and 200 ants. None of the three gives one entrance
 *and* a nest that grows with the colony; the choice between them is a
 trade-off the owner has to see.
 
-Lane note: [lanes/nest-mouth.md](lanes/nest-mouth.md). Predictions 168-191
+**Later the same day** the owner picked "walk it out, then back to the
+dig". §10 traces that cycle and fixes three faults in it; **its one claim
+here that did not survive is corrected in §0 and §4**: what made the first
+build's nest grow with the colony was a carrier giving up the walk and
+posting its pellet up through the roof, not the trip back.
+
+Lane note: [lanes/nest-mouth.md](lanes/nest-mouth.md). Predictions 168-204
 were written before their runs; they are in §8 with their scores.
 
 ## 0. What was found, in world terms
@@ -30,9 +36,13 @@ were written before their runs; they are in §8 with their scores.
   roofed, and 19 of 24 colonies more nest-like than random digging against 0
   today -- **but a nest a fifth the size**, because a digger that
   walks its pellet out leaves its face and, traced, most never come back
-  (§3). Walking them back to the face makes the nest scale with the colony
-  (51 cells at 40 ants, 304 at 200) and keeps 2 entrances at 40 ants, but
-  at 200 the entrances return: 7, against today's 9.5 (§4).
+  (§3). Walking them back to the face keeps 2 entrances at 40 ants, and the
+  first build's nest grew with the colony (51 cells at 40 ants, 304 at
+  200) with 7 entrances at 200 -- **but that growth, and those entrances,
+  were a carrier giving up the walk and posting its pellet up through the
+  roof** (§10). Without that, the walked cycle keeps 1.5 entrances at 40
+  ants and 3 at 200, and its nest barely grows with the colony: 43 cells
+  and 70.
 - **Sending the lift out through the passages instead of up the column**
   keeps the digger at its face and digs more than today, but puts each
   pellet out of whichever hole is nearest, so every hole grows a heap: 5
@@ -152,6 +162,12 @@ entrances** (fewer than shipped on 19 of 24). The ant-time underground is
 still well under the lift's (seed 3: 51,000 against 136,000), and most of
 the colony's time in every arm is spent on the surface beyond the door.
 
+**Corrected (§10): the trip back is not what made this nest grow.** When a
+carrier's patience ran out inside the nest, `keep` let it go as it always
+had, and with no cell beside it the pellet went up the column: at 200 ants
+81% of all pellets left that way, from all over the nest. Taken out, the
+200-ant nest falls from 296 cells to 62 on the merged tree.
+
 ## 5. Lift it out through the passages
 
 `PIXEL_PHYSICS_SPOIL_LIFT=out` keeps the lift but sends it out the way the
@@ -174,6 +190,11 @@ All in `creature.rs` unless named, all off unless set:
   `1.0` when `PIXEL_PHYSICS_SPOIL_HAUL` is unset.
 - `PIXEL_PHYSICS_SPOIL_LIFT=out` = `SpoilLift::Out`, `lift_out`,
   `CreatureStats::spoil_lifted_out`.
+- Later (§10): `keep` never lifts from inside the nest
+  (`CreatureStats::spoil_kept_no_lift`); the haul's target
+  (`spoil_haul_target`, the door a row above the mouth under `SPOIL_OUT`);
+  the laden pace's bearing (`spoil_pace_target`). `digbox` gains `LIFTS`,
+  `TRIPS`, `tripcsv=`, `decisions=` and the site line.
 - `examples/digbox.rs`: founders homed at the door; the `OPENINGS` ledger;
   the `TIME` budget; pellets carried out booked apart; which caste made each
   cut.
@@ -188,6 +209,10 @@ determinism.rs` 4; `tests/worldgen.rs` 44); no test covers the new switches
 yet: they are candidates, not ship arms.
 
 ## 7. The choice
+
+**The owner picked walk it out and back** ("I lean to 'walk it out, then
+back to the dig'", 2026-09-29), the form real colonies use. §10 is what
+that turned up. The rest of this section is the choice as it was put.
 
 Every form trades entrances against size:
 - **Walk it out** reads most like a nest with one way in, and stays small.
@@ -229,6 +254,19 @@ placement rules), so it waits on the owner.
 | 189 | walk out and back, scouting off | dug at least the walk-out's; entrances at most 2 | holds, trivially (34; 1) |
 | 190 | `SPOIL_OUT=on`, 40 ants | entrances at most 2; dug at least 60 | split (2; 51) |
 | 191 | the same, 200 ants | entrances at most 3; dug at least twice its 40-ant median | split (7; 304) |
+| 192 | give-up fix, 200 ants | lifts from inside at most 2% of the first build's | holds (21 against 17,110) |
+| 193 | the same | entrances at most 4, fewer on 16 of 24 | holds (3; 23 of 24) |
+| 194 | the same | cells dug at least half the first build's | fails (62.5 against 296) |
+| 195 | the same, 40 ants | entrances at most 2; dug within 25% | holds (2; 41.5 against 50.5) |
+| 196 | walk out (`haul,pace,keep`), 200 ants | entrances at most 3 | holds (3) |
+| 197 | shipped, merged tree | entrances within 1 of 6.5 / 9.5 | holds (7 / 9.5) |
+| 198 | door target alone, 200 ants | carrying frames in the cut at most 0.8x | fails (43.2% against 43.3%) |
+| 199 | door + pace, 40 ants | trip at most 0.7x; dug at least the fix's | split (0.703; 43 against 41.5) |
+| 200 | the same, 200 ants | dug 1.0-1.5x the fix's; entrances at most 4 | holds (1.11x; 3) |
+| 201 | the same, 40 ants | entrances at most 2 | holds (1.5) |
+| 202 | bed, branch unset against main, 20 founders | byte for byte | holds |
+| 203 | bed, walked cycle, 20 founders | starved at most +15%; born at least 85% | split (37 against 73; 160 against 223) |
+| 204 | the same, 80 founders | starved at most +25% | holds (1,097 against 1,102) |
 
 188-189 were first written for `energy=20000`, digbox's own default; eight
 runs had started when it was noticed that at that energy every ant buds past
@@ -238,6 +276,100 @@ any finished or was read, deleted, and the arm changed to scouting off.
 ## 9. Instruments
 
 - `digbox`'s `OPENINGS` and `TIME` lines (every stop, with the funnel).
-- The tallies are scratch scripts (`openings.py`, `caste.py`); `nestscore.py`
-  reads the scoreboard and funnel as before, and its pellet line is
-  unchanged (pellets carried out count as lifted, with their own line).
+- `digbox`'s `LIFTS` line: where each pellet posted up the column left
+  from (the founding cut, depth under cover, or the open), and the drop
+  rolls `keep` held.
+- `digbox`'s `TRIPS` line (§10): every pellet followed from the cut to where
+  it went down -- frames a trip, frames to leave the nest, whether the head
+  moved each frame and what stood in front of it, patience under the
+  give-up line, and where the carrying frames were spent. It counts
+  frames; an ant decides once in six, so its standing shares are mostly the
+  frames between decisions. `tripcsv=PATH` writes it per carrier per frame.
+- `digbox decisions=PATH`: the engine's own `DecisionRow` for every decision
+  of an animal holding a pellet -- usable headings, `P(move)` and the roll,
+  the outcome, patience, `HomeAligned`, `AtNest`. This is what found both
+  walk faults in §10; the `TRIPS` shares alone did not.
+- `digbox`'s site line: the nest site, its cut, and whether the haul's
+  target lies inside the cut.
+- The tallies are scratch scripts (`openings.py`, `caste.py`, `arms.py`);
+  `nestscore.py` reads the scoreboard and funnel as before, and its pellet
+  line is unchanged (pellets carried out count as lifted, with their own
+  line).
+
+## 10. Walk it out and back, traced (later on 2026-09-29)
+
+The owner picked the walked cycle. Its first build had three faults, all
+in `SPOIL_OUT`'s own parts, each found by following individual carriers.
+All numbers are `digbox`, 24 seeds, on the tree with main's #515 merged in
+(the shipped arm there: 7 entrances and 207.5 cells at 40 ants, 9.5 and
+613.5 at 200; the first build 2 / 50.5 and 6.5 / 296).
+
+**1. A carrier that gave up the walk sent its pellet up through the roof.**
+`keep` held the pellet inside the nest while the haul's patience lasted,
+then let the drop roll through as before, and with no cell beside the
+carrier that meant the column lift. The `LIFTS` line put the starting
+points all over the nest at 200 ants (per seed: 150 in the founding cut,
+165-293 one to four rows down, 59-244 at nine to sixteen), 81% of all
+pellets. Now `keep` never lifts from inside the nest: a carrier that ran
+out of patience there lays its pellet beside itself where a cell holds it,
+or keeps carrying. At 200 ants pellets lifted from inside fell from 17,110
+to 21 and entrances from 6.5 to 3 (fewer on 23 of 24 seeds), and the nest
+from 296 cells to 62.5 (per seed 0.22). At 40 ants: 2 entrances, 50.5 ->
+41.5 cells.
+
+**2. The haul aimed inside the nest.** It pulled a carrier to
+`(site.x, site.surface)`, which over a founding cut is the mouth's own row
+-- inside the cut, where `keep` holds the pellet. A carrier climbed the
+shaft in a handful of steps, reached the target, lost its pull (standing on
+a target is not a direction) and milled in the mouth. It now aims at the
+door every ant is homed to, a row above the mouth (`spoil_haul_target`).
+
+**3. At the mouth the carrier lost its hurry.** The laden pace reads
+`HomeAligned` against the forage anchor, which every contact with the nest
+re-sets to where the ant stands, so in the mouth it read 0: `P(move)` 0.36-
+0.46 in the mouth's two rows and at the door, against 0.78 a row deeper,
+and a step on 30-45% of decisions against 75-86% (40 ants, seed 1). One
+carrier: six steps up the shaft, then forty decisions at `P(move)` 0.15 in
+the mouth. The pace now reads the bearing to where the carrier is going,
+the door for a pellet and the face for a digger walking back
+(`spoil_pace_target`); in the mouth `P(move)` is 0.78.
+
+| digbox, 24 seeds, medians | shipped | first build | + 1 | + 1, 2, 3 |
+|---|---:|---:|---:|---:|
+| 40 ants, frame 24,000: entrances | 7 | 2 | 2 | **1.5** |
+| 40 ants, frame 24,000: cells dug | 207.5 | 50.5 | 41.5 | 43 |
+| 40 ants, frame 6,000 (fed): cells dug | 73.5 | 32 | 26.5 | 35 |
+| 40 ants: frames a trip, cut to put-down | -- | -- | 111 | 78 |
+| 200 ants, frame 24,000: entrances | 9.5 | 6.5 | 3 | **3** |
+| 200 ants, frame 24,000: cells dug | 613.5 | 296 | 62.5 | 69.5 |
+| 200 ants: frames a trip | -- | -- | 474 | 384 |
+
+**What is left is the shaft.** At 200 ants carriers still spend 40-72% of
+their carrying frames in the founding cut, standing behind one another in
+a shaft two cells wide, and the cut rate per ant-frame under cover falls to
+a third of the shipped ant's (0.9 against 2.4 per thousand at frame 6,000).
+At 40 ants it is the shipped rate (3.4 against 3.8); the walked colony is
+simply under cover less. So the walk gives one mouth, and a nest that
+does not grow with the colony through one shaft. The lining does not fix
+the width: tamped soil resists at 0.95 against the ant's dig force of 1.0,
+so a crowded shaft can be cut wider, and is not.
+
+**The box starves late.** `digbox` has no food: by frame 9,000 the median
+ant is under the half of `start_energy` the trip back asks for, so late in
+the run a walked digger that reaches the surface stays there (two thirds
+of the colony's ant-frames are on the surface beyond the door). Frame 6,000
+is the fair comparison of the walk against the lift.
+
+**On the colony bed** (`trailfollow`, gap 90 at 20 founders and 135 at 80,
+24 seeds; the branch unset reproduces main byte for byte): at 20 founders
+the walked cycle starved 37 against 73 (fewer on 14 seeds, more on 3) and
+bore 160 against 223 (per seed median 6 against 8; more on 11, fewer on 12;
+one main seed bore 40). At 80 founders it starved 1,097 against 1,102 and
+bore 40 against 70 (more on 7, fewer on 12). Fewer births, no more
+starvation. The owner's ruling that colony numbers do not veto a nest step
+stands; the cost is recorded.
+
+All three are off unless `PIXEL_PHYSICS_SPOIL_OUT` is set;
+`PIXEL_PHYSICS_SPOIL_HAUL` alone keeps its old target. Unset, every build
+reproduced the run before it line for line in `digbox` (seed 1, 40 and 200
+ants) and byte for byte on the bed.

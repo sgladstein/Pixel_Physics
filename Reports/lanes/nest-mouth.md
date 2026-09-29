@@ -72,18 +72,17 @@ the live question, what is addressed to another lane, predictions and heads.*
 
 ## Live question
 
-**One entrance round the door** -- waiting on the owner's pick
+**One entrance round the door: the walked cycle, traced**
 ([`../nest-one-entrance-2026-09-29.md`](../nest-one-entrance-2026-09-29.md)
-§7). The granary shipped (#513, merged 2026-09-29), and under the door a
-colony in `digbox` opens 6-7 entrances where the strip allowed 2. The
-storeroom adds none; the roof breaks under the colony's own spoil heaps,
-which the lift posts up over every gallery and the heap cue cannot see under.
-Three forms, all off: walk the pellet out (`SPOIL_OUT=haul,pace,keep`: 1
-entrance, a fifth of the nest), out and back (`SPOIL_OUT=on`: scales, 2
-entrances at 40 ants and 7 at 200), lift out through the passages
-(`SPOIL_LIFT=out`: digs most, 5 and 12). A fourth, the lift carrying spoil
-to the door, would re-open the owner's 2026-08-31 placement ruling and was
-not built. Card `…5d7b1a`.
+§10). The owner picked "walk it out, then back to the dig". Three faults in
+`SPOIL_OUT` fixed (`86adc504`): a carrier that gave up posted its pellet up
+through the roof (that, not the trip back, was the first build's growth),
+the haul aimed inside the shaft, and the laden pace read 0 at the mouth.
+Now 1.5 entrances at 40 ants and 3 at 200, but the nest does not grow
+through one 2-wide shaft: 43 and 70 cells against the lift's 207.5 and
+613.5. Bed: starvation no worse, births lower (160 against 223 at 20
+founders). Card `…2d6747` asks: relay the soil up through nest workers,
+or let the colony open more mouths beside the door?
 
 - **The granary does not scale.** On the bed at 80 founders: starved 848 ->
   1,102, fewer alive at the end on 21 of 24. At 20 it pays (born 144 ->
@@ -94,8 +93,9 @@ not built. Card `…5d7b1a`.
   scouting there. Read late stops with that in mind.
 
 **Next** (2026-09-29):
-1. The owner's pick for the entrance; then that form on the bed (20 and 80
-   founders) and the lab, tests, and a PR.
+1. The owner's answer on `…2d6747`; then the relay (diggers leave pellets in
+   the entrance chamber, nest workers carry them out: the granary in
+   reverse) or more mouths, the lab, tests, and a PR.
 2. **Nest workers who go out when the colony is hungry** (the scale cost;
    harvester workers switch tasks with the colony's need).
 3. R3 of the foraging lane's review: the dig-down guard test, the
@@ -194,3 +194,5 @@ the reports each one names.
   from `main`.
 - `0415980a`, and the entrance work on top of it — digbox founds as the game
   does; the opening ledger and time budget; `SPOIL_OUT`, `SPOIL_LIFT=out`.
+- `74f581cb` merges main (#515) in; `86adc504` fixes the walked cycle and
+  adds `TRIPS` / `decisions=` to digbox.

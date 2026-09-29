@@ -4018,15 +4018,19 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   landing discipline. **Treat their plan as the plan.**
 - [nest-one-entrance-2026-09-29.md](nest-one-entrance-2026-09-29.md) —
   **measurement and switches (all off), 2026-09-29. `engine`/`lab`. The
-  direction is the owner's call (§7).** Why a colony under the five-column
-  door opens 6-7 entrances where the old strip allowed 2: the storeroom adds
-  none, and the roof breaks under the colony's own spoil heaps, which the
-  lift posts straight up over every gallery and the heap cue cannot see
-  under (314 of 444 crust breaks). Three forms behind switches: walking the
-  pellet out (`PIXEL_PHYSICS_SPOIL_OUT`) gives 1 entrance and a nest a fifth
-  the size; walking out and back scales (51 cells at 40 ants, 304 at 200)
-  with 2 entrances at 40 and 7 at 200; the lift sent out through the
-  passages (`SPOIL_LIFT=out`) digs most and opens 5 and 12. Lane note:
+  owner picked walking the soil out and back (§7); §10 traces it.** Why a
+  colony under the five-column door opens 6-7 entrances where the old strip
+  allowed 2: the storeroom adds none, and the roof breaks under the colony's
+  own spoil heaps, which the lift posts straight up over every gallery and
+  the heap cue cannot see under (314 of 444 crust breaks). Three forms
+  behind switches: walking the pellet out (`PIXEL_PHYSICS_SPOIL_OUT`), out
+  and back, and the lift sent out through the passages (`SPOIL_LIFT=out`:
+  digs most, opens 5 and 12). **§10 corrects the out-and-back claim**: its
+  growth with the colony (304 cells at 200 ants) was carriers giving up and
+  lifting through the roof. Traced and fixed (no lift from inside, the haul
+  aimed at the door, the laden pace kept to the mouth), it keeps 1.5
+  entrances at 40 ants and 3 at 200, and its nest does not grow through one
+  2-wide shaft (43 and 70 cells against 207.5 and 613.5). Lane note:
   [lanes/nest-mouth.md](lanes/nest-mouth.md).
 - [nest-colony-size-2026-09-28.md](nest-colony-size-2026-09-28.md) —
   **measurement, 2026-09-28. `engine`.** The nest and the colony at 40, 80
