@@ -4,10 +4,11 @@
 only B0a is in the code: the crash fix it asked for first, done in the same
 pull request (§1d). Written against `main` at `2274e347`. Tag: `engine` — the
 mechanism is shared, and §7 says what each of the three games turns on. The
-owner answered three of §10's six questions the same day: the evolution lab
-gets the full life cycle, breeders may be marked, and breeders may live
-longer. They are recorded in §2a and §10 and folded into the steps, with B4b
-new.
+owner answered three of §10's questions the same day: the evolution lab gets
+the full life cycle, breeders may be marked, and breeders may live longer.
+They are recorded in §2a and §10 and folded into the steps, with B4b new. An
+adversarial review the same day corrected the steps against the code and
+added two questions; **five of §10's eight are open**.
 
 **How this was put together:** the code was read directly for `try_bud`,
 `place_creature`, the breeding regimes, old age, founding and the
@@ -46,18 +47,23 @@ This plan replaces that, in seven shippable steps (B1–B6, plus B4b, added
 **Where it sits.** The colony now forages, homes, stores food in a granary, and
 digs a door, a shaft and a storeroom. Breeding is the last part of its life
 still done as an instant copy, and it is what all that food is for. Four
-rejected switches (`dead-ends.md` L1185, L1194, L1195, L1204) each name *a
-brood to feed* or *a birth paid from the store* as the condition that would
-change their verdict. The nest's own "what is it for" question
+rejected switches in `dead-ends.md` each name *a brood to feed* or *a birth
+paid from the store* as the condition that would change their verdict: the
+`Feed` AND wiring, the forage drive's `hunger`/`larder` needs,
+`always,keep`, and `HAUL_BITE` (§2c). The nest's own "what is it for" question
 (`nest-biology-2026-09-19.md` §10–11) was answered with *eggs*.
 
 **The constraint everything is built around.** The owner ruled on 2026-09-09
 that a queen is *"three authored values over mechanisms that exist … never a
 type the engine knows"*. The same rulings made fertility graded and required
-castes to behave differently, not only breed differently. The breeding-clock
-study then measured queen-only breeding collapsing the lab's evolutionary
-clock **thirteen-fold** (median generation 1 against 13.5). The cause is
-structural: the box has no way for a colony to found a colony.
+castes to behave differently, not only breed differently.
+
+The **lab's evolutionary clock** is how many generations deep a lineage gets
+in one session of the evolution lab. The owner's target is 60–70. The
+breeding-clock study measured queen-only breeding collapsing that clock
+**thirteen-fold**: a median of 1 generation against budding's 13.5 in
+120,000 frames. The cause is structural: the box has no way for a colony to
+found a colony.
 
 So **nothing below names a queen**:
 
@@ -70,27 +76,44 @@ So **nothing below names a queen**:
 
 | step | what you see | what it builds | size |
 |---|---|---|---|
-| **B0** before anything | nothing, except the held world no longer crashes | the crash fix (**done, in this PR**), the owed `GRADED_MAX_SUPPRESSION` sweep, a re-taken breeding clock, the switch documented (done) | 1 session |
+| **B0** before anything | nothing, except the held world no longer crashes | the crash fix (**done, in this PR**), the owed `GRADED_MAX_SUPPRESSION` sweep, a re-taken breeding clock, the switch documented (done) | 1–2 sessions |
 | **B1** the egg | pale grains piling on the chamber floor beside the ants that laid them, hatching into ants | a birth lays one egg cell instead of a whole adult. Budding's economy is otherwise unchanged (`nest-biology` D11.2) | 1–2 sessions |
 | **B2** graded fertility on | breeding gathers onto one or a few animals per nest | the existing `graded` regime, swept, with the breeder's eggs as a second signal source | small |
 | **B3** brood that must be fed | a brood pile in three colours (egg, larva, cocoon) with nurses crowding it. In famine the pile thins before the workers die. Dig into a chamber and ants carry the brood away | larvae with a bank that nurses fill through the existing `Share` verb. Laying becomes cheap and growing an ant is what costs | 2–3 sessions |
 | **B4** what the young become | callow ants pale and at home, turning into foragers one by one. Richly fed larvae become different ants | `made` from how a larva was fed, the developmental block wired, a stochastic callow release | 1–2 sessions |
-| **B4b** breeders live longer | the breeder in the chamber outlasts generations of her workers | a heritable, priced lifespan slot that the caste channel lifts in richly reared animals (owner, 2026-09-29) | 1 session |
+| **B4b** breeders live longer | the breeder in the chamber outlasts generations of her workers | a heritable, priced lifespan slot that the caste channel lifts in richly reared animals (owner, 2026-09-29) | 1–2 sessions |
 | **B5** the founding rule | a colony starts as one well-provisioned breeder in its chamber plus a cohort, not 52 identical strangers | a per-species founding rule in `ant.ron`, and a nest-bound founder | 1 session |
-| **B6** colonies found colonies | winged breeders leave the mound after rain. New mounds appear across the world, descended from the old | `(Made, Fly)` alates and a founding verb shared with the fission design's budding party | 2–3 sessions |
+| **B6** colonies found colonies | winged breeders leave the mound after rain. New mounds appear across the world, descended from the old | `(Made, Fly)` alates and one founding output, `Leave`, shared with the fission design's budding party | 2–3 sessions |
 
-**In all, about 10–14 sessions**, in the table's order.
+**In all, about 10–16 sessions**, in the table's order, and one more if §10
+Q8 makes B1b a prerequisite of B6.
 
-- B0's measurements can run beside B1's build.
+- B0 is mostly compute: about 36 hours of runs at four threads each (§5 B0).
+  Its measurements can run beside B1's build.
 - B3 onward is sequential.
-- B6 depends on B3–B5, so it lands last. **In the lab, B4b's longevity
-  weight therefore waits for B6.** The mechanism ships when it is built; the
-  weight, a genome value, is set in the lab when dispersal exists. So
-  long-lived breeders never run in the lab without the dispersal that pays
-  back what they cost its clock.
+- **B6 depends on B3–B5, so it lands last.** Until it does, the lab runs
+  B1–B5 and B4b at the clock cost reported against B0d's baseline, as the
+  owner ruled.
+- Whether to hold B4b's longevity weight at 0 in the lab until B6 lands is put
+  to the owner as §10 Q7. It would narrow that ruling, so it is not assumed.
 
 §8 says who owns which files while the nest and foraging lanes are also in
 `creature.rs`.
+
+**Words used below**, for a cold reader:
+
+- a **breeder** is any animal that has bred (`children > 0`);
+- **graded fertility** makes breeding harder the nearer an animal is to a
+  breeder;
+- **`Share`** is the brain's existing trophallaxis verb, which passes energy
+  mouth to mouth;
+- **`made`** is the number a young animal is raised with, which shifts its
+  inherited traits (the caste channel);
+- **brood** is eggs, larvae and pupae;
+- a **callow** is a newly hatched adult;
+- an **alate** is a winged breeder.
+
+The whole cycle is drawn on one page in §4; the steps are §5.
 
 **Deliberately out of it (B7):**
 
@@ -111,7 +134,12 @@ died.
   each other since the owner's 2026-09-14 ruling (`scent_spread` 2.0).
 - **Dispersal still does not.** That is why B6 is in this plan.
 - **B6 is now required in the lab**, not optional. The lab gets the full life
-  cycle and breeders live longer, and both slow that same clock.
+  cycle and breeders live longer. In that lab, a breeder's lineage can only
+  advance far by founding new colonies.
+- **B6 lets that lineage advance; it is not expected to restore budding's
+  clock.** The breeding-clock report says even a working dispersal version
+  *"would tick slower than individual budding"*, and that its upside is
+  *"castes, not the clock"*.
 
 **Found on the way, confirmed by a run, and fixed in the same pull request:**
 a refused birth by any animal in organism slot 4,096 or above crashed the game
@@ -164,8 +192,8 @@ a refused birth by any animal in organism slot 4,096 or above crashed the game
 
 | piece | where | state |
 |---|---|---|
-| **Breeding regimes** — `PIXEL_PHYSICS_BREEDING=individual\|queen\|graded`, `PIXEL_PHYSICS_BREEDING_RADIUS` (24) | `creature.rs` `breeding_regime`, `suppress_bar`, `nearest_breeder`, `colony_has_other_breeder`, `GRADED_MAX_SUPPRESSION` 6.0; `World::colony_breeders` index | in the code, default `individual`. **`GRADED_MAX_SUPPRESSION` has never been swept**, and the owner's standing gate says graded ships only after it is. No living document names the switch; §5 B0c adds it to the reference |
-| Breeder counters | `World::deepest_breeder_generation`, `CreatureStats::breeder_scan_visits`; `labforage`'s `brdr`/`gen`/`bgen` columns | live. **`gen` and `bgen` diverging is the tell** that an arm manufactures genetic dead ends |
+| **Breeding regimes** — `PIXEL_PHYSICS_BREEDING=individual\|queen\|graded`, `PIXEL_PHYSICS_BREEDING_RADIUS` (24) | `creature.rs` `breeding_regime`, `suppress_bar`, `nearest_breeder`, `colony_has_other_breeder`, `GRADED_MAX_SUPPRESSION` 6.0; `World::colony_breeders` index | in the code, default `individual`. **`GRADED_MAX_SUPPRESSION` has never been swept**, and the owner's standing gate says graded ships only after it is. Until this pull request no living document named the switch; B0c added it to `how-the-ant-works.md` §9 and §12 |
+| Breeder counters | `World::deepest_breeder_generation`, `CreatureStats::breeder_scan_visits`; `labforage`'s `brdr` (living breeders), `gen` (the deepest generation of any animal, sterile or not) and `bgen` (the deepest generation of an animal that itself bred: the chain a genome actually travels) columns | live. **`gen` and `bgen` diverging is the tell** that an arm manufactures genetic dead ends |
 | Breed only at the nest — `PIXEL_PHYSICS_BUD_SITE=nest` / `World::bud_at_nest` | `try_bud`, `buds_held_for_nest` | off. With an adult-length child it took births **1,592 → 0**: a clear line for a whole body exists at the nest 0% / 7% of the time (`ant-scenes-2026-09-23.md` §9–10) |
 | **The caste channel** — `Provision` output, `Made` input, the developmental block (`brain::TRAIT_SLOTS`, 64), `expressed_traits`, `World::plasticity` 1.0 | `brain.rs`, `creature.rs` | on, and **nothing fires it**: `ant.ron` authors no `Provision` weight and no developmental weight |
 | Nest-bound animals — `OrganismState::nest_bound_until`, `is_nest_bound`, `home_pull`; `Storeroom` parts `nestbound=<frames>[/<k>]`, `caste=<k>`, `workerhome` | `creature.rs` | `caste=4` is the default: one ant in four, **by id**, is nest-bound for life. It lives, eats, digs **and breeds** in the founding cut |
@@ -260,26 +288,26 @@ the second trap).
 
 | ruling | date | recorded in | what it forces here |
 |---|---|---|---|
-| *"A queen is three authored values over mechanisms that exist — a per-species founding rule, a founder who rests because she is full, sterile workers through the caste channel — never a type the engine knows."* | 2026-09-09 | `evolution-lab-breeding-clock-2026-09-10.md` §0; `evolution-lab-direction-2026-09-09.md` L62; the lab coordinator's not-to-be-relitigated list | no `Queen` type, flag or species anywhere. A breeder is `children > 0`. B5's founding rule lives in `ant.ron`; sterility comes through `made` (B4) |
+| *"A queen is three authored values over mechanisms that exist — a per-species founding rule, a founder who rests because she is full, sterile workers through the caste channel — never a type the engine knows."* | 2026-09-09 | `evolution-lab-breeding-clock-2026-09-10.md` §0; `evolution-lab-direction-2026-09-09.md` L62; the lab coordinator's not-to-be-relitigated list | no `Queen` type, flag or species anywhere. A breeder is `children > 0`. B5's founding rule lives in `ant.ron`; sterility comes through `made` (B4), with B2's suppression doing most of it, because the caste channel can at most double a worker's bar |
 | *"Castes must actually behave differently, not only breed differently"* — `(Made, verb)` weights are the mechanism | 2026-09-09 | breeding-clock §0 | B4's and B6's castes are `(Made, verb)` weights, including `(Made, Fly)` for alates |
 | *"Fertility is graded, so a queenless colony's workers resume breeding."* | 2026-09-09 | same | B2 uses `graded`, never a sterile bit. **Principle check:** zeroing the sterility weight must give budding workers back |
-| *"Rest is the absence of a reason, not the presence of a full stomach."* | 2026-09-09 | same | B5's breeder is not coded to rest; she is given no reason to walk, and that is measured |
+| *"Rest is the absence of a reason, not the presence of a full stomach."* | 2026-09-09 | same | B5's breeder is not coded to rest; she is given no reason to walk, and that is measured. The nest-bound tether B5 also gives her is a rule, stated as one, with an untethered run as its control |
 | *"I lean graded suppression…"*, and graded ships only after `GRADED_MAX_SUPPRESSION` is swept | 2026-09-10 | breeding-clock §6.1; coordinator note | B0e is the gate on B2 |
 | Trophallaxis is *"a brain output the genome evolves, never a rule"* | 2026-09-09 | coordinator note | brood is fed through `Share`/`KinNeed`, not through a feeding rule |
 | *"The mechanism is code, the policy is genome"*; *"add senses and economies, never behaviours"*; *"a sense must not pre-categorise what it senses"* | standing | `creature-genome-flexibility`; `evolution-lab-late-game-design` | no brood-specific sense. `KinNeed` reads each kin against **its own** target (B3) |
-| *"Anything should be able to evolve. Don't lock"*, tempered by *"priced before it is inherited"* | 2026-09-05 | `creature-locked-fields-2026-09-05.md`; README lifespan status | new brood timings start as species constants and become genes only once priced (B7) |
+| *"Anything should be able to evolve. Don't lock"*, tempered by *"priced before it is inherited"* | 2026-09-05 | `creature-locked-fields-2026-09-05.md`; README lifespan status | new brood timings start as species constants and become genes only once priced, in a later step this plan does not schedule |
 | *"An omnivore should be viable."* | 2026-08-23 | card `…963f8d` | a larva eats through the same diet filter as the mouth |
 | *"Yes — let them starve."* | 2026-08-30 | E14 | brood can starve, visibly |
 | *"We should also consider implementing eggs?"*, answered by `nest-biology` D11.1–D11.5: eggs first, keep budding's shape, re-derive the economy in the same breath, port the seed | 2026-09-19 | `nest-biology-2026-09-19.md` §11 | B1 is D11, and B3 is its dearer half |
 | An ant should breed only at the nest, and in the end *where* it breeds should be something a lineage evolves (the report's paraphrase) | 2026-09-23 | `ant-scenes-2026-09-23.md` §9 | B1 makes nest-only laying geometrically possible. B1b's `Lay` output makes *where* heritable |
 | *"Some ants should stay home… two different types of ants or castes"* → `caste=4`; *"Full granary on my default."* | 2026-09-28/29 | `Reports/lanes/nest-mouth.md`; `nest-granary-2026-09-28.md` | B4 replaces the by-id caste only when feeding-made castes supply at least as many home ants |
-| *"In general, I prefer options on by default unless there is a good reason not to"*; *"You can ship everything on"* | 2026-09-27 / 09-12 | `CLAUDE.md` | every step ships on unless a harm is measured |
+| *"In general, I prefer options on by default unless there is a good reason not to"*; *"You can ship everything on"* | 2026-09-27 / 09-12 | `Reports/lanes/nest-mouth.md` L22; `evolution-lab-round-29-2026-09-12.md` L15 (paraphrased in `CLAUDE.md`) | every step ships on unless a harm is measured |
 | *"It does not have to perfectly match how real ants, but we should take inspiration when we can"* | — | `ant-sim-research-review-2026-09-19.md` §2.13 | biology guides; legibility decides |
 | *"Give me the tools, data, access to the parameters… That is the game."* | 2026-08-30 | coordinator note | every new constant gets a dial on the lab's parameter page |
 | *"Not too many ants in your tests"*, *"snapshots at multiple times"*, *"just use a simpler test environment for now"*, *"we eventually do want our nests to work for larger colonies"*, *"track food in the room over time, not at a single instance"* | 2026-09-26/28 | nest lane | §6's protocol: the colony bed at 20 founders, plus 80 founders and `digbox` at 200 ants, read as time series |
 | *"I cannot review the queue, post questions/images in this chat."* | 2026-09-29 | `claude/ant-nest-mouth-4f6s79`, lane note (unlanded) | post GIFs in the session chat, or on the queue where the owner reads it |
 | A target of **60–70 evolutionary generations per session** | 2026-09 | `evolution-lab-direction-2026-09-09.md` L69 | every step reports `gen` and `bgen` in the lab. §7's per-game defaults exist because of this |
-| *"Evolution Lab gets full life cycle."* | 2026-09-29 | this session's chat, answering §10 Q1; recorded here | the lab runs every step (§7), and its clock cost is now accepted rather than a reason to hold a step off. It stays reported at every step. **B6 is required in the lab**, because it is what keeps a lineage moving (§2d) |
+| *"Evolution Lab gets full life cycle."* | 2026-09-29 | this session's chat, answering §10 Q1; recorded here | the lab runs every step (§7), and its clock cost is now accepted rather than a reason to hold a step off. It stays reported at every step. **B6 is required in the lab**, because it is how a breeder's lineage advances there (§2d). Holding B4b's weight at 0 in the lab until B6 would narrow this ruling, so it is §10 Q7 and not a default |
 | *"You can mark breeder."* | 2026-09-29 | same, §10 Q2 | B2 ships the mark: a render readout of `children > 0` that the engine never reads |
 | *"Breeders can live longer."* | 2026-09-29 | same, §10 Q3 | B4b: a heritable, priced lifespan that the caste channel lifts in richly reared animals. Still no type |
 
@@ -296,7 +324,8 @@ the second trap).
   win.
 - **The stamp is deferred, not removed.** Born-at-one-cell and fission routes
   gave 0 births over 12 seeds in 2026-08: *"the cell you do not buy at birth
-  you must buy at growth"* (`dead-ends.md` L1770). Its bank ceiling is gone
+  you must buy at growth"* (`creature-stamp-routes-2026-08-30.md`; the
+  `dead-ends.md` entry on the stamp routes). Its bank ceiling is gone
   since Gate 0, but the arithmetic is not: **someone still pays ~960 J per
   adult**.
 - **A floor is not a margin.** A bar at its floor with a cheap birth left 3 of
@@ -414,28 +443,34 @@ rule: while one member of a colony is breeding, nobody else in it may.
   - Without B6, a lab lineage moves on only through workers escaping
     suppression and breeders dying. With B6, it also moves on every time a
     colony founds a colony — the way real ants' lineages move.
+  - **B6 lets that lineage advance; it does not give budding's clock back.**
+    The 2026-09-10 report is explicit that even a working dispersal version
+    *"would tick slower than individual budding, because a colony has to bank
+    a surplus before it can export a founder"*, and that the upside *"is
+    castes, not the clock"*.
 - **The price, stated plainly.** Expect fewer generations per lab session
   than budding gives today. At budding's 13.5 per 120,000 frames, 60–70
-  generations need about 530,000 frames. Under the full life cycle the number
-  is unmeasured, and B0 and each step after it put a figure on it.
+  generations need about 530,000–620,000 frames. Under the full life cycle the
+  number is unmeasured, and B0 and each step after it put a figure on it.
 
 ---
 
 ## 3. What real ants do, and what this plan takes from it
 
 Evidence tags follow `nest-biology-2026-09-19.md`: **[measured]** is a study
-retrieved for this plan (DOI in §11); **[repeated]** is widely stated, source
-not held; **[general]** is this plan's own synthesis.
+retrieved for this plan (DOI in §11); **[modelled]** is a model's output in
+such a study, not a measurement; **[repeated]** is widely stated, source not
+held; **[general]** is this plan's own synthesis.
 
 | real ants | evidence | here |
 |---|---|---|
 | One or a few queens breed. A queen pheromone suppresses workers' ovaries. In *Lasius niger* it is 3-methylhentriacontane, carried on the queen's cuticle **and on her eggs** | [measured] Motais de Narbonne 2016; the signal class is conserved across independent origins (Van Oystaeyen 2014) | B2: graded suppression by proximity to a breeder **and to her eggs** |
 | Workers respond in their own interest (an honest signal), and when the queen is gone some become reproductive (gamergates in *Harpegnathos*) | [measured] Brunner 2011; Pask 2017 | B2's queenless colony resumes, which is the owner's ruling. How strongly a worker responds could become heritable later |
 | Egg → larva (fed, grows) → pupa → callow adult. Warmth shortens development | [measured] Trigos-Peral 2024 (*L. niger*); [repeated] the external literature review §9 | B1 egg; B3 larva and pupa; temperature as B3's stretch |
-| Claustral founding: a mated queen seals herself in and raises her first brood on her own reserves (histolysed flight muscle). The first worker came at week 6 in *L. japonicus*. Founding queens recycle brood when short | [measured] Kurihara 2022; brood recycling as the energetic threshold of founding (Wu & Feng 2026, a model) | B5's founding rule; B6's claustral founding from the founder's own bank; brood recycling through corpses (B3) |
-| Found-or-fly: heavy-bodied queens found better and fly worse. A light queen raised a third of the workers but flew four times as long | [measured] Helms & Godfrey 2016 | B6: the reserve an alate carries is a heritable trade-off (stretch: flight cost rises with it) |
+| Claustral founding: a mated queen seals herself in and raises her first brood on her own reserves (histolysed flight muscle). The first worker came at week 6 in *L. japonicus*. Founding queens recycle brood when short | [measured] Kurihara 2022; [modelled] brood recycling as the energetic threshold of founding, Wu & Feng 2026 | B5's founding rule; B6's claustral founding from the founder's own bank; brood recycling through corpses (B3) |
+| Found-or-fly: queens with heavier abdomens found better and fly worse. In two fire ants, a claustral queen's abdomen weighs twice a parasitic queen's (a queen that enters an existing nest), and in the lab her longest flight fell about 18 minutes per milligram of abdomen. A fitness model built on those numbers puts the light queen at a third of the workers and four times the flight | [measured] the bodies and the flights; [modelled] the trade-off, Helms & Godfrey 2016 | B6: the reserve an alate carries is a heritable trade-off (stretch: flight cost rises with it) |
 | **Larval nutrition decides female caste.** Carbohydrate-supplemented colonies raised more female sexuals | [measured] Bono & Herbers 2003; review, Richard 2021 | B4: `made` from how a larva was fed |
-| Queens live about **10× longer than workers**, up to ~30 years | [measured] Jemielity 2005 | B7: deferred, because it must be priced |
+| Queens live about **10× longer than workers**, up to ~30 years | [measured] Jemielity 2005 | B4b: a heritable, priced lifespan that the caste channel lifts (owner, 2026-09-29) |
 | Young workers nurse deep in the nest and become foragers later. **The switch is stochastic and its probability is age-independent** (>500 ants, >100 days) | [measured] Richardson 2021 | B4: nest-bound young are released by a constant hazard, not an age cutoff |
 | Callows are pale and the least active. Foragers go back to brood care when brood lacks nurses | [measured] Korczyńska 2014 | B4: callows drawn pale; brood is a stimulus |
 | Brood is kept humid and warm and moved between chambers. The queen sits deepest; the brood cluster sets the chamber's size | [repeated] and [measured] `nest-biology` §2, §5; Franks & Deneubourg 1997 as cited there | B3: brood counts toward room crowding, so the nest grows with it. Brood carry is B3b |
@@ -448,7 +483,8 @@ not held; **[general]** is this plan's own synthesis.
 - **Development is about a tenth of a worker's life.** Six weeks egg to
   adult, against a worker life on the order of a year. So egg-to-adult is
   about **4,000 frames** at the ant's 40,000-frame median.
-- **A breeder would live about ten times a worker.** Deferred (B7).
+- **A breeder would live about ten times a worker.** That is B4b's +1
+  allele.
 - **A founding colony's first brood is a handful.** It is paid from one
   animal's reserve.
 
@@ -489,7 +525,7 @@ not held; **[general]** is this plan's own synthesis.
 | brood care | a larva has a bank and a target; `KinNeed` reads it | `Share` weights; `Provision` weights | `larva_upkeep`, `pupa_frames` |
 | caste | `made` = joule-weighted `Provision` of whoever fed it | developmental block; `(Made, verb)` weights | plasticity (1.0) |
 | callows | nest-bound with a random release | (later) release rate via `made` | mean dwell |
-| founding | founding rule; a founding verb | `(Made, Fly)`, `(Made, Found)` | founding reserve, `found_distance` |
+| founding | founding rule; a founding verb | `(Made, Fly)`, `(Made, Leave)` | founding reserve, `found_distance` |
 
 **The economy across the cycle.** No step creates energy, and each has a
 ledger row.
@@ -500,7 +536,7 @@ ledger row.
 | lay (B3 on) | the layer pays `egg_cost` (first guess 120 J) into the egg's bank | live → live |
 | a larva is fed | nurses through `Share` (live → live), or food beside it eaten at `diet_yield` | the existing harvest accounts |
 | pupate → hatch | the larva's own bank: the stamp moves bank → `StoredInMeat`, and the remainder is the adult's first bank | as a bud's stamp today, one step later |
-| brood dies | its bank and the stamp so far become a corpse, food, as any death | as today |
+| brood dies | its bank becomes a corpse cell worth it, in place, through B1's brood-death branch; an egg eaten alive is priced at its bank (B1's first trap) | the brood columns, never the adult death books |
 
 ---
 
@@ -550,20 +586,33 @@ prerequisites for graded breeding.
   - Add the `World` field when B0b lands.
 - **B0d, re-take the breeding clock on today's `main`.**
   - Arms: individual, graded (6.0), queen.
-  - **12 seeds, not 6.** *"Six seeds is not a sweep"* (`CLAUDE.md`).
+  - **24 seeds**, as every gate in this plan uses. *"Six seeds is not a
+    sweep"* (`CLAUDE.md`), and the 2026-09-10 study had six.
   - Beds: the played bed (`labforage scenario=played_bed`), the lab box
-    (`labstats`), and the colony bed at 20 and 80 founders.
-  - Frames: 120,000 and 300,000.
-  - `RAYON_NUM_THREADS` pinned.
+    (`labstats`), and the colony bed at 20 founders.
+  - Frames: 120,000, the unit the lab's clock is quoted in. Every later step
+    runs its own paired arms for its gate, so the baseline does not need the
+    300,000-frame reads.
+  - `RAYON_NUM_THREADS=4` pinned, as the 2026-09-10 runs were.
   - Columns: `ANIMALS BORN`, `live`, deaths by cause, `gen`, `bgen`, `brdr`.
-  - This is the baseline every later step is read against. The 2026-09-10
-    numbers predate #366 and §Z36.
-- **B0e, the owed sweep.**
-  - `GRADED_MAX_SUPPRESSION` ∈ {2, 3, 6, 12} × radius ∈ {12, 24, 48}, same
-    beds, 12 seeds.
-  - Add one column: **the top breeder's share of each colony's births**. It is
-    the concentration readout, and a distribution rather than a count.
-  - Put the table to the owner, who picks.
+  - This is the baseline the lab's clock is read against at every step. The
+    2026-09-10 numbers predate #366 and §Z36.
+- **B0e, the owed sweep, in stages.** The full grid — `GRADED_MAX_SUPPRESSION`
+  ∈ {2, 3, 6, 12} × radius ∈ {12, 24, 48} × three beds × 24 seeds — is 864
+  runs, about 72 hours of runs. Staged:
+  1. max ∈ {2, 3, 6, 12} at radius 24, on the played bed. B0d's graded arm
+     is the (6, 24) cell already.
+  2. The best two maxes × radius ∈ {12, 48}, same bed.
+  3. The winner on the lab box and the colony bed.
+
+  That is 216 new runs, about 18 hours. Every stage reads one added column:
+  **the top breeder's share of each colony's births**, the concentration
+  readout, a distribution rather than a count. Put the table to the owner,
+  who picks.
+- **What B0 costs in compute.** The 2026-09-10 report timed one 120,000-frame
+  run of the played bed at about five minutes with four threads. B0d is 216 runs, about 18
+  hours; with B0e, **about 36 hours of runs**. They parallelise across cores,
+  and run beside B1's build.
 - **B0f, the readout later steps need.**
   - Extend `labforage` and `labstats` with per-colony age structure (adults by
     age band), births by the parent's distance to its nest, and the top
@@ -572,8 +621,9 @@ prerequisites for graded breeding.
   - Print the key's cardinality against what the run swept (*"a parse is a
     measurement"*).
 
-**Size:** one session. **Files:** `world.rs`, `creature.rs` (the regime from
-`World`), `examples/labforage.rs`, `src/lab/stats.rs`, the reference.
+**Size:** 1–2 sessions, most of it waiting on runs. **Files:** `world.rs`,
+`creature.rs` (the regime from `World`), `examples/labforage.rs`,
+`src/lab/stats.rs`, the reference.
 
 ### B1 — The egg: a birth that starts small
 
@@ -645,29 +695,65 @@ cell fits where two in a line never do** (§1b, `BUD_SITE`).
    - The 40,000 calibration stays an adult lifespan.
    - `born_frame` keeps its job as the collision-proof identity the lab roster
      pins.
+7. **The brood-death branch.** An egg is never an animal until it hatches, so
+   its death must not be booked as one. `free_organism` books a grave, a
+   death by cause, a `LogKind::Died` line and `note_line_population(−1)`, and
+   none of them saw the egg arrive: births and the line's +1 are counted at
+   hatch.
+   - **Detect it at the removal seam.** `brood_tick` finds its cell gone
+     (eaten, burned, buried) or, from B3, its bank below upkeep.
+   - **The cell becomes a corpse worth the bank**, in place, so what the
+     colony spent on it can be eaten back. That is B3's brood recycling.
+   - **Book it to the brood columns only** (`eggs_lost[cause]`), and free the
+     slot through a brood-aware path that skips the adult books.
+   - The census guard below gains a lost egg.
 
-**The first trap: an egg is an organism-owned `Powder`, and four verbs treat
-one as something else today.**
+**Where this departs from `nest-biology` D11.4.** D11.4 routes an egg through
+the plant's `Germinate` with an optional `hatch_into`. `Germinate`'s gates are
+a light threshold and a soil-water threshold, which are plant semantics. What
+this plan ports from the seed is its *state* — an organism that owns one
+`Powder` cell and waits, found wherever it fell by the relocated-seed lookup.
+That keeps D11.4's rule, *port the seed, do not invent a parallel*, and drops
+only the plant's gates.
 
-- **The mouth.** A seed is food. `adjacent_food_counted` must treat a brood
-  cell as **kin** for `is_living_kin_id(world, id, gut)` (not food, so no
-  nestmate eats its colony's eggs) and as **prey** for everyone else, priced
-  at the egg's bank.
-- **The jaw.** `jaw_can_cut` refuses Creature- and Plant-kind cells and "a
-  live seed". Add "live brood" beside the live seed, or the digger clears eggs
-  as spoil. **Round 28 found exactly this with a pip.**
-- **The founding cut.** `is_diggable_ground` must refuse a brood cell as it
-  refuses a corpse.
-- **Footing.** `spoil_site_open` and `is_footing` must not read a brood cell as
-  ground to stack a pellet on.
+**The first trap: an egg is an organism-owned `Powder`, and most of the verbs
+that could mistake one are already closed by that encoding.** Read against
+the code:
+
+- **The jaw.** `jaw_can_cut` refuses `is_live_seed`, which is any
+  organism-owned cell whose `aux` packs `CellType::Seed`. An egg is one.
+  Closed. (Round 28 found the pip version of this trap, which is why the
+  check exists.)
+- **The founding cut** (`is_diggable_ground`) and **footing** (`is_footing`)
+  refuse any organism-owned cell. Closed.
+- **A nestmate's mouth.** `is_living_kin_id` checks the cell's owner — same
+  species, scent within tolerance — so a colony's own egg reads as kin:
+  skipped as food, counted into `KinNeed`. Closed.
+
+**Two gaps are real:**
+
+- **A non-kin mouth** — a beetle, or a rival colony's ant — eats the egg as a
+  `Powder` cell, and `diet_yield` prices the material, not the egg's bank.
+  Under B1's economy that bank is a whole adult's price, about 1,040 J. So
+  the eater is credited the bank at the eat site, or step 7's branch books
+  it; either way the ledger closes.
+- **The unfooted spoil drop.** `spoil_site_open(…, false)` counts any
+  non-empty cell beneath it, so a pellet can be dropped onto an egg and bury
+  it. Give that branch the organism check `is_footing` already makes.
 
 Each gets a scene test (guards below).
 
 **The second trap: the census — eggs are organisms of the ant species.**
 
-- `live_organism_ids()` has **222 callers** in `src/` and `examples/`.
-- `live_creature_groups` has **36**.
-- **57** sites filter on `.creature.is_some()`.
+Counted 2026-09-29, `src/` + `examples/`; the lists overlap, so the sum
+overcounts:
+
+| pattern | `src/` | `examples/` |
+|---|---|---|
+| `live_organism_ids()` | 77 | 145 |
+| `live_creature_groups` | 27 | 9 |
+| `.creature.is_some()` / `.is_none()` | 57 | 73 |
+| `.creature.as_ref()` | 136 | 67 |
 
 A count-only loop over creature organisms will **count eggs as ants**. That is
 `CLAUDE.md`'s *adding a member to a set something sweeps enrols it in every
@@ -680,17 +766,20 @@ The work, **budgeted inside B1, not after it**:
 2. Make `live_creature_groups`, the lab's population strip, `nest_needs`
    attribution and the `CreatureStats`-fed readouts read adults only. Give
    brood its own column instead.
-3. Grep the 57 + 36 sites and fix each counting one.
+3. Walk every site in the table and fix each counting one, **`examples/`
+   included**. Every measurement in this repo comes out of an example, and an
+   instrument that counts eggs as ants reads as a population boom.
 4. Guard: **adding brood to a bed changes no adult census**. Snapshot every
    census function on a bed, add eggs, and compare. The positive control is
    removing one `is_brood` filter and watching the guard go red.
 
 **If that audit is unaffordable,** the fallback is brood as **records, not
 organisms**: a `brood` cell whose `aux` holds an id into `World::brood`, a
-table carrying the genome and bank. `rolls: false` means it only ever falls
-straight down, so the record re-finds it by scanning its own column. That is
-exact, because nothing moves it sideways except a carrier, which updates the
-record.
+table carrying the genome and bank. `rolls: false` means gravity only moves it
+straight down, so the record re-finds it by scanning its own column for its
+id. **That is not exact**: a blast, a collapse or a carrier can move it
+sideways. A scan that misses must book the egg as lost through step 7, never
+leave the record dangling.
 
 It avoids the census entirely and costs three things:
 
@@ -699,18 +788,21 @@ It avoids the census entirely and costs three things:
 - the kin, food and jaw exclusions keyed on the material rather than on an
   organism.
 
-**Recommended: organisms.** It is `nest-biology` D11.4's route. The genome,
-energy, kin and `Share` code apply unchanged. And the census audit is work the
-repo will need the first time anything non-adult shares a species anyway.
+**Recommended: organisms.** It keeps D11.4's rule, porting the seed's state.
+The genome, energy, kin and `Share` code apply unchanged. And the census audit
+is work the repo will need the first time anything non-adult shares a species
+anyway.
 
 **Switch.**
 
-- `PIXEL_PHYSICS_EGG` = `off` | `<egg_frames>`, with `World::egg:
-  Option<u32>`.
-- The species field `brood: (egg_frames: …)` is absent → today's budding.
-  **Every species that does not author it** — beetle, worm, flitter, hopper,
-  the lab ancestor — **is untouched by construction**, the `Individual` arm's
-  "provably today's code" pattern.
+- **The species opts in** with the field `brood: (egg_frames: …)`. Absent →
+  today's budding. **Every species that does not author it** — beetle, worm,
+  flitter, hopper, the lab ancestor — **is untouched by construction**, the
+  `Individual` arm's "provably today's code" pattern.
+- **For an A/B**, `World::egg: Option<…>` overrides `PIXEL_PHYSICS_EGG` =
+  `off` | `<egg_frames>`, which overrides the species' `egg_frames`, so both
+  arms run in one process. Neither turns eggs on for a species that does not
+  author `brood`.
 
 **Economy (D11.2, keep budding's shape).**
 
@@ -736,8 +828,9 @@ repo will need the first time anything non-adult shares a species anyway.
 `dead-ends.md` L1158):
 
 1. The switch off (and a species with no `brood`) runs no new code: the branch
-   returns first. A bed's hash with the switch off matches the same bed with
-   `World::egg = None`.
+   returns first. **A bed's hash with the switch off equals a hash pinned from
+   the parent commit.** Comparing two forms of off in one build would pass if
+   both were wrong the same way.
 2. Conservation: `expected_live_total() == Σ live energies` through laying,
    through hatching, and through an egg eaten by a beetle.
 3. An egg in a sealed chamber hatches at `egg_frames` to within
@@ -747,16 +840,22 @@ repo will need the first time anything non-adult shares a species anyway.
    second mutation.
 5. Both drivers: an egg laid over a shaft lands on the same cell under
    `update::step` and `parallel::step`.
-6. The four verbs: a nestmate never eats its colony's egg, and a beetle does.
-   A digger never cuts one. The founding cut and the spoil drop leave it
-   alone.
-7. The census guard above.
+6. The verbs: a nestmate never eats its colony's egg, and a beetle that does
+   leaves the ledger closed (guard 2). A digger never cuts one, and the founding
+   cut, footing and both spoil drops leave it alone. The two gaps (the
+   non-kin mouth, the unfooted drop) go red before their fix; the closed
+   verbs are regression guards.
+7. The census guard below, with a lost egg in it.
+8. **A lost egg books no death.** Eaten, burned or buried, it moves
+   `eggs_lost[cause]` and no adult book: `deaths_by_cause`, graves,
+   `LogKind::Died` and the line's population all read the same as before it
+   was laid.
 
 **Measurement.**
 
-- Arms: `egg_frames` ∈ {off, 600, 1,500, 3,000}. The biology in §3 puts the
-  egg stage at about a third of the ~4,000-frame egg-to-adult, so **start at
-  1,500**.
+- Arms: `egg_frames` ∈ {off, 600, 1,500, 3,000}. **Start at 1,500**, a
+  [general] first guess: §3 puts egg-to-adult near 4,000 frames, and no study
+  held here gives the egg stage's share of it.
 - Re-run `BUD_SITE=nest` with eggs on. It failed on geometry, and geometry is
   gone.
 - Also census **where eggs end up**: roofed or open, in the founding cut or
@@ -784,12 +883,13 @@ note), README's creature status, and the index.
 **B1b (optional, only on the owner's word): `BrainOutput::Lay`.** Laying
 becomes a won roll against a brain output wired `(AtNest, Lay, +)` and `(Bias,
 Lay, −)`, so *where* an ant breeds is heritable, which is the owner's
-2026-09-23 wish.
+2026-09-23 wish. §10 Q8 may make it a prerequisite of B6.
 
 It is **a genome append**:
 
 - every seeded draw shifts;
-- `mutation_rate` is re-derived (round 15: an output row costs 33 live slots);
+- `mutation_rate` is re-derived: an output row now costs **41** live slots
+  (33 inputs + 8 hidden), not the 33 it cost at round 15;
 - every breeding test flips unless it pins `mutation_rate`.
 
 ### B2 — Graded fertility on: the colony finds its breeder
@@ -854,6 +954,10 @@ others breed again.
 nest crop with breeders marked. `meta`: breeders per colony, the top breeder's
 share.
 
+**Switch.** The regime that exists: `PIXEL_PHYSICS_BREEDING` = `individual` |
+`graded` | `graded,brood`, with B0b's `graded:<max>` and `World::breeding` for
+one world. The mark is a render toggle and touches no simulation state.
+
 **Gate.** The owner's ruling ("I lean graded") plus the sweep → on for nesting
 species in all three games; the lab is included by the 2026-09-29 ruling.
 The mark ships on once the owner has seen it.
@@ -890,17 +994,37 @@ must be fed before it can become an ant.
      already).
   3. Nothing else.
 - **Upkeep.** The larva pays the adult's idle cost for one cell (first guess),
-  so an unfed larva starves: `DeathCause::Starved`, and a corpse that is food.
-  **Brood recycling then emerges** from corpses being eaten, as founding
-  queens recycle brood (Wu & Feng 2026).
+  so an unfed larva starves. It dies through **B1's brood-death branch**,
+  which leaves a corpse worth its bank, not through `creature_dies`, which
+  stamps corpses only on body-chain cells. **Brood recycling then emerges**
+  from those corpses being eaten, as founding queens recycle brood (Wu & Feng
+  2026).
 - **`KinNeed` reads each kin against its own target.**
   - An adult: the donor's `start_energy`, **exactly as today**.
   - Brood: its pupation target.
   - No existing scene contains brood, so every existing reading is unchanged,
     and a hash guard proves it.
-  - This is not the `kin_deficit` doc's forbidden change ("never a change to
-    the plain energy fraction"). That doc was protecting *adult* need from
-    being re-read against a breeding bar, and adult need does not move.
+  - This is not the change `kin_deficit`'s doc rules out — *"not a change to
+    this deficit, which stays a plain energy fraction"*, and breeding-clock
+    §6.4's *"never as a change to the plain energy fraction"*. Those protect
+    *adult* need from being re-read against a breeding bar, and adult need
+    does not move.
+- **`Share` alone may not finish a larva, and the plan depends on this.**
+  - `Share` moves a quarter of the gap and only downhill (`act`'s share
+    branch). So a larva approaches the richest nurse beside it geometrically
+    and never passes it.
+  - Filling a larva to about 1,040 J therefore needs nurses richer than that.
+    B2's suppressed workers are meant to be those nurses: they bank what they
+    cannot spend. **That is a bet, not a given.** Ants breed at about 1,100 J
+    today, and the lab's peak bank is 1,601 J.
+  - Two ways out, each measured before B3 ships:
+    - pupate once the bank covers the full 960 J stamp plus only part of the
+      grant, so the adult starts with a smaller bank — a nanitic start;
+    - pupate on fill time: fed enough for long enough.
+
+    Neither can go below the stamp, which is the body's meat.
+  - The guard uses nurses at the colony's **median** bank, never two rich
+    ones.
 - **The target** is the stamp (960) plus the grant the layer's
   `TRAIT_BIRTH_GRANT` names, fixed at laying. **`TRAIT_BIRTH_GRANT` keeps its
   meaning** (what a newborn adult starts with). The layer now pays
@@ -928,7 +1052,8 @@ depth-graded temperature field (`nest-biology` D5.1).
 **Economy re-derivation — the gate on whether B3 is scoped at all
 (`nest-biology` D11.3).**
 
-- Sweep `egg_cost` ∈ {80, 160, 320} × larval upkeep ∈ {0, ½, 1 × adult idle}.
+- Sweep `egg_cost` ∈ {80, 120, 160, 320} × larval upkeep ∈ {0, ½, 1 × adult
+  idle}. 120 is the first guess, so it is in the sweep.
 - Keep `reproduce_threshold` a **margin** over `egg_cost`, never the floor
   (L1798). At 1,100 against 120, the breeder keeps a ~1,000 J reserve and lays
   about one egg per 120 J above it.
@@ -954,8 +1079,10 @@ depth-graded temperature field (`nest-biology` D5.1).
 - **Conservation** through lay → feed → pupate → hatch, and through a larva
   starving.
 - **`KinNeed` unchanged** on a brood-free bed (hash).
-- A larva between two rich nurses is fed and pupates (the positive control).
-  One with no nurse and no food starves, and a nestmate eats the corpse.
+- A larva between two nurses at the colony's **median** bank is fed and
+  pupates within a bound set from measurement (the positive control, and the
+  test of the `Share` dependency above). One with no nurse and no food starves
+  through the brood-death branch, and a nestmate eats the corpse.
 - A larva of a plant-specialist gut ignores meat beside it.
 
 **Measurement.**
@@ -970,6 +1097,16 @@ depth-graded temperature field (`nest-biology` D5.1).
 - the chamber GIF: a three-colour pile, nurses crowding it;
 - the famine run, where the pile thins first;
 - the rescue: a scripted cut into the chamber, with ants carrying brood away.
+
+**Switch.** The species `brood` block's larval fields. Without them, B1's
+eggs hatch straight into adults. `PIXEL_PHYSICS_BROOD=off` and `World::brood`
+turn larvae off for one run or one world, on the B1 pattern.
+
+**Gate.**
+
+- **Outdoors:** on, unless `live` or the p10 of colony survival at 300,000
+  frames falls against B2 on 24 paired seeds.
+- **Lab:** on by the owner's ruling, with the clock cost reported.
 
 **Size:** the largest; 2–3 sessions.
 
@@ -988,13 +1125,38 @@ out. A lineage can change all of this.
   - **This is the parent channel generalised**: whoever feeds provisions, and
     their brains decide what they make.
   - The existing developmental block turns `made` into expressed traits.
+- **The wiring must read something that differs between nurses who can
+  feed.** `Energy` is the bank over `start_energy`, capped at 1, so it reads
+  **1.0 for every ant above 200 J**. Every nurse able to fill a larva toward
+  ~1,040 J is far above that. So `(Energy, Provision, +a)`, the obvious wire,
+  gives every larva in every colony the same `made`: no castes at all.
+  - Two inputs that exist and do vary: `Crowding` at the nest (the room's
+    occupancy against its target, so a big colony reads high) and
+    `FoodAdjacent` (1 beside a stocked larder, 0 in a bare chamber — binary
+    per nurse, graded as a mean over a larva's feeders).
+  - A new input, such as the larva's own fill rate, is a genome append priced
+    as B1b's.
+  - **Recommended: the two that exist, measured first.** Rearing more
+    reproductives when the colony is big and fed is the right direction
+    [general].
 - **Authored in `ant.ron`**, as the founder genome's first guess:
-  - `Provision` wiring, e.g. `(Energy, Provision, +a)` and `(Bias, Provision,
-    −b)`, so a nurse in a well-fed colony provisions high. That is Bono &
-    Herbers' carbohydrate result in one wire.
+  - `Provision` wiring, e.g. `(Crowding, Provision, +a)`, `(FoodAdjacent,
+    Provision, +c)` and `(Bias, Provision, −b)`, so nurses in a big, fed
+    colony provision high. That is Bono & Herbers' carbohydrate result in two
+    wires.
   - Developmental weights: `TRAIT_REPRODUCE_AT` down with `made` (fertile when
-    richly reared) and up when thin (a bar so high it is in effect sterile);
-    `TRAIT_CROP_CAPACITY` up when thin (a forager).
+    richly reared) and up when thin; `TRAIT_CROP_CAPACITY` up when thin (a
+    forager).
+  - **The fertile end is bounded.** At `reproduce_fraction`'s floor the bar is
+    `egg_cost + 1`, which is `dead-ends.md` L1798's treadmill: the population
+    explodes and then dies, which `live` shows and births hide. With B3's
+    cheap eggs, a B5 founder holding 3,000 J at a floored bar would lay about
+    24 eggs at once and could feed none of them. So the weight stops the bar
+    at a margin over `egg_cost`. First guess: never below `egg_cost +
+    start_energy` (320 J), so a weight of about −0.7 at full `made`.
+  - **The thin end is not sterile on its own.** `reproduce_fraction` clamps
+    at 2, so a thinly reared worker's bar at most doubles, to 2,200 J. B2's
+    suppression does most of the sterilising.
   - **The principle check** (the ruling): zero the `TRAIT_REPRODUCE_AT`
     developmental weight and workers bud as in B2.
 - **`(Made, verb)` weights** make castes *behave* differently, not only breed
@@ -1018,12 +1180,29 @@ out. A lineage can change all of this.
 
 - `made` from two nurses with known `Provision` outputs equals their
   joule-weighted mean, exactly.
+- **Differently fed colonies rear different castes.** Two colonies that
+  differ only in food get `made` distributions whose medians differ by more
+  than either colony's spread. The positive control is the `(Energy,
+  Provision)` wiring above, which must turn it red.
 - The principle check (hash against B2).
 - The callow dwell's mean is within tolerance over N ants.
 
 **What the owner sees.** A nest crop at three times: pale callows inside, dark
 foragers outside, and the ratio moving with the colony's food. `meta`: home
 ants, callows, and `made` by bucket.
+
+**Switch.** The developmental and `Provision` weights in `ant.ron`.
+`PIXEL_PHYSICS_CASTE=off` and `World::caste` set `made` from the layer's own
+`Provision` at laying, as budding sets it today, and release callows at once,
+for one run or one world.
+
+**Gate.**
+
+- **Outdoors:** on, unless `live` or the p10 of colony survival falls against
+  B3 on 24 paired seeds — **and** the per-caste verb counters show the castes
+  behaving differently. Castes that only breed differently fail the
+  2026-09-09 ruling.
+- **Lab:** on by the owner's ruling, with the clock cost reported.
 
 **Size:** 1–2 sessions.
 
@@ -1078,6 +1257,26 @@ lifespan that the caste channel expresses.**
 - **The principle check**, mirroring sterility's: zero the developmental
   weight on this slot and every ant lives as it does today.
 
+**It is a genome append, and that moves every breeding scene.**
+
+- The developmental block holds one live slot per `CREATURE_TRAITS` slot, so
+  a fifteenth trait makes the mutable surface **942 → 943**.
+  `the_live_slot_count_is_pinned_because_mutation_rate_is_derived_from_it`
+  goes red, as it is meant to. Every species' `mutation_rate` is re-derived
+  to `3.18 / 943 = 0.0033722` in the same change.
+- `brain::mutate` draws one `unit_f32` per live slot, so **every breeding
+  scene's numbers move from birth 1**. That is not a regression, and a diff
+  cannot check it; the pinned test's own comment names the remedy, a seed
+  sweep.
+- A new slot with non-zero `trait_variance` also adds a draw at the end of
+  each birth's trait jitter. Breeding tests pin `mutation_rate = 0.0`
+  regardless (`dead-ends.md` L1158).
+- **Two things do not move.**
+  - `brain::genome_manifest` hashes the brain's dimensions and slot names,
+    not traits, so `the_genome_manifest_is_pinned` stays green.
+  - The specimen shelf needs nothing. A jar's `traits` is a `Vec`, padded
+    from the species' own defaults when it is short (`specimen.rs`).
+
 **Two traps, both found while writing this step:**
 
 - **Eleven species files author 14-value `traits:` and `trait_variance:`
@@ -1087,28 +1286,30 @@ lifespan that the caste channel expresses.**
   - Grep `traits: (` in `assets/species/`.
   - Run the `species_export` round trip.
 - **`born_with`'s high byte 14 already means "no trait moved but synapses
-  did"** (`try_bud` writes it; `lab/plainspeak.rs` reads it). A trait at slot
-  14 collides with it.
-  - Move the non-trait codes (14, 20, 21, 22) above the 64-slot trait reserve
-    in one commit, reader and writer together, so no later trait append
-    collides again.
+  did".** A trait at slot 14 collides with it.
+  - Writers: `creature.rs`'s `try_bud` writes 14. `plant.rs`'s seed set
+    writes 20, 21 and 22.
+  - Reader: `lab/plainspeak.rs`'s `describe_born_with`, whose trait arm is
+    the literal `0..=13`. A lifespan change at slot 14 would read on the CELL
+    page as "SYNAPSES MOVED".
+  - Move the non-trait codes above the 64-slot trait reserve, and make the
+    reader's trait arm `0..CREATURE_TRAITS`, in one commit across all three
+    files, so no later trait append collides again.
 
-**Smaller:**
-
-- A new slot with non-zero `trait_variance` adds a draw at the end of each
-  birth's trait jitter. Breeding tests pin `mutation_rate = 0.0` regardless
-  (L1158).
-- The shelf's manifest check sees the new slot
-  (`creature-genome-flexibility-2026-09-02.md` §8).
-- The lab's CELL and parameter pages list traits by slot. Add a plain-speak
-  name for it.
+**Smaller:** the lab's CELL and parameter pages list traits by slot. Add a
+plain-speak name for the new one (`trait_word`).
 
 **What it does to the lab's clock**, stated before it is built. A longer-lived
 breeder means a slower breeder-centred clock: the 2026-09-10 report's own
 finding (§2d). Measure `gen` and `bgen` with the developmental weight on and
-off. The cost is expected, and B6 is what pays it back — which is why, **in
-the lab, the weight stays 0 until B6 lands** (§0, §7). Outdoors and in the held
-world it ships on with the step.
+off, against B0d's baseline.
+
+- The owner ruled that breeders live longer and that the lab gets the full
+  life cycle. So **it ships on in all three games**, with the cost reported.
+- Until B6 lands, a lab lineage moves on only when a breeder dies, so the
+  cost arrives before anything can offset it. Whether to hold the weight at 0
+  in the lab until then is **§10 Q7**. That would narrow the ruling, so it is
+  asked, not assumed.
 
 **Counters:**
 
@@ -1118,7 +1319,8 @@ world it ships on with the step.
 
 **Guards:**
 
-- An allele of 0 is bit-identical to today (hash).
+- An allele of 0 is bit-identical to the switch off **on the same build**
+  (hash). It cannot match the parent commit: the append shifts every draw.
 - The median lifespan at +1, over N animals, is within tolerance of 10 ×
   40,000 frames: the shape of
   `the_hazard_is_a_property_of_the_half_life_not_the_interval`.
@@ -1129,15 +1331,27 @@ world it ships on with the step.
 marked: workers turning over around one long-lived breeder. `meta`: the
 breeder's age, workers born, workers died.
 
-**Size:** one session, most of it the two traps.
+**Switch.** The developmental weight on `TRAIT_LONGEVITY` in `ant.ron`; at 0
+it is today's lifespan (the principle check). `PIXEL_PHYSICS_LONGEVITY=off`
+and `World::longevity` read the expressed allele as 0 for one run or one
+world, on the B1 pattern, so both arms run in one process.
+
+**Gate.**
+
+- **Outdoors and the held world:** on, unless `live` or the p10 of colony
+  survival falls against B4 on 24 paired seeds.
+- **Lab:** on by the owner's ruling, with the clock cost reported. §10 Q7 asks
+  whether to hold it at 0 until B6.
+
+**Size:** 1–2 sessions: the two traps, the `mutation_rate` re-derivation in
+every species file, and the seed sweep the shifted draws owe.
 
 ### B5 — The founding rule, and the breeder who stays home
 
 **What it does.** A colony starts the way its species says. For the ant that
 is one well-provisioned breeder in the founding chamber, with a cohort of
-workers and a little brood, instead of 52 identical strangers. The breeder has
-no reason to walk — she is home and she is fed — so she stays in the chamber,
-laying, and the colony's size follows its food from then on.
+workers and a little brood, instead of 52 identical strangers. She stays in
+the chamber, laying, and the colony's size follows its food from then on.
 
 **Mechanism.**
 
@@ -1157,6 +1371,16 @@ laying, and the colony's size follows its food from then on.
   - She becomes the breeder by laying first, which her reserve makes
     immediate. **There is no flag.**
   - Her reserve is booked `Granted`, as every founder's grant is.
+- **The tether is a rule, and it is stated as one.** She stays because the
+  founding placement holds her, not because her brain chooses to. It is one
+  of the species' authored founding values, applied once, and the engine
+  still has no idea who she is.
+  - The heritable version is B4's `(Made, Move, −)`: a richly reared animal
+    stays put because its brain says so.
+  - **An untethered control run** says whether that is enough. If her
+    position trace keeps her in the chamber without the tether, the tether
+    comes off, because the policy belongs in the genome. If she wanders, the
+    trace says why.
 - **Her need.** Only if tracing her shows she cannot keep laying. Then use the
   `kin_deficit` doc's extension point, "a breeder close to its breeding bar
   with a thin bank should read as needier", as a **separate term**: `KinNeed`
@@ -1191,6 +1415,17 @@ laying, and the colony's size follows its food from then on.
 **What the owner sees.** A time-lapse of one founding: the breeder in her
 chamber, eggs gathering, the first hatchlings.
 
+**Switch.** `CreatureDef::founding`: absent is today's 52 identical founders,
+so every other species is untouched. `PIXEL_PHYSICS_FOUNDING=flat` and
+`World::founding` restore today's placement for one run or one world.
+`PIXEL_PHYSICS_FOUNDING=untethered` is the control above.
+
+**Gate.**
+
+- **Outdoors:** on, if the first-10,000-frame death cliff is gone and `live`
+  and the p10 of colony survival do not fall against B4 on 24 paired seeds.
+- **Lab:** on by the owner's ruling, with the clock cost reported.
+
 **Size:** one session. **Coordinate with the nest lane**, which owns founding
 (§8).
 
@@ -1203,9 +1438,10 @@ digs a small chamber and raises its first few workers alone, from the reserve
 it carried. Most die. A few become new colonies, and the world fills with
 rival colonies descended from one another.
 
-**This is the step that lets breeder-centred breeding pay.** An evolutionary
-generation becomes *a colony founding a colony*, which is the breeding clock's
-own re-open condition.
+**This is the step that lets a breeder's lineage move on without waiting for
+her to die.** An evolutionary generation becomes *a colony founding a colony*,
+which is the breeding clock's own re-open condition. It is not expected to
+restore budding's clock (§0).
 
 **Mechanism.**
 
@@ -1225,21 +1461,30 @@ own re-open condition.
   - `claim_colony`, plus `colony_parents.push((new, parent))`, so the page
     names it `ANT 1b`;
   - nest-bound for life, which is B5's rule applied to her.
-- The **trigger is a brain output**, the fission design's `Leave` (slot 16),
-  because *"no creature verb founds a nest"* today and a rule that decides
-  when to leave would be a behaviour. It is a genome append, priced as in B1b.
+- The **trigger is one brain output, `Leave`**, the fission design's verb
+  (`evolution-lab-fission-design-2026-09-12.md`). *"No creature verb founds a
+  nest"* today, and a rule that decides when to leave would be a behaviour.
+  - It takes the next free output slot: 16 today, 17 if B1b's `Lay` lands
+    first. It is a genome append, priced as in B1b.
   - **Party size 1 with flight is the nuptial founding. Party size 8 walking
     is the fission design's budding (B6b)**, which is the lab's cheaper
     dispersal. One mechanism, two dials.
+- **An alate must not spend her reserve at home, and nothing in this plan
+  stops her yet.** Her high `made` lowers her bar (B4). B2's suppression
+  falls off linearly, from 6× at the breeder's side to none at 24 cells. So
+  an alate a dozen cells from the breeder has a bar near 1,155 J, and lays
+  long before she banks a founding reserve. How she holds it is **§10 Q8**,
+  and its answer may make B1b a prerequisite of this step.
 - **The claustral first brood emerges.** She lays from her own bank (B3's
   cheap eggs) and feeds her larvae by `Share`, as the only kin beside them. A
   founding succeeds only if her reserve covers the first few adults' price
   (~1,040 J each), which is the energetic threshold Wu & Feng 2026 model. So
   **most fail without any rule saying they should**.
 - **Found-or-fly (stretch).** Flight cost scales with the bank carried above
-  `start_energy`, so a heavy alate founds better and flies worse, as Helms &
-  Godfrey 2016 measured. That makes how much to provision an alate a real
-  trade.
+  `start_energy`, so a heavy alate founds better and flies worse. Helms &
+  Godfrey 2016 measured the flying half (heavier queens flew for less time)
+  and modelled the founding half. That makes how much to provision an alate a
+  real trade.
 
 **Colony competition is already in** (`scent_spread` 2.0: strangers).
 `conflict_arena` and `rivalry` read it.
@@ -1276,15 +1521,28 @@ own re-open condition.
 
 `meta`: flights, foundings, colonies alive.
 
+**Switch.** The ant's `(Made, Fly)` and `Leave` weights, and the species'
+`fly_cost_in_moves`. `PIXEL_PHYSICS_FOUND=off` and `World::found` refuse
+the founding verb for one run or one world, so an alate can fly but not
+found, and both arms run in one process.
+
+**Gate.**
+
+- **Outdoors:** on, if colonies alive and tree depth grow on the seed sweep,
+  and `ascii`'s worst frame and `antcost` hold at the populations reached.
+- **Lab:** required by the owner's ruling. `gen` and `bgen` are reported
+  against B0d's baseline and against B5, as numbers the owner reads.
+
 **Size:** 2–3 sessions; the largest risk.
 
 ### B7 — Deliberately not in this plan
 
 - **Mating, males, sperm storage, recombination, haplodiploidy.**
-  - *"Mating in the world: hard dead end (asexual budding is the
-    isolation)"* (`creature-direction.md` §3). With no gene flow, lineages
-    diverge (`creature-evolution-plan.md` §6). `CROSS` lives on the specimen
-    shelf.
+  - *"Mating in the world — hard dead end (asexual budding is the
+    isolation). Only the shelf verb."* (`evolution-lab-direction-2026-09-09.md`
+    L105; the phrase is `plant-evolution-design.md`'s). With no gene flow,
+    lineages diverge (`creature-evolution-plan.md` §6). `CROSS` lives on the
+    specimen shelf.
   - **Re-open only on the owner's word.** The cost is a second 12,416-float
     genome per mated breeder (~50 KB), male alates, and a mating event.
 - *(Breeders that outlive workers were listed here until the owner asked for
@@ -1322,8 +1580,9 @@ own re-open condition.
     in a scene with a beetle among eggs.
   - The key's cardinality printed against the sweep.
 - **"Why" is a trace, never a split** (`CLAUDE.md`, 2026-09-20). Extend the
-  decision trace with `brood.stage`, `made` and the breeder flag, and trace
-  individuals: the breeder, a larva, an alate.
+  decision trace with `brood.stage`, `made` and whether the animal has bred
+  (`children > 0`; there is no flag), and trace individuals: the breeder, a
+  larva, an alate.
 - **Frame cost.**
   - `ascii`'s worst frame, with the mean × frames ≈ worst check.
   - `antcost`'s per-ant slope.
@@ -1354,7 +1613,7 @@ own re-open condition.
 | B2 graded + breeder mark | on | **on**, at the sweep's setting | on |
 | B3 brood | on | on; every constant is a dial on the parameter page | on |
 | B4 castes, callows | on | on | on |
-| B4b long-lived breeders | on | **on once B6 lands**; until then its developmental weight stays 0 in the lab (§0). Its clock cost is measured with the weight on and off | on |
+| B4b long-lived breeders | on | **on**, by the owner's ruling. §10 Q7 asks whether to hold its weight at 0 until B6 lands. Its clock cost is measured with the weight on and off | on |
 | B5 founding rule | `Y` = 1 breeder + 51 + a little brood | colony entries in scenarios carry the rule | the `C` offer gets a breeder option, priced from the pool |
 | B6 dispersal | nuptial flights, weather-triggered | **required here** (§2d): the walking party (B6b), or a state trigger — §10 Q4 is still open | flights |
 
@@ -1386,8 +1645,8 @@ block, in that order.
   - **B5 and B6 change founding** and go through the nest lane. The founding
     path also reaches the held world (druid coordinator note).
   - **Before each step, run `bash scripts/branchcheck.sh --who-touched
-    src/sim/creature.rs`.** `claude/ant-nest-mouth-4f6s79` holds +439 lines
-    there today.
+    src/sim/creature.rs`.** On 2026-09-29, `claude/ant-nest-mouth-4f6s79`
+    held unlanded work there.
   - **Land each step quickly.** `creature.rs` and `world.rs` are two of the
     most-landed files in the repo.
 - **As lanes.**
@@ -1406,7 +1665,8 @@ block, in that order.
 1. **The lab's evolutionary clock.** Breeder-centred breeding, a development
    delay and long-lived breeders all slow it. The owner accepted the cost on
    2026-09-29 by giving the lab the full life cycle. What is left is to keep
-   it a number and to pay it back:
+   it a number, and to give a lineage a way to move on other than a breeder's
+   death:
    - `gen` and `bgen` are reported at every step, against B0d's baseline;
    - **B6 is required in the lab**, and it must not slip behind the steps that
      slow the clock;
@@ -1417,21 +1677,27 @@ block, in that order.
    - The stamp is deferred, not removed (L1770).
    - A floor is not a margin (L1798).
    - Budget the sweep inside B1 and B3, never after.
-3. **The census.** Eggs as organisms of the ant species reach 222 + 36 + 57
-   call sites (B1's second trap). The guard, *adding brood changes no adult
-   census*, is the defence, and the records fallback is the escape.
-4. **The four verbs that see an organism-owned `Powder` as something else**:
-   the mouth, the jaw, the founding cut, and footing (B1's first trap). The
-   pip was dug as spoil once already.
-5. **Genome appends** (`Lay`, `Leave`) shift every birth draw, void baselines
-   and re-derive `mutation_rate`. Take them only where a heritable *where* or
-   *when* is the point.
+3. **The census.** Eggs as organisms of the ant species reach every census
+   call site counted in B1's second trap: hundreds, across `src/` and
+   `examples/`. The guard, *adding brood changes no adult census*, is the
+   defence, and the records fallback is the escape.
+4. **Two verbs that would mistake an egg** (B1's first trap): a non-kin mouth
+   that prices it as a powder rather than at its bank, and the unfooted spoil
+   drop that can bury it. The jaw, the founding cut, footing and a
+   nestmate's mouth are already closed by the encoding. The pip was dug as
+   spoil once, which is why the jaw's check exists.
+5. **Genome appends** shift every birth draw, void baselines and re-derive
+   `mutation_rate`. B4b's `TRAIT_LONGEVITY` is one, required by the owner's
+   ruling. Take the brain appends (`Lay`, `Leave`) only where a heritable
+   *where* or *when* is the point.
 6. **Memory.** Every egg carries a 12,416-float genome, about 50 KB. 500 brood
    is ~25 MB per world, multiplied by the lab rack's copies.
    - Measure resident memory in B1.
    - If it binds, keep the mother's genome once, shared, and draw the child's
-     at hatching from the same `RNG_SLOT_BIRTH` key: identical heredity,
-     deferred.
+     at hatching. **Store the laying frame to do it**: the birth stream is
+     keyed on seed, child handle, frame and `RNG_SLOT_BIRTH`, so a draw at
+     the hatching frame is a different child. With the laying frame, the
+     heredity is identical and only deferred.
 7. **Frame cost in B6.** More colonies means more ants. Brood itself costs one
    dispatch per stage, not per frame.
 8. **Identity.** Old age must read `hatched_frame`, but the lab roster pins
@@ -1465,6 +1731,31 @@ instruction of 2026-09-10.
    males.
 6. **`caste=4` by id.** Retire it once feeding-made castes supply the home
    ants, or keep it as a floor?
+7. **Long-lived breeders in the lab before B6.** Your ruling puts them in the
+   lab. Until B6 lands, a lab lineage moves on only when its breeder dies, so
+   a tenfold lifespan slows the clock with nothing to offset it, for the
+   several sessions between B4b and B6. Hold B4b's weight at 0 in the lab
+   until B6 lands, or ship it on with the rest?
+   - **Recommended: hold it**, as sequencing only. The lab gets it the day B6
+     lands, and lab lanes measuring other things in the meantime are not
+     reading a stalled clock.
+8. **How a winged breeder keeps her founding reserve.** B6's alate is richly
+   reared, so her breeding bar is low (B4), and B2's suppression fades with
+   distance from the breeder. She would lay at home long before banking the
+   reserve a founding needs (§5 B6).
+   - **(a) B1b's `Lay` output**, so whether to lay is a brain decision. A
+     wire such as `(Crowding, Lay, −)` — lay where there is room — lets an
+     alate reared in a crowded nest bank rather than lay, and lay in her empty
+     founding chamber. It is a genome append (41 live slots) and makes B1b a
+     prerequisite of B6. It also slows a breeder whose own nest is crowded:
+     the colony regulating its size by room, which must be measured as such.
+   - **(b) Stronger suppression.** No new mechanism, but the linear fall-off
+     lets an alate at the edge of a big nest escape it, and it ties B0e's dial
+     to B6's reserve.
+   - **(c) No laying until an animal has founded.** Cheapest and exact, but
+     the engine would check "has founded" at every laying: the queen type by
+     another name, which the 2026-09-09 ruling rules out.
+   - **Recommended: (a)**, with (b) run as its control.
 
 ---
 
@@ -1477,6 +1768,7 @@ instruction of 2026-09-10.
 - `evolution-lab-direction-2026-09-09.md`
 - `colony-economy-design-2026-09-09.md` (§5c, §7)
 - `creature-reproduction-economics.md`
+- `creature-stamp-routes-2026-08-30.md`
 - `creature-birth-grant-2026-08-30.md`
 - `creature-gate0-births-2026-08-30.md`
 - `creature-signature-and-castes-2026-09-06.md`
@@ -1484,7 +1776,12 @@ instruction of 2026-09-10.
 - `creature-evolution-plan.md`
 - `creature-genome-flexibility-2026-09-02.md`
 - `creature-locked-fields-2026-09-05.md`
+- `creature-articulated-body-2026-09-09.md`
+- `plant-evolution-design.md`
 - `evolution-lab-fission-design-2026-09-12.md`
+- `evolution-lab-playtest-2026-09-13.md`
+- `evolution-lab-round-29-2026-09-12.md`
+- `why-colonies-do-not-fight-2026-09-14.md`
 - `evolution-lab-lifespan-rederived-2026-09-13.md`
 - `evolution-lab-genetics-2026-08-31.md`
 - `nest-biology-2026-09-19.md` (§10–11)
@@ -1523,8 +1820,11 @@ instruction of 2026-09-10.
 - Wu X, Feng T (2026). Energetic thresholds and hygienic cannibalism govern
   claustral ant colony founding under fungal challenge. *J Theor Biol*
   633:112560. [doi:10.1016/j.jtbi.2026.112560](https://doi.org/10.1016/j.jtbi.2026.112560)
+  — a model.
 - Helms JA, Godfrey A (2016). Dispersal polymorphisms in invasive fire ants.
   *PLoS One* 11:e0153955. [doi:10.1371/journal.pone.0153955](https://doi.org/10.1371/journal.pone.0153955)
+  — the queens' bodies and flight times are measured; the workers-against-
+  flight trade is their fitness model, and the light queens are parasitic.
 - Bono JM, Herbers JM (2003). Proximate and ultimate control of sex ratios in
   *Myrmica brevispinosa* colonies. *Proc R Soc B* 270:811–7.
   [doi:10.1098/rspb.2002.2287](https://doi.org/10.1098/rspb.2002.2287)
