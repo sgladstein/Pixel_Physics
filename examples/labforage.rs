@@ -1558,7 +1558,7 @@ fn main() {
         world.species.set_creature(sid, def);
     }
     println!(
-        "  {} crop_capacity = {} face J; LOAD_SCALE={} LOAD_BY={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) CARRY_PATIENCE={} PACKED_LUNCH={} STORE_LUNCH={} TRIP_REACH={:?} BIRTH_PRICE={} NEST_DOOR={} STOREROOM={} COLONY_SPACING={} STACK_DEPTH={} BUD_SITE={}",
+        "  {} crop_capacity = {} face J; LOAD_SCALE={} LOAD_BY={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) CARRY_PATIENCE={} PACKED_LUNCH={} STORE_LUNCH={} TRIP_REACH={:?} RETURN_WINDOW={} BIRTH_PRICE={} NEST_DOOR={} STOREROOM={} COLONY_SPACING={} STACK_DEPTH={} BUD_SITE={}",
         spec.colony_species,
         world.species.id_of(&spec.colony_species).and_then(|id| world.species.get(id).creature.as_ref().map(|d| d.crop_capacity)).unwrap_or(0.0),
         std::env::var("PIXEL_PHYSICS_LOAD_SCALE").unwrap_or_else(|_| "shipped".into()),
@@ -1574,6 +1574,7 @@ fn main() {
         // could not show it in a header -- the lane checked it at the source.
         if pixel_physics::sim::creature::store_lunch_from_env() { "on" } else { "off" },
         pixel_physics::sim::creature::trip_reach_from_env(),
+        pixel_physics::sim::creature::return_window(),
         if pixel_physics::sim::creature::birth_price_from_env() { "guaranteed" } else { "face" },
         std::env::var("PIXEL_PHYSICS_NEST_DOOR").unwrap_or_else(|_| "shipped".into()),
         pixel_physics::sim::creature::storeroom_from_env(),

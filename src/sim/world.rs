@@ -2113,8 +2113,10 @@ pub struct CreatureStats {
     /// removed. Same unit as `forage_returns`: one per crop at its first
     /// put-down at home.
     pub trip_returns_near: u64,
-    /// **Crops booked only because living tissue within the reach of a door
-    /// is always a trip** (`creature::trip_source`): the exemption firing.
+    /// **Crops holding a living-tissue pickup taken within the reach of a
+    /// door** (`creature::trip_source`), counted whatever the switch. An
+    /// upper bound on the tissue exemption: a crop that also holds a far
+    /// pickup would have booked without it.
     pub trip_returns_tissue_near: u64,
     /// **Not a trip counter, and not a sessility guard — read
     /// `forage_trips` for either.** It increments on any move made while

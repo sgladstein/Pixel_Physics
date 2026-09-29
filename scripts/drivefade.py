@@ -11,6 +11,14 @@ Reads two arms of `trailfollow decisioncsv` traces (off and on, 24 seeds each; `
       seed's mean, and the most time any seed spends below 0.5;
   reach80 <dir>                      loose pickups past the roam gate within 26 of a door, and the share at 17-26
       (is the trip reach cutting through a real spread of food?).
+  setouts <off dir> <on dir>         a pulsed pile: set-outs by fed ants (at_nest high -> low while empty, energy_j >=
+      200) by third of the refill cycle, pooled and paired by seed (the effect the drive should move).
+  gap <dir>                          marking pickups past the roam gate by Chebyshev distance of the FOOD CELL from the
+      nearest door (`bite_door`, loose food only), 10-26: where the trip reach's 16 sits.
+  trace <dir> <gap> <seed>...        per seed, rows of fed driven ants with drive < 0.5 (frames >= 6,000), and the share of
+      them -- against the share of all fed driven rows -- while another ant, seen in the last 30 frames, carries a
+      trip load marked at the pile along the road home (nest+26 < x < nest+gap-10): a stand-down while food is on
+      its way (false) or in a real lull.
 Rows are foraged ants' decisions with drive > 0; cycles 2-4 of the pulsed pile. Built for
 `Reports/ant-scenes-2026-09-23.md` section 22u (the trip reach); its off arm reproduced the offline replay's
 0.933 / 84.6% / 0.994 / 966 / 2,112 exactly.
@@ -106,11 +114,78 @@ def reach80(d):
     print(f"P7 80 founders, off arm: loose pickups past the roam gate within 26 of a door {n}; at 17-26: {near['17-26']} ({near['17-26'] / max(1, n):.1%})")
 
 
+def setouts(off, on):
+    import math
+    res = {}
+    for name, d in (('off', off), ('on', on)):
+        per = {}
+        for f in sorted(glob.glob(d + '/*.csv*')):
+            seed = int(f.split('seed')[1].split('-')[0]); last = {}; c = [0, 0, 0]
+            for ix, r in rows(f):
+                fr = int(r[ix['frame']]); an = float(r[ix['at_nest']]) > 0.5; k = r[ix['id']]; p = last.get(k); last[k] = an
+                if fr < CYC or not p or an or r[ix['leg']] != 'empty' or float(r[ix['energy_j']]) < 200:
+                    continue
+                c[(fr % CYC) // 2000] += 1
+            per[seed] = c
+        res[name] = per
+    for name in ('off', 'on'):
+        t = [sum(v[i] for v in res[name].values()) for i in range(3)]
+        print(f"{name:3}: set-outs by fed ants, thirds of the cycle (cycles 2-4): {t[0]} / {t[1]} / {t[2]}")
+    hi = sum(res['on'][s][2] > res['off'][s][2] for s in res['off']); lo = sum(res['on'][s][2] < res['off'][s][2] for s in res['off'])
+    n = hi + lo; p = min(1.0, 2 * sum(math.comb(n, k) for k in range(min(hi, lo) + 1)) / 2 ** n) if n else 1.0
+    print(f"last third, per seed: on higher {hi} / lower {lo}, sign p {p:.3f}")
+
+
+def gap(d):
+    h = C.Counter()
+    for f in sorted(glob.glob(d + '/*.csv*')):
+        prev = {}
+        for ix, r in rows(f):
+            a = r[ix['id']]; t = r[ix['trip_src']] not in ('', '0'); p = prev.get(a, False); prev[a] = t
+            bd = r[ix['bite_door']]
+            if bd in ('-', '') or r[ix['bite_tissue']] != '0' or int(r[ix['forage_max']]) < 8:
+                continue
+            b = int(bd)
+            if 10 <= b <= 26:
+                h[b] += 1
+    print('loose pickups past the roam gate, by distance of the food cell from the nearest door: ' + ' '.join(f"{b}:{h[b]}" for b in range(10, 27)))
+
+
+def trace(d, gap_, seeds):
+    for seed in seeds:
+        f = glob.glob(f'{d}/*seed{seed}-gap{gap_}-*.csv*')[0]
+        mark = {}; prev = {}; carry = {}; seen = {}; low = [0, 0]; allr = [0, 0]
+        for ix, r in rows(f):
+            fr = int(r[ix['frame']]); a = r[ix['id']]; t = r[ix['trip_load']] == '1'; bx = r[ix['bite_x']]; nx = int(r[ix['nest_x']]); x = int(r[ix['x']])
+            seen[a] = fr
+            if t and not prev.get(a, False) and bx != '-':
+                mark[a] = int(bx) - nx
+            if t and mark.get(a, 0) >= gap_ - 10 and r[ix['leg']] == 'laden' and nx + 26 < x < nx + gap_ - 10:
+                carry[a] = fr
+            else:
+                carry.pop(a, None)
+            prev[a] = t
+            d_ = r[ix['drive']]
+            if fr < 6000 or d_ in ('NaN', 'nan', '') or float(d_) <= 0 or float(r[ix['energy_j']]) < 200:
+                continue
+            live = any(fr - seen.get(b, 0) <= 30 for b in carry)
+            allr[0] += 1; allr[1] += live
+            if float(d_) < 0.5:
+                low[0] += 1; low[1] += live
+        print(f"seed {seed}: fed driven rows with drive < 0.5: {low[0]}; with a pile load on the road home {low[1] / max(1, low[0]):.0%}, against {allr[1] / max(1, allr[0]):.0%} of all fed driven rows")
+
+
 if __name__ == '__main__':
     mode = sys.argv[1]
     if mode == 'pulsed':
         pulsed(sys.argv[2], sys.argv[3], int(sys.argv[4]))
     elif mode == 'unlimited':
         unlimited(sys.argv[2], sys.argv[3], int(sys.argv[4]))
+    elif mode == 'setouts':
+        setouts(sys.argv[2], sys.argv[3])
+    elif mode == 'gap':
+        gap(sys.argv[2])
+    elif mode == 'trace':
+        trace(sys.argv[2], int(sys.argv[3]), [int(x) for x in sys.argv[4:]])
     else:
         reach80(sys.argv[2])

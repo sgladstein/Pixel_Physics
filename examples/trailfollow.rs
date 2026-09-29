@@ -4673,7 +4673,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         // counted whatever the switch), on its own line so every line above
         // stays byte-identical for an identity diff.
         println!(
-            "    TRIP REACH: returns of loose food taken within the reach of a door {} | returns kept only because the food was living tissue {}",
+            "    TRIP REACH: returns of loose food taken within the reach of a door {} | returns holding living tissue taken within the reach {}",
             w.creature_stats.trip_returns_near,
             w.creature_stats.trip_returns_tissue_near
         );
