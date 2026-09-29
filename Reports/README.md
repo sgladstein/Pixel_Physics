@@ -4016,6 +4016,18 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   from theirs), **contents exist without eggs** via the `live_seed` guard, the
   brain-input pricing as the argument *for* their call-site route, and the
   landing discipline. **Treat their plan as the plan.**
+- [nest-one-entrance-2026-09-29.md](nest-one-entrance-2026-09-29.md) —
+  **measurement and switches (all off), 2026-09-29. `engine`/`lab`. The
+  direction is the owner's call (§7).** Why a colony under the five-column
+  door opens 6-7 entrances where the old strip allowed 2: the storeroom adds
+  none, and the roof breaks under the colony's own spoil heaps, which the
+  lift posts straight up over every gallery and the heap cue cannot see
+  under (314 of 444 crust breaks). Three forms behind switches: walking the
+  pellet out (`PIXEL_PHYSICS_SPOIL_OUT`) gives 1 entrance and a nest a fifth
+  the size; walking out and back scales (51 cells at 40 ants, 304 at 200)
+  with 2 entrances at 40 and 7 at 200; the lift sent out through the
+  passages (`SPOIL_LIFT=out`) digs most and opens 5 and 12. Lane note:
+  [lanes/nest-mouth.md](lanes/nest-mouth.md).
 - [nest-colony-size-2026-09-28.md](nest-colony-size-2026-09-28.md) —
   **measurement, 2026-09-28. `engine`.** The nest and the colony at 40, 80
   and 200 ants, the owner's question. Lane note:
