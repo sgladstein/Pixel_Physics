@@ -63,17 +63,20 @@ commands and the traps.*
 `BIRTH_PRICE=guaranteed` (Z36) -- all `PIXEL_PHYSICS_`; and the nest lane's
 granary (#513: `NEST_DOOR`, `STOREROOM`). **`STORE_LUNCH` is off** (§22t).
 
-**Which way to go is now the loop's blocker (§22t).** Store lunch was the
-lane's largest gain before the granary (taken 4,566 -> 19,117) and on it is
-all of a loss: starved 75 -> 215 (20/4), because a forager that takes food
-at the door leaves with it at full drive, no bearing, and digs west of the
-door until it starves, while the storeroom goes empty (6.1 -> 0.4 cells).
-The granary alone keeps that ant home. So a lunch needs a bearing before it
-can ship.
+**Which way to go is the loop's blocker (§22t), and the trail should
+answer it but costs the colony today (§22v):** muting the ants' own trail
+B takes food 6,062 -> 7,512 (21/3), starved 57 -> 29. **Next: the food-trail
+plan** (`Reports/food-trail-plan-2026-09-29.md`, owner-agreed 09-29): lay
+(only a trip load, strongest near the food), read (hungry or driven ants
+climb it, the door included), give up; instruments first (the plane over
+time, a bit-exact replay, counterfactual lay rules); a two-pile bed; bar =
+`mute`. Store lunch waits on it.
 
-**Next:** give a driven forager a bearing out of the nest (open problem 1);
-then store lunch again. The trip reach (§22u) made the `returns` drive fade
-when food stops; what is left is its clock (open problem 2).
+**To the nest lane (09-29 evening):** stacking at 4 by default -- no
+objection (this bed runs 4; your lab and bed pairs are the right
+gate). Resting ants inside the nest: a joint switch, measured on this
+bed; keep `trip_load` and the door's geometry as they are, and poke first:
+the trail plan reads B at the door.
 
 - **Read food taken, and food standing at the nest** (`FOOD STORE`'s
   `nest food`, mean from 6,000); "net food into home" overcounts (§22j).
@@ -99,13 +102,10 @@ per million ant-frames 9.2 -> 10.4 (none at p < 0.05).
 
 ## Ranked open problems
 
-1. **Which way to go.** A driven forager has no bearing. The door leaves
-   open ground west of the nest, where a forager sent out with a lunch digs
-   until it starves (§22t; 32% of ant-time west against 14%). A memory of
-   where its last load came from would aim it, as desert ants aim by the
-   vector that paid. Store lunch waits on it. A nest contact re-anchors
-   `forage_anchor` where the ant stands (`HomeAligned` reads 0 at the
-   nest): the memory must survive it.
+1. **Which way to go.** A driven forager has no bearing: ~30% of fed
+   departures go west, with any trail or none, and none reach food (§22t,
+   §22v). The anchor re-anchors on every nest contact, so `HomeAligned`
+   reads 0 at the door. The food-trail plan is the answer being built.
 2. **The drive's clock hears of food only at the door** (§22u). The trip
    reach stopped food beside the door booking returns; what is left is a
    false stand-down on a paying pile (seed 7: 83% of its low-drive rows had
