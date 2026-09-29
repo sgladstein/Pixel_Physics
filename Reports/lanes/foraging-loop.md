@@ -33,6 +33,8 @@ commands and the traps.*
   gone on the 09-28 ant).
 - **Lead with the specific quantity a change targets**; colony totals
   (starved, net food into home) are the check, not the headline (09-26).
+- **Post images and questions in the chat, not the review queue** (09-29:
+  the owner cannot reach it). Label each image; ask in words.
 - **Features default on unless there is a good reason not to** (09-27,
   replacing "never flip a default without the owner's ruling"). A good reason
   is a measured harm; neutral ships on. Defaults on the owner's word before
@@ -91,10 +93,8 @@ Colony bed, no trail, 24 seeds, shipped defaults, unlimited pile:
 | 80 founders at 135 | 8,298 | 9,159 J | 1,109 | 74 |
 
 Pulsed pile at 90 (`food=30 refill=6000`): 2,588 / 286 / 39 (taken,
-starved, born). #518 moved it from 59338afd: starved 82 ->
-57 at 90 cells (5/16, p 0.03); 110 -> 127 at 140 and pulsed nest food
-lower on 17/24 (p 0.06), neither significant (data:
-`foraging-baseline-518-2026-09-29.txt.gz`). Lab box (`played_bed`,
+starved, born). What #518 moved (starved 82 -> 57 at 90 cells, p
+0.03): `foraging-baseline-518-2026-09-29.txt.gz`. Lab box (`played_bed`,
 120,000 frames, 24 seeds, rain, 59338afd), medians off -> on: births 428
 -> 522.5, food eaten 1,122k -> 1,283k J, ant-frames 9.5M -> 10.6M, starved
 per million ant-frames 9.2 -> 10.4 (none at p < 0.05).
@@ -122,12 +122,12 @@ per million ant-frames 9.2 -> 10.4 (none at p < 0.05).
 5. **Food at home to the hungry.** The tether pays at 90 and kills at 140:
    the leash is the problem, not the store.
 6. **Lab deliveries are 86% churn**: read net food into home.
-7. **Latent:** a scout that has given up is released only by a nest contact.
+7. **Latent:** a scout that gave up is released only at the nest.
 
 ## Tools and skills (use these; the names do not say what they answer)
 
-- **`funnel` skill** before investigating anything; **`review` skill** when a
-  change is visible.
+- **`funnel` skill** before investigating anything; when a change is
+  visible, show it in the chat (ruling above).
 - **`scripts/antloop.py`**: the loop ant by ant (funnel, who starved and
   where, time budget, economy). `--vs base.log` pairs the checks by seed.
 - **`scripts/antidle.py '<glob>' <gap> [--vs '<base glob>']`**: do foragers
@@ -192,7 +192,7 @@ filtered out, and compare the decision CSVs too.
   2026-09-28, founded 52 where the lab places 41, and every box died by frame
   35,000 -- read as a harm of the change under test. `labforage` now refuses
   to start with any of them set unless given `bedenv`.
-- **Key every parse by seed.** `carry->nest` is cell-steps, not food.
+- **Key every parse by seed and gap.**
 - **The `energy` trace column is clamped at 200 J.** "At full energy" in it
   means *at or above the grant*; read `energy_j`. A forager "resting fed" was
   mostly one that came home hungry and ate back up off the nest (§22a).
