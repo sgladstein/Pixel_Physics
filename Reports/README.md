@@ -4114,6 +4114,12 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     wider fix, every roofed digger left alone, opened more mouths on 17 of
     24 seeds: the misread was holding the crust over a gallery just under
     the surface.
+  - **The same review's findings 2-5 (§18):** a digger facing straight up
+    turned down through the west every time, and the nest leaned west of
+    the door on 24 of 24 seeds; with a coin its galleries fan down both
+    sides (with the storeroom off, west 19 -> 10 of 24). The enclosed-only
+    turn gets its own test; the founding cut leaves a corpse where it lies
+    and digs with the founding species' own jaw.
 - [nest-dig-wiring-2026-09-28.md](nest-dig-wiring-2026-09-28.md) —
   **measurement and a default change, 2026-09-28. `engine`/`lab`.** Two
   weights in the ant's genome concentrate its digging under the nest.
