@@ -1,0 +1,69 @@
+{
+  "id": "20260929T011756489Z-b929b7",
+  "created": "2026-09-29T01:17:56Z",
+  "board": "nest",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/ant-nest-mouth-4f6s79",
+    "commit": "f6ae02b1",
+    "agent": null,
+    "session_id": "02cfa3f7-cc46-597e-8f90-5488d21d3601",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The full granary as the default: the colony bed, before and after",
+  "question": "Does the new default read as one nest with a storeroom off the entrance? Anything about it you would change before playing with it?",
+  "context_md": "Your 'Full granary on my default', built. Same colony, same seed (8, the median seed on food in the storeroom), frames every 4,000 to 24,000.\n\n- **Old default**: a 53-column strip of nest paint, no storeroom.\n- **New default**: a 5-column door over the shaft, a storeroom off the shaft's west side, one ant in four a nest worker for life who carries food down into it; only a hungry ant eats there.\n\nOver 24 seeds (food 90 cells out): food taken 4,566 -> 6,088, born 144 -> 226, starved 83 -> 75. At 80 founders it costs: starved 848 -> 1,102.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "old default (strip, no storeroom)",
+      "files": [
+        "20260929T011756489Z-b929b7/000-frame-000.png",
+        "20260929T011756489Z-b929b7/001-frame-001.png",
+        "20260929T011756489Z-b929b7/002-frame-002.png",
+        "20260929T011756489Z-b929b7/003-frame-003.png",
+        "20260929T011756489Z-b929b7/004-frame-004.png",
+        "20260929T011756489Z-b929b7/005-frame-005.png",
+        "20260929T011756489Z-b929b7/006-frame-006.png"
+      ],
+      "caption": "seed 8",
+      "meta": {
+        "food taken from the pile": 160,
+        "born": 3,
+        "starved": 4,
+        "food cells in the storeroom at the end": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "new default (door + granary)",
+      "files": [
+        "20260929T011756489Z-b929b7/007-frame-000.png",
+        "20260929T011756489Z-b929b7/008-frame-001.png",
+        "20260929T011756489Z-b929b7/009-frame-002.png",
+        "20260929T011756489Z-b929b7/010-frame-003.png",
+        "20260929T011756489Z-b929b7/011-frame-004.png",
+        "20260929T011756489Z-b929b7/012-frame-005.png",
+        "20260929T011756489Z-b929b7/013-frame-006.png"
+      ],
+      "caption": "seed 8",
+      "meta": {
+        "food taken from the pile": 269,
+        "born": 6,
+        "starved": 0,
+        "fed bites refused at the storeroom": 828,
+        "food cells in the storeroom at the end": 9
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
