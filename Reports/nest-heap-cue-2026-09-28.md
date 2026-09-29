@@ -32,7 +32,11 @@ is breaking out from below. **It leaves alone a cut into the floor under a
 roof** (§17, a correction after the foraging lane's review): a room's floor
 had read as the surface. The wider fix, leaving every roofed digger alone,
 opened more mouths on 17 of 24 seeds, because the misread was what kept the
-ground over a gallery just under the surface whole.
+ground over a gallery just under the surface whole. **A digger facing
+straight up turns down through either side** (§18, the same review): it
+always took the west, and the nest leaned west of the door on 24 of 24 seeds;
+with a coin its galleries fan down both sides, and what lean is left is the
+storeroom, which founding cuts on the west.
 
 In `digbox` (40 ants, energy 1,000, no food, 12 seeds, frame 12,000), on the
 committed code, against the shipped ant. **"Shipped" in this report's tables
@@ -925,3 +929,123 @@ which the meat guard, an upper bound, cannot see.
 Predictions 152 and 153 (§15) were written before the first fix was
 measured. The floor-only form was built after it measured worse, and was run
 without one. Dead end: the first fix, in `dead-ends.md`.
+
+## 18. The review's findings 2-5: the half turn's side, the gate's test, and what the founding cut takes
+
+*The foraging lane's review, 2026-09-28, findings 2 to 5. `main` at
+`7ee0e338` against the branch; `digbox` at 40 and 200 ants, energy 1,000, 24
+seeds, frame 24,000; the colony bed at 20 founders, gap 90, 24 seeds.*
+
+**Finding 2: every enclosed digger facing straight up came down through the
+west.** `turn_toward` settled a half turn one octant up `DIRS` every time,
+the rule written down so the tie was not left to the reader, and still a
+bias: the dig-down turn's only half-turn case is an ant facing north, so a
+digger climbing a shaft always swung round through north-west, west and
+south-west. The side is a coin now (`half_turn_left`), drawn from a stream
+of its own (`RNG_SLOT_HALF_TURN`, keyed on the ant and the frame) so it
+moves no other draw. `a_digger_facing_up_turns_down_through_either_side`
+takes one digger over 32 frames and asks for both sides, each at least 8
+times; it was red on the old rule and is green now.
+
+**What it did to the nest**, paired by seed against `main` on the same
+harness at frame 24,000:
+
+| `digbox`, 24 seeds (medians; seeds higher / lower than `main`) | `main` | the coin |
+|---|---:|---:|
+| 40 ants: nest centre west of the door (`p50x` below 0) | **24 of 24** | 22 of 24 |
+| 40 ants: nest centre, columns from the door | -11 | -8 |
+| 40 ants: dug cells standing | 207.5 | 260 (20 / 4) |
+| 40 ants: entrances | 6.5 | 6 |
+| 40 ants: turns down booked (sum) | 16,188 | 16,829 |
+| 200 ants: centre west of the door | 21 of 24 | 15 of 24 (east 7) |
+| 200 ants: nest centre, columns | -7 | -3 |
+| 200 ants: dug cells standing | 603.5 | 583.5 (12 / 12) |
+| 200 ants: entrances | 10 | 9.5 |
+
+The turn fires as often as before (1.04 and 0.97 of `main`'s count); only its
+side changed. In pictures (card `…ce5b22`, seeds 1 and 20 at four stops)
+`main`'s galleries run down and west of the door, or stay a shallow lump
+under it; the coin's fan down both sides.
+
+**The lean that is left is the storeroom.** The founding cuts the side room
+on the west (away from the door, `Storeroom::SHIPPED`'s `side`), and the
+founding cut alone reads `p50x` -5 at frame 6. With the storeroom off, so
+the founding cut is the shaft and a centred chamber:
+
+| `digbox`, 40 ants, `STOREROOM=off`, 24 seeds | `main` | the coin |
+|---|---:|---:|
+| centre west / at the door / east | 19 / 2 / 3 | 10 / 2 / 12 |
+| median centre, columns | -6 | +0.5 |
+| dug cells standing | 199 | 223.5 (15 / 9) |
+
+**The colony bed** (20 founders, 24 seeds): starved 82 against 57 (fewer on
+16 seeds, more on 5), born 179 against 188 (more on 10, fewer on 11). Not
+traced; recorded for the foraging lane, whose baseline it moves.
+
+**Finding 3: the enclosed-only gate had no test of its own.**
+`the_dig_down_turn_is_an_enclosed_diggers_alone` gives the same forced dig
+roll and the same north heading to an ant in a tunnel one row tall, 13 rows
+down, and to one on the open surface: the first turns, the second does not,
+and with the gate off the second turns too, which is what says the gate is
+the thing tested. It passes on the shipped code, as a guard of working
+behaviour should, and goes red with the gate taken out (`true ||` in front of
+it): *"a digger on open ground turned down under the enclosed-only turn"*.
+The first scene was a pocket 9 wide and 4 tall, and it read curvature 0 at
+its floor: the ant's disc (radius 2) sees no wall it does not reach, so a
+pocket that size is flat ground to it (the limit `surface_curvature`'s own
+doc records).
+
+**Finding 4: the founding cut emptied corpses.** A corpse is a `Powder` at
+0.1, so the cut took it for soil and set it empty, and the worth stamped in
+it left the world with no `meat_lost` booking: the meat identity stopped
+closing. `is_diggable_ground` now refuses a material that carries its worth
+in `aux` (`worth_in_aux`; the corpse is the only one), so the cut leaves a
+corpse where it lies; it falls into the hole like any powder, where the
+colony can carry it out or eat it as it would any corpse.
+`the_founding_cut_leaves_a_corpse_where_it_lies` (a corpse stamped 300)
+was red on the old code.
+
+**Finding 5: a founding dug with the strongest nesting jaw.**
+`founding_dig_force` took the largest authored `dig_force` over every
+species that nests in `nest`, so a beetle colony (0.3, which cannot break
+soil at 0.8) founded where ants are loaded dug the ants' shaft. A founding
+through `found_colony_of` now cuts with its own species' jaw; a bare
+`paint_nest_patch` (the lab, the druid game, `digbox` and `founding_shot`
+lay a home before placing their own animals) keeps the maximum.
+`a_founding_digs_with_the_founders_own_jaw` sets the ant's jaw to 0.5 with a
+2.0 clone registered and never placed: red on the old code; its control, the
+ant at its own 1.0, cuts on both.
+
+**Findings 4 and 5 move nothing where one species founds on soil.** With the
+turn off (`PIXEL_PHYSICS_DIG_DOWN=off`, so the coin is never asked), the
+branch reproduces `main` line for line on `digbox` at 40 ants (24 of 24
+seeds; only the picture's path differs) and byte for byte on the colony bed
+(all three 8-seed logs). Both harnesses found only the ant, whose own jaw is
+the old maximum, and no corpse lies in a founding.
+
+**Found on the way: two streams share slot 8.** `creature.rs`'s
+`RNG_SLOT_OLD_AGE` and `world.rs`'s `RNG_SLOT_NEST_SCENT` are both 8, and
+`world.rs`'s doc says it took 8 because `creature.rs` had claimed 0 to 7.
+The old-age roll is keyed `(seed, organism, frame, 8)` and the nest odour's
+wander `(seed, site, epoch, 8)`, one epoch per 1,000 frames, so the two keys
+meet only where an animal is old enough to roll at a frame no larger than the
+number of epochs so far. No run this engine makes reaches that, so nothing is
+shared today; it is a trap for the next change to either key, and it is
+reported rather than moved here. The half turn took 9.
+
+**Predictions**, written before their runs:
+
+| # | arm | prediction | result | right? |
+|---|---|---|---|---|
+| 207 | the turn off, both binaries, `digbox` 40 ants and the bed | line for line | 24 of 24 and 3 of 3 logs | right |
+| 208 | shipped, `digbox` 40 and 200 ants | turns booked within 15% of `main`'s | 1.04 and 0.97 | right |
+| 209 | the same | `main` leans west on more seeds than east at 200 ants; the coin within 6 | `main` 21 / 2; the coin 15 / 7 | split |
+| 210 | the same | entrances and dug space within 0.85-1.15 of `main` | entrances within; dug 0.99 at 200 ants, **1.24** at 40 | split |
+| 211 | shipped, the bed | starved and born within 20% of `main` | born +5%; starved 82 -> 57 | split |
+| 212 | storeroom off, `main` | west on at least 18 of 24 | 19 | right |
+| 213 | storeroom off, the coin | west and east within 6 | 10 / 12 | right |
+| 214 | the shipped founding cut at frame 6 | `p50x` -3 or less | -5 | right |
+
+209 and 210 missed in the same direction: the old side did more than the
+predictions allowed, and the storeroom's own position (212-214) is what 209
+had not counted.

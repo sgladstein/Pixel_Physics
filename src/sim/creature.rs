@@ -192,6 +192,16 @@ const RNG_SLOT_SEED_SURVIVAL: u64 = 7;
 /// where an animal happens to be standing must not decide when it dies.
 const RNG_SLOT_OLD_AGE: u64 = 8;
 
+/// The half-turn stream: which side a [`turn_toward`] with no shorter way
+/// round goes, for this animal on this frame.
+///
+/// **9, because 8 is taken twice already**: `RNG_SLOT_OLD_AGE` above and
+/// `world.rs`'s `RNG_SLOT_NEST_SCENT` both claimed it, so this takes the
+/// next integer neither list has used. A slot of its own for
+/// `RNG_SLOT_OLD_AGE`'s reason: a new key moves no existing draw, so the
+/// coin changes the heading and nothing else in any stream.
+const RNG_SLOT_HALF_TURN: u64 = 9;
+
 /// **The cap `grow_body` walks a `Segmented` body's `FateGenome` to.** With
 /// laterals that is at most 16 cells; both shipped bodies land at 7-8, well
 /// under it, and the cap exists only to bound a mutated genome that never
@@ -4726,8 +4736,10 @@ impl World {
             }
             // The two halves, each with exactly one definition of its own
             // rule: where home is, and where the animals stand. See
-            // `colony_stations` for why they are separate verbs.
-            self.paint_nest_patch_with(x, y, door);
+            // `colony_stations` for why they are separate verbs. The shaft
+            // is cut with the founders' own jaw ([`World::founding_dig_force`]).
+            let jaw = self.species.get(species_id).creature.as_ref().map(|c| c.dig_force);
+            self.paint_nest_patch_with(x, y, door, jaw);
         }
         let mut placed = 0;
         // **Staggered founder reserves** — every founder used to be stamped
@@ -5033,12 +5045,14 @@ impl World {
     /// the bottom of a nest wall (`a_nest_still_stops_him`). This loop is the
     /// one place the repair costs nothing anywhere else.
     pub fn paint_nest_patch(&mut self, x: i32, y: i32) -> usize {
-        self.paint_nest_patch_with(x, y, nest_door_of(self))
+        self.paint_nest_patch_with(x, y, nest_door_of(self), None)
     }
 
     /// [`World::paint_nest_patch`] with [`nest_door`]'s half-width passed in;
-    /// `None` is the strip, as painted before the door shipped.
-    fn paint_nest_patch_with(&mut self, x: i32, y: i32, door: Option<i32>) -> usize {
+    /// `None` is the strip, as painted before the door shipped. `jaw` is the
+    /// founders' `dig_force` for the shaft, `None` when nobody is founding
+    /// ([`World::founding_dig_force`]).
+    fn paint_nest_patch_with(&mut self, x: i32, y: i32, door: Option<i32>, jaw: Option<f32>) -> usize {
         let Some(nest) = self.materials.id_of("nest") else {
             return 0;
         };
@@ -5107,7 +5121,7 @@ impl World {
         // mouth cut beside the door, and west of one under it -- away from the
         // food on the colony bed, which lies east.
         let side = storeroom_of(self).side.then_some(if off > 0 { 1 } else { -1 });
-        self.dig_founding_shaft(x + off, y, side);
+        self.dig_founding_shaft(x + off, y, side, jaw);
         painted
     }
 
@@ -5188,9 +5202,9 @@ impl World {
     /// founding in the running game, after frame 1, always cut into frozen
     /// ground; freezing first makes the harness's shaft the game's shaft.
     /// Every freeze is idempotent, so a world already stepped is untouched.
-    fn dig_founding_shaft(&mut self, x: i32, y: i32, side: Option<i32>) {
+    fn dig_founding_shaft(&mut self, x: i32, y: i32, side: Option<i32>, jaw: Option<f32>) {
         let Some(rows) = self.nest_shaft.or_else(nest_shaft_rows) else { return };
-        self.cut_founding_shaft_with(x, y, rows, nest_shaft_width(), lining_enabled(), side);
+        self.cut_founding_shaft_with((x, y), rows, nest_shaft_width(), lining_enabled(), side, jaw);
     }
 
     /// [`World::dig_founding_shaft`] with its dials passed in, so a test can
@@ -5198,13 +5212,16 @@ impl World {
     /// and cannot be toggled. Returns how many cells it removed. No side room.
     #[cfg(test)]
     fn cut_founding_shaft(&mut self, x: i32, y: i32, rows: i32, width: i32, lined: bool) -> usize {
-        self.cut_founding_shaft_with(x, y, rows, width, lined, None)
+        self.cut_founding_shaft_with((x, y), rows, width, lined, None, None)
     }
 
     /// [`World::cut_founding_shaft`], and with `side` of `-1` (west) or `1`
     /// (east) a storeroom off that side of the shaft
     /// ([`crate::sim::world::SideRoom`], `PIXEL_PHYSICS_STOREROOM=side`).
-    fn cut_founding_shaft_with(&mut self, x: i32, y: i32, rows: i32, width: i32, lined: bool, side: Option<i32>) -> usize {
+    /// `jaw` is the founders' own `dig_force`; `None` takes
+    /// [`World::founding_dig_force`]. The founding point is a pair so the
+    /// dials stay under clippy's seven arguments.
+    fn cut_founding_shaft_with(&mut self, (x, y): (i32, i32), rows: i32, width: i32, lined: bool, side: Option<i32>, jaw: Option<f32>) -> usize {
         if rows <= 0 || width <= 0 {
             return 0;
         }
@@ -5234,8 +5251,9 @@ impl World {
         self.freeze_room_datum();
 
         // **The shaft cuts only what the founders could dig themselves**
-        // ([`World::founding_dig_force`]), plus the nest paint laid over its
-        // mouth a moment ago. A column stops at the first ground too hard for
+        // (`jaw`, or [`World::founding_dig_force`] when nobody says whose
+        // founding it is), plus the nest paint laid over its mouth a moment
+        // ago. A column stops at the first ground too hard for
         // them, and the chamber is cut only if a column got down to it.
         //
         // Found 2026-09-28, the day the shaft shipped on: the cut took any
@@ -5246,7 +5264,7 @@ impl World {
         // and `the_books_close_for_every_colony` went red through it (82.6 J
         // against a bar of 0.75). Kept row by row, so the order of `cut`, and
         // with it the lining pass below, is the order it always was.
-        let force = self.founding_dig_force();
+        let force = jaw.unwrap_or_else(|| self.founding_dig_force());
         let nest = self.materials.id_of("nest");
         let founders_cut = |w: &World, cx: i32, cy: i32| {
             let m = w.get(cx, cy).material;
@@ -5397,11 +5415,19 @@ impl World {
         cut.len()
     }
 
-    /// **The hardest ground a founding shaft may cut**: the strongest
-    /// authored `dig_force` among the species whose `nest` is the material
-    /// [`World::paint_nest_patch`] lays -- the shipped ant's 1.0. The
-    /// founding stands in for the queen's first burrow, so it digs only what
-    /// the founders' own jaws could; with no such species it digs nothing.
+    /// **The hardest ground a founding shaft may cut when nobody says whose
+    /// founding it is**: the strongest authored `dig_force` among the species
+    /// whose `nest` is the material [`World::paint_nest_patch`] lays -- the
+    /// shipped ant's 1.0. The founding stands in for the queen's first
+    /// burrow, so it digs only what the founders' own jaws could; with no
+    /// such species it digs nothing.
+    ///
+    /// **Only for a bare [`World::paint_nest_patch`]** -- a harness laying a
+    /// home before it places its own animals. [`World::found_colony_of`]
+    /// knows its founders and passes their species' own jaw: this maximum
+    /// once stood for every founding, so a beetle colony (0.3, which cannot
+    /// break soil) founded beside ants dug the ants' shaft (the foraging
+    /// lane's review, 2026-09-28, finding 5).
     fn founding_dig_force(&self) -> f32 {
         (0..self.species.len())
             .filter_map(|i| self.species.get(SpeciesId(i as u16)).creature.as_ref())
@@ -5410,12 +5436,24 @@ impl World {
             .fold(0.0, f32::max)
     }
 
-    /// Ground a founding cut may remove: solid or powder, and nobody's body.
-    /// Whether the founders could dig it is [`World::founding_dig_force`]'s.
+    /// Ground a founding cut may remove: solid or powder, nobody's body, and
+    /// no corpse. Whether the founders could dig it is the jaw's
+    /// ([`World::founding_dig_force`]).
+    ///
+    /// **A corpse is a body, not ground** (the foraging lane's review,
+    /// 2026-09-28, finding 4). It is a `Powder` at 0.1, so the cut took it
+    /// for soil and emptied it, and the worth stamped into it left the world
+    /// with no [`crate::sim::world::EnergyLedger::meat_lost`] booking: the
+    /// meat identity stopped closing. Left where it lies, it falls into the
+    /// hole like any powder and the colony's own dig or bite deals with it,
+    /// both of which the ledger already sees. Keyed on `worth_in_aux`, the
+    /// material's own statement that its cell carries worth, so it is data
+    /// rather than a name, and a stamped or an unstamped corpse alike stays.
     fn is_diggable_ground(&self, x: i32, y: i32) -> bool {
         let cell = self.get(x, y);
         cell.material != material::EMPTY
             && matches!(self.materials.kind(cell.material), MaterialKind::Solid | MaterialKind::Powder)
+            && !self.materials.get(cell.material).worth_in_aux
             && cell.organism_id() == 0
     }
 }
@@ -10733,18 +10771,34 @@ const DOWN_DIR: u8 = 6;
 
 /// One octant of [`DIRS`] from `from` toward `to`, by the shorter way round.
 ///
-/// Returns `from` unchanged when it is already there. The half-turn case
-/// (`diff == 4`) resolves clockwise rather than by a draw, because
-/// `CLAUDE.md`'s tie-order rule makes an arbitrary tiebreak in a hot path
-/// something to write down rather than leave to the reader -- and a draw
-/// here would consume RNG on a case that arises once in eight.
-fn turn_toward(from: u8, to: u8) -> u8 {
+/// Returns `from` unchanged when it is already there. **A half turn
+/// (`diff == 4`) has no shorter way round, and `left` picks the side**: one
+/// index up [`DIRS`] (a left turn: east to north-east) or one down.
+///
+/// **It always went left, and every digger facing straight up came down
+/// through the west** (the foraging lane's review, 2026-09-28, finding 2).
+/// The rule was written down rather than left to the reader, which is what
+/// `CLAUDE.md`'s tie-order rule asks, and a fixed side is still a bias: the
+/// dig-down turn's one half-turn case is an ant facing north, so the whole
+/// colony's descent leaned one way by construction. The side is a coin now
+/// ([`half_turn_left`]), from a stream of its own so the case that arises
+/// once in eight moves no draw anywhere else.
+fn turn_toward(from: u8, to: u8, left: bool) -> u8 {
     let diff = (to + 8 - from) % 8;
     match diff {
         0 => from,
+        4 if !left => (from + 7) % 8,
         1..=4 => (from + 1) % 8,
         _ => (from + 7) % 8,
     }
+}
+
+/// **Which side `organism`'s half turn takes on `frame`** -- the coin
+/// [`turn_toward`] needs when there is no shorter way round. Keyed on the
+/// animal and the frame, never the position, as every creature stream is,
+/// and on [`RNG_SLOT_HALF_TURN`] so it takes nothing from the move stream.
+fn half_turn_left(seed: u64, organism: OrganismId, frame: u64) -> bool {
+    rng::stream(seed, u64::from(organism), frame, RNG_SLOT_HALF_TURN).flip()
 }
 
 /// **Could this animal cut `cell` out of the ground?** The dig's own test,
@@ -12926,7 +12980,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // obvious places to put this are both wrong.
         if let Some(dd) = dig_down_of(world) {
             let h = world.organism(organism).map_or(0, |s| s.heading);
-            let turned = turn_toward(h, DOWN_DIR);
+            let turned = turn_toward(h, DOWN_DIR, half_turn_left(world.seed, organism, world.frame));
             let may_turn = turned != h
                 && (!dd.enclosed_only
                     || surface_curvature(world, x, y, curvature_radius_of(def, &traits_of(world, organism, def)).max(1)) <= SPOIL_CUE_ENCLOSED);
@@ -21964,7 +22018,7 @@ mod tests {
     #[test]
     fn a_side_storeroom_is_cut_off_the_shaft_not_at_its_foot() {
         let mut plain = founding_bed();
-        assert!(plain.cut_founding_shaft_with(60, 38, 6, 2, true, None) > 0, "the plain cut removed nothing");
+        assert!(plain.cut_founding_shaft_with((60, 38), 6, 2, true, None, None) > 0, "the plain cut removed nothing");
         let fp = plain.nest_sites[0].shaft.expect("the cut records its footprint");
         assert_eq!(fp.side, None, "no side room was asked for");
         for y in 30..60 {
@@ -21977,7 +22031,7 @@ mod tests {
 
         for dir in [-1, 1] {
             let mut w = founding_bed();
-            let removed = w.cut_founding_shaft_with(60, 38, 6, 2, true, Some(dir));
+            let removed = w.cut_founding_shaft_with((60, 38), 6, 2, true, Some(dir), None);
             let fp = w.nest_sites[0].shaft.expect("the cut records its footprint");
             let s = fp.side.expect("a side room was asked for on open soil and not cut");
             let cells = fp.cells();
@@ -22007,7 +22061,7 @@ mod tests {
         // says this bed can collapse it at all.
         let open_after = |lined: bool| -> (usize, usize) {
             let mut w = founding_bed();
-            w.cut_founding_shaft_with(60, 38, 6, 2, lined, Some(-1));
+            w.cut_founding_shaft_with((60, 38), 6, 2, lined, Some(-1), None);
             let s = w.nest_sites[0].shaft.and_then(|f| f.side).expect("a side room");
             let room: Vec<(i32, i32)> = (s.top..=s.bottom).flat_map(|y| (s.x0..=s.x1).map(move |x| (x, y))).collect();
             for _ in 0..120 {
@@ -22028,7 +22082,7 @@ mod tests {
     #[test]
     fn the_store_is_kept_for_the_hungry() {
         let mut w = founding_bed();
-        w.cut_founding_shaft_with(60, 38, 6, 2, true, Some(-1));
+        w.cut_founding_shaft_with((60, 38), 6, 2, true, Some(-1), None);
         let fp = w.nest_sites[0].shaft.expect("the cut records its footprint");
         let floor = fp.store_floor();
         w.plant_ant(30, 38);
@@ -22057,7 +22111,7 @@ mod tests {
     #[test]
     fn a_store_load_is_walked_through_the_passage_into_a_side_room() {
         let mut w = founding_bed();
-        w.cut_founding_shaft_with(60, 38, 6, 2, true, Some(-1));
+        w.cut_founding_shaft_with((60, 38), 6, 2, true, Some(-1), None);
         w.storeroom = Some(Storeroom { carry: true, side: true, ..Storeroom::OFF });
         let fp = w.nest_sites[0].shaft.expect("the cut records its footprint");
         let s = fp.side.expect("a side room");
@@ -22084,7 +22138,7 @@ mod tests {
         assert!(s.in_room(site.0, site.1) && !s.in_passage(site.0, site.1), "the load went to {site:?}, not into the room");
         // The control: the same carrier with no side room is sent to the chamber.
         let mut plain = founding_bed();
-        plain.cut_founding_shaft_with(60, 38, 6, 2, true, None);
+        plain.cut_founding_shaft_with((60, 38), 6, 2, true, None, None);
         plain.storeroom = Some(Storeroom { carry: true, ..Storeroom::OFF });
         plain.plant_ant(30, 38);
         let fpp = plain.nest_sites[0].shaft.expect("the cut records its footprint");
@@ -22244,6 +22298,129 @@ mod tests {
         assert_eq!(w.nest_sites[0].shaft, Some(first), "the second founding replaced the first footprint");
         let after: Vec<Cell> = (0..=119).flat_map(|x| (0..=99).map(move |y| (x, y))).map(|(x, y)| w.get(x, y)).collect();
         assert!(before == after, "the second founding changed the ground");
+    }
+
+    /// The founding-cut tests' ground: soil from row 40, a stone floor from
+    /// row 92 and stone walls at the box's edges.
+    fn founding_ground(w: &mut World) {
+        let soil = w.materials.id_of("soil").expect("soil material");
+        let b = w.bounds().expect("a bounded test world");
+        let (x1, y1) = (b.max_x, b.max_y);
+        for x in 0..=x1 {
+            for y in 40..=y1 {
+                let stone = y >= 92 || x == 0 || x == x1;
+                w.set(x, y, if stone { Cell::new(material::STONE, 0) } else { Cell::new(soil, 0) });
+            }
+        }
+    }
+
+    /// **The founding cut leaves a corpse where it lies** (the foraging
+    /// lane's review, finding 4, 2026-09-28). A corpse is a `Powder` at
+    /// 0.1, so the cut took it for ground and emptied it, and the worth
+    /// stamped into it left the world with no `EnergyLedger::meat_lost`
+    /// entry: the meat identity stops closing. The cut takes ground, not
+    /// bodies, dead or alive. A stamped corpse, so the cell carries worth
+    /// the ledger counts.
+    #[test]
+    fn the_founding_cut_leaves_a_corpse_where_it_lies() {
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        founding_ground(&mut w);
+        let corpse = w.materials.id_of("corpse").expect("corpse material");
+        let body = Cell::new(corpse, 0).with_aux(300);
+        assert_eq!(crate::sim::world::EnergyLedger::meat_worth_of(&w.materials, body), Some(300.0), "test setup: the corpse carries no worth the ledger counts");
+        w.set(60, 42, body);
+        w.register_nest_site(60, 38, 2);
+        assert!(w.cut_founding_shaft(60, 38, 16, 2, true) > 0, "the cut removed nothing: the scene cannot show a corpse kept");
+        let fp = w.nest_sites[0].shaft.expect("the cut records its footprint");
+        assert!(fp.contains(60, 42), "test setup: the corpse must lie inside the cut's footprint");
+        assert_eq!((w.get(60, 42).material, w.get(60, 42).aux()), (corpse, 300), "the founding cut emptied a corpse cell");
+    }
+
+    /// **A founding digs with the founder's own jaw** (the review's finding
+    /// 5). The cut took the strongest `dig_force` among every species that
+    /// nests in `nest`, so a weak-jawed species founding beside a strong one
+    /// dug the strong one's shaft. Here the ant's jaw is set to 0.5 against
+    /// soil's 0.8, and a stronger clone of it (2.0, same `nest`) is registered
+    /// and never placed: the ant's founding must cut nothing. The same world
+    /// with the ant's own 1.0 is the control that says the scene can cut.
+    #[test]
+    fn a_founding_digs_with_the_founders_own_jaw() {
+        let founded_a_shaft = |jaw: f32| -> bool {
+            let mut w = World::new(Rect::new(0, 0, 159, 99));
+            let strong = include_str!("../../assets/species/ant.ron").replacen("name: \"ant\"", "name: \"strongjaw\"", 1).replacen("dig_force: 1.0", "dig_force: 2.0", 1);
+            let sid = w.species.register_ron(&strong).expect("the strong-jawed clone parses");
+            assert_eq!(w.species.get(sid).creature.as_ref().map(|c| (c.dig_force, c.nest.as_str())), Some((2.0, "nest")), "test setup: the clone is not a stronger nester");
+            let ant = w.species.id_of("ant").expect("the ant");
+            w.species.get_mut(ant).creature.as_mut().expect("a creature").dig_force = jaw;
+            founding_ground(&mut w);
+            assert!(w.found_colony_of(80, 39, "ant", 4) > 0, "test setup: no ant was placed");
+            w.nest_sites.iter().any(|s| s.shaft.is_some())
+        };
+        assert!(founded_a_shaft(1.0), "test setup: the ant's own founding cut nothing, so the scene cannot show a weak jaw refused");
+        assert!(!founded_a_shaft(0.5), "a founder with a 0.5 jaw cut a shaft through soil of 0.8, with a stronger nester's jaw");
+    }
+
+    /// A digger facing north, one `act` with `Dig` 1 at `frame` under `turn`:
+    /// its heading after, and `digs_aimed_down`. `enclosed` puts it in a
+    /// tunnel one row tall and four long, thirteen rows under the surface;
+    /// otherwise it stands on the open surface. The scene asserts it is what
+    /// it says, by the turn's own test: a wider pocket reads flat
+    /// ([`surface_curvature`] cannot see past its disc).
+    fn dig_down_turn(enclosed: bool, turn: DigDown, frame: u64) -> (u8, u64) {
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        founding_ground(&mut w);
+        let (x, y) = if enclosed {
+            for xx in 58..=61 {
+                w.set(xx, 53, Cell::EMPTY);
+            }
+            (60, 53)
+        } else {
+            (60, 39)
+        };
+        w.dig_down = Some(Some(turn));
+        w.frame = frame;
+        let a = spawn(&mut w, "ant", x, y);
+        w.organism_mut(a).expect("live").heading = 2;
+        let (hx, hy) = w.organism(a).expect("live").chain[0];
+        let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+        let radius = curvature_radius_of(&def, &traits_of(&w, a, &def)).max(1);
+        let c = surface_curvature(&w, hx, hy, radius);
+        assert_eq!(c <= SPOIL_CUE_ENCLOSED, enclosed, "test setup: curvature {c} at ({hx}, {hy}) does not make the scene {}", if enclosed { "enclosed" } else { "open" });
+        let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        outputs[brain::BrainOutput::Dig as usize] = 1.0;
+        let mut draw = rng::stream(1, a as u64, frame, RNG_SLOT_MOVE);
+        act(&mut w, hx, hy, a, &def, &outputs, &mut draw);
+        (w.organism(a).expect("live").heading, w.creature_stats.digs_aimed_down)
+    }
+
+    /// **The shipped dig-down turn is an enclosed digger's alone** (the
+    /// review's finding 3: the enclosed-only form shipped with no test of
+    /// its gate). The same forced dig roll and heading in a pocket under
+    /// ground and on the open surface: the enclosed digger turns toward
+    /// down, the open one does not -- and with the gate off the open one
+    /// turns too, which is what says the gate is the thing tested.
+    #[test]
+    fn the_dig_down_turn_is_an_enclosed_diggers_alone() {
+        let (h, n) = dig_down_turn(true, DIG_DOWN_SHIPPED, 0);
+        assert!(n == 1 && h != 2, "an enclosed digger did not turn down: heading {h}, turns booked {n}");
+        let (h, n) = dig_down_turn(false, DIG_DOWN_SHIPPED, 0);
+        assert!(n == 0 && h == 2, "a digger on open ground turned down under the enclosed-only turn: heading {h}, turns booked {n}");
+        let (h, n) = dig_down_turn(false, DigDown { w: 1.0, enclosed_only: false }, 0);
+        assert!(n == 1 && h != 2, "with the gate off the open digger still did not turn, so the scene cannot show the gate: heading {h}, turns booked {n}");
+    }
+
+    /// **A digger facing straight up turns down through either side** (the
+    /// review's finding 2). A half turn has no shorter way round, and
+    /// [`turn_toward`] always took it one octant the same way, so every
+    /// enclosed digger facing north came down through the west. The same
+    /// digger over 32 frames must take both sides, each at least a quarter of
+    /// the time.
+    #[test]
+    fn a_digger_facing_up_turns_down_through_either_side() {
+        let headings: Vec<u8> = (0..32).map(|f| dig_down_turn(true, DIG_DOWN_SHIPPED, f).0).collect();
+        let (west, east) = (headings.iter().filter(|&&h| h == 3).count(), headings.iter().filter(|&&h| h == 1).count());
+        assert_eq!(west + east, 32, "a digger facing north did not turn one octant toward down every time: {headings:?}");
+        assert!(west >= 8 && east >= 8, "a digger facing north turned down through the west {west} times and the east {east} of 32");
     }
 
     fn run(w: &mut World, frames: usize) {
@@ -27431,7 +27608,7 @@ mod tests {
             if r.outcome == D::RollFailedIdle {
                 // The one thing that may have turned it is `act`'s dig-down
                 // turn, which the walk does not undo on a lost roll.
-                let left = if r.dig_turned { turn_toward(r.heading, DOWN_DIR) } else { r.heading };
+                let left = if r.dig_turned { turn_toward(r.heading, DOWN_DIR, half_turn_left(w.seed, r.id, r.frame)) } else { r.heading };
                 assert_eq!(r.heading_after, left, "nothing happened but the dig-down turn, yet the heading changed: {r:?}");
             }
         }

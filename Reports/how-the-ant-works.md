@@ -88,7 +88,10 @@ will be.
   `trip_load`, `nest_last_return`, `step_nest_need`, `ForageDrive::ALWAYS`,
   `store_lunch_from_env`), and §6d and §12 again that day for the trip reach
   shipped on (`trip_reach_of`, `trip_source`, `door_distance`, `trip_src`,
-  `return_window`).
+  `return_window`). §5 step 6 and §8 on 2026-09-29 for the half turn's
+  side (`turn_toward`, `half_turn_left`) and the founding cut's jaw and
+  corpses (`is_diggable_ground`, `founding_dig_force`,
+  `paint_nest_patch_with`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -355,11 +358,13 @@ the tick: the ant still gets its move roll (§6) afterwards.
    toward straight down before it cuts (`dig_down_bias`, `dig_down_of`, on
    since 2026-09-28 in this enclosed form; `PIXEL_PHYSICS_DIG_DOWN=off`
    removes it, `=<w>` turns anywhere), so an ant on the open surface never
-   starts a hole downward. **It does not turn where there is no way down**
+   starts a hole downward. An ant facing straight up has no shorter way
+   round and turns to either side by a coin of its own (`turn_toward`,
+   `half_turn_left`, keyed on the ant and the frame). **It does not turn where there is no way down**
    (`way_down`): when all three cells under it are ground it cannot cut
    (`jaw_can_cut`, the test below) -- stone, bedrock, nest paint -- the turn
    is refused (`digs_down_refused`) and the roll digs straight ahead. At the
-   shipped chance of 1.0 the turn takes no draw. The move after it is still
+   shipped chance of 1.0 the turn takes no draw from the move stream. The move after it is still
    decided from the heading the ant had before `act`, so a step or a tumble
    replaces the turn and a lost move roll leaves it standing. **The heap
    cue** (on since
@@ -666,11 +671,14 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   an entrance chamber at the bottom, lined, and records it in
   `NestSite::shaft` (`dig_founding_shaft`, `cut_founding_shaft`; one cut per
   site; `PIXEL_PHYSICS_NEST_SHAFT=off` paints only). It cuts only ground the
-  founders could dig themselves (`founding_dig_force`, the ant's 1.0, plus
-  the nest paint over its mouth): a column opens only where the cell under
-  the paint is not empty and not too hard, it stops at stone, gravel or sand,
-  the chamber is cut only if a column reached it, and on rock the nest is
-  painted and nothing is cut. `PIXEL_PHYSICS_NEST_DOOR=<d>` paints `2d + 1`
+  founders could dig themselves (the founding species' own `dig_force`, the
+  ant's 1.0, plus the nest paint over its mouth; a bare `paint_nest_patch`
+  with no founders takes the strongest nesting jaw, `founding_dig_force`): a
+  column opens only where the cell under the paint is not empty and not too
+  hard, it stops at stone, gravel or sand, the chamber is cut only if a
+  column reached it, and on rock the nest is painted and nothing is cut. A
+  corpse is not ground (`is_diggable_ground`): the cut leaves it where it
+  lies. `PIXEL_PHYSICS_NEST_DOOR=<d>` paints `2d + 1`
   columns (§12). **Since 2026-09-29 the cut also holds a storeroom**
   (`Storeroom::SHIPPED`'s `side`; `SideRoom`, `cut_founding_shaft_with`): a
   passage two rows tall leaves the shaft's wall halfway down, on the side

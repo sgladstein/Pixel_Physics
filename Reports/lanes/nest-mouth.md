@@ -99,9 +99,7 @@ or let the colony open more mouths beside the door?
    reverse) or more mouths, the lab, tests, and a PR.
 2. **Nest workers who go out when the colony is hungry** (the scale cost;
    harvester workers switch tasks with the colony's need).
-3. R3 of the foraging lane's review: the dig-down guard test, the
-   north-facing turn's west bias, founding-cut meat and founding force.
-4. The brain input for the cue (owner's order), planned with the lab lines.
+3. The brain input for the cue (owner's order), planned with the lab lines.
 
 ## Working agreement with the foraging lane (2026-09-27)
 
@@ -181,6 +179,8 @@ exploratory and carry none.
 - `20260929T031008312Z-5d7b1a` — one entrance round the door: shipped, walk
   it out, out and back, lift out the nearest hole (seed 2, four stops); asks
   which, and whether the lift may carry spoil to the door.
+- `20260929T171054067Z-ce5b22` — the nest no longer leans west (R3: the
+  half turn's coin), seeds 1 and 20 before and after.
 
 ## Head SHAs
 
@@ -193,7 +193,8 @@ the reports each one names.
 - `72383e39` (#513) — merged: the full granary on by default (the door,
   the side storeroom, `keep`, nest workers), colony size. Branch restarted
   from `main`.
-- `0415980a`, and the entrance work on top of it — digbox founds as the game
-  does; the opening ledger and time budget; `SPOIL_OUT`, `SPOIL_LIFT=out`.
-- `74f581cb` merges main (#515) in; `86adc504` fixes the walked cycle and
-  adds `TRIPS` / `decisions=` to digbox; `3f6f7224` merges #516; PR #517.
+- `7ee0e338` (#517) — merged: the entrance ledger, `SPOIL_OUT` and
+  `SPOIL_LIFT=out` (off), `TRIPS` / `decisions=` in digbox. Branch
+  restarted from `main`.
+- R3 of the foraging lane's review (findings 2-5): the half turn's coin,
+  the enclosed-gate test, the founding cut's corpses and jaw (report §18).

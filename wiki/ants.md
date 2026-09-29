@@ -17,6 +17,14 @@ gain is small, and a colony of eighty starts to pay for it.
 In the lab box a colony now stays smaller and steadier: it raises half as many
 young, but far fewer starve, none of a dozen test boxes died out, and it
 leaves most of the plants standing instead of grazing the box bare.
+Later that day, **the nest stopped growing to one side of its door.** An ant
+digging underground turns to face downward before it digs, and one facing
+straight up always came round through the same side, so every colony's
+galleries ran down to the west. Now it picks a side each time and the
+galleries fan down both sides of the door; the storeroom still lies to the
+west. A colony founded where its own ants cannot dig no longer has a shaft
+dug for it, and a dead animal lying where a colony is founded stays where it
+lies rather than vanishing.
 The same day, **fed foragers started standing down when no food is
 coming home.** A forager that has eaten goes back out while other foragers
 keep bringing food in; when none has come home for about one round trip, the
