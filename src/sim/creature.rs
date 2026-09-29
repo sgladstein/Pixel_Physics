@@ -27554,6 +27554,13 @@ mod tests {
             }
             w.chooser = Some(Chooser::TrailAway);
             w.forage_drive = Some(drive);
+            // **Pinned to the lunch rule this guard was written against.**
+            // The chamber's upper row does not touch nest material, so under
+            // `store_lunch_of` (on since 2026-09-29) a pickup there is a
+            // packed lunch the ant keeps eating up there, not a load pulled
+            // back down and re-taken beside the nest -- and this counts only
+            // pickups beside nest material, which is what `,keep` acts on.
+            w.store_lunch = Some(false);
             let ant = spawn(&mut w, "ant", 50, 40);
             let energy = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy * fed;
             w.organism_mut(ant).expect("live").foraged = true;
